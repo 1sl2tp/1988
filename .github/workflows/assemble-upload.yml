@@ -1,0 +1,28 @@
+name: Assemble uploaded HTML
+
+on:
+  push:
+    paths:
+      - '.upload/READY'
+
+permissions:
+  contents: write
+
+jobs:
+  assemble:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble source file
+        shell: bash
+        run: |
+          cat .upload/part-*.txt > 5555_pixel_css.html
+          rm -rf .upload
+      - name: Commit assembled file
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Add 5555_pixel_css.html"
+          git push
