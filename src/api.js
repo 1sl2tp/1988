@@ -26,12 +26,26 @@ const playlistNext=(id,nextpage)=>call("playlist_next",{id,nextpage});
 const channel=(id)=>call("channel",{id});
 const channelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
 const sponsors=(id)=>call("sponsors",{id});
-function playerUrl(id,n=0){
-  const url=new URL(BASE);
-  url.searchParams.set("action","player");
-  url.searchParams.set("id",id);
-  url.searchParams.set("n",String(n));
-  url.searchParams.set("_",String(Date.now()));
+function playerUrl(id){
+  const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
+  url.searchParams.set("autoplay","1");
+  url.searchParams.set("playsinline","1");
+  url.searchParams.set("rel","0");
+  url.searchParams.set("modestbranding","1");
+  url.searchParams.set("iv_load_policy","3");
+  url.searchParams.set("enablejsapi","1");
+  url.searchParams.set("origin",location.origin);
   return url.toString();
 }
-window.YT1988_API={trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,playerUrl};
+function playlistPlayerUrl(id){
+  const url=new URL("https://www.youtube-nocookie.com/embed/videoseries");
+  url.searchParams.set("list",id);
+  url.searchParams.set("autoplay","1");
+  url.searchParams.set("playsinline","1");
+  url.searchParams.set("rel","0");
+  url.searchParams.set("modestbranding","1");
+  url.searchParams.set("enablejsapi","1");
+  url.searchParams.set("origin",location.origin);
+  return url.toString();
+}
+window.YT1988_API={trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,playerUrl,playlistPlayerUrl};
