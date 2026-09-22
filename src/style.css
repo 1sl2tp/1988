@@ -4,6 +4,8 @@
   --line:#303030;--muted:#aaa;--red:#ff0033;--blue:#3ea6ff;
 }
 *{box-sizing:border-box}
+html,body{touch-action:manipulation;overscroll-behavior:none}
+button,.item,.row,.entity,.topic-chip,.action-button,.pill,.bottom-nav,.persistent-player{-webkit-touch-callout:none}
 html,body,button,.item,.row,.entity,.topic-chip,.action-button,.pill,.bottom-nav,.persistent-player{
   -webkit-user-select:none;
   user-select:none;
@@ -19,7 +21,7 @@ body{padding-bottom:66px}button,input{font:inherit}button{-webkit-tap-highlight-
 .brand{height:40px;display:flex;align-items:center;gap:7px;border:0;background:transparent;color:#fff;font-size:18px;font-weight:850;letter-spacing:-.04em;cursor:pointer}
 .brand-mark{display:grid;place-items:center;width:31px;height:23px;border-radius:7px;background:var(--red);font-size:11px;padding-left:2px}
 .search{position:relative;display:grid;grid-template-columns:minmax(0,1fr) 44px;max-width:760px;width:100%;justify-self:center}
-.search input{height:40px;min-width:0;border:1px solid var(--line);border-right:0;border-radius:20px 0 0 20px;background:#121212;color:#fff;padding:0 14px;outline:none;font-size:15px}
+.search input{height:40px;min-width:0;border:1px solid var(--line);border-right:0;border-radius:20px 0 0 20px;background:#121212;color:#fff;padding:0 14px;outline:none;font-size:16px}
 .search input:focus{border-color:#1c62b9}.search>button{height:40px;border:1px solid var(--line);border-radius:0 20px 20px 0;background:#222;color:#fff;font-size:20px;cursor:pointer}
 .suggestions{position:absolute;top:44px;left:0;right:0;z-index:90;overflow:hidden;border-radius:12px;background:#fff;color:#111;box-shadow:0 10px 30px rgba(0,0,0,.35)}
 .suggestions button{display:block;width:100%;border:0;background:#fff;color:#111;padding:10px 14px;text-align:left;font-size:14px;cursor:pointer}.suggestions button:hover{background:#eee}
