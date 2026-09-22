@@ -522,6 +522,11 @@ async function startNativePlayer(id,seq){
     nativeVideo.poster=info.thumbnailUrl||"";
     nativeVideo.src=source.url;
     nativeVideo.load();
+    setTimeout(()=>{
+      if(state.currentVideo===id&&seq===state.playerLoadSeq&&state.playerEngine==="native"&&nativeVideo.readyState<2&&!state.nativeFallbackStarted){
+        startYoutubeFallback(id);
+      }
+    },7000);
     updateMediaSession(info);
     const sourceLabel=$("#videoSource");if(sourceLabel)sourceLabel.textContent="Nguồn · Piped";
     const p=nativeVideo.play();
@@ -707,7 +712,7 @@ async function toggleBackground(){
   }
   backgroundButtonState("Đang chuẩn bị…",true);
   const info=await prepareBackground(id);
-  if(info)backgroundButtonState("Phát nền",false);
+  if(info)startBackgroundReady(id);
 }
 function resumeForeground(){
   if(!bgAudio)return;
@@ -1174,22 +1179,24 @@ bgAudio?.addEventListener("error",()=>{
     backgroundButtonState("Nền không khả dụng",true);
   }
 });
-document.addEventListener("visibilitychange",()=>{
-  if(document.hidden){
-    state.wasPlayingBeforeHide=state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):state.ytPlayerState===1;
-    updateMediaSession(state.nativeInfo||state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
-    if(state.playerEngine==="youtube"&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo){
+function keepPlayingWhenHidden(){
+  state.wasPlayingBeforeHide=state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):state.ytPlayerState===1;
+  updateMediaSession(state.nativeInfo||state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+  if(!state.backgroundAuto||!state.wasPlayingBeforeHide||!state.currentVideo)return;
+  if(state.playerEngine==="youtube"){
+    if(state.backgroundReady)startBackgroundReady(state.currentVideo);
+    else prepareBackground(state.currentVideo).then(info=>{if(info&&document.hidden)startBackgroundReady(state.currentVideo);});
+  }else if(state.playerEngine==="native"&&nativeVideo&&nativeVideo.paused){
+    nativeVideo.play().catch(()=>{
       if(state.backgroundReady)startBackgroundReady(state.currentVideo);
-      else prepareBackground(state.currentVideo).then(info=>{if(info&&document.hidden)startBackgroundReady(state.currentVideo);});
-    }else if(state.playerEngine==="native"&&nativeVideo&&state.wasPlayingBeforeHide&&nativeVideo.paused){
-      nativeVideo.play().catch(()=>{
-        if(state.backgroundReady)startBackgroundReady(state.currentVideo);
-      });
-    }
-  }else if(state.backgroundId===state.currentVideo&&bgAudio&&!bgAudio.paused){
-    resumeForeground();
+    });
   }
+}
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)keepPlayingWhenHidden();
+  else if(state.backgroundId===state.currentVideo&&bgAudio&&!bgAudio.paused)resumeForeground();
 });
+window.addEventListener("pagehide",()=>{if(state.currentVideo)keepPlayingWhenHidden();});
 try{
   setupMediaSession();
   setupPwa();
