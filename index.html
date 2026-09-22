@@ -4,10 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0f0f0f">
-  <meta name="color-scheme" content="dark">\n  <meta name="apple-mobile-web-app-capable" content="yes">\n  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">\n  <meta name="apple-mobile-web-app-title" content="1988">\n  <link rel="apple-touch-icon" href="./icons/icon-180.png">
-  <meta name="description" content="1988 - xem, tìm kiếm, kênh và danh sách phát YouTube qua Piped.">
+  <meta name="color-scheme" content="dark">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="1988">
+  <meta name="description" content="1988 - tìm kiếm, xem video, mini-player và phát nền.">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./src/style.css?v=1988-8">
+  <link rel="stylesheet" href="./src/style.css?v=1988-9">
   <title>1988</title>
 </head>
 <body>
@@ -20,9 +24,26 @@
       <button type="submit" aria-label="Tìm">⌕</button>
       <div class="suggestions" id="suggestions" hidden></div>
     </form>
+    <button id="installButton" class="install-btn" type="button" aria-label="Cài ứng dụng" hidden>＋</button>
   </header>
 
-  <main id="view" class="view" aria-live="polite"><div class="section-head"><h1>Đang tải…</h1></div><div class="feed"><div class="thumb-wrap skeleton"></div></div></main>
+  <section id="persistentPlayer" class="persistent-player" hidden>
+    <div class="mini-toolbar">
+      <div id="miniTitle" class="mini-title">1988</div>
+      <button id="miniExpand" type="button" aria-label="Mở rộng">↗</button>
+      <button id="miniClose" type="button" aria-label="Đóng">×</button>
+    </div>
+    <div class="player-aspect">
+      <iframe id="playerFrame" title="1988 player" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
+    </div>
+  </section>
+
+  <audio id="backgroundAudio" preload="metadata" playsinline></audio>
+
+  <main id="view" class="view" aria-live="polite">
+    <div class="section-head"><h1>Đang tải…</h1></div>
+    <div class="feed"><div class="thumb-wrap skeleton"></div></div>
+  </main>
 
   <nav class="bottom-nav" aria-label="Điều hướng">
     <button type="button" data-nav="home"><span>⌂</span><small>Trang chủ</small></button>
@@ -31,7 +52,7 @@
     <button type="button" data-nav="history"><span>◷</span><small>Đã xem</small></button>
   </nav>
 
-  <script defer src="./src/api.js?v=1988-8"></script>
-  <script defer src="./src/app.js?v=1988-8"></script>
+  <script defer src="./src/api.js?v=1988-9"></script>
+  <script defer src="./src/app.js?v=1988-9"></script>
 </body>
 </html>
