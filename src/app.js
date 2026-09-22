@@ -33,6 +33,10 @@ function playerUrl(id){
   const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
   url.searchParams.set("autoplay","1");
   url.searchParams.set("playsinline","1");
+  url.searchParams.set("controls","0");
+  url.searchParams.set("disablekb","1");
+  url.searchParams.set("fs","0");
+  url.searchParams.set("cc_load_policy","0");
   url.searchParams.set("rel","0");
   url.searchParams.set("modestbranding","1");
   url.searchParams.set("iv_load_policy","3");
@@ -45,6 +49,10 @@ function playlistPlayerUrl(id){
   url.searchParams.set("list",id);
   url.searchParams.set("autoplay","1");
   url.searchParams.set("playsinline","1");
+  url.searchParams.set("controls","0");
+  url.searchParams.set("disablekb","1");
+  url.searchParams.set("fs","0");
+  url.searchParams.set("cc_load_policy","0");
   url.searchParams.set("rel","0");
   url.searchParams.set("modestbranding","1");
   url.searchParams.set("enablejsapi","1");
@@ -78,9 +86,16 @@ const miniExpand=$("#miniExpand");
 const miniClose=$("#miniClose");
 const bgAudio=$("#backgroundAudio");
 const installButton=$("#installButton");
+const playPauseButton=$("#playPauseButton");
+const seekRange=$("#seekRange");
+const currentTimeLabel=$("#currentTimeLabel");
+const durationLabel=$("#durationLabel");
+const muteButton=$("#muteButton");
+const volumeRange=$("#volumeRange");
+const fullscreenButton=$("#fullscreenButton");
 
 
-const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
+const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,ytDuration:0,ytPlayerState:-1,ytVolume:100,ytMuted:false,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
 const dearrowCache=new Map();
 
 function cleanText(v=""){
@@ -109,6 +124,39 @@ function dur(s){
   s=Math.max(0,Number(s)||0);
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=Math.floor(s%60);
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"):String(m)+":"+String(x).padStart(2,"0");
+}
+function updatePlayerControls(){
+  const current=Math.max(0,Number(state.ytTime)||0);
+  const total=Math.max(0,Number(state.ytDuration)||0);
+  if(currentTimeLabel)currentTimeLabel.textContent=dur(current);
+  if(durationLabel)durationLabel.textContent=dur(total);
+  if(seekRange){
+    seekRange.max=String(total||1);
+    if(document.activeElement!==seekRange)seekRange.value=String(Math.min(current,total||current));
+  }
+  if(playPauseButton)playPauseButton.textContent=state.ytPlayerState===1?"❚❚":"▶";
+  if(muteButton)muteButton.textContent=state.ytMuted||state.ytVolume===0?"🔇":"🔊";
+  if(volumeRange&&document.activeElement!==volumeRange)volumeRange.value=String(Math.max(0,Math.min(100,state.ytVolume)));
+}
+function togglePlayerPlayback(){
+  if(state.ytPlayerState===1)sendYT("pauseVideo",[]);
+  else sendYT("playVideo",[]);
+}
+function togglePlayerMute(){
+  if(state.ytMuted||state.ytVolume===0){
+    sendYT("unMute",[]);
+    if(state.ytVolume===0){state.ytVolume=60;sendYT("setVolume",[60]);}
+    state.ytMuted=false;
+  }else{
+    sendYT("mute",[]);
+    state.ytMuted=true;
+  }
+  updatePlayerControls();
+}
+function enterPlayerFullscreen(){
+  const target=playerFrame||playerBox;
+  const fn=target?.requestFullscreen||target?.webkitRequestFullscreen;
+  try{fn?.call(target);}catch{}
 }
 function videoId(url=""){
   const m=String(url).match(/[?&]v=([A-Za-z0-9_-]{11})|\/watch\?v=([A-Za-z0-9_-]{11})|\/shorts\/([A-Za-z0-9_-]{11})/);
@@ -316,6 +364,8 @@ function ensureVideoPlayer(id){
     state.currentInfo=null;
     state.sponsorSegments=[];
     state.ytTime=0;
+    state.ytDuration=0;
+    state.ytPlayerState=-1;
     state.backgroundId="";
     state.backgroundInfo=null;
     playerFrame.src=api.playerUrl(id);
@@ -339,6 +389,8 @@ function closeVideo(){
   state.backgroundReady=false;
   state.backgroundSourceIndex=0;
   state.ytTime=0;
+  state.ytDuration=0;
+  state.ytPlayerState=-1;
   if(playerFrame)playerFrame.src="about:blank";
   if(playerBox){playerBox.hidden=true;playerBox.classList.remove("full","mini","background-active");}
   document.title="1988";
@@ -520,9 +572,19 @@ window.addEventListener("message",e=>{
   if(!String(e.origin||"").includes("youtube"))return;
   let data=e.data;
   try{if(typeof data==="string")data=JSON.parse(data);}catch{return;}
-  if(data?.event==="infoDelivery"&&Number.isFinite(Number(data?.info?.currentTime))){
-    state.ytTime=Number(data.info.currentTime);
+  if(data?.event==="infoDelivery"){
+    const info=data.info||{};
+    if(Number.isFinite(Number(info.currentTime)))state.ytTime=Number(info.currentTime);
+    if(Number.isFinite(Number(info.duration))&&Number(info.duration)>0)state.ytDuration=Number(info.duration);
+    if(Number.isFinite(Number(info.playerState)))state.ytPlayerState=Number(info.playerState);
+    if(Number.isFinite(Number(info.volume)))state.ytVolume=Number(info.volume);
+    if(typeof info.muted==="boolean")state.ytMuted=info.muted;
     maybeSkipSponsor();
+    updatePlayerControls();
+  }
+  if(data?.event==="onStateChange"){
+    const value=Number(data.info);
+    if(Number.isFinite(value)){state.ytPlayerState=value;updatePlayerControls();}
   }
 });
 
@@ -696,6 +758,19 @@ document.addEventListener("click",e=>{
 });
 window.addEventListener("popstate",route);
 playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);});
+playPauseButton?.addEventListener("click",togglePlayerPlayback);
+seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
+seekRange?.addEventListener("change",()=>sendYT("seekTo",[Number(seekRange.value)||0,true]));
+muteButton?.addEventListener("click",togglePlayerMute);
+volumeRange?.addEventListener("input",()=>{
+  const v=Math.max(0,Math.min(100,Number(volumeRange.value)||0));
+  state.ytVolume=v;
+  state.ytMuted=v===0;
+  sendYT("setVolume",[v]);
+  if(v>0)sendYT("unMute",[]);
+  updatePlayerControls();
+});
+fullscreenButton?.addEventListener("click",enterPlayerFullscreen);
 miniExpand?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
 miniClose?.addEventListener("click",closeVideo);
 miniTitle?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
