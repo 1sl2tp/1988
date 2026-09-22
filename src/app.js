@@ -719,11 +719,16 @@ async function prepareBackground(id){
     const info=r?.data||null;
     if(!info?.audioUrl&&!(Array.isArray(info?.sources)&&info.sources.length))return null;
     state.backgroundInfo=info;
-    const index=chooseBackgroundSource(info);
-    if(index<0||!applyBackgroundSource(info,index))return null;
+    const warmDirect=bgAudio?.dataset.id===id&&bgAudio?.dataset.source==="direct"&&!bgAudio.paused;
+    if(!warmDirect){
+      const index=chooseBackgroundSource(info);
+      if(index<0||!applyBackgroundSource(info,index))return null;
+    }else{
+      state.backgroundSourceIndex=-1;
+    }
     updateMediaSession(info);
     state.backgroundReady=true;
-    backgroundButtonState("Phát nền",false);
+    backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
     return info;
   }catch{
     backgroundButtonState("Nền không khả dụng",true);
@@ -749,6 +754,8 @@ function startBackgroundReady(id){
       try{bgAudio.currentTime=Math.min(startAt,Math.max(0,(bgAudio.duration||startAt)-0.2));}catch{}
     },{once:true});
   }
+  bgAudio.muted=false;
+  if(nativeVideo)bgAudio.volume=nativeVideo.volume;
   const playPromise=bgAudio.play();
   if(!playPromise||typeof playPromise.then!=="function")return false;
   playPromise.then(()=>{
@@ -1294,7 +1301,21 @@ document.addEventListener("visibilitychange",()=>{
   else if(state.backgroundId===state.currentVideo&&bgAudio&&!bgAudio.paused)resumeForeground();
 });
 window.addEventListener("pagehide",()=>{if(state.currentVideo)keepPlayingWhenHidden();});
+function setupZoomLock(){
+  const editable=(target)=>target?.closest?.('input,textarea,[contenteditable="true"]');
+  document.addEventListener("gesturestart",e=>{if(!editable(e.target))e.preventDefault();},{passive:false});
+  document.addEventListener("gesturechange",e=>{if(!editable(e.target))e.preventDefault();},{passive:false});
+  document.addEventListener("touchmove",e=>{if(e.touches?.length>1&&!editable(e.target))e.preventDefault();},{passive:false});
+  let lastTouchEnd=0;
+  document.addEventListener("touchend",e=>{
+    if(editable(e.target)){lastTouchEnd=0;return;}
+    const now=Date.now();
+    if(now-lastTouchEnd<320)e.preventDefault();
+    lastTouchEnd=now;
+  },{passive:false});
+}
 try{
+  setupZoomLock();
   setupMediaSession();
   setupPwa();
   route();
