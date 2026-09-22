@@ -153,6 +153,95 @@ Deno.serve(async (req) => {
   const action = String(url.searchParams.get("action") || "health").toLowerCase();
 
   try {
+    if (action === "playback") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
+
+      const result = await piped(`/streams/${enc(id)}`, 20 * 1000);
+      const info: any = result.data || {};
+
+      const proxify = (raw: string) => {
+        try {
+          const media = new URL(raw);
+          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
+            const proxy = new URL(String(info.proxyUrl));
+            const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
+            media.searchParams.set("host", media.host);
+            media.protocol = proxy.protocol;
+            media.host = proxy.host;
+            media.pathname = prefix + media.pathname;
+          }
+          return media.toString();
+        } catch {
+          return raw;
+        }
+      };
+
+      const qualityNumber = (value: unknown) => {
+        const match = String(value || "").match(/(\d{3,4})/);
+        return match ? Number(match[1]) : 0;
+      };
+
+      const videoRows = (Array.isArray(info.videoStreams) ? info.videoStreams : [])
+        .filter((s: any) => s?.url && s?.videoOnly !== true)
+        .map((s: any) => ({
+          url: proxify(String(s.url)),
+          mimeType: String(s.mimeType || s.format || ""),
+          format: String(s.format || ""),
+          codec: String(s.codec || ""),
+          quality: String(s.quality || ""),
+          fps: Number(s.fps) || 0,
+          bitrate: Number(s.bitrate) || 0,
+          videoOnly: !!s.videoOnly,
+        }))
+        .sort((a: any, b: any) => {
+          const aMp4 = (a.mimeType + a.format).toLowerCase().includes("mp4") ? 1 : 0;
+          const bMp4 = (b.mimeType + b.format).toLowerCase().includes("mp4") ? 1 : 0;
+          if (aMp4 !== bMp4) return bMp4 - aMp4;
+          const aq = qualityNumber(a.quality);
+          const bq = qualityNumber(b.quality);
+          if (aq !== bq) return bq - aq;
+          return b.bitrate - a.bitrate;
+        })
+        .slice(0, 10);
+
+      const audioRows = (Array.isArray(info.audioStreams) ? info.audioStreams : [])
+        .filter((s: any) => s?.url)
+        .map((s: any) => ({
+          url: proxify(String(s.url)),
+          mimeType: String(s.mimeType || s.format || ""),
+          bitrate: Number(s.bitrate) || 0,
+        }))
+        .sort((a: any, b: any) => {
+          const aMp4 = a.mimeType.toLowerCase().includes("mp4") ? 1 : 0;
+          const bMp4 = b.mimeType.toLowerCase().includes("mp4") ? 1 : 0;
+          if (aMp4 !== bMp4) return bMp4 - aMp4;
+          return b.bitrate - a.bitrate;
+        })
+        .slice(0, 8);
+
+      const hls = typeof info.hls === "string" ? proxify(info.hls) : "";
+      if (!videoRows.length && !hls) {
+        return json({ ok: false, error: "no_native_stream" }, 404, 5);
+      }
+
+      return json({
+        ok: true,
+        source: result.source,
+        data: {
+          id,
+          title: String(info.title || ""),
+          uploader: String(info.uploader || ""),
+          thumbnailUrl: String(info.thumbnailUrl || ""),
+          duration: Number(info.duration) || 0,
+          livestream: !!info.livestream,
+          hls,
+          sources: videoRows,
+          audioSources: audioRows,
+        },
+      }, 200, info.livestream ? 5 : 30);
+    }
+
     if (action === "background") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
