@@ -67,55 +67,78 @@ async function fetchJson(base: string, path: string, timeoutMs = 4500) {
   }
 }
 
+const upstreamCache = new Map<string, { at: number; source: string; data: any }>();
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getUpstreamCache(path: string, ttlMs: number) {
+  if (!ttlMs) return null;
+  const row = upstreamCache.get(path);
+  if (!row || Date.now() - row.at >= ttlMs) {
+    if (row) upstreamCache.delete(path);
+    return null;
+  }
+  return { source: row.source, data: row.data };
+}
+
+function setUpstreamCache(path: string, source: string, data: any) {
+  upstreamCache.set(path, { at: Date.now(), source, data });
+  if (upstreamCache.size > 120) upstreamCache.delete(upstreamCache.keys().next().value);
+}
+
+async function raceApis(path: string, candidates: string[], timeoutMs = 1900) {
+  const winner = await Promise.any(
+    candidates.map(async (base, index) => {
+      // Give the first known instances a short head start, then fan out quickly.
+      if (index >= 7) await delay(300);
+      const data = await fetchJson(base, path, timeoutMs);
+      return { base, data };
+    }),
+  );
+  return winner;
+}
+
 async function chooseApi(exclude = "") {
   if (preferredApi && preferredApi !== exclude && Date.now() < preferredUntil) {
     return preferredApi;
   }
   const candidates = PIPED_APIS.filter((url) => url !== exclude);
-  for (let i = 0; i < candidates.length; i += 5) {
-    const group = candidates.slice(i, i + 5);
-    try {
-      const winner = await Promise.any(
-        group.map(async (base) => {
-          await fetchJson(base, "/config", 1700);
-          return base;
-        }),
-      );
-      preferredApi = winner;
-      preferredUntil = Date.now() + API_TTL_MS;
-      return winner;
-    } catch {
-      // Try next group.
-    }
+  try {
+    const winner = await raceApis("/config", candidates, 1300);
+    preferredApi = winner.base;
+    preferredUntil = Date.now() + API_TTL_MS;
+    return winner.base;
+  } catch {
+    throw new Error("no_piped_instance");
   }
-  throw new Error("no_piped_instance");
 }
 
-async function piped(path: string) {
+async function piped(path: string, cacheMs = 0) {
+  const cached = getUpstreamCache(path, cacheMs);
+  if (cached) return cached;
+
   if (preferredApi && Date.now() < preferredUntil) {
     try {
-      return { source: preferredApi, data: await fetchJson(preferredApi, path, 2400) };
+      const data = await fetchJson(preferredApi, path, 1600);
+      if (cacheMs) setUpstreamCache(path, preferredApi, data);
+      return { source: preferredApi, data };
     } catch {
       preferredApi = "";
       preferredUntil = 0;
     }
   }
 
-  for (let i = 0; i < PIPED_APIS.length; i += 5) {
-    const group = PIPED_APIS.slice(i, i + 5);
-    try {
-      const winner = await Promise.any(group.map(async (base) => {
-        const data = await fetchJson(base, path, 2800);
-        return { base, data };
-      }));
-      preferredApi = winner.base;
-      preferredUntil = Date.now() + API_TTL_MS;
-      return { source: winner.base, data: winner.data };
-    } catch {
-      // race next group
-    }
+  try {
+    const winner = await raceApis(path, PIPED_APIS, 1900);
+    preferredApi = winner.base;
+    preferredUntil = Date.now() + API_TTL_MS;
+    if (cacheMs) setUpstreamCache(path, winner.base, winner.data);
+    return { source: winner.base, data: winner.data };
+  } catch {
+    throw new Error("no_piped_instance");
   }
-  throw new Error("no_piped_instance");
 }
 
 function enc(value: string) {
@@ -358,17 +381,17 @@ Deno.serve(async (req) => {
     if (action === "home") {
       const seed = String(url.searchParams.get("seed") || "khám phá việt nam").trim().slice(0, 120);
       path = `/search?q=${enc(seed)}&filter=videos`;
-      maxAge = 45;
+      maxAge = 300;
     } else if (action === "trending") {
       const region = String(url.searchParams.get("region") || "VN").toUpperCase().slice(0, 2);
       path = `/trending?region=${enc(region)}`;
-      maxAge = 60;
+      maxAge = 120;
     } else if (action === "search") {
       const q = String(url.searchParams.get("q") || "").trim();
       const filter = String(url.searchParams.get("filter") || "all").trim();
       if (!q) return json({ ok: true, source: "", data: { items: [], nextpage: null } }, 200, 5);
       path = `/search?q=${enc(q)}&filter=${enc(filter)}`;
-      maxAge = 20;
+      maxAge = 60;
     } else if (action === "search_next") {
       const q = String(url.searchParams.get("q") || "").trim();
       const filter = String(url.searchParams.get("filter") || "all").trim();
@@ -389,7 +412,7 @@ Deno.serve(async (req) => {
         suggest.searchParams.set("oe", "utf-8");
         suggest.searchParams.set("q", q);
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1800);
+        const timer = setTimeout(() => controller.abort(), 1000);
         const res = await fetch(suggest, { signal: controller.signal, headers: { accept: "application/json" } });
         clearTimeout(timer);
         if (res.ok) {
@@ -402,17 +425,17 @@ Deno.serve(async (req) => {
                 .slice(0, 10)
             : [];
           if (rows.length >= 3) {
-            return json({ ok: true, source: "youtube-suggest", data: rows }, 200, 120);
+            return json({ ok: true, source: "youtube-suggest", data: rows }, 200, 300);
           }
         }
       } catch {}
-      const fallback = await piped(`/suggestions?query=${enc(q)}`);
+      const fallback = await piped(`/suggestions?query=${enc(q)}`, 60 * 1000);
       const rows = (Array.isArray(fallback.data?.[1]) ? fallback.data[1] : (Array.isArray(fallback.data) ? fallback.data : []))
         .filter((x: unknown) => typeof x === "string")
         .map((x: string) => x.normalize("NFC").replace(/\s+/g, " ").trim())
         .filter((x: string) => x && !x.includes("\uFFFD"))
         .slice(0, 10);
-      return json({ ok: true, source: fallback.source, data: rows }, 200, 60);
+      return json({ ok: true, source: fallback.source, data: rows }, 200, 180);
     } else if (action === "playlist_next") {
       const id = String(url.searchParams.get("id") || "").trim();
       const nextpage = String(url.searchParams.get("nextpage") || "");
@@ -445,7 +468,7 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "unknown_action" }, 404, 0);
     }
 
-    const result = await piped(path);
+    const result = await piped(path, Math.max(maxAge, 20) * 1000);
     return json({ ok: true, source: result.source, data: result.data }, 200, maxAge);
   } catch (error) {
     console.error("yt1988", action, error);
