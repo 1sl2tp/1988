@@ -2,7 +2,7 @@
   "name": "1988",
   "short_name": "1988",
   "id": "/",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "display_override": [
@@ -49,5 +49,7 @@
       "short_name": "Đã xem",
       "url": "/?page=history"
     }
-  ]
+  ],
+  "lang": "vi",
+  "dir": "ltr"
 }
