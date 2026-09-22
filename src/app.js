@@ -629,8 +629,13 @@ bgAudio?.addEventListener("error",()=>{
   const rows=Array.isArray(info?.sources)?info.sources:[];
   const next=state.backgroundSourceIndex+1;
   if(info&&next<rows.length&&applyBackgroundSource(info,next)){
-    const p=bgAudio.play();
-    if(p?.catch)p.catch(()=>{});
+    state.backgroundReady=true;
+    if(state.backgroundId===state.currentVideo){
+      const p=bgAudio.play();
+      if(p?.catch)p.catch(()=>{});
+    }else{
+      backgroundButtonState("Phát nền",false);
+    }
   }else{
     state.backgroundReady=false;
     backgroundButtonState("Nền không khả dụng",true);
