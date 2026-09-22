@@ -287,6 +287,9 @@ Deno.serve(async (req) => {
         suggest.searchParams.set("client", "firefox");
         suggest.searchParams.set("ds", "yt");
         suggest.searchParams.set("hl", "vi");
+        suggest.searchParams.set("gl", "VN");
+        suggest.searchParams.set("ie", "utf-8");
+        suggest.searchParams.set("oe", "utf-8");
         suggest.searchParams.set("q", q);
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 1800);
@@ -294,13 +297,25 @@ Deno.serve(async (req) => {
         clearTimeout(timer);
         if (res.ok) {
           const data = await res.json();
-          const rows = Array.isArray(data?.[1]) ? data[1].filter((x: unknown) => typeof x === "string").slice(0, 10) : [];
-          return json({ ok: true, source: "youtube-suggest", data: rows }, 200, 120);
+          const rows = Array.isArray(data?.[1])
+            ? data[1]
+                .filter((x: unknown) => typeof x === "string")
+                .map((x: string) => x.normalize("NFC").replace(/\s+/g, " ").trim())
+                .filter((x: string) => x && !x.includes("\uFFFD"))
+                .slice(0, 10)
+            : [];
+          if (rows.length >= 3) {
+            return json({ ok: true, source: "youtube-suggest", data: rows }, 200, 120);
+          }
         }
       } catch {}
       const fallback = await piped(`/suggestions?query=${enc(q)}`);
-      const rows = Array.isArray(fallback.data?.[1]) ? fallback.data[1] : (Array.isArray(fallback.data) ? fallback.data : []);
-      return json({ ok: true, source: fallback.source, data: rows.slice(0, 10) }, 200, 60);
+      const rows = (Array.isArray(fallback.data?.[1]) ? fallback.data[1] : (Array.isArray(fallback.data) ? fallback.data : []))
+        .filter((x: unknown) => typeof x === "string")
+        .map((x: string) => x.normalize("NFC").replace(/\s+/g, " ").trim())
+        .filter((x: string) => x && !x.includes("\uFFFD"))
+        .slice(0, 10);
+      return json({ ok: true, source: fallback.source, data: rows }, 200, 60);
     } else if (action === "video") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
