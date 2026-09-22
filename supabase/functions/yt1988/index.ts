@@ -136,29 +136,41 @@ Deno.serve(async (req) => {
       const result = await piped(`/streams/${enc(id)}`);
       const info: any = result.data || {};
       const streams = Array.isArray(info.audioStreams) ? info.audioStreams.filter((s: any) => s?.url) : [];
-      const preferred = streams
+      if (!streams.length) return json({ ok: false, error: "no_audio_stream" }, 404, 0);
+
+      const proxify = (raw: string) => {
+        try {
+          const media = new URL(raw);
+          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
+            const proxy = new URL(String(info.proxyUrl));
+            const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
+            media.searchParams.set("host", media.host);
+            media.protocol = proxy.protocol;
+            media.host = proxy.host;
+            media.pathname = prefix + media.pathname;
+          }
+          return media.toString();
+        } catch {
+          return raw;
+        }
+      };
+
+      const sources = streams
         .slice()
         .sort((a: any, b: any) => {
-          const aMp4 = String(a?.mimeType || "").includes("mp4") ? 1 : 0;
-          const bMp4 = String(b?.mimeType || "").includes("mp4") ? 1 : 0;
+          const aType = String(a?.mimeType || "");
+          const bType = String(b?.mimeType || "");
+          const aMp4 = aType.includes("audio/mp4") ? 2 : aType.includes("mp4") ? 1 : 0;
+          const bMp4 = bType.includes("audio/mp4") ? 2 : bType.includes("mp4") ? 1 : 0;
           if (aMp4 !== bMp4) return bMp4 - aMp4;
           return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
-        })[0];
-      if (!preferred?.url) return json({ ok: false, error: "no_audio_stream" }, 404, 0);
-
-      let audioUrl = String(preferred.url);
-      try {
-        const media = new URL(audioUrl);
-        if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
-          const proxy = new URL(String(info.proxyUrl));
-          const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
-          media.searchParams.set("host", media.host);
-          media.protocol = proxy.protocol;
-          media.host = proxy.host;
-          media.pathname = prefix + media.pathname;
-          audioUrl = media.toString();
-        }
-      } catch {}
+        })
+        .slice(0, 8)
+        .map((stream: any) => ({
+          url: proxify(String(stream.url)),
+          mimeType: String(stream.mimeType || ""),
+          bitrate: Number(stream.bitrate) || 0,
+        }));
 
       return json({
         ok: true,
@@ -169,9 +181,10 @@ Deno.serve(async (req) => {
           uploader: info.uploader || "",
           thumbnailUrl: info.thumbnailUrl || "",
           duration: Number(info.duration) || 0,
-          audioUrl,
-          mimeType: preferred.mimeType || "",
-          bitrate: Number(preferred.bitrate) || 0,
+          audioUrl: sources[0]?.url || "",
+          mimeType: sources[0]?.mimeType || "",
+          bitrate: sources[0]?.bitrate || 0,
+          sources,
         },
       }, 200, 20);
     }
