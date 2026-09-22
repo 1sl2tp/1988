@@ -11,7 +11,7 @@ const PLAYLIST_KEY="1988.playlists.v1";
 
 const state={token:0,next:null,more:null,playerN:0,currentVideo:""};
 
-function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[c]));}
+function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function fmt(n){
   n=Number(n)||0;
   if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
