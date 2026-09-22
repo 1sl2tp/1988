@@ -183,7 +183,8 @@ async function channelPage(id){
   try{
     const r=await api.channel(id);if(token!==state.token)return;const d=r.data||{};state.next=d.nextpage||null;
     view.innerHTML='<section class="hero">'+(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.avatarUrl?'<img class="hero-avatar" src="'+esc(d.avatarUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Kênh")+'</h1><p>'+esc(fmt(d.subscriberCount||0))+' người đăng ký</p></div></div>'+(d.description?'<p>'+esc(d.description)+'</p>':'')+'</section><div class="subhead">Video</div><div class="compact" id="feed">'+compactRows(d.relatedStreams||[])+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
-    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.channelNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));$("#moreButton").hidden=!state.next;};
+    void enhanceDeArrow($("#feed"));
+    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.channelNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));void enhanceDeArrow($("#feed"));$("#moreButton").hidden=!state.next;};
   }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
 }
 async function watchPage(id){
