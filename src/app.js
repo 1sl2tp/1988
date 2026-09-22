@@ -881,10 +881,12 @@ function showInstallSheet(){
   sheet.className="install-sheet-backdrop";
   sheet.innerHTML='<div class="install-sheet" role="dialog" aria-modal="true" aria-label="Cài 1988">'
     +'<div class="install-sheet-handle"></div>'
-    +'<div class="install-sheet-head"><strong>Thêm 1988 vào Màn hình chính</strong><button type="button" data-install-close aria-label="Đóng">×</button></div>'
-    +'<div class="install-step"><b>1</b><span>Trong Safari, bấm <strong>Chia sẻ</strong>.</span></div>'
-    +'<div class="install-step"><b>2</b><span>Chọn <strong>Thêm vào Màn hình chính</strong>.</span></div>'
-    +'<div class="install-note">Sau khi thêm, mở 1988 từ biểu tượng trên màn hình để chạy dạng ứng dụng.</div>'
+    +'<div class="install-sheet-head"><strong>Cài 1988 trên iPhone</strong><button type="button" data-install-close aria-label="Đóng">×</button></div>'
+    +'<div class="install-step"><b>1</b><span>Mở trang này bằng <strong>Safari</strong>.</span></div>'
+    +'<div class="install-step"><b>2</b><span>Bấm <strong>Chia sẻ</strong> trong Safari.</span></div>'
+    +'<div class="install-step"><b>3</b><span>Chọn <strong>Thêm vào Màn hình chính</strong>. Nếu chưa thấy, kéo xuống cuối → <strong>Sửa tác vụ / Edit Actions</strong> → bật mục này.</span></div>'
+    +'<div class="install-step"><b>4</b><span>Bật <strong>Mở dưới dạng ứng dụng / Open as Web App</strong>, rồi bấm <strong>Thêm / Add</strong>.</span></div>'
+    +'<div class="install-note">Mở 1988 từ biểu tượng vừa tạo trên Màn hình chính. Khi cài đúng dạng Web App, thanh địa chỉ Safari sẽ không còn.</div>'
     +'</div>';
   document.body.appendChild(sheet);
   sheet.addEventListener("click",e=>{
@@ -897,6 +899,7 @@ function setupPwa(){
   }
   let deferred=null;
   const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isSafari=/^((?!crios|fxios|edgios|opios).)*safari/i.test(navigator.userAgent);
   const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
   const showInstall=()=>{
     if(!installButton)return;
@@ -925,6 +928,10 @@ function setupPwa(){
       return;
     }
     if(isiOS){
+      if(!isSafari){
+        showInstallSheet();
+        return;
+      }
       showInstallSheet();
     }
   });
