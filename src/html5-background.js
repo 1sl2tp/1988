@@ -60,6 +60,13 @@
       return this.prepare(id);
     }
 
+    select(id,{metadata={}}={}){
+      if(!id)return false;
+      this.currentId=id;
+      this.setMetadata(metadata);
+      return true;
+    }
+
     setMetadata(meta={}){
       this.meta={...meta};
       if(!("mediaSession" in navigator))return;
@@ -104,22 +111,21 @@
 
     async prepare(id){
       if(!id)return [];
-      this.currentId=id;
       if(this.sourceCache.has(id)){
-        this.sources=this.sourceCache.get(id)||[];
-        return this.sources;
+        return this.sourceCache.get(id)||[];
       }
 
       this.onState({type:"loading",id});
       try{
         const raw=await this.sourcesFor(id);
         const rows=this.#normalizeSources(raw);
-        this.sourceCache.set(id,rows);
+        if(rows.length)this.sourceCache.set(id,rows);
+        else this.sourceCache.delete(id);
         if(this.currentId===id)this.sources=rows;
         this.onState({type:"ready",id,count:rows.length});
         return rows;
       }catch(err){
-        this.sourceCache.set(id,[]);
+        this.sourceCache.delete(id);
         if(this.currentId===id)this.sources=[];
         this.onState({type:"prepareerror",id,error:String(err?.message||err)});
         return [];
