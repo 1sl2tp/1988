@@ -850,24 +850,66 @@ function setupMediaSession(){
   safe("seekforward",d=>{const m=activeMediaElement();if(m)m.currentTime=Math.min(m.duration||Infinity,m.currentTime+(d.seekOffset||10));});
   safe("seekto",d=>{const m=activeMediaElement();if(m&&Number.isFinite(d.seekTime))m.currentTime=d.seekTime;});
 }
+function showInstallSheet(){
+  document.getElementById("installSheet")?.remove();
+  const sheet=document.createElement("div");
+  sheet.id="installSheet";
+  sheet.className="install-sheet-backdrop";
+  sheet.innerHTML='<div class="install-sheet" role="dialog" aria-modal="true" aria-label="Cài 1988">'
+    +'<div class="install-sheet-handle"></div>'
+    +'<div class="install-sheet-head"><strong>Thêm 1988 vào Màn hình chính</strong><button type="button" data-install-close aria-label="Đóng">×</button></div>'
+    +'<div class="install-step"><b>1</b><span>Trong Safari, bấm <strong>Chia sẻ</strong>.</span></div>'
+    +'<div class="install-step"><b>2</b><span>Chọn <strong>Thêm vào Màn hình chính</strong>.</span></div>'
+    +'<div class="install-note">Sau khi thêm, mở 1988 từ biểu tượng trên màn hình để chạy dạng ứng dụng.</div>'
+    +'</div>';
+  document.body.appendChild(sheet);
+  sheet.addEventListener("click",e=>{
+    if(e.target===sheet||e.target.closest("[data-install-close]"))sheet.remove();
+  });
+}
 function setupPwa(){
   if("serviceWorker" in navigator){
     window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(()=>{}));
   }
   let deferred=null;
-  window.addEventListener("beforeinstallprompt",e=>{
-    e.preventDefault();deferred=e;if(installButton)installButton.hidden=false;
-  });
   const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
   const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
-  if(isiOS&&!standalone&&installButton)installButton.hidden=false;
+  const showInstall=()=>{
+    if(!installButton)return;
+    installButton.hidden=standalone||(!isiOS&&!deferred);
+    if(!installButton.hidden){
+      installButton.textContent="Cài";
+      installButton.setAttribute("aria-label","Thêm 1988 vào Màn hình chính");
+    }
+  };
+  window.addEventListener("beforeinstallprompt",e=>{
+    e.preventDefault();
+    deferred=e;
+    showInstall();
+  });
+  window.addEventListener("appinstalled",()=>{
+    deferred=null;
+    if(installButton)installButton.hidden=true;
+  });
+  showInstall();
   installButton?.addEventListener("click",async()=>{
     if(deferred){
       deferred.prompt();
       try{await deferred.userChoice;}catch{}
-      deferred=null;installButton.hidden=true;
-    }else if(isiOS){
-      alert("Safari: bấm Chia sẻ → Thêm vào Màn hình chính để cài 1988.");
+      deferred=null;
+      showInstall();
+      return;
+    }
+    if(isiOS){
+      if(navigator.share){
+        try{
+          await navigator.share({title:"1988",text:"Thêm 1988 vào Màn hình chính",url:location.origin+"/"});
+          return;
+        }catch(err){
+          if(err?.name==="AbortError")return;
+        }
+      }
+      showInstallSheet();
     }
   });
 }
@@ -1071,7 +1113,7 @@ async function watchPage(id){
   const cached=read(HISTORY_KEY).find(x=>x.id===id);
   const instant=pending||cached;
   const initialTitle=cleanText(instant?.title)||"Đang tải thông tin…";
-  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · 1988</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · 1988</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ","action-secondary")+actionButton("reloadPlayer","reload","Tải lại","action-secondary")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
   $("#backgroundButton").disabled=true;$("#backgroundButton").querySelector("span:last-child").textContent="Đang chuẩn bị";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
