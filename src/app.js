@@ -514,8 +514,7 @@ shareBtn.addEventListener("click",async()=>{
   }catch{}
 });
 
-document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState!=="visible")return;
+function syncForegroundVideo(){
   if(!state.audioMaster||!state.currentId)return;
 
   const t=backgroundPlayer.time;
@@ -523,13 +522,16 @@ document.addEventListener("visibilitychange",()=>{
   try{state.player?.mute?.();}catch{}
   playVideoEngine();
   if(!backgroundPlayer.playing)void backgroundPlayer.play();
-});
+}
+
+window.addEventListener("focus",syncForegroundVideo);
+window.addEventListener("pageshow",syncForegroundVideo);
 
 let lastVideoSync=0;
 let lastAudioSync=0;
 
 setInterval(()=>{
-  if(document.visibilityState!=="visible"||!state.audioMaster||!backgroundPlayer.playing)return;
+  if((document.hasFocus&& !document.hasFocus())||!state.audioMaster||!backgroundPlayer.playing)return;
   if(!state.playerReady||!state.player)return;
 
   const videoTime=getVideoTime();
