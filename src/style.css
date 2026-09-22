@@ -131,3 +131,12 @@ body{padding-bottom:66px}button,input{font:inherit}button{-webkit-tap-highlight-
   .watch-actions{padding-left:0;padding-right:0}
   .related-heading{padding-left:0}
 }
+
+.video-text,.row-copy{min-width:0}
+.meta-channel,.row-channel{margin-top:4px;color:#b6b6b6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta-stats,.row-stats{margin-top:2px;color:#858585}
+@media(min-width:700px){
+  .video-body{grid-template-columns:38px minmax(0,1fr);gap:10px}
+  .meta-channel{font-size:11px}
+  .meta-stats{font-size:10.5px}
+}
