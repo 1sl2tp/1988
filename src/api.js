@@ -11,6 +11,7 @@ async function call(action,params={},options={}){
   if(!res.ok||body.ok!==true)throw new Error(body.error||("HTTP "+res.status));
   return body;
 }
+const home=(seed)=>call("home",{seed});
 const trending=(region="VN")=>call("trending",{region});
 const search=(q,filter="all")=>call("search",{q,filter});
 const searchNext=(q,filter,nextpage)=>call("search_next",{q,filter,nextpage});
@@ -50,4 +51,4 @@ function playlistPlayerUrl(id){
   url.searchParams.set("origin",location.origin);
   return url.toString();
 }
-window.YT1988_API={trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};
+window.YT1988_API={home,trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};

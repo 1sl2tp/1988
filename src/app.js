@@ -9,6 +9,8 @@ const suggestionsEl=$("#suggestions");
 const homeButton=$("#homeButton");
 const HISTORY_KEY="1988.history.v3";
 const PLAYLIST_KEY="1988.playlists.v1";
+const MY_LIST_KEY="1988.myplaylists.v1";
+const FEED_CACHE_KEY="1988.feedcache.v1";
 const BG_AUTO_KEY="1988.background.auto.v1";
 const playerBox=$("#persistentPlayer");
 const playerFrame=$("#playerFrame");
@@ -59,6 +61,65 @@ function savePlaylist(data,id){
   rows.unshift({id,name:data?.name||"Danh sách phát",thumbnail:data?.thumbnailUrl||"",uploader:data?.uploader||"",videos:Number(data?.videos)||0});
   write(PLAYLIST_KEY,rows);
 }
+function readMyLists(){return read(MY_LIST_KEY);}
+function writeMyLists(rows){write(MY_LIST_KEY,rows);}
+function currentVideoRecord(){
+  const id=state.currentVideo;
+  if(!id)return null;
+  const info=state.currentInfo||{};
+  return {
+    id,
+    title:info.title||miniTitle?.textContent||("Video "+id),
+    thumbnail:info.thumbnailUrl||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
+    uploaderName:info.uploader||"",
+    views:Number(info.views)||0,
+    duration:Number(info.duration)||0
+  };
+}
+function getFeedCache(key){
+  try{
+    const all=JSON.parse(localStorage.getItem(FEED_CACHE_KEY)||"{}");
+    const row=all[key];
+    if(row&&Date.now()-Number(row.at||0)<10*60*1000&&Array.isArray(row.items))return row.items;
+  }catch{}
+  return null;
+}
+function setFeedCache(key,items){
+  try{
+    const all=JSON.parse(localStorage.getItem(FEED_CACHE_KEY)||"{}");
+    all[key]={at:Date.now(),items:(items||[]).slice(0,30)};
+    localStorage.setItem(FEED_CACHE_KEY,JSON.stringify(all));
+  }catch{}
+}
+function playlistSheetHtml(){
+  const lists=readMyLists();
+  const rows=lists.map(list=>'<button class="sheet-row" type="button" data-add-list="'+esc(list.id)+'"><span>'+esc(list.name)+'</span><small>'+esc(String(list.items?.length||0))+' video</small></button>').join("");
+  return '<div class="sheet-backdrop" id="playlistSheet"><div class="sheet"><div class="sheet-handle"></div><div class="sheet-head"><strong>Thêm vào danh sách</strong><button type="button" data-close-sheet>×</button></div><div class="sheet-list">'+(rows||'<div class="sheet-empty">Chưa có danh sách nào</div>')+'</div><div class="sheet-create"><input id="newListName" type="text" placeholder="Tên danh sách" maxlength="50"><button id="createListButton" type="button">Tạo mới</button></div></div></div>';
+}
+function openPlaylistSheet(){
+  if(!state.currentVideo)return;
+  document.getElementById("playlistSheet")?.remove();
+  document.body.insertAdjacentHTML("beforeend",playlistSheetHtml());
+}
+function addCurrentToList(listId){
+  const video=currentVideoRecord();if(!video)return;
+  const lists=readMyLists();
+  const list=lists.find(x=>x.id===listId);if(!list)return;
+  list.items=Array.isArray(list.items)?list.items:[];
+  if(!list.items.some(x=>x.id===video.id))list.items.push(video);
+  list.updatedAt=Date.now();
+  writeMyLists(lists);
+}
+function createListFromCurrent(name){
+  name=String(name||"").trim();if(!name)return null;
+  const video=currentVideoRecord();if(!video)return null;
+  const lists=readMyLists();
+  const id="l"+Date.now().toString(36);
+  lists.unshift({id,name,createdAt:Date.now(),updatedAt:Date.now(),items:[video]});
+  writeMyLists(lists);
+  return id;
+}
+
 function setActive(name){
   document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("active",b.dataset.nav===name));
 }
@@ -340,14 +401,33 @@ window.addEventListener("message",e=>{
   }
 });
 
-async function home(title="Dành cho bạn",nav="home"){
-  setActive(nav);searchInput.value="";
+async function home(){
+  setActive("home");searchInput.value="";
   const token=++state.token;state.next=null;state.more=null;
-  view.innerHTML='<div class="section-head"><h1>'+esc(title)+'</h1></div>'+loading();
+  const history=read(HISTORY_KEY);
+  const seed=(history[0]?.uploaderName||history[0]?.title||["âm nhạc việt nam","công nghệ việt nam","hài việt nam","du lịch việt nam"][new Date().getDate()%4]).slice(0,100);
+  const cacheKey="home:"+seed;
+  const cached=getFeedCache(cacheKey);
+  if(cached?.length)renderCollection("Dành cho bạn",cached,"");
+  else view.innerHTML='<div class="section-head"><h1>Dành cho bạn</h1></div>'+loading();
+  try{
+    const r=await api.home(seed);if(token!==state.token)return;
+    const items=r.data?.items||r.data||[];
+    setFeedCache(cacheKey,items);
+    renderCollection("Dành cho bạn",items,r.source);
+  }catch{if(token===state.token&&!cached)view.innerHTML='<div class="error">Không tải được gợi ý. Thử lại sau.</div>';}
+}
+async function trendingPage(){
+  setActive("trending");searchInput.value="";
+  const token=++state.token;state.next=null;state.more=null;
+  const cached=getFeedCache("trending:VN");
+  if(cached?.length)renderCollection("Thịnh hành tại Việt Nam",cached,"");
+  else view.innerHTML='<div class="section-head"><h1>Thịnh hành tại Việt Nam</h1></div>'+loading();
   try{
     const r=await api.trending("VN");if(token!==state.token)return;
-    renderCollection(title,r.data,r.source);
-  }catch{if(token===state.token)view.innerHTML='<div class="error">Không tải được video. Thử lại sau.</div>';}
+    setFeedCache("trending:VN",r.data||[]);
+    renderCollection("Thịnh hành tại Việt Nam",r.data||[],r.source);
+  }catch{if(token===state.token&&!cached)view.innerHTML='<div class="error">Không tải được thịnh hành.</div>';}
 }
 async function searchPage(q){
   setActive("");searchInput.value=q;
@@ -370,8 +450,18 @@ function historyPage(){
 }
 function playlistsPage(){
   ++state.token;setActive("playlists");state.next=null;state.more=null;
-  const items=read(PLAYLIST_KEY).map(x=>({type:"playlist",id:x.id,name:x.name,thumbnail:x.thumbnail,uploader:x.uploader,videos:x.videos}));
-  renderCollection("Danh sách gần đây",items);
+  const mine=readMyLists();
+  const recent=read(PLAYLIST_KEY);
+  view.innerHTML='<div class="section-head"><h1>Danh sách</h1></div><div class="list-section"><h2>Danh sách của tôi</h2><div class="my-lists">'+(mine.length?mine.map(x=>'<article class="my-list-card" data-kind="mylist" data-id="'+esc(x.id)+'"><div class="my-list-cover">'+(x.items?.[0]?.thumbnail?'<img src="'+esc(x.items[0].thumbnail)+'" alt="">':'☷')+'</div><div><strong>'+esc(x.name)+'</strong><small>'+esc(String(x.items?.length||0))+' video</small></div></article>').join(""):'<div class="empty-inline">Chưa có danh sách. Mở một video → ＋ Danh sách.</div>')+'</div></div><div class="list-section"><h2>Playlist YouTube gần đây</h2><div id="feed" class="feed"></div></div>';
+  const feed=$("#feed");
+  if(feed)feed.innerHTML=recent.map(x=>playlistCard({type:"playlist",id:x.id,name:x.name,thumbnail:x.thumbnail,uploader:x.uploader,videos:x.videos})).join("")||'<div class="empty-inline">Chưa mở playlist YouTube nào.</div>';
+}
+function myListPage(id){
+  ++state.token;setActive("playlists");state.next=null;state.more=null;
+  const list=readMyLists().find(x=>x.id===id);
+  if(!list){view.innerHTML='<div class="error">Không tìm thấy danh sách.</div>';return;}
+  const items=(list.items||[]).map(x=>({type:"stream",url:"/watch?v="+x.id,title:x.title,thumbnail:x.thumbnail,uploaderName:x.uploaderName,views:x.views,duration:x.duration}));
+  renderCollection(list.name,items);
 }
 async function playlistPage(id){
   setActive("playlists");const token=++state.token;state.next=null;
@@ -404,8 +494,9 @@ async function channelPage(id){
 async function watchPage(id){
   setActive("");const token=++state.token;
   ensureVideoPlayer(id);
-  view.innerHTML='<div class="watch-layout"><section><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="backgroundButton" type="button">Phát nền</button><button class="pill" id="minimizeButton" type="button">Thu nhỏ</button><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">SponsorBlock</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
+  view.innerHTML='<div class="watch-layout"><section><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="backgroundButton" type="button">Phát nền</button><button class="pill" id="addListButton" type="button">＋ Danh sách</button><button class="pill" id="minimizeButton" type="button">Thu nhỏ</button><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">SponsorBlock</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
   $("#backgroundButton").onclick=toggleBackground;
+  $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
   $("#reloadPlayer").onclick=()=>{playerFrame.src=api.playerUrl(id);setTimeout(listenYT,400);};
   $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").textContent="Đã sao chép";setTimeout(()=>$("#shareVideo").textContent="Chia sẻ",900);}catch{}};
@@ -429,12 +520,13 @@ async function watchPage(id){
 }
 function route(){
   suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
-  const v=p.get("v"),list=p.get("list"),channel=p.get("channel"),q=p.get("q"),page=p.get("page");
+  const v=p.get("v"),list=p.get("list"),mylist=p.get("mylist"),channel=p.get("channel"),q=p.get("q"),page=p.get("page");
   if(v)return watchPage(v);
   if(list){closeVideo();return playlistPage(list);}
+  if(mylist){if(state.currentVideo)minimizeVideo();return myListPage(mylist);}
   if(state.currentVideo)minimizeVideo();
   if(channel)return channelPage(channel);if(q)return searchPage(q);
-  if(page==="trending")return home("Thịnh hành tại Việt Nam","trending");
+  if(page==="trending")return trendingPage();
   if(page==="history")return historyPage();
   if(page==="playlists")return playlistsPage();
   return home();
@@ -444,7 +536,7 @@ view.addEventListener("click",e=>{
   const more=e.target.closest("#moreButton");if(more&&state.more){state.more().catch(()=>{});return;}
   const item=e.target.closest("[data-kind][data-id]");if(!item)return;
   const kind=item.dataset.kind,id=item.dataset.id;
-  if(kind==="video")navigate({v:id});else if(kind==="playlist")navigate({list:id});else if(kind==="channel")navigate({channel:id});
+  if(kind==="video")navigate({v:id});else if(kind==="playlist")navigate({list:id});else if(kind==="mylist")navigate({mylist:id});else if(kind==="channel")navigate({channel:id});
 });
 homeButton.addEventListener("click",()=>navigate({}));
 document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="home")navigate({});else navigate({page:n});}));
@@ -452,10 +544,25 @@ searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.
 let suggestTimer=0,suggestAbort=0;
 searchInput.addEventListener("input",()=>{
   clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){suggestionsEl.hidden=true;return;}
-  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{const rows=(await api.suggestions(q)).slice(0,8);if(mark!==suggestAbort)return;suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");suggestionsEl.hidden=!rows.length;}catch{suggestionsEl.hidden=true;}},250);
+  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{const rows=(await api.suggestions(q)).slice(0,8);if(mark!==suggestAbort)return;suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");suggestionsEl.hidden=!rows.length;}catch{suggestionsEl.hidden=true;}},120);
 });
+searchInput.addEventListener("focus",()=>{if(searchInput.value.trim().length>=2)searchInput.dispatchEvent(new Event("input"));});
 suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;navigate({q});});
-document.addEventListener("click",e=>{if(!e.target.closest(".search"))suggestionsEl.hidden=true;});
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".search"))suggestionsEl.hidden=true;
+  if(e.target.closest("[data-close-sheet]")||e.target.classList.contains("sheet-backdrop"))document.getElementById("playlistSheet")?.remove();
+  const add=e.target.closest("[data-add-list]");
+  if(add){
+    addCurrentToList(add.dataset.addList);
+    add.querySelector("small").textContent="Đã thêm";
+  }
+});
+document.addEventListener("click",e=>{
+  if(e.target.id!=="createListButton")return;
+  const input=document.getElementById("newListName");
+  const id=createListFromCurrent(input?.value||"");
+  if(id)document.getElementById("playlistSheet")?.remove();
+});
 window.addEventListener("popstate",route);
 playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);});
 miniExpand?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});

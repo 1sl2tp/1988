@@ -92,17 +92,30 @@ async function chooseApi(exclude = "") {
 }
 
 async function piped(path: string) {
-  const first = await chooseApi();
-  try {
-    return { source: first, data: await fetchJson(first, path, 5000) };
-  } catch {
-    if (preferredApi === first) {
+  if (preferredApi && Date.now() < preferredUntil) {
+    try {
+      return { source: preferredApi, data: await fetchJson(preferredApi, path, 2400) };
+    } catch {
       preferredApi = "";
       preferredUntil = 0;
     }
-    const second = await chooseApi(first);
-    return { source: second, data: await fetchJson(second, path, 5000) };
   }
+
+  for (let i = 0; i < PIPED_APIS.length; i += 5) {
+    const group = PIPED_APIS.slice(i, i + 5);
+    try {
+      const winner = await Promise.any(group.map(async (base) => {
+        const data = await fetchJson(base, path, 2800);
+        return { base, data };
+      }));
+      preferredApi = winner.base;
+      preferredUntil = Date.now() + API_TTL_MS;
+      return { source: winner.base, data: winner.data };
+    } catch {
+      // race next group
+    }
+  }
+  throw new Error("no_piped_instance");
 }
 
 function enc(value: string) {
@@ -232,7 +245,11 @@ Deno.serve(async (req) => {
     let path = "";
     let maxAge = 20;
 
-    if (action === "trending") {
+    if (action === "home") {
+      const seed = String(url.searchParams.get("seed") || "khám phá việt nam").trim().slice(0, 120);
+      path = `/search?q=${enc(seed)}&filter=videos`;
+      maxAge = 45;
+    } else if (action === "trending") {
       const region = String(url.searchParams.get("region") || "VN").toUpperCase().slice(0, 2);
       path = `/trending?region=${enc(region)}`;
       maxAge = 60;
@@ -251,9 +268,26 @@ Deno.serve(async (req) => {
       maxAge = 10;
     } else if (action === "suggestions") {
       const q = String(url.searchParams.get("q") || "").trim();
-      if (!q) return json({ ok: true, source: "", data: [] }, 200, 10);
-      path = `/suggestions?query=${enc(q)}`;
-      maxAge = 60;
+      if (!q) return json({ ok: true, source: "youtube-suggest", data: [] }, 200, 10);
+      try {
+        const suggest = new URL("https://suggestqueries.google.com/complete/search");
+        suggest.searchParams.set("client", "firefox");
+        suggest.searchParams.set("ds", "yt");
+        suggest.searchParams.set("hl", "vi");
+        suggest.searchParams.set("q", q);
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1800);
+        const res = await fetch(suggest, { signal: controller.signal, headers: { accept: "application/json" } });
+        clearTimeout(timer);
+        if (res.ok) {
+          const data = await res.json();
+          const rows = Array.isArray(data?.[1]) ? data[1].filter((x: unknown) => typeof x === "string").slice(0, 10) : [];
+          return json({ ok: true, source: "youtube-suggest", data: rows }, 200, 120);
+        }
+      } catch {}
+      const fallback = await piped(`/suggestions?query=${enc(q)}`);
+      const rows = Array.isArray(fallback.data?.[1]) ? fallback.data[1] : (Array.isArray(fallback.data) ? fallback.data : []);
+      return json({ ok: true, source: fallback.source, data: rows.slice(0, 10) }, 200, 60);
     } else if (action === "video") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
