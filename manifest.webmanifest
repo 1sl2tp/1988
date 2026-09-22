@@ -1,18 +1,13 @@
 {
   "name": "1988",
   "short_name": "1988",
-  "id": "./",
+  "description": "1988 - xem video và phát nền",
+  "lang": "vi",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "display_override": [
-    "standalone",
-    "minimal-ui"
-  ],
-  "orientation": "any",
   "background_color": "#0f0f0f",
   "theme_color": "#0f0f0f",
-  "description": "Tìm kiếm, xem video, mini-player và phát nền.",
   "icons": [
     {
       "src": "./icons/icon-192.png",
@@ -32,24 +27,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "shortcuts": [
-    {
-      "name": "Thịnh hành",
-      "short_name": "Thịnh hành",
-      "url": "./?page=trending"
-    },
-    {
-      "name": "Danh sách",
-      "short_name": "Danh sách",
-      "url": "./?page=playlists"
-    },
-    {
-      "name": "Đã xem",
-      "short_name": "Đã xem",
-      "url": "./?page=history"
-    }
-  ],
-  "lang": "vi",
-  "dir": "ltr"
+  ]
 }
