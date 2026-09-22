@@ -520,14 +520,14 @@ function renderVideos(items=[]){
     grid.innerHTML='<div class="empty"><div><strong>Không có kết quả</strong>Thử từ khóa khác.</div></div>';
   }
 }
-function history(){
+function readWatchHistory(){
   try{
     const rows=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
     return Array.isArray(rows)?rows:[];
   }catch{return []}
 }
 function addHistory(info,id){
-  const rows=history().filter(row=>row.id!==id);
+  const rows=readWatchHistory().filter(row=>row.id!==id);
   rows.unshift({
     id,
     title:info?.title||'Video',
@@ -540,7 +540,7 @@ function addHistory(info,id){
   try{localStorage.setItem(HISTORY_KEY,JSON.stringify(rows.slice(0,60)))}catch{}
 }
 function historyToItems(){
-  return history().map(row=>({
+  return readWatchHistory().map(row=>({
     type:'stream',url:'/watch?v='+row.id,title:row.title,thumbnail:row.thumbnail,
     uploaderName:row.uploaderName,views:row.views,duration:row.duration,uploadedDate:row.uploadedDate
   }));
@@ -593,7 +593,7 @@ async function doSearch(query){
   const u=new URL(location.href);
   u.searchParams.delete('v');
   u.searchParams.set('q',q);
-  history.replaceState({view:'search'},'',u);
+  window.history.replaceState({view:'search'},'',u);
   try{
     const data=await api('/search?q='+encodeURIComponent(q)+'&filter=videos');
     renderVideos(data?.items||[]);
@@ -701,7 +701,7 @@ async function openVideo(id,{push=true}={}){
     const u=new URL(location.href);
     u.searchParams.delete('q');
     u.searchParams.set('v',id);
-    history.pushState({view:'watch',id},'',u);
+    window.history.pushState({view:'watch',id},'',u);
   }
   try{
     const info=await api('/streams/'+encodeURIComponent(id));
@@ -776,7 +776,7 @@ document.querySelectorAll('[data-chip]').forEach(btn=>btn.addEventListener('clic
   if(value==='Tất cả')loadHome();else doSearch(value);
 }));
 backBtn.addEventListener('click',()=>{
-  history.back();
+  window.history.back();
 });
 retryBtn.addEventListener('click',retryCurrent);
 reloadSource.addEventListener('click',retryCurrent);
