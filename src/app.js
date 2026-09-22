@@ -1,4 +1,63 @@
-const api=window.YT1988_API;
+const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+
+async function call(action,params={},options={}){
+  const url=new URL(BASE);
+  url.searchParams.set("action",action);
+  Object.entries(params).forEach(([key,value])=>{
+    if(value!==undefined&&value!==null&&String(value)!=="")url.searchParams.set(key,String(value));
+  });
+  const res=await fetch(url.toString(),{signal:options.signal,cache:"no-store"});
+  const body=await res.json().catch(()=>({ok:false,error:"bad_json"}));
+  if(!res.ok||body.ok!==true)throw new Error(body.error||("HTTP "+res.status));
+  return body;
+}
+const apiHome=(seed)=>call("home",{seed});
+const apiTrending=(region="VN")=>call("trending",{region});
+const apiSearch=(q,filter="all")=>call("search",{q,filter});
+const apiSearchNext=(q,filter,nextpage)=>call("search_next",{q,filter,nextpage});
+const apiSuggestions=async(q)=>{
+  const r=await call("suggestions",{q});
+  const d=r.data;
+  if(Array.isArray(d)&&Array.isArray(d[1]))return d[1];
+  return Array.isArray(d)?d:[];
+};
+const apiVideo=(id)=>call("video",{id});
+const apiPlaylist=(id)=>call("playlist",{id});
+const apiPlaylistNext=(id,nextpage)=>call("playlist_next",{id,nextpage});
+const apiChannel=(id)=>call("channel",{id});
+const apiChannelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
+const apiSponsors=(id)=>call("sponsors",{id});
+const apiBackground=(id)=>call("background",{id});
+const apiBranding=(ids)=>call("branding",{ids:(Array.isArray(ids)?ids:[]).join(",")});
+function playerUrl(id){
+  const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
+  url.searchParams.set("autoplay","1");
+  url.searchParams.set("playsinline","1");
+  url.searchParams.set("rel","0");
+  url.searchParams.set("modestbranding","1");
+  url.searchParams.set("iv_load_policy","3");
+  url.searchParams.set("enablejsapi","1");
+  url.searchParams.set("origin",location.origin);
+  return url.toString();
+}
+function playlistPlayerUrl(id){
+  const url=new URL("https://www.youtube-nocookie.com/embed/videoseries");
+  url.searchParams.set("list",id);
+  url.searchParams.set("autoplay","1");
+  url.searchParams.set("playsinline","1");
+  url.searchParams.set("rel","0");
+  url.searchParams.set("modestbranding","1");
+  url.searchParams.set("enablejsapi","1");
+  url.searchParams.set("origin",location.origin);
+  return url.toString();
+}
+
+const api={
+  home:apiHome,trending:apiTrending,search:apiSearch,searchNext:apiSearchNext,
+  suggestions:apiSuggestions,video:apiVideo,playlist:apiPlaylist,playlistNext:apiPlaylistNext,
+  channel:apiChannel,channelNext:apiChannelNext,sponsors:apiSponsors,background:apiBackground,
+  branding:apiBranding,playerUrl,playlistPlayerUrl
+};
 
 const $=(s,r=document)=>r.querySelector(s);
 const view=$("#view");
@@ -646,6 +705,11 @@ document.addEventListener("visibilitychange",()=>{
     updateMediaSession(state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
   }
 });
-setupMediaSession();
-setupPwa();
-route();
+try{
+  setupMediaSession();
+  setupPwa();
+  route();
+}catch(err){
+  console.error("1988 boot",err);
+  if(view)view.innerHTML='<div class="error">1988 không khởi động được: '+esc(err?.message||"lỗi không xác định")+'</div>';
+}
