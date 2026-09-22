@@ -83,7 +83,21 @@ const installButton=$("#installButton");
 const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
 const dearrowCache=new Map();
 
-function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function cleanText(v=""){
+  let s=String(v??"");
+  try{
+    const t=document.createElement("textarea");
+    t.innerHTML=s;
+    s=t.value;
+  }catch{}
+  try{s=s.normalize("NFC");}catch{}
+  return s
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,"")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g,"")
+    .replace(/\s+/g," ")
+    .trim();
+}
+function esc(v=""){return cleanText(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function fmt(n){
   n=Number(n)||0;
   if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
@@ -112,7 +126,7 @@ function read(key){try{const v=JSON.parse(localStorage.getItem(key)||"[]");retur
 function write(key,rows){try{localStorage.setItem(key,JSON.stringify(rows.slice(0,60)));}catch{}}
 function saveHistory(info,id){
   const rows=read(HISTORY_KEY).filter(x=>x.id!==id);
-  rows.unshift({id,title:info?.title||("Video "+id),thumbnail:info?.thumbnailUrl||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),uploaderName:info?.uploader||"",views:Number(info?.views)||0,duration:Number(info?.duration)||0});
+  rows.unshift({id,title:cleanText(info?.title)||("Video "+id),thumbnail:info?.thumbnailUrl||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),uploaderName:info?.uploader||"",views:Number(info?.views)||0,duration:Number(info?.duration)||0});
   write(HISTORY_KEY,rows);
 }
 function savePlaylist(data,id){
@@ -128,7 +142,7 @@ function currentVideoRecord(){
   const info=state.currentInfo||{};
   return {
     id,
-    title:info.title||miniTitle?.textContent||("Video "+id),
+    title:cleanText(info.title)||cleanText(miniTitle?.textContent)||("Video "+id),
     thumbnail:info.thumbnailUrl||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
     uploaderName:info.uploader||"",
     views:Number(info.views)||0,
@@ -213,7 +227,7 @@ function card(row){
 }
 function renderCollection(title,items,source="",append=false){
   if(!append){
-    view.innerHTML='<div class="section-head"><h1>'+esc(title)+'</h1><small>'+esc(source?new URL(source).hostname:"")+'</small></div><div class="feed" id="feed"></div><button class="more" id="moreButton" type="button" hidden>Tải thêm</button>';
+    view.innerHTML='<div class="section-head"><h1>'+esc(title)+'</h1></div><div class="feed" id="feed"></div><button class="more" id="moreButton" type="button" hidden>Tải thêm</button>';
   }
   const feed=$("#feed");
   if(!feed)return;
@@ -248,7 +262,7 @@ async function enhanceDeArrow(root=document){
     if(!data)return;
     const title=card.querySelector(".title,.row-title");
     const image=card.querySelector("img.thumb,img");
-    if(data.title&&title)title.textContent=data.title;
+    if(data.title&&title)title.textContent=cleanText(data.title);
     if(data.thumbnailUrl&&image&&!image.dataset.dearrow){
       image.dataset.dearrow="1";
       image.src=data.thumbnailUrl;
@@ -543,11 +557,11 @@ async function trendingPage(){
 async function searchPage(q){
   setActive("");searchInput.value=q;
   const token=++state.token;state.next=null;
-  view.innerHTML='<div class="section-head"><h1>Kết quả cho “'+esc(q)+'”</h1></div>'+loading();
+  view.innerHTML='<div class="section-head"><h1>Kết quả tìm kiếm</h1></div>'+loading();
   try{
     const r=await api.search(q,"all");if(token!==state.token)return;
     state.next=r.data?.nextpage||null;
-    renderCollection("Kết quả cho “"+q+"”",r.data?.items||[],r.source);
+    renderCollection("Kết quả tìm kiếm",r.data?.items||[],"");
     state.more=async()=>{
       if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;
       const x=await api.searchNext(q,"all",next);state.next=x.data?.nextpage||null;renderCollection("",x.data?.items||[],"",true);
@@ -616,7 +630,7 @@ async function watchPage(id){
     const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
     state.currentInfo=d;
     saveHistory(d,id);
-    const title=d.title||("Video "+id);
+    const title=cleanText(d.title)||("Video "+id);
     $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
     $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'<div class="avatar"></div>')+'<div '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(d.uploader||"")+'</div><div class="channel-sub">'+esc(fmt(d.views||0))+' lượt xem · '+esc(d.uploadDate||"")+'</div></div>';
@@ -655,7 +669,13 @@ searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.
 let suggestTimer=0,suggestAbort=0;
 searchInput.addEventListener("input",()=>{
   clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){suggestionsEl.hidden=true;return;}
-  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{const rows=(await api.suggestions(q)).slice(0,8);if(mark!==suggestAbort)return;suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");suggestionsEl.hidden=!rows.length;}catch{suggestionsEl.hidden=true;}},120);
+  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{
+  const raw=await api.suggestions(q);
+  const rows=[...new Set((raw||[]).map(cleanText).filter(Boolean))].slice(0,8);
+  if(mark!==suggestAbort)return;
+  suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
+  suggestionsEl.hidden=!rows.length;
+}catch{suggestionsEl.hidden=true;}},120);
 });
 searchInput.addEventListener("focus",()=>{if(searchInput.value.trim().length>=2)searchInput.dispatchEvent(new Event("input"));});
 suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;navigate({q});});
