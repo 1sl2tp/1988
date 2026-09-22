@@ -1,7 +1,7 @@
 'use strict';
 
 const CACHE_PREFIX='1988-shell-';
-const CACHE_NAME='1988-shell-v16';
+const CACHE_NAME='1988-shell-v17';
 const SHELL=[
   './',
   './manifest.webmanifest',
