@@ -896,7 +896,12 @@ function showInstallSheet(){
 }
 function setupPwa(){
   if("serviceWorker" in navigator){
-    window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(()=>{}));
+    window.addEventListener("load",async()=>{
+      try{
+        const registration=await navigator.serviceWorker.register("./sw.js",{scope:"./",updateViaCache:"none"});
+        await registration.update().catch(()=>{});
+      }catch{}
+    });
   }
   let deferred=null;
   const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
