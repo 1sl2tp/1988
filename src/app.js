@@ -132,13 +132,20 @@ function playlistsPage(){
 }
 async function playlistPage(id){
   setActive("playlists");const token=++state.token;state.next=null;
-  view.innerHTML='<div class="hero"><div class="skeleton" style="height:170px;border-radius:12px"></div></div>'+loading();
+  view.innerHTML='<div class="player-shell"><iframe id="playlistPlayer" src="'+esc(api.playlistPlayerUrl(id))+'" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div><section class="hero"><div class="hero-main"><div class="hero-avatar skeleton" style="border-radius:10px"></div><div><h1>Danh sách phát</h1><p>Đang tải thông tin…</p></div></div></section><div class="subhead">Video</div><div class="compact" id="feed"></div><button class="more" id="moreButton" type="button" hidden>Tải thêm</button>';
   try{
     const r=await api.playlist(id);if(token!==state.token)return;const d=r.data||{};savePlaylist(d,id);
     state.next=d.nextpage||null;
-    view.innerHTML='<section class="hero">'+(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.thumbnailUrl?'<img class="hero-avatar" style="border-radius:10px" src="'+esc(d.thumbnailUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Danh sách phát")+'</h1><p>'+esc(d.uploader||"")+' · '+esc(String(d.videos||0))+' video</p></div></div></section><div class="subhead">Video</div><div class="compact" id="feed">'+compactRows(d.relatedStreams||[])+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
+    const hero=$(".hero");
+    if(hero)hero.innerHTML=(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.thumbnailUrl?'<img class="hero-avatar" style="border-radius:10px" src="'+esc(d.thumbnailUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Danh sách phát")+'</h1><p>'+esc(d.uploader||"")+' · '+esc(String(d.videos||0))+' video</p></div></div>';
+    $("#feed").innerHTML=compactRows(d.relatedStreams||[]);
+    $("#moreButton").hidden=!state.next;
     state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.playlistNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));$("#moreButton").hidden=!state.next;};
-  }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được danh sách phát.</div>';}
+  }catch{
+    if(token===state.token){
+      const hero=$(".hero");if(hero)hero.innerHTML='<div class="hero-main"><div><h1>Danh sách phát</h1><p>Player đã mở; dữ liệu danh sách đang tạm lỗi.</p></div></div>';
+    }
+  }
 }
 async function channelPage(id){
   setActive("");const token=++state.token;state.next=null;
@@ -150,9 +157,9 @@ async function channelPage(id){
   }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
 }
 async function watchPage(id){
-  setActive("");const token=++state.token;state.currentVideo=id;state.playerN=0;
-  view.innerHTML='<div class="watch-layout"><section><div class="player-shell"><iframe id="player" src="'+esc(api.playerUrl(id,0))+'" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div><div class="watch-info"><h1 id="watchTitle">Đang tải thông tin…</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="changePlayer" type="button">Đổi nguồn</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">Piped · không quảng cáo</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
-  $("#changePlayer").onclick=()=>{state.playerN++;$("#player").src=api.playerUrl(id,state.playerN);};
+  setActive("");const token=++state.token;state.currentVideo=id;
+  view.innerHTML='<div class="watch-layout"><section><div class="player-shell"><iframe id="player" src="'+esc(api.playerUrl(id))+'" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">YouTube embed</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
+  $("#reloadPlayer").onclick=()=>{$("#player").src=api.playerUrl(id);};
   $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").textContent="Đã sao chép";setTimeout(()=>$("#shareVideo").textContent="Chia sẻ",900);}catch{}};
   try{
     const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
@@ -162,7 +169,7 @@ async function watchPage(id){
     if(d.description){$("#description").textContent=d.description;$("#description").hidden=false;}
     $("#related").innerHTML=compactRows((d.relatedStreams||[]).slice(0,18));
     const segments=Array.isArray(s?.data)?s.data:[];if(segments.length)$("#sponsorBadge").textContent="SponsorBlock · "+segments.length+" đoạn";
-  }catch{if(token===state.token){$("#watchTitle").textContent="Video "+id;$("#channelLine").innerHTML="";}}
+  }catch{}
 }
 function route(){
   suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
