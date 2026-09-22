@@ -323,6 +323,35 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (action === "playlist") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (!validId(id, "playlist")) return json({ ok: false, error: "invalid_playlist" }, 400, 0);
+      const playlistPath = `/playlists/${enc(id)}`;
+      let fallback: { base: string; data: any } | null = null;
+
+      for (let i = 0; i < PIPED_APIS.length; i += 5) {
+        const group = PIPED_APIS.slice(i, i + 5);
+        try {
+          const winner = await Promise.any(group.map(async (base) => {
+            const data: any = await fetchJson(base, playlistPath, 3200);
+            const rows = Array.isArray(data?.relatedStreams) ? data.relatedStreams : [];
+            const count = Number(data?.videos) || 0;
+            if (!fallback && data) fallback = { base, data };
+            if (count > 0 && !rows.length) throw new Error("empty_playlist_items");
+            return { base, data };
+          }));
+          preferredApi = winner.base;
+          preferredUntil = Date.now() + API_TTL_MS;
+          return json({ ok: true, source: winner.base, data: winner.data }, 200, 60);
+        } catch {}
+      }
+
+      if (fallback) {
+        return json({ ok: true, source: fallback.base, data: fallback.data }, 200, 30);
+      }
+      throw new Error("no_playlist_instance");
+    }
+
     let path = "";
     let maxAge = 20;
 
@@ -384,11 +413,6 @@ Deno.serve(async (req) => {
         .filter((x: string) => x && !x.includes("\uFFFD"))
         .slice(0, 10);
       return json({ ok: true, source: fallback.source, data: rows }, 200, 60);
-    } else if (action === "playlist") {
-      const id = String(url.searchParams.get("id") || "").trim();
-      if (!validId(id, "playlist")) return json({ ok: false, error: "invalid_playlist" }, 400, 0);
-      path = `/playlists/${enc(id)}`;
-      maxAge = 60;
     } else if (action === "playlist_next") {
       const id = String(url.searchParams.get("id") || "").trim();
       const nextpage = String(url.searchParams.get("nextpage") || "");
