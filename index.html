@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d10">
+<meta name="color-scheme" content="dark">
+<title>1988 Player</title>
+<meta name="description" content="Trình xem YouTube tối giản, sạch quảng cáo giao diện.">
+<style>
+:root{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Arial,sans-serif;
+  color:#f5f7fa;
+  background:#0b0d10;
+  --bg:#0b0d10;
+  --panel:#12161b;
+  --panel2:#181d23;
+  --line:#272d35;
+  --muted:#8d98a5;
+  --text:#f5f7fa;
+  --accent:#ff3b30;
+  --accent2:#ff5d54;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}
+body{min-height:100vh}
+button,input,select{font:inherit}
+button{-webkit-tap-highlight-color:transparent}
+.app{width:min(1180px,100%);margin:0 auto;padding:18px 18px 40px}
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;
+  min-height:48px;margin-bottom:18px
+}
+.brand{display:flex;align-items:center;gap:10px;font-weight:850;letter-spacing:-.02em}
+.logo{
+  width:36px;height:36px;border-radius:11px;background:var(--accent);
+  display:grid;place-items:center;box-shadow:0 8px 24px rgba(255,59,48,.2)
+}
+.logo svg{width:20px;height:20px;fill:#fff}
+.brand small{display:block;color:var(--muted);font-size:10px;font-weight:650;letter-spacing:.04em;margin-top:2px}
+.top-actions{display:flex;gap:8px}
+.icon-btn{
+  width:38px;height:38px;border:1px solid var(--line);border-radius:11px;
+  display:grid;place-items:center;background:var(--panel);color:#d8dee6;cursor:pointer
+}
+.icon-btn:hover{background:var(--panel2)}
+.hero{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;
+  padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:16px
+}
+.url-input{
+  min-width:0;height:46px;border:1px solid transparent;border-radius:12px;
+  padding:0 14px;background:#0d1116;color:#fff;outline:none;font-size:14px
+}
+.url-input:focus{border-color:#3a424d;background:#0b0f13}
+.url-input::placeholder{color:#66717e}
+.watch-btn{
+  height:46px;border:0;border-radius:12px;padding:0 22px;
+  background:var(--accent);color:#fff;font-weight:800;cursor:pointer
+}
+.watch-btn:hover{background:var(--accent2)}
+.watch-btn:active{transform:translateY(1px)}
+.error{
+  min-height:20px;margin:8px 4px 0;color:#ff867f;font-size:12px
+}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:18px;margin-top:18px}
+.player-card{
+  overflow:hidden;border:1px solid var(--line);border-radius:18px;background:#050607
+}
+.player-shell{position:relative;aspect-ratio:16/9;background:#050607}
+.player-shell iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#050607}
+.placeholder{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  flex-direction:column;gap:12px;color:#798390;text-align:center;padding:24px
+}
+.placeholder svg{width:56px;height:56px;fill:#343b44}
+.placeholder strong{color:#b7c0ca;font-size:15px}
+.placeholder span{max-width:420px;font-size:12px;line-height:1.5}
+.player-meta{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:11px 12px;border-top:1px solid var(--line)
+}
+.now{min-width:0}
+.now-title{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-sub{font-size:10px;color:var(--muted);margin-top:3px}
+.player-actions{display:flex;gap:6px;flex:0 0 auto}
+.small-btn{
+  height:34px;border:1px solid var(--line);border-radius:10px;padding:0 11px;
+  background:var(--panel2);color:#d9e0e7;font-size:11px;font-weight:700;cursor:pointer
+}
+.small-btn:hover{background:#20262d}
+.small-btn.primary{border-color:#4b2523;background:#2a1413;color:#ffb4af}
+.side{
+  min-width:0;border:1px solid var(--line);border-radius:18px;background:var(--panel);
+  overflow:hidden;align-self:start
+}
+.side-head{
+  display:flex;align-items:center;justify-content:space-between;padding:13px 14px;
+  border-bottom:1px solid var(--line)
+}
+.side-head strong{font-size:13px}
+.clear-btn{border:0;background:transparent;color:var(--muted);font-size:11px;cursor:pointer}
+.clear-btn:hover{color:#fff}
+.history{max-height:560px;overflow:auto}
+.history-empty{padding:26px 16px;color:var(--muted);font-size:12px;text-align:center}
+.history-item{
+  width:100%;display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px;
+  padding:10px;border:0;border-bottom:1px solid #20262d;background:transparent;
+  color:inherit;text-align:left;cursor:pointer
+}
+.history-item:hover{background:#171c22}
+.history-item:last-child{border-bottom:0}
+.thumb{
+  width:92px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;background:#050607
+}
+.h-info{min-width:0;align-self:center}
+.h-title{font-size:12px;font-weight:750;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.h-id{margin-top:5px;color:var(--muted);font-size:10px}
+.options{
+  display:flex;align-items:center;gap:8px;margin-top:10px;color:var(--muted);font-size:11px
+}
+.server-select{
+  height:32px;max-width:190px;border:1px solid var(--line);border-radius:9px;
+  background:var(--panel);color:#dce3ea;padding:0 9px;outline:none;font-size:11px
+}
+.notice{
+  margin-top:18px;padding:12px 14px;border:1px solid #2a3037;border-radius:13px;
+  background:#101419;color:#818c98;font-size:11px;line-height:1.5
+}
+.notice strong{color:#b9c2cc}
+@media(max-width:860px){
+  .layout{grid-template-columns:1fr}
+  .side{display:none}
+}
+@media(max-width:560px){
+  .app{padding:10px 10px 28px}
+  .topbar{margin-bottom:10px}
+  .brand small{display:none}
+  .hero{grid-template-columns:1fr;padding:9px;border-radius:14px}
+  .watch-btn{width:100%}
+  .layout{margin-top:10px}
+  .player-card{border-radius:14px}
+  .player-meta{align-items:flex-start;flex-direction:column}
+  .player-actions{width:100%}
+  .small-btn{flex:1}
+  .options{justify-content:space-between}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.6 3.6 12 3.6 12 3.6s-7.6 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8ZM9.6 15.7V8.3L16 12l-6.4 3.7Z"/></svg>
+      </div>
+      <div>1988 Player<small>YOUTUBE VIEWER</small></div>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn" id="shareBtn" type="button" title="Sao chép link" aria-label="Sao chép link">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V3m0 0L7 8m5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <form class="hero" id="watchForm" autocomplete="off">
+    <input class="url-input" id="urlInput" type="text" inputmode="url" placeholder="Dán link YouTube hoặc ID video..." aria-label="Link YouTube">
+    <button class="watch-btn" type="submit">Xem video</button>
+  </form>
+  <div class="error" id="error"></div>
+
+  <div class="layout">
+    <main>
+      <section class="player-card">
+        <div class="player-shell" id="playerShell">
+          <div class="placeholder" id="placeholder">
+            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <strong>Dán link YouTube để bắt đầu</strong>
+            <span>Hỗ trợ youtube.com, youtu.be, Shorts, Live và ID video 11 ký tự.</span>
+          </div>
+        </div>
+        <div class="player-meta">
+          <div class="now">
+            <div class="now-title" id="nowTitle">Chưa có video</div>
+            <div class="now-sub" id="nowSub">1988 Player</div>
+          </div>
+          <div class="player-actions">
+            <button class="small-btn" id="nextServerBtn" type="button">Đổi máy chủ</button>
+            <button class="small-btn primary" id="officialBtn" type="button">YouTube</button>
+          </div>
+        </div>
+      </section>
+      <div class="options">
+        <span>Chế độ xem</span>
+        <select class="server-select" id="modeSelect" aria-label="Chế độ xem">
+          <option value="private">Không quảng cáo · máy chủ thay thế</option>
+          <option value="official">YouTube chính thức</option>
+        </select>
+      </div>
+      <div class="notice">
+        <strong>Lưu ý:</strong> 1988 Player không chèn quảng cáo riêng. Chế độ mặc định dùng frontend thay thế; nếu máy chủ đó lỗi, bấm <strong>Đổi máy chủ</strong> hoặc chuyển sang YouTube chính thức.
+      </div>
+    </main>
+
+    <aside class="side">
+      <div class="side-head">
+        <strong>Đã xem gần đây</strong>
+        <button class="clear-btn" id="clearHistory" type="button">Xóa</button>
+      </div>
+      <div class="history" id="history"></div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(()=>{
+'use strict';
+
+const $=id=>document.getElementById(id);
+const input=$('urlInput');
+const form=$('watchForm');
+const shell=$('playerShell');
+const placeholder=$('placeholder');
+const error=$('error');
+const nowTitle=$('nowTitle');
+const nowSub=$('nowSub');
+const modeSelect=$('modeSelect');
+const nextServerBtn=$('nextServerBtn');
+const officialBtn=$('officialBtn');
+const shareBtn=$('shareBtn');
+const historyEl=$('history');
+const clearHistory=$('clearHistory');
+
+const HISTORY_KEY='1988.youtube.history.v1';
+const MODE_KEY='1988.youtube.mode.v1';
+
+const altServers=[
+  'https://yewtu.be',
+  'https://inv.nadeko.net',
+  'https://invidious.nerdvpn.de'
+];
+
+let currentId='';
+let serverIndex=0;
+
+function videoId(raw){
+  const value=String(raw||'').trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(value))return value;
+  try{
+    const u=new URL(value);
+    const host=u.hostname.replace(/^www\./,'').toLowerCase();
+    if(host==='youtu.be'){
+      const id=u.pathname.split('/').filter(Boolean)[0]||'';
+      return /^[A-Za-z0-9_-]{11}$/.test(id)?id:'';
+    }
+    if(host.endsWith('youtube.com')||host.endsWith('youtube-nocookie.com')){
+      const q=u.searchParams.get('v')||'';
+      if(/^[A-Za-z0-9_-]{11}$/.test(q))return q;
+      const parts=u.pathname.split('/').filter(Boolean);
+      const marker=['shorts','embed','live'].find(x=>parts[0]===x);
+      if(marker&&/^[A-Za-z0-9_-]{11}$/.test(parts[1]||''))return parts[1];
+    }
+  }catch{}
+  const m=value.match(/(?:v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/);
+  return m?m[1]:'';
+}
+
+function history(){
+  try{
+    const v=JSON.parse(localStorage.getItem(HISTORY_KEY)||'[]');
+    return Array.isArray(v)?v:[];
+  }catch{return []}
+}
+function saveHistory(id){
+  const rows=history().filter(x=>x&&x.id!==id);
+  rows.unshift({id,at:Date.now()});
+  try{localStorage.setItem(HISTORY_KEY,JSON.stringify(rows.slice(0,16)))}catch{}
+  renderHistory();
+}
+function renderHistory(){
+  const rows=history();
+  if(!rows.length){
+    historyEl.innerHTML='<div class="history-empty">Chưa có video nào.</div>';
+    return;
+  }
+  historyEl.innerHTML=rows.map(row=>`
+    <button class="history-item" type="button" data-video="${row.id}">
+      <img class="thumb" src="https://i.ytimg.com/vi/${row.id}/mqdefault.jpg" alt="" loading="lazy">
+      <span class="h-info">
+        <span class="h-title">Video ${row.id}</span>
+        <span class="h-id">${row.id}</span>
+      </span>
+    </button>`).join('');
+}
+
+function embedUrl(id,mode){
+  if(mode==='official'){
+    return 'https://www.youtube-nocookie.com/embed/'+encodeURIComponent(id)+'?autoplay=1&playsinline=1&rel=0&modestbranding=1';
+  }
+  const base=altServers[serverIndex%altServers.length];
+  return base+'/embed/'+encodeURIComponent(id)+'?autoplay=1&local=1';
+}
+
+function setFrame(id){
+  const mode=modeSelect.value;
+  const src=embedUrl(id,mode);
+  shell.querySelector('iframe')?.remove();
+  placeholder.hidden=true;
+  const iframe=document.createElement('iframe');
+  iframe.src=src;
+  iframe.title='YouTube video player';
+  iframe.allow='accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  iframe.allowFullscreen=true;
+  iframe.referrerPolicy='strict-origin-when-cross-origin';
+  shell.appendChild(iframe);
+  nowTitle.textContent='Video '+id;
+  nowSub.textContent=mode==='official'?'YouTube chính thức':'Máy chủ thay thế '+(serverIndex+1)+'/'+altServers.length;
+}
+
+function updateUrl(id){
+  const u=new URL(location.href);
+  u.searchParams.set('v',id);
+  history.replaceState(null,'',u);
+}
+function play(raw,{save=true}={}){
+  const id=videoId(raw);
+  if(!id){
+    error.textContent='Không nhận ra link YouTube hoặc ID video.';
+    return false;
+  }
+  error.textContent='';
+  currentId=id;
+  input.value='https://youtu.be/'+id;
+  setFrame(id);
+  updateUrl(id);
+  if(save)saveHistory(id);
+  return true;
+}
+
+form.addEventListener('submit',e=>{
+  e.preventDefault();
+  play(input.value);
+});
+historyEl.addEventListener('click',e=>{
+  const btn=e.target.closest('[data-video]');
+  if(btn)play(btn.dataset.video);
+});
+nextServerBtn.addEventListener('click',()=>{
+  if(!currentId)return;
+  modeSelect.value='private';
+  serverIndex=(serverIndex+1)%altServers.length;
+  setFrame(currentId);
+});
+officialBtn.addEventListener('click',()=>{
+  if(!currentId)return;
+  modeSelect.value='official';
+  setFrame(currentId);
+});
+modeSelect.addEventListener('change',()=>{
+  try{localStorage.setItem(MODE_KEY,modeSelect.value)}catch{}
+  if(currentId)setFrame(currentId);
+});
+shareBtn.addEventListener('click',async()=>{
+  if(!currentId){
+    input.focus();
+    return;
+  }
+  const url=new URL(location.href);
+  url.searchParams.set('v',currentId);
+  try{
+    await navigator.clipboard.writeText(url.toString());
+    const old=shareBtn.innerHTML;
+    shareBtn.textContent='✓';
+    setTimeout(()=>{shareBtn.innerHTML=old;},900);
+  }catch{}
+});
+clearHistory.addEventListener('click',()=>{
+  try{localStorage.removeItem(HISTORY_KEY)}catch{}
+  renderHistory();
+});
+
+try{
+  const saved=localStorage.getItem(MODE_KEY);
+  if(saved==='official'||saved==='private')modeSelect.value=saved;
+}catch{}
+renderHistory();
+
+const initial=new URLSearchParams(location.search).get('v');
+if(initial)play(initial,{save:false});
+})();
+</script>
+</body>
+</html>
