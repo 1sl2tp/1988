@@ -1,6 +1,29 @@
 "use strict";
 
 (function(global){
+  function createSilentWavUrl(){
+    const sampleRate=8000;
+    const seconds=1;
+    const samples=sampleRate*seconds;
+    const bytes=new Uint8Array(44+samples*2);
+    const view=new DataView(bytes.buffer);
+    const text=(offset,value)=>{for(let i=0;i<value.length;i++)bytes[offset+i]=value.charCodeAt(i);};
+    text(0,"RIFF");
+    view.setUint32(4,36+samples*2,true);
+    text(8,"WAVE");
+    text(12,"fmt ");
+    view.setUint32(16,16,true);
+    view.setUint16(20,1,true);
+    view.setUint16(22,1,true);
+    view.setUint32(24,sampleRate,true);
+    view.setUint32(28,sampleRate*2,true);
+    view.setUint16(32,2,true);
+    view.setUint16(34,16,true);
+    text(36,"data");
+    view.setUint32(40,samples*2,true);
+    return URL.createObjectURL(new Blob([bytes],{type:"audio/wav"}));
+  }
+
   class HTML5BackgroundPlayer{
     constructor(options={}){
       this.audio=options.audio;
@@ -12,39 +35,40 @@
       this.sourceCache=new Map();
       this.sourceIndex=-1;
       this.sources=[];
+      this.armed=false;
+      this.realSourceActive=false;
+      this.silenceUrl=createSilentWavUrl();
 
       if(!this.audio)throw new Error("HTML5BackgroundPlayer requires <audio>");
       if(typeof this.sourcesFor!=="function")throw new Error("HTML5BackgroundPlayer requires sourcesFor(id)");
 
-      this.audio.preload="metadata";
+      this.audio.preload="auto";
       this.audio.setAttribute("playsinline","");
       this.audio.addEventListener("loadedmetadata",()=>this.#applyPendingSeek());
       this.audio.addEventListener("play",()=>{
         this.#setPlaybackState("playing");
-        this.onState({type:"play",id:this.currentId,time:this.time});
+        this.onState({type:"play",id:this.currentId,time:this.time,real:this.realSourceActive});
       });
       this.audio.addEventListener("pause",()=>{
         this.#setPlaybackState("paused");
-        this.onState({type:"pause",id:this.currentId,time:this.time});
+        this.onState({type:"pause",id:this.currentId,time:this.time,real:this.realSourceActive});
       });
       this.audio.addEventListener("ended",()=>{
+        if(!this.realSourceActive&&this.armed){
+          try{this.audio.currentTime=0;void this.audio.play();}catch{}
+          return;
+        }
         this.#setPlaybackState("none");
         this.onState({type:"ended",id:this.currentId,time:this.time});
       });
-      this.audio.addEventListener("error",()=>this.onState({
-        type:"sourceerror",
-        id:this.currentId,
-        index:this.sourceIndex,
-        error:this.audio.error?.code||0
-      }));
       this.audio.addEventListener("timeupdate",()=>this.#publishPosition());
-
       this.#installMediaSession();
     }
 
     get time(){return Math.max(0,Number(this.audio.currentTime)||0);}
     get duration(){return Math.max(0,Number(this.audio.duration)||0);}
     get playing(){return !this.audio.paused&&!this.audio.ended;}
+    get ready(){return this.realSourceActive&&this.playing;}
 
     setMetadata(meta={}){
       this.meta={...meta};
@@ -60,6 +84,34 @@
       }catch{}
     }
 
+    arm(id,{metadata={}}={}){
+      if(!id)return false;
+      this.currentId=id;
+      this.setMetadata(metadata);
+      this.armed=true;
+      this.realSourceActive=false;
+      this.sources=[];
+      this.sourceIndex=-1;
+      this.pendingSeek=0;
+
+      try{this.audio.pause();}catch{}
+      this.audio.loop=true;
+      this.audio.src=this.silenceUrl;
+      this.audio.dataset.videoId=id;
+      this.audio.dataset.kind="armed";
+      this.audio.preload="auto";
+      try{this.audio.load();}catch{}
+
+      // This must execute synchronously inside the user's tap.
+      try{
+        const p=this.audio.play();
+        if(p&&typeof p.catch==="function")p.catch(()=>{});
+      }catch{}
+
+      this.onState({type:"armed",id});
+      return true;
+    }
+
     async prepare(id){
       if(!id)return [];
       this.currentId=id;
@@ -67,6 +119,7 @@
         this.sources=this.sourceCache.get(id)||[];
         return this.sources;
       }
+
       this.onState({type:"loading",id});
       try{
         const raw=await this.sourcesFor(id);
@@ -83,11 +136,9 @@
       }
     }
 
-    async play(id,{time=0,metadata={}}={}){
-      if(!id)throw new Error("missing_video_id");
-      this.currentId=id;
+    async activate(id,{time=0,metadata={}}={}){
+      if(!id||id!==this.currentId)throw new Error("stale_video");
       this.setMetadata(metadata);
-
       let rows=this.sourceCache.get(id)||[];
       if(!rows.length)rows=await this.prepare(id);
       if(!rows.length)throw new Error("no_html5_audio_source");
@@ -99,12 +150,24 @@
       for(let i=0;i<rows.length;i++){
         try{
           await this.#playSource(i);
+          this.realSourceActive=true;
+          this.armed=false;
           return true;
         }catch(err){
           lastError=err;
         }
       }
       throw lastError||new Error("all_audio_sources_failed");
+    }
+
+    async play(){
+      try{
+        const p=this.audio.play();
+        if(p&&typeof p.then==="function")await p;
+        return true;
+      }catch{
+        return false;
+      }
     }
 
     pause(){try{this.audio.pause();}catch{}}
@@ -115,7 +178,10 @@
       this.pendingSeek=0;
       this.sources=[];
       this.sourceIndex=-1;
+      this.armed=false;
+      this.realSourceActive=false;
       try{
+        this.audio.loop=false;
         this.audio.removeAttribute("src");
         this.audio.load();
       }catch{}
@@ -138,25 +204,17 @@
         seen.add(url);
         const mimeType=String(row?.mimeType||row?.type||"").toLowerCase();
         const support=mimeType?this.audio.canPlayType(mimeType):"";
-        uniq.push({
-          url,
-          mimeType,
-          bitrate:Number(row?.bitrate)||0,
-          support
-        });
+        uniq.push({url,mimeType,bitrate:Number(row?.bitrate)||0,support});
       }
 
-      return uniq.sort((a,b)=>{
-        const score=x=>{
-          const mp4=x.mimeType.includes("audio/mp4")||x.mimeType.includes("m4a")?4:
-            x.mimeType.includes("mpegurl")||x.mimeType.includes("m3u8")?3:
-            x.mimeType.includes("audio/webm")?2:1;
-          const playable=x.support==="probably"?3:x.support==="maybe"?2:1;
-          return scoreBase(score,playable,x.bitrate);
-        };
-        function scoreBase(type,playable,bitrate){return type*1e9+playable*1e8+Math.min(bitrate,99999999);}
-        return score(b)-score(a);
-      });
+      const score=x=>{
+        const type=x.mimeType.includes("audio/mp4")||x.mimeType.includes("m4a")?4:
+          x.mimeType.includes("mpegurl")||x.mimeType.includes("m3u8")?3:
+          x.mimeType.includes("audio/webm")?2:1;
+        const playable=x.support==="probably"?3:x.support==="maybe"?2:1;
+        return type*1e9+playable*1e8+Math.min(x.bitrate,99999999);
+      };
+      return uniq.sort((a,b)=>score(b)-score(a));
     }
 
     #playSource(index){
@@ -165,9 +223,11 @@
         if(!row)return reject(new Error("missing_source"));
 
         this.sourceIndex=index;
-        this.audio.pause();
+        this.realSourceActive=false;
+        this.audio.loop=false;
         this.audio.src=row.url;
         this.audio.dataset.videoId=this.currentId;
+        this.audio.dataset.kind="real";
         this.audio.dataset.mimeType=row.mimeType||"";
         this.audio.preload="auto";
 
@@ -176,13 +236,13 @@
           clearTimeout(timer);
           this.audio.removeEventListener("playing",onPlaying);
           this.audio.removeEventListener("error",onError);
-          this.audio.removeEventListener("stalled",onStalled);
         };
         const succeed=()=>{
           if(settled)return;
           settled=true;
           cleanup();
           this.#applyPendingSeek();
+          this.realSourceActive=true;
           this.onState({type:"source",id:this.currentId,index,url:row.url,mimeType:row.mimeType});
           resolve(true);
         };
@@ -194,12 +254,10 @@
         };
         const onPlaying=()=>succeed();
         const onError=()=>fail("media_error_"+(this.audio.error?.code||0));
-        const onStalled=()=>{};
         const timer=setTimeout(()=>fail("audio_start_timeout"),6500);
 
         this.audio.addEventListener("playing",onPlaying,{once:true});
         this.audio.addEventListener("error",onError,{once:true});
-        this.audio.addEventListener("stalled",onStalled);
 
         try{this.audio.load();}catch{}
         try{
@@ -228,6 +286,7 @@
     }
 
     #publishPosition(){
+      if(!this.realSourceActive)return;
       if(!("mediaSession" in navigator)||typeof navigator.mediaSession.setPositionState!=="function")return;
       const duration=this.duration,position=this.time;
       if(!duration||position>duration)return;
@@ -243,7 +302,7 @@
     #installMediaSession(){
       if(!("mediaSession" in navigator))return;
       const safe=(name,handler)=>{try{navigator.mediaSession.setActionHandler(name,handler);}catch{}};
-      safe("play",()=>this.audio.play().catch(()=>{}));
+      safe("play",()=>{void this.play();});
       safe("pause",()=>this.pause());
       safe("seekbackward",d=>this.seek(this.time-(Number(d.seekOffset)||10)));
       safe("seekforward",d=>this.seek(this.time+(Number(d.seekOffset)||10)));
