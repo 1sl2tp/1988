@@ -1,15 +1,41 @@
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
 
+const API_MEMORY_TTL={
+  home:5*60*1000,
+  trending:2*60*1000,
+  search:60*1000,
+  suggestions:5*60*1000,
+  branding:5*60*1000
+};
+const apiMemoryCache=new Map();
+const apiInflight=new Map();
+
 async function call(action,params={},options={}){
   const url=new URL(BASE);
   url.searchParams.set("action",action);
   Object.entries(params).forEach(([key,value])=>{
     if(value!==undefined&&value!==null&&String(value)!=="")url.searchParams.set(key,String(value));
   });
-  const res=await fetch(url.toString(),{signal:options.signal,cache:"no-store"});
-  const body=await res.json().catch(()=>({ok:false,error:"bad_json"}));
-  if(!res.ok||body.ok!==true)throw new Error(body.error||("HTTP "+res.status));
-  return body;
+  const key=url.toString();
+  const ttl=Number(options.ttl??API_MEMORY_TTL[action]??0);
+  const now=Date.now();
+  const cached=apiMemoryCache.get(key);
+  if(ttl>0&&cached&&now-cached.at<ttl)return cached.body;
+  if(apiInflight.has(key))return apiInflight.get(key);
+
+  const task=(async()=>{
+    const res=await fetch(key,{signal:options.signal,cache:"default"});
+    const body=await res.json().catch(()=>({ok:false,error:"bad_json"}));
+    if(!res.ok||body.ok!==true)throw new Error(body.error||("HTTP "+res.status));
+    if(ttl>0){
+      apiMemoryCache.set(key,{at:Date.now(),body});
+      if(apiMemoryCache.size>80)apiMemoryCache.delete(apiMemoryCache.keys().next().value);
+    }
+    return body;
+  })();
+
+  apiInflight.set(key,task);
+  try{return await task;}finally{apiInflight.delete(key);}
 }
 const apiHome=(seed)=>call("home",{seed});
 const apiTrending=(region="VN")=>call("trending",{region});
@@ -703,16 +729,23 @@ async function trendingPage(topic="top"){
 async function searchPage(q){
   setActive("");searchInput.value=q;
   const token=++state.token;state.next=null;
-  view.innerHTML='<div class="section-head"><h1>Kết quả tìm kiếm</h1></div>'+loading();
+  const cacheKey="search:"+String(q||"").trim().toLocaleLowerCase("vi");
+  const cached=getFeedCache(cacheKey);
+  if(cached?.length)renderCollection("Kết quả tìm kiếm",cached,"");
+  else view.innerHTML='<div class="section-head"><h1>Kết quả tìm kiếm</h1></div>'+loading();
   try{
     const r=await api.search(q,"all");if(token!==state.token)return;
     state.next=r.data?.nextpage||null;
-    renderCollection("Kết quả tìm kiếm",r.data?.items||[],"");
+    const items=r.data?.items||[];
+    setFeedCache(cacheKey,items);
+    renderCollection("Kết quả tìm kiếm",items,"");
     state.more=async()=>{
       if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;
       const x=await api.searchNext(q,"all",next);state.next=x.data?.nextpage||null;renderCollection("",x.data?.items||[],"",true);
     };
-  }catch{if(token===state.token)view.innerHTML='<div class="error">Tìm kiếm đang lỗi nguồn. Thử lại.</div>';}
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML='<div class="error">Tìm kiếm đang lỗi nguồn. Thử lại.</div>';
+  }
 }
 function historyPage(){
   ++state.token;setActive("history");state.next=null;state.more=null;
@@ -890,17 +923,36 @@ view.addEventListener("click",e=>{
 homeButton.addEventListener("click",()=>navigate({}));
 document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="home")navigate({});else navigate({page:n});}));
 let suggestTimer=0,suggestAbort=0;
+const suggestionRowsCache=new Map();
+let lastSuggestionRows=[];
+function renderSuggestions(rows){
+  const clean=[...new Set((rows||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
+  suggestionsEl.innerHTML=clean.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
+  suggestionsEl.hidden=!clean.length;
+  return clean;
+}
 function closeSuggestions(){clearTimeout(suggestTimer);suggestAbort++;suggestionsEl.hidden=true;suggestionsEl.innerHTML="";}
 searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.value.trim();if(q){closeSuggestions();searchInput.blur();navigate({q});}});
 searchInput.addEventListener("input",()=>{
   clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){closeSuggestions();return;}
+  const key=q.toLocaleLowerCase("vi");
+  const exact=suggestionRowsCache.get(key);
+  if(exact?.length)renderSuggestions(exact);
+  else{
+    const provisional=lastSuggestionRows.filter(x=>cleanText(x).toLocaleLowerCase("vi").includes(key)).slice(0,8);
+    if(provisional.length)renderSuggestions(provisional);
+  }
   const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{
-  const raw=await api.suggestions(q);
-  const rows=[...new Set((raw||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
-  if(mark!==suggestAbort)return;
-  suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
-  suggestionsEl.hidden=!rows.length;
-}catch{suggestionsEl.hidden=true;}},120);
+    const raw=await api.suggestions(q);
+    const rows=[...new Set((raw||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
+    suggestionRowsCache.set(key,rows);
+    lastSuggestionRows=rows;
+    if(suggestionRowsCache.size>40)suggestionRowsCache.delete(suggestionRowsCache.keys().next().value);
+    if(mark!==suggestAbort)return;
+    renderSuggestions(rows);
+  }catch{
+    if(mark===suggestAbort&&!suggestionsEl.innerHTML)suggestionsEl.hidden=true;
+  }},70);
 });
 searchInput.addEventListener("focus",()=>{if(searchInput.value.trim().length>=2)searchInput.dispatchEvent(new Event("input"));});
 suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;closeSuggestions();searchInput.blur();navigate({q});});
@@ -967,6 +1019,14 @@ try{
   setupMediaSession();
   setupPwa();
   route();
+  const bootParams=new URLSearchParams(location.search);
+  if(!bootParams.has("q")&&!bootParams.has("v")&&!bootParams.has("playlist")&&!bootParams.has("channel")&&!bootParams.has("page")){
+    setTimeout(()=>{
+      if(!getFeedCache("trending:top")){
+        api.trending("VN").then(r=>setFeedCache("trending:top",r.data||[])).catch(()=>{});
+      }
+    },300);
+  }
 }catch(err){
   console.error("1988 boot",err);
   if(view)view.innerHTML='<div class="error">1988 không khởi động được: '+esc(err?.message||"lỗi không xác định")+'</div>';
