@@ -773,8 +773,19 @@ function proxifyShakaRequests(player,proxyUrl=''){
     }catch{}
   });
 }
-async function showPipedEmbed(id){
-  await destroyPlayer();
+function showPipedEmbed(id){
+  clearTimeout(destroyPlayer.timer);
+  if(shakaPlayer){
+    try{shakaPlayer.destroy()}catch{}
+    shakaPlayer=null;
+  }
+  if(dashBlobUrl){
+    try{URL.revokeObjectURL(dashBlobUrl)}catch{}
+    dashBlobUrl='';
+  }
+  try{videoPlayer.pause()}catch{}
+  videoPlayer.removeAttribute('src');
+  videoPlayer.load();
   videoPlayer.hidden=true;
   fallbackPlayer.hidden=false;
   fallbackPlayer.src='https://piped.video/embed/'+encodeURIComponent(id)+'?autoplay=1';
@@ -863,12 +874,15 @@ async function openVideo(id,{push=true}={}){
   setError('');
   currentVideoId=id;
   showWatch();
-  watchTitle.textContent='Đang tải…';
+
+  // Open the player immediately while the click is still a direct user gesture.
+  showPipedEmbed(id);
+
+  watchTitle.textContent='Đang tải thông tin…';
   watchChannel.textContent='';
   watchStats.textContent='';
   watchDescription.textContent='';
   relatedList.innerHTML=Array.from({length:6},()=>'<div class="related-card"><div class="related-thumb-wrap skeleton"></div><div><div class="skeleton" style="height:12px;border-radius:4px;margin-bottom:8px"></div><div class="skeleton" style="height:10px;width:65%;border-radius:4px"></div></div></div>').join('');
-  playerLoading.hidden=false;
 
   if(push){
     const u=new URL(location.href);
@@ -876,8 +890,11 @@ async function openVideo(id,{push=true}={}){
     u.searchParams.set('v',id);
     window.history.pushState({view:'watch',id},'',u);
   }
+
+  // Metadata is non-blocking; playback must not wait for API/stream extraction.
   try{
     const info=await api('/streams/'+encodeURIComponent(id));
+    if(currentVideoId!==id)return;
     currentVideoInfo=info;
     watchTitle.textContent=info.title||'Video';
     watchAvatar.src=info.uploaderAvatar||'';
@@ -886,14 +903,13 @@ async function openVideo(id,{push=true}={}){
     watchDescription.textContent=info.description||'';
     relatedList.innerHTML=(info.relatedStreams||[]).slice(0,14).map(relatedCard).join('');
     addHistory(info,id);
-    await startStream(info,id);
     document.title=(info.title||'Video')+' · 1988';
   }catch(err){
-    console.warn('open video failed',err);
-    watchTitle.textContent=watchTitle.textContent==='Đang tải…'?'Video '+id:watchTitle.textContent;
-    watchDescription.textContent=watchDescription.textContent||'Đang chuyển sang player Piped dự phòng.';
-    setError('Nguồn stream trực tiếp lỗi, đã chuyển sang player Piped dự phòng.');
-    await showPipedEmbed(id);
+    console.warn('metadata failed',err);
+    if(currentVideoId!==id)return;
+    watchTitle.textContent='Video '+id;
+    watchDescription.textContent='';
+    relatedList.innerHTML='';
   }
 }
 function nav(type){
@@ -906,7 +922,10 @@ function retryCurrent(){
   try{localStorage.removeItem(API_CACHE_KEY)}catch{}
   activeApi='';
   apiPicker=null;
-  if(currentVideoId)openVideo(currentVideoId,{push:false});
+  if(currentVideoId){
+    showPipedEmbed(currentVideoId);
+    openVideo(currentVideoId,{push:false});
+  }
   else if(lastBrowse.type==='search')doSearch(lastBrowse.query);
   else if(lastBrowse.type==='history')loadHistory();
   else if(lastBrowse.type==='trending')loadTrending();
@@ -971,7 +990,7 @@ shareBtn.addEventListener('click',async()=>{
 });
 videoPlayer.addEventListener('playing',()=>{playerLoading.hidden=true});
 videoPlayer.addEventListener('waiting',()=>{playerLoading.hidden=false});
-videoPlayer.addEventListener('error',()=>{playerLoading.hidden=true;if(currentVideoId&&fallbackPlayer.hidden)void showPipedEmbed(currentVideoId);});
+videoPlayer.addEventListener('error',()=>{playerLoading.hidden=true;});
 
 window.addEventListener('popstate',()=>{
   const params=new URLSearchParams(location.search);
