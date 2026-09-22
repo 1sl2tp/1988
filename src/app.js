@@ -136,7 +136,6 @@ const miniTitle=$("#miniTitle");
 const miniExpand=$("#miniExpand");
 const miniClose=$("#miniClose");
 const bgAudio=$("#backgroundAudio");
-const installButton=$("#installButton");
 const playPauseButton=$("#playPauseButton");
 const seekRange=$("#seekRange");
 const currentTimeLabel=$("#currentTimeLabel");
@@ -876,63 +875,13 @@ function setupMediaSession(){
   safe("seekto",d=>{const m=activeMediaElement();if(m&&Number.isFinite(d.seekTime))m.currentTime=d.seekTime;});
 }
 function setupPwa(){
-  if("serviceWorker" in navigator){
-    window.addEventListener("load",async()=>{
-      try{
-        const registration=await navigator.serviceWorker.register("./sw.js",{scope:"./",updateViaCache:"none"});
-        await registration.update().catch(()=>{});
-      }catch{}
-    });
-  }
-
-  let deferred=null;
-  const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
-  const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
-
-  const refreshInstallButton=()=>{
-    if(!installButton)return;
-    if(standalone){
-      installButton.hidden=true;
-      return;
-    }
-    installButton.hidden=!(isiOS||deferred);
-    if(!installButton.hidden){
-      installButton.textContent="Cài";
-      installButton.setAttribute("aria-label","Cài 1988");
-    }
-  };
-
-  window.addEventListener("beforeinstallprompt",e=>{
-    e.preventDefault();
-    deferred=e;
-    refreshInstallButton();
+  if(!("serviceWorker" in navigator))return;
+  window.addEventListener("load",async()=>{
+    try{
+      const registration=await navigator.serviceWorker.register("./sw.js",{scope:"./",updateViaCache:"none"});
+      await registration.update().catch(()=>{});
+    }catch{}
   });
-
-  window.addEventListener("appinstalled",()=>{
-    deferred=null;
-    if(installButton)installButton.hidden=true;
-  });
-
-  installButton?.addEventListener("click",async()=>{
-    if(deferred){
-      deferred.prompt();
-      try{await deferred.userChoice;}catch{}
-      deferred=null;
-      refreshInstallButton();
-      return;
-    }
-
-    // iOS Safari has no programmatic install prompt. Open the same native
-    // share sheet used when installing chat/taphoaxyz, then the user can
-    // choose Add to Home Screen / Open as Web App.
-    if(isiOS&&navigator.share){
-      try{
-        await navigator.share({title:"1988",url:location.origin+location.pathname});
-      }catch{}
-    }
-  });
-
-  refreshInstallButton();
 }
 function setupZoomLock(){
   const editable=(target)=>target?.closest?.('input,textarea,[contenteditable="true"]');
