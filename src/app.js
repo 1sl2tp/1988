@@ -56,6 +56,13 @@ const apiChannelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
 const apiSponsors=(id)=>call("sponsors",{id});
 const apiBackground=(id)=>call("background",{id});
 const apiPlayback=(id)=>call("playback",{id});
+const directMediaUrl=(id,kind="video")=>{
+  const url=new URL(BASE);
+  url.searchParams.set("action","media");
+  url.searchParams.set("id",id);
+  url.searchParams.set("kind",kind);
+  return url.toString();
+};
 const apiBranding=(ids)=>call("branding",{ids:(Array.isArray(ids)?ids:[]).join(",")});
 function playerUrl(id){
   const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
@@ -199,12 +206,27 @@ function updatePlayerControls(){
 }
 function togglePlayerPlayback(){
   if(bgAudio&&!bgAudio.paused&&state.backgroundId===state.currentVideo){
-    bgAudio.pause();
+    if(state.playerEngine==="native"){
+      resumeForeground();
+    }else{
+      bgAudio.pause();
+    }
     return;
   }
   if(state.playerEngine==="native"&&nativeVideo){
-    if(nativeVideo.paused)nativeVideo.play().catch(()=>{});
-    else nativeVideo.pause();
+    if(nativeVideo.paused){
+      if(bgAudio?.dataset.id===state.currentVideo){
+        try{bgAudio.currentTime=nativeVideo.currentTime||0;}catch{}
+        bgAudio.muted=true;
+        bgAudio.volume=nativeVideo.volume;
+        const ap=bgAudio.play();if(ap?.catch)ap.catch(()=>{});
+      }
+      nativeVideo.play().catch(()=>{});
+    }else{
+      nativeVideo.pause();
+      if(bgAudio?.dataset.id===state.currentVideo)bgAudio.pause();
+      state.wasPlayingBeforeHide=false;
+    }
     return;
   }
   if(state.ytPlayerState===1)sendYT("pauseVideo",[]);
@@ -469,6 +491,51 @@ function maybeSkipSponsor(){
     }
   }
 }
+function primeNativePlaybackFromGesture(id){
+  if(!id||!nativeVideo||!playerBox)return false;
+  ++state.playerLoadSeq;
+  state.currentVideo=id;
+  state.currentInfo=null;
+  state.sponsorSegments=[];
+  state.ytTime=0;
+  state.ytDuration=0;
+  state.ytPlayerState=-1;
+  state.playerEngine="native";
+  state.nativeInfo=null;
+  state.nativeFallbackStarted=false;
+  state.backgroundId="";
+  state.backgroundInfo=null;
+  state.backgroundReady=false;
+  state.wasPlayingBeforeHide=true;
+  state.backgroundAuto=true;
+  localStorage.setItem(BG_AUTO_KEY,"1");
+
+  if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
+  playerBox.hidden=false;
+  nativeVideo.hidden=false;
+  nativeVideo.poster="";
+  nativeVideo.muted=false;
+  nativeVideo.src=directMediaUrl(id,"video");
+  nativeVideo.load();
+  const vp=nativeVideo.play();
+  if(vp?.catch)vp.catch(()=>{});
+
+  // Keep an audio-only stream alive and muted from the original tap.
+  // When iOS hides/locks the page we only unmute it instead of starting
+  // a new media element without a user gesture.
+  if(bgAudio){
+    try{bgAudio.pause();}catch{}
+    bgAudio.dataset.id=id;
+    bgAudio.dataset.source="direct";
+    bgAudio.muted=true;
+    bgAudio.volume=nativeVideo.volume;
+    bgAudio.src=directMediaUrl(id,"audio");
+    bgAudio.load();
+    const ap=bgAudio.play();
+    if(ap?.catch)ap.catch(()=>{});
+  }
+  return true;
+}
 function chooseNativeSource(info){
   if(!nativeVideo||!info)return null;
   const hls=String(info.hls||"");
@@ -716,15 +783,18 @@ async function toggleBackground(){
 }
 function resumeForeground(){
   if(!bgAudio)return;
-  const t=Number(bgAudio.currentTime)||0;
-  bgAudio.pause();
+  const t=Number(bgAudio.currentTime)||Number(state.ytTime)||0;
   state.ytTime=t;
   state.backgroundId="";
   playerBox?.classList.remove("background-active");
   if(state.playerEngine==="native"&&nativeVideo){
+    bgAudio.muted=true;
+    bgAudio.volume=nativeVideo.volume;
     try{nativeVideo.currentTime=t;}catch{}
+    if(bgAudio.paused){const ap=bgAudio.play();if(ap?.catch)ap.catch(()=>{});}
     nativeVideo.play().catch(()=>{});
   }else{
+    bgAudio.pause();
     sendYT("seekTo",[t,true]);
     sendYT("playVideo",[]);
   }
@@ -1018,6 +1088,7 @@ view.addEventListener("click",e=>{
   const item=e.target.closest("[data-kind][data-id]");if(!item)return;
   const kind=item.dataset.kind,id=item.dataset.id;
   if(kind==="video"){
+    primeNativePlaybackFromGesture(id);
     state.pendingVideoMeta={
       id,
       title:cleanText(item.querySelector(".title,.row-title")?.textContent||item.dataset.title||""),
@@ -1093,8 +1164,10 @@ playPauseButton?.addEventListener("click",togglePlayerPlayback);
 seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
 seekRange?.addEventListener("change",()=>{
   const t=Number(seekRange.value)||0;
-  if(state.playerEngine==="native"&&nativeVideo){try{nativeVideo.currentTime=t;}catch{}}
-  else sendYT("seekTo",[t,true]);
+  if(state.playerEngine==="native"&&nativeVideo){
+    try{nativeVideo.currentTime=t;}catch{}
+    if(bgAudio?.dataset.id===state.currentVideo){try{bgAudio.currentTime=t;}catch{}}
+  }else sendYT("seekTo",[t,true]);
 });
 muteButton?.addEventListener("click",togglePlayerMute);
 volumeRange?.addEventListener("input",()=>{
@@ -1104,6 +1177,7 @@ volumeRange?.addEventListener("input",()=>{
   if(state.playerEngine==="native"&&nativeVideo){
     nativeVideo.volume=v/100;
     nativeVideo.muted=v===0;
+    if(bgAudio?.dataset.id===state.currentVideo)bgAudio.volume=v/100;
   }else{
     sendYT("setVolume",[v]);
     if(v>0)sendYT("unMute",[]);
@@ -1122,11 +1196,16 @@ nativeVideo?.addEventListener("loadedmetadata",()=>{
 nativeVideo?.addEventListener("timeupdate",()=>{
   state.ytTime=Number(nativeVideo.currentTime)||0;
   state.ytDuration=Number(nativeVideo.duration)||state.ytDuration||0;
+  if(bgAudio?.dataset.id===state.currentVideo&&bgAudio.muted&&!bgAudio.paused){
+    const drift=Math.abs((Number(bgAudio.currentTime)||0)-state.ytTime);
+    if(drift>1.25){try{bgAudio.currentTime=state.ytTime;}catch{}}
+  }
   maybeSkipSponsor();
   updatePlayerControls();
   updatePositionState();
 });
 nativeVideo?.addEventListener("play",()=>{
+  if(bgAudio?.dataset.id===state.currentVideo&&state.backgroundId!==state.currentVideo)bgAudio.muted=true;
   state.ytPlayerState=1;
   state.ytMuted=!!nativeVideo.muted;
   state.ytVolume=Math.round((nativeVideo.volume||0)*100);
@@ -1138,7 +1217,13 @@ nativeVideo?.addEventListener("play",()=>{
 nativeVideo?.addEventListener("pause",()=>{
   state.ytPlayerState=2;
   updatePlayerControls();
-  if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&state.backgroundReady&&state.backgroundId!==state.currentVideo){
+  if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
+    bgAudio.muted=false;
+    state.backgroundId=state.currentVideo;
+    playerBox?.classList.add("background-active");
+    updateMediaSession(state.backgroundInfo||state.nativeInfo||state.currentInfo);
+    if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+  }else if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&state.backgroundReady&&state.backgroundId!==state.currentVideo){
     startBackgroundReady(state.currentVideo);
   }else if("mediaSession" in navigator&&(!bgAudio||bgAudio.paused)){
     navigator.mediaSession.playbackState="paused";
@@ -1155,7 +1240,8 @@ nativeVideo?.addEventListener("volumechange",()=>{
 });
 nativeVideo?.addEventListener("error",()=>{
   if(state.playerEngine==="native"&&!state.nativeFallbackStarted&&state.currentVideo){
-    startYoutubeFallback(state.currentVideo);
+    const id=state.currentVideo,seq=state.playerLoadSeq;
+    void startNativePlayer(id,seq);
   }
 });
 bgAudio?.addEventListener("play",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";});
@@ -1183,6 +1269,17 @@ function keepPlayingWhenHidden(){
   state.wasPlayingBeforeHide=state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):state.ytPlayerState===1;
   updateMediaSession(state.nativeInfo||state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
   if(!state.backgroundAuto||!state.wasPlayingBeforeHide||!state.currentVideo)return;
+  if(state.playerEngine==="native"&&bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
+    const t=Number(nativeVideo?.currentTime)||Number(state.ytTime)||0;
+    if(Math.abs((Number(bgAudio.currentTime)||0)-t)>0.4){try{bgAudio.currentTime=t;}catch{}}
+    bgAudio.volume=nativeVideo?.volume??1;
+    bgAudio.muted=false;
+    state.backgroundId=state.currentVideo;
+    playerBox?.classList.add("background-active");
+    try{nativeVideo?.pause();}catch{}
+    if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+    return;
+  }
   if(state.playerEngine==="youtube"){
     if(state.backgroundReady)startBackgroundReady(state.currentVideo);
     else prepareBackground(state.currentVideo).then(info=>{if(info&&document.hidden)startBackgroundReady(state.currentVideo);});
