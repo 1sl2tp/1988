@@ -383,10 +383,23 @@ function sendYT(func,args=[]){
     playerFrame?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args,id:"1988"}),"*");
   }catch{}
 }
+function disableCaptions(){
+  // cc_load_policy=0 only avoids forcing captions on; YouTube can still restore
+  // the viewer's previous CC preference. Explicitly clear and unload captions.
+  sendYT("setOption",["captions","track",{}]);
+  sendYT("unloadModule",["captions"]);
+  sendYT("unloadModule",["cc"]);
+}
+function enforceCaptionsOff(){
+  disableCaptions();
+  setTimeout(disableCaptions,300);
+  setTimeout(disableCaptions,1200);
+}
 function listenYT(){
   try{
     playerFrame?.contentWindow?.postMessage(JSON.stringify({event:"listening",id:"1988"}),"*");
   }catch{}
+  enforceCaptionsOff();
 }
 function normalizeSponsors(rows){
   return (Array.isArray(rows)?rows:[]).map(row=>{
@@ -622,6 +635,7 @@ window.addEventListener("message",e=>{
   if(!String(e.origin||"").includes("youtube"))return;
   let data=e.data;
   try{if(typeof data==="string")data=JSON.parse(data);}catch{return;}
+  if(data?.event==="onReady")enforceCaptionsOff();
   if(data?.event==="infoDelivery"){
     const info=data.info||{};
     if(Number.isFinite(Number(info.currentTime)))state.ytTime=Number(info.currentTime);
@@ -906,7 +920,7 @@ document.addEventListener("click",e=>{
   if(id)document.getElementById("playlistSheet")?.remove();
 });
 window.addEventListener("popstate",route);
-playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);});
+playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);});
 playPauseButton?.addEventListener("click",togglePlayerPlayback);
 seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
 seekRange?.addEventListener("change",()=>sendYT("seekTo",[Number(seekRange.value)||0,true]));
