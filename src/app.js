@@ -29,7 +29,8 @@ const state={
   currentMeta:null,
   mode:"video",
   suggestToken:0,
-  installPrompt:null
+  installPrompt:null,
+  audioMaster:false
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -114,15 +115,26 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
   audio:bgAudio,
   sourcesFor:backgroundSources,
   onState(event){
-    if(event.type==="ready"&&event.id===state.currentId&&state.mode==="video"){
-      statusText.textContent=event.count?"Audio HTML5 đã sẵn sàng":"Không có audio HTML5";
+    if(event.id&&event.id!==state.currentId)return;
+
+    if(event.type==="armed"){
+      statusText.textContent="Đang chuẩn bị âm thanh nền…";
     }
-    if(event.type==="source"&&event.id===state.currentId){
-      statusText.textContent="Đang phát nền bằng HTML5 Audio";
+
+    if(event.type==="source"){
+      state.audioMaster=true;
+      try{state.player?.mute?.();}catch{}
+      statusText.textContent="Âm thanh HTML5 đang chạy · khóa màn hình sẽ tiếp tục";
     }
-    if(event.type==="ended"&&state.mode==="background"){
-      state.mode="video";
-      updateModeUi();
+
+    if(event.type==="ready"&&!event.count){
+      state.audioMaster=false;
+      try{state.player?.unMute?.();}catch{}
+      statusText.textContent="Video đang phát · chưa có audio nền";
+    }
+
+    if(event.type==="ended"){
+      state.audioMaster=false;
       statusText.textContent="Đã phát xong";
     }
   }
@@ -183,11 +195,8 @@ function updateNow(meta={}){
 }
 
 function updateModeUi(){
-  const background=state.mode==="background";
-  backgroundBtn.disabled=background||!state.currentId;
-  videoBtn.disabled=!background||!state.currentId;
-  backgroundBtn.textContent=background?"Đang phát nền":"Phát nền";
-  videoBtn.textContent="Xem video";
+  backgroundBtn.hidden=true;
+  videoBtn.hidden=true;
 }
 
 function updateMediaSession(meta=state.currentMeta||{}){
@@ -216,12 +225,18 @@ async function playVideo(id,seedMeta={}){
   state.currentId=id;
   state.currentMeta={...seedMeta};
   state.mode="video";
+  state.audioMaster=false;
   playerSection.hidden=false;
+
+  // Arm HTML5 media immediately inside the user's tap. This keeps one real
+  // media element alive before iOS can suspend the iframe later.
+  backgroundPlayer.arm(id,{metadata:seedMeta});
 
   updateNow(seedMeta);
   updateModeUi();
-  statusText.textContent="Đang mở YouTube…";
-  prepareAudio(id);
+  statusText.textContent="Đang mở video và chuẩn bị âm thanh nền…";
+
+  try{state.player?.unMute?.();}catch{}
 
   if(state.playerReady&&state.player){
     try{
@@ -233,6 +248,24 @@ async function playVideo(id,seedMeta={}){
     state.pendingVideoId=id;
     initYouTubePlayer();
   }
+
+  // Resolve audio in parallel. The audio element was already activated by
+  // the tap, so switching it to the real source does not require another tap.
+  void backgroundPlayer.prepare(id).then(async rows=>{
+    if(state.currentId!==id||!rows.length)return;
+    try{
+      await backgroundPlayer.activate(id,{
+        time:getVideoTime(),
+        metadata:state.currentMeta||seedMeta
+      });
+    }catch{
+      if(state.currentId===id){
+        state.audioMaster=false;
+        try{state.player?.unMute?.();}catch{}
+        statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
+      }
+    }
+  });
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -246,57 +279,14 @@ async function playVideo(id,seedMeta={}){
     const meta=r?.data||{};
     state.currentMeta={...seedMeta,...meta};
     updateNow(state.currentMeta);
-    statusText.textContent="YouTube đang phát · bấm Phát nền để chuyển sang HTML5 Audio";
+    backgroundPlayer.setMetadata(state.currentMeta);
 
     const related=Array.isArray(meta.relatedStreams)?meta.relatedStreams:[];
     if(related.length){
       feedTitle.textContent="Gợi ý liên quan";
       renderCards(related.slice(0,18));
     }
-  }catch{
-    if(state.currentId===id){
-      statusText.textContent="YouTube đang phát";
-    }
-  }
-}
-
-function prepareAudio(id){
-  if(!id)return;
-  void backgroundPlayer.prepare(id);
-}
-
-async function startBackground(){
-  const id=state.currentId;
-  if(!id)return;
-  const t=getVideoTime();
-  statusText.textContent="Đang chuyển sang HTML5 Audio…";
-
-  try{
-    await backgroundPlayer.play(id,{
-      time:t,
-      metadata:state.currentMeta||{}
-    });
-    if(state.currentId!==id)return;
-    pauseVideoEngine();
-    state.mode="background";
-    updateModeUi();
-    statusText.textContent="Đang phát nền bằng HTML5 Audio · có thể khóa màn hình";
-  }catch(err){
-    state.mode="video";
-    updateModeUi();
-    statusText.textContent="Audio HTML5 chưa phát được · thử lại";
-  }
-}
-
-async function returnToVideo(){
-  if(!state.currentId)return;
-  const t=backgroundPlayer.time;
-  backgroundPlayer.pause();
-  state.mode="video";
-  seekVideo(t);
-  playVideoEngine();
-  updateModeUi();
-  statusText.textContent="Đang phát YouTube";
+  }catch{}
 }
 
 function setupMediaSession(){}
@@ -327,11 +317,19 @@ function initYouTubePlayer(){
       },
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
-          if(state.mode==="video"){
-            statusText.textContent="Đang phát YouTube · bấm Phát nền để chuyển sang HTML5 Audio";
+          if(state.audioMaster){
+            try{state.player?.mute?.();}catch{}
+            if(document.visibilityState==="visible"&&!backgroundPlayer.playing){
+              void backgroundPlayer.play();
+            }
           }
-        }else if(event.data===YT.PlayerState.PAUSED&&state.mode==="video"){
-          statusText.textContent="Đã tạm dừng";
+        }else if(event.data===YT.PlayerState.PAUSED){
+          // Ignore the iframe pausing because iOS hid/suspended it. The HTML5
+          // audio must remain alive while the PWA is backgrounded.
+          if(document.visibilityState==="visible"&&state.audioMaster){
+            backgroundPlayer.pause();
+            statusText.textContent="Đã tạm dừng";
+          }
         }
       },
       onError(){
@@ -420,9 +418,6 @@ feed.addEventListener("click",e=>{
   playVideo(id,rowFromCard(card));
 });
 
-backgroundBtn.addEventListener("click",startBackground);
-videoBtn.addEventListener("click",returnToVideo);
-
 shareBtn.addEventListener("click",async()=>{
   if(!state.currentId)return;
   const url="https://www.youtube.com/watch?v="+state.currentId;
@@ -439,6 +434,31 @@ shareBtn.addEventListener("click",async()=>{
     setTimeout(()=>shareBtn.textContent=old,900);
   }catch{}
 });
+
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState!=="visible")return;
+  if(!state.audioMaster||!state.currentId)return;
+
+  const t=backgroundPlayer.time;
+  seekVideo(t);
+  try{state.player?.mute?.();}catch{}
+  playVideoEngine();
+  if(!backgroundPlayer.playing)void backgroundPlayer.play();
+});
+
+setInterval(()=>{
+  if(document.visibilityState!=="visible"||!state.audioMaster||!backgroundPlayer.playing)return;
+  if(!state.playerReady||!state.player)return;
+
+  const videoTime=getVideoTime();
+  const audioTime=backgroundPlayer.time;
+  const drift=Math.abs(videoTime-audioTime);
+  if(drift>1.25){
+    // While visible, a large delta most often means the user scrubbed the
+    // YouTube controls. Follow that seek in the audio element.
+    backgroundPlayer.seek(videoTime);
+  }
+},1500);
 
 document.addEventListener("click",e=>{
   if(!e.target.closest(".search-box"))closeSuggestions();
