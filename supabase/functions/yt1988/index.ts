@@ -153,6 +153,83 @@ Deno.serve(async (req) => {
   const action = String(url.searchParams.get("action") || "health").toLowerCase();
 
   try {
+    if (action === "media") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      const kind = String(url.searchParams.get("kind") || "video").toLowerCase();
+      if (!validId(id, "video") || !["video", "audio"].includes(kind)) {
+        return json({ ok: false, error: "invalid_media_request" }, 400, 0);
+      }
+
+      const result = await piped(`/streams/${enc(id)}`, 15 * 1000);
+      const info: any = result.data || {};
+
+      const proxify = (raw: string) => {
+        try {
+          const media = new URL(raw);
+          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
+            const proxy = new URL(String(info.proxyUrl));
+            const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
+            media.searchParams.set("host", media.host);
+            media.protocol = proxy.protocol;
+            media.host = proxy.host;
+            media.pathname = prefix + media.pathname;
+          }
+          return media.toString();
+        } catch {
+          return raw;
+        }
+      };
+
+      const qualityNumber = (value: unknown) => {
+        const match = String(value || "").match(/(\d{3,4})/);
+        return match ? Number(match[1]) : 0;
+      };
+
+      let target = "";
+      if (kind === "audio") {
+        const rows = (Array.isArray(info.audioStreams) ? info.audioStreams : [])
+          .filter((s: any) => s?.url)
+          .slice()
+          .sort((a: any, b: any) => {
+            const aType = String(a?.mimeType || a?.format || "").toLowerCase();
+            const bType = String(b?.mimeType || b?.format || "").toLowerCase();
+            const aMp4 = aType.includes("mp4") ? 1 : 0;
+            const bMp4 = bType.includes("mp4") ? 1 : 0;
+            if (aMp4 !== bMp4) return bMp4 - aMp4;
+            return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
+          });
+        target = rows[0]?.url ? proxify(String(rows[0].url)) : "";
+        if (!target && typeof info.hls === "string") target = proxify(info.hls);
+      } else {
+        const rows = (Array.isArray(info.videoStreams) ? info.videoStreams : [])
+          .filter((s: any) => s?.url && s?.videoOnly !== true)
+          .slice()
+          .sort((a: any, b: any) => {
+            const aType = String(a?.mimeType || a?.format || "").toLowerCase();
+            const bType = String(b?.mimeType || b?.format || "").toLowerCase();
+            const aMp4 = aType.includes("mp4") ? 1 : 0;
+            const bMp4 = bType.includes("mp4") ? 1 : 0;
+            if (aMp4 !== bMp4) return bMp4 - aMp4;
+            const aq = qualityNumber(a?.quality);
+            const bq = qualityNumber(b?.quality);
+            if (aq !== bq) return bq - aq;
+            return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
+          });
+        target = rows[0]?.url ? proxify(String(rows[0].url)) : "";
+        if (!target && typeof info.hls === "string") target = proxify(info.hls);
+      }
+
+      if (!target) return json({ ok: false, error: "no_direct_media" }, 404, 0);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          ...CORS,
+          location: target,
+          "cache-control": "no-store",
+        },
+      });
+    }
+
     if (action === "playback") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
