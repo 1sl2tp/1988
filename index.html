@@ -336,8 +336,18 @@ const APIS=[
   'https://pipedapi.kavin.rocks',
   'https://pipedapi.leptons.xyz',
   'https://pipedapi.nosebs.ru',
-  'https://pipedapi.syncpundit.io',
-  'https://piped-api.garudalinux.org'
+  'https://pipedapi-libre.kavin.rocks',
+  'https://piped-api.privacy.com.de',
+  'https://pipedapi.adminforge.de',
+  'https://api.piped.yt',
+  'https://pipedapi.drgns.space',
+  'https://pipedapi.owo.si',
+  'https://pipedapi.ducks.party',
+  'https://piped-api.codespace.cz',
+  'https://pipedapi.reallyaweso.me',
+  'https://api.piped.private.coffee',
+  'https://pipedapi.darkness.services',
+  'https://pipedapi.orangenet.cc'
 ];
 const HISTORY_KEY='1988.youtube.history.v2';
 
@@ -435,16 +445,35 @@ async function api(path,{signal}={}){
   let lastError=null;
   for(let step=0;step<APIS.length;step++){
     const idx=(apiIndex+step)%APIS.length;
+    const base=APIS[idx];
+    const controller=new AbortController();
+    let timeout=0;
+    const abort=()=>controller.abort();
+    if(signal){
+      if(signal.aborted)throw new DOMException('Aborted','AbortError');
+      signal.addEventListener('abort',abort,{once:true});
+    }
     try{
-      const res=await fetch(APIS[idx]+path,{signal,cache:'no-store',headers:{accept:'application/json'}});
+      timeout=setTimeout(()=>controller.abort(),6500);
+      const res=await fetch(base+path,{
+        signal:controller.signal,
+        cache:'no-store',
+        mode:'cors',
+        credentials:'omit',
+        headers:{accept:'application/json'}
+      });
       if(!res.ok)throw new Error('HTTP '+res.status);
-      const data=await res.json();
+      const text=await res.text();
+      const data=JSON.parse(text);
       apiIndex=idx;
       setSourceLabel();
       return data;
     }catch(err){
       if(signal?.aborted)throw err;
       lastError=err;
+    }finally{
+      clearTimeout(timeout);
+      if(signal)signal.removeEventListener('abort',abort);
     }
   }
   throw lastError||new Error('Không có máy chủ khả dụng');
@@ -568,8 +597,9 @@ async function doSearch(query){
   try{
     const data=await api('/search?q='+encodeURIComponent(q)+'&filter=videos');
     renderVideos(data?.items||[]);
-  }catch{
-    setError('Không tìm kiếm được. Hãy bấm Đổi nguồn rồi thử lại.');
+  }catch(error){
+    console.warn('search failed',error);
+    setError('Nguồn tìm kiếm hiện không phản hồi. Hệ thống đã thử toàn bộ máy chủ Piped; bấm Đổi nguồn để thử lại.');
     renderVideos([]);
   }
 }
@@ -579,15 +609,13 @@ async function suggest(query){
   suggestController?.abort();
   suggestController=new AbortController();
   try{
-    const data=await api('/search?q='+encodeURIComponent(q)+'&filter=videos',{signal:suggestController.signal});
-    const rows=(data?.items||[]).filter(r=>idFromItem(r)).slice(0,6);
+    const data=await api('/opensearch/suggestions?query='+encodeURIComponent(q),{signal:suggestController.signal});
+    const rows=Array.isArray(data?.[1])?data[1].filter(Boolean).slice(0,8):[];
     if(!rows.length){searchSuggest.classList.remove('show');return;}
-    searchSuggest.innerHTML=rows.map(row=>`
-      <button class="suggest-item" type="button" data-video="${escapeHtml(idFromItem(row))}">
-        <img class="suggest-thumb" src="${escapeHtml(row.thumbnail||'')}" alt="">
+    searchSuggest.innerHTML=rows.map(text=>`
+      <button class="suggest-item" type="button" data-query="${escapeHtml(text)}">
         <span class="suggest-text">
-          <span class="suggest-title">${escapeHtml(row.title||'')}</span>
-          <span class="suggest-channel">${escapeHtml(row.uploaderName||'')}</span>
+          <span class="suggest-title">${escapeHtml(text)}</span>
         </span>
       </button>`).join('');
     searchSuggest.classList.add('show');
@@ -725,8 +753,10 @@ searchInput.addEventListener('keydown',event=>{
 });
 searchButton.addEventListener('click',()=>doSearch(searchInput.value));
 searchSuggest.addEventListener('click',event=>{
-  const btn=event.target.closest('[data-video]');
-  if(btn)openVideo(btn.dataset.video);
+  const btn=event.target.closest('[data-query]');
+  if(!btn)return;
+  searchInput.value=btn.dataset.query||'';
+  doSearch(searchInput.value);
 });
 grid.addEventListener('click',event=>{
   const card=event.target.closest('[data-video]');
