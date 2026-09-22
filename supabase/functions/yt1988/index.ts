@@ -117,6 +117,55 @@ Deno.serve(async (req) => {
   const action = String(url.searchParams.get("action") || "health").toLowerCase();
 
   try {
+    if (action === "branding") {
+      const raw = String(url.searchParams.get("ids") || "");
+      const ids = [...new Set(raw.split(",").map((v) => v.trim()).filter((v) => validId(v, "video")))].slice(0, 24);
+      if (!ids.length) return json({ ok: true, data: {} }, 200, 300);
+
+      const fetchBranding = async (id: string) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2200);
+        try {
+          const endpoint = new URL("https://sponsor.ajay.app/api/branding");
+          endpoint.searchParams.set("videoID", id);
+          endpoint.searchParams.set("fetchAll", "true");
+          const res = await fetch(endpoint, {
+            signal: controller.signal,
+            headers: { accept: "application/json" },
+          });
+          if (res.status === 404) return [id, null] as const;
+          if (!res.ok) throw new Error(`dearrow_http_${res.status}`);
+          const data = await res.json();
+
+          const titleRow = Array.isArray(data?.titles)
+            ? data.titles.find((row: any) => row && row.original === false && typeof row.title === "string")
+            : null;
+          const thumbRow = Array.isArray(data?.thumbnails)
+            ? data.thumbnails.find((row: any) => row && row.original === false && Number.isFinite(Number(row.timestamp)))
+            : null;
+
+          const out: Record<string, unknown> = {};
+          if (titleRow?.title) out.title = String(titleRow.title).replaceAll("‹", "<");
+          if (thumbRow) {
+            const thumb = new URL("https://dearrow-thumb.ajay.app/api/v1/getThumbnail");
+            thumb.searchParams.set("videoID", id);
+            thumb.searchParams.set("time", String(Number(thumbRow.timestamp)));
+            out.thumbnailUrl = thumb.toString();
+            out.thumbnailTime = Number(thumbRow.timestamp);
+          }
+          return [id, Object.keys(out).length ? out : null] as const;
+        } catch {
+          return [id, null] as const;
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      const rows = await Promise.all(ids.map(fetchBranding));
+      const data = Object.fromEntries(rows.filter(([, value]) => value));
+      return json({ ok: true, data }, 200, 300);
+    }
+
     if (action === "player") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
