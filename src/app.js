@@ -928,6 +928,503 @@ function showInstallSheet(){
   });
 }
 function setupPwa(){}
+window.addEventListener("message",e=>{
+  if(!String(e.origin||"").includes("youtube"))return;
+  let data=e.data;
+  try{if(typeof data==="string")data=JSON.parse(data);}catch{return;}
+  if(data?.event==="onReady")enforceCaptionsOff();
+  if(data?.event==="infoDelivery"){
+    const info=data.info||{};
+    if(Number.isFinite(Number(info.currentTime))){
+      state.ytTime=Number(info.currentTime);
+      if(state.playerEngine==="youtube"&&bgAudio?.dataset.id===state.currentVideo&&bgAudio.muted&&!bgAudio.paused){
+        const drift=Math.abs((Number(bgAudio.currentTime)||0)-state.ytTime);
+        if(drift>1.25){try{bgAudio.currentTime=state.ytTime;}catch{}}
+      }
+    }
+    if(Number.isFinite(Number(info.duration))&&Number(info.duration)>0)state.ytDuration=Number(info.duration);
+    if(Number.isFinite(Number(info.playerState)))state.ytPlayerState=Number(info.playerState);
+    if(Number.isFinite(Number(info.volume)))state.ytVolume=Number(info.volume);
+    if(typeof info.muted==="boolean")state.ytMuted=info.muted;
+    maybeSkipSponsor();
+    updatePlayerControls();
+  }
+  if(data?.event==="onStateChange"){
+    const value=Number(data.info);
+    if(Number.isFinite(value)){
+      state.ytPlayerState=value;
+      updatePlayerControls();
+      if(value===1)setTimeout(()=>playerAspect?.classList.remove("yt-transition-cover"),350);
+    }
+  }
+});
+
+
+async function home(topic="all"){
+  setActive("home");searchInput.value="";
+  const selected=HOME_TOPICS.find(x=>x.id===topic)||HOME_TOPICS[0];
+  const token=++state.token;state.next=null;state.more=null;
+  const cacheKey="home:fixed:"+selected.id;
+  const cached=getFeedCache(cacheKey);
+  if(cached?.length){
+    renderCollection("Dành cho bạn",cached,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("home",selected.id));
+  }else{
+    view.innerHTML=topicBar("home",selected.id)+'<div class="section-head"><h1>Dành cho bạn</h1></div>'+loading();
+  }
+  try{
+    const r=await api.home(selected.query);if(token!==state.token)return;
+    const items=r.data?.items||r.data||[];
+    setFeedCache(cacheKey,items);
+    renderCollection("Dành cho bạn",items,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("home",selected.id));
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML=topicBar("home",selected.id)+'<div class="error">Không tải được Trang chủ.</div>';
+  }
+}
+async function trendingPage(topic="top"){
+  setActive("trending");searchInput.value="";
+  const selected=TREND_TOPICS.find(x=>x.id===topic)||TREND_TOPICS[0];
+  const token=++state.token;state.next=null;state.more=null;
+  const cacheKey="trending:"+selected.id;
+  const cached=getFeedCache(cacheKey);
+  const heading=selected.id==="top"?"Thịnh hành tại Việt Nam":selected.label;
+  if(cached?.length){
+    renderCollection(heading,cached,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("trending",selected.id));
+  }else{
+    view.innerHTML=topicBar("trending",selected.id)+'<div class="section-head"><h1>'+esc(heading)+'</h1></div>'+loading();
+  }
+  try{
+    const r=selected.id==="top"?await api.trending("VN"):await api.search(selected.query,"videos");
+    if(token!==state.token)return;
+    const items=selected.id==="top"?(r.data||[]):(r.data?.items||[]);
+    setFeedCache(cacheKey,items);
+    renderCollection(heading,items,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("trending",selected.id));
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML=topicBar("trending",selected.id)+'<div class="error">Không tải được '+esc(heading)+'.</div>';
+  }
+}
+
+async function searchPage(q){
+  setActive("");searchInput.value=q;
+  const token=++state.token;state.next=null;
+  const cacheKey="search:"+String(q||"").trim().toLocaleLowerCase("vi");
+  const cached=getFeedCache(cacheKey);
+  if(cached?.length)renderCollection("Kết quả tìm kiếm",cached,"");
+  else view.innerHTML='<div class="section-head"><h1>Kết quả tìm kiếm</h1></div>'+loading();
+  try{
+    const r=await api.search(q,"all");if(token!==state.token)return;
+    state.next=r.data?.nextpage||null;
+    const items=r.data?.items||[];
+    setFeedCache(cacheKey,items);
+    renderCollection("Kết quả tìm kiếm",items,"");
+    state.more=async()=>{
+      if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;
+      const x=await api.searchNext(q,"all",next);state.next=x.data?.nextpage||null;renderCollection("",x.data?.items||[],"",true);
+    };
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML='<div class="error">Tìm kiếm đang lỗi nguồn. Thử lại.</div>';
+  }
+}
+function historyPage(){
+  ++state.token;setActive("history");state.next=null;state.more=null;
+  const items=read(HISTORY_KEY).map(x=>({type:"stream",url:"/watch?v="+x.id,title:x.title,thumbnail:x.thumbnail,uploaderName:x.uploaderName,views:x.views,duration:x.duration}));
+  renderCollection("Đã xem",items);
+}
+
+function playlistsPage(){
+  ++state.token;setActive("playlists");state.next=null;state.more=null;
+  const mine=readMyLists();
+  const recent=read(PLAYLIST_KEY);
+  const localCards=mine.map(list=>{
+    const first=list.items?.[0]||{};
+    return '<article class="library-card" data-kind="mylist" data-id="'+esc(list.id)+'"><div class="library-cover">'+(first.thumbnail?'<img src="'+esc(first.thumbnail)+'" alt="">':'<div class="library-placeholder">'+svgIcon("list",28)+'</div>')+'<div class="library-stack"></div><span class="library-count">'+esc(String(list.items?.length||0))+' video</span><span class="library-play">'+svgIcon("play",20)+'</span></div><div class="library-copy"><h3>'+esc(list.name)+'</h3><p>Danh sách của tôi</p></div></article>';
+  }).join("");
+  const ytCards=recent.map(list=>{
+    return '<article class="library-card" data-kind="playlist" data-id="'+esc(list.id)+'"><div class="library-cover">'+(list.thumbnail?'<img src="'+esc(list.thumbnail)+'" alt="">':'<div class="library-placeholder">'+svgIcon("list",28)+'</div>')+'<div class="library-stack"></div><span class="library-count">'+esc(String(list.videos||0))+' video</span><span class="library-play">'+svgIcon("play",20)+'</span></div><div class="library-copy"><h3>'+esc(list.name||"Danh sách phát")+'</h3><p>'+esc(list.uploader||"Playlist YouTube")+'</p></div></article>';
+  }).join("");
+  view.innerHTML=
+    '<div class="library-head"><div><h1>Danh sách</h1><p>Video và playlist bạn đã lưu</p></div><span class="library-total">'+esc(String(mine.length+recent.length))+'</span></div>'+
+    '<section class="library-section"><div class="library-section-head"><h2>Danh sách của tôi</h2><span>'+esc(String(mine.length))+'</span></div><div class="library-grid">'+
+      (localCards||'<div class="library-empty"><div>'+svgIcon("list",30)+'</div><strong>Chưa có danh sách</strong><span>Mở một video và chọn “Danh sách” để tạo.</span></div>')+
+    '</div></section>'+
+    '<section class="library-section"><div class="library-section-head"><h2>Playlist gần đây</h2><span>'+esc(String(recent.length))+'</span></div><div class="library-grid">'+
+      (ytCards||'<div class="library-empty"><div>'+svgIcon("list",30)+'</div><strong>Chưa có playlist</strong><span>Playlist YouTube đã mở sẽ xuất hiện tại đây.</span></div>')+
+    '</div></section>';
+}
+
+function myListPage(id){
+  ++state.token;setActive("playlists");state.next=null;state.more=null;
+  const list=readMyLists().find(x=>x.id===id);
+  if(!list){view.innerHTML='<div class="error">Không tìm thấy danh sách.</div>';return;}
+  const items=(list.items||[]).map(x=>({type:"stream",url:"/watch?v="+x.id,title:x.title,thumbnail:x.thumbnail,uploaderName:x.uploaderName,views:x.views,duration:x.duration}));
+  const first=list.items?.[0]||null;
+  view.innerHTML='<section class="playlist-detail"><div class="playlist-detail-cover">'+(first?.thumbnail?'<img src="'+esc(first.thumbnail)+'" alt="">':'<div class="playlist-detail-placeholder">'+svgIcon("list",32)+'</div>')+'</div><div class="playlist-detail-copy"><span class="playlist-kicker">Danh sách của tôi</span><h1>'+esc(list.name)+'</h1><p>'+esc(String(items.length))+' video</p><div class="playlist-actions">'+(first?'<button class="playlist-primary" id="playListFirst" type="button">'+svgIcon("play",17)+'<span>Phát từ đầu</span></button>':'')+'<button class="playlist-secondary" id="shareList" type="button">'+svgIcon("share",17)+'<span>Chia sẻ</span></button></div></div></section><div class="playlist-list-head"><strong>Video</strong><span>'+esc(String(items.length))+'</span></div><div class="compact playlist-video-list" id="feed">'+compactRows(items)+'</div>';
+  if(first)$("#playListFirst").onclick=()=>{state.pendingVideoMeta={...first};navigate({v:first.id});};
+  $("#shareList").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareList span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareList span:last-child").textContent="Chia sẻ";},900);}catch{}};
+  void enhanceDeArrow($("#feed"));
+}
+async function playlistPage(id){
+  setActive("playlists");const token=++state.token;state.next=null;state.more=null;
+  view.innerHTML='<section class="playlist-detail playlist-loading"><div class="playlist-detail-cover skeleton"></div><div class="playlist-detail-copy"><div class="skeleton" style="height:11px;width:90px;border-radius:4px"></div><div class="skeleton" style="height:22px;width:75%;border-radius:5px;margin-top:10px"></div><div class="skeleton" style="height:11px;width:140px;border-radius:4px;margin-top:9px"></div></div></section><div class="playlist-list-head"><strong>Video</strong></div><div class="compact playlist-video-list" id="feed">'+loading()+'</div>';
+  try{
+    const r=await api.playlist(id);if(token!==state.token)return;
+    const d=r.data||{};savePlaylist(d,id);
+    let rows=Array.isArray(d.relatedStreams)?d.relatedStreams:[];
+    state.next=d.nextpage||null;
+    if(!rows.length&&state.next){
+      try{
+        const x=await api.playlistNext(id,state.next);
+        if(token!==state.token)return;
+        rows=x.data?.relatedStreams||x.data?.items||[];
+        state.next=x.data?.nextpage||null;
+      }catch{}
+    }
+    const first=rows[0]||null;
+    view.innerHTML='<section class="playlist-detail"><div class="playlist-detail-cover">'+(d.thumbnailUrl?'<img src="'+esc(d.thumbnailUrl)+'" alt="">':'<div class="playlist-detail-placeholder">'+svgIcon("list",32)+'</div>')+'</div><div class="playlist-detail-copy"><span class="playlist-kicker">Playlist</span><h1>'+esc(d.name||"Danh sách phát")+'</h1><p>'+esc(d.uploader||"")+(d.videos>=0?' · '+esc(String(d.videos))+' video':'')+'</p><div class="playlist-actions">'+(first?'<button class="playlist-primary" id="playListFirst" type="button">'+svgIcon("play",17)+'<span>Phát từ đầu</span></button>':'')+'<button class="playlist-secondary" id="shareList" type="button">'+svgIcon("share",17)+'<span>Chia sẻ</span></button></div></div></section><div class="playlist-list-head"><strong>Video</strong><span>'+esc(String(d.videos||rows.length||0))+'</span></div><div class="compact playlist-video-list" id="feed">'+compactRows(rows)+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
+    if(first){
+      const firstId=videoId(first.url||first.videoId||"");
+      $("#playListFirst").onclick=()=>{if(!firstId)return;state.pendingVideoMeta={id:firstId,title:cleanText(first.title||""),uploaderName:cleanText(first.uploaderName||""),views:Number(first.views)||0,duration:Number(first.duration)||0,thumbnail:first.thumbnail||""};navigate({v:firstId});};
+    }
+    $("#shareList").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareList span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareList span:last-child").textContent="Chia sẻ";},900);}catch{}};
+    void enhanceDeArrow($("#feed"));
+    state.more=async()=>{
+      if(!state.next)return;
+      const next=state.next;state.next=null;$("#moreButton").hidden=true;
+      const x=await api.playlistNext(id,next);
+      state.next=x.data?.nextpage||null;
+      $("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));
+      void enhanceDeArrow($("#feed"));
+      $("#moreButton").hidden=!state.next;
+    };
+  }catch{
+    if(token===state.token)view.innerHTML='<div class="error">Không tải được nội dung danh sách. Thử lại.</div>';
+  }
+}
+async function channelPage(id){
+  setActive("");const token=++state.token;state.next=null;
+  view.innerHTML='<div class="hero"><div class="skeleton" style="height:170px;border-radius:12px"></div></div>'+loading();
+  try{
+    const r=await api.channel(id);if(token!==state.token)return;const d=r.data||{};state.next=d.nextpage||null;
+    view.innerHTML='<section class="hero">'+(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.avatarUrl?'<img class="hero-avatar" src="'+esc(d.avatarUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Kênh")+'</h1><p>'+esc(fmt(d.subscriberCount||0))+' người đăng ký</p></div></div>'+(d.description?'<p>'+esc(d.description)+'</p>':'')+'</section><div class="subhead">Video</div><div class="compact" id="feed">'+compactRows(d.relatedStreams||[])+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
+    void enhanceDeArrow($("#feed"));
+    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.channelNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));void enhanceDeArrow($("#feed"));$("#moreButton").hidden=!state.next;};
+  }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
+}
+async function fillRelated(title,id,initial=[]){
+  const related=$("#related");
+  if(!related)return;
+  let rows=Array.isArray(initial)?initial.filter(row=>videoId(row?.url||row?.videoId||"")!==id):[];
+  if(!rows.length&&title){
+    try{
+      const r=await api.search(title,"videos");
+      rows=(r?.data?.items||[]).filter(row=>videoId(row?.url||row?.videoId||"")!==id);
+    }catch{}
+  }
+  related.innerHTML=compactRows(rows.slice(0,18));
+  if(!rows.length)related.innerHTML='<div class="related-empty">Chưa có gợi ý liên quan.</div>';
+  else void enhanceDeArrow(related);
+}
+async function watchPage(id){
+  setActive("");const token=++state.token;
+  ensureVideoPlayer(id);
+  const pending=state.pendingVideoMeta?.id===id?state.pendingVideoMeta:null;
+  const cached=read(HISTORY_KEY).find(x=>x.id===id);
+  const instant=pending||cached;
+  const initialTitle=cleanText(instant?.title)||"Đang tải thông tin…";
+  const initialPublished=videoPublishedLabel(instant||{});
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div><div class="channel-sub">'+esc(initialPublished)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ","action-secondary")+actionButton("reloadPlayer","reload","Tải lại","action-secondary")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  $("#backgroundButton").disabled=false;$("#backgroundButton").querySelector("span:last-child").textContent="Phát nền";$("#backgroundButton").onclick=toggleBackground;
+  $("#addListButton").onclick=openPlaylistSheet;
+  $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
+  $("#reloadPlayer").onclick=()=>{
+    ++state.playerLoadSeq;
+    state.playerEngine="youtube";
+    stopNativePlayer();
+    if(playerFrame){
+      playerFrame.hidden=false;
+      playerFrame.src=api.playerUrl(id);
+      setTimeout(listenYT,250);
+      setTimeout(listenYT,850);
+    }
+  };
+  $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").querySelector("span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareVideo").querySelector("span:last-child").textContent="Chia sẻ";},900);}catch{}};
+  void prepareBackground(id);
+  try{
+    const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
+    state.currentInfo=d;
+    const title=cleanText(d.title)||cleanText(instant?.title)||("Video "+id);
+    const uploader=cleanText(d.uploader)||cleanText(instant?.uploaderName)||"";
+    saveHistory({...d,title,uploader},id);
+    $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
+    const cid=channelId(d.uploaderUrl||"");
+    const published=videoPublishedLabel(d);
+    $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'')+'<div class="channel-copy" '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(uploader||"Không rõ kênh")+'</div><div class="channel-sub">'+esc(published)+'</div></div>';
+    $("#videoSource").textContent="Nguồn · YouTube";
+    const stats=[];if(Number(d.views)>0)stats.push(fmt(d.views)+" lượt xem");if(Number(d.duration)>0)stats.push(dur(d.duration));$("#videoStats").textContent=stats.join(" · ");
+    if(d.description){$("#description").textContent=cleanText(d.description);$("#description").hidden=false;}
+    void fillRelated(title,id,d.relatedStreams||[]);
+    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token){const clean=cleanText(b.title);$("#watchTitle").textContent=clean;updateMiniTitle(clean);}}).catch(()=>{});
+    state.sponsorSegments=normalizeSponsors(s?.data);
+    $("#sponsorBadge").innerHTML=svgIcon("shield",17)+'<span>'+(state.sponsorSegments.length?("SponsorBlock · "+state.sponsorSegments.length):"SponsorBlock")+'</span>';
+    const bg=await prepareBackground(id);if(bg)updateMediaSession({...bg,title});
+  }catch{
+    const fallbackTitle=cleanText(instant?.title)||("Video "+id);
+    $("#watchTitle").textContent=fallbackTitle;updateMiniTitle(fallbackTitle);
+    void fillRelated(fallbackTitle,id,[]);
+  }
+}
+function route(){
+  closeSuggestions();const p=new URLSearchParams(location.search);
+  const v=p.get("v"),list=p.get("list"),mylist=p.get("mylist"),channel=p.get("channel"),q=p.get("q"),page=p.get("page"),topic=p.get("topic")||"";
+  if(v)return watchPage(v);
+  if(list){if(state.currentVideo)minimizeVideo();return playlistPage(list);}
+  if(mylist){if(state.currentVideo)minimizeVideo();return myListPage(mylist);}
+  if(state.currentVideo)minimizeVideo();
+  if(channel)return channelPage(channel);if(q)return searchPage(q);
+  if(page==="trending")return trendingPage(topic||"top");
+  if(page==="history")return historyPage();
+  if(page==="playlists")return playlistsPage();
+  return home(topic||"all");
+}
+
+view.addEventListener("click",e=>{
+  const more=e.target.closest("#moreButton");if(more&&state.more){state.more().catch(()=>{});return;}
+  const item=e.target.closest("[data-kind][data-id]");if(!item)return;
+  const kind=item.dataset.kind,id=item.dataset.id;
+  if(kind==="video"){
+    primeBackgroundFromGesture(id);
+    state.pendingVideoMeta={
+      id,
+      title:cleanText(item.querySelector(".title,.row-title")?.textContent||item.dataset.title||""),
+      uploaderName:cleanText(item.dataset.uploader||item.querySelector(".meta-channel,.row-channel")?.textContent||""),
+      views:Number(item.dataset.views)||0,
+      duration:Number(item.dataset.duration)||0,
+      uploaded:Number(item.dataset.uploaded)||0,
+      uploadDate:cleanText(item.dataset.uploadDate)||"",
+      uploadedDate:cleanText(item.dataset.uploadedDate)||"",
+      thumbnail:item.dataset.thumb||item.querySelector("img")?.src||""
+    };
+    navigate({v:id});
+  }else if(kind==="playlist")navigate({list:id});else if(kind==="mylist")navigate({mylist:id});else if(kind==="channel")navigate({channel:id});
+});
+view.addEventListener("click",e=>{
+  const chip=e.target.closest("[data-topic-kind][data-topic-id]");
+  if(!chip)return;
+  const kind=chip.dataset.topicKind,topic=chip.dataset.topicId;
+  if(kind==="trending")navigate({page:"trending",topic});
+  else navigate({topic});
+});
+homeButton.addEventListener("click",()=>navigate({}));
+document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="home")navigate({});else navigate({page:n});}));
+let suggestTimer=0,suggestAbort=0;
+const suggestionRowsCache=new Map();
+let lastSuggestionRows=[];
+function renderSuggestions(rows,query=""){
+  const q=cleanText(query).toLocaleLowerCase("vi");
+  const clean=[...new Set((rows||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))]
+    .filter(x=>!q||x.toLocaleLowerCase("vi")!==q)
+    .slice(0,8);
+  if(!clean.length){
+    suggestionsEl.innerHTML="";
+    suggestionsEl.hidden=true;
+    return [];
+  }
+  suggestionsEl.innerHTML=clean.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
+  suggestionsEl.hidden=false;
+  return clean;
+}
+function closeSuggestions(){clearTimeout(suggestTimer);suggestAbort++;suggestionsEl.hidden=true;suggestionsEl.innerHTML="";}
+searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.value.trim();if(q){closeSuggestions();searchInput.blur();navigate({q});}});
+searchInput.addEventListener("input",()=>{
+  clearTimeout(suggestTimer);
+  suggestionsEl.hidden=true;
+  suggestionsEl.innerHTML="";
+  const q=searchInput.value.trim();
+  if(q.length<2){closeSuggestions();return;}
+  const key=q.toLocaleLowerCase("vi");
+  const exact=suggestionRowsCache.get(key);
+  if(exact?.length)renderSuggestions(exact,q);
+  else{
+    const provisional=lastSuggestionRows
+      .filter(x=>cleanText(x).toLocaleLowerCase("vi").includes(key))
+      .slice(0,8);
+    if(provisional.length)renderSuggestions(provisional,q);
+  }
+  const mark=++suggestAbort;
+  suggestTimer=setTimeout(async()=>{try{
+    const raw=await api.suggestions(q);
+    const rows=[...new Set((raw||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
+    suggestionRowsCache.set(key,rows);
+    lastSuggestionRows=rows;
+    if(suggestionRowsCache.size>40)suggestionRowsCache.delete(suggestionRowsCache.keys().next().value);
+    if(mark!==suggestAbort)return;
+    renderSuggestions(rows,q);
+  }catch{
+    if(mark===suggestAbort){
+      suggestionsEl.innerHTML="";
+      suggestionsEl.hidden=true;
+    }
+  }},70);
+});
+searchInput.addEventListener("focus",()=>{if(searchInput.value.trim().length>=2)searchInput.dispatchEvent(new Event("input"));});
+suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;closeSuggestions();searchInput.blur();navigate({q});});
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".search"))closeSuggestions();
+  if(e.target.closest("[data-close-sheet]")||e.target.classList.contains("sheet-backdrop"))document.getElementById("playlistSheet")?.remove();
+  const add=e.target.closest("[data-add-list]");
+  if(add){
+    addCurrentToList(add.dataset.addList);
+    add.querySelector("small").textContent="Đã thêm";
+  }
+});
+document.addEventListener("click",e=>{
+  if(e.target.id!=="createListButton")return;
+  const input=document.getElementById("newListName");
+  const id=createListFromCurrent(input?.value||"");
+  if(id)document.getElementById("playlistSheet")?.remove();
+});
+window.addEventListener("popstate",route);
+playerFrame?.addEventListener("load",()=>{if(state.playerEngine==="youtube"){setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);}});
+playPauseButton?.addEventListener("click",togglePlayerPlayback);
+seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
+seekRange?.addEventListener("change",()=>{
+  const t=Number(seekRange.value)||0;
+  if(state.playerEngine==="native"&&nativeVideo){
+    try{nativeVideo.currentTime=t;}catch{}
+    if(bgAudio?.dataset.id===state.currentVideo){try{bgAudio.currentTime=t;}catch{}}
+  }else sendYT("seekTo",[t,true]);
+});
+muteButton?.addEventListener("click",togglePlayerMute);
+volumeRange?.addEventListener("input",()=>{
+  const v=Math.max(0,Math.min(100,Number(volumeRange.value)||0));
+  state.ytVolume=v;
+  state.ytMuted=v===0;
+  if(state.playerEngine==="native"&&nativeVideo){
+    nativeVideo.volume=v/100;
+    nativeVideo.muted=v===0;
+    if(bgAudio?.dataset.id===state.currentVideo)bgAudio.volume=v/100;
+  }else{
+    sendYT("setVolume",[v]);
+    if(v>0)sendYT("unMute",[]);
+  }
+  updatePlayerControls();
+});
+fullscreenButton?.addEventListener("click",enterPlayerFullscreen);
+miniExpand?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
+miniClose?.addEventListener("click",closeVideo);
+miniTitle?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
+nativeVideo?.addEventListener("loadedmetadata",()=>{
+  state.ytDuration=Number(nativeVideo.duration)||Number(state.nativeInfo?.duration)||0;
+  updatePlayerControls();
+  updateMediaSession(state.nativeInfo||state.currentInfo);
+});
+nativeVideo?.addEventListener("timeupdate",()=>{
+  state.ytTime=Number(nativeVideo.currentTime)||0;
+  state.ytDuration=Number(nativeVideo.duration)||state.ytDuration||0;
+  if(bgAudio?.dataset.id===state.currentVideo&&bgAudio.muted&&!bgAudio.paused){
+    const drift=Math.abs((Number(bgAudio.currentTime)||0)-state.ytTime);
+    if(drift>1.25){try{bgAudio.currentTime=state.ytTime;}catch{}}
+  }
+  maybeSkipSponsor();
+  updatePlayerControls();
+  updatePositionState();
+});
+nativeVideo?.addEventListener("play",()=>{
+  if(bgAudio?.dataset.id===state.currentVideo&&state.backgroundId!==state.currentVideo)bgAudio.muted=true;
+  state.ytPlayerState=1;
+  state.ytMuted=!!nativeVideo.muted;
+  state.ytVolume=Math.round((nativeVideo.volume||0)*100);
+  state.wasPlayingBeforeHide=true;
+  updatePlayerControls();
+  updateMediaSession(state.nativeInfo||state.currentInfo);
+  if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+});
+nativeVideo?.addEventListener("pause",()=>{
+  state.ytPlayerState=2;
+  updatePlayerControls();
+  if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
+    bgAudio.muted=false;
+    state.backgroundId=state.currentVideo;
+    playerBox?.classList.add("background-active");
+    updateMediaSession(state.backgroundInfo||state.nativeInfo||state.currentInfo);
+    if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+  }else if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&state.backgroundReady&&state.backgroundId!==state.currentVideo){
+    startBackgroundReady(state.currentVideo);
+  }else if("mediaSession" in navigator&&(!bgAudio||bgAudio.paused)){
+    navigator.mediaSession.playbackState="paused";
+  }
+});
+nativeVideo?.addEventListener("ended",()=>{
+  state.ytPlayerState=0;
+  updatePlayerControls();
+});
+nativeVideo?.addEventListener("volumechange",()=>{
+  state.ytMuted=!!nativeVideo.muted;
+  state.ytVolume=Math.round((nativeVideo.volume||0)*100);
+  updatePlayerControls();
+});
+nativeVideo?.addEventListener("error",()=>{
+  if(state.playerEngine==="native"&&!state.nativeFallbackStarted&&state.currentVideo){
+    const id=state.currentVideo,seq=state.playerLoadSeq;
+    void startNativePlayer(id,seq);
+  }
+});
+bgAudio?.addEventListener("play",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";});
+bgAudio?.addEventListener("pause",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";});
+bgAudio?.addEventListener("timeupdate",()=>{updatePositionState();maybeSkipBackgroundSponsor();});
+bgAudio?.addEventListener("ended",()=>{state.backgroundId="";playerBox?.classList.remove("background-active");});
+bgAudio?.addEventListener("error",()=>{
+  const info=state.backgroundInfo;
+  const rows=Array.isArray(info?.sources)?info.sources:[];
+  const next=state.backgroundSourceIndex+1;
+  if(info&&next>=0&&next<rows.length&&applyBackgroundSource(info,next)){
+    state.backgroundReady=true;
+    if(state.backgroundId===state.currentVideo){
+      const p=bgAudio.play();
+      if(p?.catch)p.catch(()=>{});
+    }else{
+      backgroundButtonState("Phát nền",false);
+    }
+    return;
+  }
+  const id=state.currentVideo;
+  state.backgroundReady=false;
+  if(id){
+    prepareBackground(id).then(nextInfo=>{
+      if(nextInfo){
+        backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+      }else{
+        backgroundButtonState("Nền chưa sẵn sàng",false);
+      }
+    }).catch(()=>backgroundButtonState("Nền chưa sẵn sàng",false));
+  }else{
+    backgroundButtonState("Nền chưa sẵn sàng",false);
+  }
+});
+function keepPlayingWhenHidden(){
+  state.wasPlayingBeforeHide=state.playerEngine==="youtube"?state.ytPlayerState===1:(state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):false);
+  updateMediaSession(state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+  if(!state.backgroundAuto||!state.wasPlayingBeforeHide||!state.currentVideo)return;
+
+  if(bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
+    const t=Number(state.ytTime)||0;
+    if(Math.abs((Number(bgAudio.currentTime)||0)-t)>0.45){try{bgAudio.currentTime=t;}catch{}}
+    bgAudio.muted=false;
+    state.backgroundId=state.currentVideo;
+    playerBox?.classList.add("background-active");
+    if(state.playerEngine==="youtube")sendYT("pauseVideo",[]);
+    else if(state.playerEngine==="native")try{nativeVideo?.pause();}catch{}
+    if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+  }
+}
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)keepPlayingWhenHidden();
+  else if(state.backgroundId===state.currentVideo&&bgAudio&&!bgAudio.paused)resumeForeground();
+});
+window.addEventListener("pagehide",()=>{if(state.currentVideo)keepPlayingWhenHidden();});
 function setupZoomLock(){
   const editable=(target)=>target?.closest?.('input,textarea,[contenteditable="true"]');
   document.addEventListener("gesturestart",e=>{if(!editable(e.target))e.preventDefault();},{passive:false});
