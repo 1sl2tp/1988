@@ -609,7 +609,7 @@ async function suggest(query){
   suggestController?.abort();
   suggestController=new AbortController();
   try{
-    const data=await api('/opensearch/suggestions?query='+encodeURIComponent(q),{signal:suggestController.signal});
+    const data=await api('/suggestions?query='+encodeURIComponent(q),{signal:suggestController.signal});
     const rows=Array.isArray(data?.[1])?data[1].filter(Boolean).slice(0,8):[];
     if(!rows.length){searchSuggest.classList.remove('show');return;}
     searchSuggest.innerHTML=rows.map(text=>`
