@@ -5,7 +5,8 @@ const API_MEMORY_TTL={
   trending:2*60*1000,
   search:60*1000,
   suggestions:5*60*1000,
-  branding:5*60*1000
+  branding:5*60*1000,
+  playback:30*1000
 };
 const apiMemoryCache=new Map();
 const apiInflight=new Map();
@@ -54,6 +55,7 @@ const apiChannel=(id)=>call("channel",{id});
 const apiChannelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
 const apiSponsors=(id)=>call("sponsors",{id});
 const apiBackground=(id)=>call("background",{id});
+const apiPlayback=(id)=>call("playback",{id});
 const apiBranding=(ids)=>call("branding",{ids:(Array.isArray(ids)?ids:[]).join(",")});
 function playerUrl(id){
   const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
@@ -90,7 +92,7 @@ const api={
   home:apiHome,trending:apiTrending,search:apiSearch,searchNext:apiSearchNext,
   suggestions:apiSuggestions,video:apiVideo,playlist:apiPlaylist,playlistNext:apiPlaylistNext,
   channel:apiChannel,channelNext:apiChannelNext,sponsors:apiSponsors,background:apiBackground,
-  branding:apiBranding,playerUrl,playlistPlayerUrl
+  playback:apiPlayback,branding:apiBranding,playerUrl,playlistPlayerUrl
 };
 
 const $=(s,r=document)=>r.querySelector(s);
@@ -107,6 +109,7 @@ const FEED_CACHE_KEY="1988.feedcache.v1";
 const BG_AUTO_KEY="1988.background.auto.v1";
 const playerBox=$("#persistentPlayer");
 const playerFrame=$("#playerFrame");
+const nativeVideo=$("#nativeVideo");
 const playerAspect=playerFrame?.closest(".player-aspect");
 const miniTitle=$("#miniTitle");
 const miniExpand=$("#miniExpand");
@@ -122,7 +125,7 @@ const volumeRange=$("#volumeRange");
 const fullscreenButton=$("#fullscreenButton");
 
 
-const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,pendingVideoMeta:null,sponsorSegments:[],ytTime:0,ytDuration:0,ytPlayerState:-1,ytVolume:100,ytMuted:false,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
+const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,pendingVideoMeta:null,sponsorSegments:[],ytTime:0,ytDuration:0,ytPlayerState:-1,ytVolume:100,ytMuted:false,playerEngine:"none",playerLoadSeq:0,nativeInfo:null,nativeSourceIndex:0,nativeFallbackStarted:false,wasPlayingBeforeHide:false,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)!=="0"};
 const dearrowCache=new Map();
 
 function cleanText(v=""){
@@ -195,10 +198,26 @@ function updatePlayerControls(){
   if(volumeRange&&document.activeElement!==volumeRange)volumeRange.value=String(Math.max(0,Math.min(100,state.ytVolume)));
 }
 function togglePlayerPlayback(){
+  if(bgAudio&&!bgAudio.paused&&state.backgroundId===state.currentVideo){
+    bgAudio.pause();
+    return;
+  }
+  if(state.playerEngine==="native"&&nativeVideo){
+    if(nativeVideo.paused)nativeVideo.play().catch(()=>{});
+    else nativeVideo.pause();
+    return;
+  }
   if(state.ytPlayerState===1)sendYT("pauseVideo",[]);
   else sendYT("playVideo",[]);
 }
 function togglePlayerMute(){
+  if(state.playerEngine==="native"&&nativeVideo){
+    nativeVideo.muted=!nativeVideo.muted;
+    state.ytMuted=nativeVideo.muted;
+    state.ytVolume=Math.round((nativeVideo.volume||0)*100);
+    updatePlayerControls();
+    return;
+  }
   if(state.ytMuted||state.ytVolume===0){
     sendYT("unMute",[]);
     if(state.ytVolume===0){state.ytVolume=60;sendYT("setVolume",[60]);}
@@ -209,17 +228,9 @@ function togglePlayerMute(){
   }
   updatePlayerControls();
 }
-function coverYoutubeChrome(ms=850){
-  if(!playerAspect)return;
-  playerAspect.classList.add("yt-transition-cover");
-  clearTimeout(coverYoutubeChrome.timer);
-  coverYoutubeChrome.timer=setTimeout(()=>playerAspect.classList.remove("yt-transition-cover"),ms);
-}
+function coverYoutubeChrome(){/* Native player does not need a visual mask. */}
 function enterPlayerFullscreen(){
-  // Fullscreen the 1988 wrapper, never the raw YouTube iframe, so our mask
-  // and custom controls remain above YouTube in fullscreen.
-  coverYoutubeChrome(1000);
-  const target=playerBox||playerFrame;
+  const target=playerBox||nativeVideo||playerFrame;
   const fn=target?.requestFullscreen||target?.webkitRequestFullscreen;
   try{fn?.call(target);}catch{}
 }
@@ -451,29 +462,97 @@ function maybeSkipSponsor(){
   const seg=state.sponsorSegments.find(x=>t>=x.start&&t<x.end-0.15);
   if(seg){
     state.ytTime=seg.end;
-    sendYT("seekTo",[seg.end,true]);
+    if(state.playerEngine==="native"&&nativeVideo){
+      try{nativeVideo.currentTime=seg.end;}catch{}
+    }else{
+      sendYT("seekTo",[seg.end,true]);
+    }
+  }
+}
+function chooseNativeSource(info){
+  if(!nativeVideo||!info)return null;
+  const hls=String(info.hls||"");
+  if(hls){
+    const hlsSupport=nativeVideo.canPlayType("application/vnd.apple.mpegurl")||nativeVideo.canPlayType("application/x-mpegURL");
+    if(hlsSupport)return {url:hls,mimeType:"application/vnd.apple.mpegurl",live:true};
+  }
+  const rows=Array.isArray(info.sources)?info.sources:[];
+  let fallback=null;
+  for(const row of rows){
+    if(!row?.url)continue;
+    const type=String(row.mimeType||"");
+    if(!fallback)fallback=row;
+    if(!type)return row;
+    const support=nativeVideo.canPlayType(type);
+    if(support==="probably")return row;
+    if(support==="maybe"&&!fallback)fallback=row;
+  }
+  return fallback;
+}
+function stopNativePlayer(){
+  if(!nativeVideo)return;
+  try{nativeVideo.pause();nativeVideo.removeAttribute("src");nativeVideo.load();}catch{}
+  nativeVideo.hidden=true;
+}
+function startYoutubeFallback(id,autoplay=true){
+  if(!playerFrame||state.currentVideo!==id)return;
+  state.playerEngine="youtube";
+  state.nativeFallbackStarted=true;
+  stopNativePlayer();
+  playerFrame.hidden=false;
+  playerFrame.src=api.playerUrl(id);
+  if(autoplay){setTimeout(listenYT,250);setTimeout(listenYT,900);}
+  const source=$("#videoSource");if(source)source.textContent="Nguồn · YouTube";
+}
+async function startNativePlayer(id,seq){
+  if(!nativeVideo||!api.playback)return startYoutubeFallback(id);
+  try{
+    const r=await api.playback(id);
+    if(state.currentVideo!==id||seq!==state.playerLoadSeq)return;
+    const info=r?.data||null;
+    const source=chooseNativeSource(info);
+    if(!source?.url)throw new Error("no_native_source");
+    state.playerEngine="native";
+    state.nativeInfo=info;
+    state.nativeFallbackStarted=false;
+    state.nativeSourceIndex=0;
+    playerFrame.hidden=true;
+    playerFrame.src="about:blank";
+    nativeVideo.hidden=false;
+    nativeVideo.poster=info.thumbnailUrl||"";
+    nativeVideo.src=source.url;
+    nativeVideo.load();
+    updateMediaSession(info);
+    const sourceLabel=$("#videoSource");if(sourceLabel)sourceLabel.textContent="Nguồn · Piped";
+    const p=nativeVideo.play();
+    if(p?.catch)p.catch(()=>{});
+  }catch{
+    if(state.currentVideo===id&&seq===state.playerLoadSeq)startYoutubeFallback(id);
   }
 }
 function ensureVideoPlayer(id){
   if(!playerBox||!playerFrame)return;
   if(state.currentVideo!==id){
     if(bgAudio&&!bgAudio.paused)bgAudio.pause();
+    const seq=++state.playerLoadSeq;
     state.currentVideo=id;
     state.currentInfo=null;
     state.sponsorSegments=[];
     state.ytTime=0;
     state.ytDuration=0;
     state.ytPlayerState=-1;
+    state.playerEngine="loading";
+    state.nativeInfo=null;
+    state.nativeFallbackStarted=false;
     state.backgroundId="";
     state.backgroundInfo=null;
-    coverYoutubeChrome(1200);
-    playerFrame.src=api.playerUrl(id);
+    if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
+    if(nativeVideo){nativeVideo.hidden=false;nativeVideo.poster="";nativeVideo.removeAttribute("src");nativeVideo.load();}
     miniTitle.textContent="Video";
     playerBox.hidden=false;
+    void startNativePlayer(id,seq);
   }
   setPlayerMode("full");
-  setTimeout(listenYT,250);
-  setTimeout(listenYT,1000);
 }
 function minimizeVideo(){
   if(state.currentVideo)setPlayerMode("mini");
@@ -490,7 +569,10 @@ function closeVideo(){
   state.ytTime=0;
   state.ytDuration=0;
   state.ytPlayerState=-1;
-  if(playerFrame)playerFrame.src="about:blank";
+  stopNativePlayer();
+  if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
+  state.playerEngine="none";
+  state.nativeInfo=null;
   if(playerBox){playerBox.hidden=true;playerBox.classList.remove("full","mini","background-active");}
   document.title="1988";
 }
@@ -508,12 +590,18 @@ function updateMediaSession(info){
     });
   }catch{}
 }
+function activeMediaElement(){
+  if(bgAudio&&!bgAudio.paused&&state.backgroundId===state.currentVideo)return bgAudio;
+  if(state.playerEngine==="native"&&nativeVideo)return nativeVideo;
+  return bgAudio;
+}
 function updatePositionState(){
   if(!("mediaSession" in navigator)||typeof navigator.mediaSession.setPositionState!=="function")return;
-  const duration=Number(bgAudio?.duration);
-  const position=Number(bgAudio?.currentTime);
+  const media=activeMediaElement();
+  const duration=Number(media?.duration);
+  const position=Number(media?.currentTime);
   if(Number.isFinite(duration)&&duration>0&&Number.isFinite(position)&&position>=0&&position<=duration){
-    try{navigator.mediaSession.setPositionState({duration,playbackRate:bgAudio.playbackRate||1,position});}catch{}
+    try{navigator.mediaSession.setPositionState({duration,playbackRate:media.playbackRate||1,position});}catch{}
   }
 }
 function chooseBackgroundSource(info){
@@ -592,7 +680,8 @@ function startBackgroundReady(id){
   const playPromise=bgAudio.play();
   if(!playPromise||typeof playPromise.then!=="function")return false;
   playPromise.then(()=>{
-    sendYT("pauseVideo",[]);
+    if(state.playerEngine==="native"&&nativeVideo)nativeVideo.pause();
+    else sendYT("pauseVideo",[]);
     state.backgroundId=id;
     state.backgroundAuto=true;
     localStorage.setItem(BG_AUTO_KEY,"1");
@@ -627,25 +716,24 @@ function resumeForeground(){
   state.ytTime=t;
   state.backgroundId="";
   playerBox?.classList.remove("background-active");
-  sendYT("seekTo",[t,true]);
-  sendYT("playVideo",[]);
-  const btn=$("#backgroundButton");if(btn)btn.textContent="Phát nền";
-  if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";
-}
-async function toggleBackground(){
-  const id=state.currentVideo;
-  if(!id)return;
-  if(bgAudio&&!bgAudio.paused&&bgAudio.dataset.id===id)resumeForeground();
-  else await startBackground(id);
+  if(state.playerEngine==="native"&&nativeVideo){
+    try{nativeVideo.currentTime=t;}catch{}
+    nativeVideo.play().catch(()=>{});
+  }else{
+    sendYT("seekTo",[t,true]);
+    sendYT("playVideo",[]);
+  }
+  backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+  if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
 }
 function setupMediaSession(){
   if(!("mediaSession" in navigator))return;
   const safe=(name,fn)=>{try{navigator.mediaSession.setActionHandler(name,fn);}catch{}};
-  safe("play",()=>bgAudio?.play());
-  safe("pause",()=>bgAudio?.pause());
-  safe("seekbackward",d=>{if(bgAudio)bgAudio.currentTime=Math.max(0,bgAudio.currentTime-(d.seekOffset||10));});
-  safe("seekforward",d=>{if(bgAudio)bgAudio.currentTime=Math.min(bgAudio.duration||Infinity,bgAudio.currentTime+(d.seekOffset||10));});
-  safe("seekto",d=>{if(bgAudio&&Number.isFinite(d.seekTime))bgAudio.currentTime=d.seekTime;});
+  safe("play",()=>{const m=activeMediaElement();m?.play?.().catch?.(()=>{});});
+  safe("pause",()=>activeMediaElement()?.pause?.());
+  safe("seekbackward",d=>{const m=activeMediaElement();if(m)m.currentTime=Math.max(0,m.currentTime-(d.seekOffset||10));});
+  safe("seekforward",d=>{const m=activeMediaElement();if(m)m.currentTime=Math.min(m.duration||Infinity,m.currentTime+(d.seekOffset||10));});
+  safe("seekto",d=>{const m=activeMediaElement();if(m&&Number.isFinite(d.seekTime))m.currentTime=d.seekTime;});
 }
 function setupPwa(){
   if("serviceWorker" in navigator){
@@ -868,11 +956,19 @@ async function watchPage(id){
   const cached=read(HISTORY_KEY).find(x=>x.id===id);
   const instant=pending||cached;
   const initialTitle=cleanText(instant?.title)||"Đang tải thông tin…";
-  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · 1988</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
   $("#backgroundButton").disabled=true;$("#backgroundButton").querySelector("span:last-child").textContent="Đang chuẩn bị";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
-  $("#reloadPlayer").onclick=()=>{playerFrame.src=api.playerUrl(id);setTimeout(listenYT,400);};
+  $("#reloadPlayer").onclick=()=>{
+    const seq=++state.playerLoadSeq;
+    state.playerEngine="loading";
+    state.nativeFallbackStarted=false;
+    if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
+    stopNativePlayer();
+    if(nativeVideo)nativeVideo.hidden=false;
+    void startNativePlayer(id,seq);
+  };
   $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").querySelector("span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareVideo").querySelector("span:last-child").textContent="Chia sẻ";},900);}catch{}};
   void prepareBackground(id);
   try{
@@ -884,7 +980,7 @@ async function watchPage(id){
     $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
     $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'')+'<div class="channel-copy" '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(uploader||"Không rõ kênh")+'</div><div class="channel-sub">'+(d.uploadDate?esc(d.uploadDate):"")+'</div></div>';
-    $("#videoSource").textContent="Nguồn · YouTube";
+    $("#videoSource").textContent=state.playerEngine==="native"?"Nguồn · Piped":(state.playerEngine==="youtube"?"Nguồn · YouTube":"Nguồn · 1988");
     const stats=[];if(Number(d.views)>0)stats.push(fmt(d.views)+" lượt xem");if(Number(d.duration)>0)stats.push(dur(d.duration));$("#videoStats").textContent=stats.join(" · ");
     if(d.description){$("#description").textContent=cleanText(d.description);$("#description").hidden=false;}
     void fillRelated(title,id,d.relatedStreams||[]);
@@ -987,26 +1083,76 @@ document.addEventListener("click",e=>{
   if(id)document.getElementById("playlistSheet")?.remove();
 });
 window.addEventListener("popstate",route);
-playerFrame?.addEventListener("load",()=>{coverYoutubeChrome(1200);setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);});
+playerFrame?.addEventListener("load",()=>{if(state.playerEngine==="youtube"){setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);}});
 playPauseButton?.addEventListener("click",togglePlayerPlayback);
 seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
 seekRange?.addEventListener("change",()=>{
-  coverYoutubeChrome(750);
-  sendYT("seekTo",[Number(seekRange.value)||0,true]);
+  const t=Number(seekRange.value)||0;
+  if(state.playerEngine==="native"&&nativeVideo){try{nativeVideo.currentTime=t;}catch{}}
+  else sendYT("seekTo",[t,true]);
 });
 muteButton?.addEventListener("click",togglePlayerMute);
 volumeRange?.addEventListener("input",()=>{
   const v=Math.max(0,Math.min(100,Number(volumeRange.value)||0));
   state.ytVolume=v;
   state.ytMuted=v===0;
-  sendYT("setVolume",[v]);
-  if(v>0)sendYT("unMute",[]);
+  if(state.playerEngine==="native"&&nativeVideo){
+    nativeVideo.volume=v/100;
+    nativeVideo.muted=v===0;
+  }else{
+    sendYT("setVolume",[v]);
+    if(v>0)sendYT("unMute",[]);
+  }
   updatePlayerControls();
 });
 fullscreenButton?.addEventListener("click",enterPlayerFullscreen);
 miniExpand?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
 miniClose?.addEventListener("click",closeVideo);
 miniTitle?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
+nativeVideo?.addEventListener("loadedmetadata",()=>{
+  state.ytDuration=Number(nativeVideo.duration)||Number(state.nativeInfo?.duration)||0;
+  updatePlayerControls();
+  updateMediaSession(state.nativeInfo||state.currentInfo);
+});
+nativeVideo?.addEventListener("timeupdate",()=>{
+  state.ytTime=Number(nativeVideo.currentTime)||0;
+  state.ytDuration=Number(nativeVideo.duration)||state.ytDuration||0;
+  maybeSkipSponsor();
+  updatePlayerControls();
+  updatePositionState();
+});
+nativeVideo?.addEventListener("play",()=>{
+  state.ytPlayerState=1;
+  state.ytMuted=!!nativeVideo.muted;
+  state.ytVolume=Math.round((nativeVideo.volume||0)*100);
+  state.wasPlayingBeforeHide=true;
+  updatePlayerControls();
+  updateMediaSession(state.nativeInfo||state.currentInfo);
+  if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+});
+nativeVideo?.addEventListener("pause",()=>{
+  state.ytPlayerState=2;
+  updatePlayerControls();
+  if(document.hidden&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo&&state.backgroundReady&&state.backgroundId!==state.currentVideo){
+    startBackgroundReady(state.currentVideo);
+  }else if("mediaSession" in navigator&&(!bgAudio||bgAudio.paused)){
+    navigator.mediaSession.playbackState="paused";
+  }
+});
+nativeVideo?.addEventListener("ended",()=>{
+  state.ytPlayerState=0;
+  updatePlayerControls();
+});
+nativeVideo?.addEventListener("volumechange",()=>{
+  state.ytMuted=!!nativeVideo.muted;
+  state.ytVolume=Math.round((nativeVideo.volume||0)*100);
+  updatePlayerControls();
+});
+nativeVideo?.addEventListener("error",()=>{
+  if(state.playerEngine==="native"&&!state.nativeFallbackStarted&&state.currentVideo){
+    startYoutubeFallback(state.currentVideo);
+  }
+});
 bgAudio?.addEventListener("play",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";});
 bgAudio?.addEventListener("pause",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";});
 bgAudio?.addEventListener("timeupdate",()=>{updatePositionState();maybeSkipBackgroundSponsor();});
@@ -1029,8 +1175,19 @@ bgAudio?.addEventListener("error",()=>{
   }
 });
 document.addEventListener("visibilitychange",()=>{
-  if(document.hidden&&bgAudio&&!bgAudio.paused&&state.currentVideo){
-    updateMediaSession(state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+  if(document.hidden){
+    state.wasPlayingBeforeHide=state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):state.ytPlayerState===1;
+    updateMediaSession(state.nativeInfo||state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+    if(state.playerEngine==="youtube"&&state.backgroundAuto&&state.wasPlayingBeforeHide&&state.currentVideo){
+      if(state.backgroundReady)startBackgroundReady(state.currentVideo);
+      else prepareBackground(state.currentVideo).then(info=>{if(info&&document.hidden)startBackgroundReady(state.currentVideo);});
+    }else if(state.playerEngine==="native"&&nativeVideo&&state.wasPlayingBeforeHide&&nativeVideo.paused){
+      nativeVideo.play().catch(()=>{
+        if(state.backgroundReady)startBackgroundReady(state.currentVideo);
+      });
+    }
+  }else if(state.backgroundId===state.currentVideo&&bgAudio&&!bgAudio.paused){
+    resumeForeground();
   }
 });
 try{
