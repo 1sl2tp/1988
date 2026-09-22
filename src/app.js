@@ -925,14 +925,6 @@ function setupPwa(){
       return;
     }
     if(isiOS){
-      if(navigator.share){
-        try{
-          await navigator.share({title:"1988",text:"Thêm 1988 vào Màn hình chính",url:location.origin+"/"});
-          return;
-        }catch(err){
-          if(err?.name==="AbortError")return;
-        }
-      }
       showInstallSheet();
     }
   });
