@@ -671,7 +671,7 @@ searchInput.addEventListener("input",()=>{
   clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){suggestionsEl.hidden=true;return;}
   const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{
   const raw=await api.suggestions(q);
-  const rows=[...new Set((raw||[]).map(cleanText).filter(Boolean))].slice(0,8);
+  const rows=[...new Set((raw||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
   if(mark!==suggestAbort)return;
   suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
   suggestionsEl.hidden=!rows.length;
