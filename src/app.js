@@ -709,17 +709,42 @@ function backgroundButtonState(text,disabled=false){
   if(label)label.textContent=text;else btn.textContent=text;
   btn.disabled=!!disabled;
 }
+function warmBackgroundInfo(id){
+  if(!bgAudio||bgAudio.dataset.id!==id||bgAudio.dataset.source!=="direct")return null;
+  const src=bgAudio.currentSrc||bgAudio.src||"";
+  if(!src)return null;
+  return {
+    id,
+    title:state.nativeInfo?.title||state.currentInfo?.title||miniTitle?.textContent||"1988",
+    uploader:state.nativeInfo?.uploader||state.currentInfo?.uploader||"",
+    thumbnailUrl:state.nativeInfo?.thumbnailUrl||state.currentInfo?.thumbnailUrl||"",
+    duration:Number(state.nativeInfo?.duration)||Number(state.currentInfo?.duration)||Number(state.ytDuration)||0,
+    audioUrl:src,
+    mimeType:"",
+    sources:[{url:src,mimeType:"",bitrate:0,direct:true}]
+  };
+}
 async function prepareBackground(id){
   if(!id||!api.background||!bgAudio)return null;
   if(state.backgroundInfo?.id===id&&state.backgroundReady)return state.backgroundInfo;
   state.backgroundReady=false;
+  const warm=warmBackgroundInfo(id);
   try{
     const r=await api.background(id);
     if(state.currentVideo!==id)return null;
-    const info=r?.data||null;
-    if(!info?.audioUrl&&!(Array.isArray(info?.sources)&&info.sources.length))return null;
+    const info=r?.data||warm;
+    const hasSources=!!info?.audioUrl||(Array.isArray(info?.sources)&&info.sources.length);
+    if(!hasSources&&warm){
+      state.backgroundInfo=warm;
+      state.backgroundSourceIndex=-1;
+      updateMediaSession(warm);
+      state.backgroundReady=true;
+      backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+      return warm;
+    }
+    if(!hasSources)return null;
     state.backgroundInfo=info;
-    const warmDirect=bgAudio?.dataset.id===id&&bgAudio?.dataset.source==="direct"&&!bgAudio.paused;
+    const warmDirect=!!warm;
     if(!warmDirect){
       const index=chooseBackgroundSource(info);
       if(index<0||!applyBackgroundSource(info,index))return null;
@@ -731,7 +756,15 @@ async function prepareBackground(id){
     backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
     return info;
   }catch{
-    backgroundButtonState("Nền không khả dụng",true);
+    if(warm){
+      state.backgroundInfo=warm;
+      state.backgroundSourceIndex=-1;
+      state.backgroundReady=true;
+      updateMediaSession(warm);
+      backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+      return warm;
+    }
+    backgroundButtonState("Nền chưa sẵn sàng",false);
     return null;
   }
 }
@@ -1119,33 +1152,51 @@ document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()
 let suggestTimer=0,suggestAbort=0;
 const suggestionRowsCache=new Map();
 let lastSuggestionRows=[];
-function renderSuggestions(rows){
-  const clean=[...new Set((rows||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
+function renderSuggestions(rows,query=""){
+  const q=cleanText(query).toLocaleLowerCase("vi");
+  const clean=[...new Set((rows||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))]
+    .filter(x=>!q||x.toLocaleLowerCase("vi")!==q)
+    .slice(0,8);
+  if(!clean.length){
+    suggestionsEl.innerHTML="";
+    suggestionsEl.hidden=true;
+    return [];
+  }
   suggestionsEl.innerHTML=clean.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
-  suggestionsEl.hidden=!clean.length;
+  suggestionsEl.hidden=false;
   return clean;
 }
 function closeSuggestions(){clearTimeout(suggestTimer);suggestAbort++;suggestionsEl.hidden=true;suggestionsEl.innerHTML="";}
 searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.value.trim();if(q){closeSuggestions();searchInput.blur();navigate({q});}});
 searchInput.addEventListener("input",()=>{
-  clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){closeSuggestions();return;}
+  clearTimeout(suggestTimer);
+  suggestionsEl.hidden=true;
+  suggestionsEl.innerHTML="";
+  const q=searchInput.value.trim();
+  if(q.length<2){closeSuggestions();return;}
   const key=q.toLocaleLowerCase("vi");
   const exact=suggestionRowsCache.get(key);
-  if(exact?.length)renderSuggestions(exact);
+  if(exact?.length)renderSuggestions(exact,q);
   else{
-    const provisional=lastSuggestionRows.filter(x=>cleanText(x).toLocaleLowerCase("vi").includes(key)).slice(0,8);
-    if(provisional.length)renderSuggestions(provisional);
+    const provisional=lastSuggestionRows
+      .filter(x=>cleanText(x).toLocaleLowerCase("vi").includes(key))
+      .slice(0,8);
+    if(provisional.length)renderSuggestions(provisional,q);
   }
-  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{
+  const mark=++suggestAbort;
+  suggestTimer=setTimeout(async()=>{try{
     const raw=await api.suggestions(q);
     const rows=[...new Set((raw||[]).map(cleanText).filter(x=>x&&!x.includes("\uFFFD")))].slice(0,8);
     suggestionRowsCache.set(key,rows);
     lastSuggestionRows=rows;
     if(suggestionRowsCache.size>40)suggestionRowsCache.delete(suggestionRowsCache.keys().next().value);
     if(mark!==suggestAbort)return;
-    renderSuggestions(rows);
+    renderSuggestions(rows,q);
   }catch{
-    if(mark===suggestAbort&&!suggestionsEl.innerHTML)suggestionsEl.hidden=true;
+    if(mark===suggestAbort){
+      suggestionsEl.innerHTML="";
+      suggestionsEl.hidden=true;
+    }
   }},70);
 });
 searchInput.addEventListener("focus",()=>{if(searchInput.value.trim().length>=2)searchInput.dispatchEvent(new Event("input"));});
@@ -1259,7 +1310,7 @@ bgAudio?.addEventListener("error",()=>{
   const info=state.backgroundInfo;
   const rows=Array.isArray(info?.sources)?info.sources:[];
   const next=state.backgroundSourceIndex+1;
-  if(info&&next<rows.length&&applyBackgroundSource(info,next)){
+  if(info&&next>=0&&next<rows.length&&applyBackgroundSource(info,next)){
     state.backgroundReady=true;
     if(state.backgroundId===state.currentVideo){
       const p=bgAudio.play();
@@ -1267,9 +1318,20 @@ bgAudio?.addEventListener("error",()=>{
     }else{
       backgroundButtonState("Phát nền",false);
     }
+    return;
+  }
+  const id=state.currentVideo;
+  state.backgroundReady=false;
+  if(id){
+    prepareBackground(id).then(nextInfo=>{
+      if(nextInfo){
+        backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+      }else{
+        backgroundButtonState("Nền chưa sẵn sàng",false);
+      }
+    }).catch(()=>backgroundButtonState("Nền chưa sẵn sàng",false));
   }else{
-    state.backgroundReady=false;
-    backgroundButtonState("Nền không khả dụng",true);
+    backgroundButtonState("Nền chưa sẵn sàng",false);
   }
 });
 function keepPlayingWhenHidden(){
