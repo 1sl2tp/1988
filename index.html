@@ -7,7 +7,7 @@
   <meta name="color-scheme" content="dark">
   <meta name="description" content="1988 - xem, tìm kiếm, kênh và danh sách phát YouTube qua Piped.">
   <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="stylesheet" href="./src/style.css?v=1988-3">
+  <link rel="stylesheet" href="./src/style.css?v=1988-4">
   <title>1988</title>
 </head>
 <body>
@@ -22,7 +22,7 @@
     </form>
   </header>
 
-  <main id="view" class="view" aria-live="polite"></main>
+  <main id="view" class="view" aria-live="polite"><div class="section-head"><h1>Đang tải…</h1></div><div class="feed"><div class="thumb-wrap skeleton"></div></div></main>
 
   <nav class="bottom-nav" aria-label="Điều hướng">
     <button type="button" data-nav="home"><span>⌂</span><small>Trang chủ</small></button>
@@ -31,6 +31,7 @@
     <button type="button" data-nav="history"><span>◷</span><small>Đã xem</small></button>
   </nav>
 
-  <script type="module" src="./src/app.js?v=1988-3"></script>
+  <script defer src="./src/api.js?v=1988-4"></script>
+  <script defer src="./src/app.js?v=1988-4"></script>
 </body>
 </html>
