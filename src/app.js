@@ -113,6 +113,35 @@ function cleanText(v=""){
     .trim();
 }
 function esc(v=""){return cleanText(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function svgIcon(name,size=18){
+  const base='viewBox="0 0 24 24" width="'+size+'" height="'+size+'" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const paths={
+    play:'<path d="M8 5v14l11-7z"/>',
+    pause:'<path d="M8 5v14M16 5v14"/>',
+    volume:'<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15 9a4 4 0 0 1 0 6M17.8 6.2a8 8 0 0 1 0 11.6"/>',
+    mute:'<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/>',
+    fullscreen:'<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+    list:'<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+    minimize:'<path d="m8 3 4 4 4-4M12 7v6"/><path d="M5 17h14"/>',
+    reload:'<path d="M20 7v5h-5"/><path d="M18.5 17a8 8 0 1 1 1.1-8"/>',
+    share:'<circle cx="18" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="19" r="2"/><path d="m8 11 8-5M8 13l8 5"/>',
+    shield:'<path d="M12 3 5 6v5c0 4.8 2.8 8 7 10 4.2-2 7-5.2 7-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    headphones:'<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 14h3v6H5a1 1 0 0 1-1-1zM20 14h-3v6h2a1 1 0 0 0 1-1z"/>',
+    search:'<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>',
+    plus:'<path d="M12 5v14M5 12h14"/>'
+  };
+  return '<svg '+base+'>'+((paths[name]||paths.play))+'</svg>';
+}
+function friendlySourceLabel(source=""){
+  const s=String(source||"").toLowerCase();
+  if(s.includes("youtube"))return "YouTube";
+  if(s.includes("piped"))return "Piped";
+  if(s.includes("sponsor"))return "SponsorBlock";
+  return "1988";
+}
+function actionButton(id,icon,label,extra=""){
+  return '<button class="action-button '+extra+'" id="'+id+'" type="button"><span class="action-icon">'+svgIcon(icon,18)+'</span><span>'+esc(label)+'</span></button>';
+}
 function fmt(n){
   n=Number(n)||0;
   if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
@@ -134,8 +163,8 @@ function updatePlayerControls(){
     seekRange.max=String(total||1);
     if(document.activeElement!==seekRange)seekRange.value=String(Math.min(current,total||current));
   }
-  if(playPauseButton)playPauseButton.textContent=state.ytPlayerState===1?"❚❚":"▶";
-  if(muteButton)muteButton.textContent=state.ytMuted||state.ytVolume===0?"🔇":"🔊";
+  if(playPauseButton)playPauseButton.innerHTML=svgIcon(state.ytPlayerState===1?"pause":"play",18);
+  if(muteButton)muteButton.innerHTML=svgIcon(state.ytMuted||state.ytVolume===0?"mute":"volume",18);
   if(volumeRange&&document.activeElement!==volumeRange)volumeRange.value=String(Math.max(0,Math.min(100,state.ytVolume)));
 }
 function togglePlayerPlayback(){
@@ -446,7 +475,8 @@ function applyBackgroundSource(info,index){
 function backgroundButtonState(text,disabled=false){
   const btn=$("#backgroundButton");
   if(!btn)return;
-  btn.textContent=text;
+  const label=btn.querySelector("span:last-child");
+  if(label)label.textContent=text;else btn.textContent=text;
   btn.disabled=!!disabled;
 }
 async function prepareBackground(id){
@@ -678,32 +708,54 @@ async function channelPage(id){
     state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.channelNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));void enhanceDeArrow($("#feed"));$("#moreButton").hidden=!state.next;};
   }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
 }
+async function fillRelated(title,id,initial=[]){
+  const related=$("#related");
+  if(!related)return;
+  let rows=Array.isArray(initial)?initial.filter(row=>videoId(row?.url||row?.videoId||"")!==id):[];
+  if(!rows.length&&title){
+    try{
+      const r=await api.search(title,"videos");
+      rows=(r?.data?.items||[]).filter(row=>videoId(row?.url||row?.videoId||"")!==id);
+    }catch{}
+  }
+  related.innerHTML=compactRows(rows.slice(0,18));
+  if(!rows.length)related.innerHTML='<div class="related-empty">Chưa có gợi ý liên quan.</div>';
+  else void enhanceDeArrow(related);
+}
 async function watchPage(id){
   setActive("");const token=++state.token;
   ensureVideoPlayer(id);
-  view.innerHTML='<div class="watch-layout"><section><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="backgroundButton" type="button">Phát nền</button><button class="pill" id="addListButton" type="button">＋ Danh sách</button><button class="pill" id="minimizeButton" type="button">Thu nhỏ</button><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">SponsorBlock</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
-  $("#backgroundButton").disabled=true;$("#backgroundButton").textContent="Đang chuẩn bị nền…";$("#backgroundButton").onclick=toggleBackground;
+  const cached=read(HISTORY_KEY).find(x=>x.id===id);
+  const initialTitle=cleanText(cached?.title)||"Đang tải thông tin…";
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(cached?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(cached.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats"></span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  $("#backgroundButton").disabled=true;$("#backgroundButton").querySelector("span:last-child").textContent="Đang chuẩn bị";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
   $("#reloadPlayer").onclick=()=>{playerFrame.src=api.playerUrl(id);setTimeout(listenYT,400);};
-  $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").textContent="Đã sao chép";setTimeout(()=>$("#shareVideo").textContent="Chia sẻ",900);}catch{}};
+  $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").querySelector("span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareVideo").querySelector("span:last-child").textContent="Chia sẻ";},900);}catch{}};
   void prepareBackground(id);
   try{
     const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
     state.currentInfo=d;
-    saveHistory(d,id);
-    const title=cleanText(d.title)||("Video "+id);
+    const title=cleanText(d.title)||cleanText(cached?.title)||("Video "+id);
+    const uploader=cleanText(d.uploader)||cleanText(cached?.uploaderName)||"";
+    saveHistory({...d,title,uploader},id);
     $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
-    $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'<div class="avatar"></div>')+'<div '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(d.uploader||"")+'</div><div class="channel-sub">'+esc(fmt(d.views||0))+' lượt xem · '+esc(d.uploadDate||"")+'</div></div>';
-    if(d.description){$("#description").textContent=d.description;$("#description").hidden=false;}
-    $("#related").innerHTML=compactRows((d.relatedStreams||[]).slice(0,18));
-    void enhanceDeArrow($("#related"));
-    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token){$("#watchTitle").textContent=b.title;updateMiniTitle(b.title);}}).catch(()=>{});
+    $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'')+'<div class="channel-copy" '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(uploader||"Không rõ kênh")+'</div><div class="channel-sub">'+(d.uploadDate?esc(d.uploadDate):"")+'</div></div>';
+    $("#videoSource").textContent="Nguồn · YouTube";
+    const stats=[];if(Number(d.views)>0)stats.push(fmt(d.views)+" lượt xem");if(Number(d.duration)>0)stats.push(dur(d.duration));$("#videoStats").textContent=stats.join(" · ");
+    if(d.description){$("#description").textContent=cleanText(d.description);$("#description").hidden=false;}
+    void fillRelated(title,id,d.relatedStreams||[]);
+    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token){const clean=cleanText(b.title);$("#watchTitle").textContent=clean;updateMiniTitle(clean);}}).catch(()=>{});
     state.sponsorSegments=normalizeSponsors(s?.data);
-    $("#sponsorBadge").textContent=state.sponsorSegments.length?"SponsorBlock · "+state.sponsorSegments.length+" đoạn":"SponsorBlock";
+    $("#sponsorBadge").innerHTML=svgIcon("shield",17)+'<span>'+(state.sponsorSegments.length?("SponsorBlock · "+state.sponsorSegments.length):"SponsorBlock")+'</span>';
     const bg=await prepareBackground(id);if(bg)updateMediaSession({...bg,title});
-  }catch{}
+  }catch{
+    const fallbackTitle=cleanText(cached?.title)||("Video "+id);
+    $("#watchTitle").textContent=fallbackTitle;updateMiniTitle(fallbackTitle);
+    void fillRelated(fallbackTitle,id,[]);
+  }
 }
 function route(){
   suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
