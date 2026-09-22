@@ -277,6 +277,7 @@ async function playVideo(id,seedMeta={}){
   state.audioMaster=false;
   playerSection.hidden=false;
 
+  backgroundPlayer.select(id,{metadata:seedMeta});
   const audioPrepared=backgroundPlayer.hasPrepared(id);
 
   if(audioPrepared){
