@@ -1,11 +1,13 @@
 {
   "name": "1988",
   "short_name": "1988",
-  "description": "1988 - xem video và phát nền",
+  "description": "Xem YouTube và phát âm thanh nền",
   "lang": "vi",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#0f0f0f",
   "theme_color": "#0f0f0f",
   "icons": [
@@ -27,10 +29,5 @@
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "id": "./",
-  "display_override": [
-    "standalone",
-    "minimal-ui"
   ]
 }
