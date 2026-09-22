@@ -705,14 +705,28 @@ function historyPage(){
   const items=read(HISTORY_KEY).map(x=>({type:"stream",url:"/watch?v="+x.id,title:x.title,thumbnail:x.thumbnail,uploaderName:x.uploaderName,views:x.views,duration:x.duration}));
   renderCollection("Đã xem",items);
 }
+
 function playlistsPage(){
   ++state.token;setActive("playlists");state.next=null;state.more=null;
   const mine=readMyLists();
   const recent=read(PLAYLIST_KEY);
-  view.innerHTML='<div class="section-head"><h1>Danh sách</h1></div><div class="list-section"><h2>Danh sách của tôi</h2><div class="my-lists">'+(mine.length?mine.map(x=>'<article class="my-list-card" data-kind="mylist" data-id="'+esc(x.id)+'"><div class="my-list-cover">'+(x.items?.[0]?.thumbnail?'<img src="'+esc(x.items[0].thumbnail)+'" alt="">':'☷')+'</div><div><strong>'+esc(x.name)+'</strong><small>'+esc(String(x.items?.length||0))+' video</small></div></article>').join(""):'<div class="empty-inline">Chưa có danh sách. Mở một video → ＋ Danh sách.</div>')+'</div></div><div class="list-section"><h2>Playlist YouTube gần đây</h2><div id="feed" class="feed"></div></div>';
-  const feed=$("#feed");
-  if(feed)feed.innerHTML=recent.map(x=>playlistCard({type:"playlist",id:x.id,name:x.name,thumbnail:x.thumbnail,uploader:x.uploader,videos:x.videos})).join("")||'<div class="empty-inline">Chưa mở playlist YouTube nào.</div>';
+  const localCards=mine.map(list=>{
+    const first=list.items?.[0]||{};
+    return '<article class="library-card" data-kind="mylist" data-id="'+esc(list.id)+'"><div class="library-cover">'+(first.thumbnail?'<img src="'+esc(first.thumbnail)+'" alt="">':'<div class="library-placeholder">'+svgIcon("list",28)+'</div>')+'<div class="library-stack"></div><span class="library-count">'+esc(String(list.items?.length||0))+' video</span><span class="library-play">'+svgIcon("play",20)+'</span></div><div class="library-copy"><h3>'+esc(list.name)+'</h3><p>Danh sách của tôi</p></div></article>';
+  }).join("");
+  const ytCards=recent.map(list=>{
+    return '<article class="library-card" data-kind="playlist" data-id="'+esc(list.id)+'"><div class="library-cover">'+(list.thumbnail?'<img src="'+esc(list.thumbnail)+'" alt="">':'<div class="library-placeholder">'+svgIcon("list",28)+'</div>')+'<div class="library-stack"></div><span class="library-count">'+esc(String(list.videos||0))+' video</span><span class="library-play">'+svgIcon("play",20)+'</span></div><div class="library-copy"><h3>'+esc(list.name||"Danh sách phát")+'</h3><p>'+esc(list.uploader||"Playlist YouTube")+'</p></div></article>';
+  }).join("");
+  view.innerHTML=
+    '<div class="library-head"><div><h1>Danh sách</h1><p>Video và playlist bạn đã lưu</p></div><span class="library-total">'+esc(String(mine.length+recent.length))+'</span></div>'+
+    '<section class="library-section"><div class="library-section-head"><h2>Danh sách của tôi</h2><span>'+esc(String(mine.length))+'</span></div><div class="library-grid">'+
+      (localCards||'<div class="library-empty"><div>'+svgIcon("list",30)+'</div><strong>Chưa có danh sách</strong><span>Mở một video và chọn “Danh sách” để tạo.</span></div>')+
+    '</div></section>'+
+    '<section class="library-section"><div class="library-section-head"><h2>Playlist gần đây</h2><span>'+esc(String(recent.length))+'</span></div><div class="library-grid">'+
+      (ytCards||'<div class="library-empty"><div>'+svgIcon("list",30)+'</div><strong>Chưa có playlist</strong><span>Playlist YouTube đã mở sẽ xuất hiện tại đây.</span></div>')+
+    '</div></section>';
 }
+
 function myListPage(id){
   ++state.token;setActive("playlists");state.next=null;state.more=null;
   const list=readMyLists().find(x=>x.id===id);
