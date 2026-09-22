@@ -1,0 +1,9 @@
+{
+  "name": "1988",
+  "short_name": "1988",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
+  "description": "Xem và tìm kiếm video qua Piped"
+}

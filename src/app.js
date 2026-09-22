@@ -1,0 +1,193 @@
+import * as api from "./api.js";
+
+const $=(s,r=document)=>r.querySelector(s);
+const view=$("#view");
+const searchForm=$("#searchForm");
+const searchInput=$("#searchInput");
+const suggestionsEl=$("#suggestions");
+const homeButton=$("#homeButton");
+const HISTORY_KEY="1988.history.v3";
+const PLAYLIST_KEY="1988.playlists.v1";
+
+const state={token:0,next:null,more:null,playerN:0,currentVideo:""};
+
+function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[c]));}
+function fmt(n){
+  n=Number(n)||0;
+  if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
+  if(n>=1e6)return (n/1e6).toFixed(1).replace(".0","")+" Tr";
+  if(n>=1e3)return (n/1e3).toFixed(1).replace(".0","")+" N";
+  return n.toLocaleString("vi-VN");
+}
+function dur(s){
+  s=Math.max(0,Number(s)||0);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=Math.floor(s%60);
+  return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"):String(m)+":"+String(x).padStart(2,"0");
+}
+function videoId(url=""){
+  const m=String(url).match(/[?&]v=([A-Za-z0-9_-]{11})|\\/watch\\?v=([A-Za-z0-9_-]{11})|\\/shorts\\/([A-Za-z0-9_-]{11})/);
+  return m?(m[1]||m[2]||m[3]||""):(/^[A-Za-z0-9_-]{11}$/.test(String(url))?String(url):"");
+}
+function playlistId(url=""){
+  try{return new URL(String(url),"https://x.invalid").searchParams.get("list")||"";}catch{return "";}
+}
+function channelId(url=""){
+  const p=String(url).split("?")[0].split("/").filter(Boolean);
+  const i=p.findIndex(x=>x==="channel");
+  return i>=0?(p[i+1]||""):"";
+}
+function read(key){try{const v=JSON.parse(localStorage.getItem(key)||"[]");return Array.isArray(v)?v:[];}catch{return [];}}
+function write(key,rows){try{localStorage.setItem(key,JSON.stringify(rows.slice(0,60)));}catch{}}
+function saveHistory(info,id){
+  const rows=read(HISTORY_KEY).filter(x=>x.id!==id);
+  rows.unshift({id,title:info?.title||("Video "+id),thumbnail:info?.thumbnailUrl||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),uploaderName:info?.uploader||"",views:Number(info?.views)||0,duration:Number(info?.duration)||0});
+  write(HISTORY_KEY,rows);
+}
+function savePlaylist(data,id){
+  const rows=read(PLAYLIST_KEY).filter(x=>x.id!==id);
+  rows.unshift({id,name:data?.name||"Danh sách phát",thumbnail:data?.thumbnailUrl||"",uploader:data?.uploader||"",videos:Number(data?.videos)||0});
+  write(PLAYLIST_KEY,rows);
+}
+function setActive(name){
+  document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("active",b.dataset.nav===name));
+}
+function navigate(params={},push=true){
+  const u=new URL(location.href);u.search="";
+  Object.entries(params).forEach(([k,v])=>{if(v!==undefined&&v!==null&&String(v)!=="")u.searchParams.set(k,String(v));});
+  if(push)history.pushState({}, "", u);else history.replaceState({}, "", u);
+  route();
+}
+function loading(){
+  return '<div class="feed">'+Array.from({length:6},()=>'<div><div class="thumb-wrap skeleton"></div><div class="video-body"><div class="avatar skeleton"></div><div><div class="skeleton" style="height:13px;border-radius:4px;margin-bottom:7px"></div><div class="skeleton" style="height:10px;width:65%;border-radius:4px"></div></div></div></div>').join("")+'</div>';
+}
+function videoCard(row){
+  const id=videoId(row.url||row.videoId||"");if(!id)return "";
+  const thumb=row.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
+  return '<article class="item" data-kind="video" data-id="'+esc(id)+'"><div class="thumb-wrap"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="duration">'+esc(dur(row.duration))+'</span></div><div class="video-body">'+(row.uploaderAvatar?'<img class="avatar" src="'+esc(row.uploaderAvatar)+'" alt="" loading="lazy">':'<div class="avatar"></div>')+'<div><h3 class="title">'+esc(row.title||"Video")+'</h3><div class="meta">'+esc(row.uploaderName||"")+(row.views>=0?" · "+esc(fmt(row.views))+" lượt xem":"")+'</div></div></div></article>';
+}
+function playlistCard(row){
+  const id=row.id||playlistId(row.url||"");if(!id)return "";
+  const name=row.name||row.title||"Danh sách phát";
+  const thumb=row.thumbnail||row.thumbnailUrl||"";
+  return '<article class="entity item" data-kind="playlist" data-id="'+esc(id)+'"><div class="thumb-wrap" style="aspect-ratio:16/9;border-radius:8px"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="kind-badge">☷ '+esc(row.videos>=0?String(row.videos):"")+'</span></div><div><h3>'+esc(name)+'</h3><p>'+esc(row.uploaderName||row.uploader||"Danh sách phát")+'</p></div></article>';
+}
+function channelCard(row){
+  const id=row.id||channelId(row.url||"");if(!id)return "";
+  return '<article class="entity channel item" data-kind="channel" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||row.avatarUrl||"")+'" alt="" loading="lazy"><div><h3>'+esc(row.name||row.uploaderName||"Kênh")+'</h3><p>'+esc(row.description||"")+(row.subscribers>=0?" · "+esc(fmt(row.subscribers))+" người đăng ký":"")+'</p></div></article>';
+}
+function card(row){
+  if(row?.type==="playlist")return playlistCard(row);
+  if(row?.type==="channel")return channelCard(row);
+  return videoCard(row);
+}
+function renderCollection(title,items,source="",append=false){
+  if(!append){
+    view.innerHTML='<div class="section-head"><h1>'+esc(title)+'</h1><small>'+esc(source?new URL(source).hostname:"")+'</small></div><div class="feed" id="feed"></div><button class="more" id="moreButton" type="button" hidden>Tải thêm</button>';
+  }
+  const feed=$("#feed");
+  if(!feed)return;
+  const html=(items||[]).map(card).join("");
+  if(append)feed.insertAdjacentHTML("beforeend",html);else feed.innerHTML=html||'<div class="empty"><div><strong>Không có dữ liệu</strong>Thử lại hoặc tìm từ khóa khác.</div></div>';
+  const more=$("#moreButton");if(more)more.hidden=!state.next;
+}
+function compactRows(items){
+  return (items||[]).map(row=>{
+    const id=videoId(row.url||row.videoId||"");if(!id)return "";
+    return '<article class="row" data-kind="video" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta">'+esc(row.uploaderName||"")+(row.views>=0?" · "+esc(fmt(row.views))+" lượt xem":"")+'</div></div></article>';
+  }).join("");
+}
+async function home(title="Dành cho bạn",nav="home"){
+  setActive(nav);searchInput.value="";
+  const token=++state.token;state.next=null;state.more=null;
+  view.innerHTML='<div class="section-head"><h1>'+esc(title)+'</h1></div>'+loading();
+  try{
+    const r=await api.trending("VN");if(token!==state.token)return;
+    renderCollection(title,r.data,r.source);
+  }catch{if(token===state.token)view.innerHTML='<div class="error">Không tải được video. Thử lại sau.</div>';}
+}
+async function searchPage(q){
+  setActive("");searchInput.value=q;
+  const token=++state.token;state.next=null;
+  view.innerHTML='<div class="section-head"><h1>Kết quả cho “'+esc(q)+'”</h1></div>'+loading();
+  try{
+    const r=await api.search(q,"all");if(token!==state.token)return;
+    state.next=r.data?.nextpage||null;
+    renderCollection("Kết quả cho “"+q+"”",r.data?.items||[],r.source);
+    state.more=async()=>{
+      if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;
+      const x=await api.searchNext(q,"all",next);state.next=x.data?.nextpage||null;renderCollection("",x.data?.items||[],"",true);
+    };
+  }catch{if(token===state.token)view.innerHTML='<div class="error">Tìm kiếm đang lỗi nguồn. Thử lại.</div>';}
+}
+function historyPage(){
+  ++state.token;setActive("history");state.next=null;state.more=null;
+  const items=read(HISTORY_KEY).map(x=>({type:"stream",url:"/watch?v="+x.id,title:x.title,thumbnail:x.thumbnail,uploaderName:x.uploaderName,views:x.views,duration:x.duration}));
+  renderCollection("Đã xem",items);
+}
+function playlistsPage(){
+  ++state.token;setActive("playlists");state.next=null;state.more=null;
+  const items=read(PLAYLIST_KEY).map(x=>({type:"playlist",id:x.id,name:x.name,thumbnail:x.thumbnail,uploader:x.uploader,videos:x.videos}));
+  renderCollection("Danh sách gần đây",items);
+}
+async function playlistPage(id){
+  setActive("playlists");const token=++state.token;state.next=null;
+  view.innerHTML='<div class="hero"><div class="skeleton" style="height:170px;border-radius:12px"></div></div>'+loading();
+  try{
+    const r=await api.playlist(id);if(token!==state.token)return;const d=r.data||{};savePlaylist(d,id);
+    state.next=d.nextpage||null;
+    view.innerHTML='<section class="hero">'+(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.thumbnailUrl?'<img class="hero-avatar" style="border-radius:10px" src="'+esc(d.thumbnailUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Danh sách phát")+'</h1><p>'+esc(d.uploader||"")+' · '+esc(String(d.videos||0))+' video</p></div></div></section><div class="subhead">Video</div><div class="compact" id="feed">'+compactRows(d.relatedStreams||[])+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
+    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.playlistNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));$("#moreButton").hidden=!state.next;};
+  }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được danh sách phát.</div>';}
+}
+async function channelPage(id){
+  setActive("");const token=++state.token;state.next=null;
+  view.innerHTML='<div class="hero"><div class="skeleton" style="height:170px;border-radius:12px"></div></div>'+loading();
+  try{
+    const r=await api.channel(id);if(token!==state.token)return;const d=r.data||{};state.next=d.nextpage||null;
+    view.innerHTML='<section class="hero">'+(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.avatarUrl?'<img class="hero-avatar" src="'+esc(d.avatarUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Kênh")+'</h1><p>'+esc(fmt(d.subscriberCount||0))+' người đăng ký</p></div></div>'+(d.description?'<p>'+esc(d.description)+'</p>':'')+'</section><div class="subhead">Video</div><div class="compact" id="feed">'+compactRows(d.relatedStreams||[])+'</div><button class="more" id="moreButton" type="button" '+(state.next?"":"hidden")+'>Tải thêm</button>';
+    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.channelNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));$("#moreButton").hidden=!state.next;};
+  }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
+}
+async function watchPage(id){
+  setActive("");const token=++state.token;state.currentVideo=id;state.playerN=0;
+  view.innerHTML='<div class="watch-layout"><section><div class="player-shell"><iframe id="player" src="'+esc(api.playerUrl(id,0))+'" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div><div class="watch-info"><h1 id="watchTitle">Đang tải thông tin…</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="changePlayer" type="button">Đổi nguồn</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">Piped · không quảng cáo</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
+  $("#changePlayer").onclick=()=>{state.playerN++;$("#player").src=api.playerUrl(id,state.playerN);};
+  $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").textContent="Đã sao chép";setTimeout(()=>$("#shareVideo").textContent="Chia sẻ",900);}catch{}};
+  try{
+    const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
+    saveHistory(d,id);$("#watchTitle").textContent=d.title||("Video "+id);document.title=(d.title||"1988")+" · 1988";
+    const cid=channelId(d.uploaderUrl||"");
+    $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'<div class="avatar"></div>')+'<div '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(d.uploader||"")+'</div><div class="channel-sub">'+esc(fmt(d.views||0))+' lượt xem · '+esc(d.uploadDate||"")+'</div></div>';
+    if(d.description){$("#description").textContent=d.description;$("#description").hidden=false;}
+    $("#related").innerHTML=compactRows((d.relatedStreams||[]).slice(0,18));
+    const segments=Array.isArray(s?.data)?s.data:[];if(segments.length)$("#sponsorBadge").textContent="SponsorBlock · "+segments.length+" đoạn";
+  }catch{if(token===state.token){$("#watchTitle").textContent="Video "+id;$("#channelLine").innerHTML="";}}
+}
+function route(){
+  suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
+  const v=p.get("v"),list=p.get("list"),channel=p.get("channel"),q=p.get("q"),page=p.get("page");
+  if(v)return watchPage(v);if(list)return playlistPage(list);if(channel)return channelPage(channel);if(q)return searchPage(q);
+  if(page==="trending")return home("Thịnh hành tại Việt Nam","trending");
+  if(page==="history")return historyPage();
+  if(page==="playlists")return playlistsPage();
+  return home();
+}
+
+view.addEventListener("click",e=>{
+  const more=e.target.closest("#moreButton");if(more&&state.more){state.more().catch(()=>{});return;}
+  const item=e.target.closest("[data-kind][data-id]");if(!item)return;
+  const kind=item.dataset.kind,id=item.dataset.id;
+  if(kind==="video")navigate({v:id});else if(kind==="playlist")navigate({list:id});else if(kind==="channel")navigate({channel:id});
+});
+homeButton.addEventListener("click",()=>navigate({}));
+document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="home")navigate({});else navigate({page:n});}));
+searchForm.addEventListener("submit",e=>{e.preventDefault();const q=searchInput.value.trim();if(q)navigate({q});});
+let suggestTimer=0,suggestAbort=0;
+searchInput.addEventListener("input",()=>{
+  clearTimeout(suggestTimer);const q=searchInput.value.trim();if(q.length<2){suggestionsEl.hidden=true;return;}
+  const mark=++suggestAbort;suggestTimer=setTimeout(async()=>{try{const rows=(await api.suggestions(q)).slice(0,8);if(mark!==suggestAbort)return;suggestionsEl.innerHTML=rows.map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");suggestionsEl.hidden=!rows.length;}catch{suggestionsEl.hidden=true;}},250);
+});
+suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;navigate({q});});
+document.addEventListener("click",e=>{if(!e.target.closest(".search"))suggestionsEl.hidden=true;});
+window.addEventListener("popstate",route);
+route();
