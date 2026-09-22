@@ -55,7 +55,8 @@ body{padding-bottom:66px}button,input{font:inherit}button{-webkit-tap-highlight-
 .persistent-player{width:100%;max-width:1280px;margin:0 auto;background:#000;z-index:68}
 .persistent-player .mini-toolbar{display:none}
 .player-aspect{aspect-ratio:16/9;background:#000}
-.player-aspect iframe{display:block;width:100%;height:100%;border:0;background:#000}
+.player-aspect iframe,.player-aspect video{display:block;width:100%;height:100%;border:0;background:#000}
+.player-aspect video{object-fit:contain}
 .persistent-player.full{position:relative}
 .persistent-player.full .player-aspect{width:100%}
 .persistent-player.mini{position:fixed;right:8px;bottom:70px;width:min(58vw,270px);margin:0;border:1px solid #303030;border-radius:11px;overflow:hidden;box-shadow:0 12px 34px rgba(0,0,0,.55);background:#111}
@@ -82,39 +83,6 @@ body{padding-bottom:66px}button,input{font:inherit}button{-webkit-tap-highlight-
 .player-aspect{position:relative;overflow:hidden}
 .persistent-player .player-aspect iframe{pointer-events:none}
 
-/* Hide YouTube-owned chrome while keeping the video visible.
-   The iframe is non-interactive; all playback controls come from 1988. */
-.player-aspect::after{
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:4;
-  pointer-events:none;
-  background:linear-gradient(
-    to bottom,
-    #000 0 13%,
-    transparent 13% 89%,
-    #000 89% 100%
-  );
-}
-.persistent-player.mini .player-aspect::after{
-  background:linear-gradient(
-    to bottom,
-    #000 0 14%,
-    transparent 14% 88%,
-    #000 88% 100%
-  );
-}
-/* During iframe load/seek/fullscreen transitions YouTube briefly paints its
-   title/logo chrome over the video. Cover that short transition completely. */
-.player-aspect.yt-transition-cover::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  z-index:6;
-  background:#000;
-  pointer-events:none;
-}
 .persistent-player:fullscreen,
 .persistent-player:-webkit-full-screen{
   width:100vw;
