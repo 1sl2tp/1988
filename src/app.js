@@ -11,6 +11,7 @@ const HISTORY_KEY="1988.history.v3";
 const PLAYLIST_KEY="1988.playlists.v1";
 
 const state={token:0,next:null,more:null,playerN:0,currentVideo:""};
+const dearrowCache=new Map();
 
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function fmt(n){
@@ -90,12 +91,40 @@ function renderCollection(title,items,source="",append=false){
   const html=(items||[]).map(card).join("");
   if(append)feed.insertAdjacentHTML("beforeend",html);else feed.innerHTML=html||'<div class="empty"><div><strong>Không có dữ liệu</strong>Thử lại hoặc tìm từ khóa khác.</div></div>';
   const more=$("#moreButton");if(more)more.hidden=!state.next;
+  void enhanceDeArrow(feed);
 }
 function compactRows(items){
   return (items||[]).map(row=>{
     const id=videoId(row.url||row.videoId||"");if(!id)return "";
     return '<article class="row" data-kind="video" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta">'+esc(row.uploaderName||"")+(row.views>=0?" · "+esc(fmt(row.views))+" lượt xem":"")+'</div></div></article>';
   }).join("");
+}
+async function enhanceDeArrow(root=document){
+  const cards=[...root.querySelectorAll('[data-kind="video"][data-id]')];
+  if(!cards.length||!api.branding)return;
+  const ids=[...new Set(cards.map(el=>el.dataset.id).filter(Boolean))];
+  const missing=ids.filter(id=>!dearrowCache.has(id)).slice(0,24);
+  if(missing.length){
+    try{
+      const r=await api.branding(missing);
+      const rows=r?.data||{};
+      missing.forEach(id=>dearrowCache.set(id,rows[id]||null));
+    }catch{
+      missing.forEach(id=>dearrowCache.set(id,null));
+    }
+  }
+  cards.forEach(card=>{
+    const id=card.dataset.id;
+    const data=dearrowCache.get(id);
+    if(!data)return;
+    const title=card.querySelector(".title,.row-title");
+    const image=card.querySelector("img.thumb,img");
+    if(data.title&&title)title.textContent=data.title;
+    if(data.thumbnailUrl&&image&&!image.dataset.dearrow){
+      image.dataset.dearrow="1";
+      image.src=data.thumbnailUrl;
+    }
+  });
 }
 async function home(title="Dành cho bạn",nav="home"){
   setActive(nav);searchInput.value="";
@@ -139,8 +168,9 @@ async function playlistPage(id){
     const hero=$(".hero");
     if(hero)hero.innerHTML=(d.bannerUrl?'<img class="hero-cover" src="'+esc(d.bannerUrl)+'" alt="">':'')+'<div class="hero-main">'+(d.thumbnailUrl?'<img class="hero-avatar" style="border-radius:10px" src="'+esc(d.thumbnailUrl)+'" alt="">':'')+'<div><h1>'+esc(d.name||"Danh sách phát")+'</h1><p>'+esc(d.uploader||"")+' · '+esc(String(d.videos||0))+' video</p></div></div>';
     $("#feed").innerHTML=compactRows(d.relatedStreams||[]);
+    void enhanceDeArrow($("#feed"));
     $("#moreButton").hidden=!state.next;
-    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.playlistNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));$("#moreButton").hidden=!state.next;};
+    state.more=async()=>{if(!state.next)return;const next=state.next;state.next=null;$("#moreButton").hidden=true;const x=await api.playlistNext(id,next);state.next=x.data?.nextpage||null;$("#feed").insertAdjacentHTML("beforeend",compactRows(x.data?.relatedStreams||x.data?.items||[]));void enhanceDeArrow($("#feed"));$("#moreButton").hidden=!state.next;};
   }catch{
     if(token===state.token){
       const hero=$(".hero");if(hero)hero.innerHTML='<div class="hero-main"><div><h1>Danh sách phát</h1><p>Player đã mở; dữ liệu danh sách đang tạm lỗi.</p></div></div>';
@@ -168,6 +198,8 @@ async function watchPage(id){
     $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'<div class="avatar"></div>')+'<div '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(d.uploader||"")+'</div><div class="channel-sub">'+esc(fmt(d.views||0))+' lượt xem · '+esc(d.uploadDate||"")+'</div></div>';
     if(d.description){$("#description").textContent=d.description;$("#description").hidden=false;}
     $("#related").innerHTML=compactRows((d.relatedStreams||[]).slice(0,18));
+    void enhanceDeArrow($("#related"));
+    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token)$("#watchTitle").textContent=b.title;}).catch(()=>{});
     const segments=Array.isArray(s?.data)?s.data:[];if(segments.length)$("#sponsorBadge").textContent="SponsorBlock · "+segments.length+" đoạn";
   }catch{}
 }
