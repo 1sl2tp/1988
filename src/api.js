@@ -26,6 +26,7 @@ const playlistNext=(id,nextpage)=>call("playlist_next",{id,nextpage});
 const channel=(id)=>call("channel",{id});
 const channelNext=(id,nextpage)=>call("channel_next",{id,nextpage});
 const sponsors=(id)=>call("sponsors",{id});
+const background=(id)=>call("background",{id});
 const branding=(ids)=>call("branding",{ids:(Array.isArray(ids)?ids:[]).join(",")});
 function playerUrl(id){
   const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
@@ -49,4 +50,4 @@ function playlistPlayerUrl(id){
   url.searchParams.set("origin",location.origin);
   return url.toString();
 }
-window.YT1988_API={trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,branding,playerUrl,playlistPlayerUrl};
+window.YT1988_API={trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};

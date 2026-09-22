@@ -9,8 +9,17 @@ const suggestionsEl=$("#suggestions");
 const homeButton=$("#homeButton");
 const HISTORY_KEY="1988.history.v3";
 const PLAYLIST_KEY="1988.playlists.v1";
+const BG_AUTO_KEY="1988.background.auto.v1";
+const playerBox=$("#persistentPlayer");
+const playerFrame=$("#playerFrame");
+const miniTitle=$("#miniTitle");
+const miniExpand=$("#miniExpand");
+const miniClose=$("#miniClose");
+const bgAudio=$("#backgroundAudio");
+const installButton=$("#installButton");
 
-const state={token:0,next:null,more:null,playerN:0,currentVideo:""};
+
+const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,backgroundId:"",backgroundInfo:null,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
 const dearrowCache=new Map();
 
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
@@ -126,6 +135,211 @@ async function enhanceDeArrow(root=document){
     }
   });
 }
+
+function setPlayerMode(mode){
+  if(!playerBox)return;
+  if(!state.currentVideo){
+    playerBox.hidden=true;
+    playerBox.classList.remove("full","mini");
+    return;
+  }
+  playerBox.hidden=false;
+  playerBox.classList.toggle("full",mode==="full");
+  playerBox.classList.toggle("mini",mode==="mini");
+}
+function sendYT(func,args=[]){
+  try{
+    playerFrame?.contentWindow?.postMessage(JSON.stringify({event:"command",func,args,id:"1988"}),"*");
+  }catch{}
+}
+function listenYT(){
+  try{
+    playerFrame?.contentWindow?.postMessage(JSON.stringify({event:"listening",id:"1988"}),"*");
+  }catch{}
+}
+function normalizeSponsors(rows){
+  return (Array.isArray(rows)?rows:[]).map(row=>{
+    const seg=Array.isArray(row?.segment)?row.segment:null;
+    const start=seg?Number(seg[0]):Number(row?.startTime);
+    const end=seg?Number(seg[1]):Number(row?.endTime);
+    return {start,end,category:String(row?.category||"")};
+  }).filter(x=>Number.isFinite(x.start)&&Number.isFinite(x.end)&&x.end>x.start);
+}
+function maybeSkipSponsor(){
+  if(bgAudio&&!bgAudio.paused)return;
+  const t=Number(state.ytTime)||0;
+  const seg=state.sponsorSegments.find(x=>t>=x.start&&t<x.end-0.15);
+  if(seg){
+    state.ytTime=seg.end;
+    sendYT("seekTo",[seg.end,true]);
+  }
+}
+function ensureVideoPlayer(id){
+  if(!playerBox||!playerFrame)return;
+  if(state.currentVideo!==id){
+    if(bgAudio&&!bgAudio.paused)bgAudio.pause();
+    state.currentVideo=id;
+    state.currentInfo=null;
+    state.sponsorSegments=[];
+    state.ytTime=0;
+    state.backgroundId="";
+    state.backgroundInfo=null;
+    playerFrame.src=api.playerUrl(id);
+    miniTitle.textContent="Video";
+    playerBox.hidden=false;
+  }
+  setPlayerMode("full");
+  setTimeout(listenYT,250);
+  setTimeout(listenYT,1000);
+}
+function minimizeVideo(){
+  if(state.currentVideo)setPlayerMode("mini");
+}
+function closeVideo(){
+  try{bgAudio.pause();bgAudio.removeAttribute("src");bgAudio.load();}catch{}
+  state.currentVideo="";
+  state.currentInfo=null;
+  state.sponsorSegments=[];
+  state.backgroundId="";
+  state.backgroundInfo=null;
+  state.ytTime=0;
+  if(playerFrame)playerFrame.src="about:blank";
+  if(playerBox){playerBox.hidden=true;playerBox.classList.remove("full","mini","background-active");}
+  document.title="1988";
+}
+function updateMiniTitle(title){
+  if(miniTitle)miniTitle.textContent=title||"1988";
+}
+function updateMediaSession(info){
+  if(!("mediaSession" in navigator)||!info)return;
+  try{
+    navigator.mediaSession.metadata=new MediaMetadata({
+      title:info.title||"1988",
+      artist:info.uploader||"",
+      album:"1988",
+      artwork:info.thumbnailUrl?[{src:info.thumbnailUrl,sizes:"512x512"}]:[]
+    });
+  }catch{}
+}
+function updatePositionState(){
+  if(!("mediaSession" in navigator)||typeof navigator.mediaSession.setPositionState!=="function")return;
+  const duration=Number(bgAudio?.duration);
+  const position=Number(bgAudio?.currentTime);
+  if(Number.isFinite(duration)&&duration>0&&Number.isFinite(position)&&position>=0&&position<=duration){
+    try{navigator.mediaSession.setPositionState({duration,playbackRate:bgAudio.playbackRate||1,position});}catch{}
+  }
+}
+async function prepareBackground(id){
+  if(!id||!api.background)return null;
+  if(state.backgroundInfo?.id===id)return state.backgroundInfo;
+  try{
+    const r=await api.background(id);
+    if(state.currentVideo!==id)return null;
+    const info=r?.data||null;
+    if(!info?.audioUrl)return null;
+    state.backgroundInfo=info;
+    if(bgAudio&&bgAudio.dataset.id!==id&&!bgAudio.paused)bgAudio.pause();
+    if(bgAudio&&bgAudio.dataset.id!==id){
+      bgAudio.dataset.id=id;
+      bgAudio.src=info.audioUrl;
+      bgAudio.load();
+    }
+    updateMediaSession(info);
+    return info;
+  }catch{return null;}
+}
+async function startBackground(id,{auto=false}={}){
+  const info=await prepareBackground(id);
+  if(!info||!bgAudio)return false;
+  if(bgAudio.dataset.id!==id){
+    bgAudio.dataset.id=id;
+    bgAudio.src=info.audioUrl;
+    bgAudio.load();
+  }
+  const startAt=Math.max(0,Number(state.ytTime)||0);
+  if(bgAudio.readyState>=1&&startAt>0){
+    try{bgAudio.currentTime=Math.min(startAt,Math.max(0,(bgAudio.duration||startAt)-0.2));}catch{}
+  }else if(startAt>0){
+    bgAudio.addEventListener("loadedmetadata",()=>{
+      try{bgAudio.currentTime=Math.min(startAt,Math.max(0,(bgAudio.duration||startAt)-0.2));}catch{}
+    },{once:true});
+  }
+  sendYT("pauseVideo",[]);
+  try{
+    await bgAudio.play();
+    state.backgroundId=id;
+    state.backgroundAuto=true;
+    localStorage.setItem(BG_AUTO_KEY,"1");
+    playerBox?.classList.add("background-active");
+    updateMediaSession(info);
+    if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
+    const btn=$("#backgroundButton");if(btn)btn.textContent="Xem video";
+    return true;
+  }catch{
+    if(!auto){
+      const btn=$("#backgroundButton");if(btn)btn.textContent="Thử lại phát nền";
+    }
+    return false;
+  }
+}
+function resumeForeground(){
+  if(!bgAudio)return;
+  const t=Number(bgAudio.currentTime)||0;
+  bgAudio.pause();
+  state.ytTime=t;
+  state.backgroundId="";
+  playerBox?.classList.remove("background-active");
+  sendYT("seekTo",[t,true]);
+  sendYT("playVideo",[]);
+  const btn=$("#backgroundButton");if(btn)btn.textContent="Phát nền";
+  if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";
+}
+async function toggleBackground(){
+  const id=state.currentVideo;
+  if(!id)return;
+  if(bgAudio&&!bgAudio.paused&&bgAudio.dataset.id===id)resumeForeground();
+  else await startBackground(id);
+}
+function setupMediaSession(){
+  if(!("mediaSession" in navigator))return;
+  const safe=(name,fn)=>{try{navigator.mediaSession.setActionHandler(name,fn);}catch{}};
+  safe("play",()=>bgAudio?.play());
+  safe("pause",()=>bgAudio?.pause());
+  safe("seekbackward",d=>{if(bgAudio)bgAudio.currentTime=Math.max(0,bgAudio.currentTime-(d.seekOffset||10));});
+  safe("seekforward",d=>{if(bgAudio)bgAudio.currentTime=Math.min(bgAudio.duration||Infinity,bgAudio.currentTime+(d.seekOffset||10));});
+  safe("seekto",d=>{if(bgAudio&&Number.isFinite(d.seekTime))bgAudio.currentTime=d.seekTime;});
+}
+function setupPwa(){
+  if("serviceWorker" in navigator){
+    window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+  }
+  let deferred=null;
+  window.addEventListener("beforeinstallprompt",e=>{
+    e.preventDefault();deferred=e;if(installButton)installButton.hidden=false;
+  });
+  const isiOS=/iphone|ipad|ipod/i.test(navigator.userAgent);
+  const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
+  if(isiOS&&!standalone&&installButton)installButton.hidden=false;
+  installButton?.addEventListener("click",async()=>{
+    if(deferred){
+      deferred.prompt();
+      try{await deferred.userChoice;}catch{}
+      deferred=null;installButton.hidden=true;
+    }else if(isiOS){
+      alert("Safari: bấm Chia sẻ → Thêm vào Màn hình chính để cài 1988.");
+    }
+  });
+}
+window.addEventListener("message",e=>{
+  if(!String(e.origin||"").includes("youtube"))return;
+  let data=e.data;
+  try{if(typeof data==="string")data=JSON.parse(data);}catch{return;}
+  if(data?.event==="infoDelivery"&&Number.isFinite(Number(data?.info?.currentTime))){
+    state.ytTime=Number(data.info.currentTime);
+    maybeSkipSponsor();
+  }
+});
+
 async function home(title="Dành cho bạn",nav="home"){
   setActive(nav);searchInput.value="";
   const token=++state.token;state.next=null;state.more=null;
@@ -188,26 +402,38 @@ async function channelPage(id){
   }catch{if(token===state.token)view.innerHTML='<div class="error">Không mở được kênh.</div>';}
 }
 async function watchPage(id){
-  setActive("");const token=++state.token;state.currentVideo=id;
-  view.innerHTML='<div class="watch-layout"><section><div class="player-shell"><iframe id="player" src="'+esc(api.playerUrl(id))+'" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe></div><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">YouTube embed</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
-  $("#reloadPlayer").onclick=()=>{$("#player").src=api.playerUrl(id);};
+  setActive("");const token=++state.token;
+  ensureVideoPlayer(id);
+  view.innerHTML='<div class="watch-layout"><section><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="backgroundButton" type="button">Phát nền</button><button class="pill" id="minimizeButton" type="button">Thu nhỏ</button><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">SponsorBlock</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
+  $("#backgroundButton").onclick=toggleBackground;
+  $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
+  $("#reloadPlayer").onclick=()=>{playerFrame.src=api.playerUrl(id);setTimeout(listenYT,400);};
   $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").textContent="Đã sao chép";setTimeout(()=>$("#shareVideo").textContent="Chia sẻ",900);}catch{}};
+  void prepareBackground(id);
   try{
     const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
-    saveHistory(d,id);$("#watchTitle").textContent=d.title||("Video "+id);document.title=(d.title||"1988")+" · 1988";
+    state.currentInfo=d;
+    saveHistory(d,id);
+    const title=d.title||("Video "+id);
+    $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
     $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'<div class="avatar"></div>')+'<div '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(d.uploader||"")+'</div><div class="channel-sub">'+esc(fmt(d.views||0))+' lượt xem · '+esc(d.uploadDate||"")+'</div></div>';
     if(d.description){$("#description").textContent=d.description;$("#description").hidden=false;}
     $("#related").innerHTML=compactRows((d.relatedStreams||[]).slice(0,18));
     void enhanceDeArrow($("#related"));
-    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token)$("#watchTitle").textContent=b.title;}).catch(()=>{});
-    const segments=Array.isArray(s?.data)?s.data:[];if(segments.length)$("#sponsorBadge").textContent="SponsorBlock · "+segments.length+" đoạn";
+    api.branding?.([id]).then(x=>{const b=x?.data?.[id];if(b?.title&&token===state.token){$("#watchTitle").textContent=b.title;updateMiniTitle(b.title);}}).catch(()=>{});
+    state.sponsorSegments=normalizeSponsors(s?.data);
+    $("#sponsorBadge").textContent=state.sponsorSegments.length?"SponsorBlock · "+state.sponsorSegments.length+" đoạn":"SponsorBlock";
+    const bg=await prepareBackground(id);if(bg)updateMediaSession({...bg,title});
   }catch{}
 }
 function route(){
   suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
   const v=p.get("v"),list=p.get("list"),channel=p.get("channel"),q=p.get("q"),page=p.get("page");
-  if(v)return watchPage(v);if(list)return playlistPage(list);if(channel)return channelPage(channel);if(q)return searchPage(q);
+  if(v)return watchPage(v);
+  if(list){closeVideo();return playlistPage(list);}
+  if(state.currentVideo)minimizeVideo();
+  if(channel)return channelPage(channel);if(q)return searchPage(q);
   if(page==="trending")return home("Thịnh hành tại Việt Nam","trending");
   if(page==="history")return historyPage();
   if(page==="playlists")return playlistsPage();
@@ -231,4 +457,17 @@ searchInput.addEventListener("input",()=>{
 suggestionsEl.addEventListener("click",e=>{const b=e.target.closest("[data-suggest]");if(!b)return;const q=b.dataset.suggest||"";searchInput.value=q;navigate({q});});
 document.addEventListener("click",e=>{if(!e.target.closest(".search"))suggestionsEl.hidden=true;});
 window.addEventListener("popstate",route);
+playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);});
+miniExpand?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
+miniClose?.addEventListener("click",closeVideo);
+miniTitle?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
+bgAudio?.addEventListener("play",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";});
+bgAudio?.addEventListener("pause",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";});
+bgAudio?.addEventListener("timeupdate",updatePositionState);
+bgAudio?.addEventListener("ended",()=>{state.backgroundId="";playerBox?.classList.remove("background-active");});
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden&&state.backgroundAuto&&state.currentVideo&&bgAudio?.paused)void startBackground(state.currentVideo,{auto:true});
+});
+setupMediaSession();
+setupPwa();
 route();

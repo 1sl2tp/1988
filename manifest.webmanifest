@@ -1,9 +1,47 @@
 {
   "name": "1988",
   "short_name": "1988",
+  "id": "./",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "orientation": "any",
   "background_color": "#0f0f0f",
   "theme_color": "#0f0f0f",
-  "description": "Xem và tìm kiếm video qua Piped"
+  "description": "Tìm kiếm, xem video, mini-player và phát nền.",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Thịnh hành",
+      "short_name": "Thịnh hành",
+      "url": "./?page=trending"
+    },
+    {
+      "name": "Danh sách",
+      "short_name": "Danh sách",
+      "url": "./?page=playlists"
+    },
+    {
+      "name": "Đã xem",
+      "short_name": "Đã xem",
+      "url": "./?page=history"
+    }
+  ]
 }

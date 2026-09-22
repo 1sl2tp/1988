@@ -117,6 +117,52 @@ Deno.serve(async (req) => {
   const action = String(url.searchParams.get("action") || "health").toLowerCase();
 
   try {
+    if (action === "background") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
+      const result = await piped(`/streams/${enc(id)}`);
+      const info: any = result.data || {};
+      const streams = Array.isArray(info.audioStreams) ? info.audioStreams.filter((s: any) => s?.url) : [];
+      const preferred = streams
+        .slice()
+        .sort((a: any, b: any) => {
+          const aMp4 = String(a?.mimeType || "").includes("mp4") ? 1 : 0;
+          const bMp4 = String(b?.mimeType || "").includes("mp4") ? 1 : 0;
+          if (aMp4 !== bMp4) return bMp4 - aMp4;
+          return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
+        })[0];
+      if (!preferred?.url) return json({ ok: false, error: "no_audio_stream" }, 404, 0);
+
+      let audioUrl = String(preferred.url);
+      try {
+        const media = new URL(audioUrl);
+        if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
+          const proxy = new URL(String(info.proxyUrl));
+          const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
+          media.searchParams.set("host", media.host);
+          media.protocol = proxy.protocol;
+          media.host = proxy.host;
+          media.pathname = prefix + media.pathname;
+          audioUrl = media.toString();
+        }
+      } catch {}
+
+      return json({
+        ok: true,
+        source: result.source,
+        data: {
+          id,
+          title: info.title || "",
+          uploader: info.uploader || "",
+          thumbnailUrl: info.thumbnailUrl || "",
+          duration: Number(info.duration) || 0,
+          audioUrl,
+          mimeType: preferred.mimeType || "",
+          bitrate: Number(preferred.bitrate) || 0,
+        },
+      }, 200, 20);
+    }
+
     if (action === "branding") {
       const raw = String(url.searchParams.get("ids") || "");
       const ids = [...new Set(raw.split(",").map((v) => v.trim()).filter((v) => validId(v, "video")))].slice(0, 24);
