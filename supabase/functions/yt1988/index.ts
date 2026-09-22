@@ -325,7 +325,6 @@ Deno.serve(async (req) => {
       const result = await piped(`/streams/${enc(id)}`);
       const info: any = result.data || {};
       const streams = Array.isArray(info.audioStreams) ? info.audioStreams.filter((s: any) => s?.url) : [];
-      if (!streams.length) return json({ ok: false, error: "no_audio_stream" }, 404, 0);
 
       const proxify = (raw: string) => {
         try {
@@ -360,6 +359,15 @@ Deno.serve(async (req) => {
           mimeType: String(stream.mimeType || ""),
           bitrate: Number(stream.bitrate) || 0,
         }));
+
+      if (typeof info.hls === "string" && info.hls) {
+        sources.push({
+          url: proxify(info.hls),
+          mimeType: "application/vnd.apple.mpegurl",
+          bitrate: 0,
+        });
+      }
+      if (!sources.length) return json({ ok: false, error: "no_background_stream" }, 404, 0);
 
       return json({
         ok: true,
