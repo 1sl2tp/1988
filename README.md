@@ -1,23 +1,25 @@
 # 1988
 
-Web xem và tìm kiếm YouTube theo hướng mobile-first, không dùng YouTube player làm lõi.
+Web xem YouTube và phát âm thanh nền theo hướng mobile-first.
 
 ## Kiến trúc
 
 - Frontend: GitHub Pages tại `yt.taphoa.xyz`.
 - API điều phối: Supabase Edge Function `yt1988`.
-- Nguồn dữ liệu/stream: Piped public instances.
-- Player: Piped embed mở ngay bằng video ID; metadata tải nền.
-- Search hỗ trợ video, kênh và danh sách phát.
-- Có trang kênh, playlist, lịch sử xem và danh sách gần đây.
-- SponsorBlock lấy từ Piped và player Piped có tích hợp chặn tài trợ.
+- Tìm kiếm / metadata / audio stream: API `yt1988` với failover nguồn ở backend.
+- Foreground: YouTube IFrame API để mở video nhanh.
+- Background: thư viện riêng `src/html5-background.js` dùng HTML5 `<audio>` + Media Session API.
+- PWA: manifest + service worker + icon iOS/Android.
 
-Frontend không thử tuần tự nhiều Piped instance. Edge Function tự chọn instance khỏe, cache lựa chọn và failover khi nguồn lỗi.
+## Phát nền
 
+Khi người dùng bấm **Phát nền**:
 
-## Mobile / PWA
+1. Lấy thời điểm hiện tại từ YouTube.
+2. Thư viện HTML5 của 1988 mở audio stream qua `yt1988?action=media&kind=audio`.
+3. Seek audio đến đúng thời điểm.
+4. Khi audio đã phát, pause YouTube.
+5. Media Session cung cấp Play/Pause/Seek trên màn hình khóa.
+6. Khi chọn **Xem video**, lấy `audio.currentTime`, seek YouTube tới đó rồi tiếp tục hình.
 
-- Mini-player giữ video khi chuyển giữa Trang chủ / Search / Kênh / Lịch sử.
-- PWA cài được trên Android; iOS dùng Safari → Chia sẻ → Thêm vào Màn hình chính.
-- Chế độ Phát nền dùng audio stream qua Piped + Media Session để hỗ trợ màn hình khóa khi trình duyệt/hệ điều hành cho phép.
-- YouTube embed vẫn là player foreground để mở video tức thì.
+Dự án không dùng NewPipe/NewPipeExtractor.
