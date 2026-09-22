@@ -107,6 +107,7 @@ const FEED_CACHE_KEY="1988.feedcache.v1";
 const BG_AUTO_KEY="1988.background.auto.v1";
 const playerBox=$("#persistentPlayer");
 const playerFrame=$("#playerFrame");
+const playerAspect=playerFrame?.closest(".player-aspect");
 const miniTitle=$("#miniTitle");
 const miniExpand=$("#miniExpand");
 const miniClose=$("#miniClose");
@@ -208,8 +209,17 @@ function togglePlayerMute(){
   }
   updatePlayerControls();
 }
+function coverYoutubeChrome(ms=850){
+  if(!playerAspect)return;
+  playerAspect.classList.add("yt-transition-cover");
+  clearTimeout(coverYoutubeChrome.timer);
+  coverYoutubeChrome.timer=setTimeout(()=>playerAspect.classList.remove("yt-transition-cover"),ms);
+}
 function enterPlayerFullscreen(){
-  const target=playerFrame||playerBox;
+  // Fullscreen the 1988 wrapper, never the raw YouTube iframe, so our mask
+  // and custom controls remain above YouTube in fullscreen.
+  coverYoutubeChrome(1000);
+  const target=playerBox||playerFrame;
   const fn=target?.requestFullscreen||target?.webkitRequestFullscreen;
   try{fn?.call(target);}catch{}
 }
@@ -456,6 +466,7 @@ function ensureVideoPlayer(id){
     state.ytPlayerState=-1;
     state.backgroundId="";
     state.backgroundInfo=null;
+    coverYoutubeChrome(1200);
     playerFrame.src=api.playerUrl(id);
     miniTitle.textContent="Video";
     playerBox.hidden=false;
@@ -674,7 +685,11 @@ window.addEventListener("message",e=>{
   }
   if(data?.event==="onStateChange"){
     const value=Number(data.info);
-    if(Number.isFinite(value)){state.ytPlayerState=value;updatePlayerControls();}
+    if(Number.isFinite(value)){
+      state.ytPlayerState=value;
+      updatePlayerControls();
+      if(value===1)setTimeout(()=>playerAspect?.classList.remove("yt-transition-cover"),350);
+    }
   }
 });
 
@@ -972,10 +987,13 @@ document.addEventListener("click",e=>{
   if(id)document.getElementById("playlistSheet")?.remove();
 });
 window.addEventListener("popstate",route);
-playerFrame?.addEventListener("load",()=>{setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);});
+playerFrame?.addEventListener("load",()=>{coverYoutubeChrome(1200);setTimeout(listenYT,250);setTimeout(listenYT,900);setTimeout(enforceCaptionsOff,1600);});
 playPauseButton?.addEventListener("click",togglePlayerPlayback);
 seekRange?.addEventListener("input",()=>{state.ytTime=Number(seekRange.value)||0;updatePlayerControls();});
-seekRange?.addEventListener("change",()=>sendYT("seekTo",[Number(seekRange.value)||0,true]));
+seekRange?.addEventListener("change",()=>{
+  coverYoutubeChrome(750);
+  sendYT("seekTo",[Number(seekRange.value)||0,true]);
+});
 muteButton?.addEventListener("click",togglePlayerMute);
 volumeRange?.addEventListener("input",()=>{
   const v=Math.max(0,Math.min(100,Number(volumeRange.value)||0));
