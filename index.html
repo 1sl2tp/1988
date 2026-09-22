@@ -193,12 +193,12 @@ button{-webkit-tap-highlight-color:transparent}
       <div class="options">
         <span>Chế độ xem</span>
         <select class="server-select" id="modeSelect" aria-label="Chế độ xem">
-          <option value="private">Không quảng cáo · máy chủ thay thế</option>
-          <option value="official">YouTube chính thức</option>
+          <option value="official" selected>YouTube chính thức</option>
+          <option value="private">Máy chủ thay thế</option>
         </select>
       </div>
       <div class="notice">
-        <strong>Lưu ý:</strong> 1988 Player không chèn quảng cáo riêng. Chế độ mặc định dùng frontend thay thế; nếu máy chủ đó lỗi, bấm <strong>Đổi máy chủ</strong> hoặc chuyển sang YouTube chính thức.
+        <strong>Lưu ý:</strong> 1988 Player không chèn quảng cáo riêng. Mặc định mở bằng YouTube chính thức; nút <strong>Đổi máy chủ</strong> chỉ dùng khi bạn muốn thử nguồn thay thế. Quảng cáo do YouTube tự phân phối trong player chính thức vẫn có thể xuất hiện.
       </div>
     </main>
 
@@ -379,10 +379,8 @@ clearHistory.addEventListener('click',()=>{
   renderHistory();
 });
 
-try{
-  const saved=localStorage.getItem(MODE_KEY);
-  if(saved==='official'||saved==='private')modeSelect.value=saved;
-}catch{}
+modeSelect.value='official';
+try{localStorage.setItem(MODE_KEY,'official')}catch{}
 renderHistory();
 
 const initial=new URLSearchParams(location.search).get('v');
