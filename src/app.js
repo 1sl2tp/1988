@@ -25,7 +25,7 @@ function dur(s){
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(x).padStart(2,"0"):String(m)+":"+String(x).padStart(2,"0");
 }
 function videoId(url=""){
-  const m=String(url).match(/[?&]v=([A-Za-z0-9_-]{11})|\\/watch\\?v=([A-Za-z0-9_-]{11})|\\/shorts\\/([A-Za-z0-9_-]{11})/);
+  const m=String(url).match(/[?&]v=([A-Za-z0-9_-]{11})|\/watch\?v=([A-Za-z0-9_-]{11})|\/shorts\/([A-Za-z0-9_-]{11})/);
   return m?(m[1]||m[2]||m[3]||""):(/^[A-Za-z0-9_-]{11}$/.test(String(url))?String(url):"");
 }
 function playlistId(url=""){
