@@ -103,18 +103,23 @@ async function api(action,params={}){
   return body;
 }
 
-function directAudioUrl(id){
-  const u=new URL(BASE);
-  u.searchParams.set("action","media");
-  u.searchParams.set("id",id);
-  u.searchParams.set("kind","audio");
-  return u.toString();
+async function backgroundSources(id){
+  const r=await api("background",{id});
+  const data=r?.data||{};
+  const rows=Array.isArray(data.sources)?data.sources:[];
+  return rows.filter(row=>row?.url);
 }
 
 const backgroundPlayer=new HTML5BackgroundPlayer({
   audio:bgAudio,
-  sourceFor:directAudioUrl,
+  sourcesFor:backgroundSources,
   onState(event){
+    if(event.type==="ready"&&event.id===state.currentId&&state.mode==="video"){
+      statusText.textContent=event.count?"Audio HTML5 đã sẵn sàng":"Không có audio HTML5";
+    }
+    if(event.type==="source"&&event.id===state.currentId){
+      statusText.textContent="Đang phát nền bằng HTML5 Audio";
+    }
     if(event.type==="ended"&&state.mode==="background"){
       state.mode="video";
       updateModeUi();
@@ -257,7 +262,7 @@ async function playVideo(id,seedMeta={}){
 
 function prepareAudio(id){
   if(!id)return;
-  backgroundPlayer.prepare(id);
+  void backgroundPlayer.prepare(id);
 }
 
 async function startBackground(){
@@ -279,7 +284,7 @@ async function startBackground(){
   }catch(err){
     state.mode="video";
     updateModeUi();
-    statusText.textContent="Chưa lấy được audio HTML5 · thử lại";
+    statusText.textContent="Audio HTML5 chưa phát được · thử lại";
   }
 }
 
