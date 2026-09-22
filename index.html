@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
   <link rel="manifest" href="/manifest.webmanifest?v=13">
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=1988-26">
+  <link rel="stylesheet" href="./src/style.css?v=1988-27">
   <title>1988</title>
 </head>
 <body>
@@ -35,7 +35,7 @@
       <button id="miniClose" type="button" aria-label="Đóng">×</button>
     </div>
     <div class="player-aspect">
-      <video id="nativeVideo" class="native-video" playsinline webkit-playsinline preload="metadata" controlslist="nodownload noremoteplayback" disablepictureinpicture></video>
+      <video id="nativeVideo" class="native-video" autoplay playsinline webkit-playsinline preload="metadata" controlslist="nodownload noremoteplayback" disablepictureinpicture></video>
       <iframe hidden id="playerFrame" title="1988 player" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
     </div>
     <div class="player-controls" id="playerControls">
@@ -63,6 +63,6 @@
     <button type="button" data-nav="history"><span>◷</span><small>Đã xem</small></button>
   </nav>
 
-  <script defer src="./src/app.js?v=1988-26"></script>
+  <script defer src="./src/app.js?v=1988-27"></script>
 </body>
 </html>
