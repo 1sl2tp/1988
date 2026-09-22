@@ -1,4 +1,5 @@
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+const EXTRACTOR="https://one988-extractor.onrender.com";
 
 const API_MEMORY_TTL={
   home:5*60*1000,
@@ -57,12 +58,25 @@ const apiSponsors=(id)=>call("sponsors",{id});
 const apiBackground=(id)=>call("background",{id});
 const apiPlayback=(id)=>call("playback",{id});
 const directMediaUrl=(id,kind="video")=>{
-  const url=new URL(BASE);
-  url.searchParams.set("action","media");
+  const url=new URL(EXTRACTOR+"/media");
   url.searchParams.set("id",id);
   url.searchParams.set("kind",kind);
   return url.toString();
 };
+async function extractorPlayback(id,timeoutMs=5000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const url=new URL(EXTRACTOR+"/stream");
+    url.searchParams.set("id",id);
+    const res=await fetch(url.toString(),{signal:controller.signal,cache:"no-store",mode:"cors"});
+    const body=await res.json().catch(()=>null);
+    if(!res.ok||body?.ok!==true)throw new Error(body?.error||("HTTP "+res.status));
+    return body;
+  }finally{
+    clearTimeout(timer);
+  }
+}
 const apiBranding=(ids)=>call("branding",{ids:(Array.isArray(ids)?ids:[]).join(",")});
 function playerUrl(id){
   const url=new URL("https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id));
@@ -171,6 +185,7 @@ function svgIcon(name,size=18){
 }
 function friendlySourceLabel(source=""){
   const s=String(source||"").toLowerCase();
+  if(s.includes("newpipe"))return "NewPipe";
   if(s.includes("youtube"))return "YouTube";
   if(s.includes("piped"))return "Piped";
   if(s.includes("sponsor"))return "SponsorBlock";
@@ -571,36 +586,45 @@ function startYoutubeFallback(id,autoplay=true){
   if(autoplay){setTimeout(listenYT,250);setTimeout(listenYT,900);}
   const source=$("#videoSource");if(source)source.textContent="Nguồn · YouTube";
 }
+async function applyNativeInfo(id,seq,info,label){
+  if(state.currentVideo!==id||seq!==state.playerLoadSeq)return false;
+  const source=chooseNativeSource(info);
+  if(!source?.url)return false;
+  state.playerEngine="native";
+  state.nativeInfo=info;
+  state.nativeFallbackStarted=false;
+  state.nativeSourceIndex=0;
+  playerFrame.hidden=true;
+  playerFrame.src="about:blank";
+  nativeVideo.hidden=false;
+  nativeVideo.poster=info.thumbnailUrl||"";
+  nativeVideo.src=source.url;
+  nativeVideo.load();
+  setTimeout(()=>{
+    if(state.currentVideo===id&&seq===state.playerLoadSeq&&state.playerEngine==="native"&&nativeVideo.readyState<2&&!state.nativeFallbackStarted){
+      startYoutubeFallback(id);
+    }
+  },6500);
+  updateMediaSession(info);
+  const sourceLabel=$("#videoSource");if(sourceLabel)sourceLabel.textContent="Nguồn · "+label;
+  const p=nativeVideo.play();
+  if(p?.catch)p.catch(()=>{});
+  return true;
+}
 async function startNativePlayer(id,seq){
-  if(!nativeVideo||!api.playback)return startYoutubeFallback(id);
+  if(!nativeVideo)return startYoutubeFallback(id);
   try{
+    const r=await extractorPlayback(id,5000);
+    const ok=await applyNativeInfo(id,seq,r?.data||null,"NewPipe");
+    if(ok)return;
+  }catch{}
+  try{
+    if(!api.playback)throw new Error("no_piped_playback");
     const r=await api.playback(id);
-    if(state.currentVideo!==id||seq!==state.playerLoadSeq)return;
-    const info=r?.data||null;
-    const source=chooseNativeSource(info);
-    if(!source?.url)throw new Error("no_native_source");
-    state.playerEngine="native";
-    state.nativeInfo=info;
-    state.nativeFallbackStarted=false;
-    state.nativeSourceIndex=0;
-    playerFrame.hidden=true;
-    playerFrame.src="about:blank";
-    nativeVideo.hidden=false;
-    nativeVideo.poster=info.thumbnailUrl||"";
-    nativeVideo.src=source.url;
-    nativeVideo.load();
-    setTimeout(()=>{
-      if(state.currentVideo===id&&seq===state.playerLoadSeq&&state.playerEngine==="native"&&nativeVideo.readyState<2&&!state.nativeFallbackStarted){
-        startYoutubeFallback(id);
-      }
-    },7000);
-    updateMediaSession(info);
-    const sourceLabel=$("#videoSource");if(sourceLabel)sourceLabel.textContent="Nguồn · Piped";
-    const p=nativeVideo.play();
-    if(p?.catch)p.catch(()=>{});
-  }catch{
-    if(state.currentVideo===id&&seq===state.playerLoadSeq)startYoutubeFallback(id);
-  }
+    const ok=await applyNativeInfo(id,seq,r?.data||null,"Piped");
+    if(ok)return;
+  }catch{}
+  if(state.currentVideo===id&&seq===state.playerLoadSeq)startYoutubeFallback(id);
 }
 function ensureVideoPlayer(id){
   if(!playerBox||!playerFrame)return;
@@ -1422,6 +1446,7 @@ try{
   setupZoomLock();
   setupMediaSession();
   setupPwa();
+  setTimeout(()=>fetch(EXTRACTOR+"/health",{cache:"no-store",mode:"cors"}).catch(()=>{}),60);
   route();
   const bootParams=new URLSearchParams(location.search);
   if(!bootParams.has("q")&&!bootParams.has("v")&&!bootParams.has("playlist")&&!bootParams.has("channel")&&!bootParams.has("page")){
