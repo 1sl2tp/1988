@@ -95,7 +95,7 @@ const volumeRange=$("#volumeRange");
 const fullscreenButton=$("#fullscreenButton");
 
 
-const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,ytDuration:0,ytPlayerState:-1,ytVolume:100,ytMuted:false,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
+const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,pendingVideoMeta:null,sponsorSegments:[],ytTime:0,ytDuration:0,ytPlayerState:-1,ytVolume:100,ytMuted:false,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
 const dearrowCache=new Map();
 
 function cleanText(v=""){
@@ -305,7 +305,7 @@ function loading(){
 function videoCard(row){
   const id=videoId(row.url||row.videoId||"");if(!id)return "";
   const thumb=row.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
-  return '<article class="item" data-kind="video" data-id="'+esc(id)+'"><div class="thumb-wrap"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="duration">'+esc(dur(row.duration))+'</span></div><div class="video-body">'+(row.uploaderAvatar?'<img class="avatar" src="'+esc(row.uploaderAvatar)+'" alt="" loading="lazy">':'<div class="avatar"></div>')+'<div class="video-text"><h3 class="title">'+esc(row.title||"Video")+'</h3><div class="meta meta-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="meta meta-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></div></article>';
+  return '<article class="item" data-kind="video" data-id="'+esc(id)+'" data-title="'+esc(row.title||"Video")+'" data-uploader="'+esc(row.uploaderName||"")+'" data-views="'+esc(String(Number(row.views)||0))+'" data-duration="'+esc(String(Number(row.duration)||0))+'" data-thumb="'+esc(thumb)+'"><div class="thumb-wrap"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="duration">'+esc(dur(row.duration))+'</span></div><div class="video-body">'+(row.uploaderAvatar?'<img class="avatar" src="'+esc(row.uploaderAvatar)+'" alt="" loading="lazy">':'<div class="avatar"></div>')+'<div class="video-text"><h3 class="title">'+esc(row.title||"Video")+'</h3><div class="meta meta-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="meta meta-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></div></article>';
 }
 function playlistCard(row){
   const id=row.id||playlistId(row.url||"");if(!id)return "";
@@ -336,7 +336,7 @@ function renderCollection(title,items,source="",append=false){
 function compactRows(items){
   return (items||[]).map(row=>{
     const id=videoId(row.url||row.videoId||"");if(!id)return "";
-    return '<article class="row" data-kind="video" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div class="row-copy"><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta row-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="row-meta row-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></article>';
+    return '<article class="row" data-kind="video" data-id="'+esc(id)+'" data-title="'+esc(row.title||"Video")+'" data-uploader="'+esc(row.uploaderName||"")+'" data-views="'+esc(String(Number(row.views)||0))+'" data-duration="'+esc(String(Number(row.duration)||0))+'" data-thumb="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div class="row-copy"><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta row-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="row-meta row-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></article>';
   }).join("");
 }
 async function enhanceDeArrow(root=document){
@@ -779,9 +779,11 @@ async function fillRelated(title,id,initial=[]){
 async function watchPage(id){
   setActive("");const token=++state.token;
   ensureVideoPlayer(id);
+  const pending=state.pendingVideoMeta?.id===id?state.pendingVideoMeta:null;
   const cached=read(HISTORY_KEY).find(x=>x.id===id);
-  const initialTitle=cleanText(cached?.title)||"Đang tải thông tin…";
-  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(cached?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(cached.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats"></span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  const instant=pending||cached;
+  const initialTitle=cleanText(instant?.title)||"Đang tải thông tin…";
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ")+actionButton("reloadPlayer","reload","Tải lại")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
   $("#backgroundButton").disabled=true;$("#backgroundButton").querySelector("span:last-child").textContent="Đang chuẩn bị";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
@@ -791,8 +793,8 @@ async function watchPage(id){
   try{
     const [r,s]=await Promise.all([api.video(id),api.sponsors(id).catch(()=>null)]);if(token!==state.token)return;const d=r.data||{};
     state.currentInfo=d;
-    const title=cleanText(d.title)||cleanText(cached?.title)||("Video "+id);
-    const uploader=cleanText(d.uploader)||cleanText(cached?.uploaderName)||"";
+    const title=cleanText(d.title)||cleanText(instant?.title)||("Video "+id);
+    const uploader=cleanText(d.uploader)||cleanText(instant?.uploaderName)||"";
     saveHistory({...d,title,uploader},id);
     $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
@@ -806,7 +808,7 @@ async function watchPage(id){
     $("#sponsorBadge").innerHTML=svgIcon("shield",17)+'<span>'+(state.sponsorSegments.length?("SponsorBlock · "+state.sponsorSegments.length):"SponsorBlock")+'</span>';
     const bg=await prepareBackground(id);if(bg)updateMediaSession({...bg,title});
   }catch{
-    const fallbackTitle=cleanText(cached?.title)||("Video "+id);
+    const fallbackTitle=cleanText(instant?.title)||("Video "+id);
     $("#watchTitle").textContent=fallbackTitle;updateMiniTitle(fallbackTitle);
     void fillRelated(fallbackTitle,id,[]);
   }
@@ -829,7 +831,17 @@ view.addEventListener("click",e=>{
   const more=e.target.closest("#moreButton");if(more&&state.more){state.more().catch(()=>{});return;}
   const item=e.target.closest("[data-kind][data-id]");if(!item)return;
   const kind=item.dataset.kind,id=item.dataset.id;
-  if(kind==="video")navigate({v:id});else if(kind==="playlist")navigate({list:id});else if(kind==="mylist")navigate({mylist:id});else if(kind==="channel")navigate({channel:id});
+  if(kind==="video"){
+    state.pendingVideoMeta={
+      id,
+      title:cleanText(item.querySelector(".title,.row-title")?.textContent||item.dataset.title||""),
+      uploaderName:cleanText(item.dataset.uploader||item.querySelector(".meta-channel,.row-channel")?.textContent||""),
+      views:Number(item.dataset.views)||0,
+      duration:Number(item.dataset.duration)||0,
+      thumbnail:item.dataset.thumb||item.querySelector("img")?.src||""
+    };
+    navigate({v:id});
+  }else if(kind==="playlist")navigate({list:id});else if(kind==="mylist")navigate({mylist:id});else if(kind==="channel")navigate({channel:id});
 });
 view.addEventListener("click",e=>{
   const chip=e.target.closest("[data-topic-kind][data-topic-id]");
