@@ -140,6 +140,54 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
   }
 });
 
+let audioPrimeObserver=null;
+const audioPrimeQueue=[];
+const audioPrimePending=new Set();
+let audioPrimeActive=0;
+const AUDIO_PRIME_CONCURRENCY=2;
+
+function pumpAudioPrime(){
+  while(audioPrimeActive<AUDIO_PRIME_CONCURRENCY&&audioPrimeQueue.length){
+    const id=audioPrimeQueue.shift();
+    if(!id||backgroundPlayer.hasPrepared(id)){
+      audioPrimePending.delete(id);
+      continue;
+    }
+    audioPrimeActive++;
+    void backgroundPlayer.prime(id).finally(()=>{
+      audioPrimeActive--;
+      audioPrimePending.delete(id);
+      pumpAudioPrime();
+    });
+  }
+}
+
+function queueAudioPrime(id,urgent=false){
+  if(!id||backgroundPlayer.hasPrepared(id)||audioPrimePending.has(id))return;
+  audioPrimePending.add(id);
+  if(urgent)audioPrimeQueue.unshift(id);
+  else audioPrimeQueue.push(id);
+  pumpAudioPrime();
+}
+
+function scheduleAudioPrefetch(){
+  const cards=[...feed.querySelectorAll("[data-video-id]")];
+  cards.slice(0,6).forEach(card=>queueAudioPrime(card.dataset.videoId||""));
+
+  if(!("IntersectionObserver" in window))return;
+  if(!audioPrimeObserver){
+    audioPrimeObserver=new IntersectionObserver(entries=>{
+      for(const entry of entries){
+        if(!entry.isIntersecting)continue;
+        const card=entry.target;
+        queueAudioPrime(card.dataset.videoId||"");
+        audioPrimeObserver.unobserve(card);
+      }
+    },{rootMargin:"700px 0px",threshold:0.01});
+  }
+  cards.forEach(card=>audioPrimeObserver.observe(card));
+}
+
 function renderCards(rows=[]){
   const seen=new Set();
   const cards=[];
@@ -164,6 +212,7 @@ function renderCards(rows=[]){
   }
   feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
   feedStatus.textContent=cards.length?cards.length+" video":"";
+  scheduleAudioPrefetch();
 }
 
 function rowFromCard(card){
@@ -228,18 +277,55 @@ async function playVideo(id,seedMeta={}){
   state.audioMaster=false;
   playerSection.hidden=false;
 
-  // Arm HTML5 media immediately inside the user's tap. This keeps one real
-  // media element alive before iOS can suspend the iframe later.
-  backgroundPlayer.arm(id,{metadata:seedMeta});
+  const audioPrepared=backgroundPlayer.hasPrepared(id);
+
+  if(audioPrepared){
+    // No network wait before play(): this runs inside the user's tap.
+    void backgroundPlayer.activate(id,{
+      time:0,
+      metadata:seedMeta
+    }).catch(()=>{
+      if(state.currentId!==id)return;
+      state.audioMaster=false;
+      try{state.player?.unMute?.();}catch{}
+      statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
+    });
+  }else{
+    // Fallback for an unprimed card: keep the HTML5 element user-activated
+    // while the real source is resolved.
+    backgroundPlayer.arm(id,{metadata:seedMeta});
+    queueAudioPrime(id,true);
+    void backgroundPlayer.prepare(id).then(async rows=>{
+      if(state.currentId!==id||!rows.length)return;
+      try{
+        await backgroundPlayer.activate(id,{
+          time:getVideoTime(),
+          metadata:state.currentMeta||seedMeta
+        });
+      }catch{
+        if(state.currentId===id){
+          state.audioMaster=false;
+          try{state.player?.unMute?.();}catch{}
+          statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
+        }
+      }
+    });
+  }
 
   updateNow(seedMeta);
   updateModeUi();
-  statusText.textContent="Đang mở video và chuẩn bị âm thanh nền…";
+  statusText.textContent=audioPrepared
+    ?"Đang mở video · HTML5 Audio đã sẵn sàng"
+    :"Đang mở video và chuẩn bị âm thanh nền…";
 
-  try{state.player?.unMute?.();}catch{}
+  try{
+    if(audioPrepared)state.player?.mute?.();
+    else state.player?.unMute?.();
+  }catch{}
 
   if(state.playerReady&&state.player){
     try{
+      if(audioPrepared)state.player.mute();
       state.player.loadVideoById(id);
     }catch{
       state.pendingVideoId=id;
@@ -248,24 +334,6 @@ async function playVideo(id,seedMeta={}){
     state.pendingVideoId=id;
     initYouTubePlayer();
   }
-
-  // Resolve audio in parallel. The audio element was already activated by
-  // the tap, so switching it to the real source does not require another tap.
-  void backgroundPlayer.prepare(id).then(async rows=>{
-    if(state.currentId!==id||!rows.length)return;
-    try{
-      await backgroundPlayer.activate(id,{
-        time:getVideoTime(),
-        metadata:state.currentMeta||seedMeta
-      });
-    }catch{
-      if(state.currentId===id){
-        state.audioMaster=false;
-        try{state.player?.unMute?.();}catch{}
-        statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
-      }
-    }
-  });
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -289,8 +357,6 @@ async function playVideo(id,seedMeta={}){
   }catch{}
 }
 
-function setupMediaSession(){}
-
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
 
@@ -304,15 +370,22 @@ function initYouTubePlayer(){
       rel:0,
       fs:1,
       iv_load_policy:3,
-      enablejsapi:1
+      enablejsapi:1,
+      mute:1
     },
     events:{
       onReady(){
         state.playerReady=true;
+        if(state.audioMaster||backgroundPlayer.hasPrepared(state.currentId)){
+          try{state.player.mute();}catch{}
+        }
         if(state.pendingVideoId){
           const id=state.pendingVideoId;
           state.pendingVideoId="";
-          try{state.player.loadVideoById(id);}catch{}
+          try{
+            if(backgroundPlayer.hasPrepared(id))state.player.mute();
+            state.player.loadVideoById(id);
+          }catch{}
         }
       },
       onStateChange(event){
@@ -411,6 +484,12 @@ searchForm.addEventListener("submit",e=>{
   queryInput.blur();
 });
 
+feed.addEventListener("pointerdown",e=>{
+  const card=e.target.closest("[data-video-id]");
+  if(!card)return;
+  queueAudioPrime(card.dataset.videoId||"",true);
+},{passive:true});
+
 feed.addEventListener("click",e=>{
   const card=e.target.closest("[data-video-id]");
   if(!card)return;
@@ -446,19 +525,30 @@ document.addEventListener("visibilitychange",()=>{
   if(!backgroundPlayer.playing)void backgroundPlayer.play();
 });
 
+let lastVideoSync=0;
+let lastAudioSync=0;
+
 setInterval(()=>{
   if(document.visibilityState!=="visible"||!state.audioMaster||!backgroundPlayer.playing)return;
   if(!state.playerReady||!state.player)return;
 
   const videoTime=getVideoTime();
   const audioTime=backgroundPlayer.time;
-  const drift=Math.abs(videoTime-audioTime);
-  if(drift>1.25){
-    // While visible, a large delta most often means the user scrubbed the
-    // YouTube controls. Follow that seek in the audio element.
+  const videoDelta=videoTime-lastVideoSync;
+  const audioDelta=audioTime-lastAudioSync;
+  const drift=videoTime-audioTime;
+
+  if(Math.abs(videoDelta-audioDelta)>2.5&&Math.abs(drift)>1.5){
+    // User scrubbed the visible YouTube player: move the audio once.
     backgroundPlayer.seek(videoTime);
+  }else if(Math.abs(drift)>0.8){
+    // Normal drift: never disturb audio. Move only the picture.
+    seekVideo(audioTime);
   }
-},1500);
+
+  lastVideoSync=videoTime;
+  lastAudioSync=audioTime;
+},750);
 
 document.addEventListener("click",e=>{
   if(!e.target.closest(".search-box"))closeSuggestions();
