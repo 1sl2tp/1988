@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-html5-v2';
+const CACHE='1988-html5-v3';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './src/style.css?v=fresh-1',
-  './src/app.js?v=fresh-3',
-  './src/html5-background.js?v=1',
+  './src/app.js?v=fresh-4',
+  './src/html5-background.js?v=2',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
