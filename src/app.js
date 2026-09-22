@@ -270,6 +270,26 @@ function createListFromCurrent(name){
   return id;
 }
 
+
+const HOME_TOPICS=[
+  {id:"all",label:"Khám phá",query:"video mới việt nam"},
+  {id:"music",label:"Âm nhạc",query:"âm nhạc việt nam mới"},
+  {id:"news",label:"Tin tức",query:"tin tức việt nam mới nhất"},
+  {id:"entertainment",label:"Giải trí",query:"giải trí việt nam"},
+  {id:"tech",label:"Công nghệ",query:"công nghệ việt nam"}
+];
+const TREND_TOPICS=[
+  {id:"top",label:"Top"},
+  {id:"news",label:"Tin tức",query:"tin tức việt nam mới nhất"},
+  {id:"music",label:"Âm nhạc",query:"âm nhạc thịnh hành việt nam"},
+  {id:"entertainment",label:"Giải trí",query:"giải trí thịnh hành việt nam"},
+  {id:"sports",label:"Thể thao",query:"thể thao việt nam mới nhất"},
+  {id:"tech",label:"Công nghệ",query:"công nghệ mới việt nam"}
+];
+function topicBar(kind,active){
+  const rows=kind==="trending"?TREND_TOPICS:HOME_TOPICS;
+  return '<div class="topic-bar">'+rows.map(row=>'<button type="button" class="topic-chip '+(row.id===active?'active':'')+'" data-topic-kind="'+kind+'" data-topic-id="'+row.id+'">'+esc(row.label)+'</button>').join("")+'</div>';
+}
 function setActive(name){
   document.querySelectorAll("[data-nav]").forEach(b=>b.classList.toggle("active",b.dataset.nav===name));
 }
@@ -618,34 +638,54 @@ window.addEventListener("message",e=>{
   }
 });
 
-async function home(){
+
+async function home(topic="all"){
   setActive("home");searchInput.value="";
+  const selected=HOME_TOPICS.find(x=>x.id===topic)||HOME_TOPICS[0];
   const token=++state.token;state.next=null;state.more=null;
-  const history=read(HISTORY_KEY);
-  const seed=(history[0]?.uploaderName||history[0]?.title||["âm nhạc việt nam","công nghệ việt nam","hài việt nam","du lịch việt nam"][new Date().getDate()%4]).slice(0,100);
-  const cacheKey="home:"+seed;
+  const cacheKey="home:fixed:"+selected.id;
   const cached=getFeedCache(cacheKey);
-  if(cached?.length)renderCollection("Dành cho bạn",cached,"");
-  else view.innerHTML='<div class="section-head"><h1>Dành cho bạn</h1></div>'+loading();
+  if(cached?.length){
+    renderCollection("Trang chủ",cached,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("home",selected.id));
+  }else{
+    view.innerHTML=topicBar("home",selected.id)+'<div class="section-head"><h1>Trang chủ</h1></div>'+loading();
+  }
   try{
-    const r=await api.home(seed);if(token!==state.token)return;
+    const r=await api.home(selected.query);if(token!==state.token)return;
     const items=r.data?.items||r.data||[];
     setFeedCache(cacheKey,items);
-    renderCollection("Dành cho bạn",items,r.source);
-  }catch{if(token===state.token&&!cached)view.innerHTML='<div class="error">Không tải được gợi ý. Thử lại sau.</div>';}
+    renderCollection("Trang chủ",items,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("home",selected.id));
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML=topicBar("home",selected.id)+'<div class="error">Không tải được Trang chủ.</div>';
+  }
 }
-async function trendingPage(){
+async function trendingPage(topic="top"){
   setActive("trending");searchInput.value="";
+  const selected=TREND_TOPICS.find(x=>x.id===topic)||TREND_TOPICS[0];
   const token=++state.token;state.next=null;state.more=null;
-  const cached=getFeedCache("trending:VN");
-  if(cached?.length)renderCollection("Thịnh hành tại Việt Nam",cached,"");
-  else view.innerHTML='<div class="section-head"><h1>Thịnh hành tại Việt Nam</h1></div>'+loading();
+  const cacheKey="trending:"+selected.id;
+  const cached=getFeedCache(cacheKey);
+  const heading=selected.id==="top"?"Thịnh hành tại Việt Nam":selected.label;
+  if(cached?.length){
+    renderCollection(heading,cached,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("trending",selected.id));
+  }else{
+    view.innerHTML=topicBar("trending",selected.id)+'<div class="section-head"><h1>'+esc(heading)+'</h1></div>'+loading();
+  }
   try{
-    const r=await api.trending("VN");if(token!==state.token)return;
-    setFeedCache("trending:VN",r.data||[]);
-    renderCollection("Thịnh hành tại Việt Nam",r.data||[],r.source);
-  }catch{if(token===state.token&&!cached)view.innerHTML='<div class="error">Không tải được thịnh hành.</div>';}
+    const r=selected.id==="top"?await api.trending("VN"):await api.search(selected.query,"videos");
+    if(token!==state.token)return;
+    const items=selected.id==="top"?(r.data||[]):(r.data?.items||[]);
+    setFeedCache(cacheKey,items);
+    renderCollection(heading,items,"");
+    view.insertAdjacentHTML("afterbegin",topicBar("trending",selected.id));
+  }catch{
+    if(token===state.token&&!cached)view.innerHTML=topicBar("trending",selected.id)+'<div class="error">Không tải được '+esc(heading)+'.</div>';
+  }
 }
+
 async function searchPage(q){
   setActive("");searchInput.value=q;
   const token=++state.token;state.next=null;
@@ -759,16 +799,16 @@ async function watchPage(id){
 }
 function route(){
   suggestionsEl.hidden=true;const p=new URLSearchParams(location.search);
-  const v=p.get("v"),list=p.get("list"),mylist=p.get("mylist"),channel=p.get("channel"),q=p.get("q"),page=p.get("page");
+  const v=p.get("v"),list=p.get("list"),mylist=p.get("mylist"),channel=p.get("channel"),q=p.get("q"),page=p.get("page"),topic=p.get("topic")||"";
   if(v)return watchPage(v);
   if(list){closeVideo();return playlistPage(list);}
   if(mylist){if(state.currentVideo)minimizeVideo();return myListPage(mylist);}
   if(state.currentVideo)minimizeVideo();
   if(channel)return channelPage(channel);if(q)return searchPage(q);
-  if(page==="trending")return trendingPage();
+  if(page==="trending")return trendingPage(topic||"top");
   if(page==="history")return historyPage();
   if(page==="playlists")return playlistsPage();
-  return home();
+  return home(topic||"all");
 }
 
 view.addEventListener("click",e=>{
@@ -776,6 +816,13 @@ view.addEventListener("click",e=>{
   const item=e.target.closest("[data-kind][data-id]");if(!item)return;
   const kind=item.dataset.kind,id=item.dataset.id;
   if(kind==="video")navigate({v:id});else if(kind==="playlist")navigate({list:id});else if(kind==="mylist")navigate({mylist:id});else if(kind==="channel")navigate({channel:id});
+});
+view.addEventListener("click",e=>{
+  const chip=e.target.closest("[data-topic-kind][data-topic-id]");
+  if(!chip)return;
+  const kind=chip.dataset.topicKind,topic=chip.dataset.topicId;
+  if(kind==="trending")navigate({page:"trending",topic});
+  else navigate({topic});
 });
 homeButton.addEventListener("click",()=>navigate({}));
 document.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click",()=>{const n=b.dataset.nav;if(n==="home")navigate({});else navigate({page:n});}));
