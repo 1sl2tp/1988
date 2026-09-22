@@ -205,6 +205,56 @@ function pauseVideoEngine(){
   try{state.player?.pauseVideo?.();}catch{}
 }
 
+async function playVideo(id,seedMeta={}){
+  if(!id)return;
+
+  state.currentId=id;
+  state.currentMeta={...seedMeta};
+  state.mode="video";
+  playerSection.hidden=false;
+
+  updateNow(seedMeta);
+  updateModeUi();
+  statusText.textContent="Đang mở YouTube…";
+  prepareAudio(id);
+
+  if(state.playerReady&&state.player){
+    try{
+      state.player.loadVideoById(id);
+    }catch{
+      state.pendingVideoId=id;
+    }
+  }else{
+    state.pendingVideoId=id;
+    initYouTubePlayer();
+  }
+
+  try{
+    playerSection.scrollIntoView({behavior:"smooth",block:"start"});
+  }catch{
+    playerSection.scrollIntoView();
+  }
+
+  try{
+    const r=await api("video",{id});
+    if(state.currentId!==id)return;
+    const meta=r?.data||{};
+    state.currentMeta={...seedMeta,...meta};
+    updateNow(state.currentMeta);
+    statusText.textContent="YouTube đang phát · bấm Phát nền để chuyển sang HTML5 Audio";
+
+    const related=Array.isArray(meta.relatedStreams)?meta.relatedStreams:[];
+    if(related.length){
+      feedTitle.textContent="Gợi ý liên quan";
+      renderCards(related.slice(0,18));
+    }
+  }catch{
+    if(state.currentId===id){
+      statusText.textContent="YouTube đang phát";
+    }
+  }
+}
+
 function prepareAudio(id){
   if(!id)return;
   backgroundPlayer.prepare(id);
@@ -246,7 +296,9 @@ async function returnToVideo(){
 
 function setupMediaSession(){}
 
-window.onYouTubeIframeAPIReady=function(){
+function initYouTubePlayer(){
+  if(state.player||!window.YT||typeof YT.Player!=="function")return false;
+
   state.player=new YT.Player("yt-player",{
     height:"100%",
     width:"100%",
@@ -271,16 +323,32 @@ window.onYouTubeIframeAPIReady=function(){
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
           if(state.mode==="video"){
-            statusText.textContent="Đang phát YouTube · bấm Phát nền trước khi khóa màn hình";
-            try{navigator.mediaSession.playbackState="playing";}catch{}
+            statusText.textContent="Đang phát YouTube · bấm Phát nền để chuyển sang HTML5 Audio";
           }
         }else if(event.data===YT.PlayerState.PAUSED&&state.mode==="video"){
-          try{navigator.mediaSession.playbackState="paused";}catch{}
+          statusText.textContent="Đã tạm dừng";
         }
+      },
+      onError(){
+        statusText.textContent="YouTube không phát được video này";
       }
     }
   });
-};
+  return true;
+}
+
+window.onYouTubeIframeAPIReady=initYouTubePlayer;
+
+// If iframe_api finished before app.js attached its callback, initialize now.
+if(window.YT&&typeof YT.Player==="function"){
+  initYouTubePlayer();
+}else{
+  let ytWait=0;
+  const ytTimer=setInterval(()=>{
+    ytWait++;
+    if(initYouTubePlayer()||ytWait>40)clearInterval(ytTimer);
+  },100);
+}
 
 async function doSearch(value){
   const q=clean(value);
