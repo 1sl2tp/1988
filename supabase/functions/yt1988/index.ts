@@ -255,6 +255,74 @@ Deno.serve(async (req) => {
       return json({ ok: true, source }, 200, 10);
     }
 
+    if (action === "video") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
+
+      try {
+        const result = await piped(`/streams/${enc(id)}`);
+        const data: any = result.data || {};
+        if (!Array.isArray(data.relatedStreams) || !data.relatedStreams.length) {
+          const title = String(data.title || "").trim();
+          if (title) {
+            try {
+              const related = await piped(`/search?q=${enc(title)}&filter=videos`);
+              const items = Array.isArray(related.data?.items) ? related.data.items : [];
+              data.relatedStreams = items.filter((row: any) => !String(row?.url || "").includes(id)).slice(0, 18);
+            } catch {}
+          }
+        }
+        return json({ ok: true, source: result.source, data }, 200, 30);
+      } catch {}
+
+      try {
+        const endpoint = new URL("https://www.youtube.com/oembed");
+        endpoint.searchParams.set("url", `https://www.youtube.com/watch?v=${id}`);
+        endpoint.searchParams.set("format", "json");
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2200);
+        const res = await fetch(endpoint, { signal: controller.signal, headers: { accept: "application/json" } });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`oembed_http_${res.status}`);
+        const meta: any = await res.json();
+        const title = String(meta?.title || "").trim();
+        let relatedStreams: any[] = [];
+        if (title) {
+          try {
+            const related = await piped(`/search?q=${enc(title)}&filter=videos`);
+            relatedStreams = (Array.isArray(related.data?.items) ? related.data.items : [])
+              .filter((row: any) => !String(row?.url || "").includes(id))
+              .slice(0, 18);
+          } catch {}
+        }
+        return json({
+          ok: true,
+          source: "youtube-oembed",
+          data: {
+            title,
+            uploader: String(meta?.author_name || ""),
+            uploaderUrl: String(meta?.author_url || ""),
+            thumbnailUrl: String(meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+            views: 0,
+            uploadDate: "",
+            description: "",
+            relatedStreams,
+          },
+        }, 200, 120);
+      } catch {
+        return json({
+          ok: true,
+          source: "youtube",
+          data: {
+            title: "",
+            uploader: "",
+            thumbnailUrl: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            relatedStreams: [],
+          },
+        }, 200, 20);
+      }
+    }
+
     let path = "";
     let maxAge = 20;
 
@@ -316,11 +384,6 @@ Deno.serve(async (req) => {
         .filter((x: string) => x && !x.includes("\uFFFD"))
         .slice(0, 10);
       return json({ ok: true, source: fallback.source, data: rows }, 200, 60);
-    } else if (action === "video") {
-      const id = String(url.searchParams.get("id") || "").trim();
-      if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
-      path = `/streams/${enc(id)}`;
-      maxAge = 30;
     } else if (action === "playlist") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "playlist")) return json({ ok: false, error: "invalid_playlist" }, 400, 0);
