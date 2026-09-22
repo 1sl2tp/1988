@@ -506,49 +506,17 @@ function maybeSkipSponsor(){
     }
   }
 }
-function primeNativePlaybackFromGesture(id){
-  if(!id||!nativeVideo||!playerBox)return false;
-  ++state.playerLoadSeq;
-  state.currentVideo=id;
-  state.currentInfo=null;
-  state.sponsorSegments=[];
-  state.ytTime=0;
-  state.ytDuration=0;
-  state.ytPlayerState=-1;
-  state.playerEngine="native";
-  state.nativeInfo=null;
-  state.nativeFallbackStarted=false;
-  state.backgroundId="";
-  state.backgroundInfo=null;
-  state.backgroundReady=false;
-  state.wasPlayingBeforeHide=true;
-  state.backgroundAuto=true;
-  localStorage.setItem(BG_AUTO_KEY,"1");
-
-  if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
-  playerBox.hidden=false;
-  nativeVideo.hidden=false;
-  nativeVideo.poster="";
-  nativeVideo.muted=false;
-  nativeVideo.src=directMediaUrl(id,"video");
-  nativeVideo.load();
-  const vp=nativeVideo.play();
-  if(vp?.catch)vp.catch(()=>{});
-
-  // Keep an audio-only stream alive and muted from the original tap.
-  // When iOS hides/locks the page we only unmute it instead of starting
-  // a new media element without a user gesture.
-  if(bgAudio){
-    try{bgAudio.pause();}catch{}
-    bgAudio.dataset.id=id;
-    bgAudio.dataset.source="direct";
-    bgAudio.muted=true;
-    bgAudio.volume=nativeVideo.volume;
-    bgAudio.src=directMediaUrl(id,"audio");
-    bgAudio.load();
-    const ap=bgAudio.play();
-    if(ap?.catch)ap.catch(()=>{});
-  }
+function primeBackgroundFromGesture(id){
+  if(!id||!bgAudio)return false;
+  try{bgAudio.pause();}catch{}
+  bgAudio.dataset.id=id;
+  bgAudio.dataset.source="direct";
+  bgAudio.muted=true;
+  bgAudio.volume=Math.max(0,Math.min(1,(Number(state.ytVolume)||100)/100));
+  bgAudio.src=directMediaUrl(id,"audio");
+  bgAudio.load();
+  const p=bgAudio.play();
+  if(p?.catch)p.catch(()=>{});
   return true;
 }
 function chooseNativeSource(info){
@@ -629,24 +597,27 @@ async function startNativePlayer(id,seq){
 function ensureVideoPlayer(id){
   if(!playerBox||!playerFrame)return;
   if(state.currentVideo!==id){
-    if(bgAudio&&!bgAudio.paused)bgAudio.pause();
-    const seq=++state.playerLoadSeq;
+    ++state.playerLoadSeq;
     state.currentVideo=id;
     state.currentInfo=null;
     state.sponsorSegments=[];
     state.ytTime=0;
     state.ytDuration=0;
     state.ytPlayerState=-1;
-    state.playerEngine="loading";
+    state.playerEngine="youtube";
     state.nativeInfo=null;
     state.nativeFallbackStarted=false;
     state.backgroundId="";
     state.backgroundInfo=null;
-    if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
-    if(nativeVideo){nativeVideo.hidden=false;nativeVideo.poster="";nativeVideo.removeAttribute("src");nativeVideo.load();}
+    state.backgroundReady=false;
+    stopNativePlayer();
+    playerFrame.hidden=false;
+    playerFrame.src=api.playerUrl(id);
     miniTitle.textContent="Video";
     playerBox.hidden=false;
-    void startNativePlayer(id,seq);
+    setTimeout(listenYT,220);
+    setTimeout(listenYT,800);
+    setTimeout(enforceCaptionsOff,1200);
   }
   setPlayerMode("full");
 }
@@ -749,48 +720,75 @@ function warmBackgroundInfo(id){
   };
 }
 async function prepareBackground(id){
-  if(!id||!api.background||!bgAudio)return null;
+  if(!id||!bgAudio)return null;
   if(state.backgroundInfo?.id===id&&state.backgroundReady)return state.backgroundInfo;
-  state.backgroundReady=false;
+
   const warm=warmBackgroundInfo(id);
+  if(warm){
+    state.backgroundInfo=warm;
+    state.backgroundSourceIndex=-1;
+    state.backgroundReady=true;
+    updateMediaSession(warm);
+    backgroundButtonState("Phát nền",false);
+
+    // Enrich the already-running direct audio with NewPipe metadata without
+    // replacing or restarting the media element.
+    extractorPlayback(id,4500).then(r=>{
+      if(state.currentVideo!==id)return;
+      const d=r?.data||{};
+      const enriched={
+        ...warm,
+        title:d.title||warm.title,
+        uploader:d.uploader||warm.uploader,
+        duration:Number(d.duration)||warm.duration,
+        sources:Array.isArray(d.audioSources)&&d.audioSources.length?d.audioSources:warm.sources
+      };
+      state.backgroundInfo=enriched;
+      updateMediaSession(enriched);
+    }).catch(()=>{});
+    return warm;
+  }
+
+  // No primed audio (for example a direct URL open): NewPipe first, Piped fallback.
+  try{
+    const r=await extractorPlayback(id,5000);
+    if(state.currentVideo!==id)return null;
+    const d=r?.data||{};
+    const info={
+      id,
+      title:d.title||miniTitle?.textContent||"1988",
+      uploader:d.uploader||"",
+      duration:Number(d.duration)||0,
+      sources:Array.isArray(d.audioSources)?d.audioSources:[],
+      audioUrl:Array.isArray(d.audioSources)&&d.audioSources[0]?.url?d.audioSources[0].url:""
+    };
+    const index=chooseBackgroundSource(info);
+    if(index>=0&&applyBackgroundSource(info,index)){
+      state.backgroundInfo=info;
+      state.backgroundReady=true;
+      updateMediaSession(info);
+      backgroundButtonState("Phát nền",false);
+      return info;
+    }
+  }catch{}
+
   try{
     const r=await api.background(id);
     if(state.currentVideo!==id)return null;
-    const info=r?.data||warm;
-    const hasSources=!!info?.audioUrl||(Array.isArray(info?.sources)&&info.sources.length);
-    if(!hasSources&&warm){
-      state.backgroundInfo=warm;
-      state.backgroundSourceIndex=-1;
-      updateMediaSession(warm);
+    const info=r?.data||null;
+    const index=chooseBackgroundSource(info);
+    if(info&&index>=0&&applyBackgroundSource(info,index)){
+      state.backgroundInfo=info;
       state.backgroundReady=true;
-      backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
-      return warm;
+      updateMediaSession(info);
+      backgroundButtonState("Phát nền",false);
+      return info;
     }
-    if(!hasSources)return null;
-    state.backgroundInfo=info;
-    const warmDirect=!!warm;
-    if(!warmDirect){
-      const index=chooseBackgroundSource(info);
-      if(index<0||!applyBackgroundSource(info,index))return null;
-    }else{
-      state.backgroundSourceIndex=-1;
-    }
-    updateMediaSession(info);
-    state.backgroundReady=true;
-    backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
-    return info;
-  }catch{
-    if(warm){
-      state.backgroundInfo=warm;
-      state.backgroundSourceIndex=-1;
-      state.backgroundReady=true;
-      updateMediaSession(warm);
-      backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
-      return warm;
-    }
-    backgroundButtonState("Nền chưa sẵn sàng",false);
-    return null;
-  }
+  }catch{}
+
+  state.backgroundReady=false;
+  backgroundButtonState("Nền chưa sẵn sàng",false);
+  return null;
 }
 function maybeSkipBackgroundSponsor(){
   if(!bgAudio||bgAudio.paused)return;
@@ -833,7 +831,7 @@ function startBackgroundReady(id){
 async function toggleBackground(){
   const id=state.currentVideo;
   if(!id)return;
-  if(bgAudio&&!bgAudio.paused&&bgAudio.dataset.id===id){
+  if(state.backgroundId===id&&bgAudio&&!bgAudio.paused&&!bgAudio.muted){
     resumeForeground();
     return;
   }
@@ -851,18 +849,21 @@ function resumeForeground(){
   state.ytTime=t;
   state.backgroundId="";
   playerBox?.classList.remove("background-active");
-  if(state.playerEngine==="native"&&nativeVideo){
+  if(state.playerEngine==="youtube"){
     bgAudio.muted=true;
-    bgAudio.volume=nativeVideo.volume;
-    try{nativeVideo.currentTime=t;}catch{}
-    if(bgAudio.paused){const ap=bgAudio.play();if(ap?.catch)ap.catch(()=>{});}
-    nativeVideo.play().catch(()=>{});
-  }else{
-    bgAudio.pause();
+    try{bgAudio.currentTime=t;}catch{}
+    if(bgAudio.paused){
+      const ap=bgAudio.play();
+      if(ap?.catch)ap.catch(()=>{});
+    }
     sendYT("seekTo",[t,true]);
     sendYT("playVideo",[]);
+  }else if(state.playerEngine==="native"&&nativeVideo){
+    bgAudio.muted=true;
+    try{nativeVideo.currentTime=t;}catch{}
+    nativeVideo.play().catch(()=>{});
   }
-  backgroundButtonState(state.playerEngine==="native"?"Nền tự động":"Phát nền",false);
+  backgroundButtonState("Phát nền",false);
   if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
 }
 function setupMediaSession(){
@@ -943,7 +944,13 @@ window.addEventListener("message",e=>{
   if(data?.event==="onReady")enforceCaptionsOff();
   if(data?.event==="infoDelivery"){
     const info=data.info||{};
-    if(Number.isFinite(Number(info.currentTime)))state.ytTime=Number(info.currentTime);
+    if(Number.isFinite(Number(info.currentTime))){
+      state.ytTime=Number(info.currentTime);
+      if(state.playerEngine==="youtube"&&bgAudio?.dataset.id===state.currentVideo&&bgAudio.muted&&!bgAudio.paused){
+        const drift=Math.abs((Number(bgAudio.currentTime)||0)-state.ytTime);
+        if(drift>1.25){try{bgAudio.currentTime=state.ytTime;}catch{}}
+      }
+    }
     if(Number.isFinite(Number(info.duration))&&Number(info.duration)>0)state.ytDuration=Number(info.duration);
     if(Number.isFinite(Number(info.playerState)))state.ytPlayerState=Number(info.playerState);
     if(Number.isFinite(Number(info.volume)))state.ytVolume=Number(info.volume);
@@ -1136,18 +1143,20 @@ async function watchPage(id){
   const cached=read(HISTORY_KEY).find(x=>x.id===id);
   const instant=pending||cached;
   const initialTitle=cleanText(instant?.title)||"Đang tải thông tin…";
-  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · 1988</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ","action-secondary")+actionButton("reloadPlayer","reload","Tải lại","action-secondary")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
-  $("#backgroundButton").disabled=true;$("#backgroundButton").querySelector("span:last-child").textContent="Đang chuẩn bị";$("#backgroundButton").onclick=toggleBackground;
+  view.innerHTML='<div class="watch-layout"><section class="watch-main"><div class="video-meta-block"><h1 id="watchTitle">'+esc(initialTitle)+'</h1><div class="channel-line" id="channelLine">'+(instant?.uploaderName?'<div class="channel-copy"><div class="channel-name">'+esc(instant.uploaderName)+'</div></div>':'')+'</div><div class="video-facts"><span id="videoSource" class="source-label">Nguồn · YouTube</span><span id="videoStats" class="video-stats">'+(instant?.views?esc(fmt(instant.views))+' lượt xem':'')+(instant?.duration?' · '+esc(dur(instant.duration)):'')+'</span></div></div><div class="watch-actions">'+actionButton("backgroundButton","headphones","Phát nền")+actionButton("addListButton","list","Danh sách")+actionButton("minimizeButton","minimize","Thu nhỏ","action-secondary")+actionButton("reloadPlayer","reload","Tải lại","action-secondary")+actionButton("shareVideo","share","Chia sẻ")+'<span class="action-status" id="sponsorBadge">'+svgIcon("shield",17)+'<span>SponsorBlock</span></span></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="related-heading">Gợi ý liên quan</div><div class="compact" id="related"><div class="related-loading"><span></span><span></span><span></span></div></div></aside></div>';
+  $("#backgroundButton").disabled=false;$("#backgroundButton").querySelector("span:last-child").textContent="Phát nền";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
   $("#reloadPlayer").onclick=()=>{
-    const seq=++state.playerLoadSeq;
-    state.playerEngine="loading";
-    state.nativeFallbackStarted=false;
-    if(playerFrame){playerFrame.hidden=true;playerFrame.src="about:blank";}
+    ++state.playerLoadSeq;
+    state.playerEngine="youtube";
     stopNativePlayer();
-    if(nativeVideo)nativeVideo.hidden=false;
-    void startNativePlayer(id,seq);
+    if(playerFrame){
+      playerFrame.hidden=false;
+      playerFrame.src=api.playerUrl(id);
+      setTimeout(listenYT,250);
+      setTimeout(listenYT,850);
+    }
   };
   $("#shareVideo").onclick=async()=>{try{await navigator.clipboard.writeText(location.href);$("#shareVideo").querySelector("span:last-child").textContent="Đã sao chép";setTimeout(()=>{$("#shareVideo").querySelector("span:last-child").textContent="Chia sẻ";},900);}catch{}};
   void prepareBackground(id);
@@ -1160,7 +1169,7 @@ async function watchPage(id){
     $("#watchTitle").textContent=title;updateMiniTitle(title);document.title=title+" · 1988";
     const cid=channelId(d.uploaderUrl||"");
     $("#channelLine").innerHTML=(d.uploaderAvatar?'<img src="'+esc(d.uploaderAvatar)+'" alt="">':'')+'<div class="channel-copy" '+(cid?'data-kind="channel" data-id="'+esc(cid)+'" style="cursor:pointer"':'')+'><div class="channel-name">'+esc(uploader||"Không rõ kênh")+'</div><div class="channel-sub">'+(d.uploadDate?esc(d.uploadDate):"")+'</div></div>';
-    $("#videoSource").textContent=state.playerEngine==="native"?"Nguồn · Piped":(state.playerEngine==="youtube"?"Nguồn · YouTube":"Nguồn · 1988");
+    $("#videoSource").textContent="Nguồn · YouTube";
     const stats=[];if(Number(d.views)>0)stats.push(fmt(d.views)+" lượt xem");if(Number(d.duration)>0)stats.push(dur(d.duration));$("#videoStats").textContent=stats.join(" · ");
     if(d.description){$("#description").textContent=cleanText(d.description);$("#description").hidden=false;}
     void fillRelated(title,id,d.relatedStreams||[]);
@@ -1193,7 +1202,7 @@ view.addEventListener("click",e=>{
   const item=e.target.closest("[data-kind][data-id]");if(!item)return;
   const kind=item.dataset.kind,id=item.dataset.id;
   if(kind==="video"){
-    primeNativePlaybackFromGesture(id);
+    primeBackgroundFromGesture(id);
     state.pendingVideoMeta={
       id,
       title:cleanText(item.querySelector(".title,.row-title")?.textContent||item.dataset.title||""),
@@ -1400,27 +1409,19 @@ bgAudio?.addEventListener("error",()=>{
   }
 });
 function keepPlayingWhenHidden(){
-  state.wasPlayingBeforeHide=state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):state.ytPlayerState===1;
-  updateMediaSession(state.nativeInfo||state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+  state.wasPlayingBeforeHide=state.playerEngine==="youtube"?state.ytPlayerState===1:(state.playerEngine==="native"?!!(nativeVideo&&!nativeVideo.paused):false);
+  updateMediaSession(state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
   if(!state.backgroundAuto||!state.wasPlayingBeforeHide||!state.currentVideo)return;
-  if(state.playerEngine==="native"&&bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
-    const t=Number(nativeVideo?.currentTime)||Number(state.ytTime)||0;
-    if(Math.abs((Number(bgAudio.currentTime)||0)-t)>0.4){try{bgAudio.currentTime=t;}catch{}}
-    bgAudio.volume=nativeVideo?.volume??1;
+
+  if(bgAudio?.dataset.id===state.currentVideo&&!bgAudio.paused){
+    const t=Number(state.ytTime)||0;
+    if(Math.abs((Number(bgAudio.currentTime)||0)-t)>0.45){try{bgAudio.currentTime=t;}catch{}}
     bgAudio.muted=false;
     state.backgroundId=state.currentVideo;
     playerBox?.classList.add("background-active");
-    try{nativeVideo?.pause();}catch{}
+    if(state.playerEngine==="youtube")sendYT("pauseVideo",[]);
+    else if(state.playerEngine==="native")try{nativeVideo?.pause();}catch{}
     if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
-    return;
-  }
-  if(state.playerEngine==="youtube"){
-    if(state.backgroundReady)startBackgroundReady(state.currentVideo);
-    else prepareBackground(state.currentVideo).then(info=>{if(info&&document.hidden)startBackgroundReady(state.currentVideo);});
-  }else if(state.playerEngine==="native"&&nativeVideo&&nativeVideo.paused){
-    nativeVideo.play().catch(()=>{
-      if(state.backgroundReady)startBackgroundReady(state.currentVideo);
-    });
   }
 }
 document.addEventListener("visibilitychange",()=>{
