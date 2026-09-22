@@ -285,7 +285,7 @@ function loading(){
 function videoCard(row){
   const id=videoId(row.url||row.videoId||"");if(!id)return "";
   const thumb=row.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
-  return '<article class="item" data-kind="video" data-id="'+esc(id)+'"><div class="thumb-wrap"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="duration">'+esc(dur(row.duration))+'</span></div><div class="video-body">'+(row.uploaderAvatar?'<img class="avatar" src="'+esc(row.uploaderAvatar)+'" alt="" loading="lazy">':'<div class="avatar"></div>')+'<div><h3 class="title">'+esc(row.title||"Video")+'</h3><div class="meta">'+esc(row.uploaderName||"")+(row.views>=0?" · "+esc(fmt(row.views))+" lượt xem":"")+'</div></div></div></article>';
+  return '<article class="item" data-kind="video" data-id="'+esc(id)+'"><div class="thumb-wrap"><img class="thumb" src="'+esc(thumb)+'" alt="" loading="lazy"><span class="duration">'+esc(dur(row.duration))+'</span></div><div class="video-body">'+(row.uploaderAvatar?'<img class="avatar" src="'+esc(row.uploaderAvatar)+'" alt="" loading="lazy">':'<div class="avatar"></div>')+'<div class="video-text"><h3 class="title">'+esc(row.title||"Video")+'</h3><div class="meta meta-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="meta meta-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></div></article>';
 }
 function playlistCard(row){
   const id=row.id||playlistId(row.url||"");if(!id)return "";
@@ -316,7 +316,7 @@ function renderCollection(title,items,source="",append=false){
 function compactRows(items){
   return (items||[]).map(row=>{
     const id=videoId(row.url||row.videoId||"");if(!id)return "";
-    return '<article class="row" data-kind="video" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta">'+esc(row.uploaderName||"")+(row.views>=0?" · "+esc(fmt(row.views))+" lượt xem":"")+'</div></div></article>';
+    return '<article class="row" data-kind="video" data-id="'+esc(id)+'"><img src="'+esc(row.thumbnail||("https://i.ytimg.com/vi/"+id+"/mqdefault.jpg"))+'" alt="" loading="lazy"><div class="row-copy"><div class="row-title">'+esc(row.title||"Video")+'</div><div class="row-meta row-channel">'+esc(row.uploaderName||"")+'</div>'+(row.views>=0?'<div class="row-meta row-stats">'+esc(fmt(row.views))+' lượt xem</div>':'')+'</div></article>';
   }).join("");
 }
 async function enhanceDeArrow(root=document){
