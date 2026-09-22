@@ -322,14 +322,46 @@ Deno.serve(async (req) => {
     if (action === "background") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
-      const result = await piped(`/streams/${enc(id)}`);
-      const info: any = result.data || {};
-      const streams = Array.isArray(info.audioStreams) ? info.audioStreams.filter((s: any) => s?.url) : [];
 
-      const proxify = (raw: string) => {
+      const path = `/streams/${enc(id)}`;
+      const orderedBases = [
+        ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
+        ...PIPED_APIS,
+      ].filter((base, index, rows) => base && rows.indexOf(base) === index).slice(0, 7);
+
+      const settled = await Promise.allSettled(
+        orderedBases.map(async (base) => ({
+          base,
+          data: await fetchJson(base, path, 1900),
+        })),
+      );
+
+      const successes = settled
+        .filter((row): row is PromiseFulfilledResult<{ base: string; data: any }> => row.status === "fulfilled")
+        .map((row) => row.value);
+
+      if (!successes.length) {
+        return json({ ok: false, error: "no_background_stream" }, 503, 0);
+      }
+
+      preferredApi = successes[0].base;
+      preferredUntil = Date.now() + API_TTL_MS;
+
+      const allSources: Array<{
+        url: string;
+        mimeType: string;
+        bitrate: number;
+        sourceApi: string;
+      }> = [];
+      let title = "";
+      let uploader = "";
+      let thumbnailUrl = "";
+      let duration = 0;
+
+      const proxify = (raw: string, info: any) => {
         try {
           const media = new URL(raw);
-          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
+          if (media.hostname.endsWith(".googlevideo.com") && info?.proxyUrl) {
             const proxy = new URL(String(info.proxyUrl));
             const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
             media.searchParams.set("host", media.host);
@@ -343,47 +375,76 @@ Deno.serve(async (req) => {
         }
       };
 
-      const sources = streams
-        .slice()
-        .sort((a: any, b: any) => {
-          const aType = String(a?.mimeType || "");
-          const bType = String(b?.mimeType || "");
-          const aMp4 = aType.includes("audio/mp4") ? 2 : aType.includes("mp4") ? 1 : 0;
-          const bMp4 = bType.includes("audio/mp4") ? 2 : bType.includes("mp4") ? 1 : 0;
-          if (aMp4 !== bMp4) return bMp4 - aMp4;
-          return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
-        })
-        .slice(0, 8)
-        .map((stream: any) => ({
-          url: proxify(String(stream.url)),
-          mimeType: String(stream.mimeType || ""),
-          bitrate: Number(stream.bitrate) || 0,
-        }));
+      for (const result of successes) {
+        const info: any = result.data || {};
+        if (!title) title = String(info.title || "");
+        if (!uploader) uploader = String(info.uploader || "");
+        if (!thumbnailUrl) thumbnailUrl = String(info.thumbnailUrl || "");
+        if (!duration) duration = Number(info.duration) || 0;
 
-      if (typeof info.hls === "string" && info.hls) {
-        sources.push({
-          url: proxify(info.hls),
-          mimeType: "application/vnd.apple.mpegurl",
-          bitrate: 0,
-        });
+        const streams = Array.isArray(info.audioStreams)
+          ? info.audioStreams.filter((stream: any) => stream?.url)
+          : [];
+
+        for (const stream of streams) {
+          allSources.push({
+            url: proxify(String(stream.url), info),
+            mimeType: String(stream.mimeType || stream.format || ""),
+            bitrate: Number(stream.bitrate) || 0,
+            sourceApi: result.base,
+          });
+        }
+
+        if (typeof info.hls === "string" && info.hls) {
+          allSources.push({
+            url: proxify(info.hls, info),
+            mimeType: "application/vnd.apple.mpegurl",
+            bitrate: 0,
+            sourceApi: result.base,
+          });
+        }
       }
+
+      const seen = new Set<string>();
+      const sources = allSources
+        .filter((row) => {
+          if (!row.url || seen.has(row.url)) return false;
+          seen.add(row.url);
+          return true;
+        })
+        .sort((a, b) => {
+          const rank = (row: { mimeType: string; bitrate: number }) => {
+            const type = row.mimeType.toLowerCase();
+            const formatScore = type.includes("audio/mp4") || type.includes("m4a")
+              ? 4
+              : type.includes("mpegurl") || type.includes("m3u8")
+                ? 3
+                : type.includes("audio/webm")
+                  ? 2
+                  : 1;
+            return formatScore * 1_000_000_000 + Math.min(row.bitrate, 999_999_999);
+          };
+          return rank(b) - rank(a);
+        })
+        .slice(0, 16);
+
       if (!sources.length) return json({ ok: false, error: "no_background_stream" }, 404, 0);
 
       return json({
         ok: true,
-        source: result.source,
+        source: successes.map((row) => row.base),
         data: {
           id,
-          title: info.title || "",
-          uploader: info.uploader || "",
-          thumbnailUrl: info.thumbnailUrl || "",
-          duration: Number(info.duration) || 0,
+          title,
+          uploader,
+          thumbnailUrl,
+          duration,
           audioUrl: sources[0]?.url || "",
           mimeType: sources[0]?.mimeType || "",
           bitrate: sources[0]?.bitrate || 0,
           sources,
         },
-      }, 200, 20);
+      }, 200, 15);
     }
 
     if (action === "branding") {
