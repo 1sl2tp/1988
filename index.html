@@ -12,7 +12,7 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png">
   <link rel="manifest" href="/manifest.webmanifest?v=13">
   <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=1988-15">
+  <link rel="stylesheet" href="./src/style.css?v=1988-16">
   <title>1988</title>
 </head>
 <body>
@@ -37,6 +37,15 @@
     <div class="player-aspect">
       <iframe id="playerFrame" title="1988 player" allow="autoplay; fullscreen; picture-in-picture; encrypted-media" allowfullscreen></iframe>
     </div>
+    <div class="player-controls" id="playerControls">
+      <button id="playPauseButton" type="button" aria-label="Phát hoặc tạm dừng">▶</button>
+      <span id="currentTimeLabel" class="time-label">0:00</span>
+      <input id="seekRange" class="seek-range" type="range" min="0" max="1" value="0" step="0.1" aria-label="Tua video">
+      <span id="durationLabel" class="time-label">0:00</span>
+      <button id="muteButton" type="button" aria-label="Tắt hoặc bật tiếng">🔊</button>
+      <input id="volumeRange" class="volume-range" type="range" min="0" max="100" value="100" step="1" aria-label="Âm lượng">
+      <button id="fullscreenButton" type="button" aria-label="Toàn màn hình">⛶</button>
+    </div>
   </section>
 
   <audio id="backgroundAudio" preload="auto" playsinline webkit-playsinline></audio>
@@ -53,6 +62,6 @@
     <button type="button" data-nav="history"><span>◷</span><small>Đã xem</small></button>
   </nav>
 
-  <script defer src="./src/app.js?v=1988-15"></script>
+  <script defer src="./src/app.js?v=1988-16"></script>
 </body>
 </html>
