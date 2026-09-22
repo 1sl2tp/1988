@@ -70,6 +70,15 @@
     get playing(){return !this.audio.paused&&!this.audio.ended;}
     get ready(){return this.realSourceActive&&this.playing;}
 
+    hasPrepared(id){
+      return !!id&&(this.sourceCache.get(id)||[]).length>0;
+    }
+
+    prime(id){
+      if(!id)return Promise.resolve([]);
+      return this.prepare(id);
+    }
+
     setMetadata(meta={}){
       this.meta={...meta};
       if(!("mediaSession" in navigator))return;
