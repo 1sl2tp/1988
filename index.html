@@ -127,7 +127,8 @@ button{-webkit-tap-highlight-color:transparent}
 .watch-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px}
 .player-wrap{min-width:0}
 .player-box{position:relative;aspect-ratio:16/9;background:#000;border-radius:12px;overflow:hidden}
-.player-box video,.player-box iframe{width:100%;height:100%;display:block;background:#000;border:0}\n.player-box iframe[hidden]{display:none}
+.player-box video,.player-box iframe{width:100%;height:100%;display:block;background:#000;border:0}
+.player-box iframe[hidden]{display:none}
 .player-loading{
   position:absolute;inset:0;display:grid;place-items:center;color:#aaa;font-size:13px;
   background:#000
@@ -293,6 +294,7 @@ button{-webkit-tap-highlight-color:transparent}
           <div class="player-wrap">
             <div class="player-box" id="playerBox">
               <video id="videoPlayer" controls playsinline preload="metadata"></video>
+              <iframe id="fallbackPlayer" title="Video player" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
               <div class="player-loading" id="playerLoading">Đang tải video…</div>
             </div>
             <div class="watch-title" id="watchTitle"></div>
@@ -349,7 +351,9 @@ const APIS=[
   'https://pipedapi.darkness.services',
   'https://pipedapi.orangenet.cc'
 ];
-const HISTORY_KEY='1988.youtube.history.v2';\nconst API_CACHE_KEY='1988.piped.fast-api.v1';\nconst API_CACHE_MS=20*60*1000;
+const HISTORY_KEY='1988.youtube.history.v2';
+const API_CACHE_KEY='1988.piped.fast-api.v1';
+const API_CACHE_MS=20*60*1000;
 
 const searchInput=$('searchInput');
 const searchButton=$('searchButton');
@@ -361,6 +365,7 @@ const errorBanner=$('errorBanner');
 const browsePage=$('browsePage');
 const watchPage=$('watchPage');
 const videoPlayer=$('videoPlayer');
+const fallbackPlayer=$('fallbackPlayer');
 const playerLoading=$('playerLoading');
 const watchTitle=$('watchTitle');
 const watchAvatar=$('watchAvatar');
@@ -768,8 +773,8 @@ function proxifyShakaRequests(player,proxyUrl=''){
     }catch{}
   });
 }
-function showPipedEmbed(id){
-  void destroyPlayer();
+async function showPipedEmbed(id){
+  await destroyPlayer();
   videoPlayer.hidden=true;
   fallbackPlayer.hidden=false;
   fallbackPlayer.src='https://piped.video/embed/'+encodeURIComponent(id)+'?autoplay=1';
@@ -825,12 +830,12 @@ async function startStream(info={},id=currentVideoId){
   if(!uri)throw new Error('Không có luồng phát tương thích');
 
   const failTimer=setTimeout(()=>{
-    if(videoPlayer.readyState<2&&currentVideoId===id)showPipedEmbed(id);
+    if(videoPlayer.readyState<2&&currentVideoId===id)void showPipedEmbed(id);
   },5500);
   destroyPlayer.timer=failTimer;
   shakaPlayer.addEventListener('error',event=>{
     console.warn('shaka error',event?.detail);
-    if(currentVideoId===id)showPipedEmbed(id);
+    if(currentVideoId===id)void showPipedEmbed(id);
   });
   await shakaPlayer.load(uri,null,mime);
   clearTimeout(failTimer);
@@ -888,7 +893,7 @@ async function openVideo(id,{push=true}={}){
     watchTitle.textContent=watchTitle.textContent==='Đang tải…'?'Video '+id:watchTitle.textContent;
     watchDescription.textContent=watchDescription.textContent||'Đang chuyển sang player Piped dự phòng.';
     setError('Nguồn stream trực tiếp lỗi, đã chuyển sang player Piped dự phòng.');
-    showPipedEmbed(id);
+    await showPipedEmbed(id);
   }
 }
 function nav(type){
@@ -966,7 +971,7 @@ shareBtn.addEventListener('click',async()=>{
 });
 videoPlayer.addEventListener('playing',()=>{playerLoading.hidden=true});
 videoPlayer.addEventListener('waiting',()=>{playerLoading.hidden=false});
-videoPlayer.addEventListener('error',()=>{playerLoading.hidden=true;if(currentVideoId&&fallbackPlayer.hidden)showPipedEmbed(currentVideoId);});
+videoPlayer.addEventListener('error',()=>{playerLoading.hidden=true;if(currentVideoId&&fallbackPlayer.hidden)void showPipedEmbed(currentVideoId);});
 
 window.addEventListener('popstate',()=>{
   const params=new URLSearchParams(location.search);
