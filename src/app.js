@@ -21,7 +21,7 @@ const bgAudio=$("#backgroundAudio");
 const installButton=$("#installButton");
 
 
-const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,backgroundId:"",backgroundInfo:null,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
+const state={token:0,next:null,more:null,currentVideo:"",currentInfo:null,sponsorSegments:[],ytTime:0,backgroundId:"",backgroundInfo:null,backgroundReady:false,backgroundSourceIndex:0,backgroundAuto:localStorage.getItem(BG_AUTO_KEY)==="1"};
 const dearrowCache=new Map();
 
 function esc(v=""){return String(v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
@@ -263,6 +263,8 @@ function closeVideo(){
   state.sponsorSegments=[];
   state.backgroundId="";
   state.backgroundInfo=null;
+  state.backgroundReady=false;
+  state.backgroundSourceIndex=0;
   state.ytTime=0;
   if(playerFrame)playerFrame.src="about:blank";
   if(playerBox){playerBox.hidden=true;playerBox.classList.remove("full","mini","background-active");}
@@ -290,33 +292,70 @@ function updatePositionState(){
     try{navigator.mediaSession.setPositionState({duration,playbackRate:bgAudio.playbackRate||1,position});}catch{}
   }
 }
+function chooseBackgroundSource(info){
+  const rows=Array.isArray(info?.sources)&&info.sources.length?info.sources:(info?.audioUrl?[{url:info.audioUrl,mimeType:info.mimeType||"",bitrate:info.bitrate||0}]:[]);
+  if(!rows.length)return -1;
+  if(!bgAudio?.canPlayType)return 0;
+  let fallback=0;
+  for(let i=0;i<rows.length;i++){
+    const type=String(rows[i]?.mimeType||"");
+    if(!type){fallback=i;continue;}
+    const support=bgAudio.canPlayType(type);
+    if(support==="probably")return i;
+    if(support==="maybe")fallback=i;
+  }
+  return fallback;
+}
+function applyBackgroundSource(info,index){
+  if(!bgAudio||!info)return false;
+  const rows=Array.isArray(info.sources)&&info.sources.length?info.sources:(info.audioUrl?[{url:info.audioUrl,mimeType:info.mimeType||""}]:[]);
+  const row=rows[index];
+  if(!row?.url)return false;
+  state.backgroundSourceIndex=index;
+  bgAudio.dataset.id=info.id||state.currentVideo;
+  bgAudio.dataset.source=String(index);
+  bgAudio.src=row.url;
+  bgAudio.load();
+  return true;
+}
+function backgroundButtonState(text,disabled=false){
+  const btn=$("#backgroundButton");
+  if(!btn)return;
+  btn.textContent=text;
+  btn.disabled=!!disabled;
+}
 async function prepareBackground(id){
-  if(!id||!api.background)return null;
-  if(state.backgroundInfo?.id===id)return state.backgroundInfo;
+  if(!id||!api.background||!bgAudio)return null;
+  if(state.backgroundInfo?.id===id&&state.backgroundReady)return state.backgroundInfo;
+  state.backgroundReady=false;
   try{
     const r=await api.background(id);
     if(state.currentVideo!==id)return null;
     const info=r?.data||null;
-    if(!info?.audioUrl)return null;
+    if(!info?.audioUrl&&!(Array.isArray(info?.sources)&&info.sources.length))return null;
     state.backgroundInfo=info;
-    if(bgAudio&&bgAudio.dataset.id!==id&&!bgAudio.paused)bgAudio.pause();
-    if(bgAudio&&bgAudio.dataset.id!==id){
-      bgAudio.dataset.id=id;
-      bgAudio.src=info.audioUrl;
-      bgAudio.load();
-    }
+    const index=chooseBackgroundSource(info);
+    if(index<0||!applyBackgroundSource(info,index))return null;
     updateMediaSession(info);
+    state.backgroundReady=true;
+    backgroundButtonState("Phát nền",false);
     return info;
-  }catch{return null;}
-}
-async function startBackground(id,{auto=false}={}){
-  const info=await prepareBackground(id);
-  if(!info||!bgAudio)return false;
-  if(bgAudio.dataset.id!==id){
-    bgAudio.dataset.id=id;
-    bgAudio.src=info.audioUrl;
-    bgAudio.load();
+  }catch{
+    backgroundButtonState("Nền không khả dụng",true);
+    return null;
   }
+}
+function maybeSkipBackgroundSponsor(){
+  if(!bgAudio||bgAudio.paused)return;
+  const t=Number(bgAudio.currentTime)||0;
+  const seg=state.sponsorSegments.find(x=>t>=x.start&&t<x.end-0.15);
+  if(seg){
+    try{bgAudio.currentTime=seg.end;}catch{}
+  }
+}
+function startBackgroundReady(id){
+  const info=state.backgroundInfo;
+  if(!id||!bgAudio||!info||info.id!==id||!state.backgroundReady)return false;
   const startAt=Math.max(0,Number(state.ytTime)||0);
   if(bgAudio.readyState>=1&&startAt>0){
     try{bgAudio.currentTime=Math.min(startAt,Math.max(0,(bgAudio.duration||startAt)-0.2));}catch{}
@@ -325,23 +364,36 @@ async function startBackground(id,{auto=false}={}){
       try{bgAudio.currentTime=Math.min(startAt,Math.max(0,(bgAudio.duration||startAt)-0.2));}catch{}
     },{once:true});
   }
-  sendYT("pauseVideo",[]);
-  try{
-    await bgAudio.play();
+  const playPromise=bgAudio.play();
+  if(!playPromise||typeof playPromise.then!=="function")return false;
+  playPromise.then(()=>{
+    sendYT("pauseVideo",[]);
     state.backgroundId=id;
     state.backgroundAuto=true;
     localStorage.setItem(BG_AUTO_KEY,"1");
     playerBox?.classList.add("background-active");
     updateMediaSession(info);
     if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";
-    const btn=$("#backgroundButton");if(btn)btn.textContent="Xem video";
-    return true;
-  }catch{
-    if(!auto){
-      const btn=$("#backgroundButton");if(btn)btn.textContent="Thử lại phát nền";
-    }
-    return false;
+    backgroundButtonState("Xem video",false);
+  }).catch(()=>{
+    backgroundButtonState("Thử lại phát nền",false);
+  });
+  return true;
+}
+async function toggleBackground(){
+  const id=state.currentVideo;
+  if(!id)return;
+  if(bgAudio&&!bgAudio.paused&&bgAudio.dataset.id===id){
+    resumeForeground();
+    return;
   }
+  if(state.backgroundReady&&state.backgroundInfo?.id===id){
+    startBackgroundReady(id);
+    return;
+  }
+  backgroundButtonState("Đang chuẩn bị…",true);
+  const info=await prepareBackground(id);
+  if(info)backgroundButtonState("Phát nền",false);
 }
 function resumeForeground(){
   if(!bgAudio)return;
@@ -372,7 +424,7 @@ function setupMediaSession(){
 }
 function setupPwa(){
   if("serviceWorker" in navigator){
-    window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+    window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(()=>{}));
   }
   let deferred=null;
   window.addEventListener("beforeinstallprompt",e=>{
@@ -495,7 +547,7 @@ async function watchPage(id){
   setActive("");const token=++state.token;
   ensureVideoPlayer(id);
   view.innerHTML='<div class="watch-layout"><section><div class="watch-info"><h1 id="watchTitle">Video '+esc(id)+'</h1><div class="channel-line" id="channelLine"></div><div class="watch-actions"><button class="pill" id="backgroundButton" type="button">Phát nền</button><button class="pill" id="addListButton" type="button">＋ Danh sách</button><button class="pill" id="minimizeButton" type="button">Thu nhỏ</button><button class="pill" id="reloadPlayer" type="button">Tải lại</button><button class="pill" id="shareVideo" type="button">Chia sẻ</button><span class="pill" id="sponsorBadge">SponsorBlock</span></div></div><div class="description" id="description" hidden></div></section><aside class="watch-side"><div class="subhead">Tiếp theo</div><div class="compact" id="related"></div></aside></div>';
-  $("#backgroundButton").onclick=toggleBackground;
+  $("#backgroundButton").disabled=true;$("#backgroundButton").textContent="Đang chuẩn bị nền…";$("#backgroundButton").onclick=toggleBackground;
   $("#addListButton").onclick=openPlaylistSheet;
   $("#minimizeButton").onclick=()=>{minimizeVideo();navigate({});};
   $("#reloadPlayer").onclick=()=>{playerFrame.src=api.playerUrl(id);setTimeout(listenYT,400);};
@@ -570,10 +622,24 @@ miniClose?.addEventListener("click",closeVideo);
 miniTitle?.addEventListener("click",()=>{if(state.currentVideo)navigate({v:state.currentVideo});});
 bgAudio?.addEventListener("play",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";});
 bgAudio?.addEventListener("pause",()=>{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";});
-bgAudio?.addEventListener("timeupdate",updatePositionState);
+bgAudio?.addEventListener("timeupdate",()=>{updatePositionState();maybeSkipBackgroundSponsor();});
 bgAudio?.addEventListener("ended",()=>{state.backgroundId="";playerBox?.classList.remove("background-active");});
+bgAudio?.addEventListener("error",()=>{
+  const info=state.backgroundInfo;
+  const rows=Array.isArray(info?.sources)?info.sources:[];
+  const next=state.backgroundSourceIndex+1;
+  if(info&&next<rows.length&&applyBackgroundSource(info,next)){
+    const p=bgAudio.play();
+    if(p?.catch)p.catch(()=>{});
+  }else{
+    state.backgroundReady=false;
+    backgroundButtonState("Nền không khả dụng",true);
+  }
+});
 document.addEventListener("visibilitychange",()=>{
-  if(document.hidden&&state.backgroundAuto&&state.currentVideo&&bgAudio?.paused)void startBackground(state.currentVideo,{auto:true});
+  if(document.hidden&&bgAudio&&!bgAudio.paused&&state.currentVideo){
+    updateMediaSession(state.backgroundInfo||state.currentInfo||{title:miniTitle?.textContent||"1988"});
+  }
 });
 setupMediaSession();
 setupPwa();
