@@ -1,7 +1,8 @@
-import * as api from "./api.js";
+const api=window.YT1988_API;
 
 const $=(s,r=document)=>r.querySelector(s);
 const view=$("#view");
+if(!api)throw new Error("YT1988_API chưa khởi tạo");
 const searchForm=$("#searchForm");
 const searchInput=$("#searchInput");
 const suggestionsEl=$("#suggestions");
