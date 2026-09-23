@@ -46,7 +46,7 @@ jobs:
               with urllib.request.urlopen(req,timeout=4) as r:
                 data=json.load(r)
               rows=[x for x in (data.get("videoStreams") or []) if x.get("url") and not x.get("videoOnly")]
-              rows.sort(key=lambda x: ("mp4" in str(x.get("mimeType","")).lower(), int(''.join(c for c in str(x.get("quality","")) if c.isdigit()) or 0), reverse=True)
+              rows.sort(key=lambda x: (("mp4" in str(x.get("mimeType","")).lower()), int(''.join(c for c in str(x.get("quality","")) if c.isdigit()) or 0)), reverse=True)
               if not rows:
                 print(" no muxed video")
                 continue
