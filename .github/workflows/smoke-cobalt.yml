@@ -11,21 +11,25 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Test private Cobalt HLS proxy
+      - name: Probe Cobalt local-processing streams
         run: |
           set -e
-          URL='https://kira-proxy-1988-us.onrender.com/api/cobalt?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&videoQuality=360&youtubeHLS=true&alwaysProxy=true'
-          curl -sS -L --max-time 30 "$URL" -o /tmp/out.json
+          BODY='{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true,"localProcessing":"forced"}'
+          curl -sS -L --max-time 30 -X POST 'https://cobaltapi.cjs.nz/' \
+            -H 'Accept: application/json' -H 'Content-Type: application/json' \
+            --data "$BODY" -o /tmp/out.json
           cat /tmp/out.json
           echo
-          STATUS="$(jq -r '.status // ""' /tmp/out.json)"
-          MEDIA="$(jq -r '.url // ""' /tmp/out.json)"
-          echo "STATUS=$STATUS"
-          echo "MEDIA=$MEDIA"
-          test -n "$MEDIA"
-          echo '=== MEDIA HEADERS ==='
-          curl -sS -L --max-time 30 -D /tmp/h -o /tmp/body "$MEDIA"
-          cat /tmp/h
-          echo '=== FIRST BYTES ==='
-          head -c 500 /tmp/body | tr '\n' ' '
-          echo
+          echo "STATUS=$(jq -r '.status // ""' /tmp/out.json)"
+          echo "TYPE=$(jq -r '.type // ""' /tmp/out.json)"
+          jq -r '.tunnel[]? // empty' /tmp/out.json > /tmp/tunnels
+          i=0
+          while IFS= read -r URL; do
+            i=$((i+1))
+            echo "=== TUNNEL $i ==="
+            echo "$URL"
+            curl -sS -L --max-time 30 -D "/tmp/h$i" -o "/tmp/b$i" -H 'Range: bytes=0-1023' "$URL"
+            cat "/tmp/h$i"
+            echo "BYTES=$(wc -c <"/tmp/b$i")"
+            echo "FIRST=$(xxd -l 32 -p "/tmp/b$i")"
+          done < /tmp/tunnels
