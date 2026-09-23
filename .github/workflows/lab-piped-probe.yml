@@ -1,4 +1,4 @@
-name: Lab Piped via Cloudflare WARP
+name: Lab Free Proxy Piped Test
 
 on:
   push:
@@ -9,82 +9,55 @@ permissions:
   contents: read
 
 jobs:
-  warp-piped:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
+  proxy-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
     steps:
-      - name: Install Cloudflare WARP client
+      - name: Start official Piped dependencies
         shell: bash
         run: |
-          set -euxo pipefail
-          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg |             sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" |             sudo tee /etc/apt/sources.list.d/cloudflare-client.list
-          sudo apt-get update -y
-          sudo apt-get install -y cloudflare-warp
-          sudo systemctl restart warp-svc
-          sleep 2
-          warp-cli --version
-          warp-cli --help | head -120
-          echo '=== MODE HELP ==='
-          warp-cli mode --help || true
-          echo '=== PROXY HELP ==='
-          warp-cli proxy --help || true
-
-      - name: Register WARP Free and enable local proxy
-        shell: bash
-        run: |
-          set -euxo pipefail
-          sudo warp-cli --accept-tos registration delete || true
-          sudo warp-cli --accept-tos registration new
-          sudo warp-cli --accept-tos tunnel protocol set MASQUE
-
-          # Current Linux client supports local proxy mode. Accept both current and older CLI spellings.
-          if sudo warp-cli --accept-tos mode proxy; then
-            true
-          elif sudo warp-cli --accept-tos mode warp-proxy; then
-            true
-          else
-            echo 'Could not enable local proxy mode'
-            sudo warp-cli --accept-tos settings || true
-            exit 1
-          fi
-
-          if sudo warp-cli --accept-tos proxy port 40000; then
-            true
-          elif sudo warp-cli --accept-tos proxy set-port 40000; then
-            true
-          else
-            echo 'Proxy port command not required or syntax changed; inspecting settings'
-          fi
-
-          sudo warp-cli --accept-tos connect
-          for i in $(seq 1 30); do
-            STATUS=$(sudo warp-cli --accept-tos status || true)
-            echo "$STATUS"
-            echo "$STATUS" | grep -qi 'Connected' && break
-            sleep 2
-          done
-
-          sudo warp-cli --accept-tos registration show || true
-          sudo warp-cli --accept-tos settings || true
-
-          echo '=== DIRECT TRACE ==='
-          curl -fsS --max-time 10 https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(ip|warp|colo)=' || true
-
-          echo '=== SOCKS TRACE ==='
-          curl -fsS --max-time 15 --socks5-hostname 127.0.0.1:40000             https://www.cloudflare.com/cdn-cgi/trace | tee /tmp/warp-trace.txt
-          grep -q '^warp=on$' /tmp/warp-trace.txt
-
-      - name: Start official Piped stack through WARP
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p /tmp/piped-warp
-          cat > /tmp/piped-warp/config.properties <<'CFG'
+          set -e
+          mkdir -p /tmp/piped-lab
+          cat > /tmp/piped-lab/docker-compose.yml <<'YML'
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 2s
+                timeout: 2s
+                retries: 30
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+              restart: unless-stopped
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+              ports:
+                - "8082:8080"
+              restart: unless-stopped
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports:
+                - "8081:8080"
+              volumes:
+                - /tmp/piped-lab/config.properties:/app/config.properties:ro
+              restart: unless-stopped
+          YML
+          cat > /tmp/piped-lab/base.properties <<'CFG'
           PORT:8080
           HTTP_WORKERS:2
-          PROXY_PART:http://proxy:8080
-          REQWEST_PROXY:socks5://host.docker.internal:40000
+          PROXY_PART:http://127.0.0.1:8082
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
           COMPROMISED_PASSWORD_CHECK:false
@@ -105,98 +78,82 @@ jobs:
           hibernate.connection.username:piped
           hibernate.connection.password:changeme
           CFG
-
-          cat > /tmp/piped-warp/docker-compose.yml <<'YML'
-          services:
-            postgres:
-              image: postgres:17-alpine
-              environment:
-                POSTGRES_DB: piped
-                POSTGRES_USER: piped
-                POSTGRES_PASSWORD: changeme
-              healthcheck:
-                test: ["CMD-SHELL", "pg_isready -U piped"]
-                interval: 3s
-                timeout: 3s
-                retries: 20
-
-            bg-helper:
-              image: 1337kavin/bg-helper-server:latest
-              restart: unless-stopped
-
-            proxy:
-              image: 1337kavin/piped-proxy:latest
-              extra_hosts:
-                - "host.docker.internal:host-gateway"
-              restart: unless-stopped
-
-            piped:
-              image: 1337kavin/piped:latest
-              depends_on:
-                postgres:
-                  condition: service_healthy
-                bg-helper:
-                  condition: service_started
-                proxy:
-                  condition: service_started
-              ports:
-                - "8081:8080"
-              extra_hosts:
-                - "host.docker.internal:host-gateway"
-              volumes:
-                - /tmp/piped-warp/config.properties:/app/config.properties:ro
-              restart: unless-stopped
-          YML
-
-          cd /tmp/piped-warp
-          docker compose up -d
+          cp /tmp/piped-lab/base.properties /tmp/piped-lab/config.properties
+          cd /tmp/piped-lab
+          docker compose up -d postgres bg-helper proxy
           docker compose ps
 
-          for i in $(seq 1 80); do
-            CODE=$(curl -sS -o /tmp/config.json -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config || true)
-            if [ "$CODE" = "200" ]; then
-              echo "Piped ready after $i checks"
-              cat /tmp/config.json
-              break
-            fi
-            sleep 3
-          done
+      - name: Fetch and precheck fresh free SOCKS5 proxies
+        shell: bash
+        run: |
+          set -e
+          curl -fsSL --max-time 20             https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/socks5.txt             | sed '/^$/d' | head -80 > /tmp/proxies.txt
+          echo "candidates=$(wc -l < /tmp/proxies.txt)"
+          : > /tmp/good.txt
+          while read -r P; do
+            (
+              CODE=$(curl -sS --socks5-hostname "$P" --connect-timeout 2 --max-time 5                 -A 'Mozilla/5.0' -o /tmp/body.$$ -w '%{http_code}'                 'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
+              SIZE=$(wc -c < /tmp/body.$$ 2>/dev/null || echo 0)
+              if [ "$CODE" = "200" ] && [ "$SIZE" -gt 10000 ]; then
+                echo "$P" >> /tmp/good.txt
+                echo "LIVE|$P|HTTP=$CODE|SIZE=$SIZE"
+              fi
+              rm -f /tmp/body.$$
+            ) &
+          done < /tmp/proxies.txt
+          wait
+          awk '!seen[$0]++' /tmp/good.txt | head -10 > /tmp/selected.txt
+          echo '=== selected ==='
+          cat /tmp/selected.txt
+          test -s /tmp/selected.txt
 
-      - name: Test exact video through WARP + official Piped
+      - name: Try selected proxies with official Piped backend
         shell: bash
         run: |
           set +e
           ID='vhUjvanyu2U'
-          OUT=/tmp/streams-warp.json
-          META=$(curl -sS -L --connect-timeout 4 --max-time 60             -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'             "http://127.0.0.1:8081/streams/$ID")
-          echo "STREAMS $META"
-          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT" 2>/dev/null || cat "$OUT"
+          cd /tmp/piped-lab
+          SUCCESS=''
+          N=0
+          while read -r P; do
+            N=$((N+1))
+            echo "=== TRY#$N SOCKS5 $P ==="
+            cp base.properties config.properties
+            printf '\nREQWEST_PROXY:socks5://%s\n' "$P" >> config.properties
 
-          AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
-          MUX=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT" 2>/dev/null)
-          HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+            docker compose rm -sf piped >/dev/null 2>&1 || true
+            docker compose up -d piped >/dev/null
 
-          for KIND in AUDIO MUX HLS; do
-            eval U="\$$KIND"
-            [ -z "$U" ] && continue
-            echo "=== $KIND ==="
-            HDR=$(mktemp); BIN=$(mktemp)
-            curl -sS -L --connect-timeout 4 --max-time 20               -H 'Range: bytes=0-8191' -D "$HDR" -o "$BIN" "$U"
-            CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-            TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-            SIZE=$(wc -c < "$BIN")
-            FILE=$(file -b "$BIN" 2>/dev/null)
-            echo "$KIND HTTP=$CODE TYPE=$TYPE SIZE=$SIZE FILE=$FILE URL=$U"
-            rm -f "$HDR" "$BIN"
-          done
+            READY=0
+            for i in $(seq 1 25); do
+              CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
+              if [ "$CODE" = "200" ]; then READY=1; break; fi
+              sleep 1
+            done
+            if [ "$READY" != "1" ]; then
+              echo "BACKEND_NOT_READY|$P"
+              docker compose logs --tail=25 piped
+              continue
+            fi
 
-          echo '=== PIPED LOG TAIL ==='
-          cd /tmp/piped-warp
-          docker compose logs --tail=220 bg-helper piped proxy
+            OUT=/tmp/streams-$N.json
+            META=$(curl -sS --connect-timeout 3 --max-time 35               -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'               "http://127.0.0.1:8081/streams/$ID")
+            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
+            echo "RESULT|$P|$META|AUDIO=${AC:-0}|VIDEO=${VC:-0}|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
 
-          AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
-          VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
-          if [ "${AC:-0}" -eq 0 ] && [ "${VC:-0}" -eq 0 ] && [ -z "$HLS" ]; then
-            echo 'NO_PLAYABLE_STREAMS'
+            if { [ "${AC:-0}" -gt 0 ] || [ "${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; }; then
+              SUCCESS="$P"
+              echo "SUCCESS_PROXY=$P"
+              jq '{title,duration,hls,audioStreams:(.audioStreams[0:2]),videoStreams:(.videoStreams[0:3])}' "$OUT"
+              break
+            fi
+            docker compose logs --tail=18 piped | tail -18
+          done < /tmp/selected.txt
+
+          if [ -z "$SUCCESS" ]; then
+            echo 'NO_FREE_PROXY_SUCCEEDED'
             exit 1
           fi
