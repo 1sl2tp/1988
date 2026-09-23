@@ -1,0 +1,32 @@
+name: Diagnose 1988 media
+
+on:
+  push:
+    branches: [native-media-20260923]
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe live media endpoints
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988'
+          SEARCH="$BASE?action=search&q=MY%20HANH%20Viber&filter=videos"
+          curl -sS --fail-with-body "$SEARCH" -o search.json
+          echo '=== SEARCH ==='
+          cat search.json | jq '{ok,source,items:(.data.items//[])[:3]|map({url,title,duration})}'
+          ID=$(jq -r '(.data.items//[])[0].url // empty' search.json | grep -oE '[A-Za-z0-9_-]{11}$' | head -1)
+          if [ -z "$ID" ]; then ID='jfKfPfyJRdk'; fi
+          echo "ID=$ID"
+          echo '=== PLAYBACK ==='
+          curl -sS --fail-with-body "$BASE?action=playback&id=$ID" -o playback.json
+          cat playback.json | jq '{ok,source,data:{hls:.data.hls,sources:(.data.sources//[])[:5],audioSources:(.data.audioSources//[])[:3]}}'
+          echo '=== MEDIA HEAD ==='
+          curl -sS -I -L --max-time 30 "$BASE?action=media&id=$ID&kind=video" | sed -n '1,80p'
+          echo '=== MEDIA RANGE ==='
+          curl -sS -L --max-time 30 -r 0-65535 -D media.headers "$BASE?action=media&id=$ID&kind=video" -o media.bin || true
+          cat media.headers
+          file media.bin || true
+          wc -c media.bin || true
