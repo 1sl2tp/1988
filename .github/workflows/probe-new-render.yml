@@ -1,5 +1,5 @@
 name: Probe New 1988 Render
-# retry after yt-dlp nightly merge
+# retry after yt-dlp nightly merge v2
 
 on:
   pull_request:
