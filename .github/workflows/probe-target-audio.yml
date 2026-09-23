@@ -10,21 +10,48 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Test exact links before changing player
+      - name: Find one real direct media link for exact video
         shell: bash
         run: |
           set +e
           ID='vhUjvanyu2U'
-          echo '=== YOUTUBE WATCH ==='
-          curl -sS -I -L --connect-timeout 4 --max-time 12 "https://www.youtube.com/watch?v=$ID" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:)' | head -12
+          curl -sS -L --connect-timeout 4 --max-time 15 'https://api.invidious.io/instances.json' -o /tmp/instances.json
+          jq -r '.[] | select(.[1].api==true and .[1].type=="https") | .[1].uri' /tmp/instances.json | head -30 > /tmp/apis.txt
+          echo "INSTANCES=$(wc -l < /tmp/apis.txt)"
 
-          echo '=== SUPABASE INNERTUBE ==='
-          URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=innertube_probe&id=$ID"
-          curl -sS -L --connect-timeout 4 --max-time 15 -w '\nHTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' "$URL" -o /tmp/probe.json
-          cat /tmp/probe.json
-          echo
-
-          echo '=== PARSED ==='
-          jq -c '{ok,httpStatus,playability,videoDetails,streaming:(.streaming // null),error}' /tmp/probe.json 2>/dev/null || true
+          probe_one(){
+            API="$1"
+            OUT=$(mktemp)
+            META=$(curl -sS -L --connect-timeout 3 --max-time 10 -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}' "$API/api/v1/videos/$ID")
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
+            URL=$(jq -r '
+              [
+                (.formatStreams // [])[] | select(.url != null and ((.type // "") | test("video/mp4")))
+              ][0].url
+              //
+              [
+                (.adaptiveFormats // [])[] | select(.url != null and ((.type // "") | test("audio/mp4")))
+              ][0].url
+              // ""
+            ' "$OUT" 2>/dev/null)
+            if [ -n "$URL" ]; then
+              HDR=$(mktemp)
+              BIN=$(mktemp)
+              curl -sS -L --connect-timeout 3 --max-time 10 -H 'Range: bytes=0-2047' -D "$HDR" -o "$BIN" "$URL"
+              CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+              TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {sub(/\r/,""); print $2}' "$HDR" | tail -1)
+              SIZE=$(wc -c < "$BIN")
+              FILE=$(file -b "$BIN" 2>/dev/null)
+              echo "OK|$API|META=$META|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|FILE=$FILE|TITLE=$TITLE|URL=$URL"
+              rm -f "$HDR" "$BIN" "$OUT"
+              return
+            fi
+            echo "MISS|$API|$META|TITLE=$TITLE"
+            rm -f "$OUT"
+          }
+          export -f probe_one
+          export ID
+          while read -r API; do probe_one "$API" & done < /tmp/apis.txt
+          wait
