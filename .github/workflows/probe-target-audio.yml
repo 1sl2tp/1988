@@ -10,48 +10,12 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Probe Invidious exact failing video
+      - name: Probe Supabase InnerTube for exact video
         shell: bash
         run: |
-          set +e
-          ID="vhUjvanyu2U"
-          INSTANCES=(
-            "https://inv.nadeko.net"
-            "https://invidious.nerdvpn.de"
-            "https://yt.chocolatemoo53.com"
-            "https://invidious.tiekoetter.com"
-          )
-          probe(){
-            BASE="$1"
-            LOG=$(mktemp)
-            {
-              echo "=== $BASE ==="
-              OUT=$(mktemp)
-              META=$(curl -sS -L --connect-timeout 4 --max-time 18 -o "$OUT" -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$BASE/api/v1/videos/$ID?local=true")
-              echo "$META"
-              printf 'CORS '
-              curl -sS -I --connect-timeout 3 --max-time 8 "$BASE/api/v1/stats" | tr -d '\r' | grep -iE '^(HTTP/|access-control-allow-origin:)' | tr '\n' ' ' || true
-              echo
-              jq -c '{title,lengthSeconds,adaptiveCount:((.adaptiveFormats//[])|length),formatCount:((.formatStreams//[])|length),error}' "$OUT" 2>/dev/null || head -c 500 "$OUT"
-              echo
-              echo "-- audio candidates --"
-              jq -c '(.adaptiveFormats//[])[] | select((.type//"")|startswith("audio/")) | {url,type,bitrate,itag,container,encoding}' "$OUT" 2>/dev/null || true
-              URL=$(jq -r '[(.adaptiveFormats//[])[] | select((.type//"")|startswith("audio/")) | select(.url != null)][0].url // ""' "$OUT" 2>/dev/null)
-              echo "SELECTED_HOST=$(printf "%s" "$URL" | sed -E "s#https?://([^/]+)/?.*#\\1#")"
-              if [ -n "$URL" ]; then
-                echo "-- AUDIO RANGE --"
-                curl -sS -I -L --connect-timeout 4 --max-time 15 -H 'Range: bytes=0-1023' "$URL" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
-                curl -sS -L --connect-timeout 4 --max-time 15 -H 'Range: bytes=0-1023' -o /tmp/chunk-$$.bin -w 'GET HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' "$URL" || true
-                file /tmp/chunk-$$.bin || true
-                rm -f /tmp/chunk-$$.bin
-              fi
-              rm -f "$OUT"
-            } > "$LOG" 2>&1
-            cat "$LOG"
-            rm -f "$LOG"
-          }
-          export -f probe
-          for BASE in "${INSTANCES[@]}"; do probe "$BASE" & done
-          wait
+          set -e
+          URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=innertube_probe&id=vhUjvanyu2U'
+          curl -sS -L --connect-timeout 4 --max-time 15 "$URL" -o /tmp/probe.json
+          jq '{ok,httpStatus,playability,videoDetails,streaming:{expiresInSeconds:.streaming.expiresInSeconds,formats:(.streaming.formats|map({itag,mimeType,bitrate,width,height,audioQuality,hasUrl,hasCipher,host}))}}' /tmp/probe.json
