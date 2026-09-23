@@ -77,9 +77,14 @@ const handler = async (request: Request): Promise<Response> => {
   url.searchParams.delete('__headers');
 
 
-  if (url.host.includes('youtube')) {
+  if (url.host === 'www.youtube.com' || url.host.endsWith('.youtube.com')) {
     request_headers.set('origin', 'https://www.youtube.com');
     request_headers.set('referer', 'https://www.youtube.com/');
+  } else if (url.host === 'youtubei.googleapis.com') {
+    // Server-to-server Google APIs calls must not carry the browser-facing
+    // YouTube Origin/Referer pair or Google rejects them as XD3 mismatch.
+    request_headers.delete('origin');
+    request_headers.delete('referer');
   }
 
   if (request.method === 'POST' && url.pathname.startsWith('/youtubei/')) {
