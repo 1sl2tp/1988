@@ -1,4 +1,4 @@
-name: Probe Official Invidious Progressive Sources
+name: Probe Direct Browser YouTubei
 
 on:
   push:
@@ -11,42 +11,39 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Test official Invidious instances
+      - name: Test direct browser calls to YouTubei
         run: |
-          set +e
-          python - <<'PY'
-          import json, subprocess, urllib.parse, os
-          hosts=[
-            'https://inv.nadeko.net',
-            'https://invidious.nerdvpn.de',
-            'https://yt.chocolatemoo53.com',
-            'https://invidious.tiekoetter.com',
-          ]
-          for base in hosts:
-            out='/tmp/inv.json'
-            try:
-              stat=subprocess.check_output(['curl','-sS','-L','--max-time','18','-o',out,'-w','%{http_code} %{time_total} %{size_download}',base+'/api/v1/videos/dQw4w9WgXcQ'],stderr=subprocess.DEVNULL,text=True).strip()
-            except subprocess.CalledProcessError:
-              stat='ERR'
-            try:
-              data=json.load(open(out))
-            except Exception:
-              data={}
-            fmts=data.get('formatStreams') or []
-            adp=data.get('adaptiveFormats') or []
-            print('INSTANCE',base,'HTTP',stat,'FMT',len(fmts),'ADP',len(adp),'ERROR',data.get('error'))
-            for fmt in fmts[:3]:
-              url=str(fmt.get('url') or '')
-              print(' FORMAT',fmt.get('itag'),fmt.get('qualityLabel') or fmt.get('quality'),urllib.parse.urlparse(url).netloc)
-              if not url: continue
-              h='/tmp/rh'; b='/tmp/rb'
-              try:
-                rstat=subprocess.check_output(['curl','-sS','-L','--max-time','18','-D',h,'-o',b,'-H','Range: bytes=0-1023','-w','%{http_code} %{time_total} %{size_download}',url],stderr=subprocess.DEVNULL,text=True).strip()
-              except subprocess.CalledProcessError:
-                rstat='ERR'
-              headers=open(h,errors='ignore').read() if os.path.exists(h) else ''
-              print(' RANGE',rstat,'HEAD',headers.splitlines()[0] if headers else '')
-              if rstat.startswith('206'):
-                print('WINNER',base,'URL',url)
-                raise SystemExit(0)
-          PY
+          set -e
+          mkdir -p /tmp/ytb
+          cat >/tmp/ytb/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><pre id="out">loading</pre>
+          <script>
+          (async()=>{
+            const out={};
+            try {
+              const r=await fetch('https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false',{
+                method:'POST',
+                headers:{'content-type':'application/json'},
+                body:JSON.stringify({
+                  context:{client:{clientName:'WEB',clientVersion:'2.20250222.10.00',hl:'en',gl:'US'}},
+                  videoId:'dQw4w9WgXcQ',
+                  contentCheckOk:true,
+                  racyCheckOk:true
+                })
+              });
+              out.player={ok:r.ok,status:r.status,type:r.type,acao:r.headers.get('access-control-allow-origin'),text:(await r.text()).slice(0,600)};
+            } catch(e) { out.player={error:String(e)}; }
+            try {
+              const r=await fetch('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+              out.watch={ok:r.ok,status:r.status,type:r.type,acao:r.headers.get('access-control-allow-origin'),text:(await r.text()).slice(0,120)};
+            } catch(e) { out.watch={error:String(e)}; }
+            document.getElementById('out').textContent=JSON.stringify(out);
+          })();
+          </script>
+          HTML
+          cd /tmp/ytb
+          python3 -m http.server 8934 >/tmp/http.log 2>&1 &
+          sleep 1
+          CHROME="$(command -v google-chrome)"
+          "$CHROME" --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --virtual-time-budget=15000             'http://127.0.0.1:8934/' --dump-dom 2>/tmp/chrome.err | grep -o '<pre id="out">[^<]*' || true
+          tail -30 /tmp/chrome.err || true
