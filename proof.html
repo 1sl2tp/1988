@@ -22,7 +22,7 @@
   <p>Plyr + HTML5 video + PiP + Media Session. Trang thử độc lập, không thay giao diện 1988.</p>
 
   <video id="player" playsinline controls crossorigin="anonymous">
-    <source src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Lagoon_Trailer-720p.mp4" type="video/mp4">
+    <source src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Lagoon_Trailer_720p.mp4" type="video/mp4">
   </video>
 
   <div id="status" class="status">Đang khởi tạo…</div>
@@ -54,8 +54,7 @@
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: '1988 Player Proof',
-      artist: 'Plyr + HTML5',
-      artwork: [{src:'https://cdn.plyr.io/static/demo/View_From_A_Blue_Lagoon_Trailer-720p.jpg',sizes:'1280x720',type:'image/jpeg'}]
+      artist: 'Plyr + HTML5'
     });
     try {
       navigator.mediaSession.setActionHandler('play', () => video.play());
