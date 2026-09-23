@@ -16,11 +16,8 @@ for i in $(seq 1 30); do
   sleep 1
 done
 
-echo "yt-dlp version: $(python -m yt_dlp --version)"
+echo "yt-dlp version: $(yt-dlp --version)"
 echo "bgutil POT provider: 2.0.0"
+echo "1988 backend: node server.js"
 
-exec gunicorn server:app \\
-  --bind "0.0.0.0:${PORT:-10000}" \\
-  --workers 1 \\
-  --threads 8 \\
-  --timeout 120
+exec node server.js
