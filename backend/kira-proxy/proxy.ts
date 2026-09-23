@@ -36,10 +36,6 @@ function copyHeader(headerName: string, to: Headers, from: Headers) {
 const handler = async (request: Request): Promise<Response> => {
   const origin = request.headers.get('origin') || '';
 
-  request.headers.forEach((value, key) => {
-    console.log(key, value);
-  });
-
   // If options send do CORS preflight
   if (request.method === 'OPTIONS') {
     const response = new Response('', {
@@ -90,12 +86,28 @@ const handler = async (request: Request): Promise<Response> => {
     request_headers.set('Authorization', request.headers.get('Authorization')!);
   }
 
-  const fetchRes = await fetch(url, {
-    method: request.method,
-    headers: request_headers,
-    body: request.body,
-    credentials: 'same-origin'
-  });
+  const started = Date.now();
+  let fetchRes: Response;
+  try {
+    fetchRes = await fetch(url, {
+      method: request.method,
+      headers: request_headers,
+      body: request.body,
+      credentials: 'same-origin'
+    });
+  } catch (error) {
+    console.error('[proxy]', request.method, url.host, url.pathname, 'fetch_error', String(error));
+    return new Response('upstream_fetch_failed', {
+      status: 502,
+      headers: {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Credentials': 'true'
+      }
+    });
+  }
+  if (fetchRes.status >= 400) {
+    console.warn('[proxy]', request.method, url.host, url.pathname, fetchRes.status, Date.now() - started + 'ms');
+  }
 
   // Construct the return headers
   const headers = new Headers();
