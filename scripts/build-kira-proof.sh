@@ -389,6 +389,256 @@ if old not in s:
 s = s.replace(old, new, 1)
 p.write_text(s)
 
+
+# Watch page: keep Kira's native /next path first, but fall back to the stable
+# 1988 metadata endpoint when YouTube renderer/session changes break details.
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+
+anchor = """const relatedVideos = ref<VideoItemData[]>([]);
+const videoDetails = ref<VideoDetails | undefined>();
+
+async function fetchVideoInfo() {"""
+insert = r"""const relatedVideos = ref<VideoItemData[]>([]);
+const videoDetails = ref<VideoDetails | undefined>();
+const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+function fallbackRelatedVideoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function fallbackDurationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function fetchFallbackVideoInfo() {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', 'video');
+  url.searchParams.set('id', videoId.value);
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || ('fallback_video_' + response.status));
+  }
+
+  const data = payload?.data || {};
+  const title = String(data?.title || '').trim();
+  if (!title) throw new Error('fallback_video_empty');
+
+  document.title = title;
+
+  const subscriberCount = Number(data?.subscriberCount || data?.subscribers || 0);
+  const viewCount = Number(data?.views || 0);
+
+  videoDetails.value = {
+    title,
+    channelName: String(data?.uploader || data?.uploaderName || data?.author || ''),
+    channelAvatar: String(data?.uploaderAvatar || data?.avatar || ''),
+    subscribers: subscriberCount ? subscriberCount.toLocaleString() + ' subscribers' : '',
+    views: viewCount ? viewCount.toLocaleString() + ' views' : undefined,
+    publishDate: String(data?.uploadDate || data?.uploadedDate || data?.publishedText || '') || undefined,
+    description: undefined
+  };
+
+  const seen = new Set<string>();
+  relatedVideos.value = (Array.isArray(data?.relatedStreams) ? data.relatedStreams : [])
+    .map((row: any) => {
+      const id = fallbackRelatedVideoId(row);
+      if (!id || id === videoId.value || seen.has(id)) return null;
+      seen.add(id);
+      return {
+        videoId: id,
+        title: String(row?.title || 'Video'),
+        titleText: String(row?.title || 'Video'),
+        thumbnail: String(row?.thumbnail || row?.thumbnailUrl || ('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg')),
+        authorAvatar: String(row?.uploaderAvatar || ''),
+        metadata: [
+          String(row?.uploaderName || row?.uploader || row?.channelName || ''),
+          String(row?.viewText || (row?.views ? String(row.views) + ' views' : ''))
+        ].filter(Boolean),
+        duration: fallbackDurationText(row?.duration)
+      } satisfies VideoItemData;
+    })
+    .filter((row: VideoItemData | null): row is VideoItemData => !!row)
+    .slice(0, 18);
+}
+
+async function fetchVideoInfo() {"""
+if anchor not in s:
+    raise SystemExit("Kira WatchPage state anchor not found")
+s = s.replace(anchor, insert, 1)
+
+old = """  } catch (error) {
+    console.error('Error fetching video details:', error);
+    addToast('Failed to load video details.', 'error');
+  }
+}"""
+new = """    if (!videoDetails.value?.title) {
+      throw new Error('empty_native_video_details');
+    }
+  } catch (error) {
+    console.warn('Native video details failed; using 1988 fallback', error);
+    try {
+      await fetchFallbackVideoInfo();
+    } catch (fallbackError) {
+      console.error('Error fetching video details:', fallbackError);
+      addToast('Failed to load video details.', 'error');
+    }
+  }
+}"""
+if old not in s:
+    raise SystemExit("Kira WatchPage catch block not found")
+s = s.replace(old, new, 1)
+p.write_text(s)
+
+# Player: preserve Kira SABR as primary. If its player request or manifest path
+# fails, use the 1988 range-capable media endpoint directly in the same video.
+p = Path("src/composables/useYoutubePlayer.ts")
+s = p.read_text()
+
+s = s.replace(
+  "const ENABLE_PLAYBACK_TRACKING = true;",
+  "const ENABLE_PLAYBACK_TRACKING = true;\nconst FALLBACK_MEDIA_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';",
+  1
+)
+
+anchor = """  //#endregion
+
+  async function loadVideo(videoId: string, targetContainer: HTMLElement) {"""
+insert = r"""  //#endregion
+
+  async function loadDirectMediaFallback(videoId: string): Promise<boolean> {
+    const { player, videoElement } = playerComponents.value;
+    if (!videoElement) return false;
+
+    try {
+      try {
+        if (player) await player.unload();
+      } catch {}
+
+      const mediaUrl = new URL(FALLBACK_MEDIA_API);
+      mediaUrl.searchParams.set('action', 'media');
+      mediaUrl.searchParams.set('id', videoId);
+      mediaUrl.searchParams.set('kind', 'video');
+
+      const savedPosition = getPlaybackPosition(videoId);
+      videoElement.removeAttribute('src');
+      videoElement.src = mediaUrl.toString();
+      videoElement.preload = 'auto';
+      videoElement.playsInline = true;
+
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          videoElement.removeEventListener('loadedmetadata', onReady);
+          videoElement.removeEventListener('canplay', onReady);
+          videoElement.removeEventListener('error', onError);
+          fn();
+        };
+        const onReady = () => finish(resolve);
+        const onError = () => finish(() => reject(new Error('direct_media_error_' + (videoElement.error?.code || 0))));
+        const timer = window.setTimeout(
+          () => finish(() => reject(new Error('direct_media_timeout'))),
+          25000
+        );
+
+        videoElement.addEventListener('loadedmetadata', onReady, { once: true });
+        videoElement.addEventListener('canplay', onReady, { once: true });
+        videoElement.addEventListener('error', onError, { once: true });
+        videoElement.load();
+      });
+
+      if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
+        try {
+          videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
+        } catch {}
+      }
+
+      try {
+        await videoElement.play();
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotAllowedError')) {
+          throw error;
+        }
+        addToast('Tap Play to start video.', 'info');
+      }
+
+      startSavingPosition();
+      playerState.value = 'ready';
+      console.info('[Player]', 'Using 1988 direct media fallback');
+      return true;
+    } catch (error) {
+      console.error('[Player]', '1988 direct media fallback failed', error);
+      try {
+        videoElement.removeAttribute('src');
+        videoElement.load();
+      } catch {}
+      return false;
+    }
+  }
+
+  async function loadVideo(videoId: string, targetContainer: HTMLElement) {"""
+if anchor not in s:
+    raise SystemExit("Kira player loadVideo anchor not found")
+s = s.replace(anchor, insert, 1)
+
+start = s.index("      const videoInfo = await fetchVideoInfo(videoId);")
+end = s.index("\n  }\n\n  onUnmounted", start)
+if start < 0 or end < 0:
+    raise SystemExit("Kira player primary playback bounds not found")
+new = """      const videoInfo = await fetchVideoInfo(videoId);
+      if (videoInfo.data.playabilityStatus?.status !== 'OK') {
+        console.warn('[Player]', 'Primary playback unavailable:', videoInfo.data.playabilityStatus?.reason || 'Unknown reason');
+        if (await loadDirectMediaFallback(videoId)) return;
+        addToast('Unplayable video.', 'error');
+        playerState.value = 'error';
+        return;
+      }
+
+      try {
+        await loadManifest(videoInfo);
+      } catch (manifestError) {
+        console.warn('[Player]', 'Primary manifest failed; using direct media fallback', manifestError);
+        if (await loadDirectMediaFallback(videoId)) return;
+        throw manifestError;
+      }
+
+      startSavingPosition();
+      playerState.value = 'ready';
+    } catch (error) {
+      console.warn('[Player]', 'Primary playback failed; using direct media fallback', error);
+      if (await loadDirectMediaFallback(videoId)) return;
+      console.error(error);
+      playerState.value = 'error';
+      addToast('Error loading video: ' + (error as any).message, 'error');
+    }"""
+s = s[:start] + new + s[end:]
+p.write_text(s)
+
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -479,7 +729,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-27-mixed-recommendations\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-28-watch-details-media-fallback\">", 1)
 p.write_text(s)
 PY
 
