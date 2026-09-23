@@ -1,0 +1,164 @@
+name: Lab Cobalt Same-IP Playback
+
+on:
+  push:
+    branches:
+      - lab/cobalt-same-ip-playback-test-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  playback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Start same-IP session generator and Cobalt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker pull ghcr.io/imputnet/yt-session-generator:webserver
+          docker pull ghcr.io/imputnet/cobalt:11
+
+          docker run -d --name yt-session --network host             ghcr.io/imputnet/yt-session-generator:webserver
+
+          echo "Waiting for PO token..."
+          TOKEN_OK=0
+          for i in $(seq 1 45); do
+            CODE=$(curl -sS -o /tmp/token.json -w '%{http_code}' --max-time 5 http://127.0.0.1:8080/token || true)
+            if [ "$CODE" = "200" ] && jq -e '(.po_token // .poToken // .potoken) and (.visitor_data // .visitorData // .contentBinding)' /tmp/token.json >/dev/null 2>&1; then
+              TOKEN_OK=1
+              echo "PO token ready after $i attempts"
+              jq '{hasPoToken:((.po_token // .poToken // .potoken // "")|length>100),hasVisitorData:((.visitor_data // .visitorData // .contentBinding // "")|length>10)}' /tmp/token.json
+              break
+            fi
+            if [ $i -eq 8 ] || [ $i -eq 20 ]; then
+              curl -sS --max-time 5 http://127.0.0.1:8080/update >/dev/null || true
+            fi
+            sleep 2
+          done
+
+          if [ "$TOKEN_OK" != "1" ]; then
+            echo "Session generator never produced a valid token"
+            docker logs yt-session --tail 160
+            exit 2
+          fi
+
+          cat >/tmp/session-proxy.py <<'PY'
+          from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+          import urllib.request
+          class H(BaseHTTPRequestHandler):
+              def _go(self):
+                  try:
+                      with urllib.request.urlopen("http://127.0.0.1:8080/token", timeout=10) as r:
+                          body=r.read()
+                          self.send_response(r.status)
+                          self.send_header("content-type", r.headers.get("content-type","application/json"))
+                          self.end_headers()
+                          self.wfile.write(body)
+                  except Exception as e:
+                      body=str(e).encode()
+                      self.send_response(502)
+                      self.send_header("content-type","text/plain")
+                      self.end_headers()
+                      self.wfile.write(body)
+              do_GET=_go
+              do_POST=_go
+              def log_message(self, *args): pass
+          ThreadingHTTPServer(("127.0.0.1",8081),H).serve_forever()
+          PY
+          python3 /tmp/session-proxy.py >/tmp/session-proxy.log 2>&1 &
+
+          docker run -d --name cobalt --network host             -e API_URL='http://127.0.0.1:9000/'             -e API_PORT='9000'             -e CORS_WILDCARD='1'             -e YOUTUBE_SESSION_SERVER='http://127.0.0.1:8081/'             -e YOUTUBE_SESSION_INNERTUBE_CLIENT='WEB_EMBEDDED'             -e CUSTOM_INNERTUBE_CLIENT='IOS'             -e RATELIMIT_MAX='1000'             -e TUNNEL_RATELIMIT_MAX='1000'             -e SESSION_RATELIMIT_MAX='1000'             ghcr.io/imputnet/cobalt:11
+
+          echo "Waiting for Cobalt..."
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 5 http://127.0.0.1:9000/ >/tmp/cobalt-info.json; then
+              echo "Cobalt ready"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "=== Cobalt startup ==="
+          docker logs cobalt --tail 160 2>&1 | sed -E 's/[A-Za-z0-9_-]{120,}/[redacted-long-token]/g'
+
+      - name: Resolve exact failing video to native video
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
+          jq -nc --arg url "$SRC" '{
+            url:$url,
+            downloadMode:"auto",
+            videoQuality:"360",
+            youtubeVideoCodec:"h264",
+            alwaysProxy:true,
+            disableMetadata:true,
+            localProcessing:"disabled"
+          }' >/tmp/request-video.json
+
+          CODE=$(curl -sS --max-time 45 -o /tmp/video.json -w '%{http_code}'             -X POST http://127.0.0.1:9000/             -H 'content-type: application/json'             --data-binary @/tmp/request-video.json)
+
+          echo "VIDEO_RESOLVE_HTTP=$CODE"
+          jq 'if .url then {status,url,filename} elif .tunnel then {status,tunnel,filename} else . end' /tmp/video.json
+
+          URL=$(jq -r '.url // (.tunnel[0] // empty)' /tmp/video.json)
+          [ -n "$URL" ] || { echo "No video URL"; docker logs cobalt --tail 180; exit 3; }
+
+          HDR=$(mktemp); BIN=$(mktemp)
+          set +e
+          curl -sS -L --connect-timeout 5 --max-time 12             -H 'Range: bytes=0-65535' -D "$HDR" -o "$BIN" "$URL"
+          RC=$?
+          set -e
+
+          echo "VIDEO_MEDIA_CURL_RC=$RC"
+          tr -d '\r' <"$HDR" | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+          echo "VIDEO_MEDIA_SIZE=$(wc -c < "$BIN")"
+          file "$BIN"
+          [ "$(wc -c < "$BIN")" -gt 2048 ] || exit 4
+
+      - name: Resolve exact failing video to native audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
+          jq -nc --arg url "$SRC" '{
+            url:$url,
+            downloadMode:"audio",
+            audioFormat:"best",
+            audioBitrate:"128",
+            alwaysProxy:true,
+            disableMetadata:true,
+            localProcessing:"disabled"
+          }' >/tmp/request-audio.json
+
+          CODE=$(curl -sS --max-time 45 -o /tmp/audio.json -w '%{http_code}'             -X POST http://127.0.0.1:9000/             -H 'content-type: application/json'             --data-binary @/tmp/request-audio.json)
+
+          echo "AUDIO_RESOLVE_HTTP=$CODE"
+          jq 'if .url then {status,url,filename} elif .tunnel then {status,tunnel,filename} else . end' /tmp/audio.json
+
+          URL=$(jq -r '.url // (.tunnel[0] // empty)' /tmp/audio.json)
+          [ -n "$URL" ] || { echo "No audio URL"; docker logs cobalt --tail 180; exit 5; }
+
+          HDR=$(mktemp); BIN=$(mktemp)
+          set +e
+          curl -sS -L --connect-timeout 5 --max-time 12             -H 'Range: bytes=0-65535' -D "$HDR" -o "$BIN" "$URL"
+          RC=$?
+          set -e
+
+          echo "AUDIO_MEDIA_CURL_RC=$RC"
+          tr -d '\r' <"$HDR" | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+          echo "AUDIO_MEDIA_SIZE=$(wc -c < "$BIN")"
+          file "$BIN"
+          [ "$(wc -c < "$BIN")" -gt 2048 ] || exit 6
+
+      - name: Print final lab diagnostics
+        if: always()
+        shell: bash
+        run: |
+          echo "=== session generator ==="
+          docker logs yt-session --tail 120 2>&1 | sed -E 's/[A-Za-z0-9_-]{120,}/[redacted-long-token]/g' || true
+          echo "=== cobalt ==="
+          docker logs cobalt --tail 220 2>&1 | sed -E 's/[A-Za-z0-9_-]{120,}/[redacted-long-token]/g' || true
