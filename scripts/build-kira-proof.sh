@@ -953,7 +953,7 @@ insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<stri
           resolve(value);
         };
 
-        const timer = window.setTimeout(() => finish(''), 10000);
+        const timer = window.setTimeout(() => finish(''), 3500);
 
         worker.onmessage = (event) => {
           const data = event.data || {};
@@ -984,7 +984,10 @@ insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<stri
     if (!videoElement) return false;
 
     const mediaUrl = await resolveNewPipeMedia(videoId);
-    if (!/^https?:\/\//i.test(mediaUrl)) return false;
+    if (!/^https:\/\/youtube-wasm-relay-1988\.taphoa-4ab8161d\.workers\.dev\/media\?/i.test(mediaUrl)) {
+      if (mediaUrl) console.warn('[Player]', 'NewPipe returned non-relay media URL; using fallback');
+      return false;
+    }
 
     try {
       try {
@@ -1173,7 +1176,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-39-newpipe-wasm\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-40-newpipe-cloudflare-safe\">", 1)
 p.write_text(s)
 PY
 
