@@ -45,6 +45,12 @@ jobs:
 
           echo '=== RENDER HEALTH ==='
           curl -sS -w '\nHTTP=%{http_code}\n' --max-time 40 "$AUDIO/health" || true
+          echo '=== PLAYER FRONTENDS ==='
+          for FRONT in https://piped.video https://cf.piped.video https://vc.piped.video https://re.piped.video https://nf.piped.video; do
+            printf '%s -> ' "$FRONT"
+            curl -sS -L -o /dev/null --max-time 20 -w 'HTTP=%{http_code} TYPE=%{content_type} URL=%{url_effective}\n' "$FRONT/embed/$ID?autoplay=1" || true
+          done
+
 
           echo '=== RENDER RESOLVE ==='
           curl -sS -w '\nHTTP=%{http_code}\n' --max-time 60 "$AUDIO/resolve?id=$ID" || true
