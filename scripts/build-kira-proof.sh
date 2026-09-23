@@ -6333,10 +6333,249 @@ s += r'''
 
 p.write_text(s)
 
+
+# Simple 1988 branding inspired by SkipCut: dark UI + one red accent.
+# Keep this final and global so legacy scoped Kira styles cannot break the header.
+p = Path("src/App.vue")
+s = p.read_text()
+
+old_brand = '''<router-link to="/" class="brand" aria-label="Kira - Trang chủ">
+          <span class="brand-mark"><Play :fill="'currentColor'"/></span>
+          <span class="brand-copy">
+            <span class="brand-name">Kira</span>
+            <span class="brand-subtitle">Media</span>
+          </span>
+        </router-link>'''
+new_brand = '''<router-link to="/" class="brand brand-1988" aria-label="1988 - Trang chủ">
+          <span class="logo-1988">1988</span>
+        </router-link>'''
+s = s.replace(old_brand, new_brand)
+
+# Logo already acts as Home; keep only Settings on the right.
+s = s.replace(
+    '''          <router-link to="/" class="icon-button home-link" aria-label="Trang chủ" title="Trang chủ">
+            <Home/>
+          </router-link>
+''',
+    ''
+)
+
+s = s.replace(
+    "import { Home, Play, Search, Settings2, X } from '@lucide/vue';",
+    "import { Search, Settings2, X } from '@lucide/vue';"
+)
+p.write_text(s)
+
+p = Path("src/1988.css")
+p.write_text(r'''/* Simple global shell: 1988 */
+:root {
+  --c-bg: #0f0f10;
+  --c-panel: #18181a;
+  --c-panel-2: #202023;
+  --c-border: #2b2b2f;
+  --c-text: #f5f5f5;
+  --c-muted: #8b8b93;
+  --c-red: #ff2d42;
+}
+
+html,
+body,
+#app {
+  margin: 0 !important;
+  min-width: 280px !important;
+  min-height: 100% !important;
+  background: var(--c-bg) !important;
+  color: var(--c-text) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif !important;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  min-height: 100vh !important;
+  background: var(--c-bg) !important;
+}
+
+.app-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 100 !important;
+  background: rgba(15,15,16,.96) !important;
+  border-bottom: 1px solid var(--c-border) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.header-inner {
+  width: min(1180px, calc(100% - 20px)) !important;
+  min-height: 58px !important;
+  margin: 0 auto !important;
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.brand-1988 {
+  display: inline-flex !important;
+  align-items: center !important;
+  text-decoration: none !important;
+}
+
+.logo-1988 {
+  height: 34px !important;
+  min-width: 58px !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 10px !important;
+  background: var(--c-red) !important;
+  color: #fff !important;
+  font-size: 17px !important;
+  line-height: 1 !important;
+  font-weight: 800 !important;
+  letter-spacing: -.04em !important;
+  box-shadow: none !important;
+}
+
+.global-search {
+  position: relative !important;
+  width: 100% !important;
+  max-width: 620px !important;
+  justify-self: center !important;
+}
+
+.search-leading {
+  position: absolute !important;
+  left: 12px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  width: 17px !important;
+  height: 17px !important;
+  color: #77777f !important;
+  pointer-events: none !important;
+}
+
+.search-input {
+  width: 100% !important;
+  height: 38px !important;
+  padding: 0 40px 0 38px !important;
+  border: 1px solid var(--c-border) !important;
+  border-radius: 10px !important;
+  outline: 0 !important;
+  background: var(--c-panel) !important;
+  color: var(--c-text) !important;
+  font: inherit !important;
+  font-size: 13px !important;
+  box-shadow: none !important;
+}
+
+.search-input::placeholder {
+  color: #77777f !important;
+}
+
+.search-input:focus {
+  border-color: #55555c !important;
+  box-shadow: none !important;
+}
+
+.clear-search,
+.icon-button {
+  border: 0 !important;
+  background: transparent !important;
+  color: #a1a1aa !important;
+}
+
+.icon-button {
+  width: 36px !important;
+  height: 36px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 9px !important;
+}
+
+.icon-button:hover,
+.clear-search:hover {
+  background: var(--c-panel-2) !important;
+  color: #fff !important;
+}
+
+.header-actions {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+}
+
+.main-content {
+  width: 100% !important;
+}
+
+/* One accent only. */
+.play-btn,
+.brand-mark {
+  background: var(--c-red) !important;
+}
+
+.seek,
+.volume {
+  accent-color: var(--c-red) !important;
+}
+
+.eyebrow,
+.heading-icon,
+.section-heading svg {
+  color: var(--c-red) !important;
+}
+
+@media (max-width: 640px) {
+  .header-inner {
+    width: calc(100% - 14px) !important;
+    min-height: 56px !important;
+    gap: 7px !important;
+  }
+
+  .logo-1988 {
+    min-width: 52px !important;
+    height: 32px !important;
+    padding: 0 8px !important;
+    border-radius: 9px !important;
+    font-size: 16px !important;
+  }
+
+  .search-input {
+    height: 36px !important;
+    font-size: 12px !important;
+  }
+
+  .icon-button {
+    width: 34px !important;
+    height: 34px !important;
+  }
+}
+''')
+
+p = Path("src/main.ts")
+s = p.read_text()
+if "import './1988.css';" not in s:
+    s = s.replace(
+        "import 'shaka-player/dist/controls.css';",
+        "import 'shaka-player/dist/controls.css';\nimport './1988.css';"
+    )
+p.write_text(s)
+
+# Browser title is 1988, not Kira.
+p = Path("index.html")
+s = p.read_text()
+s = re.sub(r'<title>.*?</title>', '<title>1988</title>', s, count=1)
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-53-modern-player-watch\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-54-simple-1988-red\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
