@@ -255,38 +255,106 @@ function durationText(value: any): string | undefined {
     : `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-async function loadFallbackRecommendations() {
+function fallbackRows(payload: any): any[] {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+async function fetchFallbackRows(action: string, params: Record<string, string> = {}) {
   const url = new URL(FALLBACK_DISCOVERY_API);
-  url.searchParams.set('action', 'search');
-  url.searchParams.set('q', 'Việt Nam');
-  url.searchParams.set('filter', 'videos');
+  url.searchParams.set('action', action);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
 
   const response = await fetch(url.toString(), { cache: 'no-store' });
   const payload = await response.json();
   if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.error || `fallback_home_${response.status}`);
+    throw new Error(payload?.error || `fallback_home_${action}_${response.status}`);
+  }
+  return fallbackRows(payload);
+}
+
+function toRecommendation(row: any): VideoItemData | null {
+  const videoId = fallbackVideoId(row);
+  if (!videoId) return null;
+  return {
+    videoId,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`),
+    metadata: [
+      String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+      String(row?.viewText || (row?.views ? `${row.views} views` : ''))
+    ].filter(Boolean),
+    duration: durationText(row?.duration)
+  };
+}
+
+async function loadFallbackRecommendations() {
+  const topicQueries = [
+    'nhạc Việt',
+    'giải trí Việt Nam',
+    'thể thao',
+    'công nghệ',
+    'ẩm thực',
+    'du lịch'
+  ];
+
+  const [trendingResult, ...topicResults] = await Promise.allSettled([
+    fetchFallbackRows('trending', { region: 'VN' }),
+    ...topicQueries.map(q => fetchFallbackRows('search', { q, filter: 'videos' }))
+  ]);
+
+  const buckets: VideoItemData[][] = [];
+
+  if (trendingResult.status === 'fulfilled') {
+    buckets.push(
+      trendingResult.value
+        .map(toRecommendation)
+        .filter((row): row is VideoItemData => !!row)
+        .slice(0, 8)
+    );
+  }
+
+  for (const result of topicResults) {
+    if (result.status !== 'fulfilled') continue;
+    buckets.push(
+      result.value
+        .map(toRecommendation)
+        .filter((row): row is VideoItemData => !!row)
+        .slice(0, 6)
+    );
   }
 
   const seen = new Set<string>();
-  homeRecommendations.value = (Array.isArray(payload?.data?.items) ? payload.data.items : [])
-    .map((row: any) => {
-      const videoId = fallbackVideoId(row);
-      if (!videoId || seen.has(videoId)) return null;
-      seen.add(videoId);
-      return {
-        videoId,
-        title: String(row?.title || 'Video'),
-        titleText: String(row?.title || 'Video'),
-        thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`),
-        metadata: [
-          String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
-          String(row?.viewText || '')
-        ].filter(Boolean),
-        duration: durationText(row?.duration)
-      } satisfies VideoItemData;
-    })
-    .filter((row: VideoItemData | null): row is VideoItemData => !!row)
-    .slice(0, 24);
+  const mixed: VideoItemData[] = [];
+  const depth = Math.max(0, ...buckets.map(rows => rows.length));
+
+  for (let i = 0; i < depth && mixed.length < 24; i++) {
+    for (const bucket of buckets) {
+      const row = bucket[i];
+      if (!row || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      mixed.push(row);
+      if (mixed.length >= 24) break;
+    }
+  }
+
+  if (!mixed.length) {
+    const emergency = await fetchFallbackRows('home', { seed: 'khám phá' });
+    for (const raw of emergency) {
+      const row = toRecommendation(raw);
+      if (!row || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      mixed.push(row);
+      if (mixed.length >= 24) break;
+    }
+  }
+
+  homeRecommendations.value = mixed;
 }
 
 watch(showRecommendations, (val) => {"""
@@ -411,7 +479,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-26-search-home-fallback\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-27-mixed-recommendations\">", 1)
 p.write_text(s)
 PY
 
