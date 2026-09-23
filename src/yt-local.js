@@ -13,6 +13,7 @@ Platform.shim.eval=async (data,env={})=>{
 };
 
 let ytPromise=null;
+const videoPoTokenCache=new Map();
 
 function text(value){
   if(value===undefined||value===null)return '';
@@ -150,6 +151,21 @@ async function mintPoToken(identifier){
   return result.poToken;
 }
 
+async function getVideoPoToken(id){
+  const cached=videoPoTokenCache.get(id);
+  if(cached&&Date.now()-cached.at<10*60*1000)return cached.token;
+
+  let token="";
+  try{
+    token=await mintPoToken(id);
+  }catch{
+    try{token=BG.PoToken.generatePlaceholder(id);}catch{}
+  }
+
+  if(token)videoPoTokenCache.set(id,{token,at:Date.now()});
+  return token;
+}
+
 async function getYT(){
   if(ytPromise)return ytPromise;
   ytPromise=(async()=>{
@@ -232,38 +248,136 @@ async function info(id){
   };
 }
 
+async function probeResolvedMedia(url){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),7000);
+  try{
+    const res=await fetch(url,{
+      method:'GET',
+      headers:{Range:'bytes=0-1023'},
+      cache:'no-store',
+      signal:controller.signal
+    });
+    const type=String(res.headers.get('content-type')||'').toLowerCase();
+    const ok=(res.status===200||res.status===206)&&
+      !type.includes('text/html')&&
+      !type.includes('application/json')&&
+      !type.includes('text/plain');
+    try{await res.body?.cancel()}catch{}
+    if(!ok)throw new Error('media_probe_'+res.status);
+    return true;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function media(id,kind='video'){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
   if(kind!=='video'&&kind!=='audio')throw new Error('invalid_kind');
+
   const yt=await getYT();
-  const tries=kind==='video'
-    ?[
-      {type:'video+audio',quality:'best',format:'mp4',client:'WEB'},
-      {type:'video+audio',quality:'best',format:'mp4',client:'MWEB'}
-    ]
-    :[
-      {type:'audio',quality:'best',format:'mp4',client:'WEB'},
-      {type:'audio',quality:'best',format:'mp4',client:'MWEB'},
-      {type:'audio',quality:'best',format:'any',client:'WEB'}
-    ];
+  const poToken=await getVideoPoToken(id);
+
+  try{
+    if(poToken&&yt?.session?.player)yt.session.player.po_token=poToken;
+  }catch{}
+
+  const clients=['WEB','MWEB','IOS','ANDROID'];
+  const tries=[];
+
+  for(const client of clients){
+    if(kind==='video'){
+      tries.push({
+        type:'video+audio',
+        quality:'best',
+        format:'mp4',
+        client,
+        ...(poToken?{po_token:poToken}:{})
+      });
+    }else{
+      tries.push({
+        type:'audio',
+        quality:'best',
+        format:'mp4',
+        client,
+        ...(poToken?{po_token:poToken}:{})
+      });
+    }
+  }
+
+  if(kind==='audio'){
+    tries.push({
+      type:'audio',
+      quality:'best',
+      format:'any',
+      client:'WEB',
+      ...(poToken?{po_token:poToken}:{})
+    });
+  }
 
   let lastError=null;
+
   for(const options of tries){
     try{
       const format=await yt.getStreamingData(id,options);
       if(!format?.url)continue;
-      const mime=String(format.mime_type||format.mimeType||(kind==='audio'?'audio/mp4':'video/mp4'));
+
+      const proxied=proxiedMediaUrl(format.url);
+      await probeResolvedMedia(proxied);
+
+      const mime=String(
+        format.mime_type||
+        format.mimeType||
+        (kind==='audio'?'audio/mp4':'video/mp4')
+      );
+
       return {
-        url:proxiedMediaUrl(format.url),
+        url:proxied,
         mimeType:mime,
         itag:format.itag,
         quality:String(format.quality_label||format.quality||''),
-        hasAudio:format.has_audio!==false
+        hasAudio:format.has_audio!==false,
+        client:options.client,
+        poTokenBound:!!poToken
       };
     }catch(error){
       lastError=error;
     }
   }
+
+  // One clean retry with a freshly minted content-bound token in case the
+  // previous token aged out while the player metadata was loading.
+  try{
+    videoPoTokenCache.delete(id);
+    const freshToken=await getVideoPoToken(id);
+    if(freshToken&&yt?.session?.player)yt.session.player.po_token=freshToken;
+
+    const retryOptions={
+      type:kind==='video'?'video+audio':'audio',
+      quality:'best',
+      format:'mp4',
+      client:'WEB',
+      ...(freshToken?{po_token:freshToken}:{})
+    };
+
+    const format=await yt.getStreamingData(id,retryOptions);
+    if(format?.url){
+      const proxied=proxiedMediaUrl(format.url);
+      await probeResolvedMedia(proxied);
+      return {
+        url:proxied,
+        mimeType:String(format.mime_type||format.mimeType||(kind==='audio'?'audio/mp4':'video/mp4')),
+        itag:format.itag,
+        quality:String(format.quality_label||format.quality||''),
+        hasAudio:format.has_audio!==false,
+        client:'WEB',
+        poTokenBound:!!freshToken
+      };
+    }
+  }catch(error){
+    lastError=error;
+  }
+
   throw lastError||new Error('no_media_stream');
 }
 
