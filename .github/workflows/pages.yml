@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages-player-v2
+  group: pages-player-v3
   cancel-in-progress: true
 
 jobs:
