@@ -11,7 +11,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe public CORS relays for YouTube GET and POST
+      - name: Probe CorsBridge for YouTube GET and POST
         run: |
           set +e
           python - <<'PY'
@@ -19,23 +19,17 @@ jobs:
           watch='https://www.youtube.com/watch?v=dQw4w9WgXcQ'
           api='https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false'
           body=json.dumps({"context":{"client":{"clientName":"WEB","clientVersion":"2.20250222.10.00","hl":"en","gl":"US"}},"videoId":"dQw4w9WgXcQ","contentCheckOk":True,"racyCheckOk":True})
-          relays=[
-            ("corsproxy.io", lambda u: 'https://corsproxy.io/?url='+urllib.parse.quote(u,safe='')),
-            ("allorigins", lambda u: 'https://api.allorigins.win/raw?url='+urllib.parse.quote(u,safe='')),
-            ("isomorphic", lambda u: 'https://cors.isomorphic-git.org/'+u),
-          ]
-          for name,wrap in relays:
-            for method,target in [('GET',watch),('POST',api)]:
-              url=wrap(target)
-              out=f'/tmp/{name}-{method}.out'
-              cmd=['curl','-sS','-L','--max-time','25','-o',out,'-w','%{http_code} %{time_total} %{size_download}']
-              if method=='POST':
-                cmd += ['-X','POST','-H','Content-Type: application/json','--data',body]
-              cmd += [url]
-              try:
-                meta=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
-              except subprocess.CalledProcessError:
-                meta='ERR'
-              raw=open(out,'rb').read(500) if os.path.exists(out) else b''
-              print(name,method,meta,raw[:180].decode('utf-8','replace').replace('\n',' '))
+          for method,target in [('GET',watch),('POST',api)]:
+            url='https://api.cors.syrins.tech/?url='+urllib.parse.quote(target,safe='')
+            out=f'/tmp/corsbridge-{method}.out'
+            cmd=['curl','-sS','-L','--max-time','25','-o',out,'-w','%{http_code} %{time_total} %{size_download}']
+            if method=='POST':
+              cmd += ['-X','POST','-H','Content-Type: application/json','--data',body]
+            cmd += [url]
+            try:
+              meta=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+            except subprocess.CalledProcessError:
+              meta='ERR'
+            raw=open(out,'rb').read(700) if os.path.exists(out) else b''
+            print(method,meta,raw[:500].decode('utf-8','replace').replace('\n',' '))
           PY
