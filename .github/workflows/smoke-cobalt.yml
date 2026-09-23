@@ -1,0 +1,22 @@
+name: Smoke Cobalt Proxy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test private Cobalt proxy
+        run: |
+          set -e
+          URL='https://kira-proxy-1988-us.onrender.com/api/cobalt?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&videoQuality=360'
+          curl -sS -L --max-time 30 "$URL" -o /tmp/out.json
+          cat /tmp/out.json
+          echo
+          test "$(jq -r '.status // ""' /tmp/out.json)" = "tunnel"
+          test -n "$(jq -r '.url // ""' /tmp/out.json)"
