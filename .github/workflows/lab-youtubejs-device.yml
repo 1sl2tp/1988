@@ -130,7 +130,7 @@ jobs:
           PY
 
           cd /tmp/youtubejs/examples/browser/web
-          npm run build
+          npx vite build
 
       - name: Serve official example
         shell: bash
