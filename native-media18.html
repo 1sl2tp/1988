@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="robots" content="noindex,nofollow">
+  <title>1988 · Native Media 18</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css">
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    html,body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    body{min-height:100vh}
+    main{max-width:900px;margin:0 auto;padding:12px 12px 40px}
+    h1{font-size:20px;margin:4px 0 6px}
+    p{margin:0 0 12px;color:#aaa;font-size:14px;line-height:1.45}
+    .box{border:1px solid #2b2b2b;border-radius:14px;padding:14px;margin:12px 0;background:#0b0b0b}
+    .label{font-size:12px;color:#888;margin-bottom:6px}
+    .meta{font-size:13px;color:#999;line-height:1.45}
+    .status{margin-top:8px;font-size:13px;color:#aaa;white-space:pre-line}
+    .ok{color:#7ee787}.warn{color:#e3b341}.bad{color:#ff7b72}
+    .search{display:grid;grid-template-columns:1fr auto;gap:8px}
+    input{width:100%;background:#111;color:#fff;border:1px solid #333;border-radius:10px;padding:12px;font:15px system-ui;outline:none}
+    input:focus{border-color:#666}
+    button,a.btn{appearance:none;border:0;text-decoration:none;border-radius:10px;padding:11px 14px;font:600 14px/1 system-ui;background:#fff;color:#000;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+    button.secondary,a.secondary{background:#1d1d1d;color:#fff;border:1px solid #333}
+    button:disabled{opacity:.45;cursor:default}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .player-wrap{background:#000;border-radius:12px;overflow:hidden}
+    video{display:block;width:100%;aspect-ratio:16/9;background:#000}
+    .video-title{font-size:17px;font-weight:700;line-height:1.35;margin-top:10px}
+    .results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
+    .result{border:0;background:transparent;padding:0;text-align:left;color:inherit;cursor:pointer}
+    .thumb{position:relative}
+    .thumb img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;background:#111}
+    .dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.82);padding:3px 5px;border-radius:5px;font:600 11px/1.1 system-ui}
+    .rtitle{font-size:14px;line-height:1.35;font-weight:650;margin-top:7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .rmeta{font-size:12px;color:#999;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .empty{color:#888;font-size:14px;padding:8px 0}
+    .plyr{--plyr-color-main:#fff;--plyr-video-control-color:#fff;--plyr-video-control-background-hover:rgba(255,255,255,.18)}
+    @media(max-width:560px){
+      main{padding:10px 10px 32px}
+      .results{grid-template-columns:1fr 1fr;gap:10px}
+      .search{grid-template-columns:1fr}
+      .search button{width:100%}
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>YouTube mới · Native Player</h1>
+  <p>Không iframe YouTube. Video chạy bằng HTML5/Plyr từ stream Piped.</p>
+
+  <div class="box">
+    <div class="player-wrap">
+      <video id="nativeVideo" playsinline controls preload="metadata"></video>
+    </div>
+    <div id="videoTitle" class="video-title">Đang tải thông tin…</div>
+    <div id="videoMeta" class="meta"></div>
+    <div id="playerStatus" class="status">Chọn video hoặc bấm Phát.</div>
+    <div class="row" style="margin-top:10px">
+      <button id="playBtn" type="button">Phát video</button>
+      <a id="youtubeLink" class="btn secondary" target="_blank" rel="noopener">YouTube gốc</a>
+      <button id="copyLink" class="secondary" type="button">Sao chép link</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <div class="label">Tìm video thật</div>
+    <form id="searchForm" class="search">
+      <input id="searchInput" autocomplete="off" enterkeyhint="search" placeholder="Tìm trên YouTube…" aria-label="Tìm video">
+      <button id="searchBtn" type="submit">Tìm</button>
+    </form>
+    <div id="searchStatus" class="meta" style="margin-top:8px"></div>
+    <div id="results" class="results"></div>
+  </div>
+
+  <div class="box">
+    <div class="label">Môi trường</div>
+    <div id="env" class="meta"></div>
+    <div id="sourceStatus" class="status"></div>
+  </div>
+
+  <p>Build: native-device-proof-20260923-media18</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
+<script src="/src/api.js"></script>
+<script>
+(() => {
+  const BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+  const $=s=>document.querySelector(s);
+  const video=$('#nativeVideo');
+  const titleEl=$('#videoTitle');
+  const metaEl=$('#videoMeta');
+  const playerStatus=$('#playerStatus');
+  const sourceStatus=$('#sourceStatus');
+  const playBtn=$('#playBtn');
+  const youtubeLink=$('#youtubeLink');
+  const copyLink=$('#copyLink');
+  const searchForm=$('#searchForm');
+  const searchInput=$('#searchInput');
+  const searchBtn=$('#searchBtn');
+  const searchStatus=$('#searchStatus');
+  const results=$('#results');
+
+  const player=new Plyr(video,{
+    controls:['play-large','rewind','play','fast-forward','progress','current-time','duration','mute','volume','settings','pip','airplay','fullscreen'],
+    settings:['speed'],
+    hideControls:true
+  });
+
+  let currentId='';
+  let currentMeta={};
+  let currentSource='';
+
+  const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+  })[ch]);
+
+  function extractId(value=''){
+    const raw=String(value).trim();
+    if(/^[A-Za-z0-9_-]{11}$/.test(raw))return raw;
+    const m=raw.match(/(?:[?&]v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/);
+    if(m?.[1])return m[1];
+    try{
+      const u=new URL(raw,location.origin);
+      const v=u.searchParams.get('v');
+      if(v&&/^[A-Za-z0-9_-]{11}$/.test(v))return v;
+    }catch{}
+    return '';
+  }
+
+  function itemId(row={}){
+    return extractId(row.videoId||row.url||row.id||'');
+  }
+
+  function thumb(row={},id=''){
+    return row.thumbnail||row.thumbnailUrl||row.thumbnails?.[0]?.url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
+  }
+
+  function fmtDuration(sec){
+    sec=Math.max(0,Number(sec)||0);
+    const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
+    return h?String(h)+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0'):String(m)+':'+String(s).padStart(2,'0');
+  }
+
+  function fmtViews(n){
+    n=Number(n)||0;
+    if(n>=1e9)return (n/1e9).toFixed(1).replace('.0','')+' tỷ lượt xem';
+    if(n>=1e6)return (n/1e6).toFixed(1).replace('.0','')+' Tr lượt xem';
+    if(n>=1e3)return (n/1e3).toFixed(1).replace('.0','')+' N lượt xem';
+    return n?n.toLocaleString('vi-VN')+' lượt xem':'';
+  }
+
+  async function call(action,params={}){
+    const u=new URL(BASE);
+    u.searchParams.set('action',action);
+    for(const [k,v] of Object.entries(params)){
+      if(v!==undefined&&v!==null&&String(v)!=='')u.searchParams.set(k,String(v));
+    }
+    const r=await fetch(u,{cache:'no-store'});
+    const body=await r.json().catch(()=>null);
+    if(!r.ok||body?.ok!==true)throw new Error(body?.error||('HTTP '+r.status));
+    return body;
+  }
+
+  function updateMediaSession(){
+    if(!('mediaSession' in navigator)||!currentId)return;
+    try{
+      navigator.mediaSession.metadata=new MediaMetadata({
+        title:currentMeta.title||'1988',
+        artist:currentMeta.uploaderName||currentMeta.uploader||currentMeta.channelName||'',
+        artwork:[{src:thumb(currentMeta,currentId)}]
+      });
+    }catch{}
+  }
+
+  function setSelected(id,meta={}){
+    if(!id)return;
+    currentId=id;
+    currentMeta={...currentMeta,...meta};
+    currentSource='';
+    video.removeAttribute('src');
+    video.load();
+
+    const title=currentMeta.title||'Video '+id;
+    const channel=currentMeta.uploaderName||currentMeta.uploader||currentMeta.channelName||'';
+    const bits=[channel,fmtViews(currentMeta.views),Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean);
+    titleEl.textContent=title;
+    metaEl.textContent=bits.join(' · ');
+    video.poster=thumb(currentMeta,id);
+    youtubeLink.href='https://www.youtube.com/watch?v='+encodeURIComponent(id);
+    playerStatus.className='status';
+    playerStatus.textContent='Bấm Phát để lấy stream mới.';
+    sourceStatus.textContent='';
+
+    const url=new URL(location.href);
+    url.searchParams.set('v',id);
+    history.replaceState(null,'',url);
+    updateMediaSession();
+  }
+
+  async function resolveSource(id){
+    // Metadata is kept separate from playback. The actual media URL goes
+    // through action=media, which server-side probes Piped candidates with
+    // a Range request and only redirects to a working 200/206 source.
+    try{
+      const r=await call('video',{id});
+      const data=r?.data||{};
+      currentMeta={...currentMeta,...data};
+      const title=currentMeta.title||titleEl.textContent;
+      titleEl.textContent=title;
+      metaEl.textContent=[currentMeta.uploader||currentMeta.uploaderName,Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean).join(' · ');
+      video.poster=thumb(currentMeta,id);
+      updateMediaSession();
+    }catch{}
+
+    const u=new URL(BASE);
+    u.searchParams.set('action','media');
+    u.searchParams.set('id',id);
+    u.searchParams.set('kind','video');
+    return {url:u.toString(),mimeType:'video/mp4'};
+  }
+
+  async function playSelected(){
+    if(!currentId)return;
+    playBtn.disabled=true;
+    playerStatus.className='status warn';
+    playerStatus.textContent='Đang lấy stream native…';
+
+    try{
+      const source=await resolveSource(currentId);
+      currentSource=source.url;
+
+      sourceStatus.className='status warn';
+      sourceStatus.textContent='Đang chọn Piped media proxy có Range/200–206…';
+
+      video.src=currentSource;
+      video.load();
+      await video.play();
+
+      sourceStatus.className='status ok';
+      sourceStatus.textContent='Nguồn media OK · Piped fallback đã xác minh';
+    }catch(err){
+      playerStatus.className='status bad';
+      playerStatus.textContent='Chưa phát được: '+(err?.message||err);
+    }finally{
+      playBtn.disabled=false;
+    }
+  }
+
+  function renderResults(rows){
+    const seen=new Set(),cards=[];
+    for(const row of rows){
+      const id=itemId(row);
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      const t=row.title||'Video';
+      const c=row.uploaderName||row.uploader||row.channelName||'';
+      const image=thumb(row,id);
+      const dur=Number(row.duration)||0;
+      cards.push(
+        '<button class="result" type="button" data-id="'+esc(id)+'" data-title="'+esc(t)+'" data-channel="'+esc(c)+'" data-thumb="'+esc(image)+'" data-duration="'+esc(dur)+'" data-views="'+esc(row.views||0)+'">'+
+          '<div class="thumb"><img src="'+esc(image)+'" alt="" loading="lazy">'+(dur?'<span class="dur">'+esc(fmtDuration(dur))+'</span>':'')+'</div>'+
+          '<div class="rtitle">'+esc(t)+'</div>'+
+          '<div class="rmeta">'+esc(c)+(row.views?' · '+esc(fmtViews(row.views)):'')+'</div>'+
+        '</button>'
+      );
+      if(cards.length>=20)break;
+    }
+    results.innerHTML=cards.join('')||'<div class="empty">Không có kết quả.</div>';
+    searchStatus.textContent=cards.length?cards.length+' video':'';
+  }
+
+  async function search(q){
+    q=String(q||'').trim();
+    if(!q)return;
+    searchBtn.disabled=true;
+    searchStatus.textContent='Đang tìm…';
+    results.innerHTML='';
+    try{
+      const r=await window.YT1988_API.search(q,'videos');
+      renderResults(Array.isArray(r?.data?.items)?r.data.items:[]);
+    }catch(err){
+      searchStatus.textContent='Không tìm được video: '+(err?.message||err);
+    }finally{
+      searchBtn.disabled=false;
+    }
+  }
+
+  searchForm.addEventListener('submit',e=>{
+    e.preventDefault();
+    void search(searchInput.value);
+  });
+
+  results.addEventListener('click',e=>{
+    const card=e.target.closest('.result');
+    if(!card)return;
+    setSelected(card.dataset.id,{
+      title:card.dataset.title,
+      uploader:card.dataset.channel,
+      thumbnailUrl:card.dataset.thumb,
+      duration:Number(card.dataset.duration)||0,
+      views:Number(card.dataset.views)||0
+    });
+    void playSelected();
+    window.scrollTo({top:0,behavior:'smooth'});
+  });
+
+  playBtn.addEventListener('click',()=>{void playSelected();});
+
+  copyLink.addEventListener('click',async()=>{
+    try{
+      await navigator.clipboard.writeText(location.href);
+      const old=copyLink.textContent;
+      copyLink.textContent='Đã sao chép';
+      setTimeout(()=>copyLink.textContent=old,900);
+    }catch{}
+  });
+
+  video.addEventListener('playing',()=>{
+    playerStatus.className='status ok';
+    playerStatus.textContent='Đang phát native · không iframe YouTube';
+    try{if('mediaSession' in navigator)navigator.mediaSession.playbackState='playing';}catch{}
+  });
+  video.addEventListener('pause',()=>{
+    try{if('mediaSession' in navigator)navigator.mediaSession.playbackState='paused';}catch{}
+  });
+  video.addEventListener('error',()=>{
+    playerStatus.className='status bad';
+    playerStatus.textContent='Player không đọc được stream này.';
+  });
+
+  if('mediaSession' in navigator){
+    try{
+      navigator.mediaSession.setActionHandler('play',()=>video.play());
+      navigator.mediaSession.setActionHandler('pause',()=>video.pause());
+      navigator.mediaSession.setActionHandler('seekbackward',d=>{video.currentTime=Math.max(0,video.currentTime-(d.seekOffset||10));});
+      navigator.mediaSession.setActionHandler('seekforward',d=>{video.currentTime=Math.min(video.duration||Infinity,video.currentTime+(d.seekOffset||10));});
+    }catch{}
+  }
+
+  const standalone=navigator.standalone===true||window.matchMedia?.('(display-mode: standalone)').matches===true;
+  $('#env').textContent=(standalone?'Home Screen PWA':'Safari/trình duyệt')+
+    ' · MediaSession: '+('mediaSession' in navigator?'có':'không')+
+    ' · PiP API: '+(document.pictureInPictureEnabled?'có':'không');
+
+  const initial=extractId(new URL(location.href).searchParams.get('v')||'')||'vhUjvanyu2U';
+  setSelected(initial,{thumbnailUrl:'https://i.ytimg.com/vi/'+initial+'/hqdefault.jpg'});
+  window.YT1988_API.video(initial).then(r=>{
+    if(currentId===initial&&r?.data)setSelected(initial,r.data);
+  }).catch(()=>{});
+})();
+</script>
+</body>
+</html>
