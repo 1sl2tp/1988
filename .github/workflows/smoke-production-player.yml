@@ -23,7 +23,7 @@ jobs:
 
       - name: Test exact yt.taphoa.xyz production
         run: |
-          cat >/tmp/smoke.mjs <<'JS'
+          cat >smoke-production.mjs <<'JS'
           import puppeteer from 'puppeteer-core';
 
           const chrome = process.env.CHROME || '/usr/bin/google-chrome';
@@ -120,4 +120,4 @@ jobs:
 
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
           test -n "$CHROME"
-          CHROME="$CHROME" node /tmp/smoke.mjs
+          CHROME="$CHROME" node smoke-production.mjs
