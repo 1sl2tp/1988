@@ -21,7 +21,7 @@ jobs:
       - name: Install browser driver
         run: npm install --no-save puppeteer-core@24
 
-      - name: Test exact yt.taphoa.xyz production
+      - name: Test exact yt.taphoa.xyz search and iframe
         run: |
           cat >smoke-production.mjs <<'JS'
           import puppeteer from 'puppeteer-core';
@@ -36,86 +36,64 @@ jobs:
           const page = await browser.newPage();
           await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
 
-          const events = [];
+          const norm = (s='') => String(s).normalize('NFD')
+            .replace(/[\u0300-\u036f]/g,'')
+            .replace(/đ/g,'d').replace(/Đ/g,'D')
+            .toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+
+          const home = 'https://yt.taphoa.xyz/kira-proof/#/';
           const started = Date.now();
+          const response = await page.goto(home, { waitUntil:'domcontentloaded', timeout:30000 });
+          console.log('HOME_HTTP', response?.status());
 
-          page.on('console', msg => {
-            const text = msg.text();
-            if (/\[Player\]|error|failed|DASH|NewPipe|Cobalt/i.test(text)) {
-              console.log('BROWSER', msg.type(), text);
-            }
+          await page.waitForSelector('.search-input', { timeout:20000 });
+          const input = await page.$('.search-input');
+
+          // Reproduce the user's exact fast typing pattern so stale "tuan"
+          // responses cannot overwrite "tuan hung".
+          await input.type('tuan', { delay:20 });
+          await new Promise(r => setTimeout(r, 120));
+          await input.type(' hung', { delay:20 });
+
+          await page.waitForFunction(() => {
+            const q = document.querySelector('.search-input')?.value || '';
+            const rows = [...document.querySelectorAll('.search-result-item')];
+            return q === 'tuan hung' && rows.length > 0;
+          }, { timeout:15000 });
+
+          await new Promise(r => setTimeout(r, 1400));
+
+          const results = await page.$$eval('.search-result-item', rows => rows.slice(0,8).map(row => ({
+            title: row.querySelector('.title')?.textContent?.trim() || '',
+            channel: row.querySelector('.channel')?.textContent?.trim() || ''
+          })));
+          console.log('SEARCH_MS', Date.now()-started);
+          console.log('SEARCH_RESULTS', JSON.stringify(results));
+
+          const exactIndex = results.findIndex(r => {
+            const combined = norm(r.title+' '+r.channel);
+            return combined.includes('tuan') && combined.includes('hung');
           });
-          page.on('requestfailed', req => {
-            console.log('REQUEST_FAILED', req.url(), req.failure()?.errorText || '');
-          });
-
-          const url = 'https://yt.taphoa.xyz/kira-proof/#/watch/dQw4w9WgXcQ';
-          console.log('OPEN', url);
-          const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          console.log('DOC_HTTP', response?.status());
-
-          await page.waitForSelector('video', { timeout: 30000 });
-          const firstVideoAt = Date.now();
-
-          let firstPlayable = null;
-          for (let i = 0; i < 80; i++) {
-            const s = await page.$eval('video', v => ({
-              currentTime: v.currentTime,
-              duration: v.duration,
-              readyState: v.readyState,
-              networkState: v.networkState,
-              paused: v.paused,
-              videoWidth: v.videoWidth,
-              videoHeight: v.videoHeight,
-              buffered: v.buffered.length ? [v.buffered.start(0), v.buffered.end(v.buffered.length - 1)] : null,
-              src: v.currentSrc || v.src
-            }));
-            console.log('STATE', i, JSON.stringify(s));
-            if (!firstPlayable && Number.isFinite(s.duration) && s.duration > 1 && s.readyState >= 2 && s.videoWidth > 0) {
-              firstPlayable = { ...s, ms: Date.now() - started };
-              break;
-            }
-            await new Promise(r => setTimeout(r, 500));
-          }
-
-          if (!firstPlayable) {
-            console.log('RESULT', JSON.stringify({ ok:false, reason:'not_playable_with_duration', ms:Date.now()-started }));
+          console.log('EXACT_INDEX', exactIndex);
+          if (exactIndex < 0 || exactIndex > 2) {
             await browser.close();
-            process.exit(2);
+            process.exit(4);
           }
 
-          const target = Math.min(60, Math.max(5, firstPlayable.duration / 2));
-          const before = await page.$eval('video', v => v.currentTime);
-          await page.$eval('video', (t) => { v.currentTime = t; }, target).catch(()=>{});
-          await page.evaluate((t) => {
-            const v = document.querySelector('video');
-            if (v) v.currentTime = t;
-          }, target);
-
-          let seeked = false;
-          let seekState = null;
-          for (let i = 0; i < 30; i++) {
-            seekState = await page.$eval('video', v => ({
-              currentTime: v.currentTime,
-              duration: v.duration,
-              readyState: v.readyState,
-              buffered: v.buffered.length ? [v.buffered.start(0), v.buffered.end(v.buffered.length - 1)] : null
-            }));
-            if (Math.abs(seekState.currentTime - target) < 2) { seeked = true; break; }
-            await new Promise(r => setTimeout(r, 500));
+          await page.goto('https://yt.taphoa.xyz/kira-proof/#/watch/dQw4w9WgXcQ', {
+            waitUntil:'domcontentloaded',
+            timeout:30000
+          });
+          await page.waitForSelector('iframe.youtube-frame', { timeout:15000 });
+          const frameSrc = await page.$eval('iframe.youtube-frame', el => el.getAttribute('src') || '');
+          console.log('IFRAME_SRC', frameSrc);
+          if (!frameSrc.includes('youtube-nocookie.com/embed/dQw4w9WgXcQ')) {
+            await browser.close();
+            process.exit(5);
           }
 
-          console.log('RESULT', JSON.stringify({
-            ok: firstPlayable.duration > 1 && seeked,
-            firstPlayable,
-            seekTarget: target,
-            seeked,
-            seekState,
-            totalMs: Date.now() - started
-          }));
-
+          console.log('RESULT', JSON.stringify({ok:true, exactIndex, frameSrc}));
           await browser.close();
-          if (!seeked) process.exit(3);
           JS
 
           CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
