@@ -1,4 +1,4 @@
-name: Lab Free Proxy Test
+name: Lab Verify Proxy Media
 
 on:
   push:
@@ -9,122 +9,100 @@ permissions:
   contents: read
 
 jobs:
-  proxy-screen:
+  verify-media:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
-      - name: Screen free proxies against exact YouTube video
+      - name: Start official Piped stack with proven free SOCKS5
         shell: bash
         run: |
-          set +e
-          URL='https://www.youtube.com/watch?v=vhUjvanyu2U'
-          cat > /tmp/proxies.txt <<'EOF'
-          http://49.48.121.191:8080
-          http://223.206.53.34:8080
-          http://112.208.167.183:8081
-          http://49.149.208.160:8082
-          http://49.146.241.51:8081
-          http://58.69.182.53:8085
-          http://101.109.119.24:8080
-          http://14.225.2.98:808
-          socks5h://171.234.162.101:1088
-          socks5h://118.34.200.206:1080
-          socks5h://219.99.219.56:1080
-          socks5h://119.15.85.94:1080
-          EOF
-
-          test_proxy() {
-            P="$1"
-            OUT=$(mktemp)
-            META=$(curl -sS -L --proxy "$P" --connect-timeout 4 --max-time 12               -A 'Mozilla/5.0' -o "$OUT"               -w 'HTTP=%{http_code}|IP=%{remote_ip}|TIME=%{time_total}|SIZE=%{size_download}' "$URL")
-            TITLE=$(grep -o '<title>[^<]*' "$OUT" | head -1 | sed 's/<title>//')
-            BOT=$(grep -oi 'sign in to confirm[^<]*bot' "$OUT" | head -1)
-            echo "PROXY|$P|$META|TITLE=$TITLE|BOT=$BOT"
-            rm -f "$OUT"
-          }
-          export -f test_proxy
-          export URL
-          while read -r P; do test_proxy "$P" & done < /tmp/proxies.txt
-          wait
-
-      - name: Test candidate proxies with official Piped stack
-        shell: bash
-        run: |
-          set +e
-          CANDIDATES=(
-            'http://49.48.121.191:8080'
-            'http://223.206.53.34:8080'
-            'http://112.208.167.183:8081'
-            'http://49.149.208.160:8082'
-            'socks5://171.234.162.101:1088'
-            'socks5://118.34.200.206:1080'
-          )
-
-          for P in "${CANDIDATES[@]}"; do
-            echo "=== PIPED TEST $P ==="
-            docker rm -f piped-lab-test >/dev/null 2>&1 || true
-
-            cat > /tmp/config.properties <<CFG
+          set -e
+          mkdir -p /tmp/piped-lab
+          cat > /tmp/piped-lab/config.properties <<'CFG'
           PORT:8080
-          HTTP_WORKERS:1
+          HTTP_WORKERS:2
           PROXY_PART:http://127.0.0.1:8082
+          REQWEST_PROXY:socks5://103.88.234.239:40002
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
-          REQWEST_PROXY:$P
           COMPROMISED_PASSWORD_CHECK:false
           DISABLE_REGISTRATION:true
           FEED_RETENTION:1
           DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
           DISABLE_RYD:true
           DISABLE_SERVER:false
           DISABLE_LBRY:true
           SUBSCRIPTIONS_EXPIRY:1
           CONSENT_COOKIE:true
-          BG_HELPER_URL:http://host.docker.internal:3000
-          hibernate.connection.url:jdbc:postgresql://host.docker.internal:5432/piped
+          BG_HELPER_URL:http://bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
           hibernate.connection.driver_class:org.postgresql.Driver
           hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
           hibernate.connection.username:piped
           hibernate.connection.password:changeme
           CFG
-
-            if [ ! -f /tmp/piped-stack-ready ]; then
-              docker rm -f piped-postgres-test piped-bg-test piped-proxy-test >/dev/null 2>&1 || true
-              docker run -d --name piped-postgres-test -e POSTGRES_DB=piped -e POSTGRES_USER=piped -e POSTGRES_PASSWORD=changeme -p 5432:5432 postgres:17-alpine
-              docker run -d --name piped-bg-test -p 3000:3000 1337kavin/bg-helper-server:latest
-              docker run -d --name piped-proxy-test -p 8082:8080 1337kavin/piped-proxy:latest
-              touch /tmp/piped-stack-ready
-              sleep 6
-            fi
-
-            docker run -d --name piped-lab-test               --add-host=host.docker.internal:host-gateway               -p 8081:8080               -v /tmp/config.properties:/app/config.properties:ro               1337kavin/piped:latest
-
-            READY=0
-            for i in $(seq 1 35); do
-              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
-              [ "$CODE" = "200" ] && { READY=1; break; }
-              sleep 2
-            done
-
-            if [ "$READY" != "1" ]; then
-              echo "RESULT|$P|BACKEND_NOT_READY"
-              docker logs --tail=30 piped-lab-test 2>&1 | tail -30
-              continue
-            fi
-
-            OUT=$(mktemp)
-            META=$(curl -sS --max-time 35 -o "$OUT" -w 'HTTP=%{http_code}|SIZE=%{size_download}|TIME=%{time_total}'               http://127.0.0.1:8081/streams/vhUjvanyu2U)
-            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
-            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
-            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
-            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
-            echo "RESULT|$P|$META|AUDIO=$AC|VIDEO=$VC|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
-            if [ "${AC:-0}" -gt 0 ] || [ "${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; then
-              echo "WINNER=$P"
-              cat "$OUT" | jq '{title,duration,hls,audioStreams:(.audioStreams[0:2]),videoStreams:(.videoStreams[0:2])}'
-              exit 0
-            fi
-            docker logs --tail=20 piped-lab-test 2>&1 | grep -E 'SignIn|LOGIN_REQUIRED|bot|proxy|Exception' | tail -10 || true
-            rm -f "$OUT"
+          cat > /tmp/piped-lab/docker-compose.yml <<'YML'
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 2s
+                timeout: 2s
+                retries: 30
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+              ports: ["8082:8080"]
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports: ["8081:8080"]
+              volumes:
+                - /tmp/piped-lab/config.properties:/app/config.properties:ro
+          YML
+          cd /tmp/piped-lab
+          docker compose up -d
+          for i in $(seq 1 35); do
+            C=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
+            [ "$C" = "200" ] && exit 0
+            sleep 1
           done
           exit 1
+
+      - name: Resolve exact video and verify MP4
+        shell: bash
+        run: |
+          set -e
+          OUT=/tmp/streams.json
+          curl -fsS --max-time 40 http://127.0.0.1:8081/streams/vhUjvanyu2U -o "$OUT"
+          jq '{title,duration,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT"
+          URL=$(jq -r '[(.videoStreams//[])[] | select(.videoOnly==false and .url!=null)][0].url // empty' "$OUT")
+          [ -n "$URL" ]
+          echo "MUXED_URL=$URL"
+
+          echo '=== RANGE TEST ==='
+          curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-1048575'             -D /tmp/h -o /tmp/media.bin "$URL"
+          tr -d '\r' < /tmp/h | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:)'
+          echo "BYTES=$(wc -c < /tmp/media.bin)"
+          file /tmp/media.bin
+
+          echo '=== FFPROBE ==='
+          ffprobe -v error -show_entries stream=index,codec_type,codec_name -of json "$URL" | tee /tmp/probe.json
+          VIDEO=$(jq '[.streams[]|select(.codec_type=="video")]|length' /tmp/probe.json)
+          AUDIO=$(jq '[.streams[]|select(.codec_type=="audio")]|length' /tmp/probe.json)
+          echo "VIDEO_TRACKS=$VIDEO AUDIO_TRACKS=$AUDIO"
+          [ "$VIDEO" -gt 0 ] && [ "$AUDIO" -gt 0 ]
