@@ -67,7 +67,7 @@ jobs:
               raise SystemExit('player request block not found')
           s=s.replace(
               player_needle,
-              "videoId,\n      client: 'MWEB',\n      contentCheckOk: true,"
+              "videoId,\n      client: 'VISIONOS',\n      contentCheckOk: true,"
           )
 
           main.write_text(s)
