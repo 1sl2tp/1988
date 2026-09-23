@@ -1,4 +1,4 @@
-name: Lab Free Proxy Piped Test
+name: Lab Free Proxy Test
 
 on:
   push:
@@ -9,157 +9,122 @@ permissions:
   contents: read
 
 jobs:
-  proxy-test:
+  proxy-screen:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
-      - name: Start official Piped dependencies
+      - name: Screen free proxies against exact YouTube video
         shell: bash
         run: |
-          set -e
-          mkdir -p /tmp/piped-lab
-          cat > /tmp/piped-lab/docker-compose.yml <<'YML'
-          services:
-            postgres:
-              image: postgres:17-alpine
-              environment:
-                POSTGRES_DB: piped
-                POSTGRES_USER: piped
-                POSTGRES_PASSWORD: changeme
-              healthcheck:
-                test: ["CMD-SHELL", "pg_isready -U piped"]
-                interval: 2s
-                timeout: 2s
-                retries: 30
-            bg-helper:
-              image: 1337kavin/bg-helper-server:latest
-              restart: unless-stopped
-            proxy:
-              image: 1337kavin/piped-proxy:latest
-              ports:
-                - "8082:8080"
-              restart: unless-stopped
-            piped:
-              image: 1337kavin/piped:latest
-              depends_on:
-                postgres:
-                  condition: service_healthy
-                bg-helper:
-                  condition: service_started
-                proxy:
-                  condition: service_started
-              ports:
-                - "8081:8080"
-              volumes:
-                - /tmp/piped-lab/config.properties:/app/config.properties:ro
-              restart: unless-stopped
-          YML
-          cat > /tmp/piped-lab/base.properties <<'CFG'
+          set +e
+          URL='https://www.youtube.com/watch?v=vhUjvanyu2U'
+          cat > /tmp/proxies.txt <<'EOF'
+          http://49.48.121.191:8080
+          http://223.206.53.34:8080
+          http://112.208.167.183:8081
+          http://49.149.208.160:8082
+          http://49.146.241.51:8081
+          http://58.69.182.53:8085
+          http://101.109.119.24:8080
+          http://14.225.2.98:808
+          socks5h://171.234.162.101:1088
+          socks5h://118.34.200.206:1080
+          socks5h://219.99.219.56:1080
+          socks5h://119.15.85.94:1080
+          EOF
+
+          test_proxy() {
+            P="$1"
+            OUT=$(mktemp)
+            META=$(curl -sS -L --proxy "$P" --connect-timeout 4 --max-time 12               -A 'Mozilla/5.0' -o "$OUT"               -w 'HTTP=%{http_code}|IP=%{remote_ip}|TIME=%{time_total}|SIZE=%{size_download}' "$URL")
+            TITLE=$(grep -o '<title>[^<]*' "$OUT" | head -1 | sed 's/<title>//')
+            BOT=$(grep -oi 'sign in to confirm[^<]*bot' "$OUT" | head -1)
+            echo "PROXY|$P|$META|TITLE=$TITLE|BOT=$BOT"
+            rm -f "$OUT"
+          }
+          export -f test_proxy
+          export URL
+          while read -r P; do test_proxy "$P" & done < /tmp/proxies.txt
+          wait
+
+      - name: Test candidate proxies with official Piped stack
+        shell: bash
+        run: |
+          set +e
+          CANDIDATES=(
+            'http://49.48.121.191:8080'
+            'http://223.206.53.34:8080'
+            'http://112.208.167.183:8081'
+            'http://49.149.208.160:8082'
+            'socks5://171.234.162.101:1088'
+            'socks5://118.34.200.206:1080'
+          )
+
+          for P in "${CANDIDATES[@]}"; do
+            echo "=== PIPED TEST $P ==="
+            docker rm -f piped-lab-test >/dev/null 2>&1 || true
+
+            cat > /tmp/config.properties <<CFG
           PORT:8080
-          HTTP_WORKERS:2
+          HTTP_WORKERS:1
           PROXY_PART:http://127.0.0.1:8082
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
+          REQWEST_PROXY:$P
           COMPROMISED_PASSWORD_CHECK:false
           DISABLE_REGISTRATION:true
           FEED_RETENTION:1
           DISABLE_TIMERS:true
-          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
-          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
           DISABLE_RYD:true
           DISABLE_SERVER:false
           DISABLE_LBRY:true
           SUBSCRIPTIONS_EXPIRY:1
           CONSENT_COOKIE:true
-          BG_HELPER_URL:http://bg-helper:3000
-          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
+          BG_HELPER_URL:http://host.docker.internal:3000
+          hibernate.connection.url:jdbc:postgresql://host.docker.internal:5432/piped
           hibernate.connection.driver_class:org.postgresql.Driver
           hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
           hibernate.connection.username:piped
           hibernate.connection.password:changeme
           CFG
-          cp /tmp/piped-lab/base.properties /tmp/piped-lab/config.properties
-          cd /tmp/piped-lab
-          docker compose up -d postgres bg-helper proxy
-          docker compose ps
 
-      - name: Fetch and precheck fresh free SOCKS5 proxies
-        shell: bash
-        run: |
-          set -e
-          curl -fsSL --max-time 20 \
-            https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/socks5.txt \
-            -o /tmp/all-proxies.txt
-          grep -v '^$' /tmp/all-proxies.txt | head -80 > /tmp/proxies.txt || true
-          echo "candidates=$(wc -l < /tmp/proxies.txt)"
-          : > /tmp/good.txt
-          while read -r P; do
-            (
-              BODY=$(mktemp)
-              CODE=$(curl -sS --socks5-hostname "$P" --connect-timeout 2 --max-time 5 \
-                -A 'Mozilla/5.0' -o "$BODY" -w '%{http_code}' \
-                'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
-              SIZE=$(wc -c < "$BODY" 2>/dev/null || echo 0)
-              if [ "$CODE" = "200" ] && [ "$SIZE" -gt 10000 ]; then
-                echo "$P" >> /tmp/good.txt
-                echo "LIVE|$P|HTTP=$CODE|SIZE=$SIZE"
-              fi
-              rm -f "$BODY"
-            ) &
-          done < /tmp/proxies.txt
-          wait
-          awk '!seen[$0]++' /tmp/good.txt | head -10 > /tmp/selected.txt || true
-          echo '=== selected ==='
-          cat /tmp/selected.txt
-          test -s /tmp/selected.txt
+            if [ ! -f /tmp/piped-stack-ready ]; then
+              docker rm -f piped-postgres-test piped-bg-test piped-proxy-test >/dev/null 2>&1 || true
+              docker run -d --name piped-postgres-test -e POSTGRES_DB=piped -e POSTGRES_USER=piped -e POSTGRES_PASSWORD=changeme -p 5432:5432 postgres:17-alpine
+              docker run -d --name piped-bg-test -p 3000:3000 1337kavin/bg-helper-server:latest
+              docker run -d --name piped-proxy-test -p 8082:8080 1337kavin/piped-proxy:latest
+              touch /tmp/piped-stack-ready
+              sleep 6
+            fi
 
-      - name: Try selected proxies with official Piped backend
-        shell: bash
-        run: |
-          set +e
-          ID='vhUjvanyu2U'
-          cd /tmp/piped-lab
-          SUCCESS=''
-          N=0
-          while read -r P; do
-            N=$((N+1))
-            echo "=== TRY#$N SOCKS5 $P ==="
-            cp base.properties config.properties
-            printf '\nREQWEST_PROXY:socks5://%s\n' "$P" >> config.properties
-
-            docker compose rm -sf piped >/dev/null 2>&1 || true
-            docker compose up -d piped >/dev/null
+            docker run -d --name piped-lab-test               --add-host=host.docker.internal:host-gateway               -p 8081:8080               -v /tmp/config.properties:/app/config.properties:ro               1337kavin/piped:latest
 
             READY=0
-            for i in $(seq 1 25); do
-              CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
-              if [ "$CODE" = "200" ]; then READY=1; break; fi
-              sleep 1
+            for i in $(seq 1 35); do
+              CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
+              [ "$CODE" = "200" ] && { READY=1; break; }
+              sleep 2
             done
+
             if [ "$READY" != "1" ]; then
-              echo "BACKEND_NOT_READY|$P"
-              docker compose logs --tail=25 piped
+              echo "RESULT|$P|BACKEND_NOT_READY"
+              docker logs --tail=30 piped-lab-test 2>&1 | tail -30
               continue
             fi
 
-            OUT=/tmp/streams-$N.json
-            META=$(curl -sS --connect-timeout 3 --max-time 35               -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'               "http://127.0.0.1:8081/streams/$ID")
+            OUT=$(mktemp)
+            META=$(curl -sS --max-time 35 -o "$OUT" -w 'HTTP=%{http_code}|SIZE=%{size_download}|TIME=%{time_total}'               http://127.0.0.1:8081/streams/vhUjvanyu2U)
             AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
             VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
             HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
             TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
-            echo "RESULT|$P|$META|AUDIO=${AC:-0}|VIDEO=${VC:-0}|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
-
-            if { [ "${AC:-0}" -gt 0 ] || [ "${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; }; then
-              SUCCESS="$P"
-              echo "SUCCESS_PROXY=$P"
-              jq '{title,duration,hls,audioStreams:(.audioStreams[0:2]),videoStreams:(.videoStreams[0:3])}' "$OUT"
-              break
+            echo "RESULT|$P|$META|AUDIO=$AC|VIDEO=$VC|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
+            if [ "${AC:-0}" -gt 0 ] || [ "${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; then
+              echo "WINNER=$P"
+              cat "$OUT" | jq '{title,duration,hls,audioStreams:(.audioStreams[0:2]),videoStreams:(.videoStreams[0:2])}'
+              exit 0
             fi
-            docker compose logs --tail=18 piped | tail -18
-          done < /tmp/selected.txt
-
-          if [ -z "$SUCCESS" ]; then
-            echo 'NO_FREE_PROXY_SUCCEEDED'
-            exit 1
-          fi
+            docker logs --tail=20 piped-lab-test 2>&1 | grep -E 'SignIn|LOGIN_REQUIRED|bot|proxy|Exception' | tail -10 || true
+            rm -f "$OUT"
+          done
+          exit 1
