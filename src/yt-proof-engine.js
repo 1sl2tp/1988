@@ -174,41 +174,43 @@ function proxiedMediaUrl(raw){
 
 async function resolve(id,onAttempt=()=>{}){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video_id');
+
   const yt=await getYT();
-  const contentPoToken=await getVideoPoToken(id);
+  const loggedIn=!!yt?.session?.logged_in;
+  const contentPoToken=await getVideoPoToken(id).catch(()=>'');
 
-  try{
-    if(yt?.session?.player)yt.session.player.po_token=contentPoToken;
-  }catch{}
-
-  // TV_EMBEDDED first: current YouTube.js reports this as a workaround when
-  // normal WEB/ANDROID/iOS player responses are bot-gated and omit streamingData.
-  const clients=[
-    'TV_EMBEDDED',
-    'TV',
-    'TV_SIMPLY',
-    'ANDROID_VR',
-    'VISIONOS',
-    'WEB_EMBEDDED',
-    'WEB',
-    'MWEB',
-    'IOS',
-    'ANDROID',
-    'YTMUSIC',
-    'YTMUSIC_ANDROID'
+  // The authenticated TV client is the path that already proved it can return
+  // playable formats. Try it without a content PoToken first; OAuth TV does
+  // not require us to force a video-bound token into every player request.
+  const attempts=[
+    ...(loggedIn?[
+      {label:'TV-auth',client:'TV',poToken:''},
+      {label:'TV_SIMPLY-auth',client:'TV_SIMPLY',poToken:''},
+      {label:'TV-pot',client:'TV',poToken:contentPoToken}
+    ]:[]),
+    {label:'TV_EMBEDDED',client:'TV_EMBEDDED',poToken:contentPoToken},
+    {label:'ANDROID_VR',client:'ANDROID_VR',poToken:contentPoToken},
+    {label:'VISIONOS',client:'VISIONOS',poToken:contentPoToken},
+    {label:'WEB_EMBEDDED',client:'WEB_EMBEDDED',poToken:contentPoToken},
+    {label:'WEB',client:'WEB',poToken:contentPoToken},
+    {label:'MWEB',client:'MWEB',poToken:contentPoToken},
+    {label:'IOS',client:'IOS',poToken:contentPoToken},
+    {label:'ANDROID',client:'ANDROID',poToken:contentPoToken}
   ];
 
   const diagnostics=[];
   let firstMeta=null;
   let lastError=null;
 
-  for(const client of clients){
+  for(const attempt of attempts){
     try{
-      onAttempt(client,diagnostics);
-      const info=await yt.getBasicInfo(id,{
-        client,
-        po_token:contentPoToken
-      });
+      onAttempt(attempt.label,diagnostics);
+
+      const options={client:attempt.client};
+      if(attempt.poToken)options.po_token=attempt.poToken;
+
+      const info=await yt.getBasicInfo(id,options);
+
       if(!firstMeta&&info?.basic_info?.title){
         firstMeta={
           title:String(info.basic_info.title||''),
@@ -219,66 +221,114 @@ async function resolve(id,onAttempt=()=>{}){
       const playability=String(info?.playability_status?.status||'UNKNOWN');
       const reason=String(info?.playability_status?.reason||'');
       const sd=info?.streaming_data;
-      const count=(sd?.formats?.length||0)+(sd?.adaptive_formats?.length||0);
+      const muxedCount=sd?.formats?.length||0;
+      const adaptiveCount=sd?.adaptive_formats?.length||0;
+      const count=muxedCount+adaptiveCount;
 
-      diagnostics.push({client,playability,reason,formats:count});
+      const diag={
+        client:attempt.label,
+        playability,
+        reason,
+        formats:count,
+        muxed:muxedCount,
+        adaptive:adaptiveCount
+      };
+      diagnostics.push(diag);
 
       if(!sd||!count)continue;
 
-      let format=null;
+      // Keep the player PoToken only for deciphered media URLs. This does not
+      // force it into the authenticated TV player request above.
       try{
-        format=info.chooseFormat({
-          type:'video+audio',
-          quality:'best',
-          format:'mp4',
-          client,
-          po_token:contentPoToken
-        });
-      }catch(error){
-        lastError=error;
-        continue;
-      }
-      if(!format)continue;
+        if(contentPoToken&&yt?.session?.player){
+          yt.session.player.po_token=contentPoToken;
+        }
+      }catch{}
 
-      let rawUrl='';
-      try{
-        rawUrl=await format.decipher(yt.session.player);
-      }catch(error){
-        lastError=error;
-        continue;
-      }
-      if(!rawUrl)continue;
+      // 1) Fast path: a progressive MP4 containing both video and audio.
+      if(muxedCount){
+        try{
+          const format=info.chooseFormat({
+            type:'video+audio',
+            quality:'best',
+            format:'mp4'
+          });
 
-      const url=proxiedMediaUrl(rawUrl);
-      const p=await probe(url);
-      if(!p.ok){
-        diagnostics[diagnostics.length-1].probe='HTTP '+p.status;
-        continue;
+          if(format){
+            const rawUrl=await format.decipher(yt.session.player);
+            if(rawUrl){
+              const url=proxiedMediaUrl(rawUrl);
+              const p=await probe(url);
+              diag.probe='HTTP '+p.status;
+              if(p.ok){
+                return {
+                  mode:'progressive',
+                  url,
+                  client:attempt.label,
+                  poTokenBound:!!contentPoToken,
+                  itag:format.itag,
+                  mimeType:String(format.mime_type||format.mimeType||'video/mp4'),
+                  quality:String(format.quality_label||format.quality||''),
+                  hasAudio:format.has_audio!==false,
+                  probe:p,
+                  meta:firstMeta||{
+                    title:String(info?.basic_info?.title||''),
+                    author:String(info?.basic_info?.author||'')
+                  },
+                  diagnostics
+                };
+              }
+            }
+          }
+        }catch(error){
+          lastError=error;
+          diag.progressiveError=String(error?.message||error);
+        }
       }
 
-      diagnostics[diagnostics.length-1].probe='HTTP '+p.status;
-      return {
-        url,
-        client,
-        poTokenBound:true,
-        itag:format.itag,
-        mimeType:String(format.mime_type||format.mimeType||'video/mp4'),
-        quality:String(format.quality_label||format.quality||''),
-        hasAudio:format.has_audio!==false,
-        probe:p,
-        meta:firstMeta||{
-          title:String(info?.basic_info?.title||''),
-          author:String(info?.basic_info?.author||'')
-        },
-        diagnostics
-      };
+      // 2) Adaptive path: YouTube often exposes separate video/audio streams.
+      // Generate a DASH manifest and proxy every media URL through our own
+      // Range-capable proxy. No transcoding is involved.
+      if(adaptiveCount){
+        try{
+          const manifest=await info.toDash({
+            url_transformer:(url)=>{
+              return new URL(proxiedMediaUrl(url.toString()));
+            }
+          });
+
+          if(manifest&&manifest.includes('<MPD')){
+            diag.dash='ready';
+            return {
+              mode:'dash',
+              manifest,
+              client:attempt.label,
+              poTokenBound:!!contentPoToken,
+              mimeType:'application/dash+xml',
+              quality:'adaptive',
+              hasAudio:true,
+              probe:{ok:true,status:200,type:'application/dash+xml',range:''},
+              meta:firstMeta||{
+                title:String(info?.basic_info?.title||''),
+                author:String(info?.basic_info?.author||'')
+              },
+              diagnostics
+            };
+          }
+        }catch(error){
+          lastError=error;
+          diag.dashError=String(error?.message||error);
+        }
+      }
     }catch(error){
       lastError=error;
       diagnostics.push({
-        client,
+        client:attempt.label,
         playability:'ERROR',
         reason:String(error?.message||error),
-        formats:0
+        formats:0,
+        muxed:0,
+        adaptive:0
       });
     }
   }
