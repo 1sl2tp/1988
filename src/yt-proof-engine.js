@@ -460,6 +460,13 @@ async function resolve(id,onAttempt=()=>{}){
         }
       }
     }catch(error){
+      // If authenticated TV already returned real formats and we explicitly
+      // failed while resolving/probing those media URLs, stop here. Do not
+      // hide the real TV media error behind unrelated Android 400 responses.
+      if(attempt.label.startsWith('TV-auth') && Array.isArray(error?.diagnostics)){
+        throw error;
+      }
+
       lastError=error;
       diagnostics.push({
         client:attempt.label,
