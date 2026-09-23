@@ -4421,6 +4421,497 @@ const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)
 </script>
 ''')
 
+
+# Rewrite HomePage atomically so nested Vue <template> blocks cannot be corrupted.
+p = Path("src/pages/HomePage.vue")
+p.write_text(r'''<style scoped>
+.home {
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 22px 0 34px;
+  color: #f4f4f5;
+}
+
+.recommendations-section { width: 100%; }
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.heading-block {
+  min-width: 0;
+  text-align: left;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: #818cf8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.eyebrow :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.title-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.section-header h1 {
+  margin: 0;
+  color: #fafafa;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.sort-control {
+  position: relative;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 10px;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  background: #18181b;
+  color: #a1a1aa;
+}
+
+.sort-control > :deep(svg:first-child) {
+  width: 15px;
+  height: 15px;
+}
+
+.sort-select {
+  height: 34px;
+  min-width: 108px;
+  padding: 0 28px 0 0;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sort-chevron {
+  position: absolute;
+  right: 8px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.icon-action {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  background: #18181b;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+
+.icon-action:hover {
+  color: #fafafa;
+  background: #202023;
+  border-color: #3f3f46;
+}
+
+.icon-action :deep(svg) {
+  width: 17px;
+  height: 17px;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  gap: 22px 16px;
+}
+
+.recommendations-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: #71717a;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 18px);
+    padding-top: 14px;
+  }
+
+  .section-header {
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .eyebrow { display: none; }
+
+  .section-header h1 { font-size: 19px; }
+
+  .count-badge {
+    height: 20px;
+    padding: 0 7px;
+  }
+
+  .sort-control {
+    height: 34px;
+    padding-left: 8px;
+  }
+
+  .sort-control > :deep(svg:first-child) { display: none; }
+
+  .sort-select {
+    min-width: 94px;
+    height: 32px;
+    font-size: 11px;
+  }
+
+  .icon-action {
+    width: 34px;
+    height: 34px;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+</style>
+
+<template>
+  <div class="home">
+    <section class="recommendations-section">
+      <header class="section-header">
+        <div class="heading-block">
+          <div class="eyebrow"><Sparkles/> Khám phá</div>
+          <div class="title-line">
+            <h1>Video đề xuất</h1>
+            <span class="count-badge">{{ sortedRecommendations.length }}</span>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <label class="sort-control" title="Sắp xếp">
+            <SlidersHorizontal aria-hidden="true"/>
+            <select v-model="sortMode" class="sort-select" aria-label="Sắp xếp video">
+              <option value="newest">Mới nhất</option>
+              <option value="views">Nhiều view</option>
+              <option value="lowViews">Ít view</option>
+              <option value="oldest">Cũ nhất</option>
+            </select>
+            <ChevronDown class="sort-chevron" aria-hidden="true"/>
+          </label>
+
+          <button
+            class="icon-action"
+            type="button"
+            :title="showRecommendations ? 'Ẩn video đề xuất' : 'Hiện video đề xuất'"
+            :aria-label="showRecommendations ? 'Ẩn video đề xuất' : 'Hiện video đề xuất'"
+            @click="toggleRecommendations"
+          >
+            <EyeOff v-if="showRecommendations"/>
+            <Eye v-else/>
+          </button>
+        </div>
+      </header>
+
+      <div v-if="showRecommendations && loading" class="recommendations-state">
+        Đang tải video…
+      </div>
+
+      <div
+        v-else-if="showRecommendations && !sortedRecommendations.length"
+        class="recommendations-state"
+      >
+        Chưa có video phù hợp.
+      </div>
+
+      <div v-else-if="showRecommendations" class="video-grid">
+        <GridVideoItem
+          v-for="video in sortedRecommendations"
+          :key="video.videoId"
+          :data="video"
+        />
+      </div>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import { ChevronDown, Eye, EyeOff, SlidersHorizontal, Sparkles } from '@lucide/vue';
+import GridVideoItem from '@/components/GridVideoItem.vue';
+import { useToastStore } from '@/stores/toastStore';
+import type { VideoItemData } from '@/utils/helpers';
+import {
+  formatCompactViews,
+  formatRelativeTime,
+  numericViews,
+  parsePublishedAt
+} from '@/utils/display1988';
+
+const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+type SortMode = 'newest' | 'views' | 'lowViews' | 'oldest';
+type HomeVideo = VideoItemData & {
+  viewCount?: number;
+  publishedAt?: number;
+};
+
+const { addToast } = useToastStore();
+const loading = ref(true);
+const showRecommendations = ref(true);
+const sortMode = ref<SortMode>('newest');
+const homeRecommendations = ref<HomeVideo[]>([]);
+
+watch(showRecommendations, (value) => {
+  localStorage.setItem('showRecommendations', value.toString());
+});
+
+watch(sortMode, (value) => {
+  localStorage.setItem('videoSortModeV2', value);
+});
+
+function toggleRecommendations() {
+  showRecommendations.value = !showRecommendations.value;
+}
+
+function fallbackVideoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function fallbackRows(payload: any): any[] {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+async function fetchFallbackRows(action: string, params: Record<string, string> = {}) {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', action);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || 'fallback_home_' + action + '_' + response.status);
+  }
+  return fallbackRows(payload);
+}
+
+function publishedRaw(row: any) {
+  return row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+}
+
+function toRecommendation(row: any): HomeVideo | null {
+  const videoId = fallbackVideoId(row);
+  if (!videoId) return null;
+
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
+  const viewsRaw = row?.views ?? row?.viewCount ?? row?.viewText ?? '';
+  const viewCount = numericViews(viewsRaw);
+  const published = publishedRaw(row);
+  const publishedAt = parsePublishedAt(published);
+
+  const meta = [
+    formatCompactViews(viewsRaw),
+    formatRelativeTime(published)
+  ].filter(Boolean).join(' · ');
+
+  return {
+    videoId,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg',
+    metadata: [channel, meta].filter(Boolean),
+    duration: durationText(row?.duration),
+    viewCount,
+    publishedAt
+  };
+}
+
+async function loadFallbackRecommendations() {
+  const topicQueries = [
+    'tin mới Việt Nam',
+    'nhạc Việt mới',
+    'giải trí Việt Nam mới',
+    'thể thao mới',
+    'công nghệ mới',
+    'ẩm thực mới'
+  ];
+
+  const [trendingResult, ...topicResults] = await Promise.allSettled([
+    fetchFallbackRows('trending', { region: 'VN' }),
+    ...topicQueries.map((q) => fetchFallbackRows('search', { q, filter: 'videos' }))
+  ]);
+
+  const rows: HomeVideo[] = [];
+  const seen = new Set<string>();
+
+  const addRows = (rawRows: any[], limit: number) => {
+    for (const raw of rawRows.slice(0, limit)) {
+      const row = toRecommendation(raw);
+      if (!row || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      rows.push(row);
+    }
+  };
+
+  if (trendingResult.status === 'fulfilled') {
+    addRows(trendingResult.value, 12);
+  }
+
+  for (const result of topicResults) {
+    if (result.status === 'fulfilled') {
+      addRows(result.value, 8);
+    }
+  }
+
+  homeRecommendations.value = rows.slice(0, 36);
+}
+
+const sortedRecommendations = computed(() => {
+  const rows = homeRecommendations.value.slice();
+
+  if (sortMode.value === 'views') {
+    return rows.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+  }
+
+  if (sortMode.value === 'lowViews') {
+    return rows.sort((a, b) => {
+      const av = a.viewCount || 0;
+      const bv = b.viewCount || 0;
+      if (!av && bv) return 1;
+      if (!bv && av) return -1;
+      return av - bv;
+    });
+  }
+
+  if (sortMode.value === 'oldest') {
+    return rows.sort((a, b) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (!at && bt) return 1;
+      if (!bt && at) return -1;
+      return at - bt;
+    });
+  }
+
+  return rows.sort((a, b) => {
+    const at = a.publishedAt || 0;
+    const bt = b.publishedAt || 0;
+
+    if (at !== bt) {
+      if (!at) return 1;
+      if (!bt) return -1;
+      return bt - at;
+    }
+
+    return (b.viewCount || 0) - (a.viewCount || 0);
+  });
+});
+
+onMounted(async () => {
+  loading.value = true;
+
+  const savedVisibility = localStorage.getItem('showRecommendations');
+  if (savedVisibility !== null) {
+    showRecommendations.value = savedVisibility === 'true';
+  }
+
+  const savedSort = localStorage.getItem('videoSortModeV2') as SortMode | null;
+  if (savedSort && ['newest', 'views', 'lowViews', 'oldest'].includes(savedSort)) {
+    sortMode.value = savedSort;
+  } else {
+    sortMode.value = 'newest';
+  }
+
+  try {
+    await loadFallbackRecommendations();
+  } catch (error) {
+    console.error('Error fetching recommendations:', error);
+    addToast('Không tải được video đề xuất.', 'error');
+  } finally {
+    loading.value = false;
+  }
+});
+</script>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
