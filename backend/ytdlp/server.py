@@ -10,8 +10,11 @@ app = Flask(__name__)
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 CACHE_TTL = 600
+YTDLP_BLOCK_TTL = 30 * 60
+PIPED_EDGE = "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988"
 _cache = {}
 _lock = threading.Lock()
+_ytdlp_blocked_until = 0
 
 def cors(resp):
     resp.headers["Access-Control-Allow-Origin"] = "*"
@@ -23,13 +26,16 @@ def cors(resp):
 def valid_id(video_id):
     return bool(VIDEO_ID_RE.fullmatch(video_id or ""))
 
-def resolve_audio(video_id, force=False):
-    now = time.time()
-    if not force:
-        with _lock:
-            row = _cache.get(video_id)
-            if row and now - row["at"] < CACHE_TTL:
-                return row["data"]
+def _cache_put(video_id, data):
+    with _lock:
+        _cache[video_id] = {"at": time.time(), "data": data}
+        if len(_cache) > 80:
+            oldest = min(_cache.items(), key=lambda item: item[1]["at"])[0]
+            _cache.pop(oldest, None)
+
+
+def _resolve_with_ytdlp(video_id):
+    global _ytdlp_blocked_until
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     opts = {
@@ -43,13 +49,19 @@ def resolve_audio(video_id, force=False):
                 "player_client": ["web_safari", "android_vr", "ios"]
             }
         },
-        "socket_timeout": 15,
-        "retries": 2,
-        "fragment_retries": 2,
+        "socket_timeout": 12,
+        "retries": 1,
+        "fragment_retries": 1,
     }
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        message = str(exc)
+        if "not a bot" in message.lower() or "sign in to confirm" in message.lower():
+            _ytdlp_blocked_until = time.time() + YTDLP_BLOCK_TTL
+        raise
 
     stream_url = info.get("url") or ""
     if not stream_url:
@@ -68,7 +80,7 @@ def resolve_audio(video_id, force=False):
     else:
         mime = "audio/mpeg"
 
-    data = {
+    return {
         "id": video_id,
         "title": info.get("title") or "",
         "uploader": info.get("uploader") or info.get("channel") or "",
@@ -79,15 +91,85 @@ def resolve_audio(video_id, force=False):
         "acodec": acodec,
         "url": stream_url,
         "headers": headers,
+        "engine": "yt-dlp",
     }
 
-    with _lock:
-        _cache[video_id] = {"at": now, "data": data}
-        if len(_cache) > 80:
-            oldest = min(_cache.items(), key=lambda item: item[1]["at"])[0]
-            _cache.pop(oldest, None)
 
-    return data
+def _resolve_with_piped(video_id):
+    response = requests.get(
+        PIPED_EDGE,
+        params={"action": "background", "id": video_id},
+        headers={"Accept": "application/json"},
+        timeout=(5, 15),
+    )
+    response.raise_for_status()
+    payload = response.json()
+    data = payload.get("data") or {}
+    sources = [row for row in (data.get("sources") or []) if row.get("url")]
+    if not sources:
+        raise RuntimeError("no_piped_audio_source")
+
+    def rank(row):
+        mime = str(row.get("mimeType") or "").lower()
+        if "audio/mp4" in mime or "m4a" in mime:
+            type_score = 4
+        elif "mpegurl" in mime or "m3u8" in mime:
+            type_score = 3
+        elif "audio/webm" in mime:
+            type_score = 2
+        else:
+            type_score = 1
+        return type_score * 1_000_000_000 + int(row.get("bitrate") or 0)
+
+    source = sorted(sources, key=rank, reverse=True)[0]
+    mime = str(source.get("mimeType") or "audio/mp4")
+
+    return {
+        "id": video_id,
+        "title": data.get("title") or "",
+        "uploader": data.get("uploader") or "",
+        "thumbnail": data.get("thumbnailUrl") or "",
+        "duration": data.get("duration") or 0,
+        "mimeType": mime,
+        "ext": "m4a" if "mp4" in mime else "",
+        "acodec": "",
+        "url": str(source["url"]),
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1",
+            "Accept": "*/*",
+        },
+        "engine": "piped-proxy",
+    }
+
+
+def resolve_audio(video_id, force=False):
+    global _ytdlp_blocked_until
+
+    now = time.time()
+    if not force:
+        with _lock:
+            row = _cache.get(video_id)
+            if row and now - row["at"] < CACHE_TTL:
+                return row["data"]
+
+    errors = []
+
+    if now >= _ytdlp_blocked_until:
+        try:
+            data = _resolve_with_ytdlp(video_id)
+            _cache_put(video_id, data)
+            return data
+        except Exception as exc:
+            errors.append(f"yt-dlp:{exc}")
+
+    try:
+        data = _resolve_with_piped(video_id)
+        _cache_put(video_id, data)
+        return data
+    except Exception as exc:
+        errors.append(f"piped:{exc}")
+
+    raise RuntimeError(" | ".join(errors) or "no_audio_source")
 
 def upstream_request(info, method="GET"):
     headers = dict(info["headers"])
@@ -113,7 +195,8 @@ def health():
     return jsonify({
         "ok": True,
         "service": "1988-audio",
-        "engine": "yt-dlp",
+        "engine": "yt-dlp+piped-proxy",
+        "ytDlpBlocked": time.time() < _ytdlp_blocked_until,
         "version": getattr(yt_dlp.version, "__version__", "unknown"),
     })
 
@@ -135,6 +218,7 @@ def resolve():
                 "mimeType": info["mimeType"],
                 "ext": info["ext"],
                 "acodec": info["acodec"],
+                "engine": info.get("engine") or "",
                 "audioUrl": f"/audio?id={video_id}",
             },
         })
@@ -182,7 +266,7 @@ def audio():
             passthrough["Content-Type"] = passthrough.get("Content-Type") or info["mimeType"]
             passthrough["Accept-Ranges"] = passthrough.get("Accept-Ranges") or "bytes"
             passthrough["Cache-Control"] = "no-store"
-            passthrough["X-1988-Audio"] = "yt-dlp-proxy"
+            passthrough["X-1988-Audio"] = info.get("engine") or "1988-proxy"
 
             if request.method == "HEAD":
                 upstream.close()
