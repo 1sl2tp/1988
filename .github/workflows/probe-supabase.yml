@@ -11,42 +11,62 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Piped public instances
+      - name: Probe Cobalt public instances
         run: |
           set +e
-          ID='jfKfPfyJRdk'
-          INSTANCES=(
-            'https://pipedapi.kavin.rocks'
-            'https://pipedapi.leptons.xyz'
-            'https://pipedapi.nosebs.ru'
-            'https://pipedapi-libre.kavin.rocks'
-            'https://piped-api.privacy.com.de'
-            'https://pipedapi.adminforge.de'
-            'https://api.piped.yt'
-            'https://pipedapi.drgns.space'
-            'https://pipedapi.owo.si'
-            'https://pipedapi.ducks.party'
-            'https://piped-api.codespace.cz'
-            'https://pipedapi.reallyaweso.me'
-            'https://api.piped.private.coffee'
-            'https://pipedapi.darkness.services'
-            'https://pipedapi.orangenet.cc'
-            'https://pipedapi.tokhmi.xyz'
-            'https://pipedapi.moomoo.me'
-            'https://pipedapi.syncpundit.io'
-            'https://api-piped.mha.fi'
-            'https://piped-api.garudalinux.org'
-            'https://pipedapi.rivo.lol'
-          )
-          for API in "${INSTANCES[@]}"; do
-            rm -f /tmp/p.json
-            META=$(curl -sS -L --max-time 15 -o /tmp/p.json -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID" 2>/dev/null)
-            VS=$(jq -r '(.videoStreams//[])|length' /tmp/p.json 2>/dev/null)
-            AS=$(jq -r '(.audioStreams//[])|length' /tmp/p.json 2>/dev/null)
-            HLS=$(jq -r '.hls // ""' /tmp/p.json 2>/dev/null)
-            VURL=$(jq -r '[.videoStreams[]? | select((.format//"")=="MPEG_4" or (.mimeType//"")|contains("mp4"))][0].url // (.videoStreams[0].url // "")' /tmp/p.json 2>/dev/null)
-            echo "INSTANCE=$API $META V=$VS A=$AS HLS=$([ -n "$HLS" ] && echo yes || echo no)"
-            if [ -n "$VURL" ]; then
-              echo "VURL_HOST=$(python -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc)' "$VURL" 2>/dev/null)"
-            fi
-          done
+          curl -sS -L --max-time 20 'https://instances.cobalt.best/api/instances.json' -o /tmp/instances.json
+          echo '=== INSTANCE LIST HEAD ==='
+          head -c 3000 /tmp/instances.json
+          echo
+          echo '=== TESTS ==='
+          python - <<'PY'
+          import json, subprocess, tempfile, os, urllib.parse
+          p='/tmp/instances.json'
+          try:
+              data=json.load(open(p))
+          except Exception as e:
+              print('PARSE_ERROR',e); raise SystemExit
+          if isinstance(data,dict):
+              rows=data.get('instances') or data.get('data') or []
+          else:
+              rows=data
+          print('COUNT',len(rows))
+          tested=0
+          for row in rows:
+              if tested>=30: break
+              if not isinstance(row,dict): continue
+              url=row.get('url') or row.get('api') or row.get('api_url') or row.get('host')
+              if not url: continue
+              youtube=row.get('youtube')
+              services=row.get('services')
+              if youtube is False: continue
+              if isinstance(services,list) and 'youtube' not in [str(x).lower() for x in services]: continue
+              url=str(url).rstrip('/')
+              body=json.dumps({
+                  'url':'https://www.youtube.com/watch?v=jfKfPfyJRdk',
+                  'videoQuality':'360',
+                  'youtubeVideoCodec':'h264',
+                  'youtubeVideoContainer':'mp4',
+                  'downloadMode':'auto',
+                  'alwaysProxy':True
+              })
+              cmd=['curl','-sS','-L','--max-time','20','-o','/tmp/cobalt.json','-w','%{http_code} %{time_total}', '-X','POST',url+'/', '-H','Accept: application/json','-H','Content-Type: application/json','--data',body]
+              try:
+                  meta=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+              except subprocess.CalledProcessError as e:
+                  meta='ERR'
+              try:
+                  raw=open('/tmp/cobalt.json').read()
+                  obj=json.loads(raw)
+              except Exception:
+                  raw=''
+                  obj={}
+              status=obj.get('status') if isinstance(obj,dict) else None
+              outurl=''
+              if isinstance(obj,dict):
+                  outurl=obj.get('url') or obj.get('redirect') or ''
+                  if not outurl and isinstance(obj.get('picker'),list) and obj['picker']:
+                      outurl=obj['picker'][0].get('url','')
+              print('INSTANCE',url,'HTTP_TIME',meta,'STATUS',status,'OUT',urllib.parse.urlparse(outurl).netloc if outurl else '', 'BODY', raw[:250].replace('\n',' '))
+              tested+=1
+          PY
