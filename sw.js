@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-html5-v9';
+const CACHE='1988-html5-v10';
 const SHELL=[
   './',
   './index.html',
