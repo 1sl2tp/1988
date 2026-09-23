@@ -22,16 +22,29 @@ function isAllowedTarget(hostname) {
     h.endsWith('.gstatic.com');
 }
 
-function corsHeaders(origin) {
+function corsHeaders(origin, requestedHeaders = '') {
   const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://yt.taphoa.xyz';
+  const allowHeaders = requestedHeaders || [
+    'accept',
+    'accept-language',
+    'authorization',
+    'content-type',
+    'range',
+    'x-goog-visitor-id',
+    'x-origin',
+    'x-youtube-client-name',
+    'x-youtube-client-version'
+  ].join(', ');
+
   return {
     'access-control-allow-origin': allowedOrigin,
     'access-control-allow-methods': 'GET,POST,HEAD,OPTIONS',
-    'access-control-allow-headers': '*',
+    'access-control-allow-headers': allowHeaders,
+    'access-control-allow-credentials': 'true',
     'access-control-expose-headers': 'content-length,content-type,content-range,accept-ranges,content-disposition,cache-control,etag,last-modified,x-kira-proxy',
     'access-control-max-age': '86400',
-    'vary': 'Origin',
-    'x-kira-proxy': '1988-render-v1'
+    'vary': 'Origin, Access-Control-Request-Headers',
+    'x-kira-proxy': '1988-render-v2-cors'
   };
 }
 
@@ -63,7 +76,9 @@ const server = http.createServer(async (req, res) => {
   console.log('[proxy-request]', req.method, req.url);
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, corsHeaders(origin));
+    const requestedHeaders = String(req.headers['access-control-request-headers'] || '');
+    console.log('[proxy-preflight]', req.url, 'origin=' + origin, 'headers=' + requestedHeaders);
+    res.writeHead(204, corsHeaders(origin, requestedHeaders));
     res.end();
     return;
   }
