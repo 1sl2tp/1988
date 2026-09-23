@@ -11,17 +11,21 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Check resolved MP3 response headers
+      - name: Verify production Supabase audio resolver
         shell: bash
         run: |
-          set +e
-          U='https://ricky4.savenow.to/api/v2/download/5kjuq0AjyDcYy2yPXOTptzgvSJ7fOQU39AEDhRR2wod1ndhE'
-          echo '=== HEAD ==='
-          curl -sS -I -L --connect-timeout 4 --max-time 15 -A 'Mozilla/5.0' "$U" | tr -d '\r' |             grep -iE '^(HTTP/|content-type:|content-length:|content-disposition:|accept-ranges:|access-control-allow-origin:|cache-control:)'
-          echo '=== 1s GET ==='
-          curl -sS -L --connect-timeout 4 --max-time 1 -A 'Mozilla/5.0' "$U" -o /tmp/a.bin
-          echo "size=$(wc -c < /tmp/a.bin)"
-          file /tmp/a.bin
-          xxd -l 32 /tmp/a.bin
+          set -e
+          U='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=audio_resolve&id=vhUjvanyu2U'
+          OUT=$(mktemp)
+          META=$(curl -sS -L --connect-timeout 4 --max-time 40 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
+          echo "$META"
+          cat "$OUT"; echo
+          MP3=$(jq -r '.data.url // empty' "$OUT")
+          MIME=$(jq -r '.data.mimeType // empty' "$OUT")
+          ENGINE=$(jq -r '.data.engine // empty' "$OUT")
+          [ -n "$MP3" ] || exit 1
+          echo "ENGINE=$ENGINE MIME=$MIME"
+          echo "=== FINAL HEAD ==="
+          curl -sS -I -L --connect-timeout 4 --max-time 15 -A 'Mozilla/5.0' "$MP3" | tr -d '\r' |             grep -iE '^(HTTP/|content-type:|content-disposition:|access-control-allow-origin:|cache-control:)'
