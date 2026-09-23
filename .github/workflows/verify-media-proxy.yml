@@ -26,4 +26,6 @@ jobs:
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
           node tests/backend-media-proxy.test.cjs
+          node tests/node-stream-v4.test.cjs
+          node --check backend/ytdlp/server.js
           node tests/docker-pot-runtime.test.cjs
