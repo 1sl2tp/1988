@@ -91,7 +91,7 @@ async function getYT(){
       visitor_data:visitorData,
       fetch:proxyFetch,
       generate_session_locally:true,
-      cache:new UniversalCache(false)
+      cache:new UniversalCache(true)
     });
     mintPoToken(visitorData).then(token=>{
       try{if(token&&yt?.session?.player)yt.session.player.po_token=token;}catch{}
@@ -271,4 +271,48 @@ async function resolve(id,onAttempt=()=>{}){
   throw error;
 }
 
-export default {getYT,search,resolve};
+async function authState(){
+  const yt=await getYT();
+  return {
+    loggedIn:!!yt?.session?.logged_in
+  };
+}
+
+async function signIn(onPending=()=>{}){
+  const yt=await getYT();
+  if(yt?.session?.logged_in){
+    return {loggedIn:true};
+  }
+
+  const pending=(data)=>{
+    try{onPending(data);}catch{}
+  };
+
+  yt.session.on('auth-pending',pending);
+
+  const updated=async()=>{
+    try{await yt.session.oauth.cacheCredentials();}catch{}
+  };
+  yt.session.on('update-credentials',updated);
+
+  try{
+    await yt.session.signIn();
+    try{await yt.session.oauth.cacheCredentials();}catch{}
+    return {loggedIn:true};
+  }finally{
+    try{yt.session.off('auth-pending',pending);}catch{}
+  }
+}
+
+async function signOut(){
+  const yt=await getYT();
+  if(!yt?.session?.logged_in){
+    try{await yt?.session?.oauth?.removeCache?.();}catch{}
+    return {loggedIn:false};
+  }
+  await yt.session.signOut();
+  try{await yt.session.oauth.removeCache();}catch{}
+  return {loggedIn:false};
+}
+
+export default {getYT,search,resolve,authState,signIn,signOut};
