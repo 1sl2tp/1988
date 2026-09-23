@@ -6572,10 +6572,450 @@ s = p.read_text()
 s = re.sub(r'<title>.*?</title>', '<title>1988</title>', s, count=1)
 p.write_text(s)
 
+
+# Final simple mobile-first layout inspired by YouTube's spacing, not its branding.
+p = Path("src/components/GridVideoItem.vue")
+p.write_text(r'''<style scoped>
+.video-card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.thumb-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumbnail-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #18181a;
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(0,0,0,.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px 2px 0;
+}
+
+.channel-link {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #242426;
+  border: 1px solid #333337;
+  color: #d4d4d8;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.title-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.title {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.channel-name {
+  display: inline-block;
+  margin-top: 4px;
+  color: #a1a1aa;
+  text-decoration: none;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+
+.meta {
+  margin-top: 2px;
+  color: #787880;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.title-link:hover .title,
+.channel-name:hover {
+  color: #fff;
+}
+
+@media (max-width: 680px) {
+  .thumbnail-wrap {
+    border-radius: 10px;
+  }
+
+  .info-row {
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 9px;
+    padding-top: 8px;
+  }
+
+  .channel-link {
+    width: 36px;
+    height: 36px;
+  }
+
+  .title {
+    font-size: 14px;
+  }
+}
+</style>
+
+<template>
+  <article class="video-card">
+    <router-link class="thumb-link" :to="'/watch/' + data.videoId">
+      <div class="thumbnail-wrap">
+        <img
+          class="thumbnail"
+          :src="data.thumbnail"
+          :alt="data.titleText || data.title"
+          loading="lazy"
+          decoding="async"
+          @error="handleImageError($event.target as any)"
+        >
+        <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+      </div>
+    </router-link>
+
+    <div class="info-row">
+      <router-link
+        class="channel-link"
+        :to="'/channel/' + encodeURIComponent(channel)"
+        :aria-label="'Mở kênh ' + channel"
+        :title="channel"
+      >
+        {{ channelInitial }}
+      </router-link>
+
+      <div class="copy">
+        <router-link class="title-link" :to="'/watch/' + data.videoId">
+          <h3 class="title" v-html="data.title" :title="data.titleText"/>
+        </router-link>
+        <router-link class="channel-name" :to="'/channel/' + encodeURIComponent(channel)">
+          {{ channel }}
+        </router-link>
+        <div v-if="meta" class="meta">{{ meta }}</div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData }>();
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+const channelInitial = computed(() => (channel.value || 'Y').slice(0, 1).toUpperCase());
+</script>
+''')
+
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+s += r'''
+<style scoped>
+/* Final simplified layer */
+.home {
+  width: min(1120px, calc(100% - 20px));
+  padding-top: 16px;
+}
+
+.section-header {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.eyebrow {
+  display: none;
+}
+
+.section-header h1 {
+  font-size: 19px;
+}
+
+.count-badge {
+  background: transparent;
+  border-color: #2d2d31;
+  color: #77777f;
+}
+
+.sort-control {
+  height: 34px;
+  border-radius: 9px;
+  background: #18181a;
+}
+
+.icon-action {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #18181a;
+}
+
+.video-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 24px 16px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 12px);
+    padding-top: 10px;
+  }
+
+  .section-header {
+    margin-bottom: 12px;
+  }
+
+  .section-header h1 {
+    font-size: 18px;
+  }
+
+  .count-badge {
+    display: none;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+</style>
+'''
+p.write_text(s)
+
+p = Path("src/pages/SearchPage.vue")
+s = p.read_text()
+s += r'''
+<style scoped>
+.search-page {
+  width: min(920px, calc(100% - 20px));
+}
+
+.page-heading {
+  margin-bottom: 16px;
+}
+
+.heading-icon {
+  display: none;
+}
+
+.page-heading h1 {
+  font-size: 18px;
+}
+
+.section-title {
+  margin-top: 18px;
+}
+
+.channel-card {
+  border-radius: 12px;
+  background: #18181a;
+  border-color: #29292d;
+}
+
+.video-row {
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+@media (max-width: 680px) {
+  .search-page {
+    width: calc(100% - 12px);
+    padding-top: 10px;
+  }
+
+  .page-heading h1 {
+    font-size: 17px;
+  }
+
+  .channel-card {
+    grid-template-columns: 50px minmax(0, 1fr) auto;
+  }
+
+  .video-row {
+    grid-template-columns: 42% minmax(0, 1fr);
+  }
+}
+</style>
+'''
+p.write_text(s)
+
+p = Path("src/pages/ChannelPage.vue")
+s = p.read_text()
+
+# Add optional banner from channel payload.
+s = s.replace(
+    """    channel.value = {
+      name,
+      avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || '').trim(),""",
+    """    channel.value = {
+      name,
+      banner: String(data?.bannerUrl || data?.banner || data?.bannerImage || '').trim(),
+      avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || '').trim(),"""
+)
+
+s = s.replace(
+    """      <section class="channel-head">""",
+    """      <div v-if="channel.banner" class="channel-banner">
+        <img :src="channel.banner" :alt="channel.name">
+      </div>
+      <section class="channel-head">""",
+    1
+)
+
+s += r'''
+<style scoped>
+.channel-page {
+  width: min(1040px, calc(100% - 20px));
+  padding-top: 14px;
+}
+
+.channel-banner {
+  width: 100%;
+  aspect-ratio: 4 / 1;
+  overflow: hidden;
+  margin-bottom: 10px;
+  border-radius: 14px;
+  background: #18181a;
+}
+
+.channel-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.channel-head {
+  margin-bottom: 18px;
+  padding: 12px;
+  background: #18181a;
+}
+
+.video-grid {
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
+@media (max-width: 680px) {
+  .channel-page {
+    width: calc(100% - 12px);
+    padding-top: 8px;
+  }
+
+  .channel-banner {
+    margin-inline: -6px;
+    width: calc(100% + 12px);
+    border-radius: 0;
+    aspect-ratio: 3 / 1;
+  }
+
+  .channel-head {
+    margin-bottom: 14px;
+    border-radius: 10px;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+</style>
+'''
+p.write_text(s)
+
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+s += r'''
+<style scoped>
+.watch-page {
+  width: min(1120px, calc(100% - 20px));
+  padding-top: 12px;
+}
+
+.video-title {
+  font-size: 18px;
+}
+
+.metadata-row {
+  border-bottom-color: #29292d;
+}
+
+.secondary {
+  padding-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .watch-page {
+    width: calc(100% - 12px);
+    padding-top: 6px;
+  }
+
+  .video-title {
+    font-size: 16px;
+    line-height: 1.3;
+  }
+
+  .metadata-row {
+    padding-top: 5px;
+    padding-bottom: 8px;
+  }
+
+  .secondary {
+    padding-top: 2px;
+  }
+}
+</style>
+'''
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-54-simple-1988-red\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-55-simple-youtube-spacing\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
