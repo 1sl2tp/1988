@@ -6,7 +6,6 @@ const AUDIO_PROXY="https://one988-audio.onrender.com";
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
 const queryInput=$("#queryInput");
-const suggestions=$("#suggestions");
 const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
@@ -29,7 +28,6 @@ const state={
   currentId:"",
   currentMeta:null,
   mode:"video",
-  suggestToken:0,
   installPrompt:null,
   audioMaster:false
 };
@@ -461,7 +459,6 @@ if(!(window.YT&&typeof YT.Player==="function")){
 async function doSearch(value){
   const q=clean(value);
   if(!q)return;
-  closeSuggestions();
   const id=extractVideoId(q);
   if(id){
     await playVideo(id,{title:"Đang tải thông tin…",thumbnailUrl:"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"});
@@ -478,37 +475,6 @@ async function doSearch(value){
     feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
   }
 }
-
-function closeSuggestions(){
-  suggestions.hidden=true;
-  suggestions.innerHTML="";
-}
-
-let suggestTimer=0;
-queryInput.addEventListener("input",()=>{
-  clearTimeout(suggestTimer);
-  closeSuggestions();
-  const q=clean(queryInput.value);
-  if(q.length<2||extractVideoId(q))return;
-  const token=++state.suggestToken;
-  suggestTimer=setTimeout(async()=>{
-    try{
-      const rows=await api("suggestions",{q});
-      if(token!==state.suggestToken)return;
-      const list=Array.isArray(rows?.data)?rows.data:[];
-      if(!list.length)return;
-      suggestions.innerHTML=list.slice(0,8).map(x=>'<button type="button" data-suggest="'+esc(x)+'">'+esc(x)+'</button>').join("");
-      suggestions.hidden=false;
-    }catch{}
-  },100);
-});
-
-suggestions.addEventListener("click",e=>{
-  const btn=e.target.closest("[data-suggest]");
-  if(!btn)return;
-  queryInput.value=btn.dataset.suggest||"";
-  doSearch(queryInput.value);
-});
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
@@ -586,10 +552,6 @@ setInterval(()=>{
   lastVideoSync=videoTime;
   lastAudioSync=audioTime;
 },750);
-
-document.addEventListener("click",e=>{
-  if(!e.target.closest(".search-box"))closeSuggestions();
-});
 
 function setupInstall(){
   const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
