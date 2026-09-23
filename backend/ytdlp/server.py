@@ -3,6 +3,7 @@ import os
 import re
 import time
 import threading
+import subprocess
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, stream_with_context
@@ -335,6 +336,109 @@ def upstream_request(info, method="GET"):
     )
 
 
+def _direct_stream_args(video_id, kind):
+    fmt = (
+        "bestaudio[ext=m4a]/bestaudio"
+        if kind == "audio"
+        else (
+            "best[ext=mp4][vcodec!=none][acodec!=none]/"
+            "best[vcodec!=none][acodec!=none]"
+        )
+    )
+    args = [
+        "yt-dlp",
+        "--no-playlist",
+        "--no-warnings",
+        "--no-progress",
+        "-f",
+        fmt,
+        "-o",
+        "-",
+        f"https://www.youtube.com/watch?v={video_id}",
+    ]
+
+    proxy = _proxy_url()
+    if proxy:
+        args[1:1] = ["--proxy", proxy]
+
+    cookiefile = _cookiefile()
+    if cookiefile:
+        args[1:1] = ["--cookies", cookiefile]
+
+    return args, fmt
+
+
+def direct_stream_response(video_id, kind):
+    if request.method == "OPTIONS":
+        return Response(status=204)
+
+    if not valid_id(video_id):
+        return jsonify({"ok": False, "error": "invalid_video"}), 400
+    if kind not in ("video", "audio"):
+        return jsonify({"ok": False, "error": "invalid_kind"}), 400
+
+    args, fmt = _direct_stream_args(video_id, kind)
+    app.logger.info("direct %s stream %s", kind, video_id)
+
+    proc = subprocess.Popen(
+        args,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+        env=os.environ.copy(),
+    )
+
+    if request.method == "HEAD":
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return Response(
+            status=200,
+            headers={
+                "Content-Type": "audio/mp4" if kind == "audio" else "video/mp4",
+                "Cache-Control": "no-store",
+                "X-1988-Stream": "audio" if kind == "audio" else "video-av",
+                "X-1988-Format": fmt,
+            },
+        )
+
+    @stream_with_context
+    def generate():
+        try:
+            if not proc.stdout:
+                return
+            while True:
+                chunk = proc.stdout.read(128 * 1024)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
+            try:
+                stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+                if stderr:
+                    app.logger.warning("yt-dlp %s %s: %s", kind, video_id, stderr[-1600:])
+            except Exception:
+                pass
+
+    return Response(
+        generate(),
+        status=200,
+        headers={
+            "Content-Type": "audio/mp4" if kind == "audio" else "video/mp4",
+            "Cache-Control": "no-store",
+            "Content-Disposition": "inline",
+            "X-1988-Stream": "audio" if kind == "audio" else "video-av",
+            "X-1988-Format": fmt,
+        },
+    )
+
+
 def media_response(video_id, kind):
     if request.method == "OPTIONS":
         return Response(status=204)
@@ -423,7 +527,9 @@ def health():
     return jsonify({
         "ok": True,
         "service": "1988-media",
-        "engine": "yt-dlp+piped-proxy",
+        "engine": "yt-dlp+piped-proxy+stdout",
+        "streamCompat": True,
+        "videoMode": "muxed-av",
         "ytDlpBlocked": time.time() < _ytdlp_blocked_until,
         "proxyConfigured": bool(_proxy_url()),
         "cookiesConfigured": bool(_cookiefile()),
@@ -482,15 +588,25 @@ def media():
     return media_response(video_id, kind)
 
 
+@app.route("/stream", methods=["GET", "HEAD", "OPTIONS"])
+def stream():
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    return direct_stream_response(video_id, "video")
+
+
 @app.route("/audio", methods=["GET", "HEAD", "OPTIONS"])
 def audio():
-    video_id = (request.args.get("id") or "").strip()
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    if request.args.get("v"):
+        return direct_stream_response(video_id, "audio")
     return media_response(video_id, "audio")
 
 
 @app.route("/video", methods=["GET", "HEAD", "OPTIONS"])
 def video():
-    video_id = (request.args.get("id") or "").strip()
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    if request.args.get("v"):
+        return direct_stream_response(video_id, "video")
     return media_response(video_id, "video")
 
 
