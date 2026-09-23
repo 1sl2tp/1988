@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-loader-audio-v19';
+const CACHE='1988-loader-audio-v20';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=fresh-5',
-  './src/app.js?v=fresh-19',
+  './src/app.js?v=fresh-20',
   './src/media-core.js?v=1',
   './src/html5-background.js?v=8',
   './icons/icon-180.png',
