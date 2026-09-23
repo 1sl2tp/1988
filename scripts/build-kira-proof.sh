@@ -66,6 +66,261 @@ if old not in s:
 s = s.replace(old, new, 1)
 p.write_text(s)
 
+# Search stays native-first, but falls back to the already deployed 1988
+# discovery API when Kira/YouTube parser changes return an empty result.
+p = Path("src/App.vue")
+s = p.read_text()
+old = r"""const performSearch = async () => {
+  if (!searchQuery.value.length) {
+    searchResults.value = [];
+    return;
+  }
+
+  isLoading.value = true;
+
+  try {
+    const innertube = await getInnertube();
+    if (!innertube) return;
+
+    const search = await innertube.actions.execute('/search', { query: searchQuery.value, parse: true });
+
+    if (!search.contents_memo) {
+      searchResults.value = [];
+      return;
+    }
+
+    const results = search.contents_memo?.getType(YTNodes.Video, YTNodes.CompactVideo);
+
+    if (results) {
+      searchResults.value = results.map((result) => ({
+        id: result.video_id,
+        title: result.title.toString(),
+        channel: result.author?.name || 'Unknown',
+        thumbnail: result.thumbnails[0].url,
+        duration: result.duration?.text || null,
+        views: result.view_count?.text || null
+      }));
+      highlightedIndex.value = searchResults.value.length > 0 ? 0 : -1;
+    } else {
+      searchResults.value = [];
+    }
+  } catch (error) {
+    console.error('[App]', 'Search failed', error);
+    searchResults.value = [];
+  } finally {
+    isLoading.value = false;
+  }
+};"""
+new = r"""const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+function fallbackVideoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function fallbackDuration(value: any): string | null {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return null;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+async function fallbackSearch(query: string) {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', query);
+  url.searchParams.set('filter', 'videos');
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || `fallback_search_${response.status}`);
+  }
+
+  return (Array.isArray(payload?.data?.items) ? payload.data.items : [])
+    .map((row: any) => {
+      const id = fallbackVideoId(row);
+      if (!id) return null;
+      return {
+        id,
+        title: String(row?.title || 'Video'),
+        channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+        thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+        duration: fallbackDuration(row?.duration),
+        views: String(row?.viewText || (row?.views ? `${row.views} views` : '')) || null
+      };
+    })
+    .filter((row: any): row is NonNullable<typeof row> => !!row)
+    .slice(0, 24);
+}
+
+const performSearch = async () => {
+  const query = searchQuery.value.trim();
+  if (!query.length) {
+    searchResults.value = [];
+    return;
+  }
+
+  isLoading.value = true;
+
+  try {
+    let mapped: typeof searchResults.value = [];
+
+    try {
+      const innertube = await getInnertube();
+      if (innertube) {
+        const search = await innertube.actions.execute('/search', { query, parse: true });
+        const results = search.contents_memo?.getType(YTNodes.Video, YTNodes.CompactVideo) || [];
+        mapped = results.map((result) => ({
+          id: result.video_id,
+          title: result.title.toString(),
+          channel: String(result.author?.name || 'Unknown'),
+          thumbnail: result.thumbnails[0]?.url || `https://i.ytimg.com/vi/${result.video_id}/hqdefault.jpg`,
+          duration: result.duration?.text || null,
+          views: result.view_count?.text || null
+        }));
+      }
+    } catch (error) {
+      console.warn('[App]', 'Native Kira search failed; using 1988 fallback', error);
+    }
+
+    if (!mapped.length) {
+      mapped = await fallbackSearch(query);
+    }
+
+    searchResults.value = mapped;
+    highlightedIndex.value = mapped.length > 0 ? 0 : -1;
+  } catch (error) {
+    console.error('[App]', 'Search failed', error);
+    searchResults.value = [];
+    highlightedIndex.value = -1;
+  } finally {
+    isLoading.value = false;
+  }
+};"""
+if old not in s:
+    raise SystemExit("Kira search block not found")
+s = s.replace(old, new, 1)
+p.write_text(s)
+
+# Home recommendations use Kira first, then the same 1988 discovery API if
+# YouTube returns a renderer shape this pinned Kira version does not understand.
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+anchor = """const homeRecommendations = ref<VideoItemData[]>([]);
+
+watch(showRecommendations, (val) => {"""
+insert = r"""const homeRecommendations = ref<VideoItemData[]>([]);
+const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+function fallbackVideoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${m}:${String(sec).padStart(2, '0')}`;
+}
+
+async function loadFallbackRecommendations() {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', 'Việt Nam');
+  url.searchParams.set('filter', 'videos');
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || `fallback_home_${response.status}`);
+  }
+
+  const seen = new Set<string>();
+  homeRecommendations.value = (Array.isArray(payload?.data?.items) ? payload.data.items : [])
+    .map((row: any) => {
+      const videoId = fallbackVideoId(row);
+      if (!videoId || seen.has(videoId)) return null;
+      seen.add(videoId);
+      return {
+        videoId,
+        title: String(row?.title || 'Video'),
+        titleText: String(row?.title || 'Video'),
+        thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`),
+        metadata: [
+          String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+          String(row?.viewText || '')
+        ].filter(Boolean),
+        duration: durationText(row?.duration)
+      } satisfies VideoItemData;
+    })
+    .filter((row: VideoItemData | null): row is VideoItemData => !!row)
+    .slice(0, 24);
+}
+
+watch(showRecommendations, (val) => {"""
+if anchor not in s:
+    raise SystemExit("Kira home anchor not found")
+s = s.replace(anchor, insert, 1)
+
+old = """  } catch (error) {
+    console.error('Error fetching recommendations:', error);
+    addToast('Failed to load recommendations.', 'error');
+  } finally {
+    loading.value = false;
+  }
+});"""
+new = """    if (!homeRecommendations.value.length) {
+      await loadFallbackRecommendations();
+    }
+  } catch (error) {
+    console.warn('Native recommendations failed; using 1988 fallback', error);
+    try {
+      await loadFallbackRecommendations();
+    } catch (fallbackError) {
+      console.error('Error fetching recommendations:', fallbackError);
+      addToast('Failed to load recommendations.', 'error');
+    }
+  } finally {
+    loading.value = false;
+  }
+});"""
+if old not in s:
+    raise SystemExit("Kira home completion block not found")
+s = s.replace(old, new, 1)
+p.write_text(s)
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -156,7 +411,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-20-kira-pot-search\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-26-search-home-fallback\">", 1)
 p.write_text(s)
 PY
 
