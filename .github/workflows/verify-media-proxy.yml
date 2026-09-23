@@ -26,6 +26,7 @@ jobs:
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
           node tests/backend-media-proxy.test.cjs
+          node tests/background-piped.test.cjs
           node tests/node-stream-v4.test.cjs
           node tests/gunicorn-stream-compat.test.cjs
           node --check backend/ytdlp/server.js

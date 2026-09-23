@@ -2,6 +2,10 @@
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
 const AUDIO_PROXY="https://one988-audio.onrender.com";
+const PIPED_AUDIO_APIS=[
+  "https://pipedapi.ducks.party",
+  "https://api.piped.private.coffee"
+];
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
@@ -116,15 +120,120 @@ async function api(action,params={}){
   }
 }
 
+async function fetchJsonTimeout(url,timeout=4200){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const res=await fetch(url,{
+      cache:"no-store",
+      mode:"cors",
+      signal:controller.signal,
+      headers:{"Accept":"application/json"}
+    });
+    if(!res.ok)throw new Error("HTTP "+res.status);
+    return await res.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+function safeMediaUrl(value){
+  try{
+    const url=new URL(String(value||""));
+    if(url.protocol!=="https:")return "";
+    if(/(^|\.)googlevideo\.com$/i.test(url.hostname))return "";
+    if(url.hostname==="player.odycdn.com")return "";
+    return url.toString();
+  }catch{
+    return "";
+  }
+}
+
+function pipedAudioCandidates(data={}){
+  const rows=[];
+
+  for(const stream of (Array.isArray(data.audioStreams)?data.audioStreams:[])){
+    const url=safeMediaUrl(stream?.url);
+    if(!url)continue;
+    const mime=String(stream?.mimeType||"").toLowerCase();
+    rows.push({
+      url,
+      mimeType:mime||"audio/mp4",
+      bitrate:Number(stream?.bitrate)||0,
+      priority:120,
+      engine:"piped-audio"
+    });
+  }
+
+  for(const stream of (Array.isArray(data.videoStreams)?data.videoStreams:[])){
+    if(stream?.videoOnly===true)continue;
+    const quality=String(stream?.quality||"");
+    if(/^LBRY(?:\s|$)/i.test(quality))continue;
+    const url=safeMediaUrl(stream?.url);
+    if(!url)continue;
+    const mime=String(stream?.mimeType||"").toLowerCase();
+    if(!mime.includes("mp4")&&!mime.includes("mpegurl")&&!mime.includes("m3u8"))continue;
+    rows.push({
+      url,
+      // An HTMLAudioElement can play the AAC audio track inside a muxed MP4.
+      mimeType:mime.includes("mp4")?"audio/mp4":"application/vnd.apple.mpegurl",
+      bitrate:Number(stream?.bitrate)||0,
+      priority:mime.includes("mp4")?100:80,
+      engine:"piped-muxed"
+    });
+  }
+
+  const hls=safeMediaUrl(data?.hls||data?.hlsUrl||"");
+  if(hls){
+    rows.push({
+      url:hls,
+      mimeType:"application/vnd.apple.mpegurl",
+      bitrate:0,
+      priority:70,
+      engine:"piped-hls"
+    });
+  }
+
+  return rows;
+}
+
+async function sourcesFromPiped(apiBase,id){
+  const url=new URL("/streams/"+encodeURIComponent(id),apiBase);
+  const data=await fetchJsonTimeout(url.toString());
+  return pipedAudioCandidates(data);
+}
+
 async function backgroundSources(id){
   if(!id)return [];
+
+  const settled=await Promise.allSettled(
+    PIPED_AUDIO_APIS.map(apiBase=>sourcesFromPiped(apiBase,id))
+  );
+
+  const rows=[];
+  const seen=new Set();
+  for(const result of settled){
+    if(result.status!=="fulfilled")continue;
+    for(const row of result.value){
+      if(!row?.url||seen.has(row.url))continue;
+      seen.add(row.url);
+      rows.push(row);
+    }
+  }
+
+  // Render remains the last fallback only. Its datacenter IP is often
+  // challenged by YouTube, so normal audio resolution must not depend on it.
   const media=new URL(AUDIO_PROXY+"/audio");
   media.searchParams.set("id",id);
-  return [{
+  rows.push({
     url:media.toString(),
     mimeType:"audio/mp4",
-    bitrate:0
-  }];
+    bitrate:0,
+    priority:10,
+    engine:"render-fallback"
+  });
+
+  return rows;
 }
 
 const backgroundPlayer=new HTML5BackgroundPlayer({
@@ -139,6 +248,7 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
 
     if(event.type==="source"){
       state.audioMaster=true;
+      pauseVideoEngine();
       statusText.textContent=state.mode==="lock"
         ?"Âm thanh khóa màn hình đã sẵn sàng"
         :"Âm thanh nền đang phát";
@@ -157,41 +267,6 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     }
   }
 });
-
-let audioPrimeObserver=null;
-const audioPrimeQueue=[];
-const audioPrimePending=new Set();
-let audioPrimeActive=0;
-const AUDIO_PRIME_CONCURRENCY=2;
-
-function pumpAudioPrime(){
-  while(audioPrimeActive<AUDIO_PRIME_CONCURRENCY&&audioPrimeQueue.length){
-    const id=audioPrimeQueue.shift();
-    if(!id||backgroundPlayer.hasPrepared(id)){
-      audioPrimePending.delete(id);
-      continue;
-    }
-    audioPrimeActive++;
-    void backgroundPlayer.prime(id).finally(()=>{
-      audioPrimeActive--;
-      audioPrimePending.delete(id);
-      pumpAudioPrime();
-    });
-  }
-}
-
-function queueAudioPrime(id,urgent=false){
-  if(!id||backgroundPlayer.hasPrepared(id)||audioPrimePending.has(id))return;
-  audioPrimePending.add(id);
-  if(urgent)audioPrimeQueue.unshift(id);
-  else audioPrimeQueue.push(id);
-  pumpAudioPrime();
-}
-
-function scheduleAudioPrefetch(){
-  // Background audio is intentionally prepared only after the user selects
-  // Âm thanh/Khóa. Normal video playback must never wait on Render/yt-dlp.
-}
 
 function renderCards(rows=[]){
   const seen=new Set();
@@ -217,7 +292,6 @@ function renderCards(rows=[]){
   }
   feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
   feedStatus.textContent=cards.length?cards.length+" video":"";
-  scheduleAudioPrefetch();
 }
 
 function rowFromCard(card){
@@ -317,47 +391,60 @@ function setupMediaSession(){
   });
 }
 
+function restoreVideoAfterAudioFailure(message){
+  state.audioMaster=false;
+  state.mode="video";
+  backgroundPlayer.stop();
+  playVideoEngine();
+  updateModeUi();
+  statusText.textContent=message||"Chưa lấy được âm thanh nền · video tiếp tục phát";
+}
+
 function startBackgroundMode(mode){
   if(!state.currentId)return;
   const targetMode=mode==="lock"?"lock":"audio";
-  const time=getVideoTime();
-  state.mode=targetMode;
-  pauseVideoEngine();
+  const id=state.currentId;
 
-  backgroundPlayer.select(state.currentId,{metadata:state.currentMeta||{}});
+  state.mode=targetMode;
+  backgroundPlayer.select(id,{metadata:state.currentMeta||{}});
   updateModeUi();
 
-  if(backgroundPlayer.hasPrepared(state.currentId)){
-    void backgroundPlayer.activate(state.currentId,{
-      time,
-      metadata:state.currentMeta||{}
-    }).catch(()=>{
-      state.audioMaster=false;
-      statusText.textContent="Không mở được âm thanh nền";
-    });
-    statusText.textContent=targetMode==="lock"
-      ?"Đang chuẩn bị âm thanh để khóa màn hình…"
-      :"Đang chuyển sang âm thanh nền…";
-    return;
-  }
-
-  backgroundPlayer.arm(state.currentId,{metadata:state.currentMeta||{}});
-  queueAudioPrime(state.currentId,true);
   statusText.textContent=targetMode==="lock"
-    ?"Đang chuẩn bị âm thanh để khóa màn hình…"
-    :"Đang chuẩn bị âm thanh nền…";
+    ?"Đang tìm nguồn âm thanh để khóa màn hình…"
+    :"Đang tìm nguồn âm thanh nền…";
 
-  void backgroundPlayer.prepare(state.currentId).then(async rows=>{
-    if(state.currentId!==backgroundPlayer.currentId||!rows.length)return;
+  const activate=async()=>{
+    if(state.currentId!==id||state.mode!==targetMode)return;
     try{
-      await backgroundPlayer.activate(state.currentId,{
-        time,
+      // Read the iframe time only when the real source is ready. The visible
+      // video keeps playing while public-source resolution happens.
+      await backgroundPlayer.activate(id,{
+        time:getVideoTime(),
         metadata:state.currentMeta||{}
       });
     }catch{
-      state.audioMaster=false;
-      statusText.textContent="Không mở được âm thanh nền";
+      if(state.currentId===id&&state.mode===targetMode){
+        backgroundPlayer.forget(id);
+        restoreVideoAfterAudioFailure();
+      }
     }
+  };
+
+  if(backgroundPlayer.hasPrepared(id)){
+    void activate();
+    return;
+  }
+
+  // Keep a silent HTML5 audio element user-activated for iOS while resolving.
+  // Do not pause the YouTube iframe until a real audio source emits "playing".
+  backgroundPlayer.arm(id,{metadata:state.currentMeta||{}});
+  void backgroundPlayer.prepare(id).then(rows=>{
+    if(state.currentId!==id||state.mode!==targetMode)return;
+    if(!rows.length){
+      restoreVideoAfterAudioFailure();
+      return;
+    }
+    void activate();
   });
 }
 
