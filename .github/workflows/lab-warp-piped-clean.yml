@@ -1,0 +1,159 @@
+name: Lab WARP Free + Official Piped
+
+on:
+  push:
+    branches:
+      - lab/warp-piped-clean-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Install and connect Cloudflare WARP Free
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg |             sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ noble main" |             sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -y
+          sudo apt-get install -y cloudflare-warp socat
+          sudo systemctl restart warp-svc
+          sleep 2
+
+          sudo warp-cli --accept-tos registration new
+          sudo warp-cli --accept-tos tunnel protocol set MASQUE
+          sudo warp-cli --accept-tos mode proxy
+          sudo warp-cli --accept-tos proxy port 40000
+          sudo warp-cli --accept-tos connect
+
+          for i in $(seq 1 30); do
+            STATUS=$(sudo warp-cli --accept-tos status || true)
+            echo "$STATUS"
+            echo "$STATUS" | grep -qi Connected && break
+            sleep 2
+          done
+
+          sudo warp-cli --accept-tos registration show
+          sudo warp-cli --accept-tos settings | grep -E 'Mode:|WARP tunnel protocol' || true
+
+          curl -fsS --max-time 15 --socks5-hostname 127.0.0.1:40000             https://www.cloudflare.com/cdn-cgi/trace | tee /tmp/warp-host.txt
+          grep -q '^warp=on$' /tmp/warp-host.txt
+
+          sudo nohup socat TCP-LISTEN:40001,bind=0.0.0.0,reuseaddr,fork TCP:127.0.0.1:40000             >/tmp/socat.log 2>&1 &
+          sleep 1
+          sudo ss -ltnp | grep ':40001'
+
+          docker run --rm --add-host=host.docker.internal:host-gateway curlimages/curl:latest             -fsS --max-time 15 --socks5-hostname host.docker.internal:40001             https://www.cloudflare.com/cdn-cgi/trace | tee /tmp/warp-docker.txt
+          grep -q '^warp=on$' /tmp/warp-docker.txt
+
+      - name: Start official Piped stack through WARP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/piped-warp
+          cat > /tmp/piped-warp/config.properties <<'CFG'
+          PORT:8080
+          HTTP_WORKERS:2
+          PROXY_PART:http://proxy:8080
+          REQWEST_PROXY:socks5://host.docker.internal:40001
+          API_URL:http://127.0.0.1:8081
+          FRONTEND_URL:http://127.0.0.1:8083
+          COMPROMISED_PASSWORD_CHECK:false
+          DISABLE_REGISTRATION:true
+          FEED_RETENTION:1
+          DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
+          DISABLE_RYD:true
+          DISABLE_SERVER:false
+          DISABLE_LBRY:true
+          SUBSCRIPTIONS_EXPIRY:1
+          CONSENT_COOKIE:true
+          BG_HELPER_URL:http://bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
+          hibernate.connection.driver_class:org.postgresql.Driver
+          hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
+          hibernate.connection.username:piped
+          hibernate.connection.password:changeme
+          CFG
+
+          cat > /tmp/piped-warp/docker-compose.yml <<'YML'
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 2s
+                timeout: 2s
+                retries: 30
+
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+              restart: unless-stopped
+
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+              restart: unless-stopped
+
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports:
+                - "8081:8080"
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+              volumes:
+                - /tmp/piped-warp/config.properties:/app/config.properties:ro
+              restart: unless-stopped
+          YML
+
+          cd /tmp/piped-warp
+          docker compose up -d
+          for i in $(seq 1 60); do
+            CODE=$(curl -sS -o /tmp/config.json -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config || true)
+            if [ "$CODE" = "200" ]; then
+              echo "Piped ready"
+              break
+            fi
+            sleep 2
+          done
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config)" = "200"
+
+      - name: Test exact video
+        shell: bash
+        run: |
+          set +e
+          ID='vhUjvanyu2U'
+          OUT=/tmp/streams.json
+          META=$(curl -sS -L --connect-timeout 4 --max-time 60             -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'             "http://127.0.0.1:8081/streams/$ID")
+          echo "STREAMS $META"
+          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT" 2>/dev/null || cat "$OUT"
+
+          AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+          VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+          HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+
+          echo '=== LOGS ==='
+          cd /tmp/piped-warp
+          docker compose logs --tail=180 piped bg-helper proxy
+
+          if [ "${AC:-0}" -eq 0 ] && [ "${VC:-0}" -eq 0 ] && [ -z "$HLS" ]; then
+            echo 'NO_PLAYABLE_STREAMS'
+            exit 1
+          fi
+
+          echo 'PLAYABLE_STREAMS_FOUND'
