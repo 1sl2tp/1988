@@ -13,6 +13,7 @@ Platform.shim.eval=async (data,env={})=>{
 };
 
 let ytPromise=null;
+const videoPoCache=new Map();
 
 function makeProxyUrl(raw,headers=new Headers()){
   const src=new URL(raw);
@@ -64,6 +65,17 @@ async function mintPoToken(identifier){
     bgConfig
   });
   return result.poToken;
+}
+
+async function getVideoPoToken(id){
+  const cached=videoPoCache.get(id);
+  if(cached && Date.now()-cached.at<10*60*1000)return cached.token;
+
+  const token=await mintPoToken(id);
+  if(!token)throw new Error('content_po_token_failed');
+
+  videoPoCache.set(id,{token,at:Date.now()});
+  return token;
 }
 
 async function getYT(){
@@ -142,6 +154,11 @@ function proxiedMediaUrl(raw){
 async function resolve(id,onAttempt=()=>{}){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video_id');
   const yt=await getYT();
+  const contentPoToken=await getVideoPoToken(id);
+
+  try{
+    if(yt?.session?.player)yt.session.player.po_token=contentPoToken;
+  }catch{}
 
   // TV_EMBEDDED first: current YouTube.js reports this as a workaround when
   // normal WEB/ANDROID/iOS player responses are bot-gated and omit streamingData.
@@ -167,7 +184,10 @@ async function resolve(id,onAttempt=()=>{}){
   for(const client of clients){
     try{
       onAttempt(client,diagnostics);
-      const info=await yt.getInfo(id,{client});
+      const info=await yt.getBasicInfo(id,{
+        client,
+        po_token:contentPoToken
+      });
       if(!firstMeta&&info?.basic_info?.title){
         firstMeta={
           title:String(info.basic_info.title||''),
@@ -189,7 +209,9 @@ async function resolve(id,onAttempt=()=>{}){
         format=info.chooseFormat({
           type:'video+audio',
           quality:'best',
-          format:'mp4'
+          format:'mp4',
+          client,
+          po_token:contentPoToken
         });
       }catch(error){
         lastError=error;
@@ -217,6 +239,7 @@ async function resolve(id,onAttempt=()=>{}){
       return {
         url,
         client,
+        poTokenBound:true,
         itag:format.itag,
         mimeType:String(format.mime_type||format.mimeType||'video/mp4'),
         quality:String(format.quality_label||format.quality||''),
