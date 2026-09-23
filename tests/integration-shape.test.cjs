@@ -12,7 +12,7 @@ assert.match(app,/new YT\.Player/);
 assert.match(app,/youtube-nocookie\.com/);
 assert.doesNotMatch(app,/videoMediaUrl\(id\)/);
 assert.doesNotMatch(app,/mainVideo/);
-assert.match(app,/api\("audio_resolve",\{id\},40000\)/);
+assert.match(app,/MediaCore\.buildNativeMediaUrl\(BASE,id,"audio"\)/);
 assert.match(app,/function setupMediaSession\(/);
 
 console.log('integration-shape: 10 assertions passed');
