@@ -1,0 +1,80 @@
+name: Probe Piped Media Proxies
+
+on:
+  push:
+    branches:
+      - feat/native-youtube-proof
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Probe exact video across Piped instances
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, subprocess, urllib.parse, urllib.request, ssl
+
+          apis = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.leptons.xyz",
+            "https://pipedapi.nosebs.ru",
+            "https://pipedapi-libre.kavin.rocks",
+            "https://piped-api.privacy.com.de",
+            "https://pipedapi.adminforge.de",
+            "https://api.piped.yt",
+            "https://pipedapi.drgns.space",
+            "https://pipedapi.owo.si",
+            "https://pipedapi.ducks.party",
+            "https://piped-api.codespace.cz",
+            "https://pipedapi.reallyaweso.me",
+            "https://api.piped.private.coffee",
+            "https://pipedapi.darkness.services",
+            "https://pipedapi.orangenet.cc",
+          ]
+          vid="vhUjvanyu2U"
+          good=[]
+          for base in apis:
+            print("\nAPI",base,flush=True)
+            try:
+              req=urllib.request.Request(base+"/streams/"+vid,headers={"Accept":"application/json","User-Agent":"Mozilla/5.0"})
+              with urllib.request.urlopen(req,timeout=4) as r:
+                data=json.load(r)
+              rows=[x for x in (data.get("videoStreams") or []) if x.get("url") and not x.get("videoOnly")]
+              rows.sort(key=lambda x: ("mp4" in str(x.get("mimeType","")).lower(), int(''.join(c for c in str(x.get("quality","")) if c.isdigit()) or 0), reverse=True)
+              if not rows:
+                print(" no muxed video")
+                continue
+              raw=rows[0]["url"]
+              proxy=data.get("proxyUrl") or ""
+              u=urllib.parse.urlparse(raw)
+              final=raw
+              if u.hostname and u.hostname.endswith(".googlevideo.com") and proxy:
+                pu=urllib.parse.urlparse(proxy)
+                q=urllib.parse.parse_qsl(u.query,keep_blank_values=True)
+                q.append(("host",u.netloc))
+                path=(pu.path.rstrip("/")+u.path)
+                final=urllib.parse.urlunparse((pu.scheme,pu.netloc,path,"",urllib.parse.urlencode(q),""))
+              print(" proxyUrl=",proxy)
+              print(" media=",final[:220])
+              cmd=["curl","-sS","-L","--max-time","8","-r","0-1023","-o","/tmp/x.bin","-w","%{http_code}|%{content_type}|%{size_download}",final]
+              out=subprocess.check_output(cmd,text=True).strip()
+              print(" result=",out)
+              code,ctype,size=out.split("|",2)
+              if code in ("200","206") and float(size)>100:
+                good.append((base,proxy,final,out))
+                print(" GOOD")
+            except Exception as e:
+              print(" ERROR",type(e).__name__,str(e)[:180])
+
+          print("\nGOOD_COUNT",len(good))
+          for row in good:
+            print("GOOD",row[0],row[1],row[3])
+          if not good:
+            raise SystemExit(2)
+          PY
