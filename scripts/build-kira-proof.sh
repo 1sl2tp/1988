@@ -390,6 +390,66 @@ s = s.replace(old, new, 1)
 p.write_text(s)
 
 
+
+# Discovery performance: use the 1988 backend immediately instead of waiting
+# for the slower native Kira discovery request to fail first.
+p = Path("src/App.vue")
+s = p.read_text()
+start = s.index("const performSearch = async () => {")
+end = s.index("\n\nconst handleSearch", start)
+fast_search = r"""const performSearch = async () => {
+  const query = searchQuery.value.trim();
+  if (!query.length) {
+    searchResults.value = [];
+    highlightedIndex.value = -1;
+    return;
+  }
+
+  isLoading.value = true;
+  try {
+    const mapped = await fallbackSearch(query);
+    searchResults.value = mapped;
+    highlightedIndex.value = mapped.length > 0 ? 0 : -1;
+  } catch (error) {
+    console.error('[App]', 'Search failed', error);
+    searchResults.value = [];
+    highlightedIndex.value = -1;
+  } finally {
+    isLoading.value = false;
+  }
+};"""
+s = s[:start] + fast_search + s[end:]
+s = s.replace("const handleSearch = useDebounce(performSearch, 300);", "const handleSearch = useDebounce(performSearch, 160);")
+p.write_text(s)
+
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+start = s.index("onMounted(async () => {")
+end = s.rindex("\n});") + len("\n});")
+fast_home = r"""onMounted(async () => {
+  loading.value = true;
+
+  const saved = localStorage.getItem('showRecommendations');
+  if (saved !== null) {
+    showRecommendations.value = JSON.parse(saved);
+  }
+
+  try {
+    await loadFallbackRecommendations();
+    if (!homeRecommendations.value.length) {
+      throw new Error('empty_fallback_home');
+    }
+  } catch (error) {
+    console.error('Error fetching recommendations:', error);
+    addToast('Failed to load recommendations.', 'error');
+  } finally {
+    loading.value = false;
+  }
+});"""
+s = s[:start] + fast_home + s[end:]
+p.write_text(s)
+
+
 # Watch page: keep Kira's native /next path first, but fall back to the stable
 # 1988 metadata endpoint when YouTube renderer/session changes break details.
 p = Path("src/pages/WatchPage.vue")
@@ -510,6 +570,84 @@ if old not in s:
     raise SystemExit("Kira WatchPage catch block not found")
 s = s.replace(old, new, 1)
 p.write_text(s)
+
+
+# Watch metadata polish: normalize relative Piped image URLs and never show a
+# broken avatar glyph when a channel image is missing or blocked.
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+
+old = """  const data = payload?.data || {};
+  const title = String(data?.title || '').trim();"""
+new = """  const data = payload?.data || {};
+  const sourceBase = String(payload?.source || '');
+  const normalizeMediaUrl = (value: any) => {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    try {
+      return new URL(raw, sourceBase || location.origin).toString();
+    } catch {
+      return raw;
+    }
+  };
+  const title = String(data?.title || '').trim();"""
+if old not in s:
+    raise SystemExit("Watch fallback data anchor not found")
+s = s.replace(old, new, 1)
+
+s = s.replace(
+  "channelAvatar: String(data?.uploaderAvatar || data?.avatar || ''),",
+  "channelAvatar: normalizeMediaUrl(data?.uploaderAvatar || data?.avatar || ''),",
+  1
+)
+s = s.replace(
+  "thumbnail: String(row?.thumbnail || row?.thumbnailUrl || ('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg')),",
+  "thumbnail: normalizeMediaUrl(row?.thumbnail || row?.thumbnailUrl || ('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg')),",
+  1
+)
+
+old = '<img :src="videoDetails.channelAvatar" class="channel-avatar" alt="Channel avatar">'
+new = """<img
+              v-if="videoDetails.channelAvatar"
+              :src="videoDetails.channelAvatar"
+              class="channel-avatar"
+              alt="Channel avatar"
+              @error="videoDetails.channelAvatar = ''"
+            >
+            <div v-else class="channel-avatar channel-avatar-placeholder" aria-hidden="true">
+              {{ (videoDetails.channelName || 'Y').slice(0, 1).toUpperCase() }}
+            </div>"""
+if old not in s:
+    raise SystemExit("Watch avatar template anchor not found")
+s = s.replace(old, new, 1)
+
+old = """.channel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}"""
+new = """.channel-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.channel-avatar-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 40px;
+  background: #333;
+  color: #ddd;
+  font-size: 16px;
+  font-weight: 600;
+}"""
+if old not in s:
+    raise SystemExit("Watch avatar CSS anchor not found")
+s = s.replace(old, new, 1)
+
+p.write_text(s)
+
 
 # Player: preserve Kira SABR as primary. If its player request or manifest path
 # fails, use the 1988 range-capable media endpoint directly in the same video.
@@ -729,7 +867,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-28-watch-details-media-fallback\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-29-fast-discovery-avatar\">", 1)
 p.write_text(s)
 PY
 
