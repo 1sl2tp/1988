@@ -15,7 +15,11 @@ jobs:
       - name: Probe Supabase InnerTube for exact video
         shell: bash
         run: |
-          set -e
+          set +e
           URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=innertube_probe&id=vhUjvanyu2U'
           curl -sS -L --connect-timeout 4 --max-time 15 "$URL" -o /tmp/probe.json
-          jq '{ok,httpStatus,playability,videoDetails,streaming:{expiresInSeconds:.streaming.expiresInSeconds,formats:(.streaming.formats|map({itag,mimeType,bitrate,width,height,audioQuality,hasUrl,hasCipher,host}))}}' /tmp/probe.json
+          echo '=== RAW ==='
+          cat /tmp/probe.json
+          echo
+          echo '=== SUMMARY ==='
+          jq '{ok,httpStatus,playability,videoDetails,streaming}' /tmp/probe.json || true
