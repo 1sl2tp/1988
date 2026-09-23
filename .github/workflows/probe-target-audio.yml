@@ -10,16 +10,28 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
-      - name: Probe Supabase InnerTube for exact video
+      - name: Test exact live links before any code change
         shell: bash
         run: |
           set +e
-          URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=innertube_probe&id=vhUjvanyu2U'
-          curl -sS -L --connect-timeout 4 --max-time 15 "$URL" -o /tmp/probe.json
-          echo '=== RAW ==='
-          cat /tmp/probe.json
+          ID="vhUjvanyu2U"
+
+          echo "=== YOUTUBE WATCH PAGE ==="
+          curl -sS -I -L --connect-timeout 4 --max-time 12 "https://www.youtube.com/watch?v=$ID" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|location:)' || true
+
+          echo "=== CURRENT RENDER AUDIO ==="
+          curl -sS -D /tmp/render-h -o /tmp/render-b --connect-timeout 4 --max-time 20 "https://one988-audio.onrender.com/audio?id=$ID"
+          cat /tmp/render-h | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|x-1988-|access-control-allow-origin:)' || true
+          echo "BODY_SIZE=$(wc -c </tmp/render-b)"
+          head -c 300 /tmp/render-b || true
           echo
-          echo '=== SUMMARY ==='
-          jq '{ok,httpStatus,playability,videoDetails,streaming}' /tmp/probe.json || true
+
+          echo "=== SUPABASE BACKGROUND ==="
+          curl -sS -L --connect-timeout 4 --max-time 15 "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=background&id=$ID" | head -c 1500
+          echo
+
+          echo "=== SUPABASE PLAYBACK ==="
+          curl -sS -L --connect-timeout 4 --max-time 15 "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=playback&id=$ID" | head -c 1500
+          echo
