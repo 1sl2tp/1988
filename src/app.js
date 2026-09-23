@@ -286,8 +286,9 @@ function updateModeUi(){
     button.setAttribute("aria-pressed",active===mode?"true":"false");
   });
   if(pipBtn){
-    pipBtn.disabled=true;
-    pipBtn.title="PiP dùng nút của trình phát YouTube trên thiết bị hỗ trợ";
+    const method=state.engine==="native"?MediaCore.pipMethod(nativePlayer,document):"none";
+    pipBtn.disabled=method==="none";
+    pipBtn.title=method==="none"?"PiP chưa khả dụng với nguồn hiện tại":"Mở Picture in Picture";
   }
 }
 
@@ -426,8 +427,23 @@ function returnToVideo(){
 }
 
 async function enterPiP(){
-  if(!state.currentId)return;
-  statusText.textContent="PiP dùng điều khiển của trình phát YouTube trên thiết bị hỗ trợ";
+  if(!state.currentId||state.engine!=="native")return;
+  const method=MediaCore.pipMethod(nativePlayer,document);
+  try{
+    if(method==="standard"){
+      await nativePlayer.requestPictureInPicture();
+    }else if(method==="webkit"){
+      nativePlayer.webkitSetPresentationMode("picture-in-picture");
+    }else{
+      statusText.textContent="PiP chưa khả dụng trên thiết bị này";
+      return;
+    }
+    state.mode="pip";
+    updateModeUi();
+    statusText.textContent="PiP đang phát";
+  }catch{
+    statusText.textContent="Không mở được PiP";
+  }
 }
 
 async function playVideo(id,seedMeta={}){
@@ -437,26 +453,20 @@ async function playVideo(id,seedMeta={}){
   state.currentMeta={...seedMeta};
   state.mode="video";
   state.audioMaster=false;
+  state.nativeSource="";
   playerSection.hidden=false;
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
+  try{nativePlayer.pause();}catch{}
+  nativePlayer.removeAttribute("src");
+  nativePlayer.poster=thumb(seedMeta,id);
+  try{nativePlayer.load();}catch{}
 
   updateNow(seedMeta);
+  statusText.textContent="Đang lấy MP4…";
+  showNativePlayer();
   updateModeUi();
-  statusText.textContent="Đang mở video…";
-
-  if(state.playerReady&&state.player){
-    try{
-      state.player.unMute?.();
-      state.player.loadVideoById(id);
-    }catch{
-      state.pendingVideoId=id;
-    }
-  }else{
-    state.pendingVideoId=id;
-    initYouTubePlayer();
-  }
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -465,17 +475,59 @@ async function playVideo(id,seedMeta={}){
   }
 
   try{
-    const metaResult=await api("video",{id});
+    const local=await localEngine(20000);
+    const [detail,media]=await Promise.all([
+      local.info(id).catch(()=>({meta:{},related:[]})),
+      local.media(id,"video")
+    ]);
     if(state.currentId!==id)return;
-    const meta=metaResult?.data||{};
-    state.currentMeta={...seedMeta,...meta};
+
+    const meta={...seedMeta,...(detail?.meta||{})};
+    state.currentMeta=meta;
+    state.nativeSource=media.url;
+    updateNow(meta);
+    backgroundPlayer.setMetadata(meta);
+
+    nativePlayer.poster=thumb(meta,id);
+    nativePlayer.src=media.url;
+    nativePlayer.load();
+
+    try{
+      await nativePlayer.play();
+      statusText.textContent="MP4 đang phát";
+    }catch{
+      statusText.textContent="MP4 đã sẵn sàng · bấm Play";
+    }
+
+    const related=Array.isArray(detail?.related)?detail.related:[];
+    if(related.length){
+      feedTitle.textContent="Gợi ý tiếp theo";
+      renderCards(related.slice(0,24));
+    }
+    updateModeUi();
+    return;
+  }catch(error){
+    console.warn("native playback failed",error);
+  }
+
+  // Fallback only: keep normal viewing available even if a particular
+  // native format cannot be resolved.
+  showIframePlayer();
+  state.pendingVideoId=id;
+  initYouTubePlayer();
+  updateModeUi();
+  statusText.textContent="MP4 chưa sẵn sàng · đang dùng trình phát dự phòng";
+
+  try{
+    const local=await localEngine(8000);
+    const detail=await local.info(id);
+    if(state.currentId!==id)return;
+    state.currentMeta={...seedMeta,...(detail?.meta||{})};
     updateNow(state.currentMeta);
     backgroundPlayer.setMetadata(state.currentMeta);
-
-    const related=Array.isArray(meta.relatedStreams)?meta.relatedStreams:[];
-    if(related.length){
-      feedTitle.textContent="Gợi ý liên quan";
-      renderCards(related.slice(0,18));
+    if(detail?.related?.length){
+      feedTitle.textContent="Gợi ý tiếp theo";
+      renderCards(detail.related.slice(0,24));
     }
   }catch{}
 }
