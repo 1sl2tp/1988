@@ -44,6 +44,15 @@ jobs:
             if [ -s /tmp/piped.json ]; then jq -r '{title,videoStreams:(.videoStreams//[]|length),audioStreams:(.audioStreams//[]|length),hls:(.hls//"")}' /tmp/piped.json 2>/dev/null || true; fi
           done
 
+          echo '=== INVIDIOUS VIDEO API ==='
+          for INV in https://inv.nadeko.net https://invidious.nerdvpn.de https://yt.chocolatemoo53.com https://invidious.tiekoetter.com https://invidious.f5.si; do
+            printf '%s -> ' "$INV"
+            curl -sS -o /tmp/inv.json --max-time 20 -w 'HTTP=%{http_code} TIME=%{time_total}s SIZE=%{size_download}\n' "$INV/api/v1/videos/$ID?local=true" || true
+            if [ -s /tmp/inv.json ]; then
+              jq -r '{title,formatStreams:(.formatStreams//[]|length),adaptiveFormats:(.adaptiveFormats//[]|length),mp4:(.formatStreams//[]|map(select((.type//"")|contains("video/mp4")))|length),audioMp4:(.adaptiveFormats//[]|map(select((.type//"")|contains("audio/mp4")))|length),hlsUrl:(.hlsUrl//"")}' /tmp/inv.json 2>/dev/null || true
+            fi
+          done
+
           echo '=== EDGE PLAYBACK ==='
           curl -sS -w '\nHTTP=%{http_code}\n' "$BASE?action=playback&id=$ID" || true
 
