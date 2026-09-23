@@ -953,7 +953,7 @@ insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<stri
           resolve(value);
         };
 
-        const timer = window.setTimeout(() => finish(''), 3500);
+        const timer = window.setTimeout(() => finish(''), 2500);
 
         worker.onmessage = (event) => {
           const data = event.data || {};
@@ -1176,7 +1176,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-40-newpipe-cloudflare-safe\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-41-newpipe-prefetch\">\n    <link rel=\"prefetch\" href=\"/kira-proof/newpipe/browser-wrapper.wasm\" as=\"fetch\" crossorigin>\n    <link rel=\"prefetch\" href=\"/kira-proof/newpipe/browser-wrapper.wasm-runtime.js\" as=\"script\">", 1)
 p.write_text(s)
 PY
 
