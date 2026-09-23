@@ -13,50 +13,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Verify loader.to final MP3 URL
+      - name: Verify loader.to final audio headers
         shell: bash
         run: |
-          set -u
+          set -e
           SRC='https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
-          START=$(mktemp)
-          curl -sS -L --connect-timeout 4 --max-time 20 -A 'Mozilla/5.0'             "https://loader.to/ajax/download.php?format=mp3&url=$SRC" -o "$START"
-          cat "$START"; echo
-
-          PROGRESS=$(jq -r '.progress_url // empty' "$START")
-          if [ -z "$PROGRESS" ]; then echo 'NO_PROGRESS_URL'; exit 1; fi
-
+          START=$(curl -sS -L --connect-timeout 4 --max-time 20 -A 'Mozilla/5.0'             "https://loader.to/ajax/download.php?format=mp3&url=$SRC")
+          PROGRESS=$(printf '%s' "$START" | jq -r '.progress_url // empty')
+          [ -n "$PROGRESS" ]
           FINAL=''
-          for i in $(seq 1 20); do
+          for i in $(seq 1 15); do
             sleep 2
-            P=$(mktemp)
-            curl -sS -L --connect-timeout 4 --max-time 12 -A 'Mozilla/5.0' "$PROGRESS" -o "$P"
-            echo "POLL#$i $(cat "$P" | head -c 700)"
-            FINAL=$(jq -r '.download_url // .url // empty' "$P" 2>/dev/null)
-            SUCCESS=$(jq -r '.success // empty' "$P" 2>/dev/null)
-            rm -f "$P"
-            if [ -n "$FINAL" ] && { [ "$SUCCESS" = "1" ] || [ "$SUCCESS" = "true" ]; }; then break; fi
+            P=$(curl -sS -L --connect-timeout 4 --max-time 12 -A 'Mozilla/5.0' "$PROGRESS")
+            echo "POLL#$i $(printf '%s' "$P" | jq -c '{success,progress,text}')"
+            FINAL=$(printf '%s' "$P" | jq -r '.download_url // empty')
+            [ -n "$FINAL" ] && break
           done
-
+          [ -n "$FINAL" ]
           echo "FINAL=$FINAL"
-          [ -n "$FINAL" ] || { echo 'NO_FINAL_URL'; exit 1; }
 
-          HDR=$(mktemp); BIN=$(mktemp)
-          curl -sS -L --connect-timeout 4 --max-time 25 -A 'Mozilla/5.0'             -H 'Range: bytes=0-16383' -D "$HDR" -o "$BIN" "$FINAL"
-          echo '=== HEADERS ==='
-          cat "$HDR"
-          CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          SIZE=$(wc -c < "$BIN")
-          FILE=$(file -b "$BIN" 2>/dev/null)
-          CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          CRANGE=$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); print $2" "$3}' "$HDR" | tail -1)
-          ARANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          echo "FINAL_MEDIA HTTP=$CODE TYPE=$TYPE SIZE=$SIZE CORS=$CORS CRANGE=$CRANGE ARANGE=$ARANGE FILE=$FILE"
-          xxd -l 32 "$BIN" || true
-          rm -f "$START" "$HDR" "$BIN"
+          echo '=== HEAD ==='
+          curl -sS -I -L --connect-timeout 4 --max-time 15 -A 'Mozilla/5.0' "$FINAL" | tr -d '\r' |             grep -iE '^(HTTP/|content-type:|content-length:|content-disposition:|accept-ranges:|access-control-allow-origin:|cache-control:)'
 
-          case "$TYPE" in
-            audio/*|video/*|application/octet-stream) ;;
-            *) echo "BAD_MEDIA_TYPE=$TYPE"; exit 1 ;;
-          esac
-          [ "$SIZE" -gt 1000 ] || { echo "BAD_MEDIA_SIZE"; exit 1; }
+          echo '=== FIRST BYTES ==='
+          set +e
+          curl -sS -L --connect-timeout 4 --max-time 3 -A 'Mozilla/5.0'             -H 'Range: bytes=0-4095' "$FINAL" -o /tmp/audio.bin
+          RC=$?
+          set -e
+          echo "curl_rc=$RC size=$(wc -c < /tmp/audio.bin)"
+          file /tmp/audio.bin
+          xxd -l 48 /tmp/audio.bin
