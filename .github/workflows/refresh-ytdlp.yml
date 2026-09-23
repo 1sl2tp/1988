@@ -21,13 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          LATEST="$(python - <<'PY'
-import json, urllib.request
-with urllib.request.urlopen("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest", timeout=30) as r:
-    data=json.load(r)
-print(data["tag_name"])
-PY
-          )"
+          LATEST="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | python -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           CURRENT="$(cat backend/ytdlp/YTDLP_LATEST.txt 2>/dev/null || true)"
           echo "current=$CURRENT"
