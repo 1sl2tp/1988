@@ -3846,10 +3846,585 @@ for line in [
     s = s.replace(line, "")
 p.write_text(s)
 
+
+# Modern Home toolbar and video cards with the shared Lucide icon system.
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+
+new_style = r'''<style scoped>
+.home {
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 22px 0 34px;
+  color: #f4f4f5;
+}
+
+.recommendations-section {
+  width: 100%;
+}
+
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.heading-block {
+  min-width: 0;
+  text-align: left;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: #818cf8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.eyebrow :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.title-line {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.section-header h1 {
+  margin: 0;
+  color: #fafafa;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+.count-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid #27272a;
+  background: #18181b;
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.sort-control {
+  position: relative;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-left: 10px;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  background: #18181b;
+  color: #a1a1aa;
+}
+
+.sort-control > :deep(svg:first-child) {
+  width: 15px;
+  height: 15px;
+}
+
+.sort-select {
+  height: 34px;
+  min-width: 108px;
+  padding: 0 28px 0 0;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sort-chevron {
+  position: absolute;
+  right: 8px;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+.icon-action {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  background: #18181b;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+}
+
+.icon-action:hover {
+  color: #fafafa;
+  background: #202023;
+  border-color: #3f3f46;
+}
+
+.icon-action :deep(svg) {
+  width: 17px;
+  height: 17px;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(238px, 1fr));
+  gap: 22px 16px;
+}
+
+.recommendations-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  color: #71717a;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 18px);
+    padding-top: 14px;
+  }
+
+  .section-header {
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .eyebrow {
+    display: none;
+  }
+
+  .section-header h1 {
+    font-size: 19px;
+  }
+
+  .count-badge {
+    height: 20px;
+    padding: 0 7px;
+  }
+
+  .sort-control {
+    height: 34px;
+    padding-left: 8px;
+  }
+
+  .sort-control > :deep(svg:first-child) {
+    display: none;
+  }
+
+  .sort-select {
+    min-width: 94px;
+    height: 32px;
+    font-size: 11px;
+  }
+
+  .icon-action {
+    width: 34px;
+    height: 34px;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+}
+</style>'''
+
+new_template = r'''<template>
+  <div class="home">
+    <section class="recommendations-section">
+      <header class="section-header">
+        <div class="heading-block">
+          <div class="eyebrow"><Sparkles/> Khám phá</div>
+          <div class="title-line">
+            <h1>Video đề xuất</h1>
+            <span class="count-badge">{{ sortedRecommendations.length }}</span>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <label class="sort-control" title="Sắp xếp">
+            <SlidersHorizontal aria-hidden="true"/>
+            <select v-model="sortMode" class="sort-select" aria-label="Sắp xếp video">
+              <option value="newest">Mới nhất</option>
+              <option value="views">Nhiều view</option>
+              <option value="lowViews">Ít view</option>
+              <option value="oldest">Cũ nhất</option>
+            </select>
+            <ChevronDown class="sort-chevron" aria-hidden="true"/>
+          </label>
+
+          <button
+            class="icon-action"
+            type="button"
+            :title="showRecommendations ? 'Ẩn video đề xuất' : 'Hiện video đề xuất'"
+            :aria-label="showRecommendations ? 'Ẩn video đề xuất' : 'Hiện video đề xuất'"
+            @click="toggleRecommendations"
+          >
+            <EyeOff v-if="showRecommendations"/>
+            <Eye v-else/>
+          </button>
+        </div>
+      </header>
+
+      <template v-if="showRecommendations">
+        <div v-if="loading" class="recommendations-state">Đang tải video…</div>
+        <div v-else-if="!sortedRecommendations.length" class="recommendations-state">
+          Chưa có video phù hợp.
+        </div>
+        <div v-else class="video-grid">
+          <GridVideoItem
+            v-for="video in sortedRecommendations"
+            :key="video.videoId"
+            :data="video"
+          />
+        </div>
+      </template>
+    </section>
+  </div>
+</template>'''
+
+s = re.sub(r'<style scoped>[\s\S]*?</style>', new_style, s, count=1)
+s = re.sub(r'<template>[\s\S]*?</template>', new_template, s, count=1)
+
+if "from '@lucide/vue'" not in s:
+    s = s.replace(
+        "import { computed, onMounted, ref, watch } from 'vue';",
+        "import { computed, onMounted, ref, watch } from 'vue';\nimport { ChevronDown, Eye, EyeOff, SlidersHorizontal, Sparkles } from '@lucide/vue';",
+        1
+    )
+
+# Ignore the old saved sorting preference once so the refreshed UI starts newest-first.
+s = s.replace("'videoSortMode'", "'videoSortModeV2'")
+p.write_text(s)
+
+p = Path("src/components/GridVideoItem.vue")
+p.write_text(r'''<style scoped>
+.grid-video-item {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumbnail-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #18181b;
+  border: 1px solid rgba(63,63,70,.54);
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: transform .25s ease, filter .25s ease;
+}
+
+.grid-video-item:hover .thumbnail {
+  transform: scale(1.015);
+  filter: brightness(.96);
+}
+
+.duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  height: 21px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: rgba(9,9,11,.86);
+  color: #fafafa;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(6px);
+}
+
+.video-details {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 9px;
+  padding: 9px 2px 0;
+  text-align: left;
+}
+
+.channel-badge {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #27272a, #18181b);
+  border: 1px solid #3f3f46;
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.38;
+  letter-spacing: -.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.grid-video-item:hover .title {
+  color: #c7d2fe;
+}
+
+.channel {
+  margin-top: 5px;
+  color: #a1a1aa;
+  font-size: 11.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  margin-top: 2px;
+  color: #71717a;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 680px) {
+  .thumbnail-container {
+    border-radius: 11px;
+  }
+
+  .video-details {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: 8px;
+    padding-top: 8px;
+  }
+
+  .channel-badge {
+    width: 32px;
+    height: 32px;
+  }
+
+  .title {
+    font-size: 14px;
+  }
+}
+</style>
+
+<template>
+  <router-link class="grid-video-item" :to="'/watch/' + data.videoId">
+    <div class="thumbnail-container">
+      <img
+        :src="data.thumbnail"
+        :alt="data.titleText || data.title"
+        class="thumbnail"
+        loading="lazy"
+        decoding="async"
+        @error="handleImageError($event.target as any)"
+      >
+      <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+    </div>
+
+    <div class="video-details">
+      <div class="channel-badge" aria-hidden="true">{{ channelInitial }}</div>
+      <div class="copy">
+        <h3 class="title" v-html="data.title" :title="data.titleText"/>
+        <div v-if="channel" class="channel">{{ channel }}</div>
+        <div v-if="meta" class="meta">{{ meta }}</div>
+      </div>
+    </div>
+  </router-link>
+</template>
+
+<script lang="ts" setup>
+import { computed } from 'vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData }>();
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || ''));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+const channelInitial = computed(() => (channel.value || 'Y').slice(0, 1).toUpperCase());
+</script>
+''')
+
+p = Path("src/components/RelatedVideoItem.vue")
+p.write_text(r'''<style scoped>
+.related-video-item {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.thumbnail-container {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #18181b;
+  border: 1px solid rgba(63,63,70,.48);
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(9,9,11,.84);
+  color: #fafafa;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.video-details {
+  min-width: 0;
+  text-align: left;
+  padding-top: 1px;
+}
+
+.title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.36;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.related-video-item:hover .title {
+  color: #c7d2fe;
+}
+
+.channel,
+.metadata {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel {
+  margin-top: 5px;
+  color: #a1a1aa;
+  font-size: 11.5px;
+}
+
+.metadata {
+  margin-top: 2px;
+  color: #71717a;
+  font-size: 11px;
+}
+
+@media (max-width: 560px) {
+  .related-video-item {
+    grid-template-columns: 42% minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .title {
+    font-size: 13px;
+  }
+}
+</style>
+
+<template>
+  <router-link class="related-video-item" :to="'/watch/' + data.videoId">
+    <div class="thumbnail-container">
+      <img
+        :src="data.thumbnail"
+        :alt="data.titleText || data.title"
+        class="thumbnail"
+        loading="lazy"
+        decoding="async"
+        @error="handleImageError($event.target as any)"
+      >
+      <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+    </div>
+
+    <div class="video-details">
+      <h3 class="title" v-html="data.title" :title="data.titleText"/>
+      <div v-if="channel" class="channel">{{ channel }}</div>
+      <div v-if="meta" class="metadata">{{ meta }}</div>
+    </div>
+  </router-link>
+</template>
+
+<script lang="ts" setup>
+import { computed } from 'vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData }>();
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || ''));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+</script>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-50-lucide-shell\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-51-modern-home-cards\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
