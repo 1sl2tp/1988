@@ -1,0 +1,232 @@
+name: Lab Piped Through Free Proxy
+
+on:
+  push:
+    branches:
+      - lab/piped-shaka-20260923
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  free-proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Find a live free HTTPS proxy
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL --retry 3 \
+            'https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/protocols/https/data.json' \
+            -o /tmp/proxies.json
+
+          jq -r '
+            [.[] |
+              select(
+                ((.anonymity // "") == "elite" or (.anonymity // "") == "anonymous")
+                and ((.uptime_percent // 0) >= 50)
+              )
+            ]
+            | sort_by(.latency_ms // 999999)
+            | .[:80][]
+            | "http://\(.ip):\(.port)"
+          ' /tmp/proxies.json > /tmp/candidates.txt
+
+          echo "Candidates: $(wc -l < /tmp/candidates.txt)"
+          head -n 30 /tmp/candidates.txt
+
+          rm -f /tmp/working.txt
+          touch /tmp/working.txt
+
+          test_proxy() {
+            P="$1"
+            SAFE=$(echo "$P" | tr '/:' '__')
+            BODY="/tmp/proxy_$SAFE.body"
+            META=$(curl -sS -L \
+              --proxy "$P" \
+              --connect-timeout 3 \
+              --max-time 9 \
+              -A 'Mozilla/5.0' \
+              -o "$BODY" \
+              -w '%{http_code}|%{time_total}' \
+              'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
+            CODE="\${META%%|*}"
+            if [ "$CODE" = "200" ] && grep -q 'vhUjvanyu2U\|Anh Thơ\|youtube' "$BODY"; then
+              echo "$P|$META" >> /tmp/working.txt
+              echo "WORKING $P $META"
+            else
+              echo "FAIL $P $META"
+            fi
+            rm -f "$BODY"
+          }
+          export -f test_proxy
+
+          head -n 50 /tmp/candidates.txt | xargs -r -n1 -P20 bash -c 'test_proxy "$0"'
+
+          echo '=== WORKING PROXIES ==='
+          cat /tmp/working.txt || true
+
+          SELECTED=$(head -n1 /tmp/working.txt | cut -d'|' -f1)
+          if [ -z "$SELECTED" ]; then
+            echo "No live free proxy reached the exact YouTube watch page"
+            exit 2
+          fi
+
+          echo "SELECTED_PROXY=$SELECTED" >> "$GITHUB_ENV"
+          echo "Selected $SELECTED"
+
+      - name: Start official Piped stack through selected proxy
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/piped-free
+
+          cat > /tmp/piped-free/config.properties <<CFG
+          PORT:8080
+          HTTP_WORKERS:2
+          PROXY_PART:http://127.0.0.1:8082
+          REQWEST_PROXY:$SELECTED_PROXY
+          API_URL:http://127.0.0.1:8081
+          FRONTEND_URL:http://127.0.0.1:8083
+          COMPROMISED_PASSWORD_CHECK:false
+          DISABLE_REGISTRATION:true
+          FEED_RETENTION:1
+          DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
+          DISABLE_RYD:true
+          DISABLE_SERVER:false
+          DISABLE_LBRY:true
+          SUBSCRIPTIONS_EXPIRY:1
+          CONSENT_COOKIE:true
+          BG_HELPER_URL:http://bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
+          hibernate.connection.driver_class:org.postgresql.Driver
+          hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
+          hibernate.connection.username:piped
+          hibernate.connection.password:changeme
+          CFG
+
+          cat > /tmp/piped-free/docker-compose.yml <<YML
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 3s
+                timeout: 3s
+                retries: 20
+
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+              restart: unless-stopped
+
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+              environment:
+                PROXY: "$SELECTED_PROXY"
+              ports:
+                - "8082:8080"
+              restart: unless-stopped
+
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports:
+                - "8081:8080"
+              volumes:
+                - /tmp/piped-free/config.properties:/app/config.properties:ro
+              restart: unless-stopped
+          YML
+
+          cd /tmp/piped-free
+          docker compose up -d
+
+          READY=0
+          for i in $(seq 1 80); do
+            CODE=$(curl -sS -o /tmp/config.json -w '%{http_code}' --max-time 3 \
+              http://127.0.0.1:8081/config || true)
+            if [ "$CODE" = "200" ]; then
+              READY=1
+              echo "backend ready"
+              break
+            fi
+            sleep 2
+          done
+
+          docker compose ps
+          if [ "$READY" != "1" ]; then
+            docker compose logs --tail=200 piped proxy bg-helper
+            exit 3
+          fi
+
+      - name: Extract and fetch exact video media
+        shell: bash
+        run: |
+          set +e
+          ID='vhUjvanyu2U'
+          OUT=/tmp/streams-free.json
+
+          META=$(curl -sS -L \
+            --connect-timeout 4 \
+            --max-time 45 \
+            -o "$OUT" \
+            -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}' \
+            "http://127.0.0.1:8081/streams/$ID")
+
+          echo "STREAMS $META"
+          jq '{
+            title,
+            duration,
+            hls,
+            audioCount:((.audioStreams//[])|length),
+            videoCount:((.videoStreams//[])|length)
+          }' "$OUT" 2>/dev/null || cat "$OUT"
+
+          AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+          VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+          HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+
+          AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
+          VIDEO=$(jq -r '[(.videoStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
+
+          for KIND in AUDIO VIDEO HLS; do
+            eval U="\$$KIND"
+            [ -z "$U" ] && continue
+            HDR=$(mktemp)
+            BIN=$(mktemp)
+            curl -sS -L \
+              --connect-timeout 4 \
+              --max-time 20 \
+              -H 'Range: bytes=0-16383' \
+              -D "$HDR" \
+              -o "$BIN" \
+              "$U"
+            CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+            TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            SIZE=$(wc -c < "$BIN")
+            FILE=$(file -b "$BIN" 2>/dev/null)
+            echo "$KIND HTTP=$CODE TYPE=$TYPE SIZE=$SIZE FILE=$FILE URL=$U"
+            rm -f "$HDR" "$BIN"
+          done
+
+          echo '=== STACK LOGS ==='
+          cd /tmp/piped-free
+          docker compose logs --tail=180 piped proxy bg-helper
+
+          if [ "\${AC:-0}" -eq 0 ] && [ "\${VC:-0}" -eq 0 ] && [ -z "$HLS" ]; then
+            echo "NO_PLAYABLE_STREAMS"
+            exit 4
+          fi
