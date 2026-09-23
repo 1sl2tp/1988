@@ -9,11 +9,11 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="1988">
-  <meta name="description" content="1988 - xem YouTube và phát âm thanh nền.">
+  <meta name="description" content="1988 - xem YouTube không quảng cáo, PiP và âm thanh nền.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=fresh-3">
+  <link rel="stylesheet" href="./src/style.css?v=fresh-4">
   <title>1988</title>
 </head>
 <body>
@@ -32,19 +32,21 @@
 
     <section id="playerSection" class="player-section" hidden>
       <div class="player-frame">
-        <div id="yt-player"></div>
+        <video id="mainVideo" controls playsinline webkit-playsinline preload="metadata"></video>
       </div>
       <div class="now">
         <div class="now-copy">
           <h1 id="videoTitle">1988</h1>
           <div id="videoMeta" class="video-meta"></div>
         </div>
-        <div class="actions">
-          <button id="backgroundBtn" class="primary-btn" type="button" hidden>Phát nền</button>
-          <button id="videoBtn" class="secondary-btn" type="button" hidden>Xem video</button>
+        <div class="actions" aria-label="Chế độ phát">
+          <button id="videoBtn" class="secondary-btn active" type="button" aria-pressed="true">Video</button>
+          <button id="backgroundBtn" class="secondary-btn" type="button" aria-pressed="false">Âm thanh</button>
+          <button id="pipBtn" class="secondary-btn" type="button" aria-pressed="false">PiP</button>
+          <button id="lockBtn" class="secondary-btn" type="button" aria-pressed="false">Khóa</button>
           <button id="shareBtn" class="secondary-btn" type="button">Chia sẻ</button>
         </div>
-        <div id="statusText" class="status-text">HTML5 Audio tự chạy nền · không cần bấm Phát nền</div>
+        <div id="statusText" class="status-text">Luồng trực tiếp · không quảng cáo</div>
       </div>
     </section>
 
@@ -83,8 +85,8 @@
     });
   })();
   </script>
+  <script src="./src/media-core.js?v=1"></script>
   <script src="./src/html5-background.js?v=6"></script>
-  <script src="https://www.youtube.com/iframe_api"></script>
-  <script defer src="./src/app.js?v=fresh-12"></script>
+  <script defer src="./src/app.js?v=fresh-13"></script>
 </body>
 </html>
