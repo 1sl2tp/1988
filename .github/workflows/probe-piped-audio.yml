@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Inspect playable muxed fallback
+      - name: Inspect proxied muxed fallback
         shell: bash
         run: |
           set +e
@@ -21,11 +21,16 @@ jobs:
             echo "=== $API ==="
             OUT=$(mktemp)
             curl -sS -L --connect-timeout 3 --max-time 12 "$API/streams/$ID" -o "$OUT"
-            jq -c '(.videoStreams // [])[] | {url,mimeType,quality,videoOnly,bitrate,format}' "$OUT" || true
-            URL=$(jq -r '[(.videoStreams // [])[] | select(.url != null and (.videoOnly == false or .videoOnly == null))][0].url // ""' "$OUT")
-            echo "MUXED_URL_HOST=$(printf "%s" "$URL" | sed -E "s#https?://([^/]+)/?.*#\\1#")"
+            URL=$(jq -r '[(.videoStreams // [])[] | select(.url != null and .videoOnly == false and (.quality != "LBRY") and (.quality != "LBRY HLS"))][0].url // ""' "$OUT")
+            MIME=$(jq -r '[(.videoStreams // [])[] | select(.url != null and .videoOnly == false and (.quality != "LBRY") and (.quality != "LBRY HLS"))][0].mimeType // ""' "$OUT")
+            QUALITY=$(jq -r '[(.videoStreams // [])[] | select(.url != null and .videoOnly == false and (.quality != "LBRY") and (.quality != "LBRY HLS"))][0].quality // ""' "$OUT")
+            echo "SELECTED MIME=$MIME QUALITY=$QUALITY HOST=$(printf "%s" "$URL" | sed -E "s#https?://([^/]+)/?.*#\\1#")"
             if [ -n "$URL" ]; then
-              curl -sS -I -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-1' "$URL" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+              echo "-- HEAD/RANGE --"
+              curl -sS -I -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-1023' "$URL" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+              echo "-- GET 1KB --"
+              curl -sS -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-1023' -o /tmp/chunk.bin -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' "$URL" || true
+              file /tmp/chunk.bin || true
             fi
             rm -f "$OUT"
           done
