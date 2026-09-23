@@ -39,11 +39,11 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-proof-20260923-7-tv-embedded</div>
+  <div class="small">Build: ytjs-proof-20260923-8-proof-engine</div>
 </main>
 
 <script type="module">
-import ProofEngine from './src/yt-proof-engine.js?v=1';
+import ProofEngine from './src/yt-proof-engine.js?v=2';
 
 const $=id=>document.getElementById(id);
 const video=$('video'),status=$('status'),go=$('go');
@@ -105,86 +105,49 @@ async function run(){
 
     if(!id){
       setStatus('Đang tìm video…');
-      const rows=await YTLocal.search(raw,{type:'video'});
+      const rows=await ProofEngine.search(raw);
       const first=Array.isArray(rows)?rows.find(row=>row?.videoId):null;
       id=String(first?.videoId||'');
       if(!id)throw new Error('Không tìm thấy video');
-      $('resolvedId').textContent=id;
       $('title').textContent=first?.title||'Video';
-    }else{
-      $('resolvedId').textContent=id;
     }
 
-    const yt=await YTLocal.getYT();
+    $('resolvedId').textContent=id;
 
-    const clients=['WEB','MWEB','IOS','ANDROID','ANDROID_VR','VISIONOS','WEB_EMBEDDED','TV','TV_SIMPLY','TV_EMBEDDED'];
-    const results=[];
-    let chosen=null;
+    const attempts=[];
+    const media=await ProofEngine.resolve(id,(client)=>{
+      attempts.push(client);
+      $('clients').textContent=attempts.join(' → ');
+      setStatus('Đang thử '+client+'…');
+    });
 
-    for(const client of clients){
-      try{
-        setStatus('Đang thử '+client+'…');
-        const info=await yt.getBasicInfo(id,{client});
-        if(!$('title').textContent||$('title').textContent==='—'){
-          $('title').textContent=info?.basic_info?.title||'(đã lấy metadata)';
-        }
-        const status=String(info?.playability_status?.status||'?');
-        const reason=String(info?.playability_status?.reason||'');
-        const hasStreaming=!!info?.streaming_data;
-        results.push(client+': '+status+(hasStreaming?' ✓stream':' ✕stream')+(reason?' · '+reason:''));
+    if(media?.meta?.title)$('title').textContent=media.meta.title;
 
-        if(!hasStreaming)continue;
+    $('clients').textContent=(media.diagnostics||[]).map(row=>{
+      const bits=[
+        row.client+': '+row.playability,
+        row.formats?row.formats+' format':'0 format',
+        row.probe||'',
+        row.reason||''
+      ].filter(Boolean);
+      return bits.join(' · ');
+    }).join(' | ');
 
-        const options={type:'video+audio',quality:'best',format:'mp4',client};
-        const format=info.chooseFormat(options);
-        format.url=await format.decipher(yt.session.player);
-        if(!format?.url)continue;
-
-        chosen={client,format};
-        break;
-      }catch(error){
-        results.push(client+': ERROR · '+String(error?.message||error));
-      }
-    }
-
-    $('clients').textContent=results.join(' | ');
-
-    if(!chosen)throw new Error('Tất cả client đều không có streaming_data');
-
-    const format=chosen.format;
     $('format').textContent=[
-      'itag '+(format.itag??'?'),
-      format.mime_type||format.mimeType||'',
-      format.quality_label||format.quality||'',
-      format.has_audio===false?'video-only':'A/V',
-      chosen.client
+      'itag '+(media.itag??'?'),
+      media.mimeType||'',
+      media.quality||'',
+      media.hasAudio===false?'video-only':'A/V',
+      media.client||''
     ].filter(Boolean).join(' · ');
 
-    setStatus('Đã có stream từ '+chosen.client+' · đang kiểm tra bytes…');
+    $('probe').textContent=[
+      'HTTP '+(media.probe?.status??'?'),
+      media.probe?.type||'',
+      media.probe?.range||''
+    ].filter(Boolean).join(' · ');
 
-    const mediaUrl=(()=>{
-      const rawUrl=format.url;
-      const src=new URL(rawUrl);
-      const out=new URL('https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy');
-      out.searchParams.set('__host',src.host);
-      out.searchParams.set('__path',src.pathname);
-      for(const [k,v] of src.searchParams)out.searchParams.append(k,v);
-      out.searchParams.set('__headers',JSON.stringify([['accept','*/*']]));
-      return out.toString();
-    })();
-
-    const probe=await fetch(mediaUrl,{
-      method:'GET',
-      headers:{Range:'bytes=0-1023'},
-      cache:'no-store'
-    });
-    const type=probe.headers.get('content-type')||'';
-    const range=probe.headers.get('content-range')||'';
-    $('probe').textContent='HTTP '+probe.status+' · '+type+(range?' · '+range:'');
-    try{await probe.body?.cancel()}catch{}
-    if(!(probe.status===200||probe.status===206))throw new Error('media_probe_http_'+probe.status);
-
-    video.src=mediaUrl;
+    video.src=media.url;
     video.load();
     await waitReady();
 
@@ -194,12 +157,18 @@ async function run(){
 
     try{
       await video.play();
-      setStatus('THÀNH CÔNG · '+chosen.client+' · MP4 native đang phát.','ok');
+      setStatus('THÀNH CÔNG · '+media.client+' · MP4 native đang phát.','ok');
     }catch{
-      setStatus('THÀNH CÔNG phần stream · '+chosen.client+' · bấm Play.','ok');
+      setStatus('THÀNH CÔNG phần stream · '+media.client+' · bấm Play.','ok');
     }
   }catch(error){
     console.error(error);
+    if(Array.isArray(error?.diagnostics)){
+      $('clients').textContent=error.diagnostics.map(row=>
+        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',row.probe||'',row.reason||'']
+          .filter(Boolean).join(' · ')
+      ).join(' | ');
+    }
     setStatus('THẤT BẠI: '+String(error?.message||error),'bad');
   }finally{
     go.disabled=false;
