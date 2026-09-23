@@ -1,0 +1,27 @@
+name: Search Smoke
+
+on:
+  push:
+    branches:
+      - lab/search-smoke-20260923
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify anh tho returns videos
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=search&q=anh%20tho&filter=videos'
+          curl -fsS "$URL" -o /tmp/search.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/search.json'))
+          items=((p.get('data') or {}).get('items') or [])
+          print('ok=',p.get('ok'),'source=',p.get('source'),'count=',len(items))
+          for x in items[:5]:
+              print(x.get('title') or x.get('name'), x.get('url'))
+          assert p.get('ok') is True
+          assert len(items) > 0
+          PY
