@@ -10,39 +10,27 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 5
     steps:
-      - name: Discover and test OmegaTech YouTube resolver
+      - name: Probe OmegaTech YouTube actions
         shell: bash
         run: |
           set +e
-          BASE='https://api.omegatech.app'
-          ALT='https://omegatech-api.dixonomega.tech'
+          BASE='https://omegatech-api.dixonomega.tech/api/download/youtube'
+          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
           ID='vhUjvanyu2U'
 
-          echo '=== FETCH DOCS ==='
-          curl -sS -L --connect-timeout 4 --max-time 15 "$BASE/docs" -o /tmp/docs.html
-          grep -Eo '<script[^>]+src="[^"]+"' /tmp/docs.html | sed -E 's#.*src="([^"]+)".*#\1#' | head -30 > /tmp/scripts.txt
-          cat /tmp/scripts.txt
+          probe(){
+            U="$1"
+            OUT=$(mktemp)
+            META=$(curl -sS -L --connect-timeout 4 --max-time 30 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
+            echo "$META|$U|RESP=$(tr '\n' ' ' < "$OUT" | head -c 1000)"
+            rm -f "$OUT"
+          }
 
-          echo '=== GREP YOUTUBE IN DOCS/SCRIPTS ==='
-          grep -ioE '.{0,80}youtube.{0,160}' /tmp/docs.html | head -40 || true
-          while read -r S; do
-            case "$S" in
-              http*) U="$S" ;;
-              /*) U="$BASE$S" ;;
-              *) U="$BASE/$S" ;;
-            esac
-            F=$(mktemp)
-            curl -sS -L --connect-timeout 4 --max-time 12 "$U" -o "$F"
-            grep -ioE '.{0,100}youtube.{0,220}' "$F" | head -30 || true
-            rm -f "$F"
-          done < /tmp/scripts.txt
-
-          echo '=== COMMON API CANDIDATES ==='
-          for U in             "$ALT/api/download/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/youtube/mp3?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/downloader/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/download/youtube?id=$ID"             "$BASE/api/download/youtube?url=https://www.youtube.com/watch?v=$ID"             "$BASE/api/youtube?url=https://www.youtube.com/watch?v=$ID"; do
-              OUT=$(mktemp)
-              META=$(curl -sS -L --connect-timeout 4 --max-time 20 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
-              echo "$META|$U|RESP=$(tr '\n' ' ' < "$OUT" | head -c 500)"
-              rm -f "$OUT"
+          for A in info download direct mp3 audio convert get; do
+            probe "$BASE?action=$A&url=$SRC"
+            probe "$BASE?action=$A&id=$ID"
+            probe "$BASE?action=$A&url=$SRC&format=audio"
+            probe "$BASE?action=$A&url=$SRC&format=mp3"
           done
