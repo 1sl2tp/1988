@@ -1,7 +1,7 @@
 "use strict";
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
-const AUDIO_PROXY="https://one988-audio.onrender.com";
+const AUDIO_PROXY="https://one988-1od3.onrender.com";
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
@@ -114,25 +114,15 @@ async function api(action,params={}){
 }
 
 function videoMediaUrl(id){
-  const media=new URL(AUDIO_PROXY+"/video");
-  media.searchParams.set("id",id);
+  const media=new URL(AUDIO_PROXY+"/stream");
+  media.searchParams.set("v",id);
   return media.toString();
 }
 
 async function backgroundSources(id){
   if(!id)return [];
-
-  // Warm yt-dlp resolution in the background, but do not wait for it here.
-  // The actual <audio> source stays on our own proxy so the browser never
-  // consumes a server-generated Googlevideo URL from a different IP/session.
-  try{
-    const warm=new URL(AUDIO_PROXY+"/resolve");
-    warm.searchParams.set("id",id);
-    void fetch(warm.toString(),{cache:"no-store",mode:"cors"}).catch(()=>{});
-  }catch{}
-
   const media=new URL(AUDIO_PROXY+"/audio");
-  media.searchParams.set("id",id);
+  media.searchParams.set("v",id);
   return [{
     url:media.toString(),
     mimeType:"audio/mp4",
