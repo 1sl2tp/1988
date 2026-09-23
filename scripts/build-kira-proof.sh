@@ -3500,7 +3500,7 @@ pkg = p.read_text()
 if '"lucide-vue-next"' not in pkg:
     pkg = pkg.replace(
         '"googlevideo": "^4.0.4",',
-        '"googlevideo": "^4.0.4",\n    "lucide-vue-next": "^0.468.0",'
+        '"googlevideo": "^4.0.4",\n    "@lucide/vue": "^0.468.0",'
     )
 p.write_text(pkg)
 
@@ -3825,13 +3825,25 @@ new_template = r'''<template>
 s = re.sub(r'<style scoped>[\s\S]*?</style>', new_style, s, count=1)
 s = re.sub(r'<template>[\s\S]*?</template>', new_template, s, count=1)
 
-if "from 'lucide-vue-next'" not in s:
+if "from '@lucide/vue'" not in s:
     s = s.replace(
         "import { useRouter } from 'vue-router';",
-        "import { useRouter } from 'vue-router';\nimport { Home, Play, Search, Settings2, X } from 'lucide-vue-next';",
+        "import { useRouter } from 'vue-router';\nimport { Home, Play, Search, Settings2, X } from '@lucide/vue';",
         1
     )
 
+p.write_text(s)
+
+
+# Remove superseded Kira icon imports after switching the shell to Lucide.
+p = Path("src/App.vue")
+s = p.read_text()
+for line in [
+    "import HomeIcon from '@/components/icons/HomeIcon.vue';\n",
+    "import SearchIcon from '@/components/icons/SearchIcon.vue';\n",
+    "import SettingsIcon from '@/components/icons/SettingsIcon.vue';\n"
+]:
+    s = s.replace(line, "")
 p.write_text(s)
 
 # Keep attribution and a machine-readable build marker without changing the UI.
