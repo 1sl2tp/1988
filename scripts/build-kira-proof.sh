@@ -288,7 +288,8 @@ async function fallbackSearch(query: string, signal?: AbortSignal) {
   const ranked = rankSearchRows(rows, query);
   searchCache.set(key, { at: Date.now(), rows: ranked });
   if (searchCache.size > 60) {
-    searchCache.delete(searchCache.keys().next().value);
+    const oldestKey = searchCache.keys().next().value as string | undefined;
+    if (oldestKey) searchCache.delete(oldestKey);
   }
   return ranked;
 }
