@@ -24,6 +24,7 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
 .kv{display:grid;grid-template-columns:92px 1fr;gap:7px;font-size:12px;margin-top:10px}.kv b{color:#8e8e98}.kv span{word-break:break-all}
 .small{font-size:11px;color:#777780;margin-top:12px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
 </head>
 <body>
 <main>
@@ -51,14 +52,15 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-proof-20260923-11-search-anon · proxy-v9</div>
+  <div class="small">Build: ytjs-proof-20260923-12-adaptive-dash · proxy-v9</div>
 </main>
 
 <script type="module">
-import ProofEngine from './src/yt-proof-engine.js?v=5';
+import ProofEngine from './src/yt-proof-engine.js?v=6';
 
 const $=id=>document.getElementById(id);
 const video=$('video'),status=$('status'),go=$('go');
+let shakaPlayer=null;
 const loginBtn=$('loginBtn'),logoutBtn=$('logoutBtn'),authStateEl=$('authState'),authPending=$('authPending');
 
 function setStatus(text,kind='warn'){
@@ -125,6 +127,10 @@ async function run(){
   $('clients').textContent='—';
   $('probe').textContent='—';
   $('player').textContent='—';
+  if(shakaPlayer){
+    try{await shakaPlayer.destroy();}catch{}
+    shakaPlayer=null;
+  }
   video.pause();
   video.removeAttribute('src');
   video.load();
@@ -156,7 +162,8 @@ async function run(){
       const bits=[
         row.client+': '+row.playability,
         row.formats?row.formats+' format':'0 format',
-        row.poToken?'PoToken '+row.poToken:'',
+        (row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',
+        row.dash?'DASH '+row.dash:'',
         row.probe||'',
         row.reason||''
       ].filter(Boolean);
@@ -164,7 +171,7 @@ async function run(){
     }).join(' | ');
 
     $('format').textContent=[
-      'itag '+(media.itag??'?'),
+      media.mode==='dash'?'DASH adaptive':'itag '+(media.itag??'?'),
       media.mimeType||'',
       media.quality||'',
       media.hasAudio===false?'video-only':'A/V',
@@ -172,14 +179,31 @@ async function run(){
     ].filter(Boolean).join(' · ');
 
     $('probe').textContent=[
-      'HTTP '+(media.probe?.status??'?'),
+      media.mode==='dash'?'Manifest DASH đã dựng':'HTTP '+(media.probe?.status??'?'),
       media.probe?.type||'',
       media.probe?.range||''
     ].filter(Boolean).join(' · ');
 
-    video.src=media.url;
-    video.load();
-    await waitReady();
+    if(media.mode==='dash'){
+      if(!window.shaka?.Player)throw new Error('Shaka Player chưa tải');
+      shaka.polyfill.installAll();
+      if(!shaka.Player.isBrowserSupported())throw new Error('Trình duyệt không hỗ trợ DASH/MSE');
+
+      shakaPlayer=new shaka.Player();
+      await shakaPlayer.attach(video);
+
+      const manifestBytes=new TextEncoder().encode(media.manifest);
+      let binary='';
+      for(const byte of manifestBytes)binary+=String.fromCharCode(byte);
+      const manifestUri='data:application/dash+xml;base64,'+btoa(binary);
+
+      setStatus('Đã có video + audio tách riêng · đang phát DASH…');
+      await shakaPlayer.load(manifestUri);
+    }else{
+      video.src=media.url;
+      video.load();
+      await waitReady();
+    }
 
     $('player').textContent='loadedmetadata · '+(
       Number.isFinite(video.duration)?Math.round(video.duration)+'s':'duration ?'
@@ -187,15 +211,21 @@ async function run(){
 
     try{
       await video.play();
-      setStatus('THÀNH CÔNG · '+media.client+' · MP4 native đang phát.','ok');
+      setStatus(
+        'THÀNH CÔNG · '+media.client+' · '+(media.mode==='dash'?'DASH video+audio':'MP4')+' đang phát.',
+        'ok'
+      );
     }catch{
-      setStatus('THÀNH CÔNG phần stream · '+media.client+' · bấm Play.','ok');
+      setStatus(
+        'THÀNH CÔNG phần stream · '+media.client+' · '+(media.mode==='dash'?'DASH':'MP4')+' · bấm Play.',
+        'ok'
+      );
     }
   }catch(error){
     console.error(error);
     if(Array.isArray(error?.diagnostics)){
       $('clients').textContent=error.diagnostics.map(row=>
-        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',row.poToken?'PoToken '+row.poToken:'',row.probe||'',row.reason||'']
+        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',(row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',row.dash?'DASH '+row.dash:'',row.probe||'',row.reason||'']
           .filter(Boolean).join(' · ')
       ).join(' | ');
     }
