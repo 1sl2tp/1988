@@ -75,6 +75,8 @@ jobs:
         run: |
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
+          node tests/backend-media-proxy.test.cjs
+          python -m py_compile backend/ytdlp/server.py
           node --check src/media-core.js
           node --check src/app.js
 

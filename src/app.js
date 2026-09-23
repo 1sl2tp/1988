@@ -113,6 +113,12 @@ async function api(action,params={}){
   }
 }
 
+function videoMediaUrl(id){
+  const media=new URL(AUDIO_PROXY+"/video");
+  media.searchParams.set("id",id);
+  return media.toString();
+}
+
 async function backgroundSources(id){
   if(!id)return [];
 
@@ -411,7 +417,8 @@ function returnToVideo(){
   state.mode="video";
   if(mainVideo.dataset.videoId!==state.currentId){
     mainVideo.dataset.videoId=state.currentId;
-    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
+    mainVideo.dataset.source="proxy";
+    mainVideo.src=videoMediaUrl(state.currentId);
     try{mainVideo.load();}catch{}
   }
   seekVideo(time);
@@ -432,7 +439,8 @@ async function enterPiP(){
   state.mode="pip";
   if(mainVideo.dataset.videoId!==state.currentId){
     mainVideo.dataset.videoId=state.currentId;
-    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
+    mainVideo.dataset.source="proxy";
+    mainVideo.src=videoMediaUrl(state.currentId);
     try{mainVideo.load();}catch{}
   }
   seekVideo(time);
@@ -474,7 +482,9 @@ async function playVideo(id,seedMeta={}){
 
   mainVideo.dataset.videoId=id;
   mainVideo.poster=thumb(seedMeta,id);
-  mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,id,"video");
+  mainVideo.dataset.source="proxy";
+  mainVideo.dataset.legacyTried="";
+  mainVideo.src=videoMediaUrl(id);
   try{mainVideo.load();}catch{}
   playVideoEngine();
 
@@ -597,7 +607,18 @@ mainVideo.addEventListener("ended",()=>{
 
 mainVideo.addEventListener("error",()=>{
   if(!state.currentId||MediaCore.modeUsesAudio(state.mode))return;
-  statusText.textContent="Luồng video trực tiếp chưa sẵn sàng · thử video khác";
+
+  if(mainVideo.dataset.source==="proxy"&&mainVideo.dataset.legacyTried!=="1"){
+    mainVideo.dataset.legacyTried="1";
+    mainVideo.dataset.source="legacy";
+    statusText.textContent="Đang thử nguồn dự phòng…";
+    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
+    try{mainVideo.load();}catch{}
+    playVideoEngine();
+    return;
+  }
+
+  statusText.textContent="Nguồn phát đang bị YouTube chặn · thử lại sau";
 });
 
 mainVideo.addEventListener("enterpictureinpicture",()=>{
