@@ -1,5 +1,4 @@
-name: Probe New 1988 Render
-# retry after yt-dlp nightly merge v2
+name: Probe New 1988 Render V4
 
 on:
   pull_request:
@@ -13,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Probe backend
+      - name: Probe V4 Node stream backend
         shell: bash
         run: |
           set -euo pipefail
@@ -21,26 +20,28 @@ jobs:
           ID='8JA5ODE64c4'
 
           echo '=== HEALTH ==='
-          curl -sS --fail-with-body --max-time 60 "$BASE/health"
+          curl -sS --fail-with-body --max-time 60 "$BASE/health" -o /tmp/health.json
+          cat /tmp/health.json
+          jq -e '.ok == true and .service == "1988-node-stream" and .videoMode == "muxed-av"' /tmp/health.json >/dev/null
 
           echo
-          echo '=== RESOLVE VIDEO ==='
-          VIDEO_HTTP="$(curl -sS --max-time 90 -o /tmp/resolve.json -w '%{http_code}' "$BASE/resolve?id=$ID&kind=video" || true)"
-          echo "VIDEO_HTTP=$VIDEO_HTTP"
-          cat /tmp/resolve.json || true
-
-          echo
-          echo '=== VIDEO RANGE ==='
-          curl -sS --fail-with-body -L --max-time 90             -r 0-65535 -D /tmp/video.headers             "$BASE/video?id=$ID" -o /tmp/video.bin
-          cat /tmp/video.headers
-          wc -c /tmp/video.bin
-          grep -Eiq '^HTTP/.* (200|206)' /tmp/video.headers
-          grep -Eiq '^content-type: video/' /tmp/video.headers
-          grep -Eiq '^accept-ranges: bytes' /tmp/video.headers
+          echo '=== VIDEO STREAM ==='
+          rm -f /tmp/video.bin /tmp/video.headers
+          curl -sS -L --max-time 20 -D /tmp/video.headers "$BASE/stream?v=$ID" -o /tmp/video.bin || true
+          cat /tmp/video.headers || true
+          wc -c /tmp/video.bin || true
+          grep -Eiq '^HTTP/.* 200' /tmp/video.headers
+          grep -Eiq '^content-type: video/mp4' /tmp/video.headers
+          grep -Eiq '^x-1988-stream: video-av' /tmp/video.headers
           test "$(wc -c < /tmp/video.bin)" -gt 1024
 
           echo
-          echo '=== AUDIO RESOLVE ==='
-          AUDIO_HTTP="$(curl -sS --max-time 90 -o /tmp/audio.json -w '%{http_code}' "$BASE/resolve?id=$ID&kind=audio" || true)"
-          echo "AUDIO_HTTP=$AUDIO_HTTP"
-          cat /tmp/audio.json || true
+          echo '=== AUDIO STREAM ==='
+          rm -f /tmp/audio.bin /tmp/audio.headers
+          curl -sS -L --max-time 20 -D /tmp/audio.headers "$BASE/audio?v=$ID" -o /tmp/audio.bin || true
+          cat /tmp/audio.headers || true
+          wc -c /tmp/audio.bin || true
+          grep -Eiq '^HTTP/.* 200' /tmp/audio.headers
+          grep -Eiq '^content-type: audio/mp4' /tmp/audio.headers
+          grep -Eiq '^x-1988-stream: audio' /tmp/audio.headers
+          test "$(wc -c < /tmp/audio.bin)" -gt 1024
