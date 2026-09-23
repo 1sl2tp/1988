@@ -141,7 +141,7 @@ jobs:
           OUT=/tmp/streams.json
           META=$(curl -sS -L --connect-timeout 4 --max-time 60             -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'             "http://127.0.0.1:8081/streams/$ID")
           echo "STREAMS $META"
-          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT" 2>/dev/null || cat "$OUT"
+          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length),firstVideo:((.videoStreams//[])[0] | {mimeType,quality,format,videoOnly,bitrate,fps,width,height})}' "$OUT" 2>/dev/null || cat "$OUT"
 
           AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
           VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
