@@ -1,0 +1,27 @@
+name: Native Playback Smoke
+on:
+  push:
+    branches: [lab/native-playback-check]
+jobs:
+  playback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check native playback metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=playback&id=vhUjvanyu2U'
+          code=$(curl -sS -o /tmp/playback.json -w '%{http_code}' "$URL")
+          echo "HTTP=$code"
+          cat /tmp/playback.json
+          python - <<'PY'
+          import json
+          p=json.load(open('/tmp/playback.json'))
+          print('ok=',p.get('ok'))
+          d=p.get('data') or {}
+          print('hls=', bool(d.get('hls')))
+          print('sources=', len(d.get('sources') or []))
+          print('audio=', len(d.get('audioSources') or []))
+          assert p.get('ok') is True
+          assert d.get('hls') or d.get('sources')
+          PY
