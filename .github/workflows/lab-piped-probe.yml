@@ -1,4 +1,4 @@
-name: Lab Piped Stream Probe
+name: Lab Official Piped Stack
 
 on:
   push:
@@ -9,62 +9,132 @@ permissions:
   contents: read
 
 jobs:
-  probe:
+  official-stack:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     steps:
-      - name: Probe official Piped public instances for exact video
+      - name: Start official Piped backend stack
+        shell: bash
+        run: |
+          set -e
+          mkdir -p /tmp/piped-lab
+          cat > /tmp/piped-lab/config.properties <<'CFG'
+          PORT:8080
+          HTTP_WORKERS:2
+          PROXY_PART:http://127.0.0.1:8082
+          API_URL:http://127.0.0.1:8081
+          FRONTEND_URL:http://127.0.0.1:8083
+          COMPROMISED_PASSWORD_CHECK:false
+          DISABLE_REGISTRATION:true
+          FEED_RETENTION:1
+          DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
+          DISABLE_RYD:true
+          DISABLE_SERVER:false
+          DISABLE_LBRY:true
+          SUBSCRIPTIONS_EXPIRY:1
+          CONSENT_COOKIE:true
+          BG_HELPER_URL:http://bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
+          hibernate.connection.driver_class:org.postgresql.Driver
+          hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
+          hibernate.connection.username:piped
+          hibernate.connection.password:changeme
+          CFG
+
+          cat > /tmp/piped-lab/docker-compose.yml <<'YML'
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 3s
+                timeout: 3s
+                retries: 20
+
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+              restart: unless-stopped
+
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+              ports:
+                - "8082:8080"
+              restart: unless-stopped
+
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports:
+                - "8081:8080"
+              volumes:
+                - /tmp/piped-lab/config.properties:/app/config.properties:ro
+              restart: unless-stopped
+          YML
+
+          cd /tmp/piped-lab
+          docker compose up -d
+          docker compose ps
+
+          for i in $(seq 1 80); do
+            CODE=$(curl -sS -o /tmp/info.json -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config || true)
+            if [ "$CODE" = "200" ]; then
+              echo "backend ready after $i checks"
+              cat /tmp/info.json
+              break
+            fi
+            sleep 3
+          done
+
+          echo '=== STACK LOGS ==='
+          docker compose logs --tail=120 bg-helper piped proxy
+
+      - name: Test exact video through official stack
         shell: bash
         run: |
           set +e
           ID='vhUjvanyu2U'
-          APIS=(
-            'https://pipedapi.kavin.rocks'
-            'https://pipedapi.leptons.xyz'
-            'https://pipedapi.nosebs.ru'
-            'https://pipedapi-libre.kavin.rocks'
-            'https://piped-api.privacy.com.de'
-            'https://pipedapi.adminforge.de'
-            'https://api.piped.yt'
-            'https://pipedapi.drgns.space'
-            'https://pipedapi.owo.si'
-            'https://pipedapi.ducks.party'
-            'https://piped-api.codespace.cz'
-            'https://pipedapi.reallyaweso.me'
-            'https://api.piped.private.coffee'
-            'https://pipedapi.darkness.services'
-            'https://pipedapi.orangenet.cc'
-          )
+          OUT=/tmp/streams.json
+          META=$(curl -sS -L --connect-timeout 4 --max-time 45             -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'             "http://127.0.0.1:8081/streams/$ID")
+          echo "STREAMS $META"
+          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT" 2>/dev/null || cat "$OUT"
 
-          probe(){
-            API="$1"
-            OUT=$(mktemp)
-            META=$(curl -sS -L --connect-timeout 3 --max-time 15 -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}' "$API/streams/$ID")
-            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
-            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
-            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
-            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
-            AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
-            MUX=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT" 2>/dev/null)
-            echo "API|$API|$META|AUDIO=$AC|VIDEO=$VC|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
-            for KIND in AUDIO MUX HLS; do
-              eval U="\$$KIND"
-              [ -z "$U" ] && continue
-              HDR=$(mktemp)
-              BIN=$(mktemp)
-              curl -sS -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$U"
-              CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-              TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              SIZE=$(wc -c < "$BIN")
-              CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              FILE=$(file -b "$BIN" 2>/dev/null)
-              echo "STREAM|$API|$KIND|HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|FILE=$FILE|URL=$U"
-              rm -f "$HDR" "$BIN"
-            done
-            rm -f "$OUT"
-          }
+          AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
+          MUX=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT" 2>/dev/null)
+          HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
 
-          export -f probe
-          export ID
-          for API in "${APIS[@]}"; do probe "$API" & done
-          wait
+          for KIND in AUDIO MUX HLS; do
+            eval U="\$$KIND"
+            [ -z "$U" ] && continue
+            echo "=== $KIND $U ==="
+            HDR=$(mktemp); BIN=$(mktemp)
+            curl -sS -L --connect-timeout 4 --max-time 20               -H 'Range: bytes=0-8191' -D "$HDR" -o "$BIN" "$U"
+            CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+            TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            SIZE=$(wc -c < "$BIN")
+            FILE=$(file -b "$BIN" 2>/dev/null)
+            echo "$KIND HTTP=$CODE TYPE=$TYPE SIZE=$SIZE FILE=$FILE"
+            rm -f "$HDR" "$BIN"
+          done
+
+          echo '=== FINAL STACK LOGS ==='
+          cd /tmp/piped-lab
+          docker compose logs --tail=160 bg-helper piped proxy
+
+          AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+          VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+          if [ "${AC:-0}" -eq 0 ] && [ "${VC:-0}" -eq 0 ] && [ -z "$HLS" ]; then
+            echo 'NO_PLAYABLE_STREAMS'
+            exit 1
+          fi
