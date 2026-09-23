@@ -151,48 +151,93 @@ def _resolve_with_ytdlp(video_id, kind):
     global _ytdlp_blocked_until
 
     url = f"https://www.youtube.com/watch?v={video_id}"
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": True,
-        "skip_download": True,
-        "format": _format_selector(kind),
-        "extractor_args": {
-            "youtube": {
-                "player_client": _player_clients(),
+
+    if kind == "audio":
+        selectors = [
+            "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio",
+            "bestaudio/best",
+        ]
+    else:
+        selectors = [
+            "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]",
+            "best[vcodec!=none][acodec!=none]/best",
+            "best",
+        ]
+
+    configured_clients = _player_clients()
+    client_sets = [
+        configured_clients,
+        ["ios", "android", "web_safari"],
+        ["web", "mweb"],
+        [],
+    ]
+
+    errors = []
+    info = None
+
+    for clients in client_sets:
+        for selector in selectors:
+            opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+                "skip_download": True,
+                "format": selector,
+                "socket_timeout": 18,
+                "retries": 2,
+                "fragment_retries": 2,
+                "geo_bypass": True,
             }
-        },
-        "socket_timeout": 18,
-        "retries": 2,
-        "fragment_retries": 2,
-        "geo_bypass": True,
-    }
 
-    proxy = _proxy_url()
-    if proxy:
-        opts["proxy"] = proxy
+            if clients:
+                opts["extractor_args"] = {
+                    "youtube": {
+                        "player_client": clients,
+                    }
+                }
 
-    cookiefile = _cookiefile()
-    if cookiefile:
-        opts["cookiefile"] = cookiefile
+            proxy = _proxy_url()
+            if proxy:
+                opts["proxy"] = proxy
 
-    impersonate = (os.environ.get("YTDLP_IMPERSONATE") or "").strip()
-    if impersonate:
-        opts["impersonate"] = impersonate
+            cookiefile = _cookiefile()
+            if cookiefile:
+                opts["cookiefile"] = cookiefile
 
-    try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-    except Exception as exc:
-        message = str(exc)
-        low = message.lower()
-        if (
-            "not a bot" in low
-            or "sign in to confirm" in low
-            or "login_required" in low
-        ):
-            _ytdlp_blocked_until = time.time() + YTDLP_BLOCK_TTL
-        raise
+            impersonate = (os.environ.get("YTDLP_IMPERSONATE") or "").strip()
+            if impersonate:
+                opts["impersonate"] = impersonate
+
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    candidate = ydl.extract_info(url, download=False)
+                if candidate and candidate.get("url"):
+                    info = candidate
+                    break
+                errors.append(
+                    f"clients={','.join(clients) if clients else 'default'} "
+                    f"format={selector}:no_direct_url"
+                )
+            except Exception as exc:
+                message = str(exc)
+                errors.append(
+                    f"clients={','.join(clients) if clients else 'default'} "
+                    f"format={selector}:{message}"
+                )
+                low = message.lower()
+                if (
+                    "not a bot" in low
+                    or "sign in to confirm" in low
+                    or "login_required" in low
+                ):
+                    _ytdlp_blocked_until = time.time() + YTDLP_BLOCK_TTL
+            if info:
+                break
+        if info:
+            break
+
+    if not info:
+        raise RuntimeError(" | ".join(errors[-6:]) or f"no_{kind}_format")
 
     stream_url = info.get("url") or ""
     if not stream_url:
