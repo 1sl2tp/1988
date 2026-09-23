@@ -14,5 +14,5 @@ assert.match(req,/bgutil-ytdlp-pot-provider==2\.0\.0/);
 assert.match(start,/build\/main\.js/);
 assert.match(start,/127\.0\.0\.1/);
 assert.match(start,/4416/);
-assert.match(start,/gunicorn/);
+assert.match(start,/exec node server\.js/);
 console.log('docker-pot-runtime: 11 assertions passed');
