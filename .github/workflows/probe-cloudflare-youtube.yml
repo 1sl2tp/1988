@@ -1,0 +1,33 @@
+name: Probe Cloudflare YouTube Relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-cloudflare-youtube.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve and range-test failing video
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELAY='https://getlink-bhx-relay.taphoa-4ab8161d.workers.dev'
+          ID='8JA5ODE64c4'
+          HTTP="$(curl --silent --show-error --output /tmp/resolve.json --write-out '%{http_code}' "$RELAY/youtube/resolve?id=$ID&kind=video")"
+          echo "RESOLVE_HTTP=$HTTP"
+          cat /tmp/resolve.json
+          test "$HTTP" = "200"
+          MEDIA_URL="$(jq -r '.data.mediaUrl // empty' /tmp/resolve.json)"
+          test -n "$MEDIA_URL"
+          curl --fail --silent --show-error --location --max-time 45             --range 0-65535 -D /tmp/media.headers             "$MEDIA_URL" -o /tmp/media.bin
+          echo '=== MEDIA HEADERS ==='
+          cat /tmp/media.headers
+          echo "MEDIA_BYTES=$(wc -c < /tmp/media.bin)"
+          file /tmp/media.bin || true
+          test "$(wc -c < /tmp/media.bin)" -gt 1024
