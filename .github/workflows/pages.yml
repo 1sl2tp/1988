@@ -26,25 +26,28 @@ jobs:
 
       - name: Diagnose live media
         shell: bash
+        continue-on-error: true
         run: |
-          set -euo pipefail
           BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988'
-          curl -sS --fail-with-body "$BASE?action=search&q=MY%20HANH%20Viber&filter=videos" -o /tmp/search.json
+          AUDIO='https://one988-audio.onrender.com'
+          curl -sS "$BASE?action=search&q=MY%20HANH%20Viber&filter=videos" -o /tmp/search.json
           echo '=== SEARCH ==='
           jq '{ok,source,items:(.data.items//[])[:3]|map({url,title,duration})}' /tmp/search.json
           ID=$(jq -r '(.data.items//[])[0].url // empty' /tmp/search.json | sed -nE 's#.*([A-Za-z0-9_-]{11})$#\1#p' | head -1 || true)
           if [ -z "$ID" ]; then ID='jfKfPfyJRdk'; fi
           echo "ID=$ID"
-          echo '=== PLAYBACK ==='
-          curl -sS --fail-with-body "$BASE?action=playback&id=$ID" -o /tmp/playback.json
-          jq '{ok,source,data:{hls:.data.hls,sources:(.data.sources//[])[:5],audioSources:(.data.audioSources//[])[:3]}}' /tmp/playback.json
-          echo '=== MEDIA HEAD ==='
-          curl -sS -I -L --max-time 30 "$BASE?action=media&id=$ID&kind=video" | sed -n '1,120p'
-          echo '=== MEDIA RANGE ==='
-          curl -sS -L --max-time 30 -r 0-65535 -D /tmp/media.headers "$BASE?action=media&id=$ID&kind=video" -o /tmp/media.bin || true
-          cat /tmp/media.headers
-          file /tmp/media.bin || true
-          wc -c /tmp/media.bin || true
+
+          echo '=== EDGE PLAYBACK ==='
+          curl -sS -w '\nHTTP=%{http_code}\n' "$BASE?action=playback&id=$ID" || true
+
+          echo '=== EDGE MEDIA HEAD ==='
+          curl -sS -I -L --max-time 30 "$BASE?action=media&id=$ID&kind=video" || true
+
+          echo '=== RENDER HEALTH ==='
+          curl -sS -w '\nHTTP=%{http_code}\n' --max-time 40 "$AUDIO/health" || true
+
+          echo '=== RENDER RESOLVE ==='
+          curl -sS -w '\nHTTP=%{http_code}\n' --max-time 60 "$AUDIO/resolve?id=$ID" || true
 
       - name: Test media core
         run: |
