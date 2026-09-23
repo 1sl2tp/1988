@@ -11,62 +11,36 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Cobalt public instances
+      - name: Probe Cobalt YouTube-working APIs
         run: |
           set +e
-          curl -k -sS -L --max-time 20 'https://instances.cobalt.best/api/instances.json' -o /tmp/instances.json
-          echo '=== INSTANCE LIST HEAD ==='
-          head -c 3000 /tmp/instances.json
-          echo
-          echo '=== TESTS ==='
-          python - <<'PY'
-          import json, subprocess, tempfile, os, urllib.parse
-          p='/tmp/instances.json'
-          try:
-              data=json.load(open(p))
-          except Exception as e:
-              print('PARSE_ERROR',e); raise SystemExit
-          if isinstance(data,dict):
-              rows=data.get('instances') or data.get('data') or []
-          else:
-              rows=data
-          print('COUNT',len(rows))
-          tested=0
-          for row in rows:
-              if tested>=30: break
-              if not isinstance(row,dict): continue
-              url=row.get('url') or row.get('api') or row.get('api_url') or row.get('host')
-              if not url: continue
-              youtube=row.get('youtube')
-              services=row.get('services')
-              if youtube is False: continue
-              if isinstance(services,list) and 'youtube' not in [str(x).lower() for x in services]: continue
-              url=str(url).rstrip('/')
-              body=json.dumps({
-                  'url':'https://www.youtube.com/watch?v=jfKfPfyJRdk',
-                  'videoQuality':'360',
-                  'youtubeVideoCodec':'h264',
-                  'youtubeVideoContainer':'mp4',
-                  'downloadMode':'auto',
-                  'alwaysProxy':True
-              })
-              cmd=['curl','-sS','-L','--max-time','20','-o','/tmp/cobalt.json','-w','%{http_code} %{time_total}', '-X','POST',url+'/', '-H','Accept: application/json','-H','Content-Type: application/json','--data',body]
-              try:
-                  meta=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
-              except subprocess.CalledProcessError as e:
-                  meta='ERR'
-              try:
-                  raw=open('/tmp/cobalt.json').read()
-                  obj=json.loads(raw)
-              except Exception:
-                  raw=''
-                  obj={}
-              status=obj.get('status') if isinstance(obj,dict) else None
-              outurl=''
-              if isinstance(obj,dict):
-                  outurl=obj.get('url') or obj.get('redirect') or ''
-                  if not outurl and isinstance(obj.get('picker'),list) and obj['picker']:
-                      outurl=obj['picker'][0].get('url','')
-              print('INSTANCE',url,'HTTP_TIME',meta,'STATUS',status,'OUT',urllib.parse.urlparse(outurl).netloc if outurl else '', 'BODY', raw[:250].replace('\n',' '))
-              tested+=1
-          PY
+          APIS=(
+            'https://bergung-api.hoffnungfuerdiezukunft.net'
+            'https://cobalt-alpha.wolfy.love'
+            'https://lime.clxxped.lol'
+            'https://nuko-c.meowing.de'
+            'https://cobalt-api.lamps-dev.dev'
+            'https://kitty.tame.gg'
+            'https://grapefruit.clxxped.lol'
+            'https://subito-c.meowing.de'
+            'https://api.qwkuns.me'
+            'https://api-cobalt.eversiege.network'
+            'https://apicobalt.mgytr.top'
+            'https://melon.clxxped.lol'
+          )
+          BODY='{"url":"https://www.youtube.com/watch?v=jfKfPfyJRdk","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true}'
+          for API in "${APIS[@]}"; do
+            rm -f /tmp/cobalt.json
+            META=$(curl -sS -L --max-time 30 -o /tmp/cobalt.json -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' \
+              -X POST "$API/" -H 'Accept: application/json' -H 'Content-Type: application/json' --data "$BODY" 2>/dev/null)
+            RAW=$(head -c 500 /tmp/cobalt.json 2>/dev/null | tr '\n' ' ')
+            STATUS=$(jq -r '.status // ""' /tmp/cobalt.json 2>/dev/null)
+            CODE=$(jq -r '.error.code // ""' /tmp/cobalt.json 2>/dev/null)
+            URL=$(jq -r '.url // ""' /tmp/cobalt.json 2>/dev/null)
+            echo "INSTANCE=$API $META STATUS=$STATUS CODE=$CODE"
+            if [ -n "$URL" ]; then
+              echo "OUT_URL=$URL"
+              echo "OUT_HOST=$(python -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc)' "$URL" 2>/dev/null)"
+            fi
+            echo "BODY=$RAW"
+          done
