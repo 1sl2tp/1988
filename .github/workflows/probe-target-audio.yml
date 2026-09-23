@@ -10,28 +10,21 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Test exact live links before any code change
+      - name: Test exact links before changing player
         shell: bash
         run: |
           set +e
-          ID="vhUjvanyu2U"
+          ID='vhUjvanyu2U'
+          echo '=== YOUTUBE WATCH ==='
+          curl -sS -I -L --connect-timeout 4 --max-time 12 "https://www.youtube.com/watch?v=$ID" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:)' | head -12
 
-          echo "=== YOUTUBE WATCH PAGE ==="
-          curl -sS -I -L --connect-timeout 4 --max-time 12 "https://www.youtube.com/watch?v=$ID" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|location:)' || true
-
-          echo "=== CURRENT RENDER AUDIO ==="
-          curl -sS -D /tmp/render-h -o /tmp/render-b --connect-timeout 4 --max-time 20 "https://one988-audio.onrender.com/audio?id=$ID"
-          cat /tmp/render-h | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|x-1988-|access-control-allow-origin:)' || true
-          echo "BODY_SIZE=$(wc -c </tmp/render-b)"
-          head -c 300 /tmp/render-b || true
+          echo '=== SUPABASE INNERTUBE ==='
+          URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=innertube_probe&id=$ID"
+          curl -sS -L --connect-timeout 4 --max-time 15 -w '\nHTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}\n' "$URL" -o /tmp/probe.json
+          cat /tmp/probe.json
           echo
 
-          echo "=== SUPABASE BACKGROUND ==="
-          curl -sS -L --connect-timeout 4 --max-time 15 "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=background&id=$ID" | head -c 1500
-          echo
-
-          echo "=== SUPABASE PLAYBACK ==="
-          curl -sS -L --connect-timeout 4 --max-time 15 "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=playback&id=$ID" | head -c 1500
-          echo
+          echo '=== PARSED ==='
+          jq -c '{ok,httpStatus,playability,videoDetails,streaming:(.streaming // null),error}' /tmp/probe.json 2>/dev/null || true
