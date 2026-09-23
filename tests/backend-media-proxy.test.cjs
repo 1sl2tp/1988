@@ -12,6 +12,6 @@ assert.match(server,/Range/);
 assert.match(server,/Content-Range/);
 assert.match(server,/return media_response\(video_id, "video"\)/);
 assert.ok(!app.includes('AUDIO_PROXY'));
-assert.match(app,/audio_resolve/);
+assert.match(app,/MediaCore\.buildNativeMediaUrl\(BASE,id,"audio"\)/);
 
 console.log('backend-media-proxy: 10 assertions passed');
