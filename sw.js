@@ -1,15 +1,16 @@
 'use strict';
 
-const CACHE='1988-loader-audio-v20';
+const CACHE='1988-native-discovery-v21';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=fresh-5',
-  './src/app.js?v=fresh-20',
+  './src/style.css?v=fresh-6',
+  './src/app.js?v=fresh-21',
   './src/media-core.js?v=1',
   './src/html5-background.js?v=8',
+  './src/yt-local.js?v=1',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
