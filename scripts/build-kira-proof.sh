@@ -718,7 +718,7 @@ insert = r"""  //#endregion
         const onError = () => finish(() => reject(new Error('direct_media_error_' + (videoElement.error?.code || 0))));
         const timer = window.setTimeout(
           () => finish(() => reject(new Error('direct_media_timeout'))),
-          5000
+          1200
         );
 
         videoElement.addEventListener('loadedmetadata', onReady, { once: true });
@@ -885,7 +885,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-31-render-path-fix\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-32-innertube-json\">", 1)
 p.write_text(s)
 PY
 
