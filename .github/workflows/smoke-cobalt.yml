@@ -1,4 +1,4 @@
-name: Smoke Cobalt Proxy
+name: Smoke NewPipe CORS Relays
 
 on:
   push:
@@ -11,25 +11,31 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Cobalt local-processing streams
+      - name: Probe public CORS relays for YouTube GET and POST
         run: |
-          set -e
-          BODY='{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true,"localProcessing":"forced"}'
-          curl -sS -L --max-time 30 -X POST 'https://cobaltapi.cjs.nz/' \
-            -H 'Accept: application/json' -H 'Content-Type: application/json' \
-            --data "$BODY" -o /tmp/out.json
-          cat /tmp/out.json
-          echo
-          echo "STATUS=$(jq -r '.status // ""' /tmp/out.json)"
-          echo "TYPE=$(jq -r '.type // ""' /tmp/out.json)"
-          jq -r '.tunnel[]? // empty' /tmp/out.json > /tmp/tunnels
-          i=0
-          while IFS= read -r URL; do
-            i=$((i+1))
-            echo "=== TUNNEL $i ==="
-            echo "$URL"
-            curl -sS -L --max-time 30 -D "/tmp/h$i" -o "/tmp/b$i" -H 'Range: bytes=0-1023' "$URL"
-            cat "/tmp/h$i"
-            echo "BYTES=$(wc -c <"/tmp/b$i")"
-            echo "FIRST=$(xxd -l 32 -p "/tmp/b$i")"
-          done < /tmp/tunnels
+          set +e
+          python - <<'PY'
+          import subprocess, urllib.parse, json, os
+          watch='https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+          api='https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false'
+          body=json.dumps({"context":{"client":{"clientName":"WEB","clientVersion":"2.20250222.10.00","hl":"en","gl":"US"}},"videoId":"dQw4w9WgXcQ","contentCheckOk":True,"racyCheckOk":True})
+          relays=[
+            ("corsproxy.io", lambda u: 'https://corsproxy.io/?url='+urllib.parse.quote(u,safe='')),
+            ("allorigins", lambda u: 'https://api.allorigins.win/raw?url='+urllib.parse.quote(u,safe='')),
+            ("isomorphic", lambda u: 'https://cors.isomorphic-git.org/'+u),
+          ]
+          for name,wrap in relays:
+            for method,target in [('GET',watch),('POST',api)]:
+              url=wrap(target)
+              out=f'/tmp/{name}-{method}.out'
+              cmd=['curl','-sS','-L','--max-time','25','-o',out,'-w','%{http_code} %{time_total} %{size_download}']
+              if method=='POST':
+                cmd += ['-X','POST','-H','Content-Type: application/json','--data',body]
+              cmd += [url]
+              try:
+                meta=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+              except subprocess.CalledProcessError:
+                meta='ERR'
+              raw=open(out,'rb').read(500) if os.path.exists(out) else b''
+              print(name,method,meta,raw[:180].decode('utf-8','replace').replace('\n',' '))
+          PY
