@@ -82,7 +82,7 @@
     <div id="sourceStatus" class="status"></div>
   </div>
 
-  <p>Build: native-media18-hls-fallback</p>
+  <p>Build: native-media18-render-first</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>\n<script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
@@ -90,6 +90,7 @@
 <script>
 (() => {
   const BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+  const RENDER_MEDIA='https://one988-audio.onrender.com';
   const $=s=>document.querySelector(s);
   const video=$('#nativeVideo');
   const titleEl=$('#videoTitle');
@@ -226,18 +227,26 @@
   }
 
   async function resolveSources(id){
-    const r=await call('playback',{id});
-    const data=r?.data||{};
+    let data={};
+    try{
+      const r=await call('playback',{id});
+      data=r?.data||{};
+    }catch(err){
+      // Piped is optional now. Render yt-dlp is the primary media source.
+      data={};
+    }
 
-    currentMeta={...currentMeta,...data};
-    const title=currentMeta.title||titleEl.textContent;
-    titleEl.textContent=title;
-    metaEl.textContent=[
-      currentMeta.uploader||currentMeta.uploaderName,
-      Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''
-    ].filter(Boolean).join(' · ');
-    video.poster=thumb(currentMeta,id);
-    updateMediaSession();
+    if(Object.keys(data).length){
+      currentMeta={...currentMeta,...data};
+      const title=currentMeta.title||titleEl.textContent;
+      titleEl.textContent=title;
+      metaEl.textContent=[
+        currentMeta.uploader||currentMeta.uploaderName,
+        Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''
+      ].filter(Boolean).join(' · ');
+      video.poster=thumb(currentMeta,id);
+      updateMediaSession();
+    }
 
     const progressive=Array.isArray(data.sources)?data.sources.filter(x=>x?.url):[];
     const hlsRows=Array.isArray(data.hlsSources)?data.hlsSources.filter(x=>x?.url):[];
@@ -259,12 +268,21 @@
     const directHls=hlsRows.filter(x=>x.via==='direct').slice(0,4);
     const proxyHls=hlsRows.filter(x=>x.via!=='direct').slice(0,2);
 
+    const renderUrl=new URL(RENDER_MEDIA+'/video');
+    renderUrl.searchParams.set('id',id);
+
     const candidates=[
+      {
+        url:renderUrl.toString(),
+        mimeType:'video/mp4',
+        kind:'render',
+        via:'render-yt-dlp'
+      },
       ...directProgressive.map(x=>({...x,kind:'progressive'})),
       ...directHls.map(x=>({...x,kind:'hls'})),
       ...proxyProgressive.map(x=>({...x,kind:'progressive'})),
       ...proxyHls.map(x=>({...x,kind:'hls'})),
-      {url:mediaEndpoint(id),mimeType:'video/mp4',kind:'validated',via:'backend'}
+      {url:mediaEndpoint(id),mimeType:'video/mp4',kind:'validated',via:'backend-piped'}
     ];
 
     const seen=new Set();
@@ -377,11 +395,13 @@
       let lastError=null;
       for(let i=0;i<candidates.length;i++){
         const candidate=candidates[i];
-        const label=candidate.kind==='hls'
-          ?'HLS'
-          :candidate.kind==='validated'
-            ?'Piped fallback'
-            :(String(candidate.mimeType||'').toLowerCase().includes('mp4')?'MP4':'WebM');
+        const label=candidate.kind==='render'
+          ?'Render yt-dlp'
+          :candidate.kind==='hls'
+            ?'HLS'
+            :candidate.kind==='validated'
+              ?'Piped fallback'
+              :(String(candidate.mimeType||'').toLowerCase().includes('mp4')?'MP4':'WebM');
 
         sourceStatus.className='status warn';
         sourceStatus.textContent='Đang thử '+label+' · nguồn '+(i+1)+'/'+candidates.length;
