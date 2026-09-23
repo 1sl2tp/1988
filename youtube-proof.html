@@ -82,7 +82,7 @@
     <div id="sourceStatus" class="status"></div>
   </div>
 
-  <p>Build: native-device-proof-20260923</p>
+  <p>Build: native-device-proof-20260923-media18</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
@@ -203,33 +203,25 @@
   }
 
   async function resolveSource(id){
-    const r=await call('playback',{id});
-    const data=r?.data||{};
-    const rows=Array.isArray(data.sources)?data.sources:[];
-    const source=rows.find(x=>x?.url)||null;
-    if(!source?.url)throw new Error('Không có stream video native');
-
-    currentMeta={...currentMeta,...data};
-    const title=currentMeta.title||titleEl.textContent;
-    titleEl.textContent=title;
-    metaEl.textContent=[currentMeta.uploader,Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean).join(' · ');
-    video.poster=thumb(currentMeta,id);
-    updateMediaSession();
-
-    return source;
-  }
-
-  async function probeSource(url){
+    // Metadata is kept separate from playback. The actual media URL goes
+    // through action=media, which server-side probes Piped candidates with
+    // a Range request and only redirects to a working 200/206 source.
     try{
-      const r=await fetch(url,{
-        method:'GET',
-        headers:{Range:'bytes=0-1'},
-        cache:'no-store'
-      });
-      return {ok:r.ok,status:r.status,type:r.headers.get('content-type')||''};
-    }catch(err){
-      return {ok:false,status:0,type:'',error:err?.message||String(err)};
-    }
+      const r=await call('video',{id});
+      const data=r?.data||{};
+      currentMeta={...currentMeta,...data};
+      const title=currentMeta.title||titleEl.textContent;
+      titleEl.textContent=title;
+      metaEl.textContent=[currentMeta.uploader||currentMeta.uploaderName,Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean).join(' · ');
+      video.poster=thumb(currentMeta,id);
+      updateMediaSession();
+    }catch{}
+
+    const u=new URL(BASE);
+    u.searchParams.set('action','media');
+    u.searchParams.set('id',id);
+    u.searchParams.set('kind','video');
+    return {url:u.toString(),mimeType:'video/mp4'};
   }
 
   async function playSelected(){
@@ -242,17 +234,15 @@
       const source=await resolveSource(currentId);
       currentSource=source.url;
 
-      const probe=await probeSource(currentSource);
-      sourceStatus.className='status '+(probe.ok?'ok':'bad');
-      sourceStatus.textContent=probe.ok
-        ? 'Nguồn media OK · HTTP '+probe.status+(probe.type?' · '+probe.type:'')
-        : 'Nguồn media bị chặn · '+(probe.status?'HTTP '+probe.status:probe.error||'network error');
-
-      if(!probe.ok)throw new Error('Media proxy HTTP '+(probe.status||'network'));
+      sourceStatus.className='status warn';
+      sourceStatus.textContent='Đang chọn Piped media proxy có Range/200–206…';
 
       video.src=currentSource;
       video.load();
       await video.play();
+
+      sourceStatus.className='status ok';
+      sourceStatus.textContent='Nguồn media OK · Piped fallback đã xác minh';
     }catch(err){
       playerStatus.className='status bad';
       playerStatus.textContent='Chưa phát được: '+(err?.message||err);
