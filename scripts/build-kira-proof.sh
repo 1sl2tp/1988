@@ -8532,7 +8532,124 @@ s += r'''
 p.write_text(s)
 
 
-# Exact-second freshness + broader official Vietnam sources.
+# 1988 v2: clean independent mobile UI, exact-second freshness, anti-zoom.
+p = Path("src/App.vue")
+p.write_text(r'''<template>
+  <div class="app-shell">
+    <router-view/>
+    <ToastNotification/>
+  </div>
+</template>
+
+<script setup lang="ts">
+import ToastNotification from '@/components/ToastNotification.vue';
+</script>
+
+<style scoped>
+.app-shell {
+  min-height: 100vh;
+  background: #212121;
+}
+</style>
+''')
+
+p = Path("src/1988.css")
+p.write_text(r''':root {
+  --bg: #212121;
+  --panel: #2b2b2e;
+  --panel2: #303034;
+  --line: #3a3a3e;
+  --text: #f5f5f5;
+  --muted: #99999f;
+  --accent: #ef233c;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  min-width: 280px;
+  min-height: 100%;
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: pan-x pan-y;
+}
+
+body,
+#app {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+a {
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  font-size: 16px !important;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+''')
+
+p = Path("index.html")
+s = p.read_text()
+s = re.sub(
+    r'<meta\s+name=["\']viewport["\'][^>]*>',
+    '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">',
+    s,
+    count=1
+)
+if 'name="viewport"' not in s:
+    s = s.replace(
+        "<head>",
+        '<head>\n    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">',
+        1
+    )
+s = re.sub(r'<title>.*?</title>', '<title>1988</title>', s, count=1)
+p.write_text(s)
+
+p = Path("src/main.ts")
+s = p.read_text()
+if "1988AntiZoom" not in s:
+    s += r'''
+
+// 1988AntiZoom: keep the mobile web app at a stable 1:1 scale.
+const stopGesture = (event: Event) => event.preventDefault();
+document.addEventListener('gesturestart', stopGesture, { passive: false });
+document.addEventListener('gesturechange', stopGesture, { passive: false });
+document.addEventListener('gestureend', stopGesture, { passive: false });
+document.addEventListener('touchmove', (event: TouchEvent) => {
+  if (event.touches.length > 1) event.preventDefault();
+}, { passive: false });
+'''
+p.write_text(s)
+
 p = Path("src/utils/display1988.ts")
 p.write_text(r'''export function numericViews(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
@@ -8550,15 +8667,12 @@ p.write_text(r'''export function numericViews(value: unknown): number {
 
 export function formatCompactViews(value: unknown): string {
   const n = numericViews(value);
-  if (!n) {
-    const raw = String(value || '').trim();
-    return raw && /view/i.test(raw) ? raw.replace(/\s*views?/i, ' views') : '';
-  }
-  const unit = n >= 1e9 ? 1e9 : n >= 1e6 ? 1e6 : n >= 1e3 ? 1e3 : 1;
-  const suffix = unit === 1e9 ? 'B' : unit === 1e6 ? 'M' : unit === 1e3 ? 'K' : '';
-  if (unit === 1) return Math.round(n) + ' views';
+  if (!n) return '';
+  if (n < 1000) return Math.round(n) + ' lượt xem';
+  const unit = n >= 1e9 ? 1e9 : n >= 1e6 ? 1e6 : 1e3;
+  const suffix = unit === 1e9 ? 'T' : unit === 1e6 ? 'Tr' : 'N';
   const scaled = n / unit;
-  return scaled.toFixed(scaled < 10 ? 1 : 0).replace(/\.0$/, '') + suffix + ' views';
+  return scaled.toFixed(scaled < 10 ? 1 : 0).replace(/\.0$/, '').replace('.', ',') + ' ' + suffix + ' lượt xem';
 }
 
 const UNIT_MS: Record<string, number> = {
@@ -8593,232 +8707,429 @@ export function parsePublishedAt(value: unknown): number {
     return raw.length >= 13 ? n : n * 1000;
   }
 
-  const date = Date.parse(raw);
-  if (Number.isFinite(date)) return date;
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return parsed;
 
   const plain = deaccent(raw);
+  if (/(just now|vua xong|moi day)/.test(plain)) return Date.now();
+
   const match = plain.match(/(\d+)\s*(second|seconds|giay|minute|minutes|phut|hour|hours|gio|day|days|ngay|week|weeks|tuan|month|months|thang|year|years|nam)/);
   if (match) {
     const qty = Number(match[1]) || 0;
     const unit = UNIT_MS[match[2]] || 0;
     if (unit) return Date.now() - qty * unit;
   }
-
-  if (/(just now|vua xong|moi day)/.test(plain)) return Date.now();
   return 0;
 }
 
 export function formatRelativeTime(value: unknown): string {
-  const raw = String(value || '').trim();
   const ts = parsePublishedAt(value);
+  if (!ts) return '';
 
-  if (ts > 0) {
-    const diff = Math.max(0, Date.now() - ts);
-    if (diff < 60000) return Math.max(0, Math.floor(diff / 1000)) + ' giây trước';
-    if (diff < 3600000) return Math.floor(diff / 60000) + ' phút trước';
-    if (diff < 86400000) return Math.floor(diff / 3600000) + ' giờ trước';
-    if (diff < 604800000) return Math.floor(diff / 86400000) + ' ngày trước';
-    if (diff < 2592000000) return Math.floor(diff / 604800000) + ' tuần trước';
-    if (diff < 31536000000) return Math.floor(diff / 2592000000) + ' tháng trước';
-    return Math.floor(diff / 31536000000) + ' năm trước';
-  }
-
-  if (!raw) return '';
-  return normalizeMetadataText(raw);
+  const diff = Math.max(0, Date.now() - ts);
+  if (diff < 60000) return Math.floor(diff / 1000) + ' giây trước';
+  if (diff < 3600000) return Math.floor(diff / 60000) + ' phút trước';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + ' giờ trước';
+  if (diff < 604800000) return Math.floor(diff / 86400000) + ' ngày trước';
+  if (diff < 2592000000) return Math.floor(diff / 604800000) + ' tuần trước';
+  if (diff < 31536000000) return Math.floor(diff / 2592000000) + ' tháng trước';
+  return Math.floor(diff / 31536000000) + ' năm trước';
 }
 
 export function normalizeMetadataText(value: unknown): string {
-  let text = String(value || '').trim();
-  if (!text) return '';
-
-  text = text.replace(/([\d.,]+)\s*([KMB])?\s*views?/gi, function(_, num, suffix) {
-    return formatCompactViews(String(num) + String(suffix || ''));
-  });
-
-  const replacements: Array<[RegExp, string]> = [
-    [/(\d+)\s*seconds?\s*ago/gi, '$1 giây trước'],
-    [/(\d+)\s*minutes?\s*ago/gi, '$1 phút trước'],
-    [/(\d+)\s*hours?\s*ago/gi, '$1 giờ trước'],
-    [/(\d+)\s*days?\s*ago/gi, '$1 ngày trước'],
-    [/(\d+)\s*weeks?\s*ago/gi, '$1 tuần trước'],
-    [/(\d+)\s*months?\s*ago/gi, '$1 tháng trước'],
-    [/(\d+)\s*years?\s*ago/gi, '$1 năm trước']
-  ];
-
-  for (const [re, replacement] of replacements) text = text.replace(re, replacement);
-  return text.replace(/\s*[•·]\s*/g, ' · ').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/\s*[•·]\s*/g, ' · ').replace(/\s+/g, ' ').trim();
 }
 
 export function compactMetadata(items: unknown[]): string {
-  return items.map(normalizeMetadataText).filter(Boolean).join(' · ')
-    .replace(/(?:\s*·\s*)+/g, ' · ');
+  return items.map(normalizeMetadataText).filter(Boolean).join(' · ');
 }
 ''')
 
-# Hide the global search header while actively watching media.
-p = Path("src/App.vue")
-s = p.read_text()
-s = s.replace(
-    '''<header v-if="route.path !== '/search'" class="app-header">''',
-    '''<header v-if="route.path !== '/search' && !route.path.startsWith('/watch/')" class="app-header">'''
-)
-p.write_text(s)
+p = Path("src/components/GridVideoItem.vue")
+p.write_text(r'''<template>
+  <article class="card">
+    <router-link class="thumb-link" :to="'/watch/' + data.videoId">
+      <div class="thumb">
+        <img :src="data.thumbnail" :alt="data.titleText || data.title" loading="lazy" decoding="async">
+        <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+      </div>
+    </router-link>
 
-# Home: broaden official sources, exact timestamp sort, periodic fresh reload.
+    <div class="meta-row">
+      <router-link class="avatar" :to="channelTarget" aria-label="Mở kênh">
+        <img
+          v-if="data.authorAvatar && !avatarFailed"
+          :src="data.authorAvatar"
+          :alt="channel"
+          @error="avatarFailed = true"
+        >
+        <UserRound v-else/>
+      </router-link>
+
+      <div class="copy">
+        <router-link class="title-link" :to="'/watch/' + data.videoId">
+          <h3 class="title" v-html="data.title"/>
+        </router-link>
+        <router-link class="channel" :to="channelTarget">{{ channel }}</router-link>
+        <div class="sub">
+          <span v-if="views">{{ views }}</span>
+          <span v-if="views && age"> · </span>
+          <span v-if="age">{{ age }}</span>
+        </div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { UserRound } from '@lucide/vue';
+import type { VideoItemData } from '@/utils/helpers';
+import { formatRelativeTime } from '@/utils/display1988';
+
+const props = defineProps<{
+  data: VideoItemData & {
+    channelKey?: string;
+    publishedAt?: number;
+    viewsText?: string;
+  };
+}>();
+
+const avatarFailed = ref(false);
+const tick = ref(Date.now());
+let timer: number | undefined;
+
+const channel = computed(() => String(props.data.metadata?.[0] || 'YouTube'));
+const channelTarget = computed(() => '/channel/' + encodeURIComponent(props.data.channelKey || channel.value));
+const views = computed(() => String((props.data as any).viewsText || ''));
+const age = computed(() => {
+  void tick.value;
+  return (props.data as any).publishedAt ? formatRelativeTime((props.data as any).publishedAt) : '';
+});
+
+onMounted(() => {
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (timer !== undefined) clearInterval(timer);
+});
+</script>
+
+<style scoped>
+.card {
+  min-width: 0;
+}
+
+.thumb-link,
+.title-link,
+.channel {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 13px;
+  background: #151515;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(0,0,0,.78);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.meta-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 3px 0;
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #303034;
+  color: #aaa;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 15px;
+  line-height: 1.34;
+  font-weight: 650;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.channel {
+  display: block;
+  margin-top: 4px;
+  color: #aaaab0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sub {
+  margin-top: 2px;
+  color: #85858b;
+  font-size: 11.5px;
+}
+
+@media (max-width: 680px) {
+  .thumb {
+    border-radius: 11px;
+  }
+}
+</style>
+''')
+
 p = Path("src/pages/HomePage.vue")
-s = p.read_text()
+p.write_text(r'''<template>
+  <main class="home">
+    <button class="search" type="button" @click="router.push('/search')">
+      <Search/>
+      <span>Tìm video, bài hát, kênh...</span>
+    </button>
 
-s = s.replace(
-    "import { onMounted, ref, watch } from 'vue';",
-    "import { onBeforeUnmount, onMounted, ref, watch } from 'vue';"
-)
+    <div class="chips">
+      <button
+        v-for="item in categories"
+        :key="item.id"
+        class="chip"
+        :class="{ active: category === item.id }"
+        type="button"
+        @click="category = item.id"
+      >
+        {{ item.label }}
+      </button>
+    </div>
 
-old_sources = r"""const sources: Array<{ id: SourceId; label: string; queries: string[] }> = [
+    <div class="heading">
+      <h1>Mới nhất</h1>
+      <span>Việt Nam · YouTube</span>
+    </div>
+
+    <div v-if="loading" class="state">Đang cập nhật video mới…</div>
+    <div v-else class="grid">
+      <GridVideoItem v-for="video in videos" :key="video.videoId" :data="video"/>
+    </div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { Search } from '@lucide/vue';
+import GridVideoItem from '@/components/GridVideoItem.vue';
+import type { VideoItemData } from '@/utils/helpers';
+import { formatCompactViews, numericViews, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const router = useRouter();
+
+type Category = 'latest' | 'news' | 'music' | 'movies';
+type Row = VideoItemData & {
+  channelKey?: string;
+  publishedAt?: number;
+  viewsText?: string;
+  viewCount?: number;
+};
+
+const categories: Array<{ id: Category; label: string; queries: string[] }> = [
+  {
+    id: 'latest',
+    label: 'Mới nhất',
+    queries: [
+      'Việt Nam mới nhất',
+      'video mới đăng Việt Nam',
+      'tin mới Việt Nam',
+      'nhạc Việt mới',
+      'phim Việt mới',
+      'thể thao Việt Nam mới',
+      'giải trí Việt Nam mới',
+      'công nghệ Việt Nam mới',
+      'đời sống Việt Nam mới',
+      'ẩm thực Việt Nam mới'
+    ]
+  },
   {
     id: 'news',
     label: 'Tin tức',
     queries: [
-      'tin tức Việt Nam mới nhất hôm nay VTV',
-      'thời sự Việt Nam mới nhất VTC NOW',
-      'tin mới nhất Việt Nam ANTV'
+      'VTV24 mới nhất',
+      'VTV News mới nhất',
+      'VTC NOW mới nhất',
+      'ANTV mới nhất',
+      'Tuổi Trẻ mới nhất',
+      'VnExpress mới nhất',
+      'Thanh Niên mới nhất',
+      'Dân Trí mới nhất',
+      'Vietnamnet mới nhất',
+      'Lao Động mới nhất',
+      'Tiền Phong mới nhất'
     ]
   },
   {
     id: 'music',
     label: 'Nhạc',
     queries: [
-      'nhạc Việt Nam mới nhất official MV',
-      'MV Việt mới nhất official',
-      'nhạc trẻ Việt Nam mới nhất'
-    ]
-  },
-  {
-    id: 'movies',
-    label: 'Phim mới',
-    queries: [
-      'phim Việt Nam mới nhất',
-      'phim Việt mới official trailer',
-      'phim truyền hình Việt Nam mới nhất'
-    ]
-  }
-];"""
-
-new_sources = r"""const sources: Array<{
-  id: SourceId;
-  label: string;
-  queries: string[];
-  official: string[];
-}> = [
-  {
-    id: 'news',
-    label: 'Tin tức',
-    queries: [
-      'VTV24 tin mới nhất',
-      'VTV News tin mới nhất',
-      'VTC NOW tin mới nhất',
-      'ANTV tin mới nhất',
-      'Báo Tuổi Trẻ tin mới nhất',
-      'VnExpress tin mới nhất',
-      'Báo Thanh Niên tin mới nhất',
-      'Dân Trí tin mới nhất',
-      'Vietnamnet tin mới nhất',
-      'Báo Lao Động tin mới nhất',
-      'Báo Tiền Phong tin mới nhất'
-    ],
-    official: [
-      'vtv24', 'vtv news', 'vtc now', 'antv', 'truyền hình công an nhân dân',
-      'báo tuổi trẻ', 'tuổi trẻ online', 'vnexpress', 'báo thanh niên',
-      'dân trí', 'vietnamnet', 'báo lao động', 'báo tiền phong'
-    ]
-  },
-  {
-    id: 'music',
-    label: 'Nhạc',
-    queries: [
-      'Official MV Việt Nam mới nhất',
-      'nhạc Việt official mới phát hành',
+      'nhạc Việt mới nhất official',
+      'MV Việt mới nhất',
+      'ca khúc Việt mới phát hành',
       'POPS MUSIC mới nhất',
-      'ACV Music mới nhất',
-      'M-TP Entertainment mới nhất',
-      'YEAH1 MUSIC mới nhất'
-    ],
-    official: [
-      'official', 'music', 'records', 'entertainment', 'pops', 'acv',
-      'm-tp', 'yeah1', 'vie channel'
+      'ACV Music mới nhất'
     ]
   },
   {
     id: 'movies',
     label: 'Phim mới',
     queries: [
-      'VTV Giải Trí phim mới nhất',
-      'Vie Channel phim mới nhất',
-      'HTV Films phim mới nhất',
-      'Galaxy Play phim mới nhất',
-      'phim Việt official mới nhất',
-      'trailer phim Việt official mới nhất'
-    ],
-    official: [
-      'vtv giải trí', 'vie channel', 'htv films', 'galaxy play',
-      'official', 'production', 'entertainment'
+      'phim Việt mới nhất',
+      'VTV Giải Trí mới nhất',
+      'Vie Channel phim mới',
+      'HTV phim mới',
+      'Galaxy Play phim mới'
     ]
   }
-];"""
+];
 
-if old_sources not in s:
-    raise Error("Home sources block not found");
-s = s.replace(old_sources, new_sources)
-
-s = s.replace(
-    """const activeSource = ref<SourceId>('news');
+const category = ref<Category>('latest');
 const loading = ref(false);
-const videos = ref<HomeVideo[]>([]);
-let loadSerial = 0;""",
-    """const activeSource = ref<SourceId>('news');
-const loading = ref(false);
-const videos = ref<HomeVideo[]>([]);
-let loadSerial = 0;
-let refreshTimer: number | undefined;"""
-)
+const videos = ref<Row[]>([]);
+let refreshTimer: number | undefined;
+let serial = 0;
 
-s = s.replace(
-    """  const response = await fetch(url.toString(), { cache: 'default' });""",
-    """  url.searchParams.set('_fresh', String(Date.now()));
-  const response = await fetch(url.toString(), { cache: 'no-store' });""",
-    1
-)
-
-const insertPoint = "function toVideo(row: any): HomeVideo | null {";
-const officialHelper = r"""function normalized(value: unknown) {
-  return String(value || '').normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'D')
-    .toLowerCase();
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const match = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return match?.[1] || match?.[2] || match?.[3] || '';
 }
 
-function isOfficialForSource(row: any, source: (typeof sources)[number]) {
-  const name = normalized(row?.uploaderName || row?.uploader || row?.channelName || '');
-  return source.official.some((token) => name.includes(normalized(token)));
+function channelKey(row: any): string {
+  const raw = String(row?.uploaderUrl || row?.channelUrl || '').trim();
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
 }
 
-"""
-s = s.replace(insertPoint, officialHelper + insertPoint)
+function publishedRaw(row: any) {
+  return row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+}
 
-old_collect = r"""    const seen = new Set<string>();
-    const rows: HomeVideo[] = [];
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
 
-    for (const result of settled) {
+async function searchRows(q: string) {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', 'videos');
+  url.searchParams.set('_fresh', String(Date.now()));
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  return response.ok && payload?.ok !== false && Array.isArray(payload?.data?.items)
+    ? payload.data.items
+    : [];
+}
+
+function toVideo(row: any): Row | null {
+  const id = videoId(row);
+  if (!id) return null;
+
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
+  const viewsRaw = row?.views ?? row?.viewCount ?? row?.viewText ?? '';
+
+  return {
+    videoId: id,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+    authorAvatar: String(row?.uploaderAvatar || row?.avatar || ''),
+    channelKey: channelKey(row),
+    metadata: [channel],
+    duration: durationText(row?.duration),
+    publishedAt: parsePublishedAt(publishedRaw(row)),
+    viewsText: formatCompactViews(viewsRaw),
+    viewCount: numericViews(viewsRaw)
+  };
+}
+
+async function load() {
+  const current = ++serial;
+  loading.value = !videos.value.length;
+  const item = categories.find((x) => x.id === category.value) || categories[0];
+
+  try {
+    const results = await Promise.allSettled(item.queries.map(searchRows));
+    if (current !== serial) return;
+
+    const seen = new Set<string>();
+    const merged: Row[] = [];
+
+    for (const result of results) {
       if (result.status !== 'fulfilled') continue;
       for (const raw of result.value) {
         const row = toVideo(raw);
         if (!row || seen.has(row.videoId)) continue;
         seen.add(row.videoId);
-        rows.push(row);
+        merged.push(row);
       }
     }
 
-    rows.sort((a, b) => {
+    merged.sort((a, b) => {
       const at = a.publishedAt || 0;
       const bt = b.publishedAt || 0;
       if (at !== bt) {
@@ -8829,245 +9140,982 @@ old_collect = r"""    const seen = new Set<string>();
       return (b.viewCount || 0) - (a.viewCount || 0);
     });
 
-    videos.value = rows.slice(0, 36);"""
+    videos.value = merged.slice(0, 48);
+  } finally {
+    if (current === serial) loading.value = false;
+  }
+}
 
-new_collect = r"""    const seen = new Set<string>();
-    const officialRows: HomeVideo[] = [];
-    const fallbackRows: HomeVideo[] = [];
-
-    for (const result of settled) {
-      if (result.status !== 'fulfilled') continue;
-      for (const raw of result.value) {
-        const row = toVideo(raw);
-        if (!row || seen.has(row.videoId)) continue;
-        seen.add(row.videoId);
-
-        if (isOfficialForSource(raw, source)) officialRows.push(row);
-        else fallbackRows.push(row);
-      }
-    }
-
-    const byExactTime = (a: HomeVideo, b: HomeVideo) => {
-      const at = a.publishedAt || 0;
-      const bt = b.publishedAt || 0;
-      if (at !== bt) {
-        if (!at) return 1;
-        if (!bt) return -1;
-        return bt - at;
-      }
-      return (b.viewCount || 0) - (a.viewCount || 0);
-    };
-
-    officialRows.sort(byExactTime);
-    fallbackRows.sort(byExactTime);
-
-    // Use official channels first. If one source has too few fresh results,
-    // fill the tail with the newest YouTube results rather than showing stale items.
-    videos.value = [...officialRows, ...fallbackRows].slice(0, 36);"""
-
-if old_collect not in s:
-    raise Error("Home collection block not found");
-s = s.replace(old_collect, new_collect)
-
-s = s.replace(
-    """onMounted(load);
-watch(activeSource, load);""",
-    """onMounted(() => {
+onMounted(() => {
   void load();
-  refreshTimer = window.setInterval(() => void load(), 20000);
+  refreshTimer = window.setInterval(() => void load(), 15000);
 });
 
 onBeforeUnmount(() => {
   if (refreshTimer !== undefined) clearInterval(refreshTimer);
 });
 
-watch(activeSource, () => void load());"""
-)
-
-p.write_text(s)
-
-# Search: fresh cache-bust + exact-second age display that updates every second.
-p = Path("src/pages/SearchPage.vue")
-s = p.read_text()
-s = s.replace(
-    "import { nextTick, onMounted, ref } from 'vue';",
-    "import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';"
-)
-
-s = s.replace(
-    """const videos = ref<any[]>([]);""",
-    """const videos = ref<any[]>([]);
-const clock = ref(Date.now());
-let clockTimer: number | undefined;"""
-)
-
-s = s.replace(
-    """  const response = await fetch(url.toString(), { cache: 'default' });""",
-    """  url.searchParams.set('_fresh', String(Date.now()));
-  const response = await fetch(url.toString(), { cache: 'no-store' });""",
-    1
-)
-
-s = s.replace(
-    """      formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
-      formatRelativeTime(published)
-    ].filter(Boolean).join(' · '),
-    publishedAt: parsePublishedAt(published)""",
-    """      formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText)
-    ].filter(Boolean).join(' · '),
-    publishedAt: parsePublishedAt(published)"""
-)
-
-s = s.replace(
-    """              <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>""",
-    """              <div class="video-meta">
-                <span v-if="video.meta">{{ video.meta }}</span>
-                <span v-if="video.meta && video.publishedAt"> · </span>
-                <span v-if="video.publishedAt">{{ freshAge(video.publishedAt) }}</span>
-              </div>"""
-)
-
-const searchHelperAnchor = "async function runSearch(q: string) {";
-s = s.replace(
-    searchHelperAnchor,
-    """function freshAge(ts: number) {
-  void clock.value;
-  return formatRelativeTime(ts);
-}
-
-""" + searchHelperAnchor
-)
-
-s = s.replace(
-    """onMounted(() => {
-  term.value = String(route.query.q || '').trim();
-  nextTick(() => inputRef.value?.focus());
-  if (term.value) void runSearch(term.value);
-});""",
-    """onMounted(() => {
-  term.value = String(route.query.q || '').trim();
-  nextTick(() => inputRef.value?.focus());
-  if (term.value) void runSearch(term.value);
-  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
-});
-
-onBeforeUnmount(() => {
-  if (clockTimer !== undefined) clearInterval(clockTimer);
-});"""
-)
-p.write_text(s)
-
-# Channel: exact-second metadata and no stale cache.
-p = Path("src/pages/ChannelPage.vue")
-s = p.read_text()
-s = s.replace(
-    "import { onMounted, ref, watch } from 'vue';",
-    "import { onBeforeUnmount, onMounted, ref, watch } from 'vue';"
-)
-
-s = s.replace(
-    """const videos = ref<any[]>([]);""",
-    """const videos = ref<any[]>([]);
-const clock = ref(Date.now());
-let clockTimer: number | undefined;"""
-)
-
-s = s.replace(
-    """  const response = await fetch(url.toString(), { cache: 'default' });""",
-    """  url.searchParams.set('_fresh', String(Date.now()));
-  const response = await fetch(url.toString(), { cache: 'no-store' });""",
-    1
-)
-
-s = s.replace(
-    """          meta: [
-            formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
-            formatRelativeTime(published)
-          ].filter(Boolean).join(' · '),
-          publishedAt: parsePublishedAt(published)""",
-    """          meta: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
-          publishedAt: parsePublishedAt(published)"""
-)
-
-s = s.replace(
-    """          <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>""",
-    """          <div class="video-meta">
-            <span v-if="video.meta">{{ video.meta }}</span>
-            <span v-if="video.meta && video.publishedAt"> · </span>
-            <span v-if="video.publishedAt">{{ freshAge(video.publishedAt) }}</span>
-          </div>"""
-)
-
-const channelHelperAnchor = "async function load() {";
-s = s.replace(
-    channelHelperAnchor,
-    """function freshAge(ts: number) {
-  void clock.value;
-  return formatRelativeTime(ts);
-}
-
-""" + channelHelperAnchor
-)
-
-s = s.replace(
-    """onMounted(load);
-watch(() => route.params.id, load);""",
-    """onMounted(() => {
+watch(category, () => {
+  videos.value = [];
   void load();
-  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
 });
+</script>
 
-onBeforeUnmount(() => {
-  if (clockTimer !== undefined) clearInterval(clockTimer);
-});
+<style scoped>
+.home {
+  width: min(980px, calc(100% - 14px));
+  margin: 0 auto;
+  padding: max(10px, env(safe-area-inset-top)) 0 30px;
+}
 
-watch(() => route.params.id, () => void load());"""
-)
-p.write_text(s)
+.search {
+  width: 100%;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #3a3a3e;
+  border-radius: 14px;
+  background: #2b2b2e;
+  color: #99999f;
+  text-align: left;
+}
 
-# Home cards get a once-per-second clock so a just-published item displays 4s, 5s, 6s...
-p = Path("src/components/GridVideoItem.vue")
-s = p.read_text()
-s = s.replace(
-    "import { computed, ref } from 'vue';",
-    "import { computed, onBeforeUnmount, onMounted, ref } from 'vue';"
-)
-s = s.replace(
-    "import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';",
-    "import { compactMetadata, formatRelativeTime, normalizeMetadataText } from '@/utils/display1988';"
-)
+.search :deep(svg) {
+  width: 19px;
+  height: 19px;
+}
 
-s = s.replace(
-    """const avatarFailed = ref(false);
-const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
-const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));""",
-    """const avatarFailed = ref(false);
-const clock = ref(Date.now());
-let clockTimer: number | undefined;
+.chips {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 12px 0 10px;
+  scrollbar-width: none;
+}
 
-const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
-const baseMeta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
-const meta = computed(() => {
-  void clock.value;
-  const publishedAt = Number((props.data as any).publishedAt || 0);
-  const age = publishedAt ? formatRelativeTime(publishedAt) : '';
-  return [baseMeta.value, age].filter(Boolean).join(' · ');
-});
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: #303034;
+  color: #c8c8cc;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chip.active {
+  background: #f2f2f3;
+  color: #18181a;
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 3px 2px 12px;
+}
+
+.heading h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.heading span {
+  color: #85858b;
+  font-size: 11px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px 16px;
+}
+
+.state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: #8c8c92;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 10px);
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 21px;
+  }
+}
+</style>
+''')
+
+p = Path("src/pages/SearchPage.vue")
+p.write_text(r'''<template>
+  <main class="search-page">
+    <form class="form" @submit.prevent="submit">
+      <div class="box">
+        <Search/>
+        <input
+          ref="inputRef"
+          v-model="term"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
+          placeholder="Tìm video, bài hát, kênh..."
+        >
+        <button v-if="term" type="button" class="clear" @click="clear"><X/></button>
+      </div>
+    </form>
+
+    <div v-if="loading" class="state">Đang tìm…</div>
+
+    <template v-else-if="searched">
+      <router-link
+        v-for="channel in channels"
+        :key="channel.key"
+        class="channel-card"
+        :to="'/channel/' + encodeURIComponent(channel.key)"
+      >
+        <img v-if="channel.avatar" :src="channel.avatar" :alt="channel.name">
+        <span v-else class="avatar"><UserRound/></span>
+        <span class="channel-copy">
+          <strong>{{ channel.name }}</strong>
+          <small>{{ channel.meta }}</small>
+        </span>
+      </router-link>
+
+      <div class="result-list">
+        <router-link v-for="video in videos" :key="video.id" class="result" :to="'/watch/' + video.id">
+          <div class="thumb">
+            <img :src="video.thumbnail" :alt="video.title">
+            <span v-if="video.duration">{{ video.duration }}</span>
+          </div>
+          <div class="copy">
+            <strong>{{ video.title }}</strong>
+            <small>{{ video.channel }}</small>
+            <small>{{ video.views }}<template v-if="video.views && video.publishedAt"> · </template>{{ age(video.publishedAt) }}</small>
+          </div>
+        </router-link>
+      </div>
+
+      <div v-if="!channels.length && !videos.length" class="state">Không tìm thấy kết quả.</div>
+    </template>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Search, UserRound, X } from '@lucide/vue';
+import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const router = useRouter();
+
+const inputRef = ref<HTMLInputElement | null>(null);
+const term = ref('');
+const searched = ref(false);
+const loading = ref(false);
+const channels = ref<any[]>([]);
+const videos = ref<any[]>([]);
+const tick = ref(Date.now());
+let timer: number | undefined;
+
+function idFrom(row: any) {
+  const raw = String(row?.videoId || row?.url || row?.id || '');
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || '';
+}
+
+function channelKey(row: any) {
+  const raw = String(row?.url || row?.channelUrl || row?.uploaderUrl || row?.id || '');
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(row?.name || row?.title || row?.uploaderName || row?.uploader || '');
+}
+
+function duration(value: any) {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const m = Math.floor(total / 60);
+  const s = Math.floor(total % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+async function apiSearch(filter: string, q: string) {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', filter);
+  url.searchParams.set('_fresh', String(Date.now()));
+  const res = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await res.json();
+  return res.ok && payload?.ok !== false && Array.isArray(payload?.data?.items) ? payload.data.items : [];
+}
+
+function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+async function run(q: string) {
+  q = q.trim();
+  if (!q) return;
+
+  loading.value = true;
+  searched.value = true;
+  channels.value = [];
+  videos.value = [];
+
+  try {
+    const [channelRows, videoRows] = await Promise.all([
+      apiSearch('channels', q),
+      apiSearch('videos', q)
+    ]);
+
+    const channelSeen = new Set<string>();
+    channels.value = channelRows
+      .map((row: any) => ({
+        key: channelKey(row),
+        name: String(row?.name || row?.title || row?.uploaderName || row?.uploader || ''),
+        avatar: String(row?.thumbnail || row?.avatar || row?.thumbnailUrl || ''),
+        meta: row?.subscribers ? formatCompactViews(row.subscribers).replace('lượt xem', 'người đăng ký') : ''
+      }))
+      .filter((row: any) => row.key && row.name && !channelSeen.has(row.key) && channelSeen.add(row.key))
+      .slice(0, 2);
+
+    const seen = new Set<string>();
+    videos.value = videoRows
+      .map((row: any) => {
+        const id = idFrom(row);
+        if (!id || seen.has(id)) return null;
+        seen.add(id);
+        const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+          row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+        return {
+          id,
+          title: String(row?.title || 'Video'),
+          channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+          thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+          duration: duration(row?.duration),
+          views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+          publishedAt: parsePublishedAt(published)
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (b.publishedAt || 0) - (a.publishedAt || 0))
+      .slice(0, 32);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function submit() {
+  const q = term.value.trim();
+  if (!q) return;
+  router.replace({ path: '/search', query: { q } });
+  void run(q);
+}
+
+function clear() {
+  term.value = '';
+  searched.value = false;
+  channels.value = [];
+  videos.value = [];
+  router.replace('/search');
+  nextTick(() => inputRef.value?.focus());
+}
 
 onMounted(() => {
-  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
+  term.value = String(route.query.q || '');
+  nextTick(() => inputRef.value?.focus());
+  if (term.value.trim()) void run(term.value);
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
 });
 
 onBeforeUnmount(() => {
-  if (clockTimer !== undefined) clearInterval(clockTimer);
-});"""
-)
-p.write_text(s)
+  if (timer !== undefined) clearInterval(timer);
+});
+</script>
+
+<style scoped>
+.search-page {
+  width: min(900px, calc(100% - 12px));
+  margin: 0 auto;
+  padding: max(8px, env(safe-area-inset-top)) 0 28px;
+}
+
+.form {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-bottom: 10px;
+  background: #212121;
+}
+
+.box {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px 0 13px;
+  border: 1px solid #3a3a3e;
+  border-radius: 14px;
+  background: #2b2b2e;
+}
+
+.box > :deep(svg) {
+  width: 19px;
+  height: 19px;
+  color: #8f8f95;
+}
+
+.box input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f5f5f5;
+}
+
+.clear {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #aaa;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 5px 0 12px;
+  padding: 10px;
+  border-radius: 13px;
+  background: #2b2b2e;
+  text-decoration: none;
+}
+
+.channel-card img,
+.avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #343438;
+  object-fit: cover;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+}
+
+.channel-copy {
+  min-width: 0;
+}
+
+.channel-copy strong,
+.channel-copy small {
+  display: block;
+}
+
+.channel-copy small {
+  margin-top: 4px;
+  color: #8e8e94;
+  font-size: 11px;
+}
+
+.result-list {
+  display: grid;
+  gap: 12px;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  gap: 10px;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #151515;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb span {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.78);
+  font-size: 10px;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.copy strong {
+  display: -webkit-box;
+  color: #f3f3f4;
+  font-size: 14px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.copy small {
+  display: block;
+  margin-top: 4px;
+  color: #8f8f95;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: #8d8d92;
+  font-size: 13px;
+}
+</style>
+''')
+
+p = Path("src/pages/WatchPage.vue")
+p.write_text(r'''<template>
+  <main class="watch">
+    <VideoPlayer :video-id="videoId"/>
+
+    <section v-if="details" class="info">
+      <h1>{{ details.title }}</h1>
+
+      <router-link v-if="details.channelKey" class="channel-row" :to="'/channel/' + encodeURIComponent(details.channelKey)">
+        <img v-if="details.avatar" :src="details.avatar" :alt="details.channel">
+        <span v-else class="avatar"><UserRound/></span>
+        <span>{{ details.channel }}</span>
+      </router-link>
+    </section>
+
+    <section v-if="related.length" class="related">
+      <router-link v-for="row in related" :key="row.id" class="related-row" :to="'/watch/' + row.id">
+        <div class="thumb">
+          <img :src="row.thumbnail" :alt="row.title">
+          <span v-if="row.duration">{{ row.duration }}</span>
+        </div>
+        <div class="copy">
+          <strong>{{ row.title }}</strong>
+          <small>{{ row.channel }}</small>
+          <small>{{ row.views }}<template v-if="row.views && row.publishedAt"> · </template>{{ age(row.publishedAt) }}</small>
+        </div>
+      </router-link>
+    </section>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { UserRound } from '@lucide/vue';
+import VideoPlayer from '@/components/VideoPlayer.vue';
+import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const videoId = computed(() => String(route.params.id || ''));
+
+const details = ref<any>(null);
+const related = ref<any[]>([]);
+const tick = ref(Date.now());
+let timer: number | undefined;
+
+function relatedId(row: any) {
+  const raw = String(row?.videoId || row?.url || row?.id || '');
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || '';
+}
+
+function channelKey(data: any) {
+  const raw = String(data?.uploaderUrl || data?.channelUrl || '');
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(data?.uploader || data?.uploaderName || data?.author || '');
+}
+
+function duration(value: any) {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const m = Math.floor(total / 60);
+  const s = Math.floor(total % 60);
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+async function load() {
+  details.value = null;
+  related.value = [];
+
+  const url = new URL(API);
+  url.searchParams.set('action', 'video');
+  url.searchParams.set('id', videoId.value);
+  url.searchParams.set('_fresh', String(Date.now()));
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) return;
+
+  const data = payload?.data || {};
+  const title = String(data?.title || '');
+  document.title = title || '1988';
+
+  details.value = {
+    title,
+    channel: String(data?.uploader || data?.uploaderName || data?.author || 'YouTube'),
+    avatar: String(data?.uploaderAvatar || data?.avatar || ''),
+    channelKey: channelKey(data)
+  };
+
+  const seen = new Set<string>();
+  related.value = (Array.isArray(data?.relatedStreams) ? data.relatedStreams : [])
+    .map((row: any) => {
+      const id = relatedId(row);
+      if (!id || id === videoId.value || seen.has(id)) return null;
+      seen.add(id);
+
+      const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+        row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+
+      return {
+        id,
+        title: String(row?.title || 'Video'),
+        channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+        thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+        duration: duration(row?.duration),
+        views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+        publishedAt: parsePublishedAt(published)
+      };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => (b.publishedAt || 0) - (a.publishedAt || 0))
+    .slice(0, 24);
+}
+
+onMounted(() => {
+  void load();
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (timer !== undefined) clearInterval(timer);
+});
+
+watch(videoId, () => void load());
+</script>
+
+<style scoped>
+.watch {
+  width: min(1080px, 100%);
+  margin: 0 auto;
+  padding: 0 0 30px;
+}
+
+.info {
+  padding: 11px 12px 9px;
+}
+
+.info h1 {
+  margin: 0 0 10px;
+  color: #f5f5f5;
+  font-size: 17px;
+  line-height: 1.32;
+  font-weight: 650;
+}
+
+.channel-row {
+  width: fit-content;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #d6d6da;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.channel-row img,
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #303034;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+}
+
+.related {
+  display: grid;
+  gap: 12px;
+  padding: 5px 10px 0;
+}
+
+.related-row {
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #151515;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb span {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.78);
+  font-size: 10px;
+}
+
+.copy strong {
+  display: -webkit-box;
+  color: #f4f4f5;
+  font-size: 13.5px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.copy small {
+  display: block;
+  margin-top: 4px;
+  color: #8e8e94;
+  font-size: 11px;
+}
+
+@media (min-width: 900px) {
+  .watch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    column-gap: 18px;
+    padding: 16px;
+  }
+
+  .watch > :deep(.video-player),
+  .info {
+    grid-column: 1;
+  }
+
+  .related {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    padding: 0;
+  }
+}
+</style>
+''')
+
+p = Path("src/pages/ChannelPage.vue")
+p.write_text(r'''<template>
+  <main class="channel-page">
+    <section v-if="channel" class="channel-head">
+      <img v-if="channel.avatar" :src="channel.avatar" :alt="channel.name">
+      <span v-else class="avatar"><UserRound/></span>
+      <div>
+        <h1>{{ channel.name }}</h1>
+        <p v-if="channel.meta">{{ channel.meta }}</p>
+      </div>
+    </section>
+
+    <h2 v-if="videos.length">Video mới nhất</h2>
+
+    <div class="grid">
+      <router-link v-for="video in videos" :key="video.id" class="card" :to="'/watch/' + video.id">
+        <div class="thumb">
+          <img :src="video.thumbnail" :alt="video.title">
+          <span v-if="video.duration">{{ video.duration }}</span>
+        </div>
+        <strong>{{ video.title }}</strong>
+        <small>{{ video.views }}<template v-if="video.views && video.publishedAt"> · </template>{{ age(video.publishedAt) }}</small>
+      </router-link>
+    </div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { UserRound } from '@lucide/vue';
+import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const channel = ref<any>(null);
+const videos = ref<any[]>([]);
+const tick = ref(Date.now());
+let timer: number | undefined;
+
+function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+function idFrom(row: any) {
+  const raw = String(row?.videoId || row?.url || row?.id || '');
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || '';
+}
+
+async function fetchJson(url: URL) {
+  url.searchParams.set('_fresh', String(Date.now()));
+  const res = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await res.json();
+  if (!res.ok || payload?.ok === false) throw new Error('request_failed');
+  return payload;
+}
+
+async function resolveKey(key: string) {
+  if (/^UC[A-Za-z0-9_-]+$/.test(key)) return key;
+
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', key.replace(/^@/, ''));
+  url.searchParams.set('filter', 'channels');
+
+  const payload = await fetchJson(url);
+  for (const row of Array.isArray(payload?.data?.items) ? payload.data.items : []) {
+    const raw = String(row?.url || row?.id || '');
+    const id = raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+    if (id) return id;
+  }
+  return '';
+}
+
+async function load() {
+  const key = decodeURIComponent(String(route.params.id || ''));
+  const id = await resolveKey(key);
+  if (!id) return;
+
+  const url = new URL(API);
+  url.searchParams.set('action', 'channel');
+  url.searchParams.set('id', id);
+
+  const payload = await fetchJson(url);
+  const data = payload?.data || {};
+  const subscribers = data?.subscriberCount ?? data?.subscribers ?? '';
+
+  channel.value = {
+    name: String(data?.name || data?.channelName || data?.title || key),
+    avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || ''),
+    meta: subscribers ? formatCompactViews(subscribers).replace('lượt xem', 'người đăng ký') : ''
+  };
+
+  const seen = new Set<string>();
+  const rows = Array.isArray(data?.relatedStreams) ? data.relatedStreams : (Array.isArray(data?.items) ? data.items : []);
+
+  videos.value = rows
+    .map((row: any) => {
+      const id = idFrom(row);
+      if (!id || seen.has(id)) return null;
+      seen.add(id);
+      const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+        row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+      const total = Math.max(0, Number(row?.duration) || 0);
+      return {
+        id,
+        title: String(row?.title || 'Video'),
+        thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+        duration: typeof row?.duration === 'string' && row.duration.includes(':')
+          ? row.duration
+          : total ? Math.floor(total / 60) + ':' + String(Math.floor(total % 60)).padStart(2, '0') : '',
+        views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+        publishedAt: parsePublishedAt(published)
+      };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => (b.publishedAt || 0) - (a.publishedAt || 0))
+    .slice(0, 40);
+}
+
+onMounted(() => {
+  void load();
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (timer !== undefined) clearInterval(timer);
+});
+
+watch(() => route.params.id, () => void load());
+</script>
+
+<style scoped>
+.channel-page {
+  width: min(980px, calc(100% - 12px));
+  margin: 0 auto;
+  padding: max(10px, env(safe-area-inset-top)) 0 30px;
+}
+
+.channel-head {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border-radius: 14px;
+  background: #2b2b2e;
+}
+
+.channel-head img,
+.avatar {
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #343438;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+}
+
+.channel-head h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.channel-head p {
+  margin: 5px 0 0;
+  color: #929298;
+  font-size: 11.5px;
+}
+
+.channel-page > h2 {
+  margin: 18px 2px 11px;
+  font-size: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 20px 14px;
+}
+
+.card {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 11px;
+  background: #151515;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb span {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.78);
+  font-size: 10px;
+}
+
+.card strong {
+  display: -webkit-box;
+  margin: 8px 2px 0;
+  font-size: 14px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card small {
+  display: block;
+  margin: 4px 2px 0;
+  color: #88888e;
+  font-size: 11px;
+}
+
+@media (max-width: 680px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
+''')
 
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-57-exact-second-freshness\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-58-new-ui-antizoom\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
