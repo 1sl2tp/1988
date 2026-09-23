@@ -39,6 +39,15 @@ jobs:
           root=Path('/tmp/googlevideo/examples/sabr-shaka-example')
           proxy=os.environ['PROXY_BASE']
 
+          # Use YouTube.js' own PRODUCTION_2 endpoint for this diagnostic.
+          constants=root/'node_modules/youtubei.js/dist/src/utils/Constants.js'
+          cs=constants.read_text()
+          old_api="PRODUCTION_1: 'https://www.youtube.com/youtubei/'"
+          new_api="PRODUCTION_1: 'https://youtubei.googleapis.com/youtubei/'"
+          if old_api not in cs:
+              raise SystemExit('YouTube.js PRODUCTION_1 constant not found')
+          constants.write_text(cs.replace(old_api,new_api))
+
           # 1) Current SABR example normally requires ytc-bridge.
           # On mobile Kira falls back to a proxy server. Use that same path.
           main=root/'src/main.ts'
