@@ -1,0 +1,154 @@
+name: Lab Piped Proxy Candidates
+
+on:
+  push:
+    branches:
+      - lab/piped-shaka-20260923
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Try current free proxies with official Piped stack
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/piped-candidates
+
+          PROXIES=(
+            "http://107.167.18.122:443"
+            "http://193.233.211.220:8443"
+            "http://178.92.72.78:8080"
+            "http://159.195.194.242:8080"
+            "http://195.158.8.123:3128"
+            "http://150.241.245.211:8080"
+            "http://14.225.68.207:1337"
+            "http://152.53.183.107:8081"
+          )
+
+          docker network create piped-lab-net >/dev/null 2>&1 || true
+
+          docker run -d --rm --name piped-postgres --network piped-lab-net \
+            -e POSTGRES_DB=piped \
+            -e POSTGRES_USER=piped \
+            -e POSTGRES_PASSWORD=changeme \
+            postgres:17-alpine >/dev/null
+
+          docker run -d --rm --name piped-bg-helper --network piped-lab-net \
+            1337kavin/bg-helper-server:latest >/dev/null
+
+          for i in $(seq 1 40); do
+            if docker exec piped-postgres pg_isready -U piped >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+
+          SUCCESS=""
+          for P in "\${PROXIES[@]}"; do
+            echo ""
+            echo "===== TRY $P ====="
+
+            docker rm -f piped-backend piped-proxy >/dev/null 2>&1 || true
+
+            cat > /tmp/piped-candidates/config.properties <<CFG
+          PORT:8080
+          HTTP_WORKERS:1
+          PROXY_PART:http://127.0.0.1:18082
+          REQWEST_PROXY:$P
+          API_URL:http://127.0.0.1:18081
+          FRONTEND_URL:http://127.0.0.1:18083
+          COMPROMISED_PASSWORD_CHECK:false
+          DISABLE_REGISTRATION:true
+          FEED_RETENTION:1
+          DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
+          DISABLE_RYD:true
+          DISABLE_SERVER:false
+          DISABLE_LBRY:true
+          SUBSCRIPTIONS_EXPIRY:1
+          CONSENT_COOKIE:true
+          BG_HELPER_URL:http://piped-bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://piped-postgres:5432/piped
+          hibernate.connection.driver_class:org.postgresql.Driver
+          hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
+          hibernate.connection.username:piped
+          hibernate.connection.password:changeme
+          CFG
+
+            docker run -d --rm --name piped-proxy --network piped-lab-net \
+              -p 18082:8080 \
+              -e PROXY="$P" \
+              1337kavin/piped-proxy:latest >/dev/null
+
+            docker run -d --rm --name piped-backend --network piped-lab-net \
+              -p 18081:8080 \
+              -v /tmp/piped-candidates/config.properties:/app/config.properties:ro \
+              1337kavin/piped:latest >/dev/null
+
+            READY=0
+            for i in $(seq 1 35); do
+              CODE=$(curl -sS -o /tmp/config.json -w '%{http_code}' --max-time 2 \
+                http://127.0.0.1:18081/config || true)
+              if [ "$CODE" = "200" ]; then READY=1; break; fi
+              sleep 1
+            done
+
+            if [ "$READY" != "1" ]; then
+              echo "backend did not become ready for $P"
+              docker logs --tail=60 piped-backend || true
+              continue
+            fi
+
+            OUT="/tmp/streams-$(echo "$P" | tr '/:' '_').json"
+            META=$(curl -sS -L \
+              --connect-timeout 4 \
+              --max-time 35 \
+              -o "$OUT" \
+              -w '%{http_code}|%{time_total}|%{size_download}' \
+              'http://127.0.0.1:18081/streams/vhUjvanyu2U' || true)
+
+            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null || echo 0)
+            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null || echo 0)
+            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null || true)
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null || true)
+
+            echo "RESULT proxy=$P meta=$META audio=$AC video=$VC hls=$([ -n "$HLS" ] && echo yes || echo no) title=$TITLE"
+
+            if [ "\${AC:-0}" -gt 0 ] || [ "\${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; then
+              SUCCESS="$P"
+              echo "STREAM_SUCCESS=$P"
+
+              AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT")
+              VIDEO=$(jq -r '[(.videoStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT")
+              for KIND in AUDIO VIDEO; do
+                eval U="\$$KIND"
+                [ -z "$U" ] && continue
+                HDR=$(mktemp); BIN=$(mktemp)
+                curl -sS -L --connect-timeout 4 --max-time 18 \
+                  -H 'Range: bytes=0-8191' -D "$HDR" -o "$BIN" "$U" || true
+                CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+                TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+                SIZE=$(wc -c < "$BIN")
+                FILE=$(file -b "$BIN" 2>/dev/null)
+                echo "MEDIA $KIND code=$CODE type=$TYPE size=$SIZE file=$FILE"
+                rm -f "$HDR" "$BIN"
+              done
+              break
+            fi
+
+            echo "--- backend error tail ---"
+            docker logs --tail=80 piped-backend 2>&1 | tail -80 || true
+          done
+
+          echo ""
+          echo "===== FINAL ====="
+          if [ -z "$SUCCESS" ]; then
+            echo "No candidate produced Piped streams"
+            exit 4
+          fi
+          echo "WINNER=$SUCCESS"
