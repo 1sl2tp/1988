@@ -1990,10 +1990,84 @@ const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)
 </script>
 ''')
 
+
+# Compact search metadata and trim watch-page chrome around the iframe.
+p = Path("src/App.vue")
+s = p.read_text()
+if "from '@/utils/display1988'" not in s:
+    s = s.replace(
+        "import { useDebounce } from '@/composables/useDebounce';",
+        "import { useDebounce } from '@/composables/useDebounce';\nimport { formatCompactViews, formatRelativeTime } from '@/utils/display1988';",
+        1
+    )
+s = s.replace(
+    "  views?: string | null;\n}[]>([]);",
+    "  views?: string | null;\n  published?: string | null;\n}[]>([]);",
+    1
+)
+old_views = "views: String(row?.viewText || (row?.views ? " + chr(96) + "$" + "{row.views} views" + chr(96) + " : '')) || null"
+new_views = "views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText) || null,\n        published: formatRelativeTime(row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ?? row?.publishedAt ?? row?.published ?? row?.publishedText) || null"
+if old_views in s:
+    s = s.replace(old_views, new_views, 1)
+s = s.replace(
+    '<div v-if="result.views" class="meta">{{ result.views }}</div>',
+    '<div v-if="result.views || result.published" class="meta">{{ [result.views, result.published].filter(Boolean).join(" · ") }}</div>',
+    1
+)
+s = s.replace("width: 180px;\n  height: 100px;", "width: 156px;\n  height: 88px;", 1)
+s = s.replace("padding: 12px;\n  cursor: pointer;", "padding: 10px;\n  cursor: pointer;", 1)
+s = s.replace("font-size: 16px;\n  margin-bottom: 6px;", "font-size: 15px;\n  margin-bottom: 4px;", 1)
+p.write_text(s)
+
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+if "from '@/utils/display1988'" not in s:
+    s = s.replace(
+        "import { VideoDetails, VideoItemData } from '@/utils/helpers';",
+        "import { VideoDetails, VideoItemData } from '@/utils/helpers';\nimport { formatCompactViews, formatRelativeTime } from '@/utils/display1988';",
+        1
+    )
+old_meta = """        metadata: [
+          String(row?.uploaderName || row?.uploader || row?.channelName || ''),
+          String(row?.viewText || (row?.views ? String(row.views) + ' views' : ''))
+        ].filter(Boolean),"""
+new_meta = """        metadata: [
+          String(row?.uploaderName || row?.uploader || row?.channelName || ''),
+          [
+            formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+            formatRelativeTime(row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ?? row?.publishedAt ?? row?.published ?? row?.publishedText)
+          ].filter(Boolean).join(' · ')
+        ].filter(Boolean),"""
+if old_meta in s:
+    s = s.replace(old_meta, new_meta, 1)
+
+s += r'''
+<style scoped>
+.video-info { margin-top: 8px; }
+.video-title { font-size: 18px; line-height: 1.32; margin-bottom: 9px; }
+.metadata-row { padding: 3px 0 10px; }
+.channel-avatar { width: 36px; height: 36px; }
+.subscriber-count { display: none; }
+.description { display: none; }
+.secondary { margin-top: 12px; }
+
+@media (max-width: 768px) {
+  .watch-page { gap: 10px; }
+  .primary { margin-top: 6px; }
+  .video-title { font-size: 17px; margin-bottom: 7px; }
+  .metadata-row { padding-bottom: 8px; }
+  .download-btn-container,
+  .separator { display: none; }
+  .secondary { margin-top: 2px; }
+}
+</style>
+'''
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-44-fast-search-thumbs\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-45-compact-newest-ui\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
