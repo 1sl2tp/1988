@@ -1,4 +1,4 @@
-name: Lab Winning Proxy Media Test
+name: Lab Find Full Piped Proxy
 
 on:
   push:
@@ -9,26 +9,27 @@ permissions:
   contents: read
 
 jobs:
-  media:
+  find-working-proxy:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 14
     steps:
-      - name: Start official Piped stack with winning free proxy
+      - name: Prepare official Piped stack
         shell: bash
         run: |
           set -e
           mkdir -p /tmp/piped-lab
-          cat > /tmp/piped-lab/config.properties <<'CFG'
+          cat > /tmp/piped-lab/base.properties <<'CFG'
           PORT:8080
-          HTTP_WORKERS:1
+          HTTP_WORKERS:2
           PROXY_PART:http://127.0.0.1:8082
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
-          REQWEST_PROXY:http://49.48.121.191:8080
           COMPROMISED_PASSWORD_CHECK:false
           DISABLE_REGISTRATION:true
           FEED_RETENTION:1
           DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
           DISABLE_RYD:true
           DISABLE_SERVER:false
           DISABLE_LBRY:true
@@ -54,14 +55,18 @@ jobs:
                 test: ["CMD-SHELL", "pg_isready -U piped"]
                 interval: 2s
                 timeout: 2s
-                retries: 20
+                retries: 30
+
             bg-helper:
               image: 1337kavin/bg-helper-server:latest
+
             proxy:
               image: 1337kavin/piped-proxy:latest
               environment:
-                PROXY: socks5://103.88.234.239:40002
-              ports: ["8082:8080"]
+                PROXY: ${CURRENT_PROXY}
+              ports:
+                - "8082:8080"
+
             piped:
               image: 1337kavin/piped:latest
               depends_on:
@@ -71,43 +76,89 @@ jobs:
                   condition: service_started
                 proxy:
                   condition: service_started
-              ports: ["8081:8080"]
+              ports:
+                - "8081:8080"
               volumes:
                 - /tmp/piped-lab/config.properties:/app/config.properties:ro
           YML
 
+          cp /tmp/piped-lab/base.properties /tmp/piped-lab/config.properties
           cd /tmp/piped-lab
-          docker compose up -d
+          docker compose up -d postgres bg-helper
 
-          for i in $(seq 1 45); do
-            CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
-            [ "$CODE" = "200" ] && break
-            sleep 2
-          done
-
-      - name: Resolve and verify actual MP4 bytes
+      - name: Get fresh candidates
         shell: bash
         run: |
           set -e
-          OUT=/tmp/streams.json
-          curl -fsS --max-time 35 http://127.0.0.1:8081/streams/vhUjvanyu2U -o "$OUT"
-          URL=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // empty' "$OUT")
-          echo "TITLE=$(jq -r '.title' "$OUT")"
-          echo "STREAM=$URL"
-          [ -n "$URL" ]
+          curl -fsSL --max-time 20             https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/socks5.txt             -o /tmp/all.txt
+          grep -v '^$' /tmp/all.txt | head -120 > /tmp/candidates.txt || true
+          : > /tmp/live.txt
 
-          HDR=$(mktemp)
-          BIN=$(mktemp)
-          curl -sS -L --connect-timeout 4 --max-time 20             -H 'Range: bytes=0-65535' -D "$HDR" -o "$BIN" "$URL"
+          while read -r P; do
+            (
+              BODY=$(mktemp)
+              CODE=$(curl -sS --socks5-hostname "$P" --connect-timeout 2 --max-time 5                 -A 'Mozilla/5.0' -o "$BODY" -w '%{http_code}'                 'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
+              SIZE=$(wc -c < "$BODY" 2>/dev/null || echo 0)
+              if [ "$CODE" = "200" ] && [ "$SIZE" -gt 10000 ]; then
+                echo "$P" >> /tmp/live.txt
+                echo "LIVE|$P|$SIZE"
+              fi
+              rm -f "$BODY"
+            ) &
+          done < /tmp/candidates.txt
+          wait
 
-          CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          CRANGE=$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); print $2" "$3}' "$HDR" | tail -1)
-          ARANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          SIZE=$(wc -c < "$BIN")
-          FILE=$(file -b "$BIN")
-          echo "MEDIA|HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CRANGE=$CRANGE|ARANGE=$ARANGE|FILE=$FILE"
-          xxd -l 64 "$BIN"
+          awk '!seen[$0]++' /tmp/live.txt | head -12 > /tmp/selected.txt || true
+          echo '=== SELECTED ==='
+          cat /tmp/selected.txt
+          test -s /tmp/selected.txt
 
-          case "$TYPE" in video/mp4*) ;; *) exit 1 ;; esac
-          [ "$SIZE" -gt 1000 ]
+      - name: Require both resolver and media to work
+        shell: bash
+        run: |
+          set +e
+          cd /tmp/piped-lab
+          N=0
+          WIN=''
+          while read -r P; do
+            N=$((N+1))
+            echo "=== FULL TRY#$N $P ==="
+            export CURRENT_PROXY="socks5://$P"
+            cp base.properties config.properties
+            printf '\nREQWEST_PROXY:socks5://%s\n' "$P" >> config.properties
+
+            docker compose rm -sf proxy piped >/dev/null 2>&1 || true
+            docker compose up -d proxy piped >/dev/null
+
+            READY=0
+            for i in $(seq 1 20); do
+              C=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
+              if [ "$C" = "200" ]; then READY=1; break; fi
+              sleep 1
+            done
+            [ "$READY" = "1" ] || { echo "NOT_READY|$P"; continue; }
+
+            OUT="/tmp/s-$N.json"
+            META=$(curl -sS --connect-timeout 3 --max-time 25               -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'               http://127.0.0.1:8081/streams/vhUjvanyu2U)
+            URL=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // empty' "$OUT" 2>/dev/null)
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
+            echo "RESOLVE|$P|$META|TITLE=$TITLE|MUX=$([ -n "$URL" ] && echo yes || echo no)"
+            [ -n "$URL" ] || continue
+
+            HDR=$(mktemp); BIN=$(mktemp)
+            curl -sS -L --connect-timeout 3 --max-time 18               -H 'Range: bytes=0-65535' -D "$HDR" -o "$BIN" "$URL"
+            CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+            TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            SIZE=$(wc -c < "$BIN")
+            FILE=$(file -b "$BIN" 2>/dev/null)
+            echo "MEDIA|$P|HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|FILE=$FILE"
+
+            if { [ "$CODE" = "200" ] || [ "$CODE" = "206" ]; } &&                echo "$TYPE" | grep -qi '^video/mp4' && [ "$SIZE" -gt 1000 ]; then
+              WIN="$P"
+              echo "FULL_SUCCESS_PROXY=$P"
+              echo "$P" > /tmp/winner.txt
+              break
+            fi
+          done < /tmp/selected.txt
+
+          [ -n "$WIN" ] || { echo 'NO_FULL_PROXY_FOUND'; exit 1; }
