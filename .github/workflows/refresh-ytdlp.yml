@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          LATEST="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | python -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
+          LATEST="$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases/latest | python -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')"
           echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
           CURRENT="$(cat backend/ytdlp/YTDLP_LATEST.txt 2>/dev/null || true)"
           echo "current=$CURRENT"
@@ -35,7 +35,7 @@ jobs:
       - name: Verify latest yt-dlp installs
         if: steps.version.outputs.changed == 'true'
         run: |
-          python -m pip install -U "yt-dlp[default,curl-cffi]"
+          python -m pip install -U --pre "yt-dlp[default,curl-cffi]"
           yt-dlp --version
           python -m py_compile backend/ytdlp/server.py
       - name: Commit refresh stamp
