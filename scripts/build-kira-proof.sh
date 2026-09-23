@@ -3453,6 +3453,38 @@ s += r'''
 '''
 p.write_text(s)
 
+
+# Remove the obsolete live-search machinery now that search is Enter-only.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace("import SadFaceIcon from '@/components/icons/SadFaceIcon.vue';\n", "")
+s = s.replace("import { useDebounce } from '@/composables/useDebounce';\n", "")
+s = s.replace("  handleImageError,\n", "")
+
+state_start = s.find("const searchResults = ref<")
+state_end = s.find("const showSettingsDialog = ref(false);", state_start)
+if state_start >= 0 and state_end >= 0:
+    state_end += len("const showSettingsDialog = ref(false);")
+    s = s[:state_start] + "const showSettingsDialog = ref(false);" + s[state_end:]
+
+logic_start = s.find("const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';")
+logic_end = s.find("const saveSettings =", logic_start)
+if logic_start >= 0 and logic_end >= 0:
+    minimal = r"""function submitSearch() {
+  const query = searchQuery.value.trim();
+  if (!query) return;
+  router.push({ path: '/search', query: { q: query } });
+}
+
+function clearSearch() {
+  searchQuery.value = '';
+}
+
+"""
+    s = s[:logic_start] + minimal + s[logic_end:]
+
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
