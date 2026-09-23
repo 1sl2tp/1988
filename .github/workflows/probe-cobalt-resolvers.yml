@@ -11,54 +11,52 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 4
     steps:
-      - name: Probe active third-party YouTube resolvers
+      - name: Verify loader.to final MP3 URL
         shell: bash
         run: |
-          set +e
-          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
-          ENC='https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
+          set -u
+          SRC='https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
+          START=$(mktemp)
+          curl -sS -L --connect-timeout 4 --max-time 20 -A 'Mozilla/5.0'             "https://loader.to/ajax/download.php?format=mp3&url=$SRC" -o "$START"
+          cat "$START"; echo
 
-          declare -A APIS
-          APIS[akuari]="https://api.akuari.my.id/downloader/youtube?link=$ENC"
-          APIS[nexray]="https://api.nexray.eu.cc/downloader/v1/ytmp3?url=$ENC"
-          APIS[fabdl]="https://api.fabdl.com/youtube/get?url=$ENC"
-          APIS[nyxs]="https://api.nyxs.pw/dl/yt-direct?url=$ENC"
-          APIS[ryzendesu]="https://api.ryzendesu.vip/api/downloader/ytdl?url=$ENC"
-          APIS[akane]="https://api.akane.web.id/api/downloader/youtube?url=$ENC&type=audio&quality=128"
-          APIS[delirius]="https://deliriussapi-oficial.vercel.app/download/ytmp4?url=$ENC"
-          APIS[loader]="https://loader.to/ajax/download.php?format=mp3&url=$ENC"
+          PROGRESS=$(jq -r '.progress_url // empty' "$START")
+          if [ -z "$PROGRESS" ]; then echo 'NO_PROGRESS_URL'; exit 1; fi
 
-          probe_api(){
-            NAME="$1"; U="$2"
-            OUT=$(mktemp)
-            META=$(curl -sS -L --connect-timeout 3 --max-time 18 -A 'Mozilla/5.0' -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
-            echo "=== $NAME ==="
-            echo "API $META"
-            head -c 1800 "$OUT"; echo
-            if jq -e . "$OUT" >/dev/null 2>&1; then
-              jq -r '.. | strings | select(test("^https?://"))' "$OUT" 2>/dev/null | awk '!seen[$0]++' | head -8 > "/tmp/$NAME.urls"
-            else
-              : > "/tmp/$NAME.urls"
-            fi
-            n=0
-            while read -r M; do
-              n=$((n+1))
-              HDR=$(mktemp); BIN=$(mktemp)
-              curl -sS -L --connect-timeout 3 --max-time 12 -A 'Mozilla/5.0' -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$M"
-              CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-              TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              SIZE=$(wc -c < "$BIN")
-              FILE=$(file -b "$BIN" 2>/dev/null)
-              CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              CRANGE=$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); print $2" "$3}' "$HDR" | tail -1)
-              echo "URL#$n HTTP=$CODE TYPE=$TYPE SIZE=$SIZE CORS=$CORS CRANGE=$CRANGE FILE=$FILE URL=$M"
-              rm -f "$HDR" "$BIN"
-            done < "/tmp/$NAME.urls"
-            rm -f "$OUT"
-          }
+          FINAL=''
+          for i in $(seq 1 20); do
+            sleep 2
+            P=$(mktemp)
+            curl -sS -L --connect-timeout 4 --max-time 12 -A 'Mozilla/5.0' "$PROGRESS" -o "$P"
+            echo "POLL#$i $(cat "$P" | head -c 700)"
+            FINAL=$(jq -r '.download_url // .url // empty' "$P" 2>/dev/null)
+            SUCCESS=$(jq -r '.success // empty' "$P" 2>/dev/null)
+            rm -f "$P"
+            if [ -n "$FINAL" ] && { [ "$SUCCESS" = "1" ] || [ "$SUCCESS" = "true" ]; }; then break; fi
+          done
 
-          export -f probe_api
-          for NAME in "${!APIS[@]}"; do probe_api "$NAME" "${APIS[$NAME]}" & done
-          wait
+          echo "FINAL=$FINAL"
+          [ -n "$FINAL" ] || { echo 'NO_FINAL_URL'; exit 1; }
+
+          HDR=$(mktemp); BIN=$(mktemp)
+          curl -sS -L --connect-timeout 4 --max-time 25 -A 'Mozilla/5.0'             -H 'Range: bytes=0-16383' -D "$HDR" -o "$BIN" "$FINAL"
+          echo '=== HEADERS ==='
+          cat "$HDR"
+          CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+          SIZE=$(wc -c < "$BIN")
+          FILE=$(file -b "$BIN" 2>/dev/null)
+          CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+          CRANGE=$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); print $2" "$3}' "$HDR" | tail -1)
+          ARANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+          echo "FINAL_MEDIA HTTP=$CODE TYPE=$TYPE SIZE=$SIZE CORS=$CORS CRANGE=$CRANGE ARANGE=$ARANGE FILE=$FILE"
+          xxd -l 32 "$BIN" || true
+          rm -f "$START" "$HDR" "$BIN"
+
+          case "$TYPE" in
+            audio/*|video/*|application/octet-stream) ;;
+            *) echo "BAD_MEDIA_TYPE=$TYPE"; exit 1 ;;
+          esac
+          [ "$SIZE" -gt 1000 ] || { echo "BAD_MEDIA_SIZE"; exit 1; }
