@@ -1017,6 +1017,83 @@ src = src.replace(
 p.write_text(src)
 
 
+# Temporary production player: use the proven YouTube iframe path for immediate
+# playback while keeping the native DASH/Cobalt implementation in the codebase
+# for later work. The iframe is isolated inside Kira's existing player frame.
+p = Path("src/components/VideoPlayer.vue")
+p.write_text(r'''<style scoped>
+.video-player-container {
+  overflow: hidden;
+  border-radius: 12px;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  background: #000;
+}
+
+.iframe-shell {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+.youtube-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  border: 0;
+  background: #000;
+}
+
+/*
+ * YouTube's embedded UI is kept inside the video frame only. Deprecated
+ * showinfo=0 is still sent as a best-effort hint alongside modestbranding.
+ * No YouTube title/channel block is rendered by our app around the iframe;
+ * Kira's own metadata below remains the only surrounding information.
+ */
+</style>
+
+<template>
+  <div class="video-player-container">
+    <div class="iframe-shell">
+      <iframe
+        class="youtube-frame"
+        :src="embedUrl"
+        :title="'YouTube video ' + videoId"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue';
+
+const props = defineProps<{ videoId: string }>();
+
+const embedUrl = computed(() => {
+  const id = encodeURIComponent(props.videoId || '');
+  const origin = encodeURIComponent(window.location.origin);
+  return 'https://www.youtube-nocookie.com/embed/' + id
+    + '?autoplay=1'
+    + '&playsinline=1'
+    + '&controls=1'
+    + '&rel=0'
+    + '&modestbranding=1'
+    + '&showinfo=0'
+    + '&iv_load_policy=3'
+    + '&fs=1'
+    + '&enablejsapi=1'
+    + '&origin=' + origin;
+});
+</script>
+''')
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -1120,7 +1197,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-41-cloudflare-ios-dash\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-42-iframe-fast\">", 1)
 p.write_text(s)
 PY
 
