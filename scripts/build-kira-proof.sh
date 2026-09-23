@@ -3485,6 +3485,14 @@ function clearSearch() {
 
 p.write_text(s)
 
+
+# Final Enter-only App cleanup: no live loader/imports.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace('<div v-if="isLoading" class="loader"></div>\n', '')
+s = s.replace("import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';\n", "")
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
