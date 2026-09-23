@@ -15,4 +15,4 @@ assert.match(start,/build\/main\.js/);
 assert.match(start,/127\.0\.0\.1/);
 assert.match(start,/4416/);
 assert.match(start,/gunicorn/);
-console.log('docker-pot-runtime: 10 assertions passed');
+console.log('docker-pot-runtime: 11 assertions passed');
