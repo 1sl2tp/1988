@@ -1,0 +1,146 @@
+name: Lab YouTubeJS Browser Example
+
+on:
+  push:
+    branches:
+      - lab/piped-shaka-20260923
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Clone official YouTube.js source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone --depth=1 https://github.com/LuanRT/YouTube.js.git /tmp/youtubejs
+          cd /tmp/youtubejs
+          npm ci
+          cd examples/browser/web
+          npm ci
+          npm install --no-save playwright
+
+      - name: Start official Deno proxy and Vite example
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -fsSL https://deno.land/install.sh | sh
+          export PATH="$HOME/.deno/bin:$PATH"
+
+          cd /tmp/youtubejs
+          nohup deno run --allow-net examples/browser/proxy/deno.ts >/tmp/ytjs-proxy.log 2>&1 &
+          echo $! >/tmp/ytjs-proxy.pid
+
+          cd /tmp/youtubejs/examples/browser/web
+          nohup npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/ytjs-vite.log 2>&1 &
+          echo $! >/tmp/ytjs-vite.pid
+
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null 2>&1; then
+              echo "vite ready"
+              break
+            fi
+            sleep 1
+          done
+
+          curl -sS -o /tmp/proxy-check.txt -w 'proxy HTTP=%{http_code}\n'             'http://127.0.0.1:8080/?__host=www.youtube.com&__headers=%5B%5D' || true
+          head -c 200 /tmp/proxy-check.txt || true
+
+      - name: Play exact video in official browser example
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/youtubejs/examples/browser/web
+          cat > /tmp/ytjs-browser-test.mjs <<'JS'
+          import { chromium } from '/tmp/youtubejs/examples/browser/web/node_modules/playwright/index.mjs';
+
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath: '/usr/bin/google-chrome',
+            args: [
+              '--no-sandbox',
+              '--disable-dev-shm-usage',
+              '--autoplay-policy=no-user-gesture-required'
+            ]
+          });
+
+          const page = await browser.newPage();
+          const errors = [];
+          const logs = [];
+
+          page.on('console', msg => {
+            const line = `CONSOLE ${msg.type()}: ${msg.text()}`;
+            logs.push(line);
+            console.log(line);
+          });
+          page.on('pageerror', err => {
+            const line = `PAGEERROR: ${err.message}`;
+            errors.push(line);
+            console.log(line);
+          });
+          page.on('response', async res => {
+            const u = res.url();
+            if (
+              u.includes('youtube.com/youtubei/') ||
+              u.includes('googlevideo.com') ||
+              u.includes('127.0.0.1:8080')
+            ) {
+              console.log(`RESP ${res.status()} ${u.slice(0,260)}`);
+            }
+          });
+
+          await page.goto('http://127.0.0.1:4173/', {
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
+          });
+
+          await page.waitForSelector('form', { state: 'visible', timeout: 60000 });
+          await page.locator('input[type=text]').fill('vhUjvanyu2U');
+          await page.locator('input[type=submit]').click();
+
+          const started = await page.waitForFunction(() => {
+            const v = document.querySelector('#videoel');
+            return v && v.readyState >= 2 && !v.paused && v.currentTime > 0.5;
+          }, null, { timeout: 90000 }).then(() => true).catch(() => false);
+
+          const state = await page.evaluate(() => {
+            const v = document.querySelector('#videoel');
+            return {
+              title: document.querySelector('#title')?.textContent || '',
+              started: !!v && v.readyState >= 2 && !v.paused && v.currentTime > 0,
+              readyState: v?.readyState ?? -1,
+              paused: v?.paused ?? true,
+              currentTime: v?.currentTime ?? -1,
+              duration: Number.isFinite(v?.duration) ? v.duration : null,
+              videoWidth: v?.videoWidth ?? 0,
+              videoHeight: v?.videoHeight ?? 0,
+              error: v?.error ? { code: v.error.code, message: v.error.message } : null,
+              pipEnabled: 'pictureInPictureEnabled' in document ? document.pictureInPictureEnabled : null,
+              hasRequestPiP: !!v && typeof v.requestPictureInPicture === 'function'
+            };
+          });
+
+          console.log('FINAL_STATE=' + JSON.stringify(state));
+          console.log('STARTED=' + started);
+
+          await page.screenshot({ path: '/tmp/ytjs-browser.png', fullPage: true });
+          await browser.close();
+
+          if (!started) process.exit(2);
+          JS
+
+          node /tmp/ytjs-browser-test.mjs
+
+      - name: Dump logs on failure or success
+        if: always()
+        shell: bash
+        run: |
+          echo '=== PROXY LOG ==='
+          tail -n 200 /tmp/ytjs-proxy.log || true
+          echo '=== VITE LOG ==='
+          tail -n 200 /tmp/ytjs-vite.log || true
