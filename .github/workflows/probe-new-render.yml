@@ -1,0 +1,45 @@
+name: Probe New 1988 Render
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://one988-1od3.onrender.com'
+          ID='8JA5ODE64c4'
+
+          echo '=== HEALTH ==='
+          curl -sS --fail-with-body --max-time 60 "$BASE/health"
+
+          echo
+          echo '=== RESOLVE VIDEO ==='
+          curl -sS --fail-with-body --max-time 90 "$BASE/resolve?id=$ID&kind=video" -o /tmp/resolve.json
+          cat /tmp/resolve.json
+          jq -e '.ok == true and .data.kind == "video"' /tmp/resolve.json >/dev/null
+
+          echo
+          echo '=== VIDEO RANGE ==='
+          curl -sS --fail-with-body -L --max-time 90             -r 0-65535 -D /tmp/video.headers             "$BASE/video?id=$ID" -o /tmp/video.bin
+          cat /tmp/video.headers
+          wc -c /tmp/video.bin
+          grep -Eiq '^HTTP/.* (200|206)' /tmp/video.headers
+          grep -Eiq '^content-type: video/' /tmp/video.headers
+          grep -Eiq '^accept-ranges: bytes' /tmp/video.headers
+          test "$(wc -c < /tmp/video.bin)" -gt 1024
+
+          echo
+          echo '=== AUDIO RESOLVE ==='
+          curl -sS --fail-with-body --max-time 90 "$BASE/resolve?id=$ID&kind=audio" -o /tmp/audio.json
+          cat /tmp/audio.json
+          jq -e '.ok == true and .data.kind == "audio"' /tmp/audio.json >/dev/null
