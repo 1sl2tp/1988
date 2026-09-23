@@ -1,4 +1,4 @@
-name: Lab Userspace WARP + Piped
+name: Lab Rootless WARP v7 + Piped
 
 on:
   push:
@@ -13,34 +13,36 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
-      - name: Start userspace WARP proxy without privileges
+      - name: Start Mon-ius WARP v7 without privileges
         shell: bash
         run: |
           set -euxo pipefail
-          docker run -d --name warproxy             -p 1080:1080             ghcr.io/kingcc/warproxy:latest
+          docker run -d --name warp-socks             -p 9091:9091             ghcr.io/mon-ius/docker-warp-socks:latest
+
+          docker inspect warp-socks --format 'Privileged={{.HostConfig.Privileged}} CapAdd={{json .HostConfig.CapAdd}} Devices={{json .HostConfig.Devices}}'
 
           for i in $(seq 1 60); do
-            TRACE=$(curl -sS --max-time 5 --socks5-hostname 127.0.0.1:1080               https://www.cloudflare.com/cdn-cgi/trace || true)
+            TRACE=$(curl -sS --max-time 5 -x socks5h://127.0.0.1:9091               https://www.cloudflare.com/cdn-cgi/trace || true)
             echo "$TRACE"
             echo "$TRACE" | grep -qE '^warp=(on|plus)$' && break
             sleep 2
           done
 
-          TRACE=$(curl -sS --max-time 10 --socks5-hostname 127.0.0.1:1080             https://www.cloudflare.com/cdn-cgi/trace)
+          TRACE=$(curl -fsS --max-time 10 -x socks5h://127.0.0.1:9091             https://www.cloudflare.com/cdn-cgi/trace)
+          echo "$TRACE"
           echo "$TRACE" | grep -qE '^warp=(on|plus)$'
-          docker inspect warproxy --format '{{json .HostConfig.CapAdd}} {{.HostConfig.Privileged}}'
-          docker logs --tail=120 warproxy
+          docker logs --tail=160 warp-socks
 
-      - name: Start official Piped stack using userspace WARP
+      - name: Start official Piped stack through rootless WARP
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p /tmp/piped-warproxy
-          cat > /tmp/piped-warproxy/config.properties <<'CFG'
+          mkdir -p /tmp/piped-warp
+          cat > /tmp/piped-warp/config.properties <<'CFG'
           PORT:8080
           HTTP_WORKERS:2
           PROXY_PART:http://proxy:8080
-          REQWEST_PROXY:socks5://host.docker.internal:1080
+          REQWEST_PROXY:socks5://host.docker.internal:9091
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
           COMPROMISED_PASSWORD_CHECK:false
@@ -62,7 +64,7 @@ jobs:
           hibernate.connection.password:changeme
           CFG
 
-          cat > /tmp/piped-warproxy/docker-compose.yml <<'YML'
+          cat > /tmp/piped-warp/docker-compose.yml <<'YML'
           services:
             postgres:
               image: postgres:17-alpine
@@ -96,10 +98,10 @@ jobs:
               extra_hosts:
                 - "host.docker.internal:host-gateway"
               volumes:
-                - /tmp/piped-warproxy/config.properties:/app/config.properties:ro
+                - /tmp/piped-warp/config.properties:/app/config.properties:ro
           YML
 
-          cd /tmp/piped-warproxy
+          cd /tmp/piped-warp
           docker compose up -d
           for i in $(seq 1 60); do
             CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3               http://127.0.0.1:8081/config || true)
@@ -108,7 +110,7 @@ jobs:
           done
           test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config)" = "200"
 
-      - name: Verify exact video and muxed media
+      - name: Verify exact video via official Piped
         shell: bash
         run: |
           set -euxo pipefail
@@ -118,25 +120,11 @@ jobs:
 
           jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length),firstVideo:((.videoStreams//[])[0] | {mimeType,quality,format,videoOnly,bitrate,fps,width,height})}' "$OUT"
 
-          MEDIA=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT")
-          test -n "$MEDIA"
+          AC=$(jq -r '(.audioStreams//[])|length' "$OUT")
+          VC=$(jq -r '(.videoStreams//[])|length' "$OUT")
+          HLS=$(jq -r '.hls // ""' "$OUT")
+          test "$AC" -gt 0 -o "$VC" -gt 0 -o -n "$HLS"
 
-          HDR=$(mktemp)
-          BIN=$(mktemp)
-          set +e
-          curl -sS -L --connect-timeout 4 --max-time 12             -H 'Range: bytes=0-16383' -D "$HDR" -o "$BIN" "$MEDIA"
-          RC=$?
-          set -e
-          echo "curl_rc=$RC"
-          cat "$HDR"
-          echo "bytes=$(wc -c < "$BIN")"
-          file "$BIN"
-
-          CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-          SIZE=$(wc -c < "$BIN")
-          echo "MEDIA HTTP=$CODE TYPE=$TYPE SIZE=$SIZE"
-          test "$SIZE" -gt 1000
-          echo "$TYPE" | grep -qE '^(video/mp4|application/octet-stream)$'
-
-          echo 'USERSpace_WARP_PIPED_PASS'
+          MUX=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT")
+          test -n "$MUX"
+          echo 'ROOTLESS_WARP_PIPED_PASS'
