@@ -81,6 +81,11 @@ const handler = async (request: Request): Promise<Response> => {
     request_headers.set('origin', 'https://www.youtube.com');
     request_headers.set('referer', 'https://www.youtube.com/');
   }
+
+  if (request.method === 'POST' && url.pathname.startsWith('/youtubei/')) {
+    request_headers.set('content-type', 'application/json');
+    request_headers.set('accept', '*/*');
+  }
   
   if (request.headers.has('Authorization')) {
     request_headers.set('Authorization', request.headers.get('Authorization')!);
@@ -106,7 +111,11 @@ const handler = async (request: Request): Promise<Response> => {
     });
   }
   if (fetchRes.status >= 400) {
-    console.warn('[proxy]', request.method, url.host, url.pathname, fetchRes.status, Date.now() - started + 'ms');
+    let detail = '';
+    try {
+      detail = (await fetchRes.clone().text()).replace(/\s+/g, ' ').slice(0, 500);
+    } catch {}
+    console.warn('[proxy]', request.method, url.host, url.pathname, fetchRes.status, Date.now() - started + 'ms', detail);
   }
 
   // Construct the return headers
