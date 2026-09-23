@@ -1230,32 +1230,163 @@ p.write_text(r'''<style scoped>
 }
 
 /*
- * YouTube's embedded UI is kept inside the video frame only. Deprecated
- * showinfo=0 is still sent as a best-effort hint alongside modestbranding.
- * No YouTube title/channel block is rendered by our app around the iframe;
- * Kira's own metadata below remains the only surrounding information.
+ * YouTube iframe is cross-origin, so its internal overlay buttons cannot be
+ * styled directly. These masks cover only the noisy corners while preserving
+ * the central picture, progress bar, play/pause, volume and fullscreen areas.
+ * On desktop they appear together with YouTube's hover controls; on touch
+ * devices they stay active because YouTube's overlays are tap-driven.
  */
+.iframe-mask {
+  position: absolute;
+  z-index: 4;
+  pointer-events: auto;
+  opacity: 0;
+  transition: opacity .12s ease;
+  background: rgba(0, 0, 0, .92);
+}
+
+.iframe-shell:hover .iframe-mask {
+  opacity: 1;
+}
+
+/* title + channel overlay */
+.mask-top-left {
+  top: 0;
+  left: 0;
+  width: min(72%, 560px);
+  height: 58px;
+  border-bottom-right-radius: 12px;
+  background: linear-gradient(180deg, rgba(0,0,0,.96), rgba(0,0,0,.84) 75%, rgba(0,0,0,0));
+}
+
+/* copy-link/share overlay */
+.mask-top-right {
+  top: 0;
+  right: 0;
+  width: 132px;
+  height: 60px;
+  border-bottom-left-radius: 12px;
+  background: linear-gradient(180deg, rgba(0,0,0,.96), rgba(0,0,0,.84) 75%, rgba(0,0,0,0));
+}
+
+/* "Watch on YouTube" / "Xem trên YouTube" */
+.mask-bottom-left {
+  left: 0;
+  bottom: 0;
+  width: 210px;
+  height: 46px;
+  border-top-right-radius: 12px;
+}
+
+/* CC button only; leave settings + fullscreen exposed. */
+.mask-cc {
+  right: 86px;
+  bottom: 0;
+  width: 46px;
+  height: 46px;
+}
+
+@media (hover: none), (pointer: coarse) {
+  .iframe-mask {
+    opacity: 1;
+  }
+
+  .mask-top-left {
+    width: 70%;
+    height: 52px;
+  }
+
+  .mask-top-right {
+    width: 104px;
+    height: 52px;
+  }
+
+  .mask-bottom-left {
+    width: 168px;
+    height: 42px;
+  }
+
+  .mask-cc {
+    right: 78px;
+    width: 42px;
+    height: 42px;
+  }
+}
+
+@media (max-width: 520px) {
+  .mask-top-left {
+    width: 68%;
+    height: 48px;
+  }
+
+  .mask-top-right {
+    width: 92px;
+    height: 48px;
+  }
+
+  .mask-bottom-left {
+    width: 152px;
+    height: 40px;
+  }
+
+  .mask-cc {
+    right: 70px;
+    width: 40px;
+    height: 40px;
+  }
+}
 </style>
 
 <template>
   <div class="video-player-container">
     <div class="iframe-shell">
       <iframe
+        ref="iframeRef"
         class="youtube-frame"
         :src="embedUrl"
         :title="'YouTube video ' + videoId"
         allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
         allowfullscreen
         referrerpolicy="strict-origin-when-cross-origin"
+        @load="forceCaptionsOff"
       />
+
+      <div class="iframe-mask mask-top-left" aria-hidden="true"></div>
+      <div class="iframe-mask mask-top-right" aria-hidden="true"></div>
+      <div class="iframe-mask mask-bottom-left" aria-hidden="true"></div>
+      <div class="iframe-mask mask-cc" aria-hidden="true"></div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 
 const props = defineProps<{ videoId: string }>();
+const iframeRef = ref<HTMLIFrameElement | null>(null);
+
+function postCaptionOff() {
+  const target = iframeRef.value?.contentWindow;
+  if (!target) return;
+
+  // Best-effort IFrame API commands. cc_load_policy=0 below is the primary
+  // default; repeated commands cover cases where YouTube restores a prior CC
+  // preference after the iframe has initialized.
+  for (const message of [
+    { event: 'command', func: 'setOption', args: ['captions', 'track', {}] },
+    { event: 'command', func: 'setOption', args: ['cc', 'track', {}] }
+  ]) {
+    try {
+      target.postMessage(JSON.stringify(message), '*');
+    } catch {}
+  }
+}
+
+function forceCaptionsOff() {
+  window.setTimeout(postCaptionOff, 250);
+  window.setTimeout(postCaptionOff, 900);
+  window.setTimeout(postCaptionOff, 2200);
+}
 
 const embedUrl = computed(() => {
   const id = encodeURIComponent(props.videoId || '');
@@ -1268,6 +1399,7 @@ const embedUrl = computed(() => {
     + '&modestbranding=1'
     + '&showinfo=0'
     + '&iv_load_policy=3'
+    + '&cc_load_policy=0'
     + '&fs=1'
     + '&enablejsapi=1'
     + '&origin=' + origin;
@@ -2067,7 +2199,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-45-compact-newest-ui\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-46-iframe-clean-overlays\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
