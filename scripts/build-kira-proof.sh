@@ -8531,10 +8531,543 @@ s += r'''
 '''
 p.write_text(s)
 
+
+# Exact-second freshness + broader official Vietnam sources.
+p = Path("src/utils/display1988.ts")
+p.write_text(r'''export function numericViews(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  const raw = String(value || '').trim().toUpperCase().replace(/,/g, '');
+  if (!raw) return 0;
+  const compact = raw.match(/([\d.]+)\s*([KMB])(?:\s*VIEWS?)?/i);
+  if (compact) {
+    const base = Number(compact[1]) || 0;
+    const factor = compact[2] === 'B' ? 1e9 : compact[2] === 'M' ? 1e6 : 1e3;
+    return Math.round(base * factor);
+  }
+  const plain = raw.match(/[\d.]+/);
+  return plain ? Math.max(0, Number(plain[0]) || 0) : 0;
+}
+
+export function formatCompactViews(value: unknown): string {
+  const n = numericViews(value);
+  if (!n) {
+    const raw = String(value || '').trim();
+    return raw && /view/i.test(raw) ? raw.replace(/\s*views?/i, ' views') : '';
+  }
+  const unit = n >= 1e9 ? 1e9 : n >= 1e6 ? 1e6 : n >= 1e3 ? 1e3 : 1;
+  const suffix = unit === 1e9 ? 'B' : unit === 1e6 ? 'M' : unit === 1e3 ? 'K' : '';
+  if (unit === 1) return Math.round(n) + ' views';
+  const scaled = n / unit;
+  return scaled.toFixed(scaled < 10 ? 1 : 0).replace(/\.0$/, '') + suffix + ' views';
+}
+
+const UNIT_MS: Record<string, number> = {
+  second: 1000, seconds: 1000, giay: 1000,
+  minute: 60000, minutes: 60000, phut: 60000,
+  hour: 3600000, hours: 3600000, gio: 3600000,
+  day: 86400000, days: 86400000, ngay: 86400000,
+  week: 604800000, weeks: 604800000, tuan: 604800000,
+  month: 2592000000, months: 2592000000, thang: 2592000000,
+  year: 31536000000, years: 31536000000, nam: 31536000000
+};
+
+function deaccent(value: string) {
+  return value.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+export function parsePublishedAt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value > 1e12) return value;
+    if (value > 1e9) return value * 1000;
+  }
+
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+
+  if (/^\d{10,13}$/.test(raw)) {
+    const n = Number(raw);
+    return raw.length >= 13 ? n : n * 1000;
+  }
+
+  const date = Date.parse(raw);
+  if (Number.isFinite(date)) return date;
+
+  const plain = deaccent(raw);
+  const match = plain.match(/(\d+)\s*(second|seconds|giay|minute|minutes|phut|hour|hours|gio|day|days|ngay|week|weeks|tuan|month|months|thang|year|years|nam)/);
+  if (match) {
+    const qty = Number(match[1]) || 0;
+    const unit = UNIT_MS[match[2]] || 0;
+    if (unit) return Date.now() - qty * unit;
+  }
+
+  if (/(just now|vua xong|moi day)/.test(plain)) return Date.now();
+  return 0;
+}
+
+export function formatRelativeTime(value: unknown): string {
+  const raw = String(value || '').trim();
+  const ts = parsePublishedAt(value);
+
+  if (ts > 0) {
+    const diff = Math.max(0, Date.now() - ts);
+    if (diff < 60000) return Math.max(0, Math.floor(diff / 1000)) + ' giây trước';
+    if (diff < 3600000) return Math.floor(diff / 60000) + ' phút trước';
+    if (diff < 86400000) return Math.floor(diff / 3600000) + ' giờ trước';
+    if (diff < 604800000) return Math.floor(diff / 86400000) + ' ngày trước';
+    if (diff < 2592000000) return Math.floor(diff / 604800000) + ' tuần trước';
+    if (diff < 31536000000) return Math.floor(diff / 2592000000) + ' tháng trước';
+    return Math.floor(diff / 31536000000) + ' năm trước';
+  }
+
+  if (!raw) return '';
+  return normalizeMetadataText(raw);
+}
+
+export function normalizeMetadataText(value: unknown): string {
+  let text = String(value || '').trim();
+  if (!text) return '';
+
+  text = text.replace(/([\d.,]+)\s*([KMB])?\s*views?/gi, function(_, num, suffix) {
+    return formatCompactViews(String(num) + String(suffix || ''));
+  });
+
+  const replacements: Array<[RegExp, string]> = [
+    [/(\d+)\s*seconds?\s*ago/gi, '$1 giây trước'],
+    [/(\d+)\s*minutes?\s*ago/gi, '$1 phút trước'],
+    [/(\d+)\s*hours?\s*ago/gi, '$1 giờ trước'],
+    [/(\d+)\s*days?\s*ago/gi, '$1 ngày trước'],
+    [/(\d+)\s*weeks?\s*ago/gi, '$1 tuần trước'],
+    [/(\d+)\s*months?\s*ago/gi, '$1 tháng trước'],
+    [/(\d+)\s*years?\s*ago/gi, '$1 năm trước']
+  ];
+
+  for (const [re, replacement] of replacements) text = text.replace(re, replacement);
+  return text.replace(/\s*[•·]\s*/g, ' · ').replace(/\s+/g, ' ').trim();
+}
+
+export function compactMetadata(items: unknown[]): string {
+  return items.map(normalizeMetadataText).filter(Boolean).join(' · ')
+    .replace(/(?:\s*·\s*)+/g, ' · ');
+}
+''')
+
+# Hide the global search header while actively watching media.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace(
+    '''<header v-if="route.path !== '/search'" class="app-header">''',
+    '''<header v-if="route.path !== '/search' && !route.path.startsWith('/watch/')" class="app-header">'''
+)
+p.write_text(s)
+
+# Home: broaden official sources, exact timestamp sort, periodic fresh reload.
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+
+s = s.replace(
+    "import { onMounted, ref, watch } from 'vue';",
+    "import { onBeforeUnmount, onMounted, ref, watch } from 'vue';"
+)
+
+old_sources = r"""const sources: Array<{ id: SourceId; label: string; queries: string[] }> = [
+  {
+    id: 'news',
+    label: 'Tin tức',
+    queries: [
+      'tin tức Việt Nam mới nhất hôm nay VTV',
+      'thời sự Việt Nam mới nhất VTC NOW',
+      'tin mới nhất Việt Nam ANTV'
+    ]
+  },
+  {
+    id: 'music',
+    label: 'Nhạc',
+    queries: [
+      'nhạc Việt Nam mới nhất official MV',
+      'MV Việt mới nhất official',
+      'nhạc trẻ Việt Nam mới nhất'
+    ]
+  },
+  {
+    id: 'movies',
+    label: 'Phim mới',
+    queries: [
+      'phim Việt Nam mới nhất',
+      'phim Việt mới official trailer',
+      'phim truyền hình Việt Nam mới nhất'
+    ]
+  }
+];"""
+
+new_sources = r"""const sources: Array<{
+  id: SourceId;
+  label: string;
+  queries: string[];
+  official: string[];
+}> = [
+  {
+    id: 'news',
+    label: 'Tin tức',
+    queries: [
+      'VTV24 tin mới nhất',
+      'VTV News tin mới nhất',
+      'VTC NOW tin mới nhất',
+      'ANTV tin mới nhất',
+      'Báo Tuổi Trẻ tin mới nhất',
+      'VnExpress tin mới nhất',
+      'Báo Thanh Niên tin mới nhất',
+      'Dân Trí tin mới nhất',
+      'Vietnamnet tin mới nhất',
+      'Báo Lao Động tin mới nhất',
+      'Báo Tiền Phong tin mới nhất'
+    ],
+    official: [
+      'vtv24', 'vtv news', 'vtc now', 'antv', 'truyền hình công an nhân dân',
+      'báo tuổi trẻ', 'tuổi trẻ online', 'vnexpress', 'báo thanh niên',
+      'dân trí', 'vietnamnet', 'báo lao động', 'báo tiền phong'
+    ]
+  },
+  {
+    id: 'music',
+    label: 'Nhạc',
+    queries: [
+      'Official MV Việt Nam mới nhất',
+      'nhạc Việt official mới phát hành',
+      'POPS MUSIC mới nhất',
+      'ACV Music mới nhất',
+      'M-TP Entertainment mới nhất',
+      'YEAH1 MUSIC mới nhất'
+    ],
+    official: [
+      'official', 'music', 'records', 'entertainment', 'pops', 'acv',
+      'm-tp', 'yeah1', 'vie channel'
+    ]
+  },
+  {
+    id: 'movies',
+    label: 'Phim mới',
+    queries: [
+      'VTV Giải Trí phim mới nhất',
+      'Vie Channel phim mới nhất',
+      'HTV Films phim mới nhất',
+      'Galaxy Play phim mới nhất',
+      'phim Việt official mới nhất',
+      'trailer phim Việt official mới nhất'
+    ],
+    official: [
+      'vtv giải trí', 'vie channel', 'htv films', 'galaxy play',
+      'official', 'production', 'entertainment'
+    ]
+  }
+];"""
+
+if old_sources not in s:
+    raise Error("Home sources block not found");
+s = s.replace(old_sources, new_sources)
+
+s = s.replace(
+    """const activeSource = ref<SourceId>('news');
+const loading = ref(false);
+const videos = ref<HomeVideo[]>([]);
+let loadSerial = 0;""",
+    """const activeSource = ref<SourceId>('news');
+const loading = ref(false);
+const videos = ref<HomeVideo[]>([]);
+let loadSerial = 0;
+let refreshTimer: number | undefined;"""
+)
+
+s = s.replace(
+    """  const response = await fetch(url.toString(), { cache: 'default' });""",
+    """  url.searchParams.set('_fresh', String(Date.now()));
+  const response = await fetch(url.toString(), { cache: 'no-store' });""",
+    1
+)
+
+const insertPoint = "function toVideo(row: any): HomeVideo | null {";
+const officialHelper = r"""function normalized(value: unknown) {
+  return String(value || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+function isOfficialForSource(row: any, source: (typeof sources)[number]) {
+  const name = normalized(row?.uploaderName || row?.uploader || row?.channelName || '');
+  return source.official.some((token) => name.includes(normalized(token)));
+}
+
+"""
+s = s.replace(insertPoint, officialHelper + insertPoint)
+
+old_collect = r"""    const seen = new Set<string>();
+    const rows: HomeVideo[] = [];
+
+    for (const result of settled) {
+      if (result.status !== 'fulfilled') continue;
+      for (const raw of result.value) {
+        const row = toVideo(raw);
+        if (!row || seen.has(row.videoId)) continue;
+        seen.add(row.videoId);
+        rows.push(row);
+      }
+    }
+
+    rows.sort((a, b) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (at !== bt) {
+        if (!at) return 1;
+        if (!bt) return -1;
+        return bt - at;
+      }
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    });
+
+    videos.value = rows.slice(0, 36);"""
+
+new_collect = r"""    const seen = new Set<string>();
+    const officialRows: HomeVideo[] = [];
+    const fallbackRows: HomeVideo[] = [];
+
+    for (const result of settled) {
+      if (result.status !== 'fulfilled') continue;
+      for (const raw of result.value) {
+        const row = toVideo(raw);
+        if (!row || seen.has(row.videoId)) continue;
+        seen.add(row.videoId);
+
+        if (isOfficialForSource(raw, source)) officialRows.push(row);
+        else fallbackRows.push(row);
+      }
+    }
+
+    const byExactTime = (a: HomeVideo, b: HomeVideo) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (at !== bt) {
+        if (!at) return 1;
+        if (!bt) return -1;
+        return bt - at;
+      }
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    };
+
+    officialRows.sort(byExactTime);
+    fallbackRows.sort(byExactTime);
+
+    // Use official channels first. If one source has too few fresh results,
+    // fill the tail with the newest YouTube results rather than showing stale items.
+    videos.value = [...officialRows, ...fallbackRows].slice(0, 36);"""
+
+if old_collect not in s:
+    raise Error("Home collection block not found");
+s = s.replace(old_collect, new_collect)
+
+s = s.replace(
+    """onMounted(load);
+watch(activeSource, load);""",
+    """onMounted(() => {
+  void load();
+  refreshTimer = window.setInterval(() => void load(), 20000);
+});
+
+onBeforeUnmount(() => {
+  if (refreshTimer !== undefined) clearInterval(refreshTimer);
+});
+
+watch(activeSource, () => void load());"""
+)
+
+p.write_text(s)
+
+# Search: fresh cache-bust + exact-second age display that updates every second.
+p = Path("src/pages/SearchPage.vue")
+s = p.read_text()
+s = s.replace(
+    "import { nextTick, onMounted, ref } from 'vue';",
+    "import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue';"
+)
+
+s = s.replace(
+    """const videos = ref<any[]>([]);""",
+    """const videos = ref<any[]>([]);
+const clock = ref(Date.now());
+let clockTimer: number | undefined;"""
+)
+
+s = s.replace(
+    """  const response = await fetch(url.toString(), { cache: 'default' });""",
+    """  url.searchParams.set('_fresh', String(Date.now()));
+  const response = await fetch(url.toString(), { cache: 'no-store' });""",
+    1
+)
+
+s = s.replace(
+    """      formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+      formatRelativeTime(published)
+    ].filter(Boolean).join(' · '),
+    publishedAt: parsePublishedAt(published)""",
+    """      formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText)
+    ].filter(Boolean).join(' · '),
+    publishedAt: parsePublishedAt(published)"""
+)
+
+s = s.replace(
+    """              <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>""",
+    """              <div class="video-meta">
+                <span v-if="video.meta">{{ video.meta }}</span>
+                <span v-if="video.meta && video.publishedAt"> · </span>
+                <span v-if="video.publishedAt">{{ freshAge(video.publishedAt) }}</span>
+              </div>"""
+)
+
+const searchHelperAnchor = "async function runSearch(q: string) {";
+s = s.replace(
+    searchHelperAnchor,
+    """function freshAge(ts: number) {
+  void clock.value;
+  return formatRelativeTime(ts);
+}
+
+""" + searchHelperAnchor
+)
+
+s = s.replace(
+    """onMounted(() => {
+  term.value = String(route.query.q || '').trim();
+  nextTick(() => inputRef.value?.focus());
+  if (term.value) void runSearch(term.value);
+});""",
+    """onMounted(() => {
+  term.value = String(route.query.q || '').trim();
+  nextTick(() => inputRef.value?.focus());
+  if (term.value) void runSearch(term.value);
+  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (clockTimer !== undefined) clearInterval(clockTimer);
+});"""
+)
+p.write_text(s)
+
+# Channel: exact-second metadata and no stale cache.
+p = Path("src/pages/ChannelPage.vue")
+s = p.read_text()
+s = s.replace(
+    "import { onMounted, ref, watch } from 'vue';",
+    "import { onBeforeUnmount, onMounted, ref, watch } from 'vue';"
+)
+
+s = s.replace(
+    """const videos = ref<any[]>([]);""",
+    """const videos = ref<any[]>([]);
+const clock = ref(Date.now());
+let clockTimer: number | undefined;"""
+)
+
+s = s.replace(
+    """  const response = await fetch(url.toString(), { cache: 'default' });""",
+    """  url.searchParams.set('_fresh', String(Date.now()));
+  const response = await fetch(url.toString(), { cache: 'no-store' });""",
+    1
+)
+
+s = s.replace(
+    """          meta: [
+            formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+            formatRelativeTime(published)
+          ].filter(Boolean).join(' · '),
+          publishedAt: parsePublishedAt(published)""",
+    """          meta: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+          publishedAt: parsePublishedAt(published)"""
+)
+
+s = s.replace(
+    """          <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>""",
+    """          <div class="video-meta">
+            <span v-if="video.meta">{{ video.meta }}</span>
+            <span v-if="video.meta && video.publishedAt"> · </span>
+            <span v-if="video.publishedAt">{{ freshAge(video.publishedAt) }}</span>
+          </div>"""
+)
+
+const channelHelperAnchor = "async function load() {";
+s = s.replace(
+    channelHelperAnchor,
+    """function freshAge(ts: number) {
+  void clock.value;
+  return formatRelativeTime(ts);
+}
+
+""" + channelHelperAnchor
+)
+
+s = s.replace(
+    """onMounted(load);
+watch(() => route.params.id, load);""",
+    """onMounted(() => {
+  void load();
+  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (clockTimer !== undefined) clearInterval(clockTimer);
+});
+
+watch(() => route.params.id, () => void load());"""
+)
+p.write_text(s)
+
+# Home cards get a once-per-second clock so a just-published item displays 4s, 5s, 6s...
+p = Path("src/components/GridVideoItem.vue")
+s = p.read_text()
+s = s.replace(
+    "import { computed, ref } from 'vue';",
+    "import { computed, onBeforeUnmount, onMounted, ref } from 'vue';"
+)
+s = s.replace(
+    "import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';",
+    "import { compactMetadata, formatRelativeTime, normalizeMetadataText } from '@/utils/display1988';"
+)
+
+s = s.replace(
+    """const avatarFailed = ref(false);
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));""",
+    """const avatarFailed = ref(false);
+const clock = ref(Date.now());
+let clockTimer: number | undefined;
+
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
+const baseMeta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+const meta = computed(() => {
+  void clock.value;
+  const publishedAt = Number((props.data as any).publishedAt || 0);
+  const age = publishedAt ? formatRelativeTime(publishedAt) : '';
+  return [baseMeta.value, age].filter(Boolean).join(' · ');
+});
+
+onMounted(() => {
+  clockTimer = window.setInterval(() => { clock.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (clockTimer !== undefined) clearInterval(clockTimer);
+});"""
+)
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-56-vn-newest-simple\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-57-exact-second-freshness\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
