@@ -3500,7 +3500,7 @@ pkg = p.read_text()
 if '"lucide-vue-next"' not in pkg:
     pkg = pkg.replace(
         '"googlevideo": "^4.0.4",',
-        '"googlevideo": "^4.0.4",\n    "@lucide/vue": "^0.468.0",'
+        '"googlevideo": "^4.0.4",\n    "@lucide/vue": "latest",'
     )
 p.write_text(pkg)
 
