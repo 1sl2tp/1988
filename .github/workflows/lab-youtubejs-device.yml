@@ -1,0 +1,215 @@
+name: Lab YouTube.js Device Path
+
+on:
+  push:
+    branches:
+      - lab/youtubejs-device
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      YTJS_COMMIT: 62c044f6fcdb84ec9f611ce298accadf66b4bea8
+      PROXY_BASE: https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy
+      EDGE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE
+    steps:
+      - name: Clone pinned official YouTube.js
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/LuanRT/YouTube.js.git /tmp/youtubejs
+          cd /tmp/youtubejs
+          git checkout "$YTJS_COMMIT"
+          npm ci
+          cd examples/browser/web
+          npm ci
+          npm install --no-save playwright
+
+      - name: Point official browser example at thin CORS relay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          p=Path('/tmp/youtubejs/examples/browser/web/src/main.ts')
+          s=p.read_text()
+
+          a=s.index('function fetchFn(')
+          b=s.index('\nconst title =', a)
+          replacement=r'''const PROXY_BASE = "''' + os.environ['PROXY_BASE'] + r'''";
+          const EDGE_KEY = "''' + os.environ['EDGE_KEY'] + r'''";
+
+          function proxiedUrl(source: URL, headers: Headers) {
+            const out = new URL(PROXY_BASE + source.pathname);
+            source.searchParams.forEach((value, key) => out.searchParams.append(key, value));
+            out.searchParams.set('__host', source.host);
+            out.searchParams.set('__headers', JSON.stringify([ ...headers ]));
+            return out;
+          }
+
+          function relayHeaders(headers?: HeadersInit) {
+            const out = new Headers(headers || {});
+            out.delete('user-agent');
+            out.set('Authorization', `Bearer ${EDGE_KEY}`);
+            out.set('apikey', EDGE_KEY);
+            return out;
+          }
+
+          function fetchFn(input: RequestInfo | URL, init?: RequestInit) {
+            const source = typeof input === 'string'
+              ? new URL(input)
+              : input instanceof URL
+                ? new URL(input.toString())
+                : new URL(input.url);
+
+            const upstreamHeaders = init?.headers
+              ? new Headers(init.headers)
+              : input instanceof Request
+                ? new Headers(input.headers)
+                : new Headers();
+
+            return fetch(proxiedUrl(source, upstreamHeaders), init ? {
+              ...init,
+              headers: relayHeaders(init.headers)
+            } : {
+              headers: relayHeaders()
+            });
+          }
+          '''
+          s=s[:a]+replacement+s[b:]
+
+          start=s.index('        networkingEngine.registerRequestFilter')
+          end=s.index('\n        const RequestType', start)
+          request_filter=r'''        networkingEngine.registerRequestFilter(async (type, request) => {
+            const url = new URL(request.uris[0]);
+            const originalHost = url.host;
+            const originalHeaders = new Headers(request.headers as HeadersInit);
+
+            if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+              if (url.pathname.includes('videoplayback')) {
+                const range = request.headers.Range || request.headers.range;
+                if (range) {
+                  url.searchParams.set('range', range.split('=')[1]);
+                  url.searchParams.set('ump', '1');
+                  url.searchParams.set('srfvp', '1');
+                  url.searchParams.set('pot', (poToken ?? coldStartToken) ?? '');
+                  request.headers = {};
+                  originalHeaders.delete('Range');
+                  originalHeaders.delete('range');
+                }
+              }
+
+              request.method = 'POST';
+              request.body = new Uint8Array([ 120, 0 ]);
+            }
+
+            if (originalHost.endsWith('.googlevideo.com') || url.href.includes('drm')) {
+              const out = new URL(PROXY_BASE + url.pathname);
+              url.searchParams.forEach((value, key) => out.searchParams.append(key, value));
+              out.searchParams.set('__host', originalHost);
+              out.searchParams.set('__headers', JSON.stringify([ ...originalHeaders ]));
+              request.uris[0] = out.toString();
+              request.headers = {
+                Authorization: `Bearer ${EDGE_KEY}`,
+                apikey: EDGE_KEY
+              };
+            } else {
+              request.uris[0] = url.toString();
+            }
+          });
+          '''
+          s=s[:start]+request_filter+s[end:]
+          p.write_text(s)
+          PY
+
+          cd /tmp/youtubejs/examples/browser/web
+          npm run build
+
+      - name: Serve official example
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/youtubejs/examples/browser/web
+          nohup npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/ytjs-vite.log 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:4173/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Play exact regression video in Chrome
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat >/tmp/test.mjs <<'JS'
+          import { chromium } from '/tmp/youtubejs/examples/browser/web/node_modules/playwright/index.mjs';
+
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath: '/usr/bin/google-chrome',
+            args: ['--no-sandbox','--disable-dev-shm-usage','--autoplay-policy=no-user-gesture-required']
+          });
+
+          const page = await browser.newPage();
+          page.on('console', msg => console.log('CONSOLE', msg.type(), msg.text()));
+          page.on('pageerror', err => console.log('PAGEERROR', err.message));
+          page.on('response', res => {
+            const u=res.url();
+            if (u.includes('yt-browser-proxy') || u.includes('youtubei') || u.includes('googlevideo')) {
+              console.log('RESP',res.status(),u.slice(0,280));
+            }
+          });
+
+          await page.goto('http://127.0.0.1:4173/', {waitUntil:'domcontentloaded',timeout:60000});
+          await page.waitForSelector('form', {state:'visible',timeout:60000});
+          await page.locator('input[type=text]').fill('vhUjvanyu2U');
+          await page.locator('input[type=submit]').click();
+
+          await page.waitForFunction(() => {
+            const t=document.querySelector('#title')?.textContent||'';
+            return t && !/loading|error occurred/i.test(t);
+          }, null, {timeout:90000}).catch(()=>{});
+
+          await page.evaluate(async()=>{
+            const v=document.querySelector('#videoel');
+            if(v){
+              try{ await v.play(); }catch(e){ console.log('play()',e?.name,e?.message); }
+            }
+          });
+
+          const started = await page.waitForFunction(() => {
+            const v=document.querySelector('#videoel');
+            return !!v && v.readyState >= 2 && !v.paused && v.currentTime > 0.5;
+          }, null, {timeout:90000}).then(()=>true).catch(()=>false);
+
+          const state=await page.evaluate(()=>{
+            const v=document.querySelector('#videoel');
+            return {
+              title:document.querySelector('#title')?.textContent||'',
+              readyState:v?.readyState??-1,
+              paused:v?.paused??true,
+              currentTime:v?.currentTime??-1,
+              duration:Number.isFinite(v?.duration)?v.duration:null,
+              width:v?.videoWidth??0,
+              height:v?.videoHeight??0,
+              error:v?.error?{code:v.error.code,message:v.error.message}:null
+            };
+          });
+          console.log('FINAL_STATE='+JSON.stringify(state));
+          console.log('STARTED='+started);
+          await browser.close();
+          if(!started) process.exit(2);
+          JS
+
+          node /tmp/test.mjs
+
+      - name: Dump Vite log
+        if: always()
+        run: |
+          tail -n 200 /tmp/ytjs-vite.log || true
