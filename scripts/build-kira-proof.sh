@@ -7012,10 +7012,1529 @@ s += r'''
 '''
 p.write_text(s)
 
+
+# Final 1988 product UI: ChatGPT-like simplicity, Vietnam newest-first sources.
+p = Path("src/App.vue")
+p.write_text(r'''<style scoped>
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.header-inner {
+  width: min(1120px, calc(100% - 16px));
+  min-height: 58px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.search-launcher {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.search-leading {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  color: #8d8d92;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px 0 40px;
+  border: 1px solid #39393d;
+  border-radius: 12px;
+  outline: 0;
+  background: #2b2b2e;
+  color: #f4f4f5;
+  font-size: 13px;
+  cursor: text;
+}
+
+.search-input::placeholder {
+  color: #919197;
+}
+
+@media (max-width: 680px) {
+  .header-inner {
+    min-height: 56px;
+    width: calc(100% - 12px);
+  }
+
+  .search-input {
+    height: 38px;
+    border-radius: 11px;
+  }
+}
+</style>
+
+<template>
+  <div class="app-shell">
+    <header v-if="route.path !== '/search'" class="app-header">
+      <div class="header-inner">
+        <div class="search-launcher" @click="openSearch">
+          <Search class="search-leading" aria-hidden="true"/>
+          <input
+            class="search-input"
+            type="text"
+            readonly
+            placeholder="Tìm video, bài hát, kênh..."
+            aria-label="Mở tìm kiếm"
+            @focus="openSearch"
+          >
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <router-view/>
+    </main>
+
+    <ToastNotification/>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { useRoute, useRouter } from 'vue-router';
+import { Search } from '@lucide/vue';
+import ToastNotification from '@/components/ToastNotification.vue';
+
+const route = useRoute();
+const router = useRouter();
+
+function openSearch() {
+  if (route.path !== '/search') router.push('/search');
+}
+</script>
+''')
+
+p = Path("src/1988.css")
+p.write_text(r''':root {
+  --bg: #212121;
+  --panel: #2b2b2e;
+  --panel-soft: #262628;
+  --border: #39393d;
+  --text: #f4f4f5;
+  --muted: #9a9aa0;
+  --accent: #ef233c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+.app-shell {
+  background: var(--bg);
+}
+
+.app-header {
+  background: rgba(33,33,33,.96);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.seek,
+.volume {
+  accent-color: var(--accent);
+}
+
+.play-btn {
+  background: var(--accent) !important;
+}
+''')
+
+p = Path("src/components/GridVideoItem.vue")
+p.write_text(r'''<style scoped>
+.video-card {
+  display: block;
+  min-width: 0;
+}
+
+.thumb-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumbnail-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #171719;
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: rgba(0,0,0,.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.info-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 9px;
+  padding: 8px 2px 0;
+}
+
+.channel-link {
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #303034;
+  color: #b8b8bd;
+  text-decoration: none;
+}
+
+.channel-link img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.channel-link :deep(svg) {
+  width: 17px;
+  height: 17px;
+}
+
+.copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.title-link,
+.channel-name {
+  color: inherit;
+  text-decoration: none;
+}
+
+.title {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.36;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.channel-name {
+  display: block;
+  margin-top: 4px;
+  color: #b0b0b5;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  margin-top: 2px;
+  color: #88888e;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 680px) {
+  .thumbnail-wrap {
+    border-radius: 10px;
+  }
+}
+</style>
+
+<template>
+  <article class="video-card">
+    <router-link class="thumb-link" :to="'/watch/' + data.videoId">
+      <div class="thumbnail-wrap">
+        <img
+          class="thumbnail"
+          :src="data.thumbnail"
+          :alt="data.titleText || data.title"
+          loading="lazy"
+          decoding="async"
+          @error="handleImageError($event.target as any)"
+        >
+        <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+      </div>
+    </router-link>
+
+    <div class="info-row">
+      <router-link class="channel-link" :to="channelTarget" :title="channel">
+        <img
+          v-if="data.authorAvatar"
+          :src="data.authorAvatar"
+          :alt="channel"
+          loading="lazy"
+          @error="avatarFailed = true"
+          v-show="!avatarFailed"
+        >
+        <UserRound v-if="!data.authorAvatar || avatarFailed" aria-hidden="true"/>
+      </router-link>
+
+      <div class="copy">
+        <router-link class="title-link" :to="'/watch/' + data.videoId">
+          <h3 class="title" v-html="data.title" :title="data.titleText"/>
+        </router-link>
+        <router-link class="channel-name" :to="channelTarget">{{ channel }}</router-link>
+        <div v-if="meta" class="meta">{{ meta }}</div>
+      </div>
+    </div>
+  </article>
+</template>
+
+<script setup lang="ts">
+import { computed, ref } from 'vue';
+import { UserRound } from '@lucide/vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData & { channelKey?: string } }>();
+const avatarFailed = ref(false);
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || 'YouTube'));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+const channelTarget = computed(() => '/channel/' + encodeURIComponent(props.data.channelKey || channel.value));
+</script>
+''')
+
+p = Path("src/pages/HomePage.vue")
+p.write_text(r'''<style scoped>
+.home {
+  width: min(1120px, calc(100% - 20px));
+  margin: 0 auto;
+  padding: 14px 0 34px;
+}
+
+.source-tabs {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 0 0 12px;
+  scrollbar-width: none;
+}
+
+.source-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.source-tab {
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid #3a3a3e;
+  border-radius: 999px;
+  background: #2b2b2e;
+  color: #d4d4d8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.source-tab.active {
+  border-color: #ef233c;
+  background: #ef233c;
+  color: #fff;
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 2px 0 13px;
+  text-align: left;
+}
+
+.section-head h1 {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.region {
+  color: #88888e;
+  font-size: 11px;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  gap: 22px 16px;
+}
+
+.state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: #929298;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 12px);
+    padding-top: 9px;
+  }
+
+  .source-tabs {
+    padding-bottom: 10px;
+  }
+
+  .section-head {
+    margin-bottom: 11px;
+  }
+
+  .section-head h1 {
+    font-size: 17px;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+</style>
+
+<template>
+  <main class="home">
+    <nav class="source-tabs" aria-label="Nguồn nội dung">
+      <button
+        v-for="source in sources"
+        :key="source.id"
+        class="source-tab"
+        :class="{ active: activeSource === source.id }"
+        type="button"
+        @click="activeSource = source.id"
+      >
+        {{ source.label }}
+      </button>
+    </nav>
+
+    <header class="section-head">
+      <h1>Mới nhất</h1>
+      <span class="region">Việt Nam · YouTube</span>
+    </header>
+
+    <div v-if="loading" class="state">Đang tải video mới…</div>
+    <div v-else-if="!videos.length" class="state">Chưa có video phù hợp.</div>
+
+    <div v-else class="video-grid">
+      <GridVideoItem
+        v-for="video in videos"
+        :key="video.videoId"
+        :data="video"
+      />
+    </div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import GridVideoItem from '@/components/GridVideoItem.vue';
+import type { VideoItemData } from '@/utils/helpers';
+import {
+  formatCompactViews,
+  formatRelativeTime,
+  numericViews,
+  parsePublishedAt
+} from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+type SourceId = 'news' | 'music' | 'movies';
+type HomeVideo = VideoItemData & {
+  channelKey?: string;
+  viewCount?: number;
+  publishedAt?: number;
+};
+
+const sources: Array<{ id: SourceId; label: string; queries: string[] }> = [
+  {
+    id: 'news',
+    label: 'Tin tức',
+    queries: [
+      'tin tức Việt Nam mới nhất hôm nay VTV',
+      'thời sự Việt Nam mới nhất VTC NOW',
+      'tin mới nhất Việt Nam ANTV'
+    ]
+  },
+  {
+    id: 'music',
+    label: 'Nhạc',
+    queries: [
+      'nhạc Việt Nam mới nhất official MV',
+      'MV Việt mới nhất official',
+      'nhạc trẻ Việt Nam mới nhất'
+    ]
+  },
+  {
+    id: 'movies',
+    label: 'Phim mới',
+    queries: [
+      'phim Việt Nam mới nhất',
+      'phim Việt mới official trailer',
+      'phim truyền hình Việt Nam mới nhất'
+    ]
+  }
+];
+
+const activeSource = ref<SourceId>('news');
+const loading = ref(false);
+const videos = ref<HomeVideo[]>([]);
+let loadSerial = 0;
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function channelKey(row: any): string {
+  const raw = String(row?.uploaderUrl || row?.channelUrl || '').trim();
+  const id = raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+  if (id) return id;
+  const handle = raw.match(/\/(@[^/?#]+)/)?.[1];
+  if (handle) return decodeURIComponent(handle);
+  return String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube').trim();
+}
+
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function publishedRaw(row: any) {
+  return row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+}
+
+async function searchRows(q: string): Promise<any[]> {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', 'videos');
+
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) return [];
+
+  return Array.isArray(payload?.data?.items) ? payload.data.items : [];
+}
+
+function toVideo(row: any): HomeVideo | null {
+  const id = videoId(row);
+  if (!id) return null;
+
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
+  const viewsRaw = row?.views ?? row?.viewCount ?? row?.viewText ?? '';
+  const published = publishedRaw(row);
+
+  return {
+    videoId: id,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+    authorAvatar: String(row?.uploaderAvatar || row?.avatar || ''),
+    channelKey: channelKey(row),
+    metadata: [
+      channel,
+      [
+        formatCompactViews(viewsRaw),
+        formatRelativeTime(published)
+      ].filter(Boolean).join(' · ')
+    ].filter(Boolean),
+    duration: durationText(row?.duration),
+    viewCount: numericViews(viewsRaw),
+    publishedAt: parsePublishedAt(published)
+  };
+}
+
+async function load() {
+  const serial = ++loadSerial;
+  const source = sources.find((item) => item.id === activeSource.value) || sources[0];
+
+  loading.value = true;
+  try {
+    const settled = await Promise.allSettled(source.queries.map(searchRows));
+    if (serial !== loadSerial) return;
+
+    const seen = new Set<string>();
+    const rows: HomeVideo[] = [];
+
+    for (const result of settled) {
+      if (result.status !== 'fulfilled') continue;
+      for (const raw of result.value) {
+        const row = toVideo(raw);
+        if (!row || seen.has(row.videoId)) continue;
+        seen.add(row.videoId);
+        rows.push(row);
+      }
+    }
+
+    rows.sort((a, b) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (at !== bt) {
+        if (!at) return 1;
+        if (!bt) return -1;
+        return bt - at;
+      }
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    });
+
+    videos.value = rows.slice(0, 36);
+  } finally {
+    if (serial === loadSerial) loading.value = false;
+  }
+}
+
+onMounted(load);
+watch(activeSource, load);
+</script>
+''')
+
+p = Path("src/pages/SearchPage.vue")
+p.write_text(r'''<style scoped>
+.search-page {
+  width: min(900px, calc(100% - 16px));
+  margin: 0 auto;
+  padding: 8px 0 34px;
+}
+
+.search-form {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 8px 0 12px;
+  background: #212121;
+}
+
+.search-wrap {
+  position: relative;
+}
+
+.search-icon {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  color: #8d8d92;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  height: 42px;
+  padding: 0 42px 0 40px;
+  border: 1px solid #3a3a3e;
+  border-radius: 12px;
+  outline: 0;
+  background: #2b2b2e;
+  color: #f5f5f5;
+  font-size: 14px;
+}
+
+.clear {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #a0a0a5;
+  cursor: pointer;
+}
+
+.clear :deep(svg) {
+  width: 17px;
+  height: 17px;
+}
+
+.section-title {
+  margin: 16px 0 9px;
+  color: #a8a8ad;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: #29292c;
+  color: inherit;
+  text-decoration: none;
+}
+
+.channel-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #343438;
+}
+
+.channel-avatar.placeholder {
+  display: grid;
+  place-items: center;
+  color: #aaaab0;
+}
+
+.channel-copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.channel-name {
+  color: #f5f5f5;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-meta,
+.channel-description {
+  margin-top: 3px;
+  color: #8f8f95;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-list {
+  display: grid;
+  gap: 11px;
+}
+
+.video-row {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 11px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #171719;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.8);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.video-copy {
+  min-width: 0;
+  padding-top: 1px;
+  text-align: left;
+}
+
+.video-title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-channel {
+  margin-top: 5px;
+  color: #a6a6ab;
+  font-size: 11px;
+}
+
+.video-meta {
+  margin-top: 2px;
+  color: #85858b;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: #8d8d92;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .search-page {
+    width: calc(100% - 12px);
+  }
+
+  .video-row {
+    grid-template-columns: 42% minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .video-title {
+    font-size: 13.5px;
+  }
+}
+</style>
+
+<template>
+  <main class="search-page">
+    <form class="search-form" @submit.prevent="submit">
+      <div class="search-wrap">
+        <Search class="search-icon" aria-hidden="true"/>
+        <input
+          ref="inputRef"
+          v-model="term"
+          class="search-input"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
+          placeholder="Tìm video, bài hát, kênh..."
+        >
+        <button v-if="term" class="clear" type="button" aria-label="Xóa" @click="clear">
+          <X/>
+        </button>
+      </div>
+    </form>
+
+    <div v-if="loading" class="state">Đang tìm…</div>
+
+    <template v-else-if="searched">
+      <section v-if="channels.length">
+        <h2 class="section-title">Kênh</h2>
+        <router-link
+          v-for="channel in channels"
+          :key="channel.key"
+          class="channel-card"
+          :to="'/channel/' + encodeURIComponent(channel.key)"
+        >
+          <img
+            v-if="channel.avatar"
+            class="channel-avatar"
+            :src="channel.avatar"
+            :alt="channel.name"
+            loading="lazy"
+          >
+          <div v-else class="channel-avatar placeholder"><UserRound/></div>
+          <div class="channel-copy">
+            <div class="channel-name">{{ channel.name }}</div>
+            <div v-if="channel.meta" class="channel-meta">{{ channel.meta }}</div>
+            <div v-if="channel.description" class="channel-description">{{ channel.description }}</div>
+          </div>
+        </router-link>
+      </section>
+
+      <section v-if="videos.length">
+        <h2 class="section-title">Video mới nhất</h2>
+        <div class="video-list">
+          <router-link
+            v-for="video in videos"
+            :key="video.id"
+            class="video-row"
+            :to="'/watch/' + video.id"
+          >
+            <div class="thumb">
+              <img :src="video.thumbnail" :alt="video.title" loading="lazy">
+              <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+            </div>
+            <div class="video-copy">
+              <h3 class="video-title">{{ video.title }}</h3>
+              <div class="video-channel">{{ video.channel }}</div>
+              <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+            </div>
+          </router-link>
+        </div>
+      </section>
+
+      <div v-if="!channels.length && !videos.length" class="state">
+        Không tìm thấy kết quả phù hợp.
+      </div>
+    </template>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { nextTick, onMounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Search, UserRound, X } from '@lucide/vue';
+import {
+  formatCompactViews,
+  formatRelativeTime,
+  parsePublishedAt
+} from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const router = useRouter();
+
+const inputRef = ref<HTMLInputElement | null>(null);
+const term = ref('');
+const loading = ref(false);
+const searched = ref(false);
+const channels = ref<any[]>([]);
+const videos = ref<any[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function channelKey(row: any): string {
+  const raw = String(row?.url || row?.channelUrl || row?.uploaderUrl || row?.id || '').trim();
+  const id = raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+  if (id) return id;
+  const handle = raw.match(/\/(@[^/?#]+)/)?.[1];
+  if (handle) return decodeURIComponent(handle);
+  return String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+}
+
+function isChannel(row: any) {
+  const type = String(row?.type || row?.itemType || '').toLowerCase();
+  const raw = String(row?.url || row?.id || '');
+  return type.includes('channel') || /\/channel\/|\/user\/|\/@/.test(raw);
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function apiSearch(filter: string, q: string) {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', filter);
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) return [];
+  return Array.isArray(payload?.data?.items) ? payload.data.items : [];
+}
+
+function toChannel(row: any) {
+  const key = channelKey(row);
+  const name = String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+  if (!key || !name) return null;
+  const subscribers = row?.subscribers ?? row?.subscriberCount ?? '';
+  return {
+    key,
+    name,
+    avatar: String(row?.thumbnail || row?.avatar || row?.thumbnailUrl || ''),
+    meta: subscribers ? formatCompactViews(subscribers).replace(' views', ' người đăng ký') : '',
+    description: String(row?.description || '')
+  };
+}
+
+function toVideo(row: any) {
+  const id = videoId(row);
+  if (!id) return null;
+  const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+  return {
+    id,
+    title: String(row?.title || 'Video'),
+    channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+    duration: durationText(row?.duration),
+    meta: [
+      formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+      formatRelativeTime(published)
+    ].filter(Boolean).join(' · '),
+    publishedAt: parsePublishedAt(published)
+  };
+}
+
+async function runSearch(q: string) {
+  q = q.trim();
+  if (!q) return;
+
+  searched.value = true;
+  loading.value = true;
+  channels.value = [];
+  videos.value = [];
+
+  try {
+    const [channelRows, videoRows] = await Promise.all([
+      apiSearch('channels', q),
+      apiSearch('videos', q)
+    ]);
+
+    const channelSeen = new Set<string>();
+    channels.value = channelRows
+      .filter(isChannel)
+      .map(toChannel)
+      .filter((row: any) => {
+        if (!row || channelSeen.has(row.key)) return false;
+        channelSeen.add(row.key);
+        return true;
+      })
+      .slice(0, 3);
+
+    const seen = new Set<string>();
+    videos.value = videoRows
+      .map(toVideo)
+      .filter((row: any) => {
+        if (!row || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      })
+      .sort((a: any, b: any) => {
+        const at = a.publishedAt || 0;
+        const bt = b.publishedAt || 0;
+        if (at !== bt) {
+          if (!at) return 1;
+          if (!bt) return -1;
+          return bt - at;
+        }
+        return 0;
+      })
+      .slice(0, 30);
+  } finally {
+    loading.value = false;
+  }
+}
+
+function submit() {
+  const q = term.value.trim();
+  if (!q) return;
+  router.replace({ path: '/search', query: { q } });
+  void runSearch(q);
+}
+
+function clear() {
+  term.value = '';
+  searched.value = false;
+  channels.value = [];
+  videos.value = [];
+  router.replace('/search');
+  nextTick(() => inputRef.value?.focus());
+}
+
+onMounted(() => {
+  term.value = String(route.query.q || '').trim();
+  nextTick(() => inputRef.value?.focus());
+  if (term.value) void runSearch(term.value);
+});
+</script>
+''')
+
+p = Path("src/pages/ChannelPage.vue")
+p.write_text(r'''<style scoped>
+.channel-page {
+  width: min(980px, calc(100% - 16px));
+  margin: 0 auto;
+  padding: 14px 0 34px;
+}
+
+.channel-head {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 11px;
+  border-radius: 13px;
+  background: #29292c;
+}
+
+.avatar {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #353539;
+}
+
+.avatar.placeholder {
+  display: grid;
+  place-items: center;
+  color: #b0b0b5;
+}
+
+.copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.name {
+  margin: 0;
+  color: #f5f5f5;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.meta,
+.description {
+  margin-top: 4px;
+  color: #8f8f95;
+  font-size: 11.5px;
+}
+
+.description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.section-title {
+  margin: 18px 0 11px;
+  color: #a8a8ad;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px 14px;
+}
+
+.video-card {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #171719;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.78);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.title {
+  margin: 7px 1px 0;
+  color: #f4f4f5;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-meta {
+  margin: 3px 1px 0;
+  color: #85858b;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  color: #8d8d92;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .channel-page {
+    width: calc(100% - 12px);
+    padding-top: 9px;
+  }
+
+  .video-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+</style>
+
+<template>
+  <main class="channel-page">
+    <div v-if="loading" class="state">Đang tải kênh…</div>
+
+    <template v-else-if="channel">
+      <section class="channel-head">
+        <img v-if="channel.avatar" class="avatar" :src="channel.avatar" :alt="channel.name">
+        <div v-else class="avatar placeholder"><UserRound/></div>
+        <div class="copy">
+          <h1 class="name">{{ channel.name }}</h1>
+          <div v-if="channel.meta" class="meta">{{ channel.meta }}</div>
+          <div v-if="channel.description" class="description">{{ channel.description }}</div>
+        </div>
+      </section>
+
+      <h2 class="section-title">Video mới nhất</h2>
+
+      <div class="video-grid">
+        <router-link
+          v-for="video in videos"
+          :key="video.id"
+          class="video-card"
+          :to="'/watch/' + video.id"
+        >
+          <div class="thumb">
+            <img :src="video.thumbnail" :alt="video.title" loading="lazy">
+            <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+          </div>
+          <h3 class="title">{{ video.title }}</h3>
+          <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+        </router-link>
+      </div>
+    </template>
+
+    <div v-else class="state">Không tải được kênh này.</div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { UserRound } from '@lucide/vue';
+import {
+  formatCompactViews,
+  formatRelativeTime,
+  parsePublishedAt
+} from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+
+const loading = ref(false);
+const channel = ref<any>(null);
+const videos = ref<any[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function fetchJson(url: URL) {
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) throw new Error(payload?.error || 'request_failed');
+  return payload;
+}
+
+function channelIdFrom(row: any): string {
+  const raw = String(row?.url || row?.id || '').trim();
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1] || '';
+}
+
+async function resolveKey(key: string): Promise<string> {
+  if (/^UC[A-Za-z0-9_-]+$/.test(key)) return key;
+
+  const search = new URL(API);
+  search.searchParams.set('action', 'search');
+  search.searchParams.set('q', key.replace(/^@/, ''));
+  search.searchParams.set('filter', 'channels');
+
+  const payload = await fetchJson(search);
+  const rows = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+
+  for (const row of rows) {
+    const id = channelIdFrom(row);
+    if (id) return id;
+  }
+  return '';
+}
+
+async function load() {
+  const key = decodeURIComponent(String(route.params.id || '')).trim();
+  if (!key) return;
+
+  loading.value = true;
+  channel.value = null;
+  videos.value = [];
+
+  try {
+    const id = await resolveKey(key);
+    if (!id) throw new Error('channel_not_found');
+
+    const url = new URL(API);
+    url.searchParams.set('action', 'channel');
+    url.searchParams.set('id', id);
+
+    const payload = await fetchJson(url);
+    const data = payload?.data || {};
+
+    const subscribers = data?.subscriberCount ?? data?.subscribers ?? '';
+
+    channel.value = {
+      name: String(data?.name || data?.channelName || data?.title || key),
+      avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || ''),
+      meta: subscribers ? formatCompactViews(subscribers).replace(' views', ' người đăng ký') : '',
+      description: String(data?.description || '')
+    };
+
+    const rows = Array.isArray(data?.relatedStreams)
+      ? data.relatedStreams
+      : (Array.isArray(data?.items) ? data.items : []);
+
+    const seen = new Set<string>();
+    videos.value = rows
+      .map((row: any) => {
+        const videoIdValue = videoId(row);
+        if (!videoIdValue || seen.has(videoIdValue)) return null;
+        seen.add(videoIdValue);
+
+        const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+          row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+
+        return {
+          id: videoIdValue,
+          title: String(row?.title || 'Video'),
+          thumbnail: 'https://i.ytimg.com/vi/' + videoIdValue + '/hqdefault.jpg',
+          duration: durationText(row?.duration),
+          meta: [
+            formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+            formatRelativeTime(published)
+          ].filter(Boolean).join(' · '),
+          publishedAt: parsePublishedAt(published)
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const at = a.publishedAt || 0;
+        const bt = b.publishedAt || 0;
+        if (at !== bt) {
+          if (!at) return 1;
+          if (!bt) return -1;
+          return bt - at;
+        }
+        return 0;
+      })
+      .slice(0, 40);
+  } catch (error) {
+    console.error('channel page', error);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+watch(() => route.params.id, load);
+</script>
+''')
+
+# Related videos: newest first whenever a publication date is available.
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+if "function sortRelatedNewest1988" not in s:
+    import_anchor = "import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';"
+    s = s.replace(
+        import_anchor,
+        "import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';"
+    )
+
+    helper_anchor = "const channelTarget = computed(() => channelKey.value ? '/channel/' + encodeURIComponent(channelKey.value) : '');"
+    s = s.replace(
+        helper_anchor,
+        helper_anchor + r'''
+
+function sortRelatedNewest1988(rows: VideoItemData[]) {
+  return rows.slice().sort((a: any, b: any) => {
+    const aMeta = Array.isArray(a?.metadata) ? a.metadata.join(' ') : '';
+    const bMeta = Array.isArray(b?.metadata) ? b.metadata.join(' ') : '';
+    const at = parsePublishedAt(a?.publishedAt || a?.uploaded || aMeta);
+    const bt = parsePublishedAt(b?.publishedAt || b?.uploaded || bMeta);
+    if (at !== bt) {
+      if (!at) return 1;
+      if (!bt) return -1;
+      return bt - at;
+    }
+    return 0;
+  });
+}
+'''
+    )
+
+    # Fallback related list gets a sort before the final slice.
+    s = s.replace(
+        """.filter((row: VideoItemData | null): row is VideoItemData => !!row)
+    .slice(0, 18);""",
+        """.filter((row: VideoItemData | null): row is VideoItemData => !!row);
+  relatedVideos.value = sortRelatedNewest1988(relatedVideos.value).slice(0, 18);""",
+        1
+    )
+
+# Remove any visible like/dislike/action remnants if upstream adds them later.
+s += r'''
+<style scoped>
+.like-button,
+.dislike-button,
+.likes,
+.dislikes,
+.vote-actions {
+  display: none !important;
+}
+</style>
+'''
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-55-simple-youtube-spacing\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-56-vn-newest-simple\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
