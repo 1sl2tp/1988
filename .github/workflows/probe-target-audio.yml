@@ -1,0 +1,36 @@
+name: Probe Target Audio
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe exact failing video
+        shell: bash
+        run: |
+          set +e
+          ID="vhUjvanyu2U"
+          for API in "https://pipedapi.ducks.party" "https://api.piped.private.coffee"; do
+            echo "=== $API ==="
+            OUT=$(mktemp)
+            META=$(curl -sS -L --connect-timeout 3 --max-time 15 -o "$OUT" -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID")
+            echo "$META"
+            jq -c '{title,duration,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length),hls}' "$OUT" || true
+            echo "-- audio --"
+            jq -c '(.audioStreams//[])[] | {url,mimeType,bitrate,quality}' "$OUT" || true
+            echo "-- muxed --"
+            jq -c '(.videoStreams//[])[] | select(.videoOnly==false or .videoOnly==null) | {url,mimeType,quality,videoOnly,format}' "$OUT" || true
+            URL=$(jq -r '[(.audioStreams//[])[],(.videoStreams//[])[] | select(.url != null and (.videoOnly != true)) | select((.quality//"")|test("^LBRY")==false)][0].url // ""' "$OUT" 2>/dev/null)
+            echo "SELECTED_HOST=$(printf "%s" "$URL" | sed -E "s#https?://([^/]+)/?.*#\\1#")"
+            if [ -n "$URL" ]; then
+              curl -sS -I -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-1023' "$URL" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+            fi
+            rm -f "$OUT"
+          done
