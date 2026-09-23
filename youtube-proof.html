@@ -67,6 +67,7 @@
     <div class="label">Video đang chọn cho SABR</div>
     <div id="selected" class="selected"></div>
     <div class="row" style="margin-top:12px">
+      <a id="openAppLink" class="btn" href="/">Mở trong 1988</a>
       <a id="youtubeLink" class="btn secondary" target="_blank" rel="noopener">Mở YouTube gốc</a>
       <button id="copyLink" class="secondary" type="button">Sao chép link proof</button>
     </div>
@@ -91,7 +92,7 @@ Search/metadata dùng nguồn thật.
     <div id="env" class="value"></div>
   </div>
 
-  <p>Build: <span id="build">youtube-proof-search-20260923</span></p>
+  <p>Build: <span id="build">youtube-proof-search-open-20260923</span></p>
 </main>
 
 <script src="/src/api.js"></script>
@@ -104,6 +105,7 @@ Search/metadata dùng nguồn thật.
   const searchStatus = $('#searchStatus');
   const results = $('#results');
   const selected = $('#selected');
+  const openAppLink = $('#openAppLink');
   const youtubeLink = $('#youtubeLink');
   const copyLink = $('#copyLink');
 
@@ -114,8 +116,12 @@ Search/metadata dùng nguồn thật.
   function extractId(value=''){
     const raw=String(value).trim();
     if(/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+
+    const direct=raw.match(/(?:[?&]v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/);
+    if(direct?.[1]) return direct[1];
+
     try{
-      const u=new URL(raw);
+      const u=new URL(raw, location.origin);
       const v=u.searchParams.get('v');
       if(v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
       const parts=u.pathname.split('/').filter(Boolean);
@@ -168,6 +174,7 @@ Search/metadata dùng nguồn thật.
       '<div class="meta">'+esc(bits.join(' · '))+'</div>'+
       '<div class="meta">Video ID: '+esc(id)+'</div></div>';
 
+    openAppLink.href='/?v='+encodeURIComponent(id);
     youtubeLink.href='https://www.youtube.com/watch?v='+encodeURIComponent(id);
 
     const url=new URL(location.href);
