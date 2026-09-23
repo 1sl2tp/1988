@@ -16,7 +16,7 @@ python3 - <<'PY'
 from pathlib import Path
 import re
 
-PROXY = "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy"
+PROXY = "https://kira-proxy-1988.onrender.com"
 
 # Vite base path.
 p = Path("vite.config.ts")
@@ -718,7 +718,7 @@ insert = r"""  //#endregion
         const onError = () => finish(() => reject(new Error('direct_media_error_' + (videoElement.error?.code || 0))));
         const timer = window.setTimeout(
           () => finish(() => reject(new Error('direct_media_timeout'))),
-          25000
+          5000
         );
 
         videoElement.addEventListener('loadedmetadata', onReady, { once: true });
@@ -798,7 +798,7 @@ p.write_text(s)
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
-s = s.replace("protocol: 'http',\n  host: '',\n  port: ''", "protocol: 'https',\n  host: 'gcnoahqsrquxkwkjbuxy.supabase.co',\n  port: ''")
+s = s.replace("protocol: 'http',\n  host: '',\n  port: ''", "protocol: 'https',\n  host: 'kira-proxy-1988.onrender.com',\n  port: ''")
 s = s.replace("      Object.assign(settingsState, parsed);", "      void parsed; /* fixed 1988 proxy: ignore saved proxy settings */")
 p.write_text(s)
 
@@ -885,7 +885,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-29-fast-discovery-avatar\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-30-render-kira-player\">", 1)
 p.write_text(s)
 PY
 
