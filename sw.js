@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-native-discovery-v22';
+const CACHE='1988-native-discovery-v23';
 const SHELL=[
   './',
   './index.html',
@@ -10,7 +10,7 @@ const SHELL=[
   './src/app.js?v=fresh-22',
   './src/media-core.js?v=1',
   './src/html5-background.js?v=8',
-  './src/yt-local.js?v=2',
+  './src/yt-local.js?v=3',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
