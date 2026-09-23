@@ -10,8 +10,9 @@ assert.match(server,/bestaudio\[ext=m4a\]\/bestaudio/);
 assert.match(server,/stdout\.pipe\(res\)/);
 assert.match(server,/app\.get\(['"]\/stream['"]/);
 assert.match(server,/app\.get\(['"]\/audio['"]/);
-assert.match(app,/one988-1od3\.onrender\.com/);
+assert.match(app,/one988-audio\.onrender\.com/);
+assert.doesNotMatch(app,/one988-1od3\.onrender\.com/);
 assert.match(app,/\/stream/);
 assert.match(app,/\/audio/);
 
-console.log('node-stream-v4: 9 assertions passed');
+console.log('node-stream-v4: 10 assertions passed');
