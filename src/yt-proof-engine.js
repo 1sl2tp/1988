@@ -1,7 +1,7 @@
 import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
 import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
-import { SabrStream } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/sabr-stream.js';
-import { buildSabrFormat } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/utils.js';
+import { SabrStream } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/sabr-stream.js/+esm';
+import { buildSabrFormat } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/utils.js/+esm';
 
 const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
 const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
