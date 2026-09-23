@@ -237,11 +237,12 @@ async function resolve(id,onAttempt=()=>{}){
 
       if(!sd||!count)continue;
 
-      // Keep the player PoToken only for deciphered media URLs. This does not
-      // force it into the authenticated TV player request above.
+      // Keep media URL signing aligned with the client request.
+      // Authenticated TV already has OAuth; forcing a content-bound PoToken
+      // onto those media URLs can turn an otherwise valid URL into HTTP 403.
       try{
-        if(contentPoToken&&yt?.session?.player){
-          yt.session.player.po_token=contentPoToken;
+        if(yt?.session?.player){
+          yt.session.player.po_token=attempt.poToken||undefined;
         }
       }catch{}
 
@@ -297,7 +298,7 @@ async function resolve(id,onAttempt=()=>{}){
             }
           });
 
-          if(manifest&&manifest.includes('<MPD')){
+          if(manifest&&/<mpd\b/i.test(manifest)){
             diag.dash='ready';
             return {
               mode:'dash',
