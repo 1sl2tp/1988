@@ -1,4 +1,4 @@
-name: Smoke NewPipe WASM via Cloudflare Relay
+name: Check Cloudflare Relay Credentials
 
 on:
   push:
@@ -8,57 +8,13 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
+  check:
     runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
-      - name: Run NewPipe WASM in real Chrome via Cloudflare Worker
+      - name: Check secret presence only
         run: |
-          set -e
-          mkdir -p /tmp/np
-          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm-runtime.js' -o /tmp/np/browser-wrapper.wasm-runtime.js
-          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm' -o /tmp/np/browser-wrapper.wasm
-          cat >/tmp/np/index.html <<'HTML'
-          <!doctype html><meta charset="utf-8">
-          <script src="browser-wrapper.wasm-runtime.js"></script>
-          <pre id="out">loading</pre>
-          <script>
-          (async()=>{
-            const t=performance.now();
-            try {
-              const teavm=await TeaVM.wasmGC.load('browser-wrapper.wasm');
-              const media=teavm.exports.getFirstProgressiveStreamUrl(
-                'https://cors.ryanking13.workers.dev/?u=',
-                'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
-              );
-              const video=document.createElement('video');
-              video.preload='metadata';
-              video.src=media;
-              let meta={};
-              try {
-                await new Promise((resolve,reject)=>{
-                  const timer=setTimeout(()=>reject(new Error('metadata timeout')),12000);
-                  video.onloadedmetadata=()=>{clearTimeout(timer);resolve()};
-                  video.onerror=()=>{clearTimeout(timer);reject(new Error('video error '+(video.error?.code||0)))};
-                  video.load();
-                });
-                meta={duration:video.duration,width:video.videoWidth,height:video.videoHeight};
-              } catch(e) { meta={error:String(e)}; }
-              document.getElementById('out').textContent=JSON.stringify({
-                ok:!String(media).startsWith('ERROR:'),
-                ms:Math.round(performance.now()-t),
-                host:(()=>{try{return new URL(media).host}catch{return ''}})(),
-                media:String(media).slice(0,220),
-                meta
-              });
-            } catch(e) {
-              document.getElementById('out').textContent=JSON.stringify({ok:false,ms:Math.round(performance.now()-t),error:String(e)});
-            }
-          })();
-          </script>
-          HTML
-          cd /tmp/np
-          python3 -m http.server 8934 >/tmp/http.log 2>&1 &
-          sleep 1
-          CHROME="$(command -v google-chrome)"
-          timeout 40s "$CHROME" --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage             --virtual-time-budget=35000 'http://127.0.0.1:8934/' --dump-dom 2>/tmp/chrome.err | grep -o '<pre id="out">[^<]*' || true
-          tail -30 /tmp/chrome.err || true
+          if [ -n "$CF_TOKEN" ]; then echo "CLOUDFLARE_API_TOKEN=present"; else echo "CLOUDFLARE_API_TOKEN=missing"; fi
+          if [ -n "$CF_ACCOUNT" ]; then echo "CLOUDFLARE_ACCOUNT_ID=present"; else echo "CLOUDFLARE_ACCOUNT_ID=missing"; fi
