@@ -1,0 +1,14 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const root=process.argv[2]||'.';
+const html=fs.readFileSync(root+'/index.html','utf8');
+const app=fs.readFileSync(root+'/src/app.js','utf8');
+assert.match(html,/<video id="mainVideo"/);
+assert.doesNotMatch(html,/youtube\.com\/iframe_api/);
+assert.match(html,/id="pipBtn"/);
+assert.match(html,/id="lockBtn"/);
+assert.match(app,/buildNativeMediaUrl\(BASE,id,"video"\)/);
+assert.match(app,/function setupMediaSession\(/);
+assert.match(app,/requestPictureInPicture|webkitSetPresentationMode/);
+assert.doesNotMatch(app,/new YT\.Player/);
+console.log('integration-shape: 8 assertions passed');
