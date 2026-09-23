@@ -996,12 +996,21 @@ if anchor not in src:
     raise SystemExit("Cloudflare DASH insertion anchor not found")
 src = src.replace(anchor, insert, 1)
 
-needle = "      if (await loadNewPipeMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;"
+needle = """      if (await loadCobaltMedia(videoId)) return;
+      playerState.value = 'error';
+      addToast('Video source is temporarily unavailable.', 'error');
+      return;
+"""
 if needle not in src:
-    raise SystemExit("NewPipe/Cobalt priority call site not found")
+    raise SystemExit("Cobalt loadVideo priority call site not found")
 src = src.replace(
     needle,
-    "      if (await loadCloudflareDashMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;",
+    """      if (await loadCloudflareDashMedia(videoId)) return;
+      if (await loadCobaltMedia(videoId)) return;
+      playerState.value = 'error';
+      addToast('Video source is temporarily unavailable.', 'error');
+      return;
+""",
     1
 )
 
@@ -1111,7 +1120,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-41-newpipe-prefetch\">\n    <link rel=\"prefetch\" href=\"/kira-proof/newpipe/browser-wrapper.wasm\" as=\"fetch\" crossorigin>\n    <link rel=\"prefetch\" href=\"/kira-proof/newpipe/browser-wrapper.wasm-runtime.js\" as=\"script\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-41-cloudflare-ios-dash\">", 1)
 p.write_text(s)
 PY
 
