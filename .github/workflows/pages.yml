@@ -23,6 +23,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Diagnose live media
         shell: bash
         run: |
@@ -31,21 +32,7 @@ jobs:
           curl -sS --fail-with-body "$BASE?action=search&q=MY%20HANH%20Viber&filter=videos" -o /tmp/search.json
           echo '=== SEARCH ==='
           jq '{ok,source,items:(.data.items//[])[:3]|map({url,title,duration})}' /tmp/search.json
-          ID=$(jq -r '(.data.items//[])[0].url // empty' /tmp/search.json | grep -oE '[A-Za-z0-9_-]{11}
-          node tests/media-core.test.cjs
-          node tests/integration-shape.test.cjs .
-          node --check src/media-core.js
-          node --check src/app.js
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
- | head -1 || true)
+          ID=$(jq -r '(.data.items//[])[0].url // empty' /tmp/search.json | sed -nE 's#.*([A-Za-z0-9_-]{11})$#\1#p' | head -1 || true)
           if [ -z "$ID" ]; then ID='jfKfPfyJRdk'; fi
           echo "ID=$ID"
           echo '=== PLAYBACK ==='
@@ -58,18 +45,22 @@ jobs:
           cat /tmp/media.headers
           file /tmp/media.bin || true
           wc -c /tmp/media.bin || true
+
       - name: Test media core
         run: |
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
           node --check src/media-core.js
           node --check src/app.js
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
           path: .
+
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
