@@ -11,35 +11,17 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 2
     steps:
-      - name: Verify loader.to final audio headers
+      - name: Check resolved MP3 response headers
         shell: bash
         run: |
-          set -e
-          SRC='https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
-          START=$(curl -sS -L --connect-timeout 4 --max-time 20 -A 'Mozilla/5.0'             "https://loader.to/ajax/download.php?format=mp3&url=$SRC")
-          PROGRESS=$(printf '%s' "$START" | jq -r '.progress_url // empty')
-          [ -n "$PROGRESS" ]
-          FINAL=''
-          for i in $(seq 1 15); do
-            sleep 2
-            P=$(curl -sS -L --connect-timeout 4 --max-time 12 -A 'Mozilla/5.0' "$PROGRESS")
-            echo "POLL#$i $(printf '%s' "$P" | jq -c '{success,progress,text}')"
-            FINAL=$(printf '%s' "$P" | jq -r '.download_url // empty')
-            [ -n "$FINAL" ] && break
-          done
-          [ -n "$FINAL" ]
-          echo "FINAL=$FINAL"
-
-          echo '=== HEAD ==='
-          curl -sS -I -L --connect-timeout 4 --max-time 15 -A 'Mozilla/5.0' "$FINAL" | tr -d '\r' |             grep -iE '^(HTTP/|content-type:|content-length:|content-disposition:|accept-ranges:|access-control-allow-origin:|cache-control:)'
-
-          echo '=== FIRST BYTES ==='
           set +e
-          curl -sS -L --connect-timeout 4 --max-time 3 -A 'Mozilla/5.0'             -H 'Range: bytes=0-4095' "$FINAL" -o /tmp/audio.bin
-          RC=$?
-          set -e
-          echo "curl_rc=$RC size=$(wc -c < /tmp/audio.bin)"
-          file /tmp/audio.bin
-          xxd -l 48 /tmp/audio.bin
+          U='https://ricky4.savenow.to/api/v2/download/5kjuq0AjyDcYy2yPXOTptzgvSJ7fOQU39AEDhRR2wod1ndhE'
+          echo '=== HEAD ==='
+          curl -sS -I -L --connect-timeout 4 --max-time 15 -A 'Mozilla/5.0' "$U" | tr -d '\r' |             grep -iE '^(HTTP/|content-type:|content-length:|content-disposition:|accept-ranges:|access-control-allow-origin:|cache-control:)'
+          echo '=== 1s GET ==='
+          curl -sS -L --connect-timeout 4 --max-time 1 -A 'Mozilla/5.0' "$U" -o /tmp/a.bin
+          echo "size=$(wc -c < /tmp/a.bin)"
+          file /tmp/a.bin
+          xxd -l 32 /tmp/a.bin
