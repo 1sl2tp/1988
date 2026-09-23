@@ -145,6 +145,88 @@ function enc(value: string) {
   return encodeURIComponent(value);
 }
 
+async function probeMediaUrl(raw: string, timeoutMs = 3200) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(raw, {
+      method: "GET",
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        Range: "bytes=0-1023",
+        Accept: "*/*",
+      },
+    });
+
+    const type = String(res.headers.get("content-type") || "").toLowerCase();
+    const okStatus = res.status === 200 || res.status === 206;
+    const looksBlocked =
+      type.includes("text/html") ||
+      type.includes("application/json") ||
+      type.includes("text/plain");
+
+    try { await res.body?.cancel(); } catch {}
+    if (!okStatus || looksBlocked) throw new Error(`media_probe_${res.status}`);
+    return raw;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function proxifyPipedMedia(raw: string, info: any) {
+  try {
+    const media = new URL(raw);
+    if (media.hostname.endsWith(".googlevideo.com") && info?.proxyUrl) {
+      const proxy = new URL(String(info.proxyUrl));
+      const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
+      media.searchParams.set("host", media.host);
+      media.protocol = proxy.protocol;
+      media.host = proxy.host;
+      media.pathname = prefix + media.pathname;
+    }
+    return media.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function mediaQualityNumber(value: unknown) {
+  const match = String(value || "").match(/(\d{3,4})/);
+  return match ? Number(match[1]) : 0;
+}
+
+function mediaCandidates(info: any, kind: "video" | "audio") {
+  const rows = kind === "audio"
+    ? (Array.isArray(info?.audioStreams) ? info.audioStreams : [])
+    : (Array.isArray(info?.videoStreams) ? info.videoStreams : []).filter((s: any) => s?.videoOnly !== true);
+
+  const sorted = rows
+    .filter((s: any) => s?.url)
+    .slice()
+    .sort((a: any, b: any) => {
+      const aType = String(a?.mimeType || a?.format || "").toLowerCase();
+      const bType = String(b?.mimeType || b?.format || "").toLowerCase();
+      const aMp4 = aType.includes("mp4") ? 1 : 0;
+      const bMp4 = bType.includes("mp4") ? 1 : 0;
+      if (aMp4 !== bMp4) return bMp4 - aMp4;
+      if (kind === "video") {
+        const aq = mediaQualityNumber(a?.quality);
+        const bq = mediaQualityNumber(b?.quality);
+        if (aq !== bq) return bq - aq;
+      }
+      return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
+    })
+    .slice(0, kind === "audio" ? 3 : 4)
+    .map((s: any) => proxifyPipedMedia(String(s.url), info));
+
+  if (typeof info?.hls === "string" && info.hls) {
+    sorted.push(proxifyPipedMedia(info.hls, info));
+  }
+
+  return [...new Set(sorted.filter(Boolean))];
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405, 0);
@@ -155,79 +237,63 @@ Deno.serve(async (req) => {
   try {
     if (action === "media") {
       const id = String(url.searchParams.get("id") || "").trim();
-      const kind = String(url.searchParams.get("kind") || "video").toLowerCase();
-      if (!validId(id, "video") || !["video", "audio"].includes(kind)) {
+      const kindRaw = String(url.searchParams.get("kind") || "video").toLowerCase();
+      if (!validId(id, "video") || !["video", "audio"].includes(kindRaw)) {
         return json({ ok: false, error: "invalid_media_request" }, 400, 0);
       }
+      const kind = kindRaw as "video" | "audio";
+      const path = `/streams/${enc(id)}`;
 
-      const result = await piped(`/streams/${enc(id)}`, 15 * 1000);
-      const info: any = result.data || {};
+      const orderedBases = [
+        ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
+        ...PIPED_APIS,
+      ].filter((base, index, rows) => base && rows.indexOf(base) === index).slice(0, 10);
 
-      const proxify = (raw: string) => {
-        try {
-          const media = new URL(raw);
-          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
-            const proxy = new URL(String(info.proxyUrl));
-            const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
-            media.searchParams.set("host", media.host);
-            media.protocol = proxy.protocol;
-            media.host = proxy.host;
-            media.pathname = prefix + media.pathname;
-          }
-          return media.toString();
-        } catch {
-          return raw;
-        }
-      };
+      const settled = await Promise.allSettled(
+        orderedBases.map(async (base, index) => {
+          if (index >= 5) await delay(180);
+          return { base, data: await fetchJson(base, path, 2600) };
+        }),
+      );
 
-      const qualityNumber = (value: unknown) => {
-        const match = String(value || "").match(/(\d{3,4})/);
-        return match ? Number(match[1]) : 0;
-      };
+      const successes = settled
+        .filter((row): row is PromiseFulfilledResult<{ base: string; data: any }> => row.status === "fulfilled")
+        .map((row) => row.value);
 
-      let target = "";
-      if (kind === "audio") {
-        const rows = (Array.isArray(info.audioStreams) ? info.audioStreams : [])
-          .filter((s: any) => s?.url)
-          .slice()
-          .sort((a: any, b: any) => {
-            const aType = String(a?.mimeType || a?.format || "").toLowerCase();
-            const bType = String(b?.mimeType || b?.format || "").toLowerCase();
-            const aMp4 = aType.includes("mp4") ? 1 : 0;
-            const bMp4 = bType.includes("mp4") ? 1 : 0;
-            if (aMp4 !== bMp4) return bMp4 - aMp4;
-            return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
-          });
-        target = rows[0]?.url ? proxify(String(rows[0].url)) : "";
-        if (!target && typeof info.hls === "string") target = proxify(info.hls);
-      } else {
-        const rows = (Array.isArray(info.videoStreams) ? info.videoStreams : [])
-          .filter((s: any) => s?.url && s?.videoOnly !== true)
-          .slice()
-          .sort((a: any, b: any) => {
-            const aType = String(a?.mimeType || a?.format || "").toLowerCase();
-            const bType = String(b?.mimeType || b?.format || "").toLowerCase();
-            const aMp4 = aType.includes("mp4") ? 1 : 0;
-            const bMp4 = bType.includes("mp4") ? 1 : 0;
-            if (aMp4 !== bMp4) return bMp4 - aMp4;
-            const aq = qualityNumber(a?.quality);
-            const bq = qualityNumber(b?.quality);
-            if (aq !== bq) return bq - aq;
-            return (Number(b?.bitrate) || 0) - (Number(a?.bitrate) || 0);
-          });
-        target = rows[0]?.url ? proxify(String(rows[0].url)) : "";
-        if (!target && typeof info.hls === "string") target = proxify(info.hls);
+      if (!successes.length) {
+        return json({ ok: false, error: "no_piped_instance" }, 503, 0);
       }
 
-      if (!target) return json({ ok: false, error: "no_direct_media" }, 404, 0);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          ...CORS,
-          location: target,
-          "cache-control": "no-store",
-        },
-      });
+      const probes: Array<Promise<{ base: string; target: string }>> = [];
+      for (const result of successes) {
+        const candidates = mediaCandidates(result.data || {}, kind);
+        for (const target of candidates) {
+          probes.push(
+            probeMediaUrl(target).then(() => ({ base: result.base, target })),
+          );
+        }
+      }
+
+      if (!probes.length) {
+        return json({ ok: false, error: "no_direct_media" }, 404, 0);
+      }
+
+      try {
+        const working = await Promise.any(probes);
+        preferredApi = working.base;
+        preferredUntil = Date.now() + API_TTL_MS;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            ...CORS,
+            location: working.target,
+            "cache-control": "no-store",
+            "x-yt1988-media-api": working.base,
+          },
+        });
+      } catch {
+        return json({ ok: false, error: "no_working_media_proxy" }, 502, 0);
+      }
     }
 
     if (action === "playback") {
