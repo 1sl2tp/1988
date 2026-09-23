@@ -172,6 +172,125 @@ function proxiedMediaUrl(raw){
   return makeProxyUrl(raw,new Headers({Accept:'*/*'}));
 }
 
+function xmlEscape(value){
+  return String(value||'')
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&apos;');
+}
+
+function codecOf(format){
+  const match=String(format?.mime_type||'').match(/codecs="([^"]+)"/i);
+  return match?match[1]:'';
+}
+
+function mimeBase(format){
+  return String(format?.mime_type||'').split(';')[0]||'';
+}
+
+async function buildManualDash(info,player,poToken=''){
+  const formats=Array.from(info?.streaming_data?.adaptive_formats||[]);
+
+  const videos=formats
+    .filter(f=>f?.has_video&&!f?.has_audio&&f?.init_range&&f?.index_range&&/video\/mp4/i.test(f?.mime_type||''))
+    .sort((a,b)=>{
+      const aa=/avc1/i.test(a?.mime_type||'')?1:0;
+      const bb=/avc1/i.test(b?.mime_type||'')?1:0;
+      if(aa!==bb)return bb-aa;
+      return (Number(b?.height)||0)-(Number(a?.height)||0);
+    });
+
+  const audios=formats
+    .filter(f=>f?.has_audio&&!f?.has_video&&f?.init_range&&f?.index_range&&/audio\/mp4/i.test(f?.mime_type||''))
+    .sort((a,b)=>{
+      const aa=/mp4a/i.test(a?.mime_type||'')?1:0;
+      const bb=/mp4a/i.test(b?.mime_type||'')?1:0;
+      if(aa!==bb)return bb-aa;
+      const ad=a?.is_drc?0:1;
+      const bd=b?.is_drc?0:1;
+      if(ad!==bd)return bd-ad;
+      return (Number(b?.bitrate)||0)-(Number(a?.bitrate)||0);
+    });
+
+  if(!videos.length||!audios.length){
+    throw new Error('adaptive_mp4_pair_not_found');
+  }
+
+  if(player)player.po_token=poToken||undefined;
+
+  let lastError=null;
+  for(const videoFmt of videos.slice(0,6)){
+    for(const audioFmt of audios.slice(0,4)){
+      try{
+        const [videoRaw,audioRaw]=await Promise.all([
+          videoFmt.decipher(player),
+          audioFmt.decipher(player)
+        ]);
+        if(!videoRaw||!audioRaw)continue;
+
+        const videoUrl=proxiedMediaUrl(videoRaw);
+        const audioUrl=proxiedMediaUrl(audioRaw);
+
+        const [vp,ap]=await Promise.all([probe(videoUrl),probe(audioUrl)]);
+        if(!vp.ok||!ap.ok){
+          lastError=new Error('adaptive_probe_video_'+vp.status+'_audio_'+ap.status);
+          continue;
+        }
+
+        const durationSec=Math.max(
+          1,
+          Math.round((Number(videoFmt.approx_duration_ms)||Number(audioFmt.approx_duration_ms)||0)/1000)
+        );
+
+        const videoMime=mimeBase(videoFmt)||'video/mp4';
+        const audioMime=mimeBase(audioFmt)||'audio/mp4';
+        const videoCodec=codecOf(videoFmt);
+        const audioCodec=codecOf(audioFmt);
+
+        const manifest=
+'<?xml version="1.0" encoding="UTF-8"?>'+
+'<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" minBufferTime="PT1.5S" mediaPresentationDuration="PT'+durationSec+'S" profiles="urn:mpeg:dash:profile:isoff-main:2011">'+
+  '<Period start="PT0S">'+
+    '<AdaptationSet id="1" contentType="video" mimeType="'+xmlEscape(videoMime)+'" codecs="'+xmlEscape(videoCodec)+'" segmentAlignment="true" startWithSAP="1">'+
+      '<Representation id="'+videoFmt.itag+'" bandwidth="'+(Number(videoFmt.bitrate)||1)+'" width="'+(Number(videoFmt.width)||0)+'" height="'+(Number(videoFmt.height)||0)+'" frameRate="'+(Number(videoFmt.fps)||30)+'">'+
+        '<BaseURL>'+xmlEscape(videoUrl)+'</BaseURL>'+
+        '<SegmentBase indexRange="'+videoFmt.index_range.start+'-'+videoFmt.index_range.end+'">'+
+          '<Initialization range="'+videoFmt.init_range.start+'-'+videoFmt.init_range.end+'"/>'+
+        '</SegmentBase>'+
+      '</Representation>'+
+    '</AdaptationSet>'+
+    '<AdaptationSet id="2" contentType="audio" mimeType="'+xmlEscape(audioMime)+'" codecs="'+xmlEscape(audioCodec)+'" segmentAlignment="true" startWithSAP="1">'+
+      '<Representation id="'+audioFmt.itag+'" bandwidth="'+(Number(audioFmt.bitrate)||1)+'" audioSamplingRate="'+(Number(audioFmt.audio_sample_rate)||48000)+'">'+
+        '<BaseURL>'+xmlEscape(audioUrl)+'</BaseURL>'+
+        '<SegmentBase indexRange="'+audioFmt.index_range.start+'-'+audioFmt.index_range.end+'">'+
+          '<Initialization range="'+audioFmt.init_range.start+'-'+audioFmt.init_range.end+'"/>'+
+        '</SegmentBase>'+
+      '</Representation>'+
+    '</AdaptationSet>'+
+  '</Period>'+
+'</MPD>';
+
+        return {
+          manifest,
+          videoItag:videoFmt.itag,
+          audioItag:audioFmt.itag,
+          videoProbe:vp,
+          audioProbe:ap,
+          videoQuality:String(videoFmt.quality_label||videoFmt.quality||''),
+          videoCodec,
+          audioCodec
+        };
+      }catch(error){
+        lastError=error;
+      }
+    }
+  }
+
+  throw lastError||new Error('adaptive_pair_unavailable');
+}
+
 async function resolve(id,onAttempt=()=>{}){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video_id');
 
@@ -287,38 +406,57 @@ async function resolve(id,onAttempt=()=>{}){
         }
       }
 
-      // 2) Adaptive path: YouTube often exposes separate video/audio streams.
-      // Generate a DASH manifest and proxy every media URL through our own
-      // Range-capable proxy. No transcoding is involved.
+      // 2) Adaptive path: use TV-auth's separate video/audio streams directly.
+      // Try without a media PoToken first, then retry with the content-bound
+      // PoToken. Only return when BOTH video and audio answer with media bytes.
       if(adaptiveCount){
-        try{
-          const manifest=await info.toDash({
-            url_transformer:(url)=>{
-              return new URL(proxiedMediaUrl(url.toString()));
-            }
-          });
+        const tokenModes=attempt.label.startsWith('TV-auth')
+          ?['',contentPoToken]
+          :[attempt.poToken||contentPoToken,''];
 
-          if(manifest&&/<mpd\b/i.test(manifest)){
+        for(const mediaPoToken of tokenModes){
+          try{
+            const dash=await buildManualDash(info,yt.session.player,mediaPoToken);
             diag.dash='ready';
+            diag.videoProbe='HTTP '+dash.videoProbe.status;
+            diag.audioProbe='HTTP '+dash.audioProbe.status;
+            diag.videoItag=dash.videoItag;
+            diag.audioItag=dash.audioItag;
+
             return {
               mode:'dash',
-              manifest,
+              manifest:dash.manifest,
               client:attempt.label,
-              poTokenBound:!!contentPoToken,
+              poTokenBound:!!mediaPoToken,
               mimeType:'application/dash+xml',
-              quality:'adaptive',
+              quality:dash.videoQuality||'adaptive',
               hasAudio:true,
-              probe:{ok:true,status:200,type:'application/dash+xml',range:''},
+              videoItag:dash.videoItag,
+              audioItag:dash.audioItag,
+              probe:{
+                ok:true,
+                status:206,
+                type:'video+audio adaptive',
+                range:'video '+dash.videoProbe.status+' / audio '+dash.audioProbe.status
+              },
               meta:firstMeta||{
                 title:String(info?.basic_info?.title||''),
                 author:String(info?.basic_info?.author||'')
               },
               diagnostics
             };
+          }catch(error){
+            lastError=error;
+            diag.dashError=String(error?.message||error);
           }
-        }catch(error){
-          lastError=error;
-          diag.dashError=String(error?.message||error);
+        }
+
+        // If authenticated TV already returned real formats, don't hide the
+        // media failure by falling through to unrelated Android client errors.
+        if(attempt.label.startsWith('TV-auth')){
+          const error=new Error(diag.dashError||diag.progressiveError||'TV adaptive streams unavailable');
+          error.diagnostics=diagnostics;
+          throw error;
         }
       }
     }catch(error){
