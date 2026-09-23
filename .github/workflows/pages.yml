@@ -24,6 +24,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build exact Kira proof
+        run: bash scripts/build-kira-proof.sh
+
+
       - name: Diagnose live media
         if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
