@@ -26,8 +26,9 @@ const PLAYER_FRONTS = [
 
 const CORS = {
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-methods": "GET,HEAD,OPTIONS",
+  "access-control-allow-headers": "content-type,range",
+  "access-control-expose-headers": "content-type,content-length,content-range,accept-ranges",
   "access-control-max-age": "86400",
 };
 
@@ -229,7 +230,7 @@ function mediaCandidates(info: any, kind: "video" | "audio") {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-  if (req.method !== "GET") return json({ ok: false, error: "method_not_allowed" }, 405, 0);
+  if (!["GET", "HEAD"].includes(req.method)) return json({ ok: false, error: "method_not_allowed" }, 405, 0);
 
   const url = new URL(req.url);
   const action = String(url.searchParams.get("action") || "health").toLowerCase();
@@ -252,7 +253,7 @@ Deno.serve(async (req) => {
       const settled = await Promise.allSettled(
         orderedBases.map(async (base, index) => {
           if (index >= 5) await delay(180);
-          return { base, data: await fetchJson(base, path, 2600) };
+          return { base, data: await fetchJson(base, path, 2800) };
         }),
       );
 
@@ -264,36 +265,76 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "no_piped_instance" }, 503, 0);
       }
 
-      const probes: Array<Promise<{ base: string; target: string }>> = [];
+      const incomingRange = req.headers.get("range") || "";
+      let lastStatus = 0;
+
       for (const result of successes) {
         const candidates = mediaCandidates(result.data || {}, kind);
         for (const target of candidates) {
-          probes.push(
-            probeMediaUrl(target).then(() => ({ base: result.base, target })),
-          );
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 8000);
+          try {
+            const headers = new Headers({ Accept: "*/*" });
+            if (incomingRange) headers.set("Range", incomingRange);
+            else headers.set("Range", "bytes=0-");
+
+            const upstream = await fetch(target, {
+              method: req.method,
+              redirect: "follow",
+              signal: controller.signal,
+              headers,
+            });
+            lastStatus = upstream.status;
+
+            if (upstream.status !== 200 && upstream.status !== 206) {
+              try { await upstream.body?.cancel(); } catch {}
+              continue;
+            }
+
+            const upstreamType = String(upstream.headers.get("content-type") || "").toLowerCase();
+            if (
+              upstreamType.includes("text/html") ||
+              upstreamType.includes("application/json") ||
+              upstreamType.includes("text/plain")
+            ) {
+              try { await upstream.body?.cancel(); } catch {}
+              continue;
+            }
+
+            preferredApi = result.base;
+            preferredUntil = Date.now() + API_TTL_MS;
+
+            const headersOut = new Headers(CORS);
+            headersOut.set(
+              "content-type",
+              upstream.headers.get("content-type") ||
+                (kind === "audio" ? "audio/mp4" : "video/mp4"),
+            );
+            headersOut.set("cache-control", "no-store");
+            headersOut.set("accept-ranges", upstream.headers.get("accept-ranges") || "bytes");
+
+            for (const name of ["content-length", "content-range", "etag", "last-modified"]) {
+              const value = upstream.headers.get(name);
+              if (value) headersOut.set(name, value);
+            }
+
+            return new Response(req.method === "HEAD" ? null : upstream.body, {
+              status: upstream.status,
+              headers: headersOut,
+            });
+          } catch {
+            // Try the next candidate/instance.
+          } finally {
+            clearTimeout(timer);
+          }
         }
       }
 
-      if (!probes.length) {
-        return json({ ok: false, error: "no_direct_media" }, 404, 0);
-      }
-
-      try {
-        const working = await Promise.any(probes);
-        preferredApi = working.base;
-        preferredUntil = Date.now() + API_TTL_MS;
-        return new Response(null, {
-          status: 302,
-          headers: {
-            ...CORS,
-            location: working.target,
-            "cache-control": "no-store",
-            "x-yt1988-media-api": working.base,
-          },
-        });
-      } catch {
-        return json({ ok: false, error: "no_working_media_proxy" }, 502, 0);
-      }
+      return json({
+        ok: false,
+        error: "no_working_media_source",
+        upstreamStatus: lastStatus || undefined,
+      }, 502, 0);
     }
 
     if (action === "playback") {
