@@ -3842,11 +3842,7 @@ p.write_text(s)
 PY
 
 echo "==> Installing Kira dependencies"
-if [ -f package-lock.json ]; then
-  npm ci --no-audit --no-fund
-else
-  npm install --no-audit --no-fund
-fi
+npm install --no-audit --no-fund
 
 echo "==> Building Kira proof"
 npm run build
