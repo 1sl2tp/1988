@@ -1489,6 +1489,306 @@ export function compactMetadata(items: unknown[]): string {
 }
 ''')
 
+
+# 1988 newest-first recommendation page.
+p = Path("src/pages/HomePage.vue")
+p.write_text(r'''<style scoped>
+.home {
+  color: #f5f5f5;
+  display: flex;
+  padding: 16px 16px 28px;
+  flex-direction: column;
+  align-items: center;
+  max-width: 1240px;
+  margin: 0 auto;
+}
+.recommendations-section { width: 100%; margin-top: 8px; }
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #333;
+}
+.section-header h2 {
+  font-size: 21px;
+  font-weight: 600;
+  color: #eee;
+  margin: 0;
+  text-align: left;
+}
+.header-actions { display: flex; align-items: center; gap: 8px; }
+.sort-select,
+.toggle-recommendations {
+  height: 32px;
+  background: #262626;
+  border: 1px solid #444;
+  color: #ddd;
+  padding: 0 10px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.sort-select:focus,
+.toggle-recommendations:focus { outline: none; border-color: #666; }
+.toggle-recommendations:hover,
+.sort-select:hover { background: #303030; color: #fff; }
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(245px, 1fr));
+  gap: 18px 16px;
+}
+.recommendations-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  text-align: center;
+  color: #888;
+  font-size: 15px;
+}
+@media (max-width: 768px) {
+  .home { padding: 10px 8px 22px; }
+  .section-header { margin-bottom: 12px; }
+  .section-header h2 { font-size: 19px; }
+  .video-grid { grid-template-columns: 1fr; gap: 14px; }
+  .sort-select,
+  .toggle-recommendations { height: 30px; padding: 0 8px; font-size: 12px; }
+}
+</style>
+
+<template>
+  <div class="home">
+    <div class="recommendations-section">
+      <div class="section-header">
+        <h2>Video đề xuất</h2>
+        <div class="header-actions">
+          <select v-model="sortMode" class="sort-select" aria-label="Sắp xếp video">
+            <option value="newest">Mới nhất</option>
+            <option value="views">Nhiều view</option>
+            <option value="lowViews">Ít view</option>
+            <option value="oldest">Cũ nhất</option>
+          </select>
+          <button @click="toggleRecommendations" class="toggle-recommendations">
+            {{ showRecommendations ? 'Ẩn' : 'Hiện' }}
+          </button>
+        </div>
+      </div>
+
+      <template v-if="showRecommendations">
+        <div v-if="loading" class="recommendations-state"><p>Đang tải…</p></div>
+        <div v-else-if="!sortedRecommendations.length" class="recommendations-state"><p>Chưa có video phù hợp.</p></div>
+        <div class="video-grid" v-else>
+          <GridVideoItem
+            v-for="video in sortedRecommendations"
+            :key="video.videoId"
+            :data="video"
+          />
+        </div>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue';
+import GridVideoItem from '@/components/GridVideoItem.vue';
+import { useToastStore } from '@/stores/toastStore';
+import type { VideoItemData } from '@/utils/helpers';
+import { formatCompactViews, formatRelativeTime, numericViews, parsePublishedAt } from '@/utils/display1988';
+
+const FALLBACK_DISCOVERY_API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+
+type SortMode = 'newest' | 'views' | 'lowViews' | 'oldest';
+type HomeVideo = VideoItemData & { viewCount?: number; publishedAt?: number };
+
+const { addToast } = useToastStore();
+const loading = ref(true);
+const showRecommendations = ref(true);
+const sortMode = ref<SortMode>('newest');
+const homeRecommendations = ref<HomeVideo[]>([]);
+
+watch(showRecommendations, (val) => localStorage.setItem('showRecommendations', val.toString()));
+watch(sortMode, (val) => localStorage.setItem('videoSortMode', val));
+
+function toggleRecommendations() {
+  showRecommendations.value = !showRecommendations.value;
+}
+
+function fallbackVideoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function fallbackRows(payload: any): any[] {
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+async function fetchFallbackRows(action: string, params: Record<string, string> = {}) {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', action);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || 'fallback_home_' + action + '_' + response.status);
+  }
+  return fallbackRows(payload);
+}
+
+function publishedRaw(row: any) {
+  return row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+}
+
+function toRecommendation(row: any): HomeVideo | null {
+  const videoId = fallbackVideoId(row);
+  if (!videoId) return null;
+
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
+  const viewsRaw = row?.views ?? row?.viewCount ?? row?.viewText ?? '';
+  const viewCount = numericViews(viewsRaw);
+  const published = publishedRaw(row);
+  const publishedAt = parsePublishedAt(published);
+  const meta = [formatCompactViews(viewsRaw), formatRelativeTime(published)].filter(Boolean).join(' · ');
+
+  return {
+    videoId,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: 'https://i.ytimg.com/vi/' + videoId + '/mqdefault.jpg',
+    metadata: [channel, meta].filter(Boolean),
+    duration: durationText(row?.duration),
+    viewCount,
+    publishedAt
+  };
+}
+
+async function loadFallbackRecommendations() {
+  const topicQueries = [
+    'tin mới Việt Nam',
+    'nhạc Việt mới',
+    'giải trí Việt Nam mới',
+    'thể thao mới',
+    'công nghệ mới',
+    'ẩm thực mới'
+  ];
+
+  const [trendingResult, ...topicResults] = await Promise.allSettled([
+    fetchFallbackRows('trending', { region: 'VN' }),
+    ...topicQueries.map(q => fetchFallbackRows('search', { q, filter: 'videos' }))
+  ]);
+
+  const rows: HomeVideo[] = [];
+  const seen = new Set<string>();
+
+  const addRows = (rawRows: any[], limit: number) => {
+    for (const raw of rawRows.slice(0, limit)) {
+      const row = toRecommendation(raw);
+      if (!row || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      rows.push(row);
+    }
+  };
+
+  if (trendingResult.status === 'fulfilled') addRows(trendingResult.value, 12);
+  for (const result of topicResults) {
+    if (result.status === 'fulfilled') addRows(result.value, 8);
+  }
+
+  homeRecommendations.value = rows.slice(0, 36);
+}
+
+const sortedRecommendations = computed(() => {
+  const rows = homeRecommendations.value.slice();
+
+  if (sortMode.value === 'views') {
+    return rows.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+  }
+  if (sortMode.value === 'lowViews') {
+    return rows.sort((a, b) => {
+      const av = a.viewCount || 0;
+      const bv = b.viewCount || 0;
+      if (!av && bv) return 1;
+      if (!bv && av) return -1;
+      return av - bv;
+    });
+  }
+  if (sortMode.value === 'oldest') {
+    return rows.sort((a, b) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (!at && bt) return 1;
+      if (!bt && at) return -1;
+      return at - bt;
+    });
+  }
+
+  return rows.sort((a, b) => {
+    const at = a.publishedAt || 0;
+    const bt = b.publishedAt || 0;
+    if (at !== bt) {
+      if (!at) return 1;
+      if (!bt) return -1;
+      return bt - at;
+    }
+    return (b.viewCount || 0) - (a.viewCount || 0);
+  });
+});
+
+onMounted(async () => {
+  loading.value = true;
+
+  const savedVisibility = localStorage.getItem('showRecommendations');
+  if (savedVisibility !== null) showRecommendations.value = savedVisibility === 'true';
+
+  const savedSort = localStorage.getItem('videoSortMode') as SortMode | null;
+  if (savedSort && ['newest', 'views', 'lowViews', 'oldest'].includes(savedSort)) {
+    sortMode.value = savedSort;
+  } else {
+    sortMode.value = 'newest';
+  }
+
+  try {
+    await loadFallbackRecommendations();
+  } catch (error) {
+    console.error('Error fetching recommendations:', error);
+    addToast('Không tải được video đề xuất.', 'error');
+  } finally {
+    loading.value = false;
+  }
+});
+</script>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
