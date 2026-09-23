@@ -99,10 +99,20 @@ async function api(action,params={}){
   for(const [k,v] of Object.entries(params)){
     if(v!==undefined&&v!==null&&v!=="")url.searchParams.set(k,String(v));
   }
-  const res=await fetch(url.toString(),{cache:"no-store"});
-  const body=await res.json().catch(()=>null);
-  if(!res.ok||body?.ok===false)throw new Error(body?.error||("HTTP "+res.status));
-  return body;
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),8000);
+  try{
+    const res=await fetch(url.toString(),{
+      cache:"no-store",
+      signal:controller.signal
+    });
+    const body=await res.json().catch(()=>null);
+    if(!res.ok||body?.ok===false)throw new Error(body?.error||("HTTP "+res.status));
+    return body;
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 async function backgroundSources(id){
@@ -429,16 +439,22 @@ function initYouTubePlayer(){
   return true;
 }
 
-window.onYouTubeIframeAPIReady=initYouTubePlayer;
+window.onYouTubeIframeAPIReady=()=>{
+  if(state.pendingVideoId||state.currentId) initYouTubePlayer();
+};
 
-// If iframe_api finished before app.js attached its callback, initialize now.
-if(window.YT&&typeof YT.Player==="function"){
-  initYouTubePlayer();
-}else{
+// Never create an empty YouTube player. playVideo() will initialize it only
+// after a real video id has been selected.
+if(!(window.YT&&typeof YT.Player==="function")){
   let ytWait=0;
   const ytTimer=setInterval(()=>{
     ytWait++;
-    if(initYouTubePlayer()||ytWait>40)clearInterval(ytTimer);
+    if(window.YT&&typeof YT.Player==="function"){
+      clearInterval(ytTimer);
+      if(state.pendingVideoId||state.currentId) initYouTubePlayer();
+    }else if(ytWait>80){
+      clearInterval(ytTimer);
+    }
   },100);
 }
 
@@ -614,10 +630,10 @@ async function loadInitialFeed(){
     renderCards(Array.isArray(r?.data)?r.data:[]);
   }catch{
     try{
-      const r=await api("home",{seed:"video việt nam mới nhất"});
+      const r=await api("home",{seed:"video mới nhất việt nam"});
       renderCards(r?.data?.items||r?.data||[]);
     }catch{
-      feed.innerHTML='<div class="error">Chưa tải được gợi ý.</div>';
+      feed.innerHTML='<div class="error">Chưa tải được Mới nhất. Thử tải lại.</div>';
     }
   }
 }
