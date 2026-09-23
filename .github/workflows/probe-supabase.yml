@@ -1,4 +1,4 @@
-name: Probe Supabase YouTube Egress
+name: Probe YouTube Resolver Instances
 
 on:
   push:
@@ -11,11 +11,42 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Supabase Edge to YouTube
+      - name: Probe Piped public instances
         run: |
-          set -x
-          curl -sS --max-time 30 -D /tmp/h -o /tmp/b 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-player-probe' || true
-          echo '=== HEADERS ==='
-          cat /tmp/h || true
-          echo '=== BODY ==='
-          cat /tmp/b || true
+          set +e
+          ID='jfKfPfyJRdk'
+          INSTANCES=(
+            'https://pipedapi.kavin.rocks'
+            'https://pipedapi.leptons.xyz'
+            'https://pipedapi.nosebs.ru'
+            'https://pipedapi-libre.kavin.rocks'
+            'https://piped-api.privacy.com.de'
+            'https://pipedapi.adminforge.de'
+            'https://api.piped.yt'
+            'https://pipedapi.drgns.space'
+            'https://pipedapi.owo.si'
+            'https://pipedapi.ducks.party'
+            'https://piped-api.codespace.cz'
+            'https://pipedapi.reallyaweso.me'
+            'https://api.piped.private.coffee'
+            'https://pipedapi.darkness.services'
+            'https://pipedapi.orangenet.cc'
+            'https://pipedapi.tokhmi.xyz'
+            'https://pipedapi.moomoo.me'
+            'https://pipedapi.syncpundit.io'
+            'https://api-piped.mha.fi'
+            'https://piped-api.garudalinux.org'
+            'https://pipedapi.rivo.lol'
+          )
+          for API in "${INSTANCES[@]}"; do
+            rm -f /tmp/p.json
+            META=$(curl -sS -L --max-time 15 -o /tmp/p.json -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID" 2>/dev/null)
+            VS=$(jq -r '(.videoStreams//[])|length' /tmp/p.json 2>/dev/null)
+            AS=$(jq -r '(.audioStreams//[])|length' /tmp/p.json 2>/dev/null)
+            HLS=$(jq -r '.hls // ""' /tmp/p.json 2>/dev/null)
+            VURL=$(jq -r '[.videoStreams[]? | select((.format//"")=="MPEG_4" or (.mimeType//"")|contains("mp4"))][0].url // (.videoStreams[0].url // "")' /tmp/p.json 2>/dev/null)
+            echo "INSTANCE=$API $META V=$VS A=$AS HLS=$([ -n "$HLS" ] && echo yes || echo no)"
+            if [ -n "$VURL" ]; then
+              echo "VURL_HOST=$(python -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc)' "$VURL" 2>/dev/null)"
+            fi
+          done
