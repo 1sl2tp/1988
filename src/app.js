@@ -583,7 +583,7 @@ function initYouTubePlayer(){
 }
 
 window.onYouTubeIframeAPIReady=()=>{
-  if(state.pendingVideoId||state.currentId)initYouTubePlayer();
+  if(state.engine==="iframe"&&(state.pendingVideoId||state.currentId))initYouTubePlayer();
 };
 
 if(!(window.YT&&typeof YT.Player==="function")){
@@ -592,7 +592,7 @@ if(!(window.YT&&typeof YT.Player==="function")){
     ytWait++;
     if(window.YT&&typeof YT.Player==="function"){
       clearInterval(ytTimer);
-      if(state.pendingVideoId||state.currentId)initYouTubePlayer();
+      if(state.engine==="iframe"&&(state.pendingVideoId||state.currentId))initYouTubePlayer();
     }else if(ytWait>100){
       clearInterval(ytTimer);
     }
@@ -602,9 +602,15 @@ if(!(window.YT&&typeof YT.Player==="function")){
 async function doSearch(value){
   const q=clean(value);
   if(!q)return;
+  clearSuggestions();
+  setActiveChip("");
+
   const id=extractVideoId(q);
   if(id){
-    await playVideo(id,{title:"Đang tải thông tin…",thumbnailUrl:"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"});
+    await playVideo(id,{
+      title:"Đang tải thông tin…",
+      thumbnailUrl:"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"
+    });
     return;
   }
 
@@ -612,23 +618,71 @@ async function doSearch(value){
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
   try{
-    const r=await api("search",{q,filter:"videos"});
-    renderCards(r?.data?.items||[]);
-  }catch{
-    feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
+    const local=await localEngine(16000);
+    const rows=await local.search(q,{type:"video"});
+    renderCards(rows);
+  }catch(error){
+    console.warn("local search failed",error);
+    try{
+      const r=await api("search",{q,filter:"videos"});
+      renderCards(r?.data?.items||[]);
+    }catch{
+      feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
+    }
   }
 }
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
-  doSearch(queryInput.value);
+  void doSearch(queryInput.value);
   queryInput.blur();
+});
+
+let suggestTimer=0;
+let suggestSeq=0;
+queryInput.addEventListener("input",()=>{
+  clearTimeout(suggestTimer);
+  const q=clean(queryInput.value);
+  if(q.length<2){
+    clearSuggestions();
+    return;
+  }
+  const seq=++suggestSeq;
+  suggestTimer=setTimeout(async()=>{
+    try{
+      const local=await localEngine(12000);
+      const rows=await local.suggestions(q);
+      if(seq!==suggestSeq||clean(queryInput.value)!==q)return;
+      if(!rows.length){
+        clearSuggestions();
+        return;
+      }
+      suggestions.innerHTML=rows.map(value=>
+        '<button type="button" data-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
+      ).join("");
+      suggestions.hidden=false;
+    }catch{
+      clearSuggestions();
+    }
+  },180);
+});
+
+suggestions.addEventListener("click",e=>{
+  const button=e.target.closest("[data-suggestion]");
+  if(!button)return;
+  queryInput.value=button.dataset.suggestion||"";
+  clearSuggestions();
+  void doSearch(queryInput.value);
+});
+
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".search-box"))clearSuggestions();
 });
 
 feed.addEventListener("click",e=>{
   const retry=e.target.closest(".retry-feed");
   if(retry){
-    loadInitialFeed();
+    void loadFeedPreset(state.activeFeed||"home");
     return;
   }
 
@@ -659,6 +713,27 @@ videoBtn.addEventListener("click",returnToVideo);
 backgroundBtn.addEventListener("click",()=>startBackgroundMode("audio"));
 lockBtn.addEventListener("click",()=>startBackgroundMode("lock"));
 pipBtn.addEventListener("click",()=>{void enterPiP();});
+
+nativePlayer.addEventListener("playing",()=>{
+  if(state.engine!=="native")return;
+  if(state.mode==="video")statusText.textContent="MP4 đang phát";
+  try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
+});
+nativePlayer.addEventListener("pause",()=>{
+  if(state.engine!=="native"||state.mode!=="video")return;
+  try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
+});
+nativePlayer.addEventListener("ended",()=>{
+  if(state.engine==="native"&&state.mode==="video")statusText.textContent="Đã phát xong";
+});
+nativePlayer.addEventListener("enterpictureinpicture",()=>{
+  state.mode="pip";
+  updateModeUi();
+});
+nativePlayer.addEventListener("leavepictureinpicture",()=>{
+  if(state.mode==="pip")state.mode="video";
+  updateModeUi();
+});
 
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState!=="visible")return;
@@ -704,19 +779,50 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const HOME_FEED_CACHE="1988-home-feed-v1";
+const FEED_CACHE_PREFIX="1988-discovery-v2:";
 
-function normalizeFeedRows(payload){
-  if(Array.isArray(payload))return payload;
-  if(Array.isArray(payload?.items))return payload.items;
-  if(Array.isArray(payload?.relatedStreams))return payload.relatedStreams;
-  if(Array.isArray(payload?.videos))return payload.videos;
-  return [];
-}
+const FEED_PRESETS={
+  home:{
+    title:"Gợi ý",
+    load:local=>local.home()
+  },
+  today:{
+    title:"Top hôm nay",
+    load:local=>local.search("Việt Nam",{type:"video",upload_date:"today",prioritize:"popularity"})
+  },
+  week:{
+    title:"Top tuần",
+    load:local=>local.search("Việt Nam",{type:"video",upload_date:"week",prioritize:"popularity"})
+  },
+  popular:{
+    title:"Xem nhiều",
+    load:local=>local.search("Việt Nam",{type:"video",prioritize:"popularity"})
+  },
+  music:{
+    title:"Nhạc",
+    load:local=>local.search("nhạc Việt",{type:"video",prioritize:"popularity"})
+  },
+  news:{
+    title:"Tin tức",
+    load:local=>local.search("tin tức Việt Nam",{type:"video",upload_date:"today",prioritize:"popularity"})
+  },
+  sports:{
+    title:"Thể thao",
+    load:local=>local.search("thể thao Việt Nam",{type:"video",upload_date:"week",prioritize:"popularity"})
+  },
+  entertainment:{
+    title:"Giải trí",
+    load:local=>local.search("giải trí Việt Nam",{type:"video",prioritize:"popularity"})
+  },
+  tech:{
+    title:"Công nghệ",
+    load:local=>local.search("công nghệ",{type:"video",upload_date:"week",prioritize:"popularity"})
+  }
+};
 
-function readCachedHomeFeed(){
+function readFeedCache(name){
   try{
-    const row=JSON.parse(localStorage.getItem(HOME_FEED_CACHE)||"null");
+    const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
     return row.items;
   }catch{
@@ -724,26 +830,21 @@ function readCachedHomeFeed(){
   }
 }
 
-function saveCachedHomeFeed(rows){
+function saveFeedCache(name,rows){
   try{
-    localStorage.setItem(HOME_FEED_CACHE,JSON.stringify({
+    localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
       at:Date.now(),
-      items:rows.slice(0,24)
+      items:rows.slice(0,30)
     }));
   }catch{}
 }
 
-async function latestSource(promise){
-  const result=await promise;
-  const rows=normalizeFeedRows(result?.data);
-  if(!rows.length)throw new Error("empty_feed");
-  return rows;
-}
+async function loadFeedPreset(name="home"){
+  const preset=FEED_PRESETS[name]||FEED_PRESETS.home;
+  setActiveChip(name);
+  feedTitle.textContent=preset.title;
 
-async function loadInitialFeed(){
-  feedTitle.textContent="Mới nhất";
-
-  const cached=readCachedHomeFeed();
+  const cached=readFeedCache(name);
   if(cached.length){
     renderCards(cached);
     feedStatus.textContent="Đang cập nhật…";
@@ -752,26 +853,35 @@ async function loadInitialFeed(){
     feedStatus.textContent="";
   }
 
-  const requests=[
-    latestSource(api("trending",{region:"VN"})),
-    latestSource(api("home",{seed:"video mới nhất việt nam"})),
-    latestSource(api("search",{q:"video mới nhất việt nam",filter:"videos"}))
-  ];
-
   try{
-    const rows=await Promise.any(requests);
-    saveCachedHomeFeed(rows);
+    const local=await localEngine(16000);
+    const rows=await preset.load(local);
+    if(!Array.isArray(rows)||!rows.length)throw new Error("empty_feed");
+    saveFeedCache(name,rows);
     renderCards(rows);
     feedStatus.textContent="";
-  }catch{
+  }catch(error){
+    console.warn("feed failed",name,error);
     if(cached.length){
-      feedStatus.textContent="Đang dùng dữ liệu gần nhất";
+      feedStatus.textContent="Dữ liệu gần nhất";
       return;
     }
-    feed.innerHTML='<div class="error">Chưa tải được Mới nhất.<br><button class="retry-feed" type="button">Tải lại</button></div>';
+    feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
     feedStatus.textContent="";
   }
 }
+
+function loadInitialFeed(){
+  return loadFeedPreset("home");
+}
+
+topicChips.addEventListener("click",e=>{
+  const button=e.target.closest("[data-feed]");
+  if(!button)return;
+  queryInput.value="";
+  clearSuggestions();
+  void loadFeedPreset(button.dataset.feed||"home");
+});
 
 setupMediaSession();
 setupInstall();
