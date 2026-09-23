@@ -152,6 +152,22 @@ const server = http.createServer(async (req, res) => {
     const responseHeaders = corsHeaders(origin);
     copySafeResponseHeaders(upstream.headers, responseHeaders);
 
+    if (!upstream.ok) {
+      const errorBytes = Buffer.from(await upstream.arrayBuffer());
+      const errorText = errorBytes.toString('utf8').slice(0, 4000);
+      console.log(
+        '[proxy-upstream-error]',
+        req.method,
+        incoming.pathname,
+        'host=' + targetHost,
+        'status=' + upstream.status,
+        'body=' + errorText.replace(/\s+/g, ' ')
+      );
+      res.writeHead(upstream.status, responseHeaders);
+      res.end(errorBytes);
+      return;
+    }
+
     res.writeHead(upstream.status, responseHeaders);
 
     if (req.method === 'HEAD' || !upstream.body) {
