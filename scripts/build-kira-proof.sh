@@ -901,17 +901,13 @@ if anchor not in src:
 src = src.replace(anchor, insert, 1)
 
 # Try Cobalt before any path that depends on YouTube calls from our datacenter egress.
-needle = """      if (await loadDirectMediaFallback(videoId)) return;
-
-      const innertube = await getInnertube();"""
-replacement = """      if (await loadCobaltMedia(videoId)) return;
-
-      if (await loadDirectMediaFallback(videoId)) return;
-
-      const innertube = await getInnertube();"""
-if needle not in src:
-    raise SystemExit("primary playback insertion anchor not found")
-src = src.replace(needle, replacement, 1)
+# Locate the Innertube initialization *inside loadVideo* instead of relying on
+# the exact surrounding text, which has changed across the previous patches.
+load_video_pos = src.index("  async function loadVideo(videoId: string, targetContainer: HTMLElement) {")
+innertube_pos = src.index("      const innertube = await getInnertube();", load_video_pos)
+if load_video_pos < 0 or innertube_pos < 0:
+    raise SystemExit("Cobalt loadVideo/Innertube insertion point not found")
+src = src[:innertube_pos] + "      if (await loadCobaltMedia(videoId)) return;\n\n" + src[innertube_pos:]
 
 p.write_text(src)
 
@@ -1019,7 +1015,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-35-cobalt-vod\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-36-cobalt-vod-fix\">", 1)
 p.write_text(s)
 PY
 
