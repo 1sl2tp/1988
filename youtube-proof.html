@@ -5,18 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#000000">
   <meta name="robots" content="noindex,nofollow">
-  <title>1988 · YouTube SABR Proof</title>
+  <title>1988 · Native YouTube Proof</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css">
   <style>
     :root{color-scheme:dark}
     *{box-sizing:border-box}
     html,body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     body{min-height:100vh}
-    main{max-width:860px;margin:0 auto;padding:14px 14px 40px}
+    main{max-width:900px;margin:0 auto;padding:12px 12px 40px}
     h1{font-size:20px;margin:4px 0 6px}
     p{margin:0 0 12px;color:#aaa;font-size:14px;line-height:1.45}
-    .cardbox{border:1px solid #2b2b2b;border-radius:14px;padding:14px;margin:12px 0;background:#0b0b0b}
+    .box{border:1px solid #2b2b2b;border-radius:14px;padding:14px;margin:12px 0;background:#0b0b0b}
     .label{font-size:12px;color:#888;margin-bottom:6px}
-    .value{font-size:14px;line-height:1.45;word-break:break-word}
+    .meta{font-size:13px;color:#999;line-height:1.45}
     .ok{color:#7ee787}.warn{color:#e3b341}.bad{color:#ff7b72}
     .search{display:grid;grid-template-columns:1fr auto;gap:8px}
     input{width:100%;background:#111;color:#fff;border:1px solid #333;border-radius:10px;padding:12px;font:15px system-ui;outline:none}
@@ -25,24 +26,22 @@
     button.secondary,a.secondary{background:#1d1d1d;color:#fff;border:1px solid #333}
     button:disabled{opacity:.45;cursor:default}
     .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .selected{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start}
-    .selected img{width:150px;aspect-ratio:16/9;object-fit:cover;border-radius:10px;background:#111}
-    .selected-title{font-weight:700;font-size:16px;line-height:1.35}
-    .meta{font-size:13px;color:#999;margin-top:5px;line-height:1.4}
+    .player-wrap{background:#000;border-radius:12px;overflow:hidden}
+    video{display:block;width:100%;aspect-ratio:16/9;background:#000}
+    .selected-title{font-size:17px;font-weight:700;line-height:1.35;margin-top:10px}
     .results{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:12px}
     .result{border:0;background:transparent;padding:0;text-align:left;color:inherit;cursor:pointer}
     .thumb{position:relative}
     .thumb img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:10px;background:#111}
-    .dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.8);padding:3px 5px;border-radius:5px;font:600 11px/1.1 system-ui}
+    .dur{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.82);padding:3px 5px;border-radius:5px;font:600 11px/1.1 system-ui}
     .rtitle{font-size:14px;line-height:1.35;font-weight:650;margin-top:7px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .rmeta{font-size:12px;color:#999;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .empty{color:#888;font-size:14px;padding:8px 0}
-    pre{white-space:pre-wrap;margin:8px 0 0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#bbb}
+    .status{margin-top:8px;font-size:13px;color:#aaa}
+    .plyr{--plyr-color-main:#fff;--plyr-video-control-color:#fff;--plyr-video-control-background-hover:rgba(255,255,255,.18)}
     @media(max-width:560px){
       main{padding:10px 10px 32px}
       .results{grid-template-columns:1fr 1fr;gap:10px}
-      .selected{grid-template-columns:112px 1fr}
-      .selected img{width:112px}
       .search{grid-template-columns:1fr}
       .search button{width:100%}
     }
@@ -50,84 +49,85 @@
 </head>
 <body>
 <main>
-  <h1>YouTube mới · SABR/Shaka proof</h1>
-  <p>Link cố định để theo dõi luồng YouTube mới. Tìm kiếm bên dưới dùng dữ liệu thật đang chạy ở 1988.</p>
+  <h1>YouTube mới · Native Player</h1>
+  <p>Không iframe YouTube. Luồng hiện tại: Piped stream → video HTML5 → Plyr.</p>
 
-  <div class="cardbox">
+  <div class="box">
+    <div class="player-wrap">
+      <video id="nativeVideo" playsinline controls preload="metadata"></video>
+    </div>
+    <div id="videoTitle" class="selected-title">Đang tải thông tin…</div>
+    <div id="videoMeta" class="meta"></div>
+    <div id="playerStatus" class="status">Chọn video hoặc bấm Phát.</div>
+    <div class="row" style="margin-top:10px">
+      <button id="playBtn" type="button">Phát video</button>
+      <a id="youtubeLink" class="btn secondary" target="_blank" rel="noopener">YouTube gốc</a>
+      <button id="copyLink" class="secondary" type="button">Sao chép link</button>
+    </div>
+  </div>
+
+  <div class="box">
     <div class="label">Tìm video thật</div>
     <form id="searchForm" class="search">
       <input id="searchInput" autocomplete="off" enterkeyhint="search" placeholder="Tìm trên YouTube…" aria-label="Tìm video">
       <button id="searchBtn" type="submit">Tìm</button>
     </form>
-    <div id="searchStatus" class="meta"></div>
+    <div id="searchStatus" class="meta" style="margin-top:8px"></div>
     <div id="results" class="results"></div>
   </div>
 
-  <div class="cardbox">
-    <div class="label">Video đang chọn cho SABR</div>
-    <div id="selected" class="selected"></div>
-    <div class="row" style="margin-top:12px">
-      <a id="openAppLink" class="btn" href="/">Mở trong 1988</a>
-      <a id="youtubeLink" class="btn secondary" target="_blank" rel="noopener">Mở YouTube gốc</a>
-      <button id="copyLink" class="secondary" type="button">Sao chép link proof</button>
-    </div>
+  <div class="box">
+    <div class="label">Trạng thái</div>
+    <div id="engineStatus" class="ok">Native player đã bỏ iframe. Nguồn phát đi qua Piped proxy.</div>
+    <div id="env" class="meta" style="margin-top:8px"></div>
   </div>
 
-  <div class="cardbox">
-    <div class="label">Kiến trúc đang sửa</div>
-    <div class="value">YouTube.js / Kira → BotGuard + PoToken → SABR → Shaka Player</div>
-  </div>
-
-  <div class="cardbox">
-    <div class="label">Trạng thái player mới</div>
-    <div class="value warn">Search đã hoạt động. Player SABR thật vẫn đang sửa request <code>/youtubei/v1/player</code>.</div>
-    <pre>Kira/SABR khởi tạo được.
-BotGuard khởi tạo được.
-Search/metadata dùng nguồn thật.
-Điểm còn lại: hoàn tất đường playback SABR trên iPhone/PWA.</pre>
-  </div>
-
-  <div class="cardbox">
-    <div class="label">Môi trường thiết bị</div>
-    <div id="env" class="value"></div>
-  </div>
-
-  <p>Build: <span id="build">youtube-proof-search-open-20260923</span></p>
+  <p>Build: native-piped-plyr-20260923</p>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
 <script src="/src/api.js"></script>
 <script>
 (() => {
-  const $ = s => document.querySelector(s);
-  const searchForm = $('#searchForm');
-  const searchInput = $('#searchInput');
-  const searchBtn = $('#searchBtn');
-  const searchStatus = $('#searchStatus');
-  const results = $('#results');
-  const selected = $('#selected');
-  const openAppLink = $('#openAppLink');
-  const youtubeLink = $('#youtubeLink');
-  const copyLink = $('#copyLink');
+  const BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+  const $=s=>document.querySelector(s);
+  const video=$('#nativeVideo');
+  const titleEl=$('#videoTitle');
+  const metaEl=$('#videoMeta');
+  const playerStatus=$('#playerStatus');
+  const playBtn=$('#playBtn');
+  const youtubeLink=$('#youtubeLink');
+  const copyLink=$('#copyLink');
+  const searchForm=$('#searchForm');
+  const searchInput=$('#searchInput');
+  const searchBtn=$('#searchBtn');
+  const searchStatus=$('#searchStatus');
+  const results=$('#results');
 
-  const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({
+  const player=new Plyr(video,{
+    controls:['play-large','rewind','play','fast-forward','progress','current-time','duration','mute','volume','settings','pip','airplay','fullscreen'],
+    settings:['speed'],
+    hideControls:true
+  });
+
+  let currentId='';
+  let currentMeta={};
+
+  const esc=value=>String(value??'').replace(/[&<>"']/g,ch=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
   })[ch]);
 
   function extractId(value=''){
     const raw=String(value).trim();
-    if(/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
-
-    const direct=raw.match(/(?:[?&]v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/);
-    if(direct?.[1]) return direct[1];
-
+    if(/^[A-Za-z0-9_-]{11}$/.test(raw))return raw;
+    const m=raw.match(/(?:[?&]v=|youtu\.be\/|shorts\/|embed\/|live\/)([A-Za-z0-9_-]{11})/);
+    if(m?.[1])return m[1];
     try{
-      const u=new URL(raw, location.origin);
+      const u=new URL(raw,location.origin);
       const v=u.searchParams.get('v');
-      if(v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
-      const parts=u.pathname.split('/').filter(Boolean);
-      const last=parts.at(-1)||'';
-      return /^[A-Za-z0-9_-]{11}$/.test(last)?last:'';
-    }catch{return ''}
+      if(v&&/^[A-Za-z0-9_-]{11}$/.test(v))return v;
+    }catch{}
+    return '';
   }
 
   function itemId(row={}){
@@ -149,61 +149,86 @@ Search/metadata dùng nguồn thật.
     if(n>=1e9)return (n/1e9).toFixed(1).replace('.0','')+' tỷ lượt xem';
     if(n>=1e6)return (n/1e6).toFixed(1).replace('.0','')+' Tr lượt xem';
     if(n>=1e3)return (n/1e3).toFixed(1).replace('.0','')+' N lượt xem';
-    return n? n.toLocaleString('vi-VN')+' lượt xem':'';
+    return n?n.toLocaleString('vi-VN')+' lượt xem':'';
   }
 
-  function normalizeRows(payload){
-    if(Array.isArray(payload)) return payload;
-    if(Array.isArray(payload?.items)) return payload.items;
-    if(Array.isArray(payload?.videos)) return payload.videos;
-    return [];
+  function mediaUrl(id){
+    const u=new URL(BASE);
+    u.searchParams.set('action','media');
+    u.searchParams.set('id',id);
+    u.searchParams.set('kind','video');
+    u.searchParams.set('_',Date.now().toString());
+    return u.toString();
   }
 
-  function setSelected(id, meta={}){
-    if(!id) return;
-    const title=meta.title||'Video '+id;
-    const channel=meta.uploaderName||meta.uploader||meta.channelName||'';
-    const image=thumb(meta,id);
-    const views=fmtViews(meta.views);
-    const duration=fmtDuration(meta.duration);
-    const bits=[channel,views,duration && duration!=='0:00'?duration:''].filter(Boolean);
+  function updateMediaSession(){
+    if(!('mediaSession' in navigator)||!currentId)return;
+    try{
+      navigator.mediaSession.metadata=new MediaMetadata({
+        title:currentMeta.title||'1988',
+        artist:currentMeta.uploaderName||currentMeta.uploader||currentMeta.channelName||'',
+        artwork:[{src:thumb(currentMeta,currentId),sizes:'480x360'}]
+      });
+    }catch{}
+  }
 
-    selected.innerHTML=
-      '<img src="'+esc(image)+'" alt="">'+
-      '<div><div class="selected-title">'+esc(title)+'</div>'+
-      '<div class="meta">'+esc(bits.join(' · '))+'</div>'+
-      '<div class="meta">Video ID: '+esc(id)+'</div></div>';
-
-    openAppLink.href='/?v='+encodeURIComponent(id);
+  function setSelected(id,meta={}){
+    if(!id)return;
+    currentId=id;
+    currentMeta={...currentMeta,...meta};
+    const title=currentMeta.title||'Video '+id;
+    const channel=currentMeta.uploaderName||currentMeta.uploader||currentMeta.channelName||'';
+    const bits=[channel,fmtViews(currentMeta.views),Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean);
+    titleEl.textContent=title;
+    metaEl.textContent=bits.join(' · ');
+    video.poster=thumb(currentMeta,id);
     youtubeLink.href='https://www.youtube.com/watch?v='+encodeURIComponent(id);
-
     const url=new URL(location.href);
     url.searchParams.set('v',id);
     history.replaceState(null,'',url);
+    updateMediaSession();
+  }
+
+  async function playSelected(){
+    if(!currentId)return;
+    playerStatus.className='status warn';
+    playerStatus.textContent='Đang lấy luồng video…';
+
+    // The play() call stays in the user's click path. The media URL resolves
+    // server-side to the Piped proxy and contains no YouTube iframe/UI.
+    video.src=mediaUrl(currentId);
+    video.load();
+
+    try{
+      await video.play();
+    }catch(err){
+      if(err?.name==='NotAllowedError'){
+        playerStatus.textContent='Nguồn đã sẵn sàng. Chạm Play trên player.';
+      }else{
+        playerStatus.className='status bad';
+        playerStatus.textContent='Chưa phát được: '+(err?.message||err);
+      }
+    }
   }
 
   function renderResults(rows){
-    const seen=new Set();
-    const cards=[];
+    const seen=new Set(),cards=[];
     for(const row of rows){
       const id=itemId(row);
-      if(!id||seen.has(id)) continue;
+      if(!id||seen.has(id))continue;
       seen.add(id);
-      const title=row.title||'Video';
-      const channel=row.uploaderName||row.uploader||row.channelName||'';
+      const t=row.title||'Video';
+      const c=row.uploaderName||row.uploader||row.channelName||'';
       const image=thumb(row,id);
-      const duration=Number(row.duration)||0;
+      const dur=Number(row.duration)||0;
       cards.push(
-        '<button class="result" type="button" data-id="'+esc(id)+'"'+
-        ' data-title="'+esc(title)+'" data-channel="'+esc(channel)+'"'+
-        ' data-thumb="'+esc(image)+'" data-duration="'+esc(duration)+'" data-views="'+esc(row.views||0)+'">'+
-          '<div class="thumb"><img src="'+esc(image)+'" alt="" loading="lazy">'+
-          (duration?'<span class="dur">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
-          '<div class="rtitle">'+esc(title)+'</div>'+
-          '<div class="rmeta">'+esc(channel)+(row.views?' · '+esc(fmtViews(row.views)):'')+'</div>'+
+        '<button class="result" type="button" data-id="'+esc(id)+'" data-title="'+esc(t)+'" data-channel="'+esc(c)+'" data-thumb="'+esc(image)+'" data-duration="'+esc(dur)+'" data-views="'+esc(row.views||0)+'">'+
+          '<div class="thumb"><img src="'+esc(image)+'" alt="" loading="lazy">'+(dur?'<span class="dur">'+esc(fmtDuration(dur))+'</span>':'')+'</div>'+
+          '<div class="rtitle">'+esc(t)+'</div>'+
+          '<div class="rmeta">'+esc(c)+(row.views?' · '+esc(fmtViews(row.views)):'')+'</div>'+
         '</button>'
       );
-      if(cards.length>=20) break;
+      if(cards.length>=20)break;
     }
     results.innerHTML=cards.join('')||'<div class="empty">Không có kết quả.</div>';
     searchStatus.textContent=cards.length?cards.length+' video':'';
@@ -211,19 +236,15 @@ Search/metadata dùng nguồn thật.
 
   async function search(q){
     q=String(q||'').trim();
-    if(!q) return;
+    if(!q)return;
     searchBtn.disabled=true;
     searchStatus.textContent='Đang tìm…';
     results.innerHTML='';
     try{
-      const api=window.YT1988_API;
-      if(!api?.search) throw new Error('Search API chưa sẵn sàng');
-      const r=await api.search(q,'videos');
-      const rows=normalizeRows(r?.data);
-      renderResults(rows);
+      const r=await window.YT1988_API.search(q,'videos');
+      renderResults(Array.isArray(r?.data?.items)?r.data.items:[]);
     }catch(err){
       searchStatus.textContent='Không tìm được video: '+(err?.message||err);
-      results.innerHTML='';
     }finally{
       searchBtn.disabled=false;
     }
@@ -231,12 +252,12 @@ Search/metadata dùng nguồn thật.
 
   searchForm.addEventListener('submit',e=>{
     e.preventDefault();
-    search(searchInput.value);
+    void search(searchInput.value);
   });
 
   results.addEventListener('click',e=>{
     const card=e.target.closest('.result');
-    if(!card) return;
+    if(!card)return;
     setSelected(card.dataset.id,{
       title:card.dataset.title,
       uploader:card.dataset.channel,
@@ -244,8 +265,11 @@ Search/metadata dùng nguồn thật.
       duration:Number(card.dataset.duration)||0,
       views:Number(card.dataset.views)||0
     });
-    window.scrollTo({top:selected.closest('.cardbox').offsetTop-8,behavior:'smooth'});
+    void playSelected();
+    window.scrollTo({top:0,behavior:'smooth'});
   });
+
+  playBtn.addEventListener('click',()=>{void playSelected();});
 
   copyLink.addEventListener('click',async()=>{
     try{
@@ -256,23 +280,38 @@ Search/metadata dùng nguồn thật.
     }catch{}
   });
 
-  const standalone =
-    navigator.standalone === true ||
-    window.matchMedia?.('(display-mode: standalone)').matches === true;
-
-  $('#env').textContent =
-    (standalone ? 'Home Screen PWA' : 'Safari/trình duyệt') +
-    ' · MediaSession: ' + ('mediaSession' in navigator ? 'có' : 'không') +
-    ' · PiP API: ' + (document.pictureInPictureEnabled ? 'có' : 'không');
-
-  const initial=extractId(new URL(location.href).searchParams.get('v')||'')||'vhUjvanyu2U';
-  setSelected(initial,{
-    title:initial==='vhUjvanyu2U'?'Video kiểm tra SABR':'Video đang chọn',
-    thumbnailUrl:'https://i.ytimg.com/vi/'+initial+'/hqdefault.jpg'
+  video.addEventListener('playing',()=>{
+    playerStatus.className='status ok';
+    playerStatus.textContent='Đang phát bằng video native · không iframe YouTube';
+    try{if('mediaSession' in navigator)navigator.mediaSession.playbackState='playing';}catch{}
+  });
+  video.addEventListener('pause',()=>{
+    try{if('mediaSession' in navigator)navigator.mediaSession.playbackState='paused';}catch{}
+  });
+  video.addEventListener('error',()=>{
+    playerStatus.className='status bad';
+    playerStatus.textContent='Nguồn video bị lỗi hoặc đã hết hạn. Bấm Phát để lấy lại link mới.';
   });
 
-  window.YT1988_API?.video?.(initial).then(r=>{
-    if(r?.data) setSelected(initial,r.data);
+  if('mediaSession' in navigator){
+    try{
+      navigator.mediaSession.setActionHandler('play',()=>video.play());
+      navigator.mediaSession.setActionHandler('pause',()=>video.pause());
+      navigator.mediaSession.setActionHandler('seekbackward',d=>{video.currentTime=Math.max(0,video.currentTime-(d.seekOffset||10));});
+      navigator.mediaSession.setActionHandler('seekforward',d=>{video.currentTime=Math.min(video.duration||Infinity,video.currentTime+(d.seekOffset||10));});
+    }catch{}
+  }
+
+  const standalone=navigator.standalone===true||window.matchMedia?.('(display-mode: standalone)').matches===true;
+  $('#env').textContent=(standalone?'Home Screen PWA':'Safari/trình duyệt')+
+    ' · MediaSession: '+('mediaSession' in navigator?'có':'không')+
+    ' · PiP API: '+(document.pictureInPictureEnabled?'có':'không');
+
+  const initial=extractId(new URL(location.href).searchParams.get('v')||'')||'vhUjvanyu2U';
+  setSelected(initial,{thumbnailUrl:'https://i.ytimg.com/vi/'+initial+'/hqdefault.jpg'});
+
+  window.YT1988_API.video(initial).then(r=>{
+    if(currentId===initial&&r?.data)setSelected(initial,r.data);
   }).catch(()=>{});
 })();
 </script>
