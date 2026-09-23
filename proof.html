@@ -11,7 +11,10 @@
     main{max-width:900px;margin:0 auto;padding:12px}
     h1{font-size:18px;margin:8px 0 4px}
     p{font-size:13px;color:#aaa;margin:0 0 12px}
-    .status{margin-top:10px;padding:10px 12px;border:1px solid #333;border-radius:10px;font-size:14px}
+    .actions{display:flex;gap:8px;margin:10px 0}
+    button{appearance:none;border:0;border-radius:10px;padding:12px 16px;font:600 15px/1 system-ui;background:#fff;color:#000}
+    button:disabled{opacity:.45}
+    .status{margin-top:10px;padding:10px 12px;border:1px solid #333;border-radius:10px;font-size:14px;white-space:pre-line}
     .ok{color:#7ee787}.bad{color:#ff7b72}
     video{width:100%;background:#111}
   </style>
@@ -19,13 +22,16 @@
 <body>
 <main>
   <h1>1988 · Proof Player</h1>
-  <p>Plyr + HTML5 video + PiP + Media Session. Trang thử độc lập, không thay giao diện 1988.</p>
+  <p>1 chạm: phát video + thử PiP. Có fallback riêng cho Safari/iPhone.</p>
 
-  <video id="player" playsinline controls crossorigin="anonymous">
+  <video id="player" playsinline preload="auto" controls crossorigin="anonymous">
     <source src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4" type="video/mp4">
   </video>
 
-  <div id="status" class="status">Đang khởi tạo…</div>
+  <div class="actions">
+    <button id="start" disabled>Phát + PiP</button>
+  </div>
+  <div id="status" class="status">Đang tải video…</div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
@@ -33,6 +39,11 @@
 (() => {
   const video = document.getElementById('player');
   const status = document.getElementById('status');
+  const start = document.getElementById('start');
+  const standalone =
+    window.navigator.standalone === true ||
+    window.matchMedia?.('(display-mode: standalone)').matches === true;
+
   const player = new Plyr(video, {
     controls: ['play-large','rewind','play','fast-forward','progress','current-time','duration','mute','volume','captions','settings','pip','airplay','fullscreen'],
     speed: { selected: 1, options: [0.5,0.75,1,1.25,1.5,1.75,2] },
@@ -40,15 +51,76 @@
     tooltips: { controls: true, seek: true }
   });
 
+  const safariPiP = () => {
+    try {
+      return typeof video.webkitSupportsPresentationMode === 'function' &&
+        video.webkitSupportsPresentationMode('picture-in-picture');
+    } catch {
+      return false;
+    }
+  };
+
+  const standardPiP = () =>
+    document.pictureInPictureEnabled === true &&
+    typeof video.requestPictureInPicture === 'function';
+
   const set = (text, ok=true) => {
     status.textContent = text;
     status.className = 'status ' + (ok ? 'ok' : 'bad');
   };
 
-  player.on('ready', () => set('Sẵn sàng · bấm Play để thử'));
-  player.on('playing', () => set('Đang phát · thử PiP rồi ra Home/khóa màn hình'));
-  player.on('enterpip', () => set('PiP đang hoạt động'));
-  player.on('exitpip', () => set('Đã thoát PiP'));
+  const capabilityText = () =>
+    'Chế độ: ' + (standalone ? 'Home Screen PWA' : 'trình duyệt') +
+    '\nSafari PiP: ' + (safariPiP() ? 'có' : 'không') +
+    ' · Standard PiP: ' + (standardPiP() ? 'có' : 'không');
+
+  video.addEventListener('canplay', () => {
+    start.disabled = false;
+    set('Sẵn sàng.\n' + capabilityText());
+  }, { once: true });
+
+  start.addEventListener('click', async () => {
+    try {
+      const playPromise = video.play();
+
+      if (safariPiP()) {
+        video.webkitSetPresentationMode('picture-in-picture');
+        await playPromise;
+        set('Đang phát + PiP bằng Safari. Bây giờ vuốt về Home để kiểm tra cửa sổ nổi.');
+        return;
+      }
+
+      await playPromise;
+
+      if (standardPiP()) {
+        try {
+          await video.requestPictureInPicture();
+          set('Đang phát + PiP. Bây giờ thu nhỏ/ra Home để kiểm tra cửa sổ nổi.');
+          return;
+        } catch (err) {
+          set(
+            'Video đang phát nhưng PiP bị hệ thống từ chối: ' +
+            (err?.name || 'Error') +
+            '.\n' + capabilityText(),
+            false
+          );
+          return;
+        }
+      }
+
+      set(
+        'Video đang phát nhưng môi trường này không hỗ trợ PiP.\n' +
+        capabilityText(),
+        false
+      );
+    } catch (err) {
+      set('Không phát được video: ' + (err?.name || err), false);
+    }
+  });
+
+  video.addEventListener('enterpictureinpicture', () => set('PiP đang hoạt động. Ra Home/ứng dụng khác để kiểm tra.'));
+  video.addEventListener('leavepictureinpicture', () => set('Đã thoát PiP.\n' + capabilityText()));
+
   player.on('error', () => set('Lỗi phát video', false));
 
   if ('mediaSession' in navigator) {
