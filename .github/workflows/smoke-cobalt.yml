@@ -1,4 +1,4 @@
-name: Probe Direct Browser YouTubei
+name: Smoke NewPipe WASM via Cloudflare Relay
 
 on:
   push:
@@ -11,39 +11,54 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Test direct browser calls to YouTubei
+      - name: Run NewPipe WASM in real Chrome via Cloudflare Worker
         run: |
           set -e
-          mkdir -p /tmp/ytb
-          cat >/tmp/ytb/index.html <<'HTML'
-          <!doctype html><meta charset="utf-8"><pre id="out">loading</pre>
+          mkdir -p /tmp/np
+          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm-runtime.js' -o /tmp/np/browser-wrapper.wasm-runtime.js
+          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm' -o /tmp/np/browser-wrapper.wasm
+          cat >/tmp/np/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8">
+          <script src="browser-wrapper.wasm-runtime.js"></script>
+          <pre id="out">loading</pre>
           <script>
           (async()=>{
-            const out={};
+            const t=performance.now();
             try {
-              const r=await fetch('https://youtubei.googleapis.com/youtubei/v1/player?key=AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8&prettyPrint=false',{
-                method:'POST',
-                headers:{'content-type':'application/json'},
-                body:JSON.stringify({
-                  context:{client:{clientName:'WEB',clientVersion:'2.20250222.10.00',hl:'en',gl:'US'}},
-                  videoId:'dQw4w9WgXcQ',
-                  contentCheckOk:true,
-                  racyCheckOk:true
-                })
+              const teavm=await TeaVM.wasmGC.load('browser-wrapper.wasm');
+              const media=teavm.exports.getFirstProgressiveStreamUrl(
+                'https://cors.ryanking13.workers.dev/?u=',
+                'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+              );
+              const video=document.createElement('video');
+              video.preload='metadata';
+              video.src=media;
+              let meta={};
+              try {
+                await new Promise((resolve,reject)=>{
+                  const timer=setTimeout(()=>reject(new Error('metadata timeout')),12000);
+                  video.onloadedmetadata=()=>{clearTimeout(timer);resolve()};
+                  video.onerror=()=>{clearTimeout(timer);reject(new Error('video error '+(video.error?.code||0)))};
+                  video.load();
+                });
+                meta={duration:video.duration,width:video.videoWidth,height:video.videoHeight};
+              } catch(e) { meta={error:String(e)}; }
+              document.getElementById('out').textContent=JSON.stringify({
+                ok:!String(media).startsWith('ERROR:'),
+                ms:Math.round(performance.now()-t),
+                host:(()=>{try{return new URL(media).host}catch{return ''}})(),
+                media:String(media).slice(0,220),
+                meta
               });
-              out.player={ok:r.ok,status:r.status,type:r.type,acao:r.headers.get('access-control-allow-origin'),text:(await r.text()).slice(0,600)};
-            } catch(e) { out.player={error:String(e)}; }
-            try {
-              const r=await fetch('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-              out.watch={ok:r.ok,status:r.status,type:r.type,acao:r.headers.get('access-control-allow-origin'),text:(await r.text()).slice(0,120)};
-            } catch(e) { out.watch={error:String(e)}; }
-            document.getElementById('out').textContent=JSON.stringify(out);
+            } catch(e) {
+              document.getElementById('out').textContent=JSON.stringify({ok:false,ms:Math.round(performance.now()-t),error:String(e)});
+            }
           })();
           </script>
           HTML
-          cd /tmp/ytb
+          cd /tmp/np
           python3 -m http.server 8934 >/tmp/http.log 2>&1 &
           sleep 1
           CHROME="$(command -v google-chrome)"
-          "$CHROME" --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage --virtual-time-budget=15000             'http://127.0.0.1:8934/' --dump-dom 2>/tmp/chrome.err | grep -o '<pre id="out">[^<]*' || true
+          timeout 40s "$CHROME" --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage             --virtual-time-budget=35000 'http://127.0.0.1:8934/' --dump-dom 2>/tmp/chrome.err | grep -o '<pre id="out">[^<]*' || true
           tail -30 /tmp/chrome.err || true
