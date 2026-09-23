@@ -2,11 +2,10 @@
   "name": "1988-kira-proxy",
   "version": "1.0.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "deno run --allow-net proxy.ts"
   },
-  "engines": {
-    "node": ">=22"
+  "dependencies": {
+    "deno": "2.9.6"
   }
 }
