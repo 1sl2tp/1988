@@ -38,11 +38,11 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-local-mp4-proof-20260923-5-search-fixed</div>
+  <div class="small">Build: ytjs-proof-20260923-7-tv-embedded</div>
 </main>
 
 <script type="module">
-import YTLocal from './src/yt-local.js?v=4';
+import ProofEngine from './src/yt-proof-engine.js?v=1';
 
 const $=id=>document.getElementById(id);
 const video=$('video'),status=$('status'),go=$('go');
@@ -103,7 +103,7 @@ async function run(){
 
     if(!id){
       setStatus('Đang tìm video…');
-      const rows=await YTLocal.search(raw,{type:'video'});
+      const rows=await ProofEngine.search(raw);
       const first=Array.isArray(rows)?rows.find(row=>row?.videoId):null;
       id=String(first?.videoId||'');
       if(!id)throw new Error('Không tìm thấy video');
@@ -114,12 +114,13 @@ async function run(){
       $('resolvedId').textContent=id;
     }
 
-    setStatus('1/3 Đang lấy metadata…');
-    const detail=await YTLocal.info(id).catch(()=>({meta:{},related:[]}));
-    $('title').textContent=detail?.meta?.title||'(đã lấy metadata)';
-
-    setStatus('2/3 Đang mint PoToken theo video ID và thử nhiều client…');
-    const media=await YTLocal.media(id,'video');
+    setStatus('1/3 Đã có Video ID · đang thử các client…');
+    const media=await ProofEngine.resolve(id,(client,diagnostics)=>{
+      const done=(diagnostics||[]).map(x=>x.client+':'+x.playability).join(' · ');
+      $('probe').textContent=done||'Đang thử '+client;
+      setStatus('2/3 Đang thử '+client+'…');
+    });
+    $('title').textContent=media?.meta?.title||$('title').textContent||'(đã lấy metadata)';
 
     $('format').textContent=[
       'itag '+(media.itag??'?'),
@@ -127,10 +128,15 @@ async function run(){
       media.quality||'',
       media.hasAudio===false?'video-only':'A/V',
       'client '+(media.client||'?'),
-      media.poTokenBound?'PoToken video':'cold token'
+      'client '+(media.client||'?')
     ].filter(Boolean).join(' · ');
 
-    $('probe').textContent='Range/bytes đã kiểm tra OK trước khi trả nguồn';
+    $('probe').textContent=[
+      'HTTP '+(media.probe?.status||'?'),
+      media.probe?.type||'',
+      media.probe?.range||'',
+      (media.diagnostics||[]).map(x=>x.client+':'+x.playability+'/'+x.formats).join(' · ')
+    ].filter(Boolean).join(' · ');
 
     setStatus('3/3 Có stream hợp lệ. Đang gán vào <video>…');
     video.src=media.url;
@@ -150,6 +156,10 @@ async function run(){
     }
   }catch(error){
     console.error(error);
+    const diag=Array.isArray(error?.diagnostics)
+      ?error.diagnostics.map(x=>x.client+':'+x.playability+'/'+x.formats+(x.reason?' ('+x.reason+')':'')).join(' · ')
+      :'';
+    if(diag)$('probe').textContent=diag;
     setStatus('THẤT BẠI: '+String(error?.message||error),'bad');
   }finally{
     go.disabled=false;
