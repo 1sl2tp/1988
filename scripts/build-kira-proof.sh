@@ -1789,6 +1789,207 @@ onMounted(async () => {
 </script>
 ''')
 
+
+# Compact home card: no avatar, one metadata line.
+p = Path("src/components/GridVideoItem.vue")
+p.write_text(r'''<style scoped>
+.grid-video-item {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+  overflow: hidden;
+}
+.thumbnail-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #303030;
+  margin-bottom: 7px;
+}
+.thumbnail { width: 100%; height: 100%; object-fit: cover; display: block; }
+.duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.video-details { text-align: left; min-width: 0; padding: 0 2px; }
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f4f4f4;
+  margin: 0 0 4px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.channel {
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.meta {
+  color: #858585;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (max-width: 768px) {
+  .grid-video-item {
+    display: grid;
+    grid-template-columns: 46% 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+  .thumbnail-container { margin-bottom: 0; }
+  .video-details { padding-top: 2px; }
+}
+</style>
+
+<template>
+  <router-link class="grid-video-item" :to="'/watch/' + data.videoId">
+    <div class="thumbnail-container">
+      <img
+        :src="data.thumbnail"
+        alt="Video thumbnail"
+        loading="lazy"
+        decoding="async"
+        class="thumbnail"
+        @error="handleImageError($event.target as any)"
+      >
+      <div v-if="data.duration" class="duration">{{ data.duration }}</div>
+    </div>
+    <div class="video-details">
+      <h4 class="title" v-html="data.title" :title="data.titleText"/>
+      <div v-if="channel" class="channel">{{ channel }}</div>
+      <div v-if="meta" class="meta">{{ meta }}</div>
+    </div>
+  </router-link>
+</template>
+
+<script lang="ts" setup>
+import { computed } from 'vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData }>();
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || ''));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+</script>
+''')
+
+# Related videos use the same compact channel + views/time line.
+p = Path("src/components/RelatedVideoItem.vue")
+p.write_text(r'''<style scoped>
+.related-video-item {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 11px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.thumbnail-container {
+  position: relative;
+  flex: 0 0 180px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #303030;
+}
+.thumbnail { width: 100%; height: 100%; object-fit: cover; display: block; }
+.duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0,0,0,.78);
+  color: white;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.video-details {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  min-width: 0;
+  padding-top: 1px;
+}
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f3f3f3;
+  margin: 0 0 4px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.channel,
+.metadata {
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.channel { color: #aaa; }
+.metadata { color: #858585; margin-top: 2px; }
+@media (max-width: 560px) {
+  .thumbnail-container { flex-basis: 42%; }
+}
+</style>
+
+<template>
+  <router-link class="related-video-item" :to="'/watch/' + data.videoId">
+    <div class="thumbnail-container">
+      <img
+        :src="data.thumbnail"
+        alt="Video thumbnail"
+        loading="lazy"
+        decoding="async"
+        class="thumbnail"
+        @error="handleImageError($event.target as any)"
+      >
+      <span v-if="data.duration" class="duration">{{ data.duration }}</span>
+    </div>
+    <div class="video-details">
+      <h4 class="title" v-html="data.title" :title="data.titleText"/>
+      <div v-if="channel" class="channel">{{ channel }}</div>
+      <div v-if="meta" class="metadata">{{ meta }}</div>
+    </div>
+  </router-link>
+</template>
+
+<script lang="ts" setup>
+import { computed } from 'vue';
+import { handleImageError, VideoItemData } from '@/utils/helpers';
+import { compactMetadata, normalizeMetadataText } from '@/utils/display1988';
+
+const props = defineProps<{ data: VideoItemData }>();
+const channel = computed(() => normalizeMetadataText(props.data.metadata?.[0] || ''));
+const meta = computed(() => compactMetadata((props.data.metadata || []).slice(1)));
+</script>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
