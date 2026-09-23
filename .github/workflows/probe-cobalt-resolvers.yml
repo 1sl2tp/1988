@@ -1,8 +1,9 @@
 name: Probe Resolver APIs
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches:
+      - probe/cobalt-resolvers-20260923
 
 permissions:
   contents: read
@@ -12,30 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Test OmegaTech all-downloader on exact video
+      - name: Test OmegaTech returned media links
         shell: bash
         run: |
           set +e
-          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
-          U="https://omegatech-api.dixonomega.tech/downloader/all?url=$(python3 - <<'PY'
-import urllib.parse
-print(urllib.parse.quote('https://www.youtube.com/watch?v=vhUjvanyu2U', safe=''))
-PY
-)"
+          U='https://omegatech-api.dixonomega.tech/downloader/all?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
           OUT=$(mktemp)
           META=$(curl -sS -L --connect-timeout 4 --max-time 30 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
           echo "$META"
           cat "$OUT"
           echo
-
-          echo '=== CANDIDATE MEDIA URLS ==='
           jq -r '.. | objects | .url? // empty' "$OUT" | sed '/^$/d' | head -30 > /tmp/urls.txt
+          echo '=== URLS ==='
           cat /tmp/urls.txt
-
           i=0
           while read -r M; do
             i=$((i+1))
-            HDR=$(mktemp); BIN=$(mktemp)
+            HDR=$(mktemp)
+            BIN=$(mktemp)
             curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$M"
             CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
             TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
