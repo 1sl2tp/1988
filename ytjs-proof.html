@@ -52,11 +52,11 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-proof-20260923-13-tv-dash-fix · proxy-v9</div>
+  <div class="small">Build: ytjs-proof-20260923-14-manual-tv-dash · proxy-v9</div>
 </main>
 
 <script type="module">
-import ProofEngine from './src/yt-proof-engine.js?v=7';
+import ProofEngine from './src/yt-proof-engine.js?v=8';
 
 const $=id=>document.getElementById(id);
 const video=$('video'),status=$('status'),go=$('go');
@@ -164,6 +164,10 @@ async function run(){
         row.formats?row.formats+' format':'0 format',
         (row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',
         row.dash?'DASH '+row.dash:'',
+        row.videoProbe||'',
+        row.audioProbe||'',
+        row.progressiveError?'MP4 '+row.progressiveError:'',
+        row.dashError?'DASH '+row.dashError:'',
         row.probe||'',
         row.reason||''
       ].filter(Boolean);
@@ -171,7 +175,7 @@ async function run(){
     }).join(' | ');
 
     $('format').textContent=[
-      media.mode==='dash'?'DASH adaptive':'itag '+(media.itag??'?'),
+      media.mode==='dash'?('DASH adaptive · video itag '+(media.videoItag??'?')+' + audio itag '+(media.audioItag??'?')):'itag '+(media.itag??'?'),
       media.mimeType||'',
       media.quality||'',
       media.hasAudio===false?'video-only':'A/V',
@@ -225,7 +229,7 @@ async function run(){
     console.error(error);
     if(Array.isArray(error?.diagnostics)){
       $('clients').textContent=error.diagnostics.map(row=>
-        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',(row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',row.dash?'DASH '+row.dash:'',row.probe||'',row.reason||'']
+        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',(row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',row.dash?'DASH '+row.dash:'',row.videoProbe||'',row.audioProbe||'',row.progressiveError?'MP4 '+row.progressiveError:'',row.dashError?'DASH '+row.dashError:'',row.probe||'',row.reason||'']
           .filter(Boolean).join(' · ')
       ).join(' | ');
     }
