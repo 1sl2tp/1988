@@ -37,7 +37,7 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-local-mp4-proof-20260923-3-content-pot</div>
+  <div class="small">Build: ytjs-local-mp4-proof-20260923-4-search</div>
 </main>
 
 <script type="module">
@@ -84,11 +84,12 @@ async function waitReady(timeout=12000){
 }
 
 async function run(){
-  const id=parseVideoId($('videoId').value);
-  if(!id){setStatus('Video ID không hợp lệ.','bad');return}
+  const raw=String($('videoId').value||'').trim();
+  if(!raw){setStatus('Nhập tên video cần tìm.','bad');return}
 
   go.disabled=true;
   $('title').textContent='—';
+  $('resolvedId').textContent='—';
   $('format').textContent='—';
   $('probe').textContent='—';
   $('player').textContent='—';
@@ -97,6 +98,21 @@ async function run(){
   video.load();
 
   try{
+    let id=parseVideoId(raw);
+
+    if(!id){
+      setStatus('Đang tìm video…');
+      const rows=await YTLocal.search(raw,{type:'video'});
+      const first=Array.isArray(rows)?rows.find(row=>row?.videoId):null;
+      id=String(first?.videoId||'');
+      if(!id)throw new Error('Không tìm thấy video');
+
+      $('resolvedId').textContent=id;
+      $('title').textContent=first?.title||'Video';
+    }else{
+      $('resolvedId').textContent=id;
+    }
+
     setStatus('1/3 Đang lấy metadata…');
     const detail=await YTLocal.info(id).catch(()=>({meta:{},related:[]}));
     $('title').textContent=detail?.meta?.title||'(đã lấy metadata)';
@@ -141,8 +157,9 @@ async function run(){
 
 go.addEventListener('click',run);
 $('videoId').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
-const queryId=new URL(location.href).searchParams.get('id');
-if(queryId)$('videoId').value=queryId;
+const params=new URL(location.href).searchParams;
+const initial=params.get('q')||params.get('id');
+if(initial)$('videoId').value=initial;
 </script>
 </body>
 </html>
