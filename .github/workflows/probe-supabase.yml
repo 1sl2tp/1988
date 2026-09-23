@@ -21,7 +21,7 @@ jobs:
             'https://cobaltapi.cjs.nz'
             'https://api.cobalt.liubquanti.click'
           )
-          BODY='{"url":"https://www.youtube.com/watch?v=jfKfPfyJRdk","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true}'
+          BODY='{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true}'
           for API in "${APIS[@]}"; do
             rm -f /tmp/cobalt.json
             INFO=$(curl -sS -L --max-time 15 -o /tmp/info.json -w 'INFO_HTTP=%{http_code} INFO_TIME=%{time_total}' "$API/" 2>/dev/null)
