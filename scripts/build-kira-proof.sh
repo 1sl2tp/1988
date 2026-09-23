@@ -821,7 +821,7 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
           },
           body: JSON.stringify({
             url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId),
-            videoQuality: '360',
+            videoQuality: window.innerWidth <= 600 ? '240' : '360',
             youtubeVideoCodec: 'h264',
             youtubeVideoContainer: 'mp4',
             downloadMode: 'auto',
@@ -836,44 +836,59 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
           continue;
         }
 
-        try {
-          if (player) await player.unload();
-        } catch {}
-
         const savedPosition = getPlaybackPosition(videoId);
-        videoElement.removeAttribute('src');
-        videoElement.src = mediaUrl;
-        videoElement.preload = 'metadata';
-        videoElement.playsInline = true;
 
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          const finish = (fn: () => void) => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            videoElement.removeEventListener('loadedmetadata', onReady);
-            videoElement.removeEventListener('canplay', onReady);
-            videoElement.removeEventListener('error', onError);
-            fn();
-          };
-          const onReady = () => finish(resolve);
-          const onError = () => finish(() => reject(new Error('cobalt_media_error_' + (videoElement.error?.code || 0))));
-          const timer = window.setTimeout(
-            () => finish(() => reject(new Error('cobalt_media_timeout'))),
-            18000
-          );
+        try {
+          if (!player) throw new Error('shaka_player_missing');
+          await player.unload();
+          videoElement.removeAttribute('src');
+          videoElement.preload = 'auto';
+          videoElement.playsInline = true;
 
-          videoElement.addEventListener('loadedmetadata', onReady, { once: true });
-          videoElement.addEventListener('canplay', onReady, { once: true });
-          videoElement.addEventListener('error', onError, { once: true });
-          videoElement.load();
-        });
+          // Keep Cobalt progressive MP4 inside Shaka so Kira's own controls,
+          // duration, seek bar and current-time display stay synchronized.
+          await player.load(mediaUrl, savedPosition > 0 ? savedPosition : undefined, 'video/mp4');
+        } catch (shakaError) {
+          console.warn('[Player]', 'Shaka progressive MP4 load failed; using native media element', shakaError);
 
-        if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
           try {
-            videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
+            if (player) await player.unload();
           } catch {}
+
+          videoElement.removeAttribute('src');
+          videoElement.src = mediaUrl;
+          videoElement.preload = 'auto';
+          videoElement.playsInline = true;
+
+          await new Promise<void>((resolve, reject) => {
+            let settled = false;
+            const finish = (fn: () => void) => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              videoElement.removeEventListener('loadedmetadata', onReady);
+              videoElement.removeEventListener('canplay', onReady);
+              videoElement.removeEventListener('error', onError);
+              fn();
+            };
+            const onReady = () => finish(resolve);
+            const onError = () => finish(() => reject(new Error('cobalt_media_error_' + (videoElement.error?.code || 0))));
+            const timer = window.setTimeout(
+              () => finish(() => reject(new Error('cobalt_media_timeout'))),
+              18000
+            );
+
+            videoElement.addEventListener('loadedmetadata', onReady, { once: true });
+            videoElement.addEventListener('canplay', onReady, { once: true });
+            videoElement.addEventListener('error', onError, { once: true });
+            videoElement.load();
+          });
+
+          if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
+            try {
+              videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
+            } catch {}
+          }
         }
 
         try {
@@ -1015,7 +1030,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-37-private-cobalt-proxy\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-38-shaka-cobalt-progressive\">", 1)
 p.write_text(s)
 PY
 
