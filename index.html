@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=fresh-5">
+  <link rel="stylesheet" href="./src/style.css?v=fresh-6">
   <title>1988</title>
 </head>
 <body>
@@ -28,10 +28,23 @@
         <input id="queryInput" type="search" inputmode="search" placeholder="Tìm video hoặc dán link YouTube" aria-label="Tìm video hoặc dán link YouTube">
         <button type="submit">Tìm</button>
       </form>
+      <div id="suggestions" class="suggestions" hidden></div>
+      <div id="topicChips" class="topic-chips" aria-label="Khám phá">
+        <button class="topic-chip active" type="button" data-feed="home">Gợi ý</button>
+        <button class="topic-chip" type="button" data-feed="today">Top hôm nay</button>
+        <button class="topic-chip" type="button" data-feed="week">Top tuần</button>
+        <button class="topic-chip" type="button" data-feed="popular">Xem nhiều</button>
+        <button class="topic-chip" type="button" data-feed="music">Nhạc</button>
+        <button class="topic-chip" type="button" data-feed="news">Tin tức</button>
+        <button class="topic-chip" type="button" data-feed="sports">Thể thao</button>
+        <button class="topic-chip" type="button" data-feed="entertainment">Giải trí</button>
+        <button class="topic-chip" type="button" data-feed="tech">Công nghệ</button>
+      </div>
     </section>
 
     <section id="playerSection" class="player-section" hidden>
       <div class="player-frame">
+        <video id="nativePlayer" controls playsinline preload="metadata" hidden></video>
         <div id="yt-player"></div>
       </div>
       <div class="now">
@@ -88,6 +101,7 @@
   <script src="./src/media-core.js?v=1"></script>
   <script src="./src/html5-background.js?v=8"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
-  <script defer src="./src/app.js?v=fresh-20"></script>
+    <script type="module" src="./src/yt-local.js?v=1"></script>
+  <script defer src="./src/app.js?v=fresh-21"></script>
 </body>
 </html>
