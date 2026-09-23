@@ -1,0 +1,56 @@
+name: Lab Render Proxy Media Proof
+
+on:
+  push:
+    branches: [lab/free-proxy-test-20260923]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prove:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Wait for Render and prove exact audio stream
+        shell: bash
+        run: |
+          set +e
+          BASE='https://one988-audio.onrender.com'
+          ID='vhUjvanyu2U'
+
+          ok=0
+          for i in $(seq 1 30); do
+            echo "=== resolve attempt $i ==="
+            CODE=$(curl -sS -L --connect-timeout 4 --max-time 35               -o /tmp/resolve.json -w '%{http_code}'               "$BASE/resolve?id=$ID&kind=audio")
+            echo "HTTP=$CODE"
+            cat /tmp/resolve.json || true
+            echo
+            if [ "$CODE" = "200" ] && jq -e '.ok==true and .data.kind=="audio"' /tmp/resolve.json >/dev/null 2>&1; then
+              ok=1
+              break
+            fi
+            sleep 8
+          done
+
+          if [ "$ok" != "1" ]; then
+            echo "RESOLVE_NEVER_SUCCEEDED"
+            exit 2
+          fi
+
+          echo '=== audio range ==='
+          curl -sS -L --connect-timeout 4 --max-time 45             -H 'Range: bytes=0-16383'             -D /tmp/headers.txt             -o /tmp/audio.bin             "$BASE/audio?id=$ID"
+
+          cat /tmp/headers.txt
+          SIZE=$(wc -c < /tmp/audio.bin)
+          FILE=$(file -b /tmp/audio.bin)
+          echo "SIZE=$SIZE FILE=$FILE"
+
+          CODE=$(awk 'toupper($1) ~ /^HTTP\// {c=$2} END{print c}' /tmp/headers.txt)
+          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' /tmp/headers.txt | tail -1)
+          MEDIA=$(awk 'BEGIN{IGNORECASE=1} /^x-1988-media:/ {gsub("\r",""); print $2}' /tmp/headers.txt | tail -1)
+          echo "AUDIO HTTP=$CODE TYPE=$TYPE ENGINE=$MEDIA"
+
+          test "$SIZE" -gt 1000
+          case "$CODE" in 200|206) ;; *) exit 3;; esac
