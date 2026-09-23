@@ -13,31 +13,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Test OmegaTech returned media links
+      - name: Test NKX resolver on exact failing video
         shell: bash
         run: |
           set +e
-          U='https://omegatech-api.dixonomega.tech/downloader/all?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
+          U='https://downloader.nkx.lol/api/download/youtube?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DvhUjvanyu2U'
           OUT=$(mktemp)
           META=$(curl -sS -L --connect-timeout 4 --max-time 30 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
-          echo "$META"
+          echo "RESOLVER $META"
           cat "$OUT"
           echo
-          jq -r '.. | objects | .url? // empty' "$OUT" | sed '/^$/d' | head -30 > /tmp/urls.txt
-          echo '=== URLS ==='
-          cat /tmp/urls.txt
-          i=0
-          while read -r M; do
-            i=$((i+1))
-            HDR=$(mktemp)
-            BIN=$(mktemp)
-            curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$M"
+
+          MP3=$(jq -r '.data.mp3 // empty' "$OUT" 2>/dev/null)
+          MP4=$(jq -r '.data.mp4 // empty' "$OUT" 2>/dev/null)
+          TITLE=$(jq -r '.data.title // empty' "$OUT" 2>/dev/null)
+          echo "TITLE=$TITLE"
+          echo "MP3=$MP3"
+          echo "MP4=$MP4"
+
+          test_media(){
+            LABEL="$1"
+            M="$2"
+            [ -z "$M" ] && { echo "$LABEL missing"; return; }
+            HDR=$(mktemp); BIN=$(mktemp)
+            curl -sS -L --connect-timeout 4 --max-time 25 -H 'Range: bytes=0-8191' -D "$HDR" -o "$BIN" "$M"
             CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
             TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            LEN=$(awk 'BEGIN{IGNORECASE=1} /^content-length:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            CRANGE=$(awk 'BEGIN{IGNORECASE=1} /^content-range:/ {gsub("\r",""); print $2" "$3}' "$HDR" | tail -1)
+            ARANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+            CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
             SIZE=$(wc -c < "$BIN")
             FILE=$(file -b "$BIN" 2>/dev/null)
-            CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-            RANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-            echo "MEDIA#$i|HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|RANGE=$RANGE|FILE=$FILE|URL=$M"
+            echo "$LABEL|HTTP=$CODE|TYPE=$TYPE|LEN=$LEN|CRANGE=$CRANGE|ARANGE=$ARANGE|CORS=$CORS|SIZE=$SIZE|FILE=$FILE|URL=$M"
             rm -f "$HDR" "$BIN"
-          done < /tmp/urls.txt
+          }
+
+          test_media MP3 "$MP3"
+          test_media MP4 "$MP4"
