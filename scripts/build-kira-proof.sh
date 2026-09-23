@@ -821,7 +821,7 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
           },
           body: JSON.stringify({
             url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId),
-            videoQuality: window.innerWidth <= 600 ? '240' : '360',
+            videoQuality: '360',
             youtubeVideoCodec: 'h264',
             youtubeVideoContainer: 'mp4',
             downloadMode: 'auto',
