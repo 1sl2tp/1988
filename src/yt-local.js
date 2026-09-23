@@ -1,5 +1,7 @@
 import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
-import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
+import { BotGuardClient, getChallenge } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/botguard.js';
+import { WebPoMinter, createColdStartToken } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/webpo.js';
+import { buildURL, getHeaders } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/utils.js';
 
 const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
 const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
@@ -13,6 +15,7 @@ Platform.shim.eval=async (data,env={})=>{
 };
 
 let ytPromise=null;
+let webPoMinterPromise=null;
 const videoPoTokenCache=new Map();
 
 function text(value){
@@ -132,34 +135,81 @@ async function proxyFetch(input,init={}){
   });
 }
 
-async function mintPoToken(identifier){
-  const bgConfig={
-    fetch:(input,init)=>fetch(input,init),
-    globalObj:window,
-    requestKey:'O43z0dpjhgX20SCx4KAo',
-    identifier
-  };
-  const challenge=await BG.Challenge.create(bgConfig);
-  if(!challenge)throw new Error('pot_challenge_failed');
-  const js=challenge.interpreterJavascript?.privateDoNotAccessOrElseSafeScriptWrappedValue;
-  if(js)new Function(js)();
-  const result=await BG.PoToken.generate({
-    program:challenge.program,
-    globalName:challenge.globalName,
-    bgConfig
+async function getWebPoMinter(){
+  if(webPoMinterPromise)return webPoMinterPromise;
+
+  webPoMinterPromise=(async()=>{
+    const requestKey='O43z0dpjhgX20SCx4KAo';
+    const challenge=await getChallenge({
+      fetchFunction:fetch,
+      requestKey
+    });
+
+    let interpreterJavascript=
+      challenge.interpreterJavascript?.privateDoNotAccessOrElseSafeScriptWrappedValue||'';
+
+    if(!interpreterJavascript){
+      const rawUrl=
+        challenge.interpreterUrl?.privateDoNotAccessOrElseTrustedResourceUrlWrappedValue||'';
+      if(rawUrl){
+        const interpreterUrl=rawUrl.startsWith('//')?'https:'+rawUrl:rawUrl;
+        const interpreterResponse=await fetch(interpreterUrl,{cache:'no-store'});
+        if(!interpreterResponse.ok)throw new Error('pot_interpreter_'+interpreterResponse.status);
+        interpreterJavascript=await interpreterResponse.text();
+      }
+    }
+
+    if(!interpreterJavascript)throw new Error('pot_interpreter_missing');
+    new Function(interpreterJavascript)();
+
+    const botGuardClient=await BotGuardClient.create({
+      program:challenge.program,
+      globalName:challenge.globalName,
+      globalObject:window
+    });
+
+    const webPoSignalOutput=[];
+    const botguardResponse=await botGuardClient.snapshot({webPoSignalOutput},8000);
+
+    const integrityResponse=await fetch(buildURL('GenerateIT'),{
+      method:'POST',
+      headers:getHeaders(),
+      body:JSON.stringify([requestKey,botguardResponse]),
+      cache:'no-store'
+    });
+
+    if(!integrityResponse.ok){
+      throw new Error('pot_integrity_'+integrityResponse.status);
+    }
+
+    const integrityJson=await integrityResponse.json();
+    const [integrityToken,estimatedTtlSecs,mintRefreshThreshold,websafeFallbackToken]=integrityJson;
+
+    return WebPoMinter.create({
+      integrityToken,
+      estimatedTtlSecs,
+      mintRefreshThreshold,
+      websafeFallbackToken
+    },webPoSignalOutput);
+  })().catch(error=>{
+    webPoMinterPromise=null;
+    throw error;
   });
-  return result.poToken;
+
+  return webPoMinterPromise;
 }
 
 async function getVideoPoToken(id){
   const cached=videoPoTokenCache.get(id);
-  if(cached&&Date.now()-cached.at<10*60*1000)return cached.token;
+  if(cached&&Date.now()-cached.at<8*60*1000)return cached.token;
 
-  let token="";
+  let token='';
   try{
-    token=await mintPoToken(id);
-  }catch{
-    try{token=BG.PoToken.generatePlaceholder(id);}catch{}
+    const minter=await getWebPoMinter();
+    token=await minter.mintAsWebsafeString(id);
+  }catch(error){
+    console.warn('content PoToken mint failed',error);
+    try{token=createColdStartToken(id);}catch{}
   }
 
   if(token)videoPoTokenCache.set(id,{token,at:Date.now()});
@@ -173,8 +223,9 @@ async function getYT(){
       Utils.generateRandomString(11),
       Math.floor(Date.now()/1000)
     );
-    const cold=BG.PoToken.generatePlaceholder(visitorData);
-    const yt=await Innertube.create({
+    const cold=createColdStartToken(visitorData);
+
+    return Innertube.create({
       lang:'vi',
       location:'VN',
       timezone:'Asia/Ho_Chi_Minh',
@@ -184,13 +235,8 @@ async function getYT(){
       generate_session_locally:true,
       cache:new UniversalCache(false)
     });
-    mintPoToken(visitorData).then(token=>{
-      try{
-        if(token&&yt?.session?.player)yt.session.player.po_token=token;
-      }catch{}
-    }).catch(()=>{});
-    return yt;
   })();
+
   return ytPromise;
 }
 
@@ -282,7 +328,16 @@ async function media(id,kind='video'){
     if(poToken&&yt?.session?.player)yt.session.player.po_token=poToken;
   }catch{}
 
-  const clients=['WEB','MWEB','IOS','ANDROID'];
+  const clients=[
+    'WEB',
+    'MWEB',
+    'IOS',
+    'ANDROID',
+    'WEB_EMBEDDED',
+    'TV_EMBEDDED',
+    'TV',
+    'ANDROID_VR'
+  ];
   const tries=[];
 
   for(const client of clients){
