@@ -1,0 +1,142 @@
+name: Lab Userspace WARP + Piped
+
+on:
+  push:
+    branches:
+      - lab/warproxy-piped-render-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Start userspace WARP proxy without privileges
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker run -d --name warproxy             -p 1080:1080             ghcr.io/kingcc/warproxy:latest
+
+          for i in $(seq 1 60); do
+            TRACE=$(curl -sS --max-time 5 --socks5-hostname 127.0.0.1:1080               https://www.cloudflare.com/cdn-cgi/trace || true)
+            echo "$TRACE"
+            echo "$TRACE" | grep -qE '^warp=(on|plus)$' && break
+            sleep 2
+          done
+
+          TRACE=$(curl -sS --max-time 10 --socks5-hostname 127.0.0.1:1080             https://www.cloudflare.com/cdn-cgi/trace)
+          echo "$TRACE" | grep -qE '^warp=(on|plus)$'
+          docker inspect warproxy --format '{{json .HostConfig.CapAdd}} {{.HostConfig.Privileged}}'
+          docker logs --tail=120 warproxy
+
+      - name: Start official Piped stack using userspace WARP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/piped-warproxy
+          cat > /tmp/piped-warproxy/config.properties <<'CFG'
+          PORT:8080
+          HTTP_WORKERS:2
+          PROXY_PART:http://proxy:8080
+          REQWEST_PROXY:socks5://host.docker.internal:1080
+          API_URL:http://127.0.0.1:8081
+          FRONTEND_URL:http://127.0.0.1:8083
+          COMPROMISED_PASSWORD_CHECK:false
+          DISABLE_REGISTRATION:true
+          FEED_RETENTION:1
+          DISABLE_TIMERS:true
+          RYD_PROXY_URL:https://ryd-proxy.kavin.rocks
+          SPONSORBLOCK_SERVERS:https://sponsor.ajay.app
+          DISABLE_RYD:true
+          DISABLE_SERVER:false
+          DISABLE_LBRY:true
+          SUBSCRIPTIONS_EXPIRY:1
+          CONSENT_COOKIE:true
+          BG_HELPER_URL:http://bg-helper:3000
+          hibernate.connection.url:jdbc:postgresql://postgres:5432/piped
+          hibernate.connection.driver_class:org.postgresql.Driver
+          hibernate.dialect:org.hibernate.dialect.PostgreSQLDialect
+          hibernate.connection.username:piped
+          hibernate.connection.password:changeme
+          CFG
+
+          cat > /tmp/piped-warproxy/docker-compose.yml <<'YML'
+          services:
+            postgres:
+              image: postgres:17-alpine
+              environment:
+                POSTGRES_DB: piped
+                POSTGRES_USER: piped
+                POSTGRES_PASSWORD: changeme
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U piped"]
+                interval: 2s
+                timeout: 2s
+                retries: 30
+
+            bg-helper:
+              image: 1337kavin/bg-helper-server:latest
+
+            proxy:
+              image: 1337kavin/piped-proxy:latest
+
+            piped:
+              image: 1337kavin/piped:latest
+              depends_on:
+                postgres:
+                  condition: service_healthy
+                bg-helper:
+                  condition: service_started
+                proxy:
+                  condition: service_started
+              ports:
+                - "8081:8080"
+              extra_hosts:
+                - "host.docker.internal:host-gateway"
+              volumes:
+                - /tmp/piped-warproxy/config.properties:/app/config.properties:ro
+          YML
+
+          cd /tmp/piped-warproxy
+          docker compose up -d
+          for i in $(seq 1 60); do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3               http://127.0.0.1:8081/config || true)
+            [ "$CODE" = "200" ] && break
+            sleep 2
+          done
+          test "$(curl -sS -o /dev/null -w '%{http_code}' --max-time 3 http://127.0.0.1:8081/config)" = "200"
+
+      - name: Verify exact video and muxed media
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ID='vhUjvanyu2U'
+          OUT=/tmp/streams.json
+          curl -fsS --max-time 60 "http://127.0.0.1:8081/streams/$ID" -o "$OUT"
+
+          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length),firstVideo:((.videoStreams//[])[0] | {mimeType,quality,format,videoOnly,bitrate,fps,width,height})}' "$OUT"
+
+          MEDIA=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT")
+          test -n "$MEDIA"
+
+          HDR=$(mktemp)
+          BIN=$(mktemp)
+          set +e
+          curl -sS -L --connect-timeout 4 --max-time 12             -H 'Range: bytes=0-16383' -D "$HDR" -o "$BIN" "$MEDIA"
+          RC=$?
+          set -e
+          echo "curl_rc=$RC"
+          cat "$HDR"
+          echo "bytes=$(wc -c < "$BIN")"
+          file "$BIN"
+
+          CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+          TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+          SIZE=$(wc -c < "$BIN")
+          echo "MEDIA HTTP=$CODE TYPE=$TYPE SIZE=$SIZE"
+          test "$SIZE" -gt 1000
+          echo "$TYPE" | grep -qE '^(video/mp4|application/octet-stream)$'
+
+          echo 'USERSpace_WARP_PIPED_PASS'
