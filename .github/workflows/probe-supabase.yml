@@ -11,33 +11,28 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Cobalt YouTube-working APIs
+      - name: Probe no-Turnstile Cobalt APIs
         run: |
           set +e
           APIS=(
-            'https://bergung-api.hoffnungfuerdiezukunft.net'
-            'https://cobalt-alpha.wolfy.love'
-            'https://lime.clxxped.lol'
-            'https://nuko-c.meowing.de'
-            'https://cobalt-api.lamps-dev.dev'
-            'https://kitty.tame.gg'
-            'https://grapefruit.clxxped.lol'
-            'https://subito-c.meowing.de'
-            'https://api.qwkuns.me'
-            'https://api-cobalt.eversiege.network'
-            'https://apicobalt.mgytr.top'
-            'https://melon.clxxped.lol'
+            'https://cobaltapi.kittycat.boo'
+            'https://dog.kittycat.boo'
+            'https://rue-cobalt.xenon.zone'
+            'https://cobaltapi.cjs.nz'
+            'https://api.cobalt.liubquanti.click'
           )
           BODY='{"url":"https://www.youtube.com/watch?v=jfKfPfyJRdk","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true}'
           for API in "${APIS[@]}"; do
             rm -f /tmp/cobalt.json
+            INFO=$(curl -sS -L --max-time 15 -o /tmp/info.json -w 'INFO_HTTP=%{http_code} INFO_TIME=%{time_total}' "$API/" 2>/dev/null)
             META=$(curl -sS -L --max-time 30 -o /tmp/cobalt.json -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' \
               -X POST "$API/" -H 'Accept: application/json' -H 'Content-Type: application/json' --data "$BODY" 2>/dev/null)
-            RAW=$(head -c 500 /tmp/cobalt.json 2>/dev/null | tr '\n' ' ')
+            RAW=$(head -c 600 /tmp/cobalt.json 2>/dev/null | tr '\n' ' ')
             STATUS=$(jq -r '.status // ""' /tmp/cobalt.json 2>/dev/null)
             CODE=$(jq -r '.error.code // ""' /tmp/cobalt.json 2>/dev/null)
             URL=$(jq -r '.url // ""' /tmp/cobalt.json 2>/dev/null)
-            echo "INSTANCE=$API $META STATUS=$STATUS CODE=$CODE"
+            SERVICES=$(jq -c '.cobalt.services // []' /tmp/info.json 2>/dev/null)
+            echo "INSTANCE=$API $INFO $META SERVICES=$SERVICES STATUS=$STATUS CODE=$CODE"
             if [ -n "$URL" ]; then
               echo "OUT_URL=$URL"
               echo "OUT_HOST=$(python -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc)' "$URL" 2>/dev/null)"
