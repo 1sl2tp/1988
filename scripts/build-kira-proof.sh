@@ -30,40 +30,7 @@ s = s.replace("createRouter, createWebHistory", "createRouter, createWebHashHist
 s = s.replace("history: createWebHistory(),", "history: createWebHashHistory('/kira-proof/'),")
 p.write_text(s)
 
-# Force the web deployment to use the configured Render proxy only.
-# This avoids stale injected proxy functions/extensions from older experiments.
-p = Path("src/utils/helpers.ts")
-s = p.read_text()
-s = s.replace(
-"""export function getInjectedProxyFunction() {
-  return (window as any).proxyFetch;
-}""",
-"""export function getInjectedProxyFunction() {
-  return (window as any).__1988DisabledProxyFetch;
-}"""
-)
-p.write_text(s)
-
-# Reset only the broken session cache left by earlier proof builds, once.
-p = Path("src/App.vue")
-s = p.read_text()
-old = """innertubePromise = initInnertube();
-clientConfigPromise = fetchOnesieHotConfig();"""
-new = """const migrationKey = '1988_kira_render_proxy_v21';
-if (!localStorage.getItem(migrationKey)) {
-  localStorage.setItem(migrationKey, '1');
-  try { indexedDB.deleteDatabase('youtubei.js'); } catch {}
-}
-
-innertubePromise = initInnertube();
-clientConfigPromise = fetchOnesieHotConfig();"""
-if old not in s:
-    raise SystemExit("Kira startup marker not found")
-s = s.replace(old, new, 1)
-p.write_text(s)
-
-# 3) Keep Kira's own proxy implementation untouched. Only provide a working
-# default root-host proxy. Migrate the legacy Supabase host saved by old proofs.
+# 3) Keep Kira source behavior intact. Only provide the default Render proxy host.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
 s = s.replace(
@@ -99,7 +66,7 @@ p = Path("index.html")
 s = p.read_text()
 s = s.replace(
   "<head>",
-  "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-23-kira-cors-search\">",
+  "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-24-kira-upstream-proxy">",
   1
 )
 p.write_text(s)
