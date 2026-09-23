@@ -29,19 +29,6 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Build Kira proof
-        run: |
-          cd proof-kira
-          npm install --no-audit --no-fund
-          npm run build
-          test -s dist/kira-proof.js
-
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
