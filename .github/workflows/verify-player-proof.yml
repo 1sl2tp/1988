@@ -27,6 +27,6 @@ jobs:
           grep -q 'playsinline' proof.html
           grep -q "'pip'" proof.html
           grep -q 'mediaSession' proof.html
-          grep -q 'View_From_A_Blue_Lagoon_Trailer_720p.mp4' proof.html
+          grep -q 'View_From_A_Blue_Moon_Trailer-576p.mp4' proof.html
           curl -fsSI --max-time 15 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4' | tee /tmp/h
           grep -qi 'content-type: video/mp4' /tmp/h
