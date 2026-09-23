@@ -20,6 +20,7 @@ RUN python3 -m venv /opt/venv
 WORKDIR /app
 
 COPY requirements.txt ./
+COPY package.json ./
 
 # yt-dlp uses the nightly channel via pip --pre. Every Render rebuild fetches
 # the newest nightly because YouTube frequently changes clients, signatures and POT.
