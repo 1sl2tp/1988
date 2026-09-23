@@ -24,6 +24,26 @@ jobs:
             curl -fsS http://127.0.0.1:4173/youtube-proof.html >/dev/null && break
             sleep 1
           done
+      - name: Probe final media response
+        shell: bash
+        run: |
+          set -euxo pipefail
+          URL='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988?action=media&id=vhUjvanyu2U&kind=video'
+          echo '--- HEAD/redirect chain ---'
+          curl -sS -I -L "$URL" | sed -n '1,120p'
+          echo '--- Range GET ---'
+          code=$(curl -sS -L -r 0-4095 -D /tmp/media-h -o /tmp/media.bin -w '%{http_code}' "$URL")
+          echo "HTTP=$code"
+          sed -n '1,120p' /tmp/media-h
+          echo "BYTES=$(wc -c </tmp/media.bin)"
+          file /tmp/media.bin || true
+          python - <<'PY'
+          from pathlib import Path
+          b=Path('/tmp/media.bin').read_bytes()
+          print('FIRST32=',b[:32].hex())
+          assert len(b) > 100
+          PY
+
       - name: Play exact video without iframe
         shell: bash
         run: |
