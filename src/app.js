@@ -1,7 +1,7 @@
 "use strict";
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
-const AUDIO_PROXY="https://one988-1od3.onrender.com";
+const AUDIO_PROXY="https://one988-audio.onrender.com";
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
