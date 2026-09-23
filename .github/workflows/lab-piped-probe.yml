@@ -1,0 +1,70 @@
+name: Lab Piped Stream Probe
+
+on:
+  push:
+    branches:
+      - lab/piped-shaka-20260923
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe official Piped public instances for exact video
+        shell: bash
+        run: |
+          set +e
+          ID='vhUjvanyu2U'
+          APIS=(
+            'https://pipedapi.kavin.rocks'
+            'https://pipedapi.leptons.xyz'
+            'https://pipedapi.nosebs.ru'
+            'https://pipedapi-libre.kavin.rocks'
+            'https://piped-api.privacy.com.de'
+            'https://pipedapi.adminforge.de'
+            'https://api.piped.yt'
+            'https://pipedapi.drgns.space'
+            'https://pipedapi.owo.si'
+            'https://pipedapi.ducks.party'
+            'https://piped-api.codespace.cz'
+            'https://pipedapi.reallyaweso.me'
+            'https://api.piped.private.coffee'
+            'https://pipedapi.darkness.services'
+            'https://pipedapi.orangenet.cc'
+          )
+
+          probe(){
+            API="$1"
+            OUT=$(mktemp)
+            META=$(curl -sS -L --connect-timeout 3 --max-time 15 -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}' "$API/streams/$ID")
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
+            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+            AUDIO=$(jq -r '[(.audioStreams//[])[] | select(.url!=null)][0].url // ""' "$OUT" 2>/dev/null)
+            MUX=$(jq -r '[(.videoStreams//[])[] | select(.url!=null and .videoOnly==false)][0].url // ""' "$OUT" 2>/dev/null)
+            echo "API|$API|$META|AUDIO=$AC|VIDEO=$VC|HLS=$([ -n "$HLS" ] && echo yes || echo no)|TITLE=$TITLE"
+            for KIND in AUDIO MUX HLS; do
+              eval U="\$$KIND"
+              [ -z "$U" ] && continue
+              HDR=$(mktemp)
+              BIN=$(mktemp)
+              curl -sS -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$U"
+              CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
+              TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+              SIZE=$(wc -c < "$BIN")
+              CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+              FILE=$(file -b "$BIN" 2>/dev/null)
+              echo "STREAM|$API|$KIND|HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|FILE=$FILE|URL=$U"
+              rm -f "$HDR" "$BIN"
+            done
+            rm -f "$OUT"
+          }
+
+          export -f probe
+          export ID
+          for API in "${APIS[@]}"; do probe "$API" & done
+          wait
