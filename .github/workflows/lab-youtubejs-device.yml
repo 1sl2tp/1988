@@ -76,12 +76,26 @@ jobs:
                 ? new Headers(input.headers)
                 : new Headers();
 
-            return fetch(proxiedUrl(source, upstreamHeaders), init ? {
-              ...init,
-              headers: relayHeaders(init.headers)
-            } : {
-              headers: relayHeaders()
-            });
+            const relayUrl = proxiedUrl(source, upstreamHeaders);
+
+            // Match the upstream browser example's Request semantics.
+            // Do not accidentally attach a body to GET/HEAD requests.
+            const baseRequest = input instanceof Request
+              ? new Request(relayUrl, input)
+              : new Request(relayUrl);
+
+            const method = (init?.method || baseRequest.method || 'GET').toUpperCase();
+            const finalInit: RequestInit = {
+              ...(init || {}),
+              method,
+              headers: relayHeaders(init?.headers || baseRequest.headers)
+            };
+
+            if (method === 'GET' || method === 'HEAD') {
+              delete finalInit.body;
+            }
+
+            return fetch(baseRequest, finalInit);
           }
           '''
           s=s[:a]+replacement+s[b:]
