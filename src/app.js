@@ -655,13 +655,4 @@ async function loadInitialFeed(){
 setupMediaSession();
 setupInstall();
 updateModeUi();
-
-const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
-if(initialVideoId){
-  void playVideo(initialVideoId,{
-    title:"Đang tải thông tin…",
-    thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
-  });
-}else{
-  loadInitialFeed();
-}
+loadInitialFeed();
