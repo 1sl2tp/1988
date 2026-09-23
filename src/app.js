@@ -220,14 +220,19 @@ function renderCards(rows=[]){
     const title=clean(row.title)||"Video";
     const channel=clean(row.uploaderName||row.uploader||row.channelName||"");
     const views=Number(row.views)||0;
+    const viewText=clean(row.viewText||"");
     const duration=Number(row.duration)||0;
-    const published=publishedLabel(row);
+    const published=publishedLabel(row)||clean(row.publishedText||"");
+    const statBits=[];
+    if(viewText)statBits.push(viewText);
+    else if(views)statBits.push(fmtViews(views)+" lượt xem");
+    if(published)statBits.push(published);
     cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-duration="'+esc(String(duration))+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
+      '<article class="card" data-video-id="'+esc(id)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
           '<div class="card-channel">'+esc(channel)+'</div>'+
-          '<div class="card-stats">'+(views?esc(fmtViews(views))+' lượt xem':'')+(published?(views?' · ':'')+esc(published):'')+'</div>'+
+          '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
         '</div>'+
       '</article>'
     );
@@ -241,8 +246,10 @@ function rowFromCard(card){
     title:card.dataset.title||"",
     uploader:card.dataset.channel||"",
     views:Number(card.dataset.views)||0,
+    viewText:card.dataset.viewText||"",
     duration:Number(card.dataset.duration)||0,
     uploadDate:card.dataset.published||"",
+    publishedText:card.dataset.published||"",
     thumbnailUrl:card.dataset.thumb||""
   };
 }
@@ -289,18 +296,34 @@ function updateMediaSession(meta=state.currentMeta||{}){
 }
 
 function getVideoTime(){
+  if(state.engine==="native"){
+    return Math.max(0,Number(nativePlayer.currentTime)||0);
+  }
   try{return Math.max(0,Number(state.player?.getCurrentTime?.())||0);}catch{return 0;}
 }
 
 function seekVideo(time){
-  try{state.player?.seekTo?.(Math.max(0,Number(time)||0),true);}catch{}
+  const target=Math.max(0,Number(time)||0);
+  if(state.engine==="native"){
+    try{nativePlayer.currentTime=target;}catch{}
+    return;
+  }
+  try{state.player?.seekTo?.(target,true);}catch{}
 }
 
 function playVideoEngine(){
+  if(state.engine==="native"){
+    void nativePlayer.play().catch(()=>{});
+    return;
+  }
   try{state.player?.playVideo?.();}catch{}
 }
 
 function pauseVideoEngine(){
+  if(state.engine==="native"){
+    try{nativePlayer.pause();}catch{}
+    return;
+  }
   try{state.player?.pauseVideo?.();}catch{}
 }
 
