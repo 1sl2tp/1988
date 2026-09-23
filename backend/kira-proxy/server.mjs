@@ -45,7 +45,6 @@ async function readBody(req) {
 function copySafeResponseHeaders(from, to) {
   const names = [
     'content-type',
-    'content-length',
     'content-range',
     'accept-ranges',
     'content-disposition',
@@ -117,12 +116,23 @@ const server = http.createServer(async (req, res) => {
     upstreamHeaders.delete('accept-encoding');
 
     const body = await readBody(req);
+    const startedAt = Date.now();
     const upstream = await fetch(target, {
       method: req.method,
       headers: upstreamHeaders,
       body,
       redirect: 'follow'
     });
+    console.log(
+      '[proxy-response]',
+      req.method,
+      incoming.pathname,
+      'host=' + targetHost,
+      'status=' + upstream.status,
+      'ms=' + (Date.now() - startedAt),
+      'encoding=' + (upstream.headers.get('content-encoding') || '-'),
+      'length=' + (upstream.headers.get('content-length') || '-')
+    );
 
     const responseHeaders = corsHeaders(origin);
     copySafeResponseHeaders(upstream.headers, responseHeaders);
