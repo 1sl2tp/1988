@@ -9,7 +9,7 @@ const queryInput=$("#queryInput");
 const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
-const mainVideo=$("#mainVideo");
+const ytPlayerHost=$("#yt-player");
 const videoBtn=$("#videoBtn");
 const backgroundBtn=$("#backgroundBtn");
 const pipBtn=$("#pipBtn");
@@ -25,6 +25,9 @@ const installSheet=$("#installSheet");
 const closeInstallSheet=$("#closeInstallSheet");
 
 const state={
+  player:null,
+  playerReady:false,
+  pendingVideoId:"",
   currentId:"",
   currentMeta:null,
   mode:"video",
@@ -113,16 +116,10 @@ async function api(action,params={}){
   }
 }
 
-function videoMediaUrl(id){
-  const media=new URL(AUDIO_PROXY+"/stream");
-  media.searchParams.set("v",id);
-  return media.toString();
-}
-
 async function backgroundSources(id){
   if(!id)return [];
   const media=new URL(AUDIO_PROXY+"/audio");
-  media.searchParams.set("v",id);
+  media.searchParams.set("id",id);
   return [{
     url:media.toString(),
     mimeType:"audio/mp4",
@@ -192,21 +189,8 @@ function queueAudioPrime(id,urgent=false){
 }
 
 function scheduleAudioPrefetch(){
-  const cards=[...feed.querySelectorAll("[data-video-id]")];
-  cards.slice(0,6).forEach(card=>queueAudioPrime(card.dataset.videoId||""));
-
-  if(!("IntersectionObserver" in window))return;
-  if(!audioPrimeObserver){
-    audioPrimeObserver=new IntersectionObserver(entries=>{
-      for(const entry of entries){
-        if(!entry.isIntersecting)continue;
-        const card=entry.target;
-        queueAudioPrime(card.dataset.videoId||"");
-        audioPrimeObserver.unobserve(card);
-      }
-    },{rootMargin:"700px 0px",threshold:0.01});
-  }
-  cards.forEach(card=>audioPrimeObserver.observe(card));
+  // Background audio is intentionally prepared only after the user selects
+  // Âm thanh/Khóa. Normal video playback must never wait on Render/yt-dlp.
 }
 
 function renderCards(rows=[]){
@@ -279,9 +263,8 @@ function updateModeUi(){
     button.setAttribute("aria-pressed",active===mode?"true":"false");
   });
   if(pipBtn){
-    const available=MediaCore.pipMethod(mainVideo,document)!=="none";
-    pipBtn.disabled=!available;
-    pipBtn.title=available?"Picture in Picture":"Thiết bị này không hỗ trợ PiP";
+    pipBtn.disabled=true;
+    pipBtn.title="PiP dùng nút của trình phát YouTube trên thiết bị hỗ trợ";
   }
 }
 
@@ -290,31 +273,19 @@ function updateMediaSession(meta=state.currentMeta||{}){
 }
 
 function getVideoTime(){
-  return Math.max(0,Number(mainVideo.currentTime)||0);
+  try{return Math.max(0,Number(state.player?.getCurrentTime?.())||0);}catch{return 0;}
 }
 
 function seekVideo(time){
-  const value=Math.max(0,Number(time)||0);
-  if(mainVideo.readyState>=1){
-    try{mainVideo.currentTime=value;}catch{}
-  }else{
-    mainVideo.dataset.pendingSeek=String(value);
-  }
+  try{state.player?.seekTo?.(Math.max(0,Number(time)||0),true);}catch{}
 }
 
 function playVideoEngine(){
-  try{
-    const p=mainVideo.play();
-    if(p&&typeof p.catch==="function")p.catch(()=>{
-      if(state.mode==="video"||state.mode==="pip"){
-        statusText.textContent="Chạm nút ▶︎ trên video để phát";
-      }
-    });
-  }catch{}
+  try{state.player?.playVideo?.();}catch{}
 }
 
 function pauseVideoEngine(){
-  try{mainVideo.pause();}catch{}
+  try{state.player?.pauseVideo?.();}catch{}
 }
 
 function setupMediaSession(){
@@ -352,15 +323,6 @@ function startBackgroundMode(mode){
   const time=getVideoTime();
   state.mode=targetMode;
   pauseVideoEngine();
-
-  try{
-    if(document.pictureInPictureElement===mainVideo&&document.exitPictureInPicture){
-      void document.exitPictureInPicture().catch(()=>{});
-    }
-    if(mainVideo.webkitPresentationMode==="picture-in-picture"&&mainVideo.webkitSetPresentationMode){
-      mainVideo.webkitSetPresentationMode("inline");
-    }
-  }catch{}
 
   backgroundPlayer.select(state.currentId,{metadata:state.currentMeta||{}});
   updateModeUi();
@@ -405,56 +367,15 @@ function returnToVideo(){
   backgroundPlayer.pause();
   state.audioMaster=false;
   state.mode="video";
-  if(mainVideo.dataset.videoId!==state.currentId){
-    mainVideo.dataset.videoId=state.currentId;
-    mainVideo.dataset.source="proxy";
-    mainVideo.src=videoMediaUrl(state.currentId);
-    try{mainVideo.load();}catch{}
-  }
   seekVideo(time);
   playVideoEngine();
-  statusText.textContent="Video trực tiếp · không quảng cáo";
+  statusText.textContent="Video YouTube đang phát trực tiếp";
   updateModeUi();
 }
 
 async function enterPiP(){
   if(!state.currentId)return;
-  const time=MediaCore.activeTimeForMode(state.mode,getVideoTime(),backgroundPlayer.time);
-
-  if(MediaCore.modeUsesAudio(state.mode)){
-    backgroundPlayer.pause();
-    state.audioMaster=false;
-  }
-
-  state.mode="pip";
-  if(mainVideo.dataset.videoId!==state.currentId){
-    mainVideo.dataset.videoId=state.currentId;
-    mainVideo.dataset.source="proxy";
-    mainVideo.src=videoMediaUrl(state.currentId);
-    try{mainVideo.load();}catch{}
-  }
-  seekVideo(time);
-  playVideoEngine();
-  updateModeUi();
-
-  const method=MediaCore.pipMethod(mainVideo,document);
-  try{
-    if(method==="standard"){
-      await mainVideo.requestPictureInPicture();
-    }else if(method==="webkit"){
-      mainVideo.webkitSetPresentationMode("picture-in-picture");
-    }else{
-      state.mode="video";
-      updateModeUi();
-      statusText.textContent="Thiết bị này không hỗ trợ PiP";
-      return;
-    }
-    statusText.textContent="PiP đang phát · không quảng cáo";
-  }catch{
-    state.mode="video";
-    updateModeUi();
-    statusText.textContent="Không mở được PiP trên thiết bị này";
-  }
+  statusText.textContent="PiP dùng điều khiển của trình phát YouTube trên thiết bị hỗ trợ";
 }
 
 async function playVideo(id,seedMeta={}){
@@ -468,19 +389,22 @@ async function playVideo(id,seedMeta={}){
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
-  queueAudioPrime(id,true);
-
-  mainVideo.dataset.videoId=id;
-  mainVideo.poster=thumb(seedMeta,id);
-  mainVideo.dataset.source="proxy";
-  mainVideo.dataset.legacyTried="";
-  mainVideo.src=videoMediaUrl(id);
-  try{mainVideo.load();}catch{}
-  playVideoEngine();
 
   updateNow(seedMeta);
   updateModeUi();
-  statusText.textContent="Đang mở luồng video trực tiếp…";
+  statusText.textContent="Đang mở video…";
+
+  if(state.playerReady&&state.player){
+    try{
+      state.player.unMute?.();
+      state.player.loadVideoById(id);
+    }catch{
+      state.pendingVideoId=id;
+    }
+  }else{
+    state.pendingVideoId=id;
+    initYouTubePlayer();
+  }
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -489,13 +413,12 @@ async function playVideo(id,seedMeta={}){
   }
 
   try{
-    const r=await api("video",{id});
+    const metaResult=await api("video",{id});
     if(state.currentId!==id)return;
-    const meta=r?.data||{};
+    const meta=metaResult?.data||{};
     state.currentMeta={...seedMeta,...meta};
     updateNow(state.currentMeta);
     backgroundPlayer.setMetadata(state.currentMeta);
-    mainVideo.poster=thumb(state.currentMeta,id);
 
     const related=Array.isArray(meta.relatedStreams)?meta.relatedStreams:[];
     if(related.length){
@@ -503,6 +426,73 @@ async function playVideo(id,seedMeta={}){
       renderCards(related.slice(0,18));
     }
   }catch{}
+}
+
+function initYouTubePlayer(){
+  if(state.player||!window.YT||typeof YT.Player!=="function")return false;
+
+  state.player=new YT.Player("yt-player",{
+    host:"https://www.youtube-nocookie.com",
+    height:"100%",
+    width:"100%",
+    playerVars:{
+      autoplay:1,
+      playsinline:1,
+      controls:1,
+      rel:0,
+      fs:1,
+      modestbranding:1,
+      iv_load_policy:3,
+      enablejsapi:1,
+      origin:location.origin
+    },
+    events:{
+      onReady(){
+        state.playerReady=true;
+        const id=state.pendingVideoId||state.currentId;
+        state.pendingVideoId="";
+        if(id){
+          try{
+            state.player.unMute?.();
+            state.player.loadVideoById(id);
+          }catch{}
+        }
+      },
+      onStateChange(event){
+        if(event.data===YT.PlayerState.PLAYING){
+          if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
+          try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
+        }else if(event.data===YT.PlayerState.PAUSED){
+          if(state.mode==="video"){
+            try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
+          }
+        }else if(event.data===YT.PlayerState.ENDED){
+          if(state.mode==="video")statusText.textContent="Đã phát xong";
+        }
+      },
+      onError(){
+        statusText.textContent="YouTube không phát được video này";
+      }
+    }
+  });
+  return true;
+}
+
+window.onYouTubeIframeAPIReady=()=>{
+  if(state.pendingVideoId||state.currentId)initYouTubePlayer();
+};
+
+if(!(window.YT&&typeof YT.Player==="function")){
+  let ytWait=0;
+  const ytTimer=setInterval(()=>{
+    ytWait++;
+    if(window.YT&&typeof YT.Player==="function"){
+      clearInterval(ytTimer);
+      if(state.pendingVideoId||state.currentId)initYouTubePlayer();
+    }else if(ytWait>100){
+      clearInterval(ytTimer);
+    }
+  },100);
 }
 
 async function doSearch(value){
@@ -530,12 +520,6 @@ searchForm.addEventListener("submit",e=>{
   doSearch(queryInput.value);
   queryInput.blur();
 });
-
-feed.addEventListener("pointerdown",e=>{
-  const card=e.target.closest("[data-video-id]");
-  if(!card)return;
-  queueAudioPrime(card.dataset.videoId||"",true);
-},{passive:true});
 
 feed.addEventListener("click",e=>{
   const retry=e.target.closest(".retry-feed");
@@ -571,68 +555,6 @@ videoBtn.addEventListener("click",returnToVideo);
 backgroundBtn.addEventListener("click",()=>startBackgroundMode("audio"));
 lockBtn.addEventListener("click",()=>startBackgroundMode("lock"));
 pipBtn.addEventListener("click",()=>{void enterPiP();});
-
-mainVideo.addEventListener("loadedmetadata",()=>{
-  const pending=Number(mainVideo.dataset.pendingSeek);
-  if(Number.isFinite(pending)&&pending>0){
-    try{mainVideo.currentTime=pending;}catch{}
-  }
-  delete mainVideo.dataset.pendingSeek;
-});
-
-mainVideo.addEventListener("playing",()=>{
-  if(state.mode==="video")statusText.textContent="Video trực tiếp · không quảng cáo";
-  try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
-});
-
-mainVideo.addEventListener("pause",()=>{
-  if(MediaCore.modeUsesVideo(state.mode)){
-    try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
-  }
-});
-
-mainVideo.addEventListener("ended",()=>{
-  if(MediaCore.modeUsesVideo(state.mode))statusText.textContent="Đã phát xong";
-});
-
-mainVideo.addEventListener("error",()=>{
-  if(!state.currentId||MediaCore.modeUsesAudio(state.mode))return;
-
-  if(mainVideo.dataset.source==="proxy"&&mainVideo.dataset.legacyTried!=="1"){
-    mainVideo.dataset.legacyTried="1";
-    mainVideo.dataset.source="legacy";
-    statusText.textContent="Đang thử nguồn dự phòng…";
-    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
-    try{mainVideo.load();}catch{}
-    playVideoEngine();
-    return;
-  }
-
-  statusText.textContent="Nguồn phát đang bị YouTube chặn · thử lại sau";
-});
-
-mainVideo.addEventListener("enterpictureinpicture",()=>{
-  state.mode="pip";
-  updateModeUi();
-  statusText.textContent="PiP đang phát · không quảng cáo";
-});
-
-mainVideo.addEventListener("leavepictureinpicture",()=>{
-  if(state.mode==="pip"){
-    state.mode="video";
-    updateModeUi();
-    statusText.textContent="Video trực tiếp · không quảng cáo";
-  }
-});
-
-mainVideo.addEventListener("webkitpresentationmodechanged",()=>{
-  if(mainVideo.webkitPresentationMode==="picture-in-picture"){
-    state.mode="pip";
-  }else if(state.mode==="pip"){
-    state.mode="video";
-  }
-  updateModeUi();
-});
 
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState!=="visible")return;

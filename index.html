@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=fresh-4">
+  <link rel="stylesheet" href="./src/style.css?v=fresh-5">
   <title>1988</title>
 </head>
 <body>
@@ -32,7 +32,7 @@
 
     <section id="playerSection" class="player-section" hidden>
       <div class="player-frame">
-        <video id="mainVideo" controls playsinline webkit-playsinline preload="metadata"></video>
+        <div id="yt-player"></div>
       </div>
       <div class="now">
         <div class="now-copy">
@@ -46,7 +46,7 @@
           <button id="lockBtn" class="secondary-btn" type="button" aria-pressed="false">Khóa</button>
           <button id="shareBtn" class="secondary-btn" type="button">Chia sẻ</button>
         </div>
-        <div id="statusText" class="status-text">Luồng trực tiếp · không quảng cáo</div>
+        <div id="statusText" class="status-text">Video mở trực tiếp · âm thanh nền tách riêng</div>
       </div>
     </section>
 
@@ -87,6 +87,7 @@
   </script>
   <script src="./src/media-core.js?v=1"></script>
   <script src="./src/html5-background.js?v=6"></script>
-  <script defer src="./src/app.js?v=fresh-16"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
+  <script defer src="./src/app.js?v=fresh-17"></script>
 </body>
 </html>
