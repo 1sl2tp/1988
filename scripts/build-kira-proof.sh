@@ -807,13 +807,13 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
     if (!videoElement) return false;
 
     const apis = [
-      'https://cobaltapi.cjs.nz',
-      'https://api.cobalt.liubquanti.click'
+      'https://kira-proxy-1988-us.onrender.com/api/cobalt',
+      'https://kira-proxy-1988.onrender.com/api/cobalt'
     ];
 
     for (const api of apis) {
       try {
-        const response = await fetch(api + '/', {
+        const response = await fetch(api, {
           method: 'POST',
           headers: {
             'Accept': 'application/json',
@@ -832,7 +832,7 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
         const payload = await response.json().catch(() => null);
         const mediaUrl = String(payload?.url || '');
         if (!response.ok || !mediaUrl || !['tunnel', 'redirect'].includes(String(payload?.status || ''))) {
-          console.warn('[Player]', 'Cobalt resolver failed', api, payload?.error?.code || response.status);
+          console.warn('[Player]', '1988 Cobalt proxy failed', api, payload?.error?.code || response.status);
           continue;
         }
 
@@ -885,10 +885,10 @@ insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean>
 
         startSavingPosition();
         playerState.value = 'ready';
-        console.info('[Player]', 'Using Cobalt media tunnel', api);
+        console.info('[Player]', 'Using 1988 Cobalt media tunnel', api);
         return true;
       } catch (error) {
-        console.warn('[Player]', 'Cobalt playback failed', api, error);
+        console.warn('[Player]', '1988 Cobalt playback failed', api, error);
       }
     }
 
@@ -907,7 +907,7 @@ load_video_pos = src.index("  async function loadVideo(videoId: string, targetCo
 innertube_pos = src.index("      const innertube = await getInnertube();", load_video_pos)
 if load_video_pos < 0 or innertube_pos < 0:
     raise SystemExit("Cobalt loadVideo/Innertube insertion point not found")
-src = src[:innertube_pos] + "      if (await loadCobaltMedia(videoId)) return;\n\n" + src[innertube_pos:]
+src = src[:innertube_pos] + "      if (await loadCobaltMedia(videoId)) return;\n      playerState.value = 'error';\n      addToast('Video source is temporarily unavailable.', 'error');\n      return;\n\n" + src[innertube_pos:]
 
 p.write_text(src)
 
@@ -1015,7 +1015,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-36-cobalt-vod-fix\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-37-private-cobalt-proxy\">", 1)
 p.write_text(s)
 PY
 
