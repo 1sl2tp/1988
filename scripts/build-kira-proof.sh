@@ -160,7 +160,7 @@ async function fallbackSearch(query: string) {
         id,
         title: String(row?.title || 'Video'),
         channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
-        thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+        thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
         duration: fallbackDuration(row?.duration),
         views: String(row?.viewText || (row?.views ? `${row.views} views` : '')) || null
       };
@@ -284,7 +284,7 @@ function toRecommendation(row: any): VideoItemData | null {
     videoId,
     title: String(row?.title || 'Video'),
     titleText: String(row?.title || 'Video'),
-    thumbnail: String(row?.thumbnailUrl || row?.thumbnail || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`),
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
     metadata: [
       String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
       String(row?.viewText || (row?.views ? `${row.views} views` : ''))
@@ -620,7 +620,7 @@ s = s.replace(
 )
 s = s.replace(
   "thumbnail: String(row?.thumbnail || row?.thumbnailUrl || ('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg')),",
-  "thumbnail: normalizeMediaUrl(row?.thumbnail || row?.thumbnailUrl || ('https://i.ytimg.com/vi/' + id + '/hqdefault.jpg')),",
+  "thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',",
   1
 )
 
@@ -824,8 +824,8 @@ new_fetch = r"""export async function fetchFunction(input: string | Request | UR
   }
 
   const proxy = new URL('""" + PROXY + r"""');
+  proxy.pathname = original.pathname;
   proxy.searchParams.set('__host', original.host);
-  proxy.searchParams.set('__path', original.pathname);
   for (const [key, value] of original.searchParams) {
     proxy.searchParams.append(key, value);
   }
@@ -870,8 +870,8 @@ old = """      if ((url.host.endsWith('.googlevideo.com') || url.href.includes('
 new = """      if ((url.host.endsWith('.googlevideo.com') || url.href.includes('drm')) && !checkExtension()) {
         const originalUrl = new URL(url.toString());
         const newUrl = new URL('""" + PROXY + """');
+        newUrl.pathname = originalUrl.pathname;
         newUrl.searchParams.set('__host', originalUrl.host);
-        newUrl.searchParams.set('__path', originalUrl.pathname);
         for (const [key, value] of originalUrl.searchParams) {
           newUrl.searchParams.append(key, value);
         }
@@ -885,7 +885,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-30-render-kira-player\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-31-render-path-fix\">", 1)
 p.write_text(s)
 PY
 
