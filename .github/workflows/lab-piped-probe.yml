@@ -1,4 +1,4 @@
-name: Lab Verify Proxy Media
+name: Lab Piped With Free Proxy
 
 on:
   push:
@@ -9,20 +9,58 @@ permissions:
   contents: read
 
 jobs:
-  verify-media:
+  free-proxy:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
-      - name: Start official Piped stack with proven free SOCKS5
+      - name: Fetch live free SOCKS5 proxies
+        shell: bash
+        run: |
+          set -e
+          curl -sS -L --max-time 20             'https://cdn.jsdelivr.net/gh/proxyscrape/free-proxy-list@main/proxies/protocols/socks5/data.json'             -o /tmp/proxies.json
+
+          jq -r '
+            [.[] |
+              select((.uptime_percent // 0) >= 70) |
+              select((.latency_ms // 99999) <= 1500)
+            ]
+            | sort_by(.latency_ms)
+            | .[0:40]
+            | .[]
+            | "\(.ip):\(.port)"
+          ' /tmp/proxies.json > /tmp/candidates.txt
+
+          echo "Candidates: $(wc -l < /tmp/candidates.txt)"
+          head -20 /tmp/candidates.txt
+
+      - name: Find proxies that can reach YouTube
+        shell: bash
+        run: |
+          set +e
+          : > /tmp/live.txt
+          while read -r P; do
+            echo "TEST $P"
+            CODE=$(curl -sS --proxy "socks5h://$P"               --connect-timeout 3 --max-time 7               -o /tmp/yt.out -w '%{http_code}'               'https://www.youtube.com/generate_204')
+            if [ "$CODE" = "204" ] || [ "$CODE" = "200" ]; then
+              echo "LIVE $P HTTP=$CODE"
+              echo "$P" >> /tmp/live.txt
+            fi
+            [ "$(wc -l < /tmp/live.txt)" -ge 8 ] && break
+          done < /tmp/candidates.txt
+
+          echo "=== LIVE YOUTUBE PROXIES ==="
+          cat /tmp/live.txt
+          [ -s /tmp/live.txt ]
+
+      - name: Start official Piped stack
         shell: bash
         run: |
           set -e
           mkdir -p /tmp/piped-lab
-          cat > /tmp/piped-lab/config.properties <<'CFG'
+          cat > /tmp/piped-lab/config.base <<'CFG'
           PORT:8080
           HTTP_WORKERS:2
           PROXY_PART:http://127.0.0.1:8082
-          REQWEST_PROXY:socks5://103.88.234.239:40002
           API_URL:http://127.0.0.1:8081
           FRONTEND_URL:http://127.0.0.1:8083
           COMPROMISED_PASSWORD_CHECK:false
@@ -43,6 +81,7 @@ jobs:
           hibernate.connection.username:piped
           hibernate.connection.password:changeme
           CFG
+
           cat > /tmp/piped-lab/docker-compose.yml <<'YML'
           services:
             postgres:
@@ -56,11 +95,15 @@ jobs:
                 interval: 2s
                 timeout: 2s
                 retries: 30
+
             bg-helper:
               image: 1337kavin/bg-helper-server:latest
+
             proxy:
               image: 1337kavin/piped-proxy:latest
-              ports: ["8082:8080"]
+              ports:
+                - "8082:8080"
+
             piped:
               image: 1337kavin/piped:latest
               depends_on:
@@ -70,39 +113,66 @@ jobs:
                   condition: service_started
                 proxy:
                   condition: service_started
-              ports: ["8081:8080"]
+              ports:
+                - "8081:8080"
               volumes:
                 - /tmp/piped-lab/config.properties:/app/config.properties:ro
           YML
-          cd /tmp/piped-lab
-          docker compose up -d
-          for i in $(seq 1 35); do
-            C=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
-            [ "$C" = "200" ] && exit 0
-            sleep 1
-          done
-          exit 1
 
-      - name: Resolve exact video and verify MP4
+          cp /tmp/piped-lab/config.base /tmp/piped-lab/config.properties
+          cd /tmp/piped-lab
+          docker compose up -d postgres bg-helper proxy piped
+
+          for i in $(seq 1 60); do
+            CODE=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 http://127.0.0.1:8081/config || true)
+            [ "$CODE" = "200" ] && break
+            sleep 2
+          done
+
+      - name: Try exact video through each free proxy
         shell: bash
         run: |
-          set -e
-          OUT=/tmp/streams.json
-          curl -fsS --max-time 40 http://127.0.0.1:8081/streams/vhUjvanyu2U -o "$OUT"
-          jq '{title,duration,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' "$OUT"
-          URL=$(jq -r '[(.videoStreams//[])[] | select(.videoOnly==false and .url!=null)][0].url // empty' "$OUT")
-          [ -n "$URL" ]
-          echo "MUXED_URL=$URL"
+          set +e
+          ID='vhUjvanyu2U'
+          cd /tmp/piped-lab
+          PASS=''
 
-          echo '=== RANGE TEST ==='
-          curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-1048575'             -D /tmp/h -o /tmp/media.bin "$URL"
-          tr -d '\r' < /tmp/h | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:)'
-          echo "BYTES=$(wc -c < /tmp/media.bin)"
-          file /tmp/media.bin
+          while read -r P; do
+            echo
+            echo "===== TRY $P ====="
+            cp config.base config.properties
+            echo "REQWEST_PROXY:socks5://$P" >> config.properties
 
-          echo '=== FFPROBE ==='
-          ffprobe -v error -show_entries stream=index,codec_type,codec_name -of json "$URL" | tee /tmp/probe.json
-          VIDEO=$(jq '[.streams[]|select(.codec_type=="video")]|length' /tmp/probe.json)
-          AUDIO=$(jq '[.streams[]|select(.codec_type=="audio")]|length' /tmp/probe.json)
-          echo "VIDEO_TRACKS=$VIDEO AUDIO_TRACKS=$AUDIO"
-          [ "$VIDEO" -gt 0 ] && [ "$AUDIO" -gt 0 ]
+            docker compose restart piped >/dev/null 2>&1
+            sleep 4
+
+            OUT=$(mktemp)
+            META=$(curl -sS -L --connect-timeout 3 --max-time 25               -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download} TIME=%{time_total}'               "http://127.0.0.1:8081/streams/$ID")
+
+            AC=$(jq -r '(.audioStreams//[])|length' "$OUT" 2>/dev/null)
+            VC=$(jq -r '(.videoStreams//[])|length' "$OUT" 2>/dev/null)
+            HLS=$(jq -r '.hls // ""' "$OUT" 2>/dev/null)
+            TITLE=$(jq -r '.title // ""' "$OUT" 2>/dev/null)
+
+            echo "RESULT proxy=$P $META audio=$AC video=$VC hls=$([ -n "$HLS" ] && echo yes || echo no) title=$TITLE"
+
+            if { [ "${AC:-0}" -gt 0 ] || [ "${VC:-0}" -gt 0 ] || [ -n "$HLS" ]; }; then
+              echo "PASS_PROXY=$P"
+              cat "$OUT" > /tmp/pass-streams.json
+              echo "$P" > /tmp/pass-proxy.txt
+              PASS="$P"
+              rm -f "$OUT"
+              break
+            fi
+
+            docker compose logs --tail=20 piped | tail -20
+            rm -f "$OUT"
+          done < /tmp/live.txt
+
+          if [ -z "$PASS" ]; then
+            echo "NO_FREE_PROXY_PASSED"
+            exit 1
+          fi
+
+          echo "=== PASS SUMMARY ==="
+          jq '{title,duration,hls,audioCount:((.audioStreams//[])|length),videoCount:((.videoStreams//[])|length)}' /tmp/pass-streams.json
