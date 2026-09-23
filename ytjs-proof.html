@@ -24,20 +24,21 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
   <h1>YouTube.js · MP4 Proof</h1>
   <p class="sub">Local extraction trong browser → proxy riêng → bytes media. Không dùng Piped.</p>
   <div class="row">
-    <input id="videoId" value="dQw4w9WgXcQ" autocomplete="off" spellcheck="false" placeholder="YouTube video ID hoặc URL">
-    <button id="go">Lấy MP4</button>
+    <input id="videoId" value="" autocomplete="off" spellcheck="false" placeholder="Tìm video hoặc dán link YouTube">
+    <button id="go">Tìm & phát</button>
   </div>
   <video id="video" controls playsinline preload="metadata"></video>
   <div class="card">
     <div id="status" class="status warn">Chưa chạy.</div>
     <div class="kv">
       <b>Tiêu đề</b><span id="title">—</span>
+      <b>Video ID</b><span id="resolvedId">—</span>
       <b>Định dạng</b><span id="format">—</span>
       <b>Probe</b><span id="probe">—</span>
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-local-mp4-proof-20260923-4-search</div>
+  <div class="small">Build: ytjs-local-mp4-proof-20260923-5-search-fixed</div>
 </main>
 
 <script type="module">
