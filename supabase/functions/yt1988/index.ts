@@ -300,89 +300,166 @@ Deno.serve(async (req) => {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
 
-      const result = await piped(`/streams/${enc(id)}`, 20 * 1000);
-      const info: any = result.data || {};
+      const path = `/streams/${enc(id)}`;
+      const orderedBases = [
+        ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
+        ...PIPED_APIS,
+      ].filter((base, index, rows) => base && rows.indexOf(base) === index).slice(0, 8);
 
-      const proxify = (raw: string) => {
-        try {
-          const media = new URL(raw);
-          if (media.hostname.endsWith(".googlevideo.com") && info.proxyUrl) {
-            const proxy = new URL(String(info.proxyUrl));
-            const prefix = proxy.pathname.endsWith("/") ? proxy.pathname.slice(0, -1) : proxy.pathname;
-            media.searchParams.set("host", media.host);
-            media.protocol = proxy.protocol;
-            media.host = proxy.host;
-            media.pathname = prefix + media.pathname;
+      const settled = await Promise.allSettled(
+        orderedBases.map(async (base, index) => {
+          if (index >= 5) await delay(160);
+          return { base, data: await fetchJson(base, path, 2400) };
+        }),
+      );
+
+      const successes = settled
+        .filter((row): row is PromiseFulfilledResult<{ base: string; data: any }> => row.status === "fulfilled")
+        .map((row) => row.value);
+
+      if (!successes.length) {
+        return json({ ok: false, error: "no_piped_instance" }, 503, 0);
+      }
+
+      preferredApi = successes[0].base;
+      preferredUntil = Date.now() + API_TTL_MS;
+
+      let title = "";
+      let uploader = "";
+      let thumbnailUrl = "";
+      let duration = 0;
+      let livestream = false;
+
+      const videoRows: any[] = [];
+      const audioRows: any[] = [];
+      const hlsRows: any[] = [];
+
+      for (const result of successes) {
+        const info: any = result.data || {};
+        if (!title) title = String(info.title || "");
+        if (!uploader) uploader = String(info.uploader || "");
+        if (!thumbnailUrl) thumbnailUrl = String(info.thumbnailUrl || "");
+        if (!duration) duration = Number(info.duration) || 0;
+        livestream = livestream || !!info.livestream;
+
+        const proxify = (raw: string) => proxifyPipedMedia(raw, info);
+
+        for (const s of (Array.isArray(info.videoStreams) ? info.videoStreams : [])) {
+          if (!s?.url || s?.videoOnly === true) continue;
+          const directUrl = String(s.url);
+          const proxyUrl = proxify(directUrl);
+          const baseRow = {
+            mimeType: String(s.mimeType || s.format || ""),
+            format: String(s.format || ""),
+            codec: String(s.codec || ""),
+            quality: String(s.quality || ""),
+            fps: Number(s.fps) || 0,
+            bitrate: Number(s.bitrate) || 0,
+            videoOnly: false,
+            sourceApi: result.base,
+          };
+          videoRows.push({ ...baseRow, url: directUrl, via: "direct" });
+          if (proxyUrl && proxyUrl !== directUrl) {
+            videoRows.push({ ...baseRow, url: proxyUrl, via: "proxy" });
           }
-          return media.toString();
-        } catch {
-          return raw;
         }
+
+        for (const s of (Array.isArray(info.audioStreams) ? info.audioStreams : [])) {
+          if (!s?.url) continue;
+          const directUrl = String(s.url);
+          const proxyUrl = proxify(directUrl);
+          const baseRow = {
+            mimeType: String(s.mimeType || s.format || ""),
+            bitrate: Number(s.bitrate) || 0,
+            sourceApi: result.base,
+          };
+          audioRows.push({ ...baseRow, url: directUrl, via: "direct" });
+          if (proxyUrl && proxyUrl !== directUrl) {
+            audioRows.push({ ...baseRow, url: proxyUrl, via: "proxy" });
+          }
+        }
+
+        if (typeof info.hls === "string" && info.hls) {
+          const directUrl = String(info.hls);
+          const proxyUrl = proxify(directUrl);
+          hlsRows.push({
+            url: directUrl,
+            mimeType: "application/vnd.apple.mpegurl",
+            sourceApi: result.base,
+            via: "direct",
+          });
+          if (proxyUrl && proxyUrl !== directUrl) {
+            hlsRows.push({
+              url: proxyUrl,
+              mimeType: "application/vnd.apple.mpegurl",
+              sourceApi: result.base,
+              via: "proxy",
+            });
+          }
+        }
+      }
+
+      const dedupe = (rows: any[]) => {
+        const seen = new Set<string>();
+        return rows.filter((row) => {
+          const key = String(row?.url || "");
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
       };
 
-      const qualityNumber = (value: unknown) => {
-        const match = String(value || "").match(/(\d{3,4})/);
-        return match ? Number(match[1]) : 0;
-      };
-
-      const videoRows = (Array.isArray(info.videoStreams) ? info.videoStreams : [])
-        .filter((s: any) => s?.url && s?.videoOnly !== true)
-        .map((s: any) => ({
-          url: proxify(String(s.url)),
-          mimeType: String(s.mimeType || s.format || ""),
-          format: String(s.format || ""),
-          codec: String(s.codec || ""),
-          quality: String(s.quality || ""),
-          fps: Number(s.fps) || 0,
-          bitrate: Number(s.bitrate) || 0,
-          videoOnly: !!s.videoOnly,
-        }))
+      const sources = dedupe(videoRows)
         .sort((a: any, b: any) => {
-          const aMp4 = (a.mimeType + a.format).toLowerCase().includes("mp4") ? 1 : 0;
-          const bMp4 = (b.mimeType + b.format).toLowerCase().includes("mp4") ? 1 : 0;
+          const aType = (a.mimeType + a.format).toLowerCase();
+          const bType = (b.mimeType + b.format).toLowerCase();
+          const aMp4 = aType.includes("mp4") ? 1 : 0;
+          const bMp4 = bType.includes("mp4") ? 1 : 0;
           if (aMp4 !== bMp4) return bMp4 - aMp4;
-          const aq = qualityNumber(a.quality);
-          const bq = qualityNumber(b.quality);
+          const aDirect = a.via === "direct" ? 1 : 0;
+          const bDirect = b.via === "direct" ? 1 : 0;
+          if (aDirect !== bDirect) return bDirect - aDirect;
+          const aq = mediaQualityNumber(a.quality);
+          const bq = mediaQualityNumber(b.quality);
           if (aq !== bq) return bq - aq;
           return b.bitrate - a.bitrate;
         })
-        .slice(0, 10);
+        .slice(0, 24);
 
-      const audioRows = (Array.isArray(info.audioStreams) ? info.audioStreams : [])
-        .filter((s: any) => s?.url)
-        .map((s: any) => ({
-          url: proxify(String(s.url)),
-          mimeType: String(s.mimeType || s.format || ""),
-          bitrate: Number(s.bitrate) || 0,
-        }))
+      const audioSources = dedupe(audioRows)
         .sort((a: any, b: any) => {
-          const aMp4 = a.mimeType.toLowerCase().includes("mp4") ? 1 : 0;
-          const bMp4 = b.mimeType.toLowerCase().includes("mp4") ? 1 : 0;
+          const aMp4 = String(a.mimeType).toLowerCase().includes("mp4") ? 1 : 0;
+          const bMp4 = String(b.mimeType).toLowerCase().includes("mp4") ? 1 : 0;
           if (aMp4 !== bMp4) return bMp4 - aMp4;
+          const aDirect = a.via === "direct" ? 1 : 0;
+          const bDirect = b.via === "direct" ? 1 : 0;
+          if (aDirect !== bDirect) return bDirect - aDirect;
           return b.bitrate - a.bitrate;
         })
-        .slice(0, 8);
+        .slice(0, 16);
 
-      const hls = typeof info.hls === "string" ? proxify(info.hls) : "";
-      if (!videoRows.length && !hls) {
+      const hlsSources = dedupe(hlsRows).slice(0, 12);
+
+      if (!sources.length && !hlsSources.length) {
         return json({ ok: false, error: "no_native_stream" }, 404, 5);
       }
 
       return json({
         ok: true,
-        source: result.source,
+        source: successes.map((row) => row.base),
         data: {
           id,
-          title: String(info.title || ""),
-          uploader: String(info.uploader || ""),
-          thumbnailUrl: String(info.thumbnailUrl || ""),
-          duration: Number(info.duration) || 0,
-          livestream: !!info.livestream,
-          hls,
-          sources: videoRows,
-          audioSources: audioRows,
+          title,
+          uploader,
+          thumbnailUrl,
+          duration,
+          livestream,
+          hls: hlsSources[0]?.url || "",
+          hlsSources,
+          sources,
+          audioSources,
         },
-      }, 200, info.livestream ? 5 : 30);
+      }, 200, livestream ? 5 : 20);
     }
 
     if (action === "background") {
