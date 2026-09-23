@@ -795,6 +795,127 @@ s = s[:start] + new + s[end:]
 p.write_text(s)
 
 
+
+# Cobalt VOD playback: resolve a short-lived tunnel URL client-side, bypassing
+# Render/Supabase YouTube egress blocks. This is the primary path for normal VODs.
+p = Path("src/composables/useYoutubePlayer.ts")
+src = p.read_text()
+
+anchor = """  async function loadDirectMediaFallback(videoId: string): Promise<boolean> {"""
+insert = r"""  async function loadCobaltMedia(videoId: string): Promise<boolean> {
+    const { player, videoElement } = playerComponents.value;
+    if (!videoElement) return false;
+
+    const apis = [
+      'https://cobaltapi.cjs.nz',
+      'https://api.cobalt.liubquanti.click'
+    ];
+
+    for (const api of apis) {
+      try {
+        const response = await fetch(api + '/', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            url: 'https://www.youtube.com/watch?v=' + encodeURIComponent(videoId),
+            videoQuality: '360',
+            youtubeVideoCodec: 'h264',
+            youtubeVideoContainer: 'mp4',
+            downloadMode: 'auto',
+            alwaysProxy: true
+          })
+        });
+
+        const payload = await response.json().catch(() => null);
+        const mediaUrl = String(payload?.url || '');
+        if (!response.ok || !mediaUrl || !['tunnel', 'redirect'].includes(String(payload?.status || ''))) {
+          console.warn('[Player]', 'Cobalt resolver failed', api, payload?.error?.code || response.status);
+          continue;
+        }
+
+        try {
+          if (player) await player.unload();
+        } catch {}
+
+        const savedPosition = getPlaybackPosition(videoId);
+        videoElement.removeAttribute('src');
+        videoElement.src = mediaUrl;
+        videoElement.preload = 'metadata';
+        videoElement.playsInline = true;
+
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const finish = (fn: () => void) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            videoElement.removeEventListener('loadedmetadata', onReady);
+            videoElement.removeEventListener('canplay', onReady);
+            videoElement.removeEventListener('error', onError);
+            fn();
+          };
+          const onReady = () => finish(resolve);
+          const onError = () => finish(() => reject(new Error('cobalt_media_error_' + (videoElement.error?.code || 0))));
+          const timer = window.setTimeout(
+            () => finish(() => reject(new Error('cobalt_media_timeout'))),
+            18000
+          );
+
+          videoElement.addEventListener('loadedmetadata', onReady, { once: true });
+          videoElement.addEventListener('canplay', onReady, { once: true });
+          videoElement.addEventListener('error', onError, { once: true });
+          videoElement.load();
+        });
+
+        if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
+          try {
+            videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
+          } catch {}
+        }
+
+        try {
+          await videoElement.play();
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'NotAllowedError')) throw error;
+          addToast('Tap Play to start video.', 'info');
+        }
+
+        startSavingPosition();
+        playerState.value = 'ready';
+        console.info('[Player]', 'Using Cobalt media tunnel', api);
+        return true;
+      } catch (error) {
+        console.warn('[Player]', 'Cobalt playback failed', api, error);
+      }
+    }
+
+    return false;
+  }
+
+  async function loadDirectMediaFallback(videoId: string): Promise<boolean> {"""
+if anchor not in src:
+    raise SystemExit("Cobalt insert anchor not found")
+src = src.replace(anchor, insert, 1)
+
+# Try Cobalt before any path that depends on YouTube calls from our datacenter egress.
+needle = """      if (await loadDirectMediaFallback(videoId)) return;
+
+      const innertube = await getInnertube();"""
+replacement = """      if (await loadCobaltMedia(videoId)) return;
+
+      if (await loadDirectMediaFallback(videoId)) return;
+
+      const innertube = await getInnertube();"""
+if needle not in src:
+    raise SystemExit("primary playback insertion anchor not found")
+src = src.replace(needle, replacement, 1)
+
+p.write_text(src)
+
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -898,7 +1019,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-34-oregon-proxy\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-35-cobalt-vod\">", 1)
 p.write_text(s)
 PY
 
