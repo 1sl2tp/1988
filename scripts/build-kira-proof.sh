@@ -1063,7 +1063,7 @@ if needle not in src:
     raise SystemExit("Cobalt call site not found for NewPipe priority")
 src = src.replace(
     needle,
-    "      if (await loadNewPipeMedia(videoId)) return;\\n      if (await loadCobaltMedia(videoId)) return;",
+    "      if (await loadNewPipeMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;",
     1
 )
 
