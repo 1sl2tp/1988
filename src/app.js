@@ -1,11 +1,6 @@
 "use strict";
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
-const AUDIO_PROXY="https://one988-audio.onrender.com";
-const PIPED_AUDIO_APIS=[
-  "https://pipedapi.ducks.party",
-  "https://api.piped.private.coffee"
-];
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
@@ -98,7 +93,7 @@ function publishedLabel(row={}){
   return clean(row.uploadDate||row.uploadedDate||row.publishedText||"");
 }
 
-async function api(action,params={}){
+async function api(action,params={},timeoutMs=8000){
   const url=new URL(BASE);
   url.searchParams.set("action",action);
   for(const [k,v] of Object.entries(params)){
@@ -106,7 +101,7 @@ async function api(action,params={}){
   }
 
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),8000);
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
     const res=await fetch(url.toString(),{
       cache:"no-store",
@@ -120,120 +115,21 @@ async function api(action,params={}){
   }
 }
 
-async function fetchJsonTimeout(url,timeout=4200){
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),timeout);
-  try{
-    const res=await fetch(url,{
-      cache:"no-store",
-      mode:"cors",
-      signal:controller.signal,
-      headers:{"Accept":"application/json"}
-    });
-    if(!res.ok)throw new Error("HTTP "+res.status);
-    return await res.json();
-  }finally{
-    clearTimeout(timer);
-  }
-}
-
-function safeMediaUrl(value){
-  try{
-    const url=new URL(String(value||""));
-    if(url.protocol!=="https:")return "";
-    if(/(^|\.)googlevideo\.com$/i.test(url.hostname))return "";
-    if(url.hostname==="player.odycdn.com")return "";
-    return url.toString();
-  }catch{
-    return "";
-  }
-}
-
-function pipedAudioCandidates(data={}){
-  const rows=[];
-
-  for(const stream of (Array.isArray(data.audioStreams)?data.audioStreams:[])){
-    const url=safeMediaUrl(stream?.url);
-    if(!url)continue;
-    const mime=String(stream?.mimeType||"").toLowerCase();
-    rows.push({
-      url,
-      mimeType:mime||"audio/mp4",
-      bitrate:Number(stream?.bitrate)||0,
-      priority:120,
-      engine:"piped-audio"
-    });
-  }
-
-  for(const stream of (Array.isArray(data.videoStreams)?data.videoStreams:[])){
-    if(stream?.videoOnly===true)continue;
-    const quality=String(stream?.quality||"");
-    if(/^LBRY(?:\s|$)/i.test(quality))continue;
-    const url=safeMediaUrl(stream?.url);
-    if(!url)continue;
-    const mime=String(stream?.mimeType||"").toLowerCase();
-    if(!mime.includes("mp4")&&!mime.includes("mpegurl")&&!mime.includes("m3u8"))continue;
-    rows.push({
-      url,
-      // An HTMLAudioElement can play the AAC audio track inside a muxed MP4.
-      mimeType:mime.includes("mp4")?"audio/mp4":"application/vnd.apple.mpegurl",
-      bitrate:Number(stream?.bitrate)||0,
-      priority:mime.includes("mp4")?100:80,
-      engine:"piped-muxed"
-    });
-  }
-
-  const hls=safeMediaUrl(data?.hls||data?.hlsUrl||"");
-  if(hls){
-    rows.push({
-      url:hls,
-      mimeType:"application/vnd.apple.mpegurl",
-      bitrate:0,
-      priority:70,
-      engine:"piped-hls"
-    });
-  }
-
-  return rows;
-}
-
-async function sourcesFromPiped(apiBase,id){
-  const url=new URL("/streams/"+encodeURIComponent(id),apiBase);
-  const data=await fetchJsonTimeout(url.toString());
-  return pipedAudioCandidates(data);
-}
-
 async function backgroundSources(id){
   if(!id)return [];
 
-  const settled=await Promise.allSettled(
-    PIPED_AUDIO_APIS.map(apiBase=>sourcesFromPiped(apiBase,id))
-  );
+  const resolved=await api("audio_resolve",{id},40000);
+  const row=resolved?.data||{};
+  const url=String(row.url||"").trim();
+  if(!/^https:\/\//i.test(url))return [];
 
-  const rows=[];
-  const seen=new Set();
-  for(const result of settled){
-    if(result.status!=="fulfilled")continue;
-    for(const row of result.value){
-      if(!row?.url||seen.has(row.url))continue;
-      seen.add(row.url);
-      rows.push(row);
-    }
-  }
-
-  // Render remains the last fallback only. Its datacenter IP is often
-  // challenged by YouTube, so normal audio resolution must not depend on it.
-  const media=new URL(AUDIO_PROXY+"/audio");
-  media.searchParams.set("id",id);
-  rows.push({
-    url:media.toString(),
-    mimeType:"audio/mp4",
-    bitrate:0,
-    priority:10,
-    engine:"render-fallback"
-  });
-
-  return rows;
+  return [{
+    url,
+    mimeType:String(row.mimeType||"audio/mpeg"),
+    bitrate:128000,
+    priority:1000,
+    engine:String(row.engine||"loader-to")
+  }];
 }
 
 const backgroundPlayer=new HTML5BackgroundPlayer({
@@ -243,7 +139,7 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     if(event.id&&event.id!==state.currentId)return;
 
     if(event.type==="armed"){
-      statusText.textContent="Đang mở âm thanh nền…";
+      statusText.textContent="Đang chuẩn bị âm thanh nền…";
     }
 
     if(event.type==="source"){
@@ -410,8 +306,8 @@ function startBackgroundMode(mode){
   updateModeUi();
 
   statusText.textContent=targetMode==="lock"
-    ?"Đang tìm nguồn âm thanh để khóa màn hình…"
-    :"Đang tìm nguồn âm thanh nền…";
+    ?"Đang chuẩn bị âm thanh khóa màn hình…"
+    :"Đang yêu cầu link âm thanh nền…";
 
   const activate=async()=>{
     if(state.currentId!==id||state.mode!==targetMode)return;
