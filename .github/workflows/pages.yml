@@ -37,6 +37,13 @@ jobs:
           if [ -z "$ID" ]; then ID='jfKfPfyJRdk'; fi
           echo "ID=$ID"
 
+          echo '=== DIRECT PIPED STREAM TIMING ==='
+          for API in https://pipedapi.ducks.party https://pipedapi.adminforge.de https://api.piped.private.coffee; do
+            printf '%s -> ' "$API"
+            curl -sS -o /tmp/piped.json --max-time 15 -w 'HTTP=%{http_code} TIME=%{time_total}s SIZE=%{size_download}\n' "$API/streams/$ID" || true
+            if [ -s /tmp/piped.json ]; then jq -r '{title,videoStreams:(.videoStreams//[]|length),audioStreams:(.audioStreams//[]|length),hls:(.hls//"")}' /tmp/piped.json 2>/dev/null || true; fi
+          done
+
           echo '=== EDGE PLAYBACK ==='
           curl -sS -w '\nHTTP=%{http_code}\n' "$BASE?action=playback&id=$ID" || true
 
