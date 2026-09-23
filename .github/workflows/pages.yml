@@ -34,7 +34,6 @@ jobs:
 
 
       - name: Diagnose live media
-        if: ${{ github.event_name == 'workflow_dispatch' }}
         shell: bash
         continue-on-error: true
         run: |
