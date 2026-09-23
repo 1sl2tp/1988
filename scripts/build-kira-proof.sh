@@ -1232,15 +1232,6 @@ p.write_text(r'''<style scoped>
   pointer-events: none !important;
 }
 
-.player-cover {
-  position: absolute;
-  inset: 0;
-  z-index: 3;
-  pointer-events: auto;
-  background: transparent;
-  touch-action: manipulation;
-}
-
 .controls {
   min-height: 46px;
   margin-top: 7px;
@@ -1379,11 +1370,6 @@ p.write_text(r'''<style scoped>
   <div ref="wrapperRef" class="video-player">
     <div class="video-surface">
       <div ref="playerHostRef" class="player-host"></div>
-      <div
-        class="player-cover"
-        aria-label="Vùng video đã khóa; dùng thanh điều khiển bên dưới"
-        @dblclick="toggleFullscreen"
-      />
     </div>
 
     <div class="controls">
@@ -2554,7 +2540,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-47-locked-video-external-controls\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-48-clean-iframe-no-masks\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
