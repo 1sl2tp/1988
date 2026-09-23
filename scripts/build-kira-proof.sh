@@ -31,6 +31,28 @@ s = s.replace("createRouter, createWebHistory", "createRouter, createWebHashHist
 s = s.replace("history: createWebHistory(),", "history: createWebHashHistory('/kira-proof/'),")
 p.write_text(s)
 
+# Keep Kira UI/player intact, but create a clean anonymous local InnerTube
+# session so search/home do not depend on YouTube's sw.js_data through the proxy.
+p = Path("src/App.vue")
+s = p.read_text()
+old = """    const instance = await Innertube.create({
+      cache: new UniversalCache(true),
+      fetch: fetchFunction
+    });"""
+new = """    const instance = await Innertube.create({
+      cache: new UniversalCache(true),
+      fetch: fetchFunction,
+      generate_session_locally: true,
+      enable_session_cache: false,
+      lang: 'vi',
+      location: 'VN',
+      timezone: 'Asia/Ho_Chi_Minh'
+    });"""
+if old not in s:
+    raise SystemExit("Kira Innertube init block not found")
+s = s.replace(old, new, 1)
+p.write_text(s)
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -121,7 +143,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-18-kira-exact\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-19-kira-local-session\">", 1)
 p.write_text(s)
 PY
 
