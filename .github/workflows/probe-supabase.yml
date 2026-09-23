@@ -11,20 +11,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Cobalt tunnel streaming
+      - name: Probe Cobalt direct URL mode
         run: |
           set -e
           API='https://cobaltapi.cjs.nz'
-          BODY='{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":true}'
+          BODY='{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ","videoQuality":"360","youtubeVideoCodec":"h264","youtubeVideoContainer":"mp4","downloadMode":"auto","alwaysProxy":false}'
           curl -sS -L --max-time 30 -o /tmp/cobalt.json -X POST "$API/" -H 'Accept: application/json' -H 'Content-Type: application/json' --data "$BODY"
           cat /tmp/cobalt.json
           echo
           URL=$(jq -r '.url // ""' /tmp/cobalt.json)
-          test -n "$URL"
-          echo '=== RANGE ==='
-          curl -sS -L --max-time 30 -D /tmp/rh -o /tmp/rb -H 'Range: bytes=0-1023' -H 'Origin: https://yt.taphoa.xyz' "$URL"
-          cat /tmp/rh
-          echo "BYTES=$(wc -c </tmp/rb)"
-          echo '=== OPTIONS ==='
-          curl -sS -L --max-time 20 -D /tmp/oh -o /tmp/ob -X OPTIONS -H 'Origin: https://yt.taphoa.xyz' -H 'Access-Control-Request-Method: GET' "$URL" || true
-          cat /tmp/oh || true
+          echo "STATUS=$(jq -r '.status // ""' /tmp/cobalt.json)"
+          echo "HOST=$(python -c 'import sys,urllib.parse; print(urllib.parse.urlparse(sys.argv[1]).netloc)' "$URL" 2>/dev/null)"
+          if [ -n "$URL" ]; then
+            echo '=== DIRECT RANGE ==='
+            curl -sS -L --max-time 20 -D /tmp/h -o /tmp/b -H 'Range: bytes=0-1023' "$URL" || true
+            cat /tmp/h || true
+            echo "BYTES=$(wc -c </tmp/b 2>/dev/null || echo 0)"
+          fi
