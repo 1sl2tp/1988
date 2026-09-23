@@ -15,8 +15,7 @@ jobs:
     timeout-minutes: 15
     env:
       YTJS_COMMIT: 62c044f6fcdb84ec9f611ce298accadf66b4bea8
-      PROXY_BASE: https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy
-      EDGE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE
+      PROXY_BASE: https://proxy.killcors.com/
     steps:
       - name: Clone pinned official YouTube.js
         shell: bash
@@ -43,23 +42,11 @@ jobs:
 
           a=s.index('function fetchFn(')
           b=s.index('\nconst title =', a)
-          replacement=r'''const PROXY_BASE = "''' + os.environ['PROXY_BASE'] + r'''";
-          const EDGE_KEY = "''' + os.environ['EDGE_KEY'] + r'''";
+          replacement=r'''const PROXY_BASE = "https://proxy.killcors.com/";
 
-          function proxiedUrl(source: URL, headers: Headers) {
+          function proxiedUrl(source: URL) {
             const out = new URL(PROXY_BASE);
-            out.searchParams.set('__path', source.pathname);
-            source.searchParams.forEach((value, key) => out.searchParams.append(key, value));
-            out.searchParams.set('__host', source.host);
-            out.searchParams.set('__headers', JSON.stringify([ ...headers ]));
-            return out;
-          }
-
-          function relayHeaders(headers?: HeadersInit) {
-            const out = new Headers(headers || {});
-            out.delete('user-agent');
-            out.set('Authorization', `Bearer ${EDGE_KEY}`);
-            out.set('apikey', EDGE_KEY);
+            out.searchParams.set('url', source.toString());
             return out;
           }
 
@@ -70,32 +57,26 @@ jobs:
                 ? new URL(input.toString())
                 : new URL(input.url);
 
-            const upstreamHeaders = init?.headers
+            const headers = init?.headers
               ? new Headers(init.headers)
               : input instanceof Request
                 ? new Headers(input.headers)
                 : new Headers();
 
-            const relayUrl = proxiedUrl(source, upstreamHeaders);
+            headers.delete('user-agent');
+            headers.delete('referer');
 
-            // Match the upstream browser example's Request semantics.
-            // Do not accidentally attach a body to GET/HEAD requests.
-            const baseRequest = input instanceof Request
-              ? new Request(relayUrl, input)
-              : new Request(relayUrl);
+            const request = new Request(
+              proxiedUrl(source),
+              input instanceof Request ? input : undefined
+            );
 
-            const method = (init?.method || baseRequest.method || 'GET').toUpperCase();
-            const finalInit: RequestInit = {
-              ...(init || {}),
-              method,
-              headers: relayHeaders(init?.headers || baseRequest.headers)
-            };
-
-            if (method === 'GET' || method === 'HEAD') {
-              delete finalInit.body;
-            }
-
-            return fetch(baseRequest, finalInit);
+            return fetch(request, init ? {
+              ...init,
+              headers
+            } : {
+              headers
+            });
           }
           '''
           s=s[:a]+replacement+s[b:]
@@ -103,21 +84,19 @@ jobs:
           start=s.index('        networkingEngine.registerRequestFilter')
           end=s.index('\n        const RequestType', start)
           request_filter=r'''        networkingEngine.registerRequestFilter(async (type, request) => {
-            const url = new URL(request.uris[0]);
-            const originalHost = url.host;
-            const originalHeaders = new Headers(request.headers as HeadersInit);
+            const uri = request.uris[0];
+            const url = new URL(uri);
+            const headers = request.headers;
 
             if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
               if (url.pathname.includes('videoplayback')) {
-                const range = request.headers.Range || request.headers.range;
-                if (range) {
-                  url.searchParams.set('range', range.split('=')[1]);
+                if (headers.Range) {
+                  url.searchParams.set('range', headers.Range.split('=')[1]);
                   url.searchParams.set('ump', '1');
                   url.searchParams.set('srfvp', '1');
                   url.searchParams.set('pot', (poToken ?? coldStartToken) ?? '');
                   request.headers = {};
-                  originalHeaders.delete('Range');
-                  originalHeaders.delete('range');
+                  delete headers.Range;
                 }
               }
 
@@ -125,17 +104,10 @@ jobs:
               request.body = new Uint8Array([ 120, 0 ]);
             }
 
-            if (originalHost.endsWith('.googlevideo.com') || url.href.includes('drm')) {
+            if (url.host.endsWith('.googlevideo.com') || url.href.includes('drm')) {
               const out = new URL(PROXY_BASE);
-              out.searchParams.set('__path', url.pathname);
-              url.searchParams.forEach((value, key) => out.searchParams.append(key, value));
-              out.searchParams.set('__host', originalHost);
-              out.searchParams.set('__headers', JSON.stringify([ ...originalHeaders ]));
+              out.searchParams.set('url', url.toString());
               request.uris[0] = out.toString();
-              request.headers = {
-                Authorization: `Bearer ${EDGE_KEY}`,
-                apikey: EDGE_KEY
-              };
             } else {
               request.uris[0] = url.toString();
             }
@@ -158,21 +130,6 @@ jobs:
             curl -fsS http://127.0.0.1:4173/ >/dev/null 2>&1 && break
             sleep 1
           done
-
-      - name: Smoke test thin relay
-        shell: bash
-        run: |
-          set -euxo pipefail
-          curl -sS -D /tmp/relay-h -o /tmp/relay-b \
-            -H "Authorization: Bearer $EDGE_KEY" \
-            -H "apikey: $EDGE_KEY" \
-            --get "$PROXY_BASE" \
-            --data-urlencode "__host=www.youtube.com" \
-            --data-urlencode "__path=/iframe_api" \
-            --data-urlencode "__headers=[]"
-          head -n 20 /tmp/relay-h
-          echo "BODY_BYTES=$(wc -c </tmp/relay-b)"
-          test "$(wc -c </tmp/relay-b)" -gt 100
 
       - name: Play exact regression video in Chrome
         shell: bash
