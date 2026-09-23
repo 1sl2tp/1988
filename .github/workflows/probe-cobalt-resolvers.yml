@@ -18,7 +18,7 @@ jobs:
           set +e
           ID='vhUjvanyu2U'
           SRC="https://www.youtube.com/watch?v=$ID"
-          curl -sS -L --connect-timeout 4 --max-time 15 'https://instances.cobalt.best/api/instances.json' -o /tmp/cobalt.json
+          curl -k -sS -L --connect-timeout 4 --max-time 15 'https://instances.cobalt.best/api/instances.json' -o /tmp/cobalt.json
           echo '=== SAMPLE INSTANCE DATA ==='
           jq '.[0:5]' /tmp/cobalt.json
           echo '=== CANDIDATES ==='
