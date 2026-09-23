@@ -94,7 +94,7 @@ async function getYT(){
       visitor_data:visitorData,
       fetch:proxyFetch,
       generate_session_locally:true,
-      cache:new UniversalCache(true)
+      cache:new UniversalCache(false)
     });
     mintPoToken(visitorData).then(token=>{
       try{if(token&&yt?.session?.player)yt.session.player.po_token=token;}catch{}
@@ -388,26 +388,19 @@ async function resolve(id,onAttempt=()=>{}){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video_id');
 
   const yt=await getYT();
-  const loggedIn=!!yt?.session?.logged_in;
   const contentPoToken=await getVideoPoToken(id).catch(()=>'');
 
   // The authenticated TV client is the path that already proved it can return
   // playable formats. Try it without a content PoToken first; OAuth TV does
   // not require us to force a video-bound token into every player request.
   const attempts=[
-    ...(loggedIn?[
-      {label:'TV-auth',client:'TV',poToken:''},
-      {label:'TV_SIMPLY-auth',client:'TV_SIMPLY',poToken:''},
-      {label:'TV-pot',client:'TV',poToken:contentPoToken}
-    ]:[]),
+    {label:'TV',client:'TV',poToken:''},
+    {label:'TV-pot',client:'TV',poToken:contentPoToken},
+    {label:'TV_SIMPLY',client:'TV_SIMPLY',poToken:''},
+    {label:'TV_SIMPLY-pot',client:'TV_SIMPLY',poToken:contentPoToken},
     {label:'TV_EMBEDDED',client:'TV_EMBEDDED',poToken:contentPoToken},
-    {label:'ANDROID_VR',client:'ANDROID_VR',poToken:contentPoToken},
-    {label:'VISIONOS',client:'VISIONOS',poToken:contentPoToken},
     {label:'WEB_EMBEDDED',client:'WEB_EMBEDDED',poToken:contentPoToken},
-    {label:'WEB',client:'WEB',poToken:contentPoToken},
-    {label:'MWEB',client:'MWEB',poToken:contentPoToken},
-    {label:'IOS',client:'IOS',poToken:contentPoToken},
-    {label:'ANDROID',client:'ANDROID',poToken:contentPoToken}
+    {label:'WEB',client:'WEB',poToken:contentPoToken}
   ];
 
   const diagnostics=[];
@@ -547,7 +540,7 @@ async function resolve(id,onAttempt=()=>{}){
         // 3) SABR path: newer YouTube responses may expose adaptive formats
         // without individual media URLs. In that case use the server ABR
         // endpoint and googlevideo's SabrStream instead of deciphering each format.
-        if(attempt.label.startsWith('TV-auth') &&
+        if(attempt.label.startsWith('TV') &&
            /No valid URL to decipher|adaptive_pair_unavailable|adaptive_mp4_pair_not_found/i.test(String(diag.dashError||''))){
           try{
             const sabr=await buildSabrPlayback(info,yt,id,contentPoToken);
@@ -584,20 +577,14 @@ async function resolve(id,onAttempt=()=>{}){
 
         // If authenticated TV already returned real formats, don't hide the
         // media failure by falling through to unrelated Android client errors.
-        if(attempt.label.startsWith('TV-auth')){
-          const error=new Error(diag.sabrError||diag.dashError||diag.progressiveError||'TV adaptive streams unavailable');
-          error.diagnostics=diagnostics;
-          throw error;
+        if(attempt.label.startsWith('TV')&&diag.sabrError){
+          lastError=new Error(diag.sabrError);
         }
       }
     }catch(error){
       // If authenticated TV already returned real formats and we explicitly
       // failed while resolving/probing those media URLs, stop here. Do not
       // hide the real TV media error behind unrelated Android 400 responses.
-      if(attempt.label.startsWith('TV-auth') && Array.isArray(error?.diagnostics)){
-        throw error;
-      }
-
       lastError=error;
       diagnostics.push({
         client:attempt.label,
