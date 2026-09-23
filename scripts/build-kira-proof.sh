@@ -5865,10 +5865,478 @@ watch(() => route.params.id, load);
 </script>
 ''')
 
+
+# Modern external player controls with Lucide, plus final Watch page polish.
+p = Path("src/components/VideoPlayer.vue")
+s = p.read_text()
+
+new_style = r'''<style scoped>
+.video-player {
+  width: 100%;
+}
+
+.video-surface {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(63,63,70,.55);
+  border-radius: 14px;
+  background: #000;
+  box-shadow: 0 12px 34px rgba(0,0,0,.18);
+}
+
+.player-host {
+  position: absolute;
+  inset: 0;
+  background: #000;
+  pointer-events: none;
+}
+
+.player-host :deep(iframe) {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+  border: 0;
+  pointer-events: none !important;
+}
+
+.controls {
+  min-height: 46px;
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: auto minmax(100px, 1fr) auto auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  background: rgba(24,24,27,.96);
+  color: #e4e4e7;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #d4d4d8;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, transform .15s ease;
+}
+
+.icon-btn:hover {
+  color: #fff;
+  background: #27272a;
+}
+
+.icon-btn:active {
+  transform: scale(.95);
+}
+
+.icon-btn:disabled {
+  opacity: .4;
+  cursor: default;
+}
+
+.icon-btn :deep(svg) {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+.play-btn {
+  color: #fff;
+  background: #4f46e5;
+}
+
+.play-btn:hover {
+  background: #6366f1;
+}
+
+.seek {
+  width: 100%;
+  min-width: 90px;
+  height: 4px;
+  accent-color: #818cf8;
+  cursor: pointer;
+}
+
+.seek:disabled {
+  opacity: .45;
+}
+
+.time {
+  min-width: 88px;
+  color: #71717a;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.volume-wrap {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.volume {
+  width: 62px;
+  accent-color: #818cf8;
+  cursor: pointer;
+}
+
+.speed-wrap {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid #27272a;
+  border-radius: 9px;
+  background: #202023;
+  color: #a1a1aa;
+}
+
+.speed-wrap :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.speed {
+  height: 30px;
+  min-width: 42px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  appearance: none;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .video-surface {
+    border-radius: 11px;
+  }
+
+  .controls {
+    min-height: 42px;
+    grid-template-columns: auto minmax(70px, 1fr) auto auto auto;
+    gap: 4px;
+    margin-top: 5px;
+    padding: 4px 5px;
+    border-radius: 10px;
+  }
+
+  .icon-btn {
+    width: 31px;
+    height: 31px;
+    border-radius: 8px;
+  }
+
+  .time {
+    min-width: 70px;
+    font-size: 10px;
+  }
+
+  .volume {
+    display: none;
+  }
+
+  .speed-wrap {
+    height: 30px;
+    padding: 0 6px;
+  }
+
+  .speed-wrap :deep(svg) {
+    display: none;
+  }
+}
+
+@media (max-width: 390px) {
+  .controls {
+    grid-template-columns: auto minmax(65px, 1fr) auto auto;
+  }
+
+  .time {
+    display: none;
+  }
+}
+</style>'''
+
+new_template = r'''<template>
+  <div ref="wrapperRef" class="video-player">
+    <div class="video-surface">
+      <div ref="playerHostRef" class="player-host"></div>
+    </div>
+
+    <div class="controls">
+      <button
+        class="icon-btn play-btn"
+        type="button"
+        :title="playing ? 'Tạm dừng' : 'Phát'"
+        :aria-label="playing ? 'Tạm dừng' : 'Phát'"
+        :disabled="!ready"
+        @click="togglePlay"
+      >
+        <Pause v-if="playing"/>
+        <Play v-else :fill="'currentColor'"/>
+      </button>
+
+      <input
+        class="seek"
+        type="range"
+        min="0"
+        :max="Math.max(duration, 0)"
+        step="0.1"
+        :value="seekValue"
+        :disabled="!ready || !duration"
+        aria-label="Tua video"
+        @input="previewSeek"
+        @change="commitSeek"
+      >
+
+      <span class="time">{{ formatTime(seekValue) }} / {{ formatTime(duration) }}</span>
+
+      <div class="volume-wrap">
+        <button
+          class="icon-btn"
+          type="button"
+          :title="muted || volume === 0 ? 'Bật tiếng' : 'Tắt tiếng'"
+          :aria-label="muted || volume === 0 ? 'Bật tiếng' : 'Tắt tiếng'"
+          :disabled="!ready"
+          @click="toggleMute"
+        >
+          <VolumeX v-if="muted || volume === 0"/>
+          <Volume2 v-else/>
+        </button>
+
+        <input
+          class="volume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          :value="volume"
+          :disabled="!ready"
+          aria-label="Âm lượng"
+          @input="setVolumeFromInput"
+        >
+      </div>
+
+      <label class="speed-wrap" title="Tốc độ phát">
+        <Gauge aria-hidden="true"/>
+        <select
+          class="speed"
+          :value="playbackRate"
+          :disabled="!ready"
+          aria-label="Tốc độ phát"
+          @change="setPlaybackRateFromSelect"
+        >
+          <option v-for="rate in playbackRates" :key="rate" :value="rate">{{ rate }}×</option>
+        </select>
+      </label>
+
+      <button
+        class="icon-btn"
+        type="button"
+        title="Toàn màn hình"
+        aria-label="Toàn màn hình"
+        @click="toggleFullscreen"
+      >
+        <Maximize2/>
+      </button>
+    </div>
+  </div>
+</template>'''
+
+s = re.sub(r'<style scoped>[\s\S]*?</style>', new_style, s, count=1)
+s = re.sub(r'<template>[\s\S]*?</template>', new_template, s, count=1)
+
+if "from '@lucide/vue'" not in s:
+    s = s.replace(
+        "import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';",
+        "import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';\nimport { Gauge, Maximize2, Pause, Play, Volume2, VolumeX } from '@lucide/vue';",
+        1
+    )
+
+p.write_text(s)
+
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+
+# When Piped/oEmbed metadata lacks an avatar, resolve the matching channel once.
+avatar_anchor = """  const seen = new Set<string>();
+  relatedVideos.value ="""
+if avatar_anchor in s and "channelAvatarSearch" not in s:
+    avatar_code = r"""  if (!videoDetails.value.channelAvatar && videoDetails.value.channelName) {
+    try {
+      const channelAvatarSearch = new URL(FALLBACK_DISCOVERY_API);
+      channelAvatarSearch.searchParams.set('action', 'search');
+      channelAvatarSearch.searchParams.set('q', videoDetails.value.channelName);
+      channelAvatarSearch.searchParams.set('filter', 'channels');
+
+      const avatarResponse = await fetch(channelAvatarSearch.toString(), { cache: 'default' });
+      const avatarPayload = await avatarResponse.json();
+      const avatarRows = Array.isArray(avatarPayload?.data?.items) ? avatarPayload.data.items : [];
+      const firstChannel = avatarRows[0];
+
+      if (firstChannel) {
+        const avatarUrl = firstChannel?.thumbnail || firstChannel?.thumbnailUrl || firstChannel?.avatar || '';
+        if (avatarUrl) videoDetails.value.channelAvatar = normalizeMediaUrl(avatarUrl);
+
+        const rawChannelUrl = String(firstChannel?.url || firstChannel?.id || '');
+        const idMatch = rawChannelUrl.match(/\/channel\/(UC[A-Za-z0-9_-]+)/);
+        const handleMatch = rawChannelUrl.match(/\/(@[^/?#]+)/);
+        if (!channelKey.value) {
+          channelKey.value = idMatch?.[1] || (handleMatch?.[1] ? decodeURIComponent(handleMatch[1]) : videoDetails.value.channelName);
+        }
+      }
+    } catch {}
+  }
+
+"""
+    s = s.replace(avatar_anchor, avatar_code + avatar_anchor, 1)
+
+s += r'''
+<style scoped>
+.watch-page {
+  width: min(1180px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 18px 0 38px;
+  gap: 22px;
+}
+
+.primary {
+  min-width: 0;
+}
+
+.video-info {
+  margin-top: 12px;
+}
+
+.video-title {
+  margin-bottom: 10px;
+  color: #fafafa;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.34;
+  letter-spacing: -.015em;
+}
+
+.metadata-row {
+  min-height: 48px;
+  align-items: center;
+  padding: 7px 0 12px;
+  border-bottom: 1px solid #27272a;
+}
+
+.channel-info {
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.channel-link {
+  border-radius: 11px;
+  padding: 4px 7px 4px 4px;
+  margin-left: -4px;
+  transition: background .15s ease;
+}
+
+.channel-link:hover {
+  background: #18181b;
+}
+
+.channel-avatar {
+  width: 38px;
+  height: 38px;
+  border: 1px solid #3f3f46;
+  object-fit: cover;
+}
+
+.channel-avatar-placeholder {
+  flex-basis: 38px;
+  background: #27272a;
+  color: #a1a1aa;
+}
+
+.channel-name {
+  color: #e4e4e7;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.secondary {
+  margin-top: 0;
+}
+
+@media (min-width: 1000px) {
+  .watch-page {
+    grid-template-columns: minmax(0, 1fr) 350px;
+    align-items: start;
+  }
+
+  .secondary {
+    position: sticky;
+    top: 82px;
+    max-height: calc(100vh - 96px);
+    overflow-y: auto;
+    padding-right: 3px;
+  }
+}
+
+@media (max-width: 768px) {
+  .watch-page {
+    width: calc(100% - 16px);
+    padding-top: 10px;
+    gap: 12px;
+  }
+
+  .video-info {
+    margin-top: 10px;
+  }
+
+  .video-title {
+    margin-bottom: 7px;
+    font-size: 16.5px;
+  }
+
+  .metadata-row {
+    padding-bottom: 9px;
+  }
+
+  .channel-avatar {
+    width: 35px;
+    height: 35px;
+  }
+
+  .channel-avatar-placeholder {
+    flex-basis: 35px;
+  }
+
+  .channel-name {
+    font-size: 13.5px;
+  }
+}
+</style>
+'''
+
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-52-modern-search-channel\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-53-modern-player-watch\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
