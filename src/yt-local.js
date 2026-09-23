@@ -1,0 +1,274 @@
+import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
+import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
+
+const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
+const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
+const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+
+Platform.shim.eval=async (data,env={})=>{
+  const names=Object.keys(env);
+  const values=names.map(name=>env[name]);
+  const runner=new AsyncFunction(...names,'"use strict";\n'+String(data?.output||''));
+  return await runner(...values);
+};
+
+let ytPromise=null;
+
+function text(value){
+  if(value===undefined||value===null)return '';
+  if(typeof value==='string'||typeof value==='number')return String(value);
+  try{
+    if(typeof value.toString==='function'){
+      const out=String(value.toString());
+      if(out!=='[object Object]')return out;
+    }
+  }catch{}
+  return '';
+}
+
+function parseDuration(value){
+  if(typeof value==='number'&&Number.isFinite(value))return Math.max(0,value);
+  const raw=text(value).trim();
+  if(!raw)return 0;
+  const parts=raw.split(':').map(v=>Number(v));
+  if(parts.some(v=>!Number.isFinite(v)))return 0;
+  return parts.reduce((acc,v)=>acc*60+v,0);
+}
+
+function thumbnailOf(node,id){
+  const rows=node?.thumbnails||node?.thumbnail||node?.video_thumbnails||[];
+  const first=Array.isArray(rows)?rows[0]:null;
+  const url=first?.url||node?.thumbnailUrl||node?.thumbnail_url||'';
+  return url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
+}
+
+function unwrap(node){
+  let row=node;
+  for(let i=0;i<3;i++){
+    if(row?.content&&typeof row.content==='object')row=row.content;
+    else break;
+  }
+  return row;
+}
+
+function normalizeNode(input){
+  const node=unwrap(input);
+  if(!node||typeof node!=='object')return null;
+  const id=String(
+    node.video_id||
+    node.videoId||
+    node.id||
+    node.endpoint?.payload?.videoId||
+    ''
+  );
+  if(!VIDEO_ID_RE.test(id))return null;
+
+  const duration=Number(node.duration?.seconds)||parseDuration(node.length_text||node.duration);
+  const title=text(node.title||node.video_title)||'Video';
+  const uploader=
+    node.author?.name||
+    text(node.short_byline_text)||
+    text(node.long_byline_text)||
+    text(node.byline_text)||
+    '';
+
+  return {
+    videoId:id,
+    url:'/watch?v='+id,
+    title,
+    uploader,
+    thumbnailUrl:thumbnailOf(node,id),
+    duration,
+    viewText:text(node.short_view_count||node.view_count||node.views),
+    publishedText:text(node.published||node.published_time||node.published_time_text),
+    isLive:!!node.is_live
+  };
+}
+
+function normalizeRows(rows,limit=30){
+  const out=[];
+  const seen=new Set();
+  for(const raw of rows||[]){
+    const row=normalizeNode(raw);
+    if(!row||seen.has(row.videoId))continue;
+    seen.add(row.videoId);
+    out.push(row);
+    if(out.length>=limit)break;
+  }
+  return out;
+}
+
+function makeProxyUrl(raw,headers=new Headers()){
+  const src=new URL(raw);
+  const out=new URL(PROXY);
+  out.searchParams.set('__host',src.host);
+  out.searchParams.set('__path',src.pathname);
+  for(const [k,v] of src.searchParams)out.searchParams.append(k,v);
+  out.searchParams.set('__headers',JSON.stringify([...headers]));
+  return out.toString();
+}
+
+async function proxyFetch(input,init={}){
+  const original=input instanceof Request?input:null;
+  const src=typeof input==='string'||input instanceof URL?new URL(input):new URL(input.url);
+  const headers=new Headers(init.headers||(original?original.headers:undefined));
+  const target=makeProxyUrl(src.toString(),headers);
+  headers.delete('user-agent');
+
+  const method=String(init.method||(original?original.method:'GET')).toUpperCase();
+  let body=init.body;
+  if(body===undefined&&original&&!['GET','HEAD'].includes(method)){
+    try{body=await original.clone().arrayBuffer()}catch{}
+  }
+
+  return fetch(target,{
+    ...init,
+    method,
+    headers,
+    body:['GET','HEAD'].includes(method)?undefined:body,
+    credentials:'omit',
+    redirect:'follow'
+  });
+}
+
+async function mintPoToken(identifier){
+  const bgConfig={
+    fetch:(input,init)=>fetch(input,init),
+    globalObj:window,
+    requestKey:'O43z0dpjhgX20SCx4KAo',
+    identifier
+  };
+  const challenge=await BG.Challenge.create(bgConfig);
+  if(!challenge)throw new Error('pot_challenge_failed');
+  const js=challenge.interpreterJavascript?.privateDoNotAccessOrElseSafeScriptWrappedValue;
+  if(js)new Function(js)();
+  const result=await BG.PoToken.generate({
+    program:challenge.program,
+    globalName:challenge.globalName,
+    bgConfig
+  });
+  return result.poToken;
+}
+
+async function getYT(){
+  if(ytPromise)return ytPromise;
+  ytPromise=(async()=>{
+    const visitorData=ProtoUtils.encodeVisitorData(
+      Utils.generateRandomString(11),
+      Math.floor(Date.now()/1000)
+    );
+    const cold=BG.PoToken.generatePlaceholder(visitorData);
+    const yt=await Innertube.create({
+      lang:'vi',
+      location:'VN',
+      timezone:'Asia/Ho_Chi_Minh',
+      po_token:cold,
+      visitor_data:visitorData,
+      fetch:proxyFetch,
+      generate_session_locally:true,
+      cache:new UniversalCache(false)
+    });
+    mintPoToken(visitorData).then(token=>{
+      try{
+        if(token&&yt?.session?.player)yt.session.player.po_token=token;
+      }catch{}
+    }).catch(()=>{});
+    return yt;
+  })();
+  return ytPromise;
+}
+
+function proxiedMediaUrl(raw){
+  const headers=new Headers({Accept:'*/*'});
+  return makeProxyUrl(raw,headers);
+}
+
+async function search(query,filters={}){
+  const yt=await getYT();
+  const result=await yt.search(String(query||'').trim(),{type:'video',...filters});
+  return normalizeRows(result?.results||[],36);
+}
+
+async function home(){
+  const yt=await getYT();
+  try{
+    const result=await yt.getHomeFeed();
+    const rows=normalizeRows(result?.contents?.contents||[],30);
+    if(rows.length)return rows;
+  }catch{}
+  return search('Việt Nam',{type:'video',prioritize:'popularity'});
+}
+
+async function suggestions(query){
+  const q=String(query||'').trim();
+  if(q.length<2)return [];
+  const yt=await getYT();
+  try{
+    const rows=await yt.getSearchSuggestions(q);
+    return [...new Set((rows||[]).map(text).filter(Boolean))].slice(0,8);
+  }catch{
+    return [];
+  }
+}
+
+async function info(id){
+  if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
+  const yt=await getYT();
+  const result=await yt.getInfo(id,{client:'WEB'});
+  const basic=result?.basic_info||{};
+  const thumbnails=Array.isArray(basic.thumbnail)?basic.thumbnail:[];
+  const related=normalizeRows(result?.watch_next_feed||[],24);
+  return {
+    meta:{
+      videoId:id,
+      title:String(basic.title||''),
+      uploader:String(basic.author||basic.channel?.name||''),
+      views:Number(basic.view_count)||0,
+      duration:Number(basic.duration)||0,
+      thumbnailUrl:thumbnails[0]?.url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg'),
+      uploadDate:String(basic.upload_date||basic.publish_date||'')
+    },
+    related
+  };
+}
+
+async function media(id,kind='video'){
+  if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
+  if(kind!=='video'&&kind!=='audio')throw new Error('invalid_kind');
+  const yt=await getYT();
+  const tries=kind==='video'
+    ?[
+      {type:'video+audio',quality:'best',format:'mp4',client:'WEB'},
+      {type:'video+audio',quality:'best',format:'mp4',client:'MWEB'}
+    ]
+    :[
+      {type:'audio',quality:'best',format:'mp4',client:'WEB'},
+      {type:'audio',quality:'best',format:'mp4',client:'MWEB'},
+      {type:'audio',quality:'best',format:'any',client:'WEB'}
+    ];
+
+  let lastError=null;
+  for(const options of tries){
+    try{
+      const format=await yt.getStreamingData(id,options);
+      if(!format?.url)continue;
+      const mime=String(format.mime_type||format.mimeType||(kind==='audio'?'audio/mp4':'video/mp4'));
+      return {
+        url:proxiedMediaUrl(format.url),
+        mimeType:mime,
+        itag:format.itag,
+        quality:String(format.quality_label||format.quality||''),
+        hasAudio:format.has_audio!==false
+      };
+    }catch(error){
+      lastError=error;
+    }
+  }
+  throw lastError||new Error('no_media_stream');
+}
+
+const api={getYT,search,home,suggestions,info,media,normalizeRows};
+window.YTLocal=api;
+window.dispatchEvent(new CustomEvent('ytlocalready'));
+
+export default api;
