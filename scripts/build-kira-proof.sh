@@ -927,6 +927,149 @@ src = src[:innertube_pos] + "      if (await loadCobaltMedia(videoId)) return;\n
 p.write_text(src)
 
 
+
+# NewPipeExtractor WASM: use an allowlisted Cloudflare relay only for extraction,
+# then play the progressive googlevideo URL directly in the browser.
+p = Path("src/composables/useYoutubePlayer.ts")
+src = p.read_text()
+
+anchor = """  async function loadCobaltMedia(videoId: string): Promise<boolean> {"""
+insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<string> {
+    try {
+      const relayResponse = await fetch('/kira-proof/newpipe-relay.txt', { cache: 'no-store' });
+      const relay = (await relayResponse.text()).trim();
+      if (!relay) return '';
+
+      return await new Promise<string>((resolve) => {
+        const worker = new Worker('/kira-proof/newpipe-worker.js');
+        const requestId = 'np-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        let settled = false;
+
+        const finish = (value: string) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          worker.terminate();
+          resolve(value);
+        };
+
+        const timer = window.setTimeout(() => finish(''), 10000);
+
+        worker.onmessage = (event) => {
+          const data = event.data || {};
+          if (data.requestId !== requestId) return;
+          if (!data.ok) {
+            console.warn('[Player]', 'NewPipe WASM extraction failed', data.error);
+            finish('');
+            return;
+          }
+          finish(String(data.mediaUrl || ''));
+        };
+
+        worker.onerror = (error) => {
+          console.warn('[Player]', 'NewPipe WASM worker failed', error);
+          finish('');
+        };
+
+        worker.postMessage({ requestId, relay, videoId });
+      });
+    } catch (error) {
+      console.warn('[Player]', 'NewPipe relay unavailable', error);
+      return '';
+    }
+  }
+
+  async function loadNewPipeMedia(videoId: string): Promise<boolean> {
+    const { player, videoElement } = playerComponents.value;
+    if (!videoElement) return false;
+
+    const mediaUrl = await resolveNewPipeMedia(videoId);
+    if (!/^https?:\/\//i.test(mediaUrl)) return false;
+
+    try {
+      try {
+        if (player) await player.unload();
+      } catch {}
+
+      const savedPosition = getPlaybackPosition(videoId);
+      videoElement.removeAttribute('src');
+      videoElement.poster = 'https://i.ytimg.com/vi/' + videoId + '/maxresdefault.jpg';
+      videoElement.src = mediaUrl;
+      videoElement.preload = 'auto';
+      videoElement.playsInline = true;
+
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const finish = (fn: () => void) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          videoElement.removeEventListener('loadedmetadata', onReady);
+          videoElement.removeEventListener('canplay', onReady);
+          videoElement.removeEventListener('error', onError);
+          fn();
+        };
+        const onReady = () => finish(resolve);
+        const onError = () => finish(() => reject(new Error('newpipe_media_error_' + (videoElement.error?.code || 0))));
+        const timer = window.setTimeout(
+          () => finish(() => reject(new Error('newpipe_media_timeout'))),
+          12000
+        );
+
+        videoElement.addEventListener('loadedmetadata', onReady, { once: true });
+        videoElement.addEventListener('canplay', onReady, { once: true });
+        videoElement.addEventListener('error', onError, { once: true });
+        videoElement.load();
+      });
+
+      if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
+        try {
+          videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
+        } catch {}
+      }
+
+      try {
+        await videoElement.play();
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'NotAllowedError')) throw error;
+        addToast('Tap Play to start video.', 'info');
+      }
+
+      startSavingPosition();
+      playerState.value = 'ready';
+      console.info('[Player]', 'Using NewPipe WASM progressive stream', {
+        duration: videoElement.duration,
+        host: new URL(mediaUrl).host
+      });
+      return true;
+    } catch (error) {
+      console.warn('[Player]', 'NewPipe progressive playback failed', error);
+      try {
+        videoElement.removeAttribute('src');
+        videoElement.load();
+      } catch {}
+      return false;
+    }
+  }
+
+  async function loadCobaltMedia(videoId: string): Promise<boolean> {"""
+
+if anchor not in src:
+    raise SystemExit("NewPipe insertion anchor not found")
+src = src.replace(anchor, insert, 1)
+
+needle = "      if (await loadCobaltMedia(videoId)) return;"
+if needle not in src:
+    raise SystemExit("Cobalt call site not found for NewPipe priority")
+src = src.replace(
+    needle,
+    "      if (await loadNewPipeMedia(videoId)) return;\\n      if (await loadCobaltMedia(videoId)) return;",
+    1
+)
+
+p.write_text(src)
+
+
 # Mark proxy configured by default so Kira does not open its settings dialog.
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
@@ -1030,7 +1173,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-38-shaka-cobalt-progressive\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-39-newpipe-wasm\">", 1)
 p.write_text(s)
 PY
 
@@ -1048,6 +1191,14 @@ rm -rf "$ROOT/kira-proof"
 mkdir -p "$ROOT/kira-proof"
 cp -a dist/. "$ROOT/kira-proof/"
 cp LICENSE "$ROOT/kira-proof/KIRA_LICENSE.txt"
+
+echo "==> Staging NewPipe WASM runtime"
+mkdir -p "$ROOT/kira-proof/newpipe"
+curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm-runtime.js' -o "$ROOT/kira-proof/newpipe/browser-wrapper.wasm-runtime.js"
+curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm' -o "$ROOT/kira-proof/newpipe/browser-wrapper.wasm"
+curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/LICENSE' -o "$ROOT/kira-proof/newpipe/NEWPIPE_WASM_LICENSE.txt"
+cp "$ROOT/newpipe/newpipe-worker.js" "$ROOT/kira-proof/newpipe-worker.js"
+cp "$ROOT/cloudflare/newpipe-relay/relay-url.txt" "$ROOT/kira-proof/newpipe-relay.txt"
 
 echo "==> Kira proof built"
 find "$ROOT/kira-proof" -maxdepth 2 -type f -printf '%P %k KB\n' | sort | head -80
