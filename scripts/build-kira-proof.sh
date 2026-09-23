@@ -99,7 +99,7 @@ p = Path("index.html")
 s = p.read_text()
 s = s.replace(
   "<head>",
-  "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-22-kira-render-streamfix\">",
+  "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-23-kira-cors-search\">",
   1
 )
 p.write_text(s)
