@@ -10,7 +10,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 4
     steps:
       - name: Probe current public Piped instances
         shell: bash
@@ -34,19 +34,31 @@ jobs:
             "https://pipedapi.darkness.services"
             "https://pipedapi.orangenet.cc"
           )
+          probe_api(){
+            API="$1"
+            LOG=$(mktemp)
+            {
+              echo "=== $API ==="
+              printf 'CORS '
+              curl -sS -I --connect-timeout 3 --max-time 6 "$API/trending?region=VN" | tr -d '\r' | grep -iE '^(HTTP/|access-control-allow-origin:)' | tr '\n' ' ' || true
+              echo
+              for ID in "${IDS[@]}"; do
+                OUT=$(mktemp)
+                META=$(curl -sS -L --connect-timeout 3 --max-time 10 -o "$OUT" -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID")
+                AUDIO=$(jq -r '(.audioStreams // []) | length' "$OUT" 2>/dev/null)
+                VIDEO=$(jq -r '(.videoStreams // []) | length' "$OUT" 2>/dev/null)
+                AURL=$(jq -r '[(.audioStreams // [])[] | select(.url != null)][0].url // ""' "$OUT" 2>/dev/null)
+                HOST=$(printf '%s' "$AURL" | sed -E 's#https?://([^/]+)/?.*#\1#')
+                echo "$ID $META AUDIO=${AUDIO:-?} VIDEO=${VIDEO:-?} AHOST=${HOST:-}"
+                rm -f "$OUT"
+              done
+            } > "$LOG" 2>&1
+            cat "$LOG"
+            rm -f "$LOG"
+          }
+          export -f probe_api
+          export IDS
           for API in "${APIS[@]}"; do
-            echo "=== $API ==="
-            printf 'CORS '
-            curl -sS -I --max-time 8 "$API/trending?region=VN" | tr -d '\r' | grep -iE '^(HTTP/|access-control-allow-origin:)' | tr '\n' ' ' || true
-            echo
-            for ID in "${IDS[@]}"; do
-              OUT=$(mktemp)
-              META=$(curl -sS -L --max-time 18 -o "$OUT" -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID")
-              AUDIO=$(jq -r '(.audioStreams // []) | length' "$OUT" 2>/dev/null)
-              VIDEO=$(jq -r '(.videoStreams // []) | length' "$OUT" 2>/dev/null)
-              AURL=$(jq -r '[(.audioStreams // [])[] | select(.url != null)][0].url // ""' "$OUT" 2>/dev/null)
-              HOST=$(printf '%s' "$AURL" | sed -E 's#https?://([^/]+)/?.*#\1#')
-              echo "$ID $META AUDIO=${AUDIO:-?} VIDEO=${VIDEO:-?} AHOST=${HOST:-}"
-              rm -f "$OUT"
-            done
+            probe_api "$API" &
           done
+          wait
