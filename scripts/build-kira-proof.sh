@@ -928,108 +928,44 @@ p.write_text(src)
 
 
 
-# NewPipeExtractor WASM: use an allowlisted Cloudflare relay only for extraction,
-# then play the progressive googlevideo URL directly in the browser.
+# Fast seekable playback: Cloudflare Worker uses NewPipe-compatible iOS
+# InnerTube requests to build a DASH manifest. Each media byte-range request
+# refreshes the signed googlevideo URL and fetches it inside the same Worker
+# invocation, avoiding datacenter IP-binding failures while preserving 206 Range.
 p = Path("src/composables/useYoutubePlayer.ts")
 src = p.read_text()
 
 anchor = """  async function loadCobaltMedia(videoId: string): Promise<boolean> {"""
-insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<string> {
-    try {
-      const relayResponse = await fetch('/kira-proof/newpipe-relay.txt', { cache: 'no-store' });
-      const relay = (await relayResponse.text()).trim();
-      if (!relay) return '';
-
-      return await new Promise<string>((resolve) => {
-        const worker = new Worker('/kira-proof/newpipe-worker.js');
-        const requestId = 'np-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-        let settled = false;
-
-        const finish = (value: string) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          worker.terminate();
-          resolve(value);
-        };
-
-        const timer = window.setTimeout(() => finish(''), 2500);
-
-        worker.onmessage = (event) => {
-          const data = event.data || {};
-          if (data.requestId !== requestId) return;
-          if (!data.ok) {
-            console.warn('[Player]', 'NewPipe WASM extraction failed', data.error);
-            finish('');
-            return;
-          }
-          finish(String(data.mediaUrl || ''));
-        };
-
-        worker.onerror = (error) => {
-          console.warn('[Player]', 'NewPipe WASM worker failed', error);
-          finish('');
-        };
-
-        worker.postMessage({ requestId, relay, videoId });
-      });
-    } catch (error) {
-      console.warn('[Player]', 'NewPipe relay unavailable', error);
-      return '';
-    }
-  }
-
-  async function loadNewPipeMedia(videoId: string): Promise<boolean> {
+insert = r"""  async function loadCloudflareDashMedia(videoId: string): Promise<boolean> {
     const { player, videoElement } = playerComponents.value;
-    if (!videoElement) return false;
+    if (!player || !videoElement) return false;
 
-    const mediaUrl = await resolveNewPipeMedia(videoId);
-    if (!/^https:\/\/youtube-wasm-relay-1988\.taphoa-4ab8161d\.workers\.dev\/media\?/i.test(mediaUrl)) {
-      if (mediaUrl) console.warn('[Player]', 'NewPipe returned non-relay media URL; using fallback');
-      return false;
-    }
+    const savedPosition = getPlaybackPosition(videoId);
+    const targetHeight = window.innerWidth <= 700 ? 480 : 720;
+    const manifestUrl =
+      'https://youtube-wasm-relay-1988.taphoa-4ab8161d.workers.dev/direct/manifest'
+      + '?id=' + encodeURIComponent(videoId)
+      + '&h=' + targetHeight;
 
     try {
-      try {
-        if (player) await player.unload();
-      } catch {}
-
-      const savedPosition = getPlaybackPosition(videoId);
-      videoElement.removeAttribute('src');
-      videoElement.poster = 'https://i.ytimg.com/vi/' + videoId + '/maxresdefault.jpg';
-      videoElement.src = mediaUrl;
+      videoElement.poster = 'https://i.ytimg.com/vi/' + videoId + '/hqdefault.jpg';
       videoElement.preload = 'auto';
       videoElement.playsInline = true;
 
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const finish = (fn: () => void) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          videoElement.removeEventListener('loadedmetadata', onReady);
-          videoElement.removeEventListener('canplay', onReady);
-          videoElement.removeEventListener('error', onError);
-          fn();
-        };
-        const onReady = () => finish(resolve);
-        const onError = () => finish(() => reject(new Error('newpipe_media_error_' + (videoElement.error?.code || 0))));
-        const timer = window.setTimeout(
-          () => finish(() => reject(new Error('newpipe_media_timeout'))),
-          12000
-        );
+      try {
+        await player.unload();
+      } catch {}
 
-        videoElement.addEventListener('loadedmetadata', onReady, { once: true });
-        videoElement.addEventListener('canplay', onReady, { once: true });
-        videoElement.addEventListener('error', onError, { once: true });
-        videoElement.load();
-      });
-
-      if (savedPosition > 0 && Number.isFinite(videoElement.duration)) {
-        try {
-          videoElement.currentTime = Math.min(savedPosition, Math.max(0, videoElement.duration - 0.25));
-        } catch {}
-      }
+      const loadPromise = player.load(
+        manifestUrl,
+        savedPosition > 0 ? savedPosition : undefined
+      );
+      await Promise.race([
+        loadPromise,
+        new Promise((_, reject) =>
+          window.setTimeout(() => reject(new Error('cloudflare_dash_timeout')), 9000)
+        )
+      ]);
 
       try {
         await videoElement.play();
@@ -1040,16 +976,15 @@ insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<stri
 
       startSavingPosition();
       playerState.value = 'ready';
-      console.info('[Player]', 'Using NewPipe WASM progressive stream', {
+      console.info('[Player]', 'Using Cloudflare iOS DASH stream', {
         duration: videoElement.duration,
-        host: new URL(mediaUrl).host
+        height: targetHeight
       });
       return true;
     } catch (error) {
-      console.warn('[Player]', 'NewPipe progressive playback failed', error);
+      console.warn('[Player]', 'Cloudflare DASH playback failed', error);
       try {
-        videoElement.removeAttribute('src');
-        videoElement.load();
+        await player.unload();
       } catch {}
       return false;
     }
@@ -1058,15 +993,15 @@ insert = r"""  async function resolveNewPipeMedia(videoId: string): Promise<stri
   async function loadCobaltMedia(videoId: string): Promise<boolean> {"""
 
 if anchor not in src:
-    raise SystemExit("NewPipe insertion anchor not found")
+    raise SystemExit("Cloudflare DASH insertion anchor not found")
 src = src.replace(anchor, insert, 1)
 
-needle = "      if (await loadCobaltMedia(videoId)) return;"
+needle = "      if (await loadNewPipeMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;"
 if needle not in src:
-    raise SystemExit("Cobalt call site not found for NewPipe priority")
+    raise SystemExit("NewPipe/Cobalt priority call site not found")
 src = src.replace(
     needle,
-    "      if (await loadNewPipeMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;",
+    "      if (await loadCloudflareDashMedia(videoId)) return;\n      if (await loadCobaltMedia(videoId)) return;",
     1
 )
 
@@ -1194,14 +1129,6 @@ rm -rf "$ROOT/kira-proof"
 mkdir -p "$ROOT/kira-proof"
 cp -a dist/. "$ROOT/kira-proof/"
 cp LICENSE "$ROOT/kira-proof/KIRA_LICENSE.txt"
-
-echo "==> Staging NewPipe WASM runtime"
-mkdir -p "$ROOT/kira-proof/newpipe"
-curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm-runtime.js' -o "$ROOT/kira-proof/newpipe/browser-wrapper.wasm-runtime.js"
-curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm' -o "$ROOT/kira-proof/newpipe/browser-wrapper.wasm"
-curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/LICENSE' -o "$ROOT/kira-proof/newpipe/NEWPIPE_WASM_LICENSE.txt"
-cp "$ROOT/newpipe/newpipe-worker.js" "$ROOT/kira-proof/newpipe-worker.js"
-cp "$ROOT/cloudflare/newpipe-relay/relay-url.txt" "$ROOT/kira-proof/newpipe-relay.txt"
 
 echo "==> Kira proof built"
 find "$ROOT/kira-proof" -maxdepth 2 -type f -printf '%P %k KB\n' | sort | head -80
