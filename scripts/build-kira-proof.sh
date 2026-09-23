@@ -4912,10 +4912,963 @@ onMounted(async () => {
 </script>
 ''')
 
+
+# Modern Enter-only search results and channel pages.
+p = Path("src/pages/SearchPage.vue")
+p.write_text(r'''<style scoped>
+.search-page {
+  width: min(1040px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 22px 0 40px;
+  color: #f4f4f5;
+}
+
+.page-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.heading-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #18181b;
+  border: 1px solid #27272a;
+  color: #818cf8;
+  flex-shrink: 0;
+}
+
+.heading-icon :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.page-heading h1 {
+  margin: 0;
+  color: #fafafa;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.page-heading p {
+  margin: 3px 0 0;
+  color: #71717a;
+  font-size: 12px;
+}
+
+.section-title {
+  margin: 24px 0 10px;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.channel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #27272a;
+  border-radius: 13px;
+  background: #18181b;
+  color: inherit;
+  text-decoration: none;
+  transition: background .15s ease, border-color .15s ease, transform .15s ease;
+}
+
+.channel-card:hover {
+  background: #202023;
+  border-color: #3f3f46;
+  transform: translateY(-1px);
+}
+
+.channel-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+}
+
+.channel-avatar.placeholder {
+  display: grid;
+  place-items: center;
+  color: #a1a1aa;
+}
+
+.channel-avatar.placeholder :deep(svg) {
+  width: 23px;
+  height: 23px;
+}
+
+.channel-copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.channel-name {
+  color: #f4f4f5;
+  font-size: 14px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-meta,
+.channel-desc {
+  color: #71717a;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.channel-meta { margin-top: 3px; }
+
+.channel-desc {
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.channel-arrow {
+  width: 18px;
+  height: 18px;
+  color: #52525b;
+}
+
+.video-list {
+  display: grid;
+  gap: 11px;
+}
+
+.video-row {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb-wrap {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(63,63,70,.5);
+  border-radius: 10px;
+  background: #18181b;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: transform .2s ease;
+}
+
+.video-row:hover .thumb {
+  transform: scale(1.015);
+}
+
+.duration {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(9,9,11,.86);
+  color: #fafafa;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.video-copy {
+  min-width: 0;
+  padding-top: 2px;
+  text-align: left;
+}
+
+.video-title {
+  margin: 0;
+  color: #f4f4f5;
+  font-size: 14.5px;
+  font-weight: 650;
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-row:hover .video-title {
+  color: #c7d2fe;
+}
+
+.video-channel {
+  margin-top: 6px;
+  color: #a1a1aa;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.video-meta {
+  margin-top: 2px;
+  color: #71717a;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: #71717a;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .search-page {
+    width: calc(100% - 18px);
+    padding-top: 14px;
+  }
+
+  .page-heading {
+    margin-bottom: 16px;
+  }
+
+  .heading-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .page-heading h1 {
+    font-size: 18px;
+  }
+
+  .channel-card {
+    grid-template-columns: 50px minmax(0, 1fr) auto;
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .channel-avatar {
+    width: 46px;
+    height: 46px;
+  }
+
+  .video-row {
+    grid-template-columns: 42% minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .video-title {
+    font-size: 13.5px;
+  }
+
+  .video-channel,
+  .video-meta {
+    font-size: 10.8px;
+  }
+}
+</style>
+
+<template>
+  <main class="search-page">
+    <header class="page-heading">
+      <div class="heading-icon"><Search/></div>
+      <div>
+        <h1>Kết quả tìm kiếm</h1>
+        <p>“{{ query }}”</p>
+      </div>
+    </header>
+
+    <div v-if="loading" class="state">Đang tìm…</div>
+
+    <template v-else>
+      <section v-if="channels.length">
+        <h2 class="section-title">Kênh</h2>
+        <div class="channel-list">
+          <router-link
+            v-for="channel in channels"
+            :key="channel.key"
+            class="channel-card"
+            :to="'/channel/' + encodeURIComponent(channel.key)"
+          >
+            <img
+              v-if="channel.avatar"
+              class="channel-avatar"
+              :src="channel.avatar"
+              :alt="channel.name"
+              loading="lazy"
+            >
+            <div v-else class="channel-avatar placeholder" aria-hidden="true">
+              <UserRound/>
+            </div>
+
+            <div class="channel-copy">
+              <div class="channel-name">{{ channel.name }}</div>
+              <div v-if="channel.meta" class="channel-meta">{{ channel.meta }}</div>
+              <div v-if="channel.description" class="channel-desc">{{ channel.description }}</div>
+            </div>
+
+            <ChevronRight class="channel-arrow" aria-hidden="true"/>
+          </router-link>
+        </div>
+      </section>
+
+      <section v-if="videos.length">
+        <h2 class="section-title">Video</h2>
+        <div class="video-list">
+          <router-link
+            v-for="video in videos"
+            :key="video.id"
+            class="video-row"
+            :to="'/watch/' + video.id"
+          >
+            <div class="thumb-wrap">
+              <img
+                class="thumb"
+                :src="video.thumbnail"
+                :alt="video.title"
+                loading="lazy"
+                decoding="async"
+              >
+              <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+            </div>
+
+            <div class="video-copy">
+              <h3 class="video-title">{{ video.title }}</h3>
+              <div class="video-channel">{{ video.channel }}</div>
+              <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+            </div>
+          </router-link>
+        </div>
+      </section>
+
+      <div v-if="!channels.length && !videos.length" class="state">
+        Không tìm thấy kết quả phù hợp.
+      </div>
+    </template>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { ChevronRight, Search, UserRound } from '@lucide/vue';
+import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+
+type ChannelRow = {
+  key: string;
+  name: string;
+  avatar: string;
+  meta: string;
+  description: string;
+};
+
+type VideoRow = {
+  id: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: string;
+  meta: string;
+};
+
+const query = ref('');
+const loading = ref(false);
+const channels = ref<ChannelRow[]>([]);
+const videos = ref<VideoRow[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function channelKey(row: any): string {
+  const raw = String(row?.url || row?.channelUrl || row?.uploaderUrl || row?.id || '').trim();
+  const id = raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+  if (id) return id;
+
+  const user = raw.match(/\/(?:user|c)\/([^/?#]+)/)?.[1];
+  if (user) return decodeURIComponent(user);
+
+  const handle = raw.match(/\/(@[^/?#]+)/)?.[1];
+  if (handle) return decodeURIComponent(handle);
+
+  return String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+}
+
+function isChannel(row: any) {
+  const type = String(row?.type || row?.itemType || '').toLowerCase();
+  const raw = String(row?.url || row?.id || '');
+  return type.includes('channel') || /\/channel\/|\/user\/|\/@/.test(raw);
+}
+
+function toChannel(row: any): ChannelRow | null {
+  const key = channelKey(row);
+  const name = String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+  if (!key || !name) return null;
+
+  const subscribers = row?.subscribers ?? row?.subscriberCount ?? '';
+  const videosCount = row?.videos ?? row?.videoCount ?? '';
+
+  const meta = [
+    subscribers ? formatCompactViews(subscribers).replace(' views', ' người đăng ký') : '',
+    videosCount ? Number(videosCount).toLocaleString('vi-VN') + ' video' : ''
+  ].filter(Boolean).join(' · ');
+
+  return {
+    key,
+    name,
+    avatar: String(row?.thumbnail || row?.avatar || row?.thumbnailUrl || '').trim(),
+    meta,
+    description: String(row?.description || '').trim()
+  };
+}
+
+function toVideo(row: any): VideoRow | null {
+  const id = videoId(row);
+  if (!id) return null;
+
+  const title = String(row?.title || 'Video').trim();
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube').trim();
+
+  const meta = [
+    formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+    formatRelativeTime(
+      row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+      row?.publishedAt ?? row?.published ?? row?.publishedText
+    )
+  ].filter(Boolean).join(' · ');
+
+  return {
+    id,
+    title,
+    channel,
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg',
+    duration: durationText(row?.duration),
+    meta
+  };
+}
+
+async function search() {
+  const q = String(route.query.q || '').trim();
+  query.value = q;
+  channels.value = [];
+  videos.value = [];
+
+  if (!q) return;
+
+  loading.value = true;
+  try {
+    const makeUrl = (filter: string) => {
+      const url = new URL(API);
+      url.searchParams.set('action', 'search');
+      url.searchParams.set('q', q);
+      url.searchParams.set('filter', filter);
+      return url.toString();
+    };
+
+    const [allRes, videoRes] = await Promise.allSettled([
+      fetch(makeUrl('all'), { cache: 'default' }).then((r) => r.json()),
+      fetch(makeUrl('videos'), { cache: 'default' }).then((r) => r.json())
+    ]);
+
+    const allRows = allRes.status === 'fulfilled'
+      ? (Array.isArray(allRes.value?.data?.items) ? allRes.value.data.items : [])
+      : [];
+
+    const videoRows = videoRes.status === 'fulfilled'
+      ? (Array.isArray(videoRes.value?.data?.items) ? videoRes.value.data.items : [])
+      : [];
+
+    const channelSeen = new Set<string>();
+    channels.value = allRows
+      .filter(isChannel)
+      .map(toChannel)
+      .filter((row: ChannelRow | null): row is ChannelRow => {
+        if (!row || channelSeen.has(row.key)) return false;
+        channelSeen.add(row.key);
+        return true;
+      })
+      .slice(0, 4);
+
+    const seen = new Set<string>();
+    videos.value = [...videoRows, ...allRows]
+      .map(toVideo)
+      .filter((row: VideoRow | null): row is VideoRow => {
+        if (!row || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      })
+      .slice(0, 30);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(search);
+watch(() => route.query.q, search);
+</script>
+''')
+
+p = Path("src/pages/ChannelPage.vue")
+p.write_text(r'''<style scoped>
+.channel-page {
+  width: min(1080px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 22px 0 40px;
+  color: #f4f4f5;
+}
+
+.channel-head {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  margin-bottom: 24px;
+  border: 1px solid #27272a;
+  border-radius: 15px;
+  background: #18181b;
+}
+
+.avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+}
+
+.avatar.placeholder {
+  display: grid;
+  place-items: center;
+  color: #a1a1aa;
+}
+
+.avatar.placeholder :deep(svg) {
+  width: 30px;
+  height: 30px;
+}
+
+.channel-copy {
+  min-width: 0;
+  text-align: left;
+}
+
+.name {
+  margin: 0;
+  color: #fafafa;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -.025em;
+}
+
+.meta {
+  margin-top: 5px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.description {
+  max-width: 720px;
+  margin-top: 7px;
+  color: #71717a;
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 12px;
+  color: #d4d4d8;
+  font-size: 13px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.section-heading :deep(svg) {
+  width: 16px;
+  height: 16px;
+  color: #818cf8;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px 14px;
+}
+
+.video-card {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb-wrap {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid rgba(63,63,70,.52);
+  border-radius: 11px;
+  background: #18181b;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: transform .2s ease;
+}
+
+.video-card:hover .thumb {
+  transform: scale(1.015);
+}
+
+.duration {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: rgba(9,9,11,.86);
+  color: #fafafa;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.title {
+  margin: 8px 2px 0;
+  color: #f4f4f5;
+  font-size: 13.5px;
+  font-weight: 650;
+  line-height: 1.38;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-card:hover .title {
+  color: #c7d2fe;
+}
+
+.video-meta {
+  margin: 4px 2px 0;
+  color: #71717a;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 280px;
+  display: grid;
+  place-items: center;
+  color: #71717a;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .channel-page {
+    width: calc(100% - 18px);
+    padding-top: 14px;
+  }
+
+  .channel-head {
+    grid-template-columns: 62px minmax(0, 1fr);
+    gap: 11px;
+    padding: 11px;
+    margin-bottom: 18px;
+  }
+
+  .avatar {
+    width: 58px;
+    height: 58px;
+  }
+
+  .avatar.placeholder :deep(svg) {
+    width: 24px;
+    height: 24px;
+  }
+
+  .name {
+    font-size: 18px;
+  }
+
+  .description {
+    -webkit-line-clamp: 1;
+  }
+
+  .video-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 8px;
+  }
+
+  .title {
+    font-size: 12.5px;
+  }
+
+  .video-meta {
+    font-size: 10.5px;
+  }
+}
+</style>
+
+<template>
+  <main class="channel-page">
+    <div v-if="loading" class="state">Đang tải kênh…</div>
+
+    <template v-else-if="channel">
+      <section class="channel-head">
+        <img
+          v-if="channel.avatar"
+          class="avatar"
+          :src="channel.avatar"
+          :alt="channel.name"
+        >
+        <div v-else class="avatar placeholder" aria-hidden="true">
+          <UserRound/>
+        </div>
+
+        <div class="channel-copy">
+          <h1 class="name">{{ channel.name }}</h1>
+          <div v-if="channel.meta" class="meta">{{ channel.meta }}</div>
+          <div v-if="channel.description" class="description">{{ channel.description }}</div>
+        </div>
+      </section>
+
+      <h2 class="section-heading"><Video/> Video của kênh</h2>
+
+      <div class="video-grid">
+        <router-link
+          v-for="video in videos"
+          :key="video.id"
+          class="video-card"
+          :to="'/watch/' + video.id"
+        >
+          <div class="thumb-wrap">
+            <img class="thumb" :src="video.thumbnail" :alt="video.title" loading="lazy">
+            <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+          </div>
+          <h3 class="title">{{ video.title }}</h3>
+          <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+        </router-link>
+      </div>
+    </template>
+
+    <div v-else class="state">Không tải được kênh này.</div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { UserRound, Video } from '@lucide/vue';
+import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+
+const loading = ref(false);
+const channel = ref<any>(null);
+const videos = ref<any[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const match = raw.match(re);
+    if (match?.[1]) return match[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function resolveChannelId(row: any): string {
+  const raw = String(row?.url || row?.id || '').trim();
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1] || '';
+}
+
+async function fetchJson(url: URL) {
+  const response = await fetch(url.toString(), { cache: 'default' });
+  const payload = await response.json();
+
+  if (!response.ok || payload?.ok === false) {
+    throw new Error(payload?.error || 'request_failed');
+  }
+  return payload;
+}
+
+async function resolveKey(key: string): Promise<string> {
+  if (/^UC[A-Za-z0-9_-]+$/.test(key)) return key;
+
+  const search = new URL(API);
+  search.searchParams.set('action', 'search');
+  search.searchParams.set('q', key.replace(/^@/, ''));
+  search.searchParams.set('filter', 'channels');
+
+  const payload = await fetchJson(search);
+  const rows = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+
+  for (const row of rows) {
+    const id = resolveChannelId(row);
+    if (id) return id;
+  }
+  return '';
+}
+
+async function load() {
+  const key = decodeURIComponent(String(route.params.id || '')).trim();
+  if (!key) return;
+
+  loading.value = true;
+  channel.value = null;
+  videos.value = [];
+
+  try {
+    const id = await resolveKey(key);
+    if (!id) throw new Error('channel_not_found');
+
+    const url = new URL(API);
+    url.searchParams.set('action', 'channel');
+    url.searchParams.set('id', id);
+
+    const payload = await fetchJson(url);
+    const data = payload?.data || {};
+
+    const name = String(data?.name || data?.channelName || data?.title || key).trim();
+    const subscribers = data?.subscriberCount ?? data?.subscribers ?? '';
+
+    channel.value = {
+      name,
+      avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || '').trim(),
+      meta: subscribers
+        ? formatCompactViews(subscribers).replace(' views', ' người đăng ký')
+        : '',
+      description: String(data?.description || '').trim()
+    };
+
+    const rows = Array.isArray(data?.relatedStreams)
+      ? data.relatedStreams
+      : (Array.isArray(data?.items) ? data.items : []);
+
+    const seen = new Set<string>();
+
+    videos.value = rows
+      .map((row: any) => {
+        const id = videoId(row);
+        if (!id || seen.has(id)) return null;
+        seen.add(id);
+
+        return {
+          id,
+          title: String(row?.title || 'Video'),
+          thumbnail: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg',
+          duration: durationText(row?.duration),
+          meta: [
+            formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+            formatRelativeTime(
+              row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+              row?.publishedAt ?? row?.published ?? row?.publishedText
+            )
+          ].filter(Boolean).join(' · ')
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 40);
+  } catch (error) {
+    console.error('channel page', error);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+watch(() => route.params.id, load);
+</script>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-51-modern-home-cards\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-52-modern-search-channel\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
