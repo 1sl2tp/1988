@@ -60,7 +60,7 @@ function copySafeResponseHeaders(from, to) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const origin = req.headers.origin || '';
+  const origin = req.headers.origin || '';\n  console.log('[proxy-request]', req.method, req.url);
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, corsHeaders(origin));
