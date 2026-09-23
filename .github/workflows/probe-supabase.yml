@@ -1,0 +1,21 @@
+name: Probe Supabase YouTube Egress
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Supabase Edge to YouTube
+        run: |
+          set -x
+          curl -sS --max-time 30 -D /tmp/h -o /tmp/b 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-player-probe' || true
+          echo '=== HEADERS ==='
+          cat /tmp/h || true
+          echo '=== BODY ==='
+          cat /tmp/b || true
