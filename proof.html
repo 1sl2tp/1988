@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <title>1988 · Player Proof</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.css">
+  <style>
+    html,body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{max-width:900px;margin:0 auto;padding:12px}
+    h1{font-size:18px;margin:8px 0 4px}
+    p{font-size:13px;color:#aaa;margin:0 0 12px}
+    .status{margin-top:10px;padding:10px 12px;border:1px solid #333;border-radius:10px;font-size:14px}
+    .ok{color:#7ee787}.bad{color:#ff7b72}
+    video{width:100%;background:#111}
+  </style>
+</head>
+<body>
+<main>
+  <h1>1988 · Proof Player</h1>
+  <p>Plyr + HTML5 video + PiP + Media Session. Trang thử độc lập, không thay giao diện 1988.</p>
+
+  <video id="player" playsinline controls crossorigin="anonymous">
+    <source src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4" type="video/mp4">
+  </video>
+
+  <div id="status" class="status">Đang khởi tạo…</div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
+<script>
+(() => {
+  const video = document.getElementById('player');
+  const status = document.getElementById('status');
+  const player = new Plyr(video, {
+    controls: ['play-large','rewind','play','fast-forward','progress','current-time','duration','mute','volume','captions','settings','pip','airplay','fullscreen'],
+    speed: { selected: 1, options: [0.5,0.75,1,1.25,1.5,1.75,2] },
+    hideControls: true,
+    tooltips: { controls: true, seek: true }
+  });
+
+  const set = (text, ok=true) => {
+    status.textContent = text;
+    status.className = 'status ' + (ok ? 'ok' : 'bad');
+  };
+
+  player.on('ready', () => set('Sẵn sàng · bấm Play để thử'));
+  player.on('playing', () => set('Đang phát · thử PiP rồi ra Home/khóa màn hình'));
+  player.on('enterpip', () => set('PiP đang hoạt động'));
+  player.on('exitpip', () => set('Đã thoát PiP'));
+  player.on('error', () => set('Lỗi phát video', false));
+
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: '1988 Player Proof',
+      artist: 'Plyr + HTML5'
+    });
+    try {
+      navigator.mediaSession.setActionHandler('play', () => video.play());
+      navigator.mediaSession.setActionHandler('pause', () => video.pause());
+      navigator.mediaSession.setActionHandler('seekbackward', d => { video.currentTime=Math.max(0,video.currentTime-(d.seekOffset||10)); });
+      navigator.mediaSession.setActionHandler('seekforward', d => { video.currentTime=Math.min(video.duration||Infinity,video.currentTime+(d.seekOffset||10)); });
+    } catch {}
+  }
+
+  window.proofPlayer = player;
+})();
+</script>
+</body>
+</html>

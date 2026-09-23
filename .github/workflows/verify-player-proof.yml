@@ -1,0 +1,32 @@
+name: Verify Player Proof
+
+on:
+  pull_request:
+    paths:
+      - proof.html
+      - .github/workflows/verify-player-proof.yml
+  push:
+    branches:
+      - proof/plyr-player
+    paths:
+      - proof.html
+      - .github/workflows/verify-player-proof.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify proof structure
+        run: |
+          grep -q 'plyr@3.7.8' proof.html
+          grep -q 'playsinline' proof.html
+          grep -q "'pip'" proof.html
+          grep -q 'mediaSession' proof.html
+          grep -q 'View_From_A_Blue_Moon_Trailer-576p.mp4' proof.html
+          curl -fsSI --max-time 15 'https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4' | tee /tmp/h
+          grep -qi 'content-type: video/mp4' /tmp/h
