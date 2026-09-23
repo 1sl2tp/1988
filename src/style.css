@@ -84,6 +84,7 @@ button:disabled{opacity:.45;cursor:default}
   text-align:left;
 }
 .suggestions button:last-child{border-bottom:0}
+.player-section[hidden]{display:none!important}
 .player-section{
   margin-bottom:18px;
   border-bottom:1px solid #202020;
