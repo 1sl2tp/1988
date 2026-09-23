@@ -21,10 +21,10 @@ WORKDIR /app
 
 COPY requirements.txt ./
 
-# yt-dlp is deliberately not pinned. Every Render rebuild fetches the newest
-# release because YouTube frequently changes player clients, signatures and POT.
+# yt-dlp uses the nightly channel via pip --pre. Every Render rebuild fetches
+# the newest nightly because YouTube frequently changes clients, signatures and POT.
 RUN pip install --no-cache-dir --upgrade pip \\
-    && pip install --no-cache-dir --upgrade "yt-dlp[default,curl-cffi]" \\
+    && pip install --no-cache-dir --upgrade --pre "yt-dlp[default,curl-cffi]" \\
     && pip install --no-cache-dir -r requirements.txt
 
 ARG BGUTIL_VERSION=2.0.0
