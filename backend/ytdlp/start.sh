@@ -18,6 +18,11 @@ done
 
 echo "yt-dlp version: $(yt-dlp --version)"
 echo "bgutil POT provider: 2.0.0"
-echo "1988 backend: node server.js"
+echo "1988 backend: gunicorn server.py + bgutil POT provider"
 
-exec node server.js
+exec gunicorn \
+  --bind 0.0.0.0:${PORT:-10000} \
+  --workers 2 \
+  --threads 4 \
+  --timeout 120 \
+  server:app
