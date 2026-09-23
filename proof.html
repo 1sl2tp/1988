@@ -11,35 +11,45 @@
     main{max-width:900px;margin:0 auto;padding:12px}
     h1{font-size:18px;margin:8px 0 4px}
     p{font-size:13px;color:#aaa;margin:0 0 12px}
-    .actions{display:flex;gap:8px;margin:10px 0}
+    .actions{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
     button{appearance:none;border:0;border-radius:10px;padding:12px 16px;font:600 15px/1 system-ui;background:#fff;color:#000}
     button:disabled{opacity:.45}
     .status{margin-top:10px;padding:10px 12px;border:1px solid #333;border-radius:10px;font-size:14px;white-space:pre-line}
     .ok{color:#7ee787}.bad{color:#ff7b72}
     video{width:100%;background:#111}
+    audio{width:100%;margin-top:10px}
   </style>
 </head>
 <body>
 <main>
   <h1>1988 · Proof Player</h1>
-  <p>1 chạm: phát video + thử PiP. Có fallback riêng cho Safari/iPhone.</p>
+  <p>Tách riêng 2 bài test: Video + PiP và Audio nền/khóa.</p>
 
   <video id="player" playsinline preload="auto" controls crossorigin="anonymous">
     <source src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4" type="video/mp4">
   </video>
 
+  <audio id="bgAudio" preload="auto" controls crossorigin="anonymous"
+    src="https://cdn.plyr.io/static/demo/View_From_A_Blue_Moon_Trailer-576p.mp4"></audio>
+
   <div class="actions">
-    <button id="start" disabled>Phát + PiP</button>
+    <button id="videoBtn" disabled>Video + PiP</button>
+    <button id="audioBtn" disabled>Audio nền</button>
   </div>
-  <div id="status" class="status">Đang tải video…</div>
+
+  <div id="status" class="status">Đang tải media…</div>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
 <script>
 (() => {
   const video = document.getElementById('player');
+  const audio = document.getElementById('bgAudio');
+  const videoBtn = document.getElementById('videoBtn');
+  const audioBtn = document.getElementById('audioBtn');
   const status = document.getElementById('status');
-  const start = document.getElementById('start');
+
+  let activeMedia = video;
   const standalone =
     window.navigator.standalone === true ||
     window.matchMedia?.('(display-mode: standalone)').matches === true;
@@ -69,74 +79,111 @@
     status.className = 'status ' + (ok ? 'ok' : 'bad');
   };
 
-  const capabilityText = () =>
-    'Chế độ: ' + (standalone ? 'Home Screen PWA' : 'trình duyệt') +
-    '\nSafari PiP: ' + (safariPiP() ? 'có' : 'không') +
-    ' · Standard PiP: ' + (standardPiP() ? 'có' : 'không');
+  const modeText = () => standalone ? 'Home Screen PWA' : 'Safari/trình duyệt';
 
-  video.addEventListener('canplay', () => {
-    start.disabled = false;
-    set('Sẵn sàng.\n' + capabilityText());
-  }, { once: true });
+  const setSession = (media, kind) => {
+    activeMedia = media;
+    if (!('mediaSession' in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: kind === 'audio' ? '1988 · Audio nền' : '1988 · Video',
+      artist: 'Player proof'
+    });
+    try { navigator.mediaSession.playbackState = media.paused ? 'paused' : 'playing'; } catch {}
+  };
 
-  start.addEventListener('click', async () => {
+  const bindMediaState = (media, kind) => {
+    media.addEventListener('play', () => {
+      setSession(media, kind);
+      try { navigator.mediaSession.playbackState = 'playing'; } catch {}
+    });
+    media.addEventListener('pause', () => {
+      if (activeMedia !== media) return;
+      try { navigator.mediaSession.playbackState = 'paused'; } catch {}
+    });
+  };
+
+  bindMediaState(video, 'video');
+  bindMediaState(audio, 'audio');
+
+  let videoReady = false;
+  let audioReady = false;
+  const refreshReady = () => {
+    videoBtn.disabled = !videoReady;
+    audioBtn.disabled = !audioReady;
+    if (videoReady && audioReady) {
+      set('Sẵn sàng · ' + modeText() + '\nTest Audio nền: bấm 1 lần rồi ra Home/khóa màn hình, KHÔNG bấm Play lần hai.');
+    }
+  };
+
+  video.addEventListener('canplay', () => { videoReady = true; refreshReady(); }, { once: true });
+  audio.addEventListener('canplay', () => { audioReady = true; refreshReady(); }, { once: true });
+
+  videoBtn.addEventListener('click', async () => {
     try {
+      audio.pause();
+      setSession(video, 'video');
       const playPromise = video.play();
 
       if (safariPiP()) {
         video.webkitSetPresentationMode('picture-in-picture');
         await playPromise;
-        set('Đang phát + PiP bằng Safari. Bây giờ vuốt về Home để kiểm tra cửa sổ nổi.');
+        set('Video đang phát + PiP bằng Safari.\nChế độ: ' + modeText());
         return;
       }
 
       await playPromise;
-
       if (standardPiP()) {
-        try {
-          await video.requestPictureInPicture();
-          set('Đang phát + PiP. Bây giờ thu nhỏ/ra Home để kiểm tra cửa sổ nổi.');
-          return;
-        } catch (err) {
-          set(
-            'Video đang phát nhưng PiP bị hệ thống từ chối: ' +
-            (err?.name || 'Error') +
-            '.\n' + capabilityText(),
-            false
-          );
-          return;
-        }
+        await video.requestPictureInPicture();
+        set('Video đang phát + PiP.\nChế độ: ' + modeText());
+        return;
       }
 
-      set(
-        'Video đang phát nhưng môi trường này không hỗ trợ PiP.\n' +
-        capabilityText(),
-        false
-      );
+      set('Video đang phát nhưng PiP không khả dụng.\nChế độ: ' + modeText(), false);
     } catch (err) {
-      set('Không phát được video: ' + (err?.name || err), false);
+      set('PiP/video lỗi: ' + (err?.name || err) + '\nChế độ: ' + modeText(), false);
     }
   });
 
-  video.addEventListener('enterpictureinpicture', () => set('PiP đang hoạt động. Ra Home/ứng dụng khác để kiểm tra.'));
-  video.addEventListener('leavepictureinpicture', () => set('Đã thoát PiP.\n' + capabilityText()));
+  audioBtn.addEventListener('click', async () => {
+    try {
+      video.pause();
+      if (document.pictureInPictureElement) {
+        try { await document.exitPictureInPicture(); } catch {}
+      }
+      setSession(audio, 'audio');
+      await audio.play();
+      set(
+        'AUDIO ĐANG PHÁT.\nBây giờ ra Home hoặc khóa màn hình ngay. Không chạm Play lần nữa.\nNếu vẫn nghe liên tục = background audio đạt.\nChế độ: ' + modeText()
+      );
+    } catch (err) {
+      set('Audio không bắt đầu được: ' + (err?.name || err), false);
+    }
+  });
 
-  player.on('error', () => set('Lỗi phát video', false));
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) return;
+    console.log('[proof] hidden', {
+      mode: activeMedia === audio ? 'audio' : 'video',
+      paused: activeMedia.paused,
+      currentTime: activeMedia.currentTime
+    });
+  });
 
   if ('mediaSession' in navigator) {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: '1988 Player Proof',
-      artist: 'Plyr + HTML5'
-    });
     try {
-      navigator.mediaSession.setActionHandler('play', () => video.play());
-      navigator.mediaSession.setActionHandler('pause', () => video.pause());
-      navigator.mediaSession.setActionHandler('seekbackward', d => { video.currentTime=Math.max(0,video.currentTime-(d.seekOffset||10)); });
-      navigator.mediaSession.setActionHandler('seekforward', d => { video.currentTime=Math.min(video.duration||Infinity,video.currentTime+(d.seekOffset||10)); });
+      navigator.mediaSession.setActionHandler('play', () => activeMedia.play());
+      navigator.mediaSession.setActionHandler('pause', () => activeMedia.pause());
+      navigator.mediaSession.setActionHandler('seekbackward', d => {
+        activeMedia.currentTime = Math.max(0, activeMedia.currentTime - (d.seekOffset || 10));
+      });
+      navigator.mediaSession.setActionHandler('seekforward', d => {
+        activeMedia.currentTime = Math.min(activeMedia.duration || Infinity, activeMedia.currentTime + (d.seekOffset || 10));
+      });
     } catch {}
   }
 
   window.proofPlayer = player;
+  window.proofAudio = audio;
 })();
 </script>
 </body>
