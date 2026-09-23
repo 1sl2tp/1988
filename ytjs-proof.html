@@ -37,29 +37,14 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-local-mp4-proof-20260923-2-evaluator</div>
+  <div class="small">Build: ytjs-local-mp4-proof-20260923-3-content-pot</div>
 </main>
 
 <script type="module">
-import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
-import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
+import YTLocal from './src/yt-local.js?v=3';
 
-const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
-
-// YouTube.js browser builds intentionally ship without a JS evaluator.
-// Supply one so Player.decipher() can execute the extracted, side-effect-filtered
-// n/sig transform script generated internally by YouTube.js.
-const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-Platform.shim.eval=async (data,env={})=>{
-  const names=Object.keys(env);
-  const values=names.map(name=>env[name]);
-  const runner=new AsyncFunction(...names, '"use strict";\n'+String(data?.output||''));
-  return await runner(...values);
-};
 const $=id=>document.getElementById(id);
-const video=$('video'), status=$('status'), go=$('go');
-let ytPromise=null;
-let currentPoToken='';
+const video=$('video'),status=$('status'),go=$('go');
 
 function setStatus(text,kind='warn'){
   status.textContent=text;
@@ -68,112 +53,15 @@ function setStatus(text,kind='warn'){
 
 function parseVideoId(raw){
   raw=String(raw||'').trim();
-  if(/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  if(/^[A-Za-z0-9_-]{11}$/.test(raw))return raw;
   try{
     const u=new URL(raw);
     const v=u.searchParams.get('v');
-    if(v&&/^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+    if(v&&/^[A-Za-z0-9_-]{11}$/.test(v))return v;
     const parts=u.pathname.split('/').filter(Boolean);
     const candidate=u.hostname.includes('youtu.be')?parts[0]:parts.at(-1);
     return /^[A-Za-z0-9_-]{11}$/.test(candidate||'')?candidate:'';
   }catch{return ''}
-}
-
-function makeProxyUrl(raw,headers){
-  const src=new URL(raw);
-  const out=new URL(PROXY);
-  out.searchParams.set('__host',src.host);
-  out.searchParams.set('__path',src.pathname);
-  for(const [k,v] of src.searchParams) out.searchParams.append(k,v);
-  out.searchParams.set('__headers',JSON.stringify([...headers]));
-  return out.toString();
-}
-
-async function proxyFetch(input,init={}){
-  const original=input instanceof Request?input:null;
-  const src=typeof input==='string'||input instanceof URL?new URL(input):new URL(input.url);
-  const headers=new Headers(init.headers||(original?original.headers:undefined));
-  const serialized=new Headers(headers);
-  const target=makeProxyUrl(src.toString(),serialized);
-  headers.delete('user-agent');
-
-  const method=String(init.method||(original?original.method:'GET')).toUpperCase();
-  let body=init.body;
-  if(body===undefined&&original&&!['GET','HEAD'].includes(method)){
-    try{body=await original.clone().arrayBuffer()}catch{}
-  }
-
-  return fetch(target,{
-    ...init,
-    method,
-    headers,
-    body:['GET','HEAD'].includes(method)?undefined:body,
-    credentials:'omit',
-    redirect:'follow'
-  });
-}
-
-async function mintPoToken(identifier){
-  const requestKey='O43z0dpjhgX20SCx4KAo';
-  const bgConfig={
-    fetch:(input,init)=>fetch(input,init),
-    globalObj:window,
-    requestKey,
-    identifier
-  };
-  const challenge=await BG.Challenge.create(bgConfig);
-  if(!challenge) throw new Error('pot_challenge_failed');
-  const js=challenge.interpreterJavascript?.privateDoNotAccessOrElseSafeScriptWrappedValue;
-  if(js) new Function(js)();
-  const result=await BG.PoToken.generate({
-    program:challenge.program,
-    globalName:challenge.globalName,
-    bgConfig
-  });
-  return result.poToken;
-}
-
-async function getYT(){
-  if(ytPromise) return ytPromise;
-  ytPromise=(async()=>{
-    setStatus('Đang khởi tạo YouTube.js local extractor…');
-    const visitorData=ProtoUtils.encodeVisitorData(
-      Utils.generateRandomString(11),
-      Math.floor(Date.now()/1000)
-    );
-    const cold=BG.PoToken.generatePlaceholder(visitorData);
-    currentPoToken=cold;
-    mintPoToken(visitorData).then(token=>{
-      if(token) currentPoToken=token;
-    }).catch(()=>{});
-
-    return Innertube.create({
-      po_token:cold,
-      visitor_data:visitorData,
-      fetch:proxyFetch,
-      generate_session_locally:true,
-      cache:new UniversalCache(false)
-    });
-  })();
-  return ytPromise;
-}
-
-function mediaProxyUrl(raw){
-  const headers=new Headers();
-  headers.set('Accept','*/*');
-  return makeProxyUrl(raw,headers);
-}
-
-async function probeMedia(url){
-  const res=await fetch(url,{
-    method:'GET',
-    headers:{Range:'bytes=0-1023'},
-    cache:'no-store'
-  });
-  const type=res.headers.get('content-type')||'';
-  const range=res.headers.get('content-range')||'';
-  try{await res.body?.cancel()}catch{}
-  return {ok:res.status===200||res.status===206,status:res.status,type,range};
 }
 
 async function waitReady(timeout=12000){
@@ -198,6 +86,7 @@ async function waitReady(timeout=12000){
 async function run(){
   const id=parseVideoId($('videoId').value);
   if(!id){setStatus('Video ID không hợp lệ.','bad');return}
+
   go.disabled=true;
   $('title').textContent='—';
   $('format').textContent='—';
@@ -208,56 +97,43 @@ async function run(){
   video.load();
 
   try{
-    const yt=await getYT();
+    setStatus('1/3 Đang lấy metadata…');
+    const detail=await YTLocal.info(id).catch(()=>({meta:{},related:[]}));
+    $('title').textContent=detail?.meta?.title||'(đã lấy metadata)';
 
-    setStatus('1/3 Đang lấy metadata + streaming data trực tiếp bằng YouTube.js…');
-    const info=await yt.getBasicInfo(id,{client:'WEB'});
-    $('title').textContent=info.basic_info?.title||'(đã lấy metadata)';
-
-    let format;
-    const tries=[
-      {type:'video+audio',quality:'best',format:'mp4',client:'WEB'},
-      {type:'video+audio',quality:'best',format:'mp4',client:'MWEB'}
-    ];
-    let lastError=null;
-    for(const opts of tries){
-      try{
-        format=await yt.getStreamingData(id,opts);
-        if(format?.url) break;
-      }catch(e){lastError=e}
-    }
-    if(!format?.url) throw lastError||new Error('no_mp4_stream_url');
+    setStatus('2/3 Đang mint PoToken theo video ID và thử nhiều client…');
+    const media=await YTLocal.media(id,'video');
 
     $('format').textContent=[
-      'itag '+(format.itag??'?'),
-      format.mime_type||format.mimeType||'',
-      format.quality_label||format.quality||'',
-      format.has_audio===false?'video-only':'A/V'
+      'itag '+(media.itag??'?'),
+      media.mimeType||'',
+      media.quality||'',
+      media.hasAudio===false?'video-only':'A/V',
+      'client '+(media.client||'?'),
+      media.poTokenBound?'PoToken video':'cold token'
     ].filter(Boolean).join(' · ');
 
-    setStatus('2/3 Đã lấy URL stream. Đang kiểm tra bytes qua proxy…');
-    const proxied=mediaProxyUrl(format.url);
-    const probe=await probeMedia(proxied);
-    $('probe').textContent='HTTP '+probe.status+' · '+probe.type+(probe.range?' · '+probe.range:'');
-    if(!probe.ok) throw new Error('media_probe_http_'+probe.status);
+    $('probe').textContent='Range/bytes đã kiểm tra OK trước khi trả nguồn';
 
-    setStatus('3/3 Có bytes media. Đang gán vào <video>…');
-    video.src=proxied;
+    setStatus('3/3 Có stream hợp lệ. Đang gán vào <video>…');
+    video.src=media.url;
     video.load();
     await waitReady();
-    $('player').textContent='loadedmetadata · '+(Number.isFinite(video.duration)?Math.round(video.duration)+'s':'duration ?');
+
+    $('player').textContent='loadedmetadata · '+(
+      Number.isFinite(video.duration)?Math.round(video.duration)+'s':'duration ?'
+    );
 
     try{
       await video.play();
-      setStatus('THÀNH CÔNG · YouTube.js lấy được stream và MP4 đang phát qua proxy riêng.','ok');
-    }catch(e){
+      setStatus('THÀNH CÔNG · MP4 native đang phát · '+(media.client||'client ?')+'.','ok');
+    }catch{
       $('player').textContent+=' · cần bấm Play';
       setStatus('THÀNH CÔNG phần stream · MP4 đã sẵn sàng, Safari yêu cầu bấm Play.','ok');
     }
-  }catch(e){
-    console.error(e);
-    const message=String(e?.message||e);
-    setStatus('THẤT BẠI tại bước lấy/phát MP4: '+message,'bad');
+  }catch(error){
+    console.error(error);
+    setStatus('THẤT BẠI: '+String(error?.message||error),'bad');
   }finally{
     go.disabled=false;
   }
@@ -266,7 +142,7 @@ async function run(){
 go.addEventListener('click',run);
 $('videoId').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
 const queryId=new URL(location.href).searchParams.get('id');
-if(queryId) $('videoId').value=queryId;
+if(queryId)$('videoId').value=queryId;
 </script>
 </body>
 </html>
