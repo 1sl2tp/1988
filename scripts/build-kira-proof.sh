@@ -1203,206 +1203,561 @@ p.write_text(src)
 # for later work. The iframe is isolated inside Kira's existing player frame.
 p = Path("src/components/VideoPlayer.vue")
 p.write_text(r'''<style scoped>
-.video-player-container {
+.video-player {
+  width: 100%;
+}
+
+.video-surface {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   overflow: hidden;
   border-radius: 12px;
-  position: relative;
-  aspect-ratio: 16 / 9;
-  width: 100%;
   background: #000;
 }
 
-.iframe-shell {
+/* The YouTube frame is display-only: no mouse/touch events ever enter it. */
+.player-host {
   position: absolute;
   inset: 0;
-  overflow: hidden;
   background: #000;
+  pointer-events: none;
 }
 
-.youtube-frame {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+.player-host :deep(iframe) {
+  width: 100% !important;
+  height: 100% !important;
   display: block;
   border: 0;
-  background: #000;
+  pointer-events: none !important;
 }
 
-/*
- * YouTube iframe is cross-origin, so its internal overlay buttons cannot be
- * styled directly. These masks cover only the noisy corners while preserving
- * the central picture, progress bar, play/pause, volume and fullscreen areas.
- * On desktop they appear together with YouTube's hover controls; on touch
- * devices they stay active because YouTube's overlays are tap-driven.
- */
-.iframe-mask {
+.player-cover {
   position: absolute;
-  z-index: 4;
+  inset: 0;
+  z-index: 3;
   pointer-events: auto;
-  opacity: 0;
-  transition: opacity .12s ease;
-  background: rgba(0, 0, 0, .92);
+  background: transparent;
+  touch-action: manipulation;
 }
 
-.iframe-shell:hover .iframe-mask {
-  opacity: 1;
+.controls {
+  min-height: 46px;
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr) auto auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  box-sizing: border-box;
+  border-radius: 10px;
+  background: #191919;
+  border: 1px solid #303030;
+  color: #eee;
 }
 
-/* title + channel overlay */
-.mask-top-left {
-  top: 0;
-  left: 0;
-  width: min(72%, 560px);
-  height: 58px;
-  border-bottom-right-radius: 12px;
-  background: linear-gradient(180deg, rgba(0,0,0,.96), rgba(0,0,0,.84) 75%, rgba(0,0,0,0));
+.icon-btn {
+  width: 34px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #eee;
+  cursor: pointer;
 }
 
-/* copy-link/share overlay */
-.mask-top-right {
-  top: 0;
-  right: 0;
-  width: 132px;
-  height: 60px;
-  border-bottom-left-radius: 12px;
-  background: linear-gradient(180deg, rgba(0,0,0,.96), rgba(0,0,0,.84) 75%, rgba(0,0,0,0));
+.icon-btn:hover {
+  background: #2b2b2b;
 }
 
-/* "Watch on YouTube" / "Xem trên YouTube" */
-.mask-bottom-left {
-  left: 0;
-  bottom: 0;
-  width: 210px;
-  height: 46px;
-  border-top-right-radius: 12px;
+.icon-btn:disabled {
+  opacity: .45;
+  cursor: default;
 }
 
-/* CC button only; leave settings + fullscreen exposed. */
-.mask-cc {
-  right: 86px;
-  bottom: 0;
-  width: 46px;
-  height: 46px;
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
-@media (hover: none), (pointer: coarse) {
-  .iframe-mask {
-    opacity: 1;
+.seek {
+  width: 100%;
+  min-width: 80px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.time {
+  min-width: 88px;
+  color: #aaa;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.volume-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.volume {
+  width: 62px;
+  accent-color: #fff;
+  cursor: pointer;
+}
+
+.speed {
+  height: 30px;
+  min-width: 54px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: 7px;
+  background: #252525;
+  color: #ddd;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+@media (max-width: 640px) {
+  .video-surface {
+    border-radius: 10px;
   }
 
-  .mask-top-left {
-    width: 70%;
-    height: 52px;
+  .controls {
+    grid-template-columns: auto minmax(70px, 1fr) auto auto auto;
+    gap: 5px;
+    min-height: 42px;
+    margin-top: 5px;
+    padding: 5px 6px;
+    border-radius: 8px;
   }
 
-  .mask-top-right {
-    width: 104px;
-    height: 52px;
+  .icon-btn {
+    width: 30px;
+    height: 30px;
   }
 
-  .mask-bottom-left {
-    width: 168px;
-    height: 42px;
+  .time {
+    min-width: 70px;
+    font-size: 11px;
   }
 
-  .mask-cc {
-    right: 78px;
-    width: 42px;
-    height: 42px;
+  .volume {
+    display: none;
+  }
+
+  .speed {
+    min-width: 48px;
+    font-size: 11px;
   }
 }
 
-@media (max-width: 520px) {
-  .mask-top-left {
-    width: 68%;
-    height: 48px;
+@media (max-width: 390px) {
+  .controls {
+    grid-template-columns: auto minmax(62px, 1fr) auto auto;
   }
 
-  .mask-top-right {
-    width: 92px;
-    height: 48px;
+  .time {
+    display: none;
   }
 
-  .mask-bottom-left {
-    width: 152px;
-    height: 40px;
-  }
-
-  .mask-cc {
-    right: 70px;
-    width: 40px;
-    height: 40px;
+  .speed {
+    min-width: 44px;
   }
 }
 </style>
 
 <template>
-  <div class="video-player-container">
-    <div class="iframe-shell">
-      <iframe
-        ref="iframeRef"
-        class="youtube-frame"
-        :src="embedUrl"
-        :title="'YouTube video ' + videoId"
-        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-        allowfullscreen
-        referrerpolicy="strict-origin-when-cross-origin"
-        @load="forceCaptionsOff"
+  <div ref="wrapperRef" class="video-player">
+    <div class="video-surface">
+      <div ref="playerHostRef" class="player-host"></div>
+      <div
+        class="player-cover"
+        aria-label="Vùng video đã khóa; dùng thanh điều khiển bên dưới"
+        @dblclick="toggleFullscreen"
       />
+    </div>
 
-      <div class="iframe-mask mask-top-left" aria-hidden="true"></div>
-      <div class="iframe-mask mask-top-right" aria-hidden="true"></div>
-      <div class="iframe-mask mask-bottom-left" aria-hidden="true"></div>
-      <div class="iframe-mask mask-cc" aria-hidden="true"></div>
+    <div class="controls">
+      <button
+        class="icon-btn"
+        :title="playing ? 'Tạm dừng' : 'Phát'"
+        :aria-label="playing ? 'Tạm dừng' : 'Phát'"
+        :disabled="!ready"
+        @click="togglePlay"
+      >
+        <svg v-if="!playing" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+        <svg v-else viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M6 5h4v14H6zm8 0h4v14h-4z"/>
+        </svg>
+      </button>
+
+      <input
+        class="seek"
+        type="range"
+        min="0"
+        :max="Math.max(duration, 0)"
+        step="0.1"
+        :value="seekValue"
+        :disabled="!ready || !duration"
+        aria-label="Tua video"
+        @input="previewSeek"
+        @change="commitSeek"
+      >
+
+      <span class="time">{{ formatTime(seekValue) }} / {{ formatTime(duration) }}</span>
+
+      <div class="volume-wrap">
+        <button
+          class="icon-btn"
+          :title="muted || volume === 0 ? 'Bật tiếng' : 'Tắt tiếng'"
+          :aria-label="muted || volume === 0 ? 'Bật tiếng' : 'Tắt tiếng'"
+          :disabled="!ready"
+          @click="toggleMute"
+        >
+          <svg v-if="muted || volume === 0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M11 5 6 9H2v6h4l5 4z"/>
+            <path d="m19 9-6 6m0-6 6 6"/>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M11 5 6 9H2v6h4l5 4z"/>
+            <path d="M15 9.5a4 4 0 0 1 0 5"/>
+            <path d="M17.5 7a7 7 0 0 1 0 10"/>
+          </svg>
+        </button>
+        <input
+          class="volume"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          :value="volume"
+          :disabled="!ready"
+          aria-label="Âm lượng"
+          @input="setVolumeFromInput"
+        >
+      </div>
+
+      <select
+        class="speed"
+        :value="playbackRate"
+        :disabled="!ready"
+        aria-label="Tốc độ phát"
+        @change="setPlaybackRateFromSelect"
+      >
+        <option v-for="rate in playbackRates" :key="rate" :value="rate">{{ rate }}×</option>
+      </select>
+
+      <button
+        class="icon-btn"
+        title="Toàn màn hình"
+        aria-label="Toàn màn hình"
+        @click="toggleFullscreen"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>
+        </svg>
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
 
 const props = defineProps<{ videoId: string }>();
-const iframeRef = ref<HTMLIFrameElement | null>(null);
 
-function postCaptionOff() {
-  const target = iframeRef.value?.contentWindow;
-  if (!target) return;
+const wrapperRef = ref<HTMLElement | null>(null);
+const playerHostRef = ref<HTMLElement | null>(null);
+const player = shallowRef<any>(null);
 
-  // Best-effort IFrame API commands. cc_load_policy=0 below is the primary
-  // default; repeated commands cover cases where YouTube restores a prior CC
-  // preference after the iframe has initialized.
-  for (const message of [
-    { event: 'command', func: 'setOption', args: ['captions', 'track', {}] },
-    { event: 'command', func: 'setOption', args: ['cc', 'track', {}] }
-  ]) {
-    try {
-      target.postMessage(JSON.stringify(message), '*');
-    } catch {}
+const ready = ref(false);
+const playing = ref(false);
+const muted = ref(false);
+const volume = ref(100);
+const currentTime = ref(0);
+const duration = ref(0);
+const playbackRate = ref(1);
+const playbackRates = ref<number[]>([0.5, 0.75, 1, 1.25, 1.5, 2]);
+
+const seeking = ref(false);
+const pendingSeek = ref(0);
+const seekValue = computed(() => seeking.value ? pendingSeek.value : currentTime.value);
+
+let pollTimer: number | undefined;
+
+function ensureIframeApi(): Promise<any> {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-yt-iframe-api="1988"]') as HTMLScriptElement | null;
+
+    const finish = () => {
+      if (window.YT?.Player) resolve(window.YT);
+      else reject(new Error('youtube_iframe_api_unavailable'));
+    };
+
+    const previous = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      try { previous?.(); } catch {}
+      finish();
+    };
+
+    if (existing) {
+      const started = Date.now();
+      const timer = window.setInterval(() => {
+        if (window.YT?.Player) {
+          clearInterval(timer);
+          resolve(window.YT);
+        } else if (Date.now() - started > 10000) {
+          clearInterval(timer);
+          reject(new Error('youtube_iframe_api_timeout'));
+        }
+      }, 100);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    script.dataset.ytIframeApi = '1988';
+    script.onerror = () => reject(new Error('youtube_iframe_api_load_failed'));
+    document.head.appendChild(script);
+  });
+}
+
+function syncPlayerState() {
+  const p = player.value;
+  if (!p || !ready.value) return;
+
+  try {
+    const d = Number(p.getDuration?.() || 0);
+    const t = Number(p.getCurrentTime?.() || 0);
+    const v = Number(p.getVolume?.() ?? volume.value);
+
+    if (Number.isFinite(d) && d > 0) duration.value = d;
+    if (!seeking.value && Number.isFinite(t) && t >= 0) currentTime.value = t;
+    if (Number.isFinite(v)) volume.value = Math.max(0, Math.min(100, v));
+    muted.value = !!p.isMuted?.();
+  } catch {}
+}
+
+function startPolling() {
+  stopPolling();
+  syncPlayerState();
+  pollTimer = window.setInterval(syncPlayerState, 250);
+}
+
+function stopPolling() {
+  if (pollTimer !== undefined) {
+    clearInterval(pollTimer);
+    pollTimer = undefined;
   }
 }
 
 function forceCaptionsOff() {
-  window.setTimeout(postCaptionOff, 250);
-  window.setTimeout(postCaptionOff, 900);
-  window.setTimeout(postCaptionOff, 2200);
+  const p = player.value;
+  if (!p) return;
+  try { p.setOption?.('captions', 'track', {}); } catch {}
+  try { p.setOption?.('cc', 'track', {}); } catch {}
+  try { p.unloadModule?.('captions'); } catch {}
 }
 
-const embedUrl = computed(() => {
-  const id = encodeURIComponent(props.videoId || '');
-  const origin = encodeURIComponent(window.location.origin);
-  return 'https://www.youtube-nocookie.com/embed/' + id
-    + '?autoplay=1'
-    + '&playsinline=1'
-    + '&controls=1'
-    + '&rel=0'
-    + '&modestbranding=1'
-    + '&showinfo=0'
-    + '&iv_load_policy=3'
-    + '&cc_load_policy=0'
-    + '&fs=1'
-    + '&enablejsapi=1'
-    + '&origin=' + origin;
+async function createPlayer() {
+  if (!playerHostRef.value) return;
+
+  const YT = await ensureIframeApi();
+  if (!playerHostRef.value) return;
+
+  player.value?.destroy?.();
+  ready.value = false;
+
+  player.value = new YT.Player(playerHostRef.value, {
+    host: 'https://www.youtube-nocookie.com',
+    width: '100%',
+    height: '100%',
+    videoId: props.videoId,
+    playerVars: {
+      autoplay: 1,
+      controls: 0,
+      disablekb: 1,
+      fs: 0,
+      rel: 0,
+      playsinline: 1,
+      modestbranding: 1,
+      iv_load_policy: 3,
+      cc_load_policy: 0,
+      enablejsapi: 1,
+      origin: window.location.origin
+    },
+    events: {
+      onReady: (event: any) => {
+        player.value = event.target;
+        ready.value = true;
+
+        try {
+          const iframe = event.target.getIframe?.();
+          if (iframe) iframe.style.pointerEvents = 'none';
+        } catch {}
+
+        forceCaptionsOff();
+        window.setTimeout(forceCaptionsOff, 700);
+        window.setTimeout(forceCaptionsOff, 1800);
+
+        try {
+          const rates = event.target.getAvailablePlaybackRates?.();
+          if (Array.isArray(rates) && rates.length) playbackRates.value = rates;
+        } catch {}
+
+        try {
+          volume.value = Number(event.target.getVolume?.() ?? 100);
+          muted.value = !!event.target.isMuted?.();
+        } catch {}
+
+        startPolling();
+
+        try {
+          const promise = event.target.playVideo?.();
+          void promise;
+        } catch {}
+      },
+      onStateChange: (event: any) => {
+        playing.value = event.data === YT.PlayerState.PLAYING;
+        syncPlayerState();
+        forceCaptionsOff();
+      },
+      onPlaybackRateChange: (event: any) => {
+        playbackRate.value = Number(event.data || 1);
+      },
+      onError: () => {
+        playing.value = false;
+      }
+    }
+  });
+}
+
+function togglePlay() {
+  const p = player.value;
+  if (!p || !ready.value) return;
+
+  try {
+    if (playing.value) p.pauseVideo();
+    else p.playVideo();
+  } catch {}
+}
+
+function previewSeek(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value);
+  if (!Number.isFinite(value)) return;
+  seeking.value = true;
+  pendingSeek.value = value;
+}
+
+function commitSeek(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value);
+  if (!Number.isFinite(value)) return;
+
+  try { player.value?.seekTo?.(value, true); } catch {}
+  currentTime.value = value;
+  pendingSeek.value = value;
+  seeking.value = false;
+}
+
+function toggleMute() {
+  const p = player.value;
+  if (!p || !ready.value) return;
+
+  try {
+    if (muted.value || volume.value === 0) {
+      p.unMute();
+      if (volume.value === 0) p.setVolume(70);
+    } else {
+      p.mute();
+    }
+    syncPlayerState();
+  } catch {}
+}
+
+function setVolumeFromInput(event: Event) {
+  const value = Number((event.target as HTMLInputElement).value);
+  if (!Number.isFinite(value)) return;
+
+  volume.value = Math.max(0, Math.min(100, value));
+  try {
+    player.value?.setVolume?.(volume.value);
+    if (volume.value > 0) player.value?.unMute?.();
+    else player.value?.mute?.();
+  } catch {}
+  syncPlayerState();
+}
+
+function setPlaybackRateFromSelect(event: Event) {
+  const value = Number((event.target as HTMLSelectElement).value);
+  if (!Number.isFinite(value)) return;
+
+  try {
+    player.value?.setPlaybackRate?.(value);
+    playbackRate.value = value;
+  } catch {}
+}
+
+function formatTime(value: number) {
+  const total = Math.max(0, Math.floor(Number(value) || 0));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function toggleFullscreen() {
+  const el = wrapperRef.value;
+  if (!el) return;
+
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await el.requestFullscreen();
+  } catch {}
+}
+
+watch(() => props.videoId, (id) => {
+  if (!id || !ready.value || !player.value) return;
+
+  currentTime.value = 0;
+  duration.value = 0;
+  seeking.value = false;
+  try {
+    player.value.loadVideoById(id);
+    forceCaptionsOff();
+  } catch {}
+});
+
+onMounted(() => {
+  void createPlayer();
+});
+
+onBeforeUnmount(() => {
+  stopPolling();
+  try { player.value?.destroy?.(); } catch {}
+  player.value = null;
 });
 </script>
 ''')
@@ -2199,7 +2554,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-46-iframe-clean-overlays\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-47-locked-video-external-controls\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
