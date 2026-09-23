@@ -9,6 +9,9 @@ const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
 const ytPlayerHost=$("#yt-player");
+const nativePlayer=$("#nativePlayer");
+const suggestions=$("#suggestions");
+const topicChips=$("#topicChips");
 const videoBtn=$("#videoBtn");
 const backgroundBtn=$("#backgroundBtn");
 const pipBtn=$("#pipBtn");
@@ -31,11 +34,57 @@ const state={
   currentMeta:null,
   mode:"video",
   installPrompt:null,
-  audioMaster:false
+  audioMaster:false,
+  engine:"native",
+  nativeSource:"",
+  activeFeed:"home"
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clean=s=>String(s??"").replace(/\s+/g," ").trim();
+
+async function localEngine(timeoutMs=15000){
+  if(window.YTLocal)return window.YTLocal;
+  return new Promise((resolve,reject)=>{
+    let done=false;
+    const finish=(fn,value)=>{
+      if(done)return;
+      done=true;
+      clearTimeout(timer);
+      window.removeEventListener("ytlocalready",onReady);
+      fn(value);
+    };
+    const onReady=()=>window.YTLocal
+      ?finish(resolve,window.YTLocal)
+      :finish(reject,new Error("ytlocal_missing"));
+    const timer=setTimeout(()=>finish(reject,new Error("ytlocal_timeout")),timeoutMs);
+    window.addEventListener("ytlocalready",onReady,{once:true});
+  });
+}
+
+function showNativePlayer(){
+  state.engine="native";
+  nativePlayer.hidden=false;
+  ytPlayerHost.hidden=true;
+}
+
+function showIframePlayer(){
+  state.engine="iframe";
+  nativePlayer.hidden=true;
+  ytPlayerHost.hidden=false;
+}
+
+function clearSuggestions(){
+  suggestions.hidden=true;
+  suggestions.innerHTML="";
+}
+
+function setActiveChip(name){
+  state.activeFeed=name||"";
+  topicChips?.querySelectorAll(".topic-chip").forEach(button=>{
+    button.classList.toggle("active",button.dataset.feed===state.activeFeed);
+  });
+}
 
 function extractVideoId(value=""){
   const raw=clean(value);
@@ -117,17 +166,15 @@ async function api(action,params={},timeoutMs=8000){
 
 async function backgroundSources(id){
   if(!id)return [];
-
-  // Use our own media byte-proxy. The browser never receives the upstream
-  // Piped/Googlevideo URL; it only sees the yt1988 media endpoint.
-  const url=MediaCore.buildNativeMediaUrl(BASE,id,"audio");
-
+  const local=await localEngine(20000);
+  const row=await local.media(id,"audio");
+  if(!row?.url)return [];
   return [{
-    url,
-    mimeType:"audio/mp4",
+    url:row.url,
+    mimeType:row.mimeType||"audio/mp4",
     bitrate:128000,
     priority:1000,
-    engine:"yt1988-media-proxy"
+    engine:"youtubejs-local"
   }];
 }
 
