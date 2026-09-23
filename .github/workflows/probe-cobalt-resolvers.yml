@@ -10,50 +10,57 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 6
     steps:
-      - name: Probe public Cobalt resolver instances
+      - name: Probe known public Cobalt resolver instances
         shell: bash
         run: |
           set +e
-          ID='vhUjvanyu2U'
-          SRC="https://www.youtube.com/watch?v=$ID"
-          curl -k -sS -L --connect-timeout 4 --max-time 15 'https://instances.cobalt.best/api/instances.json' -o /tmp/cobalt.json
-          echo '=== SAMPLE INSTANCE DATA ==='
-          jq '.[0:5]' /tmp/cobalt.json
-          echo '=== CANDIDATES ==='
-          jq -r '
-            .[] |
-            select((.online // true) == true) |
-            select((.services.youtube // .youtube // "") != "" or ((.services // []) | type == "array" and index("youtube"))) |
-            (.api // .url // .uri // empty)
-          ' /tmp/cobalt.json | sed '/^$/d' | head -20 > /tmp/apis.txt
-          cat /tmp/apis.txt
+          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
+          APIS=(
+            'https://cobalt.meowing.de'
+            'https://nuko-c.meowing.de'
+            'https://subito-c.meowing.de'
+            'https://cobalt-api.kwiatekmiki.com'
+            'https://dwnld.nichind.dev'
+            'https://cobalt-backend.canine.tools'
+            'https://cobalt-api.clxxped.lol'
+            'https://cobalt.api.lostdusty.com.br'
+            'https://cobalt.ggtyler.dev'
+            'https://cobalt.urdailyinfo.link'
+            'https://cobalt.api.timelessnesses.me'
+            'https://cobalt.flick.tech'
+            'https://kityune.imput.net'
+            'https://sunny.imput.net'
+            'https://nachos.imput.net'
+            'https://blossom.imput.net'
+          )
 
           probe_one(){
-            API="$1"
-            API="${API%/}"
+            API="${1%/}"
             OUT=$(mktemp)
             BODY=$(jq -nc --arg url "$SRC" '{url:$url,downloadMode:"auto",videoQuality:"360",youtubeVideoCodec:"h264",youtubeVideoContainer:"mp4",alwaysProxy:true,disableMetadata:true}')
-            META=$(curl -sS -L --connect-timeout 4 --max-time 20 -X POST "$API/"               -H 'Accept: application/json' -H 'Content-Type: application/json'               --data "$BODY" -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}')
+            META=$(curl -sS --connect-timeout 4 --max-time 25 -X POST "$API/"               -H 'Accept: application/json' -H 'Content-Type: application/json'               --data "$BODY" -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}')
             STATUS=$(jq -r '.status // ""' "$OUT" 2>/dev/null)
             URL=$(jq -r '.url // (.tunnel[0] // "")' "$OUT" 2>/dev/null)
             ERR=$(jq -r '.error.code // ""' "$OUT" 2>/dev/null)
             if [ -n "$URL" ]; then
               HDR=$(mktemp); BIN=$(mktemp)
-              curl -sS -L --connect-timeout 4 --max-time 15 -H 'Range: bytes=0-2047' -D "$HDR" -o "$BIN" "$URL"
+              curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$URL"
               CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
               TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
               SIZE=$(wc -c < "$BIN")
               FILE=$(file -b "$BIN" 2>/dev/null)
-              echo "OK|$API|$META|STATUS=$STATUS|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|FILE=$FILE|URL=$URL"
+              CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+              echo "PASS|$API|$META|STATUS=$STATUS|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|FILE=$FILE|URL=$URL"
               rm -f "$HDR" "$BIN"
             else
-              echo "MISS|$API|$META|STATUS=$STATUS|ERR=$ERR|RESP=$(tr '\n' ' ' < "$OUT" | head -c 350)"
+              echo "FAIL|$API|$META|STATUS=$STATUS|ERR=$ERR|RESP=$(tr '\n' ' ' < "$OUT" | head -c 240)"
             fi
             rm -f "$OUT"
           }
+
           export -f probe_one
           export SRC
-          while read -r API; do probe_one "$API" & done < /tmp/apis.txt
+          for API in "${APIS[@]}"; do probe_one "$API" & done
           wait
