@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages-player-v3
+  group: pages-player-v4
   cancel-in-progress: true
 
 jobs:
@@ -34,6 +34,7 @@ jobs:
 
 
       - name: Diagnose live media
+        if: github.event_name == 'workflow_dispatch'
         shell: bash
         continue-on-error: true
         run: |
