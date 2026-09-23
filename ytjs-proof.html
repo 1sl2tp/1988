@@ -3,372 +3,65 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>1988 · YouTube.js MP4 Proof</title>
+<title>1988 · Kira SABR Proof</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shaka-player@4.16.2/dist/controls.css">
 <style>
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;background:#000;color:#f5f5f7}
 *{box-sizing:border-box}body{margin:0;background:#000;color:#f5f5f7}
-main{width:min(760px,100%);margin:auto;padding:18px 14px 40px}
-h1{font-size:22px;margin:0 0 6px}.sub{color:#9b9ba3;font-size:13px;margin:0 0 14px}
-.row{display:flex;gap:8px}.row input{flex:1;min-width:0}
+main{width:min(980px,100%);margin:auto;padding:16px 14px 40px}
+h1{font-size:22px;margin:0 0 5px}.sub{font-size:13px;color:#999;margin:0 0 12px}
+.search{display:flex;gap:8px;position:sticky;top:0;background:#000;padding:8px 0;z-index:20}
+.search input{flex:1;min-width:0}
 input,button{font:inherit;border-radius:10px;border:1px solid #303038;background:#141418;color:#fff;padding:11px 12px}
-button{background:#fff;color:#000;font-weight:700;cursor:pointer}button:disabled{opacity:.55}
-.auth-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
-.auth-row button{padding:8px 10px}
-#authState{font-size:12px;color:#aaa}
-.auth-pending{margin:0 0 10px;padding:10px;border:1px solid #303038;border-radius:10px;background:#101014;font-size:12px;line-height:1.5}
-.auth-pending a{color:#8ab4ff;font-weight:700}
-.auth-code{font-size:18px;font-weight:800;letter-spacing:.08em}
-video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radius:12px;margin-top:14px}
-.card{margin-top:12px;padding:12px;border:1px solid #25252b;border-radius:12px;background:#101014}
-.status{font-size:13px;line-height:1.45;word-break:break-word}.ok{color:#74d680}.bad{color:#ff6961}.warn{color:#f5c451}
-.kv{display:grid;grid-template-columns:92px 1fr;gap:7px;font-size:12px;margin-top:10px}.kv b{color:#8e8e98}.kv span{word-break:break-all}
-.small{font-size:11px;color:#777780;margin-top:12px}
+button{cursor:pointer}.search button{background:#fff;color:#000;font-weight:750}
+#video-container{width:100%;aspect-ratio:16/9;background:#080808;border-radius:12px;overflow:hidden;margin-top:10px}
+#video{width:100%;height:100%;background:#080808}
+.info{display:flex;justify-content:space-between;gap:12px;align-items:center;margin:10px 0 5px}
+#currentTitle{font-size:15px;font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#source{font-size:11px;color:#999;flex:none}
+#status{font-size:12px;line-height:1.4;padding:9px 10px;border:1px solid #28282e;border-radius:10px;background:#101014;color:#f4c95d}
+#status[data-kind="ok"]{color:#70d57b}#status[data-kind="bad"]{color:#ff6b66}
+.results-head{display:flex;justify-content:space-between;align-items:center;margin:18px 0 8px}
+.results-head strong{font-size:15px}.results-head span{font-size:11px;color:#777}
+#results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.result-card{padding:0;background:transparent;border:0;text-align:left;min-width:0;color:#fff}
+.thumb{position:relative;aspect-ratio:16/9;border-radius:9px;overflow:hidden;background:#171717}
+.thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.thumb span{position:absolute;right:5px;bottom:5px;font-size:10px;background:#000c;padding:2px 4px;border-radius:4px}
+.result-title{font-size:13px;font-weight:700;line-height:1.3;margin-top:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.result-meta{font-size:11px;color:#888;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.build{font-size:11px;color:#666;margin-top:16px}
+@media(max-width:700px){main{padding:10px 8px 32px}#results{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.result-title{font-size:12px}.search{padding-top:4px}}
 </style>
-<script src="https://cdn.jsdelivr.net/npm/shaka-player@4/dist/shaka-player.compiled.js"></script>
 </head>
 <body>
 <main>
-  <h1>YouTube.js · MP4 Proof</h1>
-  <p class="sub">Local extraction trong browser → proxy riêng → bytes media. Không dùng Piped.</p>
-  <div class="auth-row"><span id="authState">Không cần đăng nhập YouTube</span></div>
-  <div class="row">
-    <input id="videoId" value="" autocomplete="off" spellcheck="false" placeholder="Tìm video hoặc dán link YouTube">
-    <button id="go">Tìm & phát</button>
+  <h1>YouTube.js · Kira SABR Proof</h1>
+  <p class="sub">Kira: YouTube.js + Onesie + SabrStreamingAdapter + Shaka Player. Không OAuth.</p>
+
+  <div class="search">
+    <input id="searchInput" autocomplete="off" spellcheck="false" placeholder="Tìm tên video hoặc dán link YouTube">
+    <button id="searchButton" type="button" disabled>Tìm</button>
   </div>
-  <video id="video" controls playsinline preload="metadata"></video>
-  <div class="card">
-    <div id="status" class="status warn">Chưa chạy.</div>
-    <div class="kv">
-      <b>Tiêu đề</b><span id="title">—</span>
-      <b>Video ID</b><span id="resolvedId">—</span>
-      <b>Định dạng</b><span id="format">—</span>
-      <b>Clients</b><span id="clients">—</span>
-      <b>Probe</b><span id="probe">—</span>
-      <b>Player</b><span id="player">—</span>
-    </div>
+
+  <div id="video-container">
+    <video id="video" playsinline></video>
   </div>
-  <div class="small">Build: ytjs-proof-20260923-17-anonymous-tv-sabr · proxy-v9</div>
+
+  <div class="info">
+    <div id="currentTitle">—</div>
+    <span id="source">—</span>
+  </div>
+  <div id="status">Đang khởi tạo…</div>
+
+  <div class="results-head">
+    <strong>Kết quả</strong>
+    <span>Chọn video để phát</span>
+  </div>
+  <div id="results"></div>
+
+  <div class="build">Build: ytjs-proof-20260923-18-kira-sabr-shaka · proxy-v9</div>
 </main>
-
-<script type="module">
-import ProofEngine from './src/yt-proof-engine.js?v=13';
-
-const $=id=>document.getElementById(id);
-const video=$('video'),status=$('status'),go=$('go');
-let shakaPlayer=null;
-let activeSabr=null;
-let mediaObjectUrl='';
-const authStateEl=$('authState');
-
-function setStatus(text,kind='warn'){
-  status.textContent=text;
-  status.className='status '+kind;
-}
-
-function parseVideoId(raw){
-  raw=String(raw||'').trim();
-  if(/^[A-Za-z0-9_-]{11}$/.test(raw))return raw;
-  try{
-    const u=new URL(raw);
-    const v=u.searchParams.get('v');
-    if(v&&/^[A-Za-z0-9_-]{11}$/.test(v))return v;
-    const parts=u.pathname.split('/').filter(Boolean);
-    const candidate=u.hostname.includes('youtu.be')?parts[0]:parts.at(-1);
-    return /^[A-Za-z0-9_-]{11}$/.test(candidate||'')?candidate:'';
-  }catch{return ''}
-}
-
-function waitEvent(target,name,timeout=12000){
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{
-      target.removeEventListener(name,onEvent);
-      reject(new Error(name+'_timeout'));
-    },timeout);
-    const onEvent=(event)=>{
-      clearTimeout(timer);
-      target.removeEventListener(name,onEvent);
-      resolve(event);
-    };
-    target.addEventListener(name,onEvent,{once:true});
-  });
-}
-
-async function appendChunk(sourceBuffer,chunk){
-  if(!chunk||!chunk.byteLength)return;
-  if(sourceBuffer.updating)await waitEvent(sourceBuffer,'updateend',12000);
-  return new Promise((resolve,reject)=>{
-    const onEnd=()=>{
-      cleanup();
-      resolve();
-    };
-    const onError=()=>{
-      cleanup();
-      reject(new Error('sourcebuffer_error'));
-    };
-    const cleanup=()=>{
-      sourceBuffer.removeEventListener('updateend',onEnd);
-      sourceBuffer.removeEventListener('error',onError);
-    };
-    sourceBuffer.addEventListener('updateend',onEnd,{once:true});
-    sourceBuffer.addEventListener('error',onError,{once:true});
-    try{
-      sourceBuffer.appendBuffer(chunk);
-    }catch(error){
-      cleanup();
-      reject(error);
-    }
-  });
-}
-
-async function pumpReadable(sourceBuffer,stream,label){
-  const reader=stream.getReader();
-  try{
-    while(true){
-      const {done,value}=await reader.read();
-      if(done)break;
-      await appendChunk(sourceBuffer,value);
-    }
-  }catch(error){
-    throw new Error(label+'_stream_'+String(error?.message||error));
-  }finally{
-    try{reader.releaseLock()}catch{}
-  }
-}
-
-async function attachSabr(media){
-  if(!('MediaSource' in window))throw new Error('MediaSource không khả dụng');
-
-  const videoFmt=media?.selectedFormats?.videoFormat;
-  const audioFmt=media?.selectedFormats?.audioFormat;
-  const videoMime=String(videoFmt?.mimeType||'');
-  const audioMime=String(audioFmt?.mimeType||'');
-
-  if(!videoMime||!audioMime)throw new Error('SABR thiếu MIME video/audio');
-  if(!MediaSource.isTypeSupported(videoMime))throw new Error('Không hỗ trợ '+videoMime);
-  if(!MediaSource.isTypeSupported(audioMime))throw new Error('Không hỗ trợ '+audioMime);
-
-  const ms=new MediaSource();
-  mediaObjectUrl=URL.createObjectURL(ms);
-  video.src=mediaObjectUrl;
-  video.load();
-
-  await waitEvent(ms,'sourceopen',12000);
-
-  const videoBuffer=ms.addSourceBuffer(videoMime);
-  const audioBuffer=ms.addSourceBuffer(audioMime);
-
-  let done=0;
-  const maybeEnd=()=>{
-    done+=1;
-    if(done>=2&&ms.readyState==='open'){
-      try{ms.endOfStream()}catch{}
-    }
-  };
-
-  const videoPump=pumpReadable(videoBuffer,media.videoStream,'video')
-    .then(maybeEnd)
-    .catch(error=>{
-      console.error(error);
-      setStatus('SABR video lỗi: '+String(error?.message||error),'bad');
-      try{media.sabrStream?.abort()}catch{}
-    });
-
-  const audioPump=pumpReadable(audioBuffer,media.audioStream,'audio')
-    .then(maybeEnd)
-    .catch(error=>{
-      console.error(error);
-      setStatus('SABR audio lỗi: '+String(error?.message||error),'bad');
-      try{media.sabrStream?.abort()}catch{}
-    });
-
-  activeSabr=media.sabrStream;
-
-  await waitReady(20000);
-
-  return {
-    videoMime,
-    audioMime,
-    videoPump,
-    audioPump
-  };
-}
-
-async function waitReady(timeout=12000){
-  return new Promise((resolve,reject)=>{
-    let done=false;
-    const clean=()=>{
-      clearTimeout(timer);
-      video.removeEventListener('loadedmetadata',ready);
-      video.removeEventListener('canplay',ready);
-      video.removeEventListener('error',bad);
-    };
-    const finish=(fn,v)=>{if(done)return;done=true;clean();fn(v)};
-    const ready=()=>finish(resolve,true);
-    const bad=()=>finish(reject,new Error('video_error_'+(video.error?.code||0)));
-    const timer=setTimeout(()=>finish(reject,new Error('video_timeout')),timeout);
-    video.addEventListener('loadedmetadata',ready,{once:true});
-    video.addEventListener('canplay',ready,{once:true});
-    video.addEventListener('error',bad,{once:true});
-  });
-}
-
-async function run(){
-  const raw=String($('videoId').value||'').trim();
-  if(!raw){setStatus('Nhập tên video hoặc dán link YouTube.','bad');return}
-
-  go.disabled=true;
-  $('title').textContent='—';
-  $('resolvedId').textContent='—';
-  $('format').textContent='—';
-  $('clients').textContent='—';
-  $('probe').textContent='—';
-  $('player').textContent='—';
-  if(shakaPlayer){
-    try{await shakaPlayer.destroy();}catch{}
-    shakaPlayer=null;
-  }
-  if(activeSabr){
-    try{activeSabr.abort()}catch{}
-    activeSabr=null;
-  }
-  if(mediaObjectUrl){
-    try{URL.revokeObjectURL(mediaObjectUrl)}catch{}
-    mediaObjectUrl='';
-  }
-  video.pause();
-  video.removeAttribute('src');
-  video.load();
-
-  try{
-    let id=parseVideoId(raw);
-
-    if(!id){
-      setStatus('Đang tìm video…');
-      const rows=await ProofEngine.search(raw);
-      const first=Array.isArray(rows)?rows.find(row=>row?.videoId):null;
-      id=String(first?.videoId||'');
-      if(!id)throw new Error('Không tìm thấy video');
-      $('title').textContent=first?.title||'Video';
-    }
-
-    $('resolvedId').textContent=id;
-
-    const attempts=[];
-    const media=await ProofEngine.resolve(id,(client)=>{
-      attempts.push(client);
-      $('clients').textContent=attempts.join(' → ');
-      setStatus('Đang thử '+client+'…');
-    });
-
-    if(media?.meta?.title)$('title').textContent=media.meta.title;
-
-    $('clients').textContent=(media.diagnostics||[]).map(row=>{
-      const bits=[
-        row.client+': '+row.playability,
-        row.formats?row.formats+' format':'0 format',
-        (row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',
-        row.dash?'DASH '+row.dash:'',
-        row.sabr?'SABR '+row.sabr:'',
-        row.videoProbe||'',
-        row.audioProbe||'',
-        row.progressiveError?'MP4 '+row.progressiveError:'',
-        row.dashError?'DASH '+row.dashError:'',
-        row.sabrError?'SABR '+row.sabrError:'',
-        row.probe||'',
-        row.reason||''
-      ].filter(Boolean);
-      return bits.join(' · ');
-    }).join(' | ');
-
-    $('format').textContent=[
-      media.mode==='dash'
-        ?('DASH adaptive · video itag '+(media.videoItag??'?')+' + audio itag '+(media.audioItag??'?'))
-        :media.mode==='sabr'
-          ?('SABR · video itag '+(media.videoItag??'?')+' + audio itag '+(media.audioItag??'?'))
-          :'itag '+(media.itag??'?'),
-      media.mimeType||'',
-      media.quality||'',
-      media.hasAudio===false?'video-only':'A/V',
-      media.client||''
-    ].filter(Boolean).join(' · ');
-
-    $('probe').textContent=[
-      media.mode==='dash'
-        ?'Manifest DASH đã dựng'
-        :media.mode==='sabr'
-          ?'SABR/UMP stream'
-          :'HTTP '+(media.probe?.status??'?'),
-      media.probe?.type||'',
-      media.probe?.range||''
-    ].filter(Boolean).join(' · ');
-
-    if(media.mode==='dash'){
-      if(!window.shaka?.Player)throw new Error('Shaka Player chưa tải');
-      shaka.polyfill.installAll();
-      if(!shaka.Player.isBrowserSupported())throw new Error('Trình duyệt không hỗ trợ DASH/MSE');
-
-      shakaPlayer=new shaka.Player();
-      await shakaPlayer.attach(video);
-
-      const manifestBytes=new TextEncoder().encode(media.manifest);
-      let binary='';
-      for(const byte of manifestBytes)binary+=String.fromCharCode(byte);
-      const manifestUri='data:application/dash+xml;base64,'+btoa(binary);
-
-      setStatus('Đã có video + audio tách riêng · đang phát DASH…');
-      await shakaPlayer.load(manifestUri);
-    }else if(media.mode==='sabr'){
-      setStatus('Đã có SABR · đang nối video + audio vào MediaSource…');
-      await attachSabr(media);
-    }else{
-      video.src=media.url;
-      video.load();
-      await waitReady();
-    }
-
-    $('player').textContent='loadedmetadata · '+(
-      Number.isFinite(video.duration)?Math.round(video.duration)+'s':'duration ?'
-    );
-
-    try{
-      await video.play();
-      setStatus(
-        'THÀNH CÔNG · '+media.client+' · '+(
-          media.mode==='dash'?'DASH video+audio':
-          media.mode==='sabr'?'SABR video+audio':
-          'MP4'
-        )+' đang phát.',
-        'ok'
-      );
-    }catch{
-      setStatus(
-        'THÀNH CÔNG phần stream · '+media.client+' · '+(
-          media.mode==='dash'?'DASH':
-          media.mode==='sabr'?'SABR':
-          'MP4'
-        )+' · bấm Play.',
-        'ok'
-      );
-    }
-  }catch(error){
-    console.error(error);
-    if(Array.isArray(error?.diagnostics)){
-      $('clients').textContent=error.diagnostics.map(row=>
-        [row.client+': '+row.playability,row.formats?row.formats+' format':'0 format',(row.muxed||row.adaptive)?('mux '+(row.muxed||0)+' / adaptive '+(row.adaptive||0)):'',row.dash?'DASH '+row.dash:'',row.sabr?'SABR '+row.sabr:'',row.videoProbe||'',row.audioProbe||'',row.progressiveError?'MP4 '+row.progressiveError:'',row.dashError?'DASH '+row.dashError:'',row.sabrError?'SABR '+row.sabrError:'',row.probe||'',row.reason||'']
-          .filter(Boolean).join(' · ')
-      ).join(' | ');
-    }
-    setStatus('THẤT BẠI: '+String(error?.message||error),'bad');
-  }finally{
-    go.disabled=false;
-  }
-}
-go.addEventListener('click',run);
-$('videoId').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
-const params=new URL(location.href).searchParams;
-const initial=params.get('q')||params.get('id');
-if(initial)$('videoId').value=initial;
-authStateEl.textContent='Không cần đăng nhập YouTube';
-</script>
+<script type="module" src="./proof-kira/dist/kira-proof.js?v=18"></script>
 </body>
 </html>
