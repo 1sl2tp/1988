@@ -10112,10 +10112,1135 @@ watch(() => route.params.id, () => void load());
 </style>
 ''')
 
+
+# 1988 final source/topic layout: search -> sources -> topics -> newest content.
+p = Path("src/pages/HomePage.vue")
+p.write_text(r'''<template>
+  <main class="home">
+    <button class="search" type="button" @click="router.push('/search')">
+      <Search/>
+      <span>Tìm video, bài hát, kênh...</span>
+    </button>
+
+    <nav class="sources" aria-label="Nguồn">
+      <button
+        v-for="item in sources"
+        :key="item.id"
+        type="button"
+        class="source"
+        :class="{ active: source === item.id }"
+        @click="source = item.id"
+      >
+        {{ item.label }}
+      </button>
+    </nav>
+
+    <nav class="topics" aria-label="Chủ đề">
+      <button
+        v-for="item in topics"
+        :key="item.id"
+        type="button"
+        class="topic"
+        :class="{ active: topic === item.id }"
+        @click="topic = item.id"
+      >
+        {{ item.label }}
+      </button>
+    </nav>
+
+    <div class="heading">
+      <h1>{{ heading }}</h1>
+      <span v-if="source === 'latest'">Việt Nam · YouTube</span>
+    </div>
+
+    <div v-if="loading" class="state">Đang cập nhật…</div>
+
+    <div v-else-if="source === 'channels'" class="channel-list">
+      <router-link
+        v-for="row in channels"
+        :key="row.key"
+        class="channel-card"
+        :to="'/channel/' + encodeURIComponent(row.key)"
+      >
+        <img v-if="row.avatar" :src="row.avatar" :alt="row.name">
+        <span v-else class="channel-avatar"><UserRound/></span>
+        <span class="channel-copy">
+          <strong>{{ row.name }}</strong>
+          <small v-if="row.meta">{{ row.meta }}</small>
+        </span>
+        <ChevronRight/>
+      </router-link>
+    </div>
+
+    <div v-else-if="source === 'playlists'" class="playlist-list">
+      <button
+        v-for="row in playlists"
+        :key="row.key"
+        class="playlist-card"
+        type="button"
+        @click="router.push({ path: '/search', query: { q: row.title, source: 'video' } })"
+      >
+        <img v-if="row.thumbnail" :src="row.thumbnail" :alt="row.title">
+        <span class="playlist-copy">
+          <strong>{{ row.title }}</strong>
+          <small>{{ row.channel }}</small>
+        </span>
+        <ChevronRight/>
+      </button>
+    </div>
+
+    <div v-else-if="videos.length" class="grid">
+      <GridVideoItem v-for="video in videos" :key="video.videoId" :data="video"/>
+    </div>
+
+    <div v-else class="state">Chưa có nội dung phù hợp.</div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
+import { ChevronRight, Search, UserRound } from '@lucide/vue';
+import GridVideoItem from '@/components/GridVideoItem.vue';
+import type { VideoItemData } from '@/utils/helpers';
+import { formatCompactViews, numericViews, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const router = useRouter();
+
+type SourceId = 'latest' | 'video' | 'channels' | 'playlists' | 'shorts' | 'live';
+type TopicId =
+  | 'all' | 'nhac-vang' | 'bolero' | 'tru-tinh' | 'dan-ca' | 'nhac-tre'
+  | 'remix' | 'que-huong' | 'tin-tuc' | 'the-thao' | 'giai-tri'
+  | 'cong-nghe' | 'podcast' | 'khong-loi' | 'phim';
+
+type Row = VideoItemData & {
+  channelKey?: string;
+  publishedAt?: number;
+  viewsText?: string;
+  viewCount?: number;
+};
+
+const sources: Array<{ id: SourceId; label: string }> = [
+  { id: 'latest', label: 'YouTube mới nhất' },
+  { id: 'video', label: 'Video' },
+  { id: 'channels', label: 'Kênh' },
+  { id: 'playlists', label: 'Playlist' },
+  { id: 'shorts', label: 'Shorts' },
+  { id: 'live', label: 'Live' }
+];
+
+const topics: Array<{ id: TopicId; label: string; query: string }> = [
+  { id: 'all', label: 'Tất cả', query: 'Việt Nam' },
+  { id: 'nhac-vang', label: 'Nhạc vàng', query: 'nhạc vàng Việt Nam' },
+  { id: 'bolero', label: 'Bolero', query: 'bolero Việt Nam' },
+  { id: 'tru-tinh', label: 'Trữ tình', query: 'nhạc trữ tình Việt Nam' },
+  { id: 'dan-ca', label: 'Dân ca', query: 'dân ca Việt Nam' },
+  { id: 'nhac-tre', label: 'Nhạc trẻ', query: 'nhạc trẻ Việt Nam' },
+  { id: 'remix', label: 'Remix', query: 'remix Việt Nam' },
+  { id: 'que-huong', label: 'Quê hương', query: 'nhạc quê hương Việt Nam' },
+  { id: 'tin-tuc', label: 'Tin tức', query: 'tin tức Việt Nam' },
+  { id: 'the-thao', label: 'Thể thao', query: 'thể thao Việt Nam' },
+  { id: 'giai-tri', label: 'Giải trí', query: 'giải trí Việt Nam' },
+  { id: 'cong-nghe', label: 'Công nghệ', query: 'công nghệ Việt Nam' },
+  { id: 'podcast', label: 'Podcast', query: 'podcast Việt Nam' },
+  { id: 'khong-loi', label: 'Không lời', query: 'nhạc không lời Việt Nam' },
+  { id: 'phim', label: 'Phim', query: 'phim Việt Nam' }
+];
+
+const source = ref<SourceId>('latest');
+const topic = ref<TopicId>('all');
+const loading = ref(false);
+const videos = ref<Row[]>([]);
+const channels = ref<any[]>([]);
+const playlists = ref<any[]>([]);
+let refreshTimer: number | undefined;
+let serial = 0;
+
+const heading = computed(() => {
+  if (source.value === 'channels') return 'Kênh';
+  if (source.value === 'playlists') return 'Playlist';
+  if (source.value === 'shorts') return 'Shorts mới';
+  if (source.value === 'live') return 'Đang trực tiếp';
+  if (source.value === 'video') return 'Video mới';
+  return 'Mới nhất';
+});
+
+function currentTopic() {
+  return topics.find((item) => item.id === topic.value) || topics[0];
+}
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const match = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return match?.[1] || match?.[2] || match?.[3] || '';
+}
+
+function channelKey(row: any): string {
+  const raw = String(row?.uploaderUrl || row?.channelUrl || row?.url || row?.id || '').trim();
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(row?.uploaderName || row?.uploader || row?.channelName || row?.name || row?.title || 'YouTube');
+}
+
+function playlistKey(row: any): string {
+  const raw = String(row?.url || row?.id || '').trim();
+  return raw.match(/[?&]list=([A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/playlist\/([A-Za-z0-9_-]+)/)?.[1]
+    || raw;
+}
+
+function publishedRaw(row: any) {
+  return row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+    row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+}
+
+function durationText(value: any): string | undefined {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return undefined;
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function searchRows(q: string, filter = 'videos') {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', filter);
+  url.searchParams.set('_fresh', String(Date.now()));
+
+  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await response.json();
+  return response.ok && payload?.ok !== false && Array.isArray(payload?.data?.items)
+    ? payload.data.items
+    : [];
+}
+
+function toVideo(row: any): Row | null {
+  const id = videoId(row);
+  if (!id) return null;
+
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
+  const viewsRaw = row?.views ?? row?.viewCount ?? row?.viewText ?? '';
+
+  return {
+    videoId: id,
+    title: String(row?.title || 'Video'),
+    titleText: String(row?.title || 'Video'),
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+    authorAvatar: String(row?.uploaderAvatar || row?.avatar || ''),
+    channelKey: channelKey(row),
+    metadata: [channel],
+    duration: durationText(row?.duration),
+    publishedAt: parsePublishedAt(publishedRaw(row)),
+    viewsText: formatCompactViews(viewsRaw),
+    viewCount: numericViews(viewsRaw)
+  };
+}
+
+function videoQueries(): string[] {
+  const q = currentTopic().query;
+
+  if (source.value === 'shorts') return [q + ' shorts mới nhất', q + ' short video mới'];
+  if (source.value === 'live') return [q + ' trực tiếp live', q + ' livestream'];
+  if (topic.value !== 'all') return [q + ' mới nhất', q + ' mới đăng'];
+
+  return [
+    'Việt Nam mới nhất',
+    'video mới đăng Việt Nam',
+    'tin mới Việt Nam',
+    'nhạc Việt mới',
+    'thể thao Việt Nam mới',
+    'giải trí Việt Nam mới',
+    'công nghệ Việt Nam mới',
+    'phim Việt mới'
+  ];
+}
+
+async function loadVideos(current: number) {
+  const settled = await Promise.allSettled(videoQueries().map((q) => searchRows(q, 'videos')));
+  if (current !== serial) return;
+
+  const seen = new Set<string>();
+  const merged: Row[] = [];
+
+  for (const result of settled) {
+    if (result.status !== 'fulfilled') continue;
+    for (const raw of result.value) {
+      const row = toVideo(raw);
+      if (!row || seen.has(row.videoId)) continue;
+      seen.add(row.videoId);
+      merged.push(row);
+    }
+  }
+
+  if (source.value === 'live') {
+    merged.sort((a, b) => {
+      const aLive = /live|trực tiếp/i.test(String(a.title)) ? 1 : 0;
+      const bLive = /live|trực tiếp/i.test(String(b.title)) ? 1 : 0;
+      if (aLive !== bLive) return bLive - aLive;
+      return (b.publishedAt || 0) - (a.publishedAt || 0);
+    });
+  } else {
+    merged.sort((a, b) => {
+      const at = a.publishedAt || 0;
+      const bt = b.publishedAt || 0;
+      if (at !== bt) {
+        if (!at) return 1;
+        if (!bt) return -1;
+        return bt - at;
+      }
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    });
+  }
+
+  videos.value = merged.slice(0, 48);
+}
+
+async function loadChannels(current: number) {
+  const q = currentTopic().query;
+  const rows = await searchRows(q, 'channels');
+  if (current !== serial) return;
+
+  const seen = new Set<string>();
+  channels.value = rows.map((row: any) => {
+    const key = channelKey(row);
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    const subscribers = row?.subscribers ?? row?.subscriberCount ?? '';
+    return {
+      key,
+      name: String(row?.name || row?.title || row?.uploaderName || row?.uploader || 'YouTube'),
+      avatar: String(row?.thumbnail || row?.thumbnailUrl || row?.avatar || ''),
+      meta: subscribers ? formatCompactViews(subscribers).replace('lượt xem', 'người đăng ký') : ''
+    };
+  }).filter(Boolean).slice(0, 24);
+}
+
+async function loadPlaylists(current: number) {
+  const q = currentTopic().query;
+  const rows = await searchRows(q, 'playlists');
+  if (current !== serial) return;
+
+  const seen = new Set<string>();
+  playlists.value = rows.map((row: any) => {
+    const key = playlistKey(row);
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    return {
+      key,
+      title: String(row?.name || row?.title || 'Playlist'),
+      channel: String(row?.uploaderName || row?.uploader || row?.channelName || ''),
+      thumbnail: String(row?.thumbnail || row?.thumbnailUrl || row?.thumbnailUrl || '')
+    };
+  }).filter(Boolean).slice(0, 24);
+}
+
+async function load() {
+  const current = ++serial;
+  loading.value = true;
+  videos.value = [];
+  channels.value = [];
+  playlists.value = [];
+
+  try {
+    if (source.value === 'channels') await loadChannels(current);
+    else if (source.value === 'playlists') await loadPlaylists(current);
+    else await loadVideos(current);
+  } finally {
+    if (current === serial) loading.value = false;
+  }
+}
+
+onMounted(() => {
+  void load();
+  refreshTimer = window.setInterval(() => {
+    if (source.value === 'latest') void load();
+  }, 30000);
+});
+
+onBeforeUnmount(() => {
+  if (refreshTimer !== undefined) clearInterval(refreshTimer);
+});
+
+watch([source, topic], () => void load());
+</script>
+
+<style scoped>
+.home {
+  width: min(980px, calc(100% - 12px));
+  margin: 0 auto;
+  padding: max(9px, env(safe-area-inset-top)) 0 30px;
+}
+
+.search {
+  width: 100%;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #3a3a3e;
+  border-radius: 14px;
+  background: #2b2b2e;
+  color: #99999f;
+  text-align: left;
+}
+
+.search :deep(svg) {
+  width: 19px;
+  height: 19px;
+}
+
+.sources,
+.topics {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.sources::-webkit-scrollbar,
+.topics::-webkit-scrollbar {
+  display: none;
+}
+
+.sources {
+  padding: 12px 0 8px;
+}
+
+.topics {
+  padding: 0 0 12px;
+}
+
+.source,
+.topic {
+  flex: 0 0 auto;
+  height: 31px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #303034;
+  color: #c9c9cd;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.source.active {
+  background: #ef233c;
+  color: #fff;
+}
+
+.topic.active {
+  background: #f2f2f3;
+  color: #18181a;
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 3px 2px 12px;
+}
+
+.heading h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.heading span {
+  color: #85858b;
+  font-size: 11px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 22px 16px;
+}
+
+.channel-list,
+.playlist-list {
+  display: grid;
+  gap: 9px;
+}
+
+.channel-card,
+.playlist-card {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 20px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 0;
+  border-radius: 13px;
+  background: #2b2b2e;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.channel-card img,
+.channel-avatar,
+.playlist-card img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  background: #353539;
+}
+
+.channel-card img,
+.channel-avatar {
+  border-radius: 50%;
+}
+
+.playlist-card img {
+  border-radius: 8px;
+}
+
+.channel-avatar {
+  display: grid;
+  place-items: center;
+}
+
+.channel-copy,
+.playlist-copy {
+  min-width: 0;
+}
+
+.channel-copy strong,
+.channel-copy small,
+.playlist-copy strong,
+.playlist-copy small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.channel-copy strong,
+.playlist-copy strong {
+  font-size: 13.5px;
+}
+
+.channel-copy small,
+.playlist-copy small {
+  margin-top: 4px;
+  color: #8f8f95;
+  font-size: 11px;
+}
+
+.channel-card > :deep(svg),
+.playlist-card > :deep(svg) {
+  width: 18px;
+  height: 18px;
+  color: #7f7f85;
+}
+
+.state {
+  min-height: 240px;
+  display: grid;
+  place-items: center;
+  color: #8c8c92;
+  font-size: 13px;
+}
+
+@media (max-width: 680px) {
+  .home {
+    width: calc(100% - 10px);
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 21px;
+  }
+}
+</style>
+''')
+
+p = Path("src/pages/SearchPage.vue")
+p.write_text(r'''<template>
+  <main class="search-page">
+    <form class="form" @submit.prevent="submit">
+      <div class="box">
+        <Search/>
+        <input
+          ref="inputRef"
+          v-model="term"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
+          placeholder="Tìm video, bài hát, kênh..."
+        >
+        <button v-if="term" type="button" class="clear" @click="clear"><X/></button>
+      </div>
+
+      <nav class="sources" aria-label="Nguồn tìm kiếm">
+        <button
+          v-for="item in sources"
+          :key="item.id"
+          class="source"
+          :class="{ active: source === item.id }"
+          type="button"
+          @click="setSource(item.id)"
+        >
+          {{ item.label }}
+        </button>
+      </nav>
+    </form>
+
+    <div v-if="loading" class="state">Đang tìm…</div>
+
+    <template v-else-if="searched">
+      <router-link
+        v-for="channel in channels"
+        :key="channel.key"
+        class="channel-card"
+        :to="'/channel/' + encodeURIComponent(channel.key)"
+      >
+        <img v-if="channel.avatar" :src="channel.avatar" :alt="channel.name">
+        <span v-else class="avatar"><UserRound/></span>
+        <span class="channel-copy">
+          <strong>{{ channel.name }}</strong>
+          <small>{{ channel.meta }}</small>
+        </span>
+      </router-link>
+
+      <div v-if="playlists.length" class="playlist-list">
+        <button
+          v-for="playlist in playlists"
+          :key="playlist.key"
+          class="playlist"
+          type="button"
+          @click="openPlaylistAsSearch(playlist.title)"
+        >
+          <img v-if="playlist.thumbnail" :src="playlist.thumbnail" :alt="playlist.title">
+          <span>
+            <strong>{{ playlist.title }}</strong>
+            <small>{{ playlist.channel }}</small>
+          </span>
+        </button>
+      </div>
+
+      <div v-if="videos.length" class="result-list">
+        <router-link v-for="video in videos" :key="video.id" class="result" :to="'/watch/' + video.id">
+          <div class="thumb">
+            <img :src="video.thumbnail" :alt="video.title">
+            <span v-if="video.duration">{{ video.duration }}</span>
+          </div>
+          <div class="copy">
+            <strong>{{ video.title }}</strong>
+            <small>{{ video.channel }}</small>
+            <small>{{ video.views }}<template v-if="video.views && video.publishedAt"> · </template>{{ age(video.publishedAt) }}</small>
+          </div>
+        </router-link>
+      </div>
+
+      <div v-if="!channels.length && !playlists.length && !videos.length" class="state">
+        Không tìm thấy kết quả.
+      </div>
+    </template>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { Search, UserRound, X } from '@lucide/vue';
+import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const router = useRouter();
+
+type SourceId = 'latest' | 'video' | 'channels' | 'playlists' | 'shorts' | 'live';
+
+const sources: Array<{ id: SourceId; label: string }> = [
+  { id: 'latest', label: 'YouTube mới nhất' },
+  { id: 'video', label: 'Video' },
+  { id: 'channels', label: 'Kênh' },
+  { id: 'playlists', label: 'Playlist' },
+  { id: 'shorts', label: 'Shorts' },
+  { id: 'live', label: 'Live' }
+];
+
+const inputRef = ref<HTMLInputElement | null>(null);
+const term = ref('');
+const source = ref<SourceId>('latest');
+const searched = ref(false);
+const loading = ref(false);
+const channels = ref<any[]>([]);
+const playlists = ref<any[]>([]);
+const videos = ref<any[]>([]);
+const tick = ref(Date.now());
+let timer: number | undefined;
+let runSerial = 0;
+
+function idFrom(row: any) {
+  const raw = String(row?.videoId || row?.url || row?.id || '');
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || '';
+}
+
+function channelKey(row: any) {
+  const raw = String(row?.url || row?.channelUrl || row?.uploaderUrl || row?.id || '');
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(row?.name || row?.title || row?.uploaderName || row?.uploader || '');
+}
+
+function playlistKey(row: any) {
+  const raw = String(row?.url || row?.id || '');
+  return raw.match(/[?&]list=([A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/playlist\/([A-Za-z0-9_-]+)/)?.[1]
+    || raw;
+}
+
+function duration(value: any) {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+async function apiSearch(filter: string, q: string) {
+  const url = new URL(API);
+  url.searchParams.set('action', 'search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('filter', filter);
+  url.searchParams.set('_fresh', String(Date.now()));
+  const res = await fetch(url.toString(), { cache: 'no-store' });
+  const payload = await res.json();
+  return res.ok && payload?.ok !== false && Array.isArray(payload?.data?.items)
+    ? payload.data.items
+    : [];
+}
+
+function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+function mapChannels(rows: any[]) {
+  const seen = new Set<string>();
+  return rows.map((row: any) => {
+    const key = channelKey(row);
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    return {
+      key,
+      name: String(row?.name || row?.title || row?.uploaderName || row?.uploader || ''),
+      avatar: String(row?.thumbnail || row?.avatar || row?.thumbnailUrl || ''),
+      meta: row?.subscribers
+        ? formatCompactViews(row.subscribers).replace('lượt xem', 'người đăng ký')
+        : ''
+    };
+  }).filter(Boolean).slice(0, 12);
+}
+
+function mapPlaylists(rows: any[]) {
+  const seen = new Set<string>();
+  return rows.map((row: any) => {
+    const key = playlistKey(row);
+    if (!key || seen.has(key)) return null;
+    seen.add(key);
+    return {
+      key,
+      title: String(row?.name || row?.title || 'Playlist'),
+      channel: String(row?.uploaderName || row?.uploader || row?.channelName || ''),
+      thumbnail: String(row?.thumbnail || row?.thumbnailUrl || '')
+    };
+  }).filter(Boolean).slice(0, 20);
+}
+
+function mapVideos(rows: any[]) {
+  const seen = new Set<string>();
+  return rows.map((row: any) => {
+    const id = idFrom(row);
+    if (!id || seen.has(id)) return null;
+    seen.add(id);
+
+    const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+      row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+
+    return {
+      id,
+      title: String(row?.title || 'Video'),
+      channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+      thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+      duration: duration(row?.duration),
+      views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+      publishedAt: parsePublishedAt(published)
+    };
+  }).filter(Boolean).sort((a: any, b: any) => {
+    const at = a.publishedAt || 0;
+    const bt = b.publishedAt || 0;
+    if (at !== bt) {
+      if (!at) return 1;
+      if (!bt) return -1;
+      return bt - at;
+    }
+    return 0;
+  }).slice(0, 40);
+}
+
+async function run(q: string) {
+  q = q.trim();
+  if (!q) return;
+
+  const current = ++runSerial;
+  loading.value = true;
+  searched.value = true;
+  channels.value = [];
+  playlists.value = [];
+  videos.value = [];
+
+  try {
+    if (source.value === 'channels') {
+      channels.value = mapChannels(await apiSearch('channels', q));
+      return;
+    }
+
+    if (source.value === 'playlists') {
+      playlists.value = mapPlaylists(await apiSearch('playlists', q));
+      return;
+    }
+
+    if (source.value === 'shorts') {
+      videos.value = mapVideos(await apiSearch('videos', q + ' shorts'));
+      return;
+    }
+
+    if (source.value === 'live') {
+      videos.value = mapVideos(await apiSearch('videos', q + ' trực tiếp live'));
+      return;
+    }
+
+    if (source.value === 'video') {
+      videos.value = mapVideos(await apiSearch('videos', q));
+      return;
+    }
+
+    const [channelRows, videoRows] = await Promise.all([
+      apiSearch('channels', q),
+      apiSearch('videos', q)
+    ]);
+    if (current !== runSerial) return;
+
+    channels.value = mapChannels(channelRows).slice(0, 2);
+    videos.value = mapVideos(videoRows);
+  } finally {
+    if (current === runSerial) loading.value = false;
+  }
+}
+
+function submit() {
+  const q = term.value.trim();
+  if (!q) return;
+  router.replace({ path: '/search', query: { q, source: source.value } });
+  void run(q);
+}
+
+function clear() {
+  term.value = '';
+  searched.value = false;
+  channels.value = [];
+  playlists.value = [];
+  videos.value = [];
+  router.replace({ path: '/search', query: { source: source.value } });
+  nextTick(() => inputRef.value?.focus());
+}
+
+function setSource(value: SourceId) {
+  source.value = value;
+  router.replace({
+    path: '/search',
+    query: {
+      ...(term.value.trim() ? { q: term.value.trim() } : {}),
+      source: value
+    }
+  });
+  if (term.value.trim()) void run(term.value);
+}
+
+function openPlaylistAsSearch(title: string) {
+  term.value = title;
+  source.value = 'video';
+  router.replace({ path: '/search', query: { q: title, source: 'video' } });
+  void run(title);
+}
+
+onMounted(() => {
+  term.value = String(route.query.q || '');
+  const wanted = String(route.query.source || 'latest') as SourceId;
+  if (sources.some((item) => item.id === wanted)) source.value = wanted;
+
+  nextTick(() => inputRef.value?.focus());
+  if (term.value.trim()) void run(term.value);
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
+});
+
+onBeforeUnmount(() => {
+  if (timer !== undefined) clearInterval(timer);
+});
+
+watch(() => route.query.q, (q) => {
+  const next = String(q || '');
+  if (next !== term.value) {
+    term.value = next;
+    if (next.trim()) void run(next);
+  }
+});
+</script>
+
+<style scoped>
+.search-page {
+  width: min(900px, calc(100% - 12px));
+  margin: 0 auto;
+  padding: max(8px, env(safe-area-inset-top)) 0 28px;
+}
+
+.form {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding-bottom: 8px;
+  background: #212121;
+}
+
+.box {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px 0 13px;
+  border: 1px solid #3a3a3e;
+  border-radius: 14px;
+  background: #2b2b2e;
+}
+
+.box > :deep(svg) {
+  width: 19px;
+  height: 19px;
+  color: #8f8f95;
+}
+
+.box input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f5f5f5;
+}
+
+.clear {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #aaa;
+}
+
+.sources {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-top: 9px;
+  scrollbar-width: none;
+}
+
+.sources::-webkit-scrollbar {
+  display: none;
+}
+
+.source {
+  flex: 0 0 auto;
+  height: 31px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #303034;
+  color: #c9c9cd;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.source.active {
+  background: #ef233c;
+  color: #fff;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 5px 0 12px;
+  padding: 10px;
+  border-radius: 13px;
+  background: #2b2b2e;
+  text-decoration: none;
+}
+
+.channel-card img,
+.avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: #343438;
+  object-fit: cover;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+}
+
+.channel-copy {
+  min-width: 0;
+}
+
+.channel-copy strong,
+.channel-copy small {
+  display: block;
+}
+
+.channel-copy small {
+  margin-top: 4px;
+  color: #8e8e94;
+  font-size: 11px;
+}
+
+.playlist-list,
+.result-list {
+  display: grid;
+  gap: 12px;
+}
+
+.playlist {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.playlist img {
+  width: 90px;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  object-fit: cover;
+  background: #151515;
+}
+
+.playlist span {
+  min-width: 0;
+}
+
+.playlist strong,
+.playlist small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.playlist small {
+  margin-top: 4px;
+  color: #8f8f95;
+  font-size: 11px;
+}
+
+.result {
+  display: grid;
+  grid-template-columns: 42% minmax(0, 1fr);
+  gap: 10px;
+  text-decoration: none;
+}
+
+.thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #151515;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumb span {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.78);
+  font-size: 10px;
+}
+
+.copy {
+  min-width: 0;
+}
+
+.copy strong {
+  display: -webkit-box;
+  color: #f3f3f4;
+  font-size: 14px;
+  line-height: 1.35;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.copy small {
+  display: block;
+  margin-top: 4px;
+  color: #8f8f95;
+  font-size: 11px;
+}
+
+.state {
+  min-height: 260px;
+  display: grid;
+  place-items: center;
+  color: #8d8d92;
+  font-size: 13px;
+}
+</style>
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-58-new-ui-antizoom\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260924-59-sources-under-search\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
