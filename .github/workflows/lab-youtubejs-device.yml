@@ -145,6 +145,21 @@ jobs:
             sleep 1
           done
 
+      - name: Smoke test thin relay
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -sS -D /tmp/relay-h -o /tmp/relay-b \
+            -H "Authorization: Bearer $EDGE_KEY" \
+            -H "apikey: $EDGE_KEY" \
+            --get "$PROXY_BASE" \
+            --data-urlencode "__host=www.youtube.com" \
+            --data-urlencode "__path=/iframe_api" \
+            --data-urlencode "__headers=[]"
+          head -n 20 /tmp/relay-h
+          echo "BODY_BYTES=$(wc -c </tmp/relay-b)"
+          test "$(wc -c </tmp/relay-b)" -gt 100
+
       - name: Play exact regression video in Chrome
         shell: bash
         run: |
@@ -168,15 +183,15 @@ jobs:
             }
           });
 
-          await page.goto('http://127.0.0.1:4173/', {waitUntil:'domcontentloaded',timeout:60000});
-          await page.waitForSelector('form', {state:'visible',timeout:60000});
+          await page.goto('http://127.0.0.1:4173/', {waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForSelector('form', {state:'visible',timeout:25000});
           await page.locator('input[type=text]').fill('vhUjvanyu2U');
           await page.locator('input[type=submit]').click();
 
           await page.waitForFunction(() => {
             const t=document.querySelector('#title')?.textContent||'';
             return t && !/loading|error occurred/i.test(t);
-          }, null, {timeout:90000}).catch(()=>{});
+          }, null, {timeout:25000}).catch(()=>{});
 
           await page.evaluate(async()=>{
             const v=document.querySelector('#videoel');
@@ -188,7 +203,7 @@ jobs:
           const started = await page.waitForFunction(() => {
             const v=document.querySelector('#videoel');
             return !!v && v.readyState >= 2 && !v.paused && v.currentTime > 0.5;
-          }, null, {timeout:90000}).then(()=>true).catch(()=>false);
+          }, null, {timeout:25000}).then(()=>true).catch(()=>false);
 
           const state=await page.evaluate(()=>{
             const v=document.querySelector('#videoel');
@@ -209,7 +224,7 @@ jobs:
           if(!started) process.exit(2);
           JS
 
-          node /tmp/test.mjs
+          timeout 70s node /tmp/test.mjs
 
       - name: Dump Vite log
         if: always()
