@@ -1,5 +1,7 @@
 import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
 import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
+import { SabrStream } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/sabr-stream.js';
+import { buildSabrFormat } from 'https://cdn.jsdelivr.net/npm/googlevideo@4.1.1/dist/src/exports/utils.js';
 
 const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
 const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
@@ -188,6 +190,97 @@ function codecOf(format){
 
 function mimeBase(format){
   return String(format?.mime_type||'').split(';')[0]||'';
+}
+
+async function buildSabrPlayback(info,yt,id,poToken=''){
+  const sd=info?.streaming_data;
+  const rawServerUrl=String(sd?.server_abr_streaming_url||'');
+  if(!rawServerUrl)throw new Error('server_abr_streaming_url_missing');
+
+  const ustreamerConfig=String(
+    info?.player_config?.media_common_config?.media_ustreamer_request_config?.video_playback_ustreamer_config||
+    ''
+  );
+  if(!ustreamerConfig)throw new Error('ustreamer_config_missing');
+
+  let serverAbrStreamingUrl=rawServerUrl;
+  try{
+    if(yt?.session?.player){
+      yt.session.player.po_token=undefined;
+      serverAbrStreamingUrl=await yt.session.player.decipher(rawServerUrl);
+    }
+  }catch(error){
+    throw new Error('sabr_server_url_'+String(error?.message||error));
+  }
+
+  if(!serverAbrStreamingUrl)throw new Error('sabr_server_url_empty');
+
+  const formats=Array.from(sd?.adaptive_formats||[]).map(buildSabrFormat);
+  if(!formats.length)throw new Error('sabr_formats_missing');
+
+  const sabrStream=new SabrStream({
+    formats,
+    serverAbrStreamingUrl,
+    videoPlaybackUstreamerConfig:ustreamerConfig,
+    poToken:poToken||undefined,
+    clientInfo:{
+      clientName:7,
+      clientVersion:'7.20260311.12.00'
+    },
+    durationMs:Number(info?.basic_info?.duration||0)*1000||undefined,
+    fetch:proxyFetch
+  });
+
+  const pickVideo=(rows)=>{
+    const list=rows
+      .filter(row=>/video\/mp4/i.test(row?.mimeType||'')&&/avc1/i.test(row?.mimeType||''))
+      .sort((a,b)=>{
+        const ah=Number(a?.height)||0;
+        const bh=Number(b?.height)||0;
+        const aFit=ah<=720?1:0;
+        const bFit=bh<=720?1:0;
+        if(aFit!==bFit)return bFit-aFit;
+        return bh-ah;
+      });
+    return list[0];
+  };
+
+  const pickAudio=(rows)=>{
+    const list=rows
+      .filter(row=>/audio\/mp4/i.test(row?.mimeType||'')&&/mp4a/i.test(row?.mimeType||''))
+      .sort((a,b)=>{
+        const ao=a?.isOriginal?1:0;
+        const bo=b?.isOriginal?1:0;
+        if(ao!==bo)return bo-ao;
+        const ad=a?.isDrc?0:1;
+        const bd=b?.isDrc?0:1;
+        if(ad!==bd)return bd-ad;
+        return (Number(b?.bitrate)||0)-(Number(a?.bitrate)||0);
+      });
+    return list[0];
+  };
+
+  const started=await sabrStream.start({
+    videoFormat:pickVideo,
+    audioFormat:pickAudio,
+    preferMP4:true,
+    preferH264:true,
+    maxRetries:4,
+    stallDetectionMs:20000
+  });
+
+  if(!started?.videoStream||!started?.audioStream){
+    try{sabrStream.abort();}catch{}
+    throw new Error('sabr_stream_start_failed');
+  }
+
+  return {
+    sabrStream,
+    videoStream:started.videoStream,
+    audioStream:started.audioStream,
+    selectedFormats:started.selectedFormats,
+    serverAbrStreamingUrl
+  };
 }
 
 async function buildManualDash(info,player,poToken=''){
@@ -451,10 +544,48 @@ async function resolve(id,onAttempt=()=>{}){
           }
         }
 
+        // 3) SABR path: newer YouTube responses may expose adaptive formats
+        // without individual media URLs. In that case use the server ABR
+        // endpoint and googlevideo's SabrStream instead of deciphering each format.
+        if(attempt.label.startsWith('TV-auth') &&
+           /No valid URL to decipher|adaptive_pair_unavailable|adaptive_mp4_pair_not_found/i.test(String(diag.dashError||''))){
+          try{
+            const sabr=await buildSabrPlayback(info,yt,id,contentPoToken);
+            diag.sabr='ready';
+            return {
+              mode:'sabr',
+              client:attempt.label,
+              mimeType:'video/mp4 + audio/mp4',
+              quality:String(sabr?.selectedFormats?.videoFormat?.qualityLabel||'adaptive'),
+              hasAudio:true,
+              videoItag:sabr?.selectedFormats?.videoFormat?.itag,
+              audioItag:sabr?.selectedFormats?.audioFormat?.itag,
+              sabrStream:sabr.sabrStream,
+              videoStream:sabr.videoStream,
+              audioStream:sabr.audioStream,
+              selectedFormats:sabr.selectedFormats,
+              probe:{
+                ok:true,
+                status:200,
+                type:'application/vnd.yt-ump',
+                range:'SABR'
+              },
+              meta:firstMeta||{
+                title:String(info?.basic_info?.title||''),
+                author:String(info?.basic_info?.author||'')
+              },
+              diagnostics
+            };
+          }catch(error){
+            lastError=error;
+            diag.sabrError=String(error?.message||error);
+          }
+        }
+
         // If authenticated TV already returned real formats, don't hide the
         // media failure by falling through to unrelated Android client errors.
         if(attempt.label.startsWith('TV-auth')){
-          const error=new Error(diag.dashError||diag.progressiveError||'TV adaptive streams unavailable');
+          const error=new Error(diag.sabrError||diag.dashError||diag.progressiveError||'TV adaptive streams unavailable');
           error.diagnostics=diagnostics;
           throw error;
         }
