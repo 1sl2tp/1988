@@ -80,6 +80,7 @@ jobs:
           python -m py_compile backend/ytdlp/server.py
           node --check src/media-core.js
           node --check src/app.js
+          node --check src/yt-local.js
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
