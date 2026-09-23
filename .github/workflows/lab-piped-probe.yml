@@ -87,22 +87,28 @@ jobs:
         shell: bash
         run: |
           set -e
-          curl -fsSL --max-time 20             https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/socks5.txt             | sed '/^$/d' | head -80 > /tmp/proxies.txt
+          curl -fsSL --max-time 20 \
+            https://raw.githubusercontent.com/proxmint/free-proxy-list/main/proxies/socks5.txt \
+            -o /tmp/all-proxies.txt
+          grep -v '^$' /tmp/all-proxies.txt | head -80 > /tmp/proxies.txt || true
           echo "candidates=$(wc -l < /tmp/proxies.txt)"
           : > /tmp/good.txt
           while read -r P; do
             (
-              CODE=$(curl -sS --socks5-hostname "$P" --connect-timeout 2 --max-time 5                 -A 'Mozilla/5.0' -o /tmp/body.$$ -w '%{http_code}'                 'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
-              SIZE=$(wc -c < /tmp/body.$$ 2>/dev/null || echo 0)
+              BODY=$(mktemp)
+              CODE=$(curl -sS --socks5-hostname "$P" --connect-timeout 2 --max-time 5 \
+                -A 'Mozilla/5.0' -o "$BODY" -w '%{http_code}' \
+                'https://www.youtube.com/watch?v=vhUjvanyu2U' || true)
+              SIZE=$(wc -c < "$BODY" 2>/dev/null || echo 0)
               if [ "$CODE" = "200" ] && [ "$SIZE" -gt 10000 ]; then
                 echo "$P" >> /tmp/good.txt
                 echo "LIVE|$P|HTTP=$CODE|SIZE=$SIZE"
               fi
-              rm -f /tmp/body.$$
+              rm -f "$BODY"
             ) &
           done < /tmp/proxies.txt
           wait
-          awk '!seen[$0]++' /tmp/good.txt | head -10 > /tmp/selected.txt
+          awk '!seen[$0]++' /tmp/good.txt | head -10 > /tmp/selected.txt || true
           echo '=== selected ==='
           cat /tmp/selected.txt
           test -s /tmp/selected.txt
