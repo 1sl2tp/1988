@@ -1,0 +1,210 @@
+name: Lab Current Kira SABR Path
+
+on:
+  push:
+    branches:
+      - lab/kira-sabr-20260923
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GOOGLEVIDEO_COMMIT: 58f92b7ba8fc252a510963f003088279a00d4ab0
+      PROXY_BASE: https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy
+    steps:
+      - name: Clone current official SABR example
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git clone https://github.com/LuanRT/googlevideo.git /tmp/googlevideo
+          cd /tmp/googlevideo
+          git checkout "$GOOGLEVIDEO_COMMIT"
+          cd examples/sabr-shaka-example
+          npm ci
+          npm install --no-save playwright
+
+      - name: Use Kira mobile proxy fallback
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import os
+
+          root=Path('/tmp/googlevideo/examples/sabr-shaka-example')
+          proxy=os.environ['PROXY_BASE']
+
+          # 1) Current SABR example normally requires ytc-bridge.
+          # On mobile Kira falls back to a proxy server. Use that same path.
+          main=root/'src/main.ts'
+          s=main.read_text()
+          old='''  if (!checkExtension()) {
+              throw new Error('This application requires the "ytc-bridge" browser extension to function. This extension is needed to communicate with YouTube\\'s internal APIs by bypassing browser security restrictions (like CORS) that would otherwise block requests. Please install the extension from https://github.com/LuanRT/ytc-bridge and then reload the page.');
+            }
+          '''
+          if old not in s:
+              raise SystemExit('extension guard not found')
+          s=s.replace(old, '''  // Mobile/PWA path: use Kira-compatible proxy fallback instead of ytc-bridge.\n''')
+          main.write_text(s)
+
+          # 2) Replace only fetchFunction with Kira-style fallback, adapted to
+          # Supabase's function path via __path.
+          helpers=root/'src/helpers.ts'
+          s=helpers.read_text()
+          a=s.index('export async function fetchFunction(')
+          b=s.index('\nexport function asMap', a)
+          replacement=f'''export async function fetchFunction(input: string | Request | URL, init?: RequestInit): Promise<Response> {{
+            const url = input instanceof URL ? new URL(input.toString()) : new URL(typeof input === 'string' ? input : input.url);
+            const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
+            const requestInit = {{ ...init, headers }};
+
+            const proxy = new URL("{proxy}");
+            proxy.searchParams.set('__path', url.pathname);
+            url.searchParams.forEach((value, key) => proxy.searchParams.append(key, value));
+            proxy.searchParams.set('__headers', JSON.stringify([ ...headers ]));
+            proxy.searchParams.set('__host', url.host);
+
+            const request = new Request(proxy, input instanceof Request ? input : undefined);
+            headers.delete('user-agent');
+
+            return fetch(request, requestInit);
+          }}
+          '''
+          s=s[:a]+replacement+s[b:]
+          helpers.write_text(s)
+
+          # 3) Current Shaka adapter uses native fetch. Kira's mobile path
+          # proxies GoogleVideo/YouTube traffic when the extension is absent.
+          adapter=root/'src/ShakaPlayerAdapter.ts'
+          s=adapter.read_text()
+          s=s.replace(
+            '''  asMap, checkExtension,
+              createRecoverableError,
+              getInjectedProxyFunction,
+              headersToGenericObject,
+              makeResponse
+            } from './helpers.js';''',
+            '''  asMap, checkExtension,
+              createRecoverableError,
+              fetchFunction,
+              getInjectedProxyFunction,
+              headersToGenericObject,
+              makeResponse
+            } from './helpers.js';'''
+          )
+          old_line="      const fetchFn = uri.includes('get_drm_license') && checkExtension() ? getInjectedProxyFunction() : fetch;"
+          new_line="      const fetchFn = checkExtension() ? (uri.includes('get_drm_license') ? getInjectedProxyFunction() : fetch) : fetchFunction;"
+          if old_line not in s:
+              raise SystemExit('Shaka fetch line not found')
+          s=s.replace(old_line,new_line)
+          adapter.write_text(s)
+
+          # Exact regression video.
+          index=root/'index.html'
+          s=index.read_text().replace('value="K04WmBtVsOs"','value="vhUjvanyu2U"')
+          index.write_text(s)
+          PY
+
+          cd /tmp/googlevideo/examples/sabr-shaka-example
+          npx vite build
+
+      - name: Serve proof
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd /tmp/googlevideo/examples/sabr-shaka-example
+          nohup npm run dev -- --host 127.0.0.1 --port 4173 >/tmp/kira-vite.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:4173/ >/dev/null 2>&1 && break
+            sleep 1
+          done
+
+      - name: Play exact video through current SABR stack
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat >/tmp/kira-test.mjs <<'JS'
+          import { chromium } from '/tmp/googlevideo/examples/sabr-shaka-example/node_modules/playwright/index.mjs';
+
+          const browser = await chromium.launch({
+            headless: true,
+            executablePath: '/usr/bin/google-chrome',
+            args: [
+              '--no-sandbox',
+              '--disable-dev-shm-usage',
+              '--autoplay-policy=no-user-gesture-required'
+            ]
+          });
+
+          const page = await browser.newPage();
+          page.on('console', msg => console.log('CONSOLE', msg.type(), msg.text()));
+          page.on('pageerror', err => console.log('PAGEERROR', err.message));
+          page.on('response', res => {
+            const u=res.url();
+            if (u.includes('yt-browser-proxy') || u.includes('googlevideo') || u.includes('youtubei')) {
+              console.log('RESP', res.status(), u.slice(0,320));
+            }
+          });
+
+          await page.goto('http://127.0.0.1:4173/', {
+            waitUntil:'domcontentloaded',
+            timeout:30000
+          });
+
+          await page.waitForFunction(() => {
+            const b=document.querySelector('#loadButton');
+            return b && !b.disabled;
+          }, null, {timeout:30000});
+
+          await page.locator('#videoIdInput').fill('vhUjvanyu2U');
+          await page.locator('#loadButton').click();
+
+          const outcome = await page.waitForFunction(() => {
+            const status=document.querySelector('#status')?.textContent || '';
+            const v=document.querySelector('#video');
+            if (status.startsWith('Error:')) return {kind:'error',status};
+            if (status.startsWith('Playing:') || (v && v.readyState >= 2 && v.currentTime > 0.5)) {
+              return {
+                kind:'playing',
+                status,
+                currentTime:v?.currentTime ?? -1,
+                readyState:v?.readyState ?? -1,
+                paused:v?.paused ?? true,
+                width:v?.videoWidth ?? 0,
+                height:v?.videoHeight ?? 0
+              };
+            }
+            return false;
+          }, null, {timeout:60000}).then(h=>h.jsonValue()).catch(()=>null);
+
+          console.log('OUTCOME='+JSON.stringify(outcome));
+
+          if (!outcome || outcome.kind !== 'playing') {
+            const finalState = await page.evaluate(() => {
+              const v=document.querySelector('#video');
+              return {
+                status:document.querySelector('#status')?.textContent || '',
+                currentTime:v?.currentTime ?? -1,
+                readyState:v?.readyState ?? -1,
+                paused:v?.paused ?? true,
+                error:v?.error ? {code:v.error.code,message:v.error.message} : null
+              };
+            });
+            console.log('FINAL_STATE='+JSON.stringify(finalState));
+            await browser.close();
+            process.exit(2);
+          }
+
+          await browser.close();
+          JS
+
+          timeout 80s node /tmp/kira-test.mjs
+
+      - name: Dump log
+        if: always()
+        run: tail -n 200 /tmp/kira-vite.log || true
