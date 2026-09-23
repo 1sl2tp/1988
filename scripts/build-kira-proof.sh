@@ -2537,10 +2537,926 @@ s += r'''
 '''
 p.write_text(s)
 
+
+# Dedicated Enter-only search page and real channel page.
+p = Path("src/pages/SearchPage.vue")
+p.write_text(r'''<style scoped>
+.search-page {
+  width: min(1080px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 18px 0 32px;
+  color: #f4f4f4;
+}
+
+.search-heading {
+  margin: 0 0 14px;
+  font-size: 20px;
+  font-weight: 650;
+  text-align: left;
+}
+
+.section-title {
+  margin: 22px 0 12px;
+  font-size: 15px;
+  font-weight: 650;
+  color: #d8d8d8;
+  text-align: left;
+}
+
+.channel-list {
+  display: grid;
+  gap: 8px;
+}
+
+.channel-card {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: #252525;
+  color: inherit;
+  text-decoration: none;
+  transition: background .15s ease;
+}
+
+.channel-card:hover { background: #2c2c2c; }
+
+.channel-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #333;
+}
+
+.channel-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #ddd;
+}
+
+.channel-name {
+  font-size: 15px;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-meta,
+.channel-desc {
+  margin-top: 3px;
+  color: #969696;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.channel-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.channel-arrow {
+  color: #888;
+  font-size: 18px;
+}
+
+.video-list {
+  display: grid;
+  gap: 11px;
+}
+
+.video-row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.thumb-wrap {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #303030;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.8);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.video-copy {
+  min-width: 0;
+  text-align: left;
+  padding-top: 2px;
+}
+
+.video-title {
+  margin: 0 0 6px;
+  color: #f2f2f2;
+  font-size: 15px;
+  line-height: 1.34;
+  font-weight: 650;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-channel {
+  color: #aaa;
+  font-size: 12px;
+  margin-bottom: 3px;
+}
+
+.video-meta {
+  color: #858585;
+  font-size: 12px;
+}
+
+.state {
+  padding: 48px 12px;
+  color: #929292;
+  text-align: center;
+}
+
+@media (max-width: 680px) {
+  .search-page {
+    width: calc(100% - 18px);
+    padding-top: 10px;
+  }
+
+  .search-heading {
+    font-size: 18px;
+    margin-bottom: 10px;
+  }
+
+  .channel-card {
+    grid-template-columns: 52px minmax(0, 1fr) auto;
+    padding: 9px 10px;
+  }
+
+  .channel-avatar {
+    width: 46px;
+    height: 46px;
+  }
+
+  .video-row {
+    grid-template-columns: 42% minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .video-title {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .video-channel,
+  .video-meta {
+    font-size: 11px;
+  }
+}
+</style>
+
+<template>
+  <main class="search-page">
+    <h1 class="search-heading">Kết quả cho “{{ query }}”</h1>
+
+    <div v-if="loading" class="state">Đang tìm…</div>
+
+    <template v-else>
+      <template v-if="channels.length">
+        <h2 class="section-title">Kênh</h2>
+        <div class="channel-list">
+          <router-link
+            v-for="channel in channels"
+            :key="channel.key"
+            class="channel-card"
+            :to="'/channel/' + encodeURIComponent(channel.key)"
+          >
+            <img
+              v-if="channel.avatar"
+              class="channel-avatar"
+              :src="channel.avatar"
+              :alt="channel.name"
+              loading="lazy"
+            >
+            <div v-else class="channel-avatar placeholder">{{ channel.name.slice(0, 1).toUpperCase() }}</div>
+
+            <div>
+              <div class="channel-name">{{ channel.name }}</div>
+              <div v-if="channel.meta" class="channel-meta">{{ channel.meta }}</div>
+              <div v-if="channel.description" class="channel-desc">{{ channel.description }}</div>
+            </div>
+            <div class="channel-arrow">›</div>
+          </router-link>
+        </div>
+      </template>
+
+      <template v-if="videos.length">
+        <h2 class="section-title">Video</h2>
+        <div class="video-list">
+          <router-link
+            v-for="video in videos"
+            :key="video.id"
+            class="video-row"
+            :to="'/watch/' + video.id"
+          >
+            <div class="thumb-wrap">
+              <img class="thumb" :src="video.thumbnail" :alt="video.title" loading="lazy" decoding="async">
+              <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+            </div>
+            <div class="video-copy">
+              <h3 class="video-title">{{ video.title }}</h3>
+              <div class="video-channel">{{ video.channel }}</div>
+              <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+            </div>
+          </router-link>
+        </div>
+      </template>
+
+      <div v-if="!channels.length && !videos.length" class="state">Không tìm thấy kết quả phù hợp.</div>
+    </template>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+
+type ChannelRow = {
+  key: string;
+  name: string;
+  avatar: string;
+  meta: string;
+  description: string;
+};
+
+type VideoRow = {
+  id: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: string;
+  meta: string;
+};
+
+const query = ref('');
+const loading = ref(false);
+const channels = ref<ChannelRow[]>([]);
+const videos = ref<VideoRow[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const m = raw.match(re);
+    if (m?.[1]) return m[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+    : m + ':' + String(s).padStart(2, '0');
+}
+
+function channelKey(row: any): string {
+  const raw = String(row?.url || row?.channelUrl || row?.uploaderUrl || row?.id || '').trim();
+  const id = raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1];
+  if (id) return id;
+  const user = raw.match(/\/(?:user|c)\/([^/?#]+)/)?.[1];
+  if (user) return decodeURIComponent(user);
+  const handle = raw.match(/\/(@[^/?#]+)/)?.[1];
+  if (handle) return decodeURIComponent(handle);
+  return String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+}
+
+function isChannel(row: any) {
+  const type = String(row?.type || row?.itemType || '').toLowerCase();
+  const raw = String(row?.url || row?.id || '');
+  return type.includes('channel') || /\/channel\/|\/user\/|\/@/.test(raw);
+}
+
+function toChannel(row: any): ChannelRow | null {
+  const key = channelKey(row);
+  const name = String(row?.name || row?.title || row?.uploaderName || row?.uploader || '').trim();
+  if (!key || !name) return null;
+
+  const subscribers = row?.subscribers ?? row?.subscriberCount ?? '';
+  const videosCount = row?.videos ?? row?.videoCount ?? '';
+  const meta = [
+    subscribers ? formatCompactViews(subscribers).replace(' views', ' người đăng ký') : '',
+    videosCount ? Number(videosCount).toLocaleString('vi-VN') + ' video' : ''
+  ].filter(Boolean).join(' · ');
+
+  return {
+    key,
+    name,
+    avatar: String(row?.thumbnail || row?.avatar || row?.thumbnailUrl || '').trim(),
+    meta,
+    description: String(row?.description || '').trim()
+  };
+}
+
+function toVideo(row: any): VideoRow | null {
+  const id = videoId(row);
+  if (!id) return null;
+  const title = String(row?.title || 'Video').trim();
+  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube').trim();
+  const meta = [
+    formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+    formatRelativeTime(row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ?? row?.publishedAt ?? row?.published ?? row?.publishedText)
+  ].filter(Boolean).join(' · ');
+
+  return {
+    id,
+    title,
+    channel,
+    thumbnail: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg',
+    duration: durationText(row?.duration),
+    meta
+  };
+}
+
+async function search() {
+  const q = String(route.query.q || '').trim();
+  query.value = q;
+  channels.value = [];
+  videos.value = [];
+  if (!q) return;
+
+  loading.value = true;
+  try {
+    const makeUrl = (filter: string) => {
+      const url = new URL(API);
+      url.searchParams.set('action', 'search');
+      url.searchParams.set('q', q);
+      url.searchParams.set('filter', filter);
+      return url.toString();
+    };
+
+    const [allRes, videoRes] = await Promise.allSettled([
+      fetch(makeUrl('all'), { cache: 'default' }).then(r => r.json()),
+      fetch(makeUrl('videos'), { cache: 'default' }).then(r => r.json())
+    ]);
+
+    const allRows = allRes.status === 'fulfilled'
+      ? (Array.isArray(allRes.value?.data?.items) ? allRes.value.data.items : [])
+      : [];
+    const videoRows = videoRes.status === 'fulfilled'
+      ? (Array.isArray(videoRes.value?.data?.items) ? videoRes.value.data.items : [])
+      : [];
+
+    const channelSeen = new Set<string>();
+    channels.value = allRows
+      .filter(isChannel)
+      .map(toChannel)
+      .filter((row: ChannelRow | null): row is ChannelRow => {
+        if (!row || channelSeen.has(row.key)) return false;
+        channelSeen.add(row.key);
+        return true;
+      })
+      .slice(0, 4);
+
+    const seen = new Set<string>();
+    videos.value = [...videoRows, ...allRows]
+      .map(toVideo)
+      .filter((row: VideoRow | null): row is VideoRow => {
+        if (!row || seen.has(row.id)) return false;
+        seen.add(row.id);
+        return true;
+      })
+      .slice(0, 30);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(search);
+watch(() => route.query.q, search);
+</script>
+''')
+
+p = Path("src/pages/ChannelPage.vue")
+p.write_text(r'''<style scoped>
+.channel-page {
+  width: min(1080px, calc(100% - 28px));
+  margin: 0 auto;
+  padding: 16px 0 32px;
+  color: #f3f3f3;
+}
+
+.channel-head {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 15px;
+  align-items: center;
+  padding: 14px;
+  border-radius: 14px;
+  background: #252525;
+  margin-bottom: 18px;
+}
+
+.avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #333;
+}
+
+.avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.name {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.meta {
+  margin-top: 5px;
+  color: #999;
+  font-size: 13px;
+}
+
+.description {
+  margin-top: 6px;
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px 14px;
+}
+
+.video-card {
+  color: inherit;
+  text-decoration: none;
+}
+
+.thumb-wrap {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 9px;
+  overflow: hidden;
+  background: #303030;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.8);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.title {
+  margin: 7px 1px 0;
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 650;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.video-meta {
+  margin: 3px 1px 0;
+  color: #888;
+  font-size: 12px;
+}
+
+.state {
+  padding: 52px 12px;
+  text-align: center;
+  color: #929292;
+}
+
+@media (max-width: 680px) {
+  .channel-page { width: calc(100% - 18px); padding-top: 10px; }
+  .channel-head { grid-template-columns: 62px 1fr; padding: 10px; }
+  .avatar { width: 58px; height: 58px; }
+  .name { font-size: 19px; }
+  .video-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px 8px; }
+  .title { font-size: 13px; }
+  .video-meta { font-size: 11px; }
+}
+</style>
+
+<template>
+  <main class="channel-page">
+    <div v-if="loading" class="state">Đang tải kênh…</div>
+    <template v-else-if="channel">
+      <section class="channel-head">
+        <img v-if="channel.avatar" class="avatar" :src="channel.avatar" :alt="channel.name">
+        <div v-else class="avatar placeholder">{{ channel.name.slice(0, 1).toUpperCase() }}</div>
+        <div>
+          <h1 class="name">{{ channel.name }}</h1>
+          <div v-if="channel.meta" class="meta">{{ channel.meta }}</div>
+          <div v-if="channel.description" class="description">{{ channel.description }}</div>
+        </div>
+      </section>
+
+      <div class="video-grid">
+        <router-link
+          v-for="video in videos"
+          :key="video.id"
+          class="video-card"
+          :to="'/watch/' + video.id"
+        >
+          <div class="thumb-wrap">
+            <img class="thumb" :src="video.thumbnail" :alt="video.title" loading="lazy">
+            <span v-if="video.duration" class="duration">{{ video.duration }}</span>
+          </div>
+          <h3 class="title">{{ video.title }}</h3>
+          <div v-if="video.meta" class="video-meta">{{ video.meta }}</div>
+        </router-link>
+      </div>
+    </template>
+    <div v-else class="state">Không tải được kênh này.</div>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+
+const loading = ref(false);
+const channel = ref<any>(null);
+const videos = ref<any[]>([]);
+
+function videoId(row: any): string {
+  const raw = String(row?.videoId || row?.url || row?.id || '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  for (const re of [
+    /[?&]v=([A-Za-z0-9_-]{11})/,
+    /youtu\.be\/([A-Za-z0-9_-]{11})/,
+    /\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/,
+    /([A-Za-z0-9_-]{11})$/
+  ]) {
+    const m = raw.match(re);
+    if (m?.[1]) return m[1];
+  }
+  return '';
+}
+
+function durationText(value: any): string {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0')
+    : m + ':' + String(s).padStart(2, '0');
+}
+
+function resolveChannelId(row: any): string {
+  const raw = String(row?.url || row?.id || '').trim();
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1] || '';
+}
+
+async function fetchJson(url: URL) {
+  const res = await fetch(url.toString(), { cache: 'default' });
+  const payload = await res.json();
+  if (!res.ok || payload?.ok === false) throw new Error(payload?.error || 'request_failed');
+  return payload;
+}
+
+async function resolveKey(key: string): Promise<string> {
+  if (/^UC[A-Za-z0-9_-]+$/.test(key)) return key;
+
+  const search = new URL(API);
+  search.searchParams.set('action', 'search');
+  search.searchParams.set('q', key.replace(/^@/, ''));
+  search.searchParams.set('filter', 'channels');
+  const payload = await fetchJson(search);
+  const rows = Array.isArray(payload?.data?.items) ? payload.data.items : [];
+  for (const row of rows) {
+    const id = resolveChannelId(row);
+    if (id) return id;
+  }
+  return '';
+}
+
+async function load() {
+  const key = decodeURIComponent(String(route.params.id || '')).trim();
+  if (!key) return;
+
+  loading.value = true;
+  channel.value = null;
+  videos.value = [];
+
+  try {
+    const id = await resolveKey(key);
+    if (!id) throw new Error('channel_not_found');
+
+    const url = new URL(API);
+    url.searchParams.set('action', 'channel');
+    url.searchParams.set('id', id);
+    const payload = await fetchJson(url);
+    const data = payload?.data || {};
+
+    const name = String(data?.name || data?.channelName || data?.title || key).trim();
+    const subscribers = data?.subscriberCount ?? data?.subscribers ?? '';
+    const description = String(data?.description || '').trim();
+
+    channel.value = {
+      name,
+      avatar: String(data?.avatarUrl || data?.thumbnail || data?.avatar || '').trim(),
+      meta: subscribers ? formatCompactViews(subscribers).replace(' views', ' người đăng ký') : '',
+      description
+    };
+
+    const rows = Array.isArray(data?.relatedStreams)
+      ? data.relatedStreams
+      : (Array.isArray(data?.items) ? data.items : []);
+
+    const seen = new Set<string>();
+    videos.value = rows.map((row: any) => {
+      const vid = videoId(row);
+      if (!vid || seen.has(vid)) return null;
+      seen.add(vid);
+      return {
+        id: vid,
+        title: String(row?.title || 'Video'),
+        thumbnail: 'https://i.ytimg.com/vi/' + vid + '/mqdefault.jpg',
+        duration: durationText(row?.duration),
+        meta: [
+          formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+          formatRelativeTime(row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ?? row?.publishedAt ?? row?.published ?? row?.publishedText)
+        ].filter(Boolean).join(' · ')
+      };
+    }).filter(Boolean).slice(0, 40);
+  } catch (error) {
+    console.error('channel page', error);
+  } finally {
+    loading.value = false;
+  }
+}
+
+onMounted(load);
+watch(() => route.params.id, load);
+</script>
+''')
+
+# Add routes.
+p = Path("src/router.ts")
+s = p.read_text()
+if "SearchPage" not in s:
+    s = s.replace(
+        "import WatchPage from './pages/WatchPage.vue';",
+        "import WatchPage from './pages/WatchPage.vue';\nimport SearchPage from './pages/SearchPage.vue';\nimport ChannelPage from './pages/ChannelPage.vue';"
+    )
+    s = s.replace(
+        """    {
+      path: '/watch/:id',
+      component: WatchPage
+    }""",
+        """    {
+      path: '/watch/:id',
+      component: WatchPage
+    },
+    {
+      path: '/search',
+      component: SearchPage
+    },
+    {
+      path: '/channel/:id',
+      component: ChannelPage
+    }"""
+    )
+p.write_text(s)
+
+# Search box: no live suggestions, Enter navigates to results page.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace('          @input="handleSearch"\n', '')
+s = s.replace('          @keydown.down.prevent="navigateResults(\'down\')"\n', '')
+s = s.replace('          @keydown.up.prevent="navigateResults(\'up\')"\n', '')
+s = s.replace('          @keydown.enter="selectHighlightedVideo"\n', '          @keydown.enter.prevent="submitSearch"\n')
+s = s.replace('<div v-if="searchQuery && !isLoading" class="clear-search" @click="clearSearch">×</div>', '<div v-if="searchQuery" class="clear-search" @click="clearSearch">×</div>')
+s = re.sub(r'\n      <div v-if="searchResults\.length" class="search-results">[\s\S]*?\n      <div v-else-if="searchQuery && !isLoading" class="empty-results">[\s\S]*?</div>\n', '\n', s, count=1)
+
+if "function submitSearch()" not in s:
+    s = s.replace(
+        "function clearSearch() {\n",
+        """function submitSearch() {
+  const query = searchQuery.value.trim();
+  if (!query) return;
+  router.push({ path: '/search', query: { q: query } });
+}
+
+function clearSearch() {
+"""
+    )
+
+# No live-search debounce work at all.
+s = s.replace("const handleSearch = useDebounce(performSearch, 90);", "const handleSearch = () => {};")
+p.write_text(s)
+
+# Watch page: real channel link from native browse id or fallback uploaderUrl/name.
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+
+s = s.replace(
+    "import { onMounted, onUnmounted, ref, watch } from 'vue';",
+    "import { computed, onMounted, onUnmounted, ref, watch } from 'vue';"
+)
+
+if "const channelKey = ref('');" not in s:
+    s = s.replace(
+        "const videoDetails = ref<VideoDetails | undefined>();",
+        """const videoDetails = ref<VideoDetails | undefined>();
+const channelKey = ref('');
+const channelTarget = computed(() => channelKey.value ? '/channel/' + encodeURIComponent(channelKey.value) : '');
+"""
+    )
+
+# Native channel id if available.
+native_anchor = """    videoDetails.value = {
+      title: videoPrimaryInfo?.title.toString() || '',"""
+if native_anchor in s and "nativeAuthor" not in s:
+    s = s.replace(
+        native_anchor,
+        """    const nativeAuthor: any = videoSecondaryInfo?.owner?.author;
+    channelKey.value = String(
+      nativeAuthor?.id ||
+      nativeAuthor?.channel_id ||
+      nativeAuthor?.endpoint?.payload?.browseId ||
+      nativeAuthor?.endpoint?.payload?.browse_id ||
+      ''
+    );
+
+    videoDetails.value = {
+      title: videoPrimaryInfo?.title.toString() || '',"""
+    )
+
+# Fallback channel link resolver.
+fallback_anchor = """  const subscriberCount = Number(data?.subscriberCount || data?.subscribers || 0);
+  const viewCount = Number(data?.views || 0);
+
+  videoDetails.value = {"""
+if fallback_anchor in s:
+    s = s.replace(
+        fallback_anchor,
+        """  const subscriberCount = Number(data?.subscriberCount || data?.subscribers || 0);
+  const viewCount = Number(data?.views || 0);
+
+  const uploaderUrl = String(data?.uploaderUrl || '');
+  const channelMatch = uploaderUrl.match(/\/channel\/(UC[A-Za-z0-9_-]+)/);
+  const handleMatch = uploaderUrl.match(/\/(@[^/?#]+)/);
+  channelKey.value = channelMatch?.[1] || (handleMatch?.[1] ? decodeURIComponent(handleMatch[1]) : String(data?.uploader || data?.uploaderName || ''));
+
+  videoDetails.value = {"""
+    )
+
+# Clear channel when switching videos.
+s = s.replace(
+    "  videoDetails.value = undefined;\n  document.title = 'Loading... - Kira';",
+    "  videoDetails.value = undefined;\n  channelKey.value = '';\n  document.title = 'Loading... - Kira';"
+)
+
+# Clickable channel row.
+old = """          <div class="channel-info">
+            <img
+              v-if="videoDetails.channelAvatar"
+              :src="videoDetails.channelAvatar"
+              class="channel-avatar"
+              alt="Channel avatar"
+              @error="videoDetails.channelAvatar = ''"
+            >
+            <div v-else class="channel-avatar channel-avatar-placeholder" aria-hidden="true">
+              {{ (videoDetails.channelName || 'Y').slice(0, 1).toUpperCase() }}
+            </div>
+            <div class="channel-details">
+              <h3 class="channel-name">{{ videoDetails.channelName }}</h3>
+              <span class="subscriber-count">{{ videoDetails.subscribers }}</span>
+            </div>
+          </div>"""
+new = """          <router-link v-if="channelTarget" class="channel-info channel-link" :to="channelTarget">
+            <img
+              v-if="videoDetails.channelAvatar"
+              :src="videoDetails.channelAvatar"
+              class="channel-avatar"
+              alt="Channel avatar"
+              @error="videoDetails.channelAvatar = ''"
+            >
+            <div v-else class="channel-avatar channel-avatar-placeholder" aria-hidden="true">
+              {{ (videoDetails.channelName || 'Y').slice(0, 1).toUpperCase() }}
+            </div>
+            <div class="channel-details">
+              <h3 class="channel-name">{{ videoDetails.channelName }}</h3>
+              <span class="subscriber-count">{{ videoDetails.subscribers }}</span>
+            </div>
+          </router-link>
+          <div v-else class="channel-info">
+            <div class="channel-avatar channel-avatar-placeholder" aria-hidden="true">
+              {{ (videoDetails.channelName || 'Y').slice(0, 1).toUpperCase() }}
+            </div>
+            <div class="channel-details">
+              <h3 class="channel-name">{{ videoDetails.channelName }}</h3>
+            </div>
+          </div>"""
+if old in s:
+    s = s.replace(old, new, 1)
+
+s += r'''
+<style scoped>
+.channel-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 10px;
+  padding: 3px 5px 3px 3px;
+  margin-left: -3px;
+}
+.channel-link:hover { background: #2a2a2a; }
+
+@media (max-width: 768px) {
+  .watch-page { padding: 0 8px; box-sizing: border-box; }
+  .video-info { margin-top: 9px; }
+  .video-title { font-size: 17px; line-height: 1.28; }
+  .channel-info { gap: 9px; }
+  .channel-avatar { width: 34px; height: 34px; }
+  .channel-avatar-placeholder { flex-basis: 34px; }
+  .channel-name { font-size: 15px; }
+}
+</style>
+'''
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-48-clean-iframe-no-masks\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-49-search-channel-modern-ui\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
