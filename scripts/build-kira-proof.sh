@@ -51,7 +51,6 @@ s = s[:start] + """export function configImageHttpProxy() {
 """ + s[end:]
 
 start = s.index("export async function fetchFunction(")
-end = s.index("export function asMap", start)
 new_fetch = r"""export async function fetchFunction(input: string | Request | URL, init?: RequestInit): Promise<Response> {
   const original = input instanceof URL ? new URL(input.toString()) : new URL(typeof input === 'string' ? input : input.url);
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined));
@@ -87,13 +86,15 @@ new_fetch = r"""export async function fetchFunction(input: string | Request | UR
 }
 
 """
-s = s[:start] + new_fetch + s[end:]
+s = s[:start] + new_fetch
 p.write_text(s)
 
 # Rewrite Shaka's googlevideo/license requests into the same proxy URL while
 # preserving the original query params (including rn used by SABR metadata).
 p = Path("src/composables/useYoutubePlayer.ts")
 s = p.read_text()
+s = s.replace("import { useProxySettings } from '@/composables/useProxySettings';\n", "")
+s = s.replace("  const { settings } = useProxySettings();\n", "")
 old = """      if ((url.host.endsWith('.googlevideo.com') || url.href.includes('drm')) && !checkExtension()) {
         const newUrl = new URL(url.toString());
         newUrl.searchParams.set('__host', url.host);
