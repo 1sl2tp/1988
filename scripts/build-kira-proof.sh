@@ -140,19 +140,137 @@ function fallbackDuration(value: any): string | null {
     : `${m}:${String(sec).padStart(2, '0')}`;
 }
 
-async function fallbackSearch(query: string) {
+const SEARCH_CACHE_MS = 2 * 60 * 1000;
+const searchCache = new Map<string, { at: number; rows: any[] }>();
+let activeSearchController: AbortController | null = null;
+let activeSearchSerial = 0;
+
+function normalizeSearchText(value: any): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function rankSearchRows(rows: any[], query: string) {
+  const q = normalizeSearchText(query);
+  const tokens = q.split(' ').filter(Boolean);
+  if (!q || !tokens.length) return rows.slice(0, 24);
+
+  const scored = rows.map((row, index) => {
+    const title = normalizeSearchText(row?.title);
+    const channel = normalizeSearchText(row?.channel);
+    const combined = (title + ' ' + channel).trim();
+    const allTokens = tokens.every(token => combined.includes(token));
+
+    let score = 0;
+    if (title === q) score += 12000;
+    if (channel === q) score += 11500;
+    if (title.startsWith(q)) score += 10000;
+    if (channel.startsWith(q)) score += 9500;
+    if (title.includes(q)) score += 8500;
+    if (channel.includes(q)) score += 8000;
+    if (allTokens) score += 6000;
+
+    for (const token of tokens) {
+      if (title.startsWith(token)) score += 500;
+      else if (title.includes(token)) score += 260;
+      if (channel.startsWith(token)) score += 420;
+      else if (channel.includes(token)) score += 220;
+    }
+
+    // A multi-word query should not be dominated by rows matching only one word.
+    if (tokens.length > 1 && !allTokens) score -= 5000;
+
+    return { row, score, allTokens, index };
+  });
+
+  const strict = scored.filter(item => item.allTokens);
+  const pool = tokens.length > 1 && strict.length >= 2 ? strict : scored;
+
+  return pool
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map(item => item.row)
+    .slice(0, 24);
+}
+
+function mergeSearchRows(a: any[], b: any[], query: string) {
+  const seen = new Set<string>();
+  const merged: any[] = [];
+  for (const row of [...a, ...b]) {
+    const key = String(row?.id || '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+  return rankSearchRows(merged, query);
+}
+
+async function searchSuggestionVariant(query: string, signal?: AbortSignal): Promise<string> {
+  const url = new URL(FALLBACK_DISCOVERY_API);
+  url.searchParams.set('action', 'suggestions');
+  url.searchParams.set('q', query);
+
+  try {
+    const response = await fetch(url.toString(), { signal, cache: 'default' });
+    const payload = await response.json();
+    const rows = Array.isArray(payload?.data) ? payload.data : [];
+    const q = normalizeSearchText(query);
+    const tokens = q.split(' ').filter(Boolean);
+
+    for (const raw of rows) {
+      const suggestion = String(raw || '').trim();
+      const normalized = normalizeSearchText(suggestion);
+      if (!suggestion || !normalized) continue;
+
+      // Prefer the accent-corrected form of exactly what the user typed.
+      if (normalized === q && suggestion.toLowerCase() !== query.toLowerCase()) {
+        return suggestion;
+      }
+
+      // For multi-word names, a short completion is usually a better search
+      // than the raw unaccented input (e.g. "tuan hung" -> "tuấn hưng").
+      const suggestionTokens = normalized.split(' ').filter(Boolean);
+      if (
+        tokens.length >= 2 &&
+        normalized.startsWith(q) &&
+        suggestionTokens.length <= tokens.length + 2
+      ) {
+        return suggestion;
+      }
+    }
+  } catch (error) {
+    if ((error as any)?.name !== 'AbortError') {
+      console.debug('[App]', 'Suggestion refinement unavailable', error);
+    }
+  }
+  return '';
+}
+
+async function fallbackSearch(query: string, signal?: AbortSignal) {
+  const key = normalizeSearchText(query);
+  const cached = searchCache.get(key);
+  if (cached && Date.now() - cached.at < SEARCH_CACHE_MS) {
+    return cached.rows;
+  }
+
   const url = new URL(FALLBACK_DISCOVERY_API);
   url.searchParams.set('action', 'search');
   url.searchParams.set('q', query);
   url.searchParams.set('filter', 'videos');
 
-  const response = await fetch(url.toString(), { cache: 'no-store' });
+  const response = await fetch(url.toString(), { signal, cache: 'default' });
   const payload = await response.json();
   if (!response.ok || payload?.ok === false) {
     throw new Error(payload?.error || `fallback_search_${response.status}`);
   }
 
-  return (Array.isArray(payload?.data?.items) ? payload.data.items : [])
+  const rows = (Array.isArray(payload?.data?.items) ? payload.data.items : [])
     .map((row: any) => {
       const id = fallbackVideoId(row);
       if (!id) return null;
@@ -165,8 +283,14 @@ async function fallbackSearch(query: string) {
         views: String(row?.viewText || (row?.views ? `${row.views} views` : '')) || null
       };
     })
-    .filter((row: any): row is NonNullable<typeof row> => !!row)
-    .slice(0, 24);
+    .filter((row: any): row is NonNullable<typeof row> => !!row);
+
+  const ranked = rankSearchRows(rows, query);
+  searchCache.set(key, { at: Date.now(), rows: ranked });
+  if (searchCache.size > 60) {
+    searchCache.delete(searchCache.keys().next().value);
+  }
+  return ranked;
 }
 
 const performSearch = async () => {
@@ -400,26 +524,72 @@ end = s.index("\n\nconst handleSearch", start)
 fast_search = r"""const performSearch = async () => {
   const query = searchQuery.value.trim();
   if (!query.length) {
+    activeSearchController?.abort();
     searchResults.value = [];
     highlightedIndex.value = -1;
+    isLoading.value = false;
     return;
   }
 
+  const serial = ++activeSearchSerial;
+  activeSearchController?.abort();
+  const controller = new AbortController();
+  activeSearchController = controller;
+
+  // Never leave results from an older, shorter query on screen. Re-rank/filter
+  // the current rows instantly while the newest network request is running.
+  const immediate = rankSearchRows(searchResults.value, query);
+  const tokens = normalizeSearchText(query).split(' ').filter(Boolean);
+  if (tokens.length > 1) {
+    const strictImmediate = immediate.filter((row: any) => {
+      const combined = normalizeSearchText((row?.title || '') + ' ' + (row?.channel || ''));
+      return tokens.every(token => combined.includes(token));
+    });
+    searchResults.value = strictImmediate;
+  } else {
+    searchResults.value = immediate;
+  }
+  highlightedIndex.value = searchResults.value.length > 0 ? 0 : -1;
   isLoading.value = true;
+
+  // Start accent/name refinement in parallel, but do not make the user wait
+  // for it before showing the primary results.
+  const refinement = searchSuggestionVariant(query, controller.signal)
+    .then(async (variant) => {
+      if (!variant || controller.signal.aborted) return [] as any[];
+      const variantKey = variant.trim().toLowerCase();
+      if (variantKey === query.toLowerCase()) return [] as any[];
+      return fallbackSearch(variant, controller.signal);
+    })
+    .catch(() => [] as any[]);
+
   try {
-    const mapped = await fallbackSearch(query);
-    searchResults.value = mapped;
-    highlightedIndex.value = mapped.length > 0 ? 0 : -1;
+    const primary = await fallbackSearch(query, controller.signal);
+    if (serial !== activeSearchSerial || controller.signal.aborted) return;
+
+    searchResults.value = primary;
+    highlightedIndex.value = primary.length > 0 ? 0 : -1;
+    isLoading.value = false;
+
+    // If Google suggests an accent-corrected Vietnamese name, merge it in as a
+    // background refinement. This fixes searches such as "tuan hung".
+    void refinement.then((extra) => {
+      if (!extra.length || serial !== activeSearchSerial || controller.signal.aborted) return;
+      const merged = mergeSearchRows(primary, extra, query);
+      searchResults.value = merged;
+      highlightedIndex.value = merged.length > 0 ? 0 : -1;
+    });
   } catch (error) {
+    if ((error as any)?.name === 'AbortError') return;
+    if (serial !== activeSearchSerial) return;
     console.error('[App]', 'Search failed', error);
     searchResults.value = [];
     highlightedIndex.value = -1;
-  } finally {
     isLoading.value = false;
   }
 };"""
 s = s[:start] + fast_search + s[end:]
-s = s.replace("const handleSearch = useDebounce(performSearch, 300);", "const handleSearch = useDebounce(performSearch, 160);")
+s = s.replace("const handleSearch = useDebounce(performSearch, 300);", "const handleSearch = useDebounce(performSearch, 90);")
 p.write_text(s)
 
 p = Path("src/pages/HomePage.vue")
@@ -1197,7 +1367,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-42-iframe-fast\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-43-fast-ranked-search\">", 1)
 p.write_text(s)
 PY
 
