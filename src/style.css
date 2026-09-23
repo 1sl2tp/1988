@@ -133,3 +133,5 @@ button:disabled{opacity:.45;cursor:default}
 @media(min-width:1020px){
   .feed{grid-template-columns:repeat(4,minmax(0,1fr))}
 }
+
+.retry-feed{margin-top:10px;border:1px solid var(--line);background:#222;color:#fff;border-radius:8px;padding:8px 14px;font-weight:650}
