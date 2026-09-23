@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="robots" content="noindex,nofollow">
+  <title>1988 · YouTube SABR Proof</title>
+  <style>
+    :root{color-scheme:dark}
+    *{box-sizing:border-box}
+    html,body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    main{max-width:760px;margin:0 auto;padding:16px}
+    h1{font-size:20px;margin:4px 0 6px}
+    p{margin:0 0 12px;color:#aaa;font-size:14px;line-height:1.45}
+    .card{border:1px solid #2b2b2b;border-radius:14px;padding:14px;margin:12px 0;background:#0b0b0b}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .label{font-size:12px;color:#888;margin-bottom:5px}
+    .value{font-size:14px;line-height:1.45;word-break:break-word}
+    .ok{color:#7ee787}.warn{color:#e3b341}.bad{color:#ff7b72}
+    button,a.btn{appearance:none;border:0;text-decoration:none;border-radius:10px;padding:11px 14px;font:600 14px/1 system-ui;background:#fff;color:#000;display:inline-flex;align-items:center;justify-content:center}
+    button.secondary,a.secondary{background:#1d1d1d;color:#fff;border:1px solid #333}
+    input{width:100%;background:#111;color:#fff;border:1px solid #333;border-radius:10px;padding:11px 12px;font:14px system-ui}
+    pre{white-space:pre-wrap;margin:8px 0 0;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#bbb}
+  </style>
+</head>
+<body>
+<main>
+  <h1>YouTube mới · SABR/Shaka proof</h1>
+  <p>Link cố định để theo dõi luồng YouTube mới. Trang này tách riêng khỏi app chính và khỏi proof Audio/PiP.</p>
+
+  <div class="card">
+    <div class="label">Video kiểm tra cố định</div>
+    <input id="videoId" value="vhUjvanyu2U" readonly>
+    <div class="label" style="margin-top:10px">Kiến trúc đang thử</div>
+    <div class="value">YouTube.js / Kira → BotGuard + PoToken → SABR → Shaka Player</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Trạng thái hiện tại</div>
+    <div id="engine" class="value warn">Engine SABR chưa phát được video thật.</div>
+    <pre id="detail">Kira/SABR đã khởi tạo được.
+BotGuard đã khởi tạo được.
+Proxy CORS trả được config / iframe_api / base.js.
+Điểm đang sửa: /youtubei/v1/player trả 403 qua proxy server.</pre>
+  </div>
+
+  <div class="card">
+    <div class="label">Kiểm tra relay hiện tại</div>
+    <div id="relay" class="value">Chưa kiểm tra.</div>
+    <div class="row" style="margin-top:10px">
+      <button id="checkRelay">Kiểm tra relay</button>
+      <a class="btn secondary" href="/proof.html?v=d3802094">Mở proof Audio/PiP</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">Môi trường thiết bị</div>
+    <div id="env" class="value"></div>
+  </div>
+
+  <p>Build: <span id="build">sabr-proof-20260923-1</span></p>
+</main>
+
+<script>
+(() => {
+  const standalone =
+    navigator.standalone === true ||
+    window.matchMedia?.('(display-mode: standalone)').matches === true;
+
+  document.getElementById('env').textContent =
+    (standalone ? 'Home Screen PWA' : 'Safari/trình duyệt') +
+    ' · MediaSession: ' + ('mediaSession' in navigator ? 'có' : 'không') +
+    ' · PiP API: ' + (document.pictureInPictureEnabled ? 'có' : 'không');
+
+  const relay = document.getElementById('relay');
+  document.getElementById('checkRelay').addEventListener('click', async () => {
+    relay.className = 'value warn';
+    relay.textContent = 'Đang kiểm tra…';
+    try {
+      const u = new URL('https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy');
+      u.searchParams.set('__host','www.youtube.com');
+      u.searchParams.set('__path','/iframe_api');
+      u.searchParams.set('__headers','[]');
+      const r = await fetch(u, { credentials:'include' });
+      const text = await r.text();
+      if (r.ok && text.length > 100) {
+        relay.className = 'value ok';
+        relay.textContent = 'Relay OK · HTTP ' + r.status + ' · ' + text.length + ' bytes';
+      } else {
+        relay.className = 'value bad';
+        relay.textContent = 'Relay lỗi · HTTP ' + r.status + ' · ' + text.slice(0,120);
+      }
+    } catch (e) {
+      relay.className = 'value bad';
+      relay.textContent = 'Relay lỗi · ' + (e?.message || e);
+    }
+  });
+})();
+</script>
+</body>
+</html>
