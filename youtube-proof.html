@@ -82,7 +82,7 @@
     <div id="sourceStatus" class="status"></div>
   </div>
 
-  <p>Build: native-device-proof-20260923</p>
+  <p>Build: piped-media-fallback-20260923</p>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/plyr@3.7.8/dist/plyr.polyfilled.js"></script>
@@ -202,60 +202,203 @@
     updateMediaSession();
   }
 
-  async function resolveSource(id){
-    const r=await call('playback',{id});
-    const data=r?.data||{};
-    const rows=Array.isArray(data.sources)?data.sources:[];
-    const source=rows.find(x=>x?.url)||null;
-    if(!source?.url)throw new Error('Không có stream video native');
+  const PIPED_MEDIA_APIS=[
+    'https://pipedapi.kavin.rocks',
+    'https://api.piped.privacydev.net',
+    'https://piped-api.garudalinux.org',
+    'https://pipedapi.mha.fi',
+    'https://api.piped.yt',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.ducks.party'
+  ];
 
+  function qualityNumber(value){
+    const m=String(value||'').match(/(\d{3,4})/);
+    return m?Number(m[1]):0;
+  }
+
+  function proxifyStream(raw,proxyUrl){
+    try{
+      const media=new URL(raw);
+      if(media.hostname.endsWith('.googlevideo.com')&&proxyUrl){
+        const proxy=new URL(proxyUrl);
+        const prefix=proxy.pathname.endsWith('/')?proxy.pathname.slice(0,-1):proxy.pathname;
+        media.searchParams.set('host',media.host);
+        media.protocol=proxy.protocol;
+        media.host=proxy.host;
+        media.pathname=prefix+media.pathname;
+      }
+      return media.toString();
+    }catch{
+      return raw;
+    }
+  }
+
+  function chooseMuxedStream(data){
+    const rows=(Array.isArray(data?.videoStreams)?data.videoStreams:[])
+      .filter(x=>x?.url&&x?.videoOnly!==true)
+      .slice()
+      .sort((a,b)=>{
+        const am=String(a?.mimeType||a?.format||'').toLowerCase().includes('mp4')?1:0;
+        const bm=String(b?.mimeType||b?.format||'').toLowerCase().includes('mp4')?1:0;
+        if(am!==bm)return bm-am;
+        return qualityNumber(b?.quality)-qualityNumber(a?.quality);
+      });
+    return rows[0]||null;
+  }
+
+  async function fetchInstanceCandidate(apiBase,id){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),4500);
+    try{
+      const r=await fetch(apiBase+'/streams/'+encodeURIComponent(id),{
+        signal:controller.signal,
+        cache:'no-store',
+        headers:{Accept:'application/json'}
+      });
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      const data=await r.json();
+      const stream=chooseMuxedStream(data);
+      if(!stream?.url)return null;
+      return {
+        api:apiBase,
+        proxyUrl:String(data?.proxyUrl||''),
+        url:proxifyStream(String(stream.url),String(data?.proxyUrl||'')),
+        mimeType:String(stream?.mimeType||stream?.format||''),
+        quality:String(stream?.quality||'')
+      };
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
+  async function resolveCandidates(id){
+    const base=await call('playback',{id}).catch(()=>null);
+    const data=base?.data||{};
     currentMeta={...currentMeta,...data};
-    const title=currentMeta.title||titleEl.textContent;
-    titleEl.textContent=title;
+    titleEl.textContent=currentMeta.title||titleEl.textContent;
     metaEl.textContent=[currentMeta.uploader,Number(currentMeta.duration)?fmtDuration(currentMeta.duration):''].filter(Boolean).join(' · ');
     video.poster=thumb(currentMeta,id);
     updateMediaSession();
 
-    return source;
+    const candidates=[];
+    for(const row of (Array.isArray(data.sources)?data.sources:[])){
+      if(row?.url)candidates.push({
+        api:String(base?.source||'yt1988'),
+        proxyUrl:'',
+        url:String(row.url),
+        mimeType:String(row?.mimeType||''),
+        quality:String(row?.quality||'')
+      });
+    }
+
+    const settled=await Promise.allSettled(PIPED_MEDIA_APIS.map(api=>fetchInstanceCandidate(api,id)));
+    for(const result of settled){
+      if(result.status==='fulfilled'&&result.value?.url)candidates.push(result.value);
+    }
+
+    const seen=new Set();
+    return candidates.filter(row=>{
+      if(!row?.url||seen.has(row.url))return false;
+      seen.add(row.url);
+      return true;
+    });
   }
 
   async function probeSource(url){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),5000);
     try{
       const r=await fetch(url,{
         method:'GET',
-        headers:{Range:'bytes=0-1'},
-        cache:'no-store'
+        headers:{Range:'bytes=0-1024'},
+        cache:'no-store',
+        signal:controller.signal
       });
-      return {ok:r.ok,status:r.status,type:r.headers.get('content-type')||''};
+      const type=(r.headers.get('content-type')||'').toLowerCase();
+      const typeOk=!type||type.includes('video/')||type.includes('application/octet-stream')||type.includes('mpegurl');
+      return {
+        ok:(r.status===200||r.status===206)&&typeOk,
+        status:r.status,
+        type
+      };
     }catch(err){
       return {ok:false,status:0,type:'',error:err?.message||String(err)};
+    }finally{
+      clearTimeout(timer);
     }
+  }
+
+  async function tryCandidate(candidate,index,total){
+    currentSource=candidate.url;
+    sourceStatus.className='status warn';
+    sourceStatus.textContent='Đang thử media '+(index+1)+'/'+total+' · '+candidate.api;
+
+    const probe=await probeSource(candidate.url);
+    if(!probe.ok){
+      throw new Error((probe.status?'HTTP '+probe.status:probe.error||'network')+' · '+candidate.api);
+    }
+
+    sourceStatus.className='status ok';
+    sourceStatus.textContent='Media OK '+(index+1)+'/'+total+' · HTTP '+probe.status+
+      (probe.type?' · '+probe.type:'')+' · '+candidate.api;
+
+    video.src=candidate.url;
+    video.load();
+
+    await new Promise((resolve,reject)=>{
+      let done=false;
+      const cleanup=()=>{
+        video.removeEventListener('playing',onPlaying);
+        video.removeEventListener('error',onError);
+        clearTimeout(timer);
+      };
+      const finish=(fn,value)=>{
+        if(done)return;
+        done=true;
+        cleanup();
+        fn(value);
+      };
+      const onPlaying=()=>finish(resolve,true);
+      const onError=()=>finish(reject,new Error('player_error'));
+      const timer=setTimeout(()=>finish(reject,new Error('timeout')),8000);
+      video.addEventListener('playing',onPlaying,{once:true});
+      video.addEventListener('error',onError,{once:true});
+      video.play().catch(err=>finish(reject,err));
+    });
   }
 
   async function playSelected(){
     if(!currentId)return;
     playBtn.disabled=true;
     playerStatus.className='status warn';
-    playerStatus.textContent='Đang lấy stream native…';
+    playerStatus.textContent='Đang quét Media Proxy…';
 
     try{
-      const source=await resolveSource(currentId);
-      currentSource=source.url;
+      const candidates=await resolveCandidates(currentId);
+      if(!candidates.length)throw new Error('Không tìm được Media Proxy nào');
 
-      const probe=await probeSource(currentSource);
-      sourceStatus.className='status '+(probe.ok?'ok':'bad');
-      sourceStatus.textContent=probe.ok
-        ? 'Nguồn media OK · HTTP '+probe.status+(probe.type?' · '+probe.type:'')
-        : 'Nguồn media bị chặn · '+(probe.status?'HTTP '+probe.status:probe.error||'network error');
+      let lastError=null;
+      for(let i=0;i<candidates.length;i++){
+        try{
+          await tryCandidate(candidates[i],i,candidates.length);
+          playerStatus.className='status ok';
+          playerStatus.textContent='Đang phát native · không iframe YouTube';
+          return;
+        }catch(err){
+          lastError=err;
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        }
+      }
 
-      if(!probe.ok)throw new Error('Media proxy HTTP '+(probe.status||'network'));
-
-      video.src=currentSource;
-      video.load();
-      await video.play();
+      throw lastError||new Error('Tất cả Media Proxy đều lỗi');
     }catch(err){
+      sourceStatus.className='status bad';
       playerStatus.className='status bad';
       playerStatus.textContent='Chưa phát được: '+(err?.message||err);
+      sourceStatus.textContent='Đã thử toàn bộ Media Proxy nhưng chưa có nguồn đạt 200/206 + CORS + media type.';
     }finally{
       playBtn.disabled=false;
     }
