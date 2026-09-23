@@ -1,4 +1,4 @@
-name: Probe Cobalt Resolvers
+name: Probe Resolver APIs
 
 on:
   pull_request:
@@ -12,57 +12,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
-      - name: Probe Cobalt audio resolver endpoints
+      - name: Discover and test OmegaTech YouTube resolver
         shell: bash
         run: |
           set +e
-          SRC='https://www.youtube.com/watch?v=vhUjvanyu2U'
-          APIS=(
-            'https://cobalt.meowing.de'
-            'https://nuko-c.meowing.de'
-            'https://subito-c.meowing.de'
-            'https://dwnld.nichind.dev'
-            'https://cobalt-backend.canine.tools'
-            'https://cobalt-api.clxxped.lol'
-          )
+          BASE='https://api.omegatech.app'
+          ALT='https://omegatech-api.dixonomega.tech'
+          ID='vhUjvanyu2U'
 
-          probe_endpoint(){
-            API="${1%/}"
-            ENDPOINT="$2"
-            MODE="$3"
-            OUT=$(mktemp)
-            if [ "$MODE" = "legacy" ]; then
-              BODY=$(jq -nc --arg url "$SRC" '{url:$url,isAudioOnly:true,aFormat:"mp3",aBitrate:"128"}')
-            else
-              BODY=$(jq -nc --arg url "$SRC" '{url:$url,downloadMode:"audio",audioFormat:"mp3",audioBitrate:"128",filenameStyle:"basic",alwaysProxy:true,disableMetadata:true}')
-            fi
+          echo '=== FETCH DOCS ==='
+          curl -sS -L --connect-timeout 4 --max-time 15 "$BASE/docs" -o /tmp/docs.html
+          grep -Eo '<script[^>]+src="[^"]+"' /tmp/docs.html | sed -E 's#.*src="([^"]+)".*#\1#' | head -30 > /tmp/scripts.txt
+          cat /tmp/scripts.txt
 
-            META=$(curl -sS --connect-timeout 4 --max-time 30 -X POST "$API$ENDPOINT"               -H 'Accept: application/json' -H 'Content-Type: application/json'               --data "$BODY" -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}')
-            STATUS=$(jq -r '.status // ""' "$OUT" 2>/dev/null)
-            URL=$(jq -r '.url // (.tunnel[0] // "")' "$OUT" 2>/dev/null)
-            ERR=$(jq -r '.error.code // .text // ""' "$OUT" 2>/dev/null)
+          echo '=== GREP YOUTUBE IN DOCS/SCRIPTS ==='
+          grep -ioE '.{0,80}youtube.{0,160}' /tmp/docs.html | head -40 || true
+          while read -r S; do
+            case "$S" in
+              http*) U="$S" ;;
+              /*) U="$BASE$S" ;;
+              *) U="$BASE/$S" ;;
+            esac
+            F=$(mktemp)
+            curl -sS -L --connect-timeout 4 --max-time 12 "$U" -o "$F"
+            grep -ioE '.{0,100}youtube.{0,220}' "$F" | head -30 || true
+            rm -f "$F"
+          done < /tmp/scripts.txt
 
-            if [ -n "$URL" ]; then
-              HDR=$(mktemp); BIN=$(mktemp)
-              curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$URL"
-              CODE=$(awk 'toupper($1) ~ /^HTTP\// {code=$2} END{print code}' "$HDR")
-              TYPE=$(awk 'BEGIN{IGNORECASE=1} /^content-type:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              SIZE=$(wc -c < "$BIN")
-              FILE=$(file -b "$BIN" 2>/dev/null)
-              CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              RANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              echo "PASS|$API$ENDPOINT|MODE=$MODE|$META|STATUS=$STATUS|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|RANGE=$RANGE|FILE=$FILE|URL=$URL"
-              rm -f "$HDR" "$BIN"
-            else
-              echo "FAIL|$API$ENDPOINT|MODE=$MODE|$META|STATUS=$STATUS|ERR=$ERR|RESP=$(tr '\n' ' ' < "$OUT" | head -c 300)"
-            fi
-            rm -f "$OUT"
-          }
-
-          export -f probe_endpoint
-          export SRC
-          for API in "${APIS[@]}"; do
-            probe_endpoint "$API" "/" "v10" &
-            probe_endpoint "$API" "/api/json" "legacy" &
+          echo '=== COMMON API CANDIDATES ==='
+          for U in             "$ALT/api/download/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/youtube/mp3?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/downloader/youtube?url=https://www.youtube.com/watch?v=$ID"             "$ALT/api/download/youtube?id=$ID"             "$BASE/api/download/youtube?url=https://www.youtube.com/watch?v=$ID"             "$BASE/api/youtube?url=https://www.youtube.com/watch?v=$ID"; do
+              OUT=$(mktemp)
+              META=$(curl -sS -L --connect-timeout 4 --max-time 20 -o "$OUT" -w 'HTTP=%{http_code} TYPE=%{content_type} SIZE=%{size_download}' "$U")
+              echo "$META|$U|RESP=$(tr '\n' ' ' < "$OUT" | head -c 500)"
+              rm -f "$OUT"
           done
-          wait
