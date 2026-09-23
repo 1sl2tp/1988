@@ -489,6 +489,12 @@ feed.addEventListener("pointerdown",e=>{
 },{passive:true});
 
 feed.addEventListener("click",e=>{
+  const retry=e.target.closest(".retry-feed");
+  if(retry){
+    loadInitialFeed();
+    return;
+  }
+
   const card=e.target.closest("[data-video-id]");
   if(!card)return;
   const id=card.dataset.videoId;
@@ -586,17 +592,72 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-async function loadInitialFeed(){
+const HOME_FEED_CACHE="1988-home-feed-v1";
+
+function normalizeFeedRows(payload){
+  if(Array.isArray(payload))return payload;
+  if(Array.isArray(payload?.items))return payload.items;
+  if(Array.isArray(payload?.relatedStreams))return payload.relatedStreams;
+  if(Array.isArray(payload?.videos))return payload.videos;
+  return [];
+}
+
+function readCachedHomeFeed(){
   try{
-    const r=await api("trending",{region:"VN"});
-    renderCards(Array.isArray(r?.data)?r.data:[]);
+    const row=JSON.parse(localStorage.getItem(HOME_FEED_CACHE)||"null");
+    if(!row||!Array.isArray(row.items)||!row.items.length)return [];
+    return row.items;
   }catch{
-    try{
-      const r=await api("home",{seed:"video mới nhất việt nam"});
-      renderCards(r?.data?.items||r?.data||[]);
-    }catch{
-      feed.innerHTML='<div class="error">Chưa tải được Mới nhất. Thử tải lại.</div>';
+    return [];
+  }
+}
+
+function saveCachedHomeFeed(rows){
+  try{
+    localStorage.setItem(HOME_FEED_CACHE,JSON.stringify({
+      at:Date.now(),
+      items:rows.slice(0,24)
+    }));
+  }catch{}
+}
+
+async function latestSource(promise){
+  const result=await promise;
+  const rows=normalizeFeedRows(result?.data);
+  if(!rows.length)throw new Error("empty_feed");
+  return rows;
+}
+
+async function loadInitialFeed(){
+  feedTitle.textContent="Mới nhất";
+
+  const cached=readCachedHomeFeed();
+  if(cached.length){
+    renderCards(cached);
+    feedStatus.textContent="Đang cập nhật…";
+  }else{
+    feed.innerHTML='<div class="loading">Đang tải…</div>';
+    feedStatus.textContent="";
+  }
+
+  const requests=[
+    latestSource(api("trending",{region:"VN"})),
+    latestSource(api("home",{seed:"video mới nhất việt nam"})),
+    latestSource(api("search",{q:"video mới nhất việt nam",filter:"videos"}))
+  ];
+
+  try{
+    const rows=await Promise.any(requests);
+    saveCachedHomeFeed(rows);
+    renderCards(rows);
+    feedStatus.textContent="";
+  }catch{
+    if(cached.length){
+      feedStatus.textContent="Đang dùng dữ liệu gần nhất";
+      return;
     }
+    feed.innerHTML='<div class="error">Chưa tải được Mới nhất.<br><button class="retry-feed" type="button">Tải lại</button></div>';
+    feedStatus.textContent="";
   }
 }
 
