@@ -13,6 +13,7 @@ Platform.shim.eval=async (data,env={})=>{
 };
 
 let ytPromise=null;
+let searchYtPromise=null;
 const videoPoCache=new Map();
 
 function makeProxyUrl(raw,headers=new Headers()){
@@ -101,6 +102,26 @@ async function getYT(){
   return ytPromise;
 }
 
+async function getSearchYT(){
+  if(searchYtPromise)return searchYtPromise;
+  searchYtPromise=(async()=>{
+    const visitorData=ProtoUtils.encodeVisitorData(
+      Utils.generateRandomString(11),
+      Math.floor(Date.now()/1000)
+    );
+    const cold=BG.PoToken.generatePlaceholder(visitorData);
+
+    return Innertube.create({
+      po_token:cold,
+      visitor_data:visitorData,
+      fetch:proxyFetch,
+      generate_session_locally:true,
+      cache:new UniversalCache(false)
+    });
+  })();
+  return searchYtPromise;
+}
+
 function nodeText(v){
   if(v==null)return '';
   if(typeof v==='string')return v;
@@ -108,7 +129,7 @@ function nodeText(v){
 }
 
 async function search(q){
-  const yt=await getYT();
+  const yt=await getSearchYT();
   const result=await yt.search(String(q||'').trim(),{type:'video'});
   const rows=[];
   for(const node of Array.from(result?.results||[])){
@@ -315,4 +336,4 @@ async function signOut(){
   return {loggedIn:false};
 }
 
-export default {getYT,search,resolve,authState,signIn,signOut};
+export default {getYT,getSearchYT,search,resolve,authState,signIn,signOut};
