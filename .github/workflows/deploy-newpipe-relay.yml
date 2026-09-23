@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   deploy:
@@ -22,4 +22,24 @@ jobs:
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing CLOUDFLARE_API_TOKEN"; exit 1; }
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing CLOUDFLARE_ACCOUNT_ID"; exit 1; }
       - name: Deploy relay
-        run: npx --yes wrangler@4 deploy
+        id: deploy
+        run: |
+          set -o pipefail
+          npx --yes wrangler@4 deploy 2>&1 | tee /tmp/wrangler.out
+          URL=$(grep -Eo 'https://[^[:space:]]+workers\.dev' /tmp/wrangler.out | tail -1)
+          test -n "$URL" || { echo "Could not detect workers.dev URL"; exit 1; }
+          echo "$URL/?url=" > relay-url.txt
+          echo "relay_url=$URL/?url=" >> "$GITHUB_OUTPUT"
+
+      - name: Save relay URL to repository
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add cloudflare/newpipe-relay/relay-url.txt
+          if git diff --cached --quiet; then
+            echo "Relay URL unchanged"
+          else
+            git commit -m "chore: update NewPipe relay URL"
+            git push
+          fi
