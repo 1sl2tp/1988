@@ -14,6 +14,7 @@
       this.meta={};
       this.pendingSeek=0;
       this.sourceCache=new Map();
+      this.preparePromises=new Map();
       this.sourceIndex=-1;
       this.sources=[];
       this.armed=false;
@@ -114,22 +115,39 @@
       if(this.sourceCache.has(id)){
         return this.sourceCache.get(id)||[];
       }
-
-      this.onState({type:"loading",id});
-      try{
-        const raw=await this.sourcesFor(id);
-        const rows=this.#normalizeSources(raw);
-        if(rows.length)this.sourceCache.set(id,rows);
-        else this.sourceCache.delete(id);
-        if(this.currentId===id)this.sources=rows;
-        this.onState({type:"ready",id,count:rows.length});
-        return rows;
-      }catch(err){
-        this.sourceCache.delete(id);
-        if(this.currentId===id)this.sources=[];
-        this.onState({type:"prepareerror",id,error:String(err?.message||err)});
-        return [];
+      if(this.preparePromises.has(id)){
+        return this.preparePromises.get(id);
       }
+
+      const pending=(async()=>{
+        this.onState({type:"loading",id});
+        try{
+          const raw=await this.sourcesFor(id);
+          const rows=this.#normalizeSources(raw);
+          if(rows.length)this.sourceCache.set(id,rows);
+          else this.sourceCache.delete(id);
+          if(this.currentId===id)this.sources=rows;
+          this.onState({type:"ready",id,count:rows.length});
+          return rows;
+        }catch(err){
+          this.sourceCache.delete(id);
+          if(this.currentId===id)this.sources=[];
+          this.onState({type:"prepareerror",id,error:String(err?.message||err)});
+          return [];
+        }finally{
+          this.preparePromises.delete(id);
+        }
+      })();
+
+      this.preparePromises.set(id,pending);
+      return pending;
+    }
+
+    forget(id){
+      if(!id)return;
+      this.sourceCache.delete(id);
+      this.preparePromises.delete(id);
+      if(this.currentId===id)this.sources=[];
     }
 
     async activate(id,{time=0,metadata={}}={}){
@@ -153,6 +171,7 @@
           lastError=err;
         }
       }
+      this.sourceCache.delete(id);
       throw lastError||new Error("all_audio_sources_failed");
     }
 
@@ -200,7 +219,14 @@
         seen.add(url);
         const mimeType=String(row?.mimeType||row?.type||"").toLowerCase();
         const support=mimeType?this.audio.canPlayType(mimeType):"";
-        uniq.push({url,mimeType,bitrate:Number(row?.bitrate)||0,support});
+        uniq.push({
+          url,
+          mimeType,
+          bitrate:Number(row?.bitrate)||0,
+          priority:Number(row?.priority)||0,
+          engine:String(row?.engine||""),
+          support
+        });
       }
 
       const score=x=>{
@@ -208,7 +234,7 @@
           x.mimeType.includes("mpegurl")||x.mimeType.includes("m3u8")?3:
           x.mimeType.includes("audio/webm")?2:1;
         const playable=x.support==="probably"?3:x.support==="maybe"?2:1;
-        return type*1e9+playable*1e8+Math.min(x.bitrate,99999999);
+        return x.priority*1e12+type*1e9+playable*1e8+Math.min(x.bitrate,99999999);
       };
       return uniq.sort((a,b)=>score(b)-score(a));
     }
