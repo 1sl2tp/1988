@@ -508,28 +508,30 @@ async function playVideo(id,seedMeta={}){
     return;
   }catch(error){
     console.warn("native playback failed",error);
-  }
-
-  // Fallback only: keep normal viewing available even if a particular
-  // native format cannot be resolved.
-  showIframePlayer();
-  state.pendingVideoId=id;
-  initYouTubePlayer();
-  updateModeUi();
-  statusText.textContent="MP4 chưa sẵn sàng · đang dùng trình phát dự phòng";
-
-  try{
-    const local=await localEngine(8000);
-    const detail=await local.info(id);
     if(state.currentId!==id)return;
-    state.currentMeta={...seedMeta,...(detail?.meta||{})};
-    updateNow(state.currentMeta);
-    backgroundPlayer.setMetadata(state.currentMeta);
-    if(detail?.related?.length){
-      feedTitle.textContent="Gợi ý tiếp theo";
-      renderCards(detail.related.slice(0,24));
-    }
-  }catch{}
+
+    showNativePlayer();
+    nativePlayer.removeAttribute("src");
+    nativePlayer.poster=thumb(seedMeta,id);
+    try{nativePlayer.load();}catch{}
+    updateModeUi();
+
+    const message=clean(error?.message||error||"no_media_stream");
+    statusText.textContent="Không lấy được MP4 native · "+message;
+
+    try{
+      const local=await localEngine(8000);
+      const detail=await local.info(id);
+      if(state.currentId!==id)return;
+      state.currentMeta={...seedMeta,...(detail?.meta||{})};
+      updateNow(state.currentMeta);
+      backgroundPlayer.setMetadata(state.currentMeta);
+      if(detail?.related?.length){
+        feedTitle.textContent="Gợi ý tiếp theo";
+        renderCards(detail.related.slice(0,24));
+      }
+    }catch{}
+  }
 }
 
 function initYouTubePlayer(){
