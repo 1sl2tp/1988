@@ -591,22 +591,20 @@ def media():
 @app.route("/stream", methods=["GET", "HEAD", "OPTIONS"])
 def stream():
     video_id = (request.args.get("v") or request.args.get("id") or "").strip()
-    return direct_stream_response(video_id, "video")
+    # Resolve before writing a 200 response. If YouTube blocks the Render IP,
+    # media_response returns a real 502 instead of a misleading 200/0-byte body.
+    return media_response(video_id, "video")
 
 
 @app.route("/audio", methods=["GET", "HEAD", "OPTIONS"])
 def audio():
     video_id = (request.args.get("v") or request.args.get("id") or "").strip()
-    if request.args.get("v"):
-        return direct_stream_response(video_id, "audio")
     return media_response(video_id, "audio")
 
 
 @app.route("/video", methods=["GET", "HEAD", "OPTIONS"])
 def video():
     video_id = (request.args.get("v") or request.args.get("id") or "").strip()
-    if request.args.get("v"):
-        return direct_stream_response(video_id, "video")
     return media_response(video_id, "video")
 
 
