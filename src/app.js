@@ -118,17 +118,16 @@ async function api(action,params={},timeoutMs=8000){
 async function backgroundSources(id){
   if(!id)return [];
 
-  const resolved=await api("audio_resolve",{id},40000);
-  const row=resolved?.data||{};
-  const url=String(row.url||"").trim();
-  if(!/^https:\/\//i.test(url))return [];
+  // Use our own media byte-proxy. The browser never receives the upstream
+  // Piped/Googlevideo URL; it only sees the yt1988 media endpoint.
+  const url=MediaCore.buildNativeMediaUrl(BASE,id,"audio");
 
   return [{
     url,
-    mimeType:String(row.mimeType||"audio/mpeg"),
+    mimeType:"audio/mp4",
     bitrate:128000,
     priority:1000,
-    engine:String(row.engine||"loader-to")
+    engine:"yt1988-media-proxy"
   }];
 }
 
