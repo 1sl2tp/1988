@@ -1,4 +1,4 @@
-name: Probe Invidious Progressive Sources
+name: Probe Official Invidious Progressive Sources
 
 on:
   push:
@@ -11,53 +11,42 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Find healthy Invidious instances with progressive streams
+      - name: Test official Invidious instances
         run: |
           set +e
           python - <<'PY'
-          import json, subprocess, urllib.parse, os, sys
-          index='https://api.invidious.io/instances.json?sort_by=health'
-          try:
-              raw=subprocess.check_output(['curl','-sS','-L','--max-time','20',index],stderr=subprocess.DEVNULL)
-              rows=json.loads(raw)
-          except Exception as e:
-              print('INDEX_ERROR',repr(e)); sys.exit(0)
-          print('INSTANCES',len(rows))
-          tested=0
-          for item in rows:
-              if tested>=50: break
+          import json, subprocess, urllib.parse, os
+          hosts=[
+            'https://inv.nadeko.net',
+            'https://invidious.nerdvpn.de',
+            'https://yt.chocolatemoo53.com',
+            'https://invidious.tiekoetter.com',
+          ]
+          for base in hosts:
+            out='/tmp/inv.json'
+            try:
+              stat=subprocess.check_output(['curl','-sS','-L','--max-time','18','-o',out,'-w','%{http_code} %{time_total} %{size_download}',base+'/api/v1/videos/dQw4w9WgXcQ'],stderr=subprocess.DEVNULL,text=True).strip()
+            except subprocess.CalledProcessError:
+              stat='ERR'
+            try:
+              data=json.load(open(out))
+            except Exception:
+              data={}
+            fmts=data.get('formatStreams') or []
+            adp=data.get('adaptiveFormats') or []
+            print('INSTANCE',base,'HTTP',stat,'FMT',len(fmts),'ADP',len(adp),'ERROR',data.get('error'))
+            for fmt in fmts[:3]:
+              url=str(fmt.get('url') or '')
+              print(' FORMAT',fmt.get('itag'),fmt.get('qualityLabel') or fmt.get('quality'),urllib.parse.urlparse(url).netloc)
+              if not url: continue
+              h='/tmp/rh'; b='/tmp/rb'
               try:
-                  host=item[0]
-                  meta=item[1] or {}
-              except Exception:
-                  continue
-              if not meta.get('api',True): continue
-              if not meta.get('https',True): continue
-              base='https://'+host
-              out='/tmp/inv.json'
-              cmd=['curl','-sS','-L','--max-time','12','-o',out,'-w','%{http_code} %{time_total} %{size_download}',base+'/api/v1/videos/dQw4w9WgXcQ']
-              try:
-                  stat=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+                rstat=subprocess.check_output(['curl','-sS','-L','--max-time','18','-D',h,'-o',b,'-H','Range: bytes=0-1023','-w','%{http_code} %{time_total} %{size_download}',url],stderr=subprocess.DEVNULL,text=True).strip()
               except subprocess.CalledProcessError:
-                  stat='ERR'
-              tested+=1
-              try:
-                  data=json.load(open(out))
-              except Exception:
-                  data={}
-              fmts=data.get('formatStreams') or []
-              adp=data.get('adaptiveFormats') or []
-              url=(fmts[0].get('url') if fmts and isinstance(fmts[0],dict) else '') or ''
-              print('INSTANCE',base,'HTTP',stat,'FMT',len(fmts),'ADP',len(adp),'URLHOST',urllib.parse.urlparse(url).netloc if url else '')
-              if url:
-                  h='/tmp/rh'; b='/tmp/rb'
-                  try:
-                      rstat=subprocess.check_output(['curl','-sS','-L','--max-time','15','-D',h,'-o',b,'-H','Range: bytes=0-1023','-w','%{http_code} %{time_total} %{size_download}',url],stderr=subprocess.DEVNULL,text=True).strip()
-                  except subprocess.CalledProcessError:
-                      rstat='ERR'
-                  headers=open(h,errors='ignore').read() if os.path.exists(h) else ''
-                  print('RANGE',rstat,'PARTIAL',('206' in headers.splitlines()[0] if headers else False),'ACCEPT',('accept-ranges:' in headers.lower()))
-                  if rstat.startswith('206') or (headers and headers.splitlines()[0].endswith(' 206 ')):
-                      print('WINNER',base)
-                      break
+                rstat='ERR'
+              headers=open(h,errors='ignore').read() if os.path.exists(h) else ''
+              print(' RANGE',rstat,'HEAD',headers.splitlines()[0] if headers else '')
+              if rstat.startswith('206'):
+                print('WINNER',base,'URL',url)
+                raise SystemExit(0)
           PY
