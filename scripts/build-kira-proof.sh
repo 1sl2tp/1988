@@ -3493,10 +3493,351 @@ s = s.replace('<div v-if="isLoading" class="loader"></div>\n', '')
 s = s.replace("import { formatCompactViews, formatRelativeTime } from '@/utils/display1988';\n", "")
 p.write_text(s)
 
+
+# 1988 modern design system: Inter + Lucide icon set + compact sticky shell.
+p = Path("package.json")
+pkg = p.read_text()
+if '"lucide-vue-next"' not in pkg:
+    pkg = pkg.replace(
+        '"googlevideo": "^4.0.4",',
+        '"googlevideo": "^4.0.4",\n    "lucide-vue-next": "^0.468.0",'
+    )
+p.write_text(pkg)
+
+p = Path("index.html")
+s = p.read_text()
+if "fonts.googleapis.com/css2?family=Inter" not in s:
+    s = s.replace(
+        "</head>",
+        """    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap" rel="stylesheet">
+</head>""",
+        1
+    )
+p.write_text(s)
+
+p = Path("src/App.vue")
+s = p.read_text()
+
+new_style = r'''<style scoped>
+:global(*) {
+  box-sizing: border-box;
+}
+
+:global(html) {
+  color-scheme: dark;
+  background: #09090b;
+}
+
+:global(body) {
+  margin: 0;
+  min-width: 280px;
+  min-height: 100vh;
+  background: #09090b;
+  color: #f4f4f5;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:global(button),
+:global(input),
+:global(select) {
+  font: inherit;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 50% -180px, rgba(99,102,241,.10), transparent 420px),
+    #09090b;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid rgba(63,63,70,.58);
+  background: rgba(9,9,11,.86);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+}
+
+.header-inner {
+  width: min(1280px, calc(100% - 24px));
+  min-height: 64px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 620px) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #fafafa;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, #6366f1, #8b5cf6);
+  box-shadow: 0 7px 20px rgba(99,102,241,.24);
+}
+
+.brand-mark :deep(svg) {
+  width: 18px;
+  height: 18px;
+}
+
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.brand-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.02em;
+}
+
+.brand-subtitle {
+  margin-top: 4px;
+  color: #71717a;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+}
+
+.global-search {
+  position: relative;
+  width: 100%;
+}
+
+.search-leading {
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 17px;
+  height: 17px;
+  color: #71717a;
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 42px 0 39px;
+  border-radius: 20px;
+  border: 1px solid #27272a;
+  background: rgba(24,24,27,.92);
+  color: #f4f4f5;
+  outline: none;
+  font-size: 13px;
+  transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+}
+
+.search-input::placeholder {
+  color: #71717a;
+}
+
+.search-input:focus {
+  border-color: rgba(99,102,241,.72);
+  background: #18181b;
+  box-shadow: 0 0 0 3px rgba(99,102,241,.11);
+}
+
+.clear-search {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+}
+
+.clear-search:hover {
+  color: #e4e4e7;
+  background: #27272a;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.icon-button {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: #a1a1aa;
+  text-decoration: none;
+  cursor: pointer;
+  transition: color .15s ease, background .15s ease, transform .15s ease;
+}
+
+.icon-button:hover {
+  color: #fafafa;
+  background: #18181b;
+}
+
+.icon-button:active {
+  transform: scale(.96);
+}
+
+.icon-button :deep(svg) {
+  width: 19px;
+  height: 19px;
+  stroke-width: 2;
+}
+
+.main-content {
+  width: 100%;
+}
+
+@media (max-width: 640px) {
+  .header-inner {
+    width: calc(100% - 16px);
+    min-height: 60px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+
+  .brand-copy {
+    display: none;
+  }
+
+  .brand-mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .search-input {
+    height: 38px;
+    font-size: 13px;
+  }
+
+  .header-actions {
+    gap: 2px;
+  }
+
+  .home-link {
+    display: none;
+  }
+
+  .icon-button {
+    width: 36px;
+    height: 36px;
+  }
+}
+</style>'''
+
+new_template = r'''<template>
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="header-inner">
+        <router-link to="/" class="brand" aria-label="Kira - Trang chủ">
+          <span class="brand-mark"><Play :fill="'currentColor'"/></span>
+          <span class="brand-copy">
+            <span class="brand-name">Kira</span>
+            <span class="brand-subtitle">Media</span>
+          </span>
+        </router-link>
+
+        <form class="global-search" role="search" @submit.prevent="submitSearch">
+          <Search class="search-leading" aria-hidden="true"/>
+          <input
+            v-model="searchQuery"
+            class="search-input"
+            type="search"
+            inputmode="search"
+            autocomplete="off"
+            enterkeyhint="search"
+            placeholder="Tìm video, bài hát, kênh..."
+            aria-label="Tìm kiếm"
+          >
+          <button
+            v-if="searchQuery"
+            type="button"
+            class="clear-search"
+            aria-label="Xóa tìm kiếm"
+            @click="clearSearch"
+          >
+            <X :size="16"/>
+          </button>
+        </form>
+
+        <nav class="header-actions" aria-label="Điều hướng">
+          <router-link to="/" class="icon-button home-link" aria-label="Trang chủ" title="Trang chủ">
+            <Home/>
+          </router-link>
+          <button
+            class="icon-button"
+            type="button"
+            aria-label="Cài đặt"
+            title="Cài đặt"
+            @click="showSettingsDialog = true"
+          >
+            <Settings2/>
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <router-view/>
+    </main>
+
+    <ToastNotification/>
+    <SettingsDialog
+      v-if="showSettingsDialog"
+      @close="showSettingsDialog = false"
+      @save="saveSettings"
+    />
+  </div>
+</template>'''
+
+s = re.sub(r'<style scoped>[\s\S]*?</style>', new_style, s, count=1)
+s = re.sub(r'<template>[\s\S]*?</template>', new_template, s, count=1)
+
+if "from 'lucide-vue-next'" not in s:
+    s = s.replace(
+        "import { useRouter } from 'vue-router';",
+        "import { useRouter } from 'vue-router';\nimport { Home, Play, Search, Settings2, X } from 'lucide-vue-next';",
+        1
+    )
+
+p.write_text(s)
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-49-search-channel-modern-ui\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-50-lucide-shell\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
