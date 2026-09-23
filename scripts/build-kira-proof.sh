@@ -278,7 +278,7 @@ async function fallbackSearch(query: string, signal?: AbortSignal) {
         id,
         title: String(row?.title || 'Video'),
         channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
-        thumbnail: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        thumbnail: `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
         duration: fallbackDuration(row?.duration),
         views: String(row?.viewText || (row?.views ? `${row.views} views` : '')) || null
       };
@@ -591,6 +591,16 @@ fast_search = r"""const performSearch = async () => {
 };"""
 s = s[:start] + fast_search + s[end:]
 s = s.replace("const handleSearch = useDebounce(performSearch, 300);", "const handleSearch = useDebounce(performSearch, 90);")
+p.write_text(s)
+
+# Search dropdown is above-the-fold UI: load its compact thumbnails immediately.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace(
+    'loading="lazy"\n              @error="handleImageError($event.target as any)"',
+    'loading="eager"\n              decoding="async"\n              :fetchpriority="index < 3 ? \'high\' : \'auto\'"\n              @error="handleImageError($event.target as any)"',
+    1
+)
 p.write_text(s)
 
 p = Path("src/pages/HomePage.vue")
@@ -1368,7 +1378,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-43-fast-ranked-search\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-44-fast-search-thumbs\">\n    <link rel=\"preconnect\" href=\"https://i.ytimg.com\" crossorigin>\n    <link rel=\"preconnect\" href=\"https://www.youtube-nocookie.com\" crossorigin>\n    <link rel=\"dns-prefetch\" href=\"//i.ytimg.com\">", 1)
 p.write_text(s)
 PY
 
