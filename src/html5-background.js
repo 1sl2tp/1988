@@ -230,7 +230,8 @@
       }
 
       const score=x=>{
-        const type=x.mimeType.includes("audio/mp4")||x.mimeType.includes("m4a")?4:
+        const type=x.mimeType.includes("audio/mpeg")||x.mimeType.includes("mp3")?5:
+          x.mimeType.includes("audio/mp4")||x.mimeType.includes("m4a")?4:
           x.mimeType.includes("mpegurl")||x.mimeType.includes("m3u8")?3:
           x.mimeType.includes("audio/webm")?2:1;
         const playable=x.support==="probably"?3:x.support==="maybe"?2:1;
@@ -276,7 +277,7 @@
         };
         const onPlaying=()=>succeed();
         const onError=()=>fail("media_error_"+(this.audio.error?.code||0));
-        const timer=setTimeout(()=>fail("audio_start_timeout"),6500);
+        const timer=setTimeout(()=>fail("audio_start_timeout"),15000);
 
         this.audio.addEventListener("playing",onPlaying,{once:true});
         this.audio.addEventListener("error",onError,{once:true});
