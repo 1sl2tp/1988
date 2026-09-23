@@ -10,55 +10,22 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 4
+    timeout-minutes: 3
     steps:
-      - name: Probe current public Piped instances
+      - name: Inspect playable muxed fallback
         shell: bash
         run: |
           set +e
-          IDS=("dQw4w9WgXcQ" "8JA5ODE64c4")
-          APIS=(
-            "https://pipedapi.kavin.rocks"
-            "https://pipedapi.leptons.xyz"
-            "https://pipedapi.nosebs.ru"
-            "https://pipedapi-libre.kavin.rocks"
-            "https://piped-api.privacy.com.de"
-            "https://pipedapi.adminforge.de"
-            "https://api.piped.yt"
-            "https://pipedapi.drgns.space"
-            "https://pipedapi.owo.si"
-            "https://pipedapi.ducks.party"
-            "https://piped-api.codespace.cz"
-            "https://pipedapi.reallyaweso.me"
-            "https://api.piped.private.coffee"
-            "https://pipedapi.darkness.services"
-            "https://pipedapi.orangenet.cc"
-          )
-          probe_api(){
-            API="$1"
-            LOG=$(mktemp)
-            {
-              echo "=== $API ==="
-              printf 'CORS '
-              curl -sS -I --connect-timeout 3 --max-time 6 "$API/trending?region=VN" | tr -d '\r' | grep -iE '^(HTTP/|access-control-allow-origin:)' | tr '\n' ' ' || true
-              echo
-              for ID in "${IDS[@]}"; do
-                OUT=$(mktemp)
-                META=$(curl -sS -L --connect-timeout 3 --max-time 10 -o "$OUT" -w 'HTTP=%{http_code} TIME=%{time_total} SIZE=%{size_download}' "$API/streams/$ID")
-                AUDIO=$(jq -r '(.audioStreams // []) | length' "$OUT" 2>/dev/null)
-                VIDEO=$(jq -r '(.videoStreams // []) | length' "$OUT" 2>/dev/null)
-                AURL=$(jq -r '[(.audioStreams // [])[] | select(.url != null)][0].url // ""' "$OUT" 2>/dev/null)
-                HOST=$(printf '%s' "$AURL" | sed -E 's#https?://([^/]+)/?.*#\1#')
-                echo "$ID $META AUDIO=${AUDIO:-?} VIDEO=${VIDEO:-?} AHOST=${HOST:-}"
-                rm -f "$OUT"
-              done
-            } > "$LOG" 2>&1
-            cat "$LOG"
-            rm -f "$LOG"
-          }
-          export -f probe_api
-          export IDS
-          for API in "${APIS[@]}"; do
-            probe_api "$API" &
+          ID="dQw4w9WgXcQ"
+          for API in "https://pipedapi.ducks.party" "https://api.piped.private.coffee"; do
+            echo "=== $API ==="
+            OUT=$(mktemp)
+            curl -sS -L --connect-timeout 3 --max-time 12 "$API/streams/$ID" -o "$OUT"
+            jq -c '(.videoStreams // [])[] | {url,mimeType,quality,videoOnly,bitrate,format}' "$OUT" || true
+            URL=$(jq -r '[(.videoStreams // [])[] | select(.url != null and (.videoOnly == false or .videoOnly == null))][0].url // ""' "$OUT")
+            echo "MUXED_URL_HOST=$(printf "%s" "$URL" | sed -E "s#https?://([^/]+)/?.*#\\1#")"
+            if [ -n "$URL" ]; then
+              curl -sS -I -L --connect-timeout 3 --max-time 12 -H 'Range: bytes=0-1' "$URL" | tr -d '\r' | grep -iE '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:)' || true
+            fi
+            rm -f "$OUT"
           done
-          wait
