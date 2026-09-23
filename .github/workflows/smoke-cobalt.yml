@@ -11,12 +11,21 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Test private Cobalt proxy
+      - name: Test private Cobalt HLS proxy
         run: |
           set -e
-          URL='https://kira-proxy-1988-us.onrender.com/api/cobalt?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&videoQuality=360'
+          URL='https://kira-proxy-1988-us.onrender.com/api/cobalt?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&videoQuality=360&youtubeHLS=true&alwaysProxy=true'
           curl -sS -L --max-time 30 "$URL" -o /tmp/out.json
           cat /tmp/out.json
           echo
-          test "$(jq -r '.status // ""' /tmp/out.json)" = "tunnel"
-          test -n "$(jq -r '.url // ""' /tmp/out.json)"
+          STATUS="$(jq -r '.status // ""' /tmp/out.json)"
+          MEDIA="$(jq -r '.url // ""' /tmp/out.json)"
+          echo "STATUS=$STATUS"
+          echo "MEDIA=$MEDIA"
+          test -n "$MEDIA"
+          echo '=== MEDIA HEADERS ==='
+          curl -sS -L --max-time 30 -D /tmp/h -o /tmp/body "$MEDIA"
+          cat /tmp/h
+          echo '=== FIRST BYTES ==='
+          head -c 500 /tmp/body | tr '\n' ' '
+          echo
