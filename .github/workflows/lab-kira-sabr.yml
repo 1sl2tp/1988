@@ -60,8 +60,8 @@ jobs:
               raise SystemExit('extension guard not found')
           s=s.replace(old, '''  // Mobile/PWA path: use Kira-compatible proxy fallback instead of ytc-bridge.\n''')
 
-          # Flow's durable SABR path prefers MWEB before WEB. YouTube.js
-          # officially supports per-request client override via client: 'MWEB'.
+          # Flow's fast path uses VISIONOS direct adaptive streams. YouTube.js
+          # officially supports per-request client override via client: 'VISIONOS'.
           player_needle="videoId,\n      contentCheckOk: true,"
           if player_needle not in s:
               raise SystemExit('player request block not found')
