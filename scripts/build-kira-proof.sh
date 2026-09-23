@@ -39,7 +39,7 @@ s = s.replace(
   return (window as any).proxyFetch;
 }""",
 """export function getInjectedProxyFunction() {
-  return undefined;
+  return (window as any).__1988DisabledProxyFetch;
 }"""
 )
 p.write_text(s)
