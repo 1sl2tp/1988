@@ -59,6 +59,17 @@ jobs:
           if old not in s:
               raise SystemExit('extension guard not found')
           s=s.replace(old, '''  // Mobile/PWA path: use Kira-compatible proxy fallback instead of ytc-bridge.\n''')
+
+          # Flow's durable SABR path prefers MWEB before WEB. YouTube.js
+          # officially supports per-request client override via client: 'MWEB'.
+          player_needle="videoId,\n      contentCheckOk: true,"
+          if player_needle not in s:
+              raise SystemExit('player request block not found')
+          s=s.replace(
+              player_needle,
+              "videoId,\n      client: 'MWEB',\n      contentCheckOk: true,"
+          )
+
           main.write_text(s)
 
           # 2) Replace only fetchFunction with Kira-style fallback, adapted to
