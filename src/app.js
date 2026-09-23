@@ -1,6 +1,7 @@
 "use strict";
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+const AUDIO_PROXY="https://one988-audio.onrender.com";
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
@@ -105,10 +106,24 @@ async function api(action,params={}){
 }
 
 async function backgroundSources(id){
-  const r=await api("background",{id});
-  const data=r?.data||{};
-  const rows=Array.isArray(data.sources)?data.sources:[];
-  return rows.filter(row=>row?.url);
+  if(!id)return [];
+
+  // Warm yt-dlp resolution in the background, but do not wait for it here.
+  // The actual <audio> source stays on our own proxy so the browser never
+  // consumes a server-generated Googlevideo URL from a different IP/session.
+  try{
+    const warm=new URL(AUDIO_PROXY+"/resolve");
+    warm.searchParams.set("id",id);
+    void fetch(warm.toString(),{cache:"no-store",mode:"cors"}).catch(()=>{});
+  }catch{}
+
+  const media=new URL(AUDIO_PROXY+"/audio");
+  media.searchParams.set("id",id);
+  return [{
+    url:media.toString(),
+    mimeType:"audio/mp4",
+    bitrate:0
+  }];
 }
 
 const backgroundPlayer=new HTML5BackgroundPlayer({
@@ -124,13 +139,13 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     if(event.type==="source"){
       state.audioMaster=true;
       try{state.player?.mute?.();}catch{}
-      statusText.textContent="Âm thanh HTML5 đang chạy · khóa màn hình sẽ tiếp tục";
+      statusText.textContent="Audio yt-dlp đang chạy · có thể khóa màn hình";
     }
 
     if(event.type==="ready"&&!event.count){
       state.audioMaster=false;
       try{state.player?.unMute?.();}catch{}
-      statusText.textContent="Video đang phát · chưa có audio nền";
+      statusText.textContent="Video đang phát · backend audio chưa sẵn sàng";
     }
 
     if(event.type==="ended"){
