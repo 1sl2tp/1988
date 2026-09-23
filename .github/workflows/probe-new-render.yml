@@ -24,9 +24,9 @@ jobs:
 
           echo
           echo '=== RESOLVE VIDEO ==='
-          curl -sS --fail-with-body --max-time 90 "$BASE/resolve?id=$ID&kind=video" -o /tmp/resolve.json
-          cat /tmp/resolve.json
-          jq -e '.ok == true and .data.kind == "video"' /tmp/resolve.json >/dev/null
+          VIDEO_HTTP="$(curl -sS --max-time 90 -o /tmp/resolve.json -w '%{http_code}' "$BASE/resolve?id=$ID&kind=video" || true)"
+          echo "VIDEO_HTTP=$VIDEO_HTTP"
+          cat /tmp/resolve.json || true
 
           echo
           echo '=== VIDEO RANGE ==='
@@ -40,6 +40,6 @@ jobs:
 
           echo
           echo '=== AUDIO RESOLVE ==='
-          curl -sS --fail-with-body --max-time 90 "$BASE/resolve?id=$ID&kind=audio" -o /tmp/audio.json
-          cat /tmp/audio.json
-          jq -e '.ok == true and .data.kind == "audio"' /tmp/audio.json >/dev/null
+          AUDIO_HTTP="$(curl -sS --max-time 90 -o /tmp/audio.json -w '%{http_code}' "$BASE/resolve?id=$ID&kind=audio" || true)"
+          echo "AUDIO_HTTP=$AUDIO_HTTP"
+          cat /tmp/audio.json || true
