@@ -12,6 +12,12 @@ h1{font-size:22px;margin:0 0 6px}.sub{color:#9b9ba3;font-size:13px;margin:0 0 14
 .row{display:flex;gap:8px}.row input{flex:1;min-width:0}
 input,button{font:inherit;border-radius:10px;border:1px solid #303038;background:#141418;color:#fff;padding:11px 12px}
 button{background:#fff;color:#000;font-weight:700;cursor:pointer}button:disabled{opacity:.55}
+.auth-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.auth-row button{padding:8px 10px}
+#authState{font-size:12px;color:#aaa}
+.auth-pending{margin:0 0 10px;padding:10px;border:1px solid #303038;border-radius:10px;background:#101014;font-size:12px;line-height:1.5}
+.auth-pending a{color:#8ab4ff;font-weight:700}
+.auth-code{font-size:18px;font-weight:800;letter-spacing:.08em}
 video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radius:12px;margin-top:14px}
 .card{margin-top:12px;padding:12px;border:1px solid #25252b;border-radius:12px;background:#101014}
 .status{font-size:13px;line-height:1.45;word-break:break-word}.ok{color:#74d680}.bad{color:#ff6961}.warn{color:#f5c451}
@@ -23,6 +29,12 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
 <main>
   <h1>YouTube.js · MP4 Proof</h1>
   <p class="sub">Local extraction trong browser → proxy riêng → bytes media. Không dùng Piped.</p>
+  <div class="auth-row">
+    <button id="loginBtn" type="button">Đăng nhập YouTube</button>
+    <button id="logoutBtn" type="button" hidden>Đăng xuất</button>
+    <span id="authState">Chưa đăng nhập</span>
+  </div>
+  <div id="authPending" class="auth-pending" hidden></div>
   <div class="row">
     <input id="videoId" value="" autocomplete="off" spellcheck="false" placeholder="Tìm video hoặc dán link YouTube">
     <button id="go">Tìm & phát</button>
@@ -39,18 +51,35 @@ video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radiu
       <b>Player</b><span id="player">—</span>
     </div>
   </div>
-  <div class="small">Build: ytjs-proof-20260923-9-content-pot · proxy-v9</div>
+  <div class="small">Build: ytjs-proof-20260923-10-youtube-login · proxy-v9</div>
 </main>
 
 <script type="module">
-import ProofEngine from './src/yt-proof-engine.js?v=3';
+import ProofEngine from './src/yt-proof-engine.js?v=4';
 
 const $=id=>document.getElementById(id);
 const video=$('video'),status=$('status'),go=$('go');
+const loginBtn=$('loginBtn'),logoutBtn=$('logoutBtn'),authStateEl=$('authState'),authPending=$('authPending');
 
 function setStatus(text,kind='warn'){
   status.textContent=text;
   status.className='status '+kind;
+}
+
+function setAuthUi(loggedIn){
+  loginBtn.hidden=!!loggedIn;
+  logoutBtn.hidden=!loggedIn;
+  authStateEl.textContent=loggedIn?'Đã đăng nhập YouTube':'Chưa đăng nhập YouTube';
+  if(loggedIn)authPending.hidden=true;
+}
+
+async function refreshAuthUi(){
+  try{
+    const state=await ProofEngine.authState();
+    setAuthUi(!!state?.loggedIn);
+  }catch{
+    setAuthUi(false);
+  }
 }
 
 function parseVideoId(raw){
@@ -175,11 +204,52 @@ async function run(){
     go.disabled=false;
   }
 }
+loginBtn.addEventListener('click',async()=>{
+  loginBtn.disabled=true;
+  authPending.hidden=true;
+  authStateEl.textContent='Đang tạo mã đăng nhập…';
+
+  try{
+    await ProofEngine.signIn((data)=>{
+      const url=String(data?.verification_url||'');
+      const code=String(data?.user_code||'');
+      authPending.innerHTML=
+        '<div>Mở trang YouTube rồi nhập mã:</div>'+
+        '<div class="auth-code">'+code.replace(/[&<>"]/g,'')+'</div>'+
+        (url?'<a href="'+url.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener">Mở trang xác nhận YouTube</a>':'');
+      authPending.hidden=false;
+      authStateEl.textContent='Chờ xác nhận trên YouTube…';
+    });
+    setAuthUi(true);
+    setStatus('Đăng nhập YouTube thành công · thử lại video.','ok');
+  }catch(error){
+    console.error(error);
+    setAuthUi(false);
+    setStatus('Đăng nhập thất bại: '+String(error?.message||error),'bad');
+  }finally{
+    loginBtn.disabled=false;
+  }
+});
+
+logoutBtn.addEventListener('click',async()=>{
+  logoutBtn.disabled=true;
+  try{
+    await ProofEngine.signOut();
+    setAuthUi(false);
+    setStatus('Đã đăng xuất YouTube.','warn');
+  }catch(error){
+    setStatus('Đăng xuất thất bại: '+String(error?.message||error),'bad');
+  }finally{
+    logoutBtn.disabled=false;
+  }
+});
+
 go.addEventListener('click',run);
 $('videoId').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
 const params=new URL(location.href).searchParams;
 const initial=params.get('q')||params.get('id');
 if(initial)$('videoId').value=initial;
+void refreshAuthUi();
 </script>
 </body>
 </html>
