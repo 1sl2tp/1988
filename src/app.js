@@ -9,8 +9,11 @@ const queryInput=$("#queryInput");
 const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
-const backgroundBtn=$("#backgroundBtn");
+const mainVideo=$("#mainVideo");
 const videoBtn=$("#videoBtn");
+const backgroundBtn=$("#backgroundBtn");
+const pipBtn=$("#pipBtn");
+const lockBtn=$("#lockBtn");
 const shareBtn=$("#shareBtn");
 const statusText=$("#statusText");
 const feed=$("#feed");
@@ -22,9 +25,6 @@ const installSheet=$("#installSheet");
 const closeInstallSheet=$("#closeInstallSheet");
 
 const state={
-  player:null,
-  playerReady:false,
-  pendingVideoId:"",
   currentId:"",
   currentMeta:null,
   mode:"video",
@@ -141,24 +141,26 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     if(event.id&&event.id!==state.currentId)return;
 
     if(event.type==="armed"){
-      statusText.textContent="Đang chuẩn bị âm thanh nền…";
+      statusText.textContent="Đang mở âm thanh nền…";
     }
 
     if(event.type==="source"){
       state.audioMaster=true;
-      try{state.player?.mute?.();}catch{}
-      statusText.textContent="Audio yt-dlp đang chạy · có thể khóa màn hình";
+      statusText.textContent=state.mode==="lock"
+        ?"Âm thanh khóa màn hình đã sẵn sàng"
+        :"Âm thanh nền đang phát";
+      updateModeUi();
     }
 
     if(event.type==="ready"&&!event.count){
       state.audioMaster=false;
-      try{state.player?.unMute?.();}catch{}
-      statusText.textContent="Video đang phát · backend audio chưa sẵn sàng";
+      statusText.textContent="Chưa lấy được luồng âm thanh nền";
     }
 
     if(event.type==="ended"){
       state.audioMaster=false;
       statusText.textContent="Đã phát xong";
+      updateModeUi();
     }
   }
 });
@@ -267,8 +269,24 @@ function updateNow(meta={}){
 }
 
 function updateModeUi(){
-  backgroundBtn.hidden=true;
-  videoBtn.hidden=true;
+  const active=state.mode;
+  const rows=[
+    [videoBtn,"video"],
+    [backgroundBtn,"audio"],
+    [pipBtn,"pip"],
+    [lockBtn,"lock"]
+  ];
+  rows.forEach(([button,mode])=>{
+    if(!button)return;
+    button.hidden=false;
+    button.classList.toggle("active",active===mode);
+    button.setAttribute("aria-pressed",active===mode?"true":"false");
+  });
+  if(pipBtn){
+    const available=MediaCore.pipMethod(mainVideo,document)!=="none";
+    pipBtn.disabled=!available;
+    pipBtn.title=available?"Picture in Picture":"Thiết bị này không hỗ trợ PiP";
+  }
 }
 
 function updateMediaSession(meta=state.currentMeta||{}){
@@ -276,19 +294,169 @@ function updateMediaSession(meta=state.currentMeta||{}){
 }
 
 function getVideoTime(){
-  try{return Math.max(0,Number(state.player?.getCurrentTime?.())||0);}catch{return 0;}
+  return Math.max(0,Number(mainVideo.currentTime)||0);
 }
 
 function seekVideo(time){
-  try{state.player?.seekTo?.(Math.max(0,Number(time)||0),true);}catch{}
+  const value=Math.max(0,Number(time)||0);
+  if(mainVideo.readyState>=1){
+    try{mainVideo.currentTime=value;}catch{}
+  }else{
+    mainVideo.dataset.pendingSeek=String(value);
+  }
 }
 
 function playVideoEngine(){
-  try{state.player?.playVideo?.();}catch{}
+  try{
+    const p=mainVideo.play();
+    if(p&&typeof p.catch==="function")p.catch(()=>{
+      if(state.mode==="video"||state.mode==="pip"){
+        statusText.textContent="Chạm nút ▶︎ trên video để phát";
+      }
+    });
+  }catch{}
 }
 
 function pauseVideoEngine(){
-  try{state.player?.pauseVideo?.();}catch{}
+  try{mainVideo.pause();}catch{}
+}
+
+function setupMediaSession(){
+  if(!("mediaSession" in navigator))return;
+  const safe=(name,handler)=>{try{navigator.mediaSession.setActionHandler(name,handler);}catch{}};
+  const usingAudio=()=>MediaCore.modeUsesAudio(state.mode);
+  safe("play",()=>{
+    if(usingAudio())void backgroundPlayer.play();
+    else playVideoEngine();
+  });
+  safe("pause",()=>{
+    if(usingAudio())backgroundPlayer.pause();
+    else pauseVideoEngine();
+  });
+  safe("seekbackward",details=>{
+    const offset=Number(details.seekOffset)||10;
+    if(usingAudio())backgroundPlayer.seek(backgroundPlayer.time-offset);
+    else seekVideo(getVideoTime()-offset);
+  });
+  safe("seekforward",details=>{
+    const offset=Number(details.seekOffset)||10;
+    if(usingAudio())backgroundPlayer.seek(backgroundPlayer.time+offset);
+    else seekVideo(getVideoTime()+offset);
+  });
+  safe("seekto",details=>{
+    if(!Number.isFinite(details.seekTime))return;
+    if(usingAudio())backgroundPlayer.seek(details.seekTime);
+    else seekVideo(details.seekTime);
+  });
+}
+
+function startBackgroundMode(mode){
+  if(!state.currentId)return;
+  const targetMode=mode==="lock"?"lock":"audio";
+  const time=getVideoTime();
+  state.mode=targetMode;
+  pauseVideoEngine();
+
+  try{
+    if(document.pictureInPictureElement===mainVideo&&document.exitPictureInPicture){
+      void document.exitPictureInPicture().catch(()=>{});
+    }
+    if(mainVideo.webkitPresentationMode==="picture-in-picture"&&mainVideo.webkitSetPresentationMode){
+      mainVideo.webkitSetPresentationMode("inline");
+    }
+  }catch{}
+
+  backgroundPlayer.select(state.currentId,{metadata:state.currentMeta||{}});
+  updateModeUi();
+
+  if(backgroundPlayer.hasPrepared(state.currentId)){
+    void backgroundPlayer.activate(state.currentId,{
+      time,
+      metadata:state.currentMeta||{}
+    }).catch(()=>{
+      state.audioMaster=false;
+      statusText.textContent="Không mở được âm thanh nền";
+    });
+    statusText.textContent=targetMode==="lock"
+      ?"Đang chuẩn bị âm thanh để khóa màn hình…"
+      :"Đang chuyển sang âm thanh nền…";
+    return;
+  }
+
+  backgroundPlayer.arm(state.currentId,{metadata:state.currentMeta||{}});
+  queueAudioPrime(state.currentId,true);
+  statusText.textContent=targetMode==="lock"
+    ?"Đang chuẩn bị âm thanh để khóa màn hình…"
+    :"Đang chuẩn bị âm thanh nền…";
+
+  void backgroundPlayer.prepare(state.currentId).then(async rows=>{
+    if(state.currentId!==backgroundPlayer.currentId||!rows.length)return;
+    try{
+      await backgroundPlayer.activate(state.currentId,{
+        time,
+        metadata:state.currentMeta||{}
+      });
+    }catch{
+      state.audioMaster=false;
+      statusText.textContent="Không mở được âm thanh nền";
+    }
+  });
+}
+
+function returnToVideo(){
+  if(!state.currentId)return;
+  const time=state.audioMaster?backgroundPlayer.time:getVideoTime();
+  backgroundPlayer.pause();
+  state.audioMaster=false;
+  state.mode="video";
+  if(mainVideo.dataset.videoId!==state.currentId){
+    mainVideo.dataset.videoId=state.currentId;
+    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
+    try{mainVideo.load();}catch{}
+  }
+  seekVideo(time);
+  playVideoEngine();
+  statusText.textContent="Video trực tiếp · không quảng cáo";
+  updateModeUi();
+}
+
+async function enterPiP(){
+  if(!state.currentId)return;
+  const time=MediaCore.activeTimeForMode(state.mode,getVideoTime(),backgroundPlayer.time);
+
+  if(MediaCore.modeUsesAudio(state.mode)){
+    backgroundPlayer.pause();
+    state.audioMaster=false;
+  }
+
+  state.mode="pip";
+  if(mainVideo.dataset.videoId!==state.currentId){
+    mainVideo.dataset.videoId=state.currentId;
+    mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,state.currentId,"video");
+    try{mainVideo.load();}catch{}
+  }
+  seekVideo(time);
+  playVideoEngine();
+  updateModeUi();
+
+  const method=MediaCore.pipMethod(mainVideo,document);
+  try{
+    if(method==="standard"){
+      await mainVideo.requestPictureInPicture();
+    }else if(method==="webkit"){
+      mainVideo.webkitSetPresentationMode("picture-in-picture");
+    }else{
+      state.mode="video";
+      updateModeUi();
+      statusText.textContent="Thiết bị này không hỗ trợ PiP";
+      return;
+    }
+    statusText.textContent="PiP đang phát · không quảng cáo";
+  }catch{
+    state.mode="video";
+    updateModeUi();
+    statusText.textContent="Không mở được PiP trên thiết bị này";
+  }
 }
 
 async function playVideo(id,seedMeta={}){
@@ -300,64 +468,19 @@ async function playVideo(id,seedMeta={}){
   state.audioMaster=false;
   playerSection.hidden=false;
 
+  backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
-  const audioPrepared=backgroundPlayer.hasPrepared(id);
+  queueAudioPrime(id,true);
 
-  if(audioPrepared){
-    // No network wait before play(): this runs inside the user's tap.
-    void backgroundPlayer.activate(id,{
-      time:0,
-      metadata:seedMeta
-    }).catch(()=>{
-      if(state.currentId!==id)return;
-      state.audioMaster=false;
-      try{state.player?.unMute?.();}catch{}
-      statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
-    });
-  }else{
-    // Fallback for an unprimed card: keep the HTML5 element user-activated
-    // while the real source is resolved.
-    backgroundPlayer.arm(id,{metadata:seedMeta});
-    queueAudioPrime(id,true);
-    void backgroundPlayer.prepare(id).then(async rows=>{
-      if(state.currentId!==id||!rows.length)return;
-      try{
-        await backgroundPlayer.activate(id,{
-          time:getVideoTime(),
-          metadata:state.currentMeta||seedMeta
-        });
-      }catch{
-        if(state.currentId===id){
-          state.audioMaster=false;
-          try{state.player?.unMute?.();}catch{}
-          statusText.textContent="Video đang phát · audio nền chưa sẵn sàng";
-        }
-      }
-    });
-  }
+  mainVideo.dataset.videoId=id;
+  mainVideo.poster=thumb(seedMeta,id);
+  mainVideo.src=MediaCore.buildNativeMediaUrl(BASE,id,"video");
+  try{mainVideo.load();}catch{}
+  playVideoEngine();
 
   updateNow(seedMeta);
   updateModeUi();
-  statusText.textContent=audioPrepared
-    ?"Đang mở video · HTML5 Audio đã sẵn sàng"
-    :"Đang mở video và chuẩn bị âm thanh nền…";
-
-  try{
-    if(audioPrepared)state.player?.mute?.();
-    else state.player?.unMute?.();
-  }catch{}
-
-  if(state.playerReady&&state.player){
-    try{
-      if(audioPrepared)state.player.mute();
-      state.player.loadVideoById(id);
-    }catch{
-      state.pendingVideoId=id;
-    }
-  }else{
-    state.pendingVideoId=id;
-    initYouTubePlayer();
-  }
+  statusText.textContent="Đang mở luồng video trực tiếp…";
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -372,6 +495,7 @@ async function playVideo(id,seedMeta={}){
     state.currentMeta={...seedMeta,...meta};
     updateNow(state.currentMeta);
     backgroundPlayer.setMetadata(state.currentMeta);
+    mainVideo.poster=thumb(state.currentMeta,id);
 
     const related=Array.isArray(meta.relatedStreams)?meta.relatedStreams:[];
     if(related.length){
@@ -379,81 +503,6 @@ async function playVideo(id,seedMeta={}){
       renderCards(related.slice(0,18));
     }
   }catch{}
-}
-
-function initYouTubePlayer(){
-  if(state.player||!window.YT||typeof YT.Player!=="function")return false;
-
-  state.player=new YT.Player("yt-player",{
-    height:"100%",
-    width:"100%",
-    playerVars:{
-      autoplay:1,
-      playsinline:1,
-      controls:1,
-      rel:0,
-      fs:1,
-      iv_load_policy:3,
-      enablejsapi:1,
-      mute:1
-    },
-    events:{
-      onReady(){
-        state.playerReady=true;
-        if(state.audioMaster||backgroundPlayer.hasPrepared(state.currentId)){
-          try{state.player.mute();}catch{}
-        }
-        if(state.pendingVideoId){
-          const id=state.pendingVideoId;
-          state.pendingVideoId="";
-          try{
-            if(backgroundPlayer.hasPrepared(id))state.player.mute();
-            state.player.loadVideoById(id);
-          }catch{}
-        }
-      },
-      onStateChange(event){
-        if(event.data===YT.PlayerState.PLAYING){
-          if(state.audioMaster){
-            try{state.player?.mute?.();}catch{}
-            if(!backgroundPlayer.playing){
-              void backgroundPlayer.play();
-            }
-          }
-        }else if(event.data===YT.PlayerState.PAUSED){
-          // YouTube is visual-only. iOS may pause/freeze the iframe when the
-          // PWA goes background or the screen locks. Never propagate that
-          // pause to the HTML5 audio master.
-          if(state.audioMaster){
-            try{state.player?.mute?.();}catch{}
-          }
-        }
-      },
-      onError(){
-        statusText.textContent="YouTube không phát được video này";
-      }
-    }
-  });
-  return true;
-}
-
-window.onYouTubeIframeAPIReady=()=>{
-  if(state.pendingVideoId||state.currentId) initYouTubePlayer();
-};
-
-// Never create an empty YouTube player. playVideo() will initialize it only
-// after a real video id has been selected.
-if(!(window.YT&&typeof YT.Player==="function")){
-  let ytWait=0;
-  const ytTimer=setInterval(()=>{
-    ytWait++;
-    if(window.YT&&typeof YT.Player==="function"){
-      clearInterval(ytTimer);
-      if(state.pendingVideoId||state.currentId) initYouTubePlayer();
-    }else if(ytWait>80){
-      clearInterval(ytTimer);
-    }
-  },100);
 }
 
 async function doSearch(value){
@@ -518,46 +567,72 @@ shareBtn.addEventListener("click",async()=>{
   }catch{}
 });
 
-function syncForegroundVideo(){
-  if(!state.audioMaster||!state.currentId)return;
+videoBtn.addEventListener("click",returnToVideo);
+backgroundBtn.addEventListener("click",()=>startBackgroundMode("audio"));
+lockBtn.addEventListener("click",()=>startBackgroundMode("lock"));
+pipBtn.addEventListener("click",()=>{void enterPiP();});
 
-  const t=backgroundPlayer.time;
-  seekVideo(t);
-  try{state.player?.mute?.();}catch{}
-  playVideoEngine();
-  if(!backgroundPlayer.playing)void backgroundPlayer.play();
-}
+mainVideo.addEventListener("loadedmetadata",()=>{
+  const pending=Number(mainVideo.dataset.pendingSeek);
+  if(Number.isFinite(pending)&&pending>0){
+    try{mainVideo.currentTime=pending;}catch{}
+  }
+  delete mainVideo.dataset.pendingSeek;
+});
+
+mainVideo.addEventListener("playing",()=>{
+  if(state.mode==="video")statusText.textContent="Video trực tiếp · không quảng cáo";
+  try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
+});
+
+mainVideo.addEventListener("pause",()=>{
+  if(MediaCore.modeUsesVideo(state.mode)){
+    try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
+  }
+});
+
+mainVideo.addEventListener("ended",()=>{
+  if(MediaCore.modeUsesVideo(state.mode))statusText.textContent="Đã phát xong";
+});
+
+mainVideo.addEventListener("error",()=>{
+  if(!state.currentId||MediaCore.modeUsesAudio(state.mode))return;
+  statusText.textContent="Luồng video trực tiếp chưa sẵn sàng · thử video khác";
+});
+
+mainVideo.addEventListener("enterpictureinpicture",()=>{
+  state.mode="pip";
+  updateModeUi();
+  statusText.textContent="PiP đang phát · không quảng cáo";
+});
+
+mainVideo.addEventListener("leavepictureinpicture",()=>{
+  if(state.mode==="pip"){
+    state.mode="video";
+    updateModeUi();
+    statusText.textContent="Video trực tiếp · không quảng cáo";
+  }
+});
+
+mainVideo.addEventListener("webkitpresentationmodechanged",()=>{
+  if(mainVideo.webkitPresentationMode==="picture-in-picture"){
+    state.mode="pip";
+  }else if(state.mode==="pip"){
+    state.mode="video";
+  }
+  updateModeUi();
+});
 
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState==="visible")syncForegroundVideo();
-});
-window.addEventListener("focus",syncForegroundVideo);
-window.addEventListener("pageshow",syncForegroundVideo);
-
-let lastVideoSync=0;
-let lastAudioSync=0;
-
-setInterval(()=>{
-  if(document.visibilityState!=="visible"||!state.audioMaster||!backgroundPlayer.playing)return;
-  if(!state.playerReady||!state.player)return;
-
-  const videoTime=getVideoTime();
-  const audioTime=backgroundPlayer.time;
-  const videoDelta=videoTime-lastVideoSync;
-  const audioDelta=audioTime-lastAudioSync;
-  const drift=videoTime-audioTime;
-
-  if(Math.abs(videoDelta-audioDelta)>2.5&&Math.abs(drift)>1.5){
-    // User scrubbed the visible YouTube player: move the audio once.
-    backgroundPlayer.seek(videoTime);
-  }else if(Math.abs(drift)>0.8){
-    // Normal drift: never disturb audio. Move only the picture.
-    seekVideo(audioTime);
+  if(document.visibilityState!=="visible")return;
+  if(MediaCore.modeUsesAudio(state.mode)){
+    updateModeUi();
+    return;
   }
-
-  lastVideoSync=videoTime;
-  lastAudioSync=audioTime;
-},750);
+  if(state.mode==="video"&&state.currentId){
+    updateModeUi();
+  }
+});
 
 function setupInstall(){
   const standalone=window.matchMedia?.("(display-mode: standalone)")?.matches||navigator.standalone===true;
