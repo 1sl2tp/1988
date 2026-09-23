@@ -718,7 +718,7 @@ insert = r"""  //#endregion
         const onError = () => finish(() => reject(new Error('direct_media_error_' + (videoElement.error?.code || 0))));
         const timer = window.setTimeout(
           () => finish(() => reject(new Error('direct_media_timeout'))),
-          1200
+          100
         );
 
         videoElement.addEventListener('loadedmetadata', onReady, { once: true });
@@ -825,10 +825,19 @@ new_fetch = r"""export async function fetchFunction(input: string | Request | UR
 
   const proxy = new URL('""" + PROXY + r"""');
   proxy.pathname = original.pathname;
-  proxy.searchParams.set('__host', original.host);
+
+  const isInnertube = original.pathname.startsWith('/youtubei/');
+  const upstreamHost = isInnertube ? 'youtubei.googleapis.com' : original.host;
+  proxy.searchParams.set('__host', upstreamHost);
+
   for (const [key, value] of original.searchParams) {
     proxy.searchParams.append(key, value);
   }
+
+  if (isInnertube && !proxy.searchParams.has('key')) {
+    proxy.searchParams.set('key', 'AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8');
+  }
+
   proxy.searchParams.set('__headers', JSON.stringify([ ...headers ]));
 
   headers.delete('user-agent');
@@ -871,9 +880,13 @@ new = """      if ((url.host.endsWith('.googlevideo.com') || url.href.includes('
         const originalUrl = new URL(url.toString());
         const newUrl = new URL('""" + PROXY + """');
         newUrl.pathname = originalUrl.pathname;
-        newUrl.searchParams.set('__host', originalUrl.host);
+        const isInnertube = originalUrl.pathname.startsWith('/youtubei/');
+        newUrl.searchParams.set('__host', isInnertube ? 'youtubei.googleapis.com' : originalUrl.host);
         for (const [key, value] of originalUrl.searchParams) {
           newUrl.searchParams.append(key, value);
+        }
+        if (isInnertube && !newUrl.searchParams.has('key')) {
+          newUrl.searchParams.set('key', 'AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8');
         }
         url = newUrl;
       }"""
@@ -885,7 +898,7 @@ p.write_text(s)
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
-s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-32-innertube-json\">", 1)
+s = s.replace("<head>", "<head>\n    <meta name=\"1988-proof-build\" content=\"ytjs-proof-20260923-33-googleapis-player\">", 1)
 p.write_text(s)
 PY
 
