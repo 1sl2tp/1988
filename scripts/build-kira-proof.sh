@@ -1375,6 +1375,120 @@ if old not in s:
 s = s.replace(old, new, 1)
 p.write_text(s)
 
+
+# 1988 compact display helpers.
+p = Path("src/utils/display1988.ts")
+p.write_text(r'''export function numericViews(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  const raw = String(value || '').trim().toUpperCase().replace(/,/g, '');
+  if (!raw) return 0;
+  const compact = raw.match(/([\d.]+)\s*([KMB])(?:\s*VIEWS?)?/i);
+  if (compact) {
+    const base = Number(compact[1]) || 0;
+    const factor = compact[2] === 'B' ? 1e9 : compact[2] === 'M' ? 1e6 : 1e3;
+    return Math.round(base * factor);
+  }
+  const plain = raw.match(/[\d.]+/);
+  return plain ? Math.max(0, Number(plain[0]) || 0) : 0;
+}
+
+export function formatCompactViews(value: unknown): string {
+  const n = numericViews(value);
+  if (!n) {
+    const raw = String(value || '').trim();
+    return raw && /view/i.test(raw) ? raw.replace(/\s*views?/i, ' views') : '';
+  }
+  const unit = n >= 1e9 ? 1e9 : n >= 1e6 ? 1e6 : n >= 1e3 ? 1e3 : 1;
+  const suffix = unit === 1e9 ? 'B' : unit === 1e6 ? 'M' : unit === 1e3 ? 'K' : '';
+  if (unit === 1) return Math.round(n) + ' views';
+  const scaled = n / unit;
+  const digits = scaled < 10 ? 1 : 0;
+  return scaled.toFixed(digits).replace(/\.0$/, '') + suffix + ' views';
+}
+
+const UNIT_MS: Record<string, number> = {
+  second: 1000, seconds: 1000, giay: 1000,
+  minute: 60000, minutes: 60000, phut: 60000,
+  hour: 3600000, hours: 3600000, gio: 3600000,
+  day: 86400000, days: 86400000, ngay: 86400000,
+  week: 604800000, weeks: 604800000, tuan: 604800000,
+  month: 2592000000, months: 2592000000, thang: 2592000000,
+  year: 31536000000, years: 31536000000, nam: 31536000000
+};
+
+function deaccent(value: string) {
+  return value.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase();
+}
+
+export function parsePublishedAt(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value > 1e12) return value;
+    if (value > 1e9) return value * 1000;
+  }
+  const raw = String(value || '').trim();
+  if (!raw) return 0;
+  if (/^\d{10,13}$/.test(raw)) {
+    const n = Number(raw);
+    return raw.length >= 13 ? n : n * 1000;
+  }
+  const date = Date.parse(raw);
+  if (Number.isFinite(date)) return date;
+  const plain = deaccent(raw);
+  const match = plain.match(/(\d+)\s*(second|seconds|giay|minute|minutes|phut|hour|hours|gio|day|days|ngay|week|weeks|tuan|month|months|thang|year|years|nam)/);
+  if (match) {
+    const qty = Number(match[1]) || 0;
+    const unit = UNIT_MS[match[2]] || 0;
+    if (qty && unit) return Date.now() - qty * unit;
+  }
+  return 0;
+}
+
+export function formatRelativeTime(value: unknown): string {
+  const raw = String(value || '').trim();
+  const ts = parsePublishedAt(value);
+  if (ts > 0) {
+    const diff = Math.max(0, Date.now() - ts);
+    if (diff < 60000) return 'vừa xong';
+    if (diff < 3600000) return Math.max(1, Math.floor(diff / 60000)) + ' phút trước';
+    if (diff < 86400000) return Math.max(1, Math.floor(diff / 3600000)) + ' giờ trước';
+    if (diff < 604800000) return Math.max(1, Math.floor(diff / 86400000)) + ' ngày trước';
+    if (diff < 2592000000) return Math.max(1, Math.floor(diff / 604800000)) + ' tuần trước';
+    if (diff < 31536000000) return Math.max(1, Math.floor(diff / 2592000000)) + ' tháng trước';
+    return Math.max(1, Math.floor(diff / 31536000000)) + ' năm trước';
+  }
+  if (!raw) return '';
+  return normalizeMetadataText(raw);
+}
+
+export function normalizeMetadataText(value: unknown): string {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  text = text.replace(/([\d.,]+)\s*([KMB])?\s*views?/gi, function(_, num, suffix) {
+    return formatCompactViews(String(num) + String(suffix || ''));
+  });
+  const replacements: Array<[RegExp, string]> = [
+    [/(\d+)\s*seconds?\s*ago/gi, '$1 giây trước'],
+    [/(\d+)\s*minutes?\s*ago/gi, '$1 phút trước'],
+    [/(\d+)\s*hours?\s*ago/gi, '$1 giờ trước'],
+    [/(\d+)\s*days?\s*ago/gi, '$1 ngày trước'],
+    [/(\d+)\s*weeks?\s*ago/gi, '$1 tuần trước'],
+    [/(\d+)\s*months?\s*ago/gi, '$1 tháng trước'],
+    [/(\d+)\s*years?\s*ago/gi, '$1 năm trước']
+  ];
+  for (const [re, replacement] of replacements) text = text.replace(re, replacement);
+  return text.replace(/\s*[•·]\s*/g, ' · ').replace(/\s+/g, ' ').trim();
+}
+
+export function compactMetadata(items: unknown[]): string {
+  return items.map(normalizeMetadataText).filter(Boolean).join(' · ')
+    .replace(/(?:\s*·\s*)+/g, ' · ');
+}
+''')
+
 # Keep attribution and a machine-readable build marker without changing the UI.
 p = Path("index.html")
 s = p.read_text()
