@@ -27,7 +27,7 @@ jobs:
       - name: Play exact video without iframe
         shell: bash
         run: |
-          cat >/tmp/test.mjs <<'JS'
+          cat >test.mjs <<'JS'
           import { chromium } from './node_modules/playwright/index.mjs';
           const browser=await chromium.launch({
             headless:true,
@@ -65,4 +65,4 @@ jobs:
           await browser.close();
           if(!started) process.exit(2);
           JS
-          node /tmp/test.mjs
+          node test.mjs
