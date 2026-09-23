@@ -70,7 +70,7 @@ p.write_text(s)
 p = Path("src/composables/useProxySettings.ts")
 s = p.read_text()
 s = s.replace("protocol: 'http',\n  host: '',\n  port: ''", "protocol: 'https',\n  host: 'gcnoahqsrquxkwkjbuxy.supabase.co',\n  port: ''")
-s = s.replace("      Object.assign(settingsState, parsed);", "      /* fixed 1988 proxy: ignore saved proxy settings */")
+s = s.replace("      Object.assign(settingsState, parsed);", "      void parsed; /* fixed 1988 proxy: ignore saved proxy settings */")
 p.write_text(s)
 
 # Use the existing 1988 Supabase proxy shape (__host + __path + serialized headers).
