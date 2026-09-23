@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-media-v14';
+const CACHE='1988-node-stream-v15';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=fresh-4',
-  './src/app.js?v=fresh-14',
+  './src/app.js?v=fresh-15',
   './src/media-core.js?v=1',
   './src/html5-background.js?v=6',
   './icons/icon-180.png',
