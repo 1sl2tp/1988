@@ -393,16 +393,16 @@ function initYouTubePlayer(){
         if(event.data===YT.PlayerState.PLAYING){
           if(state.audioMaster){
             try{state.player?.mute?.();}catch{}
-            if(document.visibilityState==="visible"&&!backgroundPlayer.playing){
+            if(!backgroundPlayer.playing){
               void backgroundPlayer.play();
             }
           }
         }else if(event.data===YT.PlayerState.PAUSED){
-          // Ignore the iframe pausing because iOS hid/suspended it. The HTML5
-          // audio must remain alive while the PWA is backgrounded.
-          if(document.visibilityState==="visible"&&state.audioMaster){
-            backgroundPlayer.pause();
-            statusText.textContent="Đã tạm dừng";
+          // YouTube is visual-only. iOS may pause/freeze the iframe when the
+          // PWA goes background or the screen locks. Never propagate that
+          // pause to the HTML5 audio master.
+          if(state.audioMaster){
+            try{state.player?.mute?.();}catch{}
           }
         }
       },
@@ -525,6 +525,9 @@ function syncForegroundVideo(){
   if(!backgroundPlayer.playing)void backgroundPlayer.play();
 }
 
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")syncForegroundVideo();
+});
 window.addEventListener("focus",syncForegroundVideo);
 window.addEventListener("pageshow",syncForegroundVideo);
 
@@ -532,7 +535,7 @@ let lastVideoSync=0;
 let lastAudioSync=0;
 
 setInterval(()=>{
-  if((document.hasFocus&& !document.hasFocus())||!state.audioMaster||!backgroundPlayer.playing)return;
+  if(document.visibilityState!=="visible"||!state.audioMaster||!backgroundPlayer.playing)return;
   if(!state.playerReady||!state.player)return;
 
   const videoTime=getVideoTime();
