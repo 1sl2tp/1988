@@ -1,4 +1,4 @@
-name: Smoke NewPipe WASM
+name: Probe Invidious Progressive Sources
 
 on:
   push:
@@ -11,41 +11,53 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
-      - name: Run NewPipe WASM in real Chrome
+      - name: Find healthy Invidious instances with progressive streams
         run: |
-          set -e
-          mkdir -p /tmp/np
-          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm-runtime.js' -o /tmp/np/browser-wrapper.wasm-runtime.js
-          curl -fsSL 'https://raw.githubusercontent.com/thegrims/newpipe-extractor-wasm/main/browser-wrapper/webdemo/browser-wrapper.wasm' -o /tmp/np/browser-wrapper.wasm
-          cat >/tmp/np/index.html <<'HTML'
-          <!doctype html><meta charset="utf-8">
-          <script src="browser-wrapper.wasm-runtime.js"></script>
-          <pre id="out">loading</pre>
-          <script>
-          (async()=>{
-            const q=new URLSearchParams(location.search);
-            const relay=q.get('relay')||'';
-            const t=performance.now();
-            try {
-              const teavm=await TeaVM.wasmGC.load('browser-wrapper.wasm');
-              const media=teavm.exports.getFirstProgressiveStreamUrl(relay,'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-              document.getElementById('out').textContent=JSON.stringify({ok:!String(media).startsWith('ERROR:'),ms:Math.round(performance.now()-t),media:String(media).slice(0,240)});
-            } catch(e) {
-              document.getElementById('out').textContent=JSON.stringify({ok:false,ms:Math.round(performance.now()-t),error:String(e)});
-            }
-          })();
-          </script>
-          HTML
-          cd /tmp/np
-          python3 -m http.server 8934 >/tmp/http.log 2>&1 &
-          sleep 1
-          CHROME="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
-          echo "CHROME=$CHROME"
-          test -n "$CHROME"
-          for RELAY in             'https://api.cors.syrins.tech/?url='             'https://api.allorigins.win/raw?url='
-          do
-            echo "=== RELAY $RELAY ==="
-            ENC=$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=""))' "$RELAY")
-            timeout 35s "$CHROME" --headless=new --disable-gpu --no-sandbox --disable-dev-shm-usage               --virtual-time-budget=30000 "http://127.0.0.1:8934/?relay=$ENC" --dump-dom 2>/tmp/chrome.err | grep -o '<pre id="out">[^<]*' || true
-            tail -20 /tmp/chrome.err || true
-          done
+          set +e
+          python - <<'PY'
+          import json, subprocess, urllib.parse, os, sys
+          index='https://api.invidious.io/instances.json?sort_by=health'
+          try:
+              raw=subprocess.check_output(['curl','-sS','-L','--max-time','20',index],stderr=subprocess.DEVNULL)
+              rows=json.loads(raw)
+          except Exception as e:
+              print('INDEX_ERROR',repr(e)); sys.exit(0)
+          print('INSTANCES',len(rows))
+          tested=0
+          for item in rows:
+              if tested>=50: break
+              try:
+                  host=item[0]
+                  meta=item[1] or {}
+              except Exception:
+                  continue
+              if not meta.get('api',True): continue
+              if not meta.get('https',True): continue
+              base='https://'+host
+              out='/tmp/inv.json'
+              cmd=['curl','-sS','-L','--max-time','12','-o',out,'-w','%{http_code} %{time_total} %{size_download}',base+'/api/v1/videos/dQw4w9WgXcQ']
+              try:
+                  stat=subprocess.check_output(cmd,stderr=subprocess.DEVNULL,text=True).strip()
+              except subprocess.CalledProcessError:
+                  stat='ERR'
+              tested+=1
+              try:
+                  data=json.load(open(out))
+              except Exception:
+                  data={}
+              fmts=data.get('formatStreams') or []
+              adp=data.get('adaptiveFormats') or []
+              url=(fmts[0].get('url') if fmts and isinstance(fmts[0],dict) else '') or ''
+              print('INSTANCE',base,'HTTP',stat,'FMT',len(fmts),'ADP',len(adp),'URLHOST',urllib.parse.urlparse(url).netloc if url else '')
+              if url:
+                  h='/tmp/rh'; b='/tmp/rb'
+                  try:
+                      rstat=subprocess.check_output(['curl','-sS','-L','--max-time','15','-D',h,'-o',b,'-H','Range: bytes=0-1023','-w','%{http_code} %{time_total} %{size_download}',url],stderr=subprocess.DEVNULL,text=True).strip()
+                  except subprocess.CalledProcessError:
+                      rstat='ERR'
+                  headers=open(h,errors='ignore').read() if os.path.exists(h) else ''
+                  print('RANGE',rstat,'PARTIAL',('206' in headers.splitlines()[0] if headers else False),'ACCEPT',('accept-ranges:' in headers.lower()))
+                  if rstat.startswith('206') or (headers and headers.splitlines()[0].endswith(' 206 ')):
+                      print('WINNER',base)
+                      break
+          PY
