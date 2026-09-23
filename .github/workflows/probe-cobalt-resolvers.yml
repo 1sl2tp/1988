@@ -10,9 +10,9 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 6
     steps:
-      - name: Probe audio-only resolver links
+      - name: Probe Cobalt audio resolver endpoints
         shell: bash
         run: |
           set +e
@@ -21,36 +21,27 @@ jobs:
             'https://cobalt.meowing.de'
             'https://nuko-c.meowing.de'
             'https://subito-c.meowing.de'
-            'https://cobalt-api.kwiatekmiki.com'
             'https://dwnld.nichind.dev'
             'https://cobalt-backend.canine.tools'
             'https://cobalt-api.clxxped.lol'
-            'https://cobalt.api.lostdusty.com.br'
-            'https://cobalt.ggtyler.dev'
-            'https://cobalt.urdailyinfo.link'
-            'https://cobalt.api.timelessnesses.me'
-            'https://cobalt.flick.tech'
           )
 
-          try_endpoint(){
-            API="$1"; EP="$2"
+          probe_endpoint(){
+            API="${1%/}"
+            ENDPOINT="$2"
+            MODE="$3"
             OUT=$(mktemp)
-            BODY=$(jq -nc --arg url "$SRC" '{
-              url:$url,
-              downloadMode:"audio",
-              audioFormat:"best",
-              audioBitrate:"128",
-              filenameStyle:"basic",
-              alwaysProxy:true,
-              disableMetadata:true,
-              isAudioOnly:true,
-              aFormat:"mp3",
-              aBitrate:"128"
-            }')
-            META=$(curl -sS --connect-timeout 4 --max-time 28 -X POST "$EP"               -H 'Accept: application/json' -H 'Content-Type: application/json'               --data "$BODY" -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}')
+            if [ "$MODE" = "legacy" ]; then
+              BODY=$(jq -nc --arg url "$SRC" '{url:$url,isAudioOnly:true,aFormat:"mp3",aBitrate:"128"}')
+            else
+              BODY=$(jq -nc --arg url "$SRC" '{url:$url,downloadMode:"audio",audioFormat:"mp3",audioBitrate:"128",filenameStyle:"basic",alwaysProxy:true,disableMetadata:true}')
+            fi
+
+            META=$(curl -sS --connect-timeout 4 --max-time 30 -X POST "$API$ENDPOINT"               -H 'Accept: application/json' -H 'Content-Type: application/json'               --data "$BODY" -o "$OUT" -w 'HTTP=%{http_code} SIZE=%{size_download}')
             STATUS=$(jq -r '.status // ""' "$OUT" 2>/dev/null)
-            URL=$(jq -r '.url // (.audio // "") // (.tunnel[0] // "")' "$OUT" 2>/dev/null)
-            ERR=$(jq -r '.error.code // ""' "$OUT" 2>/dev/null)
+            URL=$(jq -r '.url // (.tunnel[0] // "")' "$OUT" 2>/dev/null)
+            ERR=$(jq -r '.error.code // .text // ""' "$OUT" 2>/dev/null)
+
             if [ -n "$URL" ]; then
               HDR=$(mktemp); BIN=$(mktemp)
               curl -sS -L --connect-timeout 4 --max-time 20 -H 'Range: bytes=0-4095' -D "$HDR" -o "$BIN" "$URL"
@@ -59,22 +50,19 @@ jobs:
               SIZE=$(wc -c < "$BIN")
               FILE=$(file -b "$BIN" 2>/dev/null)
               CORS=$(awk 'BEGIN{IGNORECASE=1} /^access-control-allow-origin:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
-              echo "PASS|$API|EP=$EP|$META|STATUS=$STATUS|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|FILE=$FILE|URL=$URL"
-              rm -f "$HDR" "$BIN" "$OUT"
-              return 0
+              RANGE=$(awk 'BEGIN{IGNORECASE=1} /^accept-ranges:/ {gsub("\r",""); print $2}' "$HDR" | tail -1)
+              echo "PASS|$API$ENDPOINT|MODE=$MODE|$META|STATUS=$STATUS|MEDIA_HTTP=$CODE|TYPE=$TYPE|SIZE=$SIZE|CORS=$CORS|RANGE=$RANGE|FILE=$FILE|URL=$URL"
+              rm -f "$HDR" "$BIN"
+            else
+              echo "FAIL|$API$ENDPOINT|MODE=$MODE|$META|STATUS=$STATUS|ERR=$ERR|RESP=$(tr '\n' ' ' < "$OUT" | head -c 300)"
             fi
-            echo "FAIL|$API|EP=$EP|$META|STATUS=$STATUS|ERR=$ERR|RESP=$(tr '\n' ' ' < "$OUT" | head -c 220)"
             rm -f "$OUT"
-            return 1
           }
 
-          probe_one(){
-            API="${1%/}"
-            try_endpoint "$API" "$API/" && return 0
-            try_endpoint "$API" "$API/api/json"
-          }
-
-          export -f try_endpoint probe_one
+          export -f probe_endpoint
           export SRC
-          for API in "${APIS[@]}"; do probe_one "$API" & done
+          for API in "${APIS[@]}"; do
+            probe_endpoint "$API" "/" "v10" &
+            probe_endpoint "$API" "/api/json" "legacy" &
+          done
           wait
