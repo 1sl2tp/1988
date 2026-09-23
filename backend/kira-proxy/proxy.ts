@@ -151,13 +151,24 @@ const handler = async (request: Request): Promise<Response> => {
       });
     }
 
+    const boolParam = (value: unknown, fallback: boolean) => {
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') {
+        if (value === 'true' || value === '1') return true;
+        if (value === 'false' || value === '0') return false;
+      }
+      return fallback;
+    };
+
     const payload = {
       url: videoUrl,
       videoQuality: String(input?.videoQuality || '360'),
       youtubeVideoCodec: 'h264',
       youtubeVideoContainer: 'mp4',
       downloadMode: 'auto',
-      alwaysProxy: true
+      alwaysProxy: boolParam(input?.alwaysProxy, true),
+      youtubeHLS: boolParam(input?.youtubeHLS, false),
+      localProcessing: String(input?.localProcessing || 'disabled')
     };
 
     const resolved = await resolveWithCobalt(payload);
