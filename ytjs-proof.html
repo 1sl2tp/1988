@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>1988 · YouTube.js MP4 Proof</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;background:#000;color:#f5f5f7}
+*{box-sizing:border-box}body{margin:0;background:#000;color:#f5f5f7}
+main{width:min(760px,100%);margin:auto;padding:18px 14px 40px}
+h1{font-size:22px;margin:0 0 6px}.sub{color:#9b9ba3;font-size:13px;margin:0 0 14px}
+.row{display:flex;gap:8px}.row input{flex:1;min-width:0}
+input,button{font:inherit;border-radius:10px;border:1px solid #303038;background:#141418;color:#fff;padding:11px 12px}
+button{background:#fff;color:#000;font-weight:700;cursor:pointer}button:disabled{opacity:.55}
+video{display:block;width:100%;aspect-ratio:16/9;background:#090909;border-radius:12px;margin-top:14px}
+.card{margin-top:12px;padding:12px;border:1px solid #25252b;border-radius:12px;background:#101014}
+.status{font-size:13px;line-height:1.45;word-break:break-word}.ok{color:#74d680}.bad{color:#ff6961}.warn{color:#f5c451}
+.kv{display:grid;grid-template-columns:92px 1fr;gap:7px;font-size:12px;margin-top:10px}.kv b{color:#8e8e98}.kv span{word-break:break-all}
+.small{font-size:11px;color:#777780;margin-top:12px}
+</style>
+</head>
+<body>
+<main>
+  <h1>YouTube.js · MP4 Proof</h1>
+  <p class="sub">Local extraction trong browser → proxy riêng → bytes media. Không dùng Piped.</p>
+  <div class="row">
+    <input id="videoId" value="dQw4w9WgXcQ" autocomplete="off" spellcheck="false" placeholder="YouTube video ID hoặc URL">
+    <button id="go">Lấy MP4</button>
+  </div>
+  <video id="video" controls playsinline preload="metadata"></video>
+  <div class="card">
+    <div id="status" class="status warn">Chưa chạy.</div>
+    <div class="kv">
+      <b>Tiêu đề</b><span id="title">—</span>
+      <b>Định dạng</b><span id="format">—</span>
+      <b>Probe</b><span id="probe">—</span>
+      <b>Player</b><span id="player">—</span>
+    </div>
+  </div>
+  <div class="small">Build: ytjs-local-mp4-proof-20260923-1</div>
+</main>
+
+<script type="module">
+import { Innertube, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
+import { BG } from 'https://cdn.jsdelivr.net/npm/bgutils-js@3.1.2/+esm';
+
+const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
+const $=id=>document.getElementById(id);
+const video=$('video'), status=$('status'), go=$('go');
+let ytPromise=null;
+let currentPoToken='';
+
+function setStatus(text,kind='warn'){
+  status.textContent=text;
+  status.className='status '+kind;
+}
+
+function parseVideoId(raw){
+  raw=String(raw||'').trim();
+  if(/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  try{
+    const u=new URL(raw);
+    const v=u.searchParams.get('v');
+    if(v&&/^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+    const parts=u.pathname.split('/').filter(Boolean);
+    const candidate=u.hostname.includes('youtu.be')?parts[0]:parts.at(-1);
+    return /^[A-Za-z0-9_-]{11}$/.test(candidate||'')?candidate:'';
+  }catch{return ''}
+}
+
+function makeProxyUrl(raw,headers){
+  const src=new URL(raw);
+  const out=new URL(PROXY);
+  out.searchParams.set('__host',src.host);
+  out.searchParams.set('__path',src.pathname);
+  for(const [k,v] of src.searchParams) out.searchParams.append(k,v);
+  out.searchParams.set('__headers',JSON.stringify([...headers]));
+  return out.toString();
+}
+
+async function proxyFetch(input,init={}){
+  const original=input instanceof Request?input:null;
+  const src=typeof input==='string'||input instanceof URL?new URL(input):new URL(input.url);
+  const headers=new Headers(init.headers||(original?original.headers:undefined));
+  const serialized=new Headers(headers);
+  const target=makeProxyUrl(src.toString(),serialized);
+  headers.delete('user-agent');
+
+  const method=String(init.method||(original?original.method:'GET')).toUpperCase();
+  let body=init.body;
+  if(body===undefined&&original&&!['GET','HEAD'].includes(method)){
+    try{body=await original.clone().arrayBuffer()}catch{}
+  }
+
+  return fetch(target,{
+    ...init,
+    method,
+    headers,
+    body:['GET','HEAD'].includes(method)?undefined:body,
+    credentials:'omit',
+    redirect:'follow'
+  });
+}
+
+async function mintPoToken(identifier){
+  const requestKey='O43z0dpjhgX20SCx4KAo';
+  const bgConfig={
+    fetch:(input,init)=>fetch(input,init),
+    globalObj:window,
+    requestKey,
+    identifier
+  };
+  const challenge=await BG.Challenge.create(bgConfig);
+  if(!challenge) throw new Error('pot_challenge_failed');
+  const js=challenge.interpreterJavascript?.privateDoNotAccessOrElseSafeScriptWrappedValue;
+  if(js) new Function(js)();
+  const result=await BG.PoToken.generate({
+    program:challenge.program,
+    globalName:challenge.globalName,
+    bgConfig
+  });
+  return result.poToken;
+}
+
+async function getYT(){
+  if(ytPromise) return ytPromise;
+  ytPromise=(async()=>{
+    setStatus('Đang khởi tạo YouTube.js local extractor…');
+    const visitorData=ProtoUtils.encodeVisitorData(
+      Utils.generateRandomString(11),
+      Math.floor(Date.now()/1000)
+    );
+    const cold=BG.PoToken.generatePlaceholder(visitorData);
+    currentPoToken=cold;
+    mintPoToken(visitorData).then(token=>{
+      if(token) currentPoToken=token;
+    }).catch(()=>{});
+
+    return Innertube.create({
+      po_token:cold,
+      visitor_data:visitorData,
+      fetch:proxyFetch,
+      generate_session_locally:true,
+      cache:new UniversalCache(false)
+    });
+  })();
+  return ytPromise;
+}
+
+function mediaProxyUrl(raw){
+  const headers=new Headers();
+  headers.set('Accept','*/*');
+  return makeProxyUrl(raw,headers);
+}
+
+async function probeMedia(url){
+  const res=await fetch(url,{
+    method:'GET',
+    headers:{Range:'bytes=0-1023'},
+    cache:'no-store'
+  });
+  const type=res.headers.get('content-type')||'';
+  const range=res.headers.get('content-range')||'';
+  try{await res.body?.cancel()}catch{}
+  return {ok:res.status===200||res.status===206,status:res.status,type,range};
+}
+
+async function waitReady(timeout=12000){
+  return new Promise((resolve,reject)=>{
+    let done=false;
+    const clean=()=>{
+      clearTimeout(timer);
+      video.removeEventListener('loadedmetadata',ready);
+      video.removeEventListener('canplay',ready);
+      video.removeEventListener('error',bad);
+    };
+    const finish=(fn,v)=>{if(done)return;done=true;clean();fn(v)};
+    const ready=()=>finish(resolve,true);
+    const bad=()=>finish(reject,new Error('video_error_'+(video.error?.code||0)));
+    const timer=setTimeout(()=>finish(reject,new Error('video_timeout')),timeout);
+    video.addEventListener('loadedmetadata',ready,{once:true});
+    video.addEventListener('canplay',ready,{once:true});
+    video.addEventListener('error',bad,{once:true});
+  });
+}
+
+async function run(){
+  const id=parseVideoId($('videoId').value);
+  if(!id){setStatus('Video ID không hợp lệ.','bad');return}
+  go.disabled=true;
+  $('title').textContent='—';
+  $('format').textContent='—';
+  $('probe').textContent='—';
+  $('player').textContent='—';
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+
+  try{
+    const yt=await getYT();
+
+    setStatus('1/3 Đang lấy metadata + streaming data trực tiếp bằng YouTube.js…');
+    const info=await yt.getBasicInfo(id,{client:'WEB'});
+    $('title').textContent=info.basic_info?.title||'(đã lấy metadata)';
+
+    let format;
+    const tries=[
+      {type:'video+audio',quality:'best',format:'mp4',client:'WEB'},
+      {type:'video+audio',quality:'best',format:'mp4',client:'MWEB'}
+    ];
+    let lastError=null;
+    for(const opts of tries){
+      try{
+        format=await yt.getStreamingData(id,opts);
+        if(format?.url) break;
+      }catch(e){lastError=e}
+    }
+    if(!format?.url) throw lastError||new Error('no_mp4_stream_url');
+
+    $('format').textContent=[
+      'itag '+(format.itag??'?'),
+      format.mime_type||format.mimeType||'',
+      format.quality_label||format.quality||'',
+      format.has_audio===false?'video-only':'A/V'
+    ].filter(Boolean).join(' · ');
+
+    setStatus('2/3 Đã lấy URL stream. Đang kiểm tra bytes qua proxy…');
+    const proxied=mediaProxyUrl(format.url);
+    const probe=await probeMedia(proxied);
+    $('probe').textContent='HTTP '+probe.status+' · '+probe.type+(probe.range?' · '+probe.range:'');
+    if(!probe.ok) throw new Error('media_probe_http_'+probe.status);
+
+    setStatus('3/3 Có bytes media. Đang gán vào <video>…');
+    video.src=proxied;
+    video.load();
+    await waitReady();
+    $('player').textContent='loadedmetadata · '+(Number.isFinite(video.duration)?Math.round(video.duration)+'s':'duration ?');
+
+    try{
+      await video.play();
+      setStatus('THÀNH CÔNG · YouTube.js lấy được stream và MP4 đang phát qua proxy riêng.','ok');
+    }catch(e){
+      $('player').textContent+=' · cần bấm Play';
+      setStatus('THÀNH CÔNG phần stream · MP4 đã sẵn sàng, Safari yêu cầu bấm Play.','ok');
+    }
+  }catch(e){
+    console.error(e);
+    const message=String(e?.message||e);
+    setStatus('THẤT BẠI tại bước lấy/phát MP4: '+message,'bad');
+  }finally{
+    go.disabled=false;
+  }
+}
+
+go.addEventListener('click',run);
+$('videoId').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
+const queryId=new URL(location.href).searchParams.get('id');
+if(queryId) $('videoId').value=queryId;
+</script>
+</body>
+</html>
