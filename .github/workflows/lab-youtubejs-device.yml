@@ -47,7 +47,8 @@ jobs:
           const EDGE_KEY = "''' + os.environ['EDGE_KEY'] + r'''";
 
           function proxiedUrl(source: URL, headers: Headers) {
-            const out = new URL(PROXY_BASE + source.pathname);
+            const out = new URL(PROXY_BASE);
+            out.searchParams.set('__path', source.pathname);
             source.searchParams.forEach((value, key) => out.searchParams.append(key, value));
             out.searchParams.set('__host', source.host);
             out.searchParams.set('__headers', JSON.stringify([ ...headers ]));
@@ -111,7 +112,8 @@ jobs:
             }
 
             if (originalHost.endsWith('.googlevideo.com') || url.href.includes('drm')) {
-              const out = new URL(PROXY_BASE + url.pathname);
+              const out = new URL(PROXY_BASE);
+              out.searchParams.set('__path', url.pathname);
               url.searchParams.forEach((value, key) => out.searchParams.append(key, value));
               out.searchParams.set('__host', originalHost);
               out.searchParams.set('__headers', JSON.stringify([ ...originalHeaders ]));
