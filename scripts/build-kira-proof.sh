@@ -450,6 +450,24 @@ s = s[:start] + fast_home + s[end:]
 p.write_text(s)
 
 
+
+# Remove imports left unused after switching discovery to backend-first.
+p = Path("src/App.vue")
+s = p.read_text()
+s = s.replace(
+  "import { Innertube, Platform, ProtoUtils, UniversalCache, Utils, YTNodes, Types } from 'youtubei.js/web';",
+  "import { Innertube, Platform, ProtoUtils, UniversalCache, Utils, Types } from 'youtubei.js/web';"
+)
+p.write_text(s)
+
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+s = s.replace("import { useInnertube } from '@/composables/useInnertube';\n", "")
+s = s.replace("import { YTNodes } from 'youtubei.js/web';\n", "")
+s = s.replace("const getInnertube = useInnertube();\n", "")
+p.write_text(s)
+
+
 # Watch page: keep Kira's native /next path first, but fall back to the stable
 # 1988 metadata endpoint when YouTube renderer/session changes break details.
 p = Path("src/pages/WatchPage.vue")
