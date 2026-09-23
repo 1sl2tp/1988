@@ -59,6 +59,8 @@ jobs:
               image: 1337kavin/bg-helper-server:latest
             proxy:
               image: 1337kavin/piped-proxy:latest
+              environment:
+                PROXY: socks5://103.88.234.239:40002
               ports: ["8082:8080"]
             piped:
               image: 1337kavin/piped:latest
