@@ -34,6 +34,7 @@ const closeSourcesSheet=$("#closeSourcesSheet");
 const sourceSearch=$("#sourceSearch");
 const clearSourceSearch=$("#clearSourceSearch");
 const sourceSearchStatus=$("#sourceSearchStatus");
+const sourceGroupTabs=$("#sourceGroupTabs");
 const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
 const sourceSummary=$("#sourceSummary");
@@ -94,7 +95,22 @@ const clean=s=>String(s??"").replace(/\s+/g," ").trim();
 
 const SOURCE_SELECTION_KEY="1988-source-selection-v1";
 const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
-const SOURCE_HIDDEN_KEY="1988-source-hidden-v1";
+const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
+const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
+
+const SOURCE_MANAGER_GROUPS=[
+  {key:"all",label:"Tất cả"},
+  {key:"news",label:"Thời sự"},
+  {key:"economy",label:"Kinh tế"},
+  {key:"law",label:"Pháp luật"},
+  {key:"film",label:"Phim"},
+  {key:"music",label:"Nhạc"},
+  {key:"tech",label:"Công nghệ"},
+  {key:"sports",label:"Thể thao"},
+  {key:"entertainment",label:"Giải trí"},
+  {key:"other",label:"Khác"}
+];
+
 const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   :[];
@@ -117,8 +133,13 @@ let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
     thumbnailUrl:clean(row.thumbnailUrl||""),
     subscribers:clean(row.subscribers||"")
   }));
-let hiddenSourceIds=new Set(
-  readStoredArray(SOURCE_HIDDEN_KEY)
+
+const legacyHiddenSourceIds=readStoredArray(SOURCE_HIDDEN_KEY)
+  .map(String)
+  .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id));
+
+let blockedSourceIds=new Set(
+  [...readStoredArray(SOURCE_BLOCKED_KEY),...legacyHiddenSourceIds]
     .map(String)
     .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
 );
@@ -127,7 +148,7 @@ function channelLibrary(){
   const out=[];
   const seen=new Set();
   for(const row of [...BASE_CHANNEL_LIBRARY,...customSources]){
-    if(!row||hiddenSourceIds.has(row.id)||seen.has(row.id))continue;
+    if(!row||seen.has(row.id))continue;
     seen.add(row.id);
     out.push({
       id:row.id,
@@ -150,7 +171,8 @@ function libraryRow(id){
 function persistSourceLibrary(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
-    localStorage.setItem(SOURCE_HIDDEN_KEY,JSON.stringify([...hiddenSourceIds]));
+    localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
+    localStorage.removeItem(SOURCE_HIDDEN_KEY);
   }catch{}
 }
 
@@ -159,7 +181,7 @@ function readSourceSelection(){
   try{
     const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
     if(Array.isArray(saved)){
-      return new Set(saved.filter(id=>allowed.has(id)));
+      return new Set(saved.filter(id=>allowed.has(id)&&!blockedSourceIds.has(id)));
     }
   }catch{}
 
@@ -175,6 +197,7 @@ let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
 let sourceManageMode=false;
+let sourceManageGroup="all";
 let sourceMetaObserver=null;
 const sourceMetaCache=new Map();
 const sourceMetaPending=new Set();
@@ -185,22 +208,51 @@ function persistSourceSelection(){
   }catch{}
 }
 
+function sourceStatus(id){
+  if(blockedSourceIds.has(id))return "blocked";
+  if(selectedSourceIds.has(id))return "selected";
+  return "normal";
+}
+
+function setSourceStatus(id,status){
+  if(!libraryHas(id))return;
+
+  if(status==="selected"){
+    blockedSourceIds.delete(id);
+    selectedSourceIds.add(id);
+  }else if(status==="blocked"){
+    selectedSourceIds.delete(id);
+    blockedSourceIds.add(id);
+  }else{
+    selectedSourceIds.delete(id);
+    blockedSourceIds.delete(id);
+  }
+
+  persistSourceLibrary();
+  persistSourceSelection();
+  state.sourceLibraryDirty=true;
+  updateSourceSummary();
+  renderSourceLibrary();
+}
+
 function selectedSources(){
   const rows=channelLibrary();
   const allowed=new Set(rows.map(row=>row.id));
   let changed=false;
+
   for(const id of [...selectedSourceIds]){
-    if(!allowed.has(id)){
+    if(!allowed.has(id)||blockedSourceIds.has(id)){
       selectedSourceIds.delete(id);
       changed=true;
     }
   }
+
   if(changed)persistSourceSelection();
-  return rows.filter(row=>selectedSourceIds.has(row.id));
+  return rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id));
 }
 
 function sourceSignature(){
-  return [...selectedSourceIds].sort().join("|");
+  return [...selectedSourceIds].filter(id=>!blockedSourceIds.has(id)).sort().join("|");
 }
 
 function isSourceScopedFeed(name){
@@ -217,11 +269,74 @@ function sourceMetaFor(row){
   return {...row,...(sourceMetaCache.get(row.id)||{})};
 }
 
+function sourceGroupsFor(row={}){
+  const meta=sourceMetaFor(row);
+  const text=normalizeSearchText(meta.name||row.name||"");
+  const groups=new Set();
+
+  const has=(pattern)=>pattern.test(text);
+
+  if(has(/phim|movie|drama|vietsub|rap ngon tinh|review phim|me phim|phim hay|phim hoa|phim han|phim trung|kich ngan/))groups.add("film");
+  if(has(/nhac|music|ca si|karaoke|bolero|audio|studio|musician/))groups.add("music");
+  if(has(/kinh te|tai chinh|chung khoan|stock|dau tu|thi truong|tien te|kinh doanh|thue|broker|invest/))groups.add("economy");
+  if(has(/phap luat|cong an|an ninh|luat|ky an|vu an|dieu tra|phap ly|canh sat/))groups.add("law");
+  if(has(/cong nghe|technology|tech|vat vo|dien thoai|may tinh|xe may|oto|o to|tipcar|gia xe/))groups.add("tech");
+  if(has(/the thao|bong da|football|sport|blv|quan su mo/))groups.add("sports");
+  if(has(/giai tri|showbiz|ngoi sao|vie channel|ccap say hi|gameshow|show/))groups.add("entertainment");
+
+  if(has(/bao|news|tin tuc|thoi su|vtv|vov|htv|truyen hinh|phat thanh|todaytv|thong tin chinh phu/)){
+    groups.add("news");
+  }
+
+  if(!groups.size)groups.add("other");
+  return [...groups];
+}
+
+function sourceGroupLabels(row={}){
+  const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
+  return sourceGroupsFor(row)
+    .filter(key=>key!=="other")
+    .slice(0,2)
+    .map(key=>map.get(key))
+    .filter(Boolean);
+}
+
+function sourceRowName(row={}){
+  return normalizeSearchText(
+    row?._displaySource||
+    row?.uploaderName||
+    row?.uploader||
+    row?.channelName||
+    row?._sourceName||
+    ""
+  );
+}
+
+function isBlockedSourceRow(row={}){
+  const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
+  if(sourceId&&blockedSourceIds.has(sourceId))return true;
+
+  const name=sourceRowName(row);
+  if(!name)return false;
+  for(const id of blockedSourceIds){
+    const source=libraryRow(id);
+    if(!source)continue;
+    const blockedName=normalizeSearchText(sourceMetaFor(source).name||source.name||"");
+    if(blockedName&&name===blockedName)return true;
+  }
+  return false;
+}
+
 function updateSourceSummary(){
   const rows=channelLibrary();
-  const count=selectedSourceIds.size;
-  if(sourceHeaderCount)sourceHeaderCount.textContent=String(count);
-  if(sourceSummary)sourceSummary.textContent=count+" / "+rows.length;
+  const selected=rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id)).length;
+  const blocked=rows.filter(row=>blockedSourceIds.has(row.id)).length;
+  if(sourceHeaderCount)sourceHeaderCount.textContent=String(selected);
+  if(sourceSummary){
+    sourceSummary.textContent=sourceManageMode
+      ?selected+" chọn · "+blocked+" chặn · "+rows.length+" nguồn"
+      :selected+" nguồn đã chọn";
+  }
 }
 
 function sourceAvatarHtml(row){
@@ -235,12 +350,19 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const active=selectedSourceIds.has(row.id);
   const exists=libraryHas(row.id);
+  const status=exists?sourceStatus(row.id):"normal";
+  const active=status==="selected";
+  const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
-  const sub=subscriber
-    ?subscriber+" · Xem mới"
-    :(remote&&!exists?"Kết quả từ YouTube":"Xem video mới");
+  const groups=sourceGroupLabels(row);
+  const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Bình thường";
+  const subBits=[];
+  if(groups.length)subBits.push(groups.join(" · "));
+  if(subscriber)subBits.push(subscriber);
+  if(exists)subBits.push(statusLabel);
+  else subBits.push("Kết quả từ YouTube");
+  const sub=subBits.join(" · ");
 
   if(remote&&!exists){
     return '<div class="source-row remote" data-source-id="'+esc(row.id)+'">'+
@@ -251,11 +373,22 @@ function sourceRowHtml(row,{remote=false}={}){
           '<span class="source-row-sub">'+esc(sub)+'</span>'+
         '</span>'+
       '</button>'+
-      '<button class="source-add" type="button" data-source-add="'+esc(row.id)+'">+ Thêm</button>'+
+      '<button class="source-add" type="button" data-source-add="'+esc(row.id)+'">+ Lưu</button>'+
     '</div>';
   }
 
-  return '<div class="source-row'+(active?' active':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
+  const normalToggle=
+    '<button class="source-toggle" type="button" data-source-toggle="'+esc(row.id)+'" '+
+      'aria-label="'+(active?'Bỏ chọn nguồn':blocked?'Bỏ chặn và chọn nguồn':'Chọn nguồn')+'" '+
+      'aria-pressed="'+(active?'true':'false')+'">'+(blocked?'×':'✓')+'</button>';
+
+  const manageControls=
+    '<div class="source-state-actions">'+
+      '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
+      '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
+    '</div>';
+
+  return '<div class="source-row'+(active?' active':'')+(blocked?' blocked':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
     '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
       sourceAvatarHtml(row)+
       '<span class="source-row-info">'+
@@ -263,8 +396,7 @@ function sourceRowHtml(row,{remote=false}={}){
         '<span class="source-row-sub">'+esc(sub)+'</span>'+
       '</span>'+
     '</button>'+
-    '<button class="source-toggle" type="button" data-source-toggle="'+esc(row.id)+'" aria-label="'+(active?'Tắt nguồn':'Bật nguồn')+'" aria-pressed="'+(active?'true':'false')+'">✓</button>'+
-    (sourceManageMode?'<button class="source-delete" type="button" data-source-delete="'+esc(row.id)+'" aria-label="Xóa kênh">Xóa</button>':"")+
+    (sourceManageMode?manageControls:normalToggle)+
   '</div>';
 }
 
@@ -318,17 +450,43 @@ function observeSourceRows(){
   });
 }
 
+function renderSourceGroupTabs(){
+  if(!sourceGroupTabs)return;
+  sourceGroupTabs.hidden=!sourceManageMode;
+  if(!sourceManageMode){
+    sourceGroupTabs.innerHTML="";
+    return;
+  }
+
+  const rows=channelLibrary();
+  sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
+    const count=group.key==="all"
+      ?rows.length
+      :rows.filter(row=>sourceGroupsFor(row).includes(group.key)).length;
+    return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
+      esc(group.label)+' <span>'+count+'</span>'+
+    '</button>';
+  }).join("");
+}
+
 function renderSourceLibrary(){
   if(!sourceList)return;
   const rows=channelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
-  const localRows=q
-    ?rows.filter(row=>normalizeSearchText(row.name).includes(q))
-    :rows;
+
+  const groupFilter=row=>
+    !sourceManageMode||
+    sourceManageGroup==="all"||
+    sourceGroupsFor(row).includes(sourceManageGroup);
+
+  const localRows=rows.filter(row=>
+    groupFilter(row)&&
+    (!q||normalizeSearchText(sourceMetaFor(row).name||row.name).includes(q))
+  );
 
   const allLibraryIds=new Set(rows.map(row=>row.id));
   const remoteRows=q
-    ?sourceRemoteResults.filter(row=>!allLibraryIds.has(row.id))
+    ?sourceRemoteResults.filter(row=>!allLibraryIds.has(row.id)&&groupFilter(row))
     :[];
 
   const parts=[];
@@ -343,9 +501,15 @@ function renderSourceLibrary(){
   }
 
   if(!parts.length){
-    parts.push('<div class="source-empty">'+(q?'Chưa thấy kênh. Đang tìm trên YouTube…':'Thư viện đang trống')+'</div>');
+    const message=q
+      ?"Không có nguồn phù hợp"
+      :sourceManageMode&&sourceManageGroup!=="all"
+        ?"Chưa có nguồn trong nhóm này"
+        :"Thư viện đang trống";
+    parts.push('<div class="source-empty">'+message+'</div>');
   }
 
+  renderSourceGroupTabs();
   sourceList.innerHTML=parts.join("");
   requestAnimationFrame(observeSourceRows);
 }
@@ -403,7 +567,6 @@ function scheduleSourceSearch(){
 function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
-  hiddenSourceIds.delete(row.id);
   const meta=sourceMetaFor(row);
   if(!BASE_CHANNEL_ID_SET.has(row.id)){
     const existing=customSources.find(item=>item.id===row.id);
@@ -421,24 +584,8 @@ function addSource(row){
     }
   }
 
-  selectedSourceIds.add(row.id);
-  persistSourceLibrary();
-  persistSourceSelection();
-  state.sourceLibraryDirty=true;
-  updateSourceSummary();
-  renderSourceLibrary();
-}
-
-function deleteSource(id){
-  if(!id)return;
-  selectedSourceIds.delete(id);
-
-  if(BASE_CHANNEL_ID_SET.has(id)){
-    hiddenSourceIds.add(id);
-  }else{
-    customSources=customSources.filter(row=>row.id!==id);
-  }
-
+  // Saving a source does not automatically select it.
+  blockedSourceIds.delete(row.id);
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
@@ -448,23 +595,29 @@ function deleteSource(id){
 
 function toggleSource(id){
   if(!libraryHas(id))return;
-  if(selectedSourceIds.has(id))selectedSourceIds.delete(id);
-  else selectedSourceIds.add(id);
-  persistSourceSelection();
-  state.sourceLibraryDirty=true;
-  updateSourceSummary();
-  renderSourceLibrary();
+  const status=sourceStatus(id);
+  setSourceStatus(id,status==="selected"?"normal":"selected");
 }
 
 function setSourceManageMode(enabled){
   sourceManageMode=enabled===true;
+  if(!sourceManageMode)sourceManageGroup="all";
+
   if(sourceSettingsBtn){
     sourceSettingsBtn.classList.toggle("active",sourceManageMode);
     sourceSettingsBtn.setAttribute("aria-pressed",sourceManageMode?"true":"false");
-    sourceSettingsBtn.setAttribute("aria-label",sourceManageMode?"Xong cài đặt":"Cài đặt thư viện");
+    sourceSettingsBtn.setAttribute("aria-label",sourceManageMode?"Xong quản lý nguồn":"Quản lý nguồn theo nhóm");
+    sourceSettingsBtn.textContent=sourceManageMode?"✓":"⚙︎";
   }
+
+  if(sourceSearch){
+    sourceSearch.placeholder=sourceManageMode?"Tìm trong quản lý nguồn":"Tìm kênh trên YouTube";
+  }
+
+  updateSourceSummary();
   renderSourceLibrary();
 }
+
 
 async function openSourcePreview(id,rowHint=null){
   const row=libraryRow(id)||rowHint||sourceRemoteResults.find(item=>item.id===id);
@@ -584,6 +737,13 @@ function setupSourceLibrary(){
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourceSettingsBtn?.addEventListener("click",()=>setSourceManageMode(!sourceManageMode));
 
+  sourceGroupTabs?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-source-group]");
+    if(!button)return;
+    sourceManageGroup=button.dataset.sourceGroup||"all";
+    renderSourceLibrary();
+  });
+
   sourceVideoPopup?.addEventListener("click",event=>{
     if(event.target===sourceVideoPopup)closeSourceVideo();
   });
@@ -608,15 +768,18 @@ function setupSourceLibrary(){
       return;
     }
 
-    const toggleButton=event.target.closest("[data-source-toggle]");
-    if(toggleButton){
-      toggleSource(toggleButton.dataset.sourceToggle||"");
+    const stateButton=event.target.closest("[data-source-state]");
+    if(stateButton){
+      const id=stateButton.dataset.sourceId||"";
+      const next=stateButton.dataset.sourceState||"normal";
+      const current=sourceStatus(id);
+      setSourceStatus(id,current===next?"normal":next);
       return;
     }
 
-    const deleteButton=event.target.closest("[data-source-delete]");
-    if(deleteButton){
-      deleteSource(deleteButton.dataset.sourceDelete||"");
+    const toggleButton=event.target.closest("[data-source-toggle]");
+    if(toggleButton){
+      toggleSource(toggleButton.dataset.sourceToggle||"");
       return;
     }
 
@@ -1332,11 +1495,12 @@ function isShortDramaStoryTitle(row={}){
 }
 
 function filterRowsForAiParent(parent,rows=[]){
+  const base=rows.filter(row=>!isBlockedSourceRow(row));
   const key=normalizeSearchText(parent?.label||"");
   if(key==="cong nghe"){
-    return rows.filter(row=>!isShortDramaStoryTitle(row));
+    return base.filter(row=>!isShortDramaStoryTitle(row));
   }
-  return rows;
+  return base;
 }
 
 function aiDisclosureRequired(parent){
@@ -1866,6 +2030,7 @@ function requestedSource(query=""){
 }
 
 function sourceAwareRows(rows=[],query=""){
+  rows=rows.filter(row=>!isBlockedSourceRow(row));
   const source=requestedSource(query);
   if(!source)return rows;
   const aliases=source.aliases.map(normalizeSearchText);
@@ -2111,6 +2276,7 @@ function renderCards(rows=[],options={}){
   );
   const cards=[];
   for(const row of rows){
+    if(isBlockedSourceRow(row))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);

@@ -336,6 +336,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .source-settings-btn.active{background:rgba(255,255,255,.11);color:#fff}
 .source-search-status{min-height:18px;padding:0 2px 5px;color:#85858e;font-size:11px}
+.source-group-tabs{
+  display:flex;gap:6px;overflow-x:auto;padding:1px 0 8px;scrollbar-width:none
+}
+.source-group-tabs[hidden]{display:none}
+.source-group-tabs::-webkit-scrollbar{display:none}
+.source-group-chip{
+  flex:0 0 auto;height:30px;padding:0 10px;border:1px solid #303036;border-radius:8px;
+  background:#1d1d21;color:#b9b9c0;font-size:11px;white-space:nowrap
+}
+.source-group-chip span{margin-left:4px;color:#74747c;font-size:10px}
+.source-group-chip.active{background:#f3f3f4;border-color:#f3f3f4;color:#111;font-weight:750}
+.source-group-chip.active span{color:#555}
 
 .source-list{
   min-height:0;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
@@ -348,8 +360,10 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .source-row:first-of-type{border-top:0}
 .source-row.active{background:rgba(255,255,255,.025)}
-.source-row.manage{background:rgba(255,255,255,.015)}
-.source-row.manage{grid-template-columns:minmax(0,1fr) auto auto}
+.source-row.manage{background:rgba(255,255,255,.015);grid-template-columns:minmax(0,1fr) auto}
+.source-row.blocked{opacity:.58}
+.source-row.blocked .source-avatar{filter:grayscale(1)}
+
 .source-main{
   min-width:0;height:55px;padding:0 4px 0 1px;border:0;background:transparent;color:#f3f3f4;
   text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:9px
@@ -362,13 +376,20 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .source-row-info{min-width:0;display:flex;flex-direction:column;justify-content:center}
 .source-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
 .source-row-sub{margin-top:3px;color:#85858e;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.source-toggle,.source-add,.source-delete{
+.source-toggle,.source-add{
   height:30px;border:0;border-left:1px solid #303037;border-radius:0;background:transparent;color:#ddd;font-size:11px
 }
 .source-toggle{width:34px;padding:0;font-size:14px;color:transparent}
 .source-row.active .source-toggle{background:rgba(255,255,255,.09);color:#fff;font-weight:800}
+.source-row.blocked .source-toggle{background:rgba(120,42,42,.18);color:#d4a0a0}
 .source-add{padding:0 10px;color:#fff;background:rgba(255,255,255,.045)}
-.source-delete{padding:0 9px;color:#aaa;background:rgba(255,255,255,.025)}
+.source-state-actions{display:flex;align-items:center;gap:5px;padding-right:2px}
+.source-state-btn{
+  height:30px;padding:0 9px;border:1px solid #323239;border-radius:7px;background:#1d1d21;
+  color:#b8b8bf;font-size:10.5px;white-space:nowrap
+}
+.source-state-btn.select.active{background:#f1f1f2;border-color:#f1f1f2;color:#111;font-weight:750}
+.source-state-btn.block.active{background:#3a1719;border-color:#713036;color:#ffb2b7;font-weight:750}
 .source-empty{padding:34px 8px;text-align:center;color:var(--muted);font-size:13px}
 
 .source-preview[hidden]{display:none}
