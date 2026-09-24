@@ -541,6 +541,13 @@ function publishedLabel(row={}){
 
 function publishedAgeMs(row={}){
   if(row?.isLive)return -1;
+
+  const unix=Number(row?.uploaded||row?.published||row?.publishedAt||0);
+  if(Number.isFinite(unix)&&unix>0){
+    const ms=unix<1e12?unix*1000:unix;
+    return Math.max(0,Date.now()-ms);
+  }
+
   const raw=normalizeSearchText(
     row?.publishedText||
     row?.uploadDate||
@@ -1334,7 +1341,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v4:";
+const FEED_CACHE_PREFIX="1988-discovery-v5:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1361,12 +1368,24 @@ function uploadedWithin(row,maxAgeMs){
   return Number.isFinite(age)&&age>=0&&age<=maxAgeMs;
 }
 
+async function regionalTrendingRows(){
+  try{
+    const response=await api("trending",{region:"VN"},10000);
+    const data=response?.data;
+    if(Array.isArray(data))return data;
+    if(Array.isArray(data?.items))return data.items;
+    if(Array.isArray(data?.videos))return data.videos;
+  }catch(error){
+    console.warn("regional trending failed",error);
+  }
+  return [];
+}
+
 async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
   const collected=[];
   let first=reset;
 
-  // The Innertube session itself is configured with location:"VN".
-  // Scan regional Home continuations; no hard-coded "Việt Nam" query.
+  // Primary: YouTube Home feed with Innertube session context gl/location=VN.
   for(let i=0;i<maxPages;i++){
     const rows=await local.homePage("region-"+key,first);
     first=false;
@@ -1377,6 +1396,15 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
     }
 
     if(collected.length>=18)break;
+  }
+
+  // Fallback: Piped/YouTube regional trending endpoint. It is keyed by
+  // region=VN, not by a search phrase, and keeps these feeds keyword-free.
+  if(!collected.length&&reset){
+    const rows=await regionalTrendingRows();
+    for(const row of rows){
+      if(predicate(row))collected.push(row);
+    }
   }
 
   return mergeUniqueRows([],collected);
