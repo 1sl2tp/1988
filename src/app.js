@@ -1311,31 +1311,53 @@ function trendRows(rows=[]){
   return withinParent.filter(row=>topic.videoIds.has(itemVideoId(row)));
 }
 
+function currentFeedIdSet(){
+  return new Set(state.feedRows.map(itemVideoId).filter(Boolean));
+}
+
+function visibleParentCategories(){
+  const ids=currentFeedIdSet();
+  return state.parentCategories
+    .map(parent=>{
+      const visibleIds=[...parent.videoIds].filter(id=>ids.has(id));
+      return {...parent,visibleCount:visibleIds.length};
+    })
+    .filter(parent=>parent.visibleCount>0);
+}
+
 function renderParentCategories(){
   if(!topicChips)return;
   topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
 
-  if(!isSourceScopedFeed(state.activeFeed)||!state.parentCategories.length){
+  const parents=visibleParentCategories();
+  if(!isSourceScopedFeed(state.activeFeed)||!parents.length){
     state.activeParent="";
     setActiveChip(state.activeFeed);
     return;
   }
 
-  for(const parent of state.parentCategories){
+  if(state.activeParent&&!parents.some(parent=>parent.key===state.activeParent)){
+    state.activeParent="";
+  }
+
+  for(const parent of parents){
     const button=document.createElement("button");
     button.className="topic-chip";
     button.type="button";
     button.dataset.aiParent=parent.key;
     button.textContent=parent.label;
-    button.title=parent.videoIds.size+" video · "+parent.channels.size+" nguồn";
+    button.title=parent.visibleCount+" video · "+parent.channels.size+" nguồn";
     topicChips.appendChild(button);
   }
   setActiveChip(state.activeFeed);
 }
 
 function visibleTrendTopics(){
-  if(!state.activeParent)return state.trendTopics;
-  return state.trendTopics.filter(topic=>topic.parentKey===state.activeParent);
+  const ids=currentFeedIdSet();
+  return state.trendTopics.filter(topic=>{
+    if(state.activeParent&&topic.parentKey!==state.activeParent)return false;
+    return [...topic.videoIds].some(id=>ids.has(id));
+  });
 }
 
 function renderTrendTopics(){
@@ -1386,8 +1408,10 @@ async function refreshAiTrendTopics(){
     return;
   }
 
-  const scope=state.activeFeed;
-  const rows=topicInputRows(state.feedRows);
+  const feedName=state.activeFeed;
+  const scope="discovery";
+  const aiSourceRows=regionalAiPool().length?regionalAiPool():state.feedRows;
+  const rows=topicInputRows(aiSourceRows);
   if(rows.length<4)return;
 
   const poolKey=aiTrendPoolKey(scope,rows);
@@ -1404,6 +1428,7 @@ async function refreshAiTrendTopics(){
     renderParentCategories();
     renderTrendTopics();
     renderCards(aiDisplayRows(trendRows(state.feedRows)));
+    return;
   }
 
   const seq=++state.trendRequestSeq;
@@ -1420,7 +1445,7 @@ async function refreshAiTrendTopics(){
     });
 
     const payload=await response.json().catch(()=>null);
-    if(seq!==state.trendRequestSeq||state.activeFeed!==scope)return;
+    if(seq!==state.trendRequestSeq||state.activeFeed!==feedName)return;
     if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
 
     const parents=normalizeAiParents(payload,rows);
@@ -2300,7 +2325,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v20:";
+const FEED_CACHE_PREFIX="1988-discovery-v21:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -2349,7 +2374,7 @@ function uploadedWithinLatest(row){
 function uploadedWithinWeek(row){
   if(row?.isLive)return false;
   const age=publishedAgeMs(row);
-  return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
+  return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
 }
 
 async function normalizeRegionalRow(row={}){
@@ -2524,6 +2549,53 @@ async function selectedSourceFeed(local,predicate,reset=false){
   return extra.filter(predicate);
 }
 
+const REGIONAL_DISCOVERY_TTL=10*60*1000;
+let regionalDiscoveryMemory={at:0,items:[]};
+let regionalDiscoveryRefreshPromise=null;
+
+function regionalAiPool(){
+  const rows=Array.isArray(regionalDiscoveryMemory.items)?regionalDiscoveryMemory.items:[];
+  return rows.filter(uploadedWithinWeek);
+}
+
+async function fetchRegionalDiscoveryPool(local,reset=false){
+  const cached=regionalAiPool();
+  if(reset&&cached.length&&Date.now()-regionalDiscoveryMemory.at<REGIONAL_DISCOVERY_TTL){
+    return cached;
+  }
+
+  const tasks=[
+    local.homePage("regional-discovery",reset).catch(()=>[])
+  ];
+
+  if(reset){
+    tasks.push(local.hypeFeed().catch(()=>[]));
+  }
+
+  if(selectedSourceIds.size){
+    tasks.push(selectedSourceFeed(local,uploadedWithinWeek,reset).catch(()=>[]));
+  }
+
+  const batches=await Promise.all(tasks);
+  const incoming=mergeUniqueRows([],batches.flat()).filter(uploadedWithinWeek);
+
+  if(reset){
+    regionalDiscoveryMemory={at:Date.now(),items:incoming};
+  }else if(incoming.length){
+    regionalDiscoveryMemory={
+      at:Date.now(),
+      items:mergeUniqueRows(regionalDiscoveryMemory.items,incoming).filter(uploadedWithinWeek)
+    };
+  }
+
+  return reset?regionalDiscoveryMemory.items:incoming;
+}
+
+async function regionalDiscoveryFeed(local,predicate,reset=false){
+  const rows=await fetchRegionalDiscoveryPool(local,reset);
+  return rows.filter(predicate);
+}
+
 async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
   const collected=[];
   let first=reset;
@@ -2551,12 +2623,12 @@ const FEED_PRESETS={
     load:async(local,reset)=>{
       let rows=[];
       try{
-        rows=await pagedSearch(local,"live","Việt Nam",{features:["live"],sort_by:"upload_date"},reset);
+        rows=await pagedSearch(local,"live","",{features:["live"],sort_by:"upload_date"},reset);
       }catch{}
       const liveRows=rows.filter(row=>row?.isLive);
       if(liveRows.length)return liveRows;
       try{
-        return await pagedSearch(local,"live-fallback","trực tiếp Việt Nam",{sort_by:"upload_date"},reset);
+        return await local.homePage("live-regional",reset).then(items=>items.filter(row=>row?.isLive));
       }catch{
         return rows;
       }
@@ -2565,52 +2637,12 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinLatest,reset)
+    load:(local,reset)=>regionalDiscoveryFeed(local,uploadedWithinLatest,reset)
   },
   week:{
     title:"Tuần này",
     newest:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinWeek,reset)
-  },
-  news:{
-    title:"Thời sự",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"news","thời sự Việt Nam",7*DAY_MS,reset)
-  },
-  economy:{
-    title:"Kinh tế",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"economy","kinh tế Việt Nam",7*DAY_MS,reset)
-  },
-  security:{
-    title:"An ninh",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"security","an ninh pháp luật Việt Nam",7*DAY_MS,reset)
-  },
-  music:{
-    title:"Nhạc",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"music","nhạc Việt Nam",7*DAY_MS,reset)
-  },
-  sports:{
-    title:"Thể thao",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"sports","thể thao Việt Nam",7*DAY_MS,reset)
-  },
-  entertainment:{
-    title:"Giải trí",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"entertainment","giải trí Việt Nam",7*DAY_MS,reset)
-  },
-  tech:{
-    title:"Công nghệ",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"tech","công nghệ Việt Nam",7*DAY_MS,reset)
-  },
-  shortfilm:{
-    title:"Phim ngắn",
-    newest:true,
-    load:(local,reset)=>recentSearch(local,"shortfilm","phim ngắn Việt Nam",7*DAY_MS,reset)
+    load:(local,reset)=>regionalDiscoveryFeed(local,uploadedWithinWeek,reset)
   }
 };
 
@@ -2646,23 +2678,6 @@ async function loadFeedPreset(name="latest"){
     renderParentCategories();
   }
 
-  if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
-    state.feedLoading=false;
-    state.feedHasMore=false;
-    state.feedRows=[];
-    state.parentCategories=[];
-    state.activeParent="";
-    state.trendTopics=[];
-    state.activeTrend="";
-    state.aiVideoMeta=new Map();
-    state.trendPoolKey="";
-    renderTrendTopics();
-    setActiveChip(name);
-    feedTitle.textContent=preset.title;
-    feedStatus.textContent="";
-    feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
-    return;
-  }
   state.feedLoading=true;
   state.feedHasMore=true;
   state.feedRows=[];
@@ -2706,9 +2721,10 @@ async function loadFeedPreset(name="latest"){
         state.activeTrend="";
         state.aiVideoMeta=new Map();
         state.trendPoolKey="";
+        renderParentCategories();
         renderTrendTopics();
         saveFeedCache(name,[]);
-        feed.innerHTML='<div class="empty">Chưa có video phù hợp từ các nguồn đã chọn.</div>';
+        feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
         feedStatus.textContent="";
         return;
       }
@@ -2738,6 +2754,7 @@ async function loadMoreFeed(){
   const name=state.activeFeed;
   const preset=FEED_PRESETS[name];
   if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
+  if(state.activeParent||state.activeTrend)return;
 
   state.feedLoading=true;
   const seq=state.feedSeq;
@@ -2767,14 +2784,9 @@ async function loadMoreFeed(){
     }
 
     state.feedRows.push(...added);
-    void refreshAiTrendTopics();
-    if(state.aiVideoMeta.size){
-      renderCards(aiDisplayRows(trendRows(state.feedRows)),{updateStatus:false});
-    }else{
-      const visibleAdded=trendRows(added);
-      if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
-    }
-    const visibleTotal=aiDisplayRows(trendRows(state.feedRows)).length;
+    const visibleAdded=aiDisplayRows(added);
+    if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
+    const visibleTotal=aiDisplayRows(state.feedRows).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
   }catch(error){
