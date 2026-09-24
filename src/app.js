@@ -224,11 +224,14 @@ function assignSourceGroup(id,group){
 }
 
 function readSourceSelection(){
-  const allowed=new Set(channelLibrary().map(row=>row.id));
   try{
     const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
     if(Array.isArray(saved)){
-      return new Set(saved.filter(id=>allowed.has(id)&&!blockedSourceIds.has(id)));
+      return new Set(
+        saved
+          .map(String)
+          .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id)&&!blockedSourceIds.has(id))
+      );
     }
   }catch{}
 
@@ -249,6 +252,29 @@ let sourceBlockedExpanded=false;
 let sourceMetaObserver=null;
 const sourceMetaCache=new Map();
 const sourceMetaPending=new Set();
+
+function managedChannelLibrary(){
+  const rows=channelLibrary();
+  const byId=new Map(rows.map(row=>[row.id,row]));
+
+  for(const id of new Set([...selectedSourceIds,...blockedSourceIds])){
+    if(byId.has(id))continue;
+    const meta=sourceMetaCache.get(id)||{};
+    const row={
+      id,
+      name:clean(meta.name||id),
+      thumbnailUrl:clean(meta.thumbnailUrl||""),
+      subscribers:clean(meta.subscribers||""),
+      groups:Array.isArray(sourceGroupOverrides[id])
+        ?sourceGroupOverrides[id].map(String).filter(Boolean)
+        :[]
+    };
+    rows.push(row);
+    byId.set(id,row);
+  }
+
+  return rows;
+}
 
 function persistSourceSelection(){
   try{
@@ -289,7 +315,11 @@ function hideBlockedSourceNow(id){
 }
 
 function setSourceStatus(id,status){
-  if(!libraryHas(id))return;
+  if(
+    !libraryHas(id) &&
+    !selectedSourceIds.has(id) &&
+    !blockedSourceIds.has(id)
+  )return;
 
   const learnedGroup=sourceManageMode&&sourceManageGroup!=="all"?sourceManageGroup:"";
   if(learnedGroup)assignSourceGroup(id,learnedGroup);
@@ -318,18 +348,32 @@ function setSourceStatus(id,status){
 
 function selectedSources(){
   const rows=channelLibrary();
-  const allowed=new Set(rows.map(row=>row.id));
-  let changed=false;
+  const byId=new Map(rows.map(row=>[row.id,row]));
+  const out=[];
 
-  for(const id of [...selectedSourceIds]){
-    if(!allowed.has(id)||blockedSourceIds.has(id)){
-      selectedSourceIds.delete(id);
-      changed=true;
+  for(const id of selectedSourceIds){
+    if(blockedSourceIds.has(id))continue;
+
+    const row=byId.get(id);
+    if(row){
+      out.push(row);
+      continue;
     }
+
+    // Never delete a user's saved selection merely because a library row
+    // failed to load in this build/session. Channel ID is sufficient to fetch.
+    out.push({
+      id,
+      name:id,
+      thumbnailUrl:"",
+      subscribers:"",
+      groups:Array.isArray(sourceGroupOverrides[id])
+        ?sourceGroupOverrides[id].map(String).filter(Boolean)
+        :[]
+    });
   }
 
-  if(changed)persistSourceSelection();
-  return rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id));
+  return out;
 }
 
 function sourceSignature(){
@@ -413,7 +457,7 @@ function isBlockedSourceRow(row={}){
 }
 
 function updateSourceSummary(){
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   const selected=rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id)).length;
   const blocked=rows.filter(row=>blockedSourceIds.has(row.id)).length;
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selected);
@@ -435,7 +479,7 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const exists=libraryHas(row.id);
+  const exists=libraryHas(row.id)||selectedSourceIds.has(row.id)||blockedSourceIds.has(row.id);
   const status=exists?sourceStatus(row.id):"normal";
   const active=status==="selected";
   const blocked=status==="blocked";
@@ -487,7 +531,7 @@ function sourceRowHtml(row,{remote=false}={}){
 
 function updateSourceRowMeta(id){
   if(!sourceList)return;
-  const row=libraryRow(id)||sourceRemoteResults.find(item=>item.id===id);
+  const row=libraryRow(id)||managedChannelLibrary().find(item=>item.id===id)||sourceRemoteResults.find(item=>item.id===id);
   if(!row)return;
   const current=sourceList.querySelector('.source-row[data-source-id="'+CSS.escape(id)+'"]');
   if(!current)return;
@@ -551,7 +595,7 @@ function renderSourceGroupTabs(){
     return;
   }
 
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     const count=group.key==="all"
       ?rows.length
@@ -582,7 +626,7 @@ function sourceStatusSection(label,rows=[],options={}){
 
 function renderSourceLibrary(){
   if(!sourceList)return;
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
   const groupFilter=row=>
@@ -2090,7 +2134,7 @@ function aiDisplayRows(rows=[]){
     return {
       ...row,
       _displayTitle:meta.displayTitle||"",
-      _displaySource:meta.displaySource||"",
+      _displaySource:"",
       _duplicateGroup:meta.duplicateGroup||""
     };
   });
@@ -2143,24 +2187,10 @@ function patchRenderedAiMeta(rows=[]){
     if(!card)continue;
 
     const title=clean(meta.displayTitle||row?._displayTitle||row?.title||"");
-    const source=clean(meta.displaySource||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
     const titleEl=card.querySelector(".card-title");
-    const sourceEl=card.querySelector(".card-channel");
-
     if(title&&titleEl){
       titleEl.textContent=title;
       card.dataset.title=title;
-    }
-    if(source&&sourceEl){
-      const duplicate=sourceEl.querySelector(".card-related")?.textContent||"";
-      sourceEl.textContent=source;
-      if(duplicate){
-        const span=document.createElement("span");
-        span.className="card-related";
-        span.textContent=" · "+duplicate.replace(/^\s*·\s*/,"");
-        sourceEl.appendChild(span);
-      }
-      card.dataset.channel=source;
     }
   }
 }
@@ -2675,10 +2705,11 @@ function mostViewedFirst(rows=[]){
 }
 
 function sortPresetRows(rows=[],preset={}){
-  if(preset.weekFreshViewed)return weekFreshViewedFirst(rows);
-  if(preset.mostViewed)return mostViewedFirst(rows);
-  if(preset.newest)return newestFirst(rows);
-  return rows;
+  let sorted=rows;
+  if(preset.weekFreshViewed)sorted=weekFreshViewedFirst(rows);
+  else if(preset.mostViewed)sorted=mostViewedFirst(rows);
+  else if(preset.newest)sorted=newestFirst(rows);
+  return dedupeHashedRows(sorted);
 }
 
 function mergeUniqueRows(base=[],extra=[]){
@@ -3841,6 +3872,84 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
+const FEED_AI_CONTENT_TTL=30*60*1000;
+const feedAiPending=new Map();
+
+function feedAiContentKey(name,rows=[]){
+  const input=topicInputRows(rows).slice(0,72);
+  const body=input.map(row=>row.id+"|"+row.title+"|"+row.contentHash).join("\n");
+  return String(name||"feed")+":"+fastHash(body);
+}
+
+async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
+  if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return;
+
+  const sample=dedupeHashedRows(newestFirst(rows)).slice(0,72);
+  const input=topicInputRows(sample);
+  if(input.length<4)return;
+
+  const cacheKey=feedAiContentKey(name,sample);
+  const saved=readAiTrendCache("feed-content:"+cacheKey,input);
+  if(saved.videoMeta.size){
+    state.aiVideoMeta=new Map([...state.aiVideoMeta,...saved.videoMeta]);
+
+    if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
+      if(window.scrollY<120){
+        renderCurrentTrendFeed();
+      }else{
+        patchRenderedAiMeta(sample);
+      }
+    }
+    return;
+  }
+
+  if(feedAiPending.has(cacheKey))return feedAiPending.get(cacheKey);
+
+  const task=(async()=>{
+    try{
+      const response=await fetch(AI_TOPICS_URL,{
+        method:"POST",
+        headers:{
+          "content-type":"application/json",
+          "apikey":SUPABASE_ANON,
+          "authorization":"Bearer "+SUPABASE_ANON
+        },
+        body:JSON.stringify({
+          mode:"classify",
+          scope:"feed:"+name,
+          parentLabel:"Nội dung",
+          videos:input
+        })
+      });
+
+      const payload=await response.json().catch(()=>null);
+      if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
+
+      const videoMeta=normalizeAiVideoMeta(payload,input);
+      if(!videoMeta.size)return;
+
+      state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
+      saveAiTrendCache("feed-content:"+cacheKey,[],[],videoMeta);
+
+      if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
+        // AI may group same-content videos, but must never change chronological
+        // order. Near the top we can safely collapse duplicate cards; while the
+        // user is reading lower down we only patch cleaned titles.
+        if(window.scrollY<120){
+          renderCurrentTrendFeed();
+        }else{
+          patchRenderedAiMeta(sample);
+        }
+      }
+    }catch(error){
+      console.warn("feed AI enrichment failed",name,error);
+    }
+  })().finally(()=>feedAiPending.delete(cacheKey));
+
+  feedAiPending.set(cacheKey,task);
+  return task;
+}
+
 async function refreshCachedSourceFeedInBackground(name,preset,seq){
   try{
     const local=await localEngine(16000);
@@ -3856,6 +3965,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
 
     if(!rows.length)return;
     saveFeedCache(name,rows);
+    void enrichSourceFeedAi(name,rows,seq);
 
     // Never disturb the user's current reading position. If they are still
     // at the top, replace the cached snapshot with the newly refreshed one.
@@ -3922,6 +4032,7 @@ async function loadFeedPreset(name="latest"){
     if(isSourceScopedFeed(name)){
       state.feedLoading=false;
       state.feedHasMore=true;
+      void enrichSourceFeedAi(name,rows,seq);
       void refreshCachedSourceFeedInBackground(name,preset,seq);
       void refreshAiTrendTopics();
       return;
@@ -3959,6 +4070,7 @@ async function loadFeedPreset(name="latest"){
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
+    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,state.feedRows,seq);
     void refreshAiTrendTopics();
   }catch(error){
     console.warn("feed failed",name,error);
@@ -3995,11 +4107,16 @@ async function loadMoreFeed(){
     // Continuation pages are only deduplicated and appended at the bottom.
     const rows=sortPresetRows(raw,preset);
     const existingIds=new Set(state.feedRows.map(itemVideoId));
+    const existingHashes=new Set(
+      state.feedRows.map(contentHashForRow).filter(Boolean)
+    );
     const added=[];
     for(const row of rows){
       const id=itemVideoId(row);
-      if(!id||existingIds.has(id))continue;
+      const hash=contentHashForRow(row);
+      if(!id||existingIds.has(id)||(hash&&existingHashes.has(hash)))continue;
       existingIds.add(id);
+      if(hash)existingHashes.add(hash);
       added.push(row);
     }
 
@@ -4014,6 +4131,7 @@ async function loadMoreFeed(){
     const visibleTotal=aiDisplayRows(state.feedRows).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
+    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,added,seq);
   }catch(error){
     console.warn("load more failed",name,error);
   }finally{
