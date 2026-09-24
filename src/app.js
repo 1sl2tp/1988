@@ -248,9 +248,19 @@ function applyFloatingIframe(force){
   const rect=playerSection.getBoundingClientRect();
   const chipsBottom=topicChips?.getBoundingClientRect?.().bottom||0;
   const boundary=Math.max(0,chipsBottom);
-  const shouldFloat=floating
-    ? rect.top<boundary+24
-    : rect.top<boundary-6;
+  const nearTop=window.scrollY<=12;
+
+  // Float only after the original player area has completely passed the
+  // sticky header/chips. As soon as that original area comes back into view,
+  // return the iframe to its real place.
+  const passedOriginal=rect.bottom<=boundary+4;
+  const originalReturning=rect.bottom>boundary+18;
+
+  const shouldFloat=nearTop
+    ? false
+    : floating
+      ? !originalReturning
+      : passedOriginal;
 
   if(shouldFloat===floating)return;
 
@@ -270,7 +280,7 @@ function applyFloatingIframe(force){
         };
       }
     }
-    frame.classList.remove("floating-iframe","float-tucked");
+    frame.classList.remove("floating-iframe","float-tucked","dock-left","dock-right");
     state.floatTucked=false;
     clearFloatBoxStyles();
     playerSection.style.removeProperty("min-height");
