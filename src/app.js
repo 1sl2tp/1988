@@ -245,7 +245,7 @@ function setupMiniGestures(){
       const width=Math.max(180,Math.min(window.innerWidth-16,drag.width+dx));
       const height=width*9/16;
       card.style.width=width+"px";
-      card.style.height=height+"px";
+      card.style.removeProperty("height");
       return;
     }
 
@@ -740,7 +740,7 @@ async function doSearch(value){
   try{
     const local=await localEngine(9000);
     const rows=await local.search(q,{type:"video"});
-    renderCards(rows);
+    renderCards(sourceAwareRows(rows,q));
   }catch{
     feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
     feedStatus.textContent="";
