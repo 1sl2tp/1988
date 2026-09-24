@@ -2276,30 +2276,57 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   const viewportH=Math.max(180,window.innerHeight);
   const mobile=viewportW<=640;
 
-  // PiP always starts from a predictable small width. Do not reuse the
-  // previous frame width because a manual square/portrait mode may be larger.
-  let width=mobile
-    ?Math.min(256,viewportW*.58)
-    :Math.min(360,viewportW*.36);
-
   ratio=Number(ratio)||16/9;
   ratio=Math.max(.34,Math.min(2.6,ratio));
 
-  // Vertical video becomes a tall PiP automatically; horizontal stays a
-  // compact 16:9-style PiP. Never let either cover the whole viewport.
-  const maxHeight=Math.max(180,viewportH*(mobile?.68:.74));
+  // Portrait / Shorts: shrink the PiP width to the real content ratio so
+  // there are no huge black side bars.
+  if(ratio<.80){
+    const maxHeight=Math.max(260,viewportH*(mobile?.60:.68));
+    let height=Math.min(maxHeight,mobile?520:620);
+    let width=height*ratio;
+    const maxWidth=mobile
+      ?Math.min(220,viewportW*.46)
+      :Math.min(300,viewportW*.24);
+
+    if(width>maxWidth){
+      width=maxWidth;
+      height=width/ratio;
+    }
+
+    const minWidth=mobile?118:140;
+    if(width<minWidth){
+      width=minWidth;
+      height=Math.min(maxHeight,width/ratio);
+    }
+    return {width,height};
+  }
+
+  // Square-ish video: compact square-ish PiP.
+  if(ratio<=1.20){
+    const width=mobile
+      ?Math.min(220,viewportW*.48)
+      :Math.min(300,viewportW*.25);
+    return {width,height:width/ratio};
+  }
+
+  // Landscape video: keep the existing compact horizontal PiP.
+  let width=mobile
+    ?Math.min(256,viewportW*.58)
+    :Math.min(360,viewportW*.36);
+  const maxHeight=Math.max(180,viewportH*(mobile?.52:.42));
   let height=width/ratio;
+
   if(height>maxHeight){
     height=maxHeight;
     width=height*ratio;
   }
 
-  const minWidth=mobile?128:150;
-  if(width<minWidth&&height<maxHeight){
+  const minWidth=mobile?150:170;
+  if(width<minWidth){
     width=minWidth;
     height=Math.min(maxHeight,width/ratio);
   }
-
   return {width,height};
 }
 
@@ -2402,13 +2429,17 @@ function updateFloatingAmbient(frame){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
-  state.videoAspect=normalizedVideoAspect(meta);
+  const next=normalizedVideoAspect(meta);
+  if(!next)return;
+  state.videoAspect=next;
+
   const frame=playerSection?.querySelector(".player-frame");
   if(
     frame?.classList.contains("floating-iframe") &&
     !state.floatUserSized &&
     state.floatPreset==="auto"
   ){
+    state.floatBox={top:frame.getBoundingClientRect().top};
     applyAutoFloatAspect(frame,{force:true});
   }
 }
@@ -4393,6 +4424,20 @@ async function enrichSearchRefinements(query,scope,rows,seq){
   renderSearchRefinements(query,scope,rows,remote.slice(0,4));
 }
 
+function rowAspectRatio(row={}){
+  let ratio=Number(row?.aspectRatio)||0;
+  const videoW=Number(row?.videoWidth)||0;
+  const videoH=Number(row?.videoHeight)||0;
+  const thumbW=Number(row?.thumbnailWidth)||0;
+  const thumbH=Number(row?.thumbnailHeight)||0;
+
+  if(!ratio&&videoW>0&&videoH>0)ratio=videoW/videoH;
+  if(!ratio&&thumbW>0&&thumbH>0)ratio=thumbW/thumbH;
+  if(row?.isShort===true&&(!ratio||ratio>.85))ratio=9/16;
+
+  return Number.isFinite(ratio)&&ratio>=.34&&ratio<=2.6?ratio:0;
+}
+
 function searchCardHtml(row={},options={}){
   const id=itemVideoId(row);
   if(!id)return "";
@@ -4420,6 +4465,7 @@ function searchCardHtml(row={},options={}){
     '" data-live="'+(isLive?'1':'0')+
     '" data-published="'+esc(published)+
     '" data-thumb="'+esc(thumb(row,id))+
+    '" data-aspect="'+esc(String(rowAspectRatio(row)||""))+
     '" data-search-match="'+(options.match===false?'0':'1')+
     '" data-series-key="'+esc(seriesKey)+
     '" data-episode="'+esc(String(episode||""))+'">'+
@@ -5420,7 +5466,7 @@ function renderCards(rows=[],options={}){
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
     cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(String(row?._sourceId||row?.channelId||row?.uploaderId||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
+      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(String(row?._sourceId||row?.channelId||row?.uploaderId||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
           '<div class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</div>'+
@@ -5455,7 +5501,8 @@ function rowFromCard(card){
     isLive:card.dataset.live==="1",
     uploadDate:card.dataset.published||"",
     publishedText:card.dataset.published||"",
-    thumbnailUrl:card.dataset.thumb||""
+    thumbnailUrl:card.dataset.thumb||"",
+    aspectRatio:Number(card.dataset.aspect)||0
   };
 }
 

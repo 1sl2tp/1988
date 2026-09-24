@@ -68,16 +68,24 @@ function parseViewCount(value){
   return Number(digits)||0;
 }
 
-function thumbnailOf(node,id){
+function thumbnailInfo(node,id){
   const rows=
     node?.thumbnails||
     node?.thumbnail||
     node?.video_thumbnails||
     node?.content_image?.image||
     [];
-  const first=Array.isArray(rows)?rows[0]:null;
-  const url=first?.url||node?.thumbnailUrl||node?.thumbnail_url||'';
-  return url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
+  const list=Array.isArray(rows)?rows:[rows];
+  const usable=list.filter(Boolean);
+  const best=usable.find(item=>Number(item?.width)>0&&Number(item?.height)>0)||usable[0]||null;
+  const url=best?.url||node?.thumbnailUrl||node?.thumbnail_url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
+  const width=Number(best?.width)||0;
+  const height=Number(best?.height)||0;
+  return {url,width,height,aspectRatio:width>0&&height>0?width/height:0};
+}
+
+function thumbnailOf(node,id){
+  return thumbnailInfo(node,id).url;
 }
 
 function lockupMetadataParts(node){
@@ -202,13 +210,30 @@ function normalizeNode(input){
     ?(authorThumbs[0]?.url||'')
     :(authorThumbs?.url||'');
 
+  const thumbInfo=thumbnailInfo(node,id);
+  const endpointUrl=String(
+    node?.endpoint?.metadata?.url||
+    node?.navigation_endpoint?.metadata?.url||
+    node?.command?.metadata?.url||
+    ''
+  );
+  const isShort=
+    node?.is_short===true||
+    node?.isShort===true||
+    /\/shorts\//i.test(endpointUrl)||
+    (thumbInfo.aspectRatio>0&&thumbInfo.aspectRatio<.80&&duration>0&&duration<=240);
+
   return {
     videoId:id,
     url:'/watch?v='+id,
     title,
     uploader,
     channelId:videoChannelId(node),
-    thumbnailUrl:thumbnailOf(node,id),
+    thumbnailUrl:thumbInfo.url,
+    thumbnailWidth:thumbInfo.width,
+    thumbnailHeight:thumbInfo.height,
+    aspectRatio:isShort?9/16:thumbInfo.aspectRatio,
+    isShort,
     uploaderThumbnailUrl,
     duration,
     views,
@@ -866,16 +891,24 @@ function videoDimensionsFromInfo(result={}){
     ...(Array.isArray(result?.streaming_data?.formats)?result.streaming_data.formats:[]),
     ...(Array.isArray(result?.streaming_data?.adaptive_formats)?result.streaming_data.adaptive_formats:[]),
     ...(Array.isArray(result?.streaming_data?.adaptiveFormats)?result.streaming_data.adaptiveFormats:[])
-  ];
+  ]
+    .map(row=>({width:Number(row?.width)||0,height:Number(row?.height)||0}))
+    .filter(row=>row.width>0&&row.height>0);
 
   let best=null;
-  for(const row of rows){
-    const width=Number(row?.width)||0;
-    const height=Number(row?.height)||0;
-    if(width<=0||height<=0)continue;
-    if(!best||width*height>best.width*best.height){
-      best={width,height};
+  if(rows.length){
+    const groups={portrait:[],square:[],landscape:[]};
+    for(const row of rows){
+      const ratio=row.width/row.height;
+      if(ratio<.80)groups.portrait.push(row);
+      else if(ratio<=1.20)groups.square.push(row);
+      else groups.landscape.push(row);
     }
+
+    const dominant=Object.values(groups)
+      .sort((a,b)=>b.length-a.length)[0]||rows;
+    best=(dominant.length?dominant:rows)
+      .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0]||null;
   }
 
   if(!best){
@@ -883,6 +916,13 @@ function videoDimensionsFromInfo(result={}){
     const width=Number(embed?.width)||0;
     const height=Number(embed?.height)||0;
     if(width>0&&height>0)best={width,height};
+  }
+
+  const basic=result?.basic_info||{};
+  const isShort=basic?.is_short===true||basic?.isShort===true||result?.is_short===true;
+  if(isShort&&best&&best.width>=best.height){
+    const height=Math.max(best.height,best.width);
+    best={width:Math.round(height*9/16),height};
   }
 
   if(!best)return {width:0,height:0,aspectRatio:0};

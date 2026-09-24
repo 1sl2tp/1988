@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-pip-auto-v133';
+const CACHE='1988-main-pip-aspect-v134';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-auto-133',
-  './src/app.js?v=pip-auto-133',
+  './src/style.css?v=pip-aspect-134',
+  './src/app.js?v=pip-aspect-134',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
-  './src/yt-local.js?v=playlist-context-129',
+  './src/yt-local.js?v=pip-aspect-134',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
