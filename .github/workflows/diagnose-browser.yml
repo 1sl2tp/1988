@@ -109,6 +109,32 @@ jobs:
             });
             console.log('PLAYER_PROBE',playerProbe?.result?.value);
 
+            const mediaProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  const card=document.querySelector('#feed [data-video-id]');
+                  const id=card?.dataset?.videoId||'';
+                  if(!id||!window.YTLocal?.media)return JSON.stringify({ok:false,error:'media_unavailable',id});
+                  const row=await window.YTLocal.media(id,'video');
+                  return JSON.stringify({
+                    ok:!!row?.url,
+                    id,
+                    width:Number(row?.width)||0,
+                    height:Number(row?.height)||0,
+                    quality:row?.quality||'',
+                    client:row?.client||'',
+                    mimeType:row?.mimeType||'',
+                    urlPrefix:String(row?.url||'').slice(0,120)
+                  });
+                }catch(e){
+                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('MEDIA_PROBE',mediaProbe?.result?.value);
+
             const knownProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{
                 try{
