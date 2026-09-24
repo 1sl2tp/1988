@@ -887,34 +887,54 @@ function videoDimensionsFromInfo(result={}){
   };
 }
 
+const videoAspectCache=new Map();
+const videoAspectPending=new Map();
+
 async function videoAspect(id){
-  if(!VIDEO_ID_RE.test(String(id||'')))return {width:0,height:0,aspectRatio:0};
-  const yt=await getYT();
+  id=String(id||'').trim();
+  if(!VIDEO_ID_RE.test(id))return {width:0,height:0,aspectRatio:0};
 
-  for(const client of ['WEB','MWEB','IOS','ANDROID']){
-    try{
-      const basic=await yt.getBasicInfo(id,{client});
-      const dimensions=videoDimensionsFromInfo(basic);
-      if(dimensions.width>0&&dimensions.height>0){
-        return dimensions;
-      }
+  const cached=videoAspectCache.get(id);
+  if(cached&&Date.now()-cached.at<6*60*60*1000)return cached.value;
+  if(videoAspectPending.has(id))return videoAspectPending.get(id);
 
-      const formats=[
-        ...(Array.isArray(basic?.streaming_data?.formats)?basic.streaming_data.formats:[]),
-        ...(Array.isArray(basic?.streaming_data?.adaptive_formats)?basic.streaming_data.adaptive_formats:[])
-      ];
-      const videoFormats=formats
-        .filter(format=>Number(format?.width)>0&&Number(format?.height)>0)
-        .sort((a,b)=>(Number(b.width)*Number(b.height))-(Number(a.width)*Number(a.height)));
-      if(videoFormats.length){
-        const width=Number(videoFormats[0].width)||0;
-        const height=Number(videoFormats[0].height)||0;
-        if(width>0&&height>0)return {width,height,aspectRatio:width/height};
-      }
-    }catch{}
-  }
+  const task=(async()=>{
+    const yt=await getYT();
 
-  return {width:0,height:0,aspectRatio:0};
+    for(const client of ['WEB','MWEB','IOS','ANDROID']){
+      try{
+        const basic=await yt.getBasicInfo(id,{client});
+        const dimensions=videoDimensionsFromInfo(basic);
+        if(dimensions.width>0&&dimensions.height>0){
+          videoAspectCache.set(id,{at:Date.now(),value:dimensions});
+          return dimensions;
+        }
+
+        const formats=[
+          ...(Array.isArray(basic?.streaming_data?.formats)?basic.streaming_data.formats:[]),
+          ...(Array.isArray(basic?.streaming_data?.adaptive_formats)?basic.streaming_data.adaptive_formats:[])
+        ];
+        const videoFormats=formats
+          .filter(format=>Number(format?.width)>0&&Number(format?.height)>0)
+          .sort((a,b)=>(Number(b.width)*Number(b.height))-(Number(a.width)*Number(a.height)));
+
+        if(videoFormats.length){
+          const width=Number(videoFormats[0].width)||0;
+          const height=Number(videoFormats[0].height)||0;
+          if(width>0&&height>0){
+            const value={width,height,aspectRatio:width/height};
+            videoAspectCache.set(id,{at:Date.now(),value});
+            return value;
+          }
+        }
+      }catch{}
+    }
+
+    return {width:0,height:0,aspectRatio:0};
+  })().finally(()=>videoAspectPending.delete(id));
+
+  videoAspectPending.set(id,task);
+  return task;
 }
 
 async function info(id){
