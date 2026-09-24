@@ -1,4 +1,4 @@
-name: Smoke smart source library
+name: Smoke source popup UI
 
 on:
   push:
@@ -10,9 +10,9 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
-      - name: Test production source library
+      - name: Test production source UI
         shell: bash
         run: |
           set -euo pipefail
@@ -42,32 +42,52 @@ jobs:
           (async()=>{
             const {ws,send}=await connect();
             await send('Runtime.enable');await send('Page.enable');
-            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?smoke='+Date.now()});
-            await sleep(5500);
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?sourcepopup='+Date.now()});
+            await sleep(6000);
             const out=await send('Runtime.evaluate',{
               expression:`(async()=>{
                 const errors=[];
                 window.addEventListener('error',e=>errors.push(String(e.message||e.error||e)));
-                const lib=Array.isArray(window.CHANNEL_LIBRARY)?window.CHANNEL_LIBRARY:[];
-                const local=window.YTLocal;
-                const channels=local?.searchChannels?await local.searchChannels('VTV'):[];
                 document.querySelector('#sourcesBtn')?.click();
-                await new Promise(r=>setTimeout(r,300));
-                const sheetVisible=!document.querySelector('#sourcesSheet')?.hidden;
-                const rows=document.querySelectorAll('#sourceList .source-row').length;
-                const firstPreview=document.querySelector('#sourceList [data-source-preview]');
-                if(firstPreview)firstPreview.click();
-                await new Promise(r=>setTimeout(r,3500));
+                await new Promise(r=>setTimeout(r,1800));
+
+                const firstRow=document.querySelector('#sourceList .source-row[data-source-id]');
+                const firstId=firstRow?.dataset?.sourceId||'';
+                const avatar=firstRow?.querySelector('.source-avatar img')?.src||'';
+                const sub=firstRow?.querySelector('.source-row-sub')?.textContent||'';
+
+                document.querySelector('#sourceSettingsBtn')?.click();
+                await new Promise(r=>setTimeout(r,100));
+                const settingsActive=document.querySelector('#sourceSettingsBtn')?.classList.contains('active')||false;
+                const deleteVisible=!!document.querySelector('#sourceList [data-source-delete]');
+                document.querySelector('#sourceSettingsBtn')?.click();
+
+                document.querySelector('#sourceList [data-source-preview]')?.click();
+                await new Promise(r=>setTimeout(r,4000));
                 const previewVisible=!document.querySelector('#sourcePreview')?.hidden;
+                const videoButton=document.querySelector('#sourcePreviewList [data-source-video-id]');
                 const previewVideos=document.querySelectorAll('#sourcePreviewList [data-source-video-id]').length;
+                videoButton?.click();
+                await new Promise(r=>setTimeout(r,500));
+
+                const popup=document.querySelector('#sourceVideoPopup');
+                const popupVisible=!popup?.hidden;
+                const frameSrc=document.querySelector('#sourceVideoFrame')?.src||'';
+                const sheetStillVisible=!document.querySelector('#sourcesSheet')?.hidden;
+                const previewStillVisible=!document.querySelector('#sourcePreview')?.hidden;
+
+                document.querySelector('#closeSourceVideoPopup')?.click();
+                const popupClosed=document.querySelector('#sourceVideoPopup')?.hidden===true;
+
+                const local=window.YTLocal;
+                const vtv=local?.searchChannels?await local.searchChannels('VTV'):[];
+                const meta=firstId&&local?.channelMeta?await local.channelMeta(firstId):null;
+
                 return JSON.stringify({
-                  lib:lib.length,
-                  searchChannels:channels.slice(0,5),
-                  sheetVisible,
-                  rows,
-                  previewVisible,
-                  previewVideos,
-                  errors
+                  firstId,avatar,sub,settingsActive,deleteVisible,
+                  previewVisible,previewVideos,popupVisible,frameSrc,
+                  sheetStillVisible,previewStillVisible,popupClosed,
+                  vtv:vtv.slice(0,3),meta,errors
                 });
               })()`,
               awaitPromise:true,
