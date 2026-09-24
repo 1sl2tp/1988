@@ -1,0 +1,35 @@
+name: Diagnose regional feeds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-regional.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe deployed regional sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988'
+
+          echo '=== TRENDING VN ==='
+          curl -sS --max-time 25 -w '\nHTTP=%{http_code}\n' "$BASE?action=trending&region=VN" -o /tmp/trending.json || true
+          head -c 5000 /tmp/trending.json 2>/dev/null || true
+          echo
+          echo '--- SHAPE ---'
+          jq 'if type=="object" then {ok,source,dataType:(.data|type),dataLen:(if (.data|type)=="array" then (.data|length) elif (.data.items?|type)=="array" then (.data.items|length) else null end),first:(if (.data|type)=="array" then .data[0] elif (.data.items?|type)=="array" then .data.items[0] else .data end)} else . end' /tmp/trending.json 2>/dev/null || true
+
+          echo '=== SEARCH CONTROL ==='
+          curl -sS --max-time 25 -w '\nHTTP=%{http_code}\n' "$BASE?action=search&q=music&filter=videos" -o /tmp/search.json || true
+          jq '{ok,source,count:(.data.items//[]|length),first:(.data.items//[])[0]}' /tmp/search.json 2>/dev/null || head -c 2000 /tmp/search.json || true
+
+          echo '=== DEPLOYED ASSETS ==='
+          curl -sS -L --max-time 25 https://yt.taphoa.xyz/ -o /tmp/index.html || true
+          grep -Eo 'src/(app|yt-local)\.js\?v=[^" ]+' /tmp/index.html || true
