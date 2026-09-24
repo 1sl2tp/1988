@@ -2705,14 +2705,23 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    // True full-screen-first mobile stage. Search/chips/feed are overlays;
-    // the actual video can therefore use the whole visual viewport.
-    const availableHeight=viewportHeight;
+    const styles=getComputedStyle(root);
+    const railHeight=
+      parseFloat(styles.getPropertyValue("--watch-feed-rail-h"))||92;
+    const safeBottom=
+      parseFloat(styles.getPropertyValue("--safe-bottom"))||0;
+    const availableHeight=Math.max(
+      240,
+      viewportHeight-railHeight-safeBottom
+    );
+
     const width=Math.min(viewportWidth,availableHeight*ratio);
     const height=width/ratio;
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+    root.style.setProperty("--watch-stage-w",Math.round(width)+"px");
+    root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
     return;
   }
 
@@ -2992,36 +3001,100 @@ function navigateWatchVideo(direction=1){
   playVideo(id,rowFromCard(card));
 }
 
-function ensureWatchNavRail(){
-  if(!playerSection||playerSection.querySelector(".watch-nav-rail"))return;
+function watchActiveCategoryLabel(){
+  const active=topicChips?.querySelector(".topic-chip.active");
+  return clean(active?.textContent)||"Danh mục";
+}
 
-  const rail=document.createElement("div");
+function syncWatchUtilityState(){
+  const rail=playerSection?.querySelector(".watch-nav-rail");
+  if(!rail)return;
+  const category=rail.querySelector('[data-watch-action="categories"]');
+  if(category)category.textContent=watchActiveCategoryLabel();
+}
+
+function ensureWatchNavRail(){
+  if(!playerSection)return;
+  let rail=playerSection.querySelector(".watch-nav-rail");
+  if(rail){
+    syncWatchUtilityState();
+    return;
+  }
+
+  rail=document.createElement("div");
   rail.className="watch-nav-rail";
   rail.setAttribute("role","toolbar");
-  rail.setAttribute("aria-label","Chuyển video");
+  rail.setAttribute("aria-label","Điều khiển xem nhanh");
 
-  const makeButton=(direction,label,icon)=>{
+  const makeButton=(attrs,label,content)=>{
     const button=document.createElement("button");
     button.type="button";
-    button.dataset.watchNav=direction;
+    Object.entries(attrs).forEach(([key,value])=>button.dataset[key]=value);
     button.setAttribute("aria-label",label);
-    button.textContent=icon;
-    button.addEventListener("click",event=>{
-      event.preventDefault();
-      event.stopPropagation();
-      navigateWatchVideo(direction==="next"?1:-1);
-    });
+    button.textContent=content;
     return button;
   };
 
-  rail.append(
-    makeButton("prev","Video trước","↑"),
-    makeButton("next","Video tiếp theo","↓")
-  );
-  playerSection.appendChild(rail);
-  syncWatchCurrentCard();
-}
+  const search=makeButton({watchAction:"search"},"Tìm kiếm","⌕");
+  search.className="watch-tool-btn watch-search-btn";
+  search.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    const root=document.documentElement;
+    root.classList.remove("watch-categories-open");
+    root.classList.toggle("watch-search-open");
+    if(root.classList.contains("watch-search-open")){
+      requestAnimationFrame(()=>{
+        queryInput?.focus?.({preventScroll:true});
+        queryInput?.select?.();
+      });
+    }
+  });
 
+  const category=makeButton(
+    {watchAction:"categories"},
+    "Chọn danh mục",
+    watchActiveCategoryLabel()
+  );
+  category.className="watch-tool-btn watch-category-btn";
+  category.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    const root=document.documentElement;
+    root.classList.remove("watch-search-open");
+    root.classList.toggle("watch-categories-open");
+  });
+
+  const prev=makeButton({watchNav:"prev"},"Video trước","↑");
+  const next=makeButton({watchNav:"next"},"Video tiếp theo","↓");
+  prev.className="watch-tool-btn watch-step-btn";
+  next.className="watch-tool-btn watch-step-btn";
+
+  prev.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    navigateWatchVideo(-1);
+  });
+  next.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    navigateWatchVideo(1);
+  });
+
+  rail.append(search,category,prev,next);
+  playerSection.appendChild(rail);
+
+  if(topicChips&&!topicChips.dataset.watchOverlayBound){
+    topicChips.dataset.watchOverlayBound="1";
+    topicChips.addEventListener("click",()=>{
+      document.documentElement.classList.remove("watch-categories-open");
+      requestAnimationFrame(syncWatchUtilityState);
+    });
+  }
+
+  syncWatchCurrentCard();
+  syncWatchUtilityState();
+}
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -3384,9 +3457,9 @@ function setActiveChip(name){
     requestAnimationFrame(()=>{
       const left=Math.max(0,activeButton.offsetLeft-(topicChips.clientWidth-activeButton.offsetWidth)/2);
       topicChips.scrollTo({left,behavior:"smooth"});
+      syncWatchUtilityState();
     });
   }
-}
 
 function extractVideoId(value=""){
   const raw=clean(value);
@@ -7074,6 +7147,7 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
+  document.documentElement.classList.remove("watch-search-open","watch-categories-open");
   hideContextBrief();
   const frame=playerSection?.querySelector(".player-frame");
   const wasFloating=!!frame?.classList.contains("floating-iframe");
@@ -7529,6 +7603,7 @@ seriesEpisodes?.addEventListener("click",event=>{
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
+  document.documentElement.classList.remove("watch-search-open");
   void doSearch(queryInput.value);
   queryInput.blur();
 });
