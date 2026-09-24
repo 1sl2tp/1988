@@ -815,7 +815,7 @@ async function openSourcePreview(id,rowHint=null){
 
     sourcePreviewList.innerHTML=ordered.map(video=>{
       const videoId=itemVideoId(video);
-      const meta=clean(video.publishedText||publishedLabel(video));
+      const meta=relativePublishedLabel(video);
       return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
         '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
         '<span class="source-video-copy">'+
