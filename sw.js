@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-pip-safe-controls-v156';
+const CACHE='1988-main-pip-inline-controls-v157';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-safe-controls-156',
+  './src/style.css?v=pip-inline-controls-157',
   './src/app.js?v=pip-safe-controls-156',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',

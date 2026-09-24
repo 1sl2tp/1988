@@ -324,20 +324,23 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   display:flex;
   position:absolute;
   z-index:30;
-  top:50%;
-  width:30px;
+  top:auto;
+  bottom:clamp(70px,30%,102px);
+  width:auto;
+  min-width:56px;
+  height:31px;
   padding:2px;
-  flex-direction:column;
-  transform:translateY(-50%);
-  border:1px solid rgba(255,255,255,.20);
-  border-radius:11px;
-  background:rgba(18,18,22,.10);
-  -webkit-backdrop-filter:blur(10px) saturate(1.55) brightness(.94);
-  backdrop-filter:blur(10px) saturate(1.55) brightness(.94);
-  box-shadow:
-    0 4px 14px rgba(0,0,0,.16),
-    inset 0 0 0 1px rgba(255,255,255,.04);
-  opacity:.06;
+  gap:2px;
+  flex-direction:row;
+  align-items:center;
+  transform:none;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:9px;
+  background:rgba(18,18,22,.08);
+  -webkit-backdrop-filter:blur(9px) saturate(1.45) brightness(.94);
+  backdrop-filter:blur(9px) saturate(1.45) brightness(.94);
+  box-shadow:0 3px 12px rgba(0,0,0,.14);
+  opacity:.08;
   transition:
     opacity .15s ease,
     background .15s ease,
@@ -345,99 +348,71 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     box-shadow .15s ease;
 }
 .player-frame.floating-iframe.dock-right .float-mode-rail{
-  right:8px;
+  right:clamp(52px,13%,76px);
   left:auto;
 }
 .player-frame.floating-iframe.dock-left .float-mode-rail{
-  left:8px;
+  left:clamp(52px,13%,76px);
   right:auto;
 }
 .player-frame.floating-iframe:hover .float-mode-rail,
 .player-frame.floating-iframe:focus-within .float-mode-rail{
-  opacity:.82;
+  opacity:.76;
 }
 .player-frame.floating-iframe .float-mode-rail:hover,
 .player-frame.floating-iframe .float-mode-rail:focus-within{
   opacity:1;
-  background:rgba(18,18,22,.16);
-  border-color:rgba(255,255,255,.32);
-  box-shadow:
-    0 5px 18px rgba(0,0,0,.20),
-    inset 0 0 0 1px rgba(255,255,255,.06);
+  background:rgba(18,18,22,.14);
+  border-color:rgba(255,255,255,.28);
+  box-shadow:0 4px 14px rgba(0,0,0,.18);
 }
 
-/* Small 1× PiP: reserve YouTube's native bottom-right fullscreen control. */
-.player-frame.floating-iframe.float-scale-1 .float-mode-rail{
-  top:42%;
-  width:28px;
-  padding:1px;
-  border-radius:10px;
-}
-.player-frame.floating-iframe.float-scale-1 .float-mode-btn{
-  width:24px;
-  height:30px;
-  border-radius:8px;
-}
-.player-frame.floating-iframe.float-scale-1 .float-mode-btn[data-float-mode="scale"] .float-mode-icon{
-  font-size:9px;
+/* Horizontal strip sits beside YouTube's fullscreen control at every PiP size. */
+.player-frame.floating-iframe.float-scale-1 .float-mode-rail,
+.player-frame.floating-iframe.float-scale-15 .float-mode-rail,
+.player-frame.floating-iframe.float-scale-2 .float-mode-rail{
+  top:auto;
 }
 
 .float-mode-btn{
   position:relative;
-  width:24px;
-  height:38px;
-  margin:0 auto;
+  width:26px;
+  height:26px;
+  margin:0;
   padding:0;
   display:grid;
   place-items:center;
   border:0;
-  border-radius:10px;
+  border-radius:7px;
   background:transparent;
-  color:rgba(255,255,255,.82);
+  color:rgba(255,255,255,.88);
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
   touch-action:manipulation;
 }
 .float-mode-btn:hover,.float-mode-btn:focus-visible{
-  background:rgba(255,255,255,.18);
+  background:rgba(255,255,255,.16);
   color:#fff;
   outline:none;
 }
 .float-mode-btn.active{
-  background:rgba(255,255,255,.22);
+  background:rgba(255,255,255,.20);
   color:#fff;
 }
-.float-mode-icon{font-size:17px;line-height:1;font-weight:600;pointer-events:none}
-.float-mode-btn[data-float-mode="scale"] .float-mode-icon{
-  font-size:10px;
-  font-weight:750;
-  letter-spacing:-.35px;
-}
-.float-mode-label{
-  position:absolute;
-  top:50%;
-  right:calc(100% + 9px);
-  transform:translateY(-50%) translateX(4px);
-  width:max-content;
-  max-width:120px;
-  padding:6px 8px;
-  border-radius:8px;
-  background:rgba(18,18,22,.18);
-  color:#fff;
-  font-size:11px;
-  line-height:1.15;
-  white-space:nowrap;
-  opacity:0;
+.float-mode-icon{
+  font-size:15px;
+  line-height:1;
+  font-weight:600;
   pointer-events:none;
-  -webkit-backdrop-filter:blur(10px) saturate(1.45) brightness(.92);
-  backdrop-filter:blur(10px) saturate(1.45) brightness(.92);
-  border:1px solid rgba(255,255,255,.18);
-  transition:opacity .12s ease,transform .12s ease;
-  box-shadow:0 5px 16px rgba(0,0,0,.18);
 }
-.dock-left .float-mode-label{right:auto;left:calc(100% + 9px)}
-.float-mode-btn:hover .float-mode-label,
-.float-mode-btn:focus-visible .float-mode-label{opacity:1;transform:translateY(-50%) translateX(0)}
+.float-mode-btn[data-float-mode="scale"] .float-mode-icon{
+  font-size:9px;
+  font-weight:750;
+  letter-spacing:-.3px;
+}
+
+/* Native-looking PiP controls do not need a large custom tooltip bubble. */
+.float-mode-label{display:none!important}
 
 .player-frame.floating-iframe .float-edge-tab{
   position:absolute;
@@ -477,29 +452,30 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   .player-frame.floating-iframe #yt-player,
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{border-radius:11px}
+
   .player-frame.floating-iframe .float-mode-rail{
-    width:30px;
-    padding:2px;
+    bottom:clamp(68px,30%,98px);
+    min-width:54px;
+    height:29px;
+    padding:1px;
+    gap:2px;
   }
-  .player-frame.floating-iframe.dock-right .float-mode-rail{right:6px}
-  .player-frame.floating-iframe.dock-left .float-mode-rail{left:6px}
-  .float-mode-btn{width:24px;height:36px}
-  .player-frame.floating-iframe.float-scale-1 .float-mode-rail{
-    top:40%;
-    width:27px;
-    right:5px;
+  .player-frame.floating-iframe.dock-right .float-mode-rail{
+    right:clamp(48px,13%,70px);
   }
-  .player-frame.floating-iframe.float-scale-1 .float-mode-btn{
-    width:23px;
-    height:28px;
+  .player-frame.floating-iframe.dock-left .float-mode-rail{
+    left:clamp(48px,13%,70px);
   }
-  .float-mode-label{display:none}
+  .float-mode-btn{
+    width:25px;
+    height:25px;
+  }
 }
 
 @media(hover:none){
   .player-frame.floating-iframe .float-mode-rail{
-    opacity:.46;
-    background:rgba(18,18,22,.12);
+    opacity:.40;
+    background:rgba(18,18,22,.10);
   }
   .player-frame.floating-iframe .float-mode-rail:active,
   .player-frame.floating-iframe .float-mode-rail:focus-within{
