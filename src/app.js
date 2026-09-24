@@ -38,9 +38,7 @@ const state={
   audioMaster:false,
   engine:"iframe",
   nativeSource:"",
-  activeFeed:"home",
-  mini:false,
-  miniDrag:null
+  activeFeed:"home"
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -183,87 +181,6 @@ function sourceAwareRows(rows=[],query=""){
     (hit?matches:rest).push(row);
   }
   return matches.length?matches:rows;
-}
-
-function setMini(enabled){
-  const next=!!enabled&&!!state.currentId;
-  if(state.mini===next)return;
-  state.mini=next;
-  playerSection.classList.toggle("is-mini",next);
-  if(!next){
-    const card=playerSection.querySelector(".player-card");
-    if(card){
-      card.style.removeProperty("left");
-      card.style.removeProperty("top");
-      card.style.removeProperty("right");
-      card.style.removeProperty("bottom");
-      card.style.removeProperty("width");
-      card.style.removeProperty("height");
-    }
-  }
-}
-
-function updateAutoMini(){
-  if(!state.currentId||playerSection.hidden)return setMini(false);
-  const rect=playerSection.getBoundingClientRect();
-  if(!state.mini&&rect.top<-120)setMini(true);
-  else if(state.mini&&rect.top>20)setMini(false);
-}
-
-function setupMiniGestures(){
-  const card=playerSection.querySelector(".player-card");
-  if(!card)return;
-
-  card.addEventListener("pointerdown",event=>{
-    if(!state.mini)return;
-    const target=event.target;
-    if(target&&target.closest?.("iframe,video,button"))return;
-
-    const rect=card.getBoundingClientRect();
-    const edge=18;
-    const resize=event.clientX>rect.right-edge&&event.clientY>rect.bottom-edge;
-    state.miniDrag={
-      id:event.pointerId,
-      resize,
-      startX:event.clientX,
-      startY:event.clientY,
-      left:rect.left,
-      top:rect.top,
-      width:rect.width,
-      height:rect.height
-    };
-    try{card.setPointerCapture(event.pointerId);}catch{}
-  });
-
-  card.addEventListener("pointermove",event=>{
-    const drag=state.miniDrag;
-    if(!drag||drag.id!==event.pointerId||!state.mini)return;
-    const dx=event.clientX-drag.startX;
-    const dy=event.clientY-drag.startY;
-
-    if(drag.resize){
-      const width=Math.max(180,Math.min(window.innerWidth-16,drag.width+dx));
-      const height=width*9/16;
-      card.style.width=width+"px";
-      card.style.removeProperty("height");
-      return;
-    }
-
-    const width=card.getBoundingClientRect().width;
-    const height=card.getBoundingClientRect().height;
-    const left=Math.max(8,Math.min(window.innerWidth-width-8,drag.left+dx));
-    const top=Math.max(8+Number(getComputedStyle(document.documentElement).getPropertyValue("--safe-top").replace("px","")||0),Math.min(window.innerHeight-height-8,drag.top+dy));
-    card.style.left=left+"px";
-    card.style.top=top+"px";
-    card.style.right="auto";
-    card.style.bottom="auto";
-  });
-
-  const stop=event=>{
-    if(state.miniDrag?.id===event.pointerId)state.miniDrag=null;
-  };
-  card.addEventListener("pointerup",stop);
-  card.addEventListener("pointercancel",stop);
 }
 
 function publishedLabel(row={}){
@@ -421,9 +338,13 @@ function updateModeUi(){
     button.setAttribute("aria-pressed",active===mode?"true":"false");
   });
   if(pipBtn){
-    const method=state.engine==="native"?MediaCore.pipMethod(nativePlayer,document):"none";
-    pipBtn.disabled=method==="none";
-    pipBtn.title=method==="none"?"PiP chưa khả dụng với nguồn hiện tại":"Mở Picture in Picture";
+    const iframeOwnsPiP=state.engine==="iframe";
+    pipBtn.hidden=iframeOwnsPiP;
+    if(!iframeOwnsPiP){
+      const method=MediaCore.pipMethod(nativePlayer,document);
+      pipBtn.disabled=method==="none";
+      pipBtn.title=method==="none"?"PiP chưa khả dụng với nguồn hiện tại":"Mở Picture in Picture";
+    }
   }
 }
 
@@ -1005,9 +926,6 @@ topicChips.addEventListener("click",e=>{
 
 setupMediaSession();
 setupInstall();
-setupMiniGestures();
-window.addEventListener("scroll",updateAutoMini,{passive:true});
-window.addEventListener("resize",updateAutoMini,{passive:true});
 updateModeUi();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
