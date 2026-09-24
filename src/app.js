@@ -305,6 +305,9 @@ let sourceSearchTimer=0;
 let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
+let sourcePreviewSearchRows=new Map();
+let sourcePreviewSearchTimer=0;
+let sourcePreviewSearchSeq=0;
 let sourcePreviewSourceId="";
 let sourcePreviewSourceRow=null;
 let sourceManageMode=false;
@@ -1362,36 +1365,123 @@ function syncSourcePreviewHeader(){
   }
 }
 
-function renderSourcePreviewVideos(){
-  if(!sourcePreviewList)return;
-  const all=[...sourcePreviewRows.values()];
-  const q=normalizeSearchText(sourcePreviewSearch?.value||"");
-  const rows=q
-    ?all.filter(video=>normalizeSearchText(
-        [video?.title,video?._displayTitle,video?.uploader,video?._sourceName].map(clean).join(" ")
-      ).includes(q))
-    :all;
+function sourceRowFromVideo(video={}){
+  const id=String(video?.channelId||video?._sourceId||video?.uploaderId||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
+  const name=clean(
+    video?._sourceName||
+    video?.uploaderName||
+    video?.uploader||
+    video?.channelName||
+    "Kênh YouTube"
+  );
+  return {id,name:name||"Kênh YouTube",thumbnailUrl:"",subscribers:""};
+}
 
-  if(!all.length){
-    sourcePreviewList.innerHTML='<div class="source-empty">Kênh chưa có video để hiển thị</div>';
-    return;
-  }
-  if(!rows.length){
-    sourcePreviewList.innerHTML='<div class="source-empty">Không có video khớp tên đang tìm</div>';
-    return;
-  }
+function sourcePreviewVideoCard(video,{searchResult=false}={}){
+  const videoId=itemVideoId(video);
+  const meta=relativePublishedLabel(video);
+  const source=sourceRowFromVideo(video);
+  const sourceName=clean(source?.name||video?.uploader||video?._sourceName||"");
+  const metaText=meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):"");
 
-  sourcePreviewList.innerHTML=rows.map(video=>{
-    const videoId=itemVideoId(video);
-    const meta=relativePublishedLabel(video);
-    return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
+  return '<article class="source-video-card'+(searchResult?' search-result':'')+'" data-source-video-card="'+esc(videoId)+'">'+
+    '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
       '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
       '<span class="source-video-copy">'+
         '<span class="source-video-title">'+esc(clean(video.title)||"Video")+'</span>'+
-        '<span class="source-video-meta">'+esc(meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):""))+'</span>'+
+        (searchResult&&sourceName?'<span class="source-video-source">'+esc(sourceName)+'</span>':"")+
+        '<span class="source-video-meta">'+esc(metaText)+'</span>'+
       '</span>'+
-    '</button>';
-  }).join("");
+    '</button>'+
+    (searchResult&&source
+      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Mở nguồn</button>'
+      :"")+
+  '</article>';
+}
+
+function renderSourcePreviewVideos(){
+  if(!sourcePreviewList)return;
+  const q=clean(sourcePreviewSearch?.value||"");
+  const searching=q.length>=2;
+  const all=searching?[...sourcePreviewSearchRows.values()]:[...sourcePreviewRows.values()];
+
+  if(!all.length){
+    sourcePreviewList.innerHTML='<div class="source-empty">'+
+      (searching?'Không có video phù hợp trên YouTube':'Kênh chưa có video để hiển thị')+
+    '</div>';
+    return;
+  }
+
+  sourcePreviewList.innerHTML=all
+    .map(video=>sourcePreviewVideoCard(video,{searchResult:searching}))
+    .join("");
+}
+
+async function searchPreviewVideos(query){
+  const q=clean(query);
+  const seq=++sourcePreviewSearchSeq;
+  if(q.length<2){
+    sourcePreviewSearchRows=new Map();
+    renderSourcePreviewVideos();
+    return;
+  }
+
+  sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm video trên YouTube…</div>';
+
+  try{
+    const local=await localEngine(16000);
+    const rows=await local.search(q);
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+
+    const normalized=(Array.isArray(rows)?rows:[])
+      .filter(row=>itemVideoId(row))
+      .slice(0,24);
+    sourcePreviewSearchRows=new Map(normalized.map(video=>[itemVideoId(video),video]));
+    renderSourcePreviewVideos();
+  }catch(error){
+    if(seq!==sourcePreviewSearchSeq)return;
+    console.warn("source preview video search failed",error);
+    sourcePreviewSearchRows=new Map();
+    sourcePreviewList.innerHTML='<div class="source-empty">Chưa tìm được video trên YouTube</div>';
+  }
+}
+
+function schedulePreviewVideoSearch(){
+  clearTimeout(sourcePreviewSearchTimer);
+  sourcePreviewSearchSeq++;
+  sourcePreviewSearchRows=new Map();
+  const q=clean(sourcePreviewSearch?.value||"");
+
+  if(q.length<2){
+    renderSourcePreviewVideos();
+    return;
+  }
+
+  sourcePreviewList.innerHTML='<div class="source-empty">Đang chờ tìm video…</div>';
+  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),280);
+}
+
+async function openSourceFromSearchVideo(video){
+  const base=sourceRowFromVideo(video);
+  if(!base)return;
+
+  let row=base;
+  try{
+    const local=await localEngine(12000);
+    const meta=await local.channelMeta(base.id);
+    if(meta&&meta.id){
+      row={...base,...meta,name:clean(meta.name)||base.name};
+      sourceMetaCache.set(row.id,row);
+    }
+  }catch{}
+
+  // "Mở nguồn" intentionally means: put that channel into the current
+  // source list as Chưa chọn, then open it for review. It does NOT auto-select.
+  addSource(row);
+  sourcePreviewSearchRows=new Map();
+  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  await openSourcePreview(row.id,row);
 }
 
 async function openSourcePreview(id,rowHint=null){
@@ -1403,6 +1493,9 @@ async function openSourcePreview(id,rowHint=null){
   sourcePreviewSourceRow=row;
   if(sourcesSheet)sourcesSheet.dataset.previewOpen="true";
   sourcePreview.hidden=false;
+  clearTimeout(sourcePreviewSearchTimer);
+  sourcePreviewSearchSeq++;
+  sourcePreviewSearchRows=new Map();
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
   closeSourceVideo();
   syncSourcePreviewHeader();
@@ -1465,7 +1558,10 @@ function closeSourceVideo(){
 function resetSourcePreviewPane(){
   closeSourceVideo();
   sourcePreviewSeq++;
+  clearTimeout(sourcePreviewSearchTimer);
+  sourcePreviewSearchSeq++;
   sourcePreviewRows=new Map();
+  sourcePreviewSearchRows=new Map();
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
@@ -1560,7 +1656,7 @@ function setupSourceLibrary(){
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
-  sourcePreviewSearch?.addEventListener("input",renderSourcePreviewVideos);
+  sourcePreviewSearch?.addEventListener("input",schedulePreviewVideoSearch);
   sourceSettingsBtn?.addEventListener("click",()=>setSourceManageMode(!sourceManageMode));
 
   sourceGroupTabs?.addEventListener("click",event=>{
@@ -1648,10 +1744,18 @@ function setupSourceLibrary(){
   });
 
   sourcePreviewList?.addEventListener("click",event=>{
+    const openSourceButton=event.target.closest("[data-source-open-channel]");
+    if(openSourceButton){
+      const videoId=openSourceButton.dataset.sourceVideoRef||"";
+      const row=sourcePreviewSearchRows.get(videoId);
+      if(row)void openSourceFromSearchVideo(row);
+      return;
+    }
+
     const button=event.target.closest("[data-source-video-id]");
     if(!button)return;
     const id=button.dataset.sourceVideoId||"";
-    const row=sourcePreviewRows.get(id);
+    const row=sourcePreviewSearchRows.get(id)||sourcePreviewRows.get(id);
     if(!id||!row)return;
 
     // Preview inside Quản lý nguồn itself. Do not touch the main player:
