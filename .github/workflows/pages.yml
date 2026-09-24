@@ -86,6 +86,9 @@ jobs:
       - name: Apply channel directory v20
         run: python3 scripts/apply-channel-directory-v20.py
 
+      - name: Apply TikTok direct feeds v21
+        run: python3 scripts/apply-tiktok-direct-v21.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
