@@ -19,10 +19,16 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .brand{display:inline-flex;align-items:center;gap:7px;color:#fff;text-decoration:none;font-size:20px;letter-spacing:-.5px}
 .brand-mark{width:31px;height:22px;border-radius:7px;display:grid;place-items:center;background:#f20d3a;color:#fff;font-size:11px;padding-left:2px}
-.header-search{position:relative;height:40px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;border:1px solid #303037;border-radius:20px;background:#121214;overflow:visible}
+.header-search{position:relative;height:40px;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;border:1px solid #303037;border-radius:20px;background:#121214;overflow:visible}
 .search-icon{padding-left:13px;color:#8f8f98;font-size:19px}
 #queryInput{min-width:0;height:38px;border:0;outline:0;background:transparent;color:#fff;padding:0 10px;font-size:16px}
-.header-search>button{height:32px;margin-right:4px;padding:0 15px;border:0;border-radius:17px;background:#f3f3f4;color:#111;font-size:12px;font-weight:750}
+.header-search>button[type="submit"]{height:32px;margin-right:4px;padding:0 15px;border:0;border-radius:17px;background:#f3f3f4;color:#111;font-size:12px;font-weight:750}
+.source-header-btn{
+  height:32px;margin-right:4px;padding:0 10px;border:0;border-radius:17px;background:#25252a;color:#e7e7ea;
+  display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;font-weight:700
+}
+.source-header-icon{font-size:15px;line-height:1;color:#bdbdc5}
+.source-header-count{min-width:13px;color:#8f8f98;font-size:10px;text-align:center}
 .install-btn{height:36px;border:1px solid #35353b;border-radius:18px;background:#202024;color:#fff;padding:0 13px;font-size:12px}
 .suggestions{position:absolute;top:45px;left:0;right:0;overflow:hidden;border:1px solid #33343a;border-radius:13px;background:#19191c;box-shadow:0 18px 45px rgba(0,0,0,.55)}
 .suggestions[hidden]{display:none}.suggestions button{width:100%;min-height:44px;border:0;border-bottom:1px solid #27272b;background:transparent;color:#fff;padding:0 14px;text-align:left}.suggestions button:last-child{border:0}
@@ -70,7 +76,9 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   body{padding-bottom:var(--safe-bottom)}
   .header-inner{height:56px;padding:7px 10px;grid-template-columns:auto minmax(0,1fr)}
   .brand{font-size:18px}.brand-mark{width:28px;height:20px}.install-btn{display:none!important}
-  .header-search{height:38px}.header-search>button{display:none}.search-icon{padding-left:11px}
+  .header-search{height:38px;grid-template-columns:auto minmax(0,1fr) auto}.header-search>button[type="submit"]{display:none}.search-icon{padding-left:11px}
+  .source-header-btn{width:34px;height:32px;margin-right:3px;padding:0;justify-content:center;border-radius:16px}
+  .source-header-label,.source-header-count{display:none}.source-header-icon{font-size:16px}
   #queryInput{height:36px;padding-right:9px;font-size:16px}
   .suggestions{position:fixed;top:calc(56px + env(safe-area-inset-top));left:8px;right:8px}
   .app-shell{padding:0 0 22px}
