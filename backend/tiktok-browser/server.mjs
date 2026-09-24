@@ -1,0 +1,444 @@
+import http from 'node:http';
+import { URL } from 'node:url';
+import chromium from '@sparticuz/chromium';
+import puppeteer from 'puppeteer-core';
+
+const PORT = Number(process.env.PORT || 10000);
+const ORIGIN = process.env.ALLOW_ORIGIN || 'https://yt.taphoa.xyz';
+
+chromium.setGraphicsMode = false;
+
+let browserPromise = null;
+const cache = new Map();
+
+function json(res, status, data) {
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'access-control-allow-origin': ORIGIN,
+    'access-control-allow-methods': 'GET,OPTIONS',
+    'access-control-allow-headers': 'content-type',
+    'cache-control': 'no-store',
+  });
+  res.end(JSON.stringify(data));
+}
+
+async function getBrowser() {
+  if (!browserPromise) {
+    browserPromise = puppeteer.launch({
+      args: await puppeteer.defaultArgs({
+        args: [
+          ...chromium.args,
+          '--lang=vi-VN,vi',
+          '--disable-dev-shm-usage',
+          '--no-first-run',
+          '--no-default-browser-check',
+        ],
+        headless: 'shell',
+      }),
+      executablePath: await chromium.executablePath(),
+      headless: 'shell',
+      defaultViewport: {
+        width: 1365,
+        height: 900,
+        deviceScaleFactor: 1,
+        isMobile: false,
+        hasTouch: false,
+        isLandscape: true,
+      },
+    }).catch((error) => {
+      browserPromise = null;
+      throw error;
+    });
+  }
+  const browser = await browserPromise;
+  if (!browser.connected) {
+    browserPromise = null;
+    return getBrowser();
+  }
+  return browser;
+}
+
+async function newTikTokPage() {
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'
+  );
+  await page.setExtraHTTPHeaders({
+    'accept-language': 'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4',
+  });
+  await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(() => {});
+  await page.setRequestInterception(true);
+  page.on('request', (request) => {
+    const type = request.resourceType();
+    if (type === 'font' || type === 'image' || type === 'media') {
+      request.abort().catch(() => {});
+    } else {
+      request.continue().catch(() => {});
+    }
+  });
+  return page;
+}
+
+function uniqueRows(rows, max = 60) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    const id = String(row?.id || '');
+    const handle = String(row?.handle || '');
+    const key = id ? id : 'live:' + handle.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+function parseVideoHref(href) {
+  const match = String(href || '').match(/https?:\/\/(?:www\.)?tiktok\.com\/@([^/?#]+)\/video\/(\d{12,24})/i);
+  if (!match) return null;
+  return {
+    id: match[2],
+    handle: match[1],
+    url: 'https://www.tiktok.com/@' + match[1] + '/video/' + match[2],
+    live: false,
+  };
+}
+
+async function collectVideoLinks(page, max = 60) {
+  const rows = await page.evaluate(() => {
+    const found = [];
+    for (const anchor of document.querySelectorAll('a[href*="/video/"]')) {
+      const href = anchor.href;
+      const text = String(anchor.innerText || anchor.getAttribute('aria-label') || '').trim();
+      found.push({ href, text: text.slice(0, 500) });
+    }
+    return found;
+  }).catch(() => []);
+
+  return uniqueRows(rows.map((row) => {
+    const parsed = parseVideoHref(row.href);
+    if (!parsed) return null;
+    return {
+      ...parsed,
+      title: row.text || '',
+      timestamp: Number(BigInt(parsed.id) >> 32n),
+    };
+  }).filter(Boolean), max);
+}
+
+async function scrollFeed(page, passes = 7) {
+  for (let i = 0; i < passes; i += 1) {
+    await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 900)));
+    await new Promise((resolve) => setTimeout(resolve, 650));
+  }
+}
+
+async function tryRecommendApi(page, max = 60) {
+  const payload = await page.evaluate(async () => {
+    const root = document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
+    let app = {};
+    if (root?.textContent) {
+      try {
+        const parsed = JSON.parse(root.textContent);
+        app = parsed?.__DEFAULT_SCOPE__?.['webapp.app-context'] || {};
+      } catch {}
+    }
+
+    const params = new URLSearchParams({
+      aid: '1988',
+      app_name: 'tiktok_web',
+      device_platform: 'web_pc',
+      count: '30',
+      from_page: 'fyp',
+      priority_region: 'VN',
+      region: 'VN',
+      browser_language: 'vi-VN',
+      app_language: 'vi-VN',
+      browser_platform: 'MacIntel',
+      browser_name: 'Mozilla',
+      browser_online: 'true',
+      cookie_enabled: 'true',
+      screen_width: String(screen.width || 1365),
+      screen_height: String(screen.height || 900),
+      device_id: String(app?.wid || ''),
+      odinId: String(app?.odinId || ''),
+      WebIdLastTime: String(app?.webIdCreatedTime || ''),
+    });
+
+    try {
+      const response = await fetch('/api/recommend/item_list/?' + params.toString(), {
+        credentials: 'include',
+      });
+      const text = await response.text();
+      if (!text) return null;
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  }).catch(() => null);
+
+  const items = payload?.itemList || payload?.item_list || [];
+  return uniqueRows(items.map((item) => {
+    const author = item?.author || {};
+    const stats = item?.stats || item?.statsV2 || {};
+    const video = item?.video || {};
+    const id = String(item?.id || '');
+    const handle = String(author?.uniqueId || '');
+    if (!/^\d{12,24}$/.test(id) || !handle) return null;
+    return {
+      id,
+      handle,
+      url: 'https://www.tiktok.com/@' + handle + '/video/' + id,
+      title: String(item?.desc || ''),
+      thumbnail: String(video?.cover || video?.originCover || video?.dynamicCover || ''),
+      timestamp: Number(item?.createTime || 0) || Number(BigInt(id) >> 32n),
+      viewCount: Number(stats?.playCount || stats?.play_count || 0),
+      likeCount: Number(stats?.diggCount || stats?.digg_count || 0),
+      commentCount: Number(stats?.commentCount || stats?.comment_count || 0),
+      shareCount: Number(stats?.shareCount || stats?.share_count || 0),
+      live: false,
+    };
+  }).filter(Boolean), max);
+}
+
+async function collectRecommend(max = 60) {
+  const page = await newTikTokPage();
+  try {
+    await page.goto('https://www.tiktok.com/foryou?lang=vi-VN', {
+      waitUntil: 'domcontentloaded',
+      timeout: 35000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+
+    const apiRows = await tryRecommendApi(page, max);
+    if (apiRows.length >= 8) return apiRows;
+
+    await scrollFeed(page, 9);
+    const domRows = await collectVideoLinks(page, max);
+    return uniqueRows([...apiRows, ...domRows], max);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function collectExplore(max = 60) {
+  const page = await newTikTokPage();
+  try {
+    await page.goto('https://www.tiktok.com/explore?lang=vi-VN', {
+      waitUntil: 'domcontentloaded',
+      timeout: 35000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+    await scrollFeed(page, 8);
+    return await collectVideoLinks(page, max);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function collectProfile(handle, max = 12) {
+  if (!/^[A-Za-z0-9._-]{2,64}$/.test(handle)) return [];
+  const page = await newTikTokPage();
+  try {
+    await page.goto('https://www.tiktok.com/@' + encodeURIComponent(handle) + '?lang=vi-VN', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await scrollFeed(page, 4);
+    return await collectVideoLinks(page, max);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+async function collectFollowing(handles, max = 60) {
+  const unique = [...new Set(handles.filter((value) => /^[A-Za-z0-9._-]{2,64}$/.test(value)))].slice(0, 20);
+  if (!unique.length) return [];
+
+  const batches = [];
+  for (let i = 0; i < unique.length; i += 4) {
+    batches.push(unique.slice(i, i + 4));
+  }
+
+  const rows = [];
+  for (const batch of batches) {
+    const results = await Promise.allSettled(batch.map((handle) => collectProfile(handle, 10)));
+    for (const result of results) {
+      if (result.status === 'fulfilled') rows.push(...result.value);
+    }
+    if (rows.length >= max) break;
+  }
+
+  return uniqueRows(rows, max).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
+}
+
+async function getLiveInfo(handle) {
+  const referer = 'https://www.tiktok.com/@' + handle + '/live';
+  try {
+    const url = new URL('https://www.tiktok.com/api-live/user/room');
+    url.searchParams.set('aid', '1988');
+    url.searchParams.set('sourceType', '54');
+    url.searchParams.set('uniqueId', handle);
+
+    const response = await fetch(url, {
+      headers: {
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/153 Safari/537.36',
+        'referer': referer,
+        'accept-language': 'vi-VN,vi;q=0.9,en;q=0.5',
+      },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const room = data?.data?.liveRoom;
+    if (!room || Number(room.status) === 4) return null;
+
+    let streamUrl = '';
+    const raw = room?.streamData?.pull_data?.stream_data;
+    if (raw) {
+      try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        const variants = Object.values(parsed?.data || {});
+        variants.sort((a, b) => {
+          const av = Number(JSON.parse(a?.main?.sdk_params || '{}')?.vbitrate || 0);
+          const bv = Number(JSON.parse(b?.main?.sdk_params || '{}')?.vbitrate || 0);
+          return bv - av;
+        });
+        streamUrl = String(variants?.[0]?.main?.flv || '');
+      } catch {}
+    }
+
+    return {
+      id: String(room.streamId || handle),
+      handle,
+      title: String(room.title || ('@' + handle + ' đang LIVE')),
+      thumbnail: '',
+      timestamp: Math.floor(Date.now() / 1000),
+      viewCount: Number(room?.user_count || room?.viewerCount || 0),
+      live: true,
+      streamUrl,
+      url: referer,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function collectLive(max = 30) {
+  const page = await newTikTokPage();
+  try {
+    await page.goto('https://www.tiktok.com/live?lang=vi-VN', {
+      waitUntil: 'domcontentloaded',
+      timeout: 35000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 4500));
+    await scrollFeed(page, 5);
+
+    const handles = await page.evaluate(() => {
+      const set = new Set();
+      for (const anchor of document.querySelectorAll('a[href*="/live"], a[href^="/@"]')) {
+        const href = anchor.href || '';
+        let match = href.match(/tiktok\.com\/@([^/?#]+)\/live/i);
+        if (match) {
+          set.add(match[1]);
+          continue;
+        }
+        const text = String(anchor.closest('div')?.innerText || '').toUpperCase();
+        match = href.match(/tiktok\.com\/@([^/?#]+)(?:$|[?#])/i);
+        if (match && text.includes('LIVE')) set.add(match[1]);
+      }
+      return [...set];
+    }).catch(() => []);
+
+    const results = await Promise.allSettled(handles.slice(0, 40).map(getLiveInfo));
+    return uniqueRows(results
+      .filter((result) => result.status === 'fulfilled' && result.value)
+      .map((result) => result.value), max);
+  } finally {
+    await page.close().catch(() => {});
+  }
+}
+
+function cached(key, ttlMs) {
+  const row = cache.get(key);
+  if (row && Date.now() - row.at < ttlMs) return row.value;
+  return null;
+}
+
+function putCache(key, value) {
+  cache.set(key, { at: Date.now(), value });
+  if (cache.size > 30) {
+    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
+    if (oldest) cache.delete(oldest);
+  }
+}
+
+async function feed(mode, handles, limit) {
+  const cacheKey = mode + ':' + handles.join(',') + ':' + limit;
+  const ttl = mode === 'live' ? 45_000 : 90_000;
+  const hit = cached(cacheKey, ttl);
+  if (hit) return hit;
+
+  let items = [];
+  if (mode === 'recommend') items = await collectRecommend(limit);
+  else if (mode === 'explore') items = await collectExplore(limit);
+  else if (mode === 'following') items = await collectFollowing(handles, limit);
+  else if (mode === 'live') items = await collectLive(limit);
+  else throw new Error('unsupported_mode');
+
+  const value = {
+    items,
+    sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
+    mode,
+  };
+  putCache(cacheKey, value);
+  return value;
+}
+
+const server = http.createServer(async (req, res) => {
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'access-control-allow-origin': ORIGIN,
+      'access-control-allow-methods': 'GET,OPTIONS',
+      'access-control-allow-headers': 'content-type',
+    });
+    res.end();
+    return;
+  }
+
+  const url = new URL(req.url || '/', 'http://localhost');
+  if (url.pathname === '/health') {
+    json(res, 200, { ok: true, browser: Boolean(browserPromise) });
+    return;
+  }
+
+  if (url.pathname === '/feed') {
+    const mode = String(url.searchParams.get('mode') || 'recommend');
+    const handles = String(url.searchParams.get('handles') || '')
+      .split(',')
+      .map((value) => value.trim().replace(/^@/, ''))
+      .filter(Boolean);
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') || 50), 80));
+
+    try {
+      const data = await feed(mode, handles, limit);
+      json(res, 200, { ok: true, data });
+    } catch (error) {
+      browserPromise = null;
+      json(res, 502, {
+        ok: false,
+        error: String(error?.message || error || 'feed_failed'),
+      });
+    }
+    return;
+  }
+
+  json(res, 404, { ok: false, error: 'not_found' });
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  console.log('1988 TikTok browser service listening on', PORT);
+});
