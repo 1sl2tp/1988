@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-system-pip-v28';
+const CACHE='1988-main-default-pip-v29';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=iframe-pip-27',
-  './src/app.js?v=system-pip-28',
+  './src/app.js?v=default-pip-29',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=4',
