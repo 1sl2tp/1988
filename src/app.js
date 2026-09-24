@@ -1344,7 +1344,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v10:";
+const FEED_CACHE_PREFIX="1988-discovery-v11:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1368,7 +1368,26 @@ const DAY_MS=24*60*60*1000;
 function uploadedWithin(row,maxAgeMs){
   if(row?.isLive)return false;
   const age=publishedAgeMs(row);
-  return Number.isFinite(age)&&age>=0&&age<=maxAgeMs;
+  return Number.isFinite(age)&&age>=0&&age<maxAgeMs;
+}
+
+function uploadedWithinLatest(row){
+  if(row?.isLive)return false;
+
+  // If YouTube already labels an item as "1 day ago" (or older),
+  // it should not appear under "Mới nhất", even when relative-time
+  // parsing rounds that text to exactly 24 hours.
+  const label=normalizeSearchText(
+    row?.publishedText||
+    row?.uploadDate||
+    row?.uploadedDate||
+    ""
+  );
+  if(/\b(ngay|tuan|thang|nam|day|days|week|weeks|month|months|year|years)\b/.test(label)){
+    return false;
+  }
+
+  return uploadedWithin(row,DAY_MS);
 }
 
 async function normalizeRegionalRow(row={}){
@@ -1422,7 +1441,7 @@ const FEED_PRESETS={
     newest:true,
     load:async(local,reset)=>{
       const rows=await pagedSearch(local,"latest","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset);
-      return rows.filter(row=>uploadedWithin(row,DAY_MS));
+      return rows.filter(uploadedWithinLatest);
     }
   },
   week:{
