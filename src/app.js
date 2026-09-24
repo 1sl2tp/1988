@@ -77,6 +77,9 @@ const state={
   feedRows:[],
   parentCategories:[],
   activeParent:"",
+  catalogVersion:"",
+  catalogLoading:false,
+  catalogSeq:0,
   trendTopics:[],
   activeTrend:"",
   trendPoolKey:"",
@@ -202,6 +205,22 @@ function sourceSignature(){
 
 function isSourceScopedFeed(name){
   return name==="latest"||name==="week";
+}
+
+function isAiCategoryFeed(name){
+  return String(name||"").startsWith("ai:");
+}
+
+function supportsAiAnalysisFeed(name){
+  return isSourceScopedFeed(name)||isAiCategoryFeed(name);
+}
+
+function aiCategoryKeyFromFeed(name){
+  return isAiCategoryFeed(name)?String(name).slice(3):"";
+}
+
+function aiCategoryByKey(key=""){
+  return state.parentCategories.find(item=>item.key===String(key||""))||null;
 }
 
 function safeSourceThumb(value=""){
