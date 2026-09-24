@@ -48,7 +48,7 @@ const state={
   fullscreenScrollY:null,
   intentPlay:false,
   resumeOnReturn:false,
-  resumeGuardUntil:0,
+  transitionUntil:0,
   resumeTimer:0
 };
 
@@ -318,7 +318,7 @@ function markPlaybackTransition(){
   if(!playing&&!state.intentPlay)return;
   state.intentPlay=true;
   state.resumeOnReturn=true;
-  state.resumeGuardUntil=Date.now()+6000;
+  state.transitionUntil=Date.now()+5000;
 }
 
 function resumeVideoAfterReturn(){
@@ -330,7 +330,7 @@ function resumeVideoAfterReturn(){
   )return;
 
   state.resumeOnReturn=false;
-  state.resumeGuardUntil=Date.now()+2600;
+  state.transitionUntil=Date.now()+1400;
   clearTimeout(state.resumeTimer);
 
   const attempt=()=>{
@@ -707,6 +707,7 @@ function setupMediaSession(){
     else{
       state.intentPlay=false;
       state.resumeOnReturn=false;
+      state.transitionUntil=0;
       pauseVideoEngine();
     }
   });
@@ -809,7 +810,6 @@ async function playVideo(id,seedMeta={}){
   state.currentMeta={...seedMeta};
   state.intentPlay=true;
   state.resumeOnReturn=false;
-  state.resumeGuardUntil=Date.now()+1800;
   state.mode="video";
   state.audioMaster=false;
   state.nativeSource="";
@@ -920,7 +920,7 @@ function initYouTubePlayer(){
           const transitionPause=
             document.visibilityState!=="visible" ||
             state.resumeOnReturn ||
-            Date.now()<state.resumeGuardUntil;
+            Date.now()<state.transitionUntil;
 
           if(transitionPause&&state.intentPlay){
             state.keepFloating=state.keepFloating||
@@ -930,6 +930,7 @@ function initYouTubePlayer(){
             // Visible, stable PAUSED is treated as an intentional user pause.
             state.intentPlay=false;
             state.resumeOnReturn=false;
+            state.transitionUntil=0;
           }
 
           applyFloatingIframe();
@@ -940,6 +941,7 @@ function initYouTubePlayer(){
           state.videoPlaying=false;
           state.intentPlay=false;
           state.resumeOnReturn=false;
+          state.transitionUntil=0;
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Đã phát xong";
         }
