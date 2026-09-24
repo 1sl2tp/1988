@@ -109,6 +109,8 @@ const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
 const SOURCE_AI_SUGGESTIONS_KEY="1988-source-ai-suggestions-v1";
 const SOURCE_SCOPE_ISOLATION_KEY="1988-source-scope-isolated-v1";
 const SOURCE_SCOPE_ISOLATION_BACKUP_KEY="1988-source-scopes-before-isolation-v1";
+const SOURCE_FILM_SNAPSHOT_RECOVERY_KEY="1988-source-film-snapshot-recovered-v4";
+const SOURCE_FILM_SNAPSHOT_BACKUP_KEY="1988-source-film-before-snapshot-v4";
 const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
 const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
 const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
@@ -578,7 +580,271 @@ function ensureSourceScopeIsolation(){
     console.warn("source scope isolation failed",error);
   }
 }
+
 ensureSourceScopeIsolation();
+
+const HISTORIC_FILM_SOURCE_IDS=[
+  "UCGb92d__VZAy-WJfywGD5mQ","UCCFbvjKJoIFnOFbijZ-Ttyg","UCfrJX6Jb-jvn1sk1eOR7FsQ",
+  "UCMMq5YjiOYpry6n8SEfisNg","UCR5W9zYdh5em_kF8vRXe0Uw","UC_mLtI_EeKBXkNew8QsFkYg",
+  "UCpxScYvnu1OIlyT2dzP5peA","UCx3dq_csKG6aBAvNWcn8Wjg","UCrWvm9jp07uNA47l9H0TfSA",
+  "UCPGIqS7eVduwHihIfCOIUTQ","UCYm0kGBrUum-mkWWbVxUB8A","UCWHGD1C9gqS-TEZ1s1bwvzg",
+  "UCVODJtmxX7KhIpGcY6PCHpw","UCqCpkGcX4P2qOz-9U797zIg","UCiaWT3kJ9vIFI2NmUJgWnDw",
+  "UC42rE-b40pRFJ7qPHPiCd8g","UC8VIl6n2EXoP4pq-LmgR5pw","UCjYCq9g9OSj6Bwp7TFgrnsQ",
+  "UCDX1CMOIShXfn71NAY58WuA","UCvXcEeBvPJ-MK4dXIuOp2zw","UCm1JoheNwDbXgF-VaQoeTHA",
+  "UCSo24KY1IsHMJMJ-5UfHYKw","UCvBmcDW_JayWWDOl0Lw_4iw","UCX8oe3DG5lg7FYWguvuGW0Q",
+  "UCkSJi9XuR98Uo1d8zCkg17w","UCA_Siyk2swMZ8KnKxyDa5GQ","UCTOTCMdsOb5PWmf3T7RngaQ",
+  "UChYzWcZCRvFFMDiUFUoMjBg","UCODxI12nr6sqeW0aoyZIt4w","UCDfZWSttmxqDRFdmuMVFDuQ",
+  "UCnwAsbkdEC-tNkOufE7mMeQ","UClgM_p2pqb35u1eDz6Rn2nw","UCWsBDnHMiv41eLHjDy8YCtQ",
+  "UCk9FTxXjcmC_hmrZDsLjVMg","UC1p7SJCZuM0J3F-UfpuDFtg","UCp2QuOikyJe92333MHdQBHQ",
+  "UC4gEcnN_Pmi2KUTjF8Km46w","UCwdywr9asycqbpqkgq29jNA","UCh0Ti6JdMZFRnt_ArRZOtBA",
+  "UClw-M92fmkx7c3q3KQSBBww","UCcO2KUInJzw53A5qJj9BNhg","UC8uy0231g6ai9RGKR_17JtA",
+  "UCUUJKQqzLFx1BIDv9zOAvDw","UCk-eVZPHK2DiXapQ-fk3aJw","UCVSnwKuxS-olPFtmVuaEPJQ",
+  "UCFPPQ1Ge5-bSfkiLE3Zh8dQ","UCPBRH7IxjnC_Wy8p91uG8sA","UCKuKC88aZlwK3oXwTWULNfg",
+  "UCxLV6Wp4FmjepaL9tuXV-kQ","UCSOSn4-cRCFc1rQTv2dQAkA","UC35FlRZ0n_JasBaBfwY2fxA",
+  "UCwNB5MkpvMekejLSkgv8yBQ","UCkS87_jsdjIXGCUIB9Y_khA","UCIcs5bYu_uGlY-tDkxqxOQQ",
+  "UC7TOGziRAH21MXonnKeNTEQ","UCwdMkm4XdsAxwlv7aWPsfnw","UCBt6xJXXqACGF8PMZmOqFZw",
+  "UCosRydm_FuZteZX4vc6arTw","UCLKdB9fmpprXsgIUt4KK-9w","UCin12P-LCUd7_Y_-vHPDtmg",
+  "UCpKw9vW7rjoCBLImYh49MKg","UC97dOJp0jaZenEmozi3RLuw","UCFL9vEwRWdGBRFuvzyPAb5Q",
+  "UCP-vv1ymv5JYwGbioRk_sLw","UCuSkpW4gsbqLqZKeL5DMSSQ","UCnl4-6Hsq4LigGwIfdclqbA",
+  "UCcusP7uEQTF8-WXcgU4lmyA","UCj11T7bGbG5MgKKh-UdtzrA","UC5dBJofZWbwcL8EIwi5SUIA",
+  "UCBPuo0rfyfc2yHFHGKEpsWg","UCJRcdO4ETMQE673v_AqV9Kg","UC8lLIt8X4nu66fA6DOXf5yw",
+  "UCkaKs808Jt2Mi9F-HJ0OmuQ","UCPT76Ti5HzkP5r6-JmJAVhw"
+];
+
+const HISTORIC_FILM_UNSELECTED_IDS=new Set([
+  "UCnwAsbkdEC-tNkOufE7mMeQ", // Chào/Chảo Drama
+  "UCj11T7bGbG5MgKKh-UdtzrA"  // Trạm Phim 365
+]);
+
+const HISTORIC_FILM_SELECTED_ANCHORS=new Set([
+  "UCMMq5YjiOYpry6n8SEfisNg", // CCAP Dramas
+  "UCR5W9zYdh5em_kF8vRXe0Uw", // CCAP Phim Hay
+  "UC_mLtI_EeKBXkNew8QsFkYg", // iQIYI Phim Thuyết Minh
+  "UCrWvm9jp07uNA47l9H0TfSA", // Yêu Phim
+  "UCVODJtmxX7KhIpGcY6PCHpw", // PHIM TRUNG TUYỂN CHỌN
+  "UCiaWT3kJ9vIFI2NmUJgWnDw", // Tạp Hóa Phim Hàn
+  "UC42rE-b40pRFJ7qPHPiCd8g"  // VTV PHIM HAY
+]);
+
+const HISTORIC_FILM_BLOCKED_ANCHORS=new Set([
+  "UCGb92d__VZAy-WJfywGD5mQ", // HH VietSub
+  "UCCFbvjKJoIFnOFbijZ-Ttyg", // Phim4U
+  "UCfrJX6Jb-jvn1sk1eOR7FsQ", // Thế Vietsub
+  "UCpxScYvnu1OIlyT2dzP5peA", // Phim Hay Chọn Lọc
+  "UCx3dq_csKG6aBAvNWcn8Wjg", // Thế Giới Phim Việt
+  "UCPGIqS7eVduwHihIfCOIUTQ", // Vở Phim Ngắn Hay
+  "UCYm0kGBrUum-mkWWbVxUB8A"  // Tạp hóa MovieLab
+]);
+
+function recoverHistoricFilmManualState(){
+  try{
+    if(localStorage.getItem(SOURCE_FILM_SNAPSHOT_RECOVERY_KEY)==="1")return;
+
+    const filmSelected=selectedSetForScope("film");
+    const filmBlocked=blockedSetForScope("film");
+
+    if(!localStorage.getItem(SOURCE_FILM_SNAPSHOT_BACKUP_KEY)){
+      localStorage.setItem(
+        SOURCE_FILM_SNAPSHOT_BACKUP_KEY,
+        JSON.stringify({at:Date.now(),selected:[...filmSelected],blocked:[...filmBlocked]})
+      );
+    }
+
+    const filmIds=new Set(HISTORIC_FILM_SOURCE_IDS);
+    const candidates=[];
+    const validId=id=>filmIds.has(String(id||""));
+
+    const pushCandidate=(path,value)=>{
+      if(!Array.isArray(value))return;
+      const ids=[...new Set(value.map(String).filter(validId))];
+      if(!ids.length)return;
+      const p=normalizeSearchText(path||"");
+      let kind="unknown";
+      if(/blocked|hidden|chan/.test(p))kind="blocked";
+      else if(/selected|selection|chon/.test(p))kind="selected";
+      candidates.push({path:String(path||""),kind,ids:new Set(ids)});
+    };
+
+    const walk=(value,path,depth=0)=>{
+      if(depth>5||value==null)return;
+      if(Array.isArray(value)){
+        pushCandidate(path,value);
+        for(let i=0;i<Math.min(value.length,8);i++){
+          if(value[i]&&typeof value[i]==="object")walk(value[i],path+"["+i+"]",depth+1);
+        }
+        return;
+      }
+      if(typeof value!=="object")return;
+      for(const [key,next] of Object.entries(value)){
+        walk(next,path+"."+key,depth+1);
+      }
+    };
+
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(!key||key===SOURCE_FILM_SNAPSHOT_RECOVERY_KEY)continue;
+      try{
+        walk(JSON.parse(localStorage.getItem(key)||"null"),key,0);
+      }catch{}
+    }
+
+    const selectedCandidates=candidates.filter(item=>item.kind==="selected");
+    const blockedCandidates=candidates.filter(item=>item.kind==="blocked");
+
+    let best=null;
+    for(const selectedCandidate of selectedCandidates){
+      for(const blockedCandidate of blockedCandidates){
+        const selected=new Set([...selectedCandidate.ids].filter(id=>!HISTORIC_FILM_UNSELECTED_IDS.has(id)));
+        const blocked=new Set([...blockedCandidate.ids].filter(id=>!HISTORIC_FILM_UNSELECTED_IDS.has(id)));
+        for(const id of blocked)selected.delete(id);
+
+        const overlap=[...selected].filter(id=>blocked.has(id)).length;
+        let score=
+          3000-
+          Math.abs(selected.size-41)*80-
+          Math.abs(blocked.size-31)*80-
+          overlap*300;
+
+        for(const id of HISTORIC_FILM_SELECTED_ANCHORS){
+          score+=selected.has(id)?120:-120;
+          if(blocked.has(id))score-=240;
+        }
+        for(const id of HISTORIC_FILM_BLOCKED_ANCHORS){
+          score+=blocked.has(id)?120:-120;
+          if(selected.has(id))score-=240;
+        }
+        if(selected.size===41&&blocked.size===31)score+=5000;
+
+        if(!best||score>best.score){
+          best={score,selected,blocked,selectedPath:selectedCandidate.path,blockedPath:blockedCandidate.path};
+        }
+      }
+    }
+
+    let restoredSelected;
+    let restoredBlocked;
+    let source="historic-storage";
+
+    if(best&&best.selected.size===41&&best.blocked.size===31){
+      restoredSelected=best.selected;
+      restoredBlocked=best.blocked;
+      source=best.selectedPath+" | "+best.blockedPath;
+    }else{
+      // No exact old pair survived as one value. Rebuild the historical
+      // 41/31 partition from every remaining localStorage trace, with the
+      // channel states visible in the old Film screenshots as hard anchors.
+      const evidence=new Map(
+        HISTORIC_FILM_SOURCE_IDS.map(id=>[id,0])
+      );
+
+      const weightForPath=path=>{
+        const p=normalizeSearchText(path||"");
+        if(/before|backup|legacy|scope/.test(p))return 6;
+        if(/source-selection-v1|source-blocked-v1/.test(p))return 5;
+        return 2;
+      };
+
+      for(const item of candidates){
+        if(item.kind==="unknown")continue;
+        const direction=item.kind==="selected"?1:-1;
+        const weight=weightForPath(item.path);
+        for(const id of item.ids){
+          evidence.set(id,(evidence.get(id)||0)+direction*weight);
+        }
+      }
+
+      for(const id of HISTORIC_FILM_SELECTED_ANCHORS)evidence.set(id,10000);
+      for(const id of HISTORIC_FILM_BLOCKED_ANCHORS)evidence.set(id,-10000);
+      for(const id of HISTORIC_FILM_UNSELECTED_IDS)evidence.set(id,0);
+
+      const fallbackNameScore=id=>{
+        const row=libraryRow(id);
+        const name=normalizeSearchText(row?.name||"");
+        let score=0;
+        if(/official|iqiyi|vtv|drama|kich ngan|phim ngan|phim trung|ngon tinh|me phim|phim hay|movie/.test(name))score+=1;
+        if(/review|vietsub|bao phim|kiem dinh|tap hoa movielab|phim4u/.test(name))score-=1;
+        return score;
+      };
+
+      const undecided=HISTORIC_FILM_SOURCE_IDS
+        .filter(id=>!HISTORIC_FILM_UNSELECTED_IDS.has(id))
+        .sort((a,b)=>{
+          const ea=(evidence.get(a)||0)+fallbackNameScore(a);
+          const eb=(evidence.get(b)||0)+fallbackNameScore(b);
+          if(eb!==ea)return eb-ea;
+          return HISTORIC_FILM_SOURCE_IDS.indexOf(a)-HISTORIC_FILM_SOURCE_IDS.indexOf(b);
+        });
+
+      restoredSelected=new Set(undecided.slice(0,41));
+      restoredBlocked=new Set(undecided.slice(41));
+
+      // Screenshot anchors always win.
+      for(const id of HISTORIC_FILM_SELECTED_ANCHORS){
+        restoredBlocked.delete(id);
+        restoredSelected.add(id);
+      }
+      for(const id of HISTORIC_FILM_BLOCKED_ANCHORS){
+        restoredSelected.delete(id);
+        restoredBlocked.add(id);
+      }
+
+      // Rebalance after enforcing anchors.
+      const movable=[...HISTORIC_FILM_SOURCE_IDS].filter(id=>
+        !HISTORIC_FILM_UNSELECTED_IDS.has(id)&&
+        !HISTORIC_FILM_SELECTED_ANCHORS.has(id)&&
+        !HISTORIC_FILM_BLOCKED_ANCHORS.has(id)
+      );
+      while(restoredSelected.size>41){
+        const id=[...restoredSelected].reverse().find(item=>movable.includes(item));
+        if(!id)break;
+        restoredSelected.delete(id); restoredBlocked.add(id);
+      }
+      while(restoredSelected.size<41){
+        const id=[...restoredBlocked].find(item=>movable.includes(item));
+        if(!id)break;
+        restoredBlocked.delete(id); restoredSelected.add(id);
+      }
+      while(restoredBlocked.size>31){
+        const id=[...restoredBlocked].reverse().find(item=>movable.includes(item));
+        if(!id)break;
+        restoredBlocked.delete(id); restoredSelected.add(id);
+      }
+      while(restoredBlocked.size<31){
+        const id=[...restoredSelected].find(item=>movable.includes(item));
+        if(!id)break;
+        restoredSelected.delete(id); restoredBlocked.add(id);
+      }
+      source="merged-historic-traces";
+    }
+
+    filmSelected.clear();
+    filmBlocked.clear();
+    for(const id of restoredSelected)filmSelected.add(id);
+    for(const id of restoredBlocked){
+      filmSelected.delete(id);
+      filmBlocked.add(id);
+    }
+    for(const id of HISTORIC_FILM_UNSELECTED_IDS){
+      filmSelected.delete(id);
+      filmBlocked.delete(id);
+    }
+
+    persistScopedSourceState();
+    localStorage.setItem(
+      SOURCE_FILM_SNAPSHOT_RECOVERY_KEY,
+      JSON.stringify({
+        at:Date.now(),
+        selectedTotal:filmSelected.size,
+        blockedTotal:filmBlocked.size,
+        unselectedTotal:HISTORIC_FILM_UNSELECTED_IDS.size,
+        source
+      })
+    );
+  }catch(error){
+    console.warn("historic film snapshot recovery failed",error);
+  }
+}
+recoverHistoricFilmManualState();
 
 function sourceGroupLabels(row={}){
   const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
