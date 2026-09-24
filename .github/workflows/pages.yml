@@ -59,6 +59,9 @@ jobs:
       - name: Apply watch refinement v11
         run: python3 scripts/apply-watch-v11.py
 
+      - name: Apply unified cards v12
+        run: python3 scripts/apply-card-unify-v12.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
