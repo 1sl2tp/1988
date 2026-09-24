@@ -4858,9 +4858,16 @@ const FILM_SERIES_GENERIC_TOKENS=new Set([
 ]);
 
 function filmSeriesSeed(meta={}){
-  let value=state.searchScope==="film"&&state.searchQuery
-    ?state.searchQuery
-    :clean(meta?.title||"");
+  const title=clean(meta?._displayTitle||meta?.title||"");
+  const query=clean(state.searchQuery||"");
+  const titleNorm=normalizeSearchText(title);
+  const queryTokens=filmSeriesCoreTokens(query);
+  const queryHits=queryTokens.filter(token=>titleNorm.includes(token)).length;
+  const queryLooksLikeSelectedWork=
+    queryTokens.length>=2&&
+    queryHits>=Math.max(2,Math.ceil(queryTokens.length*.6));
+
+  let value=queryLooksLikeSelectedWork?query:title;
 
   value=stripEpisodeMarkers(value)
     .replace(/\b(?:phim|trọn\s*bộ|tron\s*bo|full|bản\s*đẹp|ban\s*dep|thuyết\s*minh|thuyet\s*minh|lồng\s*tiếng|long\s*tieng|vietsub|4k|hd)\b/giu," ")
@@ -5066,14 +5073,23 @@ function renderFilmWatchSuggestions(discovery={},related=[]){
 
   if(canonical?.rows?.length){
     html.push(filmSuggestionSection(
-      "Cùng bộ · "+(canonical.channel||"nguồn có danh sách"),
+      "Danh sách tập · "+(canonical.channel||"nguồn có danh sách"),
       canonical.rows,
-      {seriesKey:state.seriesKey,limit:12}
+      {seriesKey:state.seriesKey,limit:14}
     ));
   }
 
+  const canonicalVariant=canonical?.variant||{};
+  const versionGroups=alternatives.filter(group=>{
+    const variant=group?.variant||{};
+    return (
+      (variant.year&&variant.year!==canonicalVariant.year)||
+      (!!variant.remake!==!!canonicalVariant.remake)
+    );
+  });
+
   const versionCards=[];
-  for(const group of alternatives.slice(0,8)){
+  for(const group of versionGroups.slice(0,8)){
     const representative=group.rows?.[0];
     if(!representative)continue;
     versionCards.push({...representative,_displayTitle:filmVersionLabel(group,discovery.seed)});
@@ -5082,28 +5098,9 @@ function renderFilmWatchSuggestions(discovery={},related=[]){
     html.push(filmSuggestionSection("Phiên bản khác",versionCards,{limit:8}));
   }
 
-  const sameSourceOther=(Array.isArray(canonical?.channelRows)?canonical.channelRows:[])
-    .filter(row=>!filmSeriesTitleMatches(row,discovery.seed))
-    .filter(row=>!isBlockedSourceRow(row,"film"))
-    .sort((a,b)=>searchExtraRank(b,discovery.seed)-searchExtraRank(a,discovery.seed))
-    .slice(0,8);
+  if(!html.length)return false;
 
-  if(sameSourceOther.length){
-    html.push(filmSuggestionSection(
-      "Phim khác trong "+(canonical.channel||"kênh này"),
-      sameSourceOther,
-      {limit:8}
-    ));
-  }
-
-  if(!html.length){
-    const fallback=contextualRelatedRows(related,state.currentMeta||{}).slice(0,24);
-    feedTitle.textContent="Gợi ý tiếp theo";
-    renderCards(fallback);
-    return;
-  }
-
-  feedTitle.textContent="Theo bộ phim này";
+  feedTitle.textContent=clean(discovery.seed)||"Theo bộ phim này";
   feed.classList.add("search-grouped");
   if(searchRefinements){
     searchRefinements.hidden=true;
@@ -5112,7 +5109,8 @@ function renderFilmWatchSuggestions(discovery={},related=[]){
   feed.innerHTML=html.join("");
   feedStatus.textContent=
     (canonical?.sequence?.count||0)+" tập"+
-    (alternatives.length?" · "+alternatives.length+" phiên bản khác":"");
+    (versionGroups.length?" · "+versionGroups.length+" phiên bản khác":"");
+  return true;
 }
 
 async function discoverFilmSeriesForPlayback(local,currentId,meta={},related=[],context={}){
@@ -5158,12 +5156,141 @@ async function discoverFilmSeriesForPlayback(local,currentId,meta={},related=[],
 
     const alternatives=viable.filter(group=>group.key!==canonical.key);
     setDiscoveredFilmSeries(canonical,meta);
-    renderFilmWatchSuggestions({seed,canonical,alternatives},related);
-    return true;
+    const discovery={seed,canonical,alternatives};
+    renderFilmWatchSuggestions(discovery,related);
+    return discovery;
   }catch(error){
     console.warn("film series discovery failed",seed,error);
     return false;
   }
+}
+
+
+function filmKnowledgeSeed(context={},meta={}){
+  return clean(
+    context?.work?.seriesTitle||
+    context?.work?.title||
+    context?.canonicalTitle||
+    filmSeriesSeed(meta)||
+    state.searchQuery||
+    meta?.title||
+    ""
+  );
+}
+
+function filmKnowledgeEntities(context={}){
+  const rows=[];
+  const primary=context?.primaryEntity||{};
+  if(primary?.name&&/actor|actress|dien vien|diễn viên/i.test(clean(primary?.type||"")+" "+clean(primary?.role||""))){
+    rows.push(clean(primary.name));
+  }
+  for(const entity of Array.isArray(context?.secondaryEntities)?context.secondaryEntities:[]){
+    if(!entity?.name)continue;
+    const role=normalizeSearchText(clean(entity?.type||"")+" "+clean(entity?.role||""));
+    if(/actor|actress|dien vien/.test(role))rows.push(clean(entity.name));
+  }
+  for(const name of Array.isArray(context?.knowledge?.cast)?context.knowledge.cast:[]){
+    if(clean(name))rows.push(clean(name));
+  }
+  return [...new Set(rows)].slice(0,6);
+}
+
+function filmKnowledgeSummary(context={}){
+  const k=context?.knowledge||{};
+  const bits=[];
+  if(Number(k?.year)||Number(context?.work?.year))bits.push(String(Number(k?.year)||Number(context?.work?.year)));
+  if(clean(k?.genre||context?.work?.genre))bits.push(clean(k?.genre||context?.work?.genre));
+  if(clean(k?.country))bits.push(clean(k.country));
+  const cast=filmKnowledgeEntities(context);
+  if(cast.length)bits.push("Diễn viên: "+cast.slice(0,3).join(", "));
+  const summary=clean(k?.summary||context?.primaryEntity?.summary||"");
+  if(summary)bits.push(summary);
+  return bits.join(" · ");
+}
+
+function strictFilmKnowledgeRows(rows=[],seed="",extraTokens=[]){
+  const core=filmSeriesCoreTokens(seed);
+  const extra=(Array.isArray(extraTokens)?extraTokens:[])
+    .flatMap(value=>normalizeSearchText(value).split(" "))
+    .filter(token=>token.length>=2);
+  return dedupeMusicRows(rows)
+    .filter(row=>!isBlockedSourceRow(row,"film"))
+    .filter(row=>{
+      const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+      if(!title)return false;
+      const coreHits=core.filter(token=>title.includes(token)).length;
+      const coreOk=core.length>=2&&coreHits>=Math.max(2,Math.ceil(core.length*.65));
+      const extraOk=extra.length&&extra.filter(token=>title.includes(token)).length>=Math.min(2,extra.length);
+      return coreOk||extraOk;
+    });
+}
+
+function appendContextSectionHtml(html){
+  if(!html)return;
+  feed.classList.add("search-grouped");
+  feed.insertAdjacentHTML("beforeend",html);
+}
+
+async function appendFilmKnowledgeSections(local,currentId,meta={},context={}){
+  const seed=filmKnowledgeSeed(context,meta);
+  if(!seed||state.currentId!==currentId)return false;
+
+  const cast=filmKnowledgeEntities(context);
+  const knowledge=context?.knowledge||{};
+  const reviewQueries=(Array.isArray(knowledge?.reviewQueries)?knowledge.reviewQueries:[]).map(clean).filter(Boolean);
+  const infoQueries=(Array.isArray(knowledge?.infoQueries)?knowledge.infoQueries:[]).map(clean).filter(Boolean);
+  const castQueries=(Array.isArray(knowledge?.castQueries)?knowledge.castQueries:[]).map(clean).filter(Boolean);
+
+  const reviewQuery=reviewQueries[0]||seed+" review phim";
+  const castQuery=castQueries[0]||seed+" diễn viên";
+  const infoQuery=infoQueries[0]||seed+" thông tin phim";
+
+  const [reviewRaw,castRaw,infoRaw]=await Promise.all([
+    local.search(reviewQuery,{type:"video"}).catch(()=>[]),
+    local.search(castQuery,{type:"video"}).catch(()=>[]),
+    local.search(infoQuery,{type:"video"}).catch(()=>[])
+  ]);
+  if(state.currentId!==currentId)return false;
+
+  const used=new Set([...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean));
+  const unique=(rows,extra=[])=>strictFilmKnowledgeRows(rows,seed,extra)
+    .filter(row=>{
+      const id=itemVideoId(row);
+      if(!id||used.has(id))return false;
+      used.add(id);
+      return true;
+    })
+    .slice(0,10);
+
+  const reviewRows=unique(reviewRaw,["review"]);
+  const castRows=unique(castRaw,cast);
+  const infoRows=unique(infoRaw,["thông tin","hau truong","hậu trường"]);
+
+  const html=[];
+  if(reviewRows.length)html.push(filmSuggestionSection("Review phim",reviewRows,{limit:10}));
+  if(castRows.length)html.push(filmSuggestionSection(cast.length?"Diễn viên · "+cast.slice(0,3).join(" · "):"Diễn viên",castRows,{limit:10}));
+  if(infoRows.length)html.push(filmSuggestionSection("Thông tin · Hậu trường",infoRows,{limit:10}));
+
+  if(!html.length)return false;
+  appendContextSectionHtml(html.join(""));
+  const summary=filmKnowledgeSummary(context);
+  if(summary)feedStatus.textContent=[feedStatus.textContent,summary].filter(Boolean).join(" · ");
+  return true;
+}
+
+function shouldProbeFilmSeries(meta={},related=[]){
+  const duration=Number(meta?.duration)||0;
+  const title=clean(meta?._displayTitle||meta?.title||"");
+  const query=clean(state.searchQuery||"");
+  const titleNorm=normalizeSearchText(title);
+  const queryTokens=filmSeriesCoreTokens(query);
+  const queryHits=queryTokens.filter(token=>titleNorm.includes(token)).length;
+  const queryMatch=queryTokens.length>=2&&queryHits>=Math.max(2,Math.ceil(queryTokens.length*.6));
+  const episode=searchEpisodeNumber(title);
+  const relatedEpisodes=(Array.isArray(related)?related:[])
+    .filter(row=>filmSeriesTitleMatches(row,query||title)&&searchEpisodeNumber(row?._displayTitle||row?.title||""))
+    .length;
+  return !!episode||relatedEpisodes>=2||(duration>=900&&queryMatch);
 }
 
 function contextualRelatedRows(rows=[],meta={}){
@@ -5599,9 +5726,9 @@ function fallbackVideoContext(meta={},related=[]){
     const episode=searchEpisodeNumber(rawTitle);
     const canonical=filmSeriesSeed(meta)||stripEpisodeMarkers(rawTitle);
     const sections=[
-      {key:"series",label:"Cùng bộ phim",relation:"same_series",queries:[canonical+" tập"],sourceMode:"series_source",limit:12},
-      {key:"versions",label:"Phiên bản khác",relation:"versions",queries:[canonical],sourceMode:"any",limit:10},
-      {key:"same_channel",label:"Phim khác trong kênh",relation:"same_creator",queries:[canonical],sourceMode:"same_channel",limit:10}
+      {key:"review",label:"Review phim",relation:"review",queries:[canonical+" review phim"],sourceMode:"any",limit:10},
+      {key:"cast",label:"Diễn viên",relation:"cast",queries:[canonical+" diễn viên"],sourceMode:"any",limit:10},
+      {key:"info",label:"Thông tin phim",relation:"info",queries:[canonical+" thông tin phim"],sourceMode:"any",limit:10}
     ];
     return {
       ...base,
@@ -5972,17 +6099,57 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
 async function buildSelectedVideoRecommendations(local,currentId,meta={},related=[]){
   feedTitle.textContent="Đang hiểu video…";
   feedStatus.textContent="";
-  feed.innerHTML='<div class="loading">AI đang xác định loại nội dung, tác phẩm/người/chủ đề và cách gợi ý phù hợp…</div>';
+  feed.innerHTML='<div class="loading">Đang kiểm tra nội dung đã chọn…</div>';
 
-  const context=await resolveSelectedVideoContext(currentId,meta,related);
+  const localContext=fallbackVideoContext(meta,related);
+  const aiPromise=resolveSelectedVideoContext(currentId,meta,related);
+
+  // Film episode discovery is deterministic and does not wait for AI.
+  // AI's job for film is to understand the work: title/version/cast/review/info.
+  if(shouldProbeFilmSeries(meta,related)||localContext.kind==="film"){
+    const filmProbeContext={
+      ...localContext,
+      kind:"film",
+      canonicalTitle:filmSeriesSeed(meta)||localContext.canonicalTitle
+    };
+
+    const discovery=await discoverFilmSeriesForPlayback(local,currentId,meta,related,filmProbeContext);
+    if(state.currentId!==currentId)return false;
+
+    const context=await aiPromise;
+    if(!context||state.currentId!==currentId)return !!discovery;
+
+    if(discovery){
+      await appendFilmKnowledgeSections(local,currentId,meta,context.kind==="film"?context:filmProbeContext);
+      return true;
+    }
+
+    // No verified episode list: never label random related videos as "Cùng bộ phim".
+    // Use AI only for film knowledge/review/cast/version discovery.
+    if(context.kind==="film"||localContext.kind==="film"){
+      const filmContext=context.kind==="film"?context:localContext;
+      const enriched=await appendFilmKnowledgeSections(local,currentId,meta,filmContext);
+      if(enriched||state.currentId!==currentId)return enriched;
+
+      const planned=await discoverGenericContextSections(
+        local,currentId,meta,related,
+        {...filmContext,sections:(filmContext.sections||[]).filter(section=>!["series","same_series"].includes(normalizeSearchText(section?.key||section?.relation||"")))}
+      );
+      if(planned||state.currentId!==currentId)return planned;
+    }
+  }
+
+  const context=await aiPromise;
   if(!context||state.currentId!==currentId)return false;
 
   if(context.kind==="film"){
-    const found=await discoverFilmSeriesForPlayback(local,currentId,meta,related,context);
-    if(found||state.currentId!==currentId)return found;
-
-    const planned=await discoverGenericContextSections(local,currentId,meta,related,context);
-    if(planned||state.currentId!==currentId)return planned;
+    const discovery=await discoverFilmSeriesForPlayback(local,currentId,meta,related,context);
+    if(discovery||state.currentId!==currentId){
+      if(discovery)await appendFilmKnowledgeSections(local,currentId,meta,context);
+      return !!discovery;
+    }
+    const enriched=await appendFilmKnowledgeSections(local,currentId,meta,context);
+    if(enriched||state.currentId!==currentId)return enriched;
   }else if(context.kind==="music"){
     const found=await discoverMusicForPlayback(local,currentId,meta,related,context);
     if(found||state.currentId!==currentId)return found;
