@@ -1516,6 +1516,82 @@ function isShortDramaStoryTitle(row={}){
   return false;
 }
 
+function parentSourceGroup(parent={}){
+  const key=normalizeSearchText(parent?.label||parent?.key||"");
+  if(/thoi su|tin tuc/.test(key))return "news";
+  if(/kinh te|thi truong|tai chinh/.test(key))return "economy";
+  if(/phap luat|an ninh/.test(key))return "law";
+  if(/phim/.test(key))return "film";
+  if(/nhac|am nhac/.test(key))return "music";
+  if(/cong nghe|khoa hoc/.test(key))return "tech";
+  if(/the thao/.test(key))return "sports";
+  if(/giai tri/.test(key))return "entertainment";
+  return "";
+}
+
+function librarySourceForVideo(row={}){
+  const id=String(row?.channelId||row?._sourceId||row?.uploaderId||"").trim();
+  if(id&&libraryHas(id))return libraryRow(id);
+
+  const name=sourceRowName(row);
+  if(!name)return null;
+  for(const source of channelLibrary()){
+    const sourceName=normalizeSearchText(sourceMetaFor(source).name||source.name||"");
+    if(sourceName&&sourceName===name)return source;
+  }
+  return null;
+}
+
+function rowMatchesParentRule(parent,row={}){
+  const group=parentSourceGroup(parent);
+  const text=normalizeSearchText(
+    [row?.title,row?._displayTitle,row?.uploader,row?.uploaderName,row?.channelName]
+      .map(clean)
+      .filter(Boolean)
+      .join(" ")
+  );
+  if(!text)return false;
+
+  switch(group){
+    case "film":
+      return /\bphim\b|vietsub|thuyet minh|review phim|phim ngan|tong tai|trong sinh|trung sinh|xuyen khong|he thong|hoan thuong|chien than|than y|o re|thien kim|nu de|tu tien|co trang|ngon tinh|giam bao|thau thi|long soai|dien chu/.test(text);
+    case "music":
+      return /\bnhac\b|\bmv\b|official audio|lyric|lyrics|ca khuc|bai hat|ca si|live session|acoustic|cover|remix|karaoke|bolero|vpop|rap viet/.test(text);
+    case "economy":
+      return /kinh te|tai chinh|thi truong|chung khoan|co phieu|dau tu|gia vang|ty gia|lai suat|ngan hang|doanh nghiep|bitcoin|bat dong san/.test(text);
+    case "law":
+      return /phap luat|an ninh|cong an|canh sat|vu an|khoi to|bat giu|truy na|dieu tra|xet xu|toi pham|ma tuy|lua dao/.test(text);
+    case "tech":
+      return /cong nghe|smartphone|iphone|android|chip|phan mem|may tinh|laptop|robot|tri tue nhan tao|artificial intelligence|openai|google ai|samsung|apple/.test(text)&&!isShortDramaStoryTitle(row);
+    case "sports":
+      return /the thao|bong da|cau thu|tran dau|ban thang|v league|premier league|champions league|world cup|aff cup|tennis|pickleball|formula 1|f1/.test(text);
+    case "entertainment":
+      return /giai tri|showbiz|gameshow|hau truong|nghe si|dien vien|hoa hau|concert|truyen hinh thuc te|reality show/.test(text);
+    case "news":
+      return /thoi su|tin tuc|ban tin|tin nong|truc tiep|quoc te|chinh phu|hoi nghi|du bao thoi tiet/.test(text);
+    default:
+      return false;
+  }
+}
+
+function locallyTrustedForParent(parent,row={}){
+  if(isBlockedSourceRow(row))return false;
+  const group=parentSourceGroup(parent);
+  const source=librarySourceForVideo(row);
+  if(source&&group&&sourceGroupsFor(source).includes(group))return true;
+  return rowMatchesParentRule(parent,row);
+}
+
+function splitLocalCategoryRows(parent,rows=[]){
+  const trusted=[];
+  const ambiguous=[];
+  for(const row of rows){
+    if(isBlockedSourceRow(row))continue;
+    (locallyTrustedForParent(parent,row)?trusted:ambiguous).push(row);
+  }
+  return {trusted,ambiguous};
+}
+
 function filterRowsForAiParent(parent,rows=[]){
   const base=rows.filter(row=>!isBlockedSourceRow(row));
   const key=normalizeSearchText(parent?.label||"");
@@ -1536,7 +1612,7 @@ async function filterNativeAiGeneratedRows(local,parent,rows=[]){
   const source=Array.isArray(rows)?rows:[];
   const keep=new Array(source.length).fill(true);
   let cursor=0;
-  const workerCount=Math.min(6,source.length);
+  const workerCount=Math.min(8,source.length);
 
   const worker=async()=>{
     while(true){
