@@ -138,23 +138,35 @@ function validateCatalog(value:any){
   });
   ensureParent({
     label:"Phim",
-    queries:["phim mới","phim ngắn Trung Quốc","phim tổng tài","phim trọng sinh xuyên không","phim hệ thống hoàn thưởng","phim cổ trang ngôn tình"],
-    hints:["phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống","hoàn thưởng","báo thù","ở rể","tu tiên","cổ trang","ngôn tình"]
+    queries:[
+      "phim ngắn Trung Quốc review",
+      "phim trọng sinh xuyên không hệ thống",
+      "phim mắt thần thấu thị giám bảo",
+      "phim long soái chiến thần thần y",
+      "phim ở rể giả nghèo nữ tổng tài",
+      "phim hệ thống hoàn thưởng không gian thần cấp"
+    ],
+    hints:[
+      "phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống",
+      "hoàn thưởng","mắt thần","thấu thị","giám bảo","long soái","chiến thần"
+    ]
   });
 
   const film=parents.find(row=>String(row.label||"").toLocaleLowerCase("vi-VN")==="phim");
   if(film){
     film.queries=[...new Set([
       ...(Array.isArray(film.queries)?film.queries:[]),
-      "phim ngắn Trung Quốc",
-      "phim tổng tài",
-      "phim trọng sinh xuyên không",
-      "phim hệ thống hoàn thưởng",
-      "phim cổ trang ngôn tình"
+      "phim ngắn Trung Quốc review",
+      "phim trọng sinh xuyên không hệ thống",
+      "phim mắt thần thấu thị giám bảo",
+      "phim long soái chiến thần thần y",
+      "phim ở rể giả nghèo nữ tổng tài",
+      "phim hệ thống hoàn thưởng không gian thần cấp"
     ])].slice(0,6);
     film.hints=[...new Set([
       ...(Array.isArray(film.hints)?film.hints:[]),
-      "phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống","hoàn thưởng","báo thù","ở rể","tu tiên","cổ trang","ngôn tình"
+      "phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống",
+      "hoàn thưởng","mắt thần","thấu thị","giám bảo","long soái","chiến thần"
     ])].slice(0,12);
   }
 
@@ -262,6 +274,25 @@ function validateResult(value:any,videos:any[]){
   return {parents,topics,videos:[...meta.values()],acceptedVideoIds};
 }
 
+const SHORT_DRAMA_REFERENCE=`
+MẪU NGÔN NGỮ PHIM NGẮN TRUNG QUỐC THỰC TẾ (tham chiếu từ kiểu tiêu đề phổ biến của các kênh review như Điêu Thuyền Review):
+- trọng sinh / trùng sinh / kiếp trước / làm lại cuộc đời
+- xuyên không / xuyên về quá khứ / dị giới / trở về cổ đại
+- thức tỉnh / kích hoạt hệ thống / hệ thống tỷ phú / hệ thống hẹn hò / hệ thống bỉm sữa / hệ thống giám bảo
+- hệ thống hoàn thưởng / phần thưởng / nhiệm vụ / điểm thưởng / buff năng lực
+- mắt thần / thấu thị / nhìn xuyên / giám định / giám bảo / đổ thạch / cổ vật / phỉ thúy / ngọc
+- không gian thần cấp / kho báu / truyền thừa / dị năng / năng lực đặc biệt
+- tổng tài / nữ tổng tài / chủ tịch / tỷ phú / thiếu gia / thiên kim
+- ở rể / chui gầm chạn / bị coi thường / phế vật / giả nghèo / ẩn danh / vả mặt / đổi đời
+- long soái / điện chủ / chiến thần / thần y / đạo sĩ xuống núi / cao thủ ẩn danh
+- nữ đế / mỹ nữ cổ đại / tu tiên / tiên hiệp / cổ trang / ngôn tình
+- học đường / trùm trường / hoa khôi / sinh viên nghèo / ký túc xá
+- cắm sừng / hủy hôn / bị phản bội / báo thù / nhận con thất lạc / cưới giả thành thật
+
+Đây là CỤM MẪU MỞ, không phải từ điển đóng. Hãy học cấu trúc ngữ nghĩa của chúng để nhận ra motif mới tương tự.
+Đặc biệt: "hệ thống", "AI", "công nghệ", "chip"... chỉ được xếp Công nghệ khi ngữ cảnh thật sự là kỹ thuật. Nếu "hệ thống" đi cùng trọng sinh, xuyên không, tỷ phú, tổng tài, mắt thần, hoàn thưởng, nhiệm vụ, ở rể, tu tiên... thì đó là motif phim/truyện.
+`;
+
 async function callCatalogGemini(cfg:any,videos:any[]){
   const nowVN=new Intl.DateTimeFormat("vi-VN",{
     timeZone:"Asia/Ho_Chi_Minh",
@@ -274,6 +305,8 @@ Bạn đang xây menu khám phá video cho ứng dụng 1988 dành cho người 
 Thời điểm hiện tại tại Việt Nam: ${nowVN}.
 
 Hãy nhìn toàn bộ mẫu video YouTube hiện tại bên dưới (nếu mẫu ít thì vẫn dùng hiểu biết chung về hành vi xem video tại Việt Nam) và tự thiết kế MENU CHA + CÁCH TÌM cho nội dung mới.
+
+${SHORT_DRAMA_REFERENCE}
 
 YÊU CẦU MENU CHA
 - Tạo 7-9 danh mục cha ngắn, tự nhiên, quen thuộc với người Việt.
@@ -352,6 +385,8 @@ ${JSON.stringify(videos)}
 async function callGemini(cfg:any,scope:string,videos:any[],parentLabel=""){
   const instruction=`
 Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. Hãy làm BỐN việc trong CÙNG một lần. Chỉ dựa trên metadata đầu vào, không bịa thêm sự kiện.
+
+${SHORT_DRAMA_REFERENCE}
 ${parentLabel?`NHÓM CHA ĐANG XỬ LÝ: "${parentLabel}". Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.`:""}
 ${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - Trả "acceptedVideoIds" gồm CHỈ các video thực sự thuộc nhóm cha này. Video lệch nhóm phải loại khỏi acceptedVideoIds, dù nó được tìm thấy do từ khóa mơ hồ.
@@ -472,7 +507,7 @@ Deno.serve(async(req:Request)=>{
         .sort()
         .join("\n");
       const fingerprint=await sha256("catalog\n"+canonical);
-      const cacheKey="v7:catalog:"+bucket;
+      const cacheKey="v8:catalog:"+bucket;
 
       const cached=await db.from("yt1988_ai_topic_cache")
         .select("result,model,created_at")
@@ -526,7 +561,7 @@ Deno.serve(async(req:Request)=>{
       .sort()
       .join("\n");
     const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+canonical);
-    const cacheKey="v6:classify:"+scope+":"+fingerprint;
+    const cacheKey="v7:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
