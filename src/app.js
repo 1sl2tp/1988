@@ -98,6 +98,8 @@ const state={
   resumeOnReturn:false,
   transitionUntil:0,
   resumeTimer:0,
+  visibilityScrollX:0,
+  visibilityScrollY:null,
   feedLoading:false,
   feedHasMore:true,
   feedRows:[],
@@ -7149,9 +7151,27 @@ nativePlayer.addEventListener("ended",()=>{
 
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState!=="visible"){
+    // Preserve exactly where the user was reading/watching. iOS/Safari can
+    // restore layout in two phases; keeping our own viewport avoids a later
+    // jump back toward the main player.
+    state.visibilityScrollX=window.scrollX||0;
+    state.visibilityScrollY=window.scrollY;
     markPlaybackTransition();
     return;
   }
+
+  const restoreViewport=()=>{
+    if(!Number.isFinite(state.visibilityScrollY))return;
+    const x=Number(state.visibilityScrollX)||0;
+    const y=Math.max(0,Number(state.visibilityScrollY)||0);
+    if(Math.abs(window.scrollY-y)>1||Math.abs(window.scrollX-x)>1){
+      window.scrollTo(x,y);
+    }
+  };
+
+  // Restore before playback resumes, then confirm once after layout settles.
+  restoreViewport();
+  requestAnimationFrame(restoreViewport);
 
   // Hidden Chrome tabs do no feed/AI maintenance. Resume only the active
   // source feed when the user actually returns to this app.

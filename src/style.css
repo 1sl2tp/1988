@@ -1,3 +1,19 @@
+
+/* App UI is touch-first: prevent accidental blue text selection while swiping/dragging. */
+body,
+body *{
+  -webkit-user-select:none;
+  user-select:none;
+}
+input,
+textarea,
+select,
+[contenteditable="true"],
+[contenteditable="true"] *{
+  -webkit-user-select:text;
+  user-select:text;
+}
+
 :root{
   --bg:#0b0b0c;--panel:#151517;--panel2:#1d1d20;--line:#2a2a2f;
   --text:#f7f7f8;--muted:#9b9ba3;--chip:#202024;--safe-top:env(safe-area-inset-top);--safe-bottom:env(safe-area-inset-bottom);
@@ -251,7 +267,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   overflow:visible;
   background:transparent;
   box-shadow:none;
-  transition:transform .16s ease,width .16s ease,height .16s ease,right .16s ease,bottom .16s ease;
+  transition:transform .16s ease,width .16s ease,height .16s ease;
 }
 .player-frame.floating-iframe::before,
 .player-frame.floating-iframe::after{display:none!important}
