@@ -872,24 +872,75 @@ function sourceRowName(row={}){
     row?.uploader||
     row?.channelName||
     row?._sourceName||
+    row?.name||
     ""
   );
 }
 
-function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
+function stateSourceName(id=""){
+  const row=libraryRow(id)||sourceMetaCache.get(id)||{};
+  return normalizeSearchText(
+    sourceMetaFor({...row,id}).name||
+    row?.name||
+    ""
+  );
+}
+
+function matchSourceState(row={},scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  const id=String(row?.id||row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
   const blocked=blockedSetForScope(scope);
-  const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-  if(sourceId&&blocked.has(sourceId))return true;
+  const selected=selectedSetForScope(scope);
+
+  if(id&&blocked.has(id))return {status:"blocked",canonicalId:id};
+  if(id&&selected.has(id))return {status:"selected",canonicalId:id};
 
   const name=sourceRowName(row);
-  if(!name)return false;
-  for(const id of blocked){
-    const source=libraryRow(id)||managedChannelLibrary().find(item=>item.id===id);
-    if(!source)continue;
-    const blockedName=normalizeSearchText(sourceMetaFor(source).name||source.name||"");
-    if(blockedName&&name===blockedName)return true;
+  if(!name||name.length<3)return {status:"normal",canonicalId:""};
+
+  for(const stateId of blocked){
+    if(stateSourceName(stateId)===name)return {status:"blocked",canonicalId:stateId};
   }
-  return false;
+  for(const stateId of selected){
+    if(stateSourceName(stateId)===name)return {status:"selected",canonicalId:stateId};
+  }
+
+  return {status:"normal",canonicalId:""};
+}
+
+function reconcileSourceState(row={},scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  const id=String(row?.id||row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return {status:"normal",changed:false};
+
+  const match=matchSourceState(row,scope);
+  if(match.status==="normal")return {...match,changed:false};
+
+  const blocked=blockedSetForScope(scope);
+  const selected=selectedSetForScope(scope);
+  let changed=false;
+
+  if(match.status==="blocked"){
+    if(selected.delete(id))changed=true;
+    if(!blocked.has(id)){blocked.add(id);changed=true;}
+  }else if(match.status==="selected"){
+    if(blocked.has(id)){
+      return {status:"blocked",canonicalId:id,changed:false};
+    }
+    if(!selected.has(id)){selected.add(id);changed=true;}
+  }
+
+  return {...match,changed};
+}
+
+function persistReconciledSourceState(){
+  persistSourceLibrary();
+  persistSourceSelection();
+  state.sourceLibraryDirty=true;
+}
+
+function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
+  return matchSourceState(row,scope).status==="blocked";
 }
 
 function updateSourceSummary(){
@@ -1109,6 +1160,13 @@ function renderSourceLibrary(){
   const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
+  let reconciled=false;
+  for(const row of rows){
+    const result=reconcileSourceState(row,sourceManageGroup);
+    if(result.changed)reconciled=true;
+  }
+  if(reconciled)persistReconciledSourceState();
+
   const scopedStateIds=new Set([
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
@@ -1140,15 +1198,31 @@ function renderSourceLibrary(){
     const selectedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="selected");
     const blockedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="blocked");
 
-    // New YouTube results belong to the "Chưa chọn" area until saved/selected.
+    let remoteChanged=false;
+    for(const row of remoteRows){
+      const result=reconcileSourceState(row,sourceManageGroup);
+      if(result.changed)remoteChanged=true;
+    }
+    if(remoteChanged)persistReconciledSourceState();
+
+    const normalRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="normal");
+    const selectedRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="selected");
+    const blockedRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="blocked");
+
     const unselectedHtml=[
-      ...remoteRows.map(row=>sourceRowHtml(row,{remote:true})),
+      ...normalRemote.map(row=>sourceRowHtml(row,{remote:true})),
       ...normalRows.map(row=>sourceRowHtml(row))
     ];
 
     parts.push(sourceStatusSection("Chưa chọn",unselectedHtml));
-    parts.push(sourceStatusSection("Đã chọn",selectedRows.map(row=>sourceRowHtml(row))));
-    parts.push(sourceStatusSection("Đã chặn",blockedRows.map(row=>sourceRowHtml(row)),{blocked:true}));
+    parts.push(sourceStatusSection("Đã chọn",[
+      ...selectedRows.map(row=>sourceRowHtml(row)),
+      ...selectedRemote.map(row=>sourceRowHtml(row,{remote:true}))
+    ]));
+    parts.push(sourceStatusSection("Đã chặn",[
+      ...blockedRows.map(row=>sourceRowHtml(row)),
+      ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
+    ],{blocked:true}));
 
     if(!unselectedHtml.length&&!selectedRows.length&&!blockedRows.length){
       const message=q
@@ -1229,39 +1303,49 @@ function scheduleSourceSearch(){
   sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),320);
 }
 
+function sourceCandidateFromVideo(row={}){
+  const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
+
+  const name=clean(
+    row?._sourceName||
+    row?.uploaderName||
+    row?.uploader||
+    row?.channelName||
+    row?._displaySource||
+    ""
+  );
+  if(!name)return null;
+
+  return {id,name,thumbnailUrl:"",subscribers:""};
+}
+
 function rememberDiscoveredSources(rows=[],groupHint=""){
   const hint=String(groupHint||"").trim();
   let changed=false;
+  const seen=new Set();
 
   for(const row of Array.isArray(rows)?rows:[]){
-    const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
-    if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+    const candidate=sourceCandidateFromVideo(row);
+    if(!candidate||seen.has(candidate.id))continue;
+    seen.add(candidate.id);
+    sourceMetaCache.set(candidate.id,{...sourceMetaCache.get(candidate.id),...candidate});
 
-    const name=clean(
-      row?._sourceName||
-      row?.uploaderName||
-      row?.uploader||
-      row?.channelName||
-      row?._displaySource||
-      ""
-    );
-    if(!name)continue;
+    const reconciled=reconcileSourceState(candidate,hint||sourceManageGroup);
+    if(reconciled.changed)changed=true;
 
-    if(!libraryHas(id)){
-      customSources.push({
-        id,
-        name,
-        thumbnailUrl:"",
-        subscribers:""
-      });
-      changed=true;
-    }
+    // AI only contributes NEW channels. Known selected/blocked channels are
+    // state, not suggestions, and blocked channels are blacklisted immediately.
+    if(reconciled.status!=="normal")continue;
+    if(libraryHas(candidate.id)||suggestedSetForScope(hint).has(candidate.id))continue;
 
-    if(hint&&assignSourceGroup(id,hint))changed=true;
+    customSources.push(candidate);
+    changed=true;
+    if(hint&&assignSourceGroup(candidate.id,hint))changed=true;
   }
 
   if(changed){
-    persistSourceLibrary();
+    persistReconciledSourceState();
     updateSourceSummary();
   }
 }
@@ -3013,7 +3097,108 @@ async function classifyAiParent(parent,rows=[]){
 }
 
 const SOURCE_DISCOVERY_TTL=12*60*1000;
+const SOURCE_DISCOVERY_TARGET=48;
+const SOURCE_DISCOVERY_MAX_PAGES=8;
 const sourceDiscoveryAt=new Map();
+
+function sourceAlreadyKnownForDiscovery(candidate,group){
+  if(!candidate)return true;
+  const state=matchSourceState(candidate,group).status;
+  if(state==="blocked"||state==="selected")return true;
+  if(libraryHas(candidate.id))return true;
+  if(suggestedSetForScope(group).has(candidate.id))return true;
+
+  const name=sourceRowName(candidate);
+  if(name){
+    for(const source of channelLibrary()){
+      if(sourceRowName(source)===name)return true;
+    }
+  }
+  return false;
+}
+
+async function collectNewSourceDiscoveryRows(parent,local,group){
+  const queries=[...new Set(
+    (Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
+      .map(clean)
+      .filter(Boolean)
+  )].slice(0,3);
+
+  const representatives=new Map();
+  let exhausted=false;
+
+  for(let page=0;page<SOURCE_DISCOVERY_MAX_PAGES;page++){
+    const batches=await Promise.all(
+      queries.map((query,index)=>
+        pagedSearch(
+          local,
+          "source-discovery:"+group+":"+index+":"+fastHash(query),
+          query,
+          {upload_date:"week",sort_by:"upload_date"},
+          page===0,
+          group
+        ).catch(()=>[])
+      )
+    );
+
+    if(!batches.some(rows=>Array.isArray(rows)&&rows.length)){
+      exhausted=true;
+      break;
+    }
+
+    for(const row of batches.flat()){
+      if(!uploadedWithinCategoryWindow(row))continue;
+      const candidate=sourceCandidateFromVideo(row);
+      if(!candidate)continue;
+
+      // Blocked and already-known channels do not consume the discovery quota.
+      // Continue through later YouTube pages until the NEW-channel target is filled.
+      if(sourceAlreadyKnownForDiscovery(candidate,group))continue;
+
+      const key=candidate.id;
+      if(!representatives.has(key)){
+        representatives.set(key,{
+          ...row,
+          _sourceId:candidate.id,
+          _sourceName:candidate.name
+        });
+      }
+    }
+
+    if(representatives.size>=SOURCE_DISCOVERY_TARGET)break;
+  }
+
+  return {
+    rows:[...representatives.values()].slice(0,SOURCE_DISCOVERY_TARGET),
+    exhausted
+  };
+}
+
+async function classifySourceDiscovery(parent,rows=[]){
+  const accepted=[];
+  const source=Array.isArray(rows)?rows:[];
+  const batchSize=24;
+
+  for(let offset=0;offset<source.length;offset+=batchSize){
+    const batch=source.slice(offset,offset+batchSize);
+    if(!batch.length)continue;
+
+    try{
+      const classified=await classifyAiParent(parent,batch);
+      const acceptedIds=classified?.acceptedVideoIds instanceof Set
+        ?classified.acceptedVideoIds
+        :new Set();
+      if(acceptedIds.size){
+        accepted.push(...batch.filter(row=>acceptedIds.has(itemVideoId(row))));
+      }
+    }catch(error){
+      console.warn("source AI classify failed",parent?.label||parent?.key,error);
+      accepted.push(...batch.filter(row=>rowMatchesParentRule(parent,row)));
+    }
+  }
+
+  return accepted;
+}
 
 async function discoverSourcesForParent(parent,local){
   if(document.hidden)return;
@@ -3022,52 +3207,23 @@ async function discoverSourcesForParent(parent,local){
 
   const last=Number(sourceDiscoveryAt.get(group)||0);
   if(Date.now()-last<SOURCE_DISCOVERY_TTL)return;
-  sourceDiscoveryAt.set(group,Date.now());
 
-  const queries=[...new Set(
-    (Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
-      .map(clean)
-      .filter(Boolean)
-  )].slice(0,3);
-
-  const batches=await Promise.all(
-    queries.map((query,index)=>
-      collectRecentPages(
-        local,
-        "source-discovery:"+group+":"+index+":"+fastHash(query),
-        query,
-        uploadedWithinCategoryWindow,
-        true,
-        {upload_date:"week",sort_by:"upload_date"},
-        1,
-        group
-      ).catch(()=>[])
-    )
-  );
-
-  const discovered=mergeUniqueRows([],batches.flat())
-    .filter(uploadedWithinCategoryWindow)
-    .filter(row=>!isBlockedSourceRow(row,group));
-
-  if(!discovered.length)return;
-
-  let accepted=discovered;
   try{
-    const classified=await classifyAiParent(parent,discovered.slice(0,48));
-    const acceptedIds=classified?.acceptedVideoIds instanceof Set
-      ?classified.acceptedVideoIds
-      :new Set();
-    if(acceptedIds.size){
-      accepted=discovered.filter(row=>acceptedIds.has(itemVideoId(row)));
+    const discovery=await collectNewSourceDiscoveryRows(parent,local,group);
+    if(!discovery.rows.length){
+      sourceDiscoveryAt.set(group,Date.now());
+      return;
     }
-  }catch(error){
-    console.warn("source AI classify failed",parent?.label||group,error);
-    accepted=discovered.filter(row=>rowMatchesParentRule(parent,row));
-  }
 
-  if(accepted.length){
-    rememberDiscoveredSources(accepted,group);
-    if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
+    const accepted=await classifySourceDiscovery(parent,discovery.rows);
+    if(accepted.length){
+      rememberDiscoveredSources(accepted,group);
+      if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
+    }
+
+    sourceDiscoveryAt.set(group,Date.now());
+  }catch(error){
+    console.warn("source discovery failed",parent?.label||group,error);
   }
 }
 
