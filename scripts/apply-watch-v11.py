@@ -345,8 +345,7 @@ details_assign = """    details.value = {
       meta: [viewText, uploaded ? age(uploaded) : ''].filter(Boolean).join(' · '),
       thumbnail: String(data?.thumbnailUrl || '')
     };"""
-details_assign_new = details_assign + "
-    rememberCurrentDetails1988(details.value);"
+details_assign_new = details_assign + "\n    rememberCurrentDetails1988(details.value);"
 s = s.replace(details_assign, details_assign_new, 1)
 
 # Minimize and player-state handlers.
