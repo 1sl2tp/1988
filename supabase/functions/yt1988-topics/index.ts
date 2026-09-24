@@ -59,6 +59,8 @@ function normalizeVideos(input:any){
       published:clean(row?.published,80),
       views:Number.isFinite(Number(row?.views))?Math.max(0,Math.round(Number(row.views))):0,
       contentHash:clean(row?.contentHash,64),
+      description:clean(row?.description,1800),
+      howMade:clean(row?.howMade,800),
     });
     if(out.length>=120)break;
   }
@@ -271,7 +273,13 @@ function validateResult(value:any,videos:any[]){
       .filter((id:string)=>allowedIds.has(id))
   )];
 
-  return {parents,topics,videos:[...meta.values()],acceptedVideoIds};
+  const aiGeneratedLikelyIds=[...new Set(
+    (Array.isArray(value?.aiGeneratedLikelyIds)?value.aiGeneratedLikelyIds:[])
+      .map((id:any)=>clean(id,32))
+      .filter((id:string)=>allowedIds.has(id))
+  )];
+
+  return {parents,topics,videos:[...meta.values()],acceptedVideoIds,aiGeneratedLikelyIds};
 }
 
 const SHORT_DRAMA_REFERENCE=`
@@ -393,7 +401,11 @@ ${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - Phân loại theo NGỮ CẢNH cả tiêu đề, không theo một từ đơn lẻ.
 - Nếu nhóm là "Công nghệ": các motif truyện/phim như "trọng sinh", "xuyên không", "kiếp này", "hệ thống", "hoàn thưởng", "tổng tài", "ở rể", "tu tiên", "thần y", "chiến thần", "thiên kim", "báo thù" KHÔNG phải công nghệ khi tiêu đề mang ngữ cảnh phim/cốt truyện.
 - Nếu nhóm là "Phim": hãy nhận diện rộng phim ngắn Trung Quốc và các motif kể chuyện như tổng tài, trọng sinh, xuyên không, hệ thống, hoàn thưởng, báo thù, ở rể, tu tiên, thần y, chiến thần, tận thế, thiên kim, giả nghèo, đổi thân phận, cổ trang, ngôn tình... và tự phát hiện thêm motif mới từ batch.
-- Chỉ loại khi thật sự lệch cha; đừng làm nghèo nội dung chỉ vì tên thể loại lạ.`:""}
+- Chỉ loại khi thật sự lệch cha; đừng làm nghèo nội dung chỉ vì tên thể loại lạ.
+- Nếu nhóm là "Phim", "Phim ngắn" hoặc "Nhạc": ngoài acceptedVideoIds, trả "aiGeneratedLikelyIds" cho video mà BẢN THÂN tác phẩm có tín hiệu mạnh là do AI tạo nhưng YouTube chưa gắn nhãn.
+- Chỉ đánh dấu khi bằng chứng metadata đủ mạnh, dựa trên tổ hợp title + channel + description + howMade. Ví dụ: mô tả/kênh nêu rõ AI film, AI short film, AI animation, AI music, generated with AI, Suno, Udio, Veo, Sora, Kling, Runway, Hailuo, Pika, Luma, Midjourney hoặc quy trình tạo tác phẩm tương đương.
+- KHÔNG đánh dấu chỉ vì video nói về AI, review công cụ AI, có chữ "AI" trong chủ đề, hoặc chỉ dùng AI cho script/thumbnail/phụ đề/chỉnh sửa nhỏ.
+- Nếu không đủ chắc chắn thì KHÔNG đưa vào aiGeneratedLikelyIds.`:""}
 
 1) MENU CHA TỰ ĐỘNG
 - Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
@@ -433,6 +445,7 @@ PHẠM VI: ${scope==="discovery"?"video mới trong tối đa 7 ngày, gồm c�
 OUTPUT chỉ JSON, không Markdown:
 {
   "acceptedVideoIds":["id1","id2"],
+  "aiGeneratedLikelyIds":["id3"],
   "parents":[
     {"label":"Công nghệ","videoIds":["id1","id2"]}
   ],
@@ -554,14 +567,17 @@ Deno.serve(async(req:Request)=>{
     const rawScope=clean(body?.scope,80);
     const scope=rawScope==="week"?"week":rawScope==="latest"?"latest":rawScope.startsWith("ai:")?rawScope:"latest";
     const parentLabel=clean(body?.parentLabel,28);
-    if(videos.length<4)return json({ok:true,parents:[],topics:[],videos:[],cached:false,reason:"not_enough_videos"});
+    if(videos.length<4)return json({ok:true,parents:[],topics:[],videos:[],acceptedVideoIds:videos.map(row=>row.id),aiGeneratedLikelyIds:[],cached:false,reason:"not_enough_videos"});
 
     const canonical=videos
-      .map(row=>[row.id,row.title,row.channel,row.published,row.views,row.contentHash].join("\t"))
+      .map(row=>[
+        row.id,row.title,row.channel,row.published,row.views,row.contentHash,
+        row.description,row.howMade
+      ].join("\t"))
       .sort()
       .join("\n");
     const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+canonical);
-    const cacheKey="v7:classify:"+scope+":"+fingerprint;
+    const cacheKey="v8:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
