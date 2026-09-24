@@ -130,13 +130,13 @@ function ensureFloatHandles(){
     if(g.mode==="resize"){
       const maxWidth=Math.max(220,Math.min(window.innerWidth-16,560));
       const minWidth=Math.min(220,Math.max(170,window.innerWidth*.42));
-      const direction=state.floatDock==="left"?-1:1;
+      const direction=state.floatDock==="right"?-1:1;
       const width=Math.max(minWidth,Math.min(maxWidth,g.width+(dx*direction)));
       const height=width*9/16;
       frame.style.width=width+"px";
 
       let left=g.left;
-      if(state.floatDock==="left")left=g.left+g.width-width;
+      if(state.floatDock==="right")left=g.left+g.width-width;
       left=Math.max(8,Math.min(window.innerWidth-width-8,left));
       const top=Math.max(8,Math.min(window.innerHeight-height-8,g.top+dy*.15));
       frame.style.left=left+"px";
@@ -161,12 +161,19 @@ function ensureFloatHandles(){
       state.floatTucked=!state.floatTucked;
       frame.classList.toggle("float-tucked",state.floatTucked);
     }else if(g.mode==="move"){
+      const dx=event.clientX-g.startX;
       const snapLeft=rect.left+rect.width/2<window.innerWidth/2;
       state.floatDock=snapLeft?"left":"right";
       const left=snapLeft?8:Math.max(8,window.innerWidth-rect.width-8);
       frame.style.left=left+"px";
       frame.classList.toggle("dock-left",snapLeft);
       frame.classList.toggle("dock-right",!snapLeft);
+
+      const swipedIntoEdge=(snapLeft&&dx<-26)||(!snapLeft&&dx>26);
+      if(swipedIntoEdge){
+        state.floatTucked=true;
+        frame.classList.add("float-tucked");
+      }
     }
 
     const finalRect=frame.getBoundingClientRect();
@@ -187,8 +194,14 @@ function ensureFloatHandles(){
 }
 function restoreFloatBox(){
   const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  frame.classList.toggle("dock-left",state.floatDock==="left");
+  frame.classList.toggle("dock-right",state.floatDock!=="left");
+  frame.classList.toggle("float-tucked",state.floatTucked);
+
   const box=state.floatBox;
-  if(!frame||!box)return;
+  if(!box)return;
 
   const width=Math.max(170,Math.min(box.width,window.innerWidth-16));
   const height=width*9/16;
@@ -199,11 +212,7 @@ function restoreFloatBox(){
   frame.style.top=top+"px";
   frame.style.right="auto";
   frame.style.bottom="auto";
-  frame.classList.toggle("dock-left",state.floatDock==="left");
-  frame.classList.toggle("dock-right",state.floatDock!=="left");
-  frame.classList.toggle("float-tucked",state.floatTucked);
 }
-
 function clearFloatBoxStyles(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -228,7 +237,8 @@ function applyFloatingIframe(force){
       if(rect.width>0){
         state.floatBox={left:rect.left,top:rect.top,width:rect.width};
       }
-      frame.classList.remove("floating-iframe");
+      frame.classList.remove("floating-iframe","float-tucked");
+      state.floatTucked=false;
       clearFloatBoxStyles();
       playerSection.style.removeProperty("min-height");
     }
@@ -268,6 +278,8 @@ function applyFloatingIframe(force){
 }
 
 function queueFloatingIframe(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(frame?.classList.contains("floating-iframe"))state.fullscreenScrollY=window.scrollY;
   if(state.floatRaf)return;
   state.floatRaf=requestAnimationFrame(()=>{
     state.floatRaf=0;
@@ -303,6 +315,8 @@ function setupFullscreenReturn(){
     if(document.webkitFullscreenElement)remember();
     else restore();
   });
+  window.addEventListener("focus",restore,{passive:true});
+  window.addEventListener("pageshow",restore,{passive:true});
 }
 
 function showNativePlayer(){
