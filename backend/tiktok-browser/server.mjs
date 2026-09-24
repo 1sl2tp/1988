@@ -168,15 +168,20 @@ async function tryRecommendApi(page, max = 60) {
       WebIdLastTime: String(app?.webIdCreatedTime || ''),
     });
 
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const response = await fetch('/api/recommend/item_list/?' + params.toString(), {
         credentials: 'include',
+        signal: controller.signal,
       });
       const text = await response.text();
       if (!text) return null;
       return JSON.parse(text);
     } catch {
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }).catch(() => null);
 
@@ -207,11 +212,11 @@ async function tryRecommendApi(page, max = 60) {
 async function collectRecommend(max = 60) {
   const page = await newTikTokPage();
   try {
-    await page.goto('https://www.tiktok.com/foryou?lang=vi-VN', {
+    await page.goto('https://www.tiktok.com/foryou?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 35000,
+      timeout: 22000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 4500));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
 
     const apiRows = await tryRecommendApi(page, max);
     if (apiRows.length >= 8) return apiRows;
@@ -227,11 +232,11 @@ async function collectRecommend(max = 60) {
 async function collectExplore(max = 60) {
   const page = await newTikTokPage();
   try {
-    await page.goto('https://www.tiktok.com/explore?lang=vi-VN', {
+    await page.goto('https://www.tiktok.com/explore?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 35000,
+      timeout: 22000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 4500));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
     await scrollFeed(page, 8);
     return await collectVideoLinks(page, max);
   } finally {
@@ -330,11 +335,11 @@ async function getLiveInfo(handle) {
 async function collectLive(max = 30) {
   const page = await newTikTokPage();
   try {
-    await page.goto('https://www.tiktok.com/live?lang=vi-VN', {
+    await page.goto('https://www.tiktok.com/live?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 35000,
+      timeout: 22000,
     });
-    await new Promise((resolve) => setTimeout(resolve, 4500));
+    await new Promise((resolve) => setTimeout(resolve, 2500));
     await scrollFeed(page, 5);
 
     const handles = await page.evaluate(() => {
@@ -377,6 +382,8 @@ function putCache(key, value) {
 }
 
 async function feed(mode, handles, limit) {
+  const started = Date.now();
+  console.log('feed:start', mode, 'handles=' + handles.length, 'limit=' + limit);
   const cacheKey = mode + ':' + handles.join(',') + ':' + limit;
   const ttl = mode === 'live' ? 45_000 : 90_000;
   const hit = cached(cacheKey, ttl);
@@ -395,6 +402,7 @@ async function feed(mode, handles, limit) {
     mode,
   };
   putCache(cacheKey, value);
+  console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
   return value;
 }
 
@@ -441,4 +449,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log('1988 TikTok browser service listening on', PORT);
+  void getBrowser()
+    .then(() => console.log('chromium:warm'))
+    .catch((error) => console.error('chromium:warm-failed', error?.message || error));
 });
