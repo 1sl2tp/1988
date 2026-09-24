@@ -2135,6 +2135,11 @@ function validPipAspect(value){
   return Number.isFinite(ratio)&&ratio>=.34&&ratio<=2.6?ratio:0;
 }
 
+function cachedPipAspect(id){
+  const entry=pipAspectPrimeCache.get(String(id||"").trim());
+  return validPipAspect(entry?.value);
+}
+
 function primePipAspect(id){
   id=String(id||"").trim();
   if(!id)return Promise.resolve(0);
@@ -2170,16 +2175,6 @@ function primePipAspect(id){
 
   pipAspectPrimeCache.set(id,{promise:task,at:Date.now()});
   return task;
-}
-
-async function resolvePipAspectBeforeSwap(id,seedMeta={},timeoutMs=720){
-  // A portrait/square hint from the selected card is already useful.
-  const seed=validPipAspect(seedMeta?.aspectRatio);
-  if(seed&&seed<=1.20)return seed;
-
-  const task=primePipAspect(id);
-  const timeout=new Promise(resolve=>setTimeout(()=>resolve(0),timeoutMs));
-  return validPipAspect(await Promise.race([task,timeout]));
 }
 
 function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
@@ -6528,27 +6523,48 @@ async function playVideo(id,seedMeta={}){
   const wasFloating=!!frame?.classList.contains("floating-iframe");
   const keepScrollY=window.scrollY;
   const previousAspect=validPipAspect(state.videoAspect)||16/9;
+  const cachedAspect=wasFloating?cachedPipAspect(id):0;
+  const seedAspect=validPipAspect(seedMeta?.aspectRatio);
 
-  // PiP -> next video is a direct PiP swap. Determine the next video's shape
-  // before changing the iframe. If the probe is not ready yet, preserve the
-  // current PiP shape instead of flashing through a default 16:9/square box.
-  const preResolvedAspect=wasFloating
-    ?await resolvePipAspectBeforeSwap(id,seedMeta)
-    :0;
+  // Never block playback for aspect detection. Use only information that is
+  // already available synchronously. If the next video's shape is unknown,
+  // preserve the current PiP shape until the async Auto probe catches up.
+  const immediateAspect=
+    cachedAspect||
+    (seedAspect&&seedAspect<=1.20?seedAspect:0);
 
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta={...seedMeta};
-  state.videoAspect=preResolvedAspect||(
+  state.videoAspect=immediateAspect||(
     wasFloating
       ?previousAspect
       :normalizedVideoAspect(seedMeta)
   );
-  state.videoAspectVerified=!!preResolvedAspect;
-  state.videoAspectPortraitLocked=!!preResolvedAspect&&preResolvedAspect<.80;
+  state.videoAspectVerified=!!cachedAspect;
+  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
+
+  // Warm/resolve the next aspect in parallel. This must never delay
+  // loadVideoById(). If it resolves first, PiP reshapes while playback starts.
+  if(wasFloating){
+    void primePipAspect(id).then(ratio=>{
+      if(state.currentId!==id)return;
+      ratio=validPipAspect(ratio);
+      if(!ratio)return;
+
+      state.videoAspect=ratio;
+      state.videoAspectVerified=true;
+      state.videoAspectPortraitLocked=ratio<.80;
+
+      const activeFrame=playerSection?.querySelector(".player-frame");
+      if(activeFrame?.classList.contains("floating-iframe")){
+        applyAutoFloatAspect(activeFrame,{force:true});
+      }
+    }).catch(()=>{});
+  }
 
   if(wasFloating&&frame){
     const floatRect=frame.getBoundingClientRect();
