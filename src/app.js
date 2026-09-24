@@ -45,7 +45,11 @@ const state={
   keepFloating:false,
   floatDock:"right",
   floatTucked:false,
-  fullscreenScrollY:null
+  fullscreenScrollY:null,
+  intentPlay:false,
+  resumeOnReturn:false,
+  resumeGuardUntil:0,
+  resumeTimer:0
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -304,16 +308,60 @@ function setupFloatingIframe(){
   window.visualViewport?.addEventListener?.("scroll",queueFloatingIframe,{passive:true});
 }
 
+function markPlaybackTransition(){
+  if(state.mode!=="video"||!state.currentId)return;
+  let playing=state.videoPlaying;
+  try{
+    const ps=state.player?.getPlayerState?.();
+    playing=playing||ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING;
+  }catch{}
+  if(!playing&&!state.intentPlay)return;
+  state.intentPlay=true;
+  state.resumeOnReturn=true;
+  state.resumeGuardUntil=Date.now()+6000;
+}
+
+function resumeVideoAfterReturn(){
+  if(
+    state.mode!=="video" ||
+    !state.currentId ||
+    !state.intentPlay ||
+    MediaCore.modeUsesAudio(state.mode)
+  )return;
+
+  state.resumeOnReturn=false;
+  state.resumeGuardUntil=Date.now()+2600;
+  clearTimeout(state.resumeTimer);
+
+  const attempt=()=>{
+    if(state.mode!=="video"||!state.currentId||!state.intentPlay)return;
+    try{
+      const ps=state.player?.getPlayerState?.();
+      if(ps===YT.PlayerState.PLAYING){
+        state.videoPlaying=true;
+        applyFloatingIframe();
+        return;
+      }
+      state.player?.playVideo?.();
+    }catch{}
+  };
+
+  attempt();
+  state.resumeTimer=setTimeout(attempt,220);
+  setTimeout(attempt,650);
+}
+
 function setupFullscreenReturn(){
   const remember=()=>{
     state.fullscreenScrollY=window.scrollY;
+    markPlaybackTransition();
   };
   const restore=()=>{
     const y=state.fullscreenScrollY;
-    if(y===null||y===undefined)return;
     requestAnimationFrame(()=>{
-      window.scrollTo({top:y,left:0,behavior:"instant"});
+      if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
       applyFloatingIframe();
+      resumeVideoAfterReturn();
     });
   };
 
@@ -325,10 +373,12 @@ function setupFullscreenReturn(){
     if(document.webkitFullscreenElement)remember();
     else restore();
   });
+
+  window.addEventListener("blur",markPlaybackTransition,{passive:true});
+  window.addEventListener("pagehide",markPlaybackTransition,{passive:true});
   window.addEventListener("focus",restore,{passive:true});
   window.addEventListener("pageshow",restore,{passive:true});
 }
-
 function showNativePlayer(){
   state.engine="native";
   nativePlayer.hidden=false;
@@ -647,11 +697,18 @@ function setupMediaSession(){
   const usingAudio=()=>MediaCore.modeUsesAudio(state.mode);
   safe("play",()=>{
     if(usingAudio())void backgroundPlayer.play();
-    else playVideoEngine();
+    else{
+      state.intentPlay=true;
+      playVideoEngine();
+    }
   });
   safe("pause",()=>{
     if(usingAudio())backgroundPlayer.pause();
-    else pauseVideoEngine();
+    else{
+      state.intentPlay=false;
+      state.resumeOnReturn=false;
+      pauseVideoEngine();
+    }
   });
   safe("seekbackward",details=>{
     const offset=Number(details.seekOffset)||10;
@@ -733,6 +790,7 @@ function returnToVideo(){
   backgroundPlayer.pause();
   state.audioMaster=false;
   state.mode="video";
+  state.intentPlay=true;
   seekVideo(time);
   playVideoEngine();
   statusText.textContent="Video YouTube đang phát trực tiếp";
@@ -749,6 +807,9 @@ async function playVideo(id,seedMeta={}){
 
   state.currentId=id;
   state.currentMeta={...seedMeta};
+  state.intentPlay=true;
+  state.resumeOnReturn=false;
+  state.resumeGuardUntil=Date.now()+1800;
   state.mode="video";
   state.audioMaster=false;
   state.nativeSource="";
@@ -786,6 +847,7 @@ async function playVideo(id,seedMeta={}){
     try{
       state.player.unMute?.();
       state.player.loadVideoById(id);
+      state.player.playVideo?.();
       statusText.textContent="Video YouTube đang phát";
     }catch{
       state.pendingVideoId=id;
@@ -839,24 +901,45 @@ function initYouTubePlayer(){
           try{
             state.player.unMute?.();
             state.player.loadVideoById(id);
+            state.player.playVideo?.();
           }catch{}
         }
       },
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
           state.videoPlaying=true;
+          state.intentPlay=true;
+          state.resumeOnReturn=false;
           state.keepFloating=false;
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
           try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
         }else if(event.data===YT.PlayerState.PAUSED){
           state.videoPlaying=false;
+
+          const transitionPause=
+            document.visibilityState!=="visible" ||
+            state.resumeOnReturn ||
+            Date.now()<state.resumeGuardUntil;
+
+          if(transitionPause&&state.intentPlay){
+            state.keepFloating=state.keepFloating||
+              !!playerSection?.querySelector(".player-frame")?.classList.contains("floating-iframe");
+            setTimeout(resumeVideoAfterReturn,90);
+          }else{
+            // Visible, stable PAUSED is treated as an intentional user pause.
+            state.intentPlay=false;
+            state.resumeOnReturn=false;
+          }
+
           applyFloatingIframe();
           if(state.mode==="video"){
             try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
           }
         }else if(event.data===YT.PlayerState.ENDED){
           state.videoPlaying=false;
+          state.intentPlay=false;
+          state.resumeOnReturn=false;
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Đã phát xong";
         }
@@ -870,7 +953,7 @@ function initYouTubePlayer(){
 }
 
 window.onYouTubeIframeAPIReady=()=>{
-  if(state.engine==="iframe"&&(state.pendingVideoId||state.currentId))initYouTubePlayer();
+  if(state.engine==="iframe")initYouTubePlayer();
 };
 
 if(!(window.YT&&typeof YT.Player==="function")){
@@ -879,7 +962,7 @@ if(!(window.YT&&typeof YT.Player==="function")){
     ytWait++;
     if(window.YT&&typeof YT.Player==="function"){
       clearInterval(ytTimer);
-      if(state.engine==="iframe"&&(state.pendingVideoId||state.currentId))initYouTubePlayer();
+      if(state.engine==="iframe")initYouTubePlayer();
     }else if(ytWait>100){
       clearInterval(ytTimer);
     }
@@ -1027,13 +1110,17 @@ nativePlayer.addEventListener("ended",()=>{
 });
 
 document.addEventListener("visibilitychange",()=>{
-  if(document.visibilityState!=="visible")return;
+  if(document.visibilityState!=="visible"){
+    markPlaybackTransition();
+    return;
+  }
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
     return;
   }
   if(state.mode==="video"&&state.currentId){
     updateModeUi();
+    resumeVideoAfterReturn();
   }
 });
 
