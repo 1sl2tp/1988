@@ -1350,76 +1350,48 @@ function aiDisplayRows(rows=[]){
   return out;
 }
 
-function parentRows(rows=[]){
-  if(!state.activeParent)return rows;
-  const parent=state.parentCategories.find(item=>item.key===state.activeParent);
-  if(!parent)return rows;
-  return rows.filter(row=>parent.videoIds.has(itemVideoId(row)));
-}
-
 function trendRows(rows=[]){
-  const withinParent=parentRows(rows);
-  if(!state.activeTrend)return withinParent;
+  if(!state.activeTrend)return rows;
   const topic=state.trendTopics.find(item=>item.key===state.activeTrend);
-  if(!topic)return withinParent;
-  return withinParent.filter(row=>topic.videoIds.has(itemVideoId(row)));
-}
-
-function currentFeedIdSet(){
-  return new Set(state.feedRows.map(itemVideoId).filter(Boolean));
-}
-
-function visibleParentCategories(){
-  const ids=currentFeedIdSet();
-  return state.parentCategories
-    .map(parent=>{
-      const visibleIds=[...parent.videoIds].filter(id=>ids.has(id));
-      return {...parent,visibleCount:visibleIds.length};
-    })
-    .filter(parent=>parent.visibleCount>0);
+  if(!topic)return rows;
+  return rows.filter(row=>topic.videoIds.has(itemVideoId(row)));
 }
 
 function renderParentCategories(){
   if(!topicChips)return;
   topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
 
-  const parents=visibleParentCategories();
-  if(!isSourceScopedFeed(state.activeFeed)||!parents.length){
-    state.activeParent="";
+  if(!state.parentCategories.length){
     setActiveChip(state.activeFeed);
     return;
   }
 
-  if(state.activeParent&&!parents.some(parent=>parent.key===state.activeParent)){
+  if(state.activeParent&&!aiCategoryByKey(state.activeParent)&&isAiCategoryFeed(state.activeFeed)){
     state.activeParent="";
   }
 
-  for(const parent of parents){
+  for(const parent of state.parentCategories){
     const button=document.createElement("button");
     button.className="topic-chip";
     button.type="button";
     button.dataset.aiParent=parent.key;
     button.textContent=parent.label;
-    button.title=parent.visibleCount+" video · "+parent.channels.size+" nguồn";
+    button.title="AI · "+parent.queries.length+" hướng tìm kiếm";
     topicChips.appendChild(button);
   }
   setActiveChip(state.activeFeed);
 }
 
 function visibleTrendTopics(){
-  const ids=currentFeedIdSet();
-  return state.trendTopics.filter(topic=>{
-    if(state.activeParent&&topic.parentKey!==state.activeParent)return false;
-    return [...topic.videoIds].some(id=>ids.has(id));
-  });
+  return state.trendTopics;
 }
 
 function renderTrendTopics(){
   if(!trendTopics)return;
 
   const topics=visibleTrendTopics();
-  if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length||!topics.length){
-    if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length){
+  if(!supportsAiAnalysisFeed(state.activeFeed)||!state.feedRows.length||!topics.length){
+    if(!supportsAiAnalysisFeed(state.activeFeed)||!state.feedRows.length){
       state.activeTrend="";
     }
     trendTopics.hidden=true;
@@ -1446,43 +1418,37 @@ function renderCurrentTrendFeed(){
   renderParentCategories();
   renderTrendTopics();
   renderCards(aiDisplayRows(trendRows(state.feedRows)));
-  if(isSourceScopedFeed(state.activeFeed))void refreshAiTrendTopics();
+  if(supportsAiAnalysisFeed(state.activeFeed))void refreshAiTrendTopics();
 }
 
 async function refreshAiTrendTopics(){
-  if(!isSourceScopedFeed(state.activeFeed)||state.feedRows.length<4){
-    state.parentCategories=[];
-    state.activeParent="";
+  if(!supportsAiAnalysisFeed(state.activeFeed)||state.feedRows.length<4){
     state.trendTopics=[];
     state.activeTrend="";
     state.trendPoolKey="";
     state.aiVideoMeta=new Map();
-    renderParentCategories();
     renderTrendTopics();
     return;
   }
 
   const feedName=state.activeFeed;
-  const scope="discovery";
-  const aiSourceRows=regionalAiPool().length?regionalAiPool():state.feedRows;
-  const rows=topicInputRows(aiSourceRows);
+  const category=isAiCategoryFeed(feedName)?aiCategoryByKey(aiCategoryKeyFromFeed(feedName)):null;
+  const parentKey=category?.key||"";
+  const parentLabel=category?.label||"";
+  const rows=topicInputRows(state.feedRows);
   if(rows.length<4)return;
 
-  const poolKey=aiTrendPoolKey(scope,rows);
-  if(poolKey===state.trendPoolKey&&(state.parentCategories.length||state.trendTopics.length||state.aiVideoMeta.size))return;
+  const poolKey=aiTrendPoolKey(feedName+"|"+parentLabel,rows);
+  if(poolKey===state.trendPoolKey&&(state.trendTopics.length||state.aiVideoMeta.size))return;
 
-  const cached=readAiTrendCache(poolKey,rows);
-  if(cached.parents.length||cached.topics.length||cached.videoMeta.size){
+  const cached=readAiTrendCache(poolKey,rows,parentKey,parentLabel);
+  if(cached.topics.length||cached.videoMeta.size){
     state.trendPoolKey=poolKey;
-    state.parentCategories=cached.parents;
     state.trendTopics=cached.topics;
     state.aiVideoMeta=cached.videoMeta;
-    if(state.activeParent&&!cached.parents.some(item=>item.key===state.activeParent))state.activeParent="";
     if(state.activeTrend&&!cached.topics.some(item=>item.key===state.activeTrend))state.activeTrend="";
-    renderParentCategories();
     renderTrendTopics();
     renderCards(aiDisplayRows(trendRows(state.feedRows)));
-    return;
   }
 
   const seq=++state.trendRequestSeq;
@@ -1495,38 +1461,81 @@ async function refreshAiTrendTopics(){
         "apikey":SUPABASE_ANON,
         "authorization":"Bearer "+SUPABASE_ANON
       },
-      body:JSON.stringify({scope,videos:rows})
+      body:JSON.stringify({
+        mode:"classify",
+        scope:feedName,
+        parentLabel,
+        videos:rows
+      })
     });
 
     const payload=await response.json().catch(()=>null);
     if(seq!==state.trendRequestSeq||state.activeFeed!==feedName)return;
     if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
 
-    const parents=normalizeAiParents(payload,rows);
-    const topics=normalizeAiTrendTopics(payload,rows);
+    const topics=normalizeAiTrendTopics(payload,rows,parentKey,parentLabel);
     const videoMeta=normalizeAiVideoMeta(payload,rows);
     state.trendPoolKey=poolKey;
-    state.parentCategories=parents;
     state.trendTopics=topics;
     state.aiVideoMeta=videoMeta;
-    if(state.activeParent&&!parents.some(item=>item.key===state.activeParent))state.activeParent="";
     if(state.activeTrend&&!topics.some(item=>item.key===state.activeTrend))state.activeTrend="";
-    saveAiTrendCache(poolKey,parents,topics,videoMeta);
-    renderParentCategories();
+    saveAiTrendCache(poolKey,topics,videoMeta);
     renderTrendTopics();
     renderCards(aiDisplayRows(trendRows(state.feedRows)));
   }catch(error){
     console.warn("ai topics failed",error);
-    if(!cached.parents.length&&!cached.topics.length&&!cached.videoMeta.size){
+    if(!cached.topics.length&&!cached.videoMeta.size){
       state.trendPoolKey=poolKey;
-      state.parentCategories=[];
-      state.activeParent="";
       state.trendTopics=[];
       state.aiVideoMeta=new Map();
       state.activeTrend="";
-      renderParentCategories();
       renderTrendTopics();
     }
+  }
+}
+
+async function refreshAiCatalog(){
+  const cached=readAiCatalogCache();
+  if(cached){
+    state.parentCategories=cached.parents;
+    state.catalogVersion=cached.version;
+    renderParentCategories();
+    return;
+  }
+
+  if(state.catalogLoading)return;
+  state.catalogLoading=true;
+  const seq=++state.catalogSeq;
+
+  try{
+    const local=await localEngine(16000);
+    const seedRows=await fetchRegionalDiscoveryPool(local,true);
+    const rows=topicInputRows(seedRows);
+
+    const response=await fetch(AI_TOPICS_URL,{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "apikey":SUPABASE_ANON,
+        "authorization":"Bearer "+SUPABASE_ANON
+      },
+      body:JSON.stringify({mode:"catalog",videos:rows})
+    });
+
+    const payload=await response.json().catch(()=>null);
+    if(seq!==state.catalogSeq)return;
+    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
+
+    const parents=normalizeAiCatalog(payload);
+    if(!parents.length)throw new Error("empty_ai_catalog");
+
+    state.parentCategories=parents;
+    state.catalogVersion=saveAiCatalogCache(parents);
+    renderParentCategories();
+  }catch(error){
+    console.warn("ai catalog failed",error);
+  }finally{
+    if(seq===state.catalogSeq)state.catalogLoading=false;
   }
 }
 
