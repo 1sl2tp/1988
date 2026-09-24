@@ -39,8 +39,7 @@ const state={
   nativeSource:"",
   activeFeed:"home",
   videoPlaying:false,
-  playerInView:true,
-  floatObserver:null
+  floatRaf:0
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -65,22 +64,37 @@ async function localEngine(timeoutMs=15000){
   });
 }
 
-function applyFloatingIframe(){
+function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
 
-  const shouldFloat=
-    state.engine==="iframe" &&
-    !!state.currentId &&
-    state.videoPlaying &&
-    !state.playerInView;
-
   const floating=frame.classList.contains("floating-iframe");
+
+  if(
+    force===false ||
+    state.engine!=="iframe" ||
+    !state.currentId ||
+    !state.videoPlaying ||
+    playerSection.hidden
+  ){
+    if(floating){
+      frame.classList.remove("floating-iframe");
+      playerSection.style.removeProperty("min-height");
+    }
+    return;
+  }
+
+  const rect=playerSection.getBoundingClientRect();
+  const chipsBottom=topicChips?.getBoundingClientRect?.().bottom||0;
+  const boundary=Math.max(0,chipsBottom);
+  const shouldFloat=floating
+    ? rect.top<boundary+24
+    : rect.top<boundary-6;
+
   if(shouldFloat===floating)return;
 
   if(shouldFloat){
-    const height=Math.max(1,Math.round(frame.getBoundingClientRect().height));
-    playerSection.style.minHeight=height+"px";
+    playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
     frame.classList.add("floating-iframe");
   }else{
     frame.classList.remove("floating-iframe");
@@ -88,18 +102,19 @@ function applyFloatingIframe(){
   }
 }
 
-function setupFloatingIframe(){
-  if(!("IntersectionObserver" in window)||!playerSection)return;
-  state.floatObserver?.disconnect?.();
-  state.floatObserver=new IntersectionObserver(entries=>{
-    const entry=entries[0];
-    state.playerInView=!!entry?.isIntersecting&&Number(entry.intersectionRatio)>=0.15;
+function queueFloatingIframe(){
+  if(state.floatRaf)return;
+  state.floatRaf=requestAnimationFrame(()=>{
+    state.floatRaf=0;
     applyFloatingIframe();
-  },{
-    threshold:[0,0.15,0.5],
-    rootMargin:"-88px 0px 0px 0px"
   });
-  state.floatObserver.observe(playerSection);
+}
+
+function setupFloatingIframe(){
+  window.addEventListener("scroll",queueFloatingIframe,{passive:true});
+  window.addEventListener("resize",queueFloatingIframe,{passive:true});
+  window.visualViewport?.addEventListener?.("resize",queueFloatingIframe,{passive:true});
+  window.visualViewport?.addEventListener?.("scroll",queueFloatingIframe,{passive:true});
 }
 
 function showNativePlayer(){
@@ -523,7 +538,7 @@ async function playVideo(id,seedMeta={}){
   state.pendingVideoId=id;
   state.videoPlaying=false;
   playerSection.hidden=false;
-  applyFloatingIframe();
+  applyFloatingIframe(false);
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
