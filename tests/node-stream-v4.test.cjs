@@ -13,7 +13,7 @@ assert.match(server,/app\.get\(['"]\/audio['"]/);
 assert.doesNotMatch(app,/one988-audio\.onrender\.com/);
 assert.doesNotMatch(app,/one988-1od3\.onrender\.com/);
 assert.doesNotMatch(app,/AUDIO_PROXY/);
-assert.match(app,/audio_resolve/);
+assert.match(app,/const MEDIA_SERVICE="https:\/\/one988-media\.onrender\.com"/);
 assert.match(app,/new YT\.Player/);
 
 console.log('node-stream-v4: 11 assertions passed');
