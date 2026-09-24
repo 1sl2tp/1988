@@ -1,4 +1,4 @@
-name: Smoke AI topic clustering v2
+name: Smoke production AI trends
 
 on:
   push:
@@ -10,39 +10,54 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 7
     steps:
-      - name: Call yt1988 topics AI
+      - name: Verify AI topics on production
         shell: bash
         run: |
           set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
+          PID=$!
+          sleep 2
           node <<'NODE'
-          const url='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-topics';
-          const key='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE';
-          const videos=[
-            {id:'aaaaaaaaaaa',title:'Bão số 5 mạnh lên, nhiều nơi mưa lớn',channel:'VTV24',published:'2 giờ trước'},
-            {id:'bbbbbbbbbbb',title:'Bão số 5 áp sát đất liền, cảnh báo ngập lụt',channel:'VTC NEWS',published:'3 giờ trước'},
-            {id:'ccccccccccc',title:'Giá xăng tăng mạnh từ chiều nay',channel:'VietnamNet',published:'1 giờ trước'},
-            {id:'ddddddddddd',title:'Xăng dầu đồng loạt tăng giá',channel:'Tuổi Trẻ',published:'2 giờ trước'},
-            {id:'eeeeeeeeeee',title:'Công an điều tra âm mưu lừa đảo mới',channel:'ANTV',published:'4 giờ trước'},
-            {id:'ffffffffff1',title:'Phanh phui âm mưu lừa đảo qua mạng',channel:'VTC NEWS',published:'5 giờ trước'},
-            {id:'ggggggggggg',title:'Giá vàng tiếp tục tăng, nhà đầu tư chú ý',channel:'VTV24',published:'1 giờ trước'},
-            {id:'hhhhhhhhhhh',title:'Vàng trong nước tăng giá mạnh',channel:'VOV',published:'2 giờ trước'}
-          ];
-          const res=await fetch(url,{
-            method:'POST',
-            headers:{
-              'content-type':'application/json',
-              'authorization':'Bearer '+key,
-              'apikey':key,
-              'origin':'https://yt.taphoa.xyz'
-            },
-            body:JSON.stringify({scope:'latest',videos})
-          });
-          const text=await res.text();
-          console.log('STATUS='+res.status);
-          console.log('BODY='+text);
-          if(!res.ok)process.exit(1);
-          const body=JSON.parse(text);
-          if(!body.ok||!Array.isArray(body.topics))process.exit(2);
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function connect(){
+            let targets=[];
+            for(let i=0;i<40;i++){
+              try{targets=await (await fetch('http://127.0.0.1:9222/json')).json();if(targets.length)break}catch{}
+              await sleep(250);
+            }
+            const target=targets.find(x=>x.type==='page');
+            if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
+            const ws=new WebSocket(target.webSocketDebuggerUrl);
+            let id=0;const pending=new Map();
+            const send=(method,params={})=>new Promise((resolve,reject)=>{
+              const msgId=++id;pending.set(msgId,{resolve,reject});ws.send(JSON.stringify({id:msgId,method,params}));
+            });
+            ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result)}};
+            await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
+            return {ws,send};
+          }
+          (async()=>{
+            const {ws,send}=await connect();
+            await send('Runtime.enable');
+            await send('Page.enable');
+            await send('Log.enable').catch(()=>{});
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?aitrend='+Date.now()});
+            await sleep(18000);
+            const out=await send('Runtime.evaluate',{
+              expression:`(()=>{
+                const chips=[...document.querySelectorAll('#trendTopics .trend-chip')].map(x=>x.textContent.trim()).filter(Boolean);
+                const videos=document.querySelectorAll('#feed [data-video-id]').length;
+                const hidden=document.querySelector('#trendTopics')?.hidden;
+                const title=document.querySelector('#feedTitle')?.textContent?.trim()||'';
+                return JSON.stringify({chips,videos,hidden,title});
+              })()`,
+              returnByValue:true
+            });
+            console.log('PROD_JSON='+out?.result?.value);
+            ws.close();
+          })().catch(e=>{console.error(e);process.exit(1)});
           NODE
+          kill "$PID" 2>/dev/null || true
