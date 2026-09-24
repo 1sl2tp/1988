@@ -14,31 +14,12 @@ block = r"""
 # 1988 polish v3: gestures, pinned regions, channel videos, search suggestions.
 import re
 
-# Global interaction polish: app chrome is non-selectable, inputs remain selectable.
-p = Path("src/style.css")
-s = p.read_text()
-if "1988-noselect-v3" not in s:
-    s += r'''
-
-/* 1988-noselect-v3 */
-html, body, #app,
-button, a, img, svg, nav, .controls, .reel-page {
-  -webkit-user-select: none;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-
-input, textarea, [contenteditable="true"] {
-  -webkit-user-select: text;
-  user-select: text;
-}
-'''
-p.write_text(s)
-
-
+# Per-page interaction polish: fixed chrome is non-selectable, search input stays selectable.
 # Home: clearly separate pinned navigation from scrolling feed.
 p = Path("src/pages/HomePage.vue")
 s = p.read_text()
+if "-webkit-user-select: none;" not in s:
+    s = s.replace(".home {", ".home {\n  -webkit-user-select: none;\n  user-select: none;", 1)
 if 'class="home-pinned"' not in s:
     s = s.replace(
         '<main class="home">\n    <button class="search"',
@@ -73,6 +54,8 @@ p.write_text(s)
 # Reel/watch: make previous/next state reactive and make the swipe follow the finger.
 p = Path("src/pages/WatchPage.vue")
 s = p.read_text()
+if "-webkit-user-select: none;" not in s:
+    s = s.replace(".reel-page {", ".reel-page {\n  -webkit-user-select: none;\n  user-select: none;", 1)
 
 if "const trailIndex = ref(-1);" not in s:
     s = s.replace("let trailIndex = -1;", "const trailIndex = ref(-1);", 1)
@@ -170,6 +153,8 @@ p.write_text(s)
 # Channel page: resolve raw UC ids, keep header pinned and always provide videos.
 p = Path("src/pages/ChannelPage.vue")
 s = p.read_text()
+if "-webkit-user-select: none;" not in s:
+    s = s.replace(".channel-page {", ".channel-page {\n  -webkit-user-select: none;\n  user-select: none;", 1)
 
 s = s.replace(
     '''    const raw = String(row?.url || row?.id || '');
@@ -246,6 +231,9 @@ p.write_text(s)
 # Search: live suggestions + typo/retry suggestion, pinned search chrome, scrollable results.
 p = Path("src/pages/SearchPage.vue")
 s = p.read_text()
+if "-webkit-user-select: none;" not in s:
+    s = s.replace(".search-page {", ".search-page {\n  -webkit-user-select: none;\n  user-select: none;", 1)
+    s = s.replace(".box input {", ".box input {\n  -webkit-user-select: text;\n  user-select: text;", 1)
 
 s = s.replace(
     '          placeholder="Tìm video, bài hát, kênh..."\n        >',
