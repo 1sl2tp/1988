@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-source-workspace-v106';
+const CACHE='1988-main-source-workspace-v107';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=source-workspace-106',
-  './src/app.js?v=source-workspace-106',
+  './src/style.css?v=source-workspace-107',
+  './src/app.js?v=source-workspace-107',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
