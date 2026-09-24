@@ -203,6 +203,7 @@ let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
 let sourceManageMode=false;
 let sourceManageGroup="all";
+let sourceBlockedExpanded=false;
 let sourceMetaObserver=null;
 const sourceMetaCache=new Map();
 const sourceMetaPending=new Set();
@@ -363,7 +364,7 @@ function sourceRowHtml(row,{remote=false}={}){
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
   const groups=sourceGroupLabels(row);
-  const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Bình thường";
+  const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Chưa chọn";
   const subBits=[];
   if(groups.length)subBits.push(groups.join(" · "));
   if(subscriber)subBits.push(subscriber);
@@ -486,6 +487,22 @@ function renderSourceGroupTabs(){
   requestAnimationFrame(updateSourceGroupArrows);
 }
 
+function sourceStatusSection(label,rows=[],options={}){
+  const count=rows.length;
+  const blocked=options.blocked===true;
+  const collapsed=blocked&&!sourceBlockedExpanded;
+  const toggle=blocked
+    ?'<button class="source-section-toggle" type="button" data-source-section-toggle="blocked" aria-expanded="'+(!collapsed?'true':'false')+'">'+
+        '<span>'+esc(label)+' <b>'+count+'</b></span><span class="source-section-chevron">'+(collapsed?'›':'⌄')+'</span>'+
+      '</button>'
+    :'<div class="source-section-title">'+esc(label)+' <b>'+count+'</b></div>';
+
+  return '<section class="source-status-section'+(blocked?' blocked-section':'')+(collapsed?' collapsed':'')+'">'+
+    toggle+
+    (!collapsed&&count?'<div class="source-status-rows">'+rows.join("")+'</div>':"")+
+  '</section>';
+}
+
 function renderSourceLibrary(){
   if(!sourceList)return;
   const rows=channelLibrary();
@@ -507,23 +524,44 @@ function renderSourceLibrary(){
     :[];
 
   const parts=[];
-  if(localRows.length){
-    if(q)parts.push('<div class="source-group-label">Trong thư viện · '+localRows.length+'</div>');
-    parts.push(localRows.map(row=>sourceRowHtml(row)).join(""));
-  }
 
-  if(remoteRows.length){
-    parts.push('<div class="source-group-label">Tìm trên YouTube · '+remoteRows.length+'</div>');
-    parts.push(remoteRows.map(row=>sourceRowHtml(row,{remote:true})).join(""));
-  }
+  if(sourceManageMode){
+    const normalRows=localRows.filter(row=>sourceStatus(row.id)==="normal");
+    const selectedRows=localRows.filter(row=>sourceStatus(row.id)==="selected");
+    const blockedRows=localRows.filter(row=>sourceStatus(row.id)==="blocked");
 
-  if(!parts.length){
-    const message=q
-      ?"Không có nguồn phù hợp"
-      :sourceManageMode&&sourceManageGroup!=="all"
-        ?"Chưa có nguồn trong nhóm này"
-        :"Thư viện đang trống";
-    parts.push('<div class="source-empty">'+message+'</div>');
+    // New YouTube results belong to the "Chưa chọn" area until saved/selected.
+    const unselectedHtml=[
+      ...remoteRows.map(row=>sourceRowHtml(row,{remote:true})),
+      ...normalRows.map(row=>sourceRowHtml(row))
+    ];
+
+    parts.push(sourceStatusSection("Chưa chọn",unselectedHtml));
+    parts.push(sourceStatusSection("Đã chọn",selectedRows.map(row=>sourceRowHtml(row))));
+    parts.push(sourceStatusSection("Đã chặn",blockedRows.map(row=>sourceRowHtml(row)),{blocked:true}));
+
+    if(!unselectedHtml.length&&!selectedRows.length&&!blockedRows.length){
+      const message=q
+        ?"Không có nguồn phù hợp"
+        :sourceManageGroup!=="all"
+          ?"Chưa có nguồn trong nhóm này"
+          :"Thư viện đang trống";
+      parts.push('<div class="source-empty">'+message+'</div>');
+    }
+  }else{
+    if(localRows.length){
+      if(q)parts.push('<div class="source-group-label">Trong thư viện · '+localRows.length+'</div>');
+      parts.push(localRows.map(row=>sourceRowHtml(row)).join(""));
+    }
+
+    if(remoteRows.length){
+      parts.push('<div class="source-group-label">Tìm trên YouTube · '+remoteRows.length+'</div>');
+      parts.push(remoteRows.map(row=>sourceRowHtml(row,{remote:true})).join(""));
+    }
+
+    if(!parts.length){
+      parts.push('<div class="source-empty">'+(q?"Không có nguồn phù hợp":"Thư viện đang trống")+'</div>');
+    }
   }
 
   renderSourceGroupTabs();
@@ -619,7 +657,9 @@ function toggleSource(id){
 }
 
 function setSourceManageMode(enabled){
-  sourceManageMode=enabled===true;
+  const next=enabled===true;
+  if(next&&!sourceManageMode)sourceBlockedExpanded=false;
+  sourceManageMode=next;
   if(!sourceManageMode)sourceManageGroup="all";
 
   if(sourceSettingsBtn){
@@ -794,6 +834,15 @@ function setupSourceLibrary(){
   });
 
   sourceList?.addEventListener("click",event=>{
+    const sectionToggle=event.target.closest("[data-source-section-toggle]");
+    if(sectionToggle){
+      if(sectionToggle.dataset.sourceSectionToggle==="blocked"){
+        sourceBlockedExpanded=!sourceBlockedExpanded;
+        renderSourceLibrary();
+      }
+      return;
+    }
+
     const addButton=event.target.closest("[data-source-add]");
     if(addButton){
       const id=addButton.dataset.sourceAdd||"";
@@ -3084,7 +3133,8 @@ async function doSearch(value){
   // heavier local YouTubeJS session before showing results on main.
   try{
     const r=await api("search",{q,filter:"videos"},10000);
-    const rows=Array.isArray(r?.data?.items)?r.data.items:[];
+    const rows=(Array.isArray(r?.data?.items)?r.data.items:[])
+      .filter(row=>!isBlockedSourceRow(row));
     if(!rows.length)throw new Error("empty_search");
     renderCards(sourceAwareRows(rows,q));
     return;
@@ -3094,7 +3144,8 @@ async function doSearch(value){
 
   try{
     const local=await localEngine(9000);
-    const rows=await local.search(q,{type:"video"});
+    const rows=(await local.search(q,{type:"video"}))
+      .filter(row=>!isBlockedSourceRow(row));
     renderCards(sourceAwareRows(rows,q));
   }catch{
     feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
@@ -3254,13 +3305,13 @@ const FEED_CACHE_PREFIX="1988-discovery-v21:";
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
     const rows=await local.searchPage(key,query,{type:"video",...filters},reset);
-    return Array.isArray(rows)?rows:[];
+    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
   }catch(error){
     console.warn("paged search failed",key,error);
     if(!reset)return [];
     try{
       const rows=await local.search(query,{type:"video",...filters});
-      return Array.isArray(rows)?rows:[];
+      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
     }catch{
       return [];
     }
