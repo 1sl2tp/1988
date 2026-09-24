@@ -663,7 +663,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "- Nếu không có dữ liệu mới đủ chắc: mode=summary và chỉ tóm tắt video từ metadata được cung cấp, không bịa.",
     "- Với chính trị/thời sự/pháp luật: trung tính, mô tả sự kiện/quan hệ có căn cứ; không đánh giá, không suy đoán động cơ, sức khỏe hay năng lực.",
     "",
-    "E. TẠO KẾ HOẠCH GỢI Ý VIDEO THEO ĐÚNG LOẠI NỘI DUNG"
+    "E. TẠO KẾ HOẠCH GỢI Ý VIDEO THEO ĐÚNG LOẠI NỘI DUNG",
     "AI chỉ trả NGỮ NGHĨA + thông tin ngắn + từ khóa/truy vấn. Client mới là nơi gọi tìm kiếm YouTube và kiểm tra video nào thực sự phù hợp.",
     "Trả sections theo ĐÚNG THỨ TỰ nên hiển thị. Mỗi section có key,label,relation,queries,sourceMode,limit.",
     "sourceMode: any | same_channel | creator | official | series_source.",
