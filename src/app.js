@@ -2271,14 +2271,14 @@ async function loadAiParentDiscovery(parent){
 
     const [primaryRaw,batches]=await Promise.all([primaryPromise,discoveryPromise]);
 
-    const primaryRows=weekFreshViewedFirst(
+    const primaryRows=newestFirst(
       (Array.isArray(primaryRaw)?primaryRaw:[])
         .filter(uploadedWithinCategoryWindow)
         .filter(row=>!isBlockedSourceRow(row))
         .map(row=>({...row,_selectedCategorySource:true}))
     );
 
-    const discoveredRows=weekFreshViewedFirst(
+    const discoveredRows=newestFirst(
       mergeUniqueRows([],batches.flat())
         .filter(uploadedWithinCategoryWindow)
         .filter(row=>!isBlockedSourceRow(row))
@@ -2287,8 +2287,8 @@ async function loadAiParentDiscovery(parent){
     rememberDiscoveredSources(discoveredRows,parentSourceGroup(parent));
 
     let rows=dedupeHashedRows([
-      ...primaryRows,
-      ...discoveredRows
+      ...newestFirst(primaryRows),
+      ...newestFirst(discoveredRows)
     ]).slice(0,140);
 
     rows=filterRowsForAiParent(parent,rows);
@@ -2587,31 +2587,28 @@ function publishedLabel(row={}){
   return clean(row.uploadDate||row.uploadedDate||row.publishedText||"");
 }
 
-function feedPublishedLabel(row={}){
-  const mode=state.activeFeed;
-  if(mode!=="latest"&&mode!=="week"){
-    return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
-  }
-
+function relativePublishedLabel(row={}){
   const age=publishedAgeMs(row);
   if(!Number.isFinite(age)||age===Number.MAX_SAFE_INTEGER){
     return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
   }
 
-  if(mode==="latest"){
-    const seconds=Math.max(0,Math.floor(age/1000));
-    if(seconds<10)return "Vừa xong";
-    if(seconds<60)return seconds+" giây trước";
+  const seconds=Math.max(0,Math.floor(age/1000));
+  if(seconds<10)return "Vừa xong";
+  if(seconds<60)return seconds+" giây trước";
 
-    const minutes=Math.floor(seconds/60);
-    if(minutes<60)return minutes+" phút trước";
+  const minutes=Math.floor(seconds/60);
+  if(minutes<60)return minutes+" phút trước";
 
-    const hours=Math.floor(minutes/60);
-    return hours+" giờ trước";
-  }
+  const hours=Math.floor(minutes/60);
+  if(hours<24)return hours+" giờ trước";
 
-  const days=Math.max(1,Math.floor(age/DAY_MS));
+  const days=Math.max(1,Math.floor(hours/24));
   return days+" ngày trước";
+}
+
+function feedPublishedLabel(row={}){
+  return relativePublishedLabel(row);
 }
 
 function publishedAgeMs(row={}){
@@ -2685,23 +2682,7 @@ function newestFirst(rows=[]){
 }
 
 function weekFreshViewedFirst(rows=[]){
-  return rows
-    .map((row,index)=>{
-      const ageMs=Math.max(0,publishedAgeMs(row));
-      const ageHours=ageMs/(60*60*1000);
-      const day=Math.max(1,Math.floor(ageMs/DAY_MS));
-      const views=Math.max(0,Number(row?.views)||0);
-      const velocity=views/Math.max(1,ageHours);
-      return {row,index,day,ageHours,views,velocity};
-    })
-    .sort((a,b)=>
-      (a.day-b.day)||
-      (b.velocity-a.velocity)||
-      (b.views-a.views)||
-      (a.ageHours-b.ageHours)||
-      (a.index-b.index)
-    )
-    .map(item=>item.row);
+  return newestFirst(rows);
 }
 
 function mostViewedFirst(rows=[]){
