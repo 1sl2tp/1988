@@ -511,6 +511,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   state.sourceLibraryDirty=true;
   state.aiCategoryRows=new Map();
   state.aiCategoryTopics=new Map();
+  if(CONTENT_SOURCE_SCOPES.has(scope))sourceDiscoveryAt.delete(scope);
   refreshSourceManager();
   syncSourcePreviewHeader();
 }
@@ -3260,8 +3261,98 @@ function renderTrendTopics(){
   trendTopics.hidden=false;
 }
 
+const SOURCE_LEARNING_STOPWORDS=new Set([
+  "official","channel","kenh","kênh","tv","media","studio","network","vietnam",
+  "viet","việt","nam","vn","hd","youtube","page","online"
+]);
+
+function sourceLearningNames(scope,status="selected"){
+  scope=sourceScope(scope);
+  const ids=status==="blocked"?blockedSetForScope(scope):selectedSetForScope(scope);
+  const names=[];
+  for(const id of ids){
+    const meta=sourceMetaCache.get(id)||{};
+    const stored=libraryRow(id)||{};
+    const name=clean(meta.name||stored.name||"");
+    if(name)names.push(name);
+  }
+  return [...new Set(names)].slice(0,24);
+}
+
+function sourceLearningTerms(parent={}){
+  const group=parentSourceGroup(parent);
+  if(!group)return [];
+  const selectedNames=sourceLearningNames(group,"selected");
+  const blockedNames=sourceLearningNames(group,"blocked");
+  const baseQueries=(Array.isArray(parent?.queries)?parent.queries:[]).map(clean).filter(Boolean);
+  const baseText=normalizeSearchText(baseQueries.join(" "));
+  const score=new Map();
+
+  const addName=(name,weight)=>{
+    const raw=clean(name).replace(/[|/\\()[\]{}:_·•—–-]+/g," ").replace(/\s+/g," ").trim();
+    if(!raw)return;
+    const original=raw.split(/\s+/).filter(Boolean);
+    const tokens=original.filter(token=>{
+      const normalized=normalizeSearchText(token);
+      return normalized.length>=2&&!/^\d+$/.test(normalized)&&!SOURCE_LEARNING_STOPWORDS.has(normalized);
+    });
+    if(!tokens.length)return;
+
+    for(let size=1;size<=Math.min(3,tokens.length);size++){
+      for(let i=0;i+size<=tokens.length;i++){
+        const phrase=tokens.slice(i,i+size).join(" ");
+        const key=normalizeSearchText(phrase);
+        if(!key||key.length<3)continue;
+        const words=key.split(" ").filter(Boolean);
+        const baseBoost=baseText.includes(key)?2:0;
+        const lengthBoost=Math.min(2,Math.max(0,words.length-1));
+        score.set(phrase,(score.get(phrase)||0)+weight+baseBoost+lengthBoost);
+      }
+    }
+  };
+
+  selectedNames.forEach(name=>addName(name,3));
+  blockedNames.forEach(name=>addName(name,-5));
+
+  const ranked=[...score.entries()]
+    .filter(([phrase,value])=>value>0&&normalizeSearchText(phrase)!==normalizeSearchText(parent?.label||""))
+    .sort((a,b)=>b[1]-a[1]||b[0].split(" ").length-a[0].split(" ").length||a[0].localeCompare(b[0],"vi"));
+
+  const out=[];
+  for(const [phrase] of ranked){
+    const normalized=normalizeSearchText(phrase);
+    if(out.some(item=>{
+      const current=normalizeSearchText(item);
+      return current===normalized||current.includes(normalized)||normalized.includes(current);
+    }))continue;
+    const wordCount=normalized.split(" ").filter(Boolean).length;
+    const query=wordCount===1?clean(phrase+" "+(parent?.label||"")):clean(phrase);
+    if(query.length<3)continue;
+    out.push(query);
+    if(out.length>=4)break;
+  }
+  return out;
+}
+
+function sourceLearningProfile(parent={}){
+  const group=parentSourceGroup(parent);
+  if(!group)return {selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]};
+  return {
+    selectedSourceNames:sourceLearningNames(group,"selected"),
+    blockedSourceNames:sourceLearningNames(group,"blocked"),
+    learnedQueries:sourceLearningTerms(parent)
+  };
+}
+
+function adaptiveSourceQueries(parent={}){
+  const base=(Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
+    .map(clean).filter(Boolean);
+  const learned=sourceLearningTerms(parent);
+  return [...new Set([...base.slice(0,2),...learned,...base.slice(2)])].slice(0,6);
+}
 async function classifyAiParent(parent,rows=[]){
   const input=topicInputRows(rows.slice(0,48));
+  const learning=sourceLearningProfile(parent);
   if(input.length<4){
     return {
       topics:[],
@@ -3281,6 +3372,9 @@ async function classifyAiParent(parent,rows=[]){
       mode:"classify",
       scope:"ai:"+parent.key,
       parentLabel:parent.label,
+      selectedSourceNames:learning.selectedSourceNames,
+      blockedSourceNames:learning.blockedSourceNames,
+      learnedQueries:learning.learnedQueries,
       videos:input
     })
   });
@@ -3327,11 +3421,7 @@ function sourceAlreadyKnownForDiscovery(candidate,group){
 }
 
 async function collectNewSourceDiscoveryRows(parent,local,group){
-  const queries=[...new Set(
-    (Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
-      .map(clean)
-      .filter(Boolean)
-  )].slice(0,3);
+  const queries=adaptiveSourceQueries(parent);
 
   const representatives=new Map();
   let exhausted=false;
