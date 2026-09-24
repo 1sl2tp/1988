@@ -87,6 +87,7 @@ const state={
   videoAspect:16/9,
   keepFloating:false,
   floatDock:"right",
+  floatScale:1,
   floatTucked:false,
   floatPreset:"auto",
   videoAspectVerified:false,
@@ -2190,13 +2191,21 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
     const mode=button.dataset.floatMode||"";
     const active=mode==="tuck"
       ?state.floatTucked
-      :!state.floatTucked&&state.floatPreset===mode;
+      :mode==="scale"
+        ?false
+        :!state.floatTucked&&state.floatPreset===mode;
     button.classList.toggle("active",active);
     button.setAttribute("aria-pressed",active?"true":"false");
   });
 
   const tuckIcon=rail?.querySelector?.('[data-float-mode="tuck"] .float-mode-icon');
   if(tuckIcon)tuckIcon.textContent=state.floatDock==="left"?"‹":"›";
+
+  const scaleButton=rail?.querySelector?.('[data-float-mode="scale"]');
+  const scaleIcon=scaleButton?.querySelector?.(".float-mode-icon");
+  const scaleText=floatScaleValue()===1.5?"1.5×":floatScaleValue()+"×";
+  if(scaleIcon)scaleIcon.textContent=scaleText;
+  if(scaleButton)scaleButton.setAttribute("aria-label","Kích thước PiP "+scaleText+". Bấm để đổi 1×, 1.5×, 2×");
 
   const edgeTab=frame.querySelector(".float-edge-tab");
   if(edgeTab){
@@ -2220,7 +2229,7 @@ function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
         ?9/16
         :(state.videoAspect||16/9);
 
-  const size=autoFloatSize(frame,ratio);
+  const size=scaledAutoFloatSize(frame,ratio);
   placeAutoFloatAtEdge(frame,size);
 }
 function setFloatPreset(mode){
@@ -2282,12 +2291,17 @@ function ensureFloatHandles(){
     button.addEventListener("click",event=>{
       event.preventDefault();
       event.stopPropagation();
+      if(mode==="scale"){
+        cycleFloatScale(frame);
+        return;
+      }
       setFloatPreset(mode);
     });
     return button;
   };
 
   rail.append(
+    makeButton("scale","1×","Kích thước PiP 1×"),
     makeButton("tuck",state.floatDock==="left"?"‹":"›","Thu vào mép")
   );
 
@@ -2378,6 +2392,38 @@ function floatEdgeGap(){
   return window.innerWidth<=640?8:12;
 }
 
+function floatScaleValue(value=state.floatScale){
+  return [1,1.5,2].includes(Number(value))?Number(value):1;
+}
+
+function scaledAutoFloatSize(frame,ratio=state.videoAspect||16/9){
+  const base=autoFloatSize(frame,ratio);
+  const scale=floatScaleValue();
+  if(scale===1)return base;
+
+  const gap=floatEdgeGap();
+  const maxWidth=Math.max(120,window.innerWidth-gap*2);
+  const maxHeight=Math.max(120,window.innerHeight-gap*2);
+  let width=base.width*scale;
+  let height=base.height*scale;
+  const fit=Math.min(1,maxWidth/width,maxHeight/height);
+
+  width*=fit;
+  height*=fit;
+  return {width,height};
+}
+
+function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+  const steps=[1,1.5,2];
+  const current=floatScaleValue();
+  const index=steps.indexOf(current);
+  state.floatScale=steps[(index+1)%steps.length];
+  state.floatUserSized=false;
+  applyAutoFloatAspect(frame,{force:true});
+  updateFloatControlState(frame);
+}
+
 function placeAutoFloatAtEdge(frame,size){
   if(!frame)return;
   const gap=floatEdgeGap();
@@ -2416,7 +2462,7 @@ function applyAutoFloatAspect(frame,{force=false}={}){
   if(state.floatUserSized&&!force)return;
 
   const ratio=state.videoAspect||16/9;
-  const size=autoFloatSize(frame,ratio);
+  const size=scaledAutoFloatSize(frame,ratio);
   placeAutoFloatAtEdge(frame,size);
 }
 
@@ -2430,7 +2476,7 @@ function restoreFloatBox(){
 
   if(!state.floatUserSized){
     const ratio=state.videoAspect||16/9;
-    const size=autoFloatSize(frame,ratio);
+    const size=scaledAutoFloatSize(frame,ratio);
     placeAutoFloatAtEdge(frame,size);
     return;
   }
@@ -2648,7 +2694,7 @@ function applyFloatingIframe(force){
     // box while transitions are disabled, then switch to fixed positioning.
     frame.classList.add("float-entering");
     const entryRatio=state.videoAspect||16/9;
-    const entrySize=autoFloatSize(frame,entryRatio);
+    const entrySize=scaledAutoFloatSize(frame,entryRatio);
     placeAutoFloatAtEdge(frame,entrySize);
 
     frame.classList.add("floating-iframe");

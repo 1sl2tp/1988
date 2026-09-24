@@ -325,7 +325,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   position:absolute;
   z-index:30;
   top:50%;
-  width:28px;
+  width:30px;
   padding:2px;
   flex-direction:column;
   transform:translateY(-50%);
@@ -338,14 +338,14 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   opacity:.18;
   transition:opacity .15s ease;
 }
-.player-frame.floating-iframe.dock-right .float-mode-rail{left:-34px}
-.player-frame.floating-iframe.dock-left .float-mode-rail{right:-34px}
+.player-frame.floating-iframe.dock-right .float-mode-rail{left:-36px}
+.player-frame.floating-iframe.dock-left .float-mode-rail{right:-36px}
 .player-frame.floating-iframe .float-mode-rail:hover,
 .player-frame.floating-iframe .float-mode-rail:focus-within{opacity:1}
 
 .float-mode-btn{
   position:relative;
-  width:22px;
+  width:24px;
   height:38px;
   margin:0 auto;
   padding:0;
@@ -362,6 +362,11 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .float-mode-btn:hover,.float-mode-btn:focus-visible{background:rgba(255,255,255,.10);color:#fff;outline:none}
 .float-mode-btn.active{background:rgba(255,255,255,.16);color:#fff}
 .float-mode-icon{font-size:17px;line-height:1;font-weight:600;pointer-events:none}
+.float-mode-btn[data-float-mode="scale"] .float-mode-icon{
+  font-size:10px;
+  font-weight:750;
+  letter-spacing:-.35px;
+}
 .float-mode-label{
   position:absolute;
   top:50%;
@@ -424,10 +429,10 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{border-radius:11px}
   .player-frame.floating-iframe .float-mode-rail{
-    width:26px;
+    width:30px;
     padding:2px;
   }
-  .float-mode-btn{width:20px;height:36px}
+  .float-mode-btn{width:24px;height:36px}
   .float-mode-label{display:none}
 }
 
