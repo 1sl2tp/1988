@@ -75,11 +75,37 @@ jobs:
                 cards:document.querySelectorAll('#feed .card').length,
                 status:document.querySelector('#feedStatus')?.innerText,
                 title:document.querySelector('#feedTitle')?.innerText,
-                scripts:[...document.scripts].map(s=>s.src).filter(Boolean)
+                scripts:[...document.scripts].map(s=>s.src).filter(Boolean),
+                ytLocal:!!window.YTLocal
               })`,
               returnByValue:true
             });
             console.log('STATE',res?.result?.value);
+
+            const probe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  if(!window.YTLocal)return JSON.stringify({ok:false,error:'YTLocal missing'});
+                  const rows=await window.YTLocal.homePage('diagnose-home',true);
+                  return JSON.stringify({
+                    ok:true,
+                    count:Array.isArray(rows)?rows.length:-1,
+                    sample:(Array.isArray(rows)?rows:[]).slice(0,5).map(r=>({
+                      id:r.videoId,
+                      title:r.title,
+                      publishedText:r.publishedText,
+                      views:r.views,
+                      isLive:r.isLive
+                    }))
+                  });
+                }catch(e){
+                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('HOME_PROBE',probe?.result?.value);
             ws.close();
           }
           main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
