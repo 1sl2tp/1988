@@ -1559,11 +1559,8 @@ async function loadFeedPreset(name="today"){
 
   try{
     let local=null;
-    try{
+    if(!preset.allowWithoutLocal){
       local=await localEngine(16000);
-    }catch(error){
-      if(!preset.allowWithoutLocal)throw error;
-      console.warn("local engine unavailable; using regional fallback",name,error);
     }
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
@@ -1599,11 +1596,8 @@ async function loadMoreFeed(){
 
   try{
     let local=null;
-    try{
+    if(!preset.allowWithoutLocal){
       local=await localEngine(12000);
-    }catch(error){
-      if(!preset.allowWithoutLocal)throw error;
-      console.warn("local engine unavailable while loading more",name,error);
     }
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
