@@ -887,6 +887,36 @@ function videoDimensionsFromInfo(result={}){
   };
 }
 
+async function videoAspect(id){
+  if(!VIDEO_ID_RE.test(String(id||'')))return {width:0,height:0,aspectRatio:0};
+  const yt=await getYT();
+
+  for(const client of ['WEB','MWEB','IOS','ANDROID']){
+    try{
+      const basic=await yt.getBasicInfo(id,{client});
+      const dimensions=videoDimensionsFromInfo(basic);
+      if(dimensions.width>0&&dimensions.height>0){
+        return dimensions;
+      }
+
+      const formats=[
+        ...(Array.isArray(basic?.streaming_data?.formats)?basic.streaming_data.formats:[]),
+        ...(Array.isArray(basic?.streaming_data?.adaptive_formats)?basic.streaming_data.adaptive_formats:[])
+      ];
+      const videoFormats=formats
+        .filter(format=>Number(format?.width)>0&&Number(format?.height)>0)
+        .sort((a,b)=>(Number(b.width)*Number(b.height))-(Number(a.width)*Number(a.height)));
+      if(videoFormats.length){
+        const width=Number(videoFormats[0].width)||0;
+        const height=Number(videoFormats[0].height)||0;
+        if(width>0&&height>0)return {width,height,aspectRatio:width/height};
+      }
+    }catch{}
+  }
+
+  return {width:0,height:0,aspectRatio:0};
+}
+
 async function info(id){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
   const yt=await getYT();
@@ -895,27 +925,8 @@ async function info(id){
   const thumbnails=Array.isArray(basic.thumbnail)?basic.thumbnail:[];
   const related=normalizeRows(result?.watch_next_feed||[],24);
   let dimensions=videoDimensionsFromInfo(result);
-
-  // Some WEB info responses omit streaming format dimensions. In that case,
-  // resolve just the selected video format metadata (without probing/downloading
-  // the media) so vertical uploads can size the floating player correctly.
   if(!dimensions.width||!dimensions.height){
-    for(const client of ['WEB','MWEB','IOS']){
-      try{
-        const format=await yt.getStreamingData(id,{
-          type:'video+audio',
-          quality:'best',
-          format:'any',
-          client
-        });
-        const width=Number(format?.width)||0;
-        const height=Number(format?.height)||0;
-        if(width>0&&height>0){
-          dimensions={width,height,aspectRatio:width/height};
-          break;
-        }
-      }catch{}
-    }
+    dimensions=await videoAspect(id);
   }
 
   return {
@@ -1083,7 +1094,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,aiDisclosure,media,normalizeRows,normalizeChannels};
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
