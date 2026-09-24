@@ -157,7 +157,7 @@ const publishers: Array<{
 
 s = s.replace(
     "const topics: Array<{ id: TopicId; label: string; query: string }> = [",
-    publisher_block + "\\nconst topics: Array<{ id: TopicId; label: string; query: string }> = [",
+    publisher_block + "\nconst topics: Array<{ id: TopicId; label: string; query: string }> = [",
     1
 )
 
