@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-regional-fixed-v51';
+const CACHE='1988-main-regional-simple-v52';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=regional-feed-45',
-  './src/app.js?v=regional-fixed-51',
+  './src/app.js?v=regional-simple-52',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=lockup-feed-46',
