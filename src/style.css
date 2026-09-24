@@ -89,6 +89,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .card-copy{padding:9px 10px 11px}
 .card-title{font-size:13.5px;line-height:1.38;font-weight:650;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .card-channel,.card-stats{margin-top:4px;color:var(--muted);font-size:11px;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-related{color:#a8a8b0;font-weight:650}
 .loading,.empty,.error{grid-column:1/-1;padding:42px 10px;text-align:center;color:#85858e}.error{color:#ff857d}
 .retry-feed{margin-top:11px;height:36px;border:1px solid #393940;border-radius:18px;background:#202024;color:#fff;padding:0 16px}
 
