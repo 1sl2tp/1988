@@ -197,6 +197,11 @@ function normalizeNode(input){
     /\blive\b|trực tiếp|dang live|đang live/.test(badgeText)||
     /đang xem|watching now/.test(String(inferredView||'').toLowerCase());
 
+  const authorThumbs=node?.author?.thumbnails||node?.author?.thumbnail||[];
+  const uploaderThumbnailUrl=Array.isArray(authorThumbs)
+    ?(authorThumbs[0]?.url||'')
+    :(authorThumbs?.url||'');
+
   return {
     videoId:id,
     url:'/watch?v='+id,
@@ -204,6 +209,7 @@ function normalizeNode(input){
     uploader,
     channelId:videoChannelId(node),
     thumbnailUrl:thumbnailOf(node,id),
+    uploaderThumbnailUrl,
     duration,
     views,
     viewText:text(node.short_view_count||node.view_count||node.views)||inferredView,

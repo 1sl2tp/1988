@@ -1402,7 +1402,17 @@ function sourceCandidateFromVideo(row={}){
   );
   if(!name)return null;
 
-  return {id,name,thumbnailUrl:"",subscribers:""};
+  return {
+    id,
+    name,
+    thumbnailUrl:safeSourceThumb(
+      row?.uploaderThumbnailUrl||
+      row?.channelThumbnailUrl||
+      row?._sourceThumbnailUrl||
+      ""
+    ),
+    subscribers:""
+  };
 }
 
 function rememberDiscoveredSources(rows=[],groupHint=""){
@@ -1647,7 +1657,13 @@ async function openSourceFromSearchVideo(video){
 }
 
 async function openSourcePreview(id,rowHint=null){
-  const row=libraryRow(id)||rowHint||sourceRemoteResults.find(item=>item.id===id);
+  const cached=sourceMetaCache.get(id)||null;
+  const row=
+    libraryRow(id)||
+    rowHint||
+    sourceRemoteResults.find(item=>item.id===id)||
+    managedChannelLibrary().find(item=>item.id===id)||
+    (cached?{id,...cached}:null);
   if(!row||!sourcePreview)return;
 
   const seq=++sourcePreviewSeq;
@@ -1667,7 +1683,37 @@ async function openSourcePreview(id,rowHint=null){
 
   try{
     const local=await localEngine(16000);
-    const rows=await local.channelVideosPage("preview:"+id,id,true);
+    let rows=[];
+
+    try{
+      rows=await local.channelVideosPage("preview:"+id,id,true);
+    }catch(error){
+      console.warn("channel videos tab failed",id,error);
+    }
+
+    if(seq!==sourcePreviewSeq)return;
+
+    if(!Array.isArray(rows)||!rows.length){
+      const sourceName=clean(sourceMetaFor(row).name||row.name||"");
+      if(sourceName){
+        try{
+          const fallback=await local.search(sourceName,{sort_by:"upload_date"});
+          if(seq!==sourcePreviewSeq)return;
+
+          const normalizedName=normalizeSearchText(sourceName);
+          const exact=(Array.isArray(fallback)?fallback:[]).filter(video=>{
+            const channelId=String(video?.channelId||video?._sourceId||video?.uploaderId||"").trim();
+            if(channelId&&channelId===id)return true;
+            const uploader=normalizeSearchText(video?.uploader||video?._sourceName||"");
+            return !!uploader&&uploader===normalizedName;
+          });
+          rows=exact;
+        }catch(error){
+          console.warn("channel preview fallback failed",id,error);
+        }
+      }
+    }
+
     if(seq!==sourcePreviewSeq)return;
 
     const ordered=newestFirst(Array.isArray(rows)?rows:[])
@@ -1678,7 +1724,7 @@ async function openSourcePreview(id,rowHint=null){
         channelId:video?.channelId||id,
         _sourceName:sourceMetaFor(row).name||row.name||video?._sourceName||video?.uploader||""
       }));
-    sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]));
+    sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId));
     renderSourcePreviewVideos();
   }catch(error){
     if(seq!==sourcePreviewSeq)return;
@@ -1918,7 +1964,11 @@ function setupSourceLibrary(){
     const previewButton=event.target.closest("[data-source-preview]");
     if(previewButton){
       const id=previewButton.dataset.sourcePreview||"";
-      const hint=sourceRemoteResults.find(item=>item.id===id)||null;
+      const cached=sourceMetaCache.get(id)||null;
+      const hint=
+        sourceRemoteResults.find(item=>item.id===id)||
+        managedChannelLibrary().find(item=>item.id===id)||
+        (cached?{id,...cached}:null);
       void openSourcePreview(id,hint);
     }
   });
