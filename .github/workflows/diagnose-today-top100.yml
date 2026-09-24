@@ -1,4 +1,4 @@
-name: Smoke production AI trends
+name: Smoke production AI cleanup
 
 on:
   push:
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
-      - name: Verify AI topics on production
+      - name: Verify production AI cleanup
         shell: bash
         run: |
           set -euo pipefail
@@ -31,32 +31,75 @@ jobs:
             const target=targets.find(x=>x.type==='page');
             if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
             const ws=new WebSocket(target.webSocketDebuggerUrl);
-            let id=0;const pending=new Map();
+            let id=0;const pending=new Map();const listeners=[];
             const send=(method,params={})=>new Promise((resolve,reject)=>{
               const msgId=++id;pending.set(msgId,{resolve,reject});ws.send(JSON.stringify({id:msgId,method,params}));
             });
-            ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result)}};
+            ws.onmessage=e=>{
+              const m=JSON.parse(e.data);
+              if(m.id&&pending.has(m.id)){
+                const p=pending.get(m.id);pending.delete(m.id);
+                m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);
+              }else if(m.method){
+                for(const fn of listeners)fn(m);
+              }
+            };
             await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
-            return {ws,send};
+            return {ws,send,on:fn=>listeners.push(fn)};
           }
+
           (async()=>{
-            const {ws,send}=await connect();
+            const {ws,send,on}=await connect();
             await send('Runtime.enable');
             await send('Page.enable');
-            await send('Log.enable').catch(()=>{});
-            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?aitrend='+Date.now()});
-            await sleep(18000);
-            const out=await send('Runtime.evaluate',{
+            await send('Network.enable');
+
+            let aiResponse=null;
+            on(async m=>{
+              if(m.method!=='Network.responseReceived')return;
+              const url=String(m.params?.response?.url||'');
+              if(!url.includes('/yt1988-topics'))return;
+              try{
+                const body=await send('Network.getResponseBody',{requestId:m.params.requestId});
+                aiResponse=body?.body||'';
+              }catch{}
+            });
+
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?aiclean='+Date.now()});
+            await sleep(22000);
+
+            const dom=await send('Runtime.evaluate',{
               expression:`(()=>{
+                const cards=[...document.querySelectorAll('#feed .card')].slice(0,12).map(card=>({
+                  title:card.querySelector('.card-title')?.textContent?.trim()||'',
+                  channel:card.querySelector('.card-channel')?.textContent?.trim()||''
+                }));
                 const chips=[...document.querySelectorAll('#trendTopics .trend-chip')].map(x=>x.textContent.trim()).filter(Boolean);
-                const videos=document.querySelectorAll('#feed [data-video-id]').length;
-                const hidden=document.querySelector('#trendTopics')?.hidden;
-                const title=document.querySelector('#feedTitle')?.textContent?.trim()||'';
-                return JSON.stringify({chips,videos,hidden,title});
+                return JSON.stringify({
+                  title:document.querySelector('#feedTitle')?.textContent?.trim()||'',
+                  cardCount:document.querySelectorAll('#feed .card').length,
+                  chips,
+                  cards
+                });
               })()`,
               returnByValue:true
             });
-            console.log('PROD_JSON='+out?.result?.value);
+
+            let aiSummary=null;
+            try{
+              const parsed=JSON.parse(aiResponse||'{}');
+              aiSummary={
+                ok:parsed.ok,
+                cached:parsed.cached,
+                topicCount:Array.isArray(parsed.topics)?parsed.topics.length:0,
+                videoMetaCount:Array.isArray(parsed.videos)?parsed.videos.length:0,
+                duplicateCount:Array.isArray(parsed.videos)?parsed.videos.filter(v=>v.duplicateGroup).length:0,
+                samples:Array.isArray(parsed.videos)?parsed.videos.slice(0,5):[]
+              };
+            }catch{}
+
+            console.log('PROD_JSON='+dom?.result?.value);
+            console.log('AI_JSON='+JSON.stringify(aiSummary));
             ws.close();
           })().catch(e=>{console.error(e);process.exit(1)});
           NODE
