@@ -1082,7 +1082,7 @@ const AI_TREND_CACHE_PREFIX="1988-ai-trends-v2:";
 
 function topicInputRows(rows=[]){
   return newestFirst(Array.isArray(rows)?rows:[])
-    .slice(0,100)
+    .slice(0,120)
     .map(row=>({
       id:itemVideoId(row),
       title:clean(row?.title||""),
@@ -1297,7 +1297,7 @@ async function refreshAiTrendTopics(){
   if(rows.length<4)return;
 
   const poolKey=aiTrendPoolKey(scope,rows);
-  if(poolKey===state.trendPoolKey&&state.trendTopics.length)return;
+  if(poolKey===state.trendPoolKey&&(state.trendTopics.length||state.aiVideoMeta.size))return;
 
   const cached=readAiTrendCache(poolKey,rows);
   if(cached.topics.length||cached.videoMeta.size){
@@ -2543,6 +2543,8 @@ async function loadFeedPreset(name="latest"){
     state.feedRows=[];
     state.trendTopics=[];
     state.activeTrend="";
+    state.aiVideoMeta=new Map();
+    state.trendPoolKey="";
     renderTrendTopics();
     setActiveChip(name);
     feedTitle.textContent=preset.title;
@@ -2556,6 +2558,8 @@ async function loadFeedPreset(name="latest"){
   if(!isSourceScopedFeed(name)){
     state.trendTopics=[];
     state.activeTrend="";
+    state.aiVideoMeta=new Map();
+    state.trendPoolKey="";
     renderTrendTopics();
   }
   setActiveChip(name);
@@ -2584,6 +2588,8 @@ async function loadFeedPreset(name="latest"){
         state.feedHasMore=false;
         state.trendTopics=[];
         state.activeTrend="";
+        state.aiVideoMeta=new Map();
+        state.trendPoolKey="";
         renderTrendTopics();
         saveFeedCache(name,[]);
         feed.innerHTML='<div class="empty">Chưa có video phù hợp từ các nguồn đã chọn.</div>';
@@ -2652,7 +2658,7 @@ async function loadMoreFeed(){
       const visibleAdded=trendRows(added);
       if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
     }
-    const visibleTotal=trendRows(state.feedRows).length;
+    const visibleTotal=aiDisplayRows(trendRows(state.feedRows)).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
   }catch(error){
