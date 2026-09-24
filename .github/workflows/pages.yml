@@ -50,6 +50,9 @@ jobs:
       - name: Apply persistent mini v8
         run: python3 scripts/apply-mini-v8.py
 
+      - name: Apply unavailable filter v9
+        run: python3 scripts/apply-unavailable-v9.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
