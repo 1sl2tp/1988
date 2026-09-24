@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=video-card-67">
+  <link rel="stylesheet" href="./src/style.css?v=source-icon-68">
   <title>1988</title>
 </head>
 <body>
@@ -28,10 +28,8 @@
           placeholder="Tìm video hoặc dán link YouTube"
           aria-label="Tìm video hoặc dán link YouTube">
         <button type="submit" aria-label="Tìm">Tìm</button>
-        <button id="sourcesBtn" class="source-header-btn" type="button" aria-label="Quản lý nguồn">
-          <span class="source-header-icon">⚙︎</span>
-          <span class="source-header-label">Nguồn</span>
-          <span id="sourceHeaderCount" class="source-header-count"></span>
+        <button id="sourcesBtn" class="source-header-btn" type="button" aria-label="Quản lý nguồn" title="Nguồn">
+          <span class="source-header-icon" aria-hidden="true">⚙︎</span>
         </button>
         <div id="suggestions" class="suggestions" hidden></div>
       </form>
