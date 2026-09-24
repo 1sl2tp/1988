@@ -3,69 +3,79 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
-  <meta name="theme-color" content="#0f0f0f">
+  <meta name="theme-color" content="#0b0b0c">
   <meta name="color-scheme" content="dark">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="1988">
-  <meta name="description" content="1988 - xem YouTube không quảng cáo, PiP và âm thanh nền.">
+  <meta name="description" content="1988 - xem video nhanh trên web và PWA.">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=fresh-6">
+  <link rel="stylesheet" href="./src/style.css?v=ui-20260924">
   <title>1988</title>
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="./" aria-label="1988">1988</a>
-    <button id="installBtn" class="ghost-btn" type="button" hidden>Cài</button>
+  <header class="app-header">
+    <div class="header-inner">
+      <a class="brand" href="./" aria-label="1988">
+        <span class="brand-mark">▶</span><strong>1988</strong>
+      </a>
+      <form id="searchForm" class="header-search" autocomplete="off">
+        <span class="search-icon">⌕</span>
+        <input id="queryInput" type="search" inputmode="search" enterkeyhint="search"
+          placeholder="Tìm video hoặc dán link YouTube"
+          aria-label="Tìm video hoặc dán link YouTube">
+        <button type="submit" aria-label="Tìm">Tìm</button>
+        <div id="suggestions" class="suggestions" hidden></div>
+      </form>
+      <button id="installBtn" class="install-btn" type="button" hidden>Cài app</button>
+    </div>
   </header>
 
-  <main class="shell">
-    <section class="search-box" aria-label="Tìm video">
-      <form id="searchForm" autocomplete="off">
-        <input id="queryInput" type="search" inputmode="search" placeholder="Tìm video hoặc dán link YouTube" aria-label="Tìm video hoặc dán link YouTube">
-        <button type="submit">Tìm</button>
-      </form>
-      <div id="suggestions" class="suggestions" hidden></div>
-      <div id="topicChips" class="topic-chips" aria-label="Khám phá">
-        <button class="topic-chip active" type="button" data-feed="home">Gợi ý</button>
-        <button class="topic-chip" type="button" data-feed="today">Top hôm nay</button>
-        <button class="topic-chip" type="button" data-feed="week">Top tuần</button>
-        <button class="topic-chip" type="button" data-feed="popular">Xem nhiều</button>
-        <button class="topic-chip" type="button" data-feed="music">Nhạc</button>
-        <button class="topic-chip" type="button" data-feed="news">Tin tức</button>
-        <button class="topic-chip" type="button" data-feed="sports">Thể thao</button>
-        <button class="topic-chip" type="button" data-feed="entertainment">Giải trí</button>
-        <button class="topic-chip" type="button" data-feed="tech">Công nghệ</button>
-      </div>
+  <main class="app-shell">
+    <section id="topicChips" class="topic-chips" aria-label="Khám phá">
+      <button class="topic-chip active" type="button" data-feed="home">Gợi ý</button>
+      <button class="topic-chip" type="button" data-feed="today">Hôm nay</button>
+      <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
+      <button class="topic-chip" type="button" data-feed="popular">Xem nhiều</button>
+      <button class="topic-chip" type="button" data-feed="music">Nhạc</button>
+      <button class="topic-chip" type="button" data-feed="news">Thời sự</button>
+      <button class="topic-chip" type="button" data-feed="sports">Thể thao</button>
+      <button class="topic-chip" type="button" data-feed="entertainment">Giải trí</button>
+      <button class="topic-chip" type="button" data-feed="tech">Công nghệ</button>
     </section>
 
     <section id="playerSection" class="player-section" hidden>
-      <div class="player-frame">
-        <video id="nativePlayer" controls playsinline preload="metadata" hidden></video>
-        <div id="yt-player"></div>
-      </div>
-      <div class="now">
-        <div class="now-copy">
-          <h1 id="videoTitle">1988</h1>
-          <div id="videoMeta" class="video-meta"></div>
+      <div class="player-card">
+        <div class="player-frame">
+          <video id="nativePlayer" controls playsinline webkit-playsinline preload="auto" hidden></video>
+          <div id="yt-player" hidden></div>
         </div>
-        <div class="actions" aria-label="Chế độ phát">
-          <button id="videoBtn" class="secondary-btn active" type="button" aria-pressed="true">Video</button>
-          <button id="backgroundBtn" class="secondary-btn" type="button" aria-pressed="false">Âm thanh</button>
-          <button id="pipBtn" class="secondary-btn" type="button" aria-pressed="false">PiP</button>
-          <button id="lockBtn" class="secondary-btn" type="button" aria-pressed="false">Khóa</button>
-          <button id="shareBtn" class="secondary-btn" type="button">Chia sẻ</button>
+        <div class="now">
+          <div class="now-copy">
+            <h1 id="videoTitle">1988</h1>
+            <div id="videoMeta" class="video-meta"></div>
+          </div>
+          <div class="actions" aria-label="Chế độ phát">
+            <button id="videoBtn" class="mode-btn active" type="button" aria-pressed="true">Video</button>
+            <button id="backgroundBtn" class="mode-btn" type="button" aria-pressed="false">Nền</button>
+            <button id="pipBtn" class="mode-btn" type="button" aria-pressed="false">PiP</button>
+            <button id="lockBtn" class="mode-btn" type="button" aria-pressed="false">Khóa</button>
+            <button id="shareBtn" class="mode-btn" type="button">Chia sẻ</button>
+          </div>
+          <div id="statusText" class="status-text">Sẵn sàng phát video</div>
         </div>
-        <div id="statusText" class="status-text">Video mở trực tiếp · âm thanh nền tách riêng</div>
       </div>
     </section>
 
     <section class="feed-section">
       <div class="section-head">
-        <h2 id="feedTitle">Mới nhất</h2>
+        <div>
+          <h2 id="feedTitle">Gợi ý</h2>
+          <span class="section-sub">Vuốt để xem thêm</span>
+        </div>
         <span id="feedStatus"></span>
       </div>
       <div id="feed" class="feed">
@@ -80,10 +90,10 @@
     <div class="sheet" role="dialog" aria-modal="true" aria-label="Cài 1988">
       <div class="sheet-handle"></div>
       <div class="sheet-head">
-        <strong>Cài 1988 trên iPhone</strong>
+        <strong>Thêm 1988 vào màn hình chính</strong>
         <button id="closeInstallSheet" type="button" aria-label="Đóng">×</button>
       </div>
-      <p>Mở trang này bằng Safari, bấm <b>Chia sẻ</b> → <b>Thêm vào Màn hình chính</b> → bật <b>Mở dưới dạng ứng dụng</b> → <b>Thêm</b>.</p>
+      <p>Trên iPhone: mở bằng Safari → Chia sẻ → Thêm vào Màn hình chính → bật “Mở dưới dạng ứng dụng”.</p>
     </div>
   </div>
 
@@ -98,10 +108,10 @@
     });
   })();
   </script>
-  <script src="./src/media-core.js?v=1"></script>
-  <script src="./src/html5-background.js?v=8"></script>
-  <script src="https://www.youtube.com/iframe_api"></script>
-    <script type="module" src="./src/yt-local.js?v=3"></script>
-  <script defer src="./src/app.js?v=fresh-22"></script>
+  <script src="./src/media-core.js?v=2"></script>
+  <script src="./src/html5-background.js?v=9"></script>
+  <script type="module" src="./src/yt-local.js?v=4"></script>
+  <script src="https://www.youtube.com/iframe_api" async></script>
+  <script defer src="./src/app.js?v=mobile-ui-24"></script>
 </body>
 </html>
