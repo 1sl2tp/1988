@@ -150,6 +150,7 @@ const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   :[];
 const BASE_CHANNEL_ID_SET=new Set(BASE_CHANNEL_LIBRARY.map(row=>row.id));
+const BASE_CHANNEL_BY_ID=new Map(BASE_CHANNEL_LIBRARY.map(row=>[row.id,row]));
 
 function readStoredArray(key){
   try{
@@ -229,11 +230,11 @@ function channelLibrary(){
 }
 
 function libraryHas(id){
-  return channelLibrary().some(row=>row.id===id);
+  return BASE_CHANNEL_ID_SET.has(id)||customSources.some(row=>row?.id===id);
 }
 
 function libraryRow(id){
-  return channelLibrary().find(row=>row.id===id)||null;
+  return BASE_CHANNEL_BY_ID.get(id)||customSources.find(row=>row?.id===id)||null;
 }
 
 function persistSuggestedSourceState(){
@@ -299,6 +300,21 @@ function readSourceSelection(){
 }
 
 let selectedSourceIds=readSourceSelection();
+
+function pruneLegacyTemporaryCustomSources(){
+  const durable=new Set([...selectedSourceIds,...blockedSourceIds]);
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    for(const id of selectedSetForScope(scope))durable.add(id);
+    for(const id of blockedSetForScope(scope))durable.add(id);
+  }
+  const before=customSources.length;
+  customSources=customSources.filter(row=>row&&durable.has(String(row.id||"")));
+  if(customSources.length!==before){
+    try{localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));}catch{}
+  }
+}
+pruneLegacyTemporaryCustomSources();
+
 let sourceRemoteResults=[];
 let sourceSearchTimer=0;
 let sourceSearchSeq=0;
@@ -357,26 +373,22 @@ function allTemporarySourceIds(){
 }
 
 function managedChannelLibrary(){
-  const rows=channelLibrary();
-  const byId=new Map(rows.map(row=>[row.id,row]));
   const ids=new Set([...allManagedStateIds(),...allTemporarySourceIds()]);
+  const rows=[];
 
   for(const id of ids){
-    if(byId.has(id))continue;
+    const stored=libraryRow(id)||{};
     const meta=sourceMetaCache.get(id)||{};
-    const row={
+    rows.push({
       id,
-      name:clean(meta.name||id),
-      thumbnailUrl:clean(meta.thumbnailUrl||""),
-      subscribers:clean(meta.subscribers||""),
+      name:clean(meta.name||stored.name||id),
+      thumbnailUrl:clean(meta.thumbnailUrl||stored.thumbnailUrl||""),
+      subscribers:clean(meta.subscribers||stored.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[id])
         ?sourceGroupOverrides[id].map(String).filter(Boolean)
         :[]
-    };
-    rows.push(row);
-    byId.set(id,row);
+    });
   }
-
   return rows;
 }
 
@@ -461,6 +473,7 @@ function persistStateSourceMetadata(id){
 
 function setSourceStatus(id,status,scope=sourceManageGroup){
   scope=sourceScope(scope);
+  invalidateSourceStateNameIndex();
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
 
@@ -498,8 +511,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   state.sourceLibraryDirty=true;
   state.aiCategoryRows=new Map();
   state.aiCategoryTopics=new Map();
-  updateSourceSummary();
-  renderSourceLibrary();
+  refreshSourceManager();
   syncSourcePreviewHeader();
 }
 
@@ -928,13 +940,33 @@ function sourceRowName(row={}){
   );
 }
 
-function stateSourceName(id=""){
-  const row=libraryRow(id)||sourceMetaCache.get(id)||{};
-  return normalizeSearchText(
-    sourceMetaFor({...row,id}).name||
-    row?.name||
-    ""
-  );
+const sourceStateNameIndexCache=new Map();
+
+function invalidateSourceStateNameIndex(){
+  sourceStateNameIndexCache.clear();
+}
+
+function sourceStateNameIndex(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  if(sourceStateNameIndexCache.has(scope))return sourceStateNameIndexCache.get(scope);
+
+  const blockedNames=new Map();
+  const selectedNames=new Map();
+  const addNames=(ids,target)=>{
+    for(const id of ids){
+      const meta=sourceMetaCache.get(id)||{};
+      const stored=libraryRow(id)||{};
+      const name=normalizeSearchText(meta.name||stored.name||"");
+      if(name&&name.length>=3&&!target.has(name))target.set(name,id);
+    }
+  };
+
+  addNames(blockedSetForScope(scope),blockedNames);
+  addNames(selectedSetForScope(scope),selectedNames);
+
+  const index={blockedNames,selectedNames};
+  sourceStateNameIndexCache.set(scope,index);
+  return index;
 }
 
 function matchSourceState(row={},scope=sourceManageGroup){
@@ -949,13 +981,13 @@ function matchSourceState(row={},scope=sourceManageGroup){
   const name=sourceRowName(row);
   if(!name||name.length<3)return {status:"normal",canonicalId:""};
 
-  for(const stateId of blocked){
-    if(stateSourceName(stateId)===name)return {status:"blocked",canonicalId:stateId};
+  const index=sourceStateNameIndex(scope);
+  if(index.blockedNames.has(name)){
+    return {status:"blocked",canonicalId:index.blockedNames.get(name)};
   }
-  for(const stateId of selected){
-    if(stateSourceName(stateId)===name)return {status:"selected",canonicalId:stateId};
+  if(index.selectedNames.has(name)){
+    return {status:"selected",canonicalId:index.selectedNames.get(name)};
   }
-
   return {status:"normal",canonicalId:""};
 }
 
@@ -994,8 +1026,7 @@ function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
   return matchSourceState(row,scope).status==="blocked";
 }
 
-function updateSourceSummary(){
-  const rows=managedChannelLibrary();
+function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
@@ -1028,8 +1059,9 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const exists=libraryHas(row.id)||allManagedStateIds().has(row.id);
-  const status=exists?sourceStatus(row.id,sourceManageGroup):"normal";
+  const matched=remote?matchSourceState(row,sourceManageGroup):null;
+  const exists=!remote||matched?.status!=="normal";
+  const status=remote?(matched?.status||"normal"):sourceStatus(row.id,sourceManageGroup);
   const active=status==="selected";
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
@@ -1099,6 +1131,7 @@ async function ensureSourceMeta(id){
     const meta=await local.channelMeta(id);
     if(meta&&meta.id){
       sourceMetaCache.set(id,meta);
+      invalidateSourceStateNameIndex();
       updateSourceRowMeta(id);
     }
   }catch(error){
@@ -1158,7 +1191,7 @@ function isGeneralManagerSource(row={}){
     temporaryGeneralSourceIds.has(id);
 }
 
-function renderSourceGroupTabs(){
+function renderSourceGroupTabs(rows=managedChannelLibrary()){
   if(!sourceGroupTabs||!sourceGroupNav)return;
   sourceGroupNav.hidden=!sourceManageMode;
   if(!sourceManageMode){
@@ -1166,7 +1199,6 @@ function renderSourceGroupTabs(){
     return;
   }
 
-  const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     let count=0;
     if(group.key===GENERAL_SOURCE_SCOPE){
@@ -1203,9 +1235,8 @@ function sourceStatusSection(label,rows=[],options={}){
   '</section>';
 }
 
-function renderSourceLibrary(){
+function renderSourceLibrary(rows=managedChannelLibrary()){
   if(!sourceList)return;
-  const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
   let reconciled=false;
@@ -1296,9 +1327,15 @@ function renderSourceLibrary(){
     }
   }
 
-  renderSourceGroupTabs();
+  renderSourceGroupTabs(rows);
   sourceList.innerHTML=parts.join("");
   requestAnimationFrame(observeSourceRows);
+}
+
+function refreshSourceManager(){
+  const rows=managedChannelLibrary();
+  renderSourceLibrary(rows);
+  updateSourceSummary(rows);
 }
 
 async function searchSourceChannels(query){
@@ -1423,8 +1460,7 @@ function addSource(row){
   }
 
   state.sourceLibraryDirty=true;
-  updateSourceSummary();
-  renderSourceLibrary();
+  refreshSourceManager();
 }
 
 function toggleSource(id){
@@ -1433,7 +1469,7 @@ function toggleSource(id){
   setSourceStatus(id,status==="selected"?"normal":"selected",sourceManageGroup);
 }
 
-function setSourceManageMode(enabled){
+function setSourceManageMode(enabled,{render=true}={}){
   const next=enabled===true;
   if(next&&!sourceManageMode)sourceBlockedExpanded=false;
   sourceManageMode=next;
@@ -1449,8 +1485,7 @@ function setSourceManageMode(enabled){
     sourceSearch.placeholder=sourceManageMode?"Tìm trong quản lý nguồn":"Tìm kênh trên YouTube";
   }
 
-  updateSourceSummary();
-  renderSourceLibrary();
+  if(render)refreshSourceManager();
 }
 
 
@@ -1715,45 +1750,37 @@ function closeSourcePreview(){
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
-  // Open the sheet FIRST. Source rendering must never be able to block the
-  // Quản lý nguồn button from opening the UI.
   sourcesSheet.hidden=false;
+  sourceRemoteResults=[];
+  sourcePreviewSeq++;
+  closeSourceVideo();
+  sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+    ?state.activeParent
+    :GENERAL_SOURCE_SCOPE;
 
-  try{
-    sourceRemoteResults=[];
-    sourcePreviewSeq++;
-    closeSourceVideo();
-    sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
-      ?state.activeParent
-      :GENERAL_SOURCE_SCOPE;
+  setSourceManageMode(true,{render:false});
+  resetSourcePreviewPane();
+  if(sourceBrowse)sourceBrowse.hidden=false;
+  if(sourceSearchStatus)sourceSearchStatus.textContent="";
+  if(sourceList)sourceList.innerHTML='<div class="source-empty">Đang mở quản lý nguồn…</div>';
 
-    setSourceManageMode(true);
-    resetSourcePreviewPane();
-    if(sourceBrowse)sourceBrowse.hidden=false;
-    if(sourceSearchStatus)sourceSearchStatus.textContent="";
-    updateSourceSummary();
-    renderSourceLibrary();
-
-    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
-      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
-      if(parent){
-        void localEngine(12000)
-          .then(local=>discoverSourcesForParent(parent,local))
-          .catch(()=>{});
-      }
-    }
-  }catch(error){
-    console.error("open source manager failed",error);
-    if(sourceSearchStatus){
-      sourceSearchStatus.textContent="Đang khôi phục quản lý nguồn…";
-    }
+  requestAnimationFrame(()=>{
     try{
-      if(sourceBrowse)sourceBrowse.hidden=false;
-      if(sourceList&&!sourceList.innerHTML.trim()){
-        sourceList.innerHTML='<div class="source-empty">Đang tải lại danh sách nguồn…</div>';
-      }
-    }catch{}
-  }
+      refreshSourceManager();
+    }catch(error){
+      console.error("open source manager failed",error);
+      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
+    }
+
+    setTimeout(()=>{
+      if(sourcesSheet.hidden||!CONTENT_SOURCE_SCOPES.has(sourceManageGroup))return;
+      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
+      if(!parent)return;
+      void localEngine(12000)
+        .then(local=>discoverSourcesForParent(parent,local))
+        .catch(()=>{});
+    },120);
+  });
 
   setTimeout(()=>sourceSearch?.focus(),80);
 }
@@ -1773,7 +1800,7 @@ function closeSourceLibrary(){
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
   if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
-  setSourceManageMode(false);
+  setSourceManageMode(false,{render:false});
   if(clearSourceSearch)clearSourceSearch.hidden=true;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
   if(sourcePreview)sourcePreview.hidden=true;
@@ -1816,16 +1843,18 @@ function setupSourceLibrary(){
     sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
     sourceBlockedExpanded=false;
     resetSourcePreviewPane();
-    updateSourceSummary();
-    renderSourceLibrary();
+    refreshSourceManager();
 
     if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
-      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
-      if(parent){
+      const groupAtClick=sourceManageGroup;
+      setTimeout(()=>{
+        if(sourcesSheet.hidden||sourceManageGroup!==groupAtClick)return;
+        const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===groupAtClick);
+        if(!parent)return;
         void localEngine(12000)
           .then(local=>discoverSourcesForParent(parent,local))
           .catch(()=>{});
-      }
+      },120);
     }
   });
 
