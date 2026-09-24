@@ -2157,6 +2157,10 @@ function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
 
   if(state.floatPreset==="auto"){
     state.floatUserSized=false;
+    state.floatBox=null;
+    for(const prop of ["left","top","right","bottom","width","height","aspect-ratio"]){
+      frame.style.removeProperty(prop);
+    }
     restoreFloatBox();
     updateFloatControlState(frame);
     return;
@@ -2520,6 +2524,11 @@ function setupFloatingIframe(){
 }
 
 function markPlaybackTransition(){
+  // Safari is deliberately user-controlled here. Auto-resume after a page/
+  // fullscreen lifecycle transition can cancel timeline seeking.
+  const ua=navigator.userAgent||"";
+  const safari=/Safari/i.test(ua)&&!/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Android/i.test(ua);
+  if(safari)return;
   if(state.mode!=="video"||!state.currentId)return;
   let playing=state.videoPlaying;
   try{
