@@ -2155,46 +2155,36 @@ function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
 
   updateFloatControlState(frame);
 
-  if(state.floatPreset==="auto"){
-    state.floatUserSized=false;
-    state.floatBox=null;
-    for(const prop of ["left","top","right","bottom","width","height","aspect-ratio"]){
-      frame.style.removeProperty(prop);
-    }
-    restoreFloatBox();
-    updateFloatControlState(frame);
-    return;
-  }
+  const ratio=
+    state.floatPreset==="square"
+      ?1
+      :state.floatPreset==="portrait"
+        ?9/16
+        :(state.videoAspect||16/9);
 
-  const viewportW=Math.max(240,window.innerWidth);
-  const viewportH=Math.max(180,window.innerHeight);
-  let width;
-  let height;
+  const size=autoFloatSize(frame,ratio);
+  const dockLeft=state.floatDock==="left";
+  const current=frame.getBoundingClientRect();
+  const left=dockLeft
+    ?8
+    :Math.max(8,window.innerWidth-size.width-8);
+  const top=Math.max(
+    8,
+    Math.min(
+      window.innerHeight-size.height-8,
+      Number(state.floatBox?.top)||current.top||8
+    )
+  );
 
-  if(state.floatPreset==="square"){
-    const size=Math.max(180,Math.min(viewportW-16,viewportH-16));
-    width=size;
-    height=size;
-  }else{
-    // "Full dọc" is a near-full viewport container. YouTube remains inline,
-    // so Safari keeps its normal seek controls instead of native fullscreen.
-    width=Math.max(180,viewportW-12);
-    height=Math.max(180,viewportH-12);
-  }
-
-  const left=Math.max(6,(viewportW-width)/2);
-  const top=Math.max(6,(viewportH-height)/2);
-
-  frame.style.width=width+"px";
-  frame.style.height=height+"px";
+  frame.style.width=size.width+"px";
+  frame.style.height=size.height+"px";
   frame.style.aspectRatio="auto";
   frame.style.left=left+"px";
   frame.style.top=top+"px";
   frame.style.right="auto";
   frame.style.bottom="auto";
-  state.floatBox={left,top,width,height};
+  state.floatBox={left,top,width:size.width,height:size.height};
 }
-
 function setFloatPreset(mode){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||!frame.classList.contains("floating-iframe"))return;
@@ -2253,8 +2243,8 @@ function ensureFloatHandles(){
 
   rail.append(
     makeButton("tuck","⇥","Vào mép"),
-    makeButton("square","□","Full vuông"),
-    makeButton("portrait","▯","Full dọc")
+    makeButton("square","□","Khung vuông"),
+    makeButton("portrait","▯","Khung dọc")
   );
 
   const edgeTab=document.createElement("button");
@@ -2285,10 +2275,18 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   const viewportW=Math.max(240,window.innerWidth);
   const viewportH=Math.max(180,window.innerHeight);
   const mobile=viewportW<=640;
-  const cssWidth=frame?.getBoundingClientRect?.().width||0;
-  let width=cssWidth>0?cssWidth:(mobile?Math.min(256,viewportW*.58):Math.min(360,viewportW*.36));
 
-  // Vertical/square videos may grow high, but should not cover the full screen.
+  // PiP always starts from a predictable small width. Do not reuse the
+  // previous frame width because a manual square/portrait mode may be larger.
+  let width=mobile
+    ?Math.min(256,viewportW*.58)
+    :Math.min(360,viewportW*.36);
+
+  ratio=Number(ratio)||16/9;
+  ratio=Math.max(.34,Math.min(2.6,ratio));
+
+  // Vertical video becomes a tall PiP automatically; horizontal stays a
+  // compact 16:9-style PiP. Never let either cover the whole viewport.
   const maxHeight=Math.max(180,viewportH*(mobile?.68:.74));
   let height=width/ratio;
   if(height>maxHeight){
@@ -2296,14 +2294,10 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
     width=height*ratio;
   }
 
-  const minWidth=mobile?150:170;
-  if(width<minWidth){
+  const minWidth=mobile?128:150;
+  if(width<minWidth&&height<maxHeight){
     width=minWidth;
-    height=width/ratio;
-    if(height>maxHeight){
-      height=maxHeight;
-      width=height*ratio;
-    }
+    height=Math.min(maxHeight,width/ratio);
   }
 
   return {width,height};
@@ -2410,7 +2404,11 @@ function updateFloatingAmbient(frame){
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   state.videoAspect=normalizedVideoAspect(meta);
   const frame=playerSection?.querySelector(".player-frame");
-  if(frame?.classList.contains("floating-iframe")&&!state.floatUserSized){
+  if(
+    frame?.classList.contains("floating-iframe") &&
+    !state.floatUserSized &&
+    state.floatPreset==="auto"
+  ){
     applyAutoFloatAspect(frame,{force:true});
   }
 }
@@ -2452,14 +2450,11 @@ function applyFloatingIframe(force){
   const passedOriginal=rect.bottom<=boundary+4;
   const originalReturning=rect.bottom>boundary+18;
 
-  const presetPinned=state.floatPreset!=="auto";
-  const shouldFloat=presetPinned
-    ? true
-    : nearTop
-      ? false
-      : floating
-        ? !originalReturning
-        : passedOriginal;
+  const shouldFloat=nearTop
+    ? false
+    : floating
+      ? !originalReturning
+      : passedOriginal;
 
   if(shouldFloat||floating)updateFloatingAmbient(frame);
   if(shouldFloat===floating){
@@ -6336,15 +6331,13 @@ async function playVideo(id,seedMeta={}){
   state.currentId=id;
   state.currentMeta={...seedMeta};
   state.videoAspect=normalizedVideoAspect(seedMeta);
+  state.floatPreset="auto";
   state.floatUserSized=false;
+  state.floatTucked=false;
   if(wasFloating&&frame){
     const floatRect=frame.getBoundingClientRect();
-    state.floatBox={
-      left:floatRect.left,
-      top:floatRect.top,
-      width:floatRect.width,
-      height:floatRect.height
-    };
+    state.floatBox={top:floatRect.top};
+    updateFloatControlState(frame);
   }
   state.intentPlay=true;
   state.resumeOnReturn=false;
@@ -6379,7 +6372,7 @@ async function playVideo(id,seedMeta={}){
     requestAnimationFrame(()=>{
       if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
       applyFloatingIframe();
-      applyAutoFloatAspect(frame,{force:true});
+      applyFloatPreset(frame);
     });
   }
 

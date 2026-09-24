@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-player-modes-v132';
+const CACHE='1988-main-pip-auto-v133';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=player-modes-132',
-  './src/app.js?v=player-modes-132',
+  './src/style.css?v=pip-auto-133',
+  './src/app.js?v=pip-auto-133',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
