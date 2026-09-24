@@ -2576,6 +2576,13 @@ function scheduleYoutubeContentAspect(player=state.player){
   setTimeout(attempt,700);
 }
 
+function finishFloatEntry(frame){
+  if(!frame)return;
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>frame.classList.remove("float-entering"));
+  });
+}
+
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -2636,6 +2643,14 @@ function applyFloatingIframe(force){
 
   if(shouldFloat){
     playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
+
+    // Avoid the visible full-width -> PiP shrink. Pre-size to the FINAL PiP
+    // box while transitions are disabled, then switch to fixed positioning.
+    frame.classList.add("float-entering");
+    const entryRatio=state.videoAspect||16/9;
+    const entrySize=autoFloatSize(frame,entryRatio);
+    placeAutoFloatAtEdge(frame,entrySize);
+
     frame.classList.add("floating-iframe");
     updateFloatingAmbient(frame);
     ensureFloatHandles();
@@ -2651,6 +2666,8 @@ function applyFloatingIframe(force){
     }else{
       applyFloatPreset(frame);
     }
+
+    finishFloatEntry(frame);
   }else{
     if(floating){
       const rect=frame.getBoundingClientRect();
