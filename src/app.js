@@ -2740,24 +2740,10 @@ function finishFloatEntry(frame){
 let watchBrowseActive=false;
 let watchBrowseRaf=0;
 let watchBrowseMutating=false;
-let watchBrowseTriggerY=0;
 
 function watchBrowseViewportSupported(){
   const width=Math.max(0,window.innerWidth||document.documentElement.clientWidth||0);
   return width<=720||width>=960;
-}
-
-function computeWatchBrowseTrigger(){
-  const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||playerSection?.hidden)return Number.POSITIVE_INFINITY;
-
-  const top=Math.max(0,playerSection.offsetTop||0);
-  const height=Math.max(1,frame.getBoundingClientRect().height||frame.offsetHeight||0);
-  const viewport=Math.max(320,window.innerHeight||0);
-
-  // Enter only when the user has moved well into browsing, not while simply
-  // watching the large 16:9 player at the top.
-  return top+Math.min(height*.72,viewport*.52);
 }
 
 function cleanupFloatingForBrowse(){
@@ -2778,51 +2764,31 @@ function setWatchBrowseLayout(active){
   active=!!active;
   if(active===watchBrowseActive)return;
 
-  const anchorTop=feedSection?.getBoundingClientRect?.().top;
   watchBrowseMutating=true;
+
+  // Switching browsing layout must never move the document scroll position.
+  // First normalize any legacy floating-player state, then only toggle CSS.
+  if(active)cleanupFloatingForBrowse();
+
   watchBrowseActive=active;
   document.documentElement.classList.toggle("watch-browse",active);
 
-  if(active)cleanupFloatingForBrowse();
-
   requestAnimationFrame(()=>{
-    if(Number.isFinite(anchorTop)&&feedSection){
-      const after=feedSection.getBoundingClientRect().top;
-      const delta=after-anchorTop;
-      if(Math.abs(delta)>1){
-        window.scrollBy({top:delta,left:0,behavior:"instant"});
-      }
-    }
-
-    requestAnimationFrame(()=>{
-      watchBrowseMutating=false;
-      if(!active)queueFloatingIframe();
-    });
+    watchBrowseMutating=false;
+    if(!active)queueFloatingIframe();
   });
 }
 
 function syncWatchBrowseLayout(){
   if(watchBrowseMutating)return;
 
-  const canUse=
+  // Once a video is open, keep one stable watch+browse layout. Do not toggle
+  // it from scroll position: changing the grid while scrolling makes Safari's
+  // scrollbar jump and can repeatedly trigger reflow.
+  const target=
     watchBrowseViewportSupported() &&
     !!state.currentId &&
-    !playerSection?.hidden &&
-    !isPlayerFullscreen();
-
-  if(!canUse){
-    if(watchBrowseActive)setWatchBrowseLayout(false);
-    return;
-  }
-
-  if(!watchBrowseActive){
-    watchBrowseTriggerY=computeWatchBrowseTrigger();
-  }
-
-  const exitY=Math.max(20,watchBrowseTriggerY-110);
-  const target=watchBrowseActive
-    ?window.scrollY>exitY
-    :window.scrollY>=watchBrowseTriggerY;
+    !playerSection?.hidden;
 
   if(target!==watchBrowseActive)setWatchBrowseLayout(target);
 }
@@ -2836,12 +2802,10 @@ function queueWatchBrowseLayout(){
 }
 
 function setupWatchBrowseLayout(){
-  window.addEventListener("scroll",queueWatchBrowseLayout,{passive:true});
-  window.addEventListener("resize",()=>{
-    if(!watchBrowseActive)watchBrowseTriggerY=0;
-    queueWatchBrowseLayout();
-  },{passive:true});
+  window.addEventListener("resize",queueWatchBrowseLayout,{passive:true});
+  window.addEventListener("orientationchange",queueWatchBrowseLayout,{passive:true});
   window.visualViewport?.addEventListener?.("resize",queueWatchBrowseLayout,{passive:true});
+  queueWatchBrowseLayout();
 }
 
 function applyFloatingIframe(force){
@@ -6958,6 +6922,9 @@ async function playVideo(id,seedMeta={}){
   state.pendingVideoId=id;
   state.videoPlaying=wasFloating;
   playerSection.hidden=false;
+  // Activate the final watch+browse layout immediately when a video opens.
+  // No scroll threshold and no scroll compensation: the scrollbar stays put.
+  syncWatchBrowseLayout();
   if(!wasFloating)applyFloatingIframe(false);
 
   backgroundPlayer.pause();
@@ -6971,17 +6938,10 @@ async function playVideo(id,seedMeta={}){
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
-  const keepSourceManagerOpen=seedMeta?._keepSourceManagerOpen===true&&!sourcesSheet?.hidden;
-
-  if(!wasFloating&&!keepSourceManagerOpen){
-    try{
-      playerSection.scrollIntoView({behavior:"smooth",block:"start"});
-    }catch{
-      playerSection.scrollIntoView();
-    }
-  }else if(wasFloating){
+  // Keep the user's current browsing position. The sticky watch pane becomes
+  // visible in-place; selecting a video must not drag the page or scrollbar.
+  if(wasFloating){
     requestAnimationFrame(()=>{
-      if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
       applyFloatingIframe();
       applyAutoFloatAspect(frame,{force:true});
     });
