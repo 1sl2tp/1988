@@ -37,7 +37,10 @@ const state={
   audioMaster:false,
   engine:"iframe",
   nativeSource:"",
-  activeFeed:"home"
+  activeFeed:"home",
+  videoPlaying:false,
+  playerInView:true,
+  floatObserver:null
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -60,6 +63,43 @@ async function localEngine(timeoutMs=15000){
     const timer=setTimeout(()=>finish(reject,new Error("ytlocal_timeout")),timeoutMs);
     window.addEventListener("ytlocalready",onReady,{once:true});
   });
+}
+
+function applyFloatingIframe(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  const shouldFloat=
+    state.engine==="iframe" &&
+    !!state.currentId &&
+    state.videoPlaying &&
+    !state.playerInView;
+
+  const floating=frame.classList.contains("floating-iframe");
+  if(shouldFloat===floating)return;
+
+  if(shouldFloat){
+    const height=Math.max(1,Math.round(frame.getBoundingClientRect().height));
+    playerSection.style.minHeight=height+"px";
+    frame.classList.add("floating-iframe");
+  }else{
+    frame.classList.remove("floating-iframe");
+    playerSection.style.removeProperty("min-height");
+  }
+}
+
+function setupFloatingIframe(){
+  if(!("IntersectionObserver" in window)||!playerSection)return;
+  state.floatObserver?.disconnect?.();
+  state.floatObserver=new IntersectionObserver(entries=>{
+    const entry=entries[0];
+    state.playerInView=!!entry?.isIntersecting&&Number(entry.intersectionRatio)>=0.15;
+    applyFloatingIframe();
+  },{
+    threshold:[0,0.15,0.5],
+    rootMargin:"-88px 0px 0px 0px"
+  });
+  state.floatObserver.observe(playerSection);
 }
 
 function showNativePlayer(){
@@ -481,7 +521,9 @@ async function playVideo(id,seedMeta={}){
   state.audioMaster=false;
   state.nativeSource="";
   state.pendingVideoId=id;
+  state.videoPlaying=false;
   playerSection.hidden=false;
+  applyFloatingIframe();
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
@@ -562,13 +604,19 @@ function initYouTubePlayer(){
       },
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
+          state.videoPlaying=true;
+          applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
           try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
         }else if(event.data===YT.PlayerState.PAUSED){
+          state.videoPlaying=false;
+          applyFloatingIframe();
           if(state.mode==="video"){
             try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
           }
         }else if(event.data===YT.PlayerState.ENDED){
+          state.videoPlaying=false;
+          applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Đã phát xong";
         }
       },
@@ -887,6 +935,7 @@ topicChips.addEventListener("click",e=>{
 
 setupMediaSession();
 setupInstall();
+setupFloatingIframe();
 updateModeUi();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
