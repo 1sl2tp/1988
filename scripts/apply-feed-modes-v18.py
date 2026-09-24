@@ -159,6 +159,15 @@ function setSource(value: SourceId) {""",
         1
     )
 
+
+# remove legacy hidden setters
+s = re.sub(
+    r"""\nfunction setSource\(value: SourceId\) \{[\s\S]*?\n\}\n\nfunction setPublisher\(value: PublisherId\) \{[\s\S]*?\n\}\n\nfunction setTopic\(value: TopicId\) \{[\s\S]*?\n\}\n""",
+    "\n",
+    s,
+    count=1
+)
+
 # Cache follows only content type + ranking mode.
 s = s.replace(
     "return CACHE_PREFIX + source.value + ':' + publisher.value + ':' + topic.value;",
@@ -309,7 +318,7 @@ function coverageMap1988(rows: Row[]) {
     }
 
     const relatedChannels = new Set<string>();
-    rows.forEach((other, j) => {
+    rows.forEach((_other, j) => {
       if (j === index || channels[j] === channels[index]) return;
       const theirs = tokenSets[j];
       let common = 0;
