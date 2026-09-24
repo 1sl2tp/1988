@@ -623,10 +623,18 @@ function updateSourceSummary(){
   const blocked=blockedSetForScope(scope);
   const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
   const blockedCount=blocked.size;
+  const totalCount=scope===GENERAL_SOURCE_SCOPE
+    ?rows.filter(isGeneralManagerSource).length
+    :new Set([
+        ...suggestedSetForScope(scope),
+        ...selected,
+        ...blocked
+      ]).size;
+
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
     sourceSummary.textContent=sourceManageMode
-      ?selectedCount+" chọn · "+blockedCount+" chặn · "+rows.length+" nguồn"
+      ?selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn"
       :selectedSources(activeSourceScope()||GENERAL_SOURCE_SCOPE).length+" nguồn đã chọn";
   }
 }
@@ -765,8 +773,11 @@ function sourceHasLegacyCategoryAssignment(id){
 function isGeneralManagerSource(row={}){
   const id=String(row?.id||"").trim();
   if(!id)return false;
-  if(BASE_CHANNEL_ID_SET.has(id))return true;
+
+  // Mới nhất/Tuần này is a manual pool: only explicit selected/blocked
+  // sources and manually saved custom sources appear without searching.
   if(selectedSourceIds.has(id)||blockedSourceIds.has(id))return true;
+  if(BASE_CHANNEL_ID_SET.has(id))return false;
   if(sourceIsSuggestedAnywhere(id))return false;
   if(sourceHasLegacyCategoryAssignment(id))return false;
   return true;
