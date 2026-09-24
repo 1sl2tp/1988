@@ -88,7 +88,10 @@ const state={
   keepFloating:false,
   floatDock:"right",
   floatTucked:false,
+  floatPreset:"auto",
   fullscreenScrollY:null,
+  fullscreenActive:false,
+  fullscreenExitCooldownUntil:0,
   intentPlay:false,
   resumeOnReturn:false,
   transitionUntil:0,
@@ -2123,186 +2126,146 @@ async function localEngine(timeoutMs=15000){
   });
 }
 
+function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  frame.classList.toggle("float-tucked",state.floatTucked);
+  frame.classList.toggle("float-view-square",state.floatPreset==="square");
+  frame.classList.toggle("float-view-portrait",state.floatPreset==="portrait");
+
+  const rail=frame.querySelector(".float-mode-rail");
+  rail?.querySelectorAll?.("[data-float-mode]").forEach(button=>{
+    const mode=button.dataset.floatMode||"";
+    const active=mode==="tuck"
+      ?state.floatTucked
+      :!state.floatTucked&&state.floatPreset===mode;
+    button.classList.toggle("active",active);
+    button.setAttribute("aria-pressed",active?"true":"false");
+  });
+
+  const edgeTab=frame.querySelector(".float-edge-tab");
+  if(edgeTab){
+    const tuckedRight=state.floatDock!=="left";
+    edgeTab.textContent=tuckedRight?"‹":"›";
+    edgeTab.setAttribute("aria-label",tuckedRight?"Mở video từ mép phải":"Mở video từ mép trái");
+  }
+}
+
+function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+
+  updateFloatControlState(frame);
+
+  if(state.floatPreset==="auto"){
+    state.floatUserSized=false;
+    restoreFloatBox();
+    updateFloatControlState(frame);
+    return;
+  }
+
+  const viewportW=Math.max(240,window.innerWidth);
+  const viewportH=Math.max(180,window.innerHeight);
+  let width;
+  let height;
+
+  if(state.floatPreset==="square"){
+    const size=Math.max(180,Math.min(viewportW-16,viewportH-16));
+    width=size;
+    height=size;
+  }else{
+    // "Full dọc" is a near-full viewport container. YouTube remains inline,
+    // so Safari keeps its normal seek controls instead of native fullscreen.
+    width=Math.max(180,viewportW-12);
+    height=Math.max(180,viewportH-12);
+  }
+
+  const left=Math.max(6,(viewportW-width)/2);
+  const top=Math.max(6,(viewportH-height)/2);
+
+  frame.style.width=width+"px";
+  frame.style.height=height+"px";
+  frame.style.aspectRatio="auto";
+  frame.style.left=left+"px";
+  frame.style.top=top+"px";
+  frame.style.right="auto";
+  frame.style.bottom="auto";
+  state.floatBox={left,top,width,height};
+}
+
+function setFloatPreset(mode){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+
+  if(mode==="tuck"){
+    state.floatTucked=true;
+    updateFloatControlState(frame);
+    return;
+  }
+
+  state.floatTucked=false;
+  state.floatPreset=state.floatPreset===mode?"auto":mode;
+  state.floatUserSized=false;
+  applyFloatPreset(frame);
+}
+
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.dataset.floatControlsReady==="1")return;
-  frame.dataset.floatControlsReady="1";
+  if(!frame||frame.dataset.floatControlsReady==="2")return;
 
-  const dock=document.createElement("div");
-  dock.className="float-dock-edge";
-  dock.setAttribute("aria-label","Di chuyển hoặc thu gọn video");
+  // Remove the old invisible move/resize hit zones. They could overlap the
+  // YouTube seek bar on Safari and made the player harder to control.
+  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab").forEach(node=>node.remove());
+  frame.dataset.floatControlsReady="2";
 
-  const directions=["n","e","s","w","ne","nw","se","sw"];
-  const resizeHandles=directions.map(dir=>{
-    const handle=document.createElement("div");
-    handle.className="float-resize-zone float-resize-"+dir;
-    handle.dataset.floatResize=dir;
-    handle.setAttribute("aria-label","Kéo để đổi kích thước video");
-    return handle;
-  });
+  const rail=document.createElement("div");
+  rail.className="float-mode-rail";
+  rail.setAttribute("role","toolbar");
+  rail.setAttribute("aria-label","Kích thước video");
 
-  frame.append(dock,...resizeHandles);
+  const makeButton=(mode,icon,label)=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.className="float-mode-btn";
+    button.dataset.floatMode=mode;
+    button.setAttribute("aria-label",label);
+    button.setAttribute("aria-pressed","false");
 
-  const startGesture=(mode,event,dir="")=>{
-    if(!frame.classList.contains("floating-iframe"))return;
+    const iconEl=document.createElement("span");
+    iconEl.className="float-mode-icon";
+    iconEl.setAttribute("aria-hidden","true");
+    iconEl.textContent=icon;
+
+    const labelEl=document.createElement("span");
+    labelEl.className="float-mode-label";
+    labelEl.textContent=label;
+
+    button.append(iconEl,labelEl);
+    button.addEventListener("click",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      setFloatPreset(mode);
+    });
+    return button;
+  };
+
+  rail.append(
+    makeButton("tuck","⇥","Vào mép"),
+    makeButton("square","□","Full vuông"),
+    makeButton("portrait","▯","Full dọc")
+  );
+
+  const edgeTab=document.createElement("button");
+  edgeTab.type="button";
+  edgeTab.className="float-edge-tab";
+  edgeTab.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-
-    if(state.floatTucked){
-      state.floatTucked=false;
-      frame.classList.remove("float-tucked");
-    }
-
-    const rect=frame.getBoundingClientRect();
-    state.floatGesture={
-      id:event.pointerId,
-      mode,
-      dir,
-      startX:event.clientX,
-      startY:event.clientY,
-      left:rect.left,
-      top:rect.top,
-      width:rect.width,
-      height:rect.height,
-      moved:false
-    };
-
-    frame.style.left=rect.left+"px";
-    frame.style.top=rect.top+"px";
-    frame.style.right="auto";
-    frame.style.bottom="auto";
-    frame.style.width=rect.width+"px";
-    frame.style.height=rect.height+"px";
-    frame.style.aspectRatio="auto";
-
-    try{event.currentTarget.setPointerCapture(event.pointerId);}catch{}
-  };
-
-  dock.addEventListener("pointerdown",event=>startGesture("move",event));
-  resizeHandles.forEach(handle=>{
-    handle.addEventListener("pointerdown",event=>startGesture("resize",event,handle.dataset.floatResize||""));
+    state.floatTucked=false;
+    applyFloatPreset(frame);
+    updateFloatControlState(frame);
   });
 
-  const onMove=event=>{
-    const g=state.floatGesture;
-    if(!g||g.id!==event.pointerId||!frame.classList.contains("floating-iframe"))return;
-    event.preventDefault();
-
-    const dx=event.clientX-g.startX;
-    const dy=event.clientY-g.startY;
-    if(Math.abs(dx)+Math.abs(dy)>6)g.moved=true;
-
-    const viewportW=Math.max(240,window.innerWidth);
-    const viewportH=Math.max(180,window.innerHeight);
-    const minWidth=Math.min(220,Math.max(170,viewportW*.42));
-    const minHeight=Math.max(112,Math.min(150,viewportH*.28));
-    const maxWidth=Math.max(minWidth,viewportW-16);
-    const maxHeight=Math.max(minHeight,viewportH-16);
-
-    if(g.mode==="resize"){
-      let left=g.left;
-      let top=g.top;
-      let width=g.width;
-      let height=g.height;
-      const dir=g.dir||"";
-
-      if(dir.includes("e"))width=g.width+dx;
-      if(dir.includes("s"))height=g.height+dy;
-      if(dir.includes("w")){
-        width=g.width-dx;
-        left=g.left+dx;
-      }
-      if(dir.includes("n")){
-        height=g.height-dy;
-        top=g.top+dy;
-      }
-
-      if(width<minWidth){
-        if(dir.includes("w"))left-=minWidth-width;
-        width=minWidth;
-      }
-      if(height<minHeight){
-        if(dir.includes("n"))top-=minHeight-height;
-        height=minHeight;
-      }
-
-      if(width>maxWidth){
-        if(dir.includes("w"))left+=width-maxWidth;
-        width=maxWidth;
-      }
-
-      // Side-edge resizing behaves like the YouTube mini player:
-      // widening/narrowing also changes the height and grows upward.
-      if(dir==="e"||dir==="w"){
-        const ratio=Math.max(.42,Math.min(1.8,g.height/Math.max(1,g.width)));
-        height=Math.max(minHeight,Math.min(maxHeight,width*ratio));
-        top=g.top+g.height-height;
-      }
-
-      if(height>maxHeight){
-        if(dir.includes("n"))top+=height-maxHeight;
-        height=maxHeight;
-      }
-
-      left=Math.max(8,Math.min(viewportW-width-8,left));
-      top=Math.max(8,Math.min(viewportH-height-8,top));
-
-      frame.style.left=left+"px";
-      frame.style.top=top+"px";
-      frame.style.width=width+"px";
-      frame.style.height=height+"px";
-      return;
-    }
-
-    const rect=frame.getBoundingClientRect();
-    const left=Math.max(8,Math.min(viewportW-rect.width-8,g.left+dx));
-    const top=Math.max(8,Math.min(viewportH-rect.height-8,g.top+dy));
-    frame.style.left=left+"px";
-    frame.style.top=top+"px";
-  };
-
-  const stop=event=>{
-    const g=state.floatGesture;
-    if(!g||g.id!==event.pointerId)return;
-
-    const rect=frame.getBoundingClientRect();
-
-    if(g.mode==="move"&&!g.moved){
-      state.floatTucked=!state.floatTucked;
-      frame.classList.toggle("float-tucked",state.floatTucked);
-    }else if(g.mode==="move"){
-      const dx=event.clientX-g.startX;
-      const snapLeft=rect.left+rect.width/2<window.innerWidth/2;
-      state.floatDock=snapLeft?"left":"right";
-      const left=snapLeft?8:Math.max(8,window.innerWidth-rect.width-8);
-      frame.style.left=left+"px";
-      frame.classList.toggle("dock-left",snapLeft);
-      frame.classList.toggle("dock-right",!snapLeft);
-
-      const swipedIntoEdge=(snapLeft&&dx<-26)||(!snapLeft&&dx>26);
-      if(swipedIntoEdge){
-        state.floatTucked=true;
-        frame.classList.add("float-tucked");
-      }
-    }
-
-    const finalRect=frame.getBoundingClientRect();
-    if(g.mode==="resize")state.floatUserSized=true;
-    state.floatBox={
-      left:Number.parseFloat(frame.style.left)||finalRect.left,
-      top:Number.parseFloat(frame.style.top)||finalRect.top,
-      width:finalRect.width,
-      height:finalRect.height
-    };
-    state.floatGesture=null;
-  };
-
-  const pointerTargets=[dock,...resizeHandles];
-  pointerTargets.forEach(target=>{
-    target.addEventListener("pointermove",onMove);
-    target.addEventListener("pointerup",stop);
-    target.addEventListener("pointercancel",stop);
-  });
+  frame.append(rail,edgeTab);
+  updateFloatControlState(frame);
 }
 
 function normalizedVideoAspect(meta=state.currentMeta||{}){
@@ -2485,21 +2448,28 @@ function applyFloatingIframe(force){
   const passedOriginal=rect.bottom<=boundary+4;
   const originalReturning=rect.bottom>boundary+18;
 
-  const shouldFloat=nearTop
-    ? false
-    : floating
-      ? !originalReturning
-      : passedOriginal;
+  const presetPinned=state.floatPreset!=="auto";
+  const shouldFloat=presetPinned
+    ? true
+    : nearTop
+      ? false
+      : floating
+        ? !originalReturning
+        : passedOriginal;
 
   if(shouldFloat||floating)updateFloatingAmbient(frame);
-  if(shouldFloat===floating)return;
+  if(shouldFloat===floating){
+    if(floating&&state.floatPreset!=="auto")applyFloatPreset(frame);
+    return;
+  }
 
   if(shouldFloat){
     playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
     frame.classList.add("floating-iframe");
     updateFloatingAmbient(frame);
     ensureFloatHandles();
-    restoreFloatBox();
+    if(state.floatPreset==="auto")restoreFloatBox();
+    else applyFloatPreset(frame);
   }else{
     if(floating){
       const rect=frame.getBoundingClientRect();
@@ -2512,7 +2482,7 @@ function applyFloatingIframe(force){
         };
       }
     }
-    frame.classList.remove("floating-iframe","float-tucked","dock-left","dock-right");
+    frame.classList.remove("floating-iframe","float-tucked","dock-left","dock-right","float-view-square","float-view-portrait");
     state.floatTucked=false;
     clearFloatBoxStyles();
     playerSection.style.removeProperty("min-height");
@@ -2564,6 +2534,8 @@ function markPlaybackTransition(){
 
 function resumeVideoAfterReturn(){
   if(
+    state.fullscreenActive ||
+    Date.now()<state.fullscreenExitCooldownUntil ||
     state.mode!=="video" ||
     !state.currentId ||
     !state.intentPlay ||
@@ -2575,7 +2547,13 @@ function resumeVideoAfterReturn(){
   clearTimeout(state.resumeTimer);
 
   const attempt=()=>{
-    if(state.mode!=="video"||!state.currentId||!state.intentPlay)return;
+    if(
+      state.fullscreenActive ||
+      Date.now()<state.fullscreenExitCooldownUntil ||
+      state.mode!=="video" ||
+      !state.currentId ||
+      !state.intentPlay
+    )return;
     try{
       const ps=state.player?.getPlayerState?.();
       if(ps===YT.PlayerState.PLAYING){
@@ -2594,35 +2572,64 @@ function resumeVideoAfterReturn(){
 
 function setupFullscreenReturn(){
   const frame=()=>playerSection?.querySelector(".player-frame");
+
   const remember=()=>{
-    frame()?.classList.add("fullscreen-active");
+    state.fullscreenActive=true;
     state.fullscreenScrollY=window.scrollY;
-    markPlaybackTransition();
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+    clearTimeout(state.resumeTimer);
+    frame()?.classList.add("fullscreen-active");
   };
-  const restore=()=>{
-    frame()?.classList.remove("fullscreen-active");
+
+  const restoreVisual=()=>{
     const y=state.fullscreenScrollY;
     requestAnimationFrame(()=>{
       if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
       applyFloatingIframe();
-      resumeVideoAfterReturn();
     });
   };
+
+  const restoreFullscreen=()=>{
+    state.fullscreenActive=false;
+    // Give Safari time to finish handing the media controls back to the page.
+    // Do not call playVideo/playVideoById here: it can cancel a seek gesture.
+    state.fullscreenExitCooldownUntil=Date.now()+1800;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+    clearTimeout(state.resumeTimer);
+    frame()?.classList.remove("fullscreen-active");
+    restoreVisual();
+  };
+
   const syncFullscreenState=()=>{
     if(isPlayerFullscreen())remember();
-    else restore();
+    else if(state.fullscreenActive)restoreFullscreen();
   };
 
   document.addEventListener("fullscreenchange",syncFullscreenState);
   document.addEventListener("webkitfullscreenchange",syncFullscreenState);
 
-  // iPhone/iPad Safari may use the native WebKit video fullscreen path
-  // without exposing document.fullscreenElement.
   nativePlayer?.addEventListener?.("webkitbeginfullscreen",remember);
-  nativePlayer?.addEventListener?.("webkitendfullscreen",restore);
+  nativePlayer?.addEventListener?.("webkitendfullscreen",restoreFullscreen);
 
-  window.addEventListener("pagehide",markPlaybackTransition,{passive:true});
-  window.addEventListener("pageshow",restore,{passive:true});
+  window.addEventListener("pagehide",()=>{
+    if(state.fullscreenActive)return;
+    markPlaybackTransition();
+  },{passive:true});
+
+  window.addEventListener("pageshow",()=>{
+    restoreVisual();
+    // Only lifecycle-resume outside the Safari fullscreen cooldown.
+    if(
+      state.resumeOnReturn &&
+      !state.fullscreenActive &&
+      Date.now()>=state.fullscreenExitCooldownUntil &&
+      Date.now()<state.transitionUntil
+    ){
+      setTimeout(resumeVideoAfterReturn,120);
+    }
+  },{passive:true});
 }
 function showNativePlayer(){
   state.engine="native";
@@ -6434,10 +6441,24 @@ function forceCaptionsOff(){
 }
 
 function ensureIframePlaying(){
-  if(!state.player||!state.currentId||!state.intentPlay||state.mode!=="video")return;
+  if(
+    state.fullscreenActive ||
+    Date.now()<state.fullscreenExitCooldownUntil ||
+    !state.player ||
+    !state.currentId ||
+    !state.intentPlay ||
+    state.mode!=="video"
+  )return;
 
   const attempt=()=>{
-    if(!state.player||!state.currentId||!state.intentPlay||state.mode!=="video")return;
+    if(
+      state.fullscreenActive ||
+      Date.now()<state.fullscreenExitCooldownUntil ||
+      !state.player ||
+      !state.currentId ||
+      !state.intentPlay ||
+      state.mode!=="video"
+    )return;
     forceCaptionsOff();
     try{
       const ps=state.player.getPlayerState?.();
@@ -6513,8 +6534,10 @@ function initYouTubePlayer(){
           state.videoPlaying=false;
 
           const lifecyclePause=
-            document.visibilityState!=="visible" ||
-            state.resumeOnReturn ||
+            document.visibilityState!=="visible" &&
+            state.resumeOnReturn &&
+            !state.fullscreenActive &&
+            Date.now()>=state.fullscreenExitCooldownUntil &&
             Date.now()<state.transitionUntil;
 
           if(lifecyclePause&&state.intentPlay){
