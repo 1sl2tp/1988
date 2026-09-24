@@ -233,7 +233,6 @@ function applyFloatingIframe(force){
     force===false ||
     state.engine!=="iframe" ||
     !state.currentId ||
-    (!state.videoPlaying&&!state.keepFloating) ||
     playerSection.hidden
   ){
     if(floating){
@@ -374,9 +373,7 @@ function setupFullscreenReturn(){
     else restore();
   });
 
-  window.addEventListener("blur",markPlaybackTransition,{passive:true});
   window.addEventListener("pagehide",markPlaybackTransition,{passive:true});
-  window.addEventListener("focus",restore,{passive:true});
   window.addEventListener("pageshow",restore,{passive:true});
 }
 function showNativePlayer(){
@@ -910,6 +907,7 @@ function initYouTubePlayer(){
           state.videoPlaying=true;
           state.intentPlay=true;
           state.resumeOnReturn=false;
+          state.transitionUntil=0;
           state.keepFloating=false;
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
@@ -917,23 +915,23 @@ function initYouTubePlayer(){
         }else if(event.data===YT.PlayerState.PAUSED){
           state.videoPlaying=false;
 
-          const transitionPause=
+          const lifecyclePause=
             document.visibilityState!=="visible" ||
             state.resumeOnReturn ||
             Date.now()<state.transitionUntil;
 
-          if(transitionPause&&state.intentPlay){
-            state.keepFloating=state.keepFloating||
-              !!playerSection?.querySelector(".player-frame")?.classList.contains("floating-iframe");
+          if(lifecyclePause&&state.intentPlay){
             setTimeout(resumeVideoAfterReturn,90);
           }else{
-            // Visible, stable PAUSED is treated as an intentional user pause.
+            // Parent page is visible and stable: this came from the user's
+            // YouTube controls, so keep PAUSE exactly as requested.
             state.intentPlay=false;
             state.resumeOnReturn=false;
             state.transitionUntil=0;
           }
 
-          applyFloatingIframe();
+          // Do not change floating/inline layout on PAUSE; that caused the
+          // visible flash/jump on mobile.
           if(state.mode==="video"){
             try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
           }
