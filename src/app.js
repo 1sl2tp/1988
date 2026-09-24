@@ -2668,16 +2668,23 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.classList.add(aspectClass);
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
-  const mobile=
-    window.innerWidth<=720 &&
-    document.documentElement.classList.contains("watch-browse");
-
-  if(!mobile){
-    frame.style.removeProperty("--watch-player-width");
-    frame.style.removeProperty("--watch-player-height");
-    return;
+  const root=document.documentElement;
+  root.classList.remove(
+    "watch-video-wide",
+    "watch-video-square",
+    "watch-video-portrait"
+  );
+  if(root.classList.contains("watch-browse")){
+    root.classList.add(
+      aspectClass==="watch-aspect-wide"
+        ?"watch-video-wide"
+        :aspectClass==="watch-aspect-square"
+          ?"watch-video-square"
+          :"watch-video-portrait"
+    );
   }
 
+  const watchMode=root.classList.contains("watch-browse");
   const viewportWidth=Math.max(
     280,
     Number(window.visualViewport?.width)||window.innerWidth||0
@@ -2687,22 +2694,61 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     Number(window.visualViewport?.height)||window.innerHeight||0
   );
 
-  // Preserve the real video shape while keeping enough room for the source
-  // row and the scrollable result list. 16:9 remains full-width on normal
-  // portrait phones, but automatically shrinks on short/narrow viewports.
-  const heightShare=
-    ratio>=1.32
-      ?.42
-      :ratio>=.82
-        ?.48
-        :.56;
+  if(!watchMode){
+    frame.style.removeProperty("--watch-player-width");
+    frame.style.removeProperty("--watch-player-height");
+    return;
+  }
 
-  const heightCap=Math.max(170,viewportHeight*heightShare);
-  const width=Math.min(viewportWidth,heightCap*ratio);
-  const height=width/ratio;
+  const mobile=window.innerWidth<=720;
+  const desktop=window.innerWidth>=960;
 
-  frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
-  frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+  if(mobile){
+    // Mobile: keep enough room for the source row and scrollable result list.
+    const heightShare=
+      ratio>=1.32
+        ?.42
+        :ratio>=.82
+          ?.48
+          :.56;
+
+    const heightCap=Math.max(170,viewportHeight*heightShare);
+    const width=Math.min(viewportWidth,heightCap*ratio);
+    const height=width/ratio;
+
+    frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
+    frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+    return;
+  }
+
+  if(desktop){
+    // Desktop: landscape fills the available player column. Square/portrait
+    // instead use the viewport height as the limiting dimension, so vertical
+    // video becomes a real tall frame instead of sitting inside a 16:9 box.
+    const sectionWidth=Math.max(
+      320,
+      playerSection?.getBoundingClientRect?.().width||viewportWidth*.42
+    );
+    const styles=getComputedStyle(root);
+    const headerHeight=
+      parseFloat(styles.getPropertyValue("--header-stack-h"))||100;
+    const safeTop=
+      parseFloat(styles.getPropertyValue("--safe-top"))||0;
+    const availableHeight=Math.max(
+      300,
+      viewportHeight-headerHeight-safeTop-28
+    );
+
+    const width=Math.min(sectionWidth,availableHeight*ratio);
+    const height=width/ratio;
+
+    frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
+    frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+    return;
+  }
+
+  frame.style.removeProperty("--watch-player-width");
+  frame.style.removeProperty("--watch-player-height");
 }
 
 function queueResponsivePlayerFrame(){

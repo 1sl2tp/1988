@@ -1781,3 +1781,111 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     padding:1px 0 0;
   }
 }
+
+
+/* ============================================================
+   DESKTOP RESPONSIVE WATCH FRAME v171
+   Wide screens use their real width; portrait uses viewport height.
+   ============================================================ */
+@media(min-width:960px){
+  html.watch-browse .app-shell{
+    width:min(1840px,calc(100% - 24px));
+    max-width:none;
+    grid-template-columns:minmax(0,1.22fr) minmax(520px,1fr);
+    gap:0 22px;
+    padding-left:0;
+    padding-right:0;
+  }
+
+  html.watch-browse.watch-video-square .app-shell{
+    grid-template-columns:minmax(0,1.34fr) minmax(480px,.86fr);
+  }
+
+  html.watch-browse.watch-video-portrait .app-shell{
+    grid-template-columns:minmax(0,1.58fr) minmax(390px,.72fr);
+  }
+
+  html.watch-browse .player-section{
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    min-width:0;
+  }
+
+  html.watch-browse .player-card{
+    width:100%;
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    overflow:visible;
+    border-radius:0;
+    background:transparent;
+  }
+
+  html.watch-browse .player-frame{
+    flex:0 0 auto;
+    width:var(--watch-player-width,100%);
+    height:var(--watch-player-height,auto);
+    max-width:100%;
+    max-height:calc(100dvh - var(--header-stack-h) - 28px);
+    aspect-ratio:var(--watch-video-aspect,16/9);
+    margin:0 auto;
+    border-radius:12px;
+    background:#000;
+    transition:
+      width .16s ease,
+      height .16s ease;
+    will-change:width,height;
+  }
+
+  html.watch-browse .player-frame.watch-aspect-wide{
+    width:var(--watch-player-width,100%);
+  }
+
+  html.watch-browse .player-frame.watch-aspect-square,
+  html.watch-browse .player-frame.watch-aspect-portrait{
+    box-shadow:0 16px 42px rgba(0,0,0,.22);
+  }
+
+  html.watch-browse .player-frame #yt-player,
+  html.watch-browse .player-frame iframe,
+  html.watch-browse .player-frame video{
+    width:100%!important;
+    height:100%!important;
+    object-fit:contain;
+    border-radius:12px;
+    background:#000;
+  }
+}
+
+@media(min-width:1500px){
+  html.watch-browse .app-shell{
+    width:min(1840px,calc(100% - 28px));
+    grid-template-columns:minmax(0,1.18fr) minmax(620px,1fr);
+    gap:0 24px;
+  }
+
+  html.watch-browse.watch-video-square .app-shell{
+    grid-template-columns:minmax(0,1.42fr) minmax(520px,.86fr);
+  }
+
+  html.watch-browse.watch-video-portrait .app-shell{
+    grid-template-columns:minmax(0,1.72fr) minmax(420px,.68fr);
+  }
+
+  html.watch-browse .feed{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+@media(min-width:1900px){
+  html.watch-browse .app-shell{
+    width:calc(100% - 32px);
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  html.watch-browse .player-frame{
+    transition:none!important;
+  }
+}
