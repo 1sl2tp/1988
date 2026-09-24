@@ -5464,41 +5464,179 @@ function selectedRelatedAiRows(rows=[]){
     .filter(row=>row.id&&row.title);
 }
 
-function fallbackVideoContext(meta={}){
-  const title=normalizeSearchText(meta?._displayTitle||meta?.title||"");
+function fallbackCreatorFromChannel(value=""){
+  return clean(value)
+    .replace(/\b(?:official|music|channel|youtube|records?|entertainment|studio|tv)\b/ig," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function fallbackTopicCategory(){
+  switch(state.searchScope){
+    case "news": return "news";
+    case "economy": return "economy";
+    case "law": return "law";
+    case "tech": return "technology";
+    case "sports": return "sports";
+    case "entertainment": return "entertainment";
+    default: return "other";
+  }
+}
+
+function fallbackVideoContext(meta={},related=[]){
+  const rawTitle=clean(meta?._displayTitle||meta?.title||"");
+  const rawChannel=clean(searchChannelName(meta)||meta?.uploader||"");
+  const title=normalizeSearchText(rawTitle);
+  const channel=normalizeSearchText(rawChannel);
+  const description=normalizeSearchText(meta?.description||meta?.shortDescription||"");
+  const relatedText=(Array.isArray(related)?related:[])
+    .slice(0,12)
+    .map(row=>normalizeSearchText((row?._displayTitle||row?.title||"")+" "+searchChannelName(row)))
+    .join(" ");
+
+  const duration=Number(meta?.duration)||0;
+  const search=normalizeSearchText(state.searchQuery||"");
+  const combined=[title,channel,description,relatedText,search].join(" ");
+
+  const musicSignals=[
+    /\bofficial music video\b/,
+    /\bofficial audio\b/,
+    /\blyric(s)?\b/,
+    /\bkaraoke\b/,
+    /\bremix\b/,
+    /\bcover\b/,
+    /\bmusic\b/,
+    /\bca khuc\b/,
+    /\bbai hat\b/,
+    /\bsinger\b/,
+    /\bartist\b/
+  ];
+  const filmSignals=[
+    /\bphim\b/,
+    /\bmovie\b/,
+    /\bdrama\b/,
+    /\btap\s*\d+\b/,
+    /\bepisode\s*\d+\b/,
+    /\bep\s*\d+\b/,
+    /\bhoi\s*\d+\b/
+  ];
+  const newsSignals=[
+    /\btin tuc\b/,
+    /\bthoi su\b/,
+    /\bban tin\b/,
+    /\bnews\b/,
+    /\bbao\b/,
+    /\bantv\b/,
+    /\bvtv24\b/
+  ];
+
+  let musicScore=0;
+  for(const rule of musicSignals)if(rule.test(combined))musicScore++;
+  if(duration>=120&&duration<=720)musicScore+=1;
+  if(/\bofficial\b/.test(channel)&&duration>=120&&duration<=720)musicScore+=1;
+  if(/\bmtp\b|\bm tp\b|\bson tung\b/.test(channel+" "+title))musicScore+=3;
+
+  let filmScore=0;
+  for(const rule of filmSignals)if(rule.test(combined))filmScore++;
+  if(duration>=900)filmScore+=1;
+
+  let newsScore=0;
+  for(const rule of newsSignals)if(rule.test(combined))newsScore++;
+
   const base={
     category:"other",
-    canonicalTitle:clean(meta?.title||""),
+    canonicalTitle:rawTitle,
     creator:"",
-    currentChannel:clean(searchChannelName(meta)),
-    channelRole:"unknown",
+    currentChannel:rawChannel,
+    channelRole:/\bofficial\b/i.test(rawChannel)?"official":"unknown",
     originalChannelHint:"",
     version:"",
     isSeries:false,
-    subject:clean(meta?.title||""),
-    confidence:.2,
+    subject:rawTitle,
+    confidence:.25,
     primaryEntity:{name:"",type:"",role:"",aliases:[],summary:""},
     secondaryEntities:[],
-    work:{title:clean(meta?.title||""),seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
+    work:{title:rawTitle,seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
     sections:[],
     queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}
   };
 
-  if(/\b(mv|official music video|official audio|lyrics|lyric|karaoke|remix|cover|music|bai hat|ca khuc)\b/.test(title)){
-    return {...base,kind:"music",category:"music_video",confidence:.45};
+  if(musicScore>=2&&musicScore>=filmScore){
+    const canonical=musicCleanTitle(rawTitle||state.searchQuery||"");
+    const creator=fallbackCreatorFromChannel(rawChannel);
+    const sections=[
+      creator?{key:"artist_catalog",label:"Ca khúc khác của "+creator,relation:"same_creator",queries:[creator],sourceMode:"creator",limit:10}:null,
+      {key:"same_song",label:"Ca sĩ khác · "+canonical,relation:"same_work",queries:[canonical],sourceMode:"any",limit:10},
+      {key:"cover",label:"Cover",relation:"cover",queries:[canonical+" cover"],sourceMode:"any",limit:10},
+      {key:"instrumental",label:"Không lời · Guitar · Piano",relation:"instrumental",queries:[canonical+" không lời guitar piano"],sourceMode:"any",limit:10},
+      {key:"alternate_versions",label:"Live · Remix · Karaoke",relation:"alternatives",queries:[canonical+" live remix karaoke"],sourceMode:"any",limit:10}
+    ].filter(Boolean);
+
+    return {
+      ...base,
+      kind:"music",
+      category:/\blive\b/.test(title)?"live_music":/\bkaraoke\b/.test(title)?"karaoke":"music_video",
+      canonicalTitle:canonical,
+      creator,
+      subject:canonical,
+      confidence:.62,
+      primaryEntity:{name:creator,type:"artist",role:"performer",aliases:[],summary:""},
+      work:{...base.work,title:canonical},
+      sections,
+      queries:{
+        sameWork:[canonical],
+        creator:creator?[creator]:[],
+        series:[],versions:[],
+        covers:[canonical+" cover"],
+        instrumental:[canonical+" không lời guitar piano"],
+        alternatives:[canonical+" live remix karaoke"],
+        topic:[]
+      }
+    };
   }
-  if(/\b(tap|episode|ep|phim|movie|drama)\b/.test(title)){
-    const episode=searchEpisodeNumber(meta?.title||"");
+
+  if(filmScore>=2&&filmScore>=newsScore){
+    const episode=searchEpisodeNumber(rawTitle);
+    const canonical=filmSeriesSeed(meta)||stripEpisodeMarkers(rawTitle);
+    const sections=[
+      {key:"series",label:"Cùng bộ phim",relation:"same_series",queries:[canonical+" tập"],sourceMode:"series_source",limit:12},
+      {key:"versions",label:"Phiên bản khác",relation:"versions",queries:[canonical],sourceMode:"any",limit:10},
+      {key:"same_channel",label:"Phim khác trong kênh",relation:"same_creator",queries:[canonical],sourceMode:"same_channel",limit:10}
+    ];
     return {
       ...base,
       kind:"film",
       category:episode?"film_series":"film_movie",
+      canonicalTitle:canonical,
+      subject:canonical,
       isSeries:!!episode,
-      confidence:.4,
-      work:{...base.work,episodeNumber:episode,isSeries:!!episode}
+      confidence:.55,
+      work:{...base.work,title:canonical,seriesTitle:episode?canonical:"",episodeNumber:episode,isSeries:!!episode},
+      sections,
+      queries:{
+        sameWork:[],creator:[rawChannel],series:[canonical+" tập"],versions:[canonical],
+        covers:[],instrumental:[],alternatives:[],topic:[]
+      }
     };
   }
-  return {...base,kind:"topic",category:"other"};
+
+  const category=newsScore>=1?"news":fallbackTopicCategory();
+  const subject=clean(state.searchQuery||rawTitle);
+  const sections=[
+    {key:"same_topic",label:"Cùng chủ đề",relation:"same_topic",queries:[subject],sourceMode:"any",limit:12},
+    rawChannel?{key:"same_channel",label:"Cùng nguồn · "+rawChannel,relation:"same_creator",queries:[subject],sourceMode:"same_channel",limit:10}:null
+  ].filter(Boolean);
+
+  return {
+    ...base,
+    kind:"topic",
+    category,
+    canonicalTitle:subject,
+    subject,
+    confidence:.35,
+    sections,
+    queries:{sameWork:[],creator:rawChannel?[rawChannel]:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[subject]}
+  };
 }
 
 async function resolveSelectedVideoContext(id,meta={},related=[]){
@@ -5521,11 +5659,11 @@ async function resolveSelectedVideoContext(id,meta={},related=[]){
     const payload=await response.json().catch(()=>null);
     if(seq!==state.videoContextSeq||state.currentId!==id)return null;
     if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-    return payload?.context||fallbackVideoContext(meta);
+    return payload?.context||fallbackVideoContext(meta,related);
   }catch(error){
     console.warn("video context AI failed",error);
     if(seq!==state.videoContextSeq||state.currentId!==id)return null;
-    return fallbackVideoContext(meta);
+    return fallbackVideoContext(meta,related);
   }
 }
 

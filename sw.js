@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-selected-context-rich-v126';
+const CACHE='1988-main-context-fallback-v127';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=search-series-120',
-  './src/app.js?v=selected-context-rich-126',
+  './src/app.js?v=context-fallback-127',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
