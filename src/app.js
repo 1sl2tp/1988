@@ -1368,13 +1368,30 @@ function uploadedWithin(row,maxAgeMs){
   return Number.isFinite(age)&&age>=0&&age<=maxAgeMs;
 }
 
+async function normalizeRegionalRow(row={}){
+  const duration=Number(row?.duration);
+  const uploaded=Number(row?.uploaded);
+  const uploadedDate=clean(row?.uploadedDate||row?.publishedText||"");
+  const isLive=
+    row?.isLive===true ||
+    duration<0 ||
+    uploaded===-1;
+
+  return {
+    ...row,
+    isLive,
+    publishedText:clean(row?.publishedText||uploadedDate),
+    uploader:clean(row?.uploader||row?.uploaderName||row?.channelName||"")
+  };
+}
+
 async function regionalTrendingRows(){
   try{
     const response=await api("trending",{region:"VN"},10000);
     const data=response?.data;
-    if(Array.isArray(data))return data;
-    if(Array.isArray(data?.items))return data.items;
-    if(Array.isArray(data?.videos))return data.videos;
+    if(Array.isArray(data))return data.map(normalizeRegionalRow);
+    if(Array.isArray(data?.items))return data.items.map(normalizeRegionalRow);
+    if(Array.isArray(data?.videos))return data.videos.map(normalizeRegionalRow);
   }catch(error){
     console.warn("regional trending failed",error);
   }
@@ -1391,7 +1408,8 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
     first=false;
     if(!Array.isArray(rows)||!rows.length)break;
 
-    for(const row of rows){
+    for(const raw of rows){
+      const row=normalizeRegionalRow(raw);
       if(predicate(row))collected.push(row);
     }
 
@@ -1402,7 +1420,8 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
   // region=VN, not by a search phrase, and keeps these feeds keyword-free.
   if(!collected.length&&reset){
     const rows=await regionalTrendingRows();
-    for(const row of rows){
+    for(const raw of rows){
+      const row=normalizeRegionalRow(raw);
       if(predicate(row))collected.push(row);
     }
   }
