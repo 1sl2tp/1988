@@ -318,10 +318,10 @@ async function home(){
   const yt=await getYT();
   try{
     const result=await yt.getHomeFeed();
-    const rows=pageRows(result,30);
-    if(rows.length)return rows;
-  }catch{}
-  return search('Việt Nam',{type:'video',sort_by:'upload_date'});
+    return pageRows(result,30);
+  }catch{
+    return [];
+  }
 }
 
 async function homePage(key='home',reset=false){
@@ -334,7 +334,7 @@ async function homePage(key='home',reset=false){
     if(!result)return [];
   }else{
     try{result=await yt.getHomeFeed()}catch{}
-    if(!result)return searchPage(id,'Việt Nam',{type:'video',sort_by:'upload_date'},reset);
+    if(!result)return [];
   }
 
   discoveryPages.set(id,result);
