@@ -232,7 +232,46 @@ jobs:
               awaitPromise:true,
               returnByValue:true
             });
-            console.log('REPORT_JSON='+report?.result?.value);
+            const data=JSON.parse(report?.result?.value||'{}');
+            const bases=[
+              'https://pipedapi.ducks.party',
+              'https://pipedapi.adminforge.de',
+              'https://api.piped.private.coffee'
+            ];
+            let cursor=0;
+            const channels=Array.isArray(data.channels)?data.channels:[];
+            const workers=Array.from({length:Math.min(8,channels.length)},async()=>{
+              while(true){
+                const index=cursor++;
+                if(index>=channels.length)return;
+                const c=channels[index];
+                if(!c.channelId)continue;
+                for(const base of bases){
+                  const controller=new AbortController();
+                  const timer=setTimeout(()=>controller.abort(),6000);
+                  try{
+                    const res=await fetch(base+'/channel/'+encodeURIComponent(c.channelId),{signal:controller.signal});
+                    if(!res.ok)throw new Error('HTTP '+res.status);
+                    const body=await res.json();
+                    const subs=Number(body?.subscriberCount);
+                    if(Number.isFinite(subs)&&subs>=0){
+                      c.subscribers=subs;
+                      c.subscribersText=subs.toLocaleString('vi-VN');
+                      break;
+                    }
+                  }catch{}finally{clearTimeout(timer)}
+                }
+              }
+            });
+            await Promise.all(workers);
+            channels.sort((a,b)=>
+              (Number(b.subscribers||0)-Number(a.subscribers||0))||
+              (Number(b.recentViews||0)-Number(a.recentViews||0))||
+              (Number(b.newVideos||0)-Number(a.newVideos||0))||
+              String(a.channelName||'').localeCompare(String(b.channelName||''),'vi')
+            );
+            data.channels=channels.slice(0,100);
+            console.log('REPORT_JSON='+JSON.stringify(data));
             ws.close();
           }
           main().catch(e=>{console.error(e);process.exit(1)});
