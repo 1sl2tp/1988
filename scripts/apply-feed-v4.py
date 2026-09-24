@@ -128,4 +128,124 @@ s = s.replace(
   syncPlayerState();''',
     r'''  try {
     player.value?.setVolume?.(volume.value);
-    if (volume.value >
+    if (volume.value > 0) {
+      player.value?.unMute?.();
+      muted.value = false;
+      rememberAudio1988(true, volume.value);
+    } else {
+      player.value?.mute?.();
+      muted.value = true;
+      rememberAudio1988(false, savedVolume1988());
+    }
+  } catch {}
+  syncPlayerState();''',
+    1
+)
+
+s = s.replace(
+    r'''      onStateChange: (event: any) => {
+        playing.value = event.data === YT.PlayerState.PLAYING;
+        syncPlayerState();
+        forceCaptionsOff();
+      },''',
+    r'''      onStateChange: (event: any) => {
+        playing.value = event.data === YT.PlayerState.PLAYING;
+        if (playing.value && wantsAudio1988()) {
+          try {
+            event.target.setVolume?.(savedVolume1988());
+            event.target.unMute?.();
+          } catch {}
+        }
+        syncPlayerState();
+        forceCaptionsOff();
+      },''',
+    1
+)
+p.write_text(s)
+
+p = Path("src/components/GridVideoItem.vue")
+s = p.read_text()
+s = s.replace(
+    "const props = defineProps<{ data: VideoItemData }>();",
+    "const props = defineProps<{ data: VideoItemData; feedKey?: string; feedIndex?: number }>();",
+    1
+)
+s = s.replace(
+    r'''  return {
+    path: `/watch/${props.data.videoId}`,
+    query: shape ? { shape } : {}
+  };''',
+    r'''  const query: Record<string, string> = {};
+  if (shape) query.shape = shape;
+  if (props.feedKey) query.feed = props.feedKey;
+  if (Number.isFinite(props.feedIndex)) query.index = String(props.feedIndex);
+  return {
+    path: `/watch/${props.data.videoId}`,
+    query
+  };''',
+    1
+)
+p.write_text(s)
+
+p = Path("src/pages/HomePage.vue")
+s = p.read_text()
+s = s.replace(
+    '<GridVideoItem v-for="video in videos" :key="video.videoId" :data="video"/>',
+    '<GridVideoItem v-for="(video, index) in videos" :key="video.videoId" :data="video" :feed-key="feedKey" :feed-index="index"/>',
+    1
+)
+if "const feedKey = computed" not in s:
+    s = s.replace(
+        "const heading = computed(() => {",
+        r'''const feedKey = computed(() => `home:${source.value}:${topic.value}`);
+const feedLabel = computed(() => {
+  const sourceLabel = sources.find((item) => item.id === source.value)?.label || 'Video';
+  const topicLabel = topics.find((item) => item.id === topic.value)?.label || '';
+  return topic.value === 'all' ? sourceLabel : `${sourceLabel} · ${topicLabel}`;
+});
+
+function persistHomeFeed(rows: Row[]) {
+  const items = rows
+    .map((row: any) => ({
+      id: String(row?.videoId || ''),
+      shape: String(row?.layout || (source.value === 'shorts' ? 'portrait' : 'landscape'))
+    }))
+    .filter((row: any) => /^[A-Za-z0-9_-]{11}$/.test(row.id));
+
+  try {
+    sessionStorage.setItem('1988:feed:' + feedKey.value, JSON.stringify({
+      label: feedLabel.value,
+      source: source.value,
+      topic: topic.value,
+      savedAt: Date.now(),
+      items
+    }));
+  } catch {}
+}
+
+const heading = computed(() => {''',
+        1
+    )
+s = s.replace(
+    "  videos.value = merged.slice(0, 48);",
+    "  persistHomeFeed(merged.slice(0, 120));\n  videos.value = merged.slice(0, 48);",
+    1
+)
+p.write_text(s)
+
+p = Path("src/pages/SearchPage.vue")
+s = p.read_text()
+s = s.replace(
+    "import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
+    "import { computed, nextNick, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
+    1
+)
+s = s.replace(
+    'v-for="video in videos" :key="video.id" class="result" :to="\'/watch/\' + video.id"',
+    'v-for="(video, index) in videos" :key="video.id" class="result" :to="{ path: \'/watch/\' + video.id, query: { feed: feedKey, index: String(index), shape: video.shape } }"',
+    1
+)
+if "const feedKey = computed" not in s:
+    s = s.replace(
+        "let suggestTimer: number | undefined;",
+        r'''let suggestTimer: number | undefi
