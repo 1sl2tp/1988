@@ -1,6 +1,7 @@
 "use strict";
 
 const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+const MEDIA_SERVICE="https://one988-media.onrender.com";
 
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
@@ -458,13 +459,16 @@ async function playVideo(id,seedMeta={}){
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
+
   try{nativePlayer.pause();}catch{}
   nativePlayer.removeAttribute("src");
   nativePlayer.poster=thumb(seedMeta,id);
-  try{nativePlayer.load();}catch{}
+  nativePlayer.playsInline=true;
+  nativePlayer.setAttribute("playsinline","");
+  nativePlayer.setAttribute("webkit-playsinline","");
+  nativePlayer.preload="auto";
 
   updateNow(seedMeta);
-  statusText.textContent="Đang lấy MP4…";
   showNativePlayer();
   updateModeUi();
 
@@ -474,29 +478,75 @@ async function playVideo(id,seedMeta={}){
     playerSection.scrollIntoView();
   }
 
+  const directUrl=MEDIA_SERVICE+"/video?id="+encodeURIComponent(id);
+  const edgeUrl=BASE+"?action=media&id="+encodeURIComponent(id)+"&kind=video";
+  let fallbackStage=0;
+
+  const useSource=(url,label)=>{
+    if(state.currentId!==id||!url)return false;
+    state.nativeSource=url;
+    nativePlayer.src=url;
+    try{nativePlayer.load();}catch{}
+    statusText.textContent=label;
+    try{
+      const promise=nativePlayer.play();
+      if(promise&&typeof promise.catch==="function"){
+        promise.catch(error=>{
+          if(state.currentId!==id)return;
+          if(error?.name==="NotAllowedError"){
+            statusText.textContent="Video đã sẵn sàng · bấm ▶ để phát";
+          }
+        });
+      }
+    }catch{}
+    return true;
+  };
+
+  const tryEdgeFallback=()=>{
+    if(state.currentId!==id||fallbackStage>=2)return;
+    fallbackStage=2;
+    useSource(edgeUrl,"Đang thử nguồn dự phòng…");
+  };
+
+  nativePlayer.onerror=()=>{
+    if(state.currentId!==id)return;
+    if(fallbackStage===0){
+      fallbackStage=1;
+      void localEngine(9000).then(async local=>{
+        const media=await local.media(id,"video");
+        if(state.currentId!==id)return;
+        if(media?.url)useSource(media.url,"Đang mở nguồn video…");
+        else tryEdgeFallback();
+      }).catch(tryEdgeFallback);
+    }else{
+      tryEdgeFallback();
+    }
+  };
+
+  // Important for iPhone/PWA: attach a real media URL and call play()
+  // immediately inside the original tap task, before waiting for metadata.
+  useSource(directUrl,"Đang mở video…");
+
+  // Enrich metadata and prepare a native fallback in parallel. Do not block
+  // the first frame on discovery/API work.
   try{
-    const local=await localEngine(20000);
+    const local=await localEngine(12000);
     const [detail,media]=await Promise.all([
       local.info(id).catch(()=>({meta:{},related:[]})),
-      local.media(id,"video")
+      local.media(id,"video").catch(()=>null)
     ]);
     if(state.currentId!==id)return;
 
     const meta={...seedMeta,...(detail?.meta||{})};
     state.currentMeta=meta;
-    state.nativeSource=media.url;
     updateNow(meta);
     backgroundPlayer.setMetadata(meta);
-
     nativePlayer.poster=thumb(meta,id);
-    nativePlayer.src=media.url;
-    nativePlayer.load();
 
-    try{
-      await nativePlayer.play();
-      statusText.textContent="MP4 đang phát";
-    }catch{
-      statusText.textContent="MP4 đã sẵn sàng · bấm Play";
+    const notStarted=nativePlayer.readyState<2&&!nativePlayer.currentTime;
+    if(notStarted&&media?.url&&media.url!==state.nativeSource){
+      fallbackStage=1;
+      useSource(media.url,"Đang mở nguồn video…");
     }
 
     const related=Array.isArray(detail?.related)?detail.related:[];
@@ -505,32 +555,11 @@ async function playVideo(id,seedMeta={}){
       renderCards(related.slice(0,24));
     }
     updateModeUi();
-    return;
   }catch(error){
-    console.warn("native playback failed",error);
+    console.warn("metadata/native fallback failed",error);
     if(state.currentId!==id)return;
-
-    showNativePlayer();
-    nativePlayer.removeAttribute("src");
-    nativePlayer.poster=thumb(seedMeta,id);
-    try{nativePlayer.load();}catch{}
-    updateModeUi();
-
-    const message=clean(error?.message||error||"no_media_stream");
-    statusText.textContent="Không lấy được MP4 native · "+message;
-
-    try{
-      const local=await localEngine(8000);
-      const detail=await local.info(id);
-      if(state.currentId!==id)return;
-      state.currentMeta={...seedMeta,...(detail?.meta||{})};
-      updateNow(state.currentMeta);
-      backgroundPlayer.setMetadata(state.currentMeta);
-      if(detail?.related?.length){
-        feedTitle.textContent="Gợi ý tiếp theo";
-        renderCards(detail.related.slice(0,24));
-      }
-    }catch{}
+    // Keep the already-started Render stream. Only switch if the media element
+    // has actually failed; nativePlayer.onerror handles that path.
   }
 }
 
