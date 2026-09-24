@@ -177,12 +177,12 @@ s = s.replace("<ChevronDown/>", "<ArrowDown/>")
 # Player reports current second for minimize continuity.
 s = s.replace(
     '<VideoPlayer :video-id="videoId" :class="playerClass" @unavailable="onVideoUnavailable"/>',
-    '''<VideoPlayer
+    """<VideoPlayer
               :video-id="videoId"
               :class="playerClass"
               @state="onWatchPlayerState"
               @unavailable="onVideoUnavailable"
-            />''',
+            />""",
     1
 )
 
@@ -409,7 +409,7 @@ s = s.replace(
 if "1988-watch-v11" not in s:
     s = s.replace(
         "</style>",
-        r'''
+        r"""
 /* 1988-watch-v11 */
 :global(html.watch-open),
 :global(body.watch-open) {
@@ -572,7 +572,7 @@ if "1988-watch-v11" not in s:
     display: none !important;
   }
 }
-</style>''',
+</style>""",
         1
     )
 
