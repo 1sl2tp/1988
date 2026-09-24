@@ -146,6 +146,41 @@ function enc(value: string) {
   return encodeURIComponent(value);
 }
 
+
+function regionalChannelId(row: any) {
+  const raw = String(row?.uploaderUrl || row?.uploader_url || "").trim();
+  const match = raw.match(/\/channel\/([^/?#]+)/);
+  return match?.[1] || "";
+}
+
+async function regionalUploadFeed(region = "VN") {
+  const code = String(region || "VN").toUpperCase().slice(0, 2);
+  const trending = await piped(`/trending?region=${enc(code)}`, 120 * 1000);
+  const trendingRows = Array.isArray(trending.data) ? trending.data : [];
+  const channels = [...new Set(
+    trendingRows
+      .map(regionalChannelId)
+      .filter((id) => /^[A-Za-z0-9_-]{12,80}$/.test(id))
+  )].slice(0, 30);
+
+  if (!channels.length) {
+    return { source: trending.source, channels, data: trendingRows };
+  }
+
+  try {
+    const feedPath = `/feed/unauthenticated?channels=${enc(channels.join(","))}`;
+    const feed = await piped(feedPath, 60 * 1000);
+    const feedRows = Array.isArray(feed.data) ? feed.data : [];
+    return {
+      source: feed.source,
+      channels,
+      data: feedRows.length ? feedRows : trendingRows,
+    };
+  } catch {
+    return { source: trending.source, channels, data: trendingRows };
+  }
+}
+
 async function probeMediaUrl(raw: string, timeoutMs = 3200) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -763,6 +798,17 @@ Deno.serve(async (req) => {
           },
         }, 200, 20);
       }
+    }
+
+    if (action === "regional_feed") {
+      const region = String(url.searchParams.get("region") || "VN").toUpperCase().slice(0, 2);
+      const result = await regionalUploadFeed(region);
+      return json({
+        ok: true,
+        source: result.source,
+        channels: result.channels,
+        data: result.data,
+      }, 200, 60);
     }
 
     if (action === "playlist") {
