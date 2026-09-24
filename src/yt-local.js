@@ -202,6 +202,61 @@ function normalizeRows(rows,limit=30){
   return out;
 }
 
+function normalizeChannelNode(input){
+  const node=unwrap(input);
+  if(!node||typeof node!=='object')return null;
+
+  const id=String(
+    node.id||
+    node.channel_id||
+    node.channelId||
+    node.author?.id||
+    node.endpoint?.payload?.browseId||
+    node.navigation_endpoint?.payload?.browseId||
+    ''
+  );
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
+
+  const name=text(
+    node.author?.name||
+    node.title||
+    node.display_name||
+    node.name||
+    node.metadata?.title||
+    ''
+  ).trim();
+  if(!name)return null;
+
+  const thumbnails=
+    node.author?.thumbnails||
+    node.thumbnail||
+    node.thumbnails||
+    node.content_image?.image||
+    [];
+  const first=Array.isArray(thumbnails)?thumbnails[0]:null;
+
+  return {
+    id,
+    name,
+    thumbnailUrl:first?.url||'',
+    subscribers:text(node.video_count||node.subscribers||node.subscriber_count||''),
+    verified:!!node.author?.is_verified
+  };
+}
+
+function normalizeChannels(rows,limit=24){
+  const out=[];
+  const seen=new Set();
+  for(const raw of rows||[]){
+    const row=normalizeChannelNode(raw);
+    if(!row||seen.has(row.id))continue;
+    seen.add(row.id);
+    out.push(row);
+    if(out.length>=limit)break;
+  }
+  return out;
+}
+
 function makeProxyUrl(raw,headers=new Headers()){
   const src=new URL(raw);
   const out=new URL(PROXY);
@@ -369,6 +424,20 @@ async function search(query,filters={}){
   const yt=await getYT();
   const result=await yt.search(String(query||'').trim(),{type:'video',...filters});
   return pageRows(result,36);
+}
+
+async function searchChannels(query){
+  const q=String(query||'').trim();
+  if(!q)return [];
+  const yt=await getYT();
+  const result=await yt.search(q,{type:'channel'});
+  return normalizeChannels(
+    result?.results||
+    result?.contents?.contents||
+    result?.contents||
+    [],
+    24
+  );
 }
 
 async function searchPage(key,query,filters={},reset=false){
@@ -654,7 +723,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchPage,channelVideosPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows};
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
