@@ -1252,7 +1252,7 @@ document.addEventListener("click",e=>{
 feed.addEventListener("click",e=>{
   const retry=e.target.closest(".retry-feed");
   if(retry){
-    void loadFeedPreset(state.activeFeed||"today");
+    void loadFeedPreset(state.activeFeed||"latest");
     return;
   }
 
@@ -1344,7 +1344,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v9:";
+const FEED_CACHE_PREFIX="1988-discovery-v10:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1417,11 +1417,11 @@ const FEED_PRESETS={
       }
     }
   },
-  today:{
-    title:"Hôm nay",
+  latest:{
+    title:"Mới nhất",
     newest:true,
     load:async(local,reset)=>{
-      const rows=await pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset);
+      const rows=await pagedSearch(local,"latest","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset);
       return rows.filter(row=>uploadedWithin(row,DAY_MS));
     }
   },
@@ -1491,8 +1491,8 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
-async function loadFeedPreset(name="today"){
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.today;
+async function loadFeedPreset(name="latest"){
+  const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   state.feedLoading=true;
   state.feedHasMore=true;
@@ -1594,7 +1594,7 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 function loadInitialFeed(){
-  return loadFeedPreset("today");
+  return loadFeedPreset("latest");
 }
 
 topicChips.addEventListener("click",e=>{
@@ -1602,7 +1602,7 @@ topicChips.addEventListener("click",e=>{
   if(!button)return;
   queryInput.value="";
   clearSuggestions();
-  void loadFeedPreset(button.dataset.feed||"today");
+  void loadFeedPreset(button.dataset.feed||"latest");
 });
 
 setupMediaSession();
