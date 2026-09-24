@@ -41,8 +41,11 @@ jobs:
       - name: Apply UI v5
         run: python3 scripts/apply-ui-v5.py
 
-      - name: Apply home v6
-        run: python3 scripts/apply-home-v6.py
+      - name: Rewrite YouTube shell v7
+        run: python3 scripts/apply-youtube-shell-v7.py
+
+      - name: Rewrite YouTube pages v7
+        run: python3 scripts/apply-youtube-pages-v7.py
 
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
