@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-pip-scale-v154';
+const CACHE='1988-main-pip-overlay-v155';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-scale-154',
+  './src/style.css?v=pip-overlay-155',
   './src/app.js?v=pip-scale-154',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',

@@ -329,19 +329,42 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   padding:2px;
   flex-direction:column;
   transform:translateY(-50%);
-  border:1px solid rgba(255,255,255,.10);
-  border-radius:10px;
-  background:rgba(17,17,20,.80);
-  -webkit-backdrop-filter:blur(10px);
-  backdrop-filter:blur(10px);
-  box-shadow:0 5px 16px rgba(0,0,0,.28);
-  opacity:.18;
-  transition:opacity .15s ease;
+  border:1px solid rgba(255,255,255,.20);
+  border-radius:11px;
+  background:rgba(18,18,22,.10);
+  -webkit-backdrop-filter:blur(10px) saturate(1.55) brightness(.94);
+  backdrop-filter:blur(10px) saturate(1.55) brightness(.94);
+  box-shadow:
+    0 4px 14px rgba(0,0,0,.16),
+    inset 0 0 0 1px rgba(255,255,255,.04);
+  opacity:.06;
+  transition:
+    opacity .15s ease,
+    background .15s ease,
+    border-color .15s ease,
+    box-shadow .15s ease;
 }
-.player-frame.floating-iframe.dock-right .float-mode-rail{left:-36px}
-.player-frame.floating-iframe.dock-left .float-mode-rail{right:-36px}
+.player-frame.floating-iframe.dock-right .float-mode-rail{
+  right:8px;
+  left:auto;
+}
+.player-frame.floating-iframe.dock-left .float-mode-rail{
+  left:8px;
+  right:auto;
+}
+.player-frame.floating-iframe:hover .float-mode-rail,
+.player-frame.floating-iframe:focus-within .float-mode-rail{
+  opacity:.82;
+}
 .player-frame.floating-iframe .float-mode-rail:hover,
-.player-frame.floating-iframe .float-mode-rail:focus-within{opacity:1}
+.player-frame.floating-iframe .float-mode-rail:focus-within{
+  opacity:1;
+  background:rgba(18,18,22,.16);
+  border-color:rgba(255,255,255,.32);
+  box-shadow:
+    0 5px 18px rgba(0,0,0,.20),
+    inset 0 0 0 1px rgba(255,255,255,.06);
+}
 
 .float-mode-btn{
   position:relative;
@@ -359,8 +382,15 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   -webkit-tap-highlight-color:transparent;
   touch-action:manipulation;
 }
-.float-mode-btn:hover,.float-mode-btn:focus-visible{background:rgba(255,255,255,.10);color:#fff;outline:none}
-.float-mode-btn.active{background:rgba(255,255,255,.16);color:#fff}
+.float-mode-btn:hover,.float-mode-btn:focus-visible{
+  background:rgba(255,255,255,.18);
+  color:#fff;
+  outline:none;
+}
+.float-mode-btn.active{
+  background:rgba(255,255,255,.22);
+  color:#fff;
+}
 .float-mode-icon{font-size:17px;line-height:1;font-weight:600;pointer-events:none}
 .float-mode-btn[data-float-mode="scale"] .float-mode-icon{
   font-size:10px;
@@ -376,15 +406,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   max-width:120px;
   padding:6px 8px;
   border-radius:8px;
-  background:rgba(12,12,14,.94);
+  background:rgba(18,18,22,.18);
   color:#fff;
   font-size:11px;
   line-height:1.15;
   white-space:nowrap;
   opacity:0;
   pointer-events:none;
+  -webkit-backdrop-filter:blur(10px) saturate(1.45) brightness(.92);
+  backdrop-filter:blur(10px) saturate(1.45) brightness(.92);
+  border:1px solid rgba(255,255,255,.18);
   transition:opacity .12s ease,transform .12s ease;
-  box-shadow:0 5px 16px rgba(0,0,0,.28);
+  box-shadow:0 5px 16px rgba(0,0,0,.18);
 }
 .dock-left .float-mode-label{right:auto;left:calc(100% + 9px)}
 .float-mode-btn:hover .float-mode-label,
@@ -432,12 +465,21 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     width:30px;
     padding:2px;
   }
+  .player-frame.floating-iframe.dock-right .float-mode-rail{right:6px}
+  .player-frame.floating-iframe.dock-left .float-mode-rail{left:6px}
   .float-mode-btn{width:24px;height:36px}
   .float-mode-label{display:none}
 }
 
 @media(hover:none){
-  .player-frame.floating-iframe .float-mode-rail{opacity:.64}
+  .player-frame.floating-iframe .float-mode-rail{
+    opacity:.46;
+    background:rgba(18,18,22,.12);
+  }
+  .player-frame.floating-iframe .float-mode-rail:active,
+  .player-frame.floating-iframe .float-mode-rail:focus-within{
+    opacity:1;
+  }
 }
 
 /* Channel library */
