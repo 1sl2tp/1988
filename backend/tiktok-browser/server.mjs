@@ -82,7 +82,7 @@ async function newTikTokPage() {
   await page.setRequestInterception(true);
   page.on('request', (request) => {
     const type = request.resourceType();
-    if (type === 'font' || type === 'image' || type === 'media') {
+    if (type === 'font' || type === 'media') {
       request.abort().catch(() => {});
     } else {
       request.continue().catch(() => {});
@@ -104,6 +104,121 @@ function uniqueRows(rows, max = 60) {
     if (out.length >= max) break;
   }
   return out;
+}
+
+
+function rowFromTikTokItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const id = String(item.id || item.itemId || item.aweme_id || '');
+  const author = item.author || item.authorInfo || item.user || {};
+  const handle = String(author.uniqueId || author.unique_id || author.secUid || item.authorName || '');
+  if (!/^\d{12,24}$/.test(id) || !handle) return null;
+
+  const stats = item.stats || item.statsV2 || item.statistics || {};
+  const video = item.video || {};
+  return {
+    id,
+    handle,
+    url: 'https://www.tiktok.com/@' + handle + '/video/' + id,
+    title: String(item.desc || item.description || item.title || ''),
+    thumbnail: String(
+      video.cover || video.originCover || video.dynamicCover ||
+      video?.cover?.urlList?.[0] || video?.originCover?.urlList?.[0] || ''
+    ),
+    timestamp: Number(item.createTime || item.create_time || 0) || Number(BigInt(id) >> 32n),
+    viewCount: Number(stats.playCount || stats.play_count || stats.viewCount || 0),
+    likeCount: Number(stats.diggCount || stats.digg_count || stats.likeCount || 0),
+    commentCount: Number(stats.commentCount || stats.comment_count || 0),
+    shareCount: Number(stats.shareCount || stats.share_count || 0),
+    live: false,
+  };
+}
+
+function rowsFromTikTokPayload(payload, max = 80) {
+  const rows = [];
+  const seenObjects = new Set();
+
+  function walk(value, depth = 0) {
+    if (rows.length >= max || depth > 9 || value == null) return;
+    if (typeof value !== 'object') return;
+    if (seenObjects.has(value)) return;
+    seenObjects.add(value);
+
+    const row = rowFromTikTokItem(value);
+    if (row) rows.push(row);
+
+    if (Array.isArray(value)) {
+      for (const item of value) walk(item, depth + 1);
+      return;
+    }
+
+    for (const child of Object.values(value)) {
+      walk(child, depth + 1);
+      if (rows.length >= max) break;
+    }
+  }
+
+  walk(payload);
+  return uniqueRows(rows, max);
+}
+
+async function universalRows(page, max = 80) {
+  const payload = await page.evaluate(() => {
+    const selectors = [
+      '#__UNIVERSAL_DATA_FOR_REHYDRATION__',
+      '#SIGI_STATE',
+      'script[id*="UNIVERSAL"]',
+      'script[id*="SIGI"]',
+    ];
+    for (const selector of selectors) {
+      const node = document.querySelector(selector);
+      const text = node?.textContent || '';
+      if (!text) continue;
+      try { return JSON.parse(text); } catch {}
+    }
+    return null;
+  }).catch(() => null);
+  return rowsFromTikTokPayload(payload, max);
+}
+
+function captureTikTokResponses(page, max = 80) {
+  const rows = [];
+  const pending = new Set();
+
+  const handler = (response) => {
+    const url = response.url();
+    if (!/(?:\/api\/.*(?:item|recommend|feed)|\/aweme\/v1\/feed)/i.test(url)) return;
+    const task = response.json()
+      .then((payload) => {
+        rows.push(...rowsFromTikTokPayload(payload, max));
+      })
+      .catch(() => {})
+      .finally(() => pending.delete(task));
+    pending.add(task);
+  };
+
+  page.on('response', handler);
+
+  return {
+    async collect() {
+      if (pending.size) await Promise.allSettled([...pending]);
+      return uniqueRows(rows, max);
+    },
+    stop() {
+      page.off('response', handler);
+    },
+  };
+}
+
+async function logTikTokPageDebug(page, label) {
+  const info = await page.evaluate(() => ({
+    title: document.title,
+    href: location.href,
+    anchors: document.querySelectorAll('a').length,
+    videoAnchors: document.querySelectorAll('a[href*="/video/"]').length,
+    body: String(document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 180),
+  })).catch(() => null);
+  console.log('page:debug', label, JSON.stringify(info));
 }
 
 function parseVideoHref(href) {
@@ -221,35 +336,74 @@ async function tryRecommendApi(page, max = 60) {
 
 async function collectRecommend(max = 60) {
   const page = await newTikTokPage();
+  const capture = captureTikTokResponses(page, max);
   try {
     await page.goto('https://www.tiktok.com/foryou?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
       timeout: 14000,
     }).catch(() => null);
-    await new Promise((resolve) => setTimeout(resolve, 1800));
+
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+
+    const initial = uniqueRows([
+      ...(await capture.collect()),
+      ...(await universalRows(page, max)),
+    ], max);
+    if (initial.length >= 5) {
+      console.log('recommend:initial', initial.length);
+      return initial;
+    }
 
     const apiRows = await tryRecommendApi(page, max);
-    if (apiRows.length >= 8) return apiRows;
+    if (apiRows.length >= 5) {
+      console.log('recommend:same-origin-api', apiRows.length);
+      return uniqueRows([...initial, ...apiRows], max);
+    }
 
-    await scrollFeed(page, 9);
-    const domRows = await collectVideoLinks(page, max);
-    return uniqueRows([...apiRows, ...domRows], max);
+    await scrollFeed(page, 5);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+
+    const rows = uniqueRows([
+      ...initial,
+      ...apiRows,
+      ...(await capture.collect()),
+      ...(await universalRows(page, max)),
+      ...(await collectVideoLinks(page, max)),
+    ], max);
+
+    console.log('recommend:collected', rows.length);
+    if (!rows.length) await logTikTokPageDebug(page, 'recommend');
+    return rows;
   } finally {
+    capture.stop();
     await page.close().catch(() => {});
   }
 }
 
 async function collectExplore(max = 60) {
   const page = await newTikTokPage();
+  const capture = captureTikTokResponses(page, max);
   try {
     await page.goto('https://www.tiktok.com/explore?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
       timeout: 14000,
     }).catch(() => null);
-    await new Promise((resolve) => setTimeout(resolve, 1800));
-    await scrollFeed(page, 8);
-    return await collectVideoLinks(page, max);
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+
+    await scrollFeed(page, 5);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    const rows = uniqueRows([
+      ...(await capture.collect()),
+      ...(await universalRows(page, max)),
+      ...(await collectVideoLinks(page, max)),
+    ], max);
+
+    console.log('explore:collected', rows.length);
+    if (!rows.length) await logTikTokPageDebug(page, 'explore');
+    return rows;
   } finally {
+    capture.stop();
     await page.close().catch(() => {});
   }
 }
