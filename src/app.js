@@ -117,8 +117,7 @@ const SOURCE_MANAGER_GROUPS=[
   {key:"music",label:"Nhạc"},
   {key:"tech",label:"Công nghệ"},
   {key:"sports",label:"Thể thao"},
-  {key:"entertainment",label:"Giải trí"},
-  {key:"other",label:"Khác"}
+  {key:"entertainment",label:"Giải trí"}
 ];
 
 const FIXED_CONTENT_CATEGORIES=[
