@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-settings-lock-v160';
+const CACHE='1988-main-pip-1x-align-v161';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=settings-lock-160',
+  './src/style.css?v=pip-1x-align-161',
   './src/app.js?v=settings-lock-160',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
