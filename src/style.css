@@ -128,7 +128,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 
 
-/* Floating iframe: compact edge controls. */
+/* Floating player: YouTube-like ambient frame + edge resizing. */
 .player-frame.floating-iframe{
   position:fixed;
   right:12px;
@@ -136,18 +136,49 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   z-index:90;
   width:min(360px,36vw);
   aspect-ratio:16/9;
-  border:1px solid rgba(255,255,255,.08);
-  border-radius:12px;
+  isolation:isolate;
+  border:1px solid rgba(255,255,255,.10);
+  border-radius:13px;
   overflow:visible;
-  background:#000;
-  box-shadow:0 10px 28px rgba(0,0,0,.34);
+  background:#111;
+  box-shadow:
+    0 12px 34px rgba(0,0,0,.48),
+    0 0 0 1px rgba(0,0,0,.26);
   transition:transform .16s ease,box-shadow .16s ease;
+}
+.player-frame.floating-iframe::before{
+  content:"";
+  position:absolute;
+  z-index:-1;
+  inset:-18px;
+  border-radius:24px;
+  background:
+    linear-gradient(rgba(12,12,14,.30),rgba(12,12,14,.30)),
+    var(--float-ambient-image,none) center/cover no-repeat;
+  filter:blur(20px) saturate(1.18);
+  opacity:.34;
+  pointer-events:none;
+}
+.player-frame.floating-iframe::after{
+  content:"";
+  position:absolute;
+  z-index:0;
+  inset:0;
+  border-radius:12px;
+  background:rgba(10,10,12,.10);
+  pointer-events:none;
 }
 .player-frame.floating-iframe #yt-player,
 .player-frame.floating-iframe iframe,
 .player-frame.floating-iframe video{
-  border-radius:11px;
+  position:relative;
+  z-index:1;
+  width:100%!important;
+  height:100%!important;
+  border-radius:12px;
   overflow:hidden;
+  background:#080808;
+  object-fit:contain;
 }
 .player-frame.floating-iframe.dock-right.float-tucked{
   transform:translateX(calc(100% - 18px));
@@ -156,83 +187,78 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   transform:translateX(calc(-100% + 18px));
 }
 
-.float-dock-edge,.float-resize-edge{display:none}
+.float-dock-edge,.float-resize-zone{display:none}
 
 .player-frame.floating-iframe .float-dock-edge{
   display:flex;
   position:absolute;
-  z-index:15;
+  z-index:25;
   top:50%;
-  width:17px;
-  height:50px;
+  width:18px;
+  height:54px;
   align-items:center;
   justify-content:center;
   transform:translateY(-50%);
-  border:1px solid rgba(255,255,255,.08);
-  background:rgba(18,18,20,.82);
-  backdrop-filter:blur(8px);
-  -webkit-backdrop-filter:blur(8px);
-  color:rgba(255,255,255,.9);
+  border:1px solid rgba(255,255,255,.11);
+  background:rgba(18,18,20,.88);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  color:rgba(255,255,255,.92);
   font-size:15px;
   font-weight:700;
   line-height:1;
+  cursor:grab;
   touch-action:none;
   user-select:none;
   -webkit-user-select:none;
-  box-shadow:0 3px 12px rgba(0,0,0,.22);
+  box-shadow:0 4px 14px rgba(0,0,0,.32);
 }
+.player-frame.floating-iframe .float-dock-edge:active{cursor:grabbing}
 .player-frame.floating-iframe.dock-right .float-dock-edge{
-  left:-11px;
-  border-radius:8px 0 0 8px;
+  left:-12px;
+  border-radius:9px 0 0 9px;
   border-right:0;
 }
 .player-frame.floating-iframe.dock-left .float-dock-edge{
-  right:-11px;
-  border-radius:0 8px 8px 0;
+  right:-12px;
+  border-radius:0 9px 9px 0;
   border-left:0;
 }
 .player-frame.floating-iframe.dock-right .float-dock-edge::after{content:"›"}
 .player-frame.floating-iframe.dock-left .float-dock-edge::after{content:"‹"}
 
-.player-frame.floating-iframe .float-resize-edge{
+/* Invisible resize hit areas: moving the pointer to any edge/corner is enough. */
+.player-frame.floating-iframe .float-resize-zone{
   display:block;
   position:absolute;
-  z-index:16;
-  bottom:2px;
-  width:24px;
-  height:24px;
-  border-radius:7px;
-  background:rgba(8,8,10,.18);
+  z-index:24;
   touch-action:none;
   user-select:none;
   -webkit-user-select:none;
+  background:transparent;
 }
-.player-frame.floating-iframe.dock-right .float-resize-edge{
-  left:2px;
-  cursor:nesw-resize;
+.player-frame.floating-iframe .float-resize-n{
+  top:-6px;left:14px;right:14px;height:12px;cursor:ns-resize
 }
-.player-frame.floating-iframe.dock-left .float-resize-edge{
-  right:2px;
-  cursor:nwse-resize;
+.player-frame.floating-iframe .float-resize-s{
+  bottom:-6px;left:14px;right:14px;height:12px;cursor:ns-resize
 }
-.player-frame.floating-iframe .float-resize-edge::after{
-  content:"";
-  position:absolute;
-  bottom:5px;
-  width:8px;
-  height:8px;
-  opacity:.72;
+.player-frame.floating-iframe .float-resize-e{
+  top:14px;right:-6px;bottom:14px;width:12px;cursor:ew-resize
 }
-.player-frame.floating-iframe.dock-right .float-resize-edge::after{
-  left:5px;
-  border-left:1.5px solid rgba(255,255,255,.82);
-  border-bottom:1.5px solid rgba(255,255,255,.82);
+.player-frame.floating-iframe .float-resize-w{
+  top:14px;left:-6px;bottom:14px;width:12px;cursor:ew-resize
 }
-.player-frame.floating-iframe.dock-left .float-resize-edge::after{
-  right:5px;
-  border-right:1.5px solid rgba(255,255,255,.82);
-  border-bottom:1.5px solid rgba(255,255,255,.82);
+.player-frame.floating-iframe .float-resize-ne,
+.player-frame.floating-iframe .float-resize-nw,
+.player-frame.floating-iframe .float-resize-se,
+.player-frame.floating-iframe .float-resize-sw{
+  width:22px;height:22px
 }
+.player-frame.floating-iframe .float-resize-ne{top:-8px;right:-8px;cursor:nesw-resize}
+.player-frame.floating-iframe .float-resize-nw{top:-8px;left:-8px;cursor:nwse-resize}
+.player-frame.floating-iframe .float-resize-se{right:-8px;bottom:-8px;cursor:nwse-resize}
+.player-frame.floating-iframe .float-resize-sw{left:-8px;bottom:-8px;cursor:nesw-resize}
 
 @media(max-width:640px){
   .player-frame.floating-iframe{
@@ -240,21 +266,38 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     right:8px;
     bottom:auto;
     width:min(256px,58vw);
-    border-radius:11px;
-    box-shadow:0 8px 22px rgba(0,0,0,.30);
+    border-radius:12px;
+    box-shadow:
+      0 10px 28px rgba(0,0,0,.46),
+      0 0 0 1px rgba(0,0,0,.28);
+  }
+  .player-frame.floating-iframe::before{
+    inset:-14px;
+    filter:blur(17px) saturate(1.15);
+    opacity:.30;
   }
   .player-frame.floating-iframe #yt-player,
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{
-    border-radius:10px;
+    border-radius:11px;
   }
   .player-frame.floating-iframe .float-dock-edge{
-    width:16px;
-    height:46px;
+    width:17px;
+    height:48px;
     font-size:14px;
   }
-  .player-frame.floating-iframe.dock-right .float-dock-edge{left:-10px}
-  .player-frame.floating-iframe.dock-left .float-dock-edge{right:-10px}
+  .player-frame.floating-iframe.dock-right .float-dock-edge{left:-11px}
+  .player-frame.floating-iframe.dock-left .float-dock-edge{right:-11px}
+
+  /* Wider touch targets while keeping them visually invisible. */
+  .player-frame.floating-iframe .float-resize-n,
+  .player-frame.floating-iframe .float-resize-s{height:16px}
+  .player-frame.floating-iframe .float-resize-e,
+  .player-frame.floating-iframe .float-resize-w{width:16px}
+  .player-frame.floating-iframe .float-resize-ne,
+  .player-frame.floating-iframe .float-resize-nw,
+  .player-frame.floating-iframe .float-resize-se,
+  .player-frame.floating-iframe .float-resize-sw{width:28px;height:28px}
 }
 
 

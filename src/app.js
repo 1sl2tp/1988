@@ -659,19 +659,25 @@ async function localEngine(timeoutMs=15000){
 
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.querySelector(".float-dock-edge"))return;
+  if(!frame||frame.dataset.floatControlsReady==="1")return;
+  frame.dataset.floatControlsReady="1";
 
   const dock=document.createElement("div");
   dock.className="float-dock-edge";
   dock.setAttribute("aria-label","Di chuyển hoặc thu gọn video");
 
-  const resize=document.createElement("div");
-  resize.className="float-resize-edge";
-  resize.setAttribute("aria-label","Đổi kích thước video");
+  const directions=["n","e","s","w","ne","nw","se","sw"];
+  const resizeHandles=directions.map(dir=>{
+    const handle=document.createElement("div");
+    handle.className="float-resize-zone float-resize-"+dir;
+    handle.dataset.floatResize=dir;
+    handle.setAttribute("aria-label","Kéo để đổi kích thước video");
+    return handle;
+  });
 
-  frame.append(dock,resize);
+  frame.append(dock,...resizeHandles);
 
-  const start=(mode,event)=>{
+  const startGesture=(mode,event,dir="")=>{
     if(!frame.classList.contains("floating-iframe"))return;
     event.preventDefault();
     event.stopPropagation();
@@ -685,11 +691,13 @@ function ensureFloatHandles(){
     state.floatGesture={
       id:event.pointerId,
       mode,
+      dir,
       startX:event.clientX,
       startY:event.clientY,
       left:rect.left,
       top:rect.top,
       width:rect.width,
+      height:rect.height,
       moved:false
     };
 
@@ -698,12 +706,16 @@ function ensureFloatHandles(){
     frame.style.right="auto";
     frame.style.bottom="auto";
     frame.style.width=rect.width+"px";
+    frame.style.height=rect.height+"px";
+    frame.style.aspectRatio="auto";
 
     try{event.currentTarget.setPointerCapture(event.pointerId);}catch{}
   };
 
-  dock.addEventListener("pointerdown",event=>start("move",event));
-  resize.addEventListener("pointerdown",event=>start("resize",event));
+  dock.addEventListener("pointerdown",event=>startGesture("move",event));
+  resizeHandles.forEach(handle=>{
+    handle.addEventListener("pointerdown",event=>startGesture("resize",event,handle.dataset.floatResize||""));
+  });
 
   const onMove=event=>{
     const g=state.floatGesture;
@@ -712,28 +724,73 @@ function ensureFloatHandles(){
 
     const dx=event.clientX-g.startX;
     const dy=event.clientY-g.startY;
-    if(Math.abs(dx)+Math.abs(dy)>8)g.moved=true;
+    if(Math.abs(dx)+Math.abs(dy)>6)g.moved=true;
+
+    const viewportW=Math.max(240,window.innerWidth);
+    const viewportH=Math.max(180,window.innerHeight);
+    const minWidth=Math.min(220,Math.max(170,viewportW*.42));
+    const minHeight=Math.max(112,Math.min(150,viewportH*.28));
+    const maxWidth=Math.max(minWidth,viewportW-16);
+    const maxHeight=Math.max(minHeight,viewportH-16);
 
     if(g.mode==="resize"){
-      const maxWidth=Math.max(220,Math.min(window.innerWidth-16,560));
-      const minWidth=Math.min(220,Math.max(170,window.innerWidth*.42));
-      const direction=state.floatDock==="right"?-1:1;
-      const width=Math.max(minWidth,Math.min(maxWidth,g.width+(dx*direction)));
-      const height=width*9/16;
-      frame.style.width=width+"px";
-
       let left=g.left;
-      if(state.floatDock==="right")left=g.left+g.width-width;
-      left=Math.max(8,Math.min(window.innerWidth-width-8,left));
-      const top=Math.max(8,Math.min(window.innerHeight-height-8,g.top+dy*.15));
+      let top=g.top;
+      let width=g.width;
+      let height=g.height;
+      const dir=g.dir||"";
+
+      if(dir.includes("e"))width=g.width+dx;
+      if(dir.includes("s"))height=g.height+dy;
+      if(dir.includes("w")){
+        width=g.width-dx;
+        left=g.left+dx;
+      }
+      if(dir.includes("n")){
+        height=g.height-dy;
+        top=g.top+dy;
+      }
+
+      if(width<minWidth){
+        if(dir.includes("w"))left-=minWidth-width;
+        width=minWidth;
+      }
+      if(height<minHeight){
+        if(dir.includes("n"))top-=minHeight-height;
+        height=minHeight;
+      }
+
+      if(width>maxWidth){
+        if(dir.includes("w"))left+=width-maxWidth;
+        width=maxWidth;
+      }
+
+      // Side-edge resizing behaves like the YouTube mini player:
+      // widening/narrowing also changes the height and grows upward.
+      if(dir==="e"||dir==="w"){
+        const ratio=Math.max(.42,Math.min(1.8,g.height/Math.max(1,g.width)));
+        height=Math.max(minHeight,Math.min(maxHeight,width*ratio));
+        top=g.top+g.height-height;
+      }
+
+      if(height>maxHeight){
+        if(dir.includes("n"))top+=height-maxHeight;
+        height=maxHeight;
+      }
+
+      left=Math.max(8,Math.min(viewportW-width-8,left));
+      top=Math.max(8,Math.min(viewportH-height-8,top));
+
       frame.style.left=left+"px";
       frame.style.top=top+"px";
+      frame.style.width=width+"px";
+      frame.style.height=height+"px";
       return;
     }
 
     const rect=frame.getBoundingClientRect();
-    const left=Math.max(8,Math.min(window.innerWidth-rect.width-8,g.left+dx));
-    const top=Math.max(8,Math.min(window.innerHeight-rect.height-8,g.top+dy));
+    const left=Math.max(8,Math.min(viewportW-rect.width-8,g.left+dx));
+    const top=Math.max(8,Math.min(viewportH-rect.height-8,g.top+dy));
     frame.style.left=left+"px";
     frame.style.top=top+"px";
   };
@@ -767,18 +824,20 @@ function ensureFloatHandles(){
     state.floatBox={
       left:Number.parseFloat(frame.style.left)||finalRect.left,
       top:Number.parseFloat(frame.style.top)||finalRect.top,
-      width:finalRect.width
+      width:finalRect.width,
+      height:finalRect.height
     };
     state.floatGesture=null;
   };
 
-  dock.addEventListener("pointermove",onMove);
-  resize.addEventListener("pointermove",onMove);
-  dock.addEventListener("pointerup",stop);
-  resize.addEventListener("pointerup",stop);
-  dock.addEventListener("pointercancel",stop);
-  resize.addEventListener("pointercancel",stop);
+  const pointerTargets=[dock,...resizeHandles];
+  pointerTargets.forEach(target=>{
+    target.addEventListener("pointermove",onMove);
+    target.addEventListener("pointerup",stop);
+    target.addEventListener("pointercancel",stop);
+  });
 }
+
 function restoreFloatBox(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -788,22 +847,42 @@ function restoreFloatBox(){
   frame.classList.toggle("float-tucked",state.floatTucked);
 
   const box=state.floatBox;
-  if(!box)return;
+  if(!box){
+    frame.style.removeProperty("height");
+    frame.style.aspectRatio="16 / 9";
+    return;
+  }
 
   const width=Math.max(170,Math.min(box.width,window.innerWidth-16));
-  const height=width*9/16;
+  const defaultHeight=width*9/16;
+  const height=Math.max(112,Math.min(Number(box.height)||defaultHeight,window.innerHeight-16));
   const left=Math.max(8,Math.min(window.innerWidth-width-8,box.left));
   const top=Math.max(8,Math.min(window.innerHeight-height-8,box.top));
   frame.style.width=width+"px";
+  frame.style.height=height+"px";
+  frame.style.aspectRatio="auto";
   frame.style.left=left+"px";
   frame.style.top=top+"px";
   frame.style.right="auto";
   frame.style.bottom="auto";
 }
+
 function clearFloatBoxStyles(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
-  for(const prop of ["left","top","right","bottom","width"])frame.style.removeProperty(prop);
+  for(const prop of ["left","top","right","bottom","width","height","aspect-ratio","--float-ambient-image"])frame.style.removeProperty(prop);
+}
+
+function updateFloatingAmbient(frame){
+  if(!frame)return;
+  const ambientUrl=clean(state.currentMeta?.thumbnailUrl||state.currentMeta?.thumbnail||"")||
+    (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"");
+  if(!ambientUrl){
+    frame.style.removeProperty("--float-ambient-image");
+    return;
+  }
+  const safeAmbient=ambientUrl.replace(/["'\\\n\r]/g,"");
+  frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
 }
 
 function applyFloatingIframe(force){
@@ -821,7 +900,7 @@ function applyFloatingIframe(force){
     if(floating){
       const rect=frame.getBoundingClientRect();
       if(rect.width>0){
-        state.floatBox={left:rect.left,top:rect.top,width:rect.width};
+        state.floatBox={left:rect.left,top:rect.top,width:rect.width,height:rect.height};
       }
       frame.classList.remove("floating-iframe","float-tucked");
       state.floatTucked=false;
@@ -848,11 +927,13 @@ function applyFloatingIframe(force){
       ? !originalReturning
       : passedOriginal;
 
+  if(shouldFloat||floating)updateFloatingAmbient(frame);
   if(shouldFloat===floating)return;
 
   if(shouldFloat){
     playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
     frame.classList.add("floating-iframe");
+    updateFloatingAmbient(frame);
     ensureFloatHandles();
     restoreFloatBox();
   }else{
@@ -862,7 +943,8 @@ function applyFloatingIframe(force){
         state.floatBox={
           left:rect.left,
           top:rect.top,
-          width:rect.width
+          width:rect.width,
+          height:rect.height
         };
       }
     }
