@@ -1202,7 +1202,7 @@ function normalizeAiChildTopics(payload,rows=[],parent=null){
 
 function readAiCatalogCache(cacheKey){
   try{
-    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v3:"+cacheKey)||"null");
+    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v4:"+cacheKey)||"null");
     if(!saved||Date.now()-Number(saved.at||0)>3*60*60*1000)return [];
     return normalizeAiCatalogParents(saved);
   }catch{
@@ -1212,7 +1212,7 @@ function readAiCatalogCache(cacheKey){
 
 function saveAiCatalogCache(cacheKey,parents=[]){
   try{
-    localStorage.setItem("1988-ai-catalog-v3:"+cacheKey,JSON.stringify({
+    localStorage.setItem("1988-ai-catalog-v4:"+cacheKey,JSON.stringify({
       at:Date.now(),
       parents:parents.map(parent=>({
         label:parent.label,
@@ -1221,6 +1221,40 @@ function saveAiCatalogCache(cacheKey,parents=[]){
       }))
     }));
   }catch{}
+}
+
+function isShortDramaStoryTitle(row={}){
+  const text=normalizeSearchText(clean(row?._displayTitle||row?.title||""));
+  if(!text)return false;
+
+  const strong=[
+    "trong sinh","trung sinh","xuyen khong","tong tai","nu tong tai",
+    "mat than","thau thi","giam bao","do thach","long soai","dien chu",
+    "chien than","than y","o re","chui gam chan","phe vat","va mat",
+    "nu de","tu tien","tien hiep","khong gian than cap","truyen thua",
+    "thien kim","gia ngheo","an danh","dao si xuong nui"
+  ];
+  if(strong.some(token=>text.includes(token)))return true;
+
+  // "Hệ thống" alone can be technical. It becomes a film signal only
+  // when paired with story/reward/power-fantasy vocabulary.
+  if(text.includes("he thong")){
+    const story=[
+      "hoan thuong","ty phu","nhiem vu","phan thuong","hen ho",
+      "bim sua","lam giau","doi doi","co dai","my nu","hoa khoi",
+      "than hao","bat nang luc","thuc tinh","kich hoat"
+    ];
+    if(story.some(token=>text.includes(token)))return true;
+  }
+  return false;
+}
+
+function filterRowsForAiParent(parent,rows=[]){
+  const key=normalizeSearchText(parent?.label||"");
+  if(key==="cong nghe"){
+    return rows.filter(row=>!isShortDramaStoryTitle(row));
+  }
+  return rows;
 }
 
 function dedupeHashedRows(rows=[]){
@@ -1575,6 +1609,8 @@ async function loadAiParentDiscovery(parent){
         mergeUniqueRows([],batches.flat()).filter(uploadedWithinWeek)
       )
     ).slice(0,180);
+
+    rows=filterRowsForAiParent(parent,rows);
 
     state.trendTopics=[];
     renderTrendTopics();
