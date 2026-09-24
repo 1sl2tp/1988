@@ -279,9 +279,11 @@ async function load() {
       ? payload.data.sources
       : items.value.map((item: any) => item?.handle).filter(Boolean);
 
-    sources.value = [...new Set(
-      sourceRows.map((value: any) => String(value || '').trim().replace(/^@/, '')).filter(Boolean)
-    )];
+    sources.value = Array.from(new Set<string>(
+      sourceRows
+        .map((value: any) => String(value || '').trim().replace(/^@/, ''))
+        .filter((value: string) => Boolean(value))
+    ));
 
     await new Promise(resolve => requestAnimationFrame(resolve));
     feedEl.value?.scrollTo({ top: 0, behavior: 'auto' });
