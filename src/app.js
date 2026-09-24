@@ -3861,8 +3861,17 @@ function readFeedCache(name){
   try{
     const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
-    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature())return [];
-    return row.items;
+
+    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature()){
+      const selectedIds=new Set(selectedSources().map(source=>source.id));
+      return row.items.filter(item=>{
+        const sourceId=String(item?._sourceId||item?.channelId||item?.uploaderId||"");
+        if(sourceId)return selectedIds.has(sourceId)&&!blockedSourceIds.has(sourceId);
+        return !isBlockedSourceRow(item);
+      });
+    }
+
+    return row.items.filter(item=>!isBlockedSourceRow(item));
   }catch{
     return [];
   }
@@ -3876,6 +3885,39 @@ function saveFeedCache(name,rows){
       items:rows.slice(0,90)
     }));
   }catch{}
+}
+
+async function refreshCachedSourceFeedInBackground(name,preset,seq){
+  try{
+    const local=await localEngine(16000);
+    const sources=selectedSources();
+    if(!sources.length)return;
+
+    const pool=await refreshSourcePool(local,sources);
+    const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+    const rows=sortPresetRows(
+      (Array.isArray(pool)?pool:[]).filter(predicate),
+      preset
+    );
+
+    if(!rows.length)return;
+    saveFeedCache(name,rows);
+
+    // Never disturb the user's current reading position. If they are still
+    // at the top, replace the cached snapshot with the newly refreshed one.
+    if(
+      seq===state.feedSeq &&
+      state.activeFeed===name &&
+      !state.activeParent &&
+      !state.activeTrend &&
+      window.scrollY<120
+    ){
+      state.feedRows=mergeUniqueRows([],rows);
+      renderCurrentTrendFeed();
+    }
+  }catch(error){
+    console.warn("background source refresh failed",name,error);
+  }
 }
 
 async function loadFeedPreset(name="latest"){
@@ -3922,6 +3964,15 @@ async function loadFeedPreset(name="latest"){
     const rows=sortPresetRows(cached,preset);
     state.feedRows=rows;
     renderCurrentTrendFeed();
+
+    if(isSourceScopedFeed(name)){
+      state.feedLoading=false;
+      state.feedHasMore=true;
+      void refreshCachedSourceFeedInBackground(name,preset,seq);
+      void refreshAiTrendTopics();
+      return;
+    }
+
     feedStatus.textContent="Đang cập nhật…";
   }else{
     feed.innerHTML='<div class="loading">Đang tải…</div>';
