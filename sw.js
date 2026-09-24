@@ -1,16 +1,16 @@
 'use strict';
 
-const CACHE='1988-main-regional-simple-v52';
+const CACHE='1988-main-hype-feed-v53';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=regional-feed-45',
-  './src/app.js?v=regional-simple-52',
+  './src/app.js?v=hype-feed-53',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
-  './src/yt-local.js?v=lockup-feed-46',
+  './src/yt-local.js?v=hype-feed-53',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
