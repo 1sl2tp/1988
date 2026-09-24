@@ -29,6 +29,9 @@ jobs:
       - name: Apply 1988 UX patch
         run: python3 scripts/apply-ux-patch.py
 
+      - name: Apply immersive reel UX
+        run: python3 scripts/apply-reel-v2.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
