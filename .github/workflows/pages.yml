@@ -74,6 +74,9 @@ jobs:
       - name: Apply dynamic sources v16
         run: python3 scripts/apply-dynamic-sources-v16.py
 
+      - name: Apply card navigation v17
+        run: python3 scripts/apply-card-navigation-v17.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
