@@ -2705,16 +2705,43 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    // Fit the original ratio inside the real mobile viewport. Wide videos use
-    // the full width; tall videos are height-limited and centered, but never
-    // cropped or stretched.
+    const styles=getComputedStyle(root);
     const headerHeight=
-      parseFloat(getComputedStyle(root).getPropertyValue("--header-row-h"))||52;
+      parseFloat(styles.getPropertyValue("--header-row-h"))||52;
     const navHeight=
-      parseFloat(getComputedStyle(root).getPropertyValue("--nav-row-h"))||44;
-    const maxHeight=Math.max(220,viewportHeight-headerHeight-navHeight-120);
-    const width=Math.min(viewportWidth,maxHeight*ratio);
-    const height=width/ratio;
+      parseFloat(styles.getPropertyValue("--nav-row-h"))||40;
+
+    let width=viewportWidth;
+    let height=width/ratio;
+
+    if(ratio<.8){
+      // Portrait: keep the original ratio but reserve meaningful space for
+      // browsing. The player is height-led and centered; no fake 16:9 shell.
+      const heightCap=Math.max(
+        360,
+        Math.min(
+          viewportHeight*.58,
+          viewportHeight-headerHeight-navHeight-150
+        )
+      );
+      height=Math.min(height,heightCap);
+      width=height*ratio;
+    }else if(ratio<1.2){
+      // Square / near-square: moderate height so the feed is still visible.
+      const heightCap=Math.max(
+        280,
+        Math.min(
+          viewportHeight*.48,
+          viewportHeight-headerHeight-navHeight-170
+        )
+      );
+      height=Math.min(height,heightCap);
+      width=height*ratio;
+    }else{
+      // Landscape: use all available width; original ratio determines height.
+      width=viewportWidth;
+      height=width/ratio;
+    }
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");

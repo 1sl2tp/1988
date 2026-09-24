@@ -1967,3 +1967,116 @@ html.watch-browse .player-frame video{
     margin:0 auto;
   }
 }
+
+
+/* ============================================================
+   MOBILE PORTRAIT BALANCE v175
+   Preserve source ratio, shrink tall video, compact chrome/feed.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --nav-row-h:40px;
+  }
+
+  html.watch-browse .player-section{
+    width:100%;
+    padding:0;
+    background:var(--bg);
+    box-shadow:none;
+  }
+
+  html.watch-browse .player-card{
+    width:100%;
+    padding:0;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+  }
+
+  html.watch-browse .player-frame{
+    margin:0 auto;
+    border:0;
+    border-radius:0;
+    box-shadow:none!important;
+    background:#000;
+  }
+
+  /* No decorative side panel around portrait video: only the real player. */
+  html.watch-browse.watch-video-portrait .player-section,
+  html.watch-browse.watch-video-square .player-section{
+    background:var(--bg);
+  }
+
+  html.watch-browse.watch-video-portrait .player-card,
+  html.watch-browse.watch-video-square .player-card{
+    background:transparent;
+  }
+
+  html.watch-browse .header-nav{
+    height:var(--nav-row-h);
+  }
+
+  html.watch-browse .topic-chips{
+    height:100%;
+    gap:5px;
+    padding:4px 6px;
+  }
+
+  html.watch-browse .topic-chip{
+    height:30px;
+    padding:0 9px;
+    border-radius:8px;
+    font-size:10.5px;
+  }
+
+  html.watch-browse .topic-divider{
+    height:17px;
+    margin:0;
+  }
+
+  html.watch-browse .feed-section{
+    padding:4px 7px calc(9px + var(--safe-bottom));
+  }
+
+  html.watch-browse .section-head{
+    margin:0 1px 4px;
+  }
+
+  html.watch-browse .section-head h2{
+    font-size:14px;
+  }
+
+  html.watch-browse #feedStatus{
+    font-size:9.5px;
+  }
+
+  html.watch-browse .feed>.card{
+    grid-template-columns:minmax(118px,41%) minmax(0,1fr);
+    min-height:74px;
+    padding:6px 0;
+  }
+
+  html.watch-browse .feed>.card .thumb-wrap{
+    border-radius:7px;
+  }
+
+  html.watch-browse .feed>.card .card-copy{
+    padding:0 0 0 8px;
+  }
+
+  html.watch-browse .feed>.card .card-title{
+    margin-bottom:3px;
+    font-size:11.7px;
+    line-height:1.24;
+  }
+
+  html.watch-browse .feed>.card .card-channel{
+    margin-bottom:1px;
+    font-size:9.25px;
+  }
+
+  html.watch-browse .feed>.card .card-stats{
+    font-size:9px;
+  }
+}
