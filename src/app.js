@@ -117,6 +117,20 @@ const SOURCE_MANAGER_GROUPS=[
   {key:"other",label:"Khác"}
 ];
 
+const FIXED_CONTENT_CATEGORIES=[
+  {key:"news",group:"news",label:"Thời sự",queries:["thời sự mới nhất","tin tức mới nhất"]},
+  {key:"economy",group:"economy",label:"Kinh tế",queries:["kinh tế mới nhất","thị trường tài chính"]},
+  {key:"law",group:"law",label:"Pháp luật",queries:["pháp luật mới nhất","an ninh trật tự"]},
+  {key:"film",group:"film",label:"Phim",queries:["phim mới","phim ngắn","short drama"]},
+  {key:"music",group:"music",label:"Nhạc",queries:["nhạc mới","MV mới"]},
+  {key:"tech",group:"tech",label:"Công nghệ",queries:["công nghệ mới","khoa học công nghệ"]},
+  {key:"sports",group:"sports",label:"Thể thao",queries:["thể thao mới","bóng đá mới"]},
+  {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
+];
+
+state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
+
+
 const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   :[];
@@ -1791,6 +1805,7 @@ function isShortDramaStoryTitle(row={}){
 }
 
 function parentSourceGroup(parent={}){
+  if(parent?.group)return String(parent.group);
   const key=normalizeSearchText(parent?.label||parent?.key||"");
   if(/thoi su|tin tuc/.test(key))return "news";
   if(/kinh te|thi truong|tai chinh/.test(key))return "economy";
@@ -2174,11 +2189,7 @@ function renderParentCategories(){
   if(!topicChips)return;
   topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
 
-  if(!state.parentCategories.length){
-    state.activeParent="";
-    setActiveChip(state.activeFeed);
-    return;
-  }
+  state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
 
   if(state.activeParent&&!state.parentCategories.some(parent=>parent.key===state.activeParent)){
     state.activeParent="";
@@ -2190,7 +2201,8 @@ function renderParentCategories(){
     button.type="button";
     button.dataset.aiParent=parent.key;
     button.textContent=parent.label;
-    button.title=(parent.queries?.length||0)+" hướng tìm kiếm AI";
+    const count=selectedSourcesForParent(parent).length;
+    button.title=count+" nguồn đã chọn";
     topicChips.appendChild(button);
   }
   setActiveChip(state.activeFeed);
@@ -2260,252 +2272,228 @@ async function classifyAiParent(parent,rows=[]){
   };
 }
 
-async function loadAiParentDiscovery(parent){
-  if(!parent||!parent.key||state.aiCategoryLoading.has(parent.key))return;
+const SOURCE_DISCOVERY_TTL=12*60*1000;
+const sourceDiscoveryAt=new Map();
 
-  const cachedRows=categoryCacheRows(parent.key);
-  const cachedTopics=state.aiCategoryTopics.get(parent.key)||[];
-  if(cachedRows.length){
-    state.trendTopics=cachedTopics;
-    renderTrendTopics();
-    if(state.activeParent===parent.key){
-      const visible=aiDisplayRows(trendRows(state.feedRows));
-      renderCards(visible);
-      feedStatus.textContent=visible.length?visible.length+" video":"";
-    }
-    return;
+async function discoverSourcesForParent(parent,local){
+  const group=parentSourceGroup(parent);
+  if(!group)return;
+
+  const last=Number(sourceDiscoveryAt.get(group)||0);
+  if(Date.now()-last<SOURCE_DISCOVERY_TTL)return;
+  sourceDiscoveryAt.set(group,Date.now());
+
+  const queries=[...new Set(
+    (Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
+      .map(clean)
+      .filter(Boolean)
+  )].slice(0,3);
+
+  const batches=await Promise.all(
+    queries.map((query,index)=>
+      collectRecentPages(
+        local,
+        "source-discovery:"+group+":"+index+":"+fastHash(query),
+        query,
+        uploadedWithinCategoryWindow,
+        true,
+        {upload_date:"week",sort_by:"upload_date"},
+        1
+      ).catch(()=>[])
+    )
+  );
+
+  const discovered=mergeUniqueRows([],batches.flat())
+    .filter(uploadedWithinCategoryWindow)
+    .filter(row=>!isBlockedSourceRow(row));
+
+  if(discovered.length){
+    rememberDiscoveredSources(discovered,group);
+    if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
   }
+}
 
-  state.aiCategoryLoading.add(parent.key);
+async function enrichSelectedCategoryInBackground(parent,rows=[]){
+  const sample=(Array.isArray(rows)?rows:[]).slice(0,48);
+  if(sample.length<4)return;
+
   try{
-    const local=await localEngine(12000);
-    const primarySources=selectedSourcesForParent(parent);
-    const primaryIds=new Set(primarySources.map(source=>source.id));
-
-    const cachedPrimary=readSourcePoolCache()
-      .filter(row=>primaryIds.has(String(row?._sourceId||"")))
-      .filter(uploadedWithinCategoryWindow);
-
-    const primaryPromise=cachedPrimary.length
-      ?Promise.resolve(cachedPrimary)
-      :fetchSourcePool(local,primarySources,true).catch(()=>[]);
-
-    const queries=[...new Set([
-      ...(Array.isArray(parent.queries)?parent.queries:[]),
-      parent.label
-    ].map(clean).filter(Boolean))].slice(0,4);
-
-    const discoveryPromise=Promise.all(
-      queries.map((query,index)=>
-        collectRecentPages(
-          local,
-          "ai-fast:"+parent.key+":"+index+":"+fastHash(query),
-          query,
-          uploadedWithinCategoryWindow,
-          true,
-          {upload_date:"week",sort_by:"upload_date"},
-          1
-        ).catch(()=>[])
-      )
-    );
-
-    const [primaryRaw,batches]=await Promise.all([primaryPromise,discoveryPromise]);
-
-    const primaryRows=newestFirst(
-      (Array.isArray(primaryRaw)?primaryRaw:[])
-        .filter(uploadedWithinCategoryWindow)
-        .filter(row=>!isBlockedSourceRow(row))
-        .map(row=>({...row,_selectedCategorySource:true}))
-    );
-
-    const discoveredRows=newestFirst(
-      mergeUniqueRows([],batches.flat())
-        .filter(uploadedWithinCategoryWindow)
-        .filter(row=>!isBlockedSourceRow(row))
-    );
-
-    rememberDiscoveredSources(discoveredRows,parentSourceGroup(parent));
-
-    let rows=dedupeHashedRows([
-      ...newestFirst(primaryRows),
-      ...newestFirst(discoveredRows)
-    ]).slice(0,140);
-
-    rows=filterRowsForAiParent(parent,rows);
-    const {trusted,ambiguous}=splitLocalCategoryRows(parent,rows);
-
-    const selectedTrusted=trusted.filter(row=>row?._selectedCategorySource===true);
-    const otherTrusted=trusted.filter(row=>row?._selectedCategorySource!==true);
-
-    state.trendTopics=[];
-    renderTrendTopics();
-
-    const fastCandidates=[
-      ...selectedTrusted,
-      ...otherTrusted
-    ].slice(0,20);
-
-    const trustedIds=new Set(trusted.map(itemVideoId).filter(Boolean));
-
-    const aiSampleWanted=[
-      ...selectedTrusted.slice(0,32),
-      ...otherTrusted.slice(0,8),
-      ...ambiguous.slice(0,8)
-    ];
-    const aiSampleIds=new Set(aiSampleWanted.map(itemVideoId).filter(Boolean));
-    const aiSample=rows.filter(row=>aiSampleIds.has(itemVideoId(row))).slice(0,48);
-
-    const classificationPromise=aiSample.length>=4
-      ?classifyAiParent(parent,aiSample).catch(error=>{
-          console.warn("AI category batch failed",parent?.label||parent?.key,error);
-          return {
-            topics:[],
-            videoMeta:new Map(),
-            acceptedVideoIds:new Set()
-          };
-        })
-      :Promise.resolve({
-          topics:[],
-          videoMeta:new Map(),
-          acceptedVideoIds:new Set(aiSample.map(itemVideoId).filter(Boolean))
-        });
-
-    let visibleRows=await filterNativeAiGeneratedRows(local,parent,fastCandidates);
-    let visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-    const hadInitialRender=visibleRows.length>0;
-
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
-    state.aiCategoryTopics.set(parent.key,[]);
-
-    if(state.activeParent===parent.key){
-      if(visibleRows.length){
-        renderCards(aiDisplayRows(visibleRows));
-        const selectedCount=visibleRows.filter(row=>row?._selectedCategorySource===true).length;
-        feedStatus.textContent=visibleRows.length+" video"+(selectedCount?" · "+selectedCount+" từ nguồn đã chọn":"")+" · đang bổ sung…";
-      }else{
-        feed.innerHTML='<div class="loading">Đang tải nguồn đã chọn…</div>';
-        feedStatus.textContent="";
-      }
-    }
-
-    const classified=await classificationPromise;
-    const accepted=classified.acceptedVideoIds||new Set();
+    const classified=await classifyAiParent(parent,sample);
     state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
 
-    if(state.activeParent===parent.key){
-      patchRenderedAiMeta(visibleRows);
-    }
-
-    const acceptedRows=rows.filter(row=>{
-      const id=itemVideoId(row);
-      return id&&(trustedIds.has(id)||accepted.has(id));
-    });
-
-    const remaining=acceptedRows
-      .filter(row=>!visibleIds.has(itemVideoId(row)))
-      .slice(0,Math.max(0,88-visibleRows.length));
-
-    for(let offset=0;offset<remaining.length;offset+=16){
-      const chunk=remaining.slice(offset,offset+16);
-      const safeChunk=await filterNativeAiGeneratedRows(local,parent,chunk);
-      if(!safeChunk.length)continue;
-
-      visibleRows=mergeUniqueRows(visibleRows,safeChunk);
-      visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
-
-      if(state.activeParent===parent.key&&!state.activeTrend){
-        if(hadInitialRender||feed.querySelector("[data-video-id]")){
-          renderCards(aiDisplayRows(safeChunk),{append:true});
-        }else{
-          renderCards(aiDisplayRows(visibleRows));
-        }
-        feedStatus.textContent=visibleRows.length+" video · đang bổ sung…";
-      }
-    }
-
-    let topics=(classified.topics||[])
+    const visibleIds=new Set(rows.map(itemVideoId).filter(Boolean));
+    const topics=(classified.topics||[])
       .map(topic=>({
         ...topic,
         videoIds:new Set([...topic.videoIds].filter(id=>visibleIds.has(id)))
       }))
-      .filter(topic=>topic.videoIds.size>=2);
+      .filter(topic=>topic.videoIds.size>=2)
+      .slice(0,10);
 
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
     state.aiCategoryTopics.set(parent.key,topics);
-    state.trendTopics=topics;
 
     if(state.activeParent===parent.key){
+      state.trendTopics=topics;
       renderTrendTopics();
-      if(state.activeTrend){
-        renderCards(aiDisplayRows(trendRows(state.feedRows)));
-      }else if(!feed.querySelector("[data-video-id]")){
-        renderCards(aiDisplayRows(visibleRows));
-      }else{
-        patchRenderedAiMeta(visibleRows);
-      }
-
-      const selectedCount=visibleRows.filter(row=>row?._selectedCategorySource===true).length;
-      feedStatus.textContent=visibleRows.length
-        ?visibleRows.length+" video"+(selectedCount?" · "+selectedCount+" từ nguồn đã chọn":"")
-        :"";
-    }
-
-    const remainingAmbiguous=ambiguous
-      .filter(row=>!aiSampleIds.has(itemVideoId(row)))
-      .slice(0,24);
-
-    if(visibleRows.length<56&&remainingAmbiguous.length>=4){
-      const extra=await classifyAiParent(parent,remainingAmbiguous).catch(()=>null);
-      if(extra){
-        state.aiVideoMeta=new Map([...state.aiVideoMeta,...extra.videoMeta]);
-        const extraAccepted=remainingAmbiguous.filter(row=>
-          extra.acceptedVideoIds?.has(itemVideoId(row))&&!visibleIds.has(itemVideoId(row))
-        );
-        const safeExtra=await filterNativeAiGeneratedRows(local,parent,extraAccepted.slice(0,20));
-
-        if(safeExtra.length){
-          visibleRows=mergeUniqueRows(visibleRows,safeExtra);
-          visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-
-          const extraTopics=(extra.topics||[])
-            .map(topic=>({
-              ...topic,
-              videoIds:new Set([...topic.videoIds].filter(id=>visibleIds.has(id)))
-            }))
-            .filter(topic=>topic.videoIds.size>=2);
-
-          const topicMap=new Map(topics.map(topic=>[topic.key,topic]));
-          for(const topic of extraTopics){
-            const existing=topicMap.get(topic.key);
-            if(existing){
-              existing.videoIds=new Set([...existing.videoIds,...topic.videoIds]);
-              existing.channels=new Set([...existing.channels,...topic.channels]);
-            }else{
-              topicMap.set(topic.key,topic);
-            }
-          }
-          topics=[...topicMap.values()].slice(0,10);
-
-          state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
-          state.aiCategoryTopics.set(parent.key,topics);
-
-          if(state.activeParent===parent.key){
-            state.trendTopics=topics;
-            renderTrendTopics();
-            if(!state.activeTrend)renderCards(aiDisplayRows(safeExtra),{append:true});
-            patchRenderedAiMeta(safeExtra);
-            feedStatus.textContent=visibleRows.length+" video";
-          }
-        }
-      }
-    }
-
-    if(cachedPrimary.length&&primarySources.length){
-      void fetchSourcePool(local,primarySources,true).catch(()=>[]);
+      patchRenderedAiMeta(rows);
     }
   }catch(error){
-    console.warn("ai category discovery failed",parent?.label||parent?.key,error);
+    console.warn("category enrichment failed",parent?.label||parent?.key,error);
+  }
+}
+
+async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
+  try{
+    const raw=await fetchSourcePool(local,sources,true);
+    const rows=dedupeHashedRows(
+      newestFirst(
+        (Array.isArray(raw)?raw:[])
+          .filter(uploadedWithinCategoryWindow)
+          .filter(row=>!isBlockedSourceRow(row))
+          .map(row=>({...row,_selectedCategorySource:true}))
+      )
+    ).slice(0,90);
+
+    if(!rows.length)return;
+
+    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+
+    if(
+      seq===state.feedSeq &&
+      state.activeParent===parent.key &&
+      window.scrollY<120
+    ){
+      renderCards(aiDisplayRows(rows));
+      feedStatus.textContent=rows.length+" video";
+    }
+
+    void filterNativeAiGeneratedRows(local,parent,rows).then(safeRows=>{
+      if(safeRows.length!==rows.length){
+        state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
+        if(seq===state.feedSeq&&state.activeParent===parent.key){
+          renderCards(aiDisplayRows(safeRows));
+          feedStatus.textContent=safeRows.length?safeRows.length+" video":"";
+        }
+      }
+      void enrichSelectedCategoryInBackground(parent,safeRows);
+    }).catch(()=>{});
+
+    void discoverSourcesForParent(parent,local);
+  }catch(error){
+    console.warn("category source refresh failed",parent?.label||parent?.key,error);
+  }
+}
+
+async function loadAiParentDiscovery(parent){
+  if(!parent||!parent.key||state.aiCategoryLoading.has(parent.key))return;
+
+  state.aiCategoryLoading.add(parent.key);
+  const seq=state.feedSeq;
+
+  try{
+    const sources=selectedSourcesForParent(parent);
+
+    if(!sources.length){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
+      state.aiCategoryTopics.set(parent.key,[]);
+      state.trendTopics=[];
+      renderTrendTopics();
+
+      if(state.activeParent===parent.key){
+        feed.innerHTML='<div class="empty">Chưa chọn nguồn '+esc(parent.label)+'. Mở “Nguồn” để chọn kênh.</div>';
+        feedStatus.textContent="";
+      }
+
+      void localEngine(12000).then(local=>discoverSourcesForParent(parent,local)).catch(()=>{});
+      return;
+    }
+
+    const sourceIds=new Set(sources.map(source=>source.id));
+    const cachedRows=categoryCacheRows(parent.key);
+    if(cachedRows.length){
+      const safeCached=cachedRows.filter(row=>{
+        const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
+        return sourceIds.has(id)&&!isBlockedSourceRow(row);
+      });
+
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeCached});
+
+      if(state.activeParent===parent.key){
+        renderCards(aiDisplayRows(safeCached));
+        feedStatus.textContent=safeCached.length?safeCached.length+" video":"";
+      }
+
+      void localEngine(12000).then(local=>
+        refreshSelectedCategoryInBackground(parent,local,sources,seq)
+      ).catch(()=>{});
+      return;
+    }
+
+    const sourcePool=readSourcePoolCache()
+      .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
+      .filter(uploadedWithinCategoryWindow)
+      .filter(row=>!isBlockedSourceRow(row));
+
+    if(sourcePool.length){
+      const rows=dedupeHashedRows(newestFirst(sourcePool))
+        .map(row=>({...row,_selectedCategorySource:true}))
+        .slice(0,90);
+
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+      state.aiCategoryTopics.set(parent.key,[]);
+      state.trendTopics=[];
+      renderTrendTopics();
+
+      if(state.activeParent===parent.key){
+        renderCards(aiDisplayRows(rows));
+        feedStatus.textContent=rows.length?rows.length+" video":"";
+      }
+
+      void localEngine(12000).then(local=>
+        refreshSelectedCategoryInBackground(parent,local,sources,seq)
+      ).catch(()=>{});
+      return;
+    }
+
+    if(state.activeParent===parent.key){
+      feed.innerHTML='<div class="loading">Đang tải '+esc(parent.label)+' từ nguồn đã chọn…</div>';
+      feedStatus.textContent="";
+    }
+
+    const local=await localEngine(12000);
+    const raw=await fetchSourcePool(local,sources,true);
+    let rows=dedupeHashedRows(
+      newestFirst(
+        (Array.isArray(raw)?raw:[])
+          .filter(uploadedWithinCategoryWindow)
+          .filter(row=>!isBlockedSourceRow(row))
+          .map(row=>({...row,_selectedCategorySource:true}))
+      )
+    ).slice(0,90);
+
+    // Only YouTube's own disclosure can remove AI-made Film/Music.
+    // Do not use AI classification to decide category membership.
+    rows=await filterNativeAiGeneratedRows(local,parent,rows);
+
+    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+    state.aiCategoryTopics.set(parent.key,[]);
+    state.trendTopics=[];
+    renderTrendTopics();
+
+    if(state.activeParent===parent.key){
+      if(rows.length){
+        renderCards(aiDisplayRows(rows));
+        feedStatus.textContent=rows.length+" video";
+      }else{
+        feed.innerHTML='<div class="empty">Chưa có video mới từ nguồn đã chọn.</div>';
+        feedStatus.textContent="";
+      }
+    }
+
+    void enrichSelectedCategoryInBackground(parent,rows);
+    void discoverSourcesForParent(parent,local);
+  }catch(error){
+    console.warn("selected category failed",parent?.label||parent?.key,error);
     if(state.activeParent===parent?.key){
       feedStatus.textContent="Chưa tải đủ nội dung";
     }
@@ -2521,64 +2509,8 @@ function renderCurrentTrendFeed(){
 }
 
 async function refreshAiTrendTopics(){
-  let sample=regionalAiPool();
-  if(sample.length<4){
-    try{
-      const local=await localEngine(14000);
-      await fetchRegionalDiscoveryPool(local,true);
-      sample=regionalAiPool();
-    }catch(error){
-      console.warn("AI catalog sample failed",error);
-    }
-  }
-  if(sample.length<4)sample=state.feedRows;
-
-  const rows=topicInputRows(sample);
-  const poolKey=aiTrendPoolKey("catalog",rows);
-  if(poolKey===state.trendPoolKey&&state.parentCategories.length){
-    renderParentCategories();
-    return;
-  }
-
-  const localParents=readAiCatalogCache(poolKey);
-  if(localParents.length){
-    state.trendPoolKey=poolKey;
-    state.parentCategories=localParents;
-    renderParentCategories();
-    return;
-  }
-
-  const seq=++state.trendRequestSeq;
-  try{
-    const response=await fetch(AI_TOPICS_URL,{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "apikey":SUPABASE_ANON,
-        "authorization":"Bearer "+SUPABASE_ANON
-      },
-      body:JSON.stringify({mode:"catalog",videos:rows})
-    });
-
-    const payload=await response.json().catch(()=>null);
-    if(seq!==state.trendRequestSeq)return;
-    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-
-    const parents=normalizeAiCatalogParents(payload);
-    if(!parents.length)throw new Error("empty_ai_catalog");
-
-    state.trendPoolKey=poolKey;
-    state.parentCategories=parents;
-    state.aiCategoryRows=new Map();
-    state.aiCategoryTopics=new Map();
-    state.activeParent="";
-    state.activeTrend="";
-    saveAiCatalogCache(poolKey,parents);
-    renderParentCategories();
-    renderTrendTopics();
-  }catch(error){
-    console.warn("AI catalog failed",error);
-  }
+  state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
+  renderParentCategories();
 }
 
 trendTopics?.addEventListener("click",event=>{
@@ -4115,7 +4047,7 @@ topicChips.addEventListener("click",e=>{
       renderCards(visible);
       feedStatus.textContent=visible.length?visible.length+" video":"";
     }else{
-      feed.innerHTML='<div class="loading">Đang tìm '+esc(parent.label)+'…</div>';
+      feed.innerHTML='<div class="loading">Đang tải '+esc(parent.label)+' từ nguồn đã chọn…</div>';
       feedStatus.textContent="";
     }
 
@@ -4139,6 +4071,7 @@ setupSourceLibrary();
 setupFloatingIframe();
 setupFullscreenReturn();
 updateModeUi();
+renderParentCategories();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
 if(initialVideoId){
