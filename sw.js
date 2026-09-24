@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pip-vertical-v162';
+const CACHE='1988-main-source-cache-v163';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=pip-vertical-162',
-  './src/app.js?v=settings-lock-160',
+  './src/app.js?v=source-cache-163',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

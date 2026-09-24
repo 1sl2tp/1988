@@ -4199,7 +4199,28 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
   if(document.hidden)return;
   try{
     const group=parentSourceGroup(parent);
-    const raw=await fetchSourcePool(local,sources,true,group);
+    let progressiveRows=categoryCacheRows(parent.key);
+    const raw=await fetchSourcePool(local,sources,true,group,(batch)=>{
+      const ready=dedupeHashedRows(
+        newestFirst(
+          batch
+            .filter(uploadedWithinCategoryWindow)
+            .filter(row=>!isBlockedSourceRow(row,group))
+            .map(row=>({...row,_selectedCategorySource:true}))
+        )
+      );
+      if(!ready.length)return;
+      progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
+      if(
+        seq===state.feedSeq &&
+        state.activeParent===parent.key &&
+        window.scrollY<120
+      ){
+        renderCards(aiDisplayRows(progressiveRows));
+        feedStatus.textContent=progressiveRows.length+" video";
+      }
+    });
     const rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
@@ -4266,44 +4287,29 @@ async function loadAiParentDiscovery(parent){
     }
 
     const sourceIds=new Set(sources.map(source=>source.id));
-    const cachedRows=categoryCacheRows(parent.key);
-    if(cachedRows.length){
-      const safeCached=cachedRows.filter(row=>{
+    const instantCached=dedupeHashedRows(newestFirst([
+      ...categoryCacheRows(parent.key),
+      ...cachedRowsForSources(sources,group),
+      ...readSourcePoolCache()
+        .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
+    ]))
+      .filter(uploadedWithinCategoryWindow)
+      .filter(row=>{
         const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
         return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
-      });
+      })
+      .map(row=>({...row,_selectedCategorySource:true}))
+      .slice(0,90);
 
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeCached});
-
-      if(state.activeParent===parent.key){
-        renderCards(aiDisplayRows(safeCached));
-        feedStatus.textContent=safeCached.length?safeCached.length+" video":"";
-      }
-
-      void localEngine(12000).then(local=>
-        refreshSelectedCategoryInBackground(parent,local,sources,seq)
-      ).catch(()=>{});
-      return;
-    }
-
-    const sourcePool=readSourcePoolCache()
-      .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
-      .filter(uploadedWithinCategoryWindow)
-      .filter(row=>!isBlockedSourceRow(row,group));
-
-    if(sourcePool.length){
-      const rows=dedupeHashedRows(newestFirst(sourcePool))
-        .map(row=>({...row,_selectedCategorySource:true}))
-        .slice(0,90);
-
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+    if(instantCached.length){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instantCached});
       state.aiCategoryTopics.set(parent.key,[]);
       state.trendTopics=[];
       renderTrendTopics();
 
       if(state.activeParent===parent.key){
-        renderCards(aiDisplayRows(rows));
-        feedStatus.textContent=rows.length?rows.length+" video":"";
+        renderCards(aiDisplayRows(instantCached));
+        feedStatus.textContent=instantCached.length+" video";
       }
 
       void localEngine(12000).then(local=>
@@ -4318,7 +4324,24 @@ async function loadAiParentDiscovery(parent){
     }
 
     const local=await localEngine(12000);
-    const raw=await fetchSourcePool(local,sources,true,group);
+    let progressiveRows=[];
+    const raw=await fetchSourcePool(local,sources,true,group,(batch)=>{
+      const ready=dedupeHashedRows(
+        newestFirst(
+          batch
+            .filter(uploadedWithinCategoryWindow)
+            .filter(row=>!isBlockedSourceRow(row,group))
+            .map(row=>({...row,_selectedCategorySource:true}))
+        )
+      );
+      if(!ready.length)return;
+      progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
+      if(seq===state.feedSeq&&state.activeParent===parent.key){
+        renderCards(aiDisplayRows(progressiveRows));
+        feedStatus.textContent=progressiveRows.length+" video";
+      }
+    });
     let rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
@@ -7471,6 +7494,62 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
 
 const SOURCE_POOL_KEY="1988-source-pool-v2";
 const SOURCE_POOL_TTL=30*60*1000;
+const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v1:";
+const SOURCE_CHANNEL_CACHE_MAX_AGE=6*60*60*1000;
+const SOURCE_CHANNEL_RECHECK_TTL=8*60*1000;
+
+function readSourceChannelCache(sourceId){
+  sourceId=String(sourceId||"").trim();
+  if(!sourceId)return {items:[],checkedAt:0,at:0};
+  try{
+    const row=JSON.parse(localStorage.getItem(SOURCE_CHANNEL_CACHE_PREFIX+sourceId)||"null");
+    if(!row||!Array.isArray(row.items))return {items:[],checkedAt:0,at:0};
+    const at=Number(row.at)||0;
+    const checkedAt=Number(row.checkedAt)||at;
+    const items=Date.now()-at<SOURCE_CHANNEL_CACHE_MAX_AGE?row.items:[];
+    return {items,checkedAt,at};
+  }catch{
+    return {items:[],checkedAt:0,at:0};
+  }
+}
+
+function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
+  const sourceId=String(source?.id||source||"").trim();
+  if(!sourceId)return [];
+  const name=clean(source?.name||"");
+  const old=readSourceChannelCache(sourceId);
+  const incoming=(Array.isArray(rows)?rows:[])
+    .filter(Boolean)
+    .map(row=>({...row,_sourceId:sourceId,_sourceName:clean(row?._sourceName||name)}));
+  const items=compactSourcePool(mergeUniqueRows(old.items,incoming))
+    .filter(row=>String(row?._sourceId||"")===sourceId)
+    .slice(0,24);
+  try{
+    localStorage.setItem(SOURCE_CHANNEL_CACHE_PREFIX+sourceId,JSON.stringify({
+      at:items.length?Date.now():(old.at||Date.now()),
+      checkedAt:Number(checkedAt)||Date.now(),
+      items
+    }));
+  }catch{}
+  return items;
+}
+
+function cachedRowsForSources(sources=[],scope=GENERAL_SOURCE_SCOPE){
+  const blocked=blockedSetForScope(scope);
+  const rows=[];
+  for(const source of Array.isArray(sources)?sources:[]){
+    if(!source?.id||blocked.has(source.id))continue;
+    for(const row of readSourceChannelCache(source.id).items){
+      if(row)rows.push({...row,_sourceId:source.id,_sourceName:clean(row?._sourceName||source.name)});
+    }
+  }
+  return mergeUniqueRows([],rows);
+}
+
+function sourceNeedsRecheck(sourceId){
+  const checkedAt=Number(readSourceChannelCache(sourceId).checkedAt)||0;
+  return !checkedAt||Date.now()-checkedAt>=SOURCE_CHANNEL_RECHECK_TTL;
+}
 let sourcePoolMemory={signature:"",at:0,items:[]};
 let sourcePoolRefreshPromise=null;
 let sourcePoolRefreshSignature="";
@@ -7536,25 +7615,52 @@ function primeSourceFeedCaches(rows=[]){
   saveFeedCache("week",week);
 }
 
-async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE){
+async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE,onBatch=null){
   const collected=[];
   let cursor=0;
   const blocked=blockedSetForScope(scope);
+  const list=Array.isArray(sources)?sources:[];
+
+  const emit=(rows,source,meta={})=>{
+    const batch=(Array.isArray(rows)?rows:[])
+      .filter(Boolean)
+      .map(row=>({...row,_sourceId:source.id,_sourceName:clean(row?._sourceName||source.name)}));
+    if(batch.length)collected.push(...batch);
+    if(typeof onBatch==="function"&&batch.length){
+      try{onBatch(batch,source,meta)}catch{}
+    }
+  };
 
   const worker=async()=>{
-    while(cursor<sources.length){
-      const source=sources[cursor++];
+    while(cursor<list.length){
+      const source=list[cursor++];
       if(!source||blocked.has(source.id))continue;
+
+      const cached=reset?readSourceChannelCache(source.id):{items:[],checkedAt:0};
+      if(reset&&cached.items.length){
+        emit(cached.items,source,{cached:true});
+      }
+
+      // A recent successful check means there is no reason to hit YouTube again yet,
+      // even if that check returned no new rows.
+      if(reset&&!sourceNeedsRecheck(source.id))continue;
+
       try{
         const rows=await local.channelVideosPage(
           "library:"+source.id,
           source.id,
           reset
         );
-        if(Array.isArray(rows)){
-          for(const row of rows){
-            if(row)collected.push({...row,_sourceId:source.id,_sourceName:source.name});
-          }
+
+        if(reset){
+          saveSourceChannelCache(source,Array.isArray(rows)?rows:[],Date.now());
+          if(Array.isArray(rows)&&rows.length)emit(rows,source,{cached:false});
+        }else if(Array.isArray(rows)){
+          emit(rows,source,{cached:false});
+          saveSourceChannelCache(source,[
+            ...readSourceChannelCache(source.id).items,
+            ...rows
+          ],Date.now());
         }
       }catch(error){
         console.warn("source feed failed",source.id,error);
@@ -7563,13 +7669,12 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   };
 
   const workers=Array.from(
-    {length:Math.min(4,sources.length)},
+    {length:Math.min(4,list.length)},
     ()=>worker()
   );
   await Promise.all(workers);
-  return collected;
+  return mergeUniqueRows([],collected);
 }
-
 function refreshSourcePool(local,sources){
   const signature=sourceSignature();
   if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
