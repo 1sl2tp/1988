@@ -920,8 +920,8 @@ function addSource(row){
     }
   }
 
-  // Saving a source does not automatically select it.
-  blockedSourceIds.delete(row.id);
+  // Saving only adds metadata to the library. It must not alter any
+  // selected/blocked state in the general or category-specific scopes.
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
