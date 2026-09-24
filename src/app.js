@@ -2471,10 +2471,6 @@ async function loadAiParentDiscovery(parent){
       )
     ).slice(0,90);
 
-    // Only YouTube's own disclosure can remove AI-made Film/Music.
-    // Do not use AI classification to decide category membership.
-    rows=await filterNativeAiGeneratedRows(local,parent,rows);
-
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
@@ -2490,7 +2486,21 @@ async function loadAiParentDiscovery(parent){
       }
     }
 
-    void enrichSelectedCategoryInBackground(parent,rows);
+    // Native YouTube AI disclosure is checked after first paint so Film/Music
+    // are not held hostage by dozens of getInfo() requests.
+    void filterNativeAiGeneratedRows(local,parent,rows).then(safeRows=>{
+      if(safeRows.length!==rows.length){
+        state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
+        if(state.activeParent===parent.key){
+          renderCards(aiDisplayRows(safeRows));
+          feedStatus.textContent=safeRows.length?safeRows.length+" video":"";
+        }
+      }
+      void enrichSelectedCategoryInBackground(parent,safeRows);
+    }).catch(()=>{
+      void enrichSelectedCategoryInBackground(parent,rows);
+    });
+
     void discoverSourcesForParent(parent,local);
   }catch(error){
     console.warn("selected category failed",parent?.label||parent?.key,error);
