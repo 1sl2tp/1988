@@ -32,6 +32,8 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .topic-chips::-webkit-scrollbar{display:none}
 .topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap;scroll-snap-align:center}
 .topic-chip.active{background:#f2f2f3;color:#111;border-color:#f2f2f3;font-weight:750}
+.topic-chip.live-chip{color:#ff453a;border-color:rgba(255,69,58,.42)}
+.topic-chip.live-chip.active{color:#ff453a;background:rgba(255,69,58,.10);border-color:rgba(255,69,58,.58);font-weight:800}
 
 .player-section{scroll-margin-top:110px;margin:2px 0 22px}.player-section[hidden]{display:none!important}
 .player-card{display:block;padding:0;border:0;border-radius:14px;background:#000;overflow:hidden}
