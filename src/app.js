@@ -607,6 +607,7 @@ function mostViewedFirst(rows=[]){
 }
 
 function sortPresetRows(rows=[],preset={}){
+  if(preset.weekFreshViewed)return weekFreshViewedFirst(rows);
   if(preset.mostViewed)return mostViewedFirst(rows);
   if(preset.newest)return newestFirst(rows,preset.sourceGroup||"");
   return rows;
@@ -1388,9 +1389,10 @@ const FEED_PRESETS={
     newest:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
-      "live",
+      "live-regional",
       row=>row?.isLive===true,
-      reset
+      reset,
+      4
     )
   },
   today:{
@@ -1398,20 +1400,22 @@ const FEED_PRESETS={
     newest:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
-      "today",
-      row=>uploadedWithin(row,DAY_MS),
-      reset
+      "today-regional",
+      row=>!row?.isLive&&withinHours(row,24),
+      reset,
+      4
     )
   },
   week:{
     title:"Tuần này",
     newest:false,
-    mostViewed:true,
+    weekFreshViewed:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
-      "week",
-      row=>uploadedWithin(row,7*DAY_MS),
-      reset
+      "week-regional",
+      row=>!row?.isLive&&withinHours(row,24*7),
+      reset,
+      4
     )
   },
   news:{
