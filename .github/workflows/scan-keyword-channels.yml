@@ -1,0 +1,204 @@
+name: Scan keyword channels
+
+on:
+  push:
+    branches: [diag-keyword-channel-scan]
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Scan current YouTube.js results
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
+          PID=$!
+          sleep 2
+          node <<'NODE'
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function connect(){
+            let targets=[];
+            for(let i=0;i<40;i++){
+              try{
+                targets=await (await fetch('http://127.0.0.1:9222/json')).json();
+                if(targets.length)break;
+              }catch{}
+              await sleep(250);
+            }
+            const target=targets.find(x=>x.type==='page');
+            if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
+            const ws=new WebSocket(target.webSocketDebuggerUrl);
+            let id=0;
+            const pending=new Map();
+            const send=(method,params={})=>new Promise((resolve,reject)=>{
+              const msgId=++id;
+              pending.set(msgId,{resolve,reject});
+              ws.send(JSON.stringify({id:msgId,method,params}));
+            });
+            ws.onmessage=e=>{
+              const m=JSON.parse(e.data);
+              if(m.id&&pending.has(m.id)){
+                const p=pending.get(m.id);pending.delete(m.id);
+                m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);
+              }
+            };
+            await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
+            return {ws,send};
+          }
+
+          async function main(){
+            const queries=['tổng bí thư','tổng thống','tỷ phú','chủ tịch','tạm giam','thuế','tạp hóa','phim ngắn trung hoa'];
+            const {ws,send}=await connect();
+            await send('Runtime.enable');
+            await send('Page.enable');
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
+            await sleep(4500);
+
+            const expr=`(async()=>{
+              const queries=${JSON.stringify(queries)};
+              const yt=await window.YTLocal.getYT();
+
+              const str=v=>{
+                if(v==null)return '';
+                if(typeof v==='string'||typeof v==='number')return String(v);
+                if(typeof v.text==='string')return v.text;
+                try{return String(v.toString?.()||'')}catch{return ''}
+              };
+              const norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+              const metric=value=>{
+                const raw=norm(value).replace(/,/g,'.');
+                const m=raw.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(ty|tr|trieu|m|n|nghin|k|b)?/);
+                if(!m)return 0;
+                let n=Number(m[1])||0;
+                const u=m[2]||'';
+                if(u==='ty'||u==='b')n*=1e9;
+                else if(u==='tr'||u==='trieu'||u==='m')n*=1e6;
+                else if(u==='n'||u==='nghin'||u==='k')n*=1e3;
+                return Math.round(n);
+              };
+              const lockupParts=node=>{
+                const out=[];
+                for(const row of node?.metadata?.metadata?.metadata_rows||[]){
+                  for(const part of row?.metadata_parts||[]){
+                    const t=part?.text;
+                    if(t)out.push(t);
+                  }
+                }
+                return out;
+              };
+              const rowOf=node=>{
+                if(!node||typeof node!=='object')return null;
+                const id=String(node.video_id||node.videoId||node.content_id||node.id||'');
+                if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+                if(node.content_type&&String(node.content_type).toUpperCase()!=='VIDEO')return null;
+
+                let channelId=node.author?.id||'';
+                let channelName=node.author?.name||'';
+                const parts=lockupParts(node);
+                if(!channelId){
+                  for(const part of parts){
+                    const t=part?.text;
+                    const ep=t?.endpoint||t?.runs?.[0]?.endpoint;
+                    const bid=ep?.payload?.browseId||'';
+                    if(/^UC[A-Za-z0-9_-]+$/.test(bid)){
+                      channelId=bid;
+                      channelName=channelName||str(t);
+                      break;
+                    }
+                  }
+                }
+                const textParts=parts.map(p=>str(p?.text)).filter(Boolean);
+                const viewText=str(node.short_view_count||node.view_count||node.views)||textParts.find(x=>/lượt xem|views?/i.test(x))||'';
+                const published=str(node.published||node.published_time||node.published_time_text)||textParts.find(x=>/trước|ago/i.test(x))||'';
+                const title=str(node.title||node.video_title||node.metadata?.title)||'Video';
+                return {id,title,channelId,channelName,views:metric(viewText),viewText,published};
+              };
+
+              const perQuery=[];
+              const all=[];
+              for(const q of queries){
+                let page=await yt.search(q,{type:'video',upload_date:'week',sort_by:'upload_date'});
+                const seen=new Set();
+                const rows=[];
+                for(let p=0;p<2&&page;p++){
+                  for(const node of Array.from(page.results||[])){
+                    const row=rowOf(node);
+                    if(!row||seen.has(row.id))continue;
+                    seen.add(row.id);
+                    rows.push(row);
+                    all.push({...row,query:q});
+                  }
+                  if(p===1||page.has_continuation===false||typeof page.getContinuation!=='function')break;
+                  try{page=await page.getContinuation()}catch{break}
+                }
+                perQuery.push({query:q,videos:rows.length,channels:new Set(rows.map(r=>r.channelId||('name:'+r.channelName)).filter(Boolean)).size});
+              }
+
+              const map=new Map();
+              for(const r of all){
+                const key=r.channelId||('name:'+r.channelName);
+                if(!key||key==='name:')continue;
+                const c=map.get(key)||{channelId:r.channelId,channelName:r.channelName||'Không rõ',videos:0,views:0,queries:new Set()};
+                c.videos++;
+                c.views+=Number(r.views)||0;
+                c.queries.add(r.query);
+                map.set(key,c);
+              }
+              const channels=[...map.values()].map(c=>({...c,queries:[...c.queries]}));
+              return JSON.stringify({queries:perQuery,channels,totalRows:all.length,distinctChannels:channels.length});
+            })()`;
+
+            const res=await send('Runtime.evaluate',{expression:expr,awaitPromise:true,returnByValue:true});
+            const data=JSON.parse(res?.result?.value||'{}');
+
+            const bases=[
+              'https://pipedapi.ducks.party',
+              'https://pipedapi.adminforge.de',
+              'https://api.piped.private.coffee'
+            ];
+            let cursor=0;
+            const channels=Array.isArray(data.channels)?data.channels:[];
+            const workers=Array.from({length:Math.min(10,channels.length)},async()=>{
+              while(true){
+                const i=cursor++;
+                if(i>=channels.length)return;
+                const c=channels[i];
+                if(!c.channelId)continue;
+                for(const base of bases){
+                  const ac=new AbortController();
+                  const timer=setTimeout(()=>ac.abort(),5000);
+                  try{
+                    const rr=await fetch(base+'/channel/'+encodeURIComponent(c.channelId),{signal:ac.signal});
+                    if(!rr.ok)throw new Error('HTTP '+rr.status);
+                    const body=await rr.json();
+                    const subs=Number(body?.subscriberCount);
+                    if(Number.isFinite(subs)&&subs>=0){
+                      c.subscribers=subs;
+                      break;
+                    }
+                  }catch{}finally{clearTimeout(timer)}
+                }
+              }
+            });
+            await Promise.all(workers);
+
+            channels.sort((a,b)=>
+              (b.queries.length-a.queries.length)||
+              ((b.subscribers||0)-(a.subscribers||0))||
+              (b.views-a.views)||
+              (b.videos-a.videos)||
+              a.channelName.localeCompare(b.channelName,'vi')
+            );
+            data.channels=channels.slice(0,100);
+            console.log('SCAN_JSON='+JSON.stringify(data));
+            ws.close();
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+          kill "$PID" 2>/dev/null || true
