@@ -253,4 +253,124 @@ p.write_text(r'''<template>
             </router-link>
             <button type="button" @click="goHome"><House/><span>Trang chủ</span></button>
           </div>
-  
+        </div>
+
+        <div v-if="toast" class="toast">{{ toast }}</div>
+      </section>
+    </Transition>
+  </main>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import {
+  ArrowLeft,
+  ChevronDown,
+  ChevronUp,
+  House,
+  Link2,
+  MoreHorizontal,
+  Share2,
+  UserRound
+} from '@lucide/vue';
+import VideoPlayer from '@/components/VideoPlayer.vue';
+import { formatCompactViews, formatRelativeTime, parsePublishedAt } from '@/utils/display1988';
+
+const API = 'https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988';
+const route = useRoute();
+const router = useRouter();
+const videoId = computed(() => String(route.params.id || ''));
+
+type Shape = 'portrait' | 'square' | 'landscape';
+type TrailItem = { id: string; shape: Shape };
+
+const details = ref<any>(null);
+const related = ref<any[]>([]);
+const shape = ref<Shape>('landscape');
+const menuOpen = ref(false);
+const tick = ref(Date.now());
+const toast = ref('');
+const direction = ref<'next' | 'previous'>('next');
+const transitionName = computed(() => direction.value === 'next' ? 'reel-next' : 'reel-prev');
+const playerClass = computed(() => `reel-${shape.value}`);
+
+let timer: number | undefined;
+let toastTimer: number | undefined;
+let loadSerial = 0;
+let touchStartY = 0;
+let touchStartX = 0;
+let touchEnabled = false;
+let wheelLockedUntil = 0;
+const trail = ref<TrailItem[]>([]);
+let trailIndex = -1;
+
+const canPrevious = computed(() => trailIndex > 0);
+const canNext = computed(() => related.value.some((row: any) => row?.id && row.id !== videoId.value));
+
+function normalizeShape(value: unknown): Shape | '' {
+  const raw = String(value || '').toLowerCase();
+  return raw === 'portrait' || raw === 'square' || raw === 'landscape' ? raw : '';
+}
+
+function guessedShape(row: any): Shape {
+  const raw = String(row?.url || row?.id || '');
+  const title = String(row?.title || '');
+  const total = Math.max(0, Number(row?.duration) || 0);
+  if (/\/shorts\//i.test(raw) || /#shorts?\b/i.test(title)) return 'portrait';
+  if (total && total <= 70 && /short|dọc|vertical/i.test(title)) return 'portrait';
+  return 'landscape';
+}
+
+function relatedId(row: any) {
+  const raw = String(row?.videoId || row?.url || row?.id || '');
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  const m = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:shorts|embed|live)\/([A-Za-z0-9_-]{11})/);
+  return m?.[1] || m?.[2] || m?.[3] || '';
+}
+
+function channelKey(data: any) {
+  const raw = String(data?.uploaderUrl || data?.channelUrl || '');
+  return raw.match(/\/channel\/(UC[A-Za-z0-9_-]+)/)?.[1]
+    || raw.match(/\/(@[^/?#]+)/)?.[1]
+    || String(data?.uploader || data?.uploaderName || data?.author || '');
+}
+
+function duration(value: any) {
+  if (typeof value === 'string' && value.includes(':')) return value;
+  const total = Math.max(0, Number(value) || 0);
+  if (!total) return '';
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = Math.floor(total % 60);
+  return h
+    ? h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0')
+    : m + ':' + String(sec).padStart(2, '0');
+}
+
+function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+function setShapeHint(value?: unknown) {
+  const hint = normalizeShape(value ?? route.query.shape);
+  if (hint) shape.value = hint;
+}
+
+function detectThumbnailShape(url: string, serial: number) {
+  if (!url || normalizeShape(route.query.shape)) return;
+  const img = new Image();
+  img.onload = () => {
+    if (serial !== loadSerial || !img.naturalWidth || !img.naturalHeight) return;
+    const ratio = img.naturalWidth / img.naturalHeight;
+    if (ratio < .82) shape.value = 'portrait';
+    else if (ratio < 1.18) shape.value = 'square';
+    else shape.value = 'landscape';
+  };
+  img.src = url;
+}
+
+function seedTrail() {
+  const id = videoId.value;
+  if (!id
