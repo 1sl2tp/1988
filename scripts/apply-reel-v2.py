@@ -510,4 +510,137 @@ function prefetchNext() {
 }
 
 async function load() {
-  const s
+  const serial = ++loadSerial;
+  details.value = null;
+  related.value = [];
+  menuOpen.value = false;
+  shape.value = normalizeShape(route.query.shape) || 'landscape';
+
+  const url = new URL(API);
+  url.searchParams.set('action', 'video');
+  url.searchParams.set('id', videoId.value);
+  url.searchParams.set('_fresh', String(Date.now()));
+
+  try {
+    const response = await fetch(url.toString(), { cache: 'no-store' });
+    const payload = await response.json();
+    if (serial !== loadSerial || !response.ok || payload?.ok === false) return;
+
+    const data = payload?.data || {};
+    const title = String(data?.title || '');
+    const uploaded = parsePublishedAt(data?.uploadDate ?? data?.uploaded ?? data?.published ?? '');
+    const viewText = formatCompactViews(data?.views ?? data?.viewCount ?? '');
+    document.title = title || '1988';
+
+    details.value = {
+      title,
+      channel: String(data?.uploader || data?.uploaderName || data?.author || 'YouTube'),
+      avatar: String(data?.uploaderAvatar || data?.avatar || ''),
+      channelKey: channelKey(data),
+      meta: [viewText, uploaded ? age(uploaded) : ''].filter(Boolean).join(' · '),
+      thumbnail: String(data?.thumbnailUrl || '')
+    };
+
+    if (!normalizeShape(route.query.shape)) {
+      const inferred = guessedShape({ url: data?.url || '', title, duration: data?.duration || 0 });
+      if (inferred === 'portrait') shape.value = inferred;
+      detectThumbnailShape(String(data?.thumbnailUrl || ''), serial);
+    }
+
+    const seen = new Set<string>();
+    related.value = (Array.isArray(data?.relatedStreams) ? data.relatedStreams : [])
+      .map((row: any) => {
+        const id = relatedId(row);
+        if (!id || id === videoId.value || seen.has(id)) return null;
+        seen.add(id);
+        const published = row?.uploaded ?? row?.uploadedDate ?? row?.uploadDate ??
+          row?.publishedAt ?? row?.published ?? row?.publishedText ?? '';
+        return {
+          id,
+          title: String(row?.title || 'Video'),
+          channel: String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube'),
+          thumbnail: 'https://i.ytimg.com/vi/' + id + '/hqdefault.jpg',
+          duration: duration(row?.duration),
+          views: formatCompactViews(row?.views ?? row?.viewCount ?? row?.viewText),
+          publishedAt: parsePublishedAt(published),
+          shape: guessedShape(row)
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (b.publishedAt || 0) - (a.publishedAt || 0))
+      .slice(0, 32);
+
+    seedTrail();
+    await nextTick();
+    prefetchNext();
+  } catch {}
+}
+
+onMounted(() => {
+  setShapeHint();
+  seedTrail();
+  void load();
+  timer = window.setInterval(() => { tick.value = Date.now(); }, 1000);
+  window.addEventListener('keydown', onKeydown, { passive: false });
+});
+
+onBeforeUnmount(() => {
+  if (timer !== undefined) clearInterval(timer);
+  if (toastTimer !== undefined) clearTimeout(toastTimer);
+  window.removeEventListener('keydown', onKeydown);
+});
+
+watch(videoId, () => {
+  setShapeHint();
+  seedTrail();
+  void load();
+});
+
+watch(() => route.query.shape, (value) => setShapeHint(value));
+</script>
+
+<style scoped>
+.reel-page {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #050505;
+  color: #f5f5f5;
+  touch-action: pan-y;
+}
+
+.reel-stage {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,.035), transparent 38%), #050505;
+}
+
+.reel-content {
+  width: min(1120px, calc(100vw - 170px));
+  height: min(100dvh, 920px);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.reel-media {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reel-media :deep(.video-
