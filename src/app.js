@@ -103,9 +103,13 @@ const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
+const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
+const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
+const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
+const GENERAL_SOURCE_SCOPE="general";
 
 const SOURCE_MANAGER_GROUPS=[
-  {key:"all",label:"Tất cả"},
+  {key:"general",label:"Mới nhất/Tuần này"},
   {key:"news",label:"Thời sự"},
   {key:"economy",label:"Kinh tế"},
   {key:"law",label:"Pháp luật"},
@@ -113,8 +117,7 @@ const SOURCE_MANAGER_GROUPS=[
   {key:"music",label:"Nhạc"},
   {key:"tech",label:"Công nghệ"},
   {key:"sports",label:"Thể thao"},
-  {key:"entertainment",label:"Giải trí"},
-  {key:"other",label:"Khác"}
+  {key:"entertainment",label:"Giải trí"}
 ];
 
 const FIXED_CONTENT_CATEGORIES=[
@@ -127,9 +130,9 @@ const FIXED_CONTENT_CATEGORIES=[
   {key:"sports",group:"sports",label:"Thể thao",queries:["thể thao mới","bóng đá mới"]},
   {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
 ];
+const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
 
 state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
-
 
 const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
@@ -154,6 +157,18 @@ function readStoredObject(key){
   }
 }
 
+function readScopedSourceState(key){
+  const raw=readStoredObject(key);
+  const out=new Map();
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    const ids=Array.isArray(raw[scope])?raw[scope]:[];
+    out.set(scope,new Set(
+      ids.map(String).filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
+    ));
+  }
+  return out;
+}
+
 let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
   .filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   .map(row=>({
@@ -174,6 +189,8 @@ let blockedSourceIds=new Set(
 );
 
 let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
+let scopedSelectedSourceIds=readScopedSourceState(SOURCE_SCOPED_SELECTION_KEY);
+let scopedBlockedSourceIds=readScopedSourceState(SOURCE_SCOPED_BLOCKED_KEY);
 
 function channelLibrary(){
   const out=[];
@@ -211,10 +228,23 @@ function persistSourceLibrary(){
   }catch{}
 }
 
+function persistScopedSourceState(){
+  try{
+    const selected={};
+    const blocked={};
+    for(const scope of CONTENT_SOURCE_SCOPES){
+      selected[scope]=[...(scopedSelectedSourceIds.get(scope)||new Set())];
+      blocked[scope]=[...(scopedBlockedSourceIds.get(scope)||new Set())];
+    }
+    localStorage.setItem(SOURCE_SCOPED_SELECTION_KEY,JSON.stringify(selected));
+    localStorage.setItem(SOURCE_SCOPED_BLOCKED_KEY,JSON.stringify(blocked));
+  }catch{}
+}
+
 function assignSourceGroup(id,group){
   id=String(id||"").trim();
   group=String(group||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!group||group==="all"||group==="other")return false;
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!group||group==="general"||group==="other")return false;
   const current=Array.isArray(sourceGroupOverrides[id])
     ?sourceGroupOverrides[id].map(String).filter(Boolean)
     :[];
@@ -247,17 +277,49 @@ let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
 let sourceManageMode=false;
-let sourceManageGroup="all";
+let sourceManageGroup=GENERAL_SOURCE_SCOPE;
 let sourceBlockedExpanded=false;
 let sourceMetaObserver=null;
 const sourceMetaCache=new Map();
 const sourceMetaPending=new Set();
 
+function sourceScope(scope=sourceManageGroup){
+  scope=String(scope||"").trim();
+  if(CONTENT_SOURCE_SCOPES.has(scope))return scope;
+  if(scope==="other")return "other";
+  return GENERAL_SOURCE_SCOPE;
+}
+
+function selectedSetForScope(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  if(scope===GENERAL_SOURCE_SCOPE)return selectedSourceIds;
+  if(scope==="other")return new Set();
+  if(!scopedSelectedSourceIds.has(scope))scopedSelectedSourceIds.set(scope,new Set());
+  return scopedSelectedSourceIds.get(scope);
+}
+
+function blockedSetForScope(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  if(scope===GENERAL_SOURCE_SCOPE)return blockedSourceIds;
+  if(scope==="other")return new Set();
+  if(!scopedBlockedSourceIds.has(scope))scopedBlockedSourceIds.set(scope,new Set());
+  return scopedBlockedSourceIds.get(scope);
+}
+
+function allManagedStateIds(){
+  const ids=new Set([...selectedSourceIds,...blockedSourceIds]);
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    for(const id of selectedSetForScope(scope))ids.add(id);
+    for(const id of blockedSetForScope(scope))ids.add(id);
+  }
+  return ids;
+}
+
 function managedChannelLibrary(){
   const rows=channelLibrary();
   const byId=new Map(rows.map(row=>[row.id,row]));
 
-  for(const id of new Set([...selectedSourceIds,...blockedSourceIds])){
+  for(const id of allManagedStateIds()){
     if(byId.has(id))continue;
     const meta=sourceMetaCache.get(id)||{};
     const row={
@@ -280,19 +342,29 @@ function persistSourceSelection(){
   try{
     localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
   }catch{}
+  persistScopedSourceState();
 }
 
-function sourceStatus(id){
-  if(blockedSourceIds.has(id))return "blocked";
-  if(selectedSourceIds.has(id))return "selected";
+function sourceStatus(id,scope=sourceManageGroup){
+  const blocked=blockedSetForScope(scope);
+  const selected=selectedSetForScope(scope);
+  if(blocked.has(id))return "blocked";
+  if(selected.has(id))return "selected";
   return "normal";
 }
 
-function hideBlockedSourceNow(id){
-  id=String(id||"").trim();
-  if(!id||!feed)return;
+function activeSourceScope(){
+  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
+  if(isSourceScopedFeed(state.activeFeed))return GENERAL_SOURCE_SCOPE;
+  return "";
+}
 
-  const source=libraryRow(id);
+function hideBlockedSourceNow(id,scope=sourceManageGroup){
+  id=String(id||"").trim();
+  scope=sourceScope(scope);
+  if(!id||!feed||activeSourceScope()!==scope)return;
+
+  const source=libraryRow(id)||managedChannelLibrary().find(row=>row.id===id);
   const blockedName=normalizeSearchText(sourceMetaFor(source||{}).name||source?.name||"");
   let removed=0;
 
@@ -314,28 +386,31 @@ function hideBlockedSourceNow(id){
   }
 }
 
-function setSourceStatus(id,status){
+function setSourceStatus(id,status,scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  const selected=selectedSetForScope(scope);
+  const blocked=blockedSetForScope(scope);
+
   if(
     !libraryHas(id) &&
-    !selectedSourceIds.has(id) &&
-    !blockedSourceIds.has(id)
+    !allManagedStateIds().has(id) &&
+    !sourceRemoteResults.some(row=>row.id===id)
   )return;
 
-  const learnedGroup=sourceManageMode&&sourceManageGroup!=="all"?sourceManageGroup:"";
-  if(learnedGroup)assignSourceGroup(id,learnedGroup);
+  if(CONTENT_SOURCE_SCOPES.has(scope))assignSourceGroup(id,scope);
 
   if(status==="selected"){
-    blockedSourceIds.delete(id);
-    selectedSourceIds.add(id);
+    blocked.delete(id);
+    selected.add(id);
   }else if(status==="blocked"){
-    selectedSourceIds.delete(id);
-    blockedSourceIds.add(id);
+    selected.delete(id);
+    blocked.add(id);
   }else{
-    selectedSourceIds.delete(id);
-    blockedSourceIds.delete(id);
+    selected.delete(id);
+    blocked.delete(id);
   }
 
-  if(status==="blocked")hideBlockedSourceNow(id);
+  if(status==="blocked")hideBlockedSourceNow(id,scope);
 
   persistSourceLibrary();
   persistSourceSelection();
@@ -346,13 +421,16 @@ function setSourceStatus(id,status){
   renderSourceLibrary();
 }
 
-function selectedSources(){
+function selectedSources(scope=GENERAL_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const selected=selectedSetForScope(scope);
+  const blocked=blockedSetForScope(scope);
   const rows=channelLibrary();
   const byId=new Map(rows.map(row=>[row.id,row]));
   const out=[];
 
-  for(const id of selectedSourceIds){
-    if(blockedSourceIds.has(id))continue;
+  for(const id of selected){
+    if(blocked.has(id))continue;
 
     const row=byId.get(id);
     if(row){
@@ -360,8 +438,6 @@ function selectedSources(){
       continue;
     }
 
-    // Never delete a user's saved selection merely because a library row
-    // failed to load in this build/session. Channel ID is sufficient to fetch.
     out.push({
       id,
       name:id,
@@ -376,8 +452,10 @@ function selectedSources(){
   return out;
 }
 
-function sourceSignature(){
-  return [...selectedSourceIds].filter(id=>!blockedSourceIds.has(id)).sort().join("|");
+function sourceSignature(scope=GENERAL_SOURCE_SCOPE){
+  const selected=selectedSetForScope(scope);
+  const blocked=blockedSetForScope(scope);
+  return [...selected].filter(id=>!blocked.has(id)).sort().join("|");
 }
 
 function isSourceScopedFeed(name){
@@ -391,7 +469,7 @@ function safeSourceThumb(value=""){
 }
 
 function sourceMetaFor(row){
-  return {...row,...(sourceMetaCache.get(row.id)||{})};
+  return {...row,...(sourceMetaCache.get(row?.id)||{})};
 }
 
 function sourceGroupsFor(row={}){
@@ -421,6 +499,33 @@ function sourceGroupsFor(row={}){
   return [...groups];
 }
 
+function ensureScopedSourceMigration(){
+  if(localStorage.getItem(SOURCE_SCOPED_MIGRATION_KEY)==="1")return;
+
+  const rows=managedChannelLibrary();
+  const byId=new Map(rows.map(row=>[row.id,row]));
+  for(const id of selectedSourceIds){
+    const row=byId.get(id)||{id,name:id,groups:sourceGroupOverrides[id]||[]};
+    for(const group of sourceGroupsFor(row)){
+      if(!CONTENT_SOURCE_SCOPES.has(group))continue;
+      const blocked=blockedSetForScope(group);
+      if(!blocked.has(id))selectedSetForScope(group).add(id);
+    }
+  }
+  for(const id of blockedSourceIds){
+    const row=byId.get(id)||{id,name:id,groups:sourceGroupOverrides[id]||[]};
+    for(const group of sourceGroupsFor(row)){
+      if(!CONTENT_SOURCE_SCOPES.has(group))continue;
+      selectedSetForScope(group).delete(id);
+      blockedSetForScope(group).add(id);
+    }
+  }
+
+  persistScopedSourceState();
+  try{localStorage.setItem(SOURCE_SCOPED_MIGRATION_KEY,"1");}catch{}
+}
+ensureScopedSourceMigration();
+
 function sourceGroupLabels(row={}){
   const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
   return sourceGroupsFor(row)
@@ -441,14 +546,15 @@ function sourceRowName(row={}){
   );
 }
 
-function isBlockedSourceRow(row={}){
+function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
+  const blocked=blockedSetForScope(scope);
   const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-  if(sourceId&&blockedSourceIds.has(sourceId))return true;
+  if(sourceId&&blocked.has(sourceId))return true;
 
   const name=sourceRowName(row);
   if(!name)return false;
-  for(const id of blockedSourceIds){
-    const source=libraryRow(id);
+  for(const id of blocked){
+    const source=libraryRow(id)||managedChannelLibrary().find(item=>item.id===id);
     if(!source)continue;
     const blockedName=normalizeSearchText(sourceMetaFor(source).name||source.name||"");
     if(blockedName&&name===blockedName)return true;
@@ -458,13 +564,16 @@ function isBlockedSourceRow(row={}){
 
 function updateSourceSummary(){
   const rows=managedChannelLibrary();
-  const selected=rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id)).length;
-  const blocked=rows.filter(row=>blockedSourceIds.has(row.id)).length;
-  if(sourceHeaderCount)sourceHeaderCount.textContent=String(selected);
+  const scope=sourceScope(sourceManageGroup);
+  const selected=selectedSetForScope(scope);
+  const blocked=blockedSetForScope(scope);
+  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
+  const blockedCount=blocked.size;
+  if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
     sourceSummary.textContent=sourceManageMode
-      ?selected+" chọn · "+blocked+" chặn · "+rows.length+" nguồn"
-      :selected+" nguồn đã chọn";
+      ?selectedCount+" chọn · "+blockedCount+" chặn · "+rows.length+" nguồn"
+      :selectedSources(activeSourceScope()||GENERAL_SOURCE_SCOPE).length+" nguồn đã chọn";
   }
 }
 
@@ -479,8 +588,8 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const exists=libraryHas(row.id)||selectedSourceIds.has(row.id)||blockedSourceIds.has(row.id);
-  const status=exists?sourceStatus(row.id):"normal";
+  const exists=libraryHas(row.id)||allManagedStateIds().has(row.id);
+  const status=exists?sourceStatus(row.id,sourceManageGroup):"normal";
   const active=status==="selected";
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
@@ -597,9 +706,13 @@ function renderSourceGroupTabs(){
 
   const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    const count=group.key==="all"
+    const explicitIds=new Set([
+      ...selectedSetForScope(group.key),
+      ...blockedSetForScope(group.key)
+    ]);
+    const count=group.key===GENERAL_SOURCE_SCOPE
       ?rows.length
-      :rows.filter(row=>sourceGroupsFor(row).includes(group.key)).length;
+      :rows.filter(row=>explicitIds.has(row.id)||sourceGroupsFor(row).includes(group.key)).length;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
@@ -629,10 +742,15 @@ function renderSourceLibrary(){
   const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
+  const scopedStateIds=new Set([
+    ...selectedSetForScope(sourceManageGroup),
+    ...blockedSetForScope(sourceManageGroup)
+  ]);
   const groupFilter=row=>
     !!q||
     !sourceManageMode||
-    sourceManageGroup==="all"||
+    sourceManageGroup===GENERAL_SOURCE_SCOPE||
+    scopedStateIds.has(row.id)||
     sourceGroupsFor(row).includes(sourceManageGroup);
 
   const localRows=rows.filter(row=>
@@ -648,9 +766,9 @@ function renderSourceLibrary(){
   const parts=[];
 
   if(sourceManageMode){
-    const normalRows=localRows.filter(row=>sourceStatus(row.id)==="normal");
-    const selectedRows=localRows.filter(row=>sourceStatus(row.id)==="selected");
-    const blockedRows=localRows.filter(row=>sourceStatus(row.id)==="blocked");
+    const normalRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="normal");
+    const selectedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="selected");
+    const blockedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="blocked");
 
     // New YouTube results belong to the "Chưa chọn" area until saved/selected.
     const unselectedHtml=[
@@ -665,7 +783,7 @@ function renderSourceLibrary(){
     if(!unselectedHtml.length&&!selectedRows.length&&!blockedRows.length){
       const message=q
         ?"Không có nguồn phù hợp"
-        :sourceManageGroup!=="all"
+        :sourceManageGroup!==GENERAL_SOURCE_SCOPE
           ?"Chưa có nguồn trong nhóm này"
           :"Thư viện đang trống";
       parts.push('<div class="source-empty">'+message+'</div>');
@@ -782,7 +900,7 @@ function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
   const meta=sourceMetaFor(row);
-  if(sourceManageMode&&sourceManageGroup!=="all"){
+  if(sourceManageMode&&CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
     assignSourceGroup(row.id,sourceManageGroup);
   }
   if(!BASE_CHANNEL_ID_SET.has(row.id)){
@@ -801,8 +919,8 @@ function addSource(row){
     }
   }
 
-  // Saving a source does not automatically select it.
-  blockedSourceIds.delete(row.id);
+  // Saving only adds metadata to the library. It must not alter any
+  // selected/blocked state in the general or category-specific scopes.
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
@@ -813,16 +931,15 @@ function addSource(row){
 }
 
 function toggleSource(id){
-  if(!libraryHas(id))return;
-  const status=sourceStatus(id);
-  setSourceStatus(id,status==="selected"?"normal":"selected");
+  if(!libraryHas(id)&&!allManagedStateIds().has(id))return;
+  const status=sourceStatus(id,sourceManageGroup);
+  setSourceStatus(id,status==="selected"?"normal":"selected",sourceManageGroup);
 }
 
 function setSourceManageMode(enabled){
   const next=enabled===true;
   if(next&&!sourceManageMode)sourceBlockedExpanded=false;
   sourceManageMode=next;
-  if(!sourceManageMode)sourceManageGroup="all";
 
   if(sourceSettingsBtn){
     sourceSettingsBtn.classList.toggle("active",sourceManageMode);
@@ -920,7 +1037,10 @@ function openSourceLibrary(){
   sourceRemoteResults=[];
   sourcePreviewSeq++;
   closeSourceVideo();
-  setSourceManageMode(false);
+  sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+    ?state.activeParent
+    :GENERAL_SOURCE_SCOPE;
+  setSourceManageMode(true);
   if(sourcePreview)sourcePreview.hidden=true;
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
@@ -974,7 +1094,9 @@ function setupSourceLibrary(){
   sourceGroupTabs?.addEventListener("click",event=>{
     const button=event.target.closest("[data-source-group]");
     if(!button)return;
-    sourceManageGroup=button.dataset.sourceGroup||"all";
+    sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
+    sourceBlockedExpanded=false;
+    updateSourceSummary();
     renderSourceLibrary();
   });
 
@@ -1024,8 +1146,8 @@ function setupSourceLibrary(){
     if(stateButton){
       const id=stateButton.dataset.sourceId||"";
       const next=stateButton.dataset.sourceState||"normal";
-      const current=sourceStatus(id);
-      setSourceStatus(id,current===next?"normal":next);
+      const current=sourceStatus(id,sourceManageGroup);
+      setSourceStatus(id,current===next?"normal":next,sourceManageGroup);
       return;
     }
 
@@ -1864,9 +1986,8 @@ function parentSourceGroup(parent={}){
 
 function selectedSourcesForParent(parent={}){
   const group=parentSourceGroup(parent);
-  const selected=selectedSources();
-  if(!group)return selected;
-  return selected.filter(source=>sourceGroupsFor(source).includes(group));
+  if(!group)return [];
+  return selectedSources(group);
 }
 
 function librarySourceForVideo(row={}){
@@ -1916,9 +2037,9 @@ function rowMatchesParentRule(parent,row={}){
 }
 
 function locallyTrustedForParent(parent,row={}){
-  if(isBlockedSourceRow(row))return false;
-  if(row?._selectedCategorySource===true)return true;
   const group=parentSourceGroup(parent);
+  if(isBlockedSourceRow(row,group))return false;
+  if(row?._selectedCategorySource===true)return true;
   const source=librarySourceForVideo(row);
   if(source&&group&&sourceGroupsFor(source).includes(group))return true;
   return rowMatchesParentRule(parent,row);
@@ -1927,15 +2048,17 @@ function locallyTrustedForParent(parent,row={}){
 function splitLocalCategoryRows(parent,rows=[]){
   const trusted=[];
   const ambiguous=[];
+  const group=parentSourceGroup(parent);
   for(const row of rows){
-    if(isBlockedSourceRow(row))continue;
+    if(isBlockedSourceRow(row,group))continue;
     (locallyTrustedForParent(parent,row)?trusted:ambiguous).push(row);
   }
   return {trusted,ambiguous};
 }
 
 function filterRowsForAiParent(parent,rows=[]){
-  const base=rows.filter(row=>!isBlockedSourceRow(row));
+  const group=parentSourceGroup(parent);
+  const base=rows.filter(row=>!isBlockedSourceRow(row,group));
   const key=normalizeSearchText(parent?.label||"");
   if(key==="cong nghe"){
     return base.filter(row=>!isShortDramaStoryTitle(row));
@@ -2328,14 +2451,15 @@ async function discoverSourcesForParent(parent,local){
         uploadedWithinCategoryWindow,
         true,
         {upload_date:"week",sort_by:"upload_date"},
-        1
+        1,
+        group
       ).catch(()=>[])
     )
   );
 
   const discovered=mergeUniqueRows([],batches.flat())
     .filter(uploadedWithinCategoryWindow)
-    .filter(row=>!isBlockedSourceRow(row));
+    .filter(row=>!isBlockedSourceRow(row,group));
 
   if(discovered.length){
     rememberDiscoveredSources(discovered,group);
@@ -2374,12 +2498,13 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
 
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
   try{
-    const raw=await fetchSourcePool(local,sources,true);
+    const group=parentSourceGroup(parent);
+    const raw=await fetchSourcePool(local,sources,true,group);
     const rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
           .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row))
+          .filter(row=>!isBlockedSourceRow(row,group))
           .map(row=>({...row,_selectedCategorySource:true}))
       )
     ).slice(0,90);
@@ -2421,6 +2546,7 @@ async function loadAiParentDiscovery(parent){
   const seq=state.feedSeq;
 
   try{
+    const group=parentSourceGroup(parent);
     const sources=selectedSourcesForParent(parent);
 
     if(!sources.length){
@@ -2443,7 +2569,7 @@ async function loadAiParentDiscovery(parent){
     if(cachedRows.length){
       const safeCached=cachedRows.filter(row=>{
         const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-        return sourceIds.has(id)&&!isBlockedSourceRow(row);
+        return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
       });
 
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeCached});
@@ -2462,7 +2588,7 @@ async function loadAiParentDiscovery(parent){
     const sourcePool=readSourcePoolCache()
       .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
       .filter(uploadedWithinCategoryWindow)
-      .filter(row=>!isBlockedSourceRow(row));
+      .filter(row=>!isBlockedSourceRow(row,group));
 
     if(sourcePool.length){
       const rows=dedupeHashedRows(newestFirst(sourcePool))
@@ -2491,12 +2617,12 @@ async function loadAiParentDiscovery(parent){
     }
 
     const local=await localEngine(12000);
-    const raw=await fetchSourcePool(local,sources,true);
+    const raw=await fetchSourcePool(local,sources,true,group);
     let rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
           .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row))
+          .filter(row=>!isBlockedSourceRow(row,group))
           .map(row=>({...row,_selectedCategorySource:true}))
       )
     ).slice(0,90);
@@ -2800,8 +2926,9 @@ function renderCards(rows=[],options={}){
       : []
   );
   const cards=[];
+  const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
-    if(isBlockedSourceRow(row))continue;
+    if(isBlockedSourceRow(row,renderScope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -3510,16 +3637,16 @@ installSheet.addEventListener("click",e=>{if(e.target===installSheet)installShee
 
 const FEED_CACHE_PREFIX="1988-discovery-v21:";
 
-async function pagedSearch(local,key,query,filters={},reset=false){
+async function pagedSearch(local,key,query,filters={},reset=false,scope=GENERAL_SOURCE_SCOPE){
   try{
     const rows=await local.searchPage(key,query,{type:"video",...filters},reset);
-    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
+    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
   }catch(error){
     console.warn("paged search failed",key,error);
     if(!reset)return [];
     try{
       const rows=await local.search(query,{type:"video",...filters});
-      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
+      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
     }catch{
       return [];
     }
@@ -3661,14 +3788,15 @@ function primeSourceFeedCaches(rows=[]){
   saveFeedCache("week",week);
 }
 
-async function fetchSourcePool(local,sources,reset=true){
+async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE){
   const collected=[];
   let cursor=0;
+  const blocked=blockedSetForScope(scope);
 
   const worker=async()=>{
     while(cursor<sources.length){
       const source=sources[cursor++];
-      if(!source||blockedSourceIds.has(source.id))continue;
+      if(!source||blocked.has(source.id))continue;
       try{
         const rows=await local.channelVideosPage(
           "library:"+source.id,
@@ -3702,7 +3830,7 @@ function refreshSourcePool(local,sources){
 
   sourcePoolRefreshSignature=signature;
   sourcePoolRefreshPromise=(async()=>{
-    const rows=await fetchSourcePool(local,sources,true);
+    const rows=await fetchSourcePool(local,sources,true,GENERAL_SOURCE_SCOPE);
     if(signature!==sourceSignature())return [];
     const saved=saveSourcePoolCache(rows);
     primeSourceFeedCaches(saved);
@@ -3732,7 +3860,7 @@ async function selectedSourceFeed(local,predicate,reset=false){
     return fresh.filter(predicate);
   }
 
-  const extra=await fetchSourcePool(local,sources,false);
+  const extra=await fetchSourcePool(local,sources,false,GENERAL_SOURCE_SCOPE);
   const previous=readSourcePoolCache();
   const merged=saveSourcePoolCache([...previous,...extra]);
   primeSourceFeedCaches(merged);
@@ -3792,12 +3920,12 @@ async function regionalDiscoveryFeed(local,predicate,reset=false){
   return rows.filter(predicate);
 }
 
-async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
+async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3,scope=GENERAL_SOURCE_SCOPE){
   const collected=[];
   let first=reset;
 
   for(let page=0;page<maxPages;page++){
-    const rows=await pagedSearch(local,key,query,filters,first);
+    const rows=await pagedSearch(local,key,query,filters,first,scope);
     first=false;
     if(!Array.isArray(rows)||!rows.length)break;
 
