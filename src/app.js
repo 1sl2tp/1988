@@ -2722,6 +2722,15 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
     root.style.setProperty("--watch-stage-w",Math.round(width)+"px");
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
+    root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
+
+    root.classList.remove("watch-tools-side","watch-tools-bottom");
+    const sideGap=Math.max(0,viewportWidth-width);
+    if(aspectClass==="watch-aspect-portrait"&&sideGap>=54){
+      root.classList.add("watch-tools-side");
+    }else{
+      root.classList.add("watch-tools-bottom");
+    }
     return;
   }
 
@@ -2982,6 +2991,58 @@ function syncWatchCurrentCard({scroll=false}={}){
   }
 }
 
+let watchRecoInfoTimer=0;
+
+function ensureWatchRecoInfo(){
+  let info=document.querySelector(".watch-reco-info");
+  if(info)return info;
+
+  info=document.createElement("div");
+  info.className="watch-reco-info";
+  info.hidden=true;
+  info.innerHTML=
+    '<div class="watch-reco-title"></div>'+
+    '<div class="watch-reco-meta"></div>';
+  document.body.appendChild(info);
+  return info;
+}
+
+function showWatchRecoInfo(card,{autoHide=true}={}){
+  if(!card||window.innerWidth>720)return;
+  const info=ensureWatchRecoInfo();
+  const title=card.dataset.title||"Video";
+  const channel=card.dataset.channel||"";
+  const views=Number(card.dataset.views)||0;
+  const viewText=card.dataset.viewText||"";
+  const published=card.dataset.published||"";
+  const bits=[];
+  if(channel)bits.push(channel);
+  if(viewText)bits.push(viewText);
+  else if(views)bits.push(fmtViews(views)+" lượt xem");
+  if(published)bits.push(published);
+
+  info.querySelector(".watch-reco-title").textContent=title;
+  info.querySelector(".watch-reco-meta").textContent=bits.join(" · ");
+  info.hidden=false;
+  info.classList.add("show");
+
+  clearTimeout(watchRecoInfoTimer);
+  if(autoHide){
+    watchRecoInfoTimer=setTimeout(()=>{
+      info.classList.remove("show");
+      setTimeout(()=>{if(!info.classList.contains("show"))info.hidden=true;},180);
+    },3200);
+  }
+}
+
+function hideWatchRecoInfo(){
+  clearTimeout(watchRecoInfoTimer);
+  const info=document.querySelector(".watch-reco-info");
+  if(!info)return;
+  info.classList.remove("show");
+  setTimeout(()=>{if(!info.classList.contains("show"))info.hidden=true;},180);
+}
+
 function navigateWatchVideo(direction=1){
   const cards=watchFeedCards();
   if(!cards.length)return;
@@ -2998,6 +3059,7 @@ function navigateWatchVideo(direction=1){
 
   void primePipAspect(id);
   setSeriesContextFromCard(card);
+  showWatchRecoInfo(card,{autoHide:true});
   playVideo(id,rowFromCard(card));
 }
 
@@ -3009,8 +3071,8 @@ function watchActiveCategoryLabel(){
 function syncWatchUtilityState(){
   const rail=playerSection?.querySelector(".watch-nav-rail");
   if(!rail)return;
-  const category=rail.querySelector('[data-watch-action="categories"]');
-  if(category)category.textContent=watchActiveCategoryLabel();
+  const label=rail.querySelector(".watch-category-label");
+  if(label)label.textContent=watchActiveCategoryLabel();
 }
 
 function ensureWatchNavRail(){
@@ -3026,22 +3088,33 @@ function ensureWatchNavRail(){
   rail.setAttribute("role","toolbar");
   rail.setAttribute("aria-label","Điều khiển xem nhanh");
 
-  const makeButton=(attrs,label,content)=>{
+  const iconSvg=(name)=>{
+    const icons={
+      search:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>',
+      grid:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="2.2"></circle><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle><circle cx="16" cy="16" r="2.2"></circle></svg>',
+      up:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"></path></svg>',
+      down:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"></path></svg>'
+    };
+    return icons[name]||"";
+  };
+
+  const makeButton=(attrs,label,icon)=>{
     const button=document.createElement("button");
     button.type="button";
     Object.entries(attrs).forEach(([key,value])=>button.dataset[key]=value);
     button.setAttribute("aria-label",label);
-    button.textContent=content;
+    button.innerHTML='<span class="watch-tool-icon">'+iconSvg(icon)+'</span>';
     return button;
   };
 
-  const search=makeButton({watchAction:"search"},"Tìm kiếm","⌕");
+  const search=makeButton({watchAction:"search"},"Tìm kiếm","search");
   search.className="watch-tool-btn watch-search-btn";
   search.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
     const root=document.documentElement;
     root.classList.remove("watch-categories-open");
+    hideWatchRecoInfo();
     root.classList.toggle("watch-search-open");
     if(root.classList.contains("watch-search-open")){
       requestAnimationFrame(()=>{
@@ -3054,19 +3127,21 @@ function ensureWatchNavRail(){
   const category=makeButton(
     {watchAction:"categories"},
     "Chọn danh mục",
-    watchActiveCategoryLabel()
+    "grid"
   );
   category.className="watch-tool-btn watch-category-btn";
+  category.insertAdjacentHTML("beforeend",'<span class="watch-category-label">'+esc(watchActiveCategoryLabel())+'</span>');
   category.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
     const root=document.documentElement;
     root.classList.remove("watch-search-open");
+    hideWatchRecoInfo();
     root.classList.toggle("watch-categories-open");
   });
 
-  const prev=makeButton({watchNav:"prev"},"Video trước","↑");
-  const next=makeButton({watchNav:"next"},"Video tiếp theo","↓");
+  const prev=makeButton({watchNav:"prev"},"Video trước","up");
+  const next=makeButton({watchNav:"next"},"Video tiếp theo","down");
   prev.className="watch-tool-btn watch-step-btn";
   next.className="watch-tool-btn watch-step-btn";
 
@@ -7634,6 +7709,7 @@ feed.addEventListener("click",e=>{
   const card=e.target.closest("[data-video-id]");
   if(!card)return;
   const id=card.dataset.videoId;
+  showWatchRecoInfo(card,{autoHide:true});
   setSeriesContextFromCard(card);
   playVideo(id,rowFromCard(card));
 });
