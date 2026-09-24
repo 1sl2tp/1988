@@ -1097,7 +1097,9 @@ function topicInputRows(rows=[]){
       channel:clean(row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||""),
       published:clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||publishedLabel(row)||""),
       views:Number(row?.views)||0,
-      contentHash:contentHashForRow(row)
+      contentHash:contentHashForRow(row),
+      description:clean(row?._aiDescription||"").slice(0,1800),
+      howMade:clean(row?._aiHowMade||"").slice(0,800)
     }))
     .filter(row=>row.id&&row.title);
 }
@@ -1262,11 +1264,11 @@ function aiDisclosureRequired(parent){
   return key==="phim"||key==="phim ngan"||key==="nhac";
 }
 
-async function filterNativeAiGeneratedRows(local,parent,rows=[]){
+async function inspectAiMediaRows(local,parent,rows=[]){
   if(!aiDisclosureRequired(parent)||typeof local?.aiDisclosure!=="function")return rows;
 
   const source=Array.isArray(rows)?rows:[];
-  const keep=new Array(source.length).fill(true);
+  const enriched=new Array(source.length);
   let cursor=0;
   const workerCount=Math.min(6,source.length);
 
@@ -1274,17 +1276,35 @@ async function filterNativeAiGeneratedRows(local,parent,rows=[]){
     while(true){
       const index=cursor++;
       if(index>=source.length)return;
-      const id=itemVideoId(source[index]);
-      if(!id)continue;
+      const row=source[index];
+      const id=itemVideoId(row);
+      if(!id){
+        enriched[index]=row;
+        continue;
+      }
+
       try{
         const disclosure=await local.aiDisclosure(id);
-        if(disclosure?.checked&&disclosure?.madeWithAi)keep[index]=false;
-      }catch{}
+        if(disclosure?.checked&&disclosure?.madeWithAi){
+          enriched[index]=null;
+          continue;
+        }
+
+        enriched[index]={
+          ...row,
+          _aiDescription:clean(disclosure?.description||"").slice(0,2600),
+          _aiHowMade:clean(disclosure?.text||"").slice(0,1200),
+          _aiSourceTitle:clean(disclosure?.title||"").slice(0,220),
+          _aiSourceUploader:clean(disclosure?.uploader||"").slice(0,140)
+        };
+      }catch{
+        enriched[index]=row;
+      }
     }
   };
 
   await Promise.all(Array.from({length:workerCount},worker));
-  return source.filter((row,index)=>keep[index]);
+  return enriched.filter(Boolean);
 }
 
 function dedupeHashedRows(rows=[]){
@@ -1588,10 +1608,17 @@ async function classifyAiParent(parent,rows=[]){
       .filter(Boolean)
   );
 
+  const aiGeneratedLikelyIds=new Set(
+    (Array.isArray(payload?.aiGeneratedLikelyIds)?payload.aiGeneratedLikelyIds:[])
+      .map(id=>clean(id))
+      .filter(Boolean)
+  );
+
   return {
     topics:normalizeAiChildTopics(payload,rows,parent),
     videoMeta:normalizeAiVideoMeta(payload,input),
-    acceptedVideoIds
+    acceptedVideoIds,
+    aiGeneratedLikelyIds
   };
 }
 
@@ -1642,6 +1669,11 @@ async function loadAiParentDiscovery(parent){
 
     rows=filterRowsForAiParent(parent,rows);
 
+    if(aiDisclosureRequired(parent)&&state.activeParent===parent.key){
+      feedStatus.textContent="Đang kiểm tra nguồn nội dung…";
+    }
+    rows=await inspectAiMediaRows(local,parent,rows);
+
     state.trendTopics=[];
     renderTrendTopics();
 
@@ -1653,12 +1685,12 @@ async function loadAiParentDiscovery(parent){
 
       const classified=await classifyAiParent(parent,rows);
       const accepted=classified.acceptedVideoIds;
-      rows=rows.filter(row=>accepted.has(itemVideoId(row)));
+      const aiGeneratedLikely=classified.aiGeneratedLikelyIds||new Set();
+      rows=rows.filter(row=>{
+        const id=itemVideoId(row);
+        return accepted.has(id)&&!aiGeneratedLikely.has(id);
+      });
 
-      if(aiDisclosureRequired(parent)&&state.activeParent===parent.key){
-        feedStatus.textContent="Đang lọc nội dung AI…";
-      }
-      rows=await filterNativeAiGeneratedRows(local,parent,rows);
       const visibleIds=new Set(rows.map(itemVideoId).filter(Boolean));
 
       const topics=classified.topics
@@ -1680,7 +1712,6 @@ async function loadAiParentDiscovery(parent){
         feedStatus.textContent=visible.length?visible.length+" video":"";
       }
     }else{
-      rows=await filterNativeAiGeneratedRows(local,parent,rows);
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
       if(state.activeParent===parent.key){
         renderCards(rows);
