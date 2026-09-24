@@ -2706,6 +2706,42 @@ async function collectRecentPages(local,key,query,predicate,reset=false,filters=
   return mergeUniqueRows([],collected);
 }
 
+function mergeContentHashedRows(rows=[]){
+  const ranked=weekFreshViewedFirst(
+    mergeUniqueRows([],Array.isArray(rows)?rows:[]).filter(uploadedWithinWeek)
+  );
+  const seenHash=new Set();
+  const out=[];
+
+  for(const row of ranked){
+    const hash=contentHashForRow(row);
+    if(hash&&seenHash.has(hash))continue;
+    if(hash)seenHash.add(hash);
+    out.push(row);
+  }
+  return out;
+}
+
+async function aiCategoryFeed(local,category,reset=false){
+  if(!category)return [];
+  const queries=(Array.isArray(category.queries)?category.queries:[]).slice(0,5);
+  if(!queries.length)return [];
+
+  const batches=await Promise.all(
+    queries.map((query,index)=>
+      pagedSearch(
+        local,
+        "ai-category:"+category.key+":"+index+":"+fastHash(query),
+        query,
+        {upload_date:"week",sort_by:"upload_date"},
+        reset
+      ).catch(()=>[])
+    )
+  );
+
+  return mergeContentHashedRows(batches.flat());
+}
+
 const FEED_PRESETS={
   live:{
     title:"LIVE",
@@ -2727,20 +2763,41 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:(local,reset)=>regionalDiscoveryFeed(local,uploadedWithinLatest,reset)
+    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinLatest,reset)
   },
   week:{
     title:"Tuần này",
     weekFreshViewed:true,
-    load:(local,reset)=>regionalDiscoveryFeed(local,uploadedWithinWeek,reset)
+    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinWeek,reset)
   }
 };
 
+function feedPresetFor(name="latest"){
+  if(isAiCategoryFeed(name)){
+    const category=aiCategoryByKey(aiCategoryKeyFromFeed(name));
+    if(category){
+      return {
+        title:category.label,
+        weekFreshViewed:true,
+        aiCategory:true,
+        load:(local,reset)=>aiCategoryFeed(local,category,reset)
+      };
+    }
+  }
+  return FEED_PRESETS[name]||FEED_PRESETS.latest;
+}
+
+function feedCacheStorageKey(name){
+  const suffix=isAiCategoryFeed(name)?":"+String(state.catalogVersion||"catalog"):"";
+  return FEED_CACHE_PREFIX+name+suffix;
+}
+
 function readFeedCache(name){
   try{
-    const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
+    const row=JSON.parse(localStorage.getItem(feedCacheStorageKey(name))||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
     if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature())return [];
+    if(isAiCategoryFeed(name)&&Date.now()-Number(row.at||0)>30*60*1000)return [];
     return row.items;
   }catch{
     return [];
@@ -2749,10 +2806,10 @@ function readFeedCache(name){
 
 function saveFeedCache(name,rows){
   try{
-    localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
+    localStorage.setItem(feedCacheStorageKey(name),JSON.stringify({
       at:Date.now(),
       sourceSignature:isSourceScopedFeed(name)?sourceSignature():"",
-      items:rows.slice(0,90)
+      items:rows.slice(0,isAiCategoryFeed(name)?120:90)
     }));
   }catch{}
 }
