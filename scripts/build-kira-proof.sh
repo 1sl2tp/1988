@@ -8974,6 +8974,7 @@ type Row = VideoItemData & {
   publishedAt?: number;
   viewsText?: string;
   viewCount?: number;
+  layout?: 'portrait' | 'square' | 'landscape';
 };
 
 const categories: Array<{ id: Category; label: string; queries: string[] }> = [
