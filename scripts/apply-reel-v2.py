@@ -880,4 +880,122 @@ watch(() => route.query.shape, (value) => setShapeHint(value));
   border-radius: 11px;
   background: transparent;
   color: #f2f2f3;
-  text-decoration:
+  text-decoration: none;
+  font: inherit;
+  text-align: left;
+}
+
+.reel-menu button:hover,
+.reel-menu a:hover {
+  background: #3a3a3e;
+}
+
+.reel-menu :deep(svg) {
+  width: 19px;
+  height: 19px;
+}
+
+.toast {
+  position: absolute;
+  z-index: 50;
+  left: 50%;
+  bottom: max(26px, calc(env(safe-area-inset-bottom) + 18px));
+  transform: translateX(-50%);
+  padding: 9px 13px;
+  border-radius: 999px;
+  background: rgba(39,39,42,.94);
+  color: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.reel-next-enter-active,
+.reel-next-leave-active,
+.reel-prev-enter-active,
+.reel-prev-leave-active {
+  transition: transform .24s cubic-bezier(.2,.72,.2,1), opacity .2s ease;
+}
+
+.reel-next-enter-from { transform: translateY(8%); opacity: .35; }
+.reel-next-leave-to { transform: translateY(-8%); opacity: .2; }
+.reel-prev-enter-from { transform: translateY(-8%); opacity: .35; }
+.reel-prev-leave-to { transform: translateY(8%); opacity: .2; }
+
+@media (max-width: 899px) {
+  .reel-content {
+    width: 100%;
+    height: 100dvh;
+  }
+
+  .shape-landscape .reel-content,
+  .shape-square .reel-content {
+    justify-content: center;
+    padding: max(56px, env(safe-area-inset-top)) 0 max(20px, env(safe-area-inset-bottom));
+    box-sizing: border-box;
+  }
+
+  .shape-landscape .reel-meta,
+  .shape-square .reel-meta {
+    padding: 12px 14px 0;
+  }
+
+  .shape-landscape .reel-meta h1,
+  .shape-square .reel-meta h1 {
+    font-size: 16px;
+  }
+
+  .action-rail {
+    right: 10px;
+    bottom: max(105px, calc(env(safe-area-inset-bottom) + 92px));
+    gap: 11px;
+  }
+
+  .action-rail button,
+  .rail-avatar {
+    width: 45px;
+    min-height: 45px;
+  }
+
+  .desktop-arrows {
+    display: none;
+  }
+
+  .back-btn {
+    top: max(9px, env(safe-area-inset-top));
+    left: 9px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .shape-portrait .reel-meta {
+    left: 12px;
+    right: 68px;
+    bottom: max(76px, calc(env(safe-area-inset-bottom) + 68px));
+  }
+
+  .shape-portrait .creator img,
+  .shape-portrait .avatar {
+    width: 32px;
+    height: 32px;
+    flex-basis: 32px;
+  }
+}
+
+@media (min-width: 900px) {
+  .shape-portrait .reel-content {
+    width: min(56.25dvh, 620px);
+    max-width: calc(100vw - 210px);
+  }
+
+  .shape-portrait .action-rail {
+    right: max(22px, calc(50vw - min(28.125dvh, 310px) - 82px));
+  }
+}
+</style>
+''')
+"""
+
+path.write_text(text.replace(marker, block + "\n" + marker, 1).replace(
+    "ytjs-proof-20260924-59-sources-under-search",
+    "ytjs-proof-20260924-61-immersive-reel-v2"
+))
