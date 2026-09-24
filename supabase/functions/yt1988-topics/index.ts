@@ -138,9 +138,25 @@ function validateCatalog(value:any){
   });
   ensureParent({
     label:"Phim",
-    queries:["phim mới","phim ngắn","phim tổng tài","phim xuyên không","trailer phim"],
-    hints:["phim ngắn","tổng tài","xuyên không","trọng sinh","cổ trang","trailer"]
+    queries:["phim mới","phim ngắn Trung Quốc","phim tổng tài","phim trọng sinh xuyên không","phim hệ thống hoàn thưởng","phim cổ trang ngôn tình"],
+    hints:["phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống","hoàn thưởng","báo thù","ở rể","tu tiên","cổ trang","ngôn tình"]
   });
+
+  const film=parents.find(row=>String(row.label||"").toLocaleLowerCase("vi-VN")==="phim");
+  if(film){
+    film.queries=[...new Set([
+      ...(Array.isArray(film.queries)?film.queries:[]),
+      "phim ngắn Trung Quốc",
+      "phim tổng tài",
+      "phim trọng sinh xuyên không",
+      "phim hệ thống hoàn thưởng",
+      "phim cổ trang ngôn tình"
+    ])].slice(0,6);
+    film.hints=[...new Set([
+      ...(Array.isArray(film.hints)?film.hints:[]),
+      "phim ngắn","Trung Quốc","tổng tài","xuyên không","trọng sinh","hệ thống","hoàn thưởng","báo thù","ở rể","tu tiên","cổ trang","ngôn tình"
+    ])].slice(0,12);
+  }
 
   return {parents:parents.slice(0,9)};
 }
@@ -237,7 +253,13 @@ function validateResult(value:any,videos:any[]){
     }
   }
 
-  return {parents,topics,videos:[...meta.values()]};
+  const acceptedVideoIds=[...new Set(
+    (Array.isArray(value?.acceptedVideoIds)?value.acceptedVideoIds:videos.map(row=>row.id))
+      .map((id:any)=>clean(id,32))
+      .filter((id:string)=>allowedIds.has(id))
+  )];
+
+  return {parents,topics,videos:[...meta.values()],acceptedVideoIds};
 }
 
 async function callCatalogGemini(cfg:any,videos:any[]){
@@ -269,6 +291,8 @@ YÊU CẦU TÌM KIẾM TỰ ĐỘNG
 - Không chỉ lặp lại tên danh mục. Hãy mở rộng theo hệ sinh thái nội dung thật.
 - Ví dụ với Nhạc phải biết tìm ca sĩ/label phát hành chính thức, MV/audio mới, live/phòng trà, nghệ sĩ độc lập/tự đăng, remix/cover khi phù hợp.
 - Ví dụ với Phim phải biết mở rộng phim mới, phim bộ/lẻ, phim ngắn Trung Hoa, tổng tài, xuyên không, trọng sinh, cổ trang, trailer/tin phim... tùy tín hiệu hiện tại.
+- Với Phim ngắn Trung Quốc, phải hiểu đây là một hệ rất rộng và tiếp tục khám phá motif mới từ kết quả, ví dụ: tổng tài, trọng sinh, xuyên không, hệ thống, hoàn thưởng, báo thù, ở rể, thần y, chiến thần, tu tiên, tận thế, thiên kim, giả nghèo, đổi thân phận, cổ trang, ngôn tình... Đây chỉ là ví dụ, KHÔNG phải danh sách đóng.
+- Những từ như "hệ thống" trong ngữ cảnh cốt truyện/phim ngắn là motif PHIM, không phải Công nghệ. Query Công nghệ phải có ngữ cảnh kỹ thuật rõ như AI, điện thoại, máy tính, chip, phần mềm, robot, khoa học...
 - Truy vấn phải ngắn và dùng ngôn ngữ người Việt thực sự gõ. Hệ thống YouTube đã đặt vùng Việt Nam nên KHÔNG cần nhồi chữ "Việt Nam" vào mọi truy vấn.
 - Có thể trả thêm "hints" là các từ/cụm chủ đề con để hỗ trợ phân loại, tối đa 12 từ/cụm cho mỗi cha.
 - Không tự bịa một tin cụ thể đang xảy ra nếu mẫu không cho thấy.
@@ -329,6 +353,12 @@ async function callGemini(cfg:any,scope:string,videos:any[],parentLabel=""){
   const instruction=`
 Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. Hãy làm BỐN việc trong CÙNG một lần. Chỉ dựa trên metadata đầu vào, không bịa thêm sự kiện.
 ${parentLabel?`NHÓM CHA ĐANG XỬ LÝ: "${parentLabel}". Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.`:""}
+${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
+- Trả "acceptedVideoIds" gồm CHỈ các video thực sự thuộc nhóm cha này. Video lệch nhóm phải loại khỏi acceptedVideoIds, dù nó được tìm thấy do từ khóa mơ hồ.
+- Phân loại theo NGỮ CẢNH cả tiêu đề, không theo một từ đơn lẻ.
+- Nếu nhóm là "Công nghệ": các motif truyện/phim như "trọng sinh", "xuyên không", "kiếp này", "hệ thống", "hoàn thưởng", "tổng tài", "ở rể", "tu tiên", "thần y", "chiến thần", "thiên kim", "báo thù" KHÔNG phải công nghệ khi tiêu đề mang ngữ cảnh phim/cốt truyện.
+- Nếu nhóm là "Phim": hãy nhận diện rộng phim ngắn Trung Quốc và các motif kể chuyện như tổng tài, trọng sinh, xuyên không, hệ thống, hoàn thưởng, báo thù, ở rể, tu tiên, thần y, chiến thần, tận thế, thiên kim, giả nghèo, đổi thân phận, cổ trang, ngôn tình... và tự phát hiện thêm motif mới từ batch.
+- Chỉ loại khi thật sự lệch cha; đừng làm nghèo nội dung chỉ vì tên thể loại lạ.`:""}
 
 1) MENU CHA TỰ ĐỘNG
 - Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
@@ -367,6 +397,7 @@ PHẠM VI: ${scope==="discovery"?"video mới trong tối đa 7 ngày, gồm c�
 
 OUTPUT chỉ JSON, không Markdown:
 {
+  "acceptedVideoIds":["id1","id2"],
   "parents":[
     {"label":"Công nghệ","videoIds":["id1","id2"]}
   ],
@@ -495,7 +526,7 @@ Deno.serve(async(req:Request)=>{
       .sort()
       .join("\n");
     const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+canonical);
-    const cacheKey="v5:classify:"+scope+":"+fingerprint;
+    const cacheKey="v6:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
