@@ -1346,7 +1346,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v5:";
+const FEED_CACHE_PREFIX="1988-discovery-v6:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1390,54 +1390,35 @@ async function normalizeRegionalRow(row={}){
   };
 }
 
-async function regionalTrendingRows(){
-  try{
-    const response=await api("trending",{region:"VN"},10000);
+let regionalFeedCache={at:0,rows:[],promise:null};
+
+async function regionalFeedRows(force=false){
+  const now=Date.now();
+  if(!force&&regionalFeedCache.rows.length&&now-regionalFeedCache.at<45_000){
+    return regionalFeedCache.rows;
+  }
+  if(!force&&regionalFeedCache.promise)return regionalFeedCache.promise;
+
+  const request=(async()=>{
+    const response=await api("regional_feed",{region:"VN"},15000);
     const data=response?.data;
-    if(Array.isArray(data))return data.map(normalizeRegionalRow);
-    if(Array.isArray(data?.items))return data.items.map(normalizeRegionalRow);
-    if(Array.isArray(data?.videos))return data.videos.map(normalizeRegionalRow);
+    const raw=
+      Array.isArray(data)?data:
+      Array.isArray(data?.items)?data.items:
+      Array.isArray(data?.videos)?data.videos:
+      [];
+    const rows=mergeUniqueRows([],raw.map(normalizeRegionalRow));
+    regionalFeedCache={at:Date.now(),rows,promise:null};
+    return rows;
+  })();
+
+  regionalFeedCache.promise=request;
+  try{
+    return await request;
   }catch(error){
-    console.warn("regional trending failed",error);
+    regionalFeedCache.promise=null;
+    throw error;
   }
-  return [];
-}
-
-async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
-  const collected=[];
-  let first=reset;
-
-  // Primary: YouTube Home feed with Innertube session context gl/location=VN.
-  for(let i=0;i<maxPages&&local;i++){
-    let rows=[];
-    try{
-      rows=await local.homePage("region-"+key,first);
-    }catch(error){
-      console.warn("regional HomeFeed failed",key,error);
-      break;
-    }
-    first=false;
-    if(!Array.isArray(rows)||!rows.length)break;
-
-    for(const raw of rows){
-      const row=normalizeRegionalRow(raw);
-      if(predicate(row))collected.push(row);
-    }
-
-    if(collected.length>=18)break;
-  }
-
-  // Fallback: Piped/YouTube regional trending endpoint. It is keyed by
-  // region=VN, not by a search phrase, and keeps these feeds keyword-free.
-  if(!collected.length){
-    const rows=await regionalTrendingRows();
-    for(const raw of rows){
-      const row=normalizeRegionalRow(raw);
-      if(predicate(row))collected.push(row);
-    }
-  }
-
-  return mergeUniqueRows([],collected);
 }
 
 const FEED_PRESETS={
@@ -1445,38 +1426,32 @@ const FEED_PRESETS={
     title:"LIVE",
     newest:true,
     allowWithoutLocal:true,
-    load:(local,reset)=>regionalFilteredPage(
-      local,
-      "live-regional",
-      row=>row?.isLive===true,
-      reset,
-      4
-    )
+    finite:true,
+    load:async(_local,reset)=>{
+      const rows=await regionalFeedRows(reset);
+      return rows.filter(row=>row?.isLive===true);
+    }
   },
   today:{
     title:"Hôm nay",
     newest:true,
     allowWithoutLocal:true,
-    load:(local,reset)=>regionalFilteredPage(
-      local,
-      "today-regional",
-      row=>!row?.isLive&&withinHours(row,24),
-      reset,
-      4
-    )
+    finite:true,
+    load:async(_local,reset)=>{
+      const rows=await regionalFeedRows(reset);
+      return rows.filter(row=>!row?.isLive&&withinHours(row,24));
+    }
   },
   week:{
     title:"Tuần này",
     newest:false,
     allowWithoutLocal:true,
+    finite:true,
     weekFreshViewed:true,
-    load:(local,reset)=>regionalFilteredPage(
-      local,
-      "week-regional",
-      row=>!row?.isLive&&withinHours(row,24*7),
-      reset,
-      4
-    )
+    load:async(_local,reset)=>{
+      const rows=await regionalFeedRows(reset);
+      return rows.filter(row=>!row?.isLive&&withinHours(row,24*7));
+    }
   },
   news:{
     title:"Thời sự",
@@ -1546,7 +1521,7 @@ async function loadFeedPreset(name="today"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.today;
   const seq=++state.feedSeq;
   state.feedLoading=true;
-  state.feedHasMore=true;
+  state.feedHasMore=!preset.finite;
   state.feedRows=[];
   setActiveChip(name);
   feedTitle.textContent=preset.title;
@@ -1574,7 +1549,7 @@ async function loadFeedPreset(name="today"){
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
     renderCards(state.feedRows);
-    state.feedHasMore=true;
+    state.feedHasMore=!preset.finite;
     feedStatus.textContent="";
   }catch(error){
     console.warn("feed failed",name,error);
@@ -1594,7 +1569,7 @@ async function loadFeedPreset(name="today"){
 async function loadMoreFeed(){
   const name=state.activeFeed;
   const preset=FEED_PRESETS[name];
-  if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
+  if(!name||!preset||preset.finite||state.feedLoading||!state.feedHasMore)return;
 
   state.feedLoading=true;
   const seq=state.feedSeq;
