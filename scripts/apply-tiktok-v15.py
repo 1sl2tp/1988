@@ -222,7 +222,7 @@ import { ArrowDown, ArrowUp } from '@lucide/vue';
 import TikTokPlayer from '@/components/TikTokPlayer.vue';
 import { formatRelativeTime } from '@/utils/display1988';
 
-const BACKEND = 'https://one988-audio.onrender.com';
+const BACKEND = 'https://one988-media.onrender.com';
 const route = useRoute();
 const router = useRouter();
 const feedEl = ref<HTMLElement | null>(null);
