@@ -131,6 +131,31 @@ jobs:
               returnByValue:true
             });
             console.log('RAW_HOME',rawProbe?.result?.value);
+
+            const guideProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  const yt=await window.YTLocal.getYT();
+                  const guide=await yt.getGuide();
+                  const sections=Array.from(guide?.contents||[]).map(section=>({
+                    title:section?.title?.text||String(section?.title||''),
+                    items:Array.from(section?.items||[]).map(item=>({
+                      type:item?.type||item?.constructor?.name||'',
+                      title:item?.title?.text||String(item?.title||''),
+                      icon:item?.icon_type||'',
+                      browseId:item?.endpoint?.payload?.browseId||item?.endpoint?.metadata?.browse_id||'',
+                      url:item?.endpoint?.metadata?.url||item?.endpoint?.payload?.canonicalBaseUrl||''
+                    })).filter(x=>x.title)
+                  }));
+                  return JSON.stringify({sections});
+                }catch(e){
+                  return JSON.stringify({error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('GUIDE_PROBE',guideProbe?.result?.value);
             ws.close();
           }
           main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
