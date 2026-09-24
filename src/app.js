@@ -648,7 +648,9 @@ const HISTORIC_FILM_BLOCKED_ANCHORS=new Set([
 
 function recoverHistoricFilmManualState(){
   try{
-    if(localStorage.getItem(SOURCE_FILM_SNAPSHOT_RECOVERY_KEY)==="1")return;
+    // Any existing recovery marker means the one-time restore already ran.
+    // The marker is JSON metadata, not the literal string "1".
+    if(localStorage.getItem(SOURCE_FILM_SNAPSHOT_RECOVERY_KEY))return;
 
     const filmSelected=selectedSetForScope("film");
     const filmBlocked=blockedSetForScope("film");
