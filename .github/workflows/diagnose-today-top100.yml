@@ -1,0 +1,240 @@
+name: Diagnose today top channels
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-today-top100.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Collect current YouTube.js today channels
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser)"
+          "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
+          PID=$!
+          sleep 2
+          node <<'NODE'
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function connect(){
+            let targets=[];
+            for(let i=0;i<40;i++){
+              try{
+                targets=await (await fetch('http://127.0.0.1:9222/json')).json();
+                if(targets.length)break;
+              }catch{}
+              await sleep(250);
+            }
+            const target=targets.find(x=>x.type==='page');
+            if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
+            const ws=new WebSocket(target.webSocketDebuggerUrl);
+            let id=0;
+            const pending=new Map();
+            const send=(method,params={})=>new Promise((resolve,reject)=>{
+              const msgId=++id;
+              pending.set(msgId,{resolve,reject});
+              ws.send(JSON.stringify({id:msgId,method,params}));
+            });
+            ws.onmessage=e=>{
+              const m=JSON.parse(e.data);
+              if(m.id&&pending.has(m.id)){
+                const p=pending.get(m.id);
+                pending.delete(m.id);
+                m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);
+              }
+            };
+            await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
+            return {ws,send};
+          }
+
+          async function main(){
+            const {ws,send}=await connect();
+            await send('Runtime.enable');
+            await send('Page.enable');
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
+            await sleep(5000);
+
+            const report=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                const yt=await window.YTLocal.getYT();
+
+                const str=v=>{
+                  if(v==null)return '';
+                  if(typeof v==='string'||typeof v==='number')return String(v);
+                  if(typeof v.text==='string')return v.text;
+                  try{return String(v.toString?.()||'')}catch{return ''}
+                };
+                const norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+                const parseMetric=value=>{
+                  const raw=String(value||'').trim();
+                  if(!raw)return 0;
+                  const low=norm(raw).replace(/,/g,'.');
+                  const m=low.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(ty|tr|trieu|m|n|nghin|k|b)?/);
+                  if(!m)return 0;
+                  let n=Number(m[1])||0;
+                  const unit=m[2]||'';
+                  if(unit==='ty'||unit==='b')n*=1e9;
+                  else if(unit==='tr'||unit==='trieu'||unit==='m')n*=1e6;
+                  else if(unit==='n'||unit==='nghin'||unit==='k')n*=1e3;
+                  return Math.round(n);
+                };
+                const channelFromLockup=node=>{
+                  for(const row of node?.metadata?.metadata?.metadata_rows||[]){
+                    for(const part of row?.metadata_parts||[]){
+                      const t=part?.text;
+                      if(!t)continue;
+                      const runs=t.runs||[];
+                      const endpoint=t.endpoint||runs[0]?.endpoint;
+                      const id=endpoint?.payload?.browseId||'';
+                      if(/^UC[A-Za-z0-9_-]+$/.test(id)){
+                        return {id,name:str(t)};
+                      }
+                    }
+                  }
+                  return {id:'',name:''};
+                };
+                const textParts=node=>{
+                  const out=[];
+                  for(const row of node?.metadata?.metadata?.metadata_rows||[]){
+                    for(const part of row?.metadata_parts||[]){
+                      const t=str(part?.text);
+                      if(t)out.push(t);
+                    }
+                  }
+                  return out;
+                };
+                const rowOf=node=>{
+                  if(!node||typeof node!=='object')return null;
+                  const id=String(node.video_id||node.videoId||node.content_id||node.id||'');
+                  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+                  if(node.content_type&&String(node.content_type).toUpperCase()!=='VIDEO')return null;
+
+                  let channel={id:node.author?.id||'',name:node.author?.name||''};
+                  if(!channel.id){
+                    const c=channelFromLockup(node);
+                    channel={id:c.id||channel.id,name:c.name||channel.name};
+                  }
+
+                  const parts=textParts(node);
+                  const viewText=str(node.short_view_count||node.view_count||node.views)||parts.find(x=>/lượt xem|views?/i.test(x))||'';
+                  const published=str(node.published||node.published_time||node.published_time_text)||parts.find(x=>/trước|ago/i.test(x))||'';
+                  const title=str(node.title||node.video_title||node.metadata?.title)||'Video';
+                  const isLive=!!node.is_live||parts.some(x=>/đang xem|watching now|trực tiếp|\\blive\\b/i.test(x));
+                  return {id,title,channelId:channel.id,channelName:channel.name,viewText,views:parseMetric(viewText),published,isLive};
+                };
+
+                let page=await yt.search('Việt Nam',{type:'video',upload_date:'today',sort_by:'upload_date'});
+                const all=[];
+                for(let p=0;p<3&&page;p++){
+                  for(const node of Array.from(page.results||[])){
+                    const row=rowOf(node);
+                    if(row)all.push(row);
+                  }
+                  if(p===2||page.has_continuation===false||typeof page.getContinuation!=='function')break;
+                  try{page=await page.getContinuation()}catch{break}
+                }
+
+                const seen=new Set();
+                const videos=[];
+                for(const row of all){
+                  if(seen.has(row.id))continue;
+                  seen.add(row.id);
+                  const label=norm(row.published);
+                  if(row.isLive)continue;
+                  if(/\\b(ngay|tuan|thang|nam|day|days|week|weeks|month|months|year|years)\\b/.test(label))continue;
+                  videos.push(row);
+                }
+
+                const channels=new Map();
+                for(const v of videos){
+                  const key=v.channelId||('name:'+v.channelName);
+                  if(!key||key==='name:')continue;
+                  const c=channels.get(key)||{
+                    channelId:v.channelId,
+                    channelName:v.channelName||'Không rõ',
+                    newVideos:0,
+                    recentViews:0,
+                    maxVideoViews:0,
+                    subscribersText:'',
+                    subscribers:0
+                  };
+                  c.newVideos++;
+                  c.recentViews+=Number(v.views)||0;
+                  c.maxVideoViews=Math.max(c.maxVideoViews,Number(v.views)||0);
+                  channels.set(key,c);
+                }
+
+                const list=[...channels.values()];
+                let next=0;
+                const workers=Array.from({length:Math.min(8,list.length)},async()=>{
+                  while(true){
+                    const index=next++;
+                    if(index>=list.length)return;
+                    const c=list[index];
+                    if(!c.channelId)continue;
+                    try{
+                      const channel=await Promise.race([
+                        yt.getChannel(c.channelId),
+                        new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),6000))
+                      ]);
+                      const strings=[];
+                      const seenObj=new Set();
+                      const walk=(value,depth=0)=>{
+                        if(value==null||depth>5||strings.length>120)return;
+                        if(typeof value==='string'){strings.push(value);return}
+                        if(typeof value==='number')return;
+                        if(typeof value?.text==='string')strings.push(value.text);
+                        if(typeof value!=='object'||seenObj.has(value))return;
+                        seenObj.add(value);
+                        if(Array.isArray(value)){for(const x of value)walk(x,depth+1);return}
+                        for(const [k,v] of Object.entries(value)){
+                          if(/actions|memo|page|contents|endpoint|thumbnails?/i.test(k))continue;
+                          try{walk(v,depth+1)}catch{}
+                        }
+                      };
+                      walk(channel.header);
+                      const subText=
+                        str(channel.header?.subscribers)||
+                        strings.find(x=>/người đăng ký|subscriber/i.test(x))||
+                        '';
+                      c.subscribersText=subText;
+                      c.subscribers=parseMetric(subText);
+                    }catch{}
+                  }
+                });
+                await Promise.all(workers);
+
+                list.sort((a,b)=>
+                  (b.subscribers-a.subscribers)||
+                  (b.recentViews-a.recentViews)||
+                  (b.newVideos-a.newVideos)||
+                  a.channelName.localeCompare(b.channelName,'vi')
+                );
+
+                return JSON.stringify({
+                  query:'Việt Nam',
+                  pagesScanned:3,
+                  rawUniqueVideos:seen.size,
+                  latestUnder24h:videos.length,
+                  distinctChannels:list.length,
+                  channels:list.slice(0,100)
+                });
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('REPORT_JSON='+report?.result?.value);
+            ws.close();
+          }
+          main().catch(e=>{console.error(e);process.exit(1)});
+          NODE
+          kill "$PID" 2>/dev/null || true
