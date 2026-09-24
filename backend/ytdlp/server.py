@@ -941,17 +941,53 @@ def discover_tiktok_feed(mode="latest", limit=50):
             break
 
     rows = []
+    enriched_urls = set()
     workers = min(6, max(1, len(discovered)))
     if discovered:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             future_map = {pool.submit(_extract_tiktok_post_url, url): url for url in discovered}
             for future in as_completed(future_map):
+                url = future_map[future]
                 try:
                     row = future.result()
                     if row:
                         rows.append(row)
+                        enriched_urls.add(url)
                 except Exception as exc:
-                    app.logger.debug("tiktok post enrich failed %s: %s", future_map[future], exc)
+                    app.logger.debug("tiktok post enrich failed %s: %s", url, exc)
+
+    # Direct TikTok post embeds only need the post ID. If yt-dlp cannot enrich
+    # metadata for a post, keep the discovered post instead of dropping the feed.
+    for url in discovered:
+        if url in enriched_urls:
+            continue
+        match = re.search(r"tiktok\.com/@([A-Za-z0-9._-]{2,64})/video/(\d{12,24})", url, re.I)
+        if not match:
+            continue
+        handle, post_id = match.group(1), match.group(2)
+        rows.append({
+            "id": post_id,
+            "platform": "tiktok",
+            "handle": handle,
+            "uploader": handle,
+            "title": "",
+            "description": "",
+            "thumbnail": "",
+            "duration": 0,
+            "timestamp": _tiktok_timestamp_from_id(post_id),
+            "viewCount": 0,
+            "likeCount": 0,
+            "commentCount": 0,
+            "shareCount": 0,
+            "url": url,
+            "embedUrl": (
+                f"https://www.tiktok.com/player/v1/{post_id}"
+                "?autoplay=1&controls=1&progress_bar=1&play_button=1"
+                "&volume_control=1&fullscreen_button=1&timestamp=1"
+                "&loop=0&music_info=0&description=0&rel=0"
+                "&native_context_menu=0&closed_caption=0"
+            ),
+        })
 
     now = int(time.time())
     max_age = 72 * 3600 if mode == "latest" else 7 * 24 * 3600
