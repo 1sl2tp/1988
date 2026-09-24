@@ -19,6 +19,10 @@ jobs:
           set -euo pipefail
           BASE='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988'
 
+          echo '=== REGIONAL UPLOAD FEED ==='
+          curl -sS --max-time 30 -w '\nHTTP=%{http_code}\n' "$BASE?action=regional_feed&region=VN" -o /tmp/regional-feed.json || true
+          jq '{ok,source,channels:(.channels//[]|length),dataLen:(.data//[]|length),sample:(.data//[])[0:5]}' /tmp/regional-feed.json 2>/dev/null || head -c 5000 /tmp/regional-feed.json || true
+
           echo '=== TRENDING VN ==='
           curl -sS --max-time 25 -w '\nHTTP=%{http_code}\n' "$BASE?action=trending&region=VN" -o /tmp/trending.json || true
           head -c 5000 /tmp/trending.json 2>/dev/null || true
