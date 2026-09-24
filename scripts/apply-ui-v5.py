@@ -27,6 +27,14 @@ s = re.sub(
     count=1
 )
 
+# Remove the now-unused handler too, otherwise vue-tsc fails with noUnusedLocals.
+s = re.sub(
+    r'\nfunction setPlaybackRateFromSelect\(event: Event\) \{[\s\S]*?\n\}\n',
+    '\n',
+    s,
+    count=1
+)
+
 # Tighten control grids after speed is removed.
 s = s.replace(
     "grid-template-columns: auto minmax(66px, 1fr) auto auto auto auto;",
