@@ -4,6 +4,7 @@ import re
 import time
 import threading
 import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from flask import Flask, Response, jsonify, request, stream_with_context
@@ -13,12 +14,16 @@ import yt_dlp
 app = Flask(__name__)
 
 VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+TIKTOK_HANDLE_RE = re.compile(r"^[A-Za-z0-9._-]{2,64}$")
+TIKTOK_ID_RE = re.compile(r"^\d{12,24}$")
 CACHE_TTL = 600
+TIKTOK_CACHE_TTL = 5 * 60
 YTDLP_BLOCK_TTL = 15 * 60
 PIPED_EDGE = "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988"
 COOKIE_PATH = Path("/tmp/1988-ytdlp-cookies.txt")
 
 _cache = {}
+_tiktok_cache = {}
 _lock = threading.Lock()
 _ytdlp_blocked_until = 0
 
@@ -103,6 +108,152 @@ def _cache_get(video_id, kind):
 def _cache_drop(video_id, kind):
     with _lock:
         _cache.pop(_cache_key(video_id, kind), None)
+
+
+def _tiktok_timestamp_from_id(value):
+    try:
+        raw = int(str(value or "0"))
+        ts = raw >> 32
+        if 1_500_000_000 <= ts <= 2_500_000_000:
+            return ts
+    except Exception:
+        pass
+    return 0
+
+
+def _tiktok_cache_get(handle, limit):
+    key = f"{handle.lower()}:{limit}"
+    with _lock:
+        row = _tiktok_cache.get(key)
+        if row and time.time() - row["at"] < TIKTOK_CACHE_TTL:
+            return row["data"]
+    return None
+
+
+def _tiktok_cache_put(handle, limit, rows):
+    key = f"{handle.lower()}:{limit}"
+    with _lock:
+        _tiktok_cache[key] = {"at": time.time(), "data": rows}
+        if len(_tiktok_cache) > 80:
+            oldest = min(_tiktok_cache.items(), key=lambda item: item[1]["at"])[0]
+            _tiktok_cache.pop(oldest, None)
+
+
+def _normalize_tiktok_entry(entry, handle):
+    if not isinstance(entry, dict):
+        return None
+
+    video_id = str(entry.get("id") or "").strip()
+    if not TIKTOK_ID_RE.fullmatch(video_id):
+        raw_url = str(entry.get("webpage_url") or entry.get("url") or "")
+        match = re.search(r"/video/(\d{12,24})", raw_url)
+        video_id = match.group(1) if match else ""
+
+    if not TIKTOK_ID_RE.fullmatch(video_id):
+        return None
+
+    thumbnails = entry.get("thumbnails") if isinstance(entry.get("thumbnails"), list) else []
+    thumbnail = str(entry.get("thumbnail") or "")
+    if not thumbnail:
+        for row in reversed(thumbnails):
+            if isinstance(row, dict) and row.get("url"):
+                thumbnail = str(row["url"])
+                break
+
+    title = str(
+        entry.get("description")
+        or entry.get("title")
+        or entry.get("fulltitle")
+        or ""
+    ).strip()
+
+    timestamp = int(
+        entry.get("timestamp")
+        or entry.get("release_timestamp")
+        or _tiktok_timestamp_from_id(video_id)
+        or 0
+    )
+
+    webpage_url = str(entry.get("webpage_url") or "").strip()
+    if not webpage_url.startswith("http"):
+        webpage_url = f"https://www.tiktok.com/@{handle}/video/{video_id}"
+
+    return {
+        "id": video_id,
+        "platform": "tiktok",
+        "handle": handle,
+        "uploader": str(entry.get("uploader") or entry.get("creator") or entry.get("channel") or handle),
+        "title": title,
+        "description": title,
+        "thumbnail": thumbnail,
+        "duration": float(entry.get("duration") or 0),
+        "timestamp": timestamp,
+        "viewCount": int(entry.get("view_count") or entry.get("play_count") or 0),
+        "likeCount": int(entry.get("like_count") or 0),
+        "commentCount": int(entry.get("comment_count") or 0),
+        "url": webpage_url,
+        "embedUrl": (
+            f"https://www.tiktok.com/player/v1/{video_id}"
+            "?autoplay=1&controls=1&progress_bar=1&play_button=1"
+            "&volume_control=1&fullscreen_button=1&timestamp=1"
+            "&loop=0&music_info=0&description=0&rel=0"
+            "&native_context_menu=0&closed_caption=0"
+        ),
+    }
+
+
+def extract_tiktok_profile(handle, limit=12, force=False):
+    handle = str(handle or "").strip().lstrip("@")
+    if not TIKTOK_HANDLE_RE.fullmatch(handle):
+        raise ValueError("invalid_tiktok_handle")
+
+    limit = max(1, min(int(limit or 12), 30))
+    if not force:
+        cached = _tiktok_cache_get(handle, limit)
+        if cached is not None:
+            return cached
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "extract_flat": "in_playlist",
+        "playlistend": limit,
+        "socket_timeout": 18,
+        "retries": 1,
+        "ignoreerrors": True,
+        "lazy_playlist": False,
+    }
+
+    proxy = _proxy_url()
+    if proxy:
+        opts["proxy"] = proxy
+
+    cookiefile = _cookiefile()
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+
+    impersonate = (os.environ.get("YTDLP_IMPERSONATE") or "").strip()
+    if impersonate:
+        opts["impersonate"] = impersonate
+
+    profile_url = f"https://www.tiktok.com/@{handle}"
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(profile_url, download=False, process=False)
+
+    entries = list((info or {}).get("entries") or [])
+    rows = []
+    seen = set()
+    for entry in entries[:limit]:
+        row = _normalize_tiktok_entry(entry, handle)
+        if not row or row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        rows.append(row)
+
+    rows.sort(key=lambda row: (int(row.get("timestamp") or 0), int(row.get("viewCount") or 0)), reverse=True)
+    _tiktok_cache_put(handle, limit, rows)
+    return rows
 
 
 def _player_clients():
@@ -580,6 +731,77 @@ def health():
         "cookiesConfigured": bool(_cookiefile()),
         "playerClients": _player_clients(),
         "version": getattr(yt_dlp.version, "__version__", "unknown"),
+    })
+
+
+@app.route("/tiktok/profile", methods=["GET"])
+def tiktok_profile():
+    handle = (request.args.get("handle") or "").strip().lstrip("@")
+    limit = request.args.get("limit") or "12"
+    try:
+        rows = extract_tiktok_profile(handle, int(limit))
+        return jsonify({"ok": True, "data": {"handle": handle, "items": rows}})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        app.logger.warning("tiktok profile failed %s: %s", handle, exc)
+        return jsonify({
+            "ok": False,
+            "error": "tiktok_profile_failed",
+            "handle": handle,
+            "detail": str(exc)[:400],
+        }), 502
+
+
+@app.route("/tiktok/feed", methods=["GET"])
+def tiktok_feed():
+    handles_raw = (request.args.get("handles") or "").strip()
+    limit = max(1, min(int(request.args.get("limit") or "8"), 16))
+    handles = []
+    for raw in handles_raw.split(","):
+        handle = raw.strip().lstrip("@")
+        if TIKTOK_HANDLE_RE.fullmatch(handle) and handle not in handles:
+            handles.append(handle)
+    handles = handles[:16]
+
+    if not handles:
+        return jsonify({"ok": False, "error": "missing_tiktok_handles"}), 400
+
+    items = []
+    errors = []
+    workers = min(5, len(handles))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(extract_tiktok_profile, handle, limit): handle
+            for handle in handles
+        }
+        for future in as_completed(future_map):
+            handle = future_map[future]
+            try:
+                items.extend(future.result())
+            except Exception as exc:
+                errors.append({"handle": handle, "error": str(exc)[:180]})
+
+    seen = set()
+    merged = []
+    for row in sorted(
+        items,
+        key=lambda item: (int(item.get("timestamp") or 0), int(item.get("viewCount") or 0)),
+        reverse=True,
+    ):
+        video_id = str(row.get("id") or "")
+        if not video_id or video_id in seen:
+            continue
+        seen.add(video_id)
+        merged.append(row)
+
+    return jsonify({
+        "ok": True,
+        "data": {
+            "items": merged[:80],
+            "sources": handles,
+            "errors": errors,
+        },
     })
 
 
