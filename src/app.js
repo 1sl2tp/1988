@@ -576,6 +576,11 @@ function publishedAgeMs(row={}){
   return Number.MAX_SAFE_INTEGER;
 }
 
+
+function withinHours(row,hours){
+  return publishedAgeMs(row)<=Number(hours||0)*60*60*1000;
+}
+
 function identifiedSourcePriority(row={},group=""){
   if(!group)return 0;
   const channel=normalizeSearchText(row?.uploaderName||row?.uploader||row?.channelName||"");
