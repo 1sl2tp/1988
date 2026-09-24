@@ -1416,7 +1416,7 @@ async function openSourcePreview(id,rowHint=null){
     if(seq!==sourcePreviewSeq)return;
 
     const ordered=newestFirst(Array.isArray(rows)?rows:[])
-      .slice(0,30)
+      .slice(0,20)
       .map(video=>({
         ...video,
         _sourceId:id,
@@ -1568,6 +1568,7 @@ function setupSourceLibrary(){
     if(!button)return;
     sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
     sourceBlockedExpanded=false;
+    resetSourcePreviewPane();
     updateSourceSummary();
     renderSourceLibrary();
 
