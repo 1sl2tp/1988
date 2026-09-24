@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pip-swap-auto-v141';
+const CACHE='1988-main-pip-bottom-clean-v142';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-auto-edge-135',
-  './src/app.js?v=pip-swap-auto-141',
+  './src/style.css?v=pip-bottom-clean-142',
+  './src/app.js?v=pip-bottom-clean-142',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

@@ -2224,27 +2224,7 @@ function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
         :(state.videoAspect||16/9);
 
   const size=autoFloatSize(frame,ratio);
-  const dockLeft=state.floatDock==="left";
-  const current=frame.getBoundingClientRect();
-  const left=dockLeft
-    ?8
-    :Math.max(8,window.innerWidth-size.width-8);
-  const top=Math.max(
-    8,
-    Math.min(
-      window.innerHeight-size.height-8,
-      Number(state.floatBox?.top)||current.top||8
-    )
-  );
-
-  frame.style.width=size.width+"px";
-  frame.style.height=size.height+"px";
-  frame.style.aspectRatio="auto";
-  frame.style.left=left+"px";
-  frame.style.top=top+"px";
-  frame.style.right="auto";
-  frame.style.bottom="auto";
-  state.floatBox={left,top,width:size.width,height:size.height};
+  placeAutoFloatAtEdge(frame,size);
 }
 function setFloatPreset(mode){
   const frame=playerSection?.querySelector(".player-frame");
@@ -2397,33 +2377,50 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   return {width,height};
 }
 
+function floatEdgeGap(){
+  return window.innerWidth<=640?8:12;
+}
+
+function placeAutoFloatAtEdge(frame,size){
+  if(!frame)return;
+  const gap=floatEdgeGap();
+  const dockLeft=state.floatDock==="left";
+
+  frame.style.width=size.width+"px";
+  frame.style.height=size.height+"px";
+  frame.style.aspectRatio="auto";
+  frame.style.top="auto";
+  frame.style.bottom=gap+"px";
+
+  if(dockLeft){
+    frame.style.left=gap+"px";
+    frame.style.right="auto";
+  }else{
+    frame.style.left="auto";
+    frame.style.right=gap+"px";
+  }
+
+  const left=dockLeft
+    ?gap
+    :Math.max(gap,window.innerWidth-size.width-gap);
+  const top=Math.max(gap,window.innerHeight-size.height-gap);
+
+  state.floatBox={
+    left,
+    top,
+    bottom:gap,
+    width:size.width,
+    height:size.height
+  };
+}
+
 function applyAutoFloatAspect(frame,{force=false}={}){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
   if(state.floatUserSized&&!force)return;
 
   const ratio=state.videoAspect||16/9;
-  const old=frame.getBoundingClientRect();
   const size=autoFloatSize(frame,ratio);
-  const dockLeft=state.floatDock==="left";
-  const left=dockLeft
-    ?8
-    :Math.max(8,window.innerWidth-size.width-8);
-  const top=Math.max(8,Math.min(window.innerHeight-size.height-8,old.top||8));
-
-  frame.style.width=size.width+"px";
-  frame.style.height=size.height+"px";
-  frame.style.aspectRatio="auto";
-  frame.style.left=left+"px";
-  frame.style.top=top+"px";
-  frame.style.right="auto";
-  frame.style.bottom="auto";
-
-  state.floatBox={
-    left,
-    top,
-    width:size.width,
-    height:size.height
-  };
+  placeAutoFloatAtEdge(frame,size);
 }
 
 function restoreFloatBox(){
@@ -2437,23 +2434,7 @@ function restoreFloatBox(){
   if(!state.floatUserSized){
     const ratio=state.videoAspect||16/9;
     const size=autoFloatSize(frame,ratio);
-    const box=state.floatBox;
-    const left=state.floatDock==="left"
-      ?8
-      :Math.max(8,window.innerWidth-size.width-8);
-    const top=Math.max(8,Math.min(
-      window.innerHeight-size.height-8,
-      Number(box?.top)||Math.max(8,frame.getBoundingClientRect().top||8)
-    ));
-
-    frame.style.width=size.width+"px";
-    frame.style.height=size.height+"px";
-    frame.style.aspectRatio="auto";
-    frame.style.left=left+"px";
-    frame.style.top=top+"px";
-    frame.style.right="auto";
-    frame.style.bottom="auto";
-    state.floatBox={left,top,width:size.width,height:size.height};
+    placeAutoFloatAtEdge(frame,size);
     return;
   }
 
