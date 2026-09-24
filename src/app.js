@@ -1390,6 +1390,17 @@ async function normalizeRegionalRow(row={}){
   };
 }
 
+async function vnExploreRows(){
+  try{
+    const local=await localEngine(9000);
+    const rows=await local.hypeFeed();
+    return Array.isArray(rows)?rows.map(normalizeRegionalRow):[];
+  }catch(error){
+    console.warn("VN Hype feed failed",error);
+    return [];
+  }
+}
+
 let regionalFeedCache={at:0,rows:[],promise:null};
 
 async function regionalFeedRows(force=false){
@@ -1438,6 +1449,9 @@ const FEED_PRESETS={
     allowWithoutLocal:true,
     finite:true,
     load:async(_local,reset)=>{
+      const explore=await vnExploreRows();
+      const fresh=explore.filter(row=>!row?.isLive&&withinHours(row,24));
+      if(fresh.length)return fresh;
       const rows=await regionalFeedRows(reset);
       return rows.filter(row=>!row?.isLive&&withinHours(row,24));
     }
@@ -1449,6 +1463,9 @@ const FEED_PRESETS={
     finite:true,
     weekFreshViewed:true,
     load:async(_local,reset)=>{
+      const explore=await vnExploreRows();
+      const fresh=explore.filter(row=>!row?.isLive&&withinHours(row,24*7));
+      if(fresh.length)return fresh;
       const rows=await regionalFeedRows(reset);
       return rows.filter(row=>!row?.isLive&&withinHours(row,24*7));
     }
@@ -1517,8 +1534,8 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
-async function loadFeedPreset(name="today"){
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.today;
+async function loadFeedPreset(name="live"){
+  const preset=FEED_PRESETS[name]||FEED_PRESETS.live;
   const seq=++state.feedSeq;
   state.feedLoading=true;
   state.feedHasMore=!preset.finite;
@@ -1624,7 +1641,7 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 function loadInitialFeed(){
-  return loadFeedPreset("today");
+  return loadFeedPreset("live");
 }
 
 topicChips.addEventListener("click",e=>{
@@ -1632,7 +1649,7 @@ topicChips.addEventListener("click",e=>{
   if(!button)return;
   queryInput.value="";
   clearSuggestions();
-  void loadFeedPreset(button.dataset.feed||"today");
+  void loadFeedPreset(button.dataset.feed||"live");
 });
 
 setupMediaSession();
