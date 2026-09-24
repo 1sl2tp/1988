@@ -68,6 +68,9 @@ jobs:
       - name: Apply publisher sources v14
         run: python3 scripts/apply-sources-v14.py
 
+      - name: Apply TikTok swipe v15
+        run: python3 scripts/apply-tiktok-v15.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
