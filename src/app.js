@@ -1344,7 +1344,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v12:";
+const FEED_CACHE_PREFIX="1988-discovery-v13:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1424,6 +1424,26 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
+async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
+  const collected=[];
+  let first=reset;
+
+  for(let page=0;page<maxPages;page++){
+    const rows=await pagedSearch(local,key,query,filters,first);
+    first=false;
+    if(!Array.isArray(rows)||!rows.length)break;
+
+    for(const row of rows){
+      if(predicate(row))collected.push(row);
+    }
+
+    // Enough for a full desktop/mobile screen; don't fetch extra unnecessarily.
+    if(collected.length>=36)break;
+  }
+
+  return mergeUniqueRows([],collected);
+}
+
 const FEED_PRESETS={
   live:{
     title:"LIVE",
@@ -1445,24 +1465,28 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:async(local,reset)=>{
-      const rows=await pagedSearch(local,"latest","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset);
-      return rows.filter(uploadedWithinLatest);
-    }
+    load:(local,reset)=>collectRecentPages(
+      local,
+      "latest",
+      "Việt Nam",
+      uploadedWithinLatest,
+      reset,
+      {upload_date:"today",sort_by:"upload_date"},
+      3
+    )
   },
   week:{
     title:"Tuần này",
     newest:true,
-    load:async(local,reset)=>{
-      const rows=await pagedSearch(
-        local,
-        "week",
-        "Việt Nam",
-        {upload_date:"week",sort_by:"upload_date"},
-        reset
-      );
-      return rows.filter(uploadedWithinWeek);
-    }
+    load:(local,reset)=>collectRecentPages(
+      local,
+      "week",
+      "Việt Nam",
+      uploadedWithinWeek,
+      reset,
+      {upload_date:"week",sort_by:"upload_date"},
+      4
+    )
   },
   news:{
     title:"Thời sự",
