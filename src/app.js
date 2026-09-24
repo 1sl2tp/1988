@@ -203,7 +203,11 @@ let blockedSourceIds=new Set(
 let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
 let scopedSelectedSourceIds=readScopedSourceState(SOURCE_SCOPED_SELECTION_KEY);
 let scopedBlockedSourceIds=readScopedSourceState(SOURCE_SCOPED_BLOCKED_KEY);
-let aiSuggestedSourceIds=readScopedSourceState(SOURCE_AI_SUGGESTIONS_KEY);
+let aiSuggestedSourceIds=new Map(
+  [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+);
+const temporaryGeneralSourceIds=new Set();
+try{localStorage.removeItem(SOURCE_AI_SUGGESTIONS_KEY);}catch{}
 
 function channelLibrary(){
   const out=[];
@@ -233,13 +237,8 @@ function libraryRow(id){
 }
 
 function persistSuggestedSourceState(){
-  try{
-    const suggested={};
-    for(const scope of CONTENT_SOURCE_SCOPES){
-      suggested[scope]=[...(aiSuggestedSourceIds.get(scope)||new Set())];
-    }
-    localStorage.setItem(SOURCE_AI_SUGGESTIONS_KEY,JSON.stringify(suggested));
-  }catch{}
+  // Discovery lists are temporary. Never persist AI suggestions.
+  try{localStorage.removeItem(SOURCE_AI_SUGGESTIONS_KEY);}catch{}
 }
 
 function persistSourceLibrary(){
@@ -349,11 +348,20 @@ function allManagedStateIds(){
   return ids;
 }
 
+function allTemporarySourceIds(){
+  const ids=new Set(temporaryGeneralSourceIds);
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    for(const id of suggestedSetForScope(scope))ids.add(id);
+  }
+  return ids;
+}
+
 function managedChannelLibrary(){
   const rows=channelLibrary();
   const byId=new Map(rows.map(row=>[row.id,row]));
+  const ids=new Set([...allManagedStateIds(),...allTemporarySourceIds()]);
 
-  for(const id of allManagedStateIds()){
+  for(const id of ids){
     if(byId.has(id))continue;
     const meta=sourceMetaCache.get(id)||{};
     const row={
@@ -420,27 +428,68 @@ function hideBlockedSourceNow(id,scope=sourceManageGroup){
   }
 }
 
+function stateMetadataCandidate(id){
+  return sourceMetaCache.get(id)||
+    libraryRow(id)||
+    sourceRemoteResults.find(row=>row.id===id)||
+    managedChannelLibrary().find(row=>row.id===id)||
+    null;
+}
+
+function persistStateSourceMetadata(id){
+  if(BASE_CHANNEL_ID_SET.has(id))return;
+  const row=stateMetadataCandidate(id);
+  if(!row)return;
+
+  const meta=sourceMetaFor(row);
+  const payload={
+    id,
+    name:clean(meta.name||row.name)||"Kênh YouTube",
+    thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row.thumbnailUrl||""),
+    subscribers:clean(meta.subscribers||row.subscribers||"")
+  };
+
+  const existing=customSources.find(item=>item.id===id);
+  if(existing){
+    existing.name=payload.name||existing.name;
+    existing.thumbnailUrl=payload.thumbnailUrl||existing.thumbnailUrl||"";
+    existing.subscribers=payload.subscribers||existing.subscribers||"";
+  }else{
+    customSources.push(payload);
+  }
+}
+
 function setSourceStatus(id,status,scope=sourceManageGroup){
   scope=sourceScope(scope);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
 
+  const temporaryKnown=
+    temporaryGeneralSourceIds.has(id)||
+    suggestedSetForScope(scope).has(id);
+
   if(
     !libraryHas(id) &&
     !allManagedStateIds().has(id) &&
+    !temporaryKnown &&
     !sourceRemoteResults.some(row=>row.id===id)
   )return;
 
   if(status==="selected"){
+    persistStateSourceMetadata(id);
     blocked.delete(id);
     selected.add(id);
   }else if(status==="blocked"){
+    persistStateSourceMetadata(id);
     selected.delete(id);
     blocked.add(id);
   }else{
     selected.delete(id);
     blocked.delete(id);
   }
+
+  temporaryGeneralSourceIds.delete(id);
+  if(CONTENT_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
 
   if(status==="blocked")hideBlockedSourceNow(id,scope);
 
@@ -1103,13 +1152,10 @@ function isGeneralManagerSource(row={}){
   const id=String(row?.id||"").trim();
   if(!id)return false;
 
-  // Mới nhất/Tuần này is a manual pool: only explicit selected/blocked
-  // sources and manually saved custom sources appear without searching.
-  if(selectedSourceIds.has(id)||blockedSourceIds.has(id))return true;
-  if(BASE_CHANNEL_ID_SET.has(id))return false;
-  if(sourceIsSuggestedAnywhere(id))return false;
-  if(sourceHasLegacyCategoryAssignment(id))return false;
-  return true;
+  // Mới nhất/Tuần này: durable state + temporary discoveries only.
+  return selectedSourceIds.has(id)||
+    blockedSourceIds.has(id)||
+    temporaryGeneralSourceIds.has(id);
 }
 
 function renderSourceGroupTabs(){
@@ -1324,7 +1370,8 @@ function sourceCandidateFromVideo(row={}){
 
 function rememberDiscoveredSources(rows=[],groupHint=""){
   const hint=String(groupHint||"").trim();
-  let changed=false;
+  let stateChanged=false;
+  let suggestionChanged=false;
   const seen=new Set();
 
   for(const row of Array.isArray(rows)?rows:[]){
@@ -1333,55 +1380,49 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
     seen.add(candidate.id);
     sourceMetaCache.set(candidate.id,{...sourceMetaCache.get(candidate.id),...candidate});
 
+    // Durable Chọn/Chặn state is loaded before discovery.
     const reconciled=reconcileSourceState(candidate,hint||sourceManageGroup);
-    if(reconciled.changed)changed=true;
-
-    // AI only contributes NEW channels. Known selected/blocked channels are
-    // state, not suggestions, and blocked channels are blacklisted immediately.
+    if(reconciled.changed)stateChanged=true;
     if(reconciled.status!=="normal")continue;
-    if(libraryHas(candidate.id)||suggestedSetForScope(hint).has(candidate.id))continue;
 
-    customSources.push(candidate);
-    changed=true;
-    if(hint&&assignSourceGroup(candidate.id,hint))changed=true;
+    if(hint&&CONTENT_SOURCE_SCOPES.has(hint)){
+      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
+    }else if(!temporaryGeneralSourceIds.has(candidate.id)){
+      temporaryGeneralSourceIds.add(candidate.id);
+      suggestionChanged=true;
+    }
   }
 
-  if(changed){
-    persistReconciledSourceState();
-    updateSourceSummary();
-  }
+  if(stateChanged)persistReconciledSourceState();
+  if(stateChanged||suggestionChanged)updateSourceSummary();
 }
 
 function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
+  const id=String(row.id);
   const meta=sourceMetaFor(row);
-  if(sourceManageMode&&CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
-    assignSourceGroup(row.id,sourceManageGroup);
-  }
-  if(!BASE_CHANNEL_ID_SET.has(row.id)){
-    const existing=customSources.find(item=>item.id===row.id);
-    if(existing){
-      existing.name=clean(meta.name)||existing.name;
-      existing.thumbnailUrl=safeSourceThumb(meta.thumbnailUrl)||existing.thumbnailUrl||"";
-      existing.subscribers=clean(meta.subscribers)||existing.subscribers||"";
+  sourceMetaCache.set(id,{
+    ...sourceMetaCache.get(id),
+    id,
+    name:clean(meta.name||row.name)||"Kênh YouTube",
+    thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row.thumbnailUrl||""),
+    subscribers:clean(meta.subscribers||row.subscribers||"")
+  });
+
+  const reconciled=reconcileSourceState({...row,id},sourceManageGroup);
+  if(reconciled.changed)persistReconciledSourceState();
+
+  // Mở/Lưu nguồn is temporary until the user chooses Chọn or Chặn.
+  if(reconciled.status==="normal"){
+    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+      assignSourceGroup(id,sourceManageGroup);
     }else{
-      customSources.push({
-        id:row.id,
-        name:clean(meta.name)||"Kênh YouTube",
-        thumbnailUrl:safeSourceThumb(meta.thumbnailUrl),
-        subscribers:clean(meta.subscribers)
-      });
+      temporaryGeneralSourceIds.add(id);
     }
   }
 
-  // Saving only adds metadata to the library. It must not alter any
-  // selected/blocked state in the general or category-specific scopes.
-  persistSourceLibrary();
-  persistSourceSelection();
   state.sourceLibraryDirty=true;
-  state.aiCategoryRows=new Map();
-  state.aiCategoryTopics=new Map();
   updateSourceSummary();
   renderSourceLibrary();
 }
@@ -3105,15 +3146,20 @@ const sourceDiscoveryAt=new Map();
 
 function sourceAlreadyKnownForDiscovery(candidate,group){
   if(!candidate)return true;
+
+  // First load the durable group state. Chặn is the blacklist and Chọn is
+  // already saved, so neither one is a new AI discovery.
   const state=matchSourceState(candidate,group).status;
   if(state==="blocked"||state==="selected")return true;
-  if(libraryHas(candidate.id))return true;
-  if(suggestedSetForScope(group).has(candidate.id))return true;
+
+  const suggested=suggestedSetForScope(group);
+  if(suggested.has(candidate.id))return true;
 
   const name=sourceRowName(candidate);
   if(name){
-    for(const source of channelLibrary()){
-      if(sourceRowName(source)===name)return true;
+    for(const id of suggested){
+      const row=sourceMetaCache.get(id)||{};
+      if(sourceRowName({...row,id})===name)return true;
     }
   }
   return false;
