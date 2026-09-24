@@ -10,7 +10,7 @@ if sentinel in text:
 if marker not in text:
     raise SystemExit("build marker not found")
 
-block = r'''
+block = r"""
 # 1988 polish v3: gestures, pinned regions, channel videos, search suggestions.
 import re
 
@@ -18,7 +18,7 @@ import re
 p = Path("src/style.css")
 s = p.read_text()
 if "1988-noselect-v3" not in s:
-    s += r"""
+    s += r'''
 
 /* 1988-noselect-v3 */
 html, body, #app,
@@ -32,7 +32,7 @@ input, textarea, [contenteditable="true"] {
   -webkit-user-select: text;
   user-select: text;
 }
-"""
+'''
 p.write_text(s)
 
 
@@ -94,13 +94,13 @@ s = s.replace(
 if "const dragY = ref(0);" not in s:
     s = s.replace(
         "const transitionName = computed(() => direction.value === 'next' ? 'reel-next' : 'reel-prev');",
-        """const transitionName = computed(() => direction.value === 'next' ? 'reel-next' : 'reel-prev');
+        '''const transitionName = computed(() => direction.value === 'next' ? 'reel-next' : 'reel-prev');
 const dragY = ref(0);
 const dragging = ref(false);
 const dragStyle = computed(() => ({
   transform: `translate3d(0, ${dragY.value}px, 0)`,
   transition: dragging.value ? 'none' : 'transform .2s cubic-bezier(.2,.72,.2,1)'
-}));""",
+}));''',
         1
     )
 
@@ -160,8 +160,8 @@ s = s.replace("touch-action: pan-y;", "touch-action: none;", 1)
 if ".reel-stage {" in s and "will-change: transform;" not in s:
     s = s.replace(
         ".reel-stage {",
-        """.reel-stage {
-  will-change: transform;""",
+        '''.reel-stage {
+  will-change: transform;''',
         1
     )
 p.write_text(s)
@@ -172,13 +172,13 @@ p = Path("src/pages/ChannelPage.vue")
 s = p.read_text()
 
 s = s.replace(
-    """    const raw = String(row?.url || row?.id || '');
+    '''    const raw = String(row?.url || row?.id || '');
     const id = raw.match(/\\/channel\\/(UC[A-Za-z0-9_-]+)/)?.[1];
-    if (id) return id;""",
-    """    const raw = String(row?.channelId || row?.id || row?.url || '');
+    if (id) return id;''',
+    '''    const raw = String(row?.channelId || row?.id || row?.url || '');
     if (/^UC[A-Za-z0-9_-]+$/.test(raw)) return raw;
     const id = raw.match(/\\/channel\\/(UC[A-Za-z0-9_-]+)/)?.[1];
-    if (id) return id;""",
+    if (id) return id;''',
     1
 )
 
@@ -213,11 +213,11 @@ async function load() {''',
     )
 
 s = s.replace(
-    """  const seen = new Set<string>();
+    '''  const seen = new Set<string>();
   const rows = Array.isArray(data?.relatedStreams) ? data.relatedStreams : (Array.isArray(data?.items) ? data.items : []);
 
-  videos.value = rows""",
-    """  const seen = new Set<string>();
+  videos.value = rows''',
+    '''  const seen = new Set<string>();
   let rows = Array.isArray(data?.relatedStreams) ? data.relatedStreams
     : Array.isArray(data?.items) ? data.items
     : Array.isArray(data?.videos) ? data.videos
@@ -227,17 +227,17 @@ s = s.replace(
     rows = await fallbackChannelVideos(channel.value.name || key);
   }
 
-  videos.value = rows""",
+  videos.value = rows''',
     1
 )
 
 if ".channel-head {" in s:
     s = s.replace(
         ".channel-head {",
-        """.channel-head {
+        '''.channel-head {
   position: sticky;
   top: max(0px, env(safe-area-inset-top));
-  z-index: 24;""",
+  z-index: 24;''',
         1
     )
 p.write_text(s)
@@ -297,17 +297,17 @@ if 'class="retry-hint"' not in s:
 if "const suggestions = ref<string[]>([]);" not in s:
     s = s.replace(
         "const videos = ref<any[]>([]);",
-        """const videos = ref<any[]>([]);
+        '''const videos = ref<any[]>([]);
 const suggestions = ref<string[]>([]);
 const suggestionsOpen = ref(false);
-const suggestCache = new Map<string, string[]>();""",
+const suggestCache = new Map<string, string[]>();''',
         1
     )
     s = s.replace(
         "let runSerial = 0;",
-        """let runSerial = 0;
+        '''let runSerial = 0;
 let suggestSerial = 0;
-let suggestTimer: number | undefined;""",
+let suggestTimer: number | undefined;''',
         1
     )
 
@@ -379,36 +379,36 @@ function age(ts: number) {''',
     )
 
 s = s.replace(
-    """function submit() {
+    '''function submit() {
   const q = term.value.trim();
-  if (!q) return;""",
-    """function submit() {
+  if (!q) return;''',
+    '''function submit() {
   const q = term.value.trim();
   if (!q) return;
-  suggestionsOpen.value = false;""",
+  suggestionsOpen.value = false;''',
     1
 )
 
 s = s.replace(
-    """function clear() {
+    '''function clear() {
   term.value = '';
-  searched.value = false;""",
-    """function clear() {
+  searched.value = false;''',
+    '''function clear() {
   term.value = '';
   searched.value = false;
   suggestions.value = [];
-  suggestionsOpen.value = false;""",
+  suggestionsOpen.value = false;''',
     1
 )
 
 s = s.replace(
-    """onBeforeUnmount(() => {
+    '''onBeforeUnmount(() => {
   if (timer !== undefined) clearInterval(timer);
-});""",
-    """onBeforeUnmount(() => {
+});''',
+    '''onBeforeUnmount(() => {
   if (timer !== undefined) clearInterval(timer);
   if (suggestTimer !== undefined) clearTimeout(suggestTimer);
-});""",
+});''',
     1
 )
 
@@ -488,7 +488,6 @@ if ".retry-hint {" not in s:
 
 # The search form is the pinned region; results remain naturally scrollable below.
 s = s.replace("  background: #212121;\n}", "  background: rgba(33,33,33,.96);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n}", 1)
-p.write_text(s)
-'''
+p.write_text(s)\n"""
 
 target.write_text(text.replace(marker, block + "\n" + marker, 1))
