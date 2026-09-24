@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=header-99">
+  <link rel="stylesheet" href="./src/style.css?v=source-workspace-106">
   <title>1988</title>
 </head>
 <body>
@@ -110,37 +110,56 @@
         </div>
         <button id="closeSourcesSheet" type="button" aria-label="Đóng">×</button>
       </div>
-      <div id="sourceBrowse" class="source-browse">
-        <div class="source-search-bar">
-          <div class="source-search-wrap">
-            <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh trên YouTube">
-            <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
-          </div>
-          <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
-        </div>
-        <div id="sourceGroupNav" class="source-group-nav" hidden>
-          <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
-          <div id="sourceGroupTabs" class="source-group-tabs"></div>
-          <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
-        </div>
-        <div id="sourceSearchStatus" class="source-search-status"></div>
-        <div id="sourceList" class="source-list"></div>
-      </div>
-      <div id="sourcePreview" class="source-preview" hidden>
-        <div class="source-preview-head">
-          <button id="backSourcePreview" type="button" aria-label="Quay lại">‹</button>
-          <strong id="sourcePreviewTitle"></strong>
-        </div>
-        <div id="sourcePreviewList" class="source-preview-list"></div>
+      <div id="sourceGroupNav" class="source-group-nav" hidden>
+        <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
+        <div id="sourceGroupTabs" class="source-group-tabs"></div>
+        <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
       </div>
 
-      <div id="sourceVideoPopup" class="source-video-popup" hidden>
-        <div class="source-video-popup-card">
-          <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
-          <div class="source-video-popup-frame">
-            <iframe id="sourceVideoFrame" title="Video YouTube" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+      <div class="source-workspace">
+        <div id="sourceBrowse" class="source-browse">
+          <div class="source-pane-label">Tìm nguồn</div>
+          <div class="source-search-bar">
+            <div class="source-search-wrap">
+              <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh trên YouTube">
+              <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
+            </div>
+            <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
           </div>
-          <div id="sourceVideoPopupTitle" class="source-video-popup-title"></div>
+          <div id="sourceSearchStatus" class="source-search-status"></div>
+          <div id="sourceList" class="source-list"></div>
+        </div>
+
+        <div id="sourcePreview" class="source-preview is-empty">
+          <div class="source-preview-head">
+            <button id="backSourcePreview" type="button" aria-label="Quay lại">‹</button>
+            <div class="source-preview-identity">
+              <strong id="sourcePreviewTitle">Xem nguồn</strong>
+              <span id="sourcePreviewStatus">Chọn một kênh ở bên trái để kiểm tra trước khi thêm.</span>
+            </div>
+            <button id="sourcePreviewSelect" class="source-preview-select" type="button" hidden>Chọn nguồn</button>
+          </div>
+
+          <div id="sourceVideoPopup" class="source-video-popup" hidden>
+            <div class="source-video-popup-card">
+              <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
+              <div class="source-video-popup-frame">
+                <iframe id="sourceVideoFrame" title="Video YouTube" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+              </div>
+              <div id="sourceVideoPopupTitle" class="source-video-popup-title"></div>
+            </div>
+          </div>
+
+          <div class="source-preview-toolbar">
+            <span class="source-pane-label">Video của nguồn</span>
+            <input id="sourcePreviewSearch" type="search" inputmode="search" autocomplete="off" placeholder="Tìm video trong kênh">
+          </div>
+          <div id="sourcePreviewList" class="source-preview-list">
+            <div class="source-preview-placeholder">
+              <strong>Xem trước nguồn ngay tại đây</strong>
+              <span>Danh sách nguồn luôn giữ ở bên trái; video phát trong cửa sổ này nên không còn xung với trình phát chính.</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -162,6 +181,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=player-95"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=feed-filters-perf-105"></script>
+  <script defer src="./src/app.js?v=source-workspace-106"></script>
 </body>
 </html>

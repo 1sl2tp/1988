@@ -44,6 +44,9 @@ const sourceSummary=$("#sourceSummary");
 const sourcePreview=$("#sourcePreview");
 const backSourcePreview=$("#backSourcePreview");
 const sourcePreviewTitle=$("#sourcePreviewTitle");
+const sourcePreviewStatus=$("#sourcePreviewStatus");
+const sourcePreviewSelect=$("#sourcePreviewSelect");
+const sourcePreviewSearch=$("#sourcePreviewSearch");
 const sourcePreviewList=$("#sourcePreviewList");
 const sourceSettingsBtn=$("#sourceSettingsBtn");
 const sourceVideoPopup=$("#sourceVideoPopup");
@@ -302,6 +305,8 @@ let sourceSearchTimer=0;
 let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
+let sourcePreviewSourceId="";
+let sourcePreviewSourceRow=null;
 let sourceManageMode=false;
 let sourceManageGroup=GENERAL_SOURCE_SCOPE;
 let sourceBlockedExpanded=false;
@@ -443,6 +448,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   state.aiCategoryTopics=new Map();
   updateSourceSummary();
   renderSourceLibrary();
+  syncSourcePreviewHeader();
 }
 
 function selectedSources(scope=GENERAL_SOURCE_SCOPE){
@@ -1318,14 +1324,89 @@ function setSourceManageMode(enabled){
 }
 
 
+function sourcePreviewScopeLabel(){
+  return SOURCE_MANAGER_GROUPS.find(item=>item.key===sourceManageGroup)?.label||"Nguồn";
+}
+
+function syncSourcePreviewHeader(){
+  if(!sourcePreview)return;
+  const id=sourcePreviewSourceId;
+  const row=sourcePreviewSourceRow;
+
+  if(!id||!row){
+    sourcePreview.classList.add("is-empty");
+    if(sourcePreviewTitle)sourcePreviewTitle.textContent="Xem nguồn";
+    if(sourcePreviewStatus)sourcePreviewStatus.textContent="Chọn một kênh ở bên trái để kiểm tra trước khi thêm.";
+    if(sourcePreviewSelect)sourcePreviewSelect.hidden=true;
+    return;
+  }
+
+  sourcePreview.classList.remove("is-empty");
+  const meta=sourceMetaFor(row);
+  const exists=libraryHas(id)||allManagedStateIds().has(id);
+  const status=exists?sourceStatus(id,sourceManageGroup):"normal";
+  const statusText=status==="selected"?"Đã chọn":status==="blocked"?"Đã chặn":"Chưa chọn";
+
+  if(sourcePreviewTitle)sourcePreviewTitle.textContent=meta.name||row.name||"Nguồn YouTube";
+  if(sourcePreviewStatus){
+    const bits=[sourcePreviewScopeLabel(),statusText];
+    if(meta.subscribers)bits.push(meta.subscribers);
+    sourcePreviewStatus.textContent=bits.join(" · ");
+  }
+
+  if(sourcePreviewSelect){
+    sourcePreviewSelect.hidden=false;
+    sourcePreviewSelect.disabled=status==="selected";
+    sourcePreviewSelect.classList.toggle("active",status==="selected");
+    sourcePreviewSelect.textContent=status==="selected"?"Đã chọn":"Chọn nguồn";
+  }
+}
+
+function renderSourcePreviewVideos(){
+  if(!sourcePreviewList)return;
+  const all=[...sourcePreviewRows.values()];
+  const q=normalizeSearchText(sourcePreviewSearch?.value||"");
+  const rows=q
+    ?all.filter(video=>normalizeSearchText(
+        [video?.title,video?._displayTitle,video?.uploader,video?._sourceName].map(clean).join(" ")
+      ).includes(q))
+    :all;
+
+  if(!all.length){
+    sourcePreviewList.innerHTML='<div class="source-empty">Kênh chưa có video để hiển thị</div>';
+    return;
+  }
+  if(!rows.length){
+    sourcePreviewList.innerHTML='<div class="source-empty">Không có video khớp tên đang tìm</div>';
+    return;
+  }
+
+  sourcePreviewList.innerHTML=rows.map(video=>{
+    const videoId=itemVideoId(video);
+    const meta=relativePublishedLabel(video);
+    return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
+      '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
+      '<span class="source-video-copy">'+
+        '<span class="source-video-title">'+esc(clean(video.title)||"Video")+'</span>'+
+        '<span class="source-video-meta">'+esc(meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):""))+'</span>'+
+      '</span>'+
+    '</button>';
+  }).join("");
+}
+
 async function openSourcePreview(id,rowHint=null){
   const row=libraryRow(id)||rowHint||sourceRemoteResults.find(item=>item.id===id);
-  if(!row||!sourcePreview||!sourceBrowse)return;
+  if(!row||!sourcePreview)return;
 
   const seq=++sourcePreviewSeq;
-  sourceBrowse.hidden=true;
+  sourcePreviewSourceId=id;
+  sourcePreviewSourceRow=row;
+  if(sourcesSheet)sourcesSheet.dataset.previewOpen="true";
   sourcePreview.hidden=false;
-  sourcePreviewTitle.textContent=sourceMetaFor(row).name||row.name;
+  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  closeSourceVideo();
+  syncSourcePreviewHeader();
+
   sourcePreviewRows=new Map();
   sourcePreviewList.innerHTML='<div class="source-empty">Đang tải video mới…</div>';
 
@@ -1335,7 +1416,7 @@ async function openSourcePreview(id,rowHint=null){
     if(seq!==sourcePreviewSeq)return;
 
     const ordered=newestFirst(Array.isArray(rows)?rows:[])
-      .slice(0,24)
+      .slice(0,30)
       .map(video=>({
         ...video,
         _sourceId:id,
@@ -1343,28 +1424,25 @@ async function openSourcePreview(id,rowHint=null){
         _sourceName:sourceMetaFor(row).name||row.name||video?._sourceName||video?.uploader||""
       }));
     sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]));
-
-    if(!ordered.length){
-      sourcePreviewList.innerHTML='<div class="source-empty">Kênh chưa có video để hiển thị</div>';
-      return;
-    }
-
-    sourcePreviewList.innerHTML=ordered.map(video=>{
-      const videoId=itemVideoId(video);
-      const meta=relativePublishedLabel(video);
-      return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
-        '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
-        '<span class="source-video-copy">'+
-          '<span class="source-video-title">'+esc(clean(video.title)||"Video")+'</span>'+
-          '<span class="source-video-meta">'+esc(meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):""))+'</span>'+
-        '</span>'+
-      '</button>';
-    }).join("");
+    renderSourcePreviewVideos();
   }catch(error){
     if(seq!==sourcePreviewSeq)return;
     console.warn("channel preview failed",error);
+    sourcePreviewRows=new Map();
     sourcePreviewList.innerHTML='<div class="source-empty">Chưa tải được video của kênh</div>';
   }
+}
+
+function choosePreviewSource(){
+  const id=sourcePreviewSourceId;
+  const row=sourcePreviewSourceRow;
+  if(!id||!row)return;
+
+  if(!libraryHas(id)&&!allManagedStateIds().has(id)){
+    addSource(row);
+  }
+  setSourceStatus(id,"selected",sourceManageGroup);
+  syncSourcePreviewHeader();
 }
 
 function openSourceVideo(id,row){
@@ -1384,12 +1462,30 @@ function closeSourceVideo(){
   if(sourceVideoPopupTitle)sourceVideoPopupTitle.textContent="";
 }
 
-function closeSourcePreview(){
+function resetSourcePreviewPane(){
   closeSourceVideo();
   sourcePreviewSeq++;
   sourcePreviewRows=new Map();
-  if(sourcePreview)sourcePreview.hidden=true;
-  if(sourceBrowse)sourceBrowse.hidden=false;
+  sourcePreviewSourceId="";
+  sourcePreviewSourceRow=null;
+  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
+  if(sourcePreview){
+    sourcePreview.hidden=false;
+    sourcePreview.classList.add("is-empty");
+  }
+  if(sourcePreviewList){
+    sourcePreviewList.innerHTML=
+      '<div class="source-preview-placeholder">'+
+        '<strong>Xem trước nguồn ngay tại đây</strong>'+
+        '<span>Danh sách nguồn luôn giữ ở bên trái; video phát trong cửa sổ này nên không còn xung với trình phát chính.</span>'+
+      '</div>';
+  }
+  syncSourcePreviewHeader();
+}
+
+function closeSourcePreview(){
+  resetSourcePreviewPane();
   setTimeout(()=>sourceSearch?.focus(),40);
 }
 
@@ -1402,7 +1498,7 @@ function openSourceLibrary(){
     ?state.activeParent
     :GENERAL_SOURCE_SCOPE;
   setSourceManageMode(true);
-  if(sourcePreview)sourcePreview.hidden=true;
+  resetSourcePreviewPane();
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
   updateSourceSummary();
@@ -1433,6 +1529,9 @@ function closeSourceLibrary(){
   sourceSearch.value="";
   sourceRemoteResults=[];
   sourcePreviewRows=new Map();
+  sourcePreviewSourceId="";
+  sourcePreviewSourceRow=null;
+  if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
   setSourceManageMode(false);
   if(clearSourceSearch)clearSourceSearch.hidden=true;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
@@ -1460,6 +1559,8 @@ function setupSourceLibrary(){
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
+  sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
+  sourcePreviewSearch?.addEventListener("input",renderSourcePreviewVideos);
   sourceSettingsBtn?.addEventListener("click",()=>setSourceManageMode(!sourceManageMode));
 
   sourceGroupTabs?.addEventListener("click",event=>{
@@ -1552,11 +1653,11 @@ function setupSourceLibrary(){
     const row=sourcePreviewRows.get(id);
     if(!id||!row)return;
 
-    // Keep Quản lý nguồn exactly where it is. Only switch the main media
-    // player to the chosen video so the user can continue browsing the source.
+    // Preview inside Quản lý nguồn itself. Do not touch the main player:
+    // this avoids player/floating-mode conflicts while evaluating a channel.
     sourcePreviewList.querySelectorAll(".source-video-row.playing").forEach(el=>el.classList.remove("playing"));
     button.classList.add("playing");
-    void playVideo(id,{...row,_keepSourceManagerOpen:true});
+    openSourceVideo(id,row);
   });
 }
 
