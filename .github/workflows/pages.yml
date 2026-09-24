@@ -38,6 +38,9 @@ jobs:
       - name: Apply source feed v4
         run: python3 scripts/apply-feed-v4.py
 
+      - name: Apply UI v5
+        run: python3 scripts/apply-ui-v5.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
