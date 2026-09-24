@@ -106,6 +106,9 @@ const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
+const SOURCE_AI_SUGGESTIONS_KEY="1988-source-ai-suggestions-v1";
+const SOURCE_SCOPE_ISOLATION_KEY="1988-source-scope-isolated-v1";
+const SOURCE_SCOPE_ISOLATION_BACKUP_KEY="1988-source-scopes-before-isolation-v1";
 const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
 const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
 const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
@@ -194,6 +197,7 @@ let blockedSourceIds=new Set(
 let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
 let scopedSelectedSourceIds=readScopedSourceState(SOURCE_SCOPED_SELECTION_KEY);
 let scopedBlockedSourceIds=readScopedSourceState(SOURCE_SCOPED_BLOCKED_KEY);
+let aiSuggestedSourceIds=readScopedSourceState(SOURCE_AI_SUGGESTIONS_KEY);
 
 function channelLibrary(){
   const out=[];
@@ -222,12 +226,23 @@ function libraryRow(id){
   return channelLibrary().find(row=>row.id===id)||null;
 }
 
+function persistSuggestedSourceState(){
+  try{
+    const suggested={};
+    for(const scope of CONTENT_SOURCE_SCOPES){
+      suggested[scope]=[...(aiSuggestedSourceIds.get(scope)||new Set())];
+    }
+    localStorage.setItem(SOURCE_AI_SUGGESTIONS_KEY,JSON.stringify(suggested));
+  }catch{}
+}
+
 function persistSourceLibrary(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
+    persistSuggestedSourceState();
   }catch{}
 }
 
@@ -244,15 +259,20 @@ function persistScopedSourceState(){
   }catch{}
 }
 
+function suggestedSetForScope(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  if(!CONTENT_SOURCE_SCOPES.has(scope))return new Set();
+  if(!aiSuggestedSourceIds.has(scope))aiSuggestedSourceIds.set(scope,new Set());
+  return aiSuggestedSourceIds.get(scope);
+}
+
 function assignSourceGroup(id,group){
   id=String(id||"").trim();
   group=String(group||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!group||group==="general"||group==="other")return false;
-  const current=Array.isArray(sourceGroupOverrides[id])
-    ?sourceGroupOverrides[id].map(String).filter(Boolean)
-    :[];
-  if(current.includes(group))return false;
-  sourceGroupOverrides[id]=[...current,group].slice(0,4);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!CONTENT_SOURCE_SCOPES.has(group))return false;
+  const suggested=suggestedSetForScope(group);
+  if(suggested.has(id))return false;
+  suggested.add(id);
   return true;
 }
 
@@ -400,8 +420,6 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
     !sourceRemoteResults.some(row=>row.id===id)
   )return;
 
-  if(CONTENT_SOURCE_SCOPES.has(scope))assignSourceGroup(id,scope);
-
   if(status==="selected"){
     blocked.delete(id);
     selected.add(id);
@@ -476,144 +494,91 @@ function sourceMetaFor(row){
 }
 
 function sourceGroupsFor(row={}){
-  const meta=sourceMetaFor(row);
-  const text=normalizeSearchText(meta.name||row.name||"");
-  const groups=new Set([
-    ...(Array.isArray(row?.groups)?row.groups:[]),
-    ...(Array.isArray(meta?.groups)?meta.groups:[]),
-    ...(Array.isArray(sourceGroupOverrides[row?.id])?sourceGroupOverrides[row.id]:[])
-  ].map(String).filter(Boolean));
+  const id=String(row?.id||row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+  const groups=[];
 
-  const has=(pattern)=>pattern.test(text);
-
-  if(has(/phim|movie|drama|vietsub|rap ngon tinh|review phim|me phim|phim hay|phim hoa|phim han|phim trung|kich ngan/))groups.add("film");
-  if(has(/nhac|music|ca si|karaoke|bolero|audio|studio|musician/))groups.add("music");
-  if(has(/kinh te|tai chinh|chung khoan|stock|dau tu|thi truong|tien te|kinh doanh|thue|broker|invest/))groups.add("economy");
-  if(has(/phap luat|cong an|an ninh|luat|ky an|vu an|dieu tra|phap ly|canh sat/))groups.add("law");
-  if(has(/cong nghe|technology|tech|vat vo|dien thoai|may tinh|xe may|oto|o to|tipcar|gia xe/))groups.add("tech");
-  if(has(/the thao|bong da|football|sport|blv|quan su mo/))groups.add("sports");
-  if(has(/giai tri|showbiz|ngoi sao|vie channel|ccap say hi|gameshow|show/))groups.add("entertainment");
-
-  if(has(/bao|news|tin tuc|thoi su|vtv|vov|htv|truyen hinh|phat thanh|todaytv|thong tin chinh phu/)){
-    groups.add("news");
-  }
-
-  if(!groups.size)groups.add("other");
-  return [...groups];
-}
-
-function ensureScopedSourceMigration(){
-  if(localStorage.getItem(SOURCE_SCOPED_MIGRATION_KEY)==="1")return;
-
-  const rows=managedChannelLibrary();
-  const byId=new Map(rows.map(row=>[row.id,row]));
-  for(const id of selectedSourceIds){
-    const row=byId.get(id)||{id,name:id,groups:sourceGroupOverrides[id]||[]};
-    for(const group of sourceGroupsFor(row)){
-      if(!CONTENT_SOURCE_SCOPES.has(group))continue;
-      const blocked=blockedSetForScope(group);
-      if(!blocked.has(id))selectedSetForScope(group).add(id);
-    }
-  }
-  for(const id of blockedSourceIds){
-    const row=byId.get(id)||{id,name:id,groups:sourceGroupOverrides[id]||[]};
-    for(const group of sourceGroupsFor(row)){
-      if(!CONTENT_SOURCE_SCOPES.has(group))continue;
-      selectedSetForScope(group).delete(id);
-      blockedSetForScope(group).add(id);
+  if(id){
+    for(const group of CONTENT_SOURCE_SCOPES){
+      if(
+        suggestedSetForScope(group).has(id) ||
+        selectedSetForScope(group).has(id) ||
+        blockedSetForScope(group).has(id)
+      ){
+        groups.push(group);
+      }
     }
   }
 
-  persistScopedSourceState();
-  try{localStorage.setItem(SOURCE_SCOPED_MIGRATION_KEY,"1");}catch{}
+  if(!groups.length)groups.push("other");
+  return groups;
 }
-ensureScopedSourceMigration();
 
-function recoverLegacyFilmSourceState(){
+function ensureSourceScopeIsolation(){
   try{
-    if(localStorage.getItem(SOURCE_FILM_RECOVERY_KEY))return;
+    if(localStorage.getItem(SOURCE_SCOPE_ISOLATION_KEY)==="1")return;
 
-    const validId=id=>/^UC[A-Za-z0-9_-]+$/.test(String(id||""));
-    const filmSelected=selectedSetForScope("film");
-    const filmBlocked=blockedSetForScope("film");
-
-    if(!localStorage.getItem(SOURCE_FILM_RECOVERY_BACKUP_KEY)){
+    if(!localStorage.getItem(SOURCE_SCOPE_ISOLATION_BACKUP_KEY)){
+      const selected={};
+      const blocked={};
+      for(const group of CONTENT_SOURCE_SCOPES){
+        selected[group]=[...selectedSetForScope(group)];
+        blocked[group]=[...blockedSetForScope(group)];
+      }
       localStorage.setItem(
-        SOURCE_FILM_RECOVERY_BACKUP_KEY,
-        JSON.stringify({
-          at:Date.now(),
-          selected:[...filmSelected],
-          blocked:[...filmBlocked]
-        })
+        SOURCE_SCOPE_ISOLATION_BACKUP_KEY,
+        JSON.stringify({at:Date.now(),selected,blocked})
       );
     }
 
-    // The old grouped manager used ONE global selected/blocked state even
-    // while the Film tab was active. Restore that state directly into Film.
-    // Do not re-classify by channel name: that was the reason v2 restored
-    // only a tiny subset of the user's previous Film choices.
-    const legacySelected=new Set(
-      [...selectedSourceIds,...readStoredArray(SOURCE_SELECTION_KEY)]
-        .map(String)
-        .filter(validId)
-    );
-    const legacyBlocked=new Set(
-      [...blockedSourceIds,...readStoredArray(SOURCE_BLOCKED_KEY),...readStoredArray(SOURCE_HIDDEN_KEY)]
-        .map(String)
-        .filter(validId)
-    );
+    const generalIds=new Set([...selectedSourceIds,...blockedSourceIds]);
 
-    // Older builds could prune selected IDs when the local library changed,
-    // while the source-pool cache still retained the old selection signature.
-    try{
-      const pool=JSON.parse(localStorage.getItem("1988-source-pool-v2")||"null");
-      const ids=String(pool?.signature||"")
-        .split("|")
-        .map(String)
-        .filter(validId);
-      for(const id of ids)legacySelected.add(id);
-    }catch{}
-
-    // Preserve any Film state captured by the first recovery attempt.
-    const previousFilmBackup=readStoredObject(SOURCE_FILM_LEGACY_BACKUP_KEY);
-    for(const id of Array.isArray(previousFilmBackup.selected)?previousFilmBackup.selected:[]){
-      if(validId(id))legacySelected.add(String(id));
-    }
-    for(const id of Array.isArray(previousFilmBackup.blocked)?previousFilmBackup.blocked:[]){
-      if(validId(id))legacyBlocked.add(String(id));
+    // Seed category suggestion pools only from the old explicit discovery map,
+    // never from name/keyword inference, and never from the manual general pool.
+    for(const [id,groups] of Object.entries(sourceGroupOverrides||{})){
+      if(generalIds.has(id))continue;
+      for(const group of Array.isArray(groups)?groups:[]){
+        if(CONTENT_SOURCE_SCOPES.has(group))suggestedSetForScope(group).add(id);
+      }
     }
 
-    filmSelected.clear();
-    filmBlocked.clear();
-
-    for(const id of legacySelected){
-      if(legacyBlocked.has(id))continue;
-      filmSelected.add(id);
-      assignSourceGroup(id,"film");
+    // Undo the v3 Film copy if its pre-copy backup exists.
+    const filmBackup=readStoredObject(SOURCE_FILM_RECOVERY_BACKUP_KEY);
+    if(Array.isArray(filmBackup.selected)||Array.isArray(filmBackup.blocked)){
+      const filmSelected=selectedSetForScope("film");
+      const filmBlocked=blockedSetForScope("film");
+      filmSelected.clear();
+      filmBlocked.clear();
+      for(const id of Array.isArray(filmBackup.selected)?filmBackup.selected:[]){
+        if(/^UC[A-Za-z0-9_-]+$/.test(String(id||"")))filmSelected.add(String(id));
+      }
+      for(const id of Array.isArray(filmBackup.blocked)?filmBackup.blocked:[]){
+        if(/^UC[A-Za-z0-9_-]+$/.test(String(id||""))){
+          filmSelected.delete(String(id));
+          filmBlocked.add(String(id));
+        }
+      }
     }
-    for(const id of legacyBlocked){
-      filmSelected.delete(id);
-      filmBlocked.add(id);
-      assignSourceGroup(id,"film");
+
+    // The previous migration inherited global manual choices into categories.
+    // Remove that inheritance once. Future overlap is allowed only when the user
+    // explicitly selects it inside that category.
+    for(const group of CONTENT_SOURCE_SCOPES){
+      const selected=selectedSetForScope(group);
+      const blocked=blockedSetForScope(group);
+      for(const id of generalIds){
+        selected.delete(id);
+        blocked.delete(id);
+      }
     }
 
-    persistSourceLibrary();
     persistScopedSourceState();
-
-    localStorage.setItem(
-      SOURCE_FILM_RECOVERY_KEY,
-      JSON.stringify({
-        at:Date.now(),
-        selectedTotal:filmSelected.size,
-        blockedTotal:filmBlocked.size,
-        source:"legacy-global-state"
-      })
-    );
+    persistSuggestedSourceState();
+    try{localStorage.setItem(SOURCE_SCOPE_ISOLATION_KEY,"1");}catch{}
   }catch(error){
-    console.warn("film source recovery failed",error);
+    console.warn("source scope isolation failed",error);
   }
 }
-recoverLegacyFilmSourceState();
+ensureSourceScopeIsolation();
 
 function sourceGroupLabels(row={}){
   const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
@@ -682,10 +647,10 @@ function sourceRowHtml(row,{remote=false}={}){
   const active=status==="selected";
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
-  const groups=sourceGroupLabels(row);
   const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Chưa chọn";
+  const groupLabel=SOURCE_MANAGER_GROUPS.find(item=>item.key===sourceManageGroup)?.label||"";
   const subBits=[];
-  if(groups.length)subBits.push(groups.join(" · "));
+  if(sourceManageGroup!==GENERAL_SOURCE_SCOPE&&groupLabel)subBits.push(groupLabel);
   if(subscriber)subBits.push(subscriber);
   if(exists)subBits.push(statusLabel);
   else subBits.push("Kết quả từ YouTube");
@@ -785,6 +750,28 @@ function updateSourceGroupArrows(){
   sourceGroupNext.hidden=!canScroll||sourceGroupTabs.scrollLeft>=maxScroll-3;
 }
 
+function sourceIsSuggestedAnywhere(id){
+  for(const group of CONTENT_SOURCE_SCOPES){
+    if(suggestedSetForScope(group).has(id))return true;
+  }
+  return false;
+}
+
+function sourceHasLegacyCategoryAssignment(id){
+  return (Array.isArray(sourceGroupOverrides?.[id])?sourceGroupOverrides[id]:[])
+    .some(group=>CONTENT_SOURCE_SCOPES.has(String(group)));
+}
+
+function isGeneralManagerSource(row={}){
+  const id=String(row?.id||"").trim();
+  if(!id)return false;
+  if(BASE_CHANNEL_ID_SET.has(id))return true;
+  if(selectedSourceIds.has(id)||blockedSourceIds.has(id))return true;
+  if(sourceIsSuggestedAnywhere(id))return false;
+  if(sourceHasLegacyCategoryAssignment(id))return false;
+  return true;
+}
+
 function renderSourceGroupTabs(){
   if(!sourceGroupTabs||!sourceGroupNav)return;
   sourceGroupNav.hidden=!sourceManageMode;
@@ -795,13 +782,17 @@ function renderSourceGroupTabs(){
 
   const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    const explicitIds=new Set([
-      ...selectedSetForScope(group.key),
-      ...blockedSetForScope(group.key)
-    ]);
-    const count=group.key===GENERAL_SOURCE_SCOPE
-      ?rows.length
-      :rows.filter(row=>explicitIds.has(row.id)||sourceGroupsFor(row).includes(group.key)).length;
+    let count=0;
+    if(group.key===GENERAL_SOURCE_SCOPE){
+      count=rows.filter(isGeneralManagerSource).length;
+    }else{
+      const ids=new Set([
+        ...suggestedSetForScope(group.key),
+        ...selectedSetForScope(group.key),
+        ...blockedSetForScope(group.key)
+      ]);
+      count=ids.size;
+    }
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
@@ -835,12 +826,15 @@ function renderSourceLibrary(){
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
   ]);
-  const groupFilter=row=>
-    !!q||
-    !sourceManageMode||
-    sourceManageGroup===GENERAL_SOURCE_SCOPE||
-    scopedStateIds.has(row.id)||
-    sourceGroupsFor(row).includes(sourceManageGroup);
+  const scopedSuggestionIds=CONTENT_SOURCE_SCOPES.has(sourceManageGroup)
+    ?suggestedSetForScope(sourceManageGroup)
+    :new Set();
+
+  const groupFilter=row=>{
+    if(q||!sourceManageMode)return true;
+    if(sourceManageGroup===GENERAL_SOURCE_SCOPE)return isGeneralManagerSource(row);
+    return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
+  };
 
   const localRows=rows.filter(row=>
     groupFilter(row)&&
@@ -1136,6 +1130,16 @@ function openSourceLibrary(){
   updateSourceSummary();
   renderSourceLibrary();
   sourcesSheet.hidden=false;
+
+  if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
+    if(parent){
+      void localEngine(12000)
+        .then(local=>discoverSourcesForParent(parent,local))
+        .catch(()=>{});
+    }
+  }
+
   setTimeout(()=>sourceSearch?.focus(),80);
 }
 
@@ -1187,6 +1191,15 @@ function setupSourceLibrary(){
     sourceBlockedExpanded=false;
     updateSourceSummary();
     renderSourceLibrary();
+
+    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
+      if(parent){
+        void localEngine(12000)
+          .then(local=>discoverSourcesForParent(parent,local))
+          .catch(()=>{});
+      }
+    }
   });
 
   sourceGroupTabs?.addEventListener("scroll",updateSourceGroupArrows,{passive:true});
@@ -2550,8 +2563,24 @@ async function discoverSourcesForParent(parent,local){
     .filter(uploadedWithinCategoryWindow)
     .filter(row=>!isBlockedSourceRow(row,group));
 
-  if(discovered.length){
-    rememberDiscoveredSources(discovered,group);
+  if(!discovered.length)return;
+
+  let accepted=discovered;
+  try{
+    const classified=await classifyAiParent(parent,discovered.slice(0,48));
+    const acceptedIds=classified?.acceptedVideoIds instanceof Set
+      ?classified.acceptedVideoIds
+      :new Set();
+    if(acceptedIds.size){
+      accepted=discovered.filter(row=>acceptedIds.has(itemVideoId(row)));
+    }
+  }catch(error){
+    console.warn("source AI classify failed",parent?.label||group,error);
+    accepted=discovered.filter(row=>rowMatchesParentRule(parent,row));
+  }
+
+  if(accepted.length){
+    rememberDiscoveredSources(accepted,group);
     if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
   }
 }
