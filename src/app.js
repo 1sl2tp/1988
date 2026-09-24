@@ -1909,7 +1909,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v16:";
+const FEED_CACHE_PREFIX="1988-discovery-v17:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1989,12 +1989,77 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
-async function selectedSourceFeed(local,predicate,reset=false){
-  const sources=selectedSources();
-  if(!sources.length)return [];
+const SOURCE_POOL_KEY="1988-source-pool-v1";
+const SOURCE_POOL_TTL=30*60*1000;
+let sourcePoolMemory={signature:"",at:0,items:[]};
+let sourcePoolRefreshPromise=null;
+let sourcePoolRefreshSignature="";
 
+function compactSourcePool(rows=[]){
+  const perSource=new Map();
+  for(const row of newestFirst(mergeUniqueRows([],rows))){
+    const sourceId=String(row?._sourceId||"");
+    if(!sourceId)continue;
+    const list=perSource.get(sourceId)||[];
+    if(list.length>=18)continue;
+    list.push(row);
+    perSource.set(sourceId,list);
+  }
+  return [...perSource.values()].flat();
+}
+
+function readSourcePoolCache(){
+  const signature=sourceSignature();
+  if(
+    sourcePoolMemory.signature===signature &&
+    Array.isArray(sourcePoolMemory.items) &&
+    sourcePoolMemory.items.length &&
+    Date.now()-sourcePoolMemory.at<SOURCE_POOL_TTL
+  ){
+    return sourcePoolMemory.items;
+  }
+
+  try{
+    const row=JSON.parse(localStorage.getItem(SOURCE_POOL_KEY)||"null");
+    if(
+      row &&
+      row.signature===signature &&
+      Array.isArray(row.items) &&
+      row.items.length &&
+      Date.now()-Number(row.at||0)<SOURCE_POOL_TTL
+    ){
+      sourcePoolMemory={
+        signature,
+        at:Number(row.at)||Date.now(),
+        items:row.items
+      };
+      return row.items;
+    }
+  }catch{}
+
+  return [];
+}
+
+function saveSourcePoolCache(rows=[]){
+  const signature=sourceSignature();
+  const items=compactSourcePool(rows);
+  const row={signature,at:Date.now(),items};
+  sourcePoolMemory=row;
+  try{localStorage.setItem(SOURCE_POOL_KEY,JSON.stringify(row));}catch{}
+  return items;
+}
+
+function primeSourceFeedCaches(rows=[]){
+  const latest=sortPresetRows(rows.filter(uploadedWithinLatest),FEED_PRESETS.latest);
+  const week=sortPresetRows(rows.filter(uploadedWithinWeek),FEED_PRESETS.week);
+  saveFeedCache("latest",latest);
+  saveFeedCache("week",week);
+}
+
+async function fetchSourcePool(local,sources,reset=true){
   const collected=[];
   let cursor=0;
+
   const worker=async()=>{
     while(cursor<sources.length){
       const source=sources[cursor++];
@@ -2004,7 +2069,11 @@ async function selectedSourceFeed(local,predicate,reset=false){
           source.id,
           reset
         );
-        if(Array.isArray(rows))collected.push(...rows);
+        if(Array.isArray(rows)){
+          for(const row of rows){
+            if(row)collected.push({...row,_sourceId:source.id});
+          }
+        }
       }catch(error){
         console.warn("source feed failed",source.id,error);
       }
@@ -2012,12 +2081,56 @@ async function selectedSourceFeed(local,predicate,reset=false){
   };
 
   const workers=Array.from(
-    {length:Math.min(4,sources.length)},
+    {length:Math.min(8,sources.length)},
     ()=>worker()
   );
   await Promise.all(workers);
+  return collected;
+}
 
-  return mergeUniqueRows([],collected).filter(predicate);
+function refreshSourcePool(local,sources){
+  const signature=sourceSignature();
+  if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
+    return sourcePoolRefreshPromise;
+  }
+
+  sourcePoolRefreshSignature=signature;
+  sourcePoolRefreshPromise=(async()=>{
+    const rows=await fetchSourcePool(local,sources,true);
+    if(signature!==sourceSignature())return [];
+    const saved=saveSourcePoolCache(rows);
+    primeSourceFeedCaches(saved);
+    return saved;
+  })().finally(()=>{
+    if(sourcePoolRefreshSignature===signature){
+      sourcePoolRefreshPromise=null;
+      sourcePoolRefreshSignature="";
+    }
+  });
+
+  return sourcePoolRefreshPromise;
+}
+
+async function selectedSourceFeed(local,predicate,reset=false){
+  const sources=selectedSources();
+  if(!sources.length)return [];
+
+  if(reset){
+    const cached=readSourcePoolCache();
+    if(cached.length){
+      void refreshSourcePool(local,sources);
+      return cached.filter(predicate);
+    }
+
+    const fresh=await refreshSourcePool(local,sources);
+    return fresh.filter(predicate);
+  }
+
+  const extra=await fetchSourcePool(local,sources,false);
+  const previous=readSourcePoolCache();
+  const merged=saveSourcePoolCache([...previous,...extra]);
+  primeSourceFeedCaches(merged);
+  return extra.filter(predicate);
 }
 
 async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
