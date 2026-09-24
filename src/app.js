@@ -2707,41 +2707,23 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   if(mobile){
     const styles=getComputedStyle(root);
     const headerHeight=
-      parseFloat(styles.getPropertyValue("--header-row-h"))||52;
+      parseFloat(styles.getPropertyValue("--header-row-h"))||48;
     const navHeight=
-      parseFloat(styles.getPropertyValue("--nav-row-h"))||40;
+      parseFloat(styles.getPropertyValue("--nav-row-h"))||36;
+    const railHeight=
+      parseFloat(styles.getPropertyValue("--watch-feed-rail-h"))||108;
+    const safeBottom=
+      parseFloat(styles.getPropertyValue("--safe-bottom"))||0;
 
-    let width=viewportWidth;
+    const availableHeight=Math.max(
+      240,
+      viewportHeight-headerHeight-navHeight-railHeight-safeBottom-4
+    );
+
+    // TikTok/Shorts principle: the video owns the viewport. Keep the source
+    // ratio exactly, fit it inside the remaining player stage, and never crop.
+    let width=Math.min(viewportWidth,availableHeight*ratio);
     let height=width/ratio;
-
-    if(ratio<.8){
-      // Portrait: keep the original ratio but reserve meaningful space for
-      // browsing. The player is height-led and centered; no fake 16:9 shell.
-      const heightCap=Math.max(
-        360,
-        Math.min(
-          viewportHeight*.58,
-          viewportHeight-headerHeight-navHeight-150
-        )
-      );
-      height=Math.min(height,heightCap);
-      width=height*ratio;
-    }else if(ratio<1.2){
-      // Square / near-square: moderate height so the feed is still visible.
-      const heightCap=Math.max(
-        280,
-        Math.min(
-          viewportHeight*.48,
-          viewportHeight-headerHeight-navHeight-170
-        )
-      );
-      height=Math.min(height,heightCap);
-      width=height*ratio;
-    }else{
-      // Landscape: use all available width; original ratio determines height.
-      width=viewportWidth;
-      height=width/ratio;
-    }
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
@@ -2972,6 +2954,86 @@ function setupWatchBrowseLayout(){
   window.visualViewport?.addEventListener?.("resize",syncViewportLayout,{passive:true});
   queueWatchBrowseLayout();
   queueResponsivePlayerFrame();
+}
+
+function watchFeedCards(){
+  return [...feed.querySelectorAll(":scope > [data-video-id]")];
+}
+
+function syncWatchCurrentCard({scroll=false}={}){
+  const cards=watchFeedCards();
+  let currentCard=null;
+
+  for(const card of cards){
+    const current=(card.dataset.videoId||"")===state.currentId;
+    card.classList.toggle("is-current-video",current);
+    if(current)currentCard=card;
+  }
+
+  const rail=playerSection?.querySelector(".watch-nav-rail");
+  const prev=rail?.querySelector('[data-watch-nav="prev"]');
+  const next=rail?.querySelector('[data-watch-nav="next"]');
+  const currentIndex=currentCard?cards.indexOf(currentCard):-1;
+
+  if(prev)prev.disabled=!cards.length||currentIndex===0;
+  if(next)next.disabled=!cards.length||currentIndex===cards.length-1;
+
+  if(scroll&&currentCard&&feed.scrollWidth>feed.clientWidth){
+    const left=Math.max(
+      0,
+      currentCard.offsetLeft-(feed.clientWidth-currentCard.clientWidth)/2
+    );
+    feed.scrollTo({left,behavior:"smooth"});
+  }
+}
+
+function navigateWatchVideo(direction=1){
+  const cards=watchFeedCards();
+  if(!cards.length)return;
+
+  let index=cards.findIndex(card=>(card.dataset.videoId||"")===state.currentId);
+  if(index<0)index=direction>0?-1:cards.length;
+
+  const targetIndex=index+(direction>0?1:-1);
+  if(targetIndex<0||targetIndex>=cards.length)return;
+
+  const card=cards[targetIndex];
+  const id=card.dataset.videoId||"";
+  if(!id)return;
+
+  void primePipAspect(id);
+  setSeriesContextFromCard(card);
+  playVideo(id,rowFromCard(card));
+}
+
+function ensureWatchNavRail(){
+  if(!playerSection||playerSection.querySelector(".watch-nav-rail"))return;
+
+  const rail=document.createElement("div");
+  rail.className="watch-nav-rail";
+  rail.setAttribute("role","toolbar");
+  rail.setAttribute("aria-label","Chuyển video");
+
+  const makeButton=(direction,label,icon)=>{
+    const button=document.createElement("button");
+    button.type="button";
+    button.dataset.watchNav=direction;
+    button.setAttribute("aria-label",label);
+    button.textContent=icon;
+    button.addEventListener("click",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      navigateWatchVideo(direction==="next"?1:-1);
+    });
+    return button;
+  };
+
+  rail.append(
+    makeButton("prev","Video trước","↑"),
+    makeButton("next","Video tiếp theo","↓")
+  );
+  playerSection.appendChild(rail);
+  syncWatchCurrentCard();
 }
 
 function applyFloatingIframe(force){
@@ -6141,6 +6203,8 @@ function renderCards(rows=[],options={}){
     const total=feed.querySelectorAll("[data-video-id]").length;
     feedStatus.textContent=total?total+" video":"";
   }
+  ensureWatchNavRail();
+  syncWatchCurrentCard();
   return cards.length;
 }
 
@@ -7102,6 +7166,8 @@ async function playVideo(id,seedMeta={}){
   updateNow(seedMeta);
   showIframePlayer();
   applyResponsivePlayerFrame(seedMeta);
+  ensureWatchNavRail();
+  syncWatchCurrentCard({scroll:true});
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
@@ -8484,6 +8550,7 @@ setupSourceLibrary();
 setupFloatingIframe();
 setupWatchBrowseLayout();
 setupFullscreenReturn();
+ensureWatchNavRail();
 updateModeUi();
 renderParentCategories();
 
