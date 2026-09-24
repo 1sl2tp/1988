@@ -106,6 +106,31 @@ jobs:
               returnByValue:true
             });
             console.log('HOME_PROBE',probe?.result?.value);
+
+            const rawProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  const yt=await window.YTLocal.getYT();
+                  const result=await yt.getHomeFeed();
+                  const rows=result?.contents?.contents||result?.contents||[];
+                  const list=Array.from(rows||[]).slice(0,12).map((r,i)=>({
+                    i,
+                    type:r?.type||r?.constructor?.name||'',
+                    keys:Object.keys(r||{}).slice(0,20),
+                    contentType:r?.content?.type||r?.content?.constructor?.name||'',
+                    contentKeys:Object.keys(r?.content||{}).slice(0,20),
+                    deepType:r?.content?.content?.type||r?.content?.content?.constructor?.name||'',
+                    deepKeys:Object.keys(r?.content?.content||{}).slice(0,20)
+                  }));
+                  return JSON.stringify({count:Array.from(rows||[]).length,list});
+                }catch(e){
+                  return JSON.stringify({error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('RAW_HOME',rawProbe?.result?.value);
             ws.close();
           }
           main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
