@@ -790,6 +790,38 @@ async function aiDisclosure(id){
   }
 }
 
+function videoDimensionsFromInfo(result={}){
+  const rows=[
+    ...(Array.isArray(result?.streaming_data?.formats)?result.streaming_data.formats:[]),
+    ...(Array.isArray(result?.streaming_data?.adaptive_formats)?result.streaming_data.adaptive_formats:[]),
+    ...(Array.isArray(result?.streaming_data?.adaptiveFormats)?result.streaming_data.adaptiveFormats:[])
+  ];
+
+  let best=null;
+  for(const row of rows){
+    const width=Number(row?.width)||0;
+    const height=Number(row?.height)||0;
+    if(width<=0||height<=0)continue;
+    if(!best||width*height>best.width*best.height){
+      best={width,height};
+    }
+  }
+
+  if(!best){
+    const embed=result?.embed||result?.microformat?.embed||{};
+    const width=Number(embed?.width)||0;
+    const height=Number(embed?.height)||0;
+    if(width>0&&height>0)best={width,height};
+  }
+
+  if(!best)return {width:0,height:0,aspectRatio:16/9};
+  return {
+    width:best.width,
+    height:best.height,
+    aspectRatio:best.width/best.height
+  };
+}
+
 async function info(id){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
   const yt=await getYT();
@@ -797,6 +829,7 @@ async function info(id){
   const basic=result?.basic_info||{};
   const thumbnails=Array.isArray(basic.thumbnail)?basic.thumbnail:[];
   const related=normalizeRows(result?.watch_next_feed||[],24);
+  const dimensions=videoDimensionsFromInfo(result);
   return {
     meta:{
       videoId:id,
@@ -805,7 +838,10 @@ async function info(id){
       views:Number(basic.view_count)||0,
       duration:Number(basic.duration)||0,
       thumbnailUrl:thumbnails[0]?.url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg'),
-      uploadDate:String(basic.upload_date||basic.publish_date||'')
+      uploadDate:String(basic.upload_date||basic.publish_date||''),
+      videoWidth:dimensions.width,
+      videoHeight:dimensions.height,
+      aspectRatio:dimensions.aspectRatio
     },
     related
   };
