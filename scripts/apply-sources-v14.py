@@ -337,7 +337,7 @@ if start >= 0 and end >= 0:
 
   // "Tất cả nguồn" actively fans out across real publishers instead of relying
   // on one generic YouTube search ranking.
-  const perPublisher = publishers
+  const perPublisher: Array<{ q: string; publisherId?: PublisherId }> = publishers
     .filter(item => item.id !== 'all')
     .map(item => ({
       q: (item.search + ' ' + topicQuery + suffix).trim(),
