@@ -19,13 +19,21 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .brand{display:inline-flex;align-items:center;gap:7px;color:#fff;text-decoration:none;font-size:20px;letter-spacing:-.5px}
 .brand-mark{width:31px;height:22px;border-radius:7px;display:grid;place-items:center;background:#f20d3a;color:#fff;font-size:11px;padding-left:2px}
-.header-search{position:relative;height:40px;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;border:1px solid #303037;border-radius:20px;background:#121214;overflow:visible}
+.header-search{
+  position:relative;height:40px;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
+  border:0;border-top:1px solid #303037;border-bottom:1px solid #303037;border-radius:0;
+  background:rgba(255,255,255,.018);overflow:visible
+}
 .search-icon{padding-left:13px;color:#8f8f98;font-size:19px}
 #queryInput{min-width:0;height:38px;border:0;outline:0;background:transparent;color:#fff;padding:0 10px;font-size:16px}
-.header-search>button[type="submit"]{height:32px;margin-right:4px;padding:0 15px;border:0;border-radius:17px;background:#f3f3f4;color:#111;font-size:12px;font-weight:750}
+.header-search>button[type="submit"]{
+  height:32px;margin-right:0;padding:0 14px;border:0;border-left:1px solid #2d2d33;border-radius:0;
+  background:rgba(255,255,255,.055);color:#f1f1f2;font-size:12px;font-weight:750
+}
 .source-header-btn{
-  height:32px;margin-right:4px;padding:0 10px;border:0;border-radius:17px;background:#25252a;color:#e7e7ea;
-  display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;font-weight:700
+  height:32px;margin-right:0;padding:0 10px;border:0;border-left:1px solid #2d2d33;border-radius:0;
+  background:rgba(255,255,255,.035);color:#e7e7ea;display:inline-flex;align-items:center;gap:5px;
+  white-space:nowrap;font-size:11px;font-weight:700
 }
 .source-header-icon{font-size:15px;line-height:1;color:#bdbdc5}
 .source-header-count{min-width:13px;color:#8f8f98;font-size:10px;text-align:center}
@@ -237,14 +245,15 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .source-browse,.source-preview{min-height:0;display:flex;flex:1;flex-direction:column}
 
 .source-search-bar{
-  margin:10px 0 6px;display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:7px
+  margin:10px 0 6px;display:grid;grid-template-columns:minmax(0,1fr) 40px;gap:0;
+  border-top:1px solid #34343a;border-bottom:1px solid #34343a;background:rgba(255,255,255,.018)
 }
 .source-search-wrap{position:relative;min-width:0}
 .source-search{
-  width:100%;height:40px;margin:0;padding:0 38px 0 13px;border:1px solid #34343a;
-  border-radius:10px;outline:0;background:#111113;color:#fff;font-size:14px
+  width:100%;height:40px;margin:0;padding:0 38px 0 13px;border:0;border-radius:0;
+  outline:0;background:transparent;color:#fff;font-size:14px
 }
-.source-search:focus{border-color:#56565e}
+.source-search:focus{background:rgba(255,255,255,.018)}
 .source-search::-webkit-search-cancel-button{
   -webkit-appearance:none;
   appearance:none;
@@ -256,18 +265,24 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .source-search-clear[hidden]{display:none}
 .source-settings-btn{
-  width:40px;height:40px;padding:0;border:1px solid #34343a;border-radius:10px;
-  background:#202024;color:#d8d8dc;font-size:19px;line-height:1
+  width:40px;height:40px;padding:0;border:0;border-left:1px solid #34343a;border-radius:0;
+  background:rgba(255,255,255,.025);color:#d8d8dc;font-size:19px;line-height:1
 }
-.source-settings-btn.active{background:#f2f2f3;color:#111;border-color:#f2f2f3}
+.source-settings-btn.active{background:rgba(255,255,255,.11);color:#fff}
 .source-search-status{min-height:18px;padding:0 2px 5px;color:#85858e;font-size:11px}
 
-.source-list{min-height:0;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;border-top:1px solid #27272c}
+.source-list{
+  min-height:0;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  border-top:1px solid #2a2a2f;border-bottom:1px solid #2a2a2f
+}
 .source-group-label{padding:9px 2px 6px;color:#85858e;font-size:11px;font-weight:650}
 .source-row{
-  min-height:56px;border-bottom:1px solid #242429;
+  min-height:56px;border-bottom:1px solid #242429;background:transparent;
   display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px
 }
+.source-row:first-of-type{border-top:0}
+.source-row.active{background:rgba(255,255,255,.025)}
+.source-row.manage{background:rgba(255,255,255,.015)}
 .source-row.manage{grid-template-columns:minmax(0,1fr) auto auto}
 .source-main{
   min-width:0;height:55px;padding:0 4px 0 1px;border:0;background:transparent;color:#f3f3f4;
@@ -282,18 +297,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .source-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:600}
 .source-row-sub{margin-top:3px;color:#85858e;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .source-toggle,.source-add,.source-delete{
-  height:30px;border:1px solid #3b3b42;border-radius:8px;background:#202024;color:#ddd;font-size:11px
+  height:30px;border:0;border-left:1px solid #303037;border-radius:0;background:transparent;color:#ddd;font-size:11px
 }
-.source-toggle{width:30px;padding:0;font-size:14px;color:transparent}
-.source-row.active .source-toggle{background:#f2f2f3;border-color:#f2f2f3;color:#111;font-weight:800}
-.source-add{padding:0 10px;color:#fff}
-.source-delete{padding:0 9px;color:#aaa}
+.source-toggle{width:34px;padding:0;font-size:14px;color:transparent}
+.source-row.active .source-toggle{background:rgba(255,255,255,.09);color:#fff;font-weight:800}
+.source-add{padding:0 10px;color:#fff;background:rgba(255,255,255,.045)}
+.source-delete{padding:0 9px;color:#aaa;background:rgba(255,255,255,.025)}
 .source-empty{padding:34px 8px;text-align:center;color:var(--muted);font-size:13px}
 
 .source-preview[hidden]{display:none}
 .source-preview-head{
   min-height:46px;display:grid;grid-template-columns:36px minmax(0,1fr);gap:7px;align-items:center;
-  border-bottom:1px solid #29292e
+  border-top:1px solid #29292e;border-bottom:1px solid #29292e;background:rgba(255,255,255,.018)
 }
 .source-preview-head button{
   width:34px;height:34px;border:0;border-radius:9px;background:#242428;color:#fff;font-size:25px
