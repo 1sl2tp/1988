@@ -373,4 +373,141 @@ function detectThumbnailShape(url: string, serial: number) {
 
 function seedTrail() {
   const id = videoId.value;
-  if (!id
+  if (!id) return;
+  const currentShape = normalizeShape(route.query.shape) || shape.value || 'landscape';
+
+  if (trailIndex >= 0 && trail.value[trailIndex]?.id === id) {
+    trail.value[trailIndex].shape = currentShape;
+    return;
+  }
+
+  const existing = trail.value.findIndex((row) => row.id === id);
+  if (existing >= 0) {
+    trailIndex = existing;
+    return;
+  }
+
+  trail.value = trail.value.slice(0, trailIndex + 1);
+  trail.value.push({ id, shape: currentShape });
+  trailIndex = trail.value.length - 1;
+}
+
+async function navigateTo(item: TrailItem, nextDirection: 'next' | 'previous') {
+  if (!item?.id || item.id === videoId.value) return;
+  direction.value = nextDirection;
+  menuOpen.value = false;
+  await router.replace({ path: '/watch/' + item.id, query: { shape: item.shape } });
+}
+
+function swipeNext() {
+  const next = related.value.find((row: any) => row?.id && row.id !== videoId.value);
+  if (!next?.id) return;
+  const item: TrailItem = { id: next.id, shape: next.shape || 'landscape' };
+  trail.value = trail.value.slice(0, trailIndex + 1);
+  trail.value.push(item);
+  trailIndex = trail.value.length - 1;
+  void navigateTo(item, 'next');
+}
+
+function swipePrevious() {
+  if (trailIndex <= 0) return;
+  trailIndex -= 1;
+  const previous = trail.value[trailIndex];
+  if (previous) void navigateTo(previous, 'previous');
+}
+
+function onTouchStart(event: TouchEvent) {
+  const touch = event.changedTouches?.[0];
+  const target = event.target as HTMLElement | null;
+  touchEnabled = !!touch && !target?.closest?.('.controls, .action-rail, .desktop-arrows, .reel-menu, .back-btn');
+  if (!touch || !touchEnabled) return;
+  touchStartY = touch.clientY;
+  touchStartX = touch.clientX;
+}
+
+function onTouchEnd(event: TouchEvent) {
+  if (!touchEnabled) return;
+  touchEnabled = false;
+  const touch = event.changedTouches?.[0];
+  if (!touch) return;
+
+  const dy = touch.clientY - touchStartY;
+  const dx = touch.clientX - touchStartX;
+  if (Math.abs(dy) < 52 || Math.abs(dy) < Math.abs(dx) * 1.15) return;
+
+  if (dy < 0) swipeNext();
+  else swipePrevious();
+}
+
+function onWheel(event: WheelEvent) {
+  if (window.innerWidth < 900) return;
+  if (Math.abs(event.deltaY) < 35 || Date.now() < wheelLockedUntil) return;
+  wheelLockedUntil = Date.now() + 620;
+  if (event.deltaY > 0) swipeNext();
+  else swipePrevious();
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowDown' || event.key === 'PageDown') {
+    event.preventDefault();
+    swipeNext();
+  } else if (event.key === 'ArrowUp' || event.key === 'PageUp') {
+    event.preventDefault();
+    swipePrevious();
+  } else if (event.key === 'Escape' && menuOpen.value) {
+    menuOpen.value = false;
+  }
+}
+
+function showToast(message: string) {
+  toast.value = message;
+  if (toastTimer !== undefined) clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { toast.value = ''; }, 1600);
+}
+
+async function shareVideo() {
+  const url = window.location.href;
+  const title = details.value?.title || '1988';
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    showToast('Đã sao chép liên kết');
+  } catch {}
+}
+
+async function copyLink() {
+  menuOpen.value = false;
+  try {
+    await navigator.clipboard.writeText(window.location.href);
+    showToast('Đã sao chép liên kết');
+  } catch {}
+}
+
+function goHome() {
+  menuOpen.value = false;
+  void router.push('/');
+}
+
+function goBack() {
+  if (window.history.length > 1) router.back();
+  else void router.push('/');
+}
+
+function prefetchNext() {
+  const next = related.value.find((row: any) => row?.id && row.id !== videoId.value);
+  if (!next?.id) return;
+  try {
+    const thumb = new Image();
+    thumb.src = next.thumbnail;
+    const url = new URL(API);
+    url.searchParams.set('action', 'video');
+    url.searchParams.set('id', next.id);
+    void fetch(url.toString(), { cache: 'force-cache' }).catch(() => {});
+  } catch {}
+}
+
+async function load() {
+  const s
