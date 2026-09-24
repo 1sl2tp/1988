@@ -892,7 +892,7 @@ function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
   const meta=sourceMetaFor(row);
-  if(sourceManageMode&&sourceManageGroup!=="all"){
+  if(sourceManageMode&&CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
     assignSourceGroup(row.id,sourceManageGroup);
   }
   if(!BASE_CHANNEL_ID_SET.has(row.id)){
@@ -1029,7 +1029,10 @@ function openSourceLibrary(){
   sourceRemoteResults=[];
   sourcePreviewSeq++;
   closeSourceVideo();
-  setSourceManageMode(false);
+  sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+    ?state.activeParent
+    :GENERAL_SOURCE_SCOPE;
+  setSourceManageMode(true);
   if(sourcePreview)sourcePreview.hidden=true;
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
@@ -1083,7 +1086,9 @@ function setupSourceLibrary(){
   sourceGroupTabs?.addEventListener("click",event=>{
     const button=event.target.closest("[data-source-group]");
     if(!button)return;
-    sourceManageGroup=button.dataset.sourceGroup||"all";
+    sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
+    sourceBlockedExpanded=false;
+    updateSourceSummary();
     renderSourceLibrary();
   });
 
@@ -1133,8 +1138,8 @@ function setupSourceLibrary(){
     if(stateButton){
       const id=stateButton.dataset.sourceId||"";
       const next=stateButton.dataset.sourceState||"normal";
-      const current=sourceStatus(id);
-      setSourceStatus(id,current===next?"normal":next);
+      const current=sourceStatus(id,sourceManageGroup);
+      setSourceStatus(id,current===next?"normal":next,sourceManageGroup);
       return;
     }
 
