@@ -647,7 +647,7 @@ s = p.read_text()
 if "TikTokPage" not in s:
     s = s.replace(
         "import ChannelPage from './pages/ChannelPage.vue';",
-        "import ChannelPage from './pages/ChannelPage.vue';\\nimport TikTokPage from './pages/TikTokPage.vue';",
+        "import ChannelPage from './pages/ChannelPage.vue';\nimport TikTokPage from './pages/TikTokPage.vue';",
         1
     )
     s = s.replace(
