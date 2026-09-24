@@ -1589,6 +1589,27 @@ function newestFirst(rows=[]){
     .map(item=>item.row);
 }
 
+function weekFreshViewedFirst(rows=[]){
+  return rows
+    .map((row,index)=>{
+      const ageHours=Math.max(0,publishedAgeMs(row))/(60*60*1000);
+      const views=Math.max(0,Number(row?.views)||0);
+      const velocity=views/Math.max(1,ageHours);
+      const score=
+        Math.log10(views+10)*8+
+        Math.log10(velocity+1)*12-
+        ageHours/24;
+      return {row,index,score,ageHours,views};
+    })
+    .sort((a,b)=>
+      (b.score-a.score)||
+      (a.ageHours-b.ageHours)||
+      (b.views-a.views)||
+      (a.index-b.index)
+    )
+    .map(item=>item.row);
+}
+
 function mostViewedFirst(rows=[]){
   return rows
     .map((row,index)=>({row,index,views:Number(row?.views)||0}))
@@ -2550,11 +2571,12 @@ async function selectedSourceFeed(local,predicate,reset=false){
 }
 
 const REGIONAL_DISCOVERY_TTL=10*60*1000;
-let regionalDiscoveryMemory={at:0,items:[]};
+let regionalDiscoveryMemory={at:0,items:[],aiSeed:[]};
 let regionalDiscoveryRefreshPromise=null;
 
 function regionalAiPool(){
-  const rows=Array.isArray(regionalDiscoveryMemory.items)?regionalDiscoveryMemory.items:[];
+  const seed=Array.isArray(regionalDiscoveryMemory.aiSeed)?regionalDiscoveryMemory.aiSeed:[];
+  const rows=seed.length?seed:(Array.isArray(regionalDiscoveryMemory.items)?regionalDiscoveryMemory.items:[]);
   return rows.filter(uploadedWithinWeek);
 }
 
@@ -2580,11 +2602,16 @@ async function fetchRegionalDiscoveryPool(local,reset=false){
   const incoming=mergeUniqueRows([],batches.flat()).filter(uploadedWithinWeek);
 
   if(reset){
-    regionalDiscoveryMemory={at:Date.now(),items:incoming};
+    regionalDiscoveryMemory={
+      at:Date.now(),
+      items:incoming,
+      aiSeed:newestFirst(incoming).slice(0,120)
+    };
   }else if(incoming.length){
     regionalDiscoveryMemory={
       at:Date.now(),
-      items:mergeUniqueRows(regionalDiscoveryMemory.items,incoming).filter(uploadedWithinWeek)
+      items:mergeUniqueRows(regionalDiscoveryMemory.items,incoming).filter(uploadedWithinWeek),
+      aiSeed:regionalDiscoveryMemory.aiSeed||[]
     };
   }
 
@@ -2641,7 +2668,7 @@ const FEED_PRESETS={
   },
   week:{
     title:"Tuần này",
-    newest:true,
+    weekFreshViewed:true,
     load:(local,reset)=>regionalDiscoveryFeed(local,uploadedWithinWeek,reset)
   }
 };
