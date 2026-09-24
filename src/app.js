@@ -1403,7 +1403,7 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
   let first=reset;
 
   // Primary: YouTube Home feed with Innertube session context gl/location=VN.
-  for(let i=0;i<maxPages;i++){
+  for(let i=0;i<maxPages&&local;i++){
     let rows=[];
     try{
       rows=await local.homePage("region-"+key,first);
@@ -1439,6 +1439,7 @@ const FEED_PRESETS={
   live:{
     title:"LIVE",
     newest:true,
+    allowWithoutLocal:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
       "live-regional",
@@ -1450,6 +1451,7 @@ const FEED_PRESETS={
   today:{
     title:"Hôm nay",
     newest:true,
+    allowWithoutLocal:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
       "today-regional",
@@ -1461,6 +1463,7 @@ const FEED_PRESETS={
   week:{
     title:"Tuần này",
     newest:false,
+    allowWithoutLocal:true,
     weekFreshViewed:true,
     load:(local,reset)=>regionalFilteredPage(
       local,
@@ -1555,7 +1558,13 @@ async function loadFeedPreset(name="today"){
   }
 
   try{
-    const local=await localEngine(16000);
+    let local=null;
+    try{
+      local=await localEngine(16000);
+    }catch(error){
+      if(!preset.allowWithoutLocal)throw error;
+      console.warn("local engine unavailable; using regional fallback",name,error);
+    }
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
@@ -1589,7 +1598,13 @@ async function loadMoreFeed(){
   const seq=state.feedSeq;
 
   try{
-    const local=await localEngine(12000);
+    let local=null;
+    try{
+      local=await localEngine(12000);
+    }catch(error){
+      if(!preset.allowWithoutLocal)throw error;
+      console.warn("local engine unavailable while loading more",name,error);
+    }
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
