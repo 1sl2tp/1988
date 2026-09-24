@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pause-stable-v39';
+const CACHE='1988-main-cc-play-all-v40';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=float-polish-36',
-  './src/app.js?v=pause-stable-39',
+  './src/app.js?v=cc-play-all-40',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=4',
