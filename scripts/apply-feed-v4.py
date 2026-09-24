@@ -481,4 +481,87 @@ function swipePrevious() {
 }'''
 s, _ = nav_pattern.subn(nav_replacement, s, count=1)
 
-prefet
+prefetch_pattern = re.compile(
+    r"function prefetchNext\(\) \{[\s\S]*?\n\}\n\nasync function load\(\)",
+    re.M
+)
+prefetch_replacement = r'''function prefetchNext() {
+  let next: any = null;
+  if (feedItems.value.length && feedIndex.value >= 0) {
+    next = feedItems.value[feedIndex.value + 1] || null;
+  }
+  if (!next) {
+    next = related.value.find((row: any) => row?.id && row.id !== videoId.value);
+  }
+  if (!next?.id) return;
+
+  try {
+    const thumb = new Image();
+    thumb.src = 'https://i.ytimg.com/vi/' + next.id + '/hqdefault.jpg';
+    const url = new URL(API);
+    url.searchParams.set('action', 'video');
+    url.searchParams.set('id', next.id);
+    void fetch(url.toString(), { cache: 'force-cache' }).catch(() => {});
+  } catch {}
+}
+
+async function load()'''
+s, _ = prefetch_pattern.subn(prefetch_replacement, s, count=1)
+
+s = s.replace(
+    r'''onMounted(() => {
+  setShapeHint();
+  seedTrail();
+  void load();''',
+    r'''onMounted(() => {
+  setShapeHint();
+  hydrateFeedContext();
+  seedTrail();
+  void load();''',
+    1
+)
+s = s.replace(
+    r'''watch(videoId, () => {
+  setShapeHint();
+  seedTrail();
+  void load();
+});''',
+    r'''watch(videoId, () => {
+  setShapeHint();
+  hydrateFeedContext();
+  seedTrail();
+  void load();
+});''',
+    1
+)
+if ".feed-chip {" not in s:
+    s = s.replace(
+        ".back-btn {",
+        r'''.feed-chip {
+  position: absolute;
+  z-index: 14;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  max-width: min(58vw, 460px);
+  transform: translateX(-50%);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  padding: 7px 11px;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 999px;
+  background: rgba(25,25,28,.72);
+  color: #ededf0;
+  font-size: 11px;
+  font-weight: 650;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.back-btn {''',
+        1
+    )
+p.write_text(s)
+"""
+
+target.write_text(text.replace(marker, block + "\n" + marker, 1))
