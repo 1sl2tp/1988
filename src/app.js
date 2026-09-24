@@ -2486,6 +2486,63 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   }
 }
 
+function youtubeContentRect(player=state.player){
+  const candidates=[
+    player?.playerInfo?.videoContentRect,
+    player?.videoContentRect,
+    player?.playerInfo?.video_content_rect
+  ];
+
+  for(const rect of candidates){
+    const width=Number(rect?.width)||0;
+    const height=Number(rect?.height)||0;
+    if(width<=0||height<=0)continue;
+
+    const aspectRatio=width/height;
+    if(!Number.isFinite(aspectRatio)||aspectRatio<.34||aspectRatio>2.6)continue;
+
+    return {width,height,aspectRatio};
+  }
+
+  return null;
+}
+
+function syncAspectFromYoutubePlayer(player=state.player){
+  if(!player||!state.currentId)return false;
+
+  const rect=youtubeContentRect(player);
+  if(!rect)return false;
+
+  const meta={
+    ...(state.currentMeta||{}),
+    videoWidth:rect.width,
+    videoHeight:rect.height,
+    aspectRatio:rect.aspectRatio,
+    _aspectVerified:true,
+    _aspectSource:"iframe-content-rect"
+  };
+
+  state.currentMeta=meta;
+  updateCurrentVideoAspect(meta);
+  return true;
+}
+
+function scheduleYoutubeContentAspect(player=state.player){
+  const id=state.currentId;
+  if(!id)return;
+
+  const attempt=()=>{
+    if(state.currentId!==id)return;
+    syncAspectFromYoutubePlayer(player);
+  };
+
+  // videoContentRect is populated by YouTube after playback begins.
+  attempt();
+  setTimeout(attempt,90);
+  setTimeout(attempt,260);
+  setTimeout(attempt,700);
+}
+
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -2531,7 +2588,16 @@ function applyFloatingIframe(force){
 
   if(shouldFloat||floating)updateFloatingAmbient(frame);
   if(shouldFloat===floating){
-    if(floating&&state.floatPreset!=="auto")applyFloatPreset(frame);
+    if(floating&&state.floatPreset!=="auto"){
+      applyFloatPreset(frame);
+    }else if(floating&&state.floatPreset==="auto"){
+      const box=frame.getBoundingClientRect();
+      const boxRatio=box.width>0&&box.height>0?box.width/box.height:0;
+      const target=Number(state.videoAspect)||16/9;
+      if(!boxRatio||Math.abs(boxRatio-target)>.045){
+        applyAutoFloatAspect(frame,{force:true});
+      }
+    }
     return;
   }
 
@@ -2540,8 +2606,18 @@ function applyFloatingIframe(force){
     frame.classList.add("floating-iframe");
     updateFloatingAmbient(frame);
     ensureFloatHandles();
-    if(state.floatPreset==="auto")restoreFloatBox();
-    else applyFloatPreset(frame);
+
+    if(state.floatPreset==="auto"){
+      restoreFloatBox();
+
+      requestAnimationFrame(()=>{
+        // We are now operating on the PiP state, not the inline state.
+        syncAspectFromYoutubePlayer(state.player);
+        applyAutoFloatAspect(frame,{force:true});
+      });
+    }else{
+      applyFloatPreset(frame);
+    }
   }else{
     if(floating){
       const rect=frame.getBoundingClientRect();
@@ -6651,7 +6727,13 @@ function initYouTubePlayer(){
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           state.keepFloating=false;
+
+          // Use YouTube's own calculated video content rectangle. This is the
+          // key distinction between the inline 16:9 player box and the actual
+          // portrait/square video content inside it.
+          scheduleYoutubeContentAspect(event.target);
           applyFloatingIframe();
+
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
           try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
         }else if(event.data===YT.PlayerState.BUFFERING){
