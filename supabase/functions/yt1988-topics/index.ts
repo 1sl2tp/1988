@@ -472,7 +472,7 @@ Deno.serve(async(req:Request)=>{
         .sort()
         .join("\n");
       const fingerprint=await sha256("catalog\n"+canonical);
-      const cacheKey="v6:catalog:"+bucket;
+      const cacheKey="v7:catalog:"+bucket;
 
       const cached=await db.from("yt1988_ai_topic_cache")
         .select("result,model,created_at")
