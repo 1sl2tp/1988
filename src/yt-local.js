@@ -279,6 +279,50 @@ function normalizeChannels(rows,limit=24){
   }
   return out;
 }
+function channelFromVideoNode(input){
+  const node=unwrap(input);
+  if(!node||typeof node!=='object')return null;
+
+  const id=videoChannelId(node);
+  if(!id)return null;
+
+  const name=String(
+    node?.author?.name||
+    text(node?.short_byline_text)||
+    text(node?.long_byline_text)||
+    text(node?.byline_text)||
+    ''
+  ).trim();
+  if(!name)return null;
+
+  const thumbnails=
+    node?.author?.thumbnails||
+    node?.author?.thumbnail||
+    [];
+  const first=Array.isArray(thumbnails)?thumbnails[0]:null;
+
+  return {
+    id,
+    name,
+    thumbnailUrl:first?.url||'',
+    subscribers:'',
+    verified:!!node?.author?.is_verified
+  };
+}
+
+function channelsFromVideoRows(rows,limit=24){
+  const out=[];
+  const seen=new Set();
+  for(const raw of rows||[]){
+    const row=channelFromVideoNode(raw);
+    if(!row||seen.has(row.id))continue;
+    seen.add(row.id);
+    out.push(row);
+    if(out.length>=limit)break;
+  }
+  return out;
+}
+
 
 function makeProxyUrl(raw,headers=new Headers()){
   const src=new URL(raw);
@@ -453,14 +497,35 @@ async function searchChannels(query){
   const q=String(query||'').trim();
   if(!q)return [];
   const yt=await getYT();
-  const result=await yt.search(q,{type:'channel'});
-  return normalizeChannels(
-    result?.results||
-    result?.contents?.contents||
-    result?.contents||
-    [],
-    24
-  );
+
+  const [channelResult,videoResult]=await Promise.all([
+    yt.search(q,{type:'channel'}).catch(()=>null),
+    yt.search(q,{type:'video'}).catch(()=>null)
+  ]);
+
+  const channelRows=
+    channelResult?.results||
+    channelResult?.contents?.contents||
+    channelResult?.contents||
+    [];
+  const videoRows=
+    videoResult?.results||
+    videoResult?.contents?.contents||
+    videoResult?.contents||
+    [];
+
+  const direct=normalizeChannels(channelRows,24);
+  const fromVideos=channelsFromVideoRows(videoRows,24);
+  const out=[];
+  const seen=new Set();
+
+  for(const row of [...direct,...fromVideos]){
+    if(!row||seen.has(row.id))continue;
+    seen.add(row.id);
+    out.push(row);
+    if(out.length>=24)break;
+  }
+  return out;
 }
 
 async function searchPage(key,query,filters={},reset=false){
