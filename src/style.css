@@ -1371,3 +1371,413 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     transition:none!important;
   }
 }
+
+
+/* ============================================================
+   UI POLISH v170
+   Compact, quieter, more professional chrome and mobile cards.
+   ============================================================ */
+:root{
+  --header-row-h:54px;
+  --nav-row-h:46px;
+  --header-stack-h:100px;
+}
+
+.app-header{
+  background:rgba(10,10,11,.985);
+  border-bottom:1px solid rgba(255,255,255,.055);
+  box-shadow:none;
+}
+
+.header-inner{
+  height:var(--header-row-h);
+  padding:7px 12px;
+  gap:12px;
+}
+
+.brand{
+  gap:6px;
+  font-size:18px;
+  letter-spacing:-.45px;
+  line-height:1;
+}
+
+.brand strong{
+  font-weight:760;
+}
+
+.brand-mark{
+  width:27px;
+  height:19px;
+  border-radius:6px;
+  font-size:9px;
+  padding-left:1px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);
+}
+
+.header-search{
+  height:38px;
+  grid-template-columns:auto minmax(0,1fr) auto auto;
+  border:1px solid #2b2b2f;
+  border-radius:10px;
+  background:#151517;
+  overflow:visible;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.02);
+}
+
+.header-search:focus-within{
+  border-color:#44444a;
+  background:#17171a;
+  box-shadow:0 0 0 3px rgba(255,255,255,.035);
+}
+
+.search-icon{
+  padding-left:11px;
+  color:#7f7f88;
+  font-size:16px;
+}
+
+#queryInput{
+  height:36px;
+  padding:0 9px;
+  font-size:14px;
+  font-weight:450;
+}
+
+#queryInput::placeholder{
+  color:#8b8b93;
+  opacity:1;
+}
+
+.header-search>button[type="submit"]{
+  height:36px;
+  margin:0;
+  padding:0 13px;
+  border:0;
+  border-left:1px solid #2b2b30;
+  border-radius:0;
+  background:transparent;
+  color:#e3e3e6;
+  font-size:11px;
+  font-weight:700;
+}
+
+.header-search>button[type="submit"]:hover{
+  background:rgba(255,255,255,.045);
+}
+
+.source-header-btn{
+  width:36px;
+  height:36px;
+  margin:0;
+  border:0;
+  border-left:1px solid #2b2b30;
+  border-radius:0 9px 9px 0;
+  background:transparent;
+  color:#bdbdc4;
+}
+
+.source-header-btn:hover{
+  background:rgba(255,255,255,.05);
+  color:#fff;
+}
+
+.source-header-icon{
+  font-size:15px;
+  opacity:.88;
+}
+
+.header-nav{
+  height:var(--nav-row-h);
+  border-top:0;
+  background:rgba(10,10,11,.985);
+}
+
+.topic-chips{
+  gap:7px;
+  padding:7px 0;
+}
+
+.topic-chip{
+  height:32px;
+  padding:0 12px;
+  border:1px solid #2c2c31;
+  border-radius:9px;
+  background:#1c1c20;
+  color:#d0d0d5;
+  font-size:11.5px;
+  font-weight:560;
+}
+
+.topic-chip:hover{
+  background:#242429;
+  color:#f2f2f4;
+}
+
+.topic-chip.active{
+  background:#f1f1f2;
+  border-color:#f1f1f2;
+  color:#111;
+  font-weight:760;
+}
+
+.topic-chip.live-chip{
+  background:rgba(255,69,58,.035);
+  color:#ff5b52;
+  border-color:rgba(255,69,58,.42);
+}
+
+.topic-chip.live-chip.active{
+  background:rgba(255,69,58,.11);
+  color:#ff6259;
+}
+
+.section-head{
+  align-items:center;
+}
+
+.section-head h2{
+  font-weight:760;
+}
+
+#feedStatus{
+  color:#74747d;
+}
+
+/* Cleaner cards everywhere. */
+.card{
+  border:1px solid rgba(255,255,255,.065);
+  background:#101012;
+  box-shadow:none;
+}
+
+.thumb-wrap{
+  border-radius:10px 10px 0 0;
+}
+
+.card-copy{
+  padding:8px 9px 10px;
+}
+
+.card-title{
+  font-weight:680;
+}
+
+.card-channel,
+.card-stats{
+  color:#8d8d95;
+}
+
+/* Mobile home/discovery: compact two-column gallery instead of oversized rows. */
+@media(max-width:720px){
+  :root{
+    --header-row-h:52px;
+    --nav-row-h:44px;
+    --header-stack-h:96px;
+  }
+
+  body:not(:has(html.watch-browse)){
+    overflow-x:hidden;
+  }
+
+  .header-inner{
+    height:var(--header-row-h);
+    padding:6px 9px;
+    grid-template-columns:auto minmax(0,1fr);
+    gap:9px;
+  }
+
+  .brand{
+    gap:5px;
+    font-size:17px;
+  }
+
+  .brand-mark{
+    width:25px;
+    height:18px;
+    border-radius:6px;
+    font-size:8px;
+  }
+
+  .header-search{
+    height:36px;
+    border-radius:9px;
+  }
+
+  #queryInput{
+    height:34px;
+    padding:0 7px;
+    font-size:13.5px;
+  }
+
+  .search-icon{
+    padding-left:9px;
+    font-size:15px;
+  }
+
+  .source-header-btn{
+    width:34px;
+    height:34px;
+    border-radius:0 8px 8px 0;
+  }
+
+  .source-header-icon{
+    font-size:14px;
+  }
+
+  .header-nav{
+    height:var(--nav-row-h);
+  }
+
+  .topic-chips{
+    gap:6px;
+    padding:6px 9px;
+  }
+
+  .topic-chip{
+    height:31px;
+    padding:0 11px;
+    border-radius:8px;
+    font-size:11px;
+  }
+
+  .topic-divider{
+    height:18px;
+    margin:0 1px;
+  }
+
+  .app-shell{
+    padding:8px 9px 18px;
+  }
+
+  .section-head{
+    margin:0 1px 8px;
+  }
+
+  .section-head h2{
+    font-size:16px;
+  }
+
+  #feedStatus{
+    font-size:10px;
+  }
+
+  /* Home/search state before a video is opened. */
+  html:not(.watch-browse) .feed{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:12px 8px;
+  }
+
+  html:not(.watch-browse) .feed>.card{
+    min-width:0;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    overflow:visible;
+  }
+
+  html:not(.watch-browse) .feed>.card .thumb-wrap{
+    border-radius:8px;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-copy{
+    padding:7px 1px 0;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-title{
+    margin:0;
+    font-size:12.25px;
+    line-height:1.32;
+    font-weight:680;
+    -webkit-line-clamp:2;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-channel{
+    margin-top:4px;
+    font-size:9.75px;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-stats{
+    margin-top:2px;
+    font-size:9.5px;
+  }
+
+  /* Watch state: compact rows under the fixed player. */
+  html.watch-browse .feed-section{
+    padding:6px 9px calc(12px + var(--safe-bottom));
+    scrollbar-width:thin;
+  }
+
+  html.watch-browse .section-head{
+    margin:0 1px 6px;
+  }
+
+  html.watch-browse .section-head h2{
+    font-size:14.5px;
+  }
+
+  html.watch-browse .feed>.card{
+    grid-template-columns:minmax(128px,43%) minmax(0,1fr);
+    min-height:82px;
+    padding:7px 0;
+    border-bottom:1px solid rgba(255,255,255,.065);
+  }
+
+  html.watch-browse .feed>.card .thumb-wrap{
+    border-radius:8px;
+  }
+
+  html.watch-browse .feed>.card .card-copy{
+    padding:1px 0 0 9px;
+  }
+
+  html.watch-browse .feed>.card .card-title{
+    margin-bottom:4px;
+    font-size:12.3px;
+    line-height:1.27;
+    font-weight:680;
+  }
+
+  html.watch-browse .feed>.card .card-channel{
+    margin-bottom:1px;
+    font-size:9.75px;
+    color:#909098;
+  }
+
+  html.watch-browse .feed>.card .card-stats{
+    font-size:9.5px;
+    color:#777780;
+  }
+
+  html.watch-browse .header-inner{
+    padding:
+      calc(6px + var(--safe-top))
+      9px
+      6px;
+  }
+
+  html.watch-browse .header-nav{
+    border-top:1px solid rgba(255,255,255,.055);
+    border-bottom:1px solid rgba(255,255,255,.055);
+  }
+}
+
+/* Very narrow phones: preserve one useful card width rather than squeezing text. */
+@media(max-width:350px){
+  html:not(.watch-browse) .feed{
+    grid-template-columns:1fr;
+  }
+
+  html:not(.watch-browse) .feed>.card{
+    display:grid;
+    grid-template-columns:42% minmax(0,1fr);
+    gap:9px;
+    padding:7px 0;
+    border-bottom:1px solid rgba(255,255,255,.06);
+  }
+
+  html:not(.watch-browse) .feed>.card .card-copy{
+    padding:1px 0 0;
+  }
+}
