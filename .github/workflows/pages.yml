@@ -35,6 +35,9 @@ jobs:
       - name: Apply polish v3
         run: python3 scripts/apply-polish-v3.py
 
+      - name: Apply source feed v4
+        run: python3 scripts/apply-feed-v4.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
