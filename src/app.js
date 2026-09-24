@@ -2623,7 +2623,7 @@ const FEED_PRESETS={
     load:async(local,reset)=>{
       let rows=[];
       try{
-        rows=await pagedSearch(local,"live","",{features:["live"],sort_by:"upload_date"},reset);
+        rows=await pagedSearch(local,"live","trực tiếp",{features:["live"],sort_by:"upload_date"},reset);
       }catch{}
       const liveRows=rows.filter(row=>row?.isLive);
       if(liveRows.length)return liveRows;
