@@ -108,6 +108,8 @@ const state={
   seriesQueue:[],
   seriesIndex:-1,
   seriesKey:"",
+  seriesSourceName:"",
+  seriesDiscoverySeq:0,
   seriesAutoplay:true,
   sourceLibraryDirty:false
 };
@@ -4527,6 +4529,7 @@ function clearSeriesContext(){
   state.seriesQueue=[];
   state.seriesIndex=-1;
   state.seriesKey="";
+  state.seriesSourceName="";
   if(seriesPanel)seriesPanel.hidden=true;
   if(seriesEpisodes)seriesEpisodes.innerHTML="";
 }
@@ -4542,7 +4545,10 @@ function renderSeriesPanel(){
   seriesPanel.hidden=false;
   const current=queue[state.seriesIndex]||queue[0];
   if(seriesTitle)seriesTitle.textContent=clean(current?.seriesLabel)||"Danh sách tập";
-  if(seriesMeta)seriesMeta.textContent=queue.length+" tập · sắp xếp theo số tập";
+  if(seriesMeta){
+    const source=clean(state.seriesSourceName);
+    seriesMeta.textContent=queue.length+" tập · "+(source?source+" · ":"")+"sắp xếp theo số tập";
+  }
   if(seriesAutoplay){
     seriesAutoplay.classList.toggle("active",state.seriesAutoplay);
     seriesAutoplay.setAttribute("aria-pressed",state.seriesAutoplay?"true":"false");
@@ -4587,6 +4593,7 @@ function setSeriesContextFromCard(card){
 
   state.seriesQueue=queue;
   state.seriesKey=key;
+  state.seriesSourceName=clean(card.dataset.channel||"");
   state.seriesIndex=Math.max(0,queue.findIndex(item=>item.id===card.dataset.videoId));
   renderSeriesPanel();
 }
@@ -4605,6 +4612,322 @@ function advanceSeriesEpisode(){
   const next=state.seriesIndex+1;
   if(next<0||next>=state.seriesQueue.length)return false;
   return playSeriesIndex(next);
+}
+
+
+const FILM_SERIES_GENERIC_TOKENS=new Set([
+  "phim","tron","trọn","bo","bộ","full","tap","tập","episode","ep","hoi","hồi",
+  "thuyet","thuyết","minh","long","lồng","tieng","tiếng","vietsub","ban","bản",
+  "dep","đẹp","hd","4k","2024","2025","2026","movie"
+]);
+
+function filmSeriesSeed(meta={}){
+  let value=state.searchScope==="film"&&state.searchQuery
+    ?state.searchQuery
+    :clean(meta?.title||"");
+
+  value=stripEpisodeMarkers(value)
+    .replace(/\b(?:phim|trọn\s*bộ|tron\s*bo|full|bản\s*đẹp|ban\s*dep|thuyết\s*minh|thuyet\s*minh|lồng\s*tiếng|long\s*tieng|vietsub|4k|hd)\b/giu," ")
+    .replace(/\s+/g," ")
+    .trim();
+
+  const tokens=value.split(" ").filter(token=>{
+    const key=normalizeSearchText(token);
+    return key.length>=2&&!FILM_SERIES_GENERIC_TOKENS.has(key)&&!/^\d+$/.test(key);
+  });
+
+  return clean(tokens.join(" "))||clean(stripEpisodeMarkers(meta?.title||""));
+}
+
+function filmSeriesCoreTokens(seed=""){
+  return normalizeSearchText(seed)
+    .split(" ")
+    .filter(token=>token.length>=2&&!FILM_SERIES_GENERIC_TOKENS.has(token))
+    .slice(0,8);
+}
+
+function filmSeriesTitleMatches(row={},seed=""){
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  const tokens=filmSeriesCoreTokens(seed);
+  if(!title||tokens.length<2)return false;
+  const hits=tokens.filter(token=>title.includes(token)).length;
+  return hits>=Math.max(2,Math.ceil(tokens.length*.7));
+}
+
+function filmSeriesVariant(row={},seed=""){
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  const year=title.match(/\b((?:19|20)\d{2})\b/)?.[1]||"";
+  const remake=/\btan\b/.test(title)&&!/\btan\b/.test(normalizeSearchText(seed));
+  return {year,remake};
+}
+
+function filmSeriesGroupKey(row={},seed=""){
+  const source=searchSourceKey(row);
+  const variant=filmSeriesVariant(row,seed);
+  return source+"|"+variant.year+"|"+(variant.remake?"tan":"");
+}
+
+function filmEpisodeSequenceScore(episodes=[]){
+  const nums=[...new Set(episodes.map(Number).filter(n=>n>0))].sort((a,b)=>a-b);
+  let adjacent=0;
+  for(let i=1;i<nums.length;i++){
+    if(nums[i]===nums[i-1]+1)adjacent++;
+  }
+  return {count:nums.length,adjacent,first:nums[0]||0,last:nums.at(-1)||0};
+}
+
+function buildFilmSeriesGroups(rows=[],seed="",scope="film"){
+  const groups=new Map();
+  for(const row of Array.isArray(rows)?rows:[]){
+    if(isBlockedSourceRow(row,scope))continue;
+    if(!filmSeriesTitleMatches(row,seed))continue;
+    const episode=searchEpisodeNumber(row?._displayTitle||row?.title||"");
+    if(!episode)continue;
+
+    const key=filmSeriesGroupKey(row,seed);
+    if(!groups.has(key)){
+      groups.set(key,{
+        key,
+        sourceKey:searchSourceKey(row),
+        sourceId:searchSourceId(row),
+        channel:searchChannelName(row),
+        variant:filmSeriesVariant(row,seed),
+        rows:[]
+      });
+    }
+    groups.get(key).rows.push({...row,_episode:episode});
+  }
+
+  for(const group of groups.values()){
+    const bestByEpisode=new Map();
+    for(const row of group.rows){
+      const ep=Number(row._episode)||0;
+      const prev=bestByEpisode.get(ep);
+      if(!prev||searchResultScore(row,seed,"film")>searchResultScore(prev,seed,"film")){
+        bestByEpisode.set(ep,row);
+      }
+    }
+    group.rows=[...bestByEpisode.values()].sort((a,b)=>a._episode-b._episode);
+    group.sequence=filmEpisodeSequenceScore(group.rows.map(row=>row._episode));
+    const selected=group.sourceId&&selectedSetForScope("film").has(group.sourceId);
+    group.score=
+      group.sequence.count*32+
+      group.sequence.adjacent*18+
+      (selected?55:0)+
+      Math.min(18,group.rows.reduce((sum,row)=>sum+Math.log10((Number(row.views)||0)+10),0)/3);
+  }
+  return [...groups.values()].sort((a,b)=>b.score-a.score);
+}
+
+async function hydrateFilmSeriesGroups(local,groups=[],seed="",scope="film"){
+  const targets=groups
+    .filter(group=>/^UC[A-Za-z0-9_-]+$/.test(group.sourceId||""))
+    .slice(0,5);
+
+  const hydrated=await Promise.all(targets.map(async group=>{
+    try{
+      const channelRows=await local.channelVideosPage(
+        "film-series:"+fastHash(seed)+":"+group.sourceId,
+        group.sourceId,
+        true
+      );
+      const merged=mergeUniqueRows(group.rows,Array.isArray(channelRows)?channelRows:[]);
+      const rebuilt=buildFilmSeriesGroups(merged,seed,scope)
+        .find(item=>item.sourceKey===group.sourceKey&&
+          item.variant.year===group.variant.year&&
+          item.variant.remake===group.variant.remake);
+      return {
+        ...(rebuilt||group),
+        channelRows:Array.isArray(channelRows)?channelRows:[]
+      };
+    }catch{
+      return {...group,channelRows:[]};
+    }
+  }));
+
+  const byKey=new Map(groups.map(group=>[group.key,group]));
+  for(const group of hydrated)byKey.set(group.key,group);
+
+  return [...byKey.values()]
+    .map(group=>{
+      group.sequence=filmEpisodeSequenceScore(group.rows.map(row=>row._episode));
+      const selected=group.sourceId&&selectedSetForScope("film").has(group.sourceId);
+      group.score=
+        group.sequence.count*32+
+        group.sequence.adjacent*18+
+        (selected?55:0);
+      return group;
+    })
+    .sort((a,b)=>b.score-a.score);
+}
+
+function filmVersionLabel(group={},seed=""){
+  const bits=[clean(seed)||"Phim"];
+  if(group.variant?.year)bits.push(group.variant.year);
+  if(group.variant?.remake)bits.push("Tân");
+  if(group.channel)bits.push(group.channel);
+  return bits.join(" · ");
+}
+
+function setDiscoveredFilmSeries(group={},currentMeta={}){
+  const rows=(Array.isArray(group?.rows)?group.rows:[])
+    .filter(row=>Number(row?._episode)>0)
+    .sort((a,b)=>Number(a._episode)-Number(b._episode));
+  if(rows.length<2)return false;
+
+  const queue=rows.map(row=>({
+    id:itemVideoId(row),
+    episode:Number(row._episode)||0,
+    meta:{
+      ...row,
+      title:clean(row?._displayTitle||row?.title||""),
+      uploader:searchChannelName(row),
+      thumbnailUrl:thumb(row,itemVideoId(row))
+    },
+    seriesLabel:filmVersionLabel(group,filmSeriesSeed(currentMeta))
+  })).filter(item=>item.id&&item.episode);
+
+  if(queue.length<2)return false;
+
+  const currentEpisode=searchEpisodeNumber(currentMeta?.title||state.searchQuery||"");
+  state.seriesQueue=queue;
+  state.seriesKey="film-discovered:"+group.key;
+  state.seriesSourceName=clean(group.channel);
+  state.seriesIndex=currentEpisode
+    ?Math.max(0,queue.findIndex(item=>item.episode===currentEpisode))
+    :0;
+  renderSeriesPanel();
+  return true;
+}
+
+function filmSuggestionSection(title,rows=[],options={}){
+  const cards=[];
+  const seen=new Set();
+  for(const row of rows){
+    const id=itemVideoId(row);
+    if(!id||seen.has(id))continue;
+    seen.add(id);
+    const episode=Number(row?._episode)||searchEpisodeNumber(row?._displayTitle||row?.title||"");
+    cards.push(searchCardHtml(row,{
+      match:true,
+      episode,
+      seriesKey:clean(options.seriesKey||"")
+    }));
+    if(cards.length>=Number(options.limit||10))break;
+  }
+  if(!cards.length)return "";
+  return '<section class="search-source-row">'+
+    '<div class="search-source-head"><strong>'+esc(title)+'</strong>'+
+      '<span>'+esc(String(cards.length))+' video</span></div>'+
+    '<div class="search-source-scroll">'+cards.join("")+'</div>'+
+  '</section>';
+}
+
+function renderFilmWatchSuggestions(discovery={},related=[]){
+  const canonical=discovery.canonical;
+  const alternatives=Array.isArray(discovery.alternatives)?discovery.alternatives:[];
+  const html=[];
+
+  if(canonical?.rows?.length){
+    html.push(filmSuggestionSection(
+      "Cùng bộ · "+(canonical.channel||"nguồn có danh sách"),
+      canonical.rows,
+      {seriesKey:state.seriesKey,limit:12}
+    ));
+  }
+
+  const versionCards=[];
+  for(const group of alternatives.slice(0,8)){
+    const representative=group.rows?.[0];
+    if(!representative)continue;
+    versionCards.push({...representative,_displayTitle:filmVersionLabel(group,discovery.seed)});
+  }
+  if(versionCards.length){
+    html.push(filmSuggestionSection("Phiên bản khác",versionCards,{limit:8}));
+  }
+
+  const sameSourceOther=(Array.isArray(canonical?.channelRows)?canonical.channelRows:[])
+    .filter(row=>!filmSeriesTitleMatches(row,discovery.seed))
+    .filter(row=>!isBlockedSourceRow(row,"film"))
+    .sort((a,b)=>searchExtraRank(b,discovery.seed)-searchExtraRank(a,discovery.seed))
+    .slice(0,8);
+
+  if(sameSourceOther.length){
+    html.push(filmSuggestionSection(
+      "Phim khác trong "+(canonical.channel||"kênh này"),
+      sameSourceOther,
+      {limit:8}
+    ));
+  }
+
+  if(!html.length){
+    const fallback=contextualRelatedRows(related,state.currentMeta||{}).slice(0,24);
+    feedTitle.textContent="Gợi ý tiếp theo";
+    renderCards(fallback);
+    return;
+  }
+
+  feedTitle.textContent="Theo bộ phim này";
+  feed.classList.add("search-grouped");
+  if(searchRefinements){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+  }
+  feed.innerHTML=html.join("");
+  feedStatus.textContent=
+    (canonical?.sequence?.count||0)+" tập"+
+    (alternatives.length?" · "+alternatives.length+" phiên bản khác":"");
+}
+
+async function discoverFilmSeriesForPlayback(local,currentId,meta={},related=[]){
+  const seq=++state.seriesDiscoverySeq;
+  const seed=filmSeriesSeed(meta);
+  if(!seed||filmSeriesCoreTokens(seed).length<2)return false;
+
+  try{
+    const searches=await Promise.all([
+      local.search(seed+" tập",{type:"video"}),
+      local.search(seed,{type:"video"})
+    ]);
+    if(seq!==state.seriesDiscoverySeq||state.currentId!==currentId)return false;
+
+    const combined=mergeUniqueRows([],searches.flat());
+    let groups=buildFilmSeriesGroups(combined,seed,"film");
+    if(!groups.length)return false;
+
+    groups=await hydrateFilmSeriesGroups(local,groups,seed,"film");
+    if(seq!==state.seriesDiscoverySeq||state.currentId!==currentId)return false;
+
+    const viable=groups.filter(group=>
+      group.sequence.count>=2&&
+      (group.sequence.adjacent>=1||group.sequence.count>=4)
+    );
+    if(!viable.length)return false;
+
+    const currentSource=searchSourceId(meta);
+    const currentGroup=viable.find(group=>
+      currentSource&&group.sourceId===currentSource
+    )||null;
+
+    // A reupload with no useful list should not own the recommendation.
+    // Prefer the source that exposes the strongest ordered episode sequence.
+    const canonical=[...viable].sort((a,b)=>{
+      const aWeakCurrent=currentGroup&&a.key===currentGroup.key&&a.sequence.count<3?1:0;
+      const bWeakCurrent=currentGroup&&b.key===currentGroup.key&&b.sequence.count<3?1:0;
+      if(aWeakCurrent!==bWeakCurrent)return aWeakCurrent-bWeakCurrent;
+      return b.score-a.score;
+    })[0];
+
+    if(!canonical)return false;
+
+    const alternatives=viable.filter(group=>group.key!==canonical.key);
+    setDiscoveredFilmSeries(canonical,meta);
+    renderFilmWatchSuggestions({seed,canonical,alternatives},related);
+    return true;
+  }catch(error){
+    console.warn("film series discovery failed",seed,error);
+    return false;
+  }
 }
 
 function contextualRelatedRows(rows=[],meta={}){
@@ -4685,6 +5008,8 @@ function rowFromCard(card){
   return {
     title:card.dataset.title||"",
     uploader:card.dataset.channel||"",
+    _sourceId:card.dataset.sourceId||"",
+    channelId:card.dataset.sourceId||"",
     views:Number(card.dataset.views)||0,
     viewText:card.dataset.viewText||"",
     duration:Number(card.dataset.duration)||0,
@@ -4977,11 +5302,29 @@ async function playVideo(id,seedMeta={}){
       updateNow(meta);
       backgroundPlayer.setMetadata(meta);
       const related=Array.isArray(detail?.related)?detail.related:[];
-      if(related.length&&!state.activeFeed){
-        const ranked=contextualRelatedRows(related,meta);
-        feedTitle.textContent=state.seriesQueue.length>1?"Cùng bộ · Gợi ý tiếp theo":"Gợi ý tiếp theo";
-        state.feedHasMore=false;
-        renderCards(ranked.slice(0,24));
+      if(!state.activeFeed){
+        const filmContext=
+          state.searchScope==="film"||
+          state.activeParent==="film"||
+          parentSourceGroup({label:state.searchQuery||meta.title})==="film";
+
+        if(filmContext){
+          feedTitle.textContent="Đang tìm danh sách của bộ phim…";
+          feedStatus.textContent="";
+          feed.innerHTML='<div class="loading">Đang kiểm tra tập phim, nguồn có danh sách và phiên bản khác…</div>';
+          void discoverFilmSeriesForPlayback(local,id,meta,related).then(found=>{
+            if(found||state.currentId!==id)return;
+            const ranked=contextualRelatedRows(related,meta);
+            feedTitle.textContent="Gợi ý tiếp theo";
+            state.feedHasMore=false;
+            renderCards(ranked.slice(0,24));
+          });
+        }else if(related.length){
+          const ranked=contextualRelatedRows(related,meta);
+          feedTitle.textContent="Gợi ý tiếp theo";
+          state.feedHasMore=false;
+          renderCards(ranked.slice(0,24));
+        }
       }
     }).catch(()=>{});
   }).catch(()=>{});
