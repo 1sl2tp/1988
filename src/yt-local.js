@@ -66,10 +66,52 @@ function parseViewCount(value){
 }
 
 function thumbnailOf(node,id){
-  const rows=node?.thumbnails||node?.thumbnail||node?.video_thumbnails||[];
+  const rows=
+    node?.thumbnails||
+    node?.thumbnail||
+    node?.video_thumbnails||
+    node?.content_image?.image||
+    [];
   const first=Array.isArray(rows)?rows[0]:null;
   const url=first?.url||node?.thumbnailUrl||node?.thumbnail_url||'';
   return url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
+}
+
+function lockupMetadataParts(node){
+  const rows=node?.metadata?.metadata?.metadata_rows||[];
+  const out=[];
+  for(const row of rows){
+    for(const part of row?.metadata_parts||[]){
+      const value=text(part?.text).trim();
+      if(value)out.push(value);
+    }
+  }
+  return out;
+}
+
+function lockupBadges(node){
+  const rows=node?.metadata?.metadata?.metadata_rows||[];
+  const out=[];
+  for(const row of rows){
+    for(const badge of row?.badges||[]){
+      const value=text(badge?.text||badge?.accessibility_label||badge?.style).trim();
+      if(value)out.push(value);
+    }
+  }
+  return out;
+}
+
+function inferPublishedText(parts=[]){
+  return parts.find(value=>{
+    const raw=String(value||'').toLowerCase();
+    return /(?:trước|ago|vừa xong|just now|moments ago|phút|giờ|ngày|tuần|tháng|năm|minute|hour|day|week|month|year)/i.test(raw);
+  })||'';
+}
+
+function inferViewText(parts=[]){
+  return parts.find(value=>
+    /(?:lượt xem|views?|đang xem|watching)/i.test(String(value||''))
+  )||'';
 }
 
 function unwrap(node){
@@ -84,24 +126,54 @@ function unwrap(node){
 function normalizeNode(input){
   const node=unwrap(input);
   if(!node||typeof node!=='object')return null;
+
+  const contentType=String(node.content_type||'').toUpperCase();
+  const isLockup=Boolean(node.content_id);
+  if(isLockup&&contentType&&contentType!=='VIDEO')return null;
+
   const id=String(
     node.video_id||
     node.videoId||
+    node.content_id||
     node.id||
     node.endpoint?.payload?.videoId||
     ''
   );
   if(!VIDEO_ID_RE.test(id))return null;
 
+  const lockupParts=isLockup?lockupMetadataParts(node):[];
+  const badges=isLockup?lockupBadges(node):[];
+
   const duration=Number(node.duration?.seconds)||parseDuration(node.length_text||node.duration);
-  const views=parseViewCount(node.view_count||node.views||node.short_view_count);
-  const title=text(node.title||node.video_title)||'Video';
-  const uploader=
+  const inferredView=inferViewText(lockupParts);
+  const inferredPublished=inferPublishedText(lockupParts);
+  const views=parseViewCount(node.view_count||node.views||node.short_view_count||inferredView);
+  const title=text(node.title||node.video_title||node.metadata?.title)||'Video';
+
+  let uploader=
     node.author?.name||
     text(node.short_byline_text)||
     text(node.long_byline_text)||
     text(node.byline_text)||
     '';
+
+  if(!uploader&&lockupParts.length){
+    uploader=lockupParts.find(value=>
+      value!==inferredView &&
+      value!==inferredPublished &&
+      !/(?:lượt xem|views?|đang xem|watching)/i.test(value)
+    )||'';
+  }
+
+  const publishedText=
+    text(node.published||node.published_time||node.published_time_text)||
+    inferredPublished;
+
+  const badgeText=badges.join(' ').toLowerCase();
+  const isLive=
+    !!node.is_live||
+    /\blive\b|trực tiếp|dang live|đang live/.test(badgeText)||
+    /đang xem|watching now/.test(String(inferredView||'').toLowerCase());
 
   return {
     videoId:id,
@@ -111,9 +183,9 @@ function normalizeNode(input){
     thumbnailUrl:thumbnailOf(node,id),
     duration,
     views,
-    viewText:text(node.short_view_count||node.view_count||node.views),
-    publishedText:text(node.published||node.published_time||node.published_time_text),
-    isLive:!!node.is_live
+    viewText:text(node.short_view_count||node.view_count||node.views)||inferredView,
+    publishedText,
+    isLive
   };
 }
 
