@@ -1701,6 +1701,33 @@ function publishedLabel(row={}){
   return clean(row.uploadDate||row.uploadedDate||row.publishedText||"");
 }
 
+function feedPublishedLabel(row={}){
+  const mode=state.activeFeed;
+  if(mode!=="latest"&&mode!=="week"){
+    return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
+  }
+
+  const age=publishedAgeMs(row);
+  if(!Number.isFinite(age)||age===Number.MAX_SAFE_INTEGER){
+    return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
+  }
+
+  if(mode==="latest"){
+    const seconds=Math.max(0,Math.floor(age/1000));
+    if(seconds<10)return "Vừa xong";
+    if(seconds<60)return seconds+" giây trước";
+
+    const minutes=Math.floor(seconds/60);
+    if(minutes<60)return minutes+" phút trước";
+
+    const hours=Math.floor(minutes/60);
+    return hours+" giờ trước";
+  }
+
+  const days=Math.max(1,Math.floor(age/DAY_MS));
+  return days+" ngày trước";
+}
+
 function publishedAgeMs(row={}){
   if(row?.isLive)return -1;
 
@@ -1774,19 +1801,18 @@ function newestFirst(rows=[]){
 function weekFreshViewedFirst(rows=[]){
   return rows
     .map((row,index)=>{
-      const ageHours=Math.max(0,publishedAgeMs(row))/(60*60*1000);
+      const ageMs=Math.max(0,publishedAgeMs(row));
+      const ageHours=ageMs/(60*60*1000);
+      const day=Math.max(1,Math.floor(ageMs/DAY_MS));
       const views=Math.max(0,Number(row?.views)||0);
       const velocity=views/Math.max(1,ageHours);
-      const score=
-        Math.log10(views+10)*8+
-        Math.log10(velocity+1)*12-
-        ageHours/24;
-      return {row,index,score,ageHours,views};
+      return {row,index,day,ageHours,views,velocity};
     })
     .sort((a,b)=>
-      (b.score-a.score)||
-      (a.ageHours-b.ageHours)||
+      (a.day-b.day)||
+      (b.velocity-a.velocity)||
       (b.views-a.views)||
+      (a.ageHours-b.ageHours)||
       (a.index-b.index)
     )
     .map(item=>item.row);
@@ -1905,7 +1931,7 @@ function renderCards(rows=[],options={}){
     const viewText=clean(row.viewText||"");
     const duration=Number(row.duration)||0;
     const isLive=!!row.isLive;
-    const published=publishedLabel(row)||clean(row.publishedText||"");
+    const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
     const statBits=[];
     if(viewText)statBits.push(viewText);
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
@@ -2577,7 +2603,7 @@ function uploadedWithinLatest(row){
 function uploadedWithinWeek(row){
   if(row?.isLive)return false;
   const age=publishedAgeMs(row);
-  return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+  return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
 }
 
 async function normalizeRegionalRow(row={}){
