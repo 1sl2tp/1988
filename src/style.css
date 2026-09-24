@@ -251,7 +251,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   overflow:visible;
   background:transparent;
   box-shadow:none;
-  transition:transform .16s ease,width .16s ease,height .16s ease,left .16s ease,right .16s ease,top .16s ease,bottom .16s ease;
+  transition:transform .16s ease,width .16s ease,height .16s ease,right .16s ease,bottom .16s ease;
 }
 .player-frame.floating-iframe::before,
 .player-frame.floating-iframe::after{display:none!important}
@@ -295,17 +295,16 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   pointer-events:none!important;
 }
 
-/* Only the two visible controls can move/resize the PiP. No invisible hit zones. */
+/* No invisible resize zones remain. The rail is its own surface beside the player. */
 .float-dock-edge,.float-resize-zone{display:none!important}
-.float-mode-rail,.float-edge-tab,.float-resize-grip{display:none}
-.player-frame.floating-iframe.float-interacting{transition:none!important}
+.float-mode-rail,.float-edge-tab{display:none}
 
 .player-frame.floating-iframe .float-mode-rail{
   display:flex;
   position:absolute;
   z-index:30;
   top:50%;
-  width:30px;
+  width:28px;
   padding:2px;
   flex-direction:column;
   transform:translateY(-50%);
@@ -315,18 +314,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   -webkit-backdrop-filter:blur(10px);
   backdrop-filter:blur(10px);
   box-shadow:0 5px 16px rgba(0,0,0,.28);
-  opacity:.28;
+  opacity:.18;
   transition:opacity .15s ease;
 }
-.player-frame.floating-iframe.dock-right .float-mode-rail{left:-36px}
-.player-frame.floating-iframe.dock-left .float-mode-rail{right:-36px}
+.player-frame.floating-iframe.dock-right .float-mode-rail{left:-34px}
+.player-frame.floating-iframe.dock-left .float-mode-rail{right:-34px}
 .player-frame.floating-iframe .float-mode-rail:hover,
 .player-frame.floating-iframe .float-mode-rail:focus-within{opacity:1}
 
 .float-mode-btn{
   position:relative;
-  width:24px;
-  height:42px;
+  width:22px;
+  height:38px;
   margin:0 auto;
   padding:0;
   display:grid;
@@ -337,9 +336,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   color:rgba(255,255,255,.82);
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
-  touch-action:none;
-  user-select:none;
-  -webkit-user-select:none;
+  touch-action:manipulation;
 }
 .float-mode-btn:hover,.float-mode-btn:focus-visible{background:rgba(255,255,255,.10);color:#fff;outline:none}
 .float-mode-btn.active{background:rgba(255,255,255,.16);color:#fff}
@@ -366,54 +363,6 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .dock-left .float-mode-label{right:auto;left:calc(100% + 9px)}
 .float-mode-btn:hover .float-mode-label,
 .float-mode-btn:focus-visible .float-mode-label{opacity:1;transform:translateY(-50%) translateX(0)}
-
-.player-frame.floating-iframe .float-resize-grip{
-  display:grid;
-  position:absolute;
-  z-index:32;
-  width:34px;
-  height:24px;
-  place-items:center;
-  padding:0;
-  border:1px solid rgba(255,255,255,.12);
-  border-radius:9px;
-  background:rgba(17,17,20,.78);
-  color:rgba(255,255,255,.88);
-  font-size:10px;
-  font-weight:700;
-  line-height:1;
-  letter-spacing:-.2px;
-  -webkit-backdrop-filter:blur(10px);
-  backdrop-filter:blur(10px);
-  opacity:.28;
-  cursor:nwse-resize;
-  touch-action:none;
-  user-select:none;
-  -webkit-user-select:none;
-  transition:opacity .15s ease,transform .15s ease;
-}
-.player-frame.floating-iframe .float-resize-grip:hover,
-.player-frame.floating-iframe .float-resize-grip:focus-visible{
-  opacity:1;
-  outline:none;
-}
-.player-frame.floating-iframe.dock-right.anchor-bottom .float-resize-grip{
-  left:-17px;
-  top:-12px;
-}
-.player-frame.floating-iframe.dock-right.anchor-top .float-resize-grip{
-  left:-17px;
-  bottom:-12px;
-}
-.player-frame.floating-iframe.dock-left.anchor-bottom .float-resize-grip{
-  right:-17px;
-  top:-12px;
-}
-.player-frame.floating-iframe.dock-left.anchor-top .float-resize-grip{
-  right:-17px;
-  bottom:-12px;
-}
-.player-frame.floating-iframe.float-tucked .float-resize-grip{display:none}
 
 .player-frame.floating-iframe .float-edge-tab{
   position:absolute;
@@ -447,28 +396,22 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     bottom:8px;
     width:min(256px,58vw);
     border-radius:12px;
-    box-shadow:none;
+    box-shadow:0 10px 28px rgba(0,0,0,.46),0 0 0 1px rgba(0,0,0,.28);
   }
   .player-frame.floating-iframe::before{inset:-14px;filter:blur(17px) saturate(1.15);opacity:.30}
   .player-frame.floating-iframe #yt-player,
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{border-radius:11px}
   .player-frame.floating-iframe .float-mode-rail{
-    width:30px;
+    width:26px;
     padding:2px;
   }
-  .float-mode-btn{width:24px;height:42px}
-  .player-frame.floating-iframe .float-resize-grip{
-    width:32px;
-    height:24px;
-    opacity:.58;
-  }
+  .float-mode-btn{width:20px;height:36px}
   .float-mode-label{display:none}
 }
 
 @media(hover:none){
-  .player-frame.floating-iframe .float-mode-rail{opacity:.62}
-  .player-frame.floating-iframe .float-resize-grip{opacity:.58}
+  .player-frame.floating-iframe .float-mode-rail{opacity:.64}
 }
 
 /* Channel library */
@@ -740,8 +683,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .player-frame.fullscreen-active .float-dock-edge,
 .player-frame.fullscreen-active .float-resize-zone,
 .player-frame.fullscreen-active .float-mode-rail,
-.player-frame.fullscreen-active .float-edge-tab,
-.player-frame.fullscreen-active .float-resize-grip{
+.player-frame.fullscreen-active .float-edge-tab{
   display:none!important;
   pointer-events:none!important;
   touch-action:auto!important;
