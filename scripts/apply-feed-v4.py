@@ -248,4 +248,123 @@ s = s.replace(
 if "const feedKey = computed" not in s:
     s = s.replace(
         "let suggestTimer: number | undefined;",
-        r'''let suggestTimer: number | undefi
+        r'''let suggestTimer: number | undefined;
+
+const feedKey = computed(() => `search:${source.value}:${term.value.trim().toLocaleLowerCase('vi')}`);
+const feedLabel = computed(() => {
+  const sourceLabel = sources.find((item) => item.id === source.value)?.label || 'Tìm kiếm';
+  const q = term.value.trim();
+  return q ? `${sourceLabel} · ${q}` : sourceLabel;
+});
+
+function persistSearchFeed() {
+  if (!videos.value.length) return;
+  try {
+    sessionStorage.setItem('1988:feed:' + feedKey.value, JSON.stringify({
+      label: feedLabel.value,
+      source: source.value,
+      query: term.value.trim(),
+      savedAt: Date.now(),
+      items: videos.value.map((video: any) => ({
+        id: video.id,
+        shape: video.shape || (source.value === 'shorts' ? 'portrait' : 'landscape')
+      }))
+    }));
+  } catch {}
+}''',
+        1
+    )
+s = s.replace(
+    r'''      publishedAt: parsePublishedAt(published)
+    };''',
+    r'''      publishedAt: parsePublishedAt(published),
+      shape: source.value === 'shorts' ? 'portrait' : 'landscape'
+    };''',
+    1
+)
+if "watch(videos, () => persistSearchFeed());" not in s:
+    s = s.replace(
+        "watch(() => route.query.q, (q) => {",
+        "watch(videos, () => persistSearchFeed());\n\nwatch(() => route.query.q, (q) => {",
+        1
+    )
+p.write_text(s)
+
+p = Path("src/pages/ChannelPage.vue")
+s = p.read_text()
+s = s.replace(
+    "import { onBeforeUnmount, onMounted, ref, watch } from 'vue';",
+    "import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
+    1
+)
+s = s.replace(
+    'v-for="video in videos" :key="video.id" class="card" :to="\'/watch/\' + video.id"',
+    'v-for="(video, index) in videos" :key="video.id" class="card" :to="{ path: \'/watch/\' + video.id, query: { feed: feedKey, index: String(index), shape: video.shape } }"',
+    1
+)
+if "const feedKey = computed" not in s:
+    s = s.replace(
+        "let timer: number | undefined;",
+        r'''let timer: number | undefined;
+const feedKey = computed(() => `channel:${String(route.params.id || '')}`);
+
+function persistChannelFeed() {
+  if (!videos.value.length) return;
+  try {
+    sessionStorage.setItem('1988:feed:' + feedKey.value, JSON.stringify({
+      label: channel.value?.name ? `Kênh · ${channel.value.name}` : 'Kênh',
+      savedAt: Date.now(),
+      items: videos.value.map((video: any) => ({
+        id: video.id,
+        shape: video.shape || 'landscape'
+      }))
+    }));
+  } catch {}
+}''',
+        1
+    )
+s = s.replace(
+    r'''        publishedAt: parsePublishedAt(published)
+      };''',
+    r'''        publishedAt: parsePublishedAt(published),
+        shape: /\/shorts\//i.test(String(row?.url || '')) || /#shorts?\b/i.test(String(row?.title || ''))
+          ? 'portrait'
+          : 'landscape'
+      };''',
+    1
+)
+s = s.replace(
+    "    .slice(0, 40);",
+    "    .slice(0, 80);\n\n  persistChannelFeed();",
+    1
+)
+p.write_text(s)
+
+p = Path("src/pages/WatchPage.vue")
+s = p.read_text()
+s = s.replace(
+    '<section :key="videoId" class="reel-stage" :style="dragStyle">',
+    '<section class="reel-stage" :style="dragStyle">',
+    1
+)
+s = s.replace(
+    '<section :key="videoId" class="reel-stage">',
+    '<section class="reel-stage">',
+    1
+)
+if 'class="feed-chip"' not in s:
+    s = s.replace(
+        '''        <button class="back-btn" type="button" aria-label="Quay lại" @click="goBack">
+          <ArrowLeft/>
+        </button>''',
+        '''        <button class="back-btn" type="button" aria-label="Quay lại" @click="goBack">
+          <ArrowLeft/>
+        </button>
+
+        <div v-if="feedLabel" class="feed-chip">{{ feedLabel }}</div>''',
+        1
+    )
+if "const feedItems = ref<TrailItem[]>([]);" not in s:
+    s = s.replace(
+        "const trail = ref<TrailItem[]>([]);",
+        r'''const tr
