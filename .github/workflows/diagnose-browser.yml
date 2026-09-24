@@ -1,0 +1,87 @@
+name: Diagnose browser feed
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/diagnose-browser.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture browser console
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          echo "CHROME=$CHROME"
+          "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage             --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
+          CHROME_PID=$!
+          sleep 2
+          node <<'NODE'
+          const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+          async function main(){
+            let targets=[];
+            for(let i=0;i<40;i++){
+              try{
+                targets=await (await fetch('http://127.0.0.1:9222/json')).json();
+                if(targets.length)break;
+              }catch{}
+              await sleep(250);
+            }
+            const target=targets.find(x=>x.type==='page');
+            if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
+            const ws=new WebSocket(target.webSocketDebuggerUrl);
+            let id=0;
+            const pending=new Map();
+            const send=(method,params={})=>new Promise((resolve,reject)=>{
+              const msgId=++id;
+              pending.set(msgId,{resolve,reject});
+              ws.send(JSON.stringify({id:msgId,method,params}));
+            });
+            ws.onmessage=event=>{
+              const msg=JSON.parse(event.data);
+              if(msg.id&&pending.has(msg.id)){
+                const p=pending.get(msg.id);
+                pending.delete(msg.id);
+                msg.error?p.reject(new Error(JSON.stringify(msg.error))):p.resolve(msg.result);
+                return;
+              }
+              if(msg.method==='Runtime.consoleAPICalled'){
+                console.log('CONSOLE',msg.params.type,...(msg.params.args||[]).map(a=>a.value??a.description??''));
+              }else if(msg.method==='Runtime.exceptionThrown'){
+                const d=msg.params.exceptionDetails||{};
+                console.log('EXCEPTION',d.text,d.exception?.description||'',d.url||'',d.lineNumber??'',d.columnNumber??'');
+              }else if(msg.method==='Network.loadingFailed'){
+                console.log('NETFAIL',msg.params.errorText,msg.params.blockedReason||'',msg.params.type||'',msg.params.requestId||'');
+              }else if(msg.method==='Network.responseReceived'){
+                const u=msg.params.response?.url||'';
+                if(u.includes('yt1988'))console.log('APIRESP',msg.params.response.status,u);
+              }
+            };
+            await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
+            await send('Runtime.enable');
+            await send('Network.enable');
+            await send('Page.enable');
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
+            await sleep(12000);
+            const res=await send('Runtime.evaluate',{
+              expression:`JSON.stringify({
+                feed:document.querySelector('#feed')?.innerText,
+                cards:document.querySelectorAll('#feed .card').length,
+                status:document.querySelector('#feedStatus')?.innerText,
+                title:document.querySelector('#feedTitle')?.innerText,
+                scripts:[...document.scripts].map(s=>s.src).filter(Boolean)
+              })`,
+              returnByValue:true
+            });
+            console.log('STATE',res?.result?.value);
+            ws.close();
+          }
+          main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
+          NODE
+          kill "$CHROME_PID" 2>/dev/null || true
