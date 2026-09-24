@@ -37,7 +37,7 @@ const state={
   audioMaster:false,
   engine:"iframe",
   nativeSource:"",
-  activeFeed:"home",
+  activeFeed:"today",
   videoPlaying:false,
   floatRaf:0,
   floatGesture:null,
@@ -1241,7 +1241,7 @@ document.addEventListener("click",e=>{
 feed.addEventListener("click",e=>{
   const retry=e.target.closest(".retry-feed");
   if(retry){
-    void loadFeedPreset(state.activeFeed||"home");
+    void loadFeedPreset(state.activeFeed||"today");
     return;
   }
 
@@ -1333,7 +1333,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v3:";
+const FEED_CACHE_PREFIX="1988-discovery-v4:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1351,39 +1351,68 @@ async function pagedSearch(local,key,query,filters={},reset=false){
   }
 }
 
-const FEED_PRESETS={
-  home:{
-    title:"Gợi ý",
-    newest:false,
-    load:(local,reset)=>local.homePage("home",reset)
-  },
-  live:{
-    title:"Đang live",
-    newest:true,
-    load:async(local,reset)=>{
-      let rows=await pagedSearch(local,"live","Việt Nam",{features:["live"],sort_by:"upload_date"},reset);
-      let liveRows=rows.filter(row=>row?.isLive);
-      if(liveRows.length)return liveRows;
-      rows=await pagedSearch(local,"live-fallback","trực tiếp Việt Nam",{sort_by:"upload_date"},reset);
-      liveRows=rows.filter(row=>row?.isLive);
-      return liveRows.length?liveRows:rows;
+
+const DAY_MS=24*60*60*1000;
+
+function uploadedWithin(row,maxAgeMs){
+  if(row?.isLive)return false;
+  const age=publishedAgeMs(row);
+  return Number.isFinite(age)&&age>=0&&age<=maxAgeMs;
+}
+
+async function regionalFilteredPage(local,key,predicate,reset=false){
+  const collected=[];
+  let first=reset;
+
+  // The Innertube session itself is configured with location:"VN".
+  // Scan a few regional Home continuations so these feeds do not depend
+  // on a hard-coded search query such as "Việt Nam".
+  for(let i=0;i<3;i++){
+    const rows=await local.homePage("region-"+key,first);
+    first=false;
+    if(!Array.isArray(rows)||!rows.length)break;
+
+    for(const row of rows){
+      if(predicate(row))collected.push(row);
     }
+
+    if(collected.length>=18)break;
+  }
+
+  return mergeUniqueRows([],collected);
+}
+
+const FEED_PRESETS={
+  live:{
+    title:"LIVE",
+    newest:true,
+    load:(local,reset)=>regionalFilteredPage(
+      local,
+      "live",
+      row=>row?.isLive===true,
+      reset
+    )
   },
   today:{
     title:"Hôm nay",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset)
+    load:(local,reset)=>regionalFilteredPage(
+      local,
+      "today",
+      row=>uploadedWithin(row,DAY_MS),
+      reset
+    )
   },
   week:{
     title:"Tuần này",
-    newest:true,
-    load:(local,reset)=>pagedSearch(local,"week","Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
-  },
-  popular:{
-    title:"Xem nhiều",
     newest:false,
     mostViewed:true,
-    load:(local,reset)=>pagedSearch(local,"popular","Việt Nam",{sort_by:"view_count"},reset)
+    load:(local,reset)=>regionalFilteredPage(
+      local,
+      "week",
+      row=>uploadedWithin(row,7*DAY_MS),
+      reset
+    )
   },
   news:{
     title:"Thời sự",
@@ -1449,8 +1478,8 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
-async function loadFeedPreset(name="home"){
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.home;
+async function loadFeedPreset(name="today"){
+  const preset=FEED_PRESETS[name]||FEED_PRESETS.today;
   const seq=++state.feedSeq;
   state.feedLoading=true;
   state.feedHasMore=true;
@@ -1550,7 +1579,7 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 function loadInitialFeed(){
-  return loadFeedPreset("home");
+  return loadFeedPreset("today");
 }
 
 topicChips.addEventListener("click",e=>{
@@ -1558,7 +1587,7 @@ topicChips.addEventListener("click",e=>{
   if(!button)return;
   queryInput.value="";
   clearSuggestions();
-  void loadFeedPreset(button.dataset.feed||"home");
+  void loadFeedPreset(button.dataset.feed||"today");
 });
 
 setupMediaSession();
