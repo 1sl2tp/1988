@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-source-popup-v62';
+const CACHE='1988-main-fast-source-pool-v63';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=source-popup-62',
-  './src/app.js?v=source-popup-62',
+  './src/app.js?v=fast-source-pool-63',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
