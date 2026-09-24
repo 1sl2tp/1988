@@ -102,6 +102,7 @@ const SOURCE_SELECTION_KEY="1988-source-selection-v1";
 const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
+const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 
 const SOURCE_MANAGER_GROUPS=[
   {key:"all",label:"Tất cả"},
@@ -130,6 +131,15 @@ function readStoredArray(key){
   }
 }
 
+function readStoredObject(key){
+  try{
+    const value=JSON.parse(localStorage.getItem(key)||"{}");
+    return value&&typeof value==="object"&&!Array.isArray(value)?value:{};
+  }catch{
+    return {};
+  }
+}
+
 let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
   .filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   .map(row=>({
@@ -149,6 +159,8 @@ let blockedSourceIds=new Set(
     .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
 );
 
+let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
+
 function channelLibrary(){
   const out=[];
   const seen=new Set();
@@ -159,7 +171,10 @@ function channelLibrary(){
       id:row.id,
       name:clean(row.name),
       thumbnailUrl:clean(row.thumbnailUrl||""),
-      subscribers:clean(row.subscribers||"")
+      subscribers:clean(row.subscribers||""),
+      groups:Array.isArray(sourceGroupOverrides[row.id])
+        ?sourceGroupOverrides[row.id].map(String).filter(Boolean)
+        :[]
     });
   }
   return out;
@@ -177,8 +192,21 @@ function persistSourceLibrary(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
+    localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
   }catch{}
+}
+
+function assignSourceGroup(id,group){
+  id=String(id||"").trim();
+  group=String(group||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!group||group==="all"||group==="other")return false;
+  const current=Array.isArray(sourceGroupOverrides[id])
+    ?sourceGroupOverrides[id].map(String).filter(Boolean)
+    :[];
+  if(current.includes(group))return false;
+  sourceGroupOverrides[id]=[...current,group].slice(0,4);
+  return true;
 }
 
 function readSourceSelection(){
@@ -222,6 +250,9 @@ function sourceStatus(id){
 
 function setSourceStatus(id,status){
   if(!libraryHas(id))return;
+
+  const learnedGroup=sourceManageMode&&sourceManageGroup!=="all"?sourceManageGroup:"";
+  if(learnedGroup)assignSourceGroup(id,learnedGroup);
 
   if(status==="selected"){
     blockedSourceIds.delete(id);
@@ -280,7 +311,11 @@ function sourceMetaFor(row){
 function sourceGroupsFor(row={}){
   const meta=sourceMetaFor(row);
   const text=normalizeSearchText(meta.name||row.name||"");
-  const groups=new Set();
+  const groups=new Set([
+    ...(Array.isArray(row?.groups)?row.groups:[]),
+    ...(Array.isArray(meta?.groups)?meta.groups:[]),
+    ...(Array.isArray(sourceGroupOverrides[row?.id])?sourceGroupOverrides[row.id]:[])
+  ].map(String).filter(Boolean));
 
   const has=(pattern)=>pattern.test(text);
 
@@ -509,6 +544,7 @@ function renderSourceLibrary(){
   const q=normalizeSearchText(sourceSearch?.value||"");
 
   const groupFilter=row=>
+    !!q||
     !sourceManageMode||
     sourceManageGroup==="all"||
     sourceGroupsFor(row).includes(sourceManageGroup);
@@ -520,7 +556,7 @@ function renderSourceLibrary(){
 
   const allLibraryIds=new Set(rows.map(row=>row.id));
   const remoteRows=q
-    ?sourceRemoteResults.filter(row=>!allLibraryIds.has(row.id)&&groupFilter(row))
+    ?sourceRemoteResults.filter(row=>!allLibraryIds.has(row.id))
     :[];
 
   const parts=[];
@@ -619,10 +655,50 @@ function scheduleSourceSearch(){
   sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),320);
 }
 
+function rememberDiscoveredSources(rows=[],groupHint=""){
+  const hint=String(groupHint||"").trim();
+  let changed=false;
+
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+
+    const name=clean(
+      row?._sourceName||
+      row?.uploaderName||
+      row?.uploader||
+      row?.channelName||
+      row?._displaySource||
+      ""
+    );
+    if(!name)continue;
+
+    if(!libraryHas(id)){
+      customSources.push({
+        id,
+        name,
+        thumbnailUrl:"",
+        subscribers:""
+      });
+      changed=true;
+    }
+
+    if(hint&&assignSourceGroup(id,hint))changed=true;
+  }
+
+  if(changed){
+    persistSourceLibrary();
+    updateSourceSummary();
+  }
+}
+
 function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
   const meta=sourceMetaFor(row);
+  if(sourceManageMode&&sourceManageGroup!=="all"){
+    assignSourceGroup(row.id,sourceManageGroup);
+  }
   if(!BASE_CHANNEL_ID_SET.has(row.id)){
     const existing=customSources.find(item=>item.id===row.id);
     if(existing){
@@ -2208,6 +2284,8 @@ async function loadAiParentDiscovery(parent){
         .filter(row=>!isBlockedSourceRow(row))
     );
 
+    rememberDiscoveredSources(discoveredRows,parentSourceGroup(parent));
+
     let rows=dedupeHashedRows([
       ...primaryRows,
       ...discoveredRows
@@ -3214,6 +3292,7 @@ async function doSearch(value){
     const rows=(Array.isArray(r?.data?.items)?r.data.items:[])
       .filter(row=>!isBlockedSourceRow(row));
     if(!rows.length)throw new Error("empty_search");
+    rememberDiscoveredSources(rows,"");
     renderCards(sourceAwareRows(rows,q));
     return;
   }catch(error){
@@ -3224,6 +3303,7 @@ async function doSearch(value){
     const local=await localEngine(9000);
     const rows=(await local.search(q,{type:"video"}))
       .filter(row=>!isBlockedSourceRow(row));
+    rememberDiscoveredSources(rows,"");
     renderCards(sourceAwareRows(rows,q));
   }catch{
     feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
