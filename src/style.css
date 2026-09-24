@@ -28,9 +28,9 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .suggestions[hidden]{display:none}.suggestions button{width:100%;min-height:44px;border:0;border-bottom:1px solid #27272b;background:transparent;color:#fff;padding:0 14px;text-align:left}.suggestions button:last-child{border:0}
 
 .app-shell{width:min(1260px,100%);margin:auto;padding:10px 14px 30px}
-.topic-chips{position:sticky;top:58px;z-index:35;display:flex;gap:8px;overflow-x:auto;padding:8px 0 10px;background:linear-gradient(var(--bg) 78%,transparent);scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.topic-chips{position:sticky;top:58px;z-index:35;display:flex;gap:8px;overflow-x:auto;padding:8px 0 10px;background:linear-gradient(var(--bg) 78%,transparent);scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;scroll-snap-type:x proximity;overscroll-behavior-x:contain}
 .topic-chips::-webkit-scrollbar{display:none}
-.topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap}
+.topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap;scroll-snap-align:center}
 .topic-chip.active{background:#f2f2f3;color:#111;border-color:#f2f2f3;font-weight:750}
 
 .player-section{scroll-margin-top:110px;margin:2px 0 22px}.player-section[hidden]{display:none!important}
