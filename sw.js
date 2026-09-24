@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-search-flat-v123';
+const CACHE='1988-main-music-semantic-v124';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=search-series-120',
-  './src/app.js?v=search-flat-123',
+  './src/app.js?v=music-semantic-124',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

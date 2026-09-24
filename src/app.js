@@ -4415,6 +4415,221 @@ function searchSeriesKey(row={},query="",scope="",groupKey=""){
   return "film:"+groupKey+":"+normalizeSearchText(stripEpisodeMarkers(canonicalSearchSeed(query,scope)));
 }
 
+
+const MUSIC_VARIANT_WORDS=/\b(cover|karaoke|remix|mashup|instrumental|khong loi|không lời|guitar|piano|acoustic|beat|lofi|nightcore|slowed|reverb|live)\b/i;
+const MUSIC_NON_SONG_WORDS=/\b(phim|review|tin tuc|thoi su|trailer|podcast|phong van|talkshow|game|tap \d+)\b/i;
+
+function musicQueryCore(query=""){
+  return normalizeSearchText(query)
+    .replace(/\b(bai hat|ca khuc|nhac|music|official|mv|video)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function musicTitleCore(row={}){
+  return normalizeSearchText(row?._displayTitle||row?.title||"")
+    .replace(/\b(official|music|video|mv|audio|lyrics?|lyric|hd|4k)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function musicMatchesSong(row={},query=""){
+  const core=musicQueryCore(query);
+  if(!core)return false;
+  const title=musicTitleCore(row);
+  if(!title)return false;
+  const tokens=core.split(" ").filter(token=>token.length>=2);
+  if(!tokens.length)return false;
+  const hits=tokens.filter(token=>title.includes(token)).length;
+  return hits>=Math.max(2,Math.ceil(tokens.length*.7));
+}
+
+function musicVariantType(row={}){
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  if(/\b(khong loi|instrumental|guitar|piano|acoustic|beat)\b/.test(title))return "instrumental";
+  if(/\bcover\b/.test(title))return "cover";
+  if(/\b(karaoke|remix|mashup|lofi|nightcore|slowed|reverb)\b/.test(title))return "variant";
+  return "singer";
+}
+
+function musicOriginalCandidate(rows=[],query=""){
+  const ranked=(Array.isArray(rows)?rows:[])
+    .filter(row=>{
+      if(!musicMatchesSong(row,query))return false;
+      const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+      if(MUSIC_NON_SONG_WORDS.test(title))return false;
+      const duration=Number(row?.duration)||0;
+      return !duration||(duration>=120&&duration<=900);
+    })
+    .map((row,index)=>{
+      const type=musicVariantType(row);
+      const source=searchChannelName(row);
+      let score=searchResultScore(row,query,"music");
+      if(type==="singer")score+=80;
+      if(/\bofficial\b/i.test(source+" "+clean(row?._displayTitle||row?.title||"")))score+=35;
+      if(searchSourceId(row))score+=15;
+      return {row,index,score};
+    })
+    .sort((a,b)=>b.score-a.score||a.index-b.index);
+
+  return ranked[0]?.row||null;
+}
+
+function isLikelyMusicSearch(rows=[],query="",scope=""){
+  if(scope==="music")return true;
+  const candidate=musicOriginalCandidate(rows,query);
+  if(!candidate)return false;
+  const title=normalizeSearchText(candidate?._displayTitle||candidate?.title||"");
+  if(MUSIC_NON_SONG_WORDS.test(title))return false;
+  const duration=Number(candidate?.duration)||0;
+  return !duration||(duration>=120&&duration<=900);
+}
+
+function dedupeMusicRows(rows=[]){
+  const seen=new Set();
+  const out=[];
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=itemVideoId(row);
+    if(!id||seen.has(id))continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
+function musicSectionHtml(title,rows=[],limit=10){
+  const cards=dedupeMusicRows(rows).slice(0,limit).map(row=>searchCardHtml(row,{match:true}));
+  if(!cards.length)return "";
+  return '<section class="search-source-row search-semantic-row">'+
+    '<div class="search-source-head"><strong>'+esc(title)+'</strong>'+
+      '<span>'+esc(String(cards.length))+' video</span></div>'+
+    '<div class="search-source-scroll">'+cards.join("")+'</div>'+
+  '</section>';
+}
+
+function renderMusicSemanticSearch(model={}){
+  const html=[];
+  const artist=clean(model.artist||"Ca sĩ");
+
+  if(model.artistSongs?.length){
+    html.push(musicSectionHtml(artist+" · Ca khúc khác",model.artistSongs,10));
+  }
+  if(model.otherSingers?.length){
+    html.push(musicSectionHtml("Ca sĩ khác · "+clean(model.song||state.searchQuery),model.otherSingers,10));
+  }
+  if(model.covers?.length){
+    html.push(musicSectionHtml("Cover",model.covers,10));
+  }
+  if(model.instrumentals?.length){
+    html.push(musicSectionHtml("Không lời · Guitar · Piano",model.instrumentals,10));
+  }
+  if(model.variants?.length){
+    html.push(musicSectionHtml("Karaoke · Remix · Phiên bản khác",model.variants,10));
+  }
+
+  if(!html.length)return false;
+  feed.classList.add("search-grouped");
+  feed.innerHTML=html.join("");
+  feedStatus.textContent="Theo bài hát · "+artist;
+  return true;
+}
+
+async function enrichMusicSemanticSearch(rows=[],query="",scope="",seq=0){
+  const original=musicOriginalCandidate(rows,query);
+  if(!original)return false;
+
+  const artist=searchChannelName(original)||clean(original?.uploader||"");
+  const sourceId=searchSourceId(original);
+  const song=clean(query);
+  const originalId=itemVideoId(original);
+  const local=await localEngine(12000);
+
+  const jobs=[
+    local.search(song,{type:"video"}).catch(()=>[]),
+    local.search(song+" cover",{type:"video"}).catch(()=>[]),
+    local.search(song+" không lời guitar piano",{type:"video"}).catch(()=>[]),
+    local.search(song+" karaoke remix",{type:"video"}).catch(()=>[])
+  ];
+
+  if(sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)){
+    jobs.push(
+      local.channelVideosPage("music-artist:"+sourceId,sourceId,true).catch(()=>[])
+    );
+  }else if(artist){
+    jobs.push(local.search(artist,{type:"video"}).catch(()=>[]));
+  }else{
+    jobs.push(Promise.resolve([]));
+  }
+
+  const [sameSong,coverSearch,instrumentSearch,variantSearch,artistPool]=await Promise.all(jobs);
+  if(seq!==state.searchSeq||state.searchQuery!==query)return false;
+
+  const blocked=row=>isBlockedSourceRow(row,scope||GENERAL_SOURCE_SCOPE);
+  const originalSourceKey=searchSourceKey(original);
+
+  const artistSongs=dedupeMusicRows(
+    (Array.isArray(artistPool)?artistPool:[])
+      .filter(row=>!blocked(row))
+      .filter(row=>itemVideoId(row)!==originalId)
+      .filter(row=>searchSourceKey(row)===originalSourceKey||normalizeSearchText(searchChannelName(row))===normalizeSearchText(artist))
+      .filter(row=>musicVariantType(row)==="singer")
+      .filter(row=>!musicMatchesSong(row,query))
+      .sort((a,b)=>publishedAgeMs(a)-publishedAgeMs(b))
+  ).slice(0,12);
+
+  const otherSingers=dedupeMusicRows([
+    ...(Array.isArray(sameSong)?sameSong:[]),
+    ...rows
+  ])
+    .filter(row=>!blocked(row))
+    .filter(row=>itemVideoId(row)!==originalId)
+    .filter(row=>musicMatchesSong(row,query))
+    .filter(row=>searchSourceKey(row)!==originalSourceKey)
+    .filter(row=>musicVariantType(row)==="singer")
+    .sort((a,b)=>searchResultScore(b,query,"music")-searchResultScore(a,query,"music"))
+    .slice(0,12);
+
+  const covers=dedupeMusicRows([
+    ...(Array.isArray(coverSearch)?coverSearch:[]),
+    ...rows
+  ])
+    .filter(row=>!blocked(row))
+    .filter(row=>musicMatchesSong(row,query))
+    .filter(row=>musicVariantType(row)==="cover")
+    .sort((a,b)=>searchResultScore(b,query,"music")-searchResultScore(a,query,"music"))
+    .slice(0,12);
+
+  const instrumentals=dedupeMusicRows([
+    ...(Array.isArray(instrumentSearch)?instrumentSearch:[]),
+    ...rows
+  ])
+    .filter(row=>!blocked(row))
+    .filter(row=>musicMatchesSong(row,query))
+    .filter(row=>musicVariantType(row)==="instrumental")
+    .sort((a,b)=>searchResultScore(b,query,"music")-searchResultScore(a,query,"music"))
+    .slice(0,12);
+
+  const variants=dedupeMusicRows([
+    ...(Array.isArray(variantSearch)?variantSearch:[]),
+    ...rows
+  ])
+    .filter(row=>!blocked(row))
+    .filter(row=>musicMatchesSong(row,query))
+    .filter(row=>musicVariantType(row)==="variant")
+    .sort((a,b)=>searchResultScore(b,query,"music")-searchResultScore(a,query,"music"))
+    .slice(0,12);
+
+  return renderMusicSemanticSearch({
+    artist,
+    song,
+    artistSongs,
+    otherSingers,
+    covers,
+    instrumentals,
+    variants
+  });
+}
+
 function renderDirectSearchResults(rows=[],query="",scope=""){
   const ranked=(Array.isArray(rows)?rows:[])
     .filter(row=>!isBlockedSourceRow(row,scope))
@@ -5537,6 +5752,12 @@ async function doSearch(value){
 
     const ranked=renderDirectSearchResults(scoped,q,searchScope);
     rememberDiscoveredSources(ranked,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
+
+    if(isLikelyMusicSearch(ranked,q,searchScope)){
+      void enrichMusicSemanticSearch(ranked,q,searchScope,seq).catch(error=>
+        console.warn("music semantic search failed",error)
+      );
+    }
     return true;
   };
 
