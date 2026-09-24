@@ -567,6 +567,20 @@ function validateVideoContext(value:any){
     isSeries:work?.isSeries===true||value?.isSeries===true
   };
 
+  const knowledgeRaw=value?.knowledge&&typeof value.knowledge==="object"?value.knowledge:{};
+  const knowledge={
+    summary:clean(knowledgeRaw?.summary,420),
+    director:clean(knowledgeRaw?.director,100),
+    cast:[...new Set((Array.isArray(knowledgeRaw?.cast)?knowledgeRaw.cast:[]).map((x:any)=>clean(x,100)).filter(Boolean))].slice(0,8),
+    year:Number.isFinite(Number(knowledgeRaw?.year))?Math.max(0,Math.round(Number(knowledgeRaw.year))):0,
+    country:clean(knowledgeRaw?.country,80),
+    genre:clean(knowledgeRaw?.genre,100),
+    reviewQueries:[...new Set((Array.isArray(knowledgeRaw?.reviewQueries)?knowledgeRaw.reviewQueries:[]).map((x:any)=>clean(x,110)).filter(Boolean))].slice(0,4),
+    castQueries:[...new Set((Array.isArray(knowledgeRaw?.castQueries)?knowledgeRaw.castQueries:[]).map((x:any)=>clean(x,110)).filter(Boolean))].slice(0,4),
+    infoQueries:[...new Set((Array.isArray(knowledgeRaw?.infoQueries)?knowledgeRaw.infoQueries:[]).map((x:any)=>clean(x,110)).filter(Boolean))].slice(0,4),
+    versionQueries:[...new Set((Array.isArray(knowledgeRaw?.versionQueries)?knowledgeRaw.versionQueries:[]).map((x:any)=>clean(x,110)).filter(Boolean))].slice(0,4)
+  };
+
   const sections=[];
   const allowedSourceModes=new Set(["any","same_channel","creator","official","series_source"]);
   for(const row of Array.isArray(value?.sections)?value.sections:[]){
@@ -599,6 +613,7 @@ function validateVideoContext(value:any){
     primaryEntity,
     secondaryEntities,
     work:normalizedWork,
+    knowledge,
     sections,
     queries:outQueries
   };
@@ -631,6 +646,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "- Nếu video đang xem là reup, kế hoạch gợi ý phải ưu tiên tìm bản gốc/nguồn chính trước.",
     "",
     "D. TẠO KẾ HOẠCH GỢI Ý THEO ĐÚNG LOẠI NỘI DUNG",
+    "AI chỉ trả NGỮ NGHĨA + từ khóa/truy vấn. Client mới là nơi gọi tìm kiếm YouTube và kiểm tra kết quả.",
     "Trả sections theo ĐÚNG THỨ TỰ nên hiển thị. Mỗi section có key,label,relation,queries,sourceMode,limit.",
     "sourceMode: any | same_channel | creator | official | series_source.",
     "",
@@ -644,12 +660,11 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "Ví dụ: NƠI NÀY CÓ ANH | OFFICIAL MUSIC VIDEO | SƠN TÙNG M-TP => kind=music, category=music_video, canonicalTitle=Nơi Này Có Anh, creator=Sơn Tùng M-TP; không được xếp thành chủ đề chung.",
     "",
     "PHIM / PHIM BỘ:",
-    "1) Nếu có nhiều tập: các tập cùng bộ, ưu tiên nguồn có dãy tập đầy đủ; playlist YouTube có thể xếp ngược nên query phải dựa tên phim+tập, không tin thứ tự playlist.",
-    "2) Bản gốc/nguồn có danh sách tốt nhất nếu video hiện tại là reup.",
-    "3) Phiên bản/năm/remake khác.",
-    "4) Phim khác trong cùng kênh/đơn vị.",
-    "5) Tác phẩm gần nếu cần.",
-    "Ví dụ: Thiên Long Bát Bộ 2003 Tập 1 => film_series, tên bộ Thiên Long Bát Bộ, year/version=2003, isSeries=true.",
+    "Ứng dụng TỰ tìm và sắp xếp danh sách tập bằng code; AI KHÔNG được tạo danh sách tập hay gán video ngẫu nhiên vào 'cùng bộ'.",
+    "Việc của AI là HIỂU tác phẩm: tên phim chuẩn, năm/phiên bản, phim lẻ hay phim bộ, thể loại, quốc gia, đạo diễn, diễn viên chính, mô tả ngắn và các truy vấn YouTube để tìm review/thông tin/diễn viên/phiên bản khác.",
+    "Với phim, sections chỉ nên là review, cast, info, versions nếu có ích; KHÔNG tạo section same_series/series.",
+    "knowledge.reviewQueries phải chứa tên phim + review; castQueries chứa tên phim + diễn viên hoặc tên diễn viên; infoQueries chứa tên phim + thông tin/hậu trường; versionQueries dùng tên phim + năm/remake khi có.",
+    "Ví dụ: Thiên Long Bát Bộ 2003 Tập 1 => film_series; work.seriesTitle=Thiên Long Bát Bộ; year/version=2003; knowledge nêu thể loại/diễn viên nếu đủ chắc. Danh sách Tập 1→2→3 do client tự tìm.",
     "",
     "PHIM NGẮN:",
     "Ưu tiên cùng câu chuyện/phần tiếp theo, cùng kênh, cùng motif; không trộn thành phim bộ cổ điển nếu metadata không cho thấy.",
@@ -683,6 +698,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
       primaryEntity:{name:"",type:"",role:"",aliases:[],summary:""},
       secondaryEntities:[{name:"",type:"",role:""}],
       work:{title:"",seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
+      knowledge:{summary:"",director:"",cast:[],year:0,country:"",genre:"",reviewQueries:[],castQueries:[],infoQueries:[],versionQueries:[]},
       sections:[{key:"artist_catalog",label:"Ca khúc khác của nghệ sĩ",relation:"same_creator",queries:[""],sourceMode:"creator",limit:10}],
       queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}
     }),
@@ -735,7 +751,7 @@ Deno.serve(async(req:Request)=>{
       const searchQuery=clean(body?.searchQuery,160);
       const canonical=[video.id,video.title,video.channel,video.description,searchQuery,...related.map(row=>[row.id,row.title,row.channel].join("|"))].join("\n");
       const fingerprint=await sha256("video_context\n"+canonical);
-      const cacheKey="v2:video_context:"+fingerprint;
+      const cacheKey="v3:video_context:"+fingerprint;
       const cached=await db.from("yt1988_ai_topic_cache").select("result,model,created_at").eq("cache_key",cacheKey).maybeSingle();
       if(!cached.error&&cached.data?.result){
         return json({ok:true,context:cached.data.result,model:cached.data.model||null,fingerprint,cached:true});
