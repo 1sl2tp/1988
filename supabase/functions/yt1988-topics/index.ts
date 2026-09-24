@@ -58,10 +58,43 @@ function normalizeVideos(input:any){
       channel:clean(row?.channel,120),
       published:clean(row?.published,80),
       views:Number.isFinite(Number(row?.views))?Math.max(0,Math.round(Number(row.views))):0,
+      contentHash:clean(row?.contentHash,64),
     });
     if(out.length>=120)break;
   }
   return out;
+}
+
+function validateCatalog(value:any){
+  const source=Array.isArray(value?.parents)?value.parents:Array.isArray(value?.categories)?value.categories:[];
+  const parents:any[]=[];
+  const seen=new Set<string>();
+
+  for(const row of source){
+    const label=clean(row?.label,28);
+    if(!label)continue;
+    const norm=label.toLocaleLowerCase("vi-VN");
+    if(seen.has(norm))continue;
+
+    const queries=[...new Set(
+      (Array.isArray(row?.queries)?row.queries:[])
+        .map((q:any)=>clean(q,80))
+        .filter((q:string)=>q.length>=2)
+    )].slice(0,6);
+
+    const hints=[...new Set(
+      (Array.isArray(row?.hints)?row.hints:[])
+        .map((q:any)=>clean(q,48))
+        .filter((q:string)=>q.length>=2)
+    )].slice(0,12);
+
+    if(queries.length<2)continue;
+    seen.add(norm);
+    parents.push({label,queries,hints});
+    if(parents.length>=9)break;
+  }
+
+  return {parents};
 }
 
 function validateResult(value:any,videos:any[]){
@@ -105,7 +138,7 @@ function validateResult(value:any,videos:any[]){
 
     if(ids.length<2)continue;
     const parentRaw=clean(row?.parent,28).toLocaleLowerCase("vi-VN");
-    const parent=parentByNorm.get(parentRaw)||"";
+    const parent=parentByNorm.get(parentRaw)||clean(row?.parent,28);
     seenLabel.add(norm);
     topics.push({label,parent,videoIds:ids});
     if(topics.length>=10)break;
@@ -136,12 +169,115 @@ function validateResult(value:any,videos:any[]){
     }
   }
 
+  // Conservative client hash: identical normalized-content hashes are exact
+  // duplicate candidates even before the model notices them.
+  const byHash=new Map<string,string[]>();
+  for(const row of videos){
+    const hash=clean(row?.contentHash,64);
+    if(!hash)continue;
+    const ids=byHash.get(hash)||[];
+    ids.push(row.id);
+    byHash.set(hash,ids);
+  }
+  for(const [hash,ids] of byHash){
+    if(ids.length<2)continue;
+    const groupId="h"+hash.slice(0,24);
+    for(const id of ids){
+      const current=meta.get(id)||{id,displayTitle:"",displaySource:"",duplicateGroup:null};
+      current.duplicateGroup=groupId;
+      meta.set(id,current);
+    }
+  }
+
   return {parents,topics,videos:[...meta.values()]};
 }
 
-async function callGemini(cfg:any,scope:string,videos:any[]){
+async function callCatalogGemini(cfg:any,videos:any[]){
+  const nowVN=new Intl.DateTimeFormat("vi-VN",{
+    timeZone:"Asia/Ho_Chi_Minh",
+    dateStyle:"full",
+    timeStyle:"short"
+  }).format(new Date());
+
+  const instruction=`
+Bạn đang xây menu khám phá video cho ứng dụng 1988 dành cho người xem Việt Nam.
+Thời điểm hiện tại tại Việt Nam: ${nowVN}.
+
+Hãy nhìn toàn bộ mẫu video YouTube hiện tại bên dưới (nếu mẫu ít thì vẫn dùng hiểu biết chung về hành vi xem video tại Việt Nam) và tự thiết kế MENU CHA + CÁCH TÌM cho nội dung mới.
+
+YÊU CẦU MENU CHA
+- Tạo 5-9 danh mục cha ngắn, tự nhiên, quen thuộc với người Việt; tên thường 1-3 từ.
+- KHÔNG dùng "LIVE", "Mới nhất", "Tuần này", "Hôm nay", "Trend" làm danh mục cha vì ứng dụng đã có các chế độ đó.
+- Không tạo hai danh mục đồng nghĩa hoặc quá gần nhau.
+- Danh mục phải bao quát nội dung thực tế, không thiên lệch chỉ sang tin tức. Phải đủ khả năng nhận ra các hệ sinh thái như tin tức, an ninh/pháp luật, kinh tế, công nghệ, thể thao, giải trí, âm nhạc, phim/phim ngắn, đời sống... nếu dữ liệu thật sự có. Đây là ví dụ về độ rộng, KHÔNG phải danh sách bắt buộc.
+- Nếu đang đúng mùa/sự kiện ở Việt Nam (Tết, Noel, Trung thu, lễ lớn, giải thể thao, mùa phim...) và tín hiệu đủ mạnh thì có thể sinh một nhóm ngắn phù hợp; hết mùa thì không cần giữ.
+- Sắp xếp danh mục theo mức hữu ích/độ phủ của dòng video hiện tại.
+
+YÊU CẦU TÌM KIẾM TỰ ĐỘNG
+- Mỗi danh mục trả 3-6 truy vấn tìm kiếm khác nhau để ứng dụng tự tìm video mới trên YouTube.
+- Không chỉ lặp lại tên danh mục. Hãy mở rộng theo hệ sinh thái nội dung thật.
+- Ví dụ với Nhạc phải biết tìm ca sĩ/label phát hành chính thức, MV/audio mới, live/phòng trà, nghệ sĩ độc lập/tự đăng, remix/cover khi phù hợp.
+- Ví dụ với Phim phải biết mở rộng phim mới, phim bộ/lẻ, phim ngắn Trung Hoa, tổng tài, xuyên không, trọng sinh, cổ trang, trailer/tin phim... tùy tín hiệu hiện tại.
+- Truy vấn phải ngắn và dùng ngôn ngữ người Việt thực sự gõ. Hệ thống YouTube đã đặt vùng Việt Nam nên KHÔNG cần nhồi chữ "Việt Nam" vào mọi truy vấn.
+- Có thể trả thêm "hints" là các từ/cụm chủ đề con để hỗ trợ phân loại, tối đa 12 từ/cụm cho mỗi cha.
+- Không tự bịa một tin cụ thể đang xảy ra nếu mẫu không cho thấy.
+
+OUTPUT chỉ JSON, không Markdown:
+{
+  "parents":[
+    {
+      "label":"Nhạc",
+      "queries":["MV mới","official audio","live session","nhạc tự sáng tác"],
+      "hints":["MV","audio","live","cover","remix","indie"]
+    }
+  ]
+}
+
+MẪU VIDEO HIỆN TẠI:
+${JSON.stringify(videos)}
+`;
+
+  const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))
+    ?String(cfg.model).trim()
+    :"";
+  const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"]
+    .filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+
+  let lastError="ai_failed";
+  for(const model of models){
+    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+        body:JSON.stringify({
+          contents:[{role:"user",parts:[{text:instruction}]}],
+          generationConfig:{
+            temperature:0.2,
+            responseMimeType:"application/json",
+          },
+        }),
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        const text=responseText(payload);
+        if(!text)throw new Error("empty_ai_response");
+        return {model,text};
+      }
+      lastError=`ai_http_${response.status}`;
+      console.error("[yt1988-topics:catalog-ai]",model,response.status,String(payload?.error?.message||"request_failed").slice(0,300));
+      if(response.status===401||response.status===403)break;
+    }catch(error){
+      lastError=String((error as any)?.message||error||"ai_network");
+    }
+  }
+  throw new Error(lastError);
+}
+
+async function callGemini(cfg:any,scope:string,videos:any[],parentLabel=""){
   const instruction=`
 Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. Hãy làm BỐN việc trong CÙNG một lần. Chỉ dựa trên metadata đầu vào, không bịa thêm sự kiện.
+${parentLabel?`NHÓM CHA ĐANG XỬ LÝ: "${parentLabel}". Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.`:""}
 
 1) MENU CHA TỰ ĐỘNG
 - Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
@@ -241,16 +377,74 @@ Deno.serve(async(req:Request)=>{
 
   try{
     const body=await req.json().catch(()=>({}));
-    const scope=body?.scope==="discovery"?"discovery":body?.scope==="week"?"week":"latest";
+    const mode=body?.mode==="catalog"?"catalog":"classify";
     const videos=normalizeVideos(body?.videos);
-    if(videos.length<4)return json({ok:true,topics:[],cached:false,reason:"not_enough_videos"});
+    const cfg=await runtimeConfig();
+    if(!cfg.key)return json({ok:false,error:"ai_not_configured"},503);
+
+    if(mode==="catalog"){
+      const bucketMs=3*60*60*1000;
+      const bucket=Math.floor(Date.now()/bucketMs);
+      const canonical=videos
+        .map(row=>[row.id,row.title,row.channel,row.published,row.views,row.contentHash].join("\t"))
+        .sort()
+        .join("\n");
+      const fingerprint=await sha256("catalog\n"+canonical);
+      const cacheKey="v5:catalog:"+bucket;
+
+      const cached=await db.from("yt1988_ai_topic_cache")
+        .select("result,model,created_at")
+        .eq("cache_key",cacheKey)
+        .maybeSingle();
+
+      if(!cached.error&&cached.data?.result){
+        return json({
+          ok:true,
+          ...cached.data.result,
+          model:cached.data.model||null,
+          fingerprint,
+          cached:true,
+        });
+      }
+
+      const ai=await callCatalogGemini(cfg,videos);
+      const parsed=parseJson(ai.text);
+      const result=validateCatalog(parsed);
+
+      await db.from("yt1988_ai_topic_cache").upsert({
+        cache_key:cacheKey,
+        scope:"catalog",
+        fingerprint,
+        model:ai.model,
+        video_count:videos.length,
+        result,
+        created_at:new Date().toISOString(),
+      },{onConflict:"cache_key"});
+
+      void db.from("yt1988_ai_topic_cache")
+        .delete()
+        .lt("created_at",new Date(Date.now()-7*24*60*60*1000).toISOString());
+
+      return json({
+        ok:true,
+        ...result,
+        model:ai.model,
+        fingerprint,
+        cached:false,
+      });
+    }
+
+    const rawScope=clean(body?.scope,80);
+    const scope=rawScope==="week"?"week":rawScope==="latest"?"latest":rawScope.startsWith("ai:")?rawScope:"latest";
+    const parentLabel=clean(body?.parentLabel,28);
+    if(videos.length<4)return json({ok:true,parents:[],topics:[],videos:[],cached:false,reason:"not_enough_videos"});
 
     const canonical=videos
-      .map(row=>[row.id,row.title,row.channel,row.published].join("\t"))
+      .map(row=>[row.id,row.title,row.channel,row.published,row.views,row.contentHash].join("\t"))
       .sort()
       .join("\n");
-    const fingerprint=await sha256(scope+"\n"+canonical);
-    const cacheKey="v4:"+scope+":"+fingerprint;
+    const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+canonical);
+    const cacheKey="v5:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
@@ -267,10 +461,7 @@ Deno.serve(async(req:Request)=>{
       });
     }
 
-    const cfg=await runtimeConfig();
-    if(!cfg.key)return json({ok:false,error:"ai_not_configured"},503);
-
-    const ai=await callGemini(cfg,scope,videos);
+    const ai=await callGemini(cfg,scope,videos,parentLabel);
     const parsed=parseJson(ai.text);
     const result=validateResult(parsed,videos);
 
@@ -284,7 +475,6 @@ Deno.serve(async(req:Request)=>{
       created_at:new Date().toISOString(),
     },{onConflict:"cache_key"});
 
-    // Opportunistic cleanup; never block the response on it.
     void db.from("yt1988_ai_topic_cache")
       .delete()
       .lt("created_at",new Date(Date.now()-7*24*60*60*1000).toISOString());
