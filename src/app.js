@@ -732,8 +732,10 @@ function renderCards(rows=[],options={}){
     feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
   }
 
-  const total=feed.querySelectorAll("[data-video-id]").length;
-  feedStatus.textContent=total?total+" video":"";
+  if(options.updateStatus!==false){
+    const total=feed.querySelectorAll("[data-video-id]").length;
+    feedStatus.textContent=total?total+" video":"";
+  }
   return cards.length;
 }
 
@@ -1500,31 +1502,35 @@ async function loadMoreFeed(){
 
   state.feedLoading=true;
   const seq=state.feedSeq;
-  feedStatus.textContent="Đang tải thêm…";
 
   try{
     const local=await localEngine(12000);
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
+    // Important UX rule: once the user is scrolling, never rebuild or
+    // re-sort the visible feed. The first page is already sorted correctly.
+    // Continuation pages are only deduplicated and appended at the bottom.
     const rows=sortPresetRows(raw,preset);
-    const beforeIds=new Set(state.feedRows.map(itemVideoId));
-    const merged=mergeUniqueRows(state.feedRows,rows);
-    const addedCount=merged.reduce((count,row)=>count+(beforeIds.has(itemVideoId(row))?0:1),0);
+    const existingIds=new Set(state.feedRows.map(itemVideoId));
+    const added=[];
+    for(const row of rows){
+      const id=itemVideoId(row);
+      if(!id||existingIds.has(id))continue;
+      existingIds.add(id);
+      added.push(row);
+    }
 
-    if(!addedCount){
+    if(!added.length){
       state.feedHasMore=false;
-      feedStatus.textContent="";
       return;
     }
 
-    state.feedRows=sortPresetRows(merged,preset);
-    renderCards(state.feedRows);
+    state.feedRows.push(...added);
+    renderCards(added,{append:true,updateStatus:false});
     saveFeedCache(name,state.feedRows);
-    feedStatus.textContent="";
   }catch(error){
     console.warn("load more failed",name,error);
-    feedStatus.textContent="";
   }finally{
     if(seq===state.feedSeq)state.feedLoading=false;
   }
