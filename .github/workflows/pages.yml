@@ -77,6 +77,9 @@ jobs:
       - name: Apply card navigation v17
         run: python3 scripts/apply-card-navigation-v17.py
 
+      - name: Apply feed modes v18
+        run: python3 scripts/apply-feed-modes-v18.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
