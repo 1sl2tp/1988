@@ -8,7 +8,7 @@ assert.match(html,/id="yt-player"/);
 assert.match(html,/id="nativePlayer"/);
 assert.match(html,/id="topicChips"/);
 assert.match(html,/youtube\.com\/iframe_api/);
-assert.match(html,/id="pipBtn"/);
+assert.doesNotMatch(html,/id="pipBtn"/);
 assert.match(html,/id="lockBtn"/);
 assert.match(app,/new YT\.Player/);
 assert.match(app,/youtube-nocookie\.com/);
