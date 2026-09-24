@@ -1122,8 +1122,22 @@ function normalizeAiCatalogParents(payload){
   const seen=new Set();
   const out=[];
   for(const raw of Array.isArray(payload?.parents)?payload.parents:[]){
-    const label=clean(raw?.label||"").replace(/^#+\s*/,"").slice(0,28);
+    let label=clean(raw?.label||"").replace(/^#+\s*/,"").slice(0,28);
     if(!label)continue;
+    if(/[&/+|]|\bvà\b/iu.test(label)||label.split(/\s+/).length>2||label.length>16){
+      const norm=normalizeSearchText(label);
+      if(/nhac|am nhac/.test(norm))label="Nhạc";
+      else if(/phim|dien anh/.test(norm))label="Phim";
+      else if(/thoi su|tin tuc/.test(norm))label="Thời sự";
+      else if(/phap luat|an ninh/.test(norm))label="Pháp luật";
+      else if(/kinh te|thi truong/.test(norm))label="Kinh tế";
+      else if(/the thao/.test(norm))label="Thể thao";
+      else if(/cong nghe|khoa hoc/.test(norm))label="Công nghệ";
+      else if(/giai tri|showbiz|su kien/.test(norm))label="Giải trí";
+      else if(/doi song/.test(norm))label="Đời sống";
+      else if(/thoi tiet|moi truong/.test(norm))label="Thời tiết";
+      else label=label.split(/\s+/).slice(0,2).join(" ").slice(0,16);
+    }
     const key=normalizeSearchText(label)||("parent-"+out.length);
     if(seen.has(key))continue;
 
@@ -1188,7 +1202,7 @@ function normalizeAiChildTopics(payload,rows=[],parent=null){
 
 function readAiCatalogCache(cacheKey){
   try{
-    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v1:"+cacheKey)||"null");
+    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v2:"+cacheKey)||"null");
     if(!saved||Date.now()-Number(saved.at||0)>3*60*60*1000)return [];
     return normalizeAiCatalogParents(saved);
   }catch{
@@ -1198,7 +1212,7 @@ function readAiCatalogCache(cacheKey){
 
 function saveAiCatalogCache(cacheKey,parents=[]){
   try{
-    localStorage.setItem("1988-ai-catalog-v1:"+cacheKey,JSON.stringify({
+    localStorage.setItem("1988-ai-catalog-v2:"+cacheKey,JSON.stringify({
       at:Date.now(),
       parents:parents.map(parent=>({
         label:parent.label,
