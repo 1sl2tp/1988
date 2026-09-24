@@ -901,8 +901,13 @@ function pickVideoDimensions(candidates=[]){
 
   if(!rows.length)return {width:0,height:0,aspectRatio:0,source:""};
 
-  // A real portrait candidate wins over generic 16:9 embed/player fallbacks.
-  // This is the important case for Shorts and vertical drama videos.
+  // Storyboard shape comes from actual video frames. If available, use it
+  // before generic embed/player dimensions.
+  const storyboard=rows
+    .filter(row=>String(row.source||"")==="storyboard")
+    .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+  if(storyboard)return storyboard;
+
   const portrait=rows
     .filter(row=>row.aspectRatio<.80)
     .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
@@ -913,12 +918,25 @@ function pickVideoDimensions(candidates=[]){
     .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
   if(square)return square;
 
-  // Otherwise use the highest-resolution landscape candidate.
   return rows.sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
 }
 
 function videoDimensionsFromInfo(result={}){
   const candidates=[];
+
+  // YouTube storyboards use the native frame shape and are a better aspect
+  // signal than the generic 16:9 embed/player box.
+  const storyboardBoards=Array.isArray(result?.storyboards?.boards)
+    ?result.storyboards.boards
+    :[];
+  for(const board of storyboardBoards){
+    const candidate=validDimensions(
+      board?.thumbnail_width,
+      board?.thumbnail_height,
+      "storyboard"
+    );
+    if(candidate)candidates.push(candidate);
+  }
 
   const formats=[
     ...(Array.isArray(result?.streaming_data?.formats)?result.streaming_data.formats:[]),
@@ -987,6 +1005,29 @@ async function videoAspect(id){
   const task=(async()=>{
     const yt=await getYT();
     const candidates=[];
+
+    // getInfo includes parsed storyboard metadata. This is usually the fastest
+    // reliable orientation signal for long-form portrait uploads.
+    try{
+      const full=await yt.getInfo(id,{client:"WEB"});
+      const storyboardDimensions=videoDimensionsFromInfo({
+        storyboards:full?.storyboards,
+        basic_info:full?.basic_info
+      });
+      if(storyboardDimensions.width>0&&storyboardDimensions.height>0){
+        candidates.push(storyboardDimensions);
+        if(storyboardDimensions.source==="storyboard"){
+          const value={
+            width:storyboardDimensions.width,
+            height:storyboardDimensions.height,
+            aspectRatio:storyboardDimensions.aspectRatio,
+            source:"storyboard"
+          };
+          videoAspectCache.set(id,{at:Date.now(),value});
+          return value;
+        }
+      }
+    }catch{}
 
     // Probe more than one client. Some clients expose only generic 16:9
     // metadata while another exposes the actual portrait stream dimensions.
