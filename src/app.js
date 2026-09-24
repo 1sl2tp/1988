@@ -1078,7 +1078,7 @@ function normalizeSearchText(value=""){
     .trim();
 }
 
-const AI_TREND_CACHE_PREFIX="1988-ai-trends-v2:";
+const AI_TREND_CACHE_PREFIX="1988-ai-trends-v3:";
 
 function topicInputRows(rows=[]){
   return newestFirst(Array.isArray(rows)?rows:[])
@@ -1086,7 +1086,7 @@ function topicInputRows(rows=[]){
     .map(row=>({
       id:itemVideoId(row),
       title:clean(row?.title||""),
-      channel:clean(row?.uploaderName||row?.uploader||row?.channelName||""),
+      channel:clean(row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||""),
       published:clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||publishedLabel(row)||""),
       views:Number(row?.views)||0
     }))
@@ -1567,7 +1567,7 @@ function renderCards(rows=[],options={}){
     if(!id||seen.has(id))continue;
     seen.add(id);
     const title=clean(row._displayTitle||row.title)||"Video";
-    const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||"");
+    const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||row._sourceName||"");
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
@@ -2276,7 +2276,7 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
-const SOURCE_POOL_KEY="1988-source-pool-v1";
+const SOURCE_POOL_KEY="1988-source-pool-v2";
 const SOURCE_POOL_TTL=30*60*1000;
 let sourcePoolMemory={signature:"",at:0,items:[]};
 let sourcePoolRefreshPromise=null;
@@ -2358,7 +2358,7 @@ async function fetchSourcePool(local,sources,reset=true){
         );
         if(Array.isArray(rows)){
           for(const row of rows){
-            if(row)collected.push({...row,_sourceId:source.id});
+            if(row)collected.push({...row,_sourceId:source.id,_sourceName:source.name});
           }
         }
       }catch(error){
