@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-floating-v31';
+const CACHE='1988-main-floating-mobile-v32';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=floating-31',
-  './src/app.js?v=floating-31',
+  './src/style.css?v=floating-mobile-32',
+  './src/app.js?v=floating-mobile-32',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=4',
