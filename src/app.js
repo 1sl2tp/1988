@@ -3392,6 +3392,12 @@ function uploadedWithinWeek(row){
   return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
 }
 
+function uploadedWithinCategoryWindow(row){
+  if(row?.isLive)return false;
+  const age=publishedAgeMs(row);
+  return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+}
+
 async function normalizeRegionalRow(row={}){
   const duration=Number(row?.duration);
   const uploaded=Number(row?.uploaded);
