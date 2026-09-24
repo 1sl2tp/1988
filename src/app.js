@@ -2705,25 +2705,11 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    const styles=getComputedStyle(root);
-    const headerHeight=
-      parseFloat(styles.getPropertyValue("--header-row-h"))||48;
-    const navHeight=
-      parseFloat(styles.getPropertyValue("--nav-row-h"))||36;
-    const railHeight=
-      parseFloat(styles.getPropertyValue("--watch-feed-rail-h"))||108;
-    const safeBottom=
-      parseFloat(styles.getPropertyValue("--safe-bottom"))||0;
-
-    const availableHeight=Math.max(
-      240,
-      viewportHeight-headerHeight-navHeight-railHeight-safeBottom-4
-    );
-
-    // TikTok/Shorts principle: the video owns the viewport. Keep the source
-    // ratio exactly, fit it inside the remaining player stage, and never crop.
-    let width=Math.min(viewportWidth,availableHeight*ratio);
-    let height=width/ratio;
+    // True full-screen-first mobile stage. Search/chips/feed are overlays;
+    // the actual video can therefore use the whole visual viewport.
+    const availableHeight=viewportHeight;
+    const width=Math.min(viewportWidth,availableHeight*ratio);
+    const height=width/ratio;
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");

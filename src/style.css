@@ -2344,3 +2344,276 @@ html.watch-browse .player-frame video{
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.42);
   }
 }
+
+
+/* ============================================================
+   MOBILE SEAMLESS WATCH v177
+   Search disappears while watching; player owns the viewport.
+   Chips and recommendation rail overlay the bottom like Shorts/TikTok.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --watch-feed-overlay-h:96px;
+    --watch-chip-overlay-h:34px;
+    height:100%;
+    overflow:hidden;
+    background:#000;
+  }
+
+  html.watch-browse body{
+    display:block!important;
+    width:100%;
+    height:100dvh;
+    min-height:0;
+    overflow:hidden;
+    padding:0;
+    margin:0;
+    background:#000;
+  }
+
+  html.watch-browse .app-header,
+  html.watch-browse .app-shell{
+    display:contents;
+  }
+
+  /* In watch mode the browser already supplies navigation. Do not sacrifice
+     video area to a duplicate site header/search row. */
+  html.watch-browse .header-inner{
+    display:none!important;
+  }
+
+  html.watch-browse .trend-topics{
+    display:none!important;
+  }
+
+  html.watch-browse .player-section{
+    position:fixed!important;
+    inset:0!important;
+    z-index:10;
+    width:100vw;
+    height:100dvh;
+    min-width:0;
+    min-height:0;
+    margin:0;
+    padding:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    background:#000;
+    box-shadow:none;
+  }
+
+  html.watch-browse .player-card{
+    width:100%;
+    height:100%;
+    margin:0;
+    padding:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:0;
+    border-radius:0;
+    overflow:hidden;
+    background:#000;
+  }
+
+  html.watch-browse .player-frame{
+    flex:0 0 auto;
+    width:var(--watch-player-width,100%);
+    height:var(--watch-player-height,auto);
+    max-width:100vw;
+    max-height:100dvh;
+    margin:0 auto;
+    border:0;
+    border-radius:0;
+    background:#000;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .player-frame #yt-player,
+  html.watch-browse .player-frame iframe,
+  html.watch-browse .player-frame video{
+    width:100%!important;
+    height:100%!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    background:#000;
+  }
+
+  /* Previous / next floats over the video, like short-form players. */
+  html.watch-browse .watch-nav-rail{
+    position:fixed;
+    z-index:72;
+    right:8px;
+    top:50%;
+    transform:translateY(-50%);
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+
+  html.watch-browse .watch-nav-rail button{
+    width:34px;
+    height:34px;
+    border:1px solid rgba(255,255,255,.14);
+    border-radius:50%;
+    background:rgba(8,8,10,.48);
+    color:#fff;
+    box-shadow:0 3px 14px rgba(0,0,0,.24);
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px);
+  }
+
+  /* Chips overlay just above the recommendation thumbnails. */
+  html.watch-browse .header-nav{
+    position:fixed!important;
+    z-index:70;
+    left:0;
+    right:0;
+    bottom:calc(var(--watch-feed-overlay-h) + var(--safe-bottom));
+    top:auto!important;
+    width:100%;
+    height:var(--watch-chip-overlay-h);
+    border:0;
+    background:
+      linear-gradient(
+        to top,
+        rgba(0,0,0,.72),
+        rgba(0,0,0,.42) 64%,
+        rgba(0,0,0,0)
+      );
+  }
+
+  html.watch-browse .header-nav-inner{
+    width:100%;
+    height:100%;
+    padding:0;
+    overflow:hidden;
+  }
+
+  html.watch-browse .topic-chips{
+    height:100%;
+    gap:4px;
+    padding:2px 5px 3px;
+    overflow-x:auto;
+    overflow-y:hidden;
+  }
+
+  html.watch-browse .topic-chip{
+    height:28px;
+    padding:0 8px;
+    border-radius:8px;
+    border-color:rgba(255,255,255,.12);
+    background:rgba(26,26,29,.72);
+    color:#ddd;
+    font-size:10px;
+    backdrop-filter:blur(7px);
+    -webkit-backdrop-filter:blur(7px);
+  }
+
+  html.watch-browse .topic-chip.active{
+    background:rgba(245,245,246,.96);
+    color:#111;
+    border-color:transparent;
+  }
+
+  html.watch-browse .topic-divider{
+    height:15px;
+    margin:0;
+  }
+
+  /* Recommendation rail overlays the bottom edge instead of reserving a row. */
+  html.watch-browse .feed-section{
+    position:fixed!important;
+    z-index:69;
+    left:0;
+    right:0;
+    bottom:0;
+    top:auto!important;
+    width:100%;
+    height:calc(var(--watch-feed-overlay-h) + var(--safe-bottom));
+    min-height:0;
+    margin:0;
+    padding:5px 5px calc(4px + var(--safe-bottom));
+    overflow:hidden;
+    background:
+      linear-gradient(
+        to top,
+        rgba(0,0,0,.92),
+        rgba(0,0,0,.72) 72%,
+        rgba(0,0,0,0)
+      );
+    box-shadow:none;
+  }
+
+  html.watch-browse .section-head,
+  html.watch-browse .search-refinements{
+    display:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped){
+    display:flex;
+    flex-direction:row;
+    align-items:flex-end;
+    gap:6px;
+    width:100%;
+    height:100%;
+    overflow-x:auto;
+    overflow-y:hidden;
+    padding:0 0 1px;
+    scroll-snap-type:x proximity;
+    scrollbar-width:none;
+    overscroll-behavior-x:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)::-webkit-scrollbar{
+    display:none;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    flex:0 0 132px;
+    width:132px;
+    height:78px;
+    min-height:0;
+    display:block;
+    padding:0;
+    border:0;
+    border-radius:7px;
+    overflow:hidden;
+    background:#111;
+    scroll-snap-align:start;
+    box-shadow:none;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%;
+    height:100%;
+    aspect-ratio:auto;
+    border-radius:7px;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy{
+    display:none;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video{
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.82);
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius:7px;
+    pointer-events:none;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.9);
+  }
+}
