@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 target = Path("scripts/build-kira-proof.sh")
 text = target.read_text()
@@ -49,22 +50,7 @@ s = s.replace(':src="data.authorAvatar"', ':src="card.authorAvatar"')
 s = s.replace('<h3 v-html="data.title"/>', '<h3 v-html="card.title"/>')
 
 # Computed normalizer + all card-dependent computed values.
-old_computed = """const channel = computed(() => String(props.data.metadata?.[0] || 'YouTube'));
-const channelTarget = computed(() => '/channel/' + encodeURIComponent(props.data.channelKey || channel.value));
-const views = computed(() => String(props.data.viewsText || ''));
-const age = computed(() => {
-  void tick.value;
-  return props.data.publishedAt ? formatRelativeTime(props.data.publishedAt) : '';
-});
-const watchTarget = computed(() => {
-  const query: Record<string,string> = {};
-  if (props.data.layout) query.shape = props.data.layout;
-  if (props.feedKey) query.feed = props.feedKey;
-  if (Number.isFinite(props.feedIndex)) query.index = String(props.feedIndex);
-  return { path: '/watch/' + props.data.videoId, query };
-});"""
-
-new_computed = """function extractVideoId1988(value: any) {
+new_computed = r"""function extractVideoId1988(value: any) {
   const raw = String(value?.videoId || value?.id || value?.url || '').trim();
   if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
   const match = raw.match(/[?&]v=([A-Za-z0-9_-]{11})|youtu\\.be\\/([A-Za-z0-9_-]{11})|\\/(?:shorts|embed|live)\\/([A-Za-z0-9_-]{11})/);
@@ -109,9 +95,16 @@ const watchTarget = computed(() => {
   return { path: '/watch/' + card.value.videoId, query };
 });"""
 
-if old_computed not in s:
+s, replaced = re.subn(
+    r"""const channel = computed\(\(\) => String\(props\.data\.metadata\?\.\[0\] \|\| 'YouTube'\)\);[\s\S]*?const watchTarget = computed\(\(\) => \{[\s\S]*?\n\}\);""",
+    new_computed,
+    s,
+    count=1
+)
+if replaced != 1:
     raise SystemExit("GridVideoItem computed block not found")
-s = s.replace(old_computed, new_computed, 1)
+
+s = s.replace("import type { VideoItemData } from '@/utils/helpers';\n", "")
 
 p.write_text(s)
 
