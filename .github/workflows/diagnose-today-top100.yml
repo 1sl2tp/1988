@@ -129,14 +129,17 @@ jobs:
                     videos++;
                     localChannels.add(key);
 
+                    const verified=Boolean(node?.author?.is_verified||node?.author?.is_verified_artist);
                     const row=channels.get(key)||{
                       channelId,
                       channelName:channelName||'Không rõ',
                       queries:new Set(),
-                      hits:0
+                      videoIds:new Set(),
+                      verified:false
                     };
                     row.queries.add(q);
-                    row.hits++;
+                    row.videoIds.add(id);
+                    row.verified=row.verified||verified;
                     if(!row.channelName&&channelName)row.channelName=channelName;
                     channels.set(key,row);
                   }
@@ -152,12 +155,14 @@ jobs:
                 .map(x=>({
                   channelId:x.channelId,
                   channelName:x.channelName,
+                  verified:x.verified===true,
                   keywordCount:x.queries.size,
-                  hits:x.hits
+                  videos:x.videoIds.size
                 }))
                 .sort((a,b)=>
+                  (Number(b.verified)-Number(a.verified))||
+                  (b.videos-a.videos)||
                   (b.keywordCount-a.keywordCount)||
-                  (b.hits-a.hits)||
                   a.channelName.localeCompare(b.channelName,'vi')
                 );
 
