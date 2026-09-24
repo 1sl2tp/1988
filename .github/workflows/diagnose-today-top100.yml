@@ -1,4 +1,4 @@
-name: Smoke production AI cleanup
+name: Smoke production AI cleanup v2
 
 on:
   push:
