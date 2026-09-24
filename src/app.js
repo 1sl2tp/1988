@@ -2203,9 +2203,14 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
 
   const scaleButton=rail?.querySelector?.('[data-float-mode="scale"]');
   const scaleIcon=scaleButton?.querySelector?.(".float-mode-icon");
-  const scaleText=floatScaleValue()===1.5?"1.5×":floatScaleValue()+"×";
+  const scaleValue=floatScaleValue();
+  const scaleText=scaleValue===1.5?"1.5×":scaleValue+"×";
   if(scaleIcon)scaleIcon.textContent=scaleText;
   if(scaleButton)scaleButton.setAttribute("aria-label","Kích thước PiP "+scaleText+". Bấm để đổi 1×, 1.5×, 2×");
+
+  frame.classList.toggle("float-scale-1",scaleValue===1);
+  frame.classList.toggle("float-scale-15",scaleValue===1.5);
+  frame.classList.toggle("float-scale-2",scaleValue===2);
 
   const edgeTab=frame.querySelector(".float-edge-tab");
   if(edgeTab){
