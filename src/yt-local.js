@@ -476,6 +476,78 @@ async function channelVideosPage(key,channelId,reset=false){
   return pageRows(result,36);
 }
 
+async function channelMeta(channelId){
+  const channel=String(channelId||'').trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(channel))throw new Error('invalid_channel');
+
+  const yt=await getYT();
+  const page=await yt.getChannel(channel);
+  const header=page?.header||{};
+  const metadata=page?.metadata||{};
+
+  const firstThumb=(rows)=>{
+    const list=Array.isArray(rows)?rows:[];
+    return list[0]?.url||'';
+  };
+
+  const strings=[];
+  const seen=new Set();
+  const walk=(value,depth=0)=>{
+    if(value===undefined||value===null||depth>4||strings.length>100)return;
+    if(typeof value==='string'){
+      const v=value.trim();
+      if(v)strings.push(v);
+      return;
+    }
+    if(typeof value==='number'||typeof value==='boolean')return;
+    const direct=text(value).trim();
+    if(direct&&direct!=='[object Object]')strings.push(direct);
+    if(typeof value!=='object'||seen.has(value))return;
+    seen.add(value);
+    if(Array.isArray(value)){
+      for(const item of value)walk(item,depth+1);
+      return;
+    }
+    for(const [key,item] of Object.entries(value)){
+      if(/endpoint|command|actions|memo|page|contents/i.test(key))continue;
+      try{walk(item,depth+1)}catch{}
+    }
+  };
+  walk(header);
+
+  const subscriberText=
+    text(header?.subscribers)||
+    text(header?.metadata).match(/[^·\n]*(?:người đăng ký|subscribers?)[^·\n]*/i)?.[0]?.trim()||
+    strings.find(value=>/(?:người đăng ký|subscribers?)/i.test(value))||
+    '';
+
+  const avatar=
+    firstThumb(metadata?.avatar)||
+    firstThumb(header?.author?.thumbnails)||
+    firstThumb(header?.box_art)||
+    firstThumb(header?.banner)||
+    '';
+
+  const name=
+    text(metadata?.title)||
+    text(header?.author?.name)||
+    text(header?.title)||
+    text(header?.page_title)||
+    '';
+
+  const verified=
+    !!header?.author?.is_verified||
+    Array.isArray(header?.badges)&&header.badges.some(badge=>/verified/i.test(text(badge?.label||badge?.tooltip||badge)));
+
+  return {
+    id:channel,
+    name:name.trim(),
+    thumbnailUrl:avatar,
+    subscribers:subscriberText,
+    verified
+  };
+}
+
 async function home(){
   const yt=await getYT();
   try{
@@ -723,7 +795,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows,normalizeChannels};
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
