@@ -1653,7 +1653,10 @@ async function openSourceFromSearchVideo(video){
   addSource(row);
   sourcePreviewSearchRows=new Map();
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
-  await openSourcePreview(row.id,row);
+
+  const videoId=itemVideoId(video);
+  void openSourcePreview(row.id,row);
+  if(videoId)openSourceVideo(videoId,video);
 }
 
 async function openSourcePreview(id,rowHint=null){
@@ -1746,19 +1749,46 @@ function choosePreviewSource(){
   syncSourcePreviewHeader();
 }
 
+function sourceVideoCommand(func,args=[]){
+  try{
+    sourceVideoFrame?.contentWindow?.postMessage(
+      JSON.stringify({event:"command",func,args}),
+      "https://www.youtube-nocookie.com"
+    );
+  }catch{}
+}
+
+function forceSourceVideoPlay(){
+  sourceVideoCommand("playVideo");
+}
+
 function openSourceVideo(id,row){
   if(!sourceVideoPopup||!sourceVideoFrame||!id)return;
   const title=clean(row?.title)||"Video";
   sourceVideoPopupTitle.textContent=title;
+
+  // Show the player before assigning src. Loading an iframe while its parent is
+  // hidden can cause Chrome/Safari to ignore the autoplay request.
+  sourceVideoPopup.hidden=false;
+
+  const origin=encodeURIComponent(location.origin);
+  sourceVideoFrame.onload=()=>{
+    forceSourceVideoPlay();
+    setTimeout(forceSourceVideoPlay,120);
+    setTimeout(forceSourceVideoPlay,450);
+  };
   sourceVideoFrame.src=
     "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
-    "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0";
-  sourceVideoPopup.hidden=false;
+    "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin="+origin;
+
+  // Keep the original click gesture as close as possible to the play command.
+  setTimeout(forceSourceVideoPlay,0);
 }
 
 function closeSourceVideo(){
   if(!sourceVideoPopup||!sourceVideoFrame)return;
   sourceVideoPopup.hidden=true;
+  sourceVideoFrame.onload=null;
   sourceVideoFrame.src="about:blank";
   if(sourceVideoPopupTitle)sourceVideoPopupTitle.textContent="";
 }
