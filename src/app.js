@@ -2637,6 +2637,82 @@ function explicitVideoAspect(meta={}){
   return ratio;
 }
 
+let responsivePlayerRaf=0;
+
+function responsivePlayerAspect(meta=state.currentMeta||{}){
+  return explicitVideoAspect(meta)||
+    validPipAspect(state.videoAspect)||
+    16/9;
+}
+
+function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame||frame.classList.contains("floating-iframe"))return;
+
+  let ratio=responsivePlayerAspect(meta);
+  if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
+  ratio=Math.max(.42,Math.min(2.4,ratio));
+
+  frame.classList.remove(
+    "watch-aspect-wide",
+    "watch-aspect-square",
+    "watch-aspect-portrait"
+  );
+
+  const aspectClass=
+    ratio>=1.32
+      ?"watch-aspect-wide"
+      :ratio>=.82
+        ?"watch-aspect-square"
+        :"watch-aspect-portrait";
+  frame.classList.add(aspectClass);
+  frame.style.setProperty("--watch-video-aspect",String(ratio));
+
+  const mobile=
+    window.innerWidth<=720 &&
+    document.documentElement.classList.contains("watch-browse");
+
+  if(!mobile){
+    frame.style.removeProperty("--watch-player-width");
+    frame.style.removeProperty("--watch-player-height");
+    return;
+  }
+
+  const viewportWidth=Math.max(
+    280,
+    Number(window.visualViewport?.width)||window.innerWidth||0
+  );
+  const viewportHeight=Math.max(
+    320,
+    Number(window.visualViewport?.height)||window.innerHeight||0
+  );
+
+  // Preserve the real video shape while keeping enough room for the source
+  // row and the scrollable result list. 16:9 remains full-width on normal
+  // portrait phones, but automatically shrinks on short/narrow viewports.
+  const heightShare=
+    ratio>=1.32
+      ?.42
+      :ratio>=.82
+        ?.48
+        :.56;
+
+  const heightCap=Math.max(170,viewportHeight*heightShare);
+  const width=Math.min(viewportWidth,heightCap*ratio);
+  const height=width/ratio;
+
+  frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
+  frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+}
+
+function queueResponsivePlayerFrame(){
+  if(responsivePlayerRaf)return;
+  responsivePlayerRaf=requestAnimationFrame(()=>{
+    responsivePlayerRaf=0;
+    applyResponsivePlayerFrame();
+  });
+}
+
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   const next=explicitVideoAspect(meta);
   if(!next)return;
@@ -2663,6 +2739,8 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
 
   state.floatPreset="auto";
   state.floatUserSized=false;
+
+  applyResponsivePlayerFrame(meta);
 
   const frame=playerSection?.querySelector(".player-frame");
   if(frame?.classList.contains("floating-iframe")){
@@ -2772,6 +2850,7 @@ function setWatchBrowseLayout(active){
 
   watchBrowseActive=active;
   document.documentElement.classList.toggle("watch-browse",active);
+  applyResponsivePlayerFrame();
 
   requestAnimationFrame(()=>{
     watchBrowseMutating=false;
@@ -2802,10 +2881,16 @@ function queueWatchBrowseLayout(){
 }
 
 function setupWatchBrowseLayout(){
-  window.addEventListener("resize",queueWatchBrowseLayout,{passive:true});
-  window.addEventListener("orientationchange",queueWatchBrowseLayout,{passive:true});
-  window.visualViewport?.addEventListener?.("resize",queueWatchBrowseLayout,{passive:true});
+  const syncViewportLayout=()=>{
+    queueWatchBrowseLayout();
+    queueResponsivePlayerFrame();
+  };
+
+  window.addEventListener("resize",syncViewportLayout,{passive:true});
+  window.addEventListener("orientationchange",syncViewportLayout,{passive:true});
+  window.visualViewport?.addEventListener?.("resize",syncViewportLayout,{passive:true});
   queueWatchBrowseLayout();
+  queueResponsivePlayerFrame();
 }
 
 function applyFloatingIframe(force){
@@ -6935,6 +7020,7 @@ async function playVideo(id,seedMeta={}){
 
   updateNow(seedMeta);
   showIframePlayer();
+  applyResponsivePlayerFrame(seedMeta);
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
