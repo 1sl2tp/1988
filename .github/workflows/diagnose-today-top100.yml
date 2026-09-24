@@ -1,4 +1,4 @@
-name: Smoke AI topic clustering
+name: Smoke AI topic clustering v2
 
 on:
   push:
