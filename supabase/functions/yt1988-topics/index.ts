@@ -58,6 +58,8 @@ function normalizeVideos(input:any){
       channel:clean(row?.channel,120),
       published:clean(row?.published,80),
       views:Number.isFinite(Number(row?.views))?Math.max(0,Math.round(Number(row.views))):0,
+      duration:Number.isFinite(Number(row?.duration))?Math.max(0,Math.round(Number(row.duration))):0,
+      isLive:row?.isLive===true,
       contentHash:clean(row?.contentHash,64),
       description:clean(row?.description,1800),
       howMade:clean(row?.howMade,800),
@@ -525,56 +527,169 @@ ${JSON.stringify(videos)}
 function validateVideoContext(value:any){
   const kindRaw=clean(value?.kind,24).toLocaleLowerCase("vi-VN");
   const kind=["music","film","topic","other"].includes(kindRaw)?kindRaw:"other";
-  const channelRoleRaw=clean(value?.channelRole,24).toLocaleLowerCase("vi-VN");
-  const channelRole=["official","creator","reupload","fan","unknown"].includes(channelRoleRaw)?channelRoleRaw:"unknown";
+  const categoryRaw=clean(value?.category,32).toLocaleLowerCase("vi-VN").replace(/\s+/g,"_");
+  const allowedCategories=new Set(["song","music_video","live_music","concert","karaoke","film_movie","film_series","short_film","animation","news","current_affairs","entertainment","sports","technology","economy","law","education","documentary","gaming","lifestyle","interview","podcast","other"]);
+  const category=allowedCategories.has(categoryRaw)?categoryRaw:"other";
+  const channelRoleRaw=clean(value?.channelRole||value?.source?.role,24).toLocaleLowerCase("vi-VN");
+  const channelRole=["official","creator","publisher","reupload","fan","aggregator","unknown"].includes(channelRoleRaw)?channelRoleRaw:"unknown";
+
   const queries=value?.queries&&typeof value.queries==="object"?value.queries:{};
   const outQueries:any={};
   for(const key of ["sameWork","creator","series","versions","covers","instrumental","alternatives","topic"]){
     const values=Array.isArray(queries?.[key])?queries[key]:[];
     outQueries[key]=[...new Set(values.map((q:any)=>clean(q,100)).filter(Boolean))].slice(0,6);
   }
+
+  const entity=value?.primaryEntity&&typeof value.primaryEntity==="object"?value.primaryEntity:{};
+  const primaryEntity={
+    name:clean(entity?.name,100),
+    type:clean(entity?.type,40),
+    role:clean(entity?.role,80),
+    aliases:[...new Set((Array.isArray(entity?.aliases)?entity.aliases:[]).map((x:any)=>clean(x,80)).filter(Boolean))].slice(0,6),
+    summary:clean(entity?.summary,260)
+  };
+
+  const secondaryEntities=(Array.isArray(value?.secondaryEntities)?value.secondaryEntities:[])
+    .map((row:any)=>({name:clean(row?.name,100),type:clean(row?.type,40),role:clean(row?.role,80)}))
+    .filter((row:any)=>row.name)
+    .slice(0,6);
+
+  const work=value?.work&&typeof value.work==="object"?value.work:{};
+  const normalizedWork={
+    title:clean(work?.title||value?.canonicalTitle,140),
+    seriesTitle:clean(work?.seriesTitle,140),
+    episodeNumber:Number.isFinite(Number(work?.episodeNumber))?Math.max(0,Math.round(Number(work.episodeNumber))):0,
+    season:Number.isFinite(Number(work?.season))?Math.max(0,Math.round(Number(work.season))):0,
+    year:Number.isFinite(Number(work?.year))?Math.max(0,Math.round(Number(work.year))):0,
+    version:clean(work?.version||value?.version,80),
+    genre:clean(work?.genre,80),
+    language:clean(work?.language,60),
+    isSeries:work?.isSeries===true||value?.isSeries===true
+  };
+
+  const sections=[];
+  const allowedSourceModes=new Set(["any","same_channel","creator","official","series_source"]);
+  for(const row of Array.isArray(value?.sections)?value.sections:[]){
+    const label=clean(row?.label,100);
+    const sectionQueries=[...new Set((Array.isArray(row?.queries)?row.queries:[]).map((q:any)=>clean(q,110)).filter(Boolean))].slice(0,3);
+    if(!label||!sectionQueries.length)continue;
+    const sourceModeRaw=clean(row?.sourceMode,24);
+    sections.push({
+      key:clean(row?.key,40)||("section_"+sections.length),
+      label,
+      relation:clean(row?.relation,60),
+      queries:sectionQueries,
+      sourceMode:allowedSourceModes.has(sourceModeRaw)?sourceModeRaw:"any",
+      limit:Math.max(4,Math.min(12,Math.round(Number(row?.limit)||10)))
+    });
+    if(sections.length>=6)break;
+  }
+
   return {
-    kind,
+    kind,category,
     canonicalTitle:clean(value?.canonicalTitle,140),
-    creator:clean(value?.creator,100),
-    currentChannel:clean(value?.currentChannel,120),
+    creator:clean(value?.creator||primaryEntity.name,100),
+    currentChannel:clean(value?.currentChannel||value?.source?.currentChannel,120),
     channelRole,
-    originalChannelHint:clean(value?.originalChannelHint,120),
-    version:clean(value?.version,80),
-    isSeries:value?.isSeries===true,
+    originalChannelHint:clean(value?.originalChannelHint||value?.source?.originalChannelHint,120),
+    version:clean(value?.version||normalizedWork.version,80),
+    isSeries:normalizedWork.isSeries,
     subject:clean(value?.subject,140),
     confidence:Math.max(0,Math.min(1,Number(value?.confidence)||0)),
+    primaryEntity,
+    secondaryEntities,
+    work:normalizedWork,
+    sections,
     queries:outQueries
   };
 }
 
 async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuery=""){
   const instruction=[
-    "Bạn đang phân tích MỘT video mà người dùng vừa bấm xem trong ứng dụng 1988.",
-    "Đây là bước SAU KHI người dùng đã tìm và chọn video. Không được thay đổi hay sắp xếp kết quả tìm kiếm ban đầu.",
+    "Bạn là bộ não NGỮ CẢNH SAU KHI NGƯỜI DÙNG ĐÃ BẤM CHỌN MỘT VIDEO trong ứng dụng 1988.",
+    "Ô tìm kiếm chỉ tìm bình thường. CHỈ SAU KHI người dùng chọn video này mới được phân tích và dựng gợi ý.",
+    "Hãy dùng MỘT lần gọi AI này để trả đủ dữ liệu cho mọi trường hợp, không bắt client phải gọi AI lần nữa.",
     "",
-    "NHIỆM VỤ:",
-    "1. Xác định video là gì: music, film, topic hoặc other.",
-    "2. Chuẩn hóa tên tác phẩm/chủ đề:",
-    "- Nhạc: canonicalTitle là TÊN BÀI HÁT; creator là ca sĩ/nghệ sĩ chính nếu metadata đủ rõ.",
-    "- Phim: canonicalTitle là TÊN PHIM/BỘ PHIM; version là năm/bản/remake nếu thấy; isSeries=true nếu có dấu hiệu nhiều tập hoặc phim bộ.",
-    "- Topic: canonicalTitle/subject là chủ đề/sự kiện/người/vấn đề video đang nói tới.",
-    "3. Đánh giá kênh hiện tại: official/creator nếu nhiều khả năng là chính chủ; reupload nếu có vẻ đăng lại; fan nếu là fan/biên tập; unknown nếu không đủ bằng chứng.",
-    "Không được bịa kênh gốc. originalChannelHint chỉ trả khi metadata cho thấy khá rõ, nếu không để trống.",
-    "4. Tạo truy vấn ngắn để ứng dụng tự tìm tiếp SAU KHI video đã được chọn:",
-    "- Nhạc: sameWork=cùng bài do ca sĩ khác hát; creator=bài khác của nghệ sĩ; covers=cover; instrumental=không lời/guitar/piano; alternatives=live/remix/karaoke/phiên bản khác.",
-    "- Phim: series=các tập cùng bộ; versions=phiên bản/năm/remake khác; creator=phim khác trong cùng kênh/đơn vị; alternatives=trailer/review gần nếu phù hợp.",
-    "- Topic: topic=cùng chủ đề; creator=video khác trong cùng nguồn; alternatives=góc nhìn/liên quan gần.",
-    "5. Chỉ suy luận từ metadata cung cấp. Nếu không chắc thì để trống.",
+    "A. PHÂN LOẠI 2 TẦNG",
+    "- kind chỉ là họ lớn: music | film | topic | other.",
+    "- category chi tiết phải chọn một trong: song, music_video, live_music, concert, karaoke, film_movie, film_series, short_film, animation, news, current_affairs, entertainment, sports, technology, economy, law, education, documentary, gaming, lifestyle, interview, podcast, other.",
+    "- Thời sự/bản tin/sự kiện xã hội => kind=topic, category=news hoặc current_affairs.",
+    "- Giải trí/showbiz/nghệ sĩ/phỏng vấn => kind=topic, category=entertainment hoặc interview.",
+    "- Phim ngắn tổng tài/xuyên không/trọng sinh/hệ thống... => kind=film, category=short_film.",
+    "",
+    "B. NHẬN DẠNG TÁC PHẨM / NGƯỜI / CHỦ ĐỀ",
+    "- canonicalTitle: tên bài hát, tên phim, tên chương trình hoặc tên chủ đề gọn nhất.",
+    "- creator: nghệ sĩ/ca sĩ/ban nhạc/đạo diễn/đơn vị sáng tạo chính nếu đủ rõ.",
+    "- primaryEntity: người/nhóm/đội/sản phẩm/sự kiện quan trọng nhất; type, role, aliases, summary.",
+    "- summary chỉ 1 câu ngắn. Với nghệ sĩ/người nổi tiếng có thể dùng kiến thức ổn định, phổ biến nếu rất chắc. Với thời sự/chính trị/pháp luật chỉ được mô tả trung tính và dựa trên metadata đầu vào; không suy đoán động cơ, không đánh giá.",
+    "- secondaryEntities: tối đa vài thực thể phụ thật sự liên quan.",
+    "- work: title, seriesTitle, episodeNumber, season, year, version, genre, language, isSeries.",
+    "",
+    "C. ĐÁNH GIÁ NGUỒN",
+    "- channelRole: official/creator/publisher/reupload/fan/aggregator/unknown.",
+    "- originalChannelHint chỉ ghi khi có bằng chứng khá rõ; không bịa kênh gốc.",
+    "- Nếu video đang xem là reup, kế hoạch gợi ý phải ưu tiên tìm bản gốc/nguồn chính trước.",
+    "",
+    "D. TẠO KẾ HOẠCH GỢI Ý THEO ĐÚNG LOẠI NỘI DUNG",
+    "Trả sections theo ĐÚNG THỨ TỰ nên hiển thị. Mỗi section có key,label,relation,queries,sourceMode,limit.",
+    "sourceMode: any | same_channel | creator | official | series_source.",
+    "",
+    "NHẠC:",
+    "1) Nếu đang ở bản reup: Bản gốc / nguồn chính.",
+    "2) Ca khúc khác của nghệ sĩ chính.",
+    "3) Cùng bài do ca sĩ/nghệ sĩ khác thể hiện.",
+    "4) Cover.",
+    "5) Không lời / Guitar / Piano.",
+    "6) Live / Remix / Karaoke / phiên bản khác.",
+    "Ví dụ: NƠI NÀY CÓ ANH | OFFICIAL MUSIC VIDEO | SƠN TÙNG M-TP => kind=music, category=music_video, canonicalTitle=Nơi Này Có Anh, creator=Sơn Tùng M-TP; không được xếp thành chủ đề chung.",
+    "",
+    "PHIM / PHIM BỘ:",
+    "1) Nếu có nhiều tập: các tập cùng bộ, ưu tiên nguồn có dãy tập đầy đủ; playlist YouTube có thể xếp ngược nên query phải dựa tên phim+tập, không tin thứ tự playlist.",
+    "2) Bản gốc/nguồn có danh sách tốt nhất nếu video hiện tại là reup.",
+    "3) Phiên bản/năm/remake khác.",
+    "4) Phim khác trong cùng kênh/đơn vị.",
+    "5) Tác phẩm gần nếu cần.",
+    "Ví dụ: Thiên Long Bát Bộ 2003 Tập 1 => film_series, tên bộ Thiên Long Bát Bộ, year/version=2003, isSeries=true.",
+    "",
+    "PHIM NGẮN:",
+    "Ưu tiên cùng câu chuyện/phần tiếp theo, cùng kênh, cùng motif; không trộn thành phim bộ cổ điển nếu metadata không cho thấy.",
+    "",
+    "THỜI SỰ / CURRENT AFFAIRS / KINH TẾ / PHÁP LUẬT:",
+    "Ưu tiên diễn biến mới nhất của đúng sự kiện, cùng nguồn, nguồn gốc/chính thức nếu nhận diện được, bối cảnh/giải thích, rồi sự kiện liên quan. Giữ mô tả trung tính.",
+    "",
+    "GIẢI TRÍ:",
+    "Ưu tiên cùng nghệ sĩ/chương trình/sự kiện, video khác của nguồn, phỏng vấn, biểu diễn/hậu trường liên quan.",
+    "",
+    "THỂ THAO:",
+    "Ưu tiên đúng trận/giải/đội/cầu thủ, highlight, full match nếu hợp lệ, phân tích, video cùng nguồn.",
+    "",
+    "CÔNG NGHỆ:",
+    "Ưu tiên đúng sản phẩm/chủ đề, nguồn chính thức, review, so sánh, hướng dẫn, cập nhật liên quan.",
+    "",
+    "GIÁO DỤC / DOCUMENTARY / GAMING / LIFESTYLE / PODCAST:",
+    "Tạo sections tự nhiên theo nội dung: cùng series/chủ đề, cùng người/kênh, phần tiếp theo, nội dung liên quan gần.",
+    "",
+    "E. TRƯỜNG queries CŨ VẪN PHẢI ĐIỀN để client tương thích:",
+    "sameWork, creator, series, versions, covers, instrumental, alternatives, topic.",
+    "Các query phải ngắn, giống người dùng thật gõ trên YouTube, không nhồi quá nhiều từ.",
     "",
     "OUTPUT chỉ JSON, không Markdown:",
-    JSON.stringify({kind:"music|film|topic|other",canonicalTitle:"",creator:"",currentChannel:"",channelRole:"official|creator|reupload|fan|unknown",originalChannelHint:"",version:"",isSeries:false,subject:"",confidence:0,queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}}),
+    JSON.stringify({
+      kind:"music|film|topic|other",
+      category:"music_video",
+      canonicalTitle:"",creator:"",currentChannel:"",
+      channelRole:"official|creator|publisher|reupload|fan|aggregator|unknown",
+      originalChannelHint:"",version:"",isSeries:false,subject:"",confidence:0,
+      primaryEntity:{name:"",type:"",role:"",aliases:[],summary:""},
+      secondaryEntities:[{name:"",type:"",role:""}],
+      work:{title:"",seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
+      sections:[{key:"artist_catalog",label:"Ca khúc khác của nghệ sĩ",relation:"same_creator",queries:[""],sourceMode:"creator",limit:10}],
+      queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}
+    }),
     "",
-    "TRUY VẤN NGƯỜI DÙNG ĐÃ GÕ: "+clean(searchQuery,160),
-    "VIDEO ĐANG XEM:",
-    JSON.stringify(video),
-    "MỘT SỐ VIDEO LIÊN QUAN TỪ YOUTUBE:",
-    JSON.stringify(related.slice(0,18))
+    "TRUY VẤN NGƯỜI DÙNG ĐÃ GÕ (chỉ là ngữ cảnh): "+clean(searchQuery,160),
+    "VIDEO ĐANG XEM:",JSON.stringify(video),
+    "VIDEO LIÊN QUAN YOUTUBE:",JSON.stringify(related.slice(0,20))
   ].join("\n");
 
   const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
@@ -586,7 +701,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
       const response=await fetch(endpoint,{
         method:"POST",
         headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
-        body:JSON.stringify({contents:[{role:"user",parts:[{text:instruction}]}],generationConfig:{temperature:0.1,responseMimeType:"application/json"}})
+        body:JSON.stringify({contents:[{role:"user",parts:[{text:instruction}]}],generationConfig:{temperature:0.08,responseMimeType:"application/json"}})
       });
       const payload=await response.json().catch(()=>null);
       if(response.ok){
@@ -620,7 +735,7 @@ Deno.serve(async(req:Request)=>{
       const searchQuery=clean(body?.searchQuery,160);
       const canonical=[video.id,video.title,video.channel,video.description,searchQuery,...related.map(row=>[row.id,row.title,row.channel].join("|"))].join("\n");
       const fingerprint=await sha256("video_context\n"+canonical);
-      const cacheKey="v1:video_context:"+fingerprint;
+      const cacheKey="v2:video_context:"+fingerprint;
       const cached=await db.from("yt1988_ai_topic_cache").select("result,model,created_at").eq("cache_key",cacheKey).maybeSingle();
       if(!cached.error&&cached.data?.result){
         return json({ok:true,context:cached.data.result,model:cached.data.model||null,fingerprint,cached:true});
