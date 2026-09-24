@@ -11,7 +11,7 @@ if sentinel in text:
 if marker not in text:
     raise SystemExit("build marker not found")
 
-block = r"""
+block = r'''
 # 1988 dynamic sources v16: discover Vietnamese publishers, fix card navigation and stray newline.
 
 # ---------- Homepage: dynamic Vietnam publisher discovery ----------
@@ -373,6 +373,6 @@ s = s.replace(
     '<head>\n    <meta name="1988-ui-build"'
 )
 p.write_text(s)
-"""
+'''
 
 target.write_text(text.replace(marker, block + "\n" + marker, 1))
