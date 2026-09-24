@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=source-add-left-116">
+  <link rel="stylesheet" href="./src/style.css?v=search-series-120">
   <title>1988</title>
 </head>
 <body>
@@ -57,6 +57,16 @@
           <video id="nativePlayer" controls playsinline webkit-playsinline preload="auto" hidden></video>
           <div id="yt-player" hidden></div>
         </div>
+        <div id="seriesPanel" class="series-panel" hidden>
+          <div class="series-panel-head">
+            <div>
+              <strong id="seriesTitle">Danh sách tập</strong>
+              <span id="seriesMeta"></span>
+            </div>
+            <button id="seriesAutoplay" type="button" aria-pressed="true">Tự phát ✓</button>
+          </div>
+          <div id="seriesEpisodes" class="series-episodes"></div>
+        </div>
         <div class="now">
           <div class="now-copy">
             <h1 id="videoTitle">1988</h1>
@@ -81,6 +91,7 @@
         </div>
         <span id="feedStatus"></span>
       </div>
+      <div id="searchRefinements" class="search-refinements" hidden></div>
       <div id="feed" class="feed">
         <div class="loading">Đang tải…</div>
       </div>
@@ -181,6 +192,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=source-preview-meta-114"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=source-content-keys-119"></script>
+  <script defer src="./src/app.js?v=search-series-120"></script>
 </body>
 </html>

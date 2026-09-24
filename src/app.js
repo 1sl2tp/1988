@@ -23,6 +23,12 @@ const statusText=$("#statusText");
 const feed=$("#feed");
 const feedTitle=$("#feedTitle");
 const feedStatus=$("#feedStatus");
+const searchRefinements=$("#searchRefinements");
+const seriesPanel=$("#seriesPanel");
+const seriesTitle=$("#seriesTitle");
+const seriesMeta=$("#seriesMeta");
+const seriesAutoplay=$("#seriesAutoplay");
+const seriesEpisodes=$("#seriesEpisodes");
 const bgAudio=$("#bgAudio");
 const installBtn=$("#installBtn");
 const installSheet=$("#installSheet");
@@ -96,6 +102,13 @@ const state={
   aiCategoryLoading:new Set(),
   feedTrendTopics:new Map(),
   feedSeq:0,
+  searchSeq:0,
+  searchQuery:"",
+  searchScope:"",
+  seriesQueue:[],
+  seriesIndex:-1,
+  seriesKey:"",
+  seriesAutoplay:true,
   sourceLibraryDirty:false
 };
 
@@ -3945,8 +3958,8 @@ function requestedSource(query=""){
   return null;
 }
 
-function sourceAwareRows(rows=[],query=""){
-  rows=rows.filter(row=>!isBlockedSourceRow(row));
+function sourceAwareRows(rows=[],query="",scope=GENERAL_SOURCE_SCOPE){
+  rows=rows.filter(row=>!isBlockedSourceRow(row,scope));
   const source=requestedSource(query);
   if(!source)return rows;
   const aliases=source.aliases.map(normalizeSearchText);
@@ -4165,8 +4178,461 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
   }
 });
 
+
+function searchSourceId(row={}){
+  return String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+}
+
+function searchChannelName(row={}){
+  return clean(row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
+}
+
+function searchSourceKey(row={}){
+  return searchSourceId(row)||normalizeSearchText(searchChannelName(row))||("video:"+itemVideoId(row));
+}
+
+function searchEpisodeNumber(title=""){
+  const text=clean(title);
+  const patterns=[
+    /(?:^|[\s|_[({-])(?:tập|tap|ep(?:isode)?|hồi|hoi)\s*0*(\d{1,3})(?:\s*\/\s*\d{1,3})?(?=$|[\s|_\])}.,:-])/iu,
+    /(?:^|[\s|_[({-])0*(\d{1,3})\s*\/\s*\d{1,3}(?=$|[\s|_\])}.,:-])/u
+  ];
+  for(const pattern of patterns){
+    const match=text.match(pattern);
+    const value=Number(match?.[1])||0;
+    if(value>0&&value<1000)return value;
+  }
+  return 0;
+}
+
+function stripEpisodeMarkers(value=""){
+  return clean(value)
+    .replace(/(?:^|[\s|_[({-])(?:tập|tap|ep(?:isode)?|hồi|hoi)\s*0*\d{1,3}(?:\s*\/\s*\d{1,3})?(?=$|[\s|_\])}.,:-])/giu," ")
+    .replace(/(?:^|[\s|_[({-])0*\d{1,3}\s*\/\s*\d{1,3}(?=$|[\s|_\])}.,:-])/gu," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function searchCoreTokens(value=""){
+  return normalizeSearchText(stripEpisodeMarkers(value))
+    .split(" ")
+    .filter(token=>token.length>=2&&!/^\d+$/.test(token))
+    .slice(0,10);
+}
+
+function searchTitleMatchesCore(row={},query=""){
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  const tokens=searchCoreTokens(query);
+  if(!title||!tokens.length)return false;
+  const hits=tokens.filter(token=>title.includes(token)).length;
+  return hits>=Math.max(2,Math.ceil(tokens.length*.55));
+}
+
+function searchFilmVariant(row={},query=""){
+  const title=clean(row?._displayTitle||row?.title||"");
+  const norm=normalizeSearchText(title);
+  const year=norm.match(/\b((?:19|20)\d{2})\b/)?.[1]||"";
+  const isNewVersion=/\btan\b/.test(norm)&&!/\btan\b/.test(normalizeSearchText(query));
+  const source=searchSourceKey(row);
+  return {
+    key:source+"|"+year+"|"+(isNewVersion?"tan":""),
+    year,
+    isNewVersion
+  };
+}
+
+function searchResultScore(row={},query="",scope=""){
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  const q=normalizeSearchText(query);
+  const tokens=searchCoreTokens(query);
+  let score=0;
+  if(q&&title.includes(q))score+=120;
+  for(const token of tokens){
+    if(title.includes(token))score+=12;
+  }
+
+  const wantedEpisode=searchEpisodeNumber(query);
+  const episode=searchEpisodeNumber(row?._displayTitle||row?.title||"");
+  if(wantedEpisode&&episode===wantedEpisode)score+=90;
+  else if(wantedEpisode&&episode)score+=Math.max(0,25-Math.abs(episode-wantedEpisode)*5);
+
+  const wantedYear=q.match(/\b((?:19|20)\d{2})\b/)?.[1]||"";
+  if(wantedYear&&title.includes(wantedYear))score+=55;
+
+  const id=searchSourceId(row);
+  if(id&&selectedSetForScope(scope||GENERAL_SOURCE_SCOPE).has(id))score+=36;
+  if(searchTitleMatchesCore(row,query))score+=30;
+
+  const views=Math.max(0,Number(row?.views)||0);
+  score+=Math.min(12,Math.log10(views+10)*2);
+  return score;
+}
+
+function canonicalSearchSeed(query="",scope=""){
+  let value=clean(query);
+  const norm=normalizeSearchText(value);
+  if(scope==="music"){
+    if(/\bnoell+\b/.test(norm))value=value.replace(/\bnoell+\b/ig,"Noel");
+    if(/^noell?$/i.test(value))value="Noel";
+  }
+  return clean(value);
+}
+
+const SEARCH_REFINEMENT_SUFFIXES={
+  music:["không lời","guitar","piano","acoustic","remix","jazz","live","karaoke"],
+  film:["full","tập 1","thuyết minh","lồng tiếng","vietsub","bản đầy đủ"],
+  tech:["review","so sánh","trải nghiệm","hướng dẫn","mới nhất"],
+  sports:["highlight","toàn trận","phân tích","trực tiếp","bàn thắng"],
+  news:["mới nhất","toàn cảnh","phân tích","trực tiếp"],
+  economy:["mới nhất","phân tích","thị trường","giá hôm nay"],
+  law:["mới nhất","toàn cảnh","phân tích"],
+  entertainment:["full show","phỏng vấn","hậu trường","highlight"],
+  general:["mới nhất","trực tiếp","full"]
+};
+
+function searchRefinementQueries(query="",scope="",remote=[]){
+  const canonical=canonicalSearchSeed(query,scope);
+  const current=normalizeSearchText(query);
+  const out=[];
+  const push=(label,value)=>{
+    value=clean(value);
+    if(!value)return;
+    const key=normalizeSearchText(value);
+    if(!key||key===current||out.some(item=>normalizeSearchText(item.value)===key))return;
+    out.push({label:clean(label)||value,value});
+  };
+
+  if(normalizeSearchText(canonical)!==current)push(canonical,canonical);
+
+  const suffixes=SEARCH_REFINEMENT_SUFFIXES[scope]||SEARCH_REFINEMENT_SUFFIXES.general;
+  for(const suffix of suffixes){
+    if(normalizeSearchText(canonical).includes(normalizeSearchText(suffix)))continue;
+    push(suffix,canonical+" "+suffix);
+    if(out.length>=7)break;
+  }
+
+  for(const value of Array.isArray(remote)?remote:[]){
+    push(clean(value),clean(value));
+    if(out.length>=10)break;
+  }
+  return out;
+}
+
+function renderSearchRefinements(query="",scope="",rows=[],remote=[]){
+  if(!searchRefinements)return;
+  const items=searchRefinementQueries(query,scope,remote);
+  if(!items.length){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+    return;
+  }
+  const label=scope==="music"?"Bạn muốn nghe:":rows.length?"Gợi ý tìm:":"Không thấy đúng ý, thử:";
+  searchRefinements.innerHTML=
+    '<span class="search-refine-label">'+esc(label)+'</span>'+
+    items.map(item=>
+      '<button type="button" data-search-refine="'+esc(item.value)+'">'+esc(item.label)+'</button>'
+    ).join("");
+  searchRefinements.hidden=false;
+}
+
+async function enrichSearchRefinements(query,scope,rows,seq){
+  let remote=[];
+  try{
+    const response=await api("suggestions",{q:canonicalSearchSeed(query,scope)},4500);
+    remote=Array.isArray(response?.data)?response.data:[];
+  }catch{}
+  if(seq!==state.searchSeq||state.searchQuery!==query)return;
+  renderSearchRefinements(query,scope,rows,remote.slice(0,4));
+}
+
+function searchCardHtml(row={},options={}){
+  const id=itemVideoId(row);
+  if(!id)return "";
+  const title=clean(row._displayTitle||row.title)||"Video";
+  const channel=searchChannelName(row);
+  const views=Number(row.views)||0;
+  const viewText=clean(row.viewText||"");
+  const duration=Number(row.duration)||0;
+  const isLive=!!row.isLive;
+  const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
+  const statBits=[];
+  if(viewText)statBits.push(viewText);
+  else if(views)statBits.push(fmtViews(views)+" lượt xem");
+  if(published)statBits.push(published);
+  const episode=Number(options.episode)||0;
+  const seriesKey=clean(options.seriesKey||"");
+
+  return '<article class="card search-card" data-video-id="'+esc(id)+
+    '" data-source-id="'+esc(searchSourceId(row))+
+    '" data-title="'+esc(title)+
+    '" data-channel="'+esc(channel)+
+    '" data-views="'+esc(String(views))+
+    '" data-view-text="'+esc(viewText)+
+    '" data-duration="'+esc(String(duration))+
+    '" data-live="'+(isLive?'1':'0')+
+    '" data-published="'+esc(published)+
+    '" data-thumb="'+esc(thumb(row,id))+
+    '" data-search-match="'+(options.match===false?'0':'1')+
+    '" data-series-key="'+esc(seriesKey)+
+    '" data-episode="'+esc(String(episode||""))+'">'+
+      '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+
+        (isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+
+        (episode?'<span class="episode-badge">Tập '+esc(String(episode))+'</span>':'')+
+      '</div>'+
+      '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
+        '<div class="card-channel">'+esc(channel)+'</div>'+
+        '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
+      '</div>'+
+    '</article>';
+}
+
+function searchGroupLabel(group={},query="",scope=""){
+  const channel=clean(group.channel)||"Nguồn YouTube";
+  if(scope!=="film")return channel;
+  const base=stripEpisodeMarkers(canonicalSearchSeed(query,scope))
+    .replace(/\b(?:19|20)\d{2}\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  const bits=[base||"Phim"];
+  if(group.variant?.year)bits.push(group.variant.year);
+  if(group.variant?.isNewVersion)bits.push("Tân");
+  bits.push(channel);
+  return bits.join(" · ");
+}
+
+function searchSeriesKey(row={},query="",scope="",groupKey=""){
+  if(scope!=="film")return "";
+  const episode=searchEpisodeNumber(row?._displayTitle||row?.title||"");
+  if(!episode||!searchTitleMatchesCore(row,query))return "";
+  return "film:"+groupKey+":"+normalizeSearchText(stripEpisodeMarkers(canonicalSearchSeed(query,scope)));
+}
+
+function renderSearchGroups(rows=[],query="",scope="",extrasBySource=new Map()){
+  const sourceRows=(Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
+  const groups=new Map();
+
+  for(const row of sourceRows){
+    const sourceKey=searchSourceKey(row);
+    const variant=scope==="film"?searchFilmVariant(row,query):{key:sourceKey,year:"",isNewVersion:false};
+    const groupKey=scope==="film"?variant.key:sourceKey;
+    if(!groups.has(groupKey)){
+      groups.set(groupKey,{
+        key:groupKey,
+        sourceKey,
+        sourceId:searchSourceId(row),
+        channel:searchChannelName(row),
+        variant,
+        matches:[]
+      });
+    }
+    groups.get(groupKey).matches.push(row);
+  }
+
+  const ordered=[...groups.values()]
+    .map(group=>{
+      group.matches.sort((a,b)=>searchResultScore(b,query,scope)-searchResultScore(a,query,scope));
+      group.score=searchResultScore(group.matches[0]||{},query,scope);
+      return group;
+    })
+    .sort((a,b)=>b.score-a.score)
+    .slice(0,12);
+
+  const html=[];
+  let total=0;
+  for(const group of ordered){
+    const seen=new Set();
+    const cards=[];
+    const exact=group.matches.slice(0,5);
+
+    for(const row of exact){
+      const id=itemVideoId(row);
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      const episode=searchEpisodeNumber(row?._displayTitle||row?.title||"");
+      const seriesKey=searchSeriesKey(row,query,scope,group.key);
+      cards.push(searchCardHtml(row,{match:true,episode,seriesKey}));
+    }
+
+    const extras=Array.isArray(extrasBySource.get(group.sourceKey))?extrasBySource.get(group.sourceKey):[];
+    for(const row of extras){
+      const id=itemVideoId(row);
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      const episode=searchEpisodeNumber(row?._displayTitle||row?.title||"");
+      const seriesKey=searchSeriesKey(row,query,scope,group.key);
+      cards.push(searchCardHtml(row,{match:false,episode,seriesKey}));
+      if(cards.length>=9)break;
+    }
+
+    if(!cards.length)continue;
+    total+=cards.length;
+    html.push(
+      '<section class="search-source-row" data-search-source="'+esc(group.sourceKey)+'">'+
+        '<div class="search-source-head"><strong>'+esc(searchGroupLabel(group,query,scope))+'</strong>'+
+          '<span>'+esc(String(group.matches.length))+' khớp'+(extras.length?' · thêm trong kênh':'')+'</span></div>'+
+        '<div class="search-source-scroll">'+cards.join("")+'</div>'+
+      '</section>'
+    );
+  }
+
+  feed.classList.add("search-grouped");
+  feed.innerHTML=html.join("")||'<div class="empty">Chưa có video phù hợp.</div>';
+  feedStatus.textContent=sourceRows.length?sourceRows.length+" kết quả · "+ordered.length+" nguồn":"";
+}
+
+function searchExtraRank(row={},query=""){
+  let score=searchResultScore(row,query,state.searchScope||GENERAL_SOURCE_SCOPE);
+  if(searchTitleMatchesCore(row,query))score+=80;
+  score+=Math.max(0,10-Math.min(10,publishedAgeMs(row)/DAY_MS));
+  return score;
+}
+
+async function enrichSearchGroups(rows=[],query="",scope="",seq=0){
+  const candidates=[];
+  const seen=new Set();
+  for(const row of rows){
+    const id=searchSourceId(row);
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id)||seen.has(id))continue;
+    seen.add(id);
+    candidates.push({id,key:searchSourceKey(row)});
+    if(candidates.length>=4)break;
+  }
+  if(!candidates.length)return;
+
+  try{
+    const local=await localEngine(12000);
+    const batches=await Promise.all(candidates.map(async source=>{
+      try{
+        const channelRows=await local.channelVideosPage(
+          "search-related:"+fastHash(query)+":"+source.id,
+          source.id,
+          true
+        );
+        const rows=(Array.isArray(channelRows)?channelRows:[])
+          .filter(row=>!isBlockedSourceRow(row,scope))
+          .sort((a,b)=>searchExtraRank(b,query)-searchExtraRank(a,query))
+          .slice(0,8);
+        return [source.key,rows];
+      }catch{
+        return [source.key,[]];
+      }
+    }));
+
+    if(seq!==state.searchSeq||state.searchQuery!==query)return;
+    renderSearchGroups(rows,query,scope,new Map(batches));
+  }catch{}
+}
+
+function clearSeriesContext(){
+  state.seriesQueue=[];
+  state.seriesIndex=-1;
+  state.seriesKey="";
+  if(seriesPanel)seriesPanel.hidden=true;
+  if(seriesEpisodes)seriesEpisodes.innerHTML="";
+}
+
+function renderSeriesPanel(){
+  if(!seriesPanel||!seriesEpisodes)return;
+  const queue=Array.isArray(state.seriesQueue)?state.seriesQueue:[];
+  if(queue.length<2){
+    seriesPanel.hidden=true;
+    return;
+  }
+
+  seriesPanel.hidden=false;
+  const current=queue[state.seriesIndex]||queue[0];
+  if(seriesTitle)seriesTitle.textContent=clean(current?.seriesLabel)||"Danh sách tập";
+  if(seriesMeta)seriesMeta.textContent=queue.length+" tập · sắp xếp theo số tập";
+  if(seriesAutoplay){
+    seriesAutoplay.classList.toggle("active",state.seriesAutoplay);
+    seriesAutoplay.setAttribute("aria-pressed",state.seriesAutoplay?"true":"false");
+    seriesAutoplay.textContent=state.seriesAutoplay?"Tự phát ✓":"Tự phát";
+  }
+
+  seriesEpisodes.innerHTML=queue.map((item,index)=>
+    '<button type="button" data-series-index="'+index+'" class="'+(index===state.seriesIndex?'active':'')+'">'+
+      'Tập '+esc(String(item.episode))+
+    '</button>'
+  ).join("");
+}
+
+function setSeriesContextFromCard(card){
+  const key=clean(card?.dataset?.seriesKey||"");
+  const episode=Number(card?.dataset?.episode)||0;
+  if(!key||!episode){
+    clearSeriesContext();
+    return;
+  }
+
+  const rows=[...feed.querySelectorAll("[data-video-id][data-series-key]")]
+    .filter(item=>item.dataset.seriesKey===key&&Number(item.dataset.episode)>0);
+
+  const byEpisode=new Map();
+  for(const item of rows){
+    const ep=Number(item.dataset.episode)||0;
+    if(!ep||byEpisode.has(ep))continue;
+    byEpisode.set(ep,{
+      id:item.dataset.videoId||"",
+      episode:ep,
+      meta:rowFromCard(item),
+      seriesLabel:stripEpisodeMarkers(item.dataset.title||state.searchQuery||"Phim")
+    });
+  }
+
+  const queue=[...byEpisode.values()].sort((a,b)=>a.episode-b.episode);
+  if(queue.length<2){
+    clearSeriesContext();
+    return;
+  }
+
+  state.seriesQueue=queue;
+  state.seriesKey=key;
+  state.seriesIndex=Math.max(0,queue.findIndex(item=>item.id===card.dataset.videoId));
+  renderSeriesPanel();
+}
+
+function playSeriesIndex(index){
+  const item=state.seriesQueue?.[index];
+  if(!item?.id)return false;
+  state.seriesIndex=index;
+  renderSeriesPanel();
+  void playVideo(item.id,{...item.meta,_seriesKey:state.seriesKey,_episode:item.episode});
+  return true;
+}
+
+function advanceSeriesEpisode(){
+  if(!state.seriesAutoplay||state.seriesQueue.length<2)return false;
+  const next=state.seriesIndex+1;
+  if(next<0||next>=state.seriesQueue.length)return false;
+  return playSeriesIndex(next);
+}
+
+function contextualRelatedRows(rows=[],meta={}){
+  const currentChannel=normalizeSearchText(meta?.uploaderName||meta?.uploader||"");
+  const currentCore=searchCoreTokens(meta?.title||"");
+  const query=state.searchQuery||meta?.title||"";
+  return (Array.isArray(rows)?rows:[])
+    .map((row,index)=>{
+      const channel=normalizeSearchText(searchChannelName(row));
+      const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+      let score=searchResultScore(row,query,state.searchScope||GENERAL_SOURCE_SCOPE);
+      if(currentChannel&&channel===currentChannel)score+=80;
+      const overlap=currentCore.filter(token=>title.includes(token)).length;
+      score+=overlap*16;
+      if(searchEpisodeNumber(row?._displayTitle||row?.title||"")&&overlap>=Math.max(2,Math.ceil(currentCore.length*.5)))score+=100;
+      return {row,index,score};
+    })
+    .sort((a,b)=>b.score-a.score||a.index-b.index)
+    .map(item=>item.row);
+}
+
 function renderCards(rows=[],options={}){
   const append=options.append===true;
+  if(!append)feed.classList.remove("search-grouped");
+  if(!options.keepSearchRefinements&&searchRefinements){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+  }
   const seen=new Set(
     append
       ? [...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean)
@@ -4512,9 +4978,10 @@ async function playVideo(id,seedMeta={}){
       backgroundPlayer.setMetadata(meta);
       const related=Array.isArray(detail?.related)?detail.related:[];
       if(related.length&&!state.activeFeed){
-        feedTitle.textContent="Gợi ý tiếp theo";
+        const ranked=contextualRelatedRows(related,meta);
+        feedTitle.textContent=state.seriesQueue.length>1?"Cùng bộ · Gợi ý tiếp theo":"Gợi ý tiếp theo";
         state.feedHasMore=false;
-        renderCards(related.slice(0,24));
+        renderCards(ranked.slice(0,24));
       }
     }).catch(()=>{});
   }).catch(()=>{});
@@ -4627,6 +5094,7 @@ function initYouTubePlayer(){
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           applyFloatingIframe();
+          if(advanceSeriesEpisode())return;
           if(state.mode==="video")statusText.textContent="Đã phát xong";
         }
       },
@@ -4662,12 +5130,23 @@ async function doSearch(value){
   const q=clean(value);
   if(!q)return;
   clearSuggestions();
+
+  const searchScope=
+    state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+      ?state.activeParent
+      :activeSourceScope()||GENERAL_SOURCE_SCOPE;
+  const seq=++state.searchSeq;
+  state.searchQuery=q;
+  state.searchScope=searchScope;
+
   setActiveChip("");
   state.feedHasMore=false;
   state.feedRows=[];
+  clearSeriesContext();
 
   const id=extractVideoId(q);
   if(id){
+    if(searchRefinements)searchRefinements.hidden=true;
     await playVideo(id,{
       title:"Đang tải thông tin…",
       thumbnailUrl:"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"
@@ -4676,34 +5155,87 @@ async function doSearch(value){
   }
 
   feedTitle.textContent='Kết quả cho “'+q+'”';
+  feed.classList.remove("search-grouped");
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
+  renderSearchRefinements(q,searchScope,[]);
+  void enrichSearchRefinements(q,searchScope,[],seq);
 
-  // Same fast discovery path used by Kira proof. Do not wait for the
-  // heavier local YouTubeJS session before showing results on main.
+  const showRows=rows=>{
+    if(seq!==state.searchSeq)return false;
+    const scoped=sourceAwareRows(
+      (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,searchScope)),
+      q,
+      searchScope
+    );
+    if(!scoped.length)return false;
+
+    state.feedRows=scoped;
+    renderSearchGroups(scoped,q,searchScope);
+    renderSearchRefinements(q,searchScope,scoped);
+    void enrichSearchRefinements(q,searchScope,scoped,seq);
+    void enrichSearchGroups(scoped,q,searchScope,seq);
+    rememberDiscoveredSources(scoped,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
+    return true;
+  };
+
   try{
     const r=await api("search",{q,filter:"videos"},10000);
-    const rows=(Array.isArray(r?.data?.items)?r.data.items:[])
-      .filter(row=>!isBlockedSourceRow(row));
-    if(!rows.length)throw new Error("empty_search");
-    rememberDiscoveredSources(rows,"");
-    renderCards(sourceAwareRows(rows,q));
-    return;
+    const rows=Array.isArray(r?.data?.items)?r.data.items:[];
+    if(showRows(rows))return;
+    throw new Error("empty_search");
   }catch(error){
     console.warn("1988 search API failed; trying local engine",error);
   }
 
   try{
     const local=await localEngine(9000);
-    const rows=(await local.search(q,{type:"video"}))
-      .filter(row=>!isBlockedSourceRow(row));
-    rememberDiscoveredSources(rows,"");
-    renderCards(sourceAwareRows(rows,q));
-  }catch{
-    feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
+    let rows=await local.search(q,{type:"video"});
+    if(showRows(rows))return;
+
+    const canonical=canonicalSearchSeed(q,searchScope);
+    if(normalizeSearchText(canonical)!==normalizeSearchText(q)){
+      rows=await local.search(canonical,{type:"video"});
+      if(showRows(rows)){
+        queryInput.value=canonical;
+        return;
+      }
+    }
+
+    feed.classList.remove("search-grouped");
+    feed.innerHTML='<div class="empty">Chưa thấy kết quả đúng ý. Chọn một gợi ý bên trên để tìm tiếp.</div>';
     feedStatus.textContent="";
+    renderSearchRefinements(q,searchScope,[]);
+    void enrichSearchRefinements(q,searchScope,[],seq);
+  }catch{
+    feed.classList.remove("search-grouped");
+    feed.innerHTML='<div class="error">Chưa tìm được video. Chọn một gợi ý bên trên để thử cách tìm khác.</div>';
+    feedStatus.textContent="";
+    renderSearchRefinements(q,searchScope,[]);
+    void enrichSearchRefinements(q,searchScope,[],seq);
   }
 }
+
+searchRefinements?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-search-refine]");
+  if(!button)return;
+  const value=clean(button.dataset.searchRefine||"");
+  if(!value)return;
+  queryInput.value=value;
+  void doSearch(value);
+});
+
+seriesAutoplay?.addEventListener("click",()=>{
+  state.seriesAutoplay=!state.seriesAutoplay;
+  renderSeriesPanel();
+});
+
+seriesEpisodes?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-series-index]");
+  if(!button)return;
+  const index=Number(button.dataset.seriesIndex);
+  if(Number.isInteger(index))playSeriesIndex(index);
+});
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
@@ -4767,6 +5299,7 @@ feed.addEventListener("click",e=>{
   const card=e.target.closest("[data-video-id]");
   if(!card)return;
   const id=card.dataset.videoId;
+  setSeriesContextFromCard(card);
   playVideo(id,rowFromCard(card));
 });
 
@@ -4831,7 +5364,9 @@ nativePlayer.addEventListener("pause",()=>{
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
 });
 nativePlayer.addEventListener("ended",()=>{
-  if(state.engine==="native"&&state.mode==="video")statusText.textContent="Đã phát xong";
+  if(state.engine!=="native"||state.mode!=="video")return;
+  if(advanceSeriesEpisode())return;
+  statusText.textContent="Đã phát xong";
 });
 
 document.addEventListener("visibilitychange",()=>{
