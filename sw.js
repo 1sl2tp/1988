@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-old-feed-v54';
+const CACHE='1988-main-rolling-7d-v55';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=regional-feed-45',
-  './src/app.js?v=old-feed-54',
+  './src/app.js?v=rolling-7d-55',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=hype-feed-53',
