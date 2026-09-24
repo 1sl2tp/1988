@@ -567,6 +567,14 @@ function validateVideoContext(value:any){
     isSeries:work?.isSeries===true||value?.isSeries===true
   };
 
+  const briefRaw=value?.brief&&typeof value.brief==="object"?value.brief:{};
+  const brief={
+    title:clean(briefRaw?.title,120),
+    lines:[...new Set((Array.isArray(briefRaw?.lines)?briefRaw.lines:[]).map((x:any)=>clean(x,220)).filter(Boolean))].slice(0,3),
+    asOf:clean(briefRaw?.asOf,40),
+    mode:["latest","context","summary"].includes(clean(briefRaw?.mode,20))?clean(briefRaw?.mode,20):"context"
+  };
+
   const knowledgeRaw=value?.knowledge&&typeof value.knowledge==="object"?value.knowledge:{};
   const knowledge={
     summary:clean(knowledgeRaw?.summary,420),
@@ -613,6 +621,7 @@ function validateVideoContext(value:any){
     primaryEntity,
     secondaryEntities,
     work:normalizedWork,
+    brief,
     knowledge,
     sections,
     queries:outQueries
@@ -624,6 +633,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "Bạn là bộ não NGỮ CẢNH SAU KHI NGƯỜI DÙNG ĐÃ BẤM CHỌN MỘT VIDEO trong ứng dụng 1988.",
     "Ô tìm kiếm chỉ tìm bình thường. CHỈ SAU KHI người dùng chọn video này mới được phân tích và dựng gợi ý.",
     "Hãy dùng MỘT lần gọi AI này để trả đủ dữ liệu cho mọi trường hợp, không bắt client phải gọi AI lần nữa.",
+    "Bạn có Google Search grounding. Với nội dung có thể thay đổi theo thời gian (sản phẩm/công nghệ, người nổi tiếng, thể thao, thời sự, kinh tế, pháp luật, giá cả, nhân vật công chúng), hãy dùng Search để lấy thông tin mới nhất trước khi trả lời.",
     "",
     "A. PHÂN LOẠI 2 TẦNG",
     "- kind chỉ là họ lớn: music | film | topic | other.",
@@ -645,8 +655,16 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "- originalChannelHint chỉ ghi khi có bằng chứng khá rõ; không bịa kênh gốc.",
     "- Nếu video đang xem là reup, kế hoạch gợi ý phải ưu tiên tìm bản gốc/nguồn chính trước.",
     "",
-    "D. TẠO KẾ HOẠCH GỢI Ý THEO ĐÚNG LOẠI NỘI DUNG",
-    "AI chỉ trả NGỮ NGHĨA + từ khóa/truy vấn. Client mới là nơi gọi tìm kiếm YouTube và kiểm tra kết quả.",
+    "D. THẺ THÔNG TIN NGẮN DƯỚI VIDEO",
+    "- brief.title: tiêu đề ngắn, ví dụ iPhone 18 Pro Max, Sơn Tùng M-TP, Thiên Long Bát Bộ.",
+    "- brief.lines: tối đa 3 câu ngắn, dễ đọc.",
+    "- Nếu có cập nhật mới đáng tin cậy: mode=latest và nêu 1-3 thông tin mới có liên quan trực tiếp.",
+    "- Nếu là tác phẩm ổn định như phim/bài hát: mode=context và nêu thông tin hữu ích về tác phẩm/người liên quan.",
+    "- Nếu không có dữ liệu mới đủ chắc: mode=summary và chỉ tóm tắt video từ metadata được cung cấp, không bịa.",
+    "- Với chính trị/thời sự/pháp luật: trung tính, mô tả sự kiện/quan hệ có căn cứ; không đánh giá, không suy đoán động cơ, sức khỏe hay năng lực.",
+    "",
+    "E. TẠO KẾ HOẠCH GỢI Ý VIDEO THEO ĐÚNG LOẠI NỘI DUNG"
+    "AI chỉ trả NGỮ NGHĨA + thông tin ngắn + từ khóa/truy vấn. Client mới là nơi gọi tìm kiếm YouTube và kiểm tra video nào thực sự phù hợp.",
     "Trả sections theo ĐÚNG THỨ TỰ nên hiển thị. Mỗi section có key,label,relation,queries,sourceMode,limit.",
     "sourceMode: any | same_channel | creator | official | series_source.",
     "",
@@ -657,6 +675,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "4) Cover.",
     "5) Không lời / Guitar / Piano.",
     "6) Live / Remix / Karaoke / phiên bản khác.",
+    "7) Nếu nghệ sĩ còn hoạt động và có cập nhật mới đáng chú ý, thêm section Mới nhất về {nghệ sĩ}.",
     "Ví dụ: NƠI NÀY CÓ ANH | OFFICIAL MUSIC VIDEO | SƠN TÙNG M-TP => kind=music, category=music_video, canonicalTitle=Nơi Này Có Anh, creator=Sơn Tùng M-TP; không được xếp thành chủ đề chung.",
     "",
     "PHIM / PHIM BỘ:",
@@ -670,21 +689,21 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "Ưu tiên cùng câu chuyện/phần tiếp theo, cùng kênh, cùng motif; không trộn thành phim bộ cổ điển nếu metadata không cho thấy.",
     "",
     "THỜI SỰ / CURRENT AFFAIRS / KINH TẾ / PHÁP LUẬT:",
-    "Ưu tiên diễn biến mới nhất của đúng sự kiện, cùng nguồn, nguồn gốc/chính thức nếu nhận diện được, bối cảnh/giải thích, rồi sự kiện liên quan. Giữ mô tả trung tính.",
+    "Section đầu tiên nên là Mới nhất về {sự kiện/người/vấn đề}; sau đó nguồn gốc/chính thức nếu có, bối cảnh/giải thích và sự kiện liên quan. Giữ mô tả trung tính.",
     "",
     "GIẢI TRÍ:",
-    "Ưu tiên cùng nghệ sĩ/chương trình/sự kiện, video khác của nguồn, phỏng vấn, biểu diễn/hậu trường liên quan.",
+    "Nếu là nghệ sĩ/người nổi tiếng, section đầu tiên nên là Mới nhất về {tên}; sau đó cùng nghệ sĩ/chương trình/sự kiện, phỏng vấn, biểu diễn/hậu trường liên quan.",
     "",
     "THỂ THAO:",
-    "Ưu tiên đúng trận/giải/đội/cầu thủ, highlight, full match nếu hợp lệ, phân tích, video cùng nguồn.",
+    "Nếu sự kiện/đội/cầu thủ đang hoạt động, section đầu tiên nên là Mới nhất về ...; sau đó đúng trận/giải, highlight, full match nếu hợp lệ, phân tích và video cùng nguồn.",
     "",
     "CÔNG NGHỆ:",
-    "Ưu tiên đúng sản phẩm/chủ đề, nguồn chính thức, review, so sánh, hướng dẫn, cập nhật liên quan.",
+    "Section đầu tiên phải là Mới nhất về {sản phẩm/chủ đề} khi phù hợp (ví dụ iPhone 18), rồi nguồn chính thức, review/đánh giá khác, so sánh, hướng dẫn và cập nhật liên quan.",
     "",
     "GIÁO DỤC / DOCUMENTARY / GAMING / LIFESTYLE / PODCAST:",
     "Tạo sections tự nhiên theo nội dung: cùng series/chủ đề, cùng người/kênh, phần tiếp theo, nội dung liên quan gần.",
     "",
-    "E. TRƯỜNG queries CŨ VẪN PHẢI ĐIỀN để client tương thích:",
+    "F. TRƯỜNG queries CŨ VẪN PHẢI ĐIỀN để client tương thích:"
     "sameWork, creator, series, versions, covers, instrumental, alternatives, topic.",
     "Các query phải ngắn, giống người dùng thật gõ trên YouTube, không nhồi quá nhiều từ.",
     "",
@@ -697,6 +716,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
       originalChannelHint:"",version:"",isSeries:false,subject:"",confidence:0,
       primaryEntity:{name:"",type:"",role:"",aliases:[],summary:""},
       secondaryEntities:[{name:"",type:"",role:""}],
+      brief:{title:"",lines:[""],asOf:"",mode:"latest|context|summary"},
       work:{title:"",seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
       knowledge:{summary:"",director:"",cast:[],year:0,country:"",genre:"",reviewQueries:[],castQueries:[],infoQueries:[],versionQueries:[]},
       sections:[{key:"artist_catalog",label:"Ca khúc khác của nghệ sĩ",relation:"same_creator",queries:[""],sourceMode:"creator",limit:10}],
@@ -710,26 +730,56 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
 
   const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
   const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"].filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+  const sourceRows=(payload:any)=>{
+    const chunks=payload?.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    const out:any[]=[];
+    const seen=new Set<string>();
+    for(const chunk of Array.isArray(chunks)?chunks:[]){
+      const web=chunk?.web;
+      const uri=clean(web?.uri,500);
+      const title=clean(web?.title,160);
+      if(!uri||seen.has(uri))continue;
+      seen.add(uri);
+      out.push({title,uri});
+      if(out.length>=6)break;
+    }
+    return out;
+  };
+
   let lastError="ai_failed";
   for(const model of models){
     const endpoint="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent";
-    try{
-      const response=await fetch(endpoint,{
-        method:"POST",
-        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
-        body:JSON.stringify({contents:[{role:"user",parts:[{text:instruction}]}],generationConfig:{temperature:0.08,responseMimeType:"application/json"}})
-      });
-      const payload=await response.json().catch(()=>null);
-      if(response.ok){
-        const text=responseText(payload);
-        if(!text)throw new Error("empty_ai_response");
-        return {model,text};
+    for(const grounded of [true,false]){
+      try{
+        const body:any={
+          contents:[{role:"user",parts:[{text:instruction}]}],
+          generationConfig:{temperature:0.08,responseMimeType:"application/json"}
+        };
+        if(grounded)body.tools=[{google_search:{}}];
+        const response=await fetch(endpoint,{
+          method:"POST",
+          headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+          body:JSON.stringify(body)
+        });
+        const payload=await response.json().catch(()=>null);
+        if(response.ok){
+          const text=responseText(payload);
+          if(!text)throw new Error("empty_ai_response");
+          return {
+            model,text,grounded,
+            sources:sourceRows(payload),
+            webSearchQueries:(Array.isArray(payload?.candidates?.[0]?.groundingMetadata?.webSearchQueries)?payload.candidates[0].groundingMetadata.webSearchQueries:[])
+              .map((q:any)=>clean(q,140)).filter(Boolean).slice(0,6)
+          };
+        }
+        lastError="ai_http_"+response.status;
+        if(response.status!==400||!grounded)break;
+      }catch(error){
+        lastError=String((error as any)?.message||error||"ai_network");
+        if(!grounded)break;
       }
-      lastError="ai_http_"+response.status;
-      if(response.status===401||response.status===403)break;
-    }catch(error){
-      lastError=String((error as any)?.message||error||"ai_network");
     }
+    if(lastError==="ai_http_401"||lastError==="ai_http_403")break;
   }
   throw new Error(lastError);
 }
@@ -750,16 +800,21 @@ Deno.serve(async(req:Request)=>{
       const related=normalizeVideos(body?.related).slice(0,24);
       const searchQuery=clean(body?.searchQuery,160);
       const canonical=[video.id,video.title,video.channel,video.description,searchQuery,...related.map(row=>[row.id,row.title,row.channel].join("|"))].join("\n");
+      const freshnessBucket=Math.floor(Date.now()/(6*60*60*1000));
       const fingerprint=await sha256("video_context\n"+canonical);
-      const cacheKey="v3:video_context:"+fingerprint;
+      const cacheKey="v4:video_context:"+freshnessBucket+":"+fingerprint;
       const cached=await db.from("yt1988_ai_topic_cache").select("result,model,created_at").eq("cache_key",cacheKey).maybeSingle();
       if(!cached.error&&cached.data?.result){
         return json({ok:true,context:cached.data.result,model:cached.data.model||null,fingerprint,cached:true});
       }
       const ai=await callVideoContextGemini(cfg,video,related,searchQuery);
-      const context=validateVideoContext(parseJson(ai.text));
+      const context={
+        ...validateVideoContext(parseJson(ai.text)),
+        groundingSources:Array.isArray(ai.sources)?ai.sources:[],
+        webSearchQueries:Array.isArray(ai.webSearchQueries)?ai.webSearchQueries:[]
+      };
       await db.from("yt1988_ai_topic_cache").upsert({cache_key:cacheKey,scope:"video_context",fingerprint,model:ai.model,video_count:1,result:context,created_at:new Date().toISOString()},{onConflict:"cache_key"});
-      return json({ok:true,context,model:ai.model,fingerprint,cached:false});
+      return json({ok:true,context,model:ai.model,fingerprint,cached:false,grounded:ai.grounded===true});
     }
 
     if(mode==="catalog"){
