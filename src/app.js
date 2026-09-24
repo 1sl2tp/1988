@@ -587,14 +587,15 @@ function renderCards(rows=[]){
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
     const duration=Number(row.duration)||0;
+    const isLive=!!row.isLive;
     const published=publishedLabel(row)||clean(row.publishedText||"");
     const statBits=[];
     if(viewText)statBits.push(viewText);
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
     cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
-        '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
+      '<article class="card" data-video-id="'+esc(id)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
+        '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
           '<div class="card-channel">'+esc(channel)+'</div>'+
           '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
@@ -613,6 +614,7 @@ function rowFromCard(card){
     views:Number(card.dataset.views)||0,
     viewText:card.dataset.viewText||"",
     duration:Number(card.dataset.duration)||0,
+    isLive:card.dataset.live==="1",
     uploadDate:card.dataset.published||"",
     publishedText:card.dataset.published||"",
     thumbnailUrl:card.dataset.thumb||""
@@ -1202,6 +1204,21 @@ const FEED_PRESETS={
   home:{
     title:"Gợi ý",
     load:local=>local.home()
+  },
+  live:{
+    title:"Đang live",
+    load:async local=>{
+      let rows=[];
+      try{
+        rows=await local.search("Việt Nam",{type:"video",features:["live"],prioritize:"popularity"});
+      }catch{}
+      const liveRows=(rows||[]).filter(row=>row?.isLive);
+      if(liveRows.length)return liveRows;
+
+      const fallback=await local.search("trực tiếp Việt Nam",{type:"video",prioritize:"popularity"});
+      const fallbackLive=(fallback||[]).filter(row=>row?.isLive);
+      return fallbackLive.length?fallbackLive:fallback;
+    }
   },
   today:{
     title:"Top hôm nay",
