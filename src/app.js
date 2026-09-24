@@ -38,7 +38,9 @@ const state={
   audioMaster:false,
   engine:"iframe",
   nativeSource:"",
-  activeFeed:"home"
+  activeFeed:"home",
+  mini:false,
+  miniDrag:null
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -130,6 +132,138 @@ function fmtDuration(sec){
   sec=Math.max(0,Number(sec)||0);
   const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):String(m)+":"+String(s).padStart(2,"0");
+}
+
+
+const SOURCE_ALIASES=[
+  {name:"VTV24",aliases:["vtv24","vtv 24"]},
+  {name:"VTC NOW",aliases:["vtc now","vtcnow","vtc"]},
+  {name:"ANTV",aliases:["antv","công an nhân dân","cong an nhan dan"]},
+  {name:"VNEWS",aliases:["vnews","thông tấn","thong tan"]},
+  {name:"Thanh Niên",aliases:["thanh niên","thanh nien"]},
+  {name:"Tuổi Trẻ",aliases:["tuổi trẻ","tuoi tre"]},
+  {name:"VnExpress",aliases:["vnexpress"]},
+  {name:"Dân Trí",aliases:["dân trí","dan tri"]},
+  {name:"VietnamNet",aliases:["vietnamnet"]},
+  {name:"Lao Động",aliases:["lao động","lao dong"]},
+  {name:"Người Lao Động",aliases:["người lao động","nguoi lao dong"]},
+  {name:"PLO",aliases:["plo","pháp luật tp","phap luat tp"]}
+];
+
+function normalizeSearchText(value=""){
+  return String(value||"")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/đ/g,"d")
+    .replace(/Đ/g,"D")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g," ")
+    .trim();
+}
+
+function requestedSource(query=""){
+  const q=normalizeSearchText(query);
+  if(!q)return null;
+  for(const source of SOURCE_ALIASES){
+    if(source.aliases.some(alias=>q.includes(normalizeSearchText(alias))))return source;
+  }
+  return null;
+}
+
+function sourceAwareRows(rows=[],query=""){
+  const source=requestedSource(query);
+  if(!source)return rows;
+  const aliases=source.aliases.map(normalizeSearchText);
+  const matches=[];
+  const rest=[];
+  for(const row of rows){
+    const channel=normalizeSearchText(row?.uploaderName||row?.uploader||row?.channelName||"");
+    const title=normalizeSearchText(row?.title||"");
+    const hit=aliases.some(alias=>channel.includes(alias)||title.startsWith(alias+" "));
+    (hit?matches:rest).push(row);
+  }
+  return matches.length?matches:rows;
+}
+
+function setMini(enabled){
+  const next=!!enabled&&!!state.currentId;
+  if(state.mini===next)return;
+  state.mini=next;
+  playerSection.classList.toggle("is-mini",next);
+  if(!next){
+    const card=playerSection.querySelector(".player-card");
+    if(card){
+      card.style.removeProperty("left");
+      card.style.removeProperty("top");
+      card.style.removeProperty("right");
+      card.style.removeProperty("bottom");
+      card.style.removeProperty("width");
+      card.style.removeProperty("height");
+    }
+  }
+}
+
+function updateAutoMini(){
+  if(!state.currentId||playerSection.hidden)return setMini(false);
+  const rect=playerSection.getBoundingClientRect();
+  if(!state.mini&&rect.top<-120)setMini(true);
+  else if(state.mini&&rect.top>20)setMini(false);
+}
+
+function setupMiniGestures(){
+  const card=playerSection.querySelector(".player-card");
+  if(!card)return;
+
+  card.addEventListener("pointerdown",event=>{
+    if(!state.mini)return;
+    const target=event.target;
+    if(target&&target.closest?.("iframe,video,button"))return;
+
+    const rect=card.getBoundingClientRect();
+    const edge=18;
+    const resize=event.clientX>rect.right-edge&&event.clientY>rect.bottom-edge;
+    state.miniDrag={
+      id:event.pointerId,
+      resize,
+      startX:event.clientX,
+      startY:event.clientY,
+      left:rect.left,
+      top:rect.top,
+      width:rect.width,
+      height:rect.height
+    };
+    try{card.setPointerCapture(event.pointerId);}catch{}
+  });
+
+  card.addEventListener("pointermove",event=>{
+    const drag=state.miniDrag;
+    if(!drag||drag.id!==event.pointerId||!state.mini)return;
+    const dx=event.clientX-drag.startX;
+    const dy=event.clientY-drag.startY;
+
+    if(drag.resize){
+      const width=Math.max(180,Math.min(window.innerWidth-16,drag.width+dx));
+      const height=width*9/16;
+      card.style.width=width+"px";
+      card.style.height=height+"px";
+      return;
+    }
+
+    const width=card.getBoundingClientRect().width;
+    const height=card.getBoundingClientRect().height;
+    const left=Math.max(8,Math.min(window.innerWidth-width-8,drag.left+dx));
+    const top=Math.max(8+Number(getComputedStyle(document.documentElement).getPropertyValue("--safe-top").replace("px","")||0),Math.min(window.innerHeight-height-8,drag.top+dy));
+    card.style.left=left+"px";
+    card.style.top=top+"px";
+    card.style.right="auto";
+    card.style.bottom="auto";
+  });
+
+  const stop=event=>{
+    if(state.miniDrag?.id===event.pointerId)state.miniDrag=null;
+  };
+  card.addEventListener("pointerup",stop);
+  card.addEventListener("pointercancel",stop);
 }
 
 function publishedLabel(row={}){
@@ -597,7 +731,7 @@ async function doSearch(value){
     const r=await api("search",{q,filter:"videos"},10000);
     const rows=Array.isArray(r?.data?.items)?r.data.items:[];
     if(!rows.length)throw new Error("empty_search");
-    renderCards(rows);
+    renderCards(sourceAwareRows(rows,q));
     return;
   }catch(error){
     console.warn("1988 search API failed; trying local engine",error);
@@ -630,22 +764,27 @@ queryInput.addEventListener("input",()=>{
   }
   const seq=++suggestSeq;
   suggestTimer=setTimeout(async()=>{
+    let rows=[];
     try{
-      const local=await localEngine(12000);
-      const rows=await local.suggestions(q);
-      if(seq!==suggestSeq||clean(queryInput.value)!==q)return;
-      if(!rows.length){
-        clearSuggestions();
-        return;
-      }
-      suggestions.innerHTML=rows.map(value=>
-        '<button type="button" data-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
-      ).join("");
-      suggestions.hidden=false;
-    }catch{
-      clearSuggestions();
+      const r=await api("suggestions",{q},4000);
+      rows=Array.isArray(r?.data)?r.data:[];
+    }catch{}
+    if(!rows.length){
+      try{
+        const local=await localEngine(6000);
+        rows=await local.suggestions(q);
+      }catch{}
     }
-  },180);
+    if(seq!==suggestSeq||clean(queryInput.value)!==q)return;
+    if(!rows.length){
+      clearSuggestions();
+      return;
+    }
+    suggestions.innerHTML=rows.slice(0,8).map(value=>
+      '<button type="button" data-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
+    ).join("");
+    suggestions.hidden=false;
+  },140);
 });
 
 suggestions.addEventListener("click",e=>{
@@ -866,6 +1005,9 @@ topicChips.addEventListener("click",e=>{
 
 setupMediaSession();
 setupInstall();
+setupMiniGestures();
+window.addEventListener("scroll",updateAutoMini,{passive:true});
+window.addEventListener("resize",updateAutoMini,{passive:true});
 updateModeUi();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
