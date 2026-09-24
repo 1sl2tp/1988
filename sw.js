@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-sources-v83';
+const CACHE='1988-main-sources-v84';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=sources-83',
-  './src/app.js?v=sources-83',
+  './src/style.css?v=sources-84',
+  './src/app.js?v=sources-84',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
