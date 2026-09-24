@@ -80,6 +80,9 @@ jobs:
       - name: Apply feed modes v18
         run: python3 scripts/apply-feed-modes-v18.py
 
+      - name: Apply TikTok modes v19
+        run: python3 scripts/apply-tiktok-v19.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
