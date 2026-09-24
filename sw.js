@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pip-switch-v146';
+const CACHE='1988-main-player-recover-v147';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-switch-146',
-  './src/app.js?v=pip-switch-146',
+  './src/style.css?v=player-recover-147',
+  './src/app.js?v=player-recover-147',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

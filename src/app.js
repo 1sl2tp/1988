@@ -2697,14 +2697,6 @@ function scheduleYoutubeContentAspect(player=state.player){
   setTimeout(attempt,700);
 }
 
-function suppressFloatSwitchTransition(frame){
-  if(!frame)return;
-  frame.classList.add("float-switching");
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>frame.classList.remove("float-switching"));
-  });
-}
-
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -2765,7 +2757,6 @@ function applyFloatingIframe(force){
 
   if(shouldFloat){
     playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
-    suppressFloatSwitchTransition(frame);
     frame.classList.add("floating-iframe");
     updateFloatingAmbient(frame);
     ensureFloatHandles();
@@ -2793,7 +2784,6 @@ function applyFloatingIframe(force){
         };
       }
     }
-    suppressFloatSwitchTransition(frame);
     frame.classList.remove("floating-iframe","float-tucked","dock-left","dock-right","float-view-square","float-view-portrait");
     state.floatTucked=false;
     clearFloatBoxStyles();
