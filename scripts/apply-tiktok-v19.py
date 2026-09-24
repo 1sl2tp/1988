@@ -613,8 +613,6 @@ watch(() => route.query.mode, () => {
 }
 </style>
 """)
-
-p.write_text(s)
 '''
 
 target.write_text(text.replace(marker, block + "\n" + marker, 1))
