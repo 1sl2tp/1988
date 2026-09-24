@@ -595,17 +595,15 @@ function identifiedSourcePriority(row={},group=""){
   return 0;
 }
 
-function newestFirst(rows=[],group=""){
+function newestFirst(rows=[]){
   return rows
     .map((row,index)=>({
       row,
       index,
-      age:publishedAgeMs(row),
-      source:identifiedSourcePriority(row,group)
+      age:publishedAgeMs(row)
     }))
     .sort((a,b)=>
       (a.age-b.age) ||
-      (b.source-a.source) ||
       (a.index-b.index)
     )
     .map(item=>item.row);
@@ -621,7 +619,7 @@ function mostViewedFirst(rows=[]){
 function sortPresetRows(rows=[],preset={}){
   if(preset.weekFreshViewed)return weekFreshViewedFirst(rows);
   if(preset.mostViewed)return mostViewedFirst(rows);
-  if(preset.newest)return newestFirst(rows,preset.sourceGroup||"");
+  if(preset.newest)return newestFirst(rows);
   return rows;
 }
 
@@ -1346,7 +1344,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v8:";
+const FEED_CACHE_PREFIX="1988-discovery-v9:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1390,6 +1388,17 @@ async function normalizeRegionalRow(row={}){
   };
 }
 
+async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
+  const rows=await pagedSearch(
+    local,
+    key,
+    query,
+    {upload_date:"week",sort_by:"upload_date",...filters},
+    reset
+  );
+  return rows.filter(row=>uploadedWithin(row,maxAgeMs));
+}
+
 const FEED_PRESETS={
   live:{
     title:"LIVE",
@@ -1411,55 +1420,55 @@ const FEED_PRESETS={
   today:{
     title:"Hôm nay",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset)
+    load:async(local,reset)=>{
+      const rows=await pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset);
+      return rows.filter(row=>uploadedWithin(row,DAY_MS));
+    }
   },
   week:{
     title:"Tuần này",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"week","Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"week","Việt Nam",7*DAY_MS,reset)
   },
   news:{
     title:"Thời sự",
     newest:true,
-    sourceGroup:"news",
-    load:(local,reset)=>pagedSearch(local,"news","thời sự Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"news","thời sự Việt Nam",7*DAY_MS,reset)
   },
   economy:{
     title:"Kinh tế",
     newest:true,
-    sourceGroup:"economy",
-    load:(local,reset)=>pagedSearch(local,"economy","kinh tế Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"economy","kinh tế Việt Nam",7*DAY_MS,reset)
   },
   security:{
     title:"An ninh",
     newest:true,
-    sourceGroup:"security",
-    load:(local,reset)=>pagedSearch(local,"security","an ninh pháp luật Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"security","an ninh pháp luật Việt Nam",7*DAY_MS,reset)
   },
   music:{
     title:"Nhạc",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"music","nhạc Việt Nam",{sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"music","nhạc Việt Nam",7*DAY_MS,reset)
   },
   sports:{
     title:"Thể thao",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"sports","thể thao Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"sports","thể thao Việt Nam",7*DAY_MS,reset)
   },
   entertainment:{
     title:"Giải trí",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"entertainment","giải trí Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"entertainment","giải trí Việt Nam",7*DAY_MS,reset)
   },
   tech:{
     title:"Công nghệ",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"tech","công nghệ Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"tech","công nghệ Việt Nam",7*DAY_MS,reset)
   },
   shortfilm:{
     title:"Phim ngắn",
     newest:true,
-    load:(local,reset)=>pagedSearch(local,"shortfilm","phim ngắn Việt Nam",{sort_by:"upload_date"},reset)
+    load:(local,reset)=>recentSearch(local,"shortfilm","phim ngắn Việt Nam",7*DAY_MS,reset)
   }
 };
 
