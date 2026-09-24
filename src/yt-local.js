@@ -126,6 +126,25 @@ function unwrap(node){
   return row;
 }
 
+function videoChannelId(node={}){
+  const candidates=[
+    node?.author?.id,
+    node?.author?.channel_id,
+    node?.author?.channelId,
+    node?.author?.endpoint?.payload?.browseId,
+    node?.author?.endpoint?.payload?.browse_id,
+    node?.short_byline_text?.runs?.[0]?.endpoint?.payload?.browseId,
+    node?.long_byline_text?.runs?.[0]?.endpoint?.payload?.browseId,
+    node?.byline_text?.runs?.[0]?.endpoint?.payload?.browseId,
+    node?.metadata?.metadata_rows?.[0]?.metadata_parts?.[0]?.text?.runs?.[0]?.endpoint?.payload?.browseId
+  ];
+  for(const value of candidates){
+    const id=String(value||'').trim();
+    if(/^UC[A-Za-z0-9_-]+$/.test(id))return id;
+  }
+  return '';
+}
+
 function normalizeNode(input){
   const node=unwrap(input);
   if(!node||typeof node!=='object')return null;
@@ -183,6 +202,7 @@ function normalizeNode(input){
     url:'/watch?v='+id,
     title,
     uploader,
+    channelId:videoChannelId(node),
     thumbnailUrl:thumbnailOf(node,id),
     duration,
     views,
