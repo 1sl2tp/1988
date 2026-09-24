@@ -86,7 +86,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 
 
-/* Lightweight floating iframe: same YouTube player, no duplicate controls. */
+/* Floating iframe: compact edge controls. */
 .player-frame.floating-iframe{
   position:fixed;
   right:12px;
@@ -94,55 +94,60 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   z-index:90;
   width:min(360px,36vw);
   aspect-ratio:16/9;
-  border-radius:14px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
   overflow:visible;
   background:#000;
-  box-shadow:0 16px 42px rgba(0,0,0,.46);
-  transition:transform .18s ease;
+  box-shadow:0 10px 28px rgba(0,0,0,.34);
+  transition:transform .16s ease,box-shadow .16s ease;
 }
 .player-frame.floating-iframe #yt-player,
 .player-frame.floating-iframe iframe,
 .player-frame.floating-iframe video{
-  border-radius:14px;
+  border-radius:11px;
   overflow:hidden;
 }
 .player-frame.floating-iframe.dock-right.float-tucked{
-  transform:translateX(calc(100% - 28px));
+  transform:translateX(calc(100% - 18px));
 }
 .player-frame.floating-iframe.dock-left.float-tucked{
-  transform:translateX(calc(-100% + 28px));
+  transform:translateX(calc(-100% + 18px));
 }
 
 .float-dock-edge,.float-resize-edge{display:none}
+
 .player-frame.floating-iframe .float-dock-edge{
   display:flex;
   position:absolute;
   z-index:15;
   top:50%;
-  width:26px;
-  height:68px;
+  width:17px;
+  height:50px;
   align-items:center;
   justify-content:center;
   transform:translateY(-50%);
-  border:1px solid rgba(255,255,255,.16);
-  background:rgba(26,26,28,.76);
-  backdrop-filter:blur(10px);
-  -webkit-backdrop-filter:blur(10px);
-  color:#fff;
-  font-size:18px;
+  border:1px solid rgba(255,255,255,.08);
+  background:rgba(18,18,20,.82);
+  backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px);
+  color:rgba(255,255,255,.9);
+  font-size:15px;
   font-weight:700;
   line-height:1;
   touch-action:none;
   user-select:none;
   -webkit-user-select:none;
+  box-shadow:0 3px 12px rgba(0,0,0,.22);
 }
 .player-frame.floating-iframe.dock-right .float-dock-edge{
-  left:-22px;
-  border-radius:12px 0 0 12px;
+  left:-11px;
+  border-radius:8px 0 0 8px;
+  border-right:0;
 }
 .player-frame.floating-iframe.dock-left .float-dock-edge{
-  right:-22px;
-  border-radius:0 12px 12px 0;
+  right:-11px;
+  border-radius:0 8px 8px 0;
+  border-left:0;
 }
 .player-frame.floating-iframe.dock-right .float-dock-edge::after{content:"›"}
 .player-frame.floating-iframe.dock-left .float-dock-edge::after{content:"‹"}
@@ -151,30 +156,40 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   display:block;
   position:absolute;
   z-index:16;
-  bottom:-4px;
-  width:34px;
-  height:34px;
+  bottom:2px;
+  width:24px;
+  height:24px;
+  border-radius:7px;
+  background:rgba(8,8,10,.18);
   touch-action:none;
   user-select:none;
   -webkit-user-select:none;
 }
-.player-frame.floating-iframe.dock-right .float-resize-edge{left:-4px;cursor:nesw-resize}
-.player-frame.floating-iframe.dock-left .float-resize-edge{right:-4px;cursor:nwse-resize}
+.player-frame.floating-iframe.dock-right .float-resize-edge{
+  left:2px;
+  cursor:nesw-resize;
+}
+.player-frame.floating-iframe.dock-left .float-resize-edge{
+  right:2px;
+  cursor:nwse-resize;
+}
 .player-frame.floating-iframe .float-resize-edge::after{
   content:"";
   position:absolute;
-  bottom:7px;
-  width:12px;
-  height:12px;
-  border-bottom:2px solid rgba(255,255,255,.8);
+  bottom:5px;
+  width:8px;
+  height:8px;
+  opacity:.72;
 }
 .player-frame.floating-iframe.dock-right .float-resize-edge::after{
-  left:7px;
-  border-left:2px solid rgba(255,255,255,.8);
+  left:5px;
+  border-left:1.5px solid rgba(255,255,255,.82);
+  border-bottom:1.5px solid rgba(255,255,255,.82);
 }
 .player-frame.floating-iframe.dock-left .float-resize-edge::after{
-  right:7px;
-  border-right:2px solid rgba(255,255,255,.8);
+  right:5px;
+  border-right:1.5px solid rgba(255,255,255,.82);
+  border-bottom:1.5px solid rgba(255,255,255,.82);
 }
 
 @media(max-width:640px){
@@ -182,16 +197,20 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     top:calc(104px + var(--safe-top));
     right:8px;
     bottom:auto;
-    width:min(260px,58vw);
-    border-radius:12px;
+    width:min(256px,58vw);
+    border-radius:11px;
+    box-shadow:0 8px 22px rgba(0,0,0,.30);
   }
   .player-frame.floating-iframe #yt-player,
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{
-    border-radius:12px;
+    border-radius:10px;
   }
   .player-frame.floating-iframe .float-dock-edge{
-    width:28px;
-    height:72px;
+    width:16px;
+    height:46px;
+    font-size:14px;
   }
+  .player-frame.floating-iframe.dock-right .float-dock-edge{left:-10px}
+  .player-frame.floating-iframe.dock-left .float-dock-edge{right:-10px}
 }
