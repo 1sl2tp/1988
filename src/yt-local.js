@@ -18,6 +18,9 @@ let ytPromise=null;
 let webPoMinterPromise=null;
 const videoPoTokenCache=new Map();
 const discoveryPages=new Map();
+const aiDisclosureMemory=new Map();
+const AI_DISCLOSURE_TTL=12*60*60*1000;
+const AI_DISCLOSURE_STORAGE_PREFIX='1988-ai-disclosure-v1:';
 
 function text(value){
   if(value===undefined||value===null)return '';
@@ -632,6 +635,141 @@ async function suggestions(query){
   }
 }
 
+function disclosureStorageRead(id){
+  try{
+    const saved=JSON.parse(localStorage.getItem(AI_DISCLOSURE_STORAGE_PREFIX+id)||'null');
+    if(!saved||Date.now()-Number(saved.at||0)>AI_DISCLOSURE_TTL)return null;
+    return {
+      checked:!!saved.checked,
+      madeWithAi:!!saved.madeWithAi,
+      text:String(saved.text||'').slice(0,1200),
+      at:Number(saved.at)||Date.now()
+    };
+  }catch{
+    return null;
+  }
+}
+
+function disclosureStorageWrite(id,result){
+  try{
+    localStorage.setItem(AI_DISCLOSURE_STORAGE_PREFIX+id,JSON.stringify({
+      at:Date.now(),
+      checked:!!result?.checked,
+      madeWithAi:!!result?.madeWithAi,
+      text:String(result?.text||'').slice(0,1200)
+    }));
+  }catch{}
+}
+
+function disclosureText(node){
+  return [
+    text(node?.section_title),
+    text(node?.body_header),
+    text(node?.body_text),
+    text(node?.attribution_text)
+  ].map(value=>String(value||'').trim()).filter(Boolean).join(' · ');
+}
+
+function isMadeWithAiDisclosure(raw=''){
+  const plain=String(raw||'').toLowerCase();
+  const norm=plain
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d');
+
+  const signals=[
+    'made with ai',
+    'created with ai',
+    'generated with ai',
+    'ai-generated',
+    'ai generated',
+    'created or edited with ai',
+    'altered or synthetic content',
+    'altered content',
+    'synthetic content',
+    'duoc tao bang ai',
+    'tao bang ai',
+    'do ai tao',
+    'tao boi ai',
+    'tri tue nhan tao',
+    'duoc tao hoac chinh sua bang ai',
+    'noi dung bi chinh sua hoac tong hop',
+    'noi dung tong hop'
+  ];
+
+  return signals.some(signal=>norm.includes(signal));
+}
+
+function howThisWasMadeNodes(result){
+  const out=[];
+  try{
+    const memo=result?.page?.[1]?.contents_memo;
+    const direct=memo?.getType?.(YTNodes.HowThisWasMadeSectionView)||[];
+    for(const node of Array.from(direct||[]))out.push(node);
+  }catch{}
+
+  if(out.length)return out;
+
+  try{
+    const panels=Array.from(result?.page?.[1]?.engagement_panels||[]);
+    for(const panel of panels){
+      const content=panel?.content;
+      const items=Array.from(content?.items||content?.contents||[]);
+      for(const node of items){
+        const type=node?.type||node?.constructor?.type||node?.constructor?.name||'';
+        let isTarget=type==='HowThisWasMadeSectionView';
+        try{
+          if(!isTarget&&node?.is&&YTNodes.HowThisWasMadeSectionView){
+            isTarget=!!node.is(YTNodes.HowThisWasMadeSectionView);
+          }
+        }catch{}
+        if(isTarget)out.push(node);
+      }
+    }
+  }catch{}
+
+  return out;
+}
+
+async function aiDisclosure(id){
+  id=String(id||'').trim();
+  if(!VIDEO_ID_RE.test(id))throw new Error('invalid_video');
+
+  const memory=aiDisclosureMemory.get(id);
+  if(memory&&Date.now()-Number(memory.at||0)<AI_DISCLOSURE_TTL)return memory;
+
+  const stored=disclosureStorageRead(id);
+  if(stored){
+    aiDisclosureMemory.set(id,stored);
+    return stored;
+  }
+
+  const yt=await getYT();
+  try{
+    const result=await yt.getInfo(id,{client:'WEB'});
+    const nodes=howThisWasMadeNodes(result);
+    const textValue=nodes.map(disclosureText).filter(Boolean).join(' · ');
+    const out={
+      checked:true,
+      madeWithAi:isMadeWithAiDisclosure(textValue),
+      text:textValue,
+      at:Date.now()
+    };
+    aiDisclosureMemory.set(id,out);
+    disclosureStorageWrite(id,out);
+    return out;
+  }catch(error){
+    const out={
+      checked:false,
+      madeWithAi:false,
+      text:'',
+      at:Date.now()
+    };
+    aiDisclosureMemory.set(id,out);
+    return out;
+  }
+}
+
 async function info(id){
   if(!VIDEO_ID_RE.test(String(id||'')))throw new Error('invalid_video');
   const yt=await getYT();
@@ -795,7 +933,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows,normalizeChannels};
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,aiDisclosure,media,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 

@@ -1257,6 +1257,36 @@ function filterRowsForAiParent(parent,rows=[]){
   return rows;
 }
 
+function aiDisclosureRequired(parent){
+  const key=normalizeSearchText(parent?.label||"");
+  return key==="phim"||key==="phim ngan"||key==="nhac";
+}
+
+async function filterNativeAiGeneratedRows(local,parent,rows=[]){
+  if(!aiDisclosureRequired(parent)||typeof local?.aiDisclosure!=="function")return rows;
+
+  const source=Array.isArray(rows)?rows:[];
+  const keep=new Array(source.length).fill(true);
+  let cursor=0;
+  const workerCount=Math.min(6,source.length);
+
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=source.length)return;
+      const id=itemVideoId(source[index]);
+      if(!id)continue;
+      try{
+        const disclosure=await local.aiDisclosure(id);
+        if(disclosure?.checked&&disclosure?.madeWithAi)keep[index]=false;
+      }catch{}
+    }
+  };
+
+  await Promise.all(Array.from({length:workerCount},worker));
+  return source.filter((row,index)=>keep[index]);
+}
+
 function dedupeHashedRows(rows=[]){
   const seenIds=new Set();
   const seenHashes=new Set();
@@ -1625,10 +1655,16 @@ async function loadAiParentDiscovery(parent){
       const accepted=classified.acceptedVideoIds;
       rows=rows.filter(row=>accepted.has(itemVideoId(row)));
 
+      if(aiDisclosureRequired(parent)&&state.activeParent===parent.key){
+        feedStatus.textContent="Đang lọc nội dung AI…";
+      }
+      rows=await filterNativeAiGeneratedRows(local,parent,rows);
+      const visibleIds=new Set(rows.map(itemVideoId).filter(Boolean));
+
       const topics=classified.topics
         .map(topic=>({
           ...topic,
-          videoIds:new Set([...topic.videoIds].filter(id=>accepted.has(id)))
+          videoIds:new Set([...topic.videoIds].filter(id=>visibleIds.has(id)))
         }))
         .filter(topic=>topic.videoIds.size>=2);
 
@@ -1644,6 +1680,7 @@ async function loadAiParentDiscovery(parent){
         feedStatus.textContent=visible.length?visible.length+" video":"";
       }
     }else{
+      rows=await filterNativeAiGeneratedRows(local,parent,rows);
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
       if(state.activeParent===parent.key){
         renderCards(rows);
