@@ -574,11 +574,10 @@ function identifiedSourcePriority(row={},group=""){
   const channel=normalizeSearchText(row?.uploaderName||row?.uploader||row?.channelName||"");
   if(!channel)return 0;
 
-  for(let i=0;i<IDENTIFIED_NEWS_SOURCES.length;i++){
-    const source=IDENTIFIED_NEWS_SOURCES[i];
+  for(const source of IDENTIFIED_NEWS_SOURCES){
     if(!source.groups.includes(group))continue;
     if(source.aliases.some(alias=>channel.includes(normalizeSearchText(alias)))){
-      return IDENTIFIED_NEWS_SOURCES.length-i;
+      return 1;
     }
   }
   return 0;
