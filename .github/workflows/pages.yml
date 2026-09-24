@@ -56,6 +56,9 @@ jobs:
       - name: Apply mini transport v10
         run: python3 scripts/apply-mini-v10.py
 
+      - name: Apply watch refinement v11
+        run: python3 scripts/apply-watch-v11.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
