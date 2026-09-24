@@ -1390,85 +1390,33 @@ async function normalizeRegionalRow(row={}){
   };
 }
 
-async function vnExploreRows(){
-  try{
-    const local=await localEngine(9000);
-    const rows=await local.hypeFeed();
-    return Array.isArray(rows)?rows.map(normalizeRegionalRow):[];
-  }catch(error){
-    console.warn("VN Hype feed failed",error);
-    return [];
-  }
-}
-
-let regionalFeedCache={at:0,rows:[],promise:null};
-
-async function regionalFeedRows(force=false){
-  const now=Date.now();
-  if(!force&&regionalFeedCache.rows.length&&now-regionalFeedCache.at<45_000){
-    return regionalFeedCache.rows;
-  }
-  if(!force&&regionalFeedCache.promise)return regionalFeedCache.promise;
-
-  const request=(async()=>{
-    const response=await api("regional_feed",{region:"VN"},15000);
-    const data=response?.data;
-    const raw=
-      Array.isArray(data)?data:
-      Array.isArray(data?.items)?data.items:
-      Array.isArray(data?.videos)?data.videos:
-      [];
-    const rows=mergeUniqueRows([],raw.map(normalizeRegionalRow));
-    regionalFeedCache={at:Date.now(),rows,promise:null};
-    return rows;
-  })();
-
-  regionalFeedCache.promise=request;
-  try{
-    return await request;
-  }catch(error){
-    regionalFeedCache.promise=null;
-    throw error;
-  }
-}
-
 const FEED_PRESETS={
   live:{
     title:"LIVE",
     newest:true,
-    allowWithoutLocal:true,
-    finite:true,
-    load:async(_local,reset)=>{
-      const rows=await regionalFeedRows(reset);
-      return rows.filter(row=>row?.isLive===true);
+    load:async(local,reset)=>{
+      let rows=[];
+      try{
+        rows=await pagedSearch(local,"live","Việt Nam",{features:["live"],sort_by:"upload_date"},reset);
+      }catch{}
+      const liveRows=rows.filter(row=>row?.isLive);
+      if(liveRows.length)return liveRows;
+      try{
+        return await pagedSearch(local,"live-fallback","trực tiếp Việt Nam",{sort_by:"upload_date"},reset);
+      }catch{
+        return rows;
+      }
     }
   },
   today:{
     title:"Hôm nay",
     newest:true,
-    allowWithoutLocal:true,
-    finite:true,
-    load:async(_local,reset)=>{
-      const explore=await vnExploreRows();
-      const fresh=explore.filter(row=>!row?.isLive&&withinHours(row,24));
-      if(fresh.length)return fresh;
-      const rows=await regionalFeedRows(reset);
-      return rows.filter(row=>!row?.isLive&&withinHours(row,24));
-    }
+    load:(local,reset)=>pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset)
   },
   week:{
     title:"Tuần này",
-    newest:false,
-    allowWithoutLocal:true,
-    finite:true,
-    weekFreshViewed:true,
-    load:async(_local,reset)=>{
-      const explore=await vnExploreRows();
-      const fresh=explore.filter(row=>!row?.isLive&&withinHours(row,24*7));
-      if(fresh.length)return fresh;
-      const rows=await regionalFeedRows(reset);
-      return rows.filter(row=>!row?.isLive&&withinHours(row,24*7));
-    }
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"week","Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   news:{
     title:"Thời sự",
@@ -1534,11 +1482,11 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
-async function loadFeedPreset(name="live"){
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.live;
+async function loadFeedPreset(name="today"){
+  const preset=FEED_PRESETS[name]||FEED_PRESETS.today;
   const seq=++state.feedSeq;
   state.feedLoading=true;
-  state.feedHasMore=!preset.finite;
+  state.feedHasMore=true;
   state.feedRows=[];
   setActiveChip(name);
   feedTitle.textContent=preset.title;
@@ -1556,9 +1504,7 @@ async function loadFeedPreset(name="live"){
 
   try{
     let local=null;
-    if(!preset.allowWithoutLocal){
-      local=await localEngine(16000);
-    }
+    local=await localEngine(16000);
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
@@ -1586,16 +1532,14 @@ async function loadFeedPreset(name="live"){
 async function loadMoreFeed(){
   const name=state.activeFeed;
   const preset=FEED_PRESETS[name];
-  if(!name||!preset||preset.finite||state.feedLoading||!state.feedHasMore)return;
+  if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
 
   state.feedLoading=true;
   const seq=state.feedSeq;
 
   try{
     let local=null;
-    if(!preset.allowWithoutLocal){
-      local=await localEngine(12000);
-    }
+    local=await localEngine(12000);
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
@@ -1641,7 +1585,7 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 function loadInitialFeed(){
-  return loadFeedPreset("live");
+  return loadFeedPreset("today");
 }
 
 topicChips.addEventListener("click",e=>{
@@ -1649,7 +1593,7 @@ topicChips.addEventListener("click",e=>{
   if(!button)return;
   queryInput.value="";
   clearSuggestions();
-  void loadFeedPreset(button.dataset.feed||"live");
+  void loadFeedPreset(button.dataset.feed||"today");
 });
 
 setupMediaSession();
