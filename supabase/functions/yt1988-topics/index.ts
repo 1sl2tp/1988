@@ -522,16 +522,114 @@ ${JSON.stringify(videos)}
   throw new Error(lastError);
 }
 
+function validateVideoContext(value:any){
+  const kindRaw=clean(value?.kind,24).toLocaleLowerCase("vi-VN");
+  const kind=["music","film","topic","other"].includes(kindRaw)?kindRaw:"other";
+  const channelRoleRaw=clean(value?.channelRole,24).toLocaleLowerCase("vi-VN");
+  const channelRole=["official","creator","reupload","fan","unknown"].includes(channelRoleRaw)?channelRoleRaw:"unknown";
+  const queries=value?.queries&&typeof value.queries==="object"?value.queries:{};
+  const outQueries:any={};
+  for(const key of ["sameWork","creator","series","versions","covers","instrumental","alternatives","topic"]){
+    const values=Array.isArray(queries?.[key])?queries[key]:[];
+    outQueries[key]=[...new Set(values.map((q:any)=>clean(q,100)).filter(Boolean))].slice(0,6);
+  }
+  return {
+    kind,
+    canonicalTitle:clean(value?.canonicalTitle,140),
+    creator:clean(value?.creator,100),
+    currentChannel:clean(value?.currentChannel,120),
+    channelRole,
+    originalChannelHint:clean(value?.originalChannelHint,120),
+    version:clean(value?.version,80),
+    isSeries:value?.isSeries===true,
+    subject:clean(value?.subject,140),
+    confidence:Math.max(0,Math.min(1,Number(value?.confidence)||0)),
+    queries:outQueries
+  };
+}
+
+async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuery=""){
+  const instruction=[
+    "Bạn đang phân tích MỘT video mà người dùng vừa bấm xem trong ứng dụng 1988.",
+    "Đây là bước SAU KHI người dùng đã tìm và chọn video. Không được thay đổi hay sắp xếp kết quả tìm kiếm ban đầu.",
+    "",
+    "NHIỆM VỤ:",
+    "1. Xác định video là gì: music, film, topic hoặc other.",
+    "2. Chuẩn hóa tên tác phẩm/chủ đề:",
+    "- Nhạc: canonicalTitle là TÊN BÀI HÁT; creator là ca sĩ/nghệ sĩ chính nếu metadata đủ rõ.",
+    "- Phim: canonicalTitle là TÊN PHIM/BỘ PHIM; version là năm/bản/remake nếu thấy; isSeries=true nếu có dấu hiệu nhiều tập hoặc phim bộ.",
+    "- Topic: canonicalTitle/subject là chủ đề/sự kiện/người/vấn đề video đang nói tới.",
+    "3. Đánh giá kênh hiện tại: official/creator nếu nhiều khả năng là chính chủ; reupload nếu có vẻ đăng lại; fan nếu là fan/biên tập; unknown nếu không đủ bằng chứng.",
+    "Không được bịa kênh gốc. originalChannelHint chỉ trả khi metadata cho thấy khá rõ, nếu không để trống.",
+    "4. Tạo truy vấn ngắn để ứng dụng tự tìm tiếp SAU KHI video đã được chọn:",
+    "- Nhạc: sameWork=cùng bài do ca sĩ khác hát; creator=bài khác của nghệ sĩ; covers=cover; instrumental=không lời/guitar/piano; alternatives=live/remix/karaoke/phiên bản khác.",
+    "- Phim: series=các tập cùng bộ; versions=phiên bản/năm/remake khác; creator=phim khác trong cùng kênh/đơn vị; alternatives=trailer/review gần nếu phù hợp.",
+    "- Topic: topic=cùng chủ đề; creator=video khác trong cùng nguồn; alternatives=góc nhìn/liên quan gần.",
+    "5. Chỉ suy luận từ metadata cung cấp. Nếu không chắc thì để trống.",
+    "",
+    "OUTPUT chỉ JSON, không Markdown:",
+    JSON.stringify({kind:"music|film|topic|other",canonicalTitle:"",creator:"",currentChannel:"",channelRole:"official|creator|reupload|fan|unknown",originalChannelHint:"",version:"",isSeries:false,subject:"",confidence:0,queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}}),
+    "",
+    "TRUY VẤN NGƯỜI DÙNG ĐÃ GÕ: "+clean(searchQuery,160),
+    "VIDEO ĐANG XEM:",
+    JSON.stringify(video),
+    "MỘT SỐ VIDEO LIÊN QUAN TỪ YOUTUBE:",
+    JSON.stringify(related.slice(0,18))
+  ].join("\n");
+
+  const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
+  const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"].filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+  let lastError="ai_failed";
+  for(const model of models){
+    const endpoint="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent";
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+        body:JSON.stringify({contents:[{role:"user",parts:[{text:instruction}]}],generationConfig:{temperature:0.1,responseMimeType:"application/json"}})
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        const text=responseText(payload);
+        if(!text)throw new Error("empty_ai_response");
+        return {model,text};
+      }
+      lastError="ai_http_"+response.status;
+      if(response.status===401||response.status===403)break;
+    }catch(error){
+      lastError=String((error as any)?.message||error||"ai_network");
+    }
+  }
+  throw new Error(lastError);
+}
 Deno.serve(async(req:Request)=>{
   if(req.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
   if(req.method!=="POST")return json({ok:false,error:"method_not_allowed"},405);
 
   try{
     const body=await req.json().catch(()=>({}));
-    const mode=body?.mode==="catalog"?"catalog":"classify";
+    const mode=body?.mode==="catalog"?"catalog":body?.mode==="video_context"?"video_context":"classify";
     const videos=normalizeVideos(body?.videos);
     const cfg=await runtimeConfig();
     if(!cfg.key)return json({ok:false,error:"ai_not_configured"},503);
+
+    if(mode==="video_context"){
+      const video=videos[0]||null;
+      if(!video)return json({ok:false,error:"video_required"},400);
+      const related=normalizeVideos(body?.related).slice(0,24);
+      const searchQuery=clean(body?.searchQuery,160);
+      const canonical=[video.id,video.title,video.channel,video.description,searchQuery,...related.map(row=>[row.id,row.title,row.channel].join("|"))].join("\n");
+      const fingerprint=await sha256("video_context\n"+canonical);
+      const cacheKey="v1:video_context:"+fingerprint;
+      const cached=await db.from("yt1988_ai_topic_cache").select("result,model,created_at").eq("cache_key",cacheKey).maybeSingle();
+      if(!cached.error&&cached.data?.result){
+        return json({ok:true,context:cached.data.result,model:cached.data.model||null,fingerprint,cached:true});
+      }
+      const ai=await callVideoContextGemini(cfg,video,related,searchQuery);
+      const context=validateVideoContext(parseJson(ai.text));
+      await db.from("yt1988_ai_topic_cache").upsert({cache_key:cacheKey,scope:"video_context",fingerprint,model:ai.model,video_count:1,result:context,created_at:new Date().toISOString()},{onConflict:"cache_key"});
+      return json({ok:true,context,model:ai.model,fingerprint,cached:false});
+    }
 
     if(mode==="catalog"){
       const bucketMs=3*60*60*1000;
