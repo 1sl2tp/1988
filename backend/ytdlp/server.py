@@ -1,4 +1,5 @@
 import base64
+import html
 import os
 import re
 import time
@@ -6,6 +7,7 @@ import threading
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 import requests
@@ -24,6 +26,8 @@ COOKIE_PATH = Path("/tmp/1988-ytdlp-cookies.txt")
 
 _cache = {}
 _tiktok_cache = {}
+_tiktok_discovery_cache = {}
+_tiktok_source_pool = {}
 _lock = threading.Lock()
 _ytdlp_blocked_until = 0
 
@@ -732,6 +736,366 @@ def health():
         "playerClients": _player_clients(),
         "version": getattr(yt_dlp.version, "__version__", "unknown"),
     })
+
+
+
+def _tiktok_handle_from_url(value):
+    text = str(value or "")
+    match = re.search(r"tiktok\.com/@([A-Za-z0-9._-]{2,64})", text, re.I)
+    return match.group(1) if match else ""
+
+
+def _discover_tiktok_links(query, limit=24):
+    try:
+        response = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 Chrome/153 Safari/537.36"
+                ),
+                "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.6",
+            },
+            proxies=_requests_proxies(),
+            timeout=(6, 16),
+        )
+        response.raise_for_status()
+        body = html.unescape(response.text)
+        for _ in range(2):
+            body = unquote(body)
+    except Exception as exc:
+        app.logger.warning("tiktok web discovery failed %s: %s", query, exc)
+        return []
+
+    pattern = re.compile(
+        r"https?://(?:www\.)?tiktok\.com/@([A-Za-z0-9._-]{2,64})"
+        r"(?:/video/(\d{12,24})|/live)?",
+        re.I,
+    )
+    rows = []
+    seen = set()
+    for match in pattern.finditer(body):
+        handle = match.group(1)
+        post_id = match.group(2) or ""
+        url = (
+            f"https://www.tiktok.com/@{handle}/video/{post_id}"
+            if post_id
+            else f"https://www.tiktok.com/@{handle}"
+        )
+        key = (handle.lower(), post_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({"handle": handle, "id": post_id, "url": url})
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _extract_tiktok_post_url(url):
+    handle = _tiktok_handle_from_url(url)
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "socket_timeout": 15,
+        "retries": 1,
+    }
+    proxy = _proxy_url()
+    if proxy:
+        opts["proxy"] = proxy
+    cookiefile = _cookiefile()
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    row = _normalize_tiktok_entry(info or {}, handle)
+    if not row:
+        return None
+    row["shareCount"] = int((info or {}).get("repost_count") or (info or {}).get("share_count") or 0)
+    return row
+
+
+def _tiktok_discovery_cache_get(key, ttl=300):
+    with _lock:
+        row = _tiktok_discovery_cache.get(key)
+        if row and time.time() - row["at"] < ttl:
+            return row["data"]
+    return None
+
+
+def _tiktok_discovery_cache_put(key, data):
+    with _lock:
+        _tiktok_discovery_cache[key] = {"at": time.time(), "data": data}
+        if len(_tiktok_discovery_cache) > 40:
+            oldest = min(_tiktok_discovery_cache.items(), key=lambda item: item[1]["at"])[0]
+            _tiktok_discovery_cache.pop(oldest, None)
+
+
+def _remember_tiktok_sources(rows):
+    now = time.time()
+    with _lock:
+        for row in rows:
+            handle = str(row.get("handle") or "").strip().lstrip("@")
+            if TIKTOK_HANDLE_RE.fullmatch(handle):
+                _tiktok_source_pool[handle.lower()] = {"handle": handle, "at": now}
+        expired = [
+            key for key, value in _tiktok_source_pool.items()
+            if now - float(value.get("at") or 0) > 24 * 60 * 60
+        ]
+        for key in expired:
+            _tiktok_source_pool.pop(key, None)
+
+
+def _headline_tokens_tiktok(row):
+    text = str(row.get("title") or row.get("description") or "")
+    text = re.sub(r"[^0-9A-Za-zÀ-ỹ]+", " ", text.lower())
+    stop = {
+        "viet", "nam", "moi", "nhat", "hom", "nay", "tin", "tuc", "video",
+        "clip", "chinh", "thuc", "cap", "nhat", "va", "cua", "cho", "voi",
+        "tai", "trong", "mot", "cac", "khi", "tu", "den", "theo"
+    }
+    return {token for token in text.split() if len(token) >= 3 and token not in stop}
+
+
+def _rank_tiktok_rows(rows, mode):
+    now = time.time()
+    tokens = [_headline_tokens_tiktok(row) for row in rows]
+    handles = [str(row.get("handle") or row.get("uploader") or "").lower() for row in rows]
+    coverage = []
+
+    for i, mine in enumerate(tokens):
+        related = set()
+        if len(mine) >= 2:
+            for j, theirs in enumerate(tokens):
+                if i == j or handles[i] == handles[j]:
+                    continue
+                common = len(mine.intersection(theirs))
+                threshold = max(2, int(min(len(mine), len(theirs)) * 0.34 + 0.999))
+                if common >= threshold and handles[j]:
+                    related.add(handles[j])
+        coverage.append(len(related))
+
+    def score(index):
+        row = rows[index]
+        views = max(0, int(row.get("viewCount") or 0))
+        ts = max(0, int(row.get("timestamp") or 0))
+        hours = max(1.0, (now - ts) / 3600.0) if ts else 9999.0
+        velocity = views / hours
+        cov = coverage[index]
+
+        if mode == "views":
+            return (views, ts)
+        if mode == "trending":
+            return ((0 if velocity <= 0 else __import__("math").log10(velocity + 1)) * 24 + cov * 8 - hours / 24, ts)
+        if mode == "interest":
+            return (cov * 100 + (0 if views <= 0 else __import__("math").log10(views + 10)) * 7 - hours / 36, ts)
+        if mode == "top":
+            return (
+                (0 if views <= 0 else __import__("math").log10(views + 10)) * 11
+                + (0 if velocity <= 0 else __import__("math").log10(velocity + 1)) * 15
+                + cov * 14
+                - hours / 30,
+                ts,
+            )
+        return (ts, views)
+
+    order = sorted(range(len(rows)), key=score, reverse=True)
+    return [rows[index] for index in order]
+
+
+def discover_tiktok_feed(mode="latest", limit=50):
+    mode = mode if mode in ("latest", "top", "trending", "interest", "views") else "latest"
+    key = f"discover:{mode}:{limit}"
+    cached = _tiktok_discovery_cache_get(key, ttl=5 * 60)
+    if cached is not None:
+        return cached
+
+    queries = [
+        'site:tiktok.com/@ "video" "Việt Nam" "tin tức" hôm nay',
+        'site:tiktok.com/@ "video" "Việt Nam" "thời sự" mới nhất',
+        'site:tiktok.com/@ "video" "Việt Nam" "tin nóng"',
+        'site:tiktok.com/@ "video" "Việt Nam" "quốc tế"',
+        'site:tiktok.com/@ "video" "Việt Nam" "thể thao"',
+        'site:tiktok.com/@ "video" "Việt Nam" "công nghệ"',
+    ]
+
+    discovered = []
+    seen_urls = set()
+    for query in queries:
+        for row in _discover_tiktok_links(query, limit=20):
+            if not row.get("id"):
+                continue
+            url = row["url"]
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            discovered.append(url)
+            if len(discovered) >= 72:
+                break
+        if len(discovered) >= 72:
+            break
+
+    rows = []
+    workers = min(6, max(1, len(discovered)))
+    if discovered:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            future_map = {pool.submit(_extract_tiktok_post_url, url): url for url in discovered}
+            for future in as_completed(future_map):
+                try:
+                    row = future.result()
+                    if row:
+                        rows.append(row)
+                except Exception as exc:
+                    app.logger.debug("tiktok post enrich failed %s: %s", future_map[future], exc)
+
+    now = int(time.time())
+    max_age = 72 * 3600 if mode == "latest" else 7 * 24 * 3600
+    rows = [
+        row for row in rows
+        if int(row.get("timestamp") or 0)
+        and -6 * 3600 <= now - int(row.get("timestamp") or 0) <= max_age
+    ]
+
+    seen = set()
+    unique = []
+    for row in rows:
+        post_id = str(row.get("id") or "")
+        if not post_id or post_id in seen:
+            continue
+        seen.add(post_id)
+        unique.append(row)
+
+    ranked = _rank_tiktok_rows(unique, mode)[: max(1, min(int(limit or 50), 80))]
+    _remember_tiktok_sources(ranked)
+    payload = {"items": ranked, "sources": sorted({str(row.get("handle") or "") for row in ranked if row.get("handle")})}
+    _tiktok_discovery_cache_put(key, payload)
+    return payload
+
+
+def _probe_tiktok_live(handle):
+    handle = str(handle or "").strip().lstrip("@")
+    if not TIKTOK_HANDLE_RE.fullmatch(handle):
+        return None
+
+    url = f"https://www.tiktok.com/@{handle}/live"
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "socket_timeout": 14,
+        "retries": 1,
+    }
+    proxy = _proxy_url()
+    if proxy:
+        opts["proxy"] = proxy
+    cookiefile = _cookiefile()
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        low = str(exc).lower()
+        if "not currently live" not in low:
+            app.logger.debug("tiktok live probe failed %s: %s", handle, exc)
+        return None
+
+    if not info:
+        return None
+
+    formats = list(info.get("formats") or [])
+    hls = None
+    for fmt in sorted(formats, key=lambda row: int(row.get("height") or 0), reverse=True):
+        protocol = str(fmt.get("protocol") or "").lower()
+        ext = str(fmt.get("ext") or "").lower()
+        candidate = str(fmt.get("url") or "")
+        if candidate and ("m3u8" in protocol or ext == "m3u8" or ".m3u8" in candidate):
+            hls = candidate
+            break
+
+    return {
+        "id": str(info.get("id") or handle),
+        "platform": "tiktok",
+        "live": True,
+        "handle": handle,
+        "uploader": str(info.get("uploader") or info.get("creator") or handle),
+        "title": str(info.get("title") or f"@{handle} đang LIVE"),
+        "thumbnail": str(info.get("thumbnail") or ""),
+        "viewCount": int(info.get("concurrent_view_count") or info.get("view_count") or 0),
+        "timestamp": int(info.get("timestamp") or time.time()),
+        "url": url,
+        "streamUrl": hls or "",
+    }
+
+
+def discover_tiktok_live(limit=20):
+    key = f"live:{limit}"
+    cached = _tiktok_discovery_cache_get(key, ttl=60)
+    if cached is not None:
+        return cached
+
+    handles = []
+    with _lock:
+        handles.extend(value["handle"] for value in _tiktok_source_pool.values())
+
+    if len(handles) < 12:
+        for query in (
+            'site:tiktok.com/@ "live" "Việt Nam" tin tức',
+            'site:tiktok.com/@ "live" "Việt Nam"',
+            'site:tiktok.com/@ "LIVE" "Việt Nam" truyền hình',
+        ):
+            for row in _discover_tiktok_links(query, limit=24):
+                handle = row.get("handle") or ""
+                if handle and handle.lower() not in {item.lower() for item in handles}:
+                    handles.append(handle)
+            if len(handles) >= 28:
+                break
+
+    handles = handles[:28]
+    rows = []
+    if handles:
+        with ThreadPoolExecutor(max_workers=min(8, len(handles))) as pool:
+            futures = {pool.submit(_probe_tiktok_live, handle): handle for handle in handles}
+            for future in as_completed(futures):
+                try:
+                    row = future.result()
+                    if row:
+                        rows.append(row)
+                except Exception:
+                    pass
+
+    rows.sort(key=lambda row: int(row.get("viewCount") or 0), reverse=True)
+    payload = {"items": rows[: max(1, min(int(limit or 20), 40))], "sources": handles}
+    _tiktok_discovery_cache_put(key, payload)
+    return payload
+
+
+@app.route("/tiktok/discover", methods=["GET"])
+def tiktok_discover():
+    mode = (request.args.get("mode") or "latest").strip().lower()
+    limit = max(1, min(int(request.args.get("limit") or "50"), 80))
+    try:
+        return jsonify({"ok": True, "data": discover_tiktok_feed(mode, limit)})
+    except Exception as exc:
+        app.logger.warning("tiktok discover failed: %s", exc)
+        return jsonify({"ok": False, "error": "tiktok_discover_failed", "detail": str(exc)[:300]}), 502
+
+
+@app.route("/tiktok/live", methods=["GET"])
+def tiktok_live():
+    limit = max(1, min(int(request.args.get("limit") or "20"), 40))
+    try:
+        return jsonify({"ok": True, "data": discover_tiktok_live(limit)})
+    except Exception as exc:
+        app.logger.warning("tiktok live discover failed: %s", exc)
+        return jsonify({"ok": False, "error": "tiktok_live_failed", "detail": str(exc)[:300]}), 502
 
 
 @app.route("/tiktok/profile", methods=["GET"])
