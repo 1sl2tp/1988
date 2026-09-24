@@ -40,6 +40,31 @@ function parseDuration(value){
   return parts.reduce((acc,v)=>acc*60+v,0);
 }
 
+function parseViewCount(value){
+  if(typeof value==='number'&&Number.isFinite(value))return Math.max(0,value);
+
+  let raw=text(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase()
+    .replace(/luot xem|views?|watching|dang xem/g,' ')
+    .trim();
+
+  if(!raw)return 0;
+
+  const unitMatch=raw.match(/([0-9]+(?:[.,][0-9]+)?)\s*(ty|tr|trieu|nghin|n|k|m|b)\b/);
+  if(unitMatch){
+    const number=Number(unitMatch[1].replace(',','.'))||0;
+    const unit=unitMatch[2];
+    if(unit==='ty'||unit==='b')return Math.round(number*1e9);
+    if(unit==='tr'||unit==='trieu'||unit==='m')return Math.round(number*1e6);
+    if(unit==='nghin'||unit==='n'||unit==='k')return Math.round(number*1e3);
+  }
+
+  const digits=raw.replace(/[^0-9]/g,'');
+  return Number(digits)||0;
+}
+
 function thumbnailOf(node,id){
   const rows=node?.thumbnails||node?.thumbnail||node?.video_thumbnails||[];
   const first=Array.isArray(rows)?rows[0]:null;
@@ -69,6 +94,7 @@ function normalizeNode(input){
   if(!VIDEO_ID_RE.test(id))return null;
 
   const duration=Number(node.duration?.seconds)||parseDuration(node.length_text||node.duration);
+  const views=parseViewCount(node.view_count||node.views||node.short_view_count);
   const title=text(node.title||node.video_title)||'Video';
   const uploader=
     node.author?.name||
@@ -84,6 +110,7 @@ function normalizeNode(input){
     uploader,
     thumbnailUrl:thumbnailOf(node,id),
     duration,
+    views,
     viewText:text(node.short_view_count||node.view_count||node.views),
     publishedText:text(node.published||node.published_time||node.published_time_text),
     isLive:!!node.is_live
