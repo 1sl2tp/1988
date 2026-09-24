@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-film-recover-v100';
+const CACHE='1988-main-film-recover-v101';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=header-99',
-  './src/app.js?v=film-recover-100',
+  './src/app.js?v=film-recover-101',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

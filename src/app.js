@@ -106,8 +106,9 @@ const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
-const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v2";
-const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v1";
+const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
+const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
+const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
 const GENERAL_SOURCE_SCOPE="general";
 
 const SOURCE_MANAGER_GROUPS=[
@@ -532,6 +533,7 @@ function recoverLegacyFilmSourceState(){
   try{
     if(localStorage.getItem(SOURCE_FILM_RECOVERY_KEY))return;
 
+    const validId=id=>/^UC[A-Za-z0-9_-]+$/.test(String(id||""));
     const filmSelected=selectedSetForScope("film");
     const filmBlocked=blockedSetForScope("film");
 
@@ -546,46 +548,65 @@ function recoverLegacyFilmSourceState(){
       );
     }
 
-    const rows=managedChannelLibrary();
-    const byId=new Map(rows.map(row=>[row.id,row]));
-    let restoredSelected=0;
-    let restoredBlocked=0;
+    // The old grouped manager used ONE global selected/blocked state even
+    // while the Film tab was active. Restore that state directly into Film.
+    // Do not re-classify by channel name: that was the reason v2 restored
+    // only a tiny subset of the user's previous Film choices.
+    const legacySelected=new Set(
+      [...selectedSourceIds,...readStoredArray(SOURCE_SELECTION_KEY)]
+        .map(String)
+        .filter(validId)
+    );
+    const legacyBlocked=new Set(
+      [...blockedSourceIds,...readStoredArray(SOURCE_BLOCKED_KEY),...readStoredArray(SOURCE_HIDDEN_KEY)]
+        .map(String)
+        .filter(validId)
+    );
 
-    for(const id of new Set([...selectedSourceIds,...blockedSourceIds])){
-      const row=byId.get(id)||{
-        id,
-        name:id,
-        groups:Array.isArray(sourceGroupOverrides[id])
-          ?sourceGroupOverrides[id]
-          :[]
-      };
-      if(!sourceGroupsFor(row).includes("film"))continue;
+    // Older builds could prune selected IDs when the local library changed,
+    // while the source-pool cache still retained the old selection signature.
+    try{
+      const pool=JSON.parse(localStorage.getItem("1988-source-pool-v2")||"null");
+      const ids=String(pool?.signature||"")
+        .split("|")
+        .map(String)
+        .filter(validId);
+      for(const id of ids)legacySelected.add(id);
+    }catch{}
 
+    // Preserve any Film state captured by the first recovery attempt.
+    const previousFilmBackup=readStoredObject(SOURCE_FILM_LEGACY_BACKUP_KEY);
+    for(const id of Array.isArray(previousFilmBackup.selected)?previousFilmBackup.selected:[]){
+      if(validId(id))legacySelected.add(String(id));
+    }
+    for(const id of Array.isArray(previousFilmBackup.blocked)?previousFilmBackup.blocked:[]){
+      if(validId(id))legacyBlocked.add(String(id));
+    }
+
+    filmSelected.clear();
+    filmBlocked.clear();
+
+    for(const id of legacySelected){
+      if(legacyBlocked.has(id))continue;
+      filmSelected.add(id);
       assignSourceGroup(id,"film");
-
-      if(blockedSourceIds.has(id)){
-        if(!filmBlocked.has(id))restoredBlocked++;
-        filmSelected.delete(id);
-        filmBlocked.add(id);
-        continue;
-      }
-
-      if(selectedSourceIds.has(id)&&!filmBlocked.has(id)){
-        if(!filmSelected.has(id))restoredSelected++;
-        filmSelected.add(id);
-      }
+    }
+    for(const id of legacyBlocked){
+      filmSelected.delete(id);
+      filmBlocked.add(id);
+      assignSourceGroup(id,"film");
     }
 
     persistSourceLibrary();
     persistScopedSourceState();
+
     localStorage.setItem(
       SOURCE_FILM_RECOVERY_KEY,
       JSON.stringify({
         at:Date.now(),
-        restoredSelected,
-        restoredBlocked,
         selectedTotal:filmSelected.size,
-        blockedTotal:filmBlocked.size
+        blockedTotal:filmBlocked.size,
+        source:"legacy-global-state"
       })
     );
   }catch(error){
