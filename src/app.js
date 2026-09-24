@@ -44,6 +44,7 @@ const sourceVideoPopup=$("#sourceVideoPopup");
 const closeSourceVideoPopup=$("#closeSourceVideoPopup");
 const sourceVideoFrame=$("#sourceVideoFrame");
 const sourceVideoPopupTitle=$("#sourceVideoPopupTitle");
+const trendTopics=$("#trendTopics");
 
 const state={
   player:null,
@@ -72,6 +73,8 @@ const state={
   feedLoading:false,
   feedHasMore:true,
   feedRows:[],
+  trendTopics:[],
+  activeTrend:"",
   feedSeq:0,
   sourceLibraryDirty:false
 };
@@ -1069,6 +1072,219 @@ function normalizeSearchText(value=""){
     .replace(/[^a-z0-9]+/g," ")
     .trim();
 }
+
+const TREND_STOPWORDS=new Set([
+  "và","của","là","có","cho","với","một","những","các","được","bị","tại","trong","trên","sau","trước",
+  "khi","này","đó","đây","từ","đến","về","theo","đang","mới","nhất","hôm","nay","tuần","video","clip",
+  "tin","tức","bản","thời","sự","xem","trực","tiếp","phát","hiện","ra","lại","vừa","đã","sẽ","thì","mà",
+  "ở","do","vì","như","vào","đi","lên","xuống","cùng","qua","nhiều","không","nhưng","cũng","còn","để",
+  "vietnam","việt","nam","official","channel","tv"
+]);
+const TREND_SINGLE_BLOCK=new Set([
+  "giá","phim","báo","ngày","người","chuyện","đội","tuyển","trận","thắng","mới","nóng","hot"
+]);
+
+function trendNormalize(value=""){
+  return String(value||"")
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[’'"]/g,"")
+    .replace(/[^\p{L}\p{N}]+/gu," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function trendTokens(title=""){
+  return (String(title||"").normalize("NFC").match(/[\p{L}\p{N}]+/gu)||[])
+    .map(raw=>({raw,norm:trendNormalize(raw)}))
+    .filter(token=>token.norm);
+}
+
+function trendPhraseLabel(tokens=[]){
+  const words=tokens.map(token=>token.raw).filter(Boolean);
+  if(!words.length)return "";
+  return words.map((word,index)=>{
+    if(/^[A-Z0-9]{2,6}$/.test(word))return word;
+    const lower=word.toLocaleLowerCase("vi-VN");
+    if(index===0)return lower.charAt(0).toLocaleUpperCase("vi-VN")+lower.slice(1);
+    return lower;
+  }).join(" ");
+}
+
+function deriveTrendTopics(rows=[]){
+  const candidates=new Map();
+  const sourceRows=Array.isArray(rows)?rows:[];
+
+  sourceRows.forEach((row,index)=>{
+    const id=itemVideoId(row);
+    if(!id)return;
+
+    const title=clean(row?.title||"");
+    if(!title)return;
+
+    const channel=trendNormalize(row?.uploaderName||row?.uploader||row?.channelName||"")||("video:"+id);
+    const tokens=trendTokens(title);
+    if(!tokens.length)return;
+
+    const perVideo=new Map();
+    const hashtags=String(title).match(/#[\p{L}\p{N}_-]+/gu)||[];
+    for(const hashtag of hashtags){
+      const label=hashtag.replace(/^#/,"").replace(/[_-]+/g," ").trim();
+      const key=trendNormalize(label);
+      if(key.length>=2)perVideo.set(key,{key,label,words:key.split(" "),tag:true});
+    }
+
+    for(let start=0;start<tokens.length;start++){
+      for(let len=1;len<=3&&start+len<=tokens.length;len++){
+        const slice=tokens.slice(start,start+len);
+        const norms=slice.map(token=>token.norm);
+        const useful=norms.filter(word=>!TREND_STOPWORDS.has(word));
+        if(!useful.length)continue;
+        if(len===1){
+          const word=norms[0];
+          if(word.length<3||TREND_STOPWORDS.has(word)||TREND_SINGLE_BLOCK.has(word)||/^\d+$/.test(word))continue;
+        }else{
+          if(TREND_STOPWORDS.has(norms[0])||TREND_STOPWORDS.has(norms[norms.length-1]))continue;
+          if(useful.length<2)continue;
+        }
+
+        const key=norms.join(" ");
+        if(key.length<3)continue;
+        const label=trendPhraseLabel(slice);
+        if(!label)continue;
+        perVideo.set(key,{key,label,words:norms,tag:false});
+      }
+    }
+
+    const ageHours=Math.max(0,publishedAgeMs(row))/(60*60*1000);
+    const freshness=Number.isFinite(ageHours)?Math.max(0,3-Math.min(3,ageHours/24)):0;
+
+    for(const item of perVideo.values()){
+      let candidate=candidates.get(item.key);
+      if(!candidate){
+        candidate={
+          key:item.key,
+          label:item.label,
+          words:item.words,
+          tag:item.tag,
+          videoIds:new Set(),
+          channels:new Set(),
+          freshness:0,
+          firstIndex:index
+        };
+        candidates.set(item.key,candidate);
+      }
+      candidate.videoIds.add(id);
+      candidate.channels.add(channel);
+      candidate.freshness+=freshness;
+      if(item.tag)candidate.tag=true;
+    }
+  });
+
+  let pool=[...candidates.values()].filter(item=>
+    item.videoIds.size>=2 &&
+    (item.channels.size>=2||item.videoIds.size>=3)
+  );
+
+  if(pool.length<5){
+    pool=[...candidates.values()].filter(item=>item.videoIds.size>=2);
+  }
+
+  pool.forEach(item=>{
+    item.score=
+      item.channels.size*12+
+      item.videoIds.size*4+
+      Math.min(8,item.freshness)+
+      Math.min(3,item.words.length)*2+
+      (item.tag?2:0);
+  });
+
+  pool.sort((a,b)=>
+    (b.score-a.score)||
+    (b.channels.size-a.channels.size)||
+    (b.videoIds.size-a.videoIds.size)||
+    (a.firstIndex-b.firstIndex)
+  );
+
+  const selected=[];
+  for(const candidate of pool){
+    if(selected.length>=8)break;
+
+    const words=new Set(candidate.words);
+    const duplicate=selected.some(existing=>{
+      const other=new Set(existing.words);
+      let overlap=0;
+      for(const word of words)if(other.has(word))overlap++;
+      const wordRatio=overlap/Math.max(1,Math.min(words.size,other.size));
+
+      let videoOverlap=0;
+      for(const id of candidate.videoIds)if(existing.videoIds.has(id))videoOverlap++;
+      const videoRatio=videoOverlap/Math.max(1,Math.min(candidate.videoIds.size,existing.videoIds.size));
+
+      return wordRatio>=0.75&&videoRatio>=0.55;
+    });
+    if(duplicate)continue;
+
+    selected.push(candidate);
+  }
+
+  return selected;
+}
+
+function trendRows(rows=[]){
+  if(!state.activeTrend)return rows;
+  const topic=state.trendTopics.find(item=>item.key===state.activeTrend);
+  if(!topic)return rows;
+  return rows.filter(row=>topic.videoIds.has(itemVideoId(row)));
+}
+
+function renderTrendTopics(){
+  if(!trendTopics)return;
+
+  if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length){
+    state.trendTopics=[];
+    state.activeTrend="";
+    trendTopics.hidden=true;
+    trendTopics.innerHTML="";
+    return;
+  }
+
+  const topics=deriveTrendTopics(state.feedRows);
+  state.trendTopics=topics;
+
+  if(state.activeTrend&&!topics.some(item=>item.key===state.activeTrend)){
+    state.activeTrend="";
+  }
+
+  if(!topics.length){
+    trendTopics.hidden=true;
+    trendTopics.innerHTML="";
+    return;
+  }
+
+  const buttons=[
+    '<button class="trend-chip'+(!state.activeTrend?' active':'')+'" type="button" data-trend="">Tất cả</button>',
+    ...topics.map(topic=>
+      '<button class="trend-chip'+(state.activeTrend===topic.key?' active':'')+'" type="button" data-trend="'+esc(topic.key)+'" title="'+esc(topic.videoIds.size+" video · "+topic.channels.size+" nguồn")+'">#'+esc(topic.label)+'</button>'
+    )
+  ];
+
+  trendTopics.innerHTML=buttons.join("");
+  trendTopics.hidden=false;
+}
+
+function renderCurrentTrendFeed(){
+  renderTrendTopics();
+  renderCards(trendRows(state.feedRows));
+}
+
+trendTopics?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-trend]");
+  if(!button)return;
+  state.activeTrend=button.dataset.trend||"";
+  renderTrendTopics();
+  renderCards(trendRows(state.feedRows));
+});
 
 function requestedSource(query=""){
   const q=normalizeSearchText(query);
@@ -2248,11 +2464,16 @@ function saveFeedCache(name,rows){
 async function loadFeedPreset(name="latest"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
+  const feedChanged=state.activeFeed!==name;
+  if(feedChanged)state.activeTrend="";
 
   if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
     state.feedLoading=false;
     state.feedHasMore=false;
     state.feedRows=[];
+    state.trendTopics=[];
+    state.activeTrend="";
+    renderTrendTopics();
     setActiveChip(name);
     feedTitle.textContent=preset.title;
     feedStatus.textContent="";
@@ -2269,7 +2490,7 @@ async function loadFeedPreset(name="latest"){
   if(cached.length){
     const rows=sortPresetRows(cached,preset);
     state.feedRows=rows;
-    renderCards(rows);
+    renderCurrentTrendFeed();
     feedStatus.textContent="Đang cập nhật…";
   }else{
     feed.innerHTML='<div class="loading">Đang tải…</div>';
@@ -2286,6 +2507,9 @@ async function loadFeedPreset(name="latest"){
       if(isSourceScopedFeed(name)){
         state.feedRows=[];
         state.feedHasMore=false;
+        state.trendTopics=[];
+        state.activeTrend="";
+        renderTrendTopics();
         saveFeedCache(name,[]);
         feed.innerHTML='<div class="empty">Chưa có video phù hợp từ các nguồn đã chọn.</div>';
         feedStatus.textContent="";
@@ -2295,7 +2519,7 @@ async function loadFeedPreset(name="latest"){
     }
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
-    renderCards(state.feedRows);
+    renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
   }catch(error){
@@ -2346,7 +2570,11 @@ async function loadMoreFeed(){
     }
 
     state.feedRows.push(...added);
-    renderCards(added,{append:true,updateStatus:false});
+    renderTrendTopics();
+    const visibleAdded=trendRows(added);
+    if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
+    const visibleTotal=trendRows(state.feedRows).length;
+    feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
   }catch(error){
     console.warn("load more failed",name,error);
