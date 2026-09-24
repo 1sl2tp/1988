@@ -47,6 +47,9 @@ jobs:
       - name: Rewrite YouTube pages v7
         run: python3 scripts/apply-youtube-pages-v7.py
 
+      - name: Apply persistent mini v8
+        run: python3 scripts/apply-mini-v8.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
