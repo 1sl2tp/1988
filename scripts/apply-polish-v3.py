@@ -488,6 +488,7 @@ if ".retry-hint {" not in s:
 
 # The search form is the pinned region; results remain naturally scrollable below.
 s = s.replace("  background: #212121;\n}", "  background: rgba(33,33,33,.96);\n  backdrop-filter: blur(18px);\n  -webkit-backdrop-filter: blur(18px);\n}", 1)
-p.write_text(s)\n"""
+p.write_text(s)
+"""
 
 target.write_text(text.replace(marker, block + "\n" + marker, 1))
