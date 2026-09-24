@@ -106,6 +106,8 @@ const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
+const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v2";
+const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v1";
 const GENERAL_SOURCE_SCOPE="general";
 
 const SOURCE_MANAGER_GROUPS=[
@@ -525,6 +527,72 @@ function ensureScopedSourceMigration(){
   try{localStorage.setItem(SOURCE_SCOPED_MIGRATION_KEY,"1");}catch{}
 }
 ensureScopedSourceMigration();
+
+function recoverLegacyFilmSourceState(){
+  try{
+    if(localStorage.getItem(SOURCE_FILM_RECOVERY_KEY))return;
+
+    const filmSelected=selectedSetForScope("film");
+    const filmBlocked=blockedSetForScope("film");
+
+    if(!localStorage.getItem(SOURCE_FILM_RECOVERY_BACKUP_KEY)){
+      localStorage.setItem(
+        SOURCE_FILM_RECOVERY_BACKUP_KEY,
+        JSON.stringify({
+          at:Date.now(),
+          selected:[...filmSelected],
+          blocked:[...filmBlocked]
+        })
+      );
+    }
+
+    const rows=managedChannelLibrary();
+    const byId=new Map(rows.map(row=>[row.id,row]));
+    let restoredSelected=0;
+    let restoredBlocked=0;
+
+    for(const id of new Set([...selectedSourceIds,...blockedSourceIds])){
+      const row=byId.get(id)||{
+        id,
+        name:id,
+        groups:Array.isArray(sourceGroupOverrides[id])
+          ?sourceGroupOverrides[id]
+          :[]
+      };
+      if(!sourceGroupsFor(row).includes("film"))continue;
+
+      assignSourceGroup(id,"film");
+
+      if(blockedSourceIds.has(id)){
+        if(!filmBlocked.has(id))restoredBlocked++;
+        filmSelected.delete(id);
+        filmBlocked.add(id);
+        continue;
+      }
+
+      if(selectedSourceIds.has(id)&&!filmBlocked.has(id)){
+        if(!filmSelected.has(id))restoredSelected++;
+        filmSelected.add(id);
+      }
+    }
+
+    persistSourceLibrary();
+    persistScopedSourceState();
+    localStorage.setItem(
+      SOURCE_FILM_RECOVERY_KEY,
+      JSON.stringify({
+        at:Date.now(),
+        restoredSelected,
+        restoredBlocked,
+        selectedTotal:filmSelected.size,
+        blockedTotal:filmBlocked.size
+      })
+    );
+  }catch(error){
+    console.warn("film source recovery failed",error);
+  }
+}
+recoverLegacyFilmSourceState();
 
 function sourceGroupLabels(row={}){
   const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
