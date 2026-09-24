@@ -1102,7 +1102,9 @@ function normalizeSearchText(value=""){
     .trim();
 }
 
-const AI_TREND_CACHE_PREFIX="1988-ai-trends-v4:";
+const AI_TREND_CACHE_PREFIX="1988-ai-trends-v5:";
+const AI_CATALOG_CACHE_KEY="1988-ai-catalog-v1";
+const AI_CATALOG_TTL=3*60*60*1000;
 
 function topicInputRows(rows=[]){
   return newestFirst(Array.isArray(rows)?rows:[])
@@ -1112,7 +1114,8 @@ function topicInputRows(rows=[]){
       title:clean(row?.title||""),
       channel:clean(row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||""),
       published:clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||publishedLabel(row)||""),
-      views:Number(row?.views)||0
+      views:Number(row?.views)||0,
+      contentHash:contentHashForRow(row)
     }))
     .filter(row=>row.id&&row.title);
 }
@@ -1127,52 +1130,51 @@ function fastHash(value=""){
   return (hash>>>0).toString(36);
 }
 
+function contentHashForRow(row={}){
+  const normalized=normalizeSearchText(row?.title||"")
+    .replace(/\b(live|official|full|tin nong|moi nhat|video|clip|shorts?)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  if(normalized.length<18)return "";
+  return fastHash(normalized);
+}
+
 function aiTrendPoolKey(scope,rows=[]){
-  const body=rows.map(row=>row.id+"|"+row.title+"|"+row.channel+"|"+row.published).join("\n");
+  const body=rows.map(row=>row.id+"|"+row.title+"|"+row.channel+"|"+row.published+"|"+row.contentHash).join("\n");
   return String(scope||"latest")+":"+fastHash(body);
 }
 
-function normalizeAiParents(payload,rows=[]){
-  const allowed=new Map(rows.map(row=>[row.id,row]));
+function normalizeAiCatalog(payload){
   const seen=new Set();
   const out=[];
-
   for(const raw of Array.isArray(payload?.parents)?payload.parents:[]){
     const label=clean(raw?.label||"").replace(/^#+\s*/,"").slice(0,28);
     if(!label)continue;
+    const key=normalizeSearchText(label);
+    if(!key||seen.has(key))continue;
 
-    let key=normalizeSearchText(label);
-    if(!key)key="parent-"+out.length;
-    if(seen.has(key))continue;
+    const queries=[...new Set(
+      (Array.isArray(raw?.queries)?raw.queries:[])
+        .map(query=>clean(query).slice(0,80))
+        .filter(query=>query.length>=2)
+    )].slice(0,6);
+    if(queries.length<2)continue;
 
-    const ids=[...new Set(
-      (Array.isArray(raw?.videoIds)?raw.videoIds:[])
-        .map(id=>clean(id))
-        .filter(id=>allowed.has(id))
-    )];
-    if(ids.length<2)continue;
-
-    const channels=new Set(
-      ids.map(id=>normalizeSearchText(allowed.get(id)?.channel||"")).filter(Boolean)
-    );
+    const hints=[...new Set(
+      (Array.isArray(raw?.hints)?raw.hints:[])
+        .map(value=>clean(value).slice(0,48))
+        .filter(Boolean)
+    )].slice(0,12);
 
     seen.add(key);
-    out.push({
-      key,
-      label,
-      videoIds:new Set(ids),
-      channels
-    });
+    out.push({key,label,queries,hints});
     if(out.length>=9)break;
   }
   return out;
 }
 
-function normalizeAiTrendTopics(payload,rows=[]){
+function normalizeAiTrendTopics(payload,rows=[],forcedParentKey="",forcedParentLabel=""){
   const allowed=new Map(rows.map(row=>[row.id,row]));
-  const parentKeys=new Map(
-    normalizeAiParents(payload,rows).map(parent=>[normalizeSearchText(parent.label),parent.key])
-  );
   const seen=new Set();
   const out=[];
 
@@ -1195,8 +1197,8 @@ function normalizeAiTrendTopics(payload,rows=[]){
     const channels=new Set(
       ids.map(id=>normalizeSearchText(allowed.get(id)?.channel||"")).filter(Boolean)
     );
-    const parentLabel=clean(raw?.parent||"").slice(0,28);
-    const parentKey=parentKeys.get(normalizeSearchText(parentLabel))||"";
+    const parentLabel=forcedParentLabel||clean(raw?.parent||"").slice(0,28);
+    const parentKey=forcedParentKey||normalizeSearchText(parentLabel);
 
     seen.add(key);
     out.push({
@@ -1228,31 +1230,64 @@ function normalizeAiVideoMeta(payload,rows=[]){
   return map;
 }
 
-function readAiTrendCache(cacheKey,rows=[]){
+function readAiCatalogCache(){
   try{
-    const saved=JSON.parse(localStorage.getItem(AI_TREND_CACHE_PREFIX+cacheKey)||"null");
-    if(!saved||!Array.isArray(saved.topics))return {parents:[],topics:[],videoMeta:new Map()};
-    if(Date.now()-Number(saved.at||0)>30*60*1000)return {parents:[],topics:[],videoMeta:new Map()};
+    const saved=JSON.parse(localStorage.getItem(AI_CATALOG_CACHE_KEY)||"null");
+    if(!saved||!Array.isArray(saved.parents))return null;
+    if(Date.now()-Number(saved.at||0)>AI_CATALOG_TTL)return null;
+    const parents=normalizeAiCatalog(saved);
+    if(!parents.length)return null;
     return {
-      parents:normalizeAiParents(saved,rows),
-      topics:normalizeAiTrendTopics(saved,rows),
-      videoMeta:normalizeAiVideoMeta(saved,rows)
+      parents,
+      version:clean(saved.version||"")||fastHash(JSON.stringify(parents))
     };
   }catch{
-    return {parents:[],topics:[],videoMeta:new Map()};
+    return null;
   }
 }
 
-function saveAiTrendCache(cacheKey,parents=[],topics=[],videoMeta=new Map()){
+function saveAiCatalogCache(parents=[]){
+  try{
+    const version=fastHash(JSON.stringify(parents.map(parent=>({
+      label:parent.label,
+      queries:parent.queries,
+      hints:parent.hints
+    }))));
+    localStorage.setItem(AI_CATALOG_CACHE_KEY,JSON.stringify({
+      at:Date.now(),
+      version,
+      parents:parents.map(parent=>({
+        label:parent.label,
+        queries:parent.queries,
+        hints:parent.hints
+      }))
+    }));
+    return version;
+  }catch{
+    return fastHash(JSON.stringify(parents));
+  }
+}
+
+function readAiTrendCache(cacheKey,rows=[],forcedParentKey="",forcedParentLabel=""){
+  try{
+    const saved=JSON.parse(localStorage.getItem(AI_TREND_CACHE_PREFIX+cacheKey)||"null");
+    if(!saved||!Array.isArray(saved.topics))return {topics:[],videoMeta:new Map()};
+    if(Date.now()-Number(saved.at||0)>30*60*1000)return {topics:[],videoMeta:new Map()};
+    return {
+      topics:normalizeAiTrendTopics(saved,rows,forcedParentKey,forcedParentLabel),
+      videoMeta:normalizeAiVideoMeta(saved,rows)
+    };
+  }catch{
+    return {topics:[],videoMeta:new Map()};
+  }
+}
+
+function saveAiTrendCache(cacheKey,topics=[],videoMeta=new Map()){
   try{
     localStorage.setItem(
       AI_TREND_CACHE_PREFIX+cacheKey,
       JSON.stringify({
         at:Date.now(),
-        parents:parents.map(parent=>({
-          label:parent.label,
-          videoIds:[...parent.videoIds]
-        })),
         topics:topics.map(topic=>({
           label:topic.label,
           parent:topic.parentLabel||"",
