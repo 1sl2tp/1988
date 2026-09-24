@@ -2450,7 +2450,7 @@ async function discoverSourcesForParent(parent,local){
 
   const discovered=mergeUniqueRows([],batches.flat())
     .filter(uploadedWithinCategoryWindow)
-    .filter(row=>!isBlockedSourceRow(row));
+    .filter(row=>!isBlockedSourceRow(row,group));
 
   if(discovered.length){
     rememberDiscoveredSources(discovered,group);
@@ -2489,12 +2489,13 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
 
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
   try{
-    const raw=await fetchSourcePool(local,sources,true);
+    const group=parentSourceGroup(parent);
+    const raw=await fetchSourcePool(local,sources,true,group);
     const rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
           .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row))
+          .filter(row=>!isBlockedSourceRow(row,group))
           .map(row=>({...row,_selectedCategorySource:true}))
       )
     ).slice(0,90);
@@ -2536,6 +2537,7 @@ async function loadAiParentDiscovery(parent){
   const seq=state.feedSeq;
 
   try{
+    const group=parentSourceGroup(parent);
     const sources=selectedSourcesForParent(parent);
 
     if(!sources.length){
@@ -2558,7 +2560,7 @@ async function loadAiParentDiscovery(parent){
     if(cachedRows.length){
       const safeCached=cachedRows.filter(row=>{
         const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-        return sourceIds.has(id)&&!isBlockedSourceRow(row);
+        return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
       });
 
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeCached});
@@ -2577,7 +2579,7 @@ async function loadAiParentDiscovery(parent){
     const sourcePool=readSourcePoolCache()
       .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
       .filter(uploadedWithinCategoryWindow)
-      .filter(row=>!isBlockedSourceRow(row));
+      .filter(row=>!isBlockedSourceRow(row,group));
 
     if(sourcePool.length){
       const rows=dedupeHashedRows(newestFirst(sourcePool))
@@ -2606,12 +2608,12 @@ async function loadAiParentDiscovery(parent){
     }
 
     const local=await localEngine(12000);
-    const raw=await fetchSourcePool(local,sources,true);
+    const raw=await fetchSourcePool(local,sources,true,group);
     let rows=dedupeHashedRows(
       newestFirst(
         (Array.isArray(raw)?raw:[])
           .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row))
+          .filter(row=>!isBlockedSourceRow(row,group))
           .map(row=>({...row,_selectedCategorySource:true}))
       )
     ).slice(0,90);
@@ -3776,14 +3778,15 @@ function primeSourceFeedCaches(rows=[]){
   saveFeedCache("week",week);
 }
 
-async function fetchSourcePool(local,sources,reset=true){
+async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE){
   const collected=[];
   let cursor=0;
+  const blocked=blockedSetForScope(scope);
 
   const worker=async()=>{
     while(cursor<sources.length){
       const source=sources[cursor++];
-      if(!source||blockedSourceIds.has(source.id))continue;
+      if(!source||blocked.has(source.id))continue;
       try{
         const rows=await local.channelVideosPage(
           "library:"+source.id,
@@ -3817,7 +3820,7 @@ function refreshSourcePool(local,sources){
 
   sourcePoolRefreshSignature=signature;
   sourcePoolRefreshPromise=(async()=>{
-    const rows=await fetchSourcePool(local,sources,true);
+    const rows=await fetchSourcePool(local,sources,true,GENERAL_SOURCE_SCOPE);
     if(signature!==sourceSignature())return [];
     const saved=saveSourcePoolCache(rows);
     primeSourceFeedCaches(saved);
@@ -3847,7 +3850,7 @@ async function selectedSourceFeed(local,predicate,reset=false){
     return fresh.filter(predicate);
   }
 
-  const extra=await fetchSourcePool(local,sources,false);
+  const extra=await fetchSourcePool(local,sources,false,GENERAL_SOURCE_SCOPE);
   const previous=readSourcePoolCache();
   const merged=saveSourcePoolCache([...previous,...extra]);
   primeSourceFeedCaches(merged);
