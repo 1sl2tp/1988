@@ -101,6 +101,14 @@ s = s.replace(
     1
 )
 
+# The horizontal result template used age(); the unified card computes age itself.
+s = re.sub(
+    r"\\nfunction age\\(ts: number\\) \\{[\\s\\S]*?\\n\\}\\n",
+    "\\n",
+    s,
+    count=1
+)
+
 # Feed persistence uses the home-style card keys.
 s = s.replace(
     """      items: videos.value.map((row:any) => ({
