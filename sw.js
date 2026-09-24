@@ -1,16 +1,16 @@
 'use strict';
 
-const CACHE='1988-main-source-scroll-v42';
+const CACHE='1988-main-fresh-source-v43';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=source-scroll-42',
-  './src/app.js?v=source-scroll-42',
+  './src/app.js?v=fresh-source-43',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
-  './src/yt-local.js?v=paged-discovery-42',
+  './src/yt-local.js?v=fresh-source-43',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
