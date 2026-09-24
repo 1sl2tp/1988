@@ -234,6 +234,8 @@ function setSourceStatus(id,status){
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
+  state.aiCategoryRows=new Map();
+  state.aiCategoryTopics=new Map();
   updateSourceSummary();
   renderSourceLibrary();
 }
@@ -602,6 +604,8 @@ function addSource(row){
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
+  state.aiCategoryRows=new Map();
+  state.aiCategoryTopics=new Map();
   updateSourceSummary();
   renderSourceLibrary();
 }
@@ -735,7 +739,13 @@ function closeSourceLibrary(){
 
   if(state.sourceLibraryDirty){
     state.sourceLibraryDirty=false;
-    if(isSourceScopedFeed(state.activeFeed)){
+    if(state.activeParent){
+      const parent=state.parentCategories.find(item=>item.key===state.activeParent);
+      if(parent){
+        feed.innerHTML='<div class="loading">Đang cập nhật nguồn…</div>';
+        void loadAiParentDiscovery(parent);
+      }
+    }else if(isSourceScopedFeed(state.activeFeed)){
       void loadFeedPreset(state.activeFeed);
     }
   }
@@ -1554,7 +1564,8 @@ function rowMatchesParentRule(parent,row={}){
 
   switch(group){
     case "film":
-      return /\bphim\b|vietsub|thuyet minh|review phim|phim ngan|tong tai|trong sinh|trung sinh|xuyen khong|he thong|hoan thuong|chien than|than y|o re|thien kim|nu de|tu tien|co trang|ngon tinh|giam bao|thau thi|long soai|dien chu/.test(text);
+      return /\bphim\b|vietsub|thuyet minh|review phim|phim ngan|tong tai|trong sinh|trung sinh|xuyen khong|hoan thuong|chien than|than y|o re|thien kim|nu de|tu tien|co trang|ngon tinh|giam bao|thau thi|long soai|dien chu/.test(text)||
+        isShortDramaStoryTitle(row);
     case "music":
       return /\bnhac\b|\bmv\b|official audio|lyric|lyrics|ca khuc|bai hat|ca si|live session|acoustic|cover|remix|karaoke|bolero|vpop|rap viet/.test(text);
     case "economy":
@@ -1997,7 +2008,7 @@ async function loadAiParentDiscovery(parent){
 
     // The first screen is built from curated sources / strong local rules.
     // This means the user sees useful content before Gemini has to finish.
-    const fastCandidates=trusted.slice(0,24);
+    const fastCandidates=trusted.slice(0,16);
     const trustedIds=new Set(trusted.map(itemVideoId).filter(Boolean));
 
     const aiSampleWanted=[
@@ -2024,6 +2035,7 @@ async function loadAiParentDiscovery(parent){
 
     let visibleRows=await filterNativeAiGeneratedRows(local,parent,fastCandidates);
     let visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
+    const hadInitialRender=visibleRows.length>0;
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
     state.aiCategoryTopics.set(parent.key,[]);
@@ -2056,9 +2068,27 @@ async function loadAiParentDiscovery(parent){
       .filter(row=>!visibleIds.has(itemVideoId(row)))
       .slice(0,Math.max(0,72-visibleRows.length));
 
-    const safeRemaining=await filterNativeAiGeneratedRows(local,parent,remaining);
-    visibleRows=mergeUniqueRows(visibleRows,safeRemaining);
-    visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
+    let appendedAfterAi=[];
+    for(let offset=0;offset<remaining.length;offset+=16){
+      const chunk=remaining.slice(offset,offset+16);
+      const safeChunk=await filterNativeAiGeneratedRows(local,parent,chunk);
+      if(!safeChunk.length)continue;
+
+      visibleRows=mergeUniqueRows(visibleRows,safeChunk);
+      visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
+      appendedAfterAi=mergeUniqueRows(appendedAfterAi,safeChunk);
+
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
+
+      if(state.activeParent===parent.key&&!state.activeTrend){
+        if(hadInitialRender||feed.querySelector("[data-video-id]")){
+          renderCards(aiDisplayRows(safeChunk),{append:true});
+        }else{
+          renderCards(aiDisplayRows(visibleRows));
+        }
+        feedStatus.textContent=visibleRows.length+" video · đang bổ sung…";
+      }
+    }
 
     let topics=(classified.topics||[])
       .map(topic=>({
@@ -2075,9 +2105,7 @@ async function loadAiParentDiscovery(parent){
       renderTrendTopics();
       if(state.activeTrend){
         renderCards(aiDisplayRows(trendRows(state.feedRows)));
-      }else if(fastCandidates.length){
-        renderCards(aiDisplayRows(safeRemaining),{append:true});
-      }else{
+      }else if(!feed.querySelector("[data-video-id]")){
         renderCards(aiDisplayRows(visibleRows));
       }
       feedStatus.textContent=visibleRows.length?visibleRows.length+" video":"";
