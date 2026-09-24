@@ -1687,6 +1687,13 @@ function parentSourceGroup(parent={}){
   return "";
 }
 
+function selectedSourcesForParent(parent={}){
+  const group=parentSourceGroup(parent);
+  const selected=selectedSources();
+  if(!group)return selected;
+  return selected.filter(source=>sourceGroupsFor(source).includes(group));
+}
+
 function librarySourceForVideo(row={}){
   const id=String(row?.channelId||row?._sourceId||row?.uploaderId||"").trim();
   if(id&&libraryHas(id))return libraryRow(id);
@@ -1735,6 +1742,7 @@ function rowMatchesParentRule(parent,row={}){
 
 function locallyTrustedForParent(parent,row={}){
   if(isBlockedSourceRow(row))return false;
+  if(row?._selectedCategorySource===true)return true;
   const group=parentSourceGroup(parent);
   const source=librarySourceForVideo(row);
   if(source&&group&&sourceGroupsFor(source).includes(group))return true;
@@ -1992,6 +2000,38 @@ function aiDisplayRows(rows=[]){
     }
   }
   return out;
+}
+
+function patchRenderedAiMeta(rows=[]){
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=itemVideoId(row);
+    if(!id)continue;
+    const meta=state.aiVideoMeta.get(id);
+    if(!meta)continue;
+    const card=feed?.querySelector?.('[data-video-id="'+CSS.escape(id)+'"]');
+    if(!card)continue;
+
+    const title=clean(meta.displayTitle||row?._displayTitle||row?.title||"");
+    const source=clean(meta.displaySource||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
+    const titleEl=card.querySelector(".card-title");
+    const sourceEl=card.querySelector(".card-channel");
+
+    if(title&&titleEl){
+      titleEl.textContent=title;
+      card.dataset.title=title;
+    }
+    if(source&&sourceEl){
+      const duplicate=sourceEl.querySelector(".card-related")?.textContent||"";
+      sourceEl.textContent=source;
+      if(duplicate){
+        const span=document.createElement("span");
+        span.className="card-related";
+        span.textContent=" · "+duplicate.replace(/^\s*·\s*/,"");
+        sourceEl.appendChild(span);
+      }
+      card.dataset.channel=source;
+    }
+  }
 }
 
 function categoryCacheRows(parentKey=""){
@@ -3454,6 +3494,7 @@ async function fetchSourcePool(local,sources,reset=true){
   const worker=async()=>{
     while(cursor<sources.length){
       const source=sources[cursor++];
+      if(!source||blockedSourceIds.has(source.id))continue;
       try{
         const rows=await local.channelVideosPage(
           "library:"+source.id,
