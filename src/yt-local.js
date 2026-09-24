@@ -1259,7 +1259,215 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,normalizeRows,normalizeChannels};
+
+const visualAspectCache=new Map();
+const visualAspectPending=new Map();
+
+function waitMediaEvent(target,event,timeout=5000){
+  return new Promise((resolve,reject)=>{
+    let done=false;
+    const finish=(ok,value)=>{
+      if(done)return;
+      done=true;
+      clearTimeout(timer);
+      target.removeEventListener(event,onEvent);
+      target.removeEventListener("error",onError);
+      ok?resolve(value):reject(value);
+    };
+    const onEvent=()=>finish(true,true);
+    const onError=()=>finish(false,new Error("media_"+event+"_error"));
+    const timer=setTimeout(()=>finish(false,new Error("media_"+event+"_timeout")),timeout);
+    target.addEventListener(event,onEvent,{once:true});
+    target.addEventListener("error",onError,{once:true});
+  });
+}
+
+function detectPillarboxAspect(video){
+  const vw=Number(video?.videoWidth)||0;
+  const vh=Number(video?.videoHeight)||0;
+  if(vw<=0||vh<=0)return 0;
+
+  const sourceAspect=vw/vh;
+  if(sourceAspect<.80)return sourceAspect;
+  if(sourceAspect<1.20)return sourceAspect;
+
+  const width=192;
+  const height=Math.max(72,Math.min(128,Math.round(width/sourceAspect)));
+  const canvas=document.createElement("canvas");
+  canvas.width=width;
+  canvas.height=height;
+  const ctx=canvas.getContext("2d",{willReadFrequently:true});
+  if(!ctx)return 0;
+
+  try{
+    ctx.drawImage(video,0,0,width,height);
+  }catch{
+    return 0;
+  }
+
+  let data;
+  try{
+    data=ctx.getImageData(0,0,width,height).data;
+  }catch{
+    return 0;
+  }
+
+  const means=new Array(width).fill(0);
+  const active=new Array(width).fill(0);
+
+  for(let x=0;x<width;x++){
+    let sum=0;
+    let bright=0;
+    for(let y=0;y<height;y++){
+      const i=(y*width+x)*4;
+      const r=data[i],g=data[i+1],b=data[i+2];
+      const l=.2126*r+.7152*g+.0722*b;
+      sum+=l;
+      if(l>28)bright++;
+    }
+    means[x]=sum/height;
+    active[x]=bright/height;
+  }
+
+  const centerStart=Math.floor(width*.40);
+  const centerEnd=Math.ceil(width*.60);
+  let centerMean=0;
+  for(let x=centerStart;x<centerEnd;x++)centerMean+=means[x];
+  centerMean/=Math.max(1,centerEnd-centerStart);
+  if(centerMean<18)return 0;
+
+  const darkThreshold=Math.max(10,Math.min(30,centerMean*.26));
+  const isBar=x=>means[x]<darkThreshold&&active[x]<.13;
+
+  let left=0;
+  while(left<width*.45&&isBar(left))left++;
+
+  let right=width-1;
+  while(right>width*.55&&isBar(right))right--;
+
+  const leftCut=left/width;
+  const rightCut=(width-1-right)/width;
+  if(leftCut<.16||rightCut<.16)return 0;
+
+  const contentFraction=(right-left+1)/width;
+  const contentAspect=sourceAspect*contentFraction;
+
+  // Only act when the actual bright/content region is clearly portrait.
+  if(contentAspect>=.84||contentAspect<.34)return 0;
+  return contentAspect;
+}
+
+async function visualContentAspect(id){
+  id=String(id||"").trim();
+  if(!VIDEO_ID_RE.test(id))return {aspectRatio:0,source:""};
+
+  const cached=visualAspectCache.get(id);
+  if(cached&&Date.now()-cached.at<6*60*60*1000)return cached.value;
+  if(visualAspectPending.has(id))return visualAspectPending.get(id);
+
+  const task=(async()=>{
+    let resolved;
+    try{
+      resolved=await media(id,"video");
+    }catch{
+      return {aspectRatio:0,source:""};
+    }
+
+    const directW=Number(resolved?.width)||0;
+    const directH=Number(resolved?.height)||0;
+    if(directW>0&&directH>0&&directW/directH<.80){
+      const value={
+        width:directW,
+        height:directH,
+        aspectRatio:directW/directH,
+        source:"resolved-stream"
+      };
+      visualAspectCache.set(id,{at:Date.now(),value});
+      return value;
+    }
+
+    const video=document.createElement("video");
+    video.muted=true;
+    video.playsInline=true;
+    video.preload="auto";
+    video.setAttribute("playsinline","");
+    video.style.cssText="position:fixed;left:-9999px;top:-9999px;width:2px;height:2px;opacity:0;pointer-events:none";
+    document.body.appendChild(video);
+
+    try{
+      video.src=String(resolved?.url||"");
+      video.load();
+
+      if(video.readyState<1)await waitMediaEvent(video,"loadedmetadata",6000);
+
+      const vw=Number(video.videoWidth)||0;
+      const vh=Number(video.videoHeight)||0;
+      if(vw>0&&vh>0&&vw/vh<.80){
+        const value={width:vw,height:vh,aspectRatio:vw/vh,source:"video-metadata"};
+        visualAspectCache.set(id,{at:Date.now(),value});
+        return value;
+      }
+
+      // Decode a real frame. Muted autoplay is allowed and avoids depending
+      // on user interaction for this hidden probe.
+      try{
+        const play=video.play();
+        if(play&&typeof play.then==="function")await Promise.race([
+          play.catch(()=>{}),
+          new Promise(resolve=>setTimeout(resolve,1200))
+        ]);
+      }catch{}
+
+      if(video.readyState<2){
+        try{await waitMediaEvent(video,"loadeddata",4500);}catch{}
+      }
+
+      const duration=Number(video.duration)||0;
+      const samples=[];
+      if(duration>4)samples.push(Math.min(2.2,duration*.08));
+      samples.push(0);
+
+      let detected=0;
+      for(const time of samples){
+        if(time>0&&Number.isFinite(duration)&&duration>time+.2){
+          try{
+            video.currentTime=time;
+            await waitMediaEvent(video,"seeked",3500);
+          }catch{}
+        }
+
+        detected=detectPillarboxAspect(video);
+        if(detected>0)break;
+      }
+
+      try{video.pause()}catch{}
+
+      const value=detected>0
+        ?{
+            width:Math.max(1,Math.round((Number(video.videoHeight)||720)*detected)),
+            height:Number(video.videoHeight)||720,
+            aspectRatio:detected,
+            source:"frame-pillarbox"
+          }
+        :{aspectRatio:0,source:""};
+
+      if(value.aspectRatio>0)visualAspectCache.set(id,{at:Date.now(),value});
+      return value;
+    }finally{
+      try{
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      }catch{}
+      video.remove();
+    }
+  })().finally(()=>visualAspectPending.delete(id));
+
+  visualAspectPending.set(id,task);
+  return task;
+}
+
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,visualContentAspect,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 

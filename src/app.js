@@ -6507,6 +6507,28 @@ async function playVideo(id,seedMeta={}){
       }).catch(()=>{});
     }
 
+    if(typeof local?.visualContentAspect==="function"){
+      void local.visualContentAspect(id).then(dimensions=>{
+        if(state.currentId!==id)return;
+
+        const aspectRatio=Number(dimensions?.aspectRatio)||0;
+        if(!aspectRatio||aspectRatio>=.80)return;
+
+        const height=Number(dimensions?.height)||720;
+        const width=Number(dimensions?.width)||Math.round(height*aspectRatio);
+        const meta={
+          ...(state.currentMeta||{}),
+          videoWidth:width,
+          videoHeight:height,
+          aspectRatio,
+          _aspectVerified:true,
+          _aspectSource:String(dimensions?.source||"visual")
+        };
+        state.currentMeta=meta;
+        updateCurrentVideoAspect(meta);
+      }).catch(()=>{});
+    }
+
     // Metadata is optional: iframe starts immediately, while details/related
     // results are enriched in parallel without delaying playback.
     void local.info(id).then(detail=>{
