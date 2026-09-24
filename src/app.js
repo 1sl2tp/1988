@@ -143,6 +143,12 @@ const FIXED_CONTENT_CATEGORIES=[
   {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
 ];
 const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
+const GENERAL_SOURCE_DISCOVERY_PARENT={
+  key:"general",
+  group:GENERAL_SOURCE_SCOPE,
+  label:"Mới nhất/Tuần này",
+  queries:[]
+};
 
 state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
 
@@ -364,6 +370,19 @@ function allManagedStateIds(){
   return ids;
 }
 
+function temporarySetForScope(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  if(scope===GENERAL_SOURCE_SCOPE)return temporaryGeneralSourceIds;
+  if(CONTENT_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
+  return new Set();
+}
+
+function sourceDiscoveryParentForGroup(group=sourceManageGroup){
+  group=sourceScope(group);
+  if(group===GENERAL_SOURCE_SCOPE)return GENERAL_SOURCE_DISCOVERY_PARENT;
+  return FIXED_CONTENT_CATEGORIES.find(item=>item.group===group)||null;
+}
+
 function allTemporarySourceIds(){
   const ids=new Set(temporaryGeneralSourceIds);
   for(const scope of CONTENT_SOURCE_SCOPES){
@@ -511,7 +530,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   state.sourceLibraryDirty=true;
   state.aiCategoryRows=new Map();
   state.aiCategoryTopics=new Map();
-  if(CONTENT_SOURCE_SCOPES.has(scope))sourceDiscoveryAt.delete(scope);
+  sourceDiscoveryAt.delete(scope);
   refreshSourceManager();
   syncSourcePreviewHeader();
 }
@@ -1433,7 +1452,12 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
     if(reconciled.changed)stateChanged=true;
     if(reconciled.status!=="normal")continue;
 
-    if(hint&&CONTENT_SOURCE_SCOPES.has(hint)){
+    if(hint===GENERAL_SOURCE_SCOPE){
+      if(!temporaryGeneralSourceIds.has(candidate.id)){
+        temporaryGeneralSourceIds.add(candidate.id);
+        suggestionChanged=true;
+      }
+    }else if(hint&&CONTENT_SOURCE_SCOPES.has(hint)){
       if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(!temporaryGeneralSourceIds.has(candidate.id)){
       temporaryGeneralSourceIds.add(candidate.id);
@@ -1878,8 +1902,8 @@ function openSourceLibrary(){
     }
 
     setTimeout(()=>{
-      if(sourcesSheet.hidden||!CONTENT_SOURCE_SCOPES.has(sourceManageGroup))return;
-      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
+      if(sourcesSheet.hidden)return;
+      const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
       if(!parent)return;
       void localEngine(12000)
         .then(local=>discoverSourcesForParent(parent,local))
@@ -1950,11 +1974,11 @@ function setupSourceLibrary(){
     resetSourcePreviewPane();
     refreshSourceManager();
 
-    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    {
       const groupAtClick=sourceManageGroup;
       setTimeout(()=>{
         if(sourcesSheet.hidden||sourceManageGroup!==groupAtClick)return;
-        const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===groupAtClick);
+        const parent=sourceDiscoveryParentForGroup(groupAtClick);
         if(!parent)return;
         void localEngine(12000)
           .then(local=>discoverSourcesForParent(parent,local))
@@ -2906,6 +2930,8 @@ function rowMatchesParentRule(parent,row={}){
       return /giai tri|showbiz|gameshow|hau truong|nghe si|dien vien|hoa hau|concert|truyen hinh thuc te|reality show/.test(text);
     case "news":
       return /thoi su|tin tuc|ban tin|tin nong|truc tiep|quoc te|chinh phu|hoi nghi|du bao thoi tiet/.test(text);
+    case GENERAL_SOURCE_SCOPE:
+      return true;
     default:
       return false;
   }
@@ -3345,9 +3371,21 @@ function sourceLearningProfile(parent={}){
 }
 
 function adaptiveSourceQueries(parent={}){
+  const group=parentSourceGroup(parent);
   const base=(Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
     .map(clean).filter(Boolean);
   const learned=sourceLearningTerms(parent);
+
+  if(group===GENERAL_SOURCE_SCOPE){
+    const selectedNames=sourceLearningNames(GENERAL_SOURCE_SCOPE,"selected").slice(0,8);
+    const blockedNames=new Set(
+      sourceLearningNames(GENERAL_SOURCE_SCOPE,"blocked").map(normalizeSearchText)
+    );
+    const seeds=[...learned,...selectedNames]
+      .filter(query=>query&&!blockedNames.has(normalizeSearchText(query)));
+    return [...new Set(seeds)].slice(0,6);
+  }
+
   return [...new Set([...base.slice(0,2),...learned,...base.slice(2)])].slice(0,6);
 }
 async function classifyAiParent(parent,rows=[]){
@@ -3407,7 +3445,7 @@ function sourceAlreadyKnownForDiscovery(candidate,group){
   const state=matchSourceState(candidate,group).status;
   if(state==="blocked"||state==="selected")return true;
 
-  const suggested=suggestedSetForScope(group);
+  const suggested=temporarySetForScope(group);
   if(suggested.has(candidate.id))return true;
 
   const name=sourceRowName(candidate);
@@ -5087,8 +5125,10 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   const cacheKey=feedAiContentKey(name,sample);
   const feedParent={
     key:"feed-"+name,
+    group:GENERAL_SOURCE_SCOPE,
     label:name==="week"?"Tuần này":"Mới nhất"
   };
+  const learning=sourceLearningProfile(feedParent);
   const saved=readAiTrendCache("feed-content:"+cacheKey,input);
   if(saved.videoMeta.size||saved.topics.length){
     if(saved.videoMeta.size){
@@ -5125,6 +5165,9 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
           mode:"classify",
           scope:"feed:"+name,
           parentLabel:feedParent.label,
+          selectedSourceNames:learning.selectedSourceNames,
+          blockedSourceNames:learning.blockedSourceNames,
+          learnedQueries:learning.learnedQueries,
           videos:input
         })
       });
@@ -5182,6 +5225,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
     if(!rows.length)return;
     saveFeedCache(name,rows);
     void enrichSourceFeedAi(name,rows,seq);
+    void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
 
     // Never disturb the user's current reading position. If they are still
     // at the top, replace the cached snapshot with the newly refreshed one.
@@ -5290,7 +5334,10 @@ async function loadFeedPreset(name="latest"){
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
-    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,state.feedRows,seq);
+    if(isSourceScopedFeed(name)){
+      void enrichSourceFeedAi(name,state.feedRows,seq);
+      void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+    }
     void refreshAiTrendTopics();
   }catch(error){
     console.warn("feed failed",name,error);
