@@ -1404,7 +1404,13 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
 
   // Primary: YouTube Home feed with Innertube session context gl/location=VN.
   for(let i=0;i<maxPages;i++){
-    const rows=await local.homePage("region-"+key,first);
+    let rows=[];
+    try{
+      rows=await local.homePage("region-"+key,first);
+    }catch(error){
+      console.warn("regional HomeFeed failed",key,error);
+      break;
+    }
     first=false;
     if(!Array.isArray(rows)||!rows.length)break;
 
@@ -1418,7 +1424,7 @@ async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
 
   // Fallback: Piped/YouTube regional trending endpoint. It is keyed by
   // region=VN, not by a search phrase, and keeps these feeds keyword-free.
-  if(!collected.length&&reset){
+  if(!collected.length){
     const rows=await regionalTrendingRows();
     for(const raw of rows){
       const row=normalizeRegionalRow(raw);
