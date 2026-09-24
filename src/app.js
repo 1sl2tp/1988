@@ -2815,29 +2815,35 @@ function saveFeedCache(name,rows){
 }
 
 async function loadFeedPreset(name="latest"){
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
+  const categoryKey=aiCategoryKeyFromFeed(name);
+  const category=categoryKey?aiCategoryByKey(categoryKey):null;
+  if(isAiCategoryFeed(name)&&!category)return;
+
+  const preset=feedPresetFor(name);
   const seq=++state.feedSeq;
-  const feedChanged=state.activeFeed!==name;
-  if(feedChanged){
-    state.activeTrend="";
-    state.activeParent="";
-    state.parentCategories=[];
-    renderParentCategories();
+
+  state.activeParent=categoryKey;
+  state.activeTrend="";
+  state.trendTopics=[];
+  state.aiVideoMeta=new Map();
+  state.trendPoolKey="";
+  renderParentCategories();
+  renderTrendTopics();
+
+  if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
+    state.feedLoading=false;
+    state.feedHasMore=false;
+    state.feedRows=[];
+    setActiveChip(name);
+    feedTitle.textContent=preset.title;
+    feedStatus.textContent="";
+    feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
+    return;
   }
 
   state.feedLoading=true;
   state.feedHasMore=true;
   state.feedRows=[];
-  if(!isSourceScopedFeed(name)){
-    state.parentCategories=[];
-    state.activeParent="";
-    state.trendTopics=[];
-    state.activeTrend="";
-    state.aiVideoMeta=new Map();
-    state.trendPoolKey="";
-    renderParentCategories();
-    renderTrendTopics();
-  }
   setActiveChip(name);
   feedTitle.textContent=preset.title;
 
@@ -2853,30 +2859,32 @@ async function loadFeedPreset(name="latest"){
   }
 
   try{
-    let local=null;
-    local=await localEngine(16000);
+    const local=await localEngine(16000);
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
+
     if(!Array.isArray(rows)||!rows.length){
+      state.feedRows=[];
+      state.feedHasMore=false;
+      state.trendTopics=[];
+      state.activeTrend="";
+      state.aiVideoMeta=new Map();
+      state.trendPoolKey="";
+      renderTrendTopics();
+      saveFeedCache(name,[]);
+
       if(isSourceScopedFeed(name)){
-        state.feedRows=[];
-        state.feedHasMore=false;
-        state.parentCategories=[];
-        state.activeParent="";
-        state.trendTopics=[];
-        state.activeTrend="";
-        state.aiVideoMeta=new Map();
-        state.trendPoolKey="";
-        renderParentCategories();
-        renderTrendTopics();
-        saveFeedCache(name,[]);
+        feed.innerHTML='<div class="empty">Chưa có video phù hợp từ các nguồn đã chọn.</div>';
+      }else if(isAiCategoryFeed(name)){
+        feed.innerHTML='<div class="empty">Chưa có video mới trong '+esc(preset.title)+'.</div>';
+      }else{
         feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
-        feedStatus.textContent="";
-        return;
       }
-      throw new Error("empty_feed");
+      feedStatus.textContent="";
+      return;
     }
+
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
     renderCurrentTrendFeed();
@@ -2899,29 +2907,34 @@ async function loadFeedPreset(name="latest"){
 
 async function loadMoreFeed(){
   const name=state.activeFeed;
-  const preset=FEED_PRESETS[name];
+  const preset=feedPresetFor(name);
   if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
-  if(state.activeParent||state.activeTrend)return;
+  if(state.activeTrend)return;
 
   state.feedLoading=true;
   const seq=state.feedSeq;
 
   try{
-    let local=null;
-    local=await localEngine(12000);
+    const local=await localEngine(12000);
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
-    // Important UX rule: once the user is scrolling, never rebuild or
-    // re-sort the visible feed. The first page is already sorted correctly.
-    // Continuation pages are only deduplicated and appended at the bottom.
+    // Once the user is scrolling, continuation pages are only appended.
+    // Never rebuild or re-sort the already visible region.
     const rows=sortPresetRows(raw,preset);
     const existingIds=new Set(state.feedRows.map(itemVideoId));
+    const existingHashes=isAiCategoryFeed(name)
+      ?new Set(state.feedRows.map(contentHashForRow).filter(Boolean))
+      :new Set();
     const added=[];
+
     for(const row of rows){
       const id=itemVideoId(row);
       if(!id||existingIds.has(id))continue;
+      const hash=isAiCategoryFeed(name)?contentHashForRow(row):"";
+      if(hash&&existingHashes.has(hash))continue;
       existingIds.add(id);
+      if(hash)existingHashes.add(hash);
       added.push(row);
     }
 
@@ -2931,6 +2944,8 @@ async function loadMoreFeed(){
     }
 
     state.feedRows.push(...added);
+    if(supportsAiAnalysisFeed(name))void refreshAiTrendTopics();
+
     const visibleAdded=aiDisplayRows(added);
     if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
     const visibleTotal=aiDisplayRows(state.feedRows).length;
@@ -2964,14 +2979,12 @@ topicChips.addEventListener("click",e=>{
   const parentButton=e.target.closest("[data-ai-parent]");
   if(parentButton){
     const key=parentButton.dataset.aiParent||"";
-    const parent=state.parentCategories.find(item=>item.key===key);
+    const parent=aiCategoryByKey(key);
     if(!parent)return;
+    queryInput.value="";
+    clearSuggestions();
     state.activeParent=key;
-    state.activeTrend="";
-    setActiveChip(state.activeFeed);
-    feedTitle.textContent=parent.label;
-    renderTrendTopics();
-    renderCards(aiDisplayRows(trendRows(state.feedRows)));
+    void loadFeedPreset("ai:"+key);
     return;
   }
 
@@ -2989,6 +3002,7 @@ setupSourceLibrary();
 setupFloatingIframe();
 setupFullscreenReturn();
 updateModeUi();
+void refreshAiCatalog();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
 if(initialVideoId){
