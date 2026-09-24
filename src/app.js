@@ -49,7 +49,11 @@ const state={
   intentPlay:false,
   resumeOnReturn:false,
   transitionUntil:0,
-  resumeTimer:0
+  resumeTimer:0,
+  feedLoading:false,
+  feedHasMore:true,
+  feedRows:[],
+  feedSeq:0
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -395,9 +399,18 @@ function clearSuggestions(){
 
 function setActiveChip(name){
   state.activeFeed=name||"";
+  let activeButton=null;
   topicChips?.querySelectorAll(".topic-chip").forEach(button=>{
-    button.classList.toggle("active",button.dataset.feed===state.activeFeed);
+    const active=button.dataset.feed===state.activeFeed;
+    button.classList.toggle("active",active);
+    if(active)activeButton=button;
   });
+  if(activeButton&&topicChips){
+    requestAnimationFrame(()=>{
+      const left=Math.max(0,activeButton.offsetLeft-(topicChips.clientWidth-activeButton.offsetWidth)/2);
+      topicChips.scrollTo({left,behavior:"smooth"});
+    });
+  }
 }
 
 function extractVideoId(value=""){
@@ -507,6 +520,55 @@ function publishedLabel(row={}){
   return clean(row.uploadDate||row.uploadedDate||row.publishedText||"");
 }
 
+function publishedAgeMs(row={}){
+  if(row?.isLive)return -1;
+  const raw=normalizeSearchText(
+    row?.publishedText||
+    row?.uploadDate||
+    row?.uploadedDate||
+    ""
+  );
+  if(!raw)return Number.MAX_SAFE_INTEGER;
+  if(/vua xong|just now|moments ago/.test(raw))return 0;
+
+  const m=raw.match(/(\d+)\s*(giay|phut|gio|ngay|tuan|thang|nam|second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)/);
+  if(m){
+    const n=Number(m[1])||0;
+    const unit=m[2];
+    const minute=60*1000;
+    if(/giay|second/.test(unit))return n*1000;
+    if(/phut|minute/.test(unit))return n*minute;
+    if(/gio|hour/.test(unit))return n*60*minute;
+    if(/ngay|day/.test(unit))return n*24*60*minute;
+    if(/tuan|week/.test(unit))return n*7*24*60*minute;
+    if(/thang|month/.test(unit))return n*30*24*60*minute;
+    if(/nam|year/.test(unit))return n*365*24*60*minute;
+  }
+
+  const parsed=Date.parse(row?.uploadDate||row?.uploadedDate||row?.publishedText||"");
+  if(Number.isFinite(parsed))return Math.max(0,Date.now()-parsed);
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function newestFirst(rows=[]){
+  return rows
+    .map((row,index)=>({row,index,age:publishedAgeMs(row)}))
+    .sort((a,b)=>(a.age-b.age)||(a.index-b.index))
+    .map(item=>item.row);
+}
+
+function mergeUniqueRows(base=[],extra=[]){
+  const seen=new Set();
+  const out=[];
+  for(const row of [...base,...extra]){
+    const id=itemVideoId(row);
+    if(!id||seen.has(id))continue;
+    seen.add(id);
+    out.push(row);
+  }
+  return out;
+}
+
 async function api(action,params={},timeoutMs=8000){
   const url=new URL(BASE);
   url.searchParams.set("action",action);
@@ -575,8 +637,13 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
   }
 });
 
-function renderCards(rows=[]){
-  const seen=new Set();
+function renderCards(rows=[],options={}){
+  const append=options.append===true;
+  const seen=new Set(
+    append
+      ? [...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean)
+      : []
+  );
   const cards=[];
   for(const row of rows){
     const id=itemVideoId(row);
@@ -603,8 +670,16 @@ function renderCards(rows=[]){
       '</article>'
     );
   }
-  feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
-  feedStatus.textContent=cards.length?cards.length+" video":"";
+
+  if(append){
+    if(cards.length)feed.insertAdjacentHTML("beforeend",cards.join(""));
+  }else{
+    feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
+  }
+
+  const total=feed.querySelectorAll("[data-video-id]").length;
+  feedStatus.textContent=total?total+" video":"";
+  return cards.length;
 }
 
 function rowFromCard(card){
@@ -865,8 +940,9 @@ async function playVideo(id,seedMeta={}){
     updateNow(meta);
     backgroundPlayer.setMetadata(meta);
     const related=Array.isArray(detail?.related)?detail.related:[];
-    if(related.length){
+    if(related.length&&!state.activeFeed){
       feedTitle.textContent="Gợi ý tiếp theo";
+      state.feedHasMore=false;
       renderCards(related.slice(0,24));
     }
   }).catch(()=>{});
@@ -1015,6 +1091,8 @@ async function doSearch(value){
   if(!q)return;
   clearSuggestions();
   setActiveChip("");
+  state.feedHasMore=false;
+  state.feedRows=[];
 
   const id=extractVideoId(q);
   if(id){
@@ -1198,59 +1276,96 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v2:";
+const FEED_CACHE_PREFIX="1988-discovery-v3:";
+
+async function pagedSearch(local,key,query,filters={},reset=false){
+  try{
+    const rows=await local.searchPage(key,query,{type:"video",...filters},reset);
+    return Array.isArray(rows)?rows:[];
+  }catch(error){
+    console.warn("paged search failed",key,error);
+    if(!reset)return [];
+    try{
+      const rows=await local.search(query,{type:"video",...filters});
+      return Array.isArray(rows)?rows:[];
+    }catch{
+      return [];
+    }
+  }
+}
 
 const FEED_PRESETS={
   home:{
     title:"Gợi ý",
-    load:local=>local.home()
+    newest:false,
+    load:(local,reset)=>local.homePage("home",reset)
   },
   live:{
     title:"Đang live",
-    load:async local=>{
-      let rows=[];
-      try{
-        rows=await local.search("Việt Nam",{type:"video",features:["live"],prioritize:"popularity"});
-      }catch{}
-      const liveRows=(rows||[]).filter(row=>row?.isLive);
+    newest:true,
+    load:async(local,reset)=>{
+      let rows=await pagedSearch(local,"live","Việt Nam",{features:["live"],sort_by:"upload_date"},reset);
+      let liveRows=rows.filter(row=>row?.isLive);
       if(liveRows.length)return liveRows;
-
-      const fallback=await local.search("trực tiếp Việt Nam",{type:"video",prioritize:"popularity"});
-      const fallbackLive=(fallback||[]).filter(row=>row?.isLive);
-      return fallbackLive.length?fallbackLive:fallback;
+      rows=await pagedSearch(local,"live-fallback","trực tiếp Việt Nam",{sort_by:"upload_date"},reset);
+      liveRows=rows.filter(row=>row?.isLive);
+      return liveRows.length?liveRows:rows;
     }
   },
   today:{
-    title:"Top hôm nay",
-    load:local=>local.search("Việt Nam",{type:"video",upload_date:"today",prioritize:"popularity"})
+    title:"Hôm nay",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"today","Việt Nam",{upload_date:"today",sort_by:"upload_date"},reset)
   },
   week:{
-    title:"Top tuần",
-    load:local=>local.search("Việt Nam",{type:"video",upload_date:"week",prioritize:"popularity"})
+    title:"Tuần này",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"week","Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   popular:{
     title:"Xem nhiều",
-    load:local=>local.search("Việt Nam",{type:"video",prioritize:"popularity"})
+    newest:false,
+    load:(local,reset)=>pagedSearch(local,"popular","Việt Nam",{prioritize:"popularity"},reset)
+  },
+  news:{
+    title:"Thời sự",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"news","thời sự Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+  },
+  economy:{
+    title:"Kinh tế",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"economy","kinh tế Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+  },
+  security:{
+    title:"An ninh",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"security","an ninh pháp luật Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   music:{
     title:"Nhạc",
-    load:local=>local.search("nhạc Việt",{type:"video",prioritize:"popularity"})
-  },
-  news:{
-    title:"Tin tức",
-    load:local=>local.search("tin tức Việt Nam",{type:"video",upload_date:"today",prioritize:"popularity"})
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"music","nhạc Việt Nam",{sort_by:"upload_date"},reset)
   },
   sports:{
     title:"Thể thao",
-    load:local=>local.search("thể thao Việt Nam",{type:"video",upload_date:"week",prioritize:"popularity"})
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"sports","thể thao Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   entertainment:{
     title:"Giải trí",
-    load:local=>local.search("giải trí Việt Nam",{type:"video",prioritize:"popularity"})
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"entertainment","giải trí Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   tech:{
     title:"Công nghệ",
-    load:local=>local.search("công nghệ",{type:"video",upload_date:"week",prioritize:"popularity"})
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"tech","công nghệ Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
+  },
+  shortfilm:{
+    title:"Phim ngắn",
+    newest:true,
+    load:(local,reset)=>pagedSearch(local,"shortfilm","phim ngắn Việt Nam",{sort_by:"upload_date"},reset)
   }
 };
 
@@ -1268,19 +1383,25 @@ function saveFeedCache(name,rows){
   try{
     localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
       at:Date.now(),
-      items:rows.slice(0,30)
+      items:rows.slice(0,90)
     }));
   }catch{}
 }
 
 async function loadFeedPreset(name="home"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.home;
+  const seq=++state.feedSeq;
+  state.feedLoading=true;
+  state.feedHasMore=true;
+  state.feedRows=[];
   setActiveChip(name);
   feedTitle.textContent=preset.title;
 
   const cached=readFeedCache(name);
   if(cached.length){
-    renderCards(cached);
+    const rows=preset.newest?newestFirst(cached):cached;
+    state.feedRows=rows;
+    renderCards(rows);
     feedStatus.textContent="Đang cập nhật…";
   }else{
     feed.innerHTML='<div class="loading">Đang tải…</div>';
@@ -1289,21 +1410,78 @@ async function loadFeedPreset(name="home"){
 
   try{
     const local=await localEngine(16000);
-    const rows=await preset.load(local);
+    const rowsRaw=await preset.load(local,true);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+    const rows=preset.newest?newestFirst(rowsRaw):rowsRaw;
     if(!Array.isArray(rows)||!rows.length)throw new Error("empty_feed");
-    saveFeedCache(name,rows);
-    renderCards(rows);
+    state.feedRows=mergeUniqueRows([],rows);
+    saveFeedCache(name,state.feedRows);
+    renderCards(state.feedRows);
+    state.feedHasMore=true;
     feedStatus.textContent="";
   }catch(error){
     console.warn("feed failed",name,error);
-    if(cached.length){
+    if(!cached.length){
+      feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
+      feedStatus.textContent="";
+      state.feedHasMore=false;
+    }else{
       feedStatus.textContent="Dữ liệu gần nhất";
-      return;
     }
-    feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
-    feedStatus.textContent="";
+  }finally{
+    if(seq===state.feedSeq)state.feedLoading=false;
+    setTimeout(maybeLoadMoreFeed,120);
   }
 }
+
+async function loadMoreFeed(){
+  const name=state.activeFeed;
+  const preset=FEED_PRESETS[name];
+  if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
+
+  state.feedLoading=true;
+  const seq=state.feedSeq;
+  feedStatus.textContent="Đang tải thêm…";
+
+  try{
+    const local=await localEngine(12000);
+    const raw=await preset.load(local,false);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+
+    const rows=preset.newest?newestFirst(raw):raw;
+    const before=state.feedRows.length;
+    state.feedRows=mergeUniqueRows(state.feedRows,rows);
+    const added=state.feedRows.slice(before);
+
+    if(!added.length){
+      state.feedHasMore=false;
+      feedStatus.textContent="";
+      return;
+    }
+
+    renderCards(added,{append:true});
+    saveFeedCache(name,state.feedRows);
+    feedStatus.textContent="";
+  }catch(error){
+    console.warn("load more failed",name,error);
+    feedStatus.textContent="";
+  }finally{
+    if(seq===state.feedSeq)state.feedLoading=false;
+  }
+}
+
+let feedScrollRaf=0;
+function maybeLoadMoreFeed(){
+  if(feedScrollRaf)return;
+  feedScrollRaf=requestAnimationFrame(()=>{
+    feedScrollRaf=0;
+    const distance=document.documentElement.scrollHeight-(window.scrollY+window.innerHeight);
+    if(distance<1100)void loadMoreFeed();
+  });
+}
+
+window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
+window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 function loadInitialFeed(){
   return loadFeedPreset("home");
