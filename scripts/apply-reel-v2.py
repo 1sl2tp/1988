@@ -643,4 +643,241 @@ watch(() => route.query.shape, (value) => setShapeHint(value));
   justify-content: center;
 }
 
-.reel-media :deep(.video-
+.reel-media :deep(.video-player) {
+  width: 100%;
+  min-height: 0;
+}
+
+.shape-portrait .reel-content {
+  width: min(100vw, 620px);
+  height: 100dvh;
+}
+
+.shape-portrait .reel-media {
+  height: 100%;
+}
+
+.reel-meta {
+  width: 100%;
+  max-width: 980px;
+  padding: 13px 6px 0;
+  box-sizing: border-box;
+}
+
+.reel-meta h1 {
+  margin: 9px 0 0;
+  color: #f4f4f5;
+  font-size: clamp(16px, 1.7vw, 22px);
+  line-height: 1.3;
+  font-weight: 680;
+  letter-spacing: -.01em;
+}
+
+.creator {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #ededf0;
+  text-decoration: none;
+}
+
+.creator img,
+.avatar {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #27272a;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+}
+
+.creator-copy {
+  min-width: 0;
+}
+
+.creator-copy strong,
+.creator-copy small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.creator-copy strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.creator-copy small {
+  margin-top: 2px;
+  color: #8f8f96;
+  font-size: 11px;
+}
+
+.shape-portrait .reel-meta {
+  position: absolute;
+  z-index: 6;
+  left: 16px;
+  right: 86px;
+  bottom: max(78px, calc(env(safe-area-inset-bottom) + 68px));
+  width: auto;
+  max-width: none;
+  padding: 0;
+  pointer-events: none;
+  text-shadow: 0 1px 14px rgba(0,0,0,.72);
+}
+
+.shape-portrait .reel-meta .creator,
+.shape-portrait .reel-meta h1 {
+  pointer-events: auto;
+}
+
+.shape-portrait .reel-meta h1 {
+  max-width: 560px;
+  font-size: 15px;
+  line-height: 1.34;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.action-rail {
+  position: absolute;
+  z-index: 12;
+  right: max(18px, calc((100vw - 1320px) / 2));
+  bottom: 92px;
+  display: grid;
+  gap: 15px;
+  justify-items: center;
+}
+
+.action-rail button,
+.rail-avatar {
+  width: 50px;
+  min-height: 50px;
+  display: grid;
+  place-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(31,31,34,.82);
+  color: #f5f5f5;
+  text-decoration: none;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  cursor: pointer;
+}
+
+.action-rail button {
+  border-radius: 14px;
+}
+
+.action-rail :deep(svg) {
+  width: 21px;
+  height: 21px;
+}
+
+.action-rail span {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.rail-avatar {
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,.16);
+}
+
+.rail-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.desktop-arrows {
+  position: absolute;
+  z-index: 13;
+  top: 50%;
+  right: 20px;
+  display: grid;
+  gap: 12px;
+  transform: translateY(-50%);
+}
+
+.desktop-arrows button,
+.back-btn {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 50%;
+  background: rgba(27,27,30,.84);
+  color: #fff;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.desktop-arrows button:disabled {
+  opacity: .28;
+  cursor: default;
+}
+
+.desktop-arrows :deep(svg),
+.back-btn :deep(svg) {
+  width: 23px;
+  height: 23px;
+}
+
+.back-btn {
+  position: absolute;
+  z-index: 14;
+  top: max(14px, env(safe-area-inset-top));
+  left: 18px;
+}
+
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: rgba(0,0,0,.35);
+}
+
+.reel-menu {
+  position: absolute;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  width: min(300px, calc(100vw - 28px));
+  display: grid;
+  gap: 4px;
+  padding: 7px;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px;
+  background: rgba(30,30,33,.96);
+  box-shadow: 0 24px 80px rgba(0,0,0,.45);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.reel-menu button,
+.reel-menu a {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: #f2f2f3;
+  text-decoration:
