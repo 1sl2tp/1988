@@ -1093,3 +1093,225 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     font-size:9px;
   }
 }
+
+
+/* ============================================================
+   MOBILE WATCH SHELL v168
+   Search stays on top, player stays below it, source/feed chips
+   move under the player, and only the result list scrolls.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    height:100%;
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+
+  html.watch-browse body{
+    height:100dvh;
+    min-height:0;
+    overflow:hidden;
+    overscroll-behavior:none;
+    padding-bottom:0;
+    display:grid;
+    grid-template-rows:
+      calc(var(--header-row-h) + var(--safe-top))
+      auto
+      var(--nav-row-h)
+      minmax(0,1fr);
+    grid-template-columns:minmax(0,1fr);
+    background:var(--bg);
+  }
+
+  /* Flatten the old header/main wrappers so their real children can be
+     ordered as one stable mobile shell without moving DOM nodes in JS. */
+  html.watch-browse .app-header,
+  html.watch-browse .app-shell{
+    display:contents;
+  }
+
+  html.watch-browse .header-inner{
+    grid-row:1;
+    grid-column:1;
+    width:100%;
+    height:calc(var(--header-row-h) + var(--safe-top));
+    margin:0;
+    padding:
+      calc(7px + var(--safe-top))
+      10px
+      7px;
+    position:relative;
+    z-index:82;
+    background:rgba(11,11,12,.985);
+    border-bottom:1px solid rgba(255,255,255,.06);
+    box-shadow:none;
+  }
+
+  html.watch-browse .player-section{
+    grid-row:2;
+    grid-column:1;
+    position:relative!important;
+    top:auto!important;
+    inset:auto!important;
+    align-self:start;
+    width:100%;
+    min-width:0;
+    min-height:0;
+    margin:0;
+    z-index:40;
+    background:#000;
+    box-shadow:none;
+  }
+
+  html.watch-browse .player-card{
+    width:100%;
+    border-radius:0;
+    overflow:hidden;
+    background:#000;
+  }
+
+  html.watch-browse .player-frame{
+    width:100%;
+    max-height:none;
+    aspect-ratio:16/9;
+    border-radius:0;
+    background:#000;
+  }
+
+  html.watch-browse .player-section .series-panel,
+  html.watch-browse .player-section .context-brief{
+    display:none!important;
+  }
+
+  /* Source/feed choices sit directly below the video. */
+  html.watch-browse .header-nav{
+    grid-row:3;
+    grid-column:1;
+    position:relative;
+    top:auto;
+    z-index:45;
+    width:100%;
+    height:var(--nav-row-h);
+    border-top:1px solid rgba(255,255,255,.065);
+    border-bottom:1px solid rgba(255,255,255,.075);
+    background:rgba(11,11,12,.99);
+  }
+
+  html.watch-browse .header-nav-inner{
+    width:100%;
+    height:100%;
+    padding:0;
+    overflow:hidden;
+  }
+
+  html.watch-browse .topic-chips{
+    height:100%;
+    padding:7px 10px;
+  }
+
+  html.watch-browse .trend-topics{
+    display:none!important;
+  }
+
+  /* This is the only vertical scrolling surface in watch mode. */
+  html.watch-browse .feed-section{
+    grid-row:4;
+    grid-column:1;
+    min-height:0;
+    height:auto;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-gutter:stable;
+    padding:7px 8px calc(14px + var(--safe-bottom));
+    background:var(--bg);
+  }
+
+  html.watch-browse .section-head{
+    position:relative;
+    margin:0 2px 7px;
+    padding-top:1px;
+    background:var(--bg);
+  }
+
+  html.watch-browse .search-refinements{
+    margin:0 0 7px;
+  }
+
+  html.watch-browse .feed{
+    display:flex;
+    flex-direction:column;
+    gap:0;
+    min-height:min-content;
+  }
+
+  html.watch-browse .feed>.card{
+    display:grid;
+    grid-template-columns:minmax(132px,42%) minmax(0,1fr);
+    align-items:start;
+    gap:0;
+    min-height:86px;
+    padding:8px 0;
+    border:0;
+    border-bottom:1px solid rgba(255,255,255,.075);
+    border-radius:0;
+    background:transparent;
+    overflow:visible;
+  }
+
+  html.watch-browse .feed>.card:last-child{
+    border-bottom:0;
+  }
+
+  html.watch-browse .feed>.card .thumb-wrap{
+    width:100%;
+    aspect-ratio:16/9;
+    border-radius:9px;
+  }
+
+  html.watch-browse .feed>.card .card-copy{
+    min-width:0;
+    padding:1px 2px 0 10px;
+  }
+
+  html.watch-browse .feed>.card .card-title{
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+    overflow:hidden;
+    margin:0 0 5px;
+    font-size:13px;
+    line-height:1.28;
+    font-weight:700;
+  }
+
+  html.watch-browse .feed>.card .card-channel{
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    margin-bottom:2px;
+    font-size:10.5px;
+    line-height:1.25;
+  }
+
+  html.watch-browse .feed>.card .card-stats{
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:10px;
+    line-height:1.25;
+  }
+
+  html.watch-browse .feed>.card .duration,
+  html.watch-browse .feed>.card .live-badge{
+    font-size:9px;
+  }
+
+  /* Sheets and search suggestions remain viewport overlays, not grid rows. */
+  html.watch-browse .sheet-backdrop{
+    position:fixed;
+  }
+}
