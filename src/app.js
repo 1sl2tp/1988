@@ -530,23 +530,6 @@ async function playVideo(id,seedMeta={}){
   }).catch(()=>{});
 }
 
-function enableSystemPiPForIframe(){
-  try{
-    const iframe=state.player?.getIframe?.()||ytPlayerHost.querySelector?.("iframe");
-    if(!iframe)return false;
-    const current=(iframe.getAttribute("allow")||"").split(";").map(x=>x.trim()).filter(Boolean);
-    const wanted=["autoplay","encrypted-media","picture-in-picture","fullscreen"];
-    const merged=[...new Set([...current,...wanted])];
-    iframe.setAttribute("allow",merged.join("; "));
-    iframe.setAttribute("allowfullscreen","");
-    iframe.setAttribute("webkitallowfullscreen","");
-    iframe.setAttribute("playsinline","");
-    return true;
-  }catch{
-    return false;
-  }
-}
-
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
 
@@ -568,7 +551,6 @@ function initYouTubePlayer(){
     events:{
       onReady(){
         state.playerReady=true;
-        enableSystemPiPForIframe();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
         if(id){
@@ -595,8 +577,6 @@ function initYouTubePlayer(){
       }
     }
   });
-  setTimeout(enableSystemPiPForIframe,500);
-  setTimeout(enableSystemPiPForIframe,1500);
   return true;
 }
 
