@@ -34,7 +34,10 @@ const closeSourcesSheet=$("#closeSourcesSheet");
 const sourceSearch=$("#sourceSearch");
 const clearSourceSearch=$("#clearSourceSearch");
 const sourceSearchStatus=$("#sourceSearchStatus");
+const sourceGroupNav=$("#sourceGroupNav");
 const sourceGroupTabs=$("#sourceGroupTabs");
+const sourceGroupPrev=$("#sourceGroupPrev");
+const sourceGroupNext=$("#sourceGroupNext");
 const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
 const sourceSummary=$("#sourceSummary");
@@ -450,9 +453,17 @@ function observeSourceRows(){
   });
 }
 
+function updateSourceGroupArrows(){
+  if(!sourceGroupNav||!sourceGroupTabs)return;
+  const maxScroll=Math.max(0,sourceGroupTabs.scrollWidth-sourceGroupTabs.clientWidth);
+  const canScroll=maxScroll>4;
+  sourceGroupPrev.hidden=!canScroll||sourceGroupTabs.scrollLeft<=3;
+  sourceGroupNext.hidden=!canScroll||sourceGroupTabs.scrollLeft>=maxScroll-3;
+}
+
 function renderSourceGroupTabs(){
-  if(!sourceGroupTabs)return;
-  sourceGroupTabs.hidden=!sourceManageMode;
+  if(!sourceGroupTabs||!sourceGroupNav)return;
+  sourceGroupNav.hidden=!sourceManageMode;
   if(!sourceManageMode){
     sourceGroupTabs.innerHTML="";
     return;
@@ -467,6 +478,8 @@ function renderSourceGroupTabs(){
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
   }).join("");
+
+  requestAnimationFrame(updateSourceGroupArrows);
 }
 
 function renderSourceLibrary(){
@@ -743,6 +756,15 @@ function setupSourceLibrary(){
     sourceManageGroup=button.dataset.sourceGroup||"all";
     renderSourceLibrary();
   });
+
+  sourceGroupTabs?.addEventListener("scroll",updateSourceGroupArrows,{passive:true});
+  sourceGroupPrev?.addEventListener("click",()=>{
+    sourceGroupTabs?.scrollBy({left:-Math.max(180,(sourceGroupTabs?.clientWidth||240)*.72),behavior:"smooth"});
+  });
+  sourceGroupNext?.addEventListener("click",()=>{
+    sourceGroupTabs?.scrollBy({left:Math.max(180,(sourceGroupTabs?.clientWidth||240)*.72),behavior:"smooth"});
+  });
+  window.addEventListener("resize",()=>requestAnimationFrame(updateSourceGroupArrows),{passive:true});
 
   sourceVideoPopup?.addEventListener("click",event=>{
     if(event.target===sourceVideoPopup)closeSourceVideo();
