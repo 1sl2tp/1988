@@ -26,8 +26,11 @@ function json(res, status, data) {
 
 async function getBrowser() {
   if (!browserPromise) {
-    browserPromise = puppeteer.launch({
-      args: await puppeteer.defaultArgs({
+    // Assign the promise before awaiting Chromium extraction. Multiple feed
+    // warmers must share one extraction/launch or Render can hit ETXTBSY.
+    browserPromise = (async () => {
+      const executablePath = await chromium.executablePath();
+      const args = await puppeteer.defaultArgs({
         args: [
           ...chromium.args,
           '--lang=vi-VN,vi',
@@ -36,22 +39,27 @@ async function getBrowser() {
           '--no-default-browser-check',
         ],
         headless: 'shell',
-      }),
-      executablePath: await chromium.executablePath(),
-      headless: 'shell',
-      defaultViewport: {
-        width: 1365,
-        height: 900,
-        deviceScaleFactor: 1,
-        isMobile: false,
-        hasTouch: false,
-        isLandscape: true,
-      },
-    }).catch((error) => {
+      });
+
+      return puppeteer.launch({
+        args,
+        executablePath,
+        headless: 'shell',
+        defaultViewport: {
+          width: 1365,
+          height: 900,
+          deviceScaleFactor: 1,
+          isMobile: false,
+          hasTouch: false,
+          isLandscape: true,
+        },
+      });
+    })().catch((error) => {
       browserPromise = null;
       throw error;
     });
   }
+
   const browser = await browserPromise;
   if (!browser.connected) {
     browserPromise = null;
@@ -525,11 +533,11 @@ server.listen(PORT, '0.0.0.0', () => {
   void getBrowser()
     .then(async () => {
       console.log('chromium:warm');
-      await Promise.allSettled([
-        refreshPublicFeed('recommend'),
-        refreshPublicFeed('explore'),
-        refreshPublicFeed('live'),
-      ]);
+      // Warm serially. One browser is enough; parallel page launches on a free
+      // instance waste CPU/RAM and previously caused Chromium extraction races.
+      await refreshPublicFeed('recommend');
+      await refreshPublicFeed('explore');
+      await refreshPublicFeed('live');
     })
     .catch((error) => console.error('chromium:warm-failed', error?.message || error));
 
