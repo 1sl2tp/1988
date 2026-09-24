@@ -1978,9 +1978,8 @@ function parentSourceGroup(parent={}){
 
 function selectedSourcesForParent(parent={}){
   const group=parentSourceGroup(parent);
-  const selected=selectedSources();
-  if(!group)return selected;
-  return selected.filter(source=>sourceGroupsFor(source).includes(group));
+  if(!group)return [];
+  return selectedSources(group);
 }
 
 function librarySourceForVideo(row={}){
@@ -2030,9 +2029,9 @@ function rowMatchesParentRule(parent,row={}){
 }
 
 function locallyTrustedForParent(parent,row={}){
-  if(isBlockedSourceRow(row))return false;
-  if(row?._selectedCategorySource===true)return true;
   const group=parentSourceGroup(parent);
+  if(isBlockedSourceRow(row,group))return false;
+  if(row?._selectedCategorySource===true)return true;
   const source=librarySourceForVideo(row);
   if(source&&group&&sourceGroupsFor(source).includes(group))return true;
   return rowMatchesParentRule(parent,row);
@@ -2041,15 +2040,17 @@ function locallyTrustedForParent(parent,row={}){
 function splitLocalCategoryRows(parent,rows=[]){
   const trusted=[];
   const ambiguous=[];
+  const group=parentSourceGroup(parent);
   for(const row of rows){
-    if(isBlockedSourceRow(row))continue;
+    if(isBlockedSourceRow(row,group))continue;
     (locallyTrustedForParent(parent,row)?trusted:ambiguous).push(row);
   }
   return {trusted,ambiguous};
 }
 
 function filterRowsForAiParent(parent,rows=[]){
-  const base=rows.filter(row=>!isBlockedSourceRow(row));
+  const group=parentSourceGroup(parent);
+  const base=rows.filter(row=>!isBlockedSourceRow(row,group));
   const key=normalizeSearchText(parent?.label||"");
   if(key==="cong nghe"){
     return base.filter(row=>!isShortDramaStoryTitle(row));
