@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=regional-feed-45">
+  <link rel="stylesheet" href="./src/style.css?v=channel-library-60">
   <title>1988</title>
 </head>
 <body>
@@ -39,6 +39,7 @@
       <button class="topic-chip live-chip" type="button" data-feed="live">LIVE</button>
       <button class="topic-chip active" type="button" data-feed="latest">Mới nhất</button>
       <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
+      <button id="sourcesBtn" class="topic-chip source-chip" type="button">Nguồn</button>
       <button class="topic-chip" type="button" data-feed="news">Thời sự</button>
       <button class="topic-chip" type="button" data-feed="economy">Kinh tế</button>
       <button class="topic-chip" type="button" data-feed="security">An ninh</button>
@@ -98,6 +99,21 @@
     </div>
   </div>
 
+  <div id="sourcesSheet" class="sheet-backdrop" hidden>
+    <div class="sheet sources-sheet" role="dialog" aria-modal="true" aria-label="Thư viện kênh">
+      <div class="sheet-handle"></div>
+      <div class="sheet-head">
+        <div>
+          <strong>Thư viện kênh</strong>
+          <span id="sourceSummary" class="source-summary"></span>
+        </div>
+        <button id="closeSourcesSheet" type="button" aria-label="Đóng">×</button>
+      </div>
+      <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh">
+      <div id="sourceList" class="source-list"></div>
+    </div>
+  </div>
+
   <script>
   (function(){
     if(!('serviceWorker' in navigator))return;
@@ -111,8 +127,9 @@
   </script>
   <script src="./src/media-core.js?v=2"></script>
   <script src="./src/html5-background.js?v=9"></script>
-  <script type="module" src="./src/yt-local.js?v=hype-feed-53"></script>
+  <script src="./src/channel-library.js?v=channel-library-60"></script>
+  <script type="module" src="./src/yt-local.js?v=channel-library-60"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=broader-feed-59"></script>
+  <script defer src="./src/app.js?v=channel-library-60"></script>
 </body>
 </html>
