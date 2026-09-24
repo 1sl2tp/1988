@@ -224,11 +224,14 @@ function assignSourceGroup(id,group){
 }
 
 function readSourceSelection(){
-  const allowed=new Set(channelLibrary().map(row=>row.id));
   try{
     const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
     if(Array.isArray(saved)){
-      return new Set(saved.filter(id=>allowed.has(id)&&!blockedSourceIds.has(id)));
+      return new Set(
+        saved
+          .map(String)
+          .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id)&&!blockedSourceIds.has(id))
+      );
     }
   }catch{}
 
@@ -318,18 +321,32 @@ function setSourceStatus(id,status){
 
 function selectedSources(){
   const rows=channelLibrary();
-  const allowed=new Set(rows.map(row=>row.id));
-  let changed=false;
+  const byId=new Map(rows.map(row=>[row.id,row]));
+  const out=[];
 
-  for(const id of [...selectedSourceIds]){
-    if(!allowed.has(id)||blockedSourceIds.has(id)){
-      selectedSourceIds.delete(id);
-      changed=true;
+  for(const id of selectedSourceIds){
+    if(blockedSourceIds.has(id))continue;
+
+    const row=byId.get(id);
+    if(row){
+      out.push(row);
+      continue;
     }
+
+    // Never delete a user's saved selection merely because a library row
+    // failed to load in this build/session. Channel ID is sufficient to fetch.
+    out.push({
+      id,
+      name:id,
+      thumbnailUrl:"",
+      subscribers:"",
+      groups:Array.isArray(sourceGroupOverrides[id])
+        ?sourceGroupOverrides[id].map(String).filter(Boolean)
+        :[]
+    });
   }
 
-  if(changed)persistSourceSelection();
-  return rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id));
+  return out;
 }
 
 function sourceSignature(){
@@ -2090,7 +2107,7 @@ function aiDisplayRows(rows=[]){
     return {
       ...row,
       _displayTitle:meta.displayTitle||"",
-      _displaySource:meta.displaySource||"",
+      _displaySource:"",
       _duplicateGroup:meta.duplicateGroup||""
     };
   });
@@ -2151,17 +2168,10 @@ function patchRenderedAiMeta(rows=[]){
       titleEl.textContent=title;
       card.dataset.title=title;
     }
-    if(source&&sourceEl){
-      const duplicate=sourceEl.querySelector(".card-related")?.textContent||"";
-      sourceEl.textContent=source;
-      if(duplicate){
-        const span=document.createElement("span");
-        span.className="card-related";
-        span.textContent=" · "+duplicate.replace(/^\s*·\s*/,"");
-        sourceEl.appendChild(span);
-      }
-      card.dataset.channel=source;
-    }
+    // Source/channel identity belongs to Quản lý nguồn and is never
+    // rewritten by AI content enrichment.
+    void source;
+    void sourceEl;
   }
 }
 
@@ -2675,10 +2685,11 @@ function mostViewedFirst(rows=[]){
 }
 
 function sortPresetRows(rows=[],preset={}){
-  if(preset.weekFreshViewed)return weekFreshViewedFirst(rows);
-  if(preset.mostViewed)return mostViewedFirst(rows);
-  if(preset.newest)return newestFirst(rows);
-  return rows;
+  let sorted=rows;
+  if(preset.weekFreshViewed)sorted=weekFreshViewedFirst(rows);
+  else if(preset.mostViewed)sorted=mostViewedFirst(rows);
+  else if(preset.newest)sorted=newestFirst(rows);
+  return dedupeHashedRows(sorted);
 }
 
 function mergeUniqueRows(base=[],extra=[]){
