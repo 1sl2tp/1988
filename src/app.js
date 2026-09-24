@@ -4415,6 +4415,20 @@ function searchSeriesKey(row={},query="",scope="",groupKey=""){
   return "film:"+groupKey+":"+normalizeSearchText(stripEpisodeMarkers(canonicalSearchSeed(query,scope)));
 }
 
+function renderDirectSearchResults(rows=[],query="",scope=""){
+  const ranked=(Array.isArray(rows)?rows:[])
+    .filter(row=>!isBlockedSourceRow(row,scope))
+    .map((row,index)=>({row,index,score:searchResultScore(row,query,scope)}))
+    .sort((a,b)=>b.score-a.score||a.index-b.index)
+    .map(item=>item.row);
+
+  state.feedRows=ranked;
+  feed.classList.remove("search-grouped");
+  renderCards(ranked.slice(0,30),{updateStatus:false});
+  feedStatus.textContent=ranked.length?ranked.length+" kết quả":"";
+  return ranked;
+}
+
 function renderSearchGroups(rows=[],query="",scope="",extrasBySource=new Map()){
   const sourceRows=(Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
   const groups=new Map();
@@ -4495,7 +4509,7 @@ function searchExtraRank(row={},query=""){
   return score;
 }
 
-async function enrichSearchGroups(rows=[],query="",scope="",seq=0){
+async function enrichSearchGroups_UNUSED(rows=[],query="",scope="",seq=0){
   const candidates=[];
   const seen=new Set();
   for(const row of rows){
@@ -5521,10 +5535,8 @@ async function doSearch(value){
     );
     if(!scoped.length)return false;
 
-    state.feedRows=scoped;
-    renderSearchGroups(scoped,q,searchScope);
-    void enrichSearchGroups(scoped,q,searchScope,seq);
-    rememberDiscoveredSources(scoped,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
+    const ranked=renderDirectSearchResults(scoped,q,searchScope);
+    rememberDiscoveredSources(ranked,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
     return true;
   };
 
