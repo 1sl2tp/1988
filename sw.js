@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-ai-cleanup-v72';
+const CACHE='1988-main-ai-parents-v74';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=ai-cleanup-71',
-  './src/app.js?v=ai-cleanup-72',
+  './src/app.js?v=ai-parents-74',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
