@@ -1,4 +1,4 @@
-import { Innertube, Platform, ProtoUtils, UniversalCache, Utils } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
+import { Innertube, Platform, ProtoUtils, UniversalCache, Utils, YTNodes } from 'https://cdn.jsdelivr.net/npm/youtubei.js@18.1.0/bundle/browser.js';
 import { BotGuardClient, getChallenge } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/botguard.js';
 import { WebPoMinter, createColdStartToken } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/webpo.js';
 import { buildURL, getHeaders } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/utils.js';
@@ -413,6 +413,41 @@ async function homePage(key='home',reset=false){
   return pageRows(result,36);
 }
 
+
+async function hypeFeed(){
+  const yt=await getYT();
+  const guide=await yt.getGuide();
+  let hype=null;
+
+  for(const section of Array.from(guide?.contents||[])){
+    for(const item of Array.from(section?.items||[])){
+      if(item?.endpoint?.payload?.browseId==='FEhype_leaderboard'){
+        hype=item;
+        break;
+      }
+    }
+    if(hype)break;
+  }
+
+  if(!hype?.endpoint)return [];
+
+  const parsed=await hype.endpoint.call(yt.actions,{parse:true});
+  const memo=parsed?.contents_memo;
+  if(!memo)return [];
+
+  const nodes=memo.getType(
+    YTNodes.LockupView,
+    YTNodes.Video,
+    YTNodes.GridVideo,
+    YTNodes.VideoCard,
+    YTNodes.CompactVideo,
+    YTNodes.ReelItem,
+    YTNodes.ShortsLockupView
+  )||[];
+
+  return normalizeRows(nodes,80);
+}
+
 function resetDiscovery(key=''){
   if(!key){
     discoveryPages.clear();
@@ -598,7 +633,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchPage,home,homePage,resetDiscovery,suggestions,info,media,normalizeRows};
+const api={getYT,search,searchPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
