@@ -1,16 +1,16 @@
 'use strict';
 
-const CACHE='1988-native-discovery-v23';
+const CACHE='1988-main-minimal-v26';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=fresh-6',
-  './src/app.js?v=fresh-22',
-  './src/media-core.js?v=1',
-  './src/html5-background.js?v=8',
-  './src/yt-local.js?v=3',
+  './src/style.css?v=minimal-26',
+  './src/app.js?v=minimal-26',
+  './src/media-core.js?v=2',
+  './src/html5-background.js?v=9',
+  './src/yt-local.js?v=4',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
