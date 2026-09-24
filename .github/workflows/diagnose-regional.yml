@@ -68,3 +68,16 @@ jobs:
           echo '=== DEPLOYED ASSETS ==='
           curl -sS -L --max-time 25 https://yt.taphoa.xyz/ -o /tmp/index.html || true
           grep -Eo 'src/(app|yt-local)\.js\?v=[^" ]+' /tmp/index.html || true
+
+          echo '=== BROWSER DOM ==='
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
+          echo "CHROME=$CHROME"
+          if [ -n "$CHROME" ]; then
+            "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage               --virtual-time-budget=15000 --dump-dom https://yt.taphoa.xyz/               > /tmp/dom.html 2>/tmp/chrome.log || true
+            echo '--- FEED TEXT ---'
+            grep -oE 'Chưa tải được[^<]*|Đang tải[^<]*|[0-9]+ video|LIVE|Hôm nay|Tuần này' /tmp/dom.html | head -80 || true
+            echo '--- CARD COUNT ---'
+            grep -o 'class="card"' /tmp/dom.html | wc -l || true
+            echo '--- BROWSER ERRORS ---'
+            grep -Ei 'error|uncaught|failed|cors|syntax|reference' /tmp/chrome.log | tail -80 || true
+          fi
