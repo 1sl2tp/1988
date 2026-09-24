@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-source-search-v108';
+const CACHE='1988-main-source-blacklist-v109';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=source-search-108',
-  './src/app.js?v=source-search-108',
+  './src/app.js?v=source-blacklist-109',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
