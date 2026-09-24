@@ -25,6 +25,12 @@ const bgAudio=$("#bgAudio");
 const installBtn=$("#installBtn");
 const installSheet=$("#installSheet");
 const closeInstallSheet=$("#closeInstallSheet");
+const sourcesBtn=$("#sourcesBtn");
+const sourcesSheet=$("#sourcesSheet");
+const closeSourcesSheet=$("#closeSourcesSheet");
+const sourceSearch=$("#sourceSearch");
+const sourceList=$("#sourceList");
+const sourceSummary=$("#sourceSummary");
 
 const state={
   player:null,
@@ -37,7 +43,7 @@ const state={
   audioMaster:false,
   engine:"iframe",
   nativeSource:"",
-  activeFeed:"today",
+  activeFeed:"latest",
   videoPlaying:false,
   floatRaf:0,
   floatGesture:null,
@@ -53,11 +59,125 @@ const state={
   feedLoading:false,
   feedHasMore:true,
   feedRows:[],
-  feedSeq:0
+  feedSeq:0,
+  sourceLibraryDirty:false
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clean=s=>String(s??"").replace(/\s+/g," ").trim();
+
+const SOURCE_SELECTION_KEY="1988-source-selection-v1";
+const CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
+  ?window.CHANNEL_LIBRARY.filter(row=>row&&row.id&&row.name)
+  :[];
+const CHANNEL_ID_SET=new Set(CHANNEL_LIBRARY.map(row=>row.id));
+
+function readSourceSelection(){
+  try{
+    const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
+    if(Array.isArray(saved)){
+      return new Set(saved.filter(id=>CHANNEL_ID_SET.has(id)));
+    }
+  }catch{}
+
+  const defaults=CHANNEL_LIBRARY.slice(0,12).map(row=>row.id);
+  try{localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify(defaults));}catch{}
+  return new Set(defaults);
+}
+
+let selectedSourceIds=readSourceSelection();
+
+function persistSourceSelection(){
+  try{
+    localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
+  }catch{}
+}
+
+function selectedSources(){
+  return CHANNEL_LIBRARY.filter(row=>selectedSourceIds.has(row.id));
+}
+
+function sourceSignature(){
+  return [...selectedSourceIds].sort().join("|");
+}
+
+function isSourceScopedFeed(name){
+  return name==="latest"||name==="week";
+}
+
+function updateSourceSummary(){
+  const count=selectedSourceIds.size;
+  if(sourcesBtn)sourcesBtn.textContent="Nguồn · "+count;
+  if(sourceSummary)sourceSummary.textContent=count+" / "+CHANNEL_LIBRARY.length;
+}
+
+function renderSourceLibrary(){
+  if(!sourceList)return;
+  const q=normalizeSearchText(sourceSearch?.value||"");
+  const rows=q
+    ?CHANNEL_LIBRARY.filter(row=>normalizeSearchText(row.name).includes(q))
+    :CHANNEL_LIBRARY;
+
+  if(!rows.length){
+    sourceList.innerHTML='<div class="source-empty">Không tìm thấy kênh</div>';
+    return;
+  }
+
+  sourceList.innerHTML=rows.map(row=>{
+    const active=selectedSourceIds.has(row.id);
+    return '<button class="source-row'+(active?' active':'')+'" type="button" data-source-id="'+esc(row.id)+'" aria-pressed="'+(active?'true':'false')+'">'+
+      '<span class="source-row-name">'+esc(row.name)+'</span>'+
+      '<span class="source-check">✓</span>'+
+    '</button>';
+  }).join("");
+}
+
+function openSourceLibrary(){
+  if(!sourcesSheet)return;
+  updateSourceSummary();
+  renderSourceLibrary();
+  sourcesSheet.hidden=false;
+  setTimeout(()=>sourceSearch?.focus(),80);
+}
+
+function closeSourceLibrary(){
+  if(!sourcesSheet)return;
+  sourcesSheet.hidden=true;
+  sourceSearch.value="";
+  if(state.sourceLibraryDirty){
+    state.sourceLibraryDirty=false;
+    if(isSourceScopedFeed(state.activeFeed)){
+      void loadFeedPreset(state.activeFeed);
+    }
+  }
+}
+
+function setupSourceLibrary(){
+  updateSourceSummary();
+
+  sourcesBtn?.addEventListener("click",openSourceLibrary);
+  closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
+  sourcesSheet?.addEventListener("click",event=>{
+    if(event.target===sourcesSheet)closeSourceLibrary();
+  });
+  sourceSearch?.addEventListener("input",renderSourceLibrary);
+
+  sourceList?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-source-id]");
+    if(!button)return;
+    const id=button.dataset.sourceId||"";
+    if(!CHANNEL_ID_SET.has(id))return;
+
+    if(selectedSourceIds.has(id))selectedSourceIds.delete(id);
+    else selectedSourceIds.add(id);
+
+    persistSourceSelection();
+    state.sourceLibraryDirty=true;
+    updateSourceSummary();
+    button.classList.toggle("active",selectedSourceIds.has(id));
+    button.setAttribute("aria-pressed",selectedSourceIds.has(id)?"true":"false");
+  });
+}
 
 async function localEngine(timeoutMs=15000){
   if(window.YTLocal)return window.YTLocal;
@@ -1344,7 +1464,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v13:";
+const FEED_CACHE_PREFIX="1988-discovery-v14:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1424,6 +1544,37 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
+async function selectedSourceFeed(local,predicate,reset=false){
+  const sources=selectedSources();
+  if(!sources.length)return [];
+
+  const collected=[];
+  let cursor=0;
+  const worker=async()=>{
+    while(cursor<sources.length){
+      const source=sources[cursor++];
+      try{
+        const rows=await local.channelVideosPage(
+          "library:"+source.id,
+          source.id,
+          reset
+        );
+        if(Array.isArray(rows))collected.push(...rows);
+      }catch(error){
+        console.warn("source feed failed",source.id,error);
+      }
+    }
+  };
+
+  const workers=Array.from(
+    {length:Math.min(4,sources.length)},
+    ()=>worker()
+  );
+  await Promise.all(workers);
+
+  return mergeUniqueRows([],collected).filter(predicate);
+}
+
 async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
   const collected=[];
   let first=reset;
@@ -1465,28 +1616,12 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:(local,reset)=>collectRecentPages(
-      local,
-      "latest",
-      "Việt Nam",
-      uploadedWithinLatest,
-      reset,
-      {upload_date:"today",sort_by:"upload_date"},
-      3
-    )
+    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinLatest,reset)
   },
   week:{
     title:"Tuần này",
     newest:true,
-    load:(local,reset)=>collectRecentPages(
-      local,
-      "week",
-      "Việt Nam",
-      uploadedWithinWeek,
-      reset,
-      {upload_date:"week",sort_by:"upload_date"},
-      4
-    )
+    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinWeek,reset)
   },
   news:{
     title:"Thời sự",
@@ -1534,6 +1669,7 @@ function readFeedCache(name){
   try{
     const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
+    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature())return [];
     return row.items;
   }catch{
     return [];
@@ -1544,6 +1680,7 @@ function saveFeedCache(name,rows){
   try{
     localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
       at:Date.now(),
+      sourceSignature:isSourceScopedFeed(name)?sourceSignature():"",
       items:rows.slice(0,90)
     }));
   }catch{}
@@ -1552,6 +1689,17 @@ function saveFeedCache(name,rows){
 async function loadFeedPreset(name="latest"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
+
+  if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
+    state.feedLoading=false;
+    state.feedHasMore=false;
+    state.feedRows=[];
+    setActiveChip(name);
+    feedTitle.textContent=preset.title;
+    feedStatus.textContent="";
+    feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
+    return;
+  }
   state.feedLoading=true;
   state.feedHasMore=true;
   state.feedRows=[];
@@ -1575,7 +1723,17 @@ async function loadFeedPreset(name="latest"){
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
-    if(!Array.isArray(rows)||!rows.length)throw new Error("empty_feed");
+    if(!Array.isArray(rows)||!rows.length){
+      if(isSourceScopedFeed(name)){
+        state.feedRows=[];
+        state.feedHasMore=false;
+        saveFeedCache(name,[]);
+        feed.innerHTML='<div class="empty">Chưa có video phù hợp từ các nguồn đã chọn.</div>';
+        feedStatus.textContent="";
+        return;
+      }
+      throw new Error("empty_feed");
+    }
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
     renderCards(state.feedRows);
@@ -1665,6 +1823,7 @@ topicChips.addEventListener("click",e=>{
 
 setupMediaSession();
 setupInstall();
+setupSourceLibrary();
 setupFloatingIframe();
 setupFullscreenReturn();
 updateModeUi();
