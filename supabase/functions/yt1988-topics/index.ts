@@ -65,13 +65,43 @@ function normalizeVideos(input:any){
   return out;
 }
 
+function compactCatalogLabel(value:any){
+  const raw=clean(value,28).replace(/\s+/g," ").trim();
+  if(!raw)return "";
+  const norm=raw.toLocaleLowerCase("vi-VN");
+
+  const canonical:[RegExp,string][]=[
+    [/nhạc|âm nhạc/u,"Nhạc"],
+    [/phim|điện ảnh/u,"Phim"],
+    [/thời sự|tin tức/u,"Thời sự"],
+    [/pháp luật|an ninh/u,"Pháp luật"],
+    [/kinh tế|thị trường/u,"Kinh tế"],
+    [/thể thao/u,"Thể thao"],
+    [/công nghệ|khoa học/u,"Công nghệ"],
+    [/giải trí|showbiz|sự kiện/u,"Giải trí"],
+    [/đời sống/u,"Đời sống"],
+    [/thời tiết|môi trường/u,"Thời tiết"],
+  ];
+
+  // Keep genuinely short AI names such as "Du lịch", "Game", "Xe".
+  const words=raw.split(/\s+/).filter(Boolean);
+  const hasJoiner=/[&/+|]|\bvà\b/iu.test(raw);
+  if(!hasJoiner&&words.length<=2&&raw.length<=16)return raw;
+
+  for(const [pattern,label] of canonical){
+    if(pattern.test(norm))return label;
+  }
+
+  return words.slice(0,2).join(" ").slice(0,16);
+}
+
 function validateCatalog(value:any){
   const source=Array.isArray(value?.parents)?value.parents:Array.isArray(value?.categories)?value.categories:[];
   const parents:any[]=[];
   const seen=new Set<string>();
 
   for(const row of source){
-    const label=clean(row?.label,28);
+    const label=compactCatalogLabel(row?.label);
     if(!label)continue;
     const norm=label.toLocaleLowerCase("vi-VN");
     if(seen.has(norm))continue;
@@ -94,7 +124,25 @@ function validateCatalog(value:any){
     if(parents.length>=9)break;
   }
 
-  return {parents};
+  const ensureParent=(fallback:any)=>{
+    const norm=fallback.label.toLocaleLowerCase("vi-VN");
+    if(parents.some(row=>String(row.label||"").toLocaleLowerCase("vi-VN")===norm))return;
+    if(parents.length>=9)parents.pop();
+    parents.push(fallback);
+  };
+
+  ensureParent({
+    label:"Nhạc",
+    queries:["MV mới","nhạc mới","live session","nhạc tự sáng tác","cover remix"],
+    hints:["MV","audio","live","phòng trà","indie","cover","remix"]
+  });
+  ensureParent({
+    label:"Phim",
+    queries:["phim mới","phim ngắn","phim tổng tài","phim xuyên không","trailer phim"],
+    hints:["phim ngắn","tổng tài","xuyên không","trọng sinh","cổ trang","trailer"]
+  });
+
+  return {parents:parents.slice(0,9)};
 }
 
 function validateResult(value:any,videos:any[]){
@@ -206,10 +254,13 @@ Thời điểm hiện tại tại Việt Nam: ${nowVN}.
 Hãy nhìn toàn bộ mẫu video YouTube hiện tại bên dưới (nếu mẫu ít thì vẫn dùng hiểu biết chung về hành vi xem video tại Việt Nam) và tự thiết kế MENU CHA + CÁCH TÌM cho nội dung mới.
 
 YÊU CẦU MENU CHA
-- Tạo 5-9 danh mục cha ngắn, tự nhiên, quen thuộc với người Việt; tên thường 1-3 từ.
+- Tạo 7-9 danh mục cha ngắn, tự nhiên, quen thuộc với người Việt.
+- Tên cha BẮT BUỘC chỉ 1-2 từ, ưu tiên 1 từ; KHÔNG dùng "&", "/", "+", "và" để ghép hai ý. Ví dụ đúng: "Thời sự", "Pháp luật", "Kinh tế", "Thể thao", "Công nghệ", "Giải trí", "Nhạc", "Phim". Ví dụ sai: "Tin tức & Thời sự", "Kinh tế & Thị trường", "Công nghệ & Khoa học".
+- "Nhạc" và "Phim" là hai hệ sinh thái lớn và BẮT BUỘC phải có thành hai cha riêng, dù mẫu video hiện tại đang thiên về tin tức. "Phim ngắn", "tổng tài", "xuyên không"... là nhánh tìm kiếm bên trong "Phim", không được làm mất cha "Phim".
 - KHÔNG dùng "LIVE", "Mới nhất", "Tuần này", "Hôm nay", "Trend" làm danh mục cha vì ứng dụng đã có các chế độ đó.
 - Không tạo hai danh mục đồng nghĩa hoặc quá gần nhau.
-- Danh mục phải bao quát nội dung thực tế, không thiên lệch chỉ sang tin tức. Phải đủ khả năng nhận ra các hệ sinh thái như tin tức, an ninh/pháp luật, kinh tế, công nghệ, thể thao, giải trí, âm nhạc, phim/phim ngắn, đời sống... nếu dữ liệu thật sự có. Đây là ví dụ về độ rộng, KHÔNG phải danh sách bắt buộc.
+- Danh mục cha là các hệ sinh thái RỘNG để duyệt nội dung, không phải tiêu đề mô tả. Các ý hẹp như "Thị trường", "Khoa học", "Sự kiện", "Môi trường", "Phim ngắn" nên nằm trong queries/hints hoặc nhánh con thay vì kéo dài tên cha.
+- Không thiên lệch chỉ sang tin tức. Mẫu hiện tại chỉ là tín hiệu để AI hiểu xu hướng, KHÔNG phải giới hạn khiến menu bỏ mất Nhạc hoặc Phim.
 - Nếu đang đúng mùa/sự kiện ở Việt Nam (Tết, Noel, Trung thu, lễ lớn, giải thể thao, mùa phim...) và tín hiệu đủ mạnh thì có thể sinh một nhóm ngắn phù hợp; hết mùa thì không cần giữ.
 - Sắp xếp danh mục theo mức hữu ích/độ phủ của dòng video hiện tại.
 
@@ -390,7 +441,7 @@ Deno.serve(async(req:Request)=>{
         .sort()
         .join("\n");
       const fingerprint=await sha256("catalog\n"+canonical);
-      const cacheKey="v5:catalog:"+bucket;
+      const cacheKey="v6:catalog:"+bucket;
 
       const cached=await db.from("yt1988_ai_topic_cache")
         .select("result,model,created_at")
