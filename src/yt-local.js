@@ -347,6 +347,7 @@ function proxiedMediaUrl(raw){
 
 function pageRows(result,limit=36){
   return normalizeRows(
+    result?.videos||
     result?.results||
     result?.contents?.contents||
     result?.contents||
@@ -380,6 +381,26 @@ async function searchPage(key,query,filters={},reset=false){
     if(!result)return [];
   }else{
     result=await yt.search(String(query||'').trim(),{type:'video',...filters});
+  }
+
+  discoveryPages.set(id,result);
+  return pageRows(result,36);
+}
+
+async function channelVideosPage(key,channelId,reset=false){
+  const channel=String(channelId||'').trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(channel))throw new Error('invalid_channel');
+
+  const id='channel:'+String(key||channel);
+  const yt=await getYT();
+  let result=null;
+
+  if(!reset&&discoveryPages.has(id)){
+    result=await nextPage(discoveryPages.get(id));
+    if(!result)return [];
+  }else{
+    const page=await yt.getChannel(channel);
+    result=await page.getVideos();
   }
 
   discoveryPages.set(id,result);
@@ -633,7 +654,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,searchPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows};
+const api={getYT,search,searchPage,channelVideosPage,home,homePage,hypeFeed,resetDiscovery,suggestions,info,media,normalizeRows};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
