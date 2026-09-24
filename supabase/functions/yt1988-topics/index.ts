@@ -59,12 +59,28 @@ function normalizeVideos(input:any){
       published:clean(row?.published,80),
       views:Number.isFinite(Number(row?.views))?Math.max(0,Math.round(Number(row.views))):0,
       contentHash:clean(row?.contentHash,64),
+      description:clean(row?.description,1800),
+      howMade:clean(row?.howMade,800),
     });
     if(out.length>=120)break;
   }
   return out;
 }
 
+function normalizeSourceNames(input:any,max=24){
+  const rows=Array.isArray(input)?input:[];
+  const out:string[]=[];
+  const seen=new Set<string>();
+  for(const value of rows){
+    const name=clean(value,100);
+    const key=name.toLocaleLowerCase("vi-VN");
+    if(!name||name.length<2||seen.has(key))continue;
+    seen.add(key);
+    out.push(name);
+    if(out.length>=max)break;
+  }
+  return out;
+}
 function compactCatalogLabel(value:any){
   const raw=clean(value,28).replace(/\s+/g," ").trim();
   if(!raw)return "";
@@ -271,7 +287,13 @@ function validateResult(value:any,videos:any[]){
       .filter((id:string)=>allowedIds.has(id))
   )];
 
-  return {parents,topics,videos:[...meta.values()],acceptedVideoIds};
+  const aiGeneratedLikelyIds=[...new Set(
+    (Array.isArray(value?.aiGeneratedLikelyIds)?value.aiGeneratedLikelyIds:[])
+      .map((id:any)=>clean(id,32))
+      .filter((id:string)=>allowedIds.has(id))
+  )];
+
+  return {parents,topics,videos:[...meta.values()],acceptedVideoIds,aiGeneratedLikelyIds};
 }
 
 const SHORT_DRAMA_REFERENCE=`
@@ -382,18 +404,29 @@ ${JSON.stringify(videos)}
   throw new Error(lastError);
 }
 
-async function callGemini(cfg:any,scope:string,videos:any[],parentLabel=""){
+async function callGemini(cfg:any,scope:string,videos:any[],parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]}){
   const instruction=`
 Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. Hãy làm BỐN việc trong CÙNG một lần. Chỉ dựa trên metadata đầu vào, không bịa thêm sự kiện.
 
 ${SHORT_DRAMA_REFERENCE}
 ${parentLabel?`NHÓM CHA ĐANG XỬ LÝ: "${parentLabel}". Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.`:""}
+${parentLabel&&learning.selectedSourceNames.length?`TÍN HIỆU HỌC TỪ NGUỒN ĐÃ CHỌN (ví dụ DƯƠNG):
+- ${learning.selectedSourceNames.join("\n- ")}
+Hãy học KIỂU nội dung, cụm thể loại và phong cách chủ đề chung từ các tên nguồn này để nhận diện nguồn/video tương tự tốt hơn. Đây KHÔNG phải whitelist; đừng ưu tiên chính kênh cũ chỉ vì tên giống.`:""}
+${parentLabel&&learning.blockedSourceNames.length?`NGUỒN ĐÃ CHẶN (ví dụ ÂM):
+- ${learning.blockedSourceNames.join("\n- ")}
+Không dùng các nguồn bị chặn làm mẫu dương. Nếu ứng viên có branding/nội dung rất gần ví dụ âm và không có bằng chứng rõ phù hợp nhóm thì loại.`:""}
+${parentLabel&&learning.learnedQueries.length?`CỤM TÌM KIẾM ĐÃ HỌC TỪ LỰA CHỌN: ${learning.learnedQueries.join(" | ")}. Dùng như tín hiệu ngữ nghĩa bổ sung, không phải luật cứng.`:""}
 ${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - Trả "acceptedVideoIds" gồm CHỈ các video thực sự thuộc nhóm cha này. Video lệch nhóm phải loại khỏi acceptedVideoIds, dù nó được tìm thấy do từ khóa mơ hồ.
 - Phân loại theo NGỮ CẢNH cả tiêu đề, không theo một từ đơn lẻ.
 - Nếu nhóm là "Công nghệ": các motif truyện/phim như "trọng sinh", "xuyên không", "kiếp này", "hệ thống", "hoàn thưởng", "tổng tài", "ở rể", "tu tiên", "thần y", "chiến thần", "thiên kim", "báo thù" KHÔNG phải công nghệ khi tiêu đề mang ngữ cảnh phim/cốt truyện.
 - Nếu nhóm là "Phim": hãy nhận diện rộng phim ngắn Trung Quốc và các motif kể chuyện như tổng tài, trọng sinh, xuyên không, hệ thống, hoàn thưởng, báo thù, ở rể, tu tiên, thần y, chiến thần, tận thế, thiên kim, giả nghèo, đổi thân phận, cổ trang, ngôn tình... và tự phát hiện thêm motif mới từ batch.
-- Chỉ loại khi thật sự lệch cha; đừng làm nghèo nội dung chỉ vì tên thể loại lạ.`:""}
+- Chỉ loại khi thật sự lệch cha; đừng làm nghèo nội dung chỉ vì tên thể loại lạ.
+- Nếu nhóm là "Phim", "Phim ngắn" hoặc "Nhạc": ngoài acceptedVideoIds, trả "aiGeneratedLikelyIds" cho video mà BẢN THÂN tác phẩm có tín hiệu mạnh là do AI tạo nhưng YouTube chưa gắn nhãn.
+- Chỉ đánh dấu khi bằng chứng metadata đủ mạnh, dựa trên tổ hợp title + channel + description + howMade. Ví dụ: mô tả/kênh nêu rõ AI film, AI short film, AI animation, AI music, generated with AI, Suno, Udio, Veo, Sora, Kling, Runway, Hailuo, Pika, Luma, Midjourney hoặc quy trình tạo tác phẩm tương đương.
+- KHÔNG đánh dấu chỉ vì video nói về AI, review công cụ AI, có chữ "AI" trong chủ đề, hoặc chỉ dùng AI cho script/thumbnail/phụ đề/chỉnh sửa nhỏ.
+- Nếu không đủ chắc chắn thì KHÔNG đưa vào aiGeneratedLikelyIds.`:""}
 
 1) MENU CHA TỰ ĐỘNG
 - Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
@@ -433,6 +466,7 @@ PHẠM VI: ${scope==="discovery"?"video mới trong tối đa 7 ngày, gồm c�
 OUTPUT chỉ JSON, không Markdown:
 {
   "acceptedVideoIds":["id1","id2"],
+  "aiGeneratedLikelyIds":["id3"],
   "parents":[
     {"label":"Công nghệ","videoIds":["id1","id2"]}
   ],
@@ -554,14 +588,27 @@ Deno.serve(async(req:Request)=>{
     const rawScope=clean(body?.scope,80);
     const scope=rawScope==="week"?"week":rawScope==="latest"?"latest":rawScope.startsWith("ai:")?rawScope:"latest";
     const parentLabel=clean(body?.parentLabel,28);
-    if(videos.length<4)return json({ok:true,parents:[],topics:[],videos:[],cached:false,reason:"not_enough_videos"});
+    const learning={
+      selectedSourceNames:normalizeSourceNames(body?.selectedSourceNames,24),
+      blockedSourceNames:normalizeSourceNames(body?.blockedSourceNames,24),
+      learnedQueries:normalizeSourceNames(body?.learnedQueries,8)
+    };
+    if(videos.length<4)return json({ok:true,parents:[],topics:[],videos:[],acceptedVideoIds:videos.map(row=>row.id),aiGeneratedLikelyIds:[],cached:false,reason:"not_enough_videos"});
 
     const canonical=videos
-      .map(row=>[row.id,row.title,row.channel,row.published,row.views,row.contentHash].join("\t"))
+      .map(row=>[
+        row.id,row.title,row.channel,row.published,row.views,row.contentHash,
+        row.description,row.howMade
+      ].join("\t"))
       .sort()
       .join("\n");
-    const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+canonical);
-    const cacheKey="v7:classify:"+scope+":"+fingerprint;
+    const learningCanonical=[
+      ...learning.selectedSourceNames.map((name:string)=>"+"+name),
+      ...learning.blockedSourceNames.map((name:string)=>"-"+name),
+      ...learning.learnedQueries.map((name:string)=>"?"+name)
+    ].sort().join("\n");
+    const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+learningCanonical+"\n"+canonical);
+    const cacheKey="v9:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
@@ -578,7 +625,7 @@ Deno.serve(async(req:Request)=>{
       });
     }
 
-    const ai=await callGemini(cfg,scope,videos,parentLabel);
+    const ai=await callGemini(cfg,scope,videos,parentLabel,learning);
     const parsed=parseJson(ai.text);
     const result=validateResult(parsed,videos);
 
