@@ -703,7 +703,7 @@ async function callVideoContextGemini(cfg:any,video:any,related:any[],searchQuer
     "GIÁO DỤC / DOCUMENTARY / GAMING / LIFESTYLE / PODCAST:",
     "Tạo sections tự nhiên theo nội dung: cùng series/chủ đề, cùng người/kênh, phần tiếp theo, nội dung liên quan gần.",
     "",
-    "F. TRƯỜNG queries CŨ VẪN PHẢI ĐIỀN để client tương thích:"
+    "F. TRƯỜNG queries CŨ VẪN PHẢI ĐIỀN để client tương thích:",
     "sameWork, creator, series, versions, covers, instrumental, alternatives, topic.",
     "Các query phải ngắn, giống người dùng thật gõ trên YouTube, không nhồi quá nhiều từ.",
     "",
