@@ -2927,13 +2927,24 @@ function queueWatchBrowseLayout(){
 }
 
 function setupWatchBrowseLayout(){
+  let viewportResizeTimer=0;
+
   const syncViewportLayout=()=>{
-    queueWatchBrowseLayout();
-    queueResponsivePlayerFrame();
+    clearTimeout(viewportResizeTimer);
+    viewportResizeTimer=setTimeout(()=>{
+      queueWatchBrowseLayout();
+      queueResponsivePlayerFrame();
+    },160);
   };
 
   window.addEventListener("resize",syncViewportLayout,{passive:true});
-  window.addEventListener("orientationchange",syncViewportLayout,{passive:true});
+  window.addEventListener("orientationchange",()=>{
+    clearTimeout(viewportResizeTimer);
+    viewportResizeTimer=setTimeout(()=>{
+      queueWatchBrowseLayout();
+      queueResponsivePlayerFrame();
+    },80);
+  },{passive:true});
   window.visualViewport?.addEventListener?.("resize",syncViewportLayout,{passive:true});
   queueWatchBrowseLayout();
   queueResponsivePlayerFrame();
@@ -3132,6 +3143,64 @@ function resumeVideoAfterReturn(){
   attempt();
   state.resumeTimer=setTimeout(attempt,220);
   setTimeout(attempt,650);
+}
+
+function requestWatchFullscreen(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  // Native HTML5 video on iPhone has its own dedicated fullscreen API.
+  if(state.engine==="native"&&!nativePlayer?.hidden&&typeof nativePlayer?.webkitEnterFullscreen==="function"){
+    try{
+      nativePlayer.webkitEnterFullscreen();
+      return;
+    }catch{}
+  }
+
+  const target=frame;
+  const request=
+    target.requestFullscreen||
+    target.webkitRequestFullscreen||
+    target.webkitRequestFullScreen;
+
+  if(typeof request==="function"){
+    try{
+      const result=request.call(target);
+      if(result&&typeof result.catch==="function")void result.catch(()=>{});
+      return;
+    }catch{}
+  }
+
+  // Last fallback: ask the actual YouTube iframe to enter fullscreen.
+  const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
+  const iframeRequest=
+    iframe?.requestFullscreen||
+    iframe?.webkitRequestFullscreen||
+    iframe?.webkitRequestFullScreen;
+  if(typeof iframeRequest==="function"){
+    try{
+      const result=iframeRequest.call(iframe);
+      if(result&&typeof result.catch==="function")void result.catch(()=>{});
+    }catch{}
+  }
+}
+
+function ensureWatchFullscreenButton(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame||frame.querySelector(".watch-fullscreen-btn"))return;
+
+  const button=document.createElement("button");
+  button.type="button";
+  button.className="watch-fullscreen-btn";
+  button.setAttribute("aria-label","Toàn màn hình");
+  button.setAttribute("title","Toàn màn hình");
+  button.innerHTML='<span aria-hidden="true">⛶</span>';
+  button.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    requestWatchFullscreen();
+  });
+  frame.appendChild(button);
 }
 
 function setupFullscreenReturn(){
@@ -7067,6 +7136,7 @@ async function playVideo(id,seedMeta={}){
   updateNow(seedMeta);
   showIframePlayer();
   applyResponsivePlayerFrame(seedMeta);
+  ensureWatchFullscreenButton();
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
@@ -8449,6 +8519,7 @@ setupSourceLibrary();
 setupFloatingIframe();
 setupWatchBrowseLayout();
 setupFullscreenReturn();
+ensureWatchFullscreenButton();
 updateModeUi();
 renderParentCategories();
 
