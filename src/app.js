@@ -2256,8 +2256,33 @@ function primePipAspect(id){
   return task;
 }
 
+function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+
+  const id=String(state.currentId||"").trim();
+  const meta=state.currentMeta||{};
+  const raw=clean(
+    meta.thumbnailUrl||
+    meta.thumbnail||
+    meta.image||
+    (id?"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg":"")
+  );
+
+  if(!/^https?:\/\//i.test(raw)){
+    frame.style.removeProperty("--pip-art");
+    return;
+  }
+
+  const safe=raw
+    .replace(/\\/g,"%5C")
+    .replace(/"/g,"%22")
+    .replace(/\n|\r/g,"");
+  frame.style.setProperty("--pip-art",'url("'+safe+'")');
+}
+
 function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
+  syncFloatArtwork(frame);
   frame.classList.toggle("float-tucked",state.floatTucked);
   frame.classList.toggle("float-view-square",state.floatPreset==="square");
   frame.classList.toggle("float-view-portrait",state.floatPreset==="portrait");
