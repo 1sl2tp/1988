@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-pip-gestures-v144';
+const CACHE='1988-main-pip-gestures-v145';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-gestures-144',
+  './src/style.css?v=pip-gestures-145',
   './src/app.js?v=pip-gestures-144',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
