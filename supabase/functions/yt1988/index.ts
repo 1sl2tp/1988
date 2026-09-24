@@ -155,30 +155,72 @@ function regionalChannelId(row: any) {
 
 async function regionalUploadFeed(region = "VN") {
   const code = String(region || "VN").toUpperCase().slice(0, 2);
+
+  // 1) Discover channels from YouTube/Piped regional trending.
   const trending = await piped(`/trending?region=${enc(code)}`, 120 * 1000);
   const trendingRows = Array.isArray(trending.data) ? trending.data : [];
   const channels = [...new Set(
     trendingRows
       .map(regionalChannelId)
       .filter((id) => /^[A-Za-z0-9_-]{12,80}$/.test(id))
-  )].slice(0, 30);
+  )].slice(0, 18);
 
-  if (!channels.length) {
-    return { source: trending.source, channels, data: trendingRows };
-  }
+  // 2) Pull the first "Videos" page directly from those channels.
+  // This avoids keyword search and also avoids Piped's subscription-feed cache.
+  const channelResults = await Promise.allSettled(
+    channels.map(async (id, index) => {
+      if (index >= 10) await delay(120);
+      try {
+        const data = await fetchJson(trending.source, `/channel/${enc(id)}`, 5000);
+        return {
+          id,
+          streams: Array.isArray(data?.relatedStreams) ? data.relatedStreams : [],
+        };
+      } catch {
+        // One bad/slow channel must not break the regional feed.
+        return { id, streams: [] };
+      }
+    }),
+  );
 
-  try {
-    const feedPath = `/feed/unauthenticated?channels=${enc(channels.join(","))}`;
-    const feed = await piped(feedPath, 60 * 1000);
-    const feedRows = Array.isArray(feed.data) ? feed.data : [];
-    return {
-      source: feed.source,
-      channels,
-      data: feedRows.length ? feedRows : trendingRows,
-    };
-  } catch {
-    return { source: trending.source, channels, data: trendingRows };
-  }
+  const merged = [
+    ...trendingRows,
+    ...channelResults.flatMap((row) =>
+      row.status === "fulfilled" ? row.value.streams : []
+    ),
+  ];
+
+  // 3) Deduplicate and keep newest uploads first.
+  const seen = new Set<string>();
+  const data = merged
+    .filter((row: any) => {
+      const url = String(row?.url || "");
+      const id = url.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1] || url;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    })
+    .sort((a: any, b: any) => {
+      const aLive = Number(a?.duration) < 0 || Number(a?.uploaded) === -1;
+      const bLive = Number(b?.duration) < 0 || Number(b?.uploaded) === -1;
+      if (aLive !== bLive) return aLive ? -1 : 1;
+
+      const au = Number(a?.uploaded);
+      const bu = Number(b?.uploaded);
+      const at = Number.isFinite(au) && au > 0 ? au : 0;
+      const bt = Number.isFinite(bu) && bu > 0 ? bu : 0;
+      if (at !== bt) return bt - at;
+
+      return (Number(b?.views) || 0) - (Number(a?.views) || 0);
+    })
+    .slice(0, 180);
+
+  return {
+    source: trending.source,
+    channels,
+    channelCount: channels.length,
+    data,
+  };
 }
 
 async function probeMediaUrl(raw: string, timeoutMs = 3200) {
