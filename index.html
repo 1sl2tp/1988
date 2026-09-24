@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=single-clear-64">
+  <link rel="stylesheet" href="./src/style.css?v=source-header-65">
   <title>1988</title>
 </head>
 <body>
@@ -28,6 +28,11 @@
           placeholder="Tìm video hoặc dán link YouTube"
           aria-label="Tìm video hoặc dán link YouTube">
         <button type="submit" aria-label="Tìm">Tìm</button>
+        <button id="sourcesBtn" class="source-header-btn" type="button" aria-label="Quản lý nguồn">
+          <span class="source-header-icon">⚙︎</span>
+          <span class="source-header-label">Nguồn</span>
+          <span id="sourceHeaderCount" class="source-header-count"></span>
+        </button>
         <div id="suggestions" class="suggestions" hidden></div>
       </form>
       <button id="installBtn" class="install-btn" type="button" hidden>Cài app</button>
@@ -39,7 +44,6 @@
       <button class="topic-chip live-chip" type="button" data-feed="live">LIVE</button>
       <button class="topic-chip active" type="button" data-feed="latest">Mới nhất</button>
       <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
-      <button id="sourcesBtn" class="topic-chip source-chip" type="button">Nguồn</button>
       <button class="topic-chip" type="button" data-feed="news">Thời sự</button>
       <button class="topic-chip" type="button" data-feed="economy">Kinh tế</button>
       <button class="topic-chip" type="button" data-feed="security">An ninh</button>
@@ -156,6 +160,6 @@
   <script src="./src/channel-library.js?v=smart-sources-61"></script>
   <script type="module" src="./src/yt-local.js?v=source-popup-62"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=fast-source-pool-63"></script>
+  <script defer src="./src/app.js?v=source-header-65"></script>
 </body>
 </html>
