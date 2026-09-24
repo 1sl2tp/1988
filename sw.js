@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-smart-sources-v61';
+const CACHE='1988-main-source-popup-v62';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=smart-sources-61',
-  './src/app.js?v=smart-sources-61',
+  './src/style.css?v=source-popup-62',
+  './src/app.js?v=source-popup-62',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
-  './src/yt-local.js?v=smart-sources-61',
+  './src/yt-local.js?v=source-popup-62',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
