@@ -68,6 +68,8 @@ const state={
   floatRaf:0,
   floatGesture:null,
   floatBox:null,
+  floatUserSized:false,
+  videoAspect:16/9,
   keepFloating:false,
   floatDock:"right",
   floatTucked:false,
@@ -1016,6 +1018,7 @@ function ensureFloatHandles(){
     }
 
     const finalRect=frame.getBoundingClientRect();
+    if(g.mode==="resize")state.floatUserSized=true;
     state.floatBox={
       left:Number.parseFloat(frame.style.left)||finalRect.left,
       top:Number.parseFloat(frame.style.top)||finalRect.top,
@@ -1033,6 +1036,72 @@ function ensureFloatHandles(){
   });
 }
 
+function normalizedVideoAspect(meta=state.currentMeta||{}){
+  const width=Number(meta?.videoWidth)||0;
+  const height=Number(meta?.videoHeight)||0;
+  let ratio=Number(meta?.aspectRatio)||0;
+  if(!ratio&&width>0&&height>0)ratio=width/height;
+  if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)ratio=16/9;
+  return ratio;
+}
+
+function autoFloatSize(frame,ratio=state.videoAspect||16/9){
+  const viewportW=Math.max(240,window.innerWidth);
+  const viewportH=Math.max(180,window.innerHeight);
+  const mobile=viewportW<=640;
+  const cssWidth=frame?.getBoundingClientRect?.().width||0;
+  let width=cssWidth>0?cssWidth:(mobile?Math.min(256,viewportW*.58):Math.min(360,viewportW*.36));
+
+  // Vertical/square videos may grow high, but should not cover the full screen.
+  const maxHeight=Math.max(180,viewportH*(mobile?.68:.74));
+  let height=width/ratio;
+  if(height>maxHeight){
+    height=maxHeight;
+    width=height*ratio;
+  }
+
+  const minWidth=mobile?150:170;
+  if(width<minWidth){
+    width=minWidth;
+    height=width/ratio;
+    if(height>maxHeight){
+      height=maxHeight;
+      width=height*ratio;
+    }
+  }
+
+  return {width,height};
+}
+
+function applyAutoFloatAspect(frame,{force=false}={}){
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+  if(state.floatUserSized&&!force)return;
+
+  const ratio=state.videoAspect||16/9;
+  const old=frame.getBoundingClientRect();
+  const size=autoFloatSize(frame,ratio);
+  const dockLeft=state.floatDock==="left";
+  const left=dockLeft
+    ?8
+    :Math.max(8,window.innerWidth-size.width-8);
+  const top=Math.max(8,Math.min(window.innerHeight-size.height-8,old.top||8));
+
+  frame.style.width=size.width+"px";
+  frame.style.height=size.height+"px";
+  frame.style.aspectRatio="auto";
+  frame.style.left=left+"px";
+  frame.style.top=top+"px";
+  frame.style.right="auto";
+  frame.style.bottom="auto";
+
+  state.floatBox={
+    left,
+    top,
+    width:size.width,
+    height:size.height
+  };
+}
+
 function restoreFloatBox(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -1041,16 +1110,38 @@ function restoreFloatBox(){
   frame.classList.toggle("dock-right",state.floatDock!=="left");
   frame.classList.toggle("float-tucked",state.floatTucked);
 
-  const box=state.floatBox;
-  if(!box){
-    frame.style.removeProperty("height");
-    frame.style.aspectRatio="16 / 9";
+  if(!state.floatUserSized){
+    const ratio=state.videoAspect||16/9;
+    const size=autoFloatSize(frame,ratio);
+    const box=state.floatBox;
+    const left=state.floatDock==="left"
+      ?8
+      :Math.max(8,window.innerWidth-size.width-8);
+    const top=Math.max(8,Math.min(
+      window.innerHeight-size.height-8,
+      Number(box?.top)||Math.max(8,frame.getBoundingClientRect().top||8)
+    ));
+
+    frame.style.width=size.width+"px";
+    frame.style.height=size.height+"px";
+    frame.style.aspectRatio="auto";
+    frame.style.left=left+"px";
+    frame.style.top=top+"px";
+    frame.style.right="auto";
+    frame.style.bottom="auto";
+    state.floatBox={left,top,width:size.width,height:size.height};
     return;
   }
 
-  const width=Math.max(170,Math.min(box.width,window.innerWidth-16));
-  const defaultHeight=width*9/16;
-  const height=Math.max(112,Math.min(Number(box.height)||defaultHeight,window.innerHeight-16));
+  const box=state.floatBox;
+  if(!box){
+    state.floatUserSized=false;
+    restoreFloatBox();
+    return;
+  }
+
+  const width=Math.max(150,Math.min(Number(box.width)||240,window.innerWidth-16));
+  const height=Math.max(112,Math.min(Number(box.height)||width/(state.videoAspect||16/9),window.innerHeight-16));
   const left=Math.max(8,Math.min(window.innerWidth-width-8,box.left));
   const top=Math.max(8,Math.min(window.innerHeight-height-8,box.top));
   frame.style.width=width+"px";
@@ -1078,6 +1169,14 @@ function updateFloatingAmbient(frame){
   }
   const safeAmbient=ambientUrl.replace(/["'\\\n\r]/g,"");
   frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
+}
+
+function updateCurrentVideoAspect(meta=state.currentMeta||{}){
+  state.videoAspect=normalizedVideoAspect(meta);
+  const frame=playerSection?.querySelector(".player-frame");
+  if(frame?.classList.contains("floating-iframe")&&!state.floatUserSized){
+    applyAutoFloatAspect(frame,{force:true});
+  }
 }
 
 function applyFloatingIframe(force){
@@ -2743,6 +2842,17 @@ async function playVideo(id,seedMeta={}){
 
   state.currentId=id;
   state.currentMeta={...seedMeta};
+  state.videoAspect=normalizedVideoAspect(seedMeta);
+  state.floatUserSized=false;
+  if(wasFloating&&frame){
+    const floatRect=frame.getBoundingClientRect();
+    state.floatBox={
+      left:floatRect.left,
+      top:floatRect.top,
+      width:floatRect.width,
+      height:floatRect.height
+    };
+  }
   state.intentPlay=true;
   state.resumeOnReturn=false;
   state.mode="video";
@@ -2774,6 +2884,7 @@ async function playVideo(id,seedMeta={}){
     requestAnimationFrame(()=>{
       if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
       applyFloatingIframe();
+      applyAutoFloatAspect(frame,{force:true});
     });
   }
 
@@ -2798,6 +2909,7 @@ async function playVideo(id,seedMeta={}){
     if(state.currentId!==id)return;
     const meta={...seedMeta,...(detail?.meta||{})};
     state.currentMeta=meta;
+    updateCurrentVideoAspect(meta);
     updateNow(meta);
     backgroundPlayer.setMetadata(meta);
     const related=Array.isArray(detail?.related)?detail.related:[];

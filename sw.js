@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-fast-cat-v85';
+const CACHE='1988-main-aspect-v86';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=sources-84',
-  './src/app.js?v=fast-cat-85',
+  './src/app.js?v=aspect-86',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
-  './src/yt-local.js?v=fast-cat-85',
+  './src/yt-local.js?v=aspect-86',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
