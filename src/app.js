@@ -3460,6 +3460,7 @@ function setActiveChip(name){
       syncWatchUtilityState();
     });
   }
+}
 
 function extractVideoId(value=""){
   const raw=clean(value);
