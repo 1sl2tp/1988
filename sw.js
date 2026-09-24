@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pip-aligned-buttons-v159';
+const CACHE='1988-main-settings-lock-v160';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-aligned-buttons-159',
-  './src/app.js?v=pip-safe-controls-156',
+  './src/style.css?v=settings-lock-160',
+  './src/app.js?v=settings-lock-160',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',

@@ -41,6 +41,11 @@ const installSheet=$("#installSheet");
 const closeInstallSheet=$("#closeInstallSheet");
 const sourcesBtn=$("#sourcesBtn");
 const sourceHeaderCount=$("#sourceHeaderCount");
+const settingsAuthSheet=$("#settingsAuthSheet");
+const settingsAuthForm=$("#settingsAuthForm");
+const settingsAuthPin=$("#settingsAuthPin");
+const settingsAuthError=$("#settingsAuthError");
+const closeSettingsAuth=$("#closeSettingsAuth");
 const sourcesSheet=$("#sourcesSheet");
 const closeSourcesSheet=$("#closeSourcesSheet");
 const sourceSearch=$("#sourceSearch");
@@ -1909,6 +1914,69 @@ function closeSourcePreview(){
   setTimeout(()=>sourceSearch?.focus(),40);
 }
 
+const SETTINGS_AUTH_KEY="1988-settings-unlocked-v1";
+const SETTINGS_PIN="8881";
+let pendingSettingsAction=null;
+
+function settingsAccessSaved(){
+  try{
+    return localStorage.getItem(SETTINGS_AUTH_KEY)==="1";
+  }catch{
+    return false;
+  }
+}
+
+function rememberSettingsAccess(){
+  try{
+    localStorage.setItem(SETTINGS_AUTH_KEY,"1");
+  }catch{}
+}
+
+function closeSettingsAuthSheet(){
+  if(!settingsAuthSheet)return;
+  settingsAuthSheet.hidden=true;
+  if(settingsAuthPin)settingsAuthPin.value="";
+  if(settingsAuthError)settingsAuthError.textContent="";
+  pendingSettingsAction=null;
+}
+
+function requestSettingsAccess(action){
+  if(typeof action!=="function")return;
+
+  if(settingsAccessSaved()){
+    action();
+    return;
+  }
+
+  pendingSettingsAction=action;
+  if(settingsAuthError)settingsAuthError.textContent="";
+  if(settingsAuthPin)settingsAuthPin.value="";
+  if(settingsAuthSheet)settingsAuthSheet.hidden=false;
+
+  requestAnimationFrame(()=>{
+    settingsAuthPin?.focus();
+  });
+}
+
+function submitSettingsAccess(){
+  const value=String(settingsAuthPin?.value||"").trim();
+  if(value!==SETTINGS_PIN){
+    if(settingsAuthError)settingsAuthError.textContent="Mật khẩu chưa đúng";
+    settingsAuthPin?.focus();
+    settingsAuthPin?.select?.();
+    return;
+  }
+
+  const action=pendingSettingsAction;
+  rememberSettingsAccess();
+  if(settingsAuthSheet)settingsAuthSheet.hidden=true;
+  if(settingsAuthPin)settingsAuthPin.value="";
+  if(settingsAuthError)settingsAuthError.textContent="";
+  pendingSettingsAction=null;
+
+  action?.();
+}
+
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
@@ -1985,7 +2053,9 @@ function closeSourceLibrary(){
 function setupSourceLibrary(){
   // Bind the open action before doing any source-state calculations.
   // Even if old local data is malformed, the manager must still open.
-  sourcesBtn?.addEventListener("click",openSourceLibrary);
+  sourcesBtn?.addEventListener("click",()=>{
+    requestSettingsAccess(openSourceLibrary);
+  });
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
 
   try{
@@ -1997,7 +2067,13 @@ function setupSourceLibrary(){
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
   sourcePreviewSearch?.addEventListener("input",schedulePreviewVideoSearch);
-  sourceSettingsBtn?.addEventListener("click",()=>setSourceManageMode(!sourceManageMode));
+  sourceSettingsBtn?.addEventListener("click",()=>{
+    if(sourceManageMode){
+      setSourceManageMode(false);
+      return;
+    }
+    requestSettingsAccess(()=>setSourceManageMode(true));
+  });
 
   sourceGroupTabs?.addEventListener("click",event=>{
     const button=event.target.closest("[data-source-group]");
@@ -7254,6 +7330,23 @@ document.addEventListener("visibilitychange",()=>{
   if(state.mode==="video"&&state.currentId){
     updateModeUi();
     resumeVideoAfterReturn();
+  }
+});
+
+settingsAuthForm?.addEventListener("submit",event=>{
+  event.preventDefault();
+  submitSettingsAccess();
+});
+closeSettingsAuth?.addEventListener("click",closeSettingsAuthSheet);
+settingsAuthSheet?.addEventListener("click",event=>{
+  if(event.target===settingsAuthSheet)closeSettingsAuthSheet();
+});
+settingsAuthPin?.addEventListener("input",()=>{
+  if(settingsAuthError?.textContent)settingsAuthError.textContent="";
+});
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape"&&!settingsAuthSheet?.hidden){
+    closeSettingsAuthSheet();
   }
 });
 
