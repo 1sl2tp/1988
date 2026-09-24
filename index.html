@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=sources-83">
+  <link rel="stylesheet" href="./src/style.css?v=sources-84">
   <title>1988</title>
 </head>
 <body>
@@ -112,7 +112,11 @@
           </div>
           <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
         </div>
-        <div id="sourceGroupTabs" class="source-group-tabs" hidden></div>
+        <div id="sourceGroupNav" class="source-group-nav" hidden>
+          <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
+          <div id="sourceGroupTabs" class="source-group-tabs"></div>
+          <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
+        </div>
         <div id="sourceSearchStatus" class="source-search-status"></div>
         <div id="sourceList" class="source-list"></div>
       </div>
@@ -152,6 +156,6 @@
   <script src="./src/channel-library.js?v=smart-sources-61"></script>
   <script type="module" src="./src/yt-local.js?v=ai-disclosure-80"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=sources-83"></script>
+  <script defer src="./src/app.js?v=sources-84"></script>
 </body>
 </html>
