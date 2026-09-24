@@ -197,7 +197,12 @@ function applyFloatingIframe(force){
     playerSection.hidden
   ){
     if(floating){
+      const rect=frame.getBoundingClientRect();
+      if(rect.width>0){
+        state.floatBox={left:rect.left,top:rect.top,width:rect.width};
+      }
       frame.classList.remove("floating-iframe");
+      clearFloatBoxStyles();
       playerSection.style.removeProperty("min-height");
     }
     return;
