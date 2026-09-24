@@ -1714,27 +1714,45 @@ function closeSourcePreview(){
 
 function openSourceLibrary(){
   if(!sourcesSheet)return;
-  sourceRemoteResults=[];
-  sourcePreviewSeq++;
-  closeSourceVideo();
-  sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
-    ?state.activeParent
-    :GENERAL_SOURCE_SCOPE;
-  setSourceManageMode(true);
-  resetSourcePreviewPane();
-  if(sourceBrowse)sourceBrowse.hidden=false;
-  if(sourceSearchStatus)sourceSearchStatus.textContent="";
-  updateSourceSummary();
-  renderSourceLibrary();
+
+  // Open the sheet FIRST. Source rendering must never be able to block the
+  // Quản lý nguồn button from opening the UI.
   sourcesSheet.hidden=false;
 
-  if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
-    const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
-    if(parent){
-      void localEngine(12000)
-        .then(local=>discoverSourcesForParent(parent,local))
-        .catch(()=>{});
+  try{
+    sourceRemoteResults=[];
+    sourcePreviewSeq++;
+    closeSourceVideo();
+    sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+      ?state.activeParent
+      :GENERAL_SOURCE_SCOPE;
+
+    setSourceManageMode(true);
+    resetSourcePreviewPane();
+    if(sourceBrowse)sourceBrowse.hidden=false;
+    if(sourceSearchStatus)sourceSearchStatus.textContent="";
+    updateSourceSummary();
+    renderSourceLibrary();
+
+    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+      const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.group===sourceManageGroup);
+      if(parent){
+        void localEngine(12000)
+          .then(local=>discoverSourcesForParent(parent,local))
+          .catch(()=>{});
+      }
     }
+  }catch(error){
+    console.error("open source manager failed",error);
+    if(sourceSearchStatus){
+      sourceSearchStatus.textContent="Đang khôi phục quản lý nguồn…";
+    }
+    try{
+      if(sourceBrowse)sourceBrowse.hidden=false;
+      if(sourceList&&!sourceList.innerHTML.trim()){
+        sourceList.innerHTML='<div class="source-empty">Đang tải lại danh sách nguồn…</div>';
+      }
+    }catch{}
   }
 
   setTimeout(()=>sourceSearch?.focus(),80);
@@ -1776,10 +1794,16 @@ function closeSourceLibrary(){
 }
 
 function setupSourceLibrary(){
-  updateSourceSummary();
-
+  // Bind the open action before doing any source-state calculations.
+  // Even if old local data is malformed, the manager must still open.
   sourcesBtn?.addEventListener("click",openSourceLibrary);
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
+
+  try{
+    updateSourceSummary();
+  }catch(error){
+    console.error("source manager init failed",error);
+  }
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
