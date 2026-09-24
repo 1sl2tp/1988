@@ -589,8 +589,8 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const exists=libraryHas(row.id)||selectedSourceIds.has(row.id)||blockedSourceIds.has(row.id);
-  const status=exists?sourceStatus(row.id):"normal";
+  const exists=libraryHas(row.id)||allManagedStateIds().has(row.id);
+  const status=exists?sourceStatus(row.id,sourceManageGroup):"normal";
   const active=status==="selected";
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
@@ -707,7 +707,7 @@ function renderSourceGroupTabs(){
 
   const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    const count=group.key==="all"
+    const count=group.key===GENERAL_SOURCE_SCOPE
       ?rows.length
       :rows.filter(row=>sourceGroupsFor(row).includes(group.key)).length;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
@@ -742,7 +742,7 @@ function renderSourceLibrary(){
   const groupFilter=row=>
     !!q||
     !sourceManageMode||
-    sourceManageGroup==="all"||
+    sourceManageGroup===GENERAL_SOURCE_SCOPE||
     sourceGroupsFor(row).includes(sourceManageGroup);
 
   const localRows=rows.filter(row=>
@@ -758,9 +758,9 @@ function renderSourceLibrary(){
   const parts=[];
 
   if(sourceManageMode){
-    const normalRows=localRows.filter(row=>sourceStatus(row.id)==="normal");
-    const selectedRows=localRows.filter(row=>sourceStatus(row.id)==="selected");
-    const blockedRows=localRows.filter(row=>sourceStatus(row.id)==="blocked");
+    const normalRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="normal");
+    const selectedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="selected");
+    const blockedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="blocked");
 
     // New YouTube results belong to the "Chưa chọn" area until saved/selected.
     const unselectedHtml=[
@@ -775,7 +775,7 @@ function renderSourceLibrary(){
     if(!unselectedHtml.length&&!selectedRows.length&&!blockedRows.length){
       const message=q
         ?"Không có nguồn phù hợp"
-        :sourceManageGroup!=="all"
+        :sourceManageGroup!==GENERAL_SOURCE_SCOPE
           ?"Chưa có nguồn trong nhóm này"
           :"Thư viện đang trống";
       parts.push('<div class="source-empty">'+message+'</div>');
@@ -923,16 +923,15 @@ function addSource(row){
 }
 
 function toggleSource(id){
-  if(!libraryHas(id))return;
-  const status=sourceStatus(id);
-  setSourceStatus(id,status==="selected"?"normal":"selected");
+  if(!libraryHas(id)&&!allManagedStateIds().has(id))return;
+  const status=sourceStatus(id,sourceManageGroup);
+  setSourceStatus(id,status==="selected"?"normal":"selected",sourceManageGroup);
 }
 
 function setSourceManageMode(enabled){
   const next=enabled===true;
   if(next&&!sourceManageMode)sourceBlockedExpanded=false;
   sourceManageMode=next;
-  if(!sourceManageMode)sourceManageGroup="all";
 
   if(sourceSettingsBtn){
     sourceSettingsBtn.classList.toggle("active",sourceManageMode);
