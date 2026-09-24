@@ -102,11 +102,15 @@ s = s.replace(
 )
 
 # The horizontal result template used age(); the unified card computes age itself.
-s = re.sub(
-    r"\\nfunction age\\(ts: number\\) \\{[\\s\\S]*?\\n\\}\\n",
-    "\\n",
-    s,
-    count=1
+s = s.replace(
+    """function age(ts: number) {
+  void tick.value;
+  return ts ? formatRelativeTime(ts) : '';
+}
+
+""",
+    "",
+    1
 )
 
 # Feed persistence uses the home-style card keys.
@@ -136,8 +140,8 @@ s = s.replace(
 
 # Replace horizontal-result CSS with the same responsive grid rules as homepage.
 s = re.sub(
-    r""".video-results { display:grid; gap:14px; }
-.video-result {[sS]*?.result-channel { margin-top:18px !important; }
+    r"""\.video-results \{ display:grid; gap:14px; \}
+\.video-result \{[\s\S]*?\.result-channel \{ margin-top:18px !important; \}
 """,
     r""".video-grid {
   display:grid;
