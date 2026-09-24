@@ -1202,7 +1202,7 @@ function normalizeAiChildTopics(payload,rows=[],parent=null){
 
 function readAiCatalogCache(cacheKey){
   try{
-    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v2:"+cacheKey)||"null");
+    const saved=JSON.parse(localStorage.getItem("1988-ai-catalog-v3:"+cacheKey)||"null");
     if(!saved||Date.now()-Number(saved.at||0)>3*60*60*1000)return [];
     return normalizeAiCatalogParents(saved);
   }catch{
@@ -1212,7 +1212,7 @@ function readAiCatalogCache(cacheKey){
 
 function saveAiCatalogCache(cacheKey,parents=[]){
   try{
-    localStorage.setItem("1988-ai-catalog-v2:"+cacheKey,JSON.stringify({
+    localStorage.setItem("1988-ai-catalog-v3:"+cacheKey,JSON.stringify({
       at:Date.now(),
       parents:parents.map(parent=>({
         label:parent.label,
@@ -1518,9 +1518,16 @@ async function classifyAiParent(parent,rows=[]){
 
   const payload=await response.json().catch(()=>null);
   if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
+  const acceptedVideoIds=new Set(
+    (Array.isArray(payload?.acceptedVideoIds)?payload.acceptedVideoIds:input.map(row=>row.id))
+      .map(id=>clean(id))
+      .filter(Boolean)
+  );
+
   return {
     topics:normalizeAiChildTopics(payload,rows,parent),
-    videoMeta:normalizeAiVideoMeta(payload,input)
+    videoMeta:normalizeAiVideoMeta(payload,input),
+    acceptedVideoIds
   };
 }
 
@@ -1569,19 +1576,29 @@ async function loadAiParentDiscovery(parent){
       )
     ).slice(0,180);
 
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
     state.trendTopics=[];
     renderTrendTopics();
 
-    if(state.activeParent===parent.key){
-      renderCards(rows);
-      feedStatus.textContent=rows.length?"Đang phân loại "+rows.length+" video…":"";
-    }
-
     if(rows.length>=4){
+      if(state.activeParent===parent.key){
+        feed.innerHTML='<div class="loading">Đang phân loại '+esc(parent.label)+'…</div>';
+        feedStatus.textContent="";
+      }
+
       const classified=await classifyAiParent(parent,rows);
-      state.aiCategoryTopics.set(parent.key,classified.topics);
-      state.trendTopics=classified.topics;
+      const accepted=classified.acceptedVideoIds;
+      rows=rows.filter(row=>accepted.has(itemVideoId(row)));
+
+      const topics=classified.topics
+        .map(topic=>({
+          ...topic,
+          videoIds:new Set([...topic.videoIds].filter(id=>accepted.has(id)))
+        }))
+        .filter(topic=>topic.videoIds.size>=2);
+
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+      state.aiCategoryTopics.set(parent.key,topics);
+      state.trendTopics=topics;
       state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
 
       if(state.activeParent===parent.key){
@@ -1590,8 +1607,12 @@ async function loadAiParentDiscovery(parent){
         renderCards(visible);
         feedStatus.textContent=visible.length?visible.length+" video":"";
       }
-    }else if(state.activeParent===parent.key){
-      feedStatus.textContent=rows.length?rows.length+" video":"";
+    }else{
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+      if(state.activeParent===parent.key){
+        renderCards(rows);
+        feedStatus.textContent=rows.length?rows.length+" video":"";
+      }
     }
   }catch(error){
     console.warn("ai category discovery failed",parent?.label||parent?.key,error);
