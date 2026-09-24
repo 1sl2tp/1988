@@ -55,7 +55,7 @@ compact_shelf = r"""    <section class="filter-shelf compact">
     </section>"""
 
 s, count = re.subn(
-    r'''    <section class="filter-shelf">[\s\S]*?</section>\n\n    <section class="feed-area">''',
+    r"""    <section class="filter-shelf">[\s\S]*?</section>\n\n    <section class="feed-area">""",
     compact_shelf + '\n\n    <section class="feed-area">',
     s,
     count=1
