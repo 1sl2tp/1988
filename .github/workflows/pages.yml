@@ -71,6 +71,9 @@ jobs:
       - name: Apply TikTok swipe v15
         run: python3 scripts/apply-tiktok-v15.py
 
+      - name: Apply dynamic sources v16
+        run: python3 scripts/apply-dynamic-sources-v16.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
