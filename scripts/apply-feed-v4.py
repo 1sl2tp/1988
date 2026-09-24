@@ -18,7 +18,7 @@ p = Path("src/components/VideoPlayer.vue")
 s = p.read_text()
 
 autoplay_pattern = re.compile(
-    r"let autoplayFallbackTimer: number \\| undefined;[\\s\\S]*?function requestAutoplay1988\\(target: any\\) \\{[\\s\\S]*?\\n\\}\\n\\nasync function createPlayer\\(\\) \\{",
+    r"let autoplayFallbackTimer: number \| undefined;[\s\S]*?function requestAutoplay1988\(target: any\) \{[\s\S]*?\n\}\n\nasync function createPlayer\(\) \{",
     re.M
 )
 autoplay_replacement = r'''let autoplayFallbackTimer: number | undefined;
@@ -94,7 +94,7 @@ function requestAutoplay1988(target: any) {
 async function createPlayer() {'''
 s, _ = autoplay_pattern.subn(autoplay_replacement, s, count=1)
 
-toggle_pattern = re.compile(r"function toggleMute\\(\\) \\{[\\s\\S]*?\\n\\}\\n\\nfunction setVolumeFromInput", re.M)
+toggle_pattern = re.compile(r"function toggleMute\(\) \{[\s\S]*?\n\}\n\nfunction setVolumeFromInput", re.M)
 toggle_replacement = r'''function toggleMute() {
   const p = player.value;
   if (!p || !ready.value) return;
@@ -237,7 +237,7 @@ p = Path("src/pages/SearchPage.vue")
 s = p.read_text()
 s = s.replace(
     "import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
-    "import { computed, nextNick, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
+    "import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';",
     1
 )
 s = s.replace(
