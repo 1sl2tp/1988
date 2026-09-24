@@ -1361,14 +1361,13 @@ function uploadedWithin(row,maxAgeMs){
   return Number.isFinite(age)&&age>=0&&age<=maxAgeMs;
 }
 
-async function regionalFilteredPage(local,key,predicate,reset=false){
+async function regionalFilteredPage(local,key,predicate,reset=false,maxPages=4){
   const collected=[];
   let first=reset;
 
   // The Innertube session itself is configured with location:"VN".
-  // Scan a few regional Home continuations so these feeds do not depend
-  // on a hard-coded search query such as "Việt Nam".
-  for(let i=0;i<3;i++){
+  // Scan regional Home continuations; no hard-coded "Việt Nam" query.
+  for(let i=0;i<maxPages;i++){
     const rows=await local.homePage("region-"+key,first);
     first=false;
     if(!Array.isArray(rows)||!rows.length)break;
