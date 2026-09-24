@@ -2128,6 +2128,60 @@ async function localEngine(timeoutMs=15000){
   });
 }
 
+const pipAspectPrimeCache=new Map();
+
+function validPipAspect(value){
+  const ratio=Number(value)||0;
+  return Number.isFinite(ratio)&&ratio>=.34&&ratio<=2.6?ratio:0;
+}
+
+function primePipAspect(id){
+  id=String(id||"").trim();
+  if(!id)return Promise.resolve(0);
+
+  const cached=pipAspectPrimeCache.get(id);
+  if(cached){
+    if(cached.value)return Promise.resolve(cached.value);
+    if(cached.promise)return cached.promise;
+  }
+
+  const task=localEngine(5000)
+    .then(local=>{
+      if(typeof local?.videoAspect!=="function")return 0;
+      return local.videoAspect(id);
+    })
+    .then(dimensions=>{
+      const ratio=validPipAspect(
+        Number(dimensions?.aspectRatio)||
+        (
+          Number(dimensions?.width)>0&&Number(dimensions?.height)>0
+            ?Number(dimensions.width)/Number(dimensions.height)
+            :0
+        )
+      );
+      if(ratio)pipAspectPrimeCache.set(id,{value:ratio,at:Date.now()});
+      else pipAspectPrimeCache.delete(id);
+      return ratio;
+    })
+    .catch(()=>{
+      pipAspectPrimeCache.delete(id);
+      return 0;
+    });
+
+  pipAspectPrimeCache.set(id,{promise:task,at:Date.now()});
+  return task;
+}
+
+async function resolvePipAspectBeforeSwap(id,seedMeta={},timeoutMs=720){
+  // A portrait/square hint from the selected card is already useful.
+  const seed=validPipAspect(seedMeta?.aspectRatio);
+  if(seed&&seed<=1.20)return seed;
+
+  const task=primePipAspect(id);
+  const timeout=new Promise(resolve=>setTimeout(()=>resolve(0),timeoutMs));
+  return validPipAspect(await Promise.race([task,timeout]));
+}
+
 function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
   frame.classList.toggle("float-tucked",state.floatTucked);
@@ -2524,6 +2578,7 @@ function syncAspectFromYoutubePlayer(player=state.player){
 
   state.currentMeta=meta;
   updateCurrentVideoAspect(meta);
+  pipAspectPrimeCache.set(state.currentId,{value:rect.aspectRatio,at:Date.now()});
   return true;
 }
 
@@ -6491,19 +6546,35 @@ async function playVideo(id,seedMeta={}){
   const frame=playerSection?.querySelector(".player-frame");
   const wasFloating=!!frame?.classList.contains("floating-iframe");
   const keepScrollY=window.scrollY;
-  state.keepFloating=wasFloating;
+  const previousAspect=validPipAspect(state.videoAspect)||16/9;
 
+  // PiP -> next video is a direct PiP swap. Determine the next video's shape
+  // before changing the iframe. If the probe is not ready yet, preserve the
+  // current PiP shape instead of flashing through a default 16:9/square box.
+  const preResolvedAspect=wasFloating
+    ?await resolvePipAspectBeforeSwap(id,seedMeta)
+    :0;
+
+  state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta={...seedMeta};
-  state.videoAspect=normalizedVideoAspect(seedMeta);
-  state.videoAspectVerified=false;
-  state.videoAspectPortraitLocked=false;
+  state.videoAspect=preResolvedAspect||(
+    wasFloating
+      ?previousAspect
+      :normalizedVideoAspect(seedMeta)
+  );
+  state.videoAspectVerified=!!preResolvedAspect;
+  state.videoAspectPortraitLocked=!!preResolvedAspect&&preResolvedAspect<.80;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
+
   if(wasFloating&&frame){
     const floatRect=frame.getBoundingClientRect();
     state.floatBox={top:floatRect.top};
+
+    // Resize the existing PiP for the selected video BEFORE loadVideoById().
+    applyAutoFloatAspect(frame,{force:true});
     updateFloatControlState(frame);
   }
   state.intentPlay=true;
@@ -6539,7 +6610,7 @@ async function playVideo(id,seedMeta={}){
     requestAnimationFrame(()=>{
       if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
       applyFloatingIframe();
-      applyFloatPreset(frame);
+      applyAutoFloatAspect(frame,{force:true});
     });
   }
 
@@ -6915,6 +6986,12 @@ queryInput.addEventListener("input",()=>{
     searchRefinements.innerHTML="";
   }
 });
+
+feed.addEventListener("pointerdown",e=>{
+  const card=e.target.closest("[data-video-id]");
+  const id=card?.dataset?.videoId||"";
+  if(id)void primePipAspect(id);
+},{passive:true});
 
 feed.addEventListener("click",e=>{
   const retry=e.target.closest(".retry-feed");
