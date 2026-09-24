@@ -531,6 +531,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   state.aiCategoryRows=new Map();
   state.aiCategoryTopics=new Map();
   sourceDiscoveryAt.delete(scope);
+  clearSourceContentLearning(scope);
   refreshSourceManager();
   syncSourcePreviewHeader();
 }
@@ -3289,8 +3290,20 @@ function renderTrendTopics(){
 
 const SOURCE_LEARNING_STOPWORDS=new Set([
   "official","channel","kenh","kênh","tv","media","studio","network","vietnam",
-  "viet","việt","nam","vn","hd","youtube","page","online"
+  "viet","việt","nam","vn","hd","youtube","page","online",
+  "video","clip","shorts","short","moi","mới","nhat","nhất","hom","hôm","nay",
+  "truc","tiếp","trực","live","tap","tập","phan","phần","so","số","full","review",
+  "va","và","cua","của","cho","voi","với","tai","tại","tu","từ","la","là","co","có",
+  "mot","một","nhung","những","cac","các","nay","này","do","đó","de","để","khi","sau",
+  "the","thế","nao","nào","duoc","được","dang","đang","se","sẽ","tren","trên","duoi","dưới",
+  "this","that","with","from","into","your","the","and","for","new","best","why","how"
 ]);
+
+const SOURCE_CONTENT_LEARNING_TTL=25*60*1000;
+const SOURCE_CONTENT_LEARNING_MAX_SOURCES=12;
+const SOURCE_CONTENT_LEARNING_MAX_ROWS=120;
+const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v2:";
+const sourceContentLearningMemory=new Map();
 
 function sourceLearningNames(scope,status="selected"){
   scope=sourceScope(scope);
@@ -3305,89 +3318,222 @@ function sourceLearningNames(scope,status="selected"){
   return [...new Set(names)].slice(0,24);
 }
 
-function sourceLearningTerms(parent={}){
+function learningSignature(scope){
+  return sourceSignature(scope)+"|blocked:"+[...blockedSetForScope(scope)].sort().join("|");
+}
+
+function readSourceContentLearning(scope){
+  scope=sourceScope(scope);
+  const signature=learningSignature(scope);
+  const memory=sourceContentLearningMemory.get(scope);
+  if(memory&&memory.signature===signature&&Date.now()-Number(memory.at||0)<SOURCE_CONTENT_LEARNING_TTL)return memory;
+  try{
+    const row=JSON.parse(localStorage.getItem(SOURCE_CONTENT_LEARNING_KEY_PREFIX+scope)||"null");
+    if(row&&row.signature===signature&&Array.isArray(row.terms)&&Date.now()-Number(row.at||0)<SOURCE_CONTENT_LEARNING_TTL){
+      sourceContentLearningMemory.set(scope,row);
+      return row;
+    }
+  }catch{}
+  return null;
+}
+
+function saveSourceContentLearning(scope,row={}){
+  scope=sourceScope(scope);
+  const payload={
+    signature:learningSignature(scope),
+    at:Date.now(),
+    terms:Array.isArray(row.terms)?row.terms.slice(0,12):[],
+    hashtags:Array.isArray(row.hashtags)?row.hashtags.slice(0,12):[],
+    rows:Number(row.rows)||0,
+    sources:Number(row.sources)||0
+  };
+  sourceContentLearningMemory.set(scope,payload);
+  try{localStorage.setItem(SOURCE_CONTENT_LEARNING_KEY_PREFIX+scope,JSON.stringify(payload));}catch{}
+  return payload;
+}
+
+function clearSourceContentLearning(scope){
+  scope=sourceScope(scope);
+  sourceContentLearningMemory.delete(scope);
+  try{localStorage.removeItem(SOURCE_CONTENT_LEARNING_KEY_PREFIX+scope);}catch{}
+}
+
+function learningTokenize(value=""){
+  return clean(value)
+    .replace(/#[\p{L}\p{N}_-]+/gu," ")
+    .replace(/[|/\\()[\]{}:_·•—–,+!?."'“”‘’]+/g," ")
+    .replace(/\s+/g," ")
+    .trim()
+    .split(" ")
+    .map(token=>clean(token))
+    .filter(Boolean);
+}
+
+function extractSourceContentTerms(parent={},rows=[]){
   const group=parentSourceGroup(parent);
-  if(!group)return [];
-  const selectedNames=sourceLearningNames(group,"selected");
-  const blockedNames=sourceLearningNames(group,"blocked");
-  const baseQueries=(Array.isArray(parent?.queries)?parent.queries:[]).map(clean).filter(Boolean);
-  const baseText=normalizeSearchText(baseQueries.join(" "));
   const score=new Map();
+  const channelsByTerm=new Map();
+  const hashtagScore=new Map();
+  const blockedNames=sourceLearningNames(group,"blocked").map(normalizeSearchText);
+  const blockedTokens=new Set(blockedNames.flatMap(name=>name.split(" ").filter(token=>token.length>=3)));
+  const items=newestFirst(Array.isArray(rows)?rows:[])
+    .filter(row=>!isBlockedSourceRow(row,group))
+    .slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS);
 
-  const addName=(name,weight)=>{
-    const raw=clean(name).replace(/[|/\\()[\]{}:_·•—–-]+/g," ").replace(/\s+/g," ").trim();
-    if(!raw)return;
-    const original=raw.split(/\s+/).filter(Boolean);
-    const tokens=original.filter(token=>{
-      const normalized=normalizeSearchText(token);
-      return normalized.length>=2&&!/^\d+$/.test(normalized)&&!SOURCE_LEARNING_STOPWORDS.has(normalized);
+  const addTerm=(phrase,weight,channel)=>{
+    const key=normalizeSearchText(phrase);
+    if(!key||key.length<3)return;
+    const words=key.split(" ").filter(Boolean);
+    if(!words.length)return;
+    if(words.every(word=>SOURCE_LEARNING_STOPWORDS.has(word)||blockedTokens.has(word)))return;
+    if(words.some(word=>/^\d+$/.test(word)&&words.length===1))return;
+    score.set(phrase,(score.get(phrase)||0)+weight);
+    if(!channelsByTerm.has(phrase))channelsByTerm.set(phrase,new Set());
+    if(channel)channelsByTerm.get(phrase).add(channel);
+  };
+
+  for(const row of items){
+    const title=clean(row?._displayTitle||row?.title||"");
+    if(!title)continue;
+    const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||row?.uploader||"");
+    const age=publishedAgeMs(row);
+    const recencyWeight=age<DAY_MS?3:age<3*DAY_MS?2.2:age<7*DAY_MS?1.5:1;
+    const views=Math.max(0,Number(row?.views)||0);
+    const viewWeight=Math.min(1.7,1+Math.log10(views+10)/12);
+    const weight=recencyWeight*viewWeight;
+
+    const hashtags=[...title.matchAll(/#([\p{L}\p{N}_-]{2,48})/gu)]
+      .map(match=>clean(match[1]).replace(/_/g," "))
+      .filter(Boolean);
+    for(const tag of hashtags){
+      const key=normalizeSearchText(tag);
+      if(!key||SOURCE_LEARNING_STOPWORDS.has(key))continue;
+      hashtagScore.set(tag,(hashtagScore.get(tag)||0)+weight*3.2);
+      addTerm(tag,weight*3.2,sourceId);
+    }
+
+    const tokens=learningTokenize(title).filter(token=>{
+      const key=normalizeSearchText(token);
+      return key.length>=2&&!SOURCE_LEARNING_STOPWORDS.has(key)&&!/^\d+$/.test(key);
     });
-    if(!tokens.length)return;
 
+    const uniquePhrases=new Set();
     for(let size=1;size<=Math.min(3,tokens.length);size++){
       for(let i=0;i+size<=tokens.length;i++){
         const phrase=tokens.slice(i,i+size).join(" ");
         const key=normalizeSearchText(phrase);
         if(!key||key.length<3)continue;
-        const words=key.split(" ").filter(Boolean);
-        const baseBoost=baseText.includes(key)?2:0;
-        const lengthBoost=Math.min(2,Math.max(0,words.length-1));
-        score.set(phrase,(score.get(phrase)||0)+weight+baseBoost+lengthBoost);
+        if(size===1&&key.length<4)continue;
+        uniquePhrases.add(phrase);
       }
     }
-  };
+    for(const phrase of uniquePhrases)addTerm(phrase,weight,sourceId);
+  }
 
-  selectedNames.forEach(name=>addName(name,3));
-  blockedNames.forEach(name=>addName(name,-5));
-
+  const baseText=normalizeSearchText((Array.isArray(parent?.queries)?parent.queries:[]).join(" ")+" "+clean(parent?.label||""));
   const ranked=[...score.entries()]
-    .filter(([phrase,value])=>value>0&&normalizeSearchText(phrase)!==normalizeSearchText(parent?.label||""))
-    .sort((a,b)=>b[1]-a[1]||b[0].split(" ").length-a[0].split(" ").length||a[0].localeCompare(b[0],"vi"));
+    .map(([phrase,value])=>{
+      const channelCount=channelsByTerm.get(phrase)?.size||0;
+      const key=normalizeSearchText(phrase);
+      const words=key.split(" ").filter(Boolean);
+      const crossSourceBoost=1+Math.min(3,Math.max(0,channelCount-1))*0.8;
+      const phraseBoost=1+Math.min(2,Math.max(0,words.length-1))*0.35;
+      const baseBoost=baseText.includes(key)?1.18:1;
+      return [phrase,value*crossSourceBoost*phraseBoost*baseBoost,channelCount];
+    })
+    .filter(([phrase,value])=>value>1.2&&normalizeSearchText(phrase)!==normalizeSearchText(parent?.label||""))
+    .sort((a,b)=>b[1]-a[1]||b[2]-a[2]||b[0].length-a[0].length);
 
-  const out=[];
+  const terms=[];
   for(const [phrase] of ranked){
     const normalized=normalizeSearchText(phrase);
-    if(out.some(item=>{
+    if(terms.some(item=>{
       const current=normalizeSearchText(item);
-      return current===normalized||current.includes(normalized)||normalized.includes(current);
+      return current===normalized||
+        (current.includes(normalized)&&normalized.split(" ").length===1)||
+        (normalized.includes(current)&&current.split(" ").length===1);
     }))continue;
-    const wordCount=normalized.split(" ").filter(Boolean).length;
-    const query=wordCount===1?clean(phrase+" "+(parent?.label||"")):clean(phrase);
-    if(query.length<3)continue;
-    out.push(query);
-    if(out.length>=4)break;
+    terms.push(phrase);
+    if(terms.length>=10)break;
   }
-  return out;
+
+  const hashtags=[...hashtagScore.entries()]
+    .sort((a,b)=>b[1]-a[1])
+    .map(([tag])=>tag)
+    .filter(tag=>!terms.some(term=>normalizeSearchText(term)===normalizeSearchText(tag)))
+    .slice(0,8);
+
+  const sources=new Set(items.map(row=>String(row?._sourceId||row?.channelId||row?.uploaderId||"")).filter(Boolean)).size;
+  return {terms,hashtags,rows:items.length,sources};
+}
+
+async function selectedLearningRows(parent={},local){
+  const group=parentSourceGroup(parent);
+  const sources=(group===GENERAL_SOURCE_SCOPE?selectedSources():selectedSourcesForParent(parent))
+    .slice(0,SOURCE_CONTENT_LEARNING_MAX_SOURCES);
+  if(!sources.length)return [];
+
+  const selectedIds=new Set(sources.map(source=>source.id));
+  let cached=[];
+  if(group===GENERAL_SOURCE_SCOPE){
+    cached=readSourcePoolCache().filter(row=>
+      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&uploadedWithinCategoryWindow(row)
+    );
+  }else{
+    const parentRows=categoryCacheRows(parent.key);
+    cached=parentRows.filter(row=>
+      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&uploadedWithinCategoryWindow(row)
+    );
+  }
+  if(cached.length>=Math.min(20,sources.length*3))return cached;
+
+  try{
+    const fresh=await fetchSourcePool(local,sources,true,group);
+    return dedupeHashedRows(
+      newestFirst((Array.isArray(fresh)?fresh:[])
+        .filter(uploadedWithinCategoryWindow)
+        .filter(row=>!isBlockedSourceRow(row,group)))
+    ).slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS);
+  }catch{
+    return cached;
+  }
+}
+
+async function ensureSourceContentLearning(parent={},local){
+  const group=parentSourceGroup(parent);
+  if(!group)return {terms:[],hashtags:[],rows:0,sources:0};
+  const saved=readSourceContentLearning(group);
+  if(saved)return saved;
+  const rows=await selectedLearningRows(parent,local);
+  return saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
 }
 
 function sourceLearningProfile(parent={}){
   const group=parentSourceGroup(parent);
   if(!group)return {selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]};
+  const content=readSourceContentLearning(group);
   return {
     selectedSourceNames:sourceLearningNames(group,"selected"),
     blockedSourceNames:sourceLearningNames(group,"blocked"),
-    learnedQueries:sourceLearningTerms(parent)
+    learnedQueries:[...(content?.hashtags||[]),...(content?.terms||[])].slice(0,8)
   };
 }
 
-function adaptiveSourceQueries(parent={}){
+async function adaptiveSourceQueries(parent={},local){
   const group=parentSourceGroup(parent);
-  const base=(Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label])
-    .map(clean).filter(Boolean);
-  const learned=sourceLearningTerms(parent);
+  const content=await ensureSourceContentLearning(parent,local);
+  const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
 
   if(group===GENERAL_SOURCE_SCOPE){
-    const selectedNames=sourceLearningNames(GENERAL_SOURCE_SCOPE,"selected").slice(0,8);
-    const blockedNames=new Set(
-      sourceLearningNames(GENERAL_SOURCE_SCOPE,"blocked").map(normalizeSearchText)
-    );
-    const seeds=[...learned,...selectedNames]
-      .filter(query=>query&&!blockedNames.has(normalizeSearchText(query)));
-    return [...new Set(seeds)].slice(0,6);
+    const selectedNames=sourceLearningNames(GENERAL_SOURCE_SCOPE,"selected").slice(0,4);
+    return [...new Set([...learned.slice(0,5),...selectedNames])].slice(0,6);
   }
 
-  return [...new Set([...base.slice(0,2),...learned,...base.slice(2)])].slice(0,6);
+  const base=(Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label]).map(clean).filter(Boolean);
+  const fallback=base.find(Boolean);
+  return [...new Set([...learned.slice(0,5),...(fallback?[fallback]:[])])].slice(0,6);
 }
+
 async function classifyAiParent(parent,rows=[]){
   const input=topicInputRows(rows.slice(0,48));
   const learning=sourceLearningProfile(parent);
@@ -3459,7 +3605,8 @@ function sourceAlreadyKnownForDiscovery(candidate,group){
 }
 
 async function collectNewSourceDiscoveryRows(parent,local,group){
-  const queries=adaptiveSourceQueries(parent);
+  const queries=await adaptiveSourceQueries(parent,local);
+  if(!queries.length)return {rows:[],exhausted:true};
 
   const representatives=new Map();
   let exhausted=false;
@@ -3610,6 +3757,7 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
     if(!rows.length)return;
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+    saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
 
     if(
       seq===state.feedSeq &&
@@ -3726,6 +3874,7 @@ async function loadAiParentDiscovery(parent){
     ).slice(0,90);
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+    saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
     renderTrendTopics();
@@ -5224,6 +5373,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
 
     if(!rows.length)return;
     saveFeedCache(name,rows);
+    saveSourceContentLearning(GENERAL_SOURCE_SCOPE,extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,rows));
     void enrichSourceFeedAi(name,rows,seq);
     void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
 
@@ -5331,6 +5481,9 @@ async function loadFeedPreset(name="latest"){
     }
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
+    if(isSourceScopedFeed(name)){
+      saveSourceContentLearning(GENERAL_SOURCE_SCOPE,extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,state.feedRows));
+    }
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
