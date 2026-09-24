@@ -1,0 +1,121 @@
+name: Update YouTube libraries
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-youtube-libraries
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Resolve latest stable versions
+        id: versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          YOUTUBEI="$(npm view youtubei.js version)"
+          BGUTILS="$(npm view bgutils-js version)"
+          echo "youtubei=$YOUTUBEI" >> "$GITHUB_OUTPUT"
+          echo "bgutils=$BGUTILS" >> "$GITHUB_OUTPUT"
+          echo "youtubei.js=$YOUTUBEI"
+          echo "bgutils-js=$BGUTILS"
+
+      - name: Verify CDN files exist
+        shell: bash
+        env:
+          YOUTUBEI_VERSION: ${{ steps.versions.outputs.youtubei }}
+          BGUTILS_VERSION: ${{ steps.versions.outputs.bgutils }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 -o /dev/null             "https://cdn.jsdelivr.net/npm/youtubei.js@${YOUTUBEI_VERSION}/bundle/browser.js"
+          curl -fsS --retry 3 --retry-delay 2 -o /dev/null             "https://cdn.jsdelivr.net/npm/bgutils-js@${BGUTILS_VERSION}/dist/exports/botguard.js"
+          curl -fsS --retry 3 --retry-delay 2 -o /dev/null             "https://cdn.jsdelivr.net/npm/bgutils-js@${BGUTILS_VERSION}/dist/exports/webpo.js"
+          curl -fsS --retry 3 --retry-delay 2 -o /dev/null             "https://cdn.jsdelivr.net/npm/bgutils-js@${BGUTILS_VERSION}/dist/exports/utils.js"
+
+      - name: Update pinned CDN imports
+        id: update
+        shell: bash
+        env:
+          YOUTUBEI_VERSION: ${{ steps.versions.outputs.youtubei }}
+          BGUTILS_VERSION: ${{ steps.versions.outputs.bgutils }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'src/yt-local.js';
+          let source = fs.readFileSync(path, 'utf8');
+          const before = source;
+
+          source = source.replace(
+            /youtubei\.js@[^/]+\/bundle\/browser\.js/g,
+            `youtubei.js@${process.env.YOUTUBEI_VERSION}/bundle/browser.js`
+          );
+          source = source.replace(
+            /bgutils-js@[^/]+\/dist\/exports\//g,
+            `bgutils-js@${process.env.BGUTILS_VERSION}/dist/exports/`
+          );
+
+          if (source === before) {
+            console.log('Already on latest versions.');
+            process.exit(0);
+          }
+
+          if (!source.includes(`youtubei.js@${process.env.YOUTUBEI_VERSION}/bundle/browser.js`)) {
+            throw new Error('youtubei.js replacement failed');
+          }
+          if (!source.includes(`bgutils-js@${process.env.BGUTILS_VERSION}/dist/exports/`)) {
+            throw new Error('bgutils-js replacement failed');
+          }
+
+          fs.writeFileSync(path, source);
+          NODE
+
+          if git diff --quiet -- src/yt-local.js; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git diff -- src/yt-local.js
+          fi
+
+      - name: Test updated libraries integration
+        if: steps.update.outputs.changed == 'true'
+        run: |
+          node tests/media-core.test.cjs
+          node tests/integration-shape.test.cjs .
+          node tests/backend-media-proxy.test.cjs
+          python -m py_compile backend/ytdlp/server.py
+          node --check src/media-core.js
+          node --check src/app.js
+          node --check src/yt-local.js
+
+      - name: Commit tested update
+        if: steps.update.outputs.changed == 'true'
+        shell: bash
+        env:
+          YOUTUBEI_VERSION: ${{ steps.versions.outputs.youtubei }}
+          BGUTILS_VERSION: ${{ steps.versions.outputs.bgutils }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/yt-local.js
+          git commit -m "chore: update YouTube libraries (youtubei ${YOUTUBEI_VERSION}, bgutils ${BGUTILS_VERSION})"
+          git push origin HEAD:main
