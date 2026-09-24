@@ -15,7 +15,6 @@ const suggestions=$("#suggestions");
 const topicChips=$("#topicChips");
 const videoBtn=$("#videoBtn");
 const backgroundBtn=$("#backgroundBtn");
-const pipBtn=$("#pipBtn");
 const lockBtn=$("#lockBtn");
 const shareBtn=$("#shareBtn");
 const statusText=$("#statusText");
@@ -328,7 +327,6 @@ function updateModeUi(){
   const rows=[
     [videoBtn,"video"],
     [backgroundBtn,"audio"],
-    [pipBtn,"pip"],
     [lockBtn,"lock"]
   ];
   rows.forEach(([button,mode])=>{
@@ -337,15 +335,7 @@ function updateModeUi(){
     button.classList.toggle("active",active===mode);
     button.setAttribute("aria-pressed",active===mode?"true":"false");
   });
-  if(pipBtn){
-    const iframeOwnsPiP=state.engine==="iframe";
-    pipBtn.hidden=iframeOwnsPiP;
-    if(!iframeOwnsPiP){
-      const method=MediaCore.pipMethod(nativePlayer,document);
-      pipBtn.disabled=method==="none";
-      pipBtn.title=method==="none"?"PiP chưa khả dụng với nguồn hiện tại":"Mở Picture in Picture";
-    }
-  }
+
 }
 
 function updateMediaSession(meta=state.currentMeta||{}){
@@ -482,26 +472,6 @@ function returnToVideo(){
   updateModeUi();
 }
 
-async function enterPiP(){
-  if(!state.currentId||state.engine!=="native")return;
-  const method=MediaCore.pipMethod(nativePlayer,document);
-  try{
-    if(method==="standard"){
-      await nativePlayer.requestPictureInPicture();
-    }else if(method==="webkit"){
-      nativePlayer.webkitSetPresentationMode("picture-in-picture");
-    }else{
-      statusText.textContent="PiP chưa khả dụng trên thiết bị này";
-      return;
-    }
-    state.mode="pip";
-    updateModeUi();
-    statusText.textContent="PiP đang phát";
-  }catch{
-    statusText.textContent="Không mở được PiP";
-  }
-}
-
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
@@ -560,6 +530,23 @@ async function playVideo(id,seedMeta={}){
   }).catch(()=>{});
 }
 
+function enableSystemPiPForIframe(){
+  try{
+    const iframe=state.player?.getIframe?.()||ytPlayerHost.querySelector?.("iframe");
+    if(!iframe)return false;
+    const current=(iframe.getAttribute("allow")||"").split(";").map(x=>x.trim()).filter(Boolean);
+    const wanted=["autoplay","encrypted-media","picture-in-picture","fullscreen"];
+    const merged=[...new Set([...current,...wanted])];
+    iframe.setAttribute("allow",merged.join("; "));
+    iframe.setAttribute("allowfullscreen","");
+    iframe.setAttribute("webkitallowfullscreen","");
+    iframe.setAttribute("playsinline","");
+    return true;
+  }catch{
+    return false;
+  }
+}
+
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
 
@@ -581,6 +568,7 @@ function initYouTubePlayer(){
     events:{
       onReady(){
         state.playerReady=true;
+        enableSystemPiPForIframe();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
         if(id){
@@ -607,6 +595,8 @@ function initYouTubePlayer(){
       }
     }
   });
+  setTimeout(enableSystemPiPForIframe,500);
+  setTimeout(enableSystemPiPForIframe,1500);
   return true;
 }
 
@@ -753,7 +743,6 @@ shareBtn.addEventListener("click",async()=>{
 videoBtn.addEventListener("click",returnToVideo);
 backgroundBtn.addEventListener("click",()=>startBackgroundMode("audio"));
 lockBtn.addEventListener("click",()=>startBackgroundMode("lock"));
-pipBtn.addEventListener("click",()=>{void enterPiP();});
 
 nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;
@@ -766,14 +755,6 @@ nativePlayer.addEventListener("pause",()=>{
 });
 nativePlayer.addEventListener("ended",()=>{
   if(state.engine==="native"&&state.mode==="video")statusText.textContent="Đã phát xong";
-});
-nativePlayer.addEventListener("enterpictureinpicture",()=>{
-  state.mode="pip";
-  updateModeUi();
-});
-nativePlayer.addEventListener("leavepictureinpicture",()=>{
-  if(state.mode==="pip")state.mode="video";
-  updateModeUi();
 });
 
 document.addEventListener("visibilitychange",()=>{
