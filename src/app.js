@@ -75,6 +75,8 @@ const state={
   feedLoading:false,
   feedHasMore:true,
   feedRows:[],
+  parentCategories:[],
+  activeParent:"",
   trendTopics:[],
   activeTrend:"",
   trendPoolKey:"",
@@ -975,7 +977,10 @@ function setActiveChip(name){
   state.activeFeed=name||"";
   let activeButton=null;
   topicChips?.querySelectorAll(".topic-chip").forEach(button=>{
-    const active=button.dataset.feed===state.activeFeed;
+    const parentKey=button.dataset.aiParent||"";
+    const active=parentKey
+      ?parentKey===state.activeParent
+      :button.dataset.feed===state.activeFeed&&!state.activeParent;
     button.classList.toggle("active",active);
     if(active)activeButton=button;
   });
@@ -1078,7 +1083,7 @@ function normalizeSearchText(value=""){
     .trim();
 }
 
-const AI_TREND_CACHE_PREFIX="1988-ai-trends-v3:";
+const AI_TREND_CACHE_PREFIX="1988-ai-trends-v4:";
 
 function topicInputRows(rows=[]){
   return newestFirst(Array.isArray(rows)?rows:[])
@@ -1108,8 +1113,47 @@ function aiTrendPoolKey(scope,rows=[]){
   return String(scope||"latest")+":"+fastHash(body);
 }
 
+function normalizeAiParents(payload,rows=[]){
+  const allowed=new Map(rows.map(row=>[row.id,row]));
+  const seen=new Set();
+  const out=[];
+
+  for(const raw of Array.isArray(payload?.parents)?payload.parents:[]){
+    const label=clean(raw?.label||"").replace(/^#+\s*/,"").slice(0,28);
+    if(!label)continue;
+
+    let key=normalizeSearchText(label);
+    if(!key)key="parent-"+out.length;
+    if(seen.has(key))continue;
+
+    const ids=[...new Set(
+      (Array.isArray(raw?.videoIds)?raw.videoIds:[])
+        .map(id=>clean(id))
+        .filter(id=>allowed.has(id))
+    )];
+    if(ids.length<2)continue;
+
+    const channels=new Set(
+      ids.map(id=>normalizeSearchText(allowed.get(id)?.channel||"")).filter(Boolean)
+    );
+
+    seen.add(key);
+    out.push({
+      key,
+      label,
+      videoIds:new Set(ids),
+      channels
+    });
+    if(out.length>=9)break;
+  }
+  return out;
+}
+
 function normalizeAiTrendTopics(payload,rows=[]){
   const allowed=new Map(rows.map(row=>[row.id,row]));
+  const parentKeys=new Map(
+    normalizeAiParents(payload,rows).map(parent=>[normalizeSearchText(parent.label),parent.key])
+  );
   const seen=new Set();
   const out=[];
 
@@ -1132,15 +1176,19 @@ function normalizeAiTrendTopics(payload,rows=[]){
     const channels=new Set(
       ids.map(id=>normalizeSearchText(allowed.get(id)?.channel||"")).filter(Boolean)
     );
+    const parentLabel=clean(raw?.parent||"").slice(0,28);
+    const parentKey=parentKeys.get(normalizeSearchText(parentLabel))||"";
 
     seen.add(key);
     out.push({
       key,
       label,
+      parentKey,
+      parentLabel,
       videoIds:new Set(ids),
       channels
     });
-    if(out.length>=8)break;
+    if(out.length>=10)break;
   }
   return out;
 }
@@ -1164,25 +1212,31 @@ function normalizeAiVideoMeta(payload,rows=[]){
 function readAiTrendCache(cacheKey,rows=[]){
   try{
     const saved=JSON.parse(localStorage.getItem(AI_TREND_CACHE_PREFIX+cacheKey)||"null");
-    if(!saved||!Array.isArray(saved.topics))return {topics:[],videoMeta:new Map()};
-    if(Date.now()-Number(saved.at||0)>30*60*1000)return {topics:[],videoMeta:new Map()};
+    if(!saved||!Array.isArray(saved.topics))return {parents:[],topics:[],videoMeta:new Map()};
+    if(Date.now()-Number(saved.at||0)>30*60*1000)return {parents:[],topics:[],videoMeta:new Map()};
     return {
+      parents:normalizeAiParents(saved,rows),
       topics:normalizeAiTrendTopics(saved,rows),
       videoMeta:normalizeAiVideoMeta(saved,rows)
     };
   }catch{
-    return {topics:[],videoMeta:new Map()};
+    return {parents:[],topics:[],videoMeta:new Map()};
   }
 }
 
-function saveAiTrendCache(cacheKey,topics=[],videoMeta=new Map()){
+function saveAiTrendCache(cacheKey,parents=[],topics=[],videoMeta=new Map()){
   try{
     localStorage.setItem(
       AI_TREND_CACHE_PREFIX+cacheKey,
       JSON.stringify({
         at:Date.now(),
+        parents:parents.map(parent=>({
+          label:parent.label,
+          videoIds:[...parent.videoIds]
+        })),
         topics:topics.map(topic=>({
           label:topic.label,
+          parent:topic.parentLabel||"",
           videoIds:[...topic.videoIds]
         })),
         videos:[...videoMeta.entries()].map(([id,meta])=>({id,...meta}))
@@ -1242,17 +1296,53 @@ function aiDisplayRows(rows=[]){
   return out;
 }
 
+function parentRows(rows=[]){
+  if(!state.activeParent)return rows;
+  const parent=state.parentCategories.find(item=>item.key===state.activeParent);
+  if(!parent)return rows;
+  return rows.filter(row=>parent.videoIds.has(itemVideoId(row)));
+}
+
 function trendRows(rows=[]){
-  if(!state.activeTrend)return rows;
+  const withinParent=parentRows(rows);
+  if(!state.activeTrend)return withinParent;
   const topic=state.trendTopics.find(item=>item.key===state.activeTrend);
-  if(!topic)return rows;
-  return rows.filter(row=>topic.videoIds.has(itemVideoId(row)));
+  if(!topic)return withinParent;
+  return withinParent.filter(row=>topic.videoIds.has(itemVideoId(row)));
+}
+
+function renderParentCategories(){
+  if(!topicChips)return;
+  topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
+
+  if(!isSourceScopedFeed(state.activeFeed)||!state.parentCategories.length){
+    state.activeParent="";
+    setActiveChip(state.activeFeed);
+    return;
+  }
+
+  for(const parent of state.parentCategories){
+    const button=document.createElement("button");
+    button.className="topic-chip";
+    button.type="button";
+    button.dataset.aiParent=parent.key;
+    button.textContent=parent.label;
+    button.title=parent.videoIds.size+" video · "+parent.channels.size+" nguồn";
+    topicChips.appendChild(button);
+  }
+  setActiveChip(state.activeFeed);
+}
+
+function visibleTrendTopics(){
+  if(!state.activeParent)return state.trendTopics;
+  return state.trendTopics.filter(topic=>topic.parentKey===state.activeParent);
 }
 
 function renderTrendTopics(){
   if(!trendTopics)return;
 
-  if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length||!state.trendTopics.length){
+  const topics=visibleTrendTopics();
+  if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length||!topics.length){
     if(!isSourceScopedFeed(state.activeFeed)||!state.feedRows.length){
       state.activeTrend="";
     }
@@ -1261,13 +1351,13 @@ function renderTrendTopics(){
     return;
   }
 
-  if(state.activeTrend&&!state.trendTopics.some(item=>item.key===state.activeTrend)){
+  if(state.activeTrend&&!topics.some(item=>item.key===state.activeTrend)){
     state.activeTrend="";
   }
 
   const buttons=[
     '<button class="trend-chip'+(!state.activeTrend?' active':'')+'" type="button" data-trend="">Tất cả</button>',
-    ...state.trendTopics.map(topic=>
+    ...topics.map(topic=>
       '<button class="trend-chip'+(state.activeTrend===topic.key?' active':'')+'" type="button" data-trend="'+esc(topic.key)+'" title="'+esc(topic.videoIds.size+" video · "+topic.channels.size+" nguồn")+'">'+esc(topic.label)+'</button>'
     )
   ];
@@ -1277,6 +1367,7 @@ function renderTrendTopics(){
 }
 
 function renderCurrentTrendFeed(){
+  renderParentCategories();
   renderTrendTopics();
   renderCards(aiDisplayRows(trendRows(state.feedRows)));
   if(isSourceScopedFeed(state.activeFeed))void refreshAiTrendTopics();
@@ -1284,10 +1375,13 @@ function renderCurrentTrendFeed(){
 
 async function refreshAiTrendTopics(){
   if(!isSourceScopedFeed(state.activeFeed)||state.feedRows.length<4){
+    state.parentCategories=[];
+    state.activeParent="";
     state.trendTopics=[];
     state.activeTrend="";
     state.trendPoolKey="";
     state.aiVideoMeta=new Map();
+    renderParentCategories();
     renderTrendTopics();
     return;
   }
@@ -1297,14 +1391,17 @@ async function refreshAiTrendTopics(){
   if(rows.length<4)return;
 
   const poolKey=aiTrendPoolKey(scope,rows);
-  if(poolKey===state.trendPoolKey&&(state.trendTopics.length||state.aiVideoMeta.size))return;
+  if(poolKey===state.trendPoolKey&&(state.parentCategories.length||state.trendTopics.length||state.aiVideoMeta.size))return;
 
   const cached=readAiTrendCache(poolKey,rows);
-  if(cached.topics.length||cached.videoMeta.size){
+  if(cached.parents.length||cached.topics.length||cached.videoMeta.size){
     state.trendPoolKey=poolKey;
+    state.parentCategories=cached.parents;
     state.trendTopics=cached.topics;
     state.aiVideoMeta=cached.videoMeta;
+    if(state.activeParent&&!cached.parents.some(item=>item.key===state.activeParent))state.activeParent="";
     if(state.activeTrend&&!cached.topics.some(item=>item.key===state.activeTrend))state.activeTrend="";
+    renderParentCategories();
     renderTrendTopics();
     renderCards(aiDisplayRows(trendRows(state.feedRows)));
   }
@@ -1326,22 +1423,29 @@ async function refreshAiTrendTopics(){
     if(seq!==state.trendRequestSeq||state.activeFeed!==scope)return;
     if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
 
+    const parents=normalizeAiParents(payload,rows);
     const topics=normalizeAiTrendTopics(payload,rows);
     const videoMeta=normalizeAiVideoMeta(payload,rows);
     state.trendPoolKey=poolKey;
+    state.parentCategories=parents;
     state.trendTopics=topics;
     state.aiVideoMeta=videoMeta;
+    if(state.activeParent&&!parents.some(item=>item.key===state.activeParent))state.activeParent="";
     if(state.activeTrend&&!topics.some(item=>item.key===state.activeTrend))state.activeTrend="";
-    saveAiTrendCache(poolKey,topics,videoMeta);
+    saveAiTrendCache(poolKey,parents,topics,videoMeta);
+    renderParentCategories();
     renderTrendTopics();
     renderCards(aiDisplayRows(trendRows(state.feedRows)));
   }catch(error){
     console.warn("ai topics failed",error);
-    if(!cached.topics.length&&!cached.videoMeta.size){
+    if(!cached.parents.length&&!cached.topics.length&&!cached.videoMeta.size){
       state.trendPoolKey=poolKey;
+      state.parentCategories=[];
+      state.activeParent="";
       state.trendTopics=[];
       state.aiVideoMeta=new Map();
       state.activeTrend="";
+      renderParentCategories();
       renderTrendTopics();
     }
   }
@@ -2535,12 +2639,19 @@ async function loadFeedPreset(name="latest"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   const feedChanged=state.activeFeed!==name;
-  if(feedChanged)state.activeTrend="";
+  if(feedChanged){
+    state.activeTrend="";
+    state.activeParent="";
+    state.parentCategories=[];
+    renderParentCategories();
+  }
 
   if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
     state.feedLoading=false;
     state.feedHasMore=false;
     state.feedRows=[];
+    state.parentCategories=[];
+    state.activeParent="";
     state.trendTopics=[];
     state.activeTrend="";
     state.aiVideoMeta=new Map();
@@ -2556,10 +2667,13 @@ async function loadFeedPreset(name="latest"){
   state.feedHasMore=true;
   state.feedRows=[];
   if(!isSourceScopedFeed(name)){
+    state.parentCategories=[];
+    state.activeParent="";
     state.trendTopics=[];
     state.activeTrend="";
     state.aiVideoMeta=new Map();
     state.trendPoolKey="";
+    renderParentCategories();
     renderTrendTopics();
   }
   setActiveChip(name);
@@ -2586,6 +2700,8 @@ async function loadFeedPreset(name="latest"){
       if(isSourceScopedFeed(name)){
         state.feedRows=[];
         state.feedHasMore=false;
+        state.parentCategories=[];
+        state.activeParent="";
         state.trendTopics=[];
         state.activeTrend="";
         state.aiVideoMeta=new Map();
@@ -2686,8 +2802,23 @@ function loadInitialFeed(){
 }
 
 topicChips.addEventListener("click",e=>{
+  const parentButton=e.target.closest("[data-ai-parent]");
+  if(parentButton){
+    const key=parentButton.dataset.aiParent||"";
+    const parent=state.parentCategories.find(item=>item.key===key);
+    if(!parent)return;
+    state.activeParent=key;
+    state.activeTrend="";
+    setActiveChip(state.activeFeed);
+    feedTitle.textContent=parent.label;
+    renderTrendTopics();
+    renderCards(aiDisplayRows(trendRows(state.feedRows)));
+    return;
+  }
+
   const button=e.target.closest("[data-feed]");
   if(!button)return;
+  state.activeParent="";
   queryInput.value="";
   clearSuggestions();
   void loadFeedPreset(button.dataset.feed||"latest");
