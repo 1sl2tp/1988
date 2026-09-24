@@ -89,6 +89,24 @@ jobs:
       - name: Apply TikTok direct feeds v21
         run: python3 scripts/apply-tiktok-direct-v21.py
 
+      - name: Smoke TikTok browser feed
+        continue-on-error: true
+        run: |
+          node - <<'NODE'
+          const url = 'https://one988-tiktok-browser.onrender.com/feed?mode=recommend&limit=5';
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 70000);
+          try {
+            const res = await fetch(url, { signal: controller.signal });
+            const body = await res.json();
+            const count = Array.isArray(body?.data?.items) ? body.data.items.length : 0;
+            console.log('TikTok smoke:', { status: res.status, ok: body?.ok, count, error: body?.error });
+            if (!res.ok || !body?.ok || count === 0) process.exitCode = 1;
+          } finally {
+            clearTimeout(timer);
+          }
+          NODE
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
