@@ -5440,6 +5440,8 @@ function selectedVideoAiRow(id,meta={}){
     channel:clean(searchChannelName(meta)||meta?.uploader||""),
     published:clean(meta?.publishedText||meta?.uploadDate||meta?.uploadedDate||publishedLabel(meta)||""),
     views:Number(meta?.views)||0,
+    duration:Number(meta?.duration)||0,
+    isLive:meta?.isLive===true,
     contentHash:contentHashForRow(meta),
     description:clean(meta?.description||meta?.shortDescription||"").slice(0,1800)
   };
@@ -5454,6 +5456,8 @@ function selectedRelatedAiRows(rows=[]){
       channel:clean(searchChannelName(row)),
       published:clean(row?.publishedText||row?.uploadDate||publishedLabel(row)||""),
       views:Number(row?.views)||0,
+      duration:Number(row?.duration)||0,
+      isLive:row?.isLive===true,
       contentHash:contentHashForRow(row),
       description:clean(row?.description||"").slice(0,900)
     }))
@@ -5462,13 +5466,39 @@ function selectedRelatedAiRows(rows=[]){
 
 function fallbackVideoContext(meta={}){
   const title=normalizeSearchText(meta?._displayTitle||meta?.title||"");
+  const base={
+    category:"other",
+    canonicalTitle:clean(meta?.title||""),
+    creator:"",
+    currentChannel:clean(searchChannelName(meta)),
+    channelRole:"unknown",
+    originalChannelHint:"",
+    version:"",
+    isSeries:false,
+    subject:clean(meta?.title||""),
+    confidence:.2,
+    primaryEntity:{name:"",type:"",role:"",aliases:[],summary:""},
+    secondaryEntities:[],
+    work:{title:clean(meta?.title||""),seriesTitle:"",episodeNumber:0,season:0,year:0,version:"",genre:"",language:"",isSeries:false},
+    sections:[],
+    queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[]}
+  };
+
+  if(/\b(mv|official music video|official audio|lyrics|lyric|karaoke|remix|cover|music|bai hat|ca khuc)\b/.test(title)){
+    return {...base,kind:"music",category:"music_video",confidence:.45};
+  }
   if(/\b(tap|episode|ep|phim|movie|drama)\b/.test(title)){
-    return {kind:"film",canonicalTitle:clean(meta?.title||""),creator:"",channelRole:"unknown",originalChannelHint:"",version:"",isSeries:!!searchEpisodeNumber(meta?.title||""),subject:"",confidence:.35,queries:{}};
+    const episode=searchEpisodeNumber(meta?.title||"");
+    return {
+      ...base,
+      kind:"film",
+      category:episode?"film_series":"film_movie",
+      isSeries:!!episode,
+      confidence:.4,
+      work:{...base.work,episodeNumber:episode,isSeries:!!episode}
+    };
   }
-  if(/\b(mv|official audio|lyrics|lyric|karaoke|remix|cover|music|bai hat|ca khuc)\b/.test(title)){
-    return {kind:"music",canonicalTitle:clean(meta?.title||""),creator:"",channelRole:"unknown",originalChannelHint:"",version:"",isSeries:false,subject:"",confidence:.35,queries:{}};
-  }
-  return {kind:"topic",canonicalTitle:clean(meta?.title||""),creator:"",channelRole:"unknown",originalChannelHint:"",version:"",isSeries:false,subject:clean(meta?.title||""),confidence:.2,queries:{}};
+  return {...base,kind:"topic",category:"other"};
 }
 
 async function resolveSelectedVideoContext(id,meta={},related=[]){
@@ -5504,6 +5534,146 @@ function firstContextQuery(context={},key="",fallback=""){
   return clean(rows.find(Boolean)||fallback);
 }
 
+function contextSection(context={},keys=[]){
+  const wanted=new Set((Array.isArray(keys)?keys:[keys]).map(value=>normalizeSearchText(value)));
+  return (Array.isArray(context?.sections)?context.sections:[]).find(section=>{
+    const key=normalizeSearchText(section?.key||"");
+    const relation=normalizeSearchText(section?.relation||"");
+    return wanted.has(key)||wanted.has(relation);
+  })||null;
+}
+
+function contextSectionQuery(context={},keys=[],fallback=""){
+  const section=contextSection(context,keys);
+  const rows=Array.isArray(section?.queries)?section.queries:[];
+  return clean(rows.find(Boolean)||fallback);
+}
+
+function contextSourceScope(context={}){
+  if(context?.kind==="music")return "music";
+  if(context?.kind==="film")return "film";
+  switch(clean(context?.category)){
+    case "news":
+    case "current_affairs": return "news";
+    case "economy": return "economy";
+    case "law": return "law";
+    case "technology": return "tech";
+    case "sports": return "sports";
+    case "entertainment":
+    case "interview": return "entertainment";
+    default: return GENERAL_SOURCE_SCOPE;
+  }
+}
+
+function contextSummary(context={}){
+  const summary=clean(context?.primaryEntity?.summary||"");
+  if(summary)return summary;
+  const bits=[];
+  if(context?.creator)bits.push(clean(context.creator));
+  if(context?.category&&context.category!=="other")bits.push(clean(context.category).replace(/_/g," "));
+  if(context?.channelRole&&context.channelRole!=="unknown")bits.push("nguồn "+clean(context.channelRole));
+  return bits.join(" · ");
+}
+
+function genericSectionHtml(title,rows=[],limit=10){
+  const cards=[];
+  const seen=new Set();
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=itemVideoId(row);
+    if(!id||seen.has(id))continue;
+    seen.add(id);
+    cards.push(searchCardHtml(row,{match:true}));
+    if(cards.length>=limit)break;
+  }
+  if(!cards.length)return "";
+  return '<section class="search-source-row search-context-row">'+
+    '<div class="search-source-head"><strong>'+esc(title)+'</strong>'+
+      '<span>'+esc(String(cards.length))+' video</span></div>'+
+    '<div class="search-source-scroll">'+cards.join("")+'</div>'+
+  '</section>';
+}
+
+async function contextSectionRows(local,section={},meta={},related=[],context={}){
+  const scope=contextSourceScope(context);
+  const currentId=state.currentId;
+  const sourceId=searchSourceId(meta);
+  const queries=(Array.isArray(section?.queries)?section.queries:[]).map(clean).filter(Boolean).slice(0,2);
+  let rows=[];
+
+  const mode=clean(section?.sourceMode||"any");
+  if(
+    ["same_channel","creator"].includes(mode)&&
+    sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&
+    (
+      mode==="same_channel"||
+      ["official","creator","publisher"].includes(clean(context?.channelRole))
+    )
+  ){
+    rows=await local.channelVideosPage(
+      "context-section:"+fastHash(section?.key||section?.label||"")+":"+sourceId,
+      sourceId,
+      true
+    ).catch(()=>[]);
+  }else{
+    const batches=await Promise.all(
+      queries.map(query=>local.search(query,{type:"video"}).catch(()=>[]))
+    );
+    rows=batches.flat();
+  }
+
+  if(!rows.length&&queries.length){
+    rows=await local.search(queries[0],{type:"video"}).catch(()=>[]);
+  }
+
+  if(mode==="same_channel"&&sourceId){
+    rows=(Array.isArray(rows)?rows:[]).filter(row=>searchSourceId(row)===sourceId||searchSourceKey(row)===searchSourceKey(meta));
+  }
+
+  const query=queries[0]||context?.canonicalTitle||context?.subject||"";
+  return mergeUniqueRows(rows,related)
+    .filter(row=>itemVideoId(row)!==currentId)
+    .filter(row=>!isBlockedSourceRow(row,scope))
+    .map((row,index)=>({row,index,score:searchResultScore(row,query,scope)}))
+    .sort((a,b)=>b.score-a.score||a.index-b.index)
+    .map(item=>item.row)
+    .slice(0,Number(section?.limit)||10);
+}
+
+async function discoverGenericContextSections(local,currentId,meta={},related=[],context={}){
+  const sections=(Array.isArray(context?.sections)?context.sections:[]).slice(0,6);
+  if(!sections.length)return false;
+
+  const results=await Promise.all(sections.map(async section=>({
+    section,
+    rows:await contextSectionRows(local,section,meta,related,context)
+  })));
+  if(state.currentId!==currentId)return false;
+
+  const used=new Set();
+  const html=[];
+  for(const result of results){
+    const unique=[];
+    for(const row of result.rows){
+      const id=itemVideoId(row);
+      if(!id||used.has(id))continue;
+      used.add(id);
+      unique.push(row);
+      if(unique.length>=Number(result.section?.limit||10))break;
+    }
+    if(unique.length){
+      html.push(genericSectionHtml(clean(result.section?.label)||"Liên quan",unique,Number(result.section?.limit)||10));
+    }
+  }
+
+  if(!html.length)return false;
+  feedTitle.textContent=clean(context?.canonicalTitle||context?.subject||meta?.title||"Gợi ý tiếp theo");
+  feed.classList.add("search-grouped");
+  feed.innerHTML=html.join("");
+  feedStatus.textContent=contextSummary(context);
+  return true;
+}
+
+
 function musicCleanTitle(value=""){
   return clean(value)
     .replace(/\b(?:official\s*(?:music\s*)?video|official\s*audio|mv|lyrics?|audio|4k|hd)\b/ig," ")
@@ -5531,10 +5701,10 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
   const creator=clean(context?.creator||"");
   const currentSource=searchSourceKey(meta);
 
-  const sameWorkQuery=firstContextQuery(context,"sameWork",canonical);
-  const coverQuery=firstContextQuery(context,"covers",canonical+" cover");
-  const instrumentalQuery=firstContextQuery(context,"instrumental",canonical+" không lời guitar piano");
-  const alternativeQuery=firstContextQuery(context,"alternatives",canonical+" live remix karaoke");
+  const sameWorkQuery=contextSectionQuery(context,["same_work","same_song","other_singers"],firstContextQuery(context,"sameWork",canonical));
+  const coverQuery=contextSectionQuery(context,["cover","covers"],firstContextQuery(context,"covers",canonical+" cover"));
+  const instrumentalQuery=contextSectionQuery(context,["instrumental","no_vocal"],firstContextQuery(context,"instrumental",canonical+" không lời guitar piano"));
+  const alternativeQuery=contextSectionQuery(context,["alternate_versions","alternatives","live_versions"],firstContextQuery(context,"alternatives",canonical+" live remix karaoke"));
 
   const [sameWorkRaw,coverRaw,instrumentRaw,alternativeRaw]=await Promise.all([
     local.search(sameWorkQuery,{type:"video"}).catch(()=>[]),
@@ -5564,7 +5734,10 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
   if(originalSourceId&&/^UC[A-Za-z0-9_-]+$/.test(originalSourceId)){
     artistPool=await local.channelVideosPage("selected-music-artist:"+originalSourceId,originalSourceId,true).catch(()=>[]);
   }else if(creator){
-    artistPool=await local.search(firstContextQuery(context,"creator",creator),{type:"video"}).catch(()=>[]);
+    artistPool=await local.search(
+      contextSectionQuery(context,["artist_catalog","creator","same_creator"],firstContextQuery(context,"creator",creator)),
+      {type:"video"}
+    ).catch(()=>[]);
   }
   if(state.currentId!==currentId)return false;
 
@@ -5611,14 +5784,18 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
   feedTitle.textContent=canonical+(creator?" · "+creator:"");
   feed.classList.add("search-grouped");
   feed.innerHTML=html.join("");
-  feedStatus.textContent=
+  const sourceNote=
     context?.channelRole==="reupload"&&originalChannel
       ?"Nguồn đang xem có thể là reup · ưu tiên "+originalChannel
       :originalChannel?"Nguồn chính ưu tiên: "+originalChannel:"";
+  feedStatus.textContent=[contextSummary(context),sourceNote].filter(Boolean).join(" · ");
   return true;
 }
 
 async function discoverTopicForPlayback(local,currentId,meta={},related=[],context={}){
+  const planned=await discoverGenericContextSections(local,currentId,meta,related,context);
+  if(planned||state.currentId!==currentId)return planned;
+
   const subject=clean(context?.subject||context?.canonicalTitle||meta?.title||"");
   const sourceId=searchSourceId(meta);
   const html=[];
@@ -5628,7 +5805,7 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
     if(state.currentId!==currentId)return false;
     const sameSource=(Array.isArray(channelRows)?channelRows:[])
       .filter(row=>itemVideoId(row)!==currentId)
-      .filter(row=>!isBlockedSourceRow(row,state.searchScope||GENERAL_SOURCE_SCOPE))
+      .filter(row=>!isBlockedSourceRow(row,contextSourceScope(context)))
       .slice(0,10);
     if(sameSource.length){
       html.push(filmSuggestionSection("Cùng nguồn · "+(searchChannelName(meta)||"kênh này"),sameSource,{limit:10}));
@@ -5650,14 +5827,14 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
   feedTitle.textContent=subject||"Gợi ý tiếp theo";
   feed.classList.add("search-grouped");
   feed.innerHTML=html.join("");
-  feedStatus.textContent="";
+  feedStatus.textContent=contextSummary(context);
   return true;
 }
 
 async function buildSelectedVideoRecommendations(local,currentId,meta={},related=[]){
   feedTitle.textContent="Đang hiểu video…";
   feedStatus.textContent="";
-  feed.innerHTML='<div class="loading">Đang xác định đây là nhạc, phim hay chủ đề để gợi ý đúng kiểu…</div>';
+  feed.innerHTML='<div class="loading">AI đang xác định loại nội dung, tác phẩm/người/chủ đề và cách gợi ý phù hợp…</div>';
 
   const context=await resolveSelectedVideoContext(currentId,meta,related);
   if(!context||state.currentId!==currentId)return false;
@@ -5665,16 +5842,23 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
   if(context.kind==="film"){
     const found=await discoverFilmSeriesForPlayback(local,currentId,meta,related,context);
     if(found||state.currentId!==currentId)return found;
+
+    const planned=await discoverGenericContextSections(local,currentId,meta,related,context);
+    if(planned||state.currentId!==currentId)return planned;
   }else if(context.kind==="music"){
     const found=await discoverMusicForPlayback(local,currentId,meta,related,context);
     if(found||state.currentId!==currentId)return found;
-  }else if(context.kind==="topic"){
+
+    const planned=await discoverGenericContextSections(local,currentId,meta,related,context);
+    if(planned||state.currentId!==currentId)return planned;
+  }else{
     const found=await discoverTopicForPlayback(local,currentId,meta,related,context);
     if(found||state.currentId!==currentId)return found;
   }
 
   const ranked=contextualRelatedRows(related,meta);
   feedTitle.textContent=context.subject||context.canonicalTitle||"Gợi ý tiếp theo";
+  feedStatus.textContent=contextSummary(context);
   state.feedHasMore=false;
   renderCards(ranked.slice(0,24));
   return false;
