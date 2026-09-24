@@ -1003,7 +1003,8 @@ async function videoAspect(id){
             const value={
               width:dimensions.width,
               height:dimensions.height,
-              aspectRatio:dimensions.aspectRatio
+              aspectRatio:dimensions.aspectRatio,
+              source:String(dimensions.source||"")
             };
             videoAspectCache.set(id,{at:Date.now(),value});
             return value;
@@ -1029,7 +1030,8 @@ async function videoAspect(id){
             const value={
               width:dimensions.width,
               height:dimensions.height,
-              aspectRatio:dimensions.aspectRatio
+              aspectRatio:dimensions.aspectRatio,
+              source:String(dimensions.source||"")
             };
             videoAspectCache.set(id,{at:Date.now(),value});
             return value;
@@ -1054,7 +1056,8 @@ async function videoAspect(id){
     const value={
       width:Number(best?.width)||0,
       height:Number(best?.height)||0,
-      aspectRatio:Number(best?.aspectRatio)||0
+      aspectRatio:Number(best?.aspectRatio)||0,
+      source:String(best?.source||"")
     };
     if(value.width>0&&value.height>0){
       videoAspectCache.set(id,{at:Date.now(),value});
@@ -1098,9 +1101,10 @@ async function info(id){
       duration:Number(basic.duration)||0,
       thumbnailUrl:thumbnails[0]?.url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg'),
       uploadDate:String(basic.upload_date||basic.publish_date||''),
-      videoWidth:dimensions.width,
-      videoHeight:dimensions.height,
-      aspectRatio:dimensions.aspectRatio||16/9
+      videoWidth:Number(dimensions.width)||0,
+      videoHeight:Number(dimensions.height)||0,
+      aspectRatio:Number(dimensions.aspectRatio)||0,
+      aspectSource:String(dimensions.source||"")
     },
     related,
     playlist

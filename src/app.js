@@ -89,6 +89,8 @@ const state={
   floatDock:"right",
   floatTucked:false,
   floatPreset:"auto",
+  videoAspectVerified:false,
+  videoAspectPortraitLocked:false,
   fullscreenScrollY:null,
   fullscreenActive:false,
   fullscreenExitCooldownUntil:0,
@@ -2439,11 +2441,40 @@ function updateFloatingAmbient(frame){
   frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
 }
 
+function explicitVideoAspect(meta={}){
+  const width=Number(meta?.videoWidth)||0;
+  const height=Number(meta?.videoHeight)||0;
+  let ratio=Number(meta?.aspectRatio)||0;
+
+  if(width>0&&height>0)ratio=width/height;
+  if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
+  return ratio;
+}
+
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
-  const next=normalizedVideoAspect(meta);
+  const next=explicitVideoAspect(meta);
   if(!next)return;
 
+  // width/height from the stream/native media or an explicit probe flag means
+  // this is measured media shape rather than a card/thumbnail guess.
+  const verified=
+    (Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0)||
+    meta?._aspectVerified===true;
+
+  // Once a real portrait stream has been found for the current video, never
+  // let a later generic 16:9 metadata response undo it.
+  if(
+    state.videoAspectPortraitLocked &&
+    state.videoAspect<.80 &&
+    next>=.80
+  )return;
+
   state.videoAspect=next;
+  if(verified){
+    state.videoAspectVerified=true;
+    if(next<.80)state.videoAspectPortraitLocked=true;
+  }
+
   state.floatPreset="auto";
   state.floatUserSized=false;
 
@@ -6389,6 +6420,8 @@ async function playVideo(id,seedMeta={}){
   state.currentId=id;
   state.currentMeta={...seedMeta};
   state.videoAspect=normalizedVideoAspect(seedMeta);
+  state.videoAspectVerified=false;
+  state.videoAspectPortraitLocked=false;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
@@ -6465,7 +6498,9 @@ async function playVideo(id,seedMeta={}){
           ...(state.currentMeta||{}),
           videoWidth:width,
           videoHeight:height,
-          aspectRatio
+          aspectRatio,
+          _aspectVerified:true,
+          _aspectSource:"videoAspect"
         };
         state.currentMeta=meta;
         updateCurrentVideoAspect(meta);
@@ -6476,7 +6511,20 @@ async function playVideo(id,seedMeta={}){
     // results are enriched in parallel without delaying playback.
     void local.info(id).then(detail=>{
       if(state.currentId!==id)return;
-      const meta={...seedMeta,...(state.currentMeta||{}),...(detail?.meta||{})};
+      const detailMeta={...(detail?.meta||{})};
+      const current={...(state.currentMeta||{})};
+
+      if(
+        state.videoAspectPortraitLocked &&
+        state.videoAspect<.80 &&
+        Number(detailMeta.aspectRatio)>=.80
+      ){
+        delete detailMeta.aspectRatio;
+        delete detailMeta.videoWidth;
+        delete detailMeta.videoHeight;
+      }
+
+      const meta={...seedMeta,...current,...detailMeta};
       state.currentMeta=meta;
       updateCurrentVideoAspect(meta);
       updateNow(meta);
@@ -6808,7 +6856,9 @@ nativePlayer.addEventListener("loadedmetadata",()=>{
     ...(state.currentMeta||{}),
     videoWidth:width,
     videoHeight:height,
-    aspectRatio:width/height
+    aspectRatio:width/height,
+    _aspectVerified:true,
+    _aspectSource:"native"
   };
   updateCurrentVideoAspect(state.currentMeta);
 });
@@ -6824,7 +6874,9 @@ nativePlayer.addEventListener("resize",()=>{
     ...(state.currentMeta||{}),
     videoWidth:width,
     videoHeight:height,
-    aspectRatio:nextRatio
+    aspectRatio:nextRatio,
+    _aspectVerified:true,
+    _aspectSource:"native"
   };
   updateCurrentVideoAspect(state.currentMeta);
 });
