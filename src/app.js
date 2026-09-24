@@ -36,7 +36,7 @@ const state={
   mode:"video",
   installPrompt:null,
   audioMaster:false,
-  engine:"native",
+  engine:"iframe",
   nativeSource:"",
   activeFeed:"home"
 };
@@ -455,6 +455,7 @@ async function playVideo(id,seedMeta={}){
   state.mode="video";
   state.audioMaster=false;
   state.nativeSource="";
+  state.pendingVideoId=id;
   playerSection.hidden=false;
 
   backgroundPlayer.pause();
@@ -462,15 +463,11 @@ async function playVideo(id,seedMeta={}){
 
   try{nativePlayer.pause();}catch{}
   nativePlayer.removeAttribute("src");
-  nativePlayer.poster=thumb(seedMeta,id);
-  nativePlayer.playsInline=true;
-  nativePlayer.setAttribute("playsinline","");
-  nativePlayer.setAttribute("webkit-playsinline","");
-  nativePlayer.preload="auto";
 
   updateNow(seedMeta);
-  showNativePlayer();
+  showIframePlayer();
   updateModeUi();
+  statusText.textContent="Đang mở YouTube…";
 
   try{
     playerSection.scrollIntoView({behavior:"smooth",block:"start"});
@@ -478,89 +475,34 @@ async function playVideo(id,seedMeta={}){
     playerSection.scrollIntoView();
   }
 
-  const directUrl=MEDIA_SERVICE+"/video?id="+encodeURIComponent(id);
-  const edgeUrl=BASE+"?action=media&id="+encodeURIComponent(id)+"&kind=video";
-  let fallbackStage=0;
-
-  const useSource=(url,label)=>{
-    if(state.currentId!==id||!url)return false;
-    state.nativeSource=url;
-    nativePlayer.src=url;
-    try{nativePlayer.load();}catch{}
-    statusText.textContent=label;
+  if(state.playerReady&&state.player){
+    state.pendingVideoId="";
     try{
-      const promise=nativePlayer.play();
-      if(promise&&typeof promise.catch==="function"){
-        promise.catch(error=>{
-          if(state.currentId!==id)return;
-          if(error?.name==="NotAllowedError"){
-            statusText.textContent="Video đã sẵn sàng · bấm ▶ để phát";
-          }
-        });
-      }
-    }catch{}
-    return true;
-  };
-
-  const tryEdgeFallback=()=>{
-    if(state.currentId!==id||fallbackStage>=2)return;
-    fallbackStage=2;
-    useSource(edgeUrl,"Đang thử nguồn dự phòng…");
-  };
-
-  nativePlayer.onerror=()=>{
-    if(state.currentId!==id)return;
-    if(fallbackStage===0){
-      fallbackStage=1;
-      void localEngine(9000).then(async local=>{
-        const media=await local.media(id,"video");
-        if(state.currentId!==id)return;
-        if(media?.url)useSource(media.url,"Đang mở nguồn video…");
-        else tryEdgeFallback();
-      }).catch(tryEdgeFallback);
-    }else{
-      tryEdgeFallback();
+      state.player.unMute?.();
+      state.player.loadVideoById(id);
+      statusText.textContent="Video YouTube đang phát";
+    }catch{
+      state.pendingVideoId=id;
     }
-  };
+  }else{
+    initYouTubePlayer();
+  }
 
-  // Important for iPhone/PWA: attach a real media URL and call play()
-  // immediately inside the original tap task, before waiting for metadata.
-  useSource(directUrl,"Đang mở video…");
-
-  // Enrich metadata and prepare a native fallback in parallel. Do not block
-  // the first frame on discovery/API work.
-  try{
-    const local=await localEngine(12000);
-    const [detail,media]=await Promise.all([
-      local.info(id).catch(()=>({meta:{},related:[]})),
-      local.media(id,"video").catch(()=>null)
-    ]);
+  // Metadata is optional: iframe starts immediately, while details/related
+  // results are enriched in parallel without delaying playback.
+  void localEngine(7000).then(async local=>{
+    const detail=await local.info(id).catch(()=>({meta:{},related:[]}));
     if(state.currentId!==id)return;
-
     const meta={...seedMeta,...(detail?.meta||{})};
     state.currentMeta=meta;
     updateNow(meta);
     backgroundPlayer.setMetadata(meta);
-    nativePlayer.poster=thumb(meta,id);
-
-    const notStarted=nativePlayer.readyState<2&&!nativePlayer.currentTime;
-    if(notStarted&&media?.url&&media.url!==state.nativeSource){
-      fallbackStage=1;
-      useSource(media.url,"Đang mở nguồn video…");
-    }
-
     const related=Array.isArray(detail?.related)?detail.related:[];
     if(related.length){
       feedTitle.textContent="Gợi ý tiếp theo";
       renderCards(related.slice(0,24));
     }
-    updateModeUi();
-  }catch(error){
-    console.warn("metadata/native fallback failed",error);
-    if(state.currentId!==id)return;
-    // Keep the already-started Render stream. Only switch if the media element
-    // has actually failed; nativePlayer.onerror handles that path.
-  }
+  }).catch(()=>{});
 }
 
 function initYouTubePlayer(){
@@ -648,18 +590,26 @@ async function doSearch(value){
   feedTitle.textContent='Kết quả cho “'+q+'”';
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
+
+  // Same fast discovery path used by Kira proof. Do not wait for the
+  // heavier local YouTubeJS session before showing results on main.
   try{
-    const local=await localEngine(16000);
+    const r=await api("search",{q,filter:"videos"},10000);
+    const rows=Array.isArray(r?.data?.items)?r.data.items:[];
+    if(!rows.length)throw new Error("empty_search");
+    renderCards(rows);
+    return;
+  }catch(error){
+    console.warn("1988 search API failed; trying local engine",error);
+  }
+
+  try{
+    const local=await localEngine(9000);
     const rows=await local.search(q,{type:"video"});
     renderCards(rows);
-  }catch(error){
-    console.warn("local search failed",error);
-    try{
-      const r=await api("search",{q,filter:"videos"});
-      renderCards(r?.data?.items||[]);
-    }catch{
-      feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
-    }
+  }catch{
+    feed.innerHTML='<div class="error">Không tìm được video. Thử lại.</div>';
+    feedStatus.textContent="";
   }
 }
 
