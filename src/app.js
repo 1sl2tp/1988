@@ -29,8 +29,15 @@ const sourcesBtn=$("#sourcesBtn");
 const sourcesSheet=$("#sourcesSheet");
 const closeSourcesSheet=$("#closeSourcesSheet");
 const sourceSearch=$("#sourceSearch");
+const clearSourceSearch=$("#clearSourceSearch");
+const sourceSearchStatus=$("#sourceSearchStatus");
+const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
 const sourceSummary=$("#sourceSummary");
+const sourcePreview=$("#sourcePreview");
+const backSourcePreview=$("#backSourcePreview");
+const sourcePreviewTitle=$("#sourcePreviewTitle");
+const sourcePreviewList=$("#sourcePreviewList");
 
 const state={
   player:null,
@@ -67,25 +74,77 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const clean=s=>String(s??"").replace(/\s+/g," ").trim();
 
 const SOURCE_SELECTION_KEY="1988-source-selection-v1";
-const CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
-  ?window.CHANNEL_LIBRARY.filter(row=>row&&row.id&&row.name)
+const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
+const SOURCE_HIDDEN_KEY="1988-source-hidden-v1";
+const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
+  ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
   :[];
-const CHANNEL_ID_SET=new Set(CHANNEL_LIBRARY.map(row=>row.id));
+const BASE_CHANNEL_ID_SET=new Set(BASE_CHANNEL_LIBRARY.map(row=>row.id));
+
+function readStoredArray(key){
+  try{
+    const value=JSON.parse(localStorage.getItem(key)||"[]");
+    return Array.isArray(value)?value:[];
+  }catch{
+    return [];
+  }
+}
+
+let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
+  .filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
+  .map(row=>({id:String(row.id),name:clean(row.name)}));
+let hiddenSourceIds=new Set(
+  readStoredArray(SOURCE_HIDDEN_KEY)
+    .map(String)
+    .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
+);
+
+function channelLibrary(){
+  const out=[];
+  const seen=new Set();
+  for(const row of [...BASE_CHANNEL_LIBRARY,...customSources]){
+    if(!row||hiddenSourceIds.has(row.id)||seen.has(row.id))continue;
+    seen.add(row.id);
+    out.push({id:row.id,name:clean(row.name)});
+  }
+  return out;
+}
+
+function libraryHas(id){
+  return channelLibrary().some(row=>row.id===id);
+}
+
+function libraryRow(id){
+  return channelLibrary().find(row=>row.id===id)||null;
+}
+
+function persistSourceLibrary(){
+  try{
+    localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
+    localStorage.setItem(SOURCE_HIDDEN_KEY,JSON.stringify([...hiddenSourceIds]));
+  }catch{}
+}
 
 function readSourceSelection(){
+  const allowed=new Set(channelLibrary().map(row=>row.id));
   try{
     const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
     if(Array.isArray(saved)){
-      return new Set(saved.filter(id=>CHANNEL_ID_SET.has(id)));
+      return new Set(saved.filter(id=>allowed.has(id)));
     }
   }catch{}
 
-  const defaults=CHANNEL_LIBRARY.slice(0,12).map(row=>row.id);
+  const defaults=channelLibrary().slice(0,12).map(row=>row.id);
   try{localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify(defaults));}catch{}
   return new Set(defaults);
 }
 
 let selectedSourceIds=readSourceSelection();
+let sourceRemoteResults=[];
+let sourceSearchTimer=0;
+let sourceSearchSeq=0;
+let sourcePreviewSeq=0;
+let sourcePreviewRows=new Map();
 
 function persistSourceSelection(){
   try{
@@ -94,7 +153,17 @@ function persistSourceSelection(){
 }
 
 function selectedSources(){
-  return CHANNEL_LIBRARY.filter(row=>selectedSourceIds.has(row.id));
+  const rows=channelLibrary();
+  const allowed=new Set(rows.map(row=>row.id));
+  let changed=false;
+  for(const id of [...selectedSourceIds]){
+    if(!allowed.has(id)){
+      selectedSourceIds.delete(id);
+      changed=true;
+    }
+  }
+  if(changed)persistSourceSelection();
+  return rows.filter(row=>selectedSourceIds.has(row.id));
 }
 
 function sourceSignature(){
@@ -106,34 +175,218 @@ function isSourceScopedFeed(name){
 }
 
 function updateSourceSummary(){
+  const rows=channelLibrary();
   const count=selectedSourceIds.size;
   if(sourcesBtn)sourcesBtn.textContent="Nguồn · "+count;
-  if(sourceSummary)sourceSummary.textContent=count+" / "+CHANNEL_LIBRARY.length;
+  if(sourceSummary)sourceSummary.textContent=count+" / "+rows.length;
+}
+
+function sourceRowHtml(row,{remote=false}={}){
+  const active=selectedSourceIds.has(row.id);
+  const exists=libraryHas(row.id);
+  const sub=remote&&!exists
+    ?"Kết quả từ YouTube"
+    :"Xem video mới";
+
+  if(remote&&!exists){
+    return '<div class="source-row remote" data-source-id="'+esc(row.id)+'">'+
+      '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
+        '<span class="source-row-name">'+esc(row.name)+'</span>'+
+        '<span class="source-row-sub">'+esc(sub)+'</span>'+
+      '</button>'+
+      '<button class="source-add" type="button" data-source-add="'+esc(row.id)+'">+ Thêm</button>'+
+    '</div>';
+  }
+
+  return '<div class="source-row'+(active?' active':'')+'" data-source-id="'+esc(row.id)+'">'+
+    '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
+      '<span class="source-row-name">'+esc(row.name)+'</span>'+
+      '<span class="source-row-sub">'+esc(sub)+'</span>'+
+    '</button>'+
+    '<button class="source-toggle" type="button" data-source-toggle="'+esc(row.id)+'" aria-label="'+(active?'Tắt nguồn':'Bật nguồn')+'" aria-pressed="'+(active?'true':'false')+'">✓</button>'+
+    '<button class="source-delete" type="button" data-source-delete="'+esc(row.id)+'" aria-label="Xóa kênh">×</button>'+
+  '</div>';
 }
 
 function renderSourceLibrary(){
   if(!sourceList)return;
+  const rows=channelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
-  const rows=q
-    ?CHANNEL_LIBRARY.filter(row=>normalizeSearchText(row.name).includes(q))
-    :CHANNEL_LIBRARY;
+  const localRows=q
+    ?rows.filter(row=>normalizeSearchText(row.name).includes(q))
+    :rows;
 
-  if(!rows.length){
-    sourceList.innerHTML='<div class="source-empty">Không tìm thấy kênh</div>';
+  const allLibraryIds=new Set(rows.map(row=>row.id));
+  const remoteRows=q
+    ?sourceRemoteResults.filter(row=>!allLibraryIds.has(row.id))
+    :[];
+
+  const parts=[];
+  if(localRows.length){
+    if(q)parts.push('<div class="source-group-label">Trong thư viện · '+localRows.length+'</div>');
+    parts.push(localRows.map(row=>sourceRowHtml(row)).join(""));
+  }
+
+  if(remoteRows.length){
+    parts.push('<div class="source-group-label">Tìm trên YouTube · '+remoteRows.length+'</div>');
+    parts.push(remoteRows.map(row=>sourceRowHtml(row,{remote:true})).join(""));
+  }
+
+  if(!parts.length){
+    parts.push('<div class="source-empty">'+(q?'Chưa thấy kênh. Đang tìm trên YouTube…':'Thư viện đang trống')+'</div>');
+  }
+
+  sourceList.innerHTML=parts.join("");
+}
+
+async function searchSourceChannels(query){
+  const q=clean(query);
+  const seq=++sourceSearchSeq;
+  if(q.length<2){
+    sourceRemoteResults=[];
+    if(sourceSearchStatus)sourceSearchStatus.textContent="";
+    renderSourceLibrary();
     return;
   }
 
-  sourceList.innerHTML=rows.map(row=>{
-    const active=selectedSourceIds.has(row.id);
-    return '<button class="source-row'+(active?' active':'')+'" type="button" data-source-id="'+esc(row.id)+'" aria-pressed="'+(active?'true':'false')+'">'+
-      '<span class="source-row-name">'+esc(row.name)+'</span>'+
-      '<span class="source-check">✓</span>'+
-    '</button>';
-  }).join("");
+  if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm toàn bộ kênh trên YouTube…";
+
+  try{
+    const local=await localEngine(16000);
+    const rows=await local.searchChannels(q);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+    sourceRemoteResults=Array.isArray(rows)?rows:[];
+    if(sourceSearchStatus){
+      sourceSearchStatus.textContent=sourceRemoteResults.length
+        ?"Có "+sourceRemoteResults.length+" kết quả từ YouTube"
+        :"Không tìm thấy thêm kênh trên YouTube";
+    }
+    renderSourceLibrary();
+  }catch(error){
+    if(seq!==sourceSearchSeq)return;
+    console.warn("channel search failed",error);
+    sourceRemoteResults=[];
+    if(sourceSearchStatus)sourceSearchStatus.textContent="Chưa tìm được kênh trên YouTube";
+    renderSourceLibrary();
+  }
+}
+
+function scheduleSourceSearch(){
+  clearTimeout(sourceSearchTimer);
+  sourceSearchSeq++;
+  sourceRemoteResults=[];
+  const q=clean(sourceSearch?.value||"");
+  if(clearSourceSearch)clearSourceSearch.hidden=!q;
+  if(sourceSearchStatus)sourceSearchStatus.textContent=q.length>=2?"Đang chờ tìm trên YouTube…":"";
+  renderSourceLibrary();
+
+  if(q.length<2)return;
+  sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),320);
+}
+
+function addSource(row){
+  if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
+
+  hiddenSourceIds.delete(row.id);
+  if(!BASE_CHANNEL_ID_SET.has(row.id)){
+    const existing=customSources.find(item=>item.id===row.id);
+    if(existing)existing.name=clean(row.name)||existing.name;
+    else customSources.push({id:row.id,name:clean(row.name)||"Kênh YouTube"});
+  }
+
+  selectedSourceIds.add(row.id);
+  persistSourceLibrary();
+  persistSourceSelection();
+  state.sourceLibraryDirty=true;
+  updateSourceSummary();
+  renderSourceLibrary();
+}
+
+function deleteSource(id){
+  if(!id)return;
+  selectedSourceIds.delete(id);
+
+  if(BASE_CHANNEL_ID_SET.has(id)){
+    hiddenSourceIds.add(id);
+  }else{
+    customSources=customSources.filter(row=>row.id!==id);
+  }
+
+  persistSourceLibrary();
+  persistSourceSelection();
+  state.sourceLibraryDirty=true;
+  updateSourceSummary();
+  renderSourceLibrary();
+}
+
+function toggleSource(id){
+  if(!libraryHas(id))return;
+  if(selectedSourceIds.has(id))selectedSourceIds.delete(id);
+  else selectedSourceIds.add(id);
+  persistSourceSelection();
+  state.sourceLibraryDirty=true;
+  updateSourceSummary();
+  renderSourceLibrary();
+}
+
+async function openSourcePreview(id,rowHint=null){
+  const row=libraryRow(id)||rowHint||sourceRemoteResults.find(item=>item.id===id);
+  if(!row||!sourcePreview||!sourceBrowse)return;
+
+  const seq=++sourcePreviewSeq;
+  sourceBrowse.hidden=true;
+  sourcePreview.hidden=false;
+  sourcePreviewTitle.textContent=row.name;
+  sourcePreviewRows=new Map();
+  sourcePreviewList.innerHTML='<div class="source-empty">Đang tải video mới…</div>';
+
+  try{
+    const local=await localEngine(16000);
+    const rows=await local.channelVideosPage("preview:"+id,id,true);
+    if(seq!==sourcePreviewSeq)return;
+
+    const ordered=newestFirst(Array.isArray(rows)?rows:[]).slice(0,24);
+    sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]));
+
+    if(!ordered.length){
+      sourcePreviewList.innerHTML='<div class="source-empty">Kênh chưa có video để hiển thị</div>';
+      return;
+    }
+
+    sourcePreviewList.innerHTML=ordered.map(video=>{
+      const videoId=itemVideoId(video);
+      const meta=clean(video.publishedText||publishedLabel(video));
+      return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
+        '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
+        '<span class="source-video-copy">'+
+          '<span class="source-video-title">'+esc(clean(video.title)||"Video")+'</span>'+
+          '<span class="source-video-meta">'+esc(meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):""))+'</span>'+
+        '</span>'+
+      '</button>';
+    }).join("");
+  }catch(error){
+    if(seq!==sourcePreviewSeq)return;
+    console.warn("channel preview failed",error);
+    sourcePreviewList.innerHTML='<div class="source-empty">Chưa tải được video của kênh</div>';
+  }
+}
+
+function closeSourcePreview(){
+  sourcePreviewSeq++;
+  sourcePreviewRows=new Map();
+  if(sourcePreview)sourcePreview.hidden=true;
+  if(sourceBrowse)sourceBrowse.hidden=false;
+  setTimeout(()=>sourceSearch?.focus(),40);
 }
 
 function openSourceLibrary(){
   if(!sourcesSheet)return;
+  sourceRemoteResults=[];
+  sourcePreviewSeq++;
+  if(sourcePreview)sourcePreview.hidden=true;
+  if(sourceBrowse)sourceBrowse.hidden=false;
+  if(sourceSearchStatus)sourceSearchStatus.textContent="";
   updateSourceSummary();
   renderSourceLibrary();
   sourcesSheet.hidden=false;
@@ -142,8 +395,18 @@ function openSourceLibrary(){
 
 function closeSourceLibrary(){
   if(!sourcesSheet)return;
+  clearTimeout(sourceSearchTimer);
+  sourceSearchSeq++;
+  sourcePreviewSeq++;
   sourcesSheet.hidden=true;
   sourceSearch.value="";
+  sourceRemoteResults=[];
+  sourcePreviewRows=new Map();
+  if(clearSourceSearch)clearSourceSearch.hidden=true;
+  if(sourceSearchStatus)sourceSearchStatus.textContent="";
+  if(sourcePreview)sourcePreview.hidden=true;
+  if(sourceBrowse)sourceBrowse.hidden=false;
+
   if(state.sourceLibraryDirty){
     state.sourceLibraryDirty=false;
     if(isSourceScopedFeed(state.activeFeed)){
@@ -157,25 +420,56 @@ function setupSourceLibrary(){
 
   sourcesBtn?.addEventListener("click",openSourceLibrary);
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
+  backSourcePreview?.addEventListener("click",closeSourcePreview);
+
   sourcesSheet?.addEventListener("click",event=>{
     if(event.target===sourcesSheet)closeSourceLibrary();
   });
-  sourceSearch?.addEventListener("input",renderSourceLibrary);
+
+  sourceSearch?.addEventListener("input",scheduleSourceSearch);
+  clearSourceSearch?.addEventListener("click",()=>{
+    sourceSearch.value="";
+    scheduleSourceSearch();
+    sourceSearch.focus();
+  });
 
   sourceList?.addEventListener("click",event=>{
-    const button=event.target.closest("[data-source-id]");
+    const addButton=event.target.closest("[data-source-add]");
+    if(addButton){
+      const id=addButton.dataset.sourceAdd||"";
+      const row=sourceRemoteResults.find(item=>item.id===id);
+      if(row)addSource(row);
+      return;
+    }
+
+    const toggleButton=event.target.closest("[data-source-toggle]");
+    if(toggleButton){
+      toggleSource(toggleButton.dataset.sourceToggle||"");
+      return;
+    }
+
+    const deleteButton=event.target.closest("[data-source-delete]");
+    if(deleteButton){
+      deleteSource(deleteButton.dataset.sourceDelete||"");
+      return;
+    }
+
+    const previewButton=event.target.closest("[data-source-preview]");
+    if(previewButton){
+      const id=previewButton.dataset.sourcePreview||"";
+      const hint=sourceRemoteResults.find(item=>item.id===id)||null;
+      void openSourcePreview(id,hint);
+    }
+  });
+
+  sourcePreviewList?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-source-video-id]");
     if(!button)return;
-    const id=button.dataset.sourceId||"";
-    if(!CHANNEL_ID_SET.has(id))return;
-
-    if(selectedSourceIds.has(id))selectedSourceIds.delete(id);
-    else selectedSourceIds.add(id);
-
-    persistSourceSelection();
-    state.sourceLibraryDirty=true;
-    updateSourceSummary();
-    button.classList.toggle("active",selectedSourceIds.has(id));
-    button.setAttribute("aria-pressed",selectedSourceIds.has(id)?"true":"false");
+    const id=button.dataset.sourceVideoId||"";
+    const row=sourcePreviewRows.get(id);
+    if(!id||!row)return;
+    closeSourceLibrary();
+    void playVideo(id,row);
   });
 }
 
@@ -1464,7 +1758,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v14:";
+const FEED_CACHE_PREFIX="1988-discovery-v15:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
