@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-source-header-v65';
+const CACHE='1988-main-separator-ui-v66';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=source-header-65',
+  './src/style.css?v=separator-ui-66',
   './src/app.js?v=source-header-65',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
