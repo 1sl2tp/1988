@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-regional-fallback-v47';
+const CACHE='1988-main-regional-fix-v48';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=regional-feed-45',
-  './src/app.js?v=regional-fallback-47',
+  './src/app.js?v=regional-fix-48',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=lockup-feed-46',
