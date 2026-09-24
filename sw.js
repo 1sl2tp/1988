@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-source-icon-v68';
+const CACHE='1988-main-auto-trends-v69';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=source-icon-68',
-  './src/app.js?v=source-header-65',
+  './src/style.css?v=auto-trends-69',
+  './src/app.js?v=auto-trends-69',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
