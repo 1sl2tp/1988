@@ -251,7 +251,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   overflow:visible;
   background:transparent;
   box-shadow:none;
-  transition:transform .16s ease,width .16s ease,height .16s ease,right .16s ease,bottom .16s ease;
+  transition:transform .16s ease,width .16s ease,height .16s ease;
 }
 .player-frame.floating-iframe::before,
 .player-frame.floating-iframe::after{display:none!important}
@@ -297,7 +297,8 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 
 /* No invisible resize zones remain. The rail is its own surface beside the player. */
 .float-dock-edge,.float-resize-zone{display:none!important}
-.float-mode-rail,.float-edge-tab{display:none}
+.float-mode-rail,.float-edge-tab,.float-resize-grip{display:none}
+.player-frame.floating-iframe.float-interacting{transition:none!important}
 
 .player-frame.floating-iframe .float-mode-rail{
   display:flex;
@@ -336,7 +337,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   color:rgba(255,255,255,.82);
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
-  touch-action:manipulation;
+  touch-action:none;
 }
 .float-mode-btn:hover,.float-mode-btn:focus-visible{background:rgba(255,255,255,.10);color:#fff;outline:none}
 .float-mode-btn.active{background:rgba(255,255,255,.16);color:#fff}
@@ -363,6 +364,50 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .dock-left .float-mode-label{right:auto;left:calc(100% + 9px)}
 .float-mode-btn:hover .float-mode-label,
 .float-mode-btn:focus-visible .float-mode-label{opacity:1;transform:translateY(-50%) translateX(0)}
+
+.player-frame.floating-iframe .float-resize-grip{
+  display:grid;
+  position:absolute;
+  z-index:32;
+  width:32px;
+  height:22px;
+  place-items:center;
+  padding:0;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;
+  background:rgba(17,17,20,.78);
+  color:rgba(255,255,255,.9);
+  font-size:10px;
+  font-weight:700;
+  line-height:1;
+  opacity:.30;
+  cursor:nwse-resize;
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+  transition:opacity .15s ease;
+}
+.player-frame.floating-iframe .float-resize-grip:hover,
+.player-frame.floating-iframe .float-resize-grip:focus-visible{
+  opacity:1;
+  outline:none;
+}
+.player-frame.floating-iframe.dock-right.anchor-bottom .float-resize-grip{
+  left:-16px;
+  top:-11px;
+}
+.player-frame.floating-iframe.dock-right.anchor-top .float-resize-grip{
+  left:-16px;
+  bottom:-11px;
+}
+.player-frame.floating-iframe.dock-left.anchor-bottom .float-resize-grip{
+  right:-16px;
+  top:-11px;
+}
+.player-frame.floating-iframe.dock-left.anchor-top .float-resize-grip{
+  right:-16px;
+  bottom:-11px;
+}
+.player-frame.floating-iframe.float-tucked .float-resize-grip{display:none}
 
 .player-frame.floating-iframe .float-edge-tab{
   position:absolute;
@@ -396,7 +441,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     bottom:8px;
     width:min(256px,58vw);
     border-radius:12px;
-    box-shadow:0 10px 28px rgba(0,0,0,.46),0 0 0 1px rgba(0,0,0,.28);
+    box-shadow:none;
   }
   .player-frame.floating-iframe::before{inset:-14px;filter:blur(17px) saturate(1.15);opacity:.30}
   .player-frame.floating-iframe #yt-player,
@@ -406,12 +451,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     width:26px;
     padding:2px;
   }
-  .float-mode-btn{width:20px;height:36px}
+  .float-mode-btn{width:22px;height:38px}
+  .player-frame.floating-iframe .float-resize-grip{
+    width:30px;
+    height:22px;
+    opacity:.58;
+  }
   .float-mode-label{display:none}
 }
 
 @media(hover:none){
   .player-frame.floating-iframe .float-mode-rail{opacity:.64}
+  .player-frame.floating-iframe .float-resize-grip{opacity:.58}
 }
 
 /* Channel library */
@@ -683,7 +734,8 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .player-frame.fullscreen-active .float-dock-edge,
 .player-frame.fullscreen-active .float-resize-zone,
 .player-frame.fullscreen-active .float-mode-rail,
-.player-frame.fullscreen-active .float-edge-tab{
+.player-frame.fullscreen-active .float-edge-tab,
+.player-frame.fullscreen-active .float-resize-grip{
   display:none!important;
   pointer-events:none!important;
   touch-action:auto!important;
