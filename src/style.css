@@ -674,3 +674,17 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   .source-row-name{font-size:14px}
   .source-video-popup{padding:8px 0 3px}
 }
+
+/* Safari fullscreen: custom floating hit areas must never sit above the native/YouTube seek controls. */
+.player-frame.fullscreen-active .float-dock-edge,
+.player-frame.fullscreen-active .float-resize-zone{
+  display:none!important;
+  pointer-events:none!important;
+  touch-action:auto!important;
+}
+.player-frame.fullscreen-active,
+.player-frame.fullscreen-active #yt-player,
+.player-frame.fullscreen-active iframe,
+.player-frame.fullscreen-active video{
+  touch-action:auto!important;
+}
