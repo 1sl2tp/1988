@@ -248,6 +248,32 @@ function sourceStatus(id){
   return "normal";
 }
 
+function hideBlockedSourceNow(id){
+  id=String(id||"").trim();
+  if(!id||!feed)return;
+
+  const source=libraryRow(id);
+  const blockedName=normalizeSearchText(sourceMetaFor(source||{}).name||source?.name||"");
+  let removed=0;
+
+  for(const card of [...feed.querySelectorAll("[data-video-id]")]){
+    const cardSourceId=String(card.dataset.sourceId||"").trim();
+    const cardChannel=normalizeSearchText(card.dataset.channel||"");
+    if(
+      (cardSourceId&&cardSourceId===id) ||
+      (blockedName&&cardChannel===blockedName)
+    ){
+      card.remove();
+      removed++;
+    }
+  }
+
+  if(removed){
+    const total=feed.querySelectorAll("[data-video-id]").length;
+    feedStatus.textContent=total?total+" video":"";
+  }
+}
+
 function setSourceStatus(id,status){
   if(!libraryHas(id))return;
 
@@ -264,6 +290,8 @@ function setSourceStatus(id,status){
     selectedSourceIds.delete(id);
     blockedSourceIds.delete(id);
   }
+
+  if(status==="blocked")hideBlockedSourceNow(id);
 
   persistSourceLibrary();
   persistSourceSelection();
@@ -770,7 +798,14 @@ async function openSourcePreview(id,rowHint=null){
     const rows=await local.channelVideosPage("preview:"+id,id,true);
     if(seq!==sourcePreviewSeq)return;
 
-    const ordered=newestFirst(Array.isArray(rows)?rows:[]).slice(0,24);
+    const ordered=newestFirst(Array.isArray(rows)?rows:[])
+      .slice(0,24)
+      .map(video=>({
+        ...video,
+        _sourceId:id,
+        channelId:video?.channelId||id,
+        _sourceName:sourceMetaFor(row).name||row.name||video?._sourceName||video?.uploader||""
+      }));
     sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]));
 
     if(!ordered.length){
@@ -780,7 +815,7 @@ async function openSourcePreview(id,rowHint=null){
 
     sourcePreviewList.innerHTML=ordered.map(video=>{
       const videoId=itemVideoId(video);
-      const meta=clean(video.publishedText||publishedLabel(video));
+      const meta=relativePublishedLabel(video);
       return '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
         '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
         '<span class="source-video-copy">'+
@@ -956,7 +991,26 @@ function setupSourceLibrary(){
     const id=button.dataset.sourceVideoId||"";
     const row=sourcePreviewRows.get(id);
     if(!id||!row)return;
-    openSourceVideo(id,row);
+
+    // A source-management preview is only for choosing a video.
+    // Playback always happens in the main media player.
+    closeSourceVideo();
+    clearTimeout(sourceSearchTimer);
+    sourceSearchSeq++;
+    sourcePreviewSeq++;
+    sourceMetaObserver?.disconnect?.();
+    sourceMetaObserver=null;
+    if(sourcesSheet)sourcesSheet.hidden=true;
+    if(sourcePreview)sourcePreview.hidden=true;
+    if(sourceBrowse)sourceBrowse.hidden=false;
+    if(sourceSearch)sourceSearch.value="";
+    sourceRemoteResults=[];
+    sourcePreviewRows=new Map();
+    if(clearSourceSearch)clearSourceSearch.hidden=true;
+    if(sourceSearchStatus)sourceSearchStatus.textContent="";
+    setSourceManageMode(false);
+
+    void playVideo(id,row);
   });
 }
 
@@ -2805,7 +2859,7 @@ function renderCards(rows=[],options={}){
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
     cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
+      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(String(row?._sourceId||row?.channelId||row?.uploaderId||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'">'+
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
           '<div class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</div>'+
@@ -3377,6 +3431,36 @@ shareBtn.addEventListener("click",async()=>{
 videoBtn.addEventListener("click",returnToVideo);
 backgroundBtn.addEventListener("click",()=>startBackgroundMode("audio"));
 lockBtn.addEventListener("click",()=>startBackgroundMode("lock"));
+
+nativePlayer.addEventListener("loadedmetadata",()=>{
+  const width=Number(nativePlayer.videoWidth)||0;
+  const height=Number(nativePlayer.videoHeight)||0;
+  if(width<=0||height<=0)return;
+
+  state.currentMeta={
+    ...(state.currentMeta||{}),
+    videoWidth:width,
+    videoHeight:height,
+    aspectRatio:width/height
+  };
+  updateCurrentVideoAspect(state.currentMeta);
+});
+
+nativePlayer.addEventListener("resize",()=>{
+  const width=Number(nativePlayer.videoWidth)||0;
+  const height=Number(nativePlayer.videoHeight)||0;
+  if(width<=0||height<=0)return;
+  const nextRatio=width/height;
+  if(Math.abs(nextRatio-(state.videoAspect||0))<.015)return;
+
+  state.currentMeta={
+    ...(state.currentMeta||{}),
+    videoWidth:width,
+    videoHeight:height,
+    aspectRatio:nextRatio
+  };
+  updateCurrentVideoAspect(state.currentMeta);
+});
 
 nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;

@@ -879,7 +879,7 @@ function videoDimensionsFromInfo(result={}){
     if(width>0&&height>0)best={width,height};
   }
 
-  if(!best)return {width:0,height:0,aspectRatio:16/9};
+  if(!best)return {width:0,height:0,aspectRatio:0};
   return {
     width:best.width,
     height:best.height,
@@ -894,7 +894,30 @@ async function info(id){
   const basic=result?.basic_info||{};
   const thumbnails=Array.isArray(basic.thumbnail)?basic.thumbnail:[];
   const related=normalizeRows(result?.watch_next_feed||[],24);
-  const dimensions=videoDimensionsFromInfo(result);
+  let dimensions=videoDimensionsFromInfo(result);
+
+  // Some WEB info responses omit streaming format dimensions. In that case,
+  // resolve just the selected video format metadata (without probing/downloading
+  // the media) so vertical uploads can size the floating player correctly.
+  if(!dimensions.width||!dimensions.height){
+    for(const client of ['WEB','MWEB','IOS']){
+      try{
+        const format=await yt.getStreamingData(id,{
+          type:'video+audio',
+          quality:'best',
+          format:'any',
+          client
+        });
+        const width=Number(format?.width)||0;
+        const height=Number(format?.height)||0;
+        if(width>0&&height>0){
+          dimensions={width,height,aspectRatio:width/height};
+          break;
+        }
+      }catch{}
+    }
+  }
+
   return {
     meta:{
       videoId:id,
@@ -906,7 +929,7 @@ async function info(id){
       uploadDate:String(basic.upload_date||basic.publish_date||''),
       videoWidth:dimensions.width,
       videoHeight:dimensions.height,
-      aspectRatio:dimensions.aspectRatio
+      aspectRatio:dimensions.aspectRatio||16/9
     },
     related
   };
@@ -1010,6 +1033,9 @@ async function media(id,kind='video'){
         itag:format.itag,
         quality:String(format.quality_label||format.quality||''),
         hasAudio:format.has_audio!==false,
+        width:Number(format.width)||0,
+        height:Number(format.height)||0,
+        aspectRatio:(Number(format.width)>0&&Number(format.height)>0)?Number(format.width)/Number(format.height):0,
         client:options.client,
         poTokenBound:!!poToken
       };
@@ -1043,6 +1069,9 @@ async function media(id,kind='video'){
         itag:format.itag,
         quality:String(format.quality_label||format.quality||''),
         hasAudio:format.has_audio!==false,
+        width:Number(format.width)||0,
+        height:Number(format.height)||0,
+        aspectRatio:(Number(format.width)>0&&Number(format.height)>0)?Number(format.width)/Number(format.height):0,
         client:'WEB',
         poTokenBound:!!freshToken
       };
