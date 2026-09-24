@@ -651,18 +651,18 @@ if "TikTokPage" not in s:
         1
     )
     s = s.replace(
-        """    {
+        '''    {
       path: '/channel/:id',
       component: ChannelPage
-    }""",
-        """    {
+    }''',
+        '''    {
       path: '/channel/:id',
       component: ChannelPage
     },
     {
       path: '/tiktok',
       component: TikTokPage
-    }""",
+    }''',
         1
     )
 p.write_text(s)
@@ -673,56 +673,56 @@ p = Path("src/App.vue")
 s = p.read_text()
 
 s = s.replace(
-    """  Pause, Play, Radio, Search, Tv, UserRound, X""",
-    """  Pause, Play, Radio, Search, Smartphone, Tv, UserRound, X""",
+    '''  Pause, Play, Radio, Search, Tv, UserRound, X''',
+    '''  Pause, Play, Radio, Search, Smartphone, Tv, UserRound, X''',
     1
 )
 
 s = s.replace(
-    """  { id: 'live', label: 'Trực tiếp', icon: Radio },
-  { id: 'channels', label: 'Kênh', icon: UserRound },""",
-    """  { id: 'live', label: 'Trực tiếp', icon: Radio },
+    '''  { id: 'live', label: 'Trực tiếp', icon: Radio },
+  { id: 'channels', label: 'Kênh', icon: UserRound },''',
+    '''  { id: 'live', label: 'Trực tiếp', icon: Radio },
   { id: 'tiktok', label: 'TikTok', icon: Smartphone },
-  { id: 'channels', label: 'Kênh', icon: UserRound },""",
+  { id: 'channels', label: 'Kênh', icon: UserRound },''',
     1
 )
 
 s = s.replace(
-    """function openNav(item: any) {
+    '''function openNav(item: any) {
   if (item.id === 'home') goHome();
   else goSource(item.id);
-}""",
-    """function openNav(item: any) {
+}''',
+    '''function openNav(item: any) {
   if (item.id === 'home') goHome();
   else if (item.id === 'tiktok') void router.push('/tiktok');
   else goSource(item.id);
-}""",
+}''',
     1
 )
 
 s = s.replace(
-    """function navActive(id: string) {
+    '''function navActive(id: string) {
   if (route.path !== '/') return false;
   const source = String(route.query.source || 'latest');
   return id === 'home' ? source === 'latest' : source === id;
-}""",
-    """function navActive(id: string) {
+}''',
+    '''function navActive(id: string) {
   if (id === 'tiktok') return route.path === '/tiktok';
   if (route.path !== '/') return false;
   const source = String(route.query.source || 'latest');
   return id === 'home' ? source === 'latest' : source === id;
-}""",
+}''',
     1
 )
 
 s = s.replace(
-    """      <button type="button" :class="{active: navActive('shorts')}" @click="goSource('shorts')"><Clapperboard/><span>Shorts</span></button>
+    '''      <button type="button" :class="{active: navActive('shorts')}" @click="goSource('shorts')"><Clapperboard/><span>Shorts</span></button>
       <button type="button" @click="focusSearch"><Search/><span>Tìm kiếm</span></button>
-      <button type="button" :class="{active: navActive('live')}" @click="goSource('live')"><Radio/><span>Live</span></button>""",
-    """      <button type="button" :class="{active: navActive('shorts')}" @click="goSource('shorts')"><Clapperboard/><span>Shorts</span></button>
+      <button type="button" :class="{active: navActive('live')}" @click="goSource('live')"><Radio/><span>Live</span></button>''',
+    '''      <button type="button" :class="{active: navActive('shorts')}" @click="goSource('shorts')"><Clapperboard/><span>Shorts</span></button>
       <button type="button" :class="{active: navActive('tiktok')}" @click="router.push('/tiktok')"><Smartphone/><span>TikTok</span></button>
       <button type="button" @click="focusSearch"><Search/><span>Tìm kiếm</span></button>
-      <button type="button" :class="{active: navActive('live')}" @click="goSource('live')"><Radio/><span>Live</span></button>""",
+      <button type="button" :class="{active: navActive('live')}" @click="goSource('live')"><Radio/><span>Live</span></button>''',
     1
 )
 
