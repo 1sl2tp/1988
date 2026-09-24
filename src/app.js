@@ -2451,6 +2451,7 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
+  if(isPlayerFullscreen())return;
 
   const floating=frame.classList.contains("floating-iframe");
 
@@ -2518,8 +2519,21 @@ function applyFloatingIframe(force){
   }
 }
 
+function getFullscreenElement(){
+  return document.fullscreenElement||document.webkitFullscreenElement||null;
+}
+
+function isPlayerFullscreen(){
+  const fullscreenElement=getFullscreenElement();
+  if(!fullscreenElement)return false;
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return false;
+  return fullscreenElement===frame||frame.contains(fullscreenElement);
+}
+
 function queueFloatingIframe(){
   const frame=playerSection?.querySelector(".player-frame");
+  if(isPlayerFullscreen())return;
   if(frame?.classList.contains("floating-iframe"))state.fullscreenScrollY=window.scrollY;
   if(state.floatRaf)return;
   state.floatRaf=requestAnimationFrame(()=>{
@@ -2579,11 +2593,14 @@ function resumeVideoAfterReturn(){
 }
 
 function setupFullscreenReturn(){
+  const frame=()=>playerSection?.querySelector(".player-frame");
   const remember=()=>{
+    frame()?.classList.add("fullscreen-active");
     state.fullscreenScrollY=window.scrollY;
     markPlaybackTransition();
   };
   const restore=()=>{
+    frame()?.classList.remove("fullscreen-active");
     const y=state.fullscreenScrollY;
     requestAnimationFrame(()=>{
       if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
@@ -2591,15 +2608,18 @@ function setupFullscreenReturn(){
       resumeVideoAfterReturn();
     });
   };
+  const syncFullscreenState=()=>{
+    if(isPlayerFullscreen())remember();
+    else restore();
+  };
 
-  document.addEventListener("fullscreenchange",()=>{
-    if(document.fullscreenElement)remember();
-    else restore();
-  });
-  document.addEventListener("webkitfullscreenchange",()=>{
-    if(document.webkitFullscreenElement)remember();
-    else restore();
-  });
+  document.addEventListener("fullscreenchange",syncFullscreenState);
+  document.addEventListener("webkitfullscreenchange",syncFullscreenState);
+
+  // iPhone/iPad Safari may use the native WebKit video fullscreen path
+  // without exposing document.fullscreenElement.
+  nativePlayer?.addEventListener?.("webkitbeginfullscreen",remember);
+  nativePlayer?.addEventListener?.("webkitendfullscreen",restore);
 
   window.addEventListener("pagehide",markPlaybackTransition,{passive:true});
   window.addEventListener("pageshow",restore,{passive:true});
@@ -6453,6 +6473,14 @@ function initYouTubePlayer(){
     events:{
       onReady(){
         state.playerReady=true;
+        const iframe=state.player?.getIframe?.();
+        if(iframe){
+          iframe.setAttribute("allowfullscreen","");
+          iframe.setAttribute("webkitallowfullscreen","");
+          const allow=new Set((iframe.getAttribute("allow")||"").split(";").map(value=>value.trim()).filter(Boolean));
+          ["autoplay","encrypted-media","picture-in-picture","fullscreen"].forEach(value=>allow.add(value));
+          iframe.setAttribute("allow",Array.from(allow).join("; "));
+        }
         forceCaptionsOff();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
