@@ -2160,18 +2160,11 @@ function patchRenderedAiMeta(rows=[]){
     if(!card)continue;
 
     const title=clean(meta.displayTitle||row?._displayTitle||row?.title||"");
-    const source=clean(meta.displaySource||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
     const titleEl=card.querySelector(".card-title");
-    const sourceEl=card.querySelector(".card-channel");
-
     if(title&&titleEl){
       titleEl.textContent=title;
       card.dataset.title=title;
     }
-    // Source/channel identity belongs to Quản lý nguồn and is never
-    // rewritten by AI content enrichment.
-    void source;
-    void sourceEl;
   }
 }
 
@@ -3852,6 +3845,84 @@ function saveFeedCache(name,rows){
   }catch{}
 }
 
+const FEED_AI_CONTENT_TTL=30*60*1000;
+const feedAiPending=new Map();
+
+function feedAiContentKey(name,rows=[]){
+  const input=topicInputRows(rows).slice(0,72);
+  const body=input.map(row=>row.id+"|"+row.title+"|"+row.contentHash).join("\n");
+  return String(name||"feed")+":"+fastHash(body);
+}
+
+async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
+  if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return;
+
+  const sample=dedupeHashedRows(newestFirst(rows)).slice(0,72);
+  const input=topicInputRows(sample);
+  if(input.length<4)return;
+
+  const cacheKey=feedAiContentKey(name,sample);
+  const saved=readAiTrendCache("feed-content:"+cacheKey,input);
+  if(saved.videoMeta.size){
+    state.aiVideoMeta=new Map([...state.aiVideoMeta,...saved.videoMeta]);
+
+    if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
+      if(window.scrollY<120){
+        renderCurrentTrendFeed();
+      }else{
+        patchRenderedAiMeta(sample);
+      }
+    }
+    return;
+  }
+
+  if(feedAiPending.has(cacheKey))return feedAiPending.get(cacheKey);
+
+  const task=(async()=>{
+    try{
+      const response=await fetch(AI_TOPICS_URL,{
+        method:"POST",
+        headers:{
+          "content-type":"application/json",
+          "apikey":SUPABASE_ANON,
+          "authorization":"Bearer "+SUPABASE_ANON
+        },
+        body:JSON.stringify({
+          mode:"classify",
+          scope:"feed:"+name,
+          parentLabel:"Nội dung",
+          videos:input
+        })
+      });
+
+      const payload=await response.json().catch(()=>null);
+      if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
+
+      const videoMeta=normalizeAiVideoMeta(payload,input);
+      if(!videoMeta.size)return;
+
+      state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
+      saveAiTrendCache("feed-content:"+cacheKey,[],[],videoMeta);
+
+      if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
+        // AI may group same-content videos, but must never change chronological
+        // order. Near the top we can safely collapse duplicate cards; while the
+        // user is reading lower down we only patch cleaned titles.
+        if(window.scrollY<120){
+          renderCurrentTrendFeed();
+        }else{
+          patchRenderedAiMeta(sample);
+        }
+      }
+    }catch(error){
+      console.warn("feed AI enrichment failed",name,error);
+    }
+  })().finally(()=>feedAiPending.delete(cacheKey));
+
+  feedAiPending.set(cacheKey,task);
+  return task;
+}
+
 async function refreshCachedSourceFeedInBackground(name,preset,seq){
   try{
     const local=await localEngine(16000);
@@ -3867,6 +3938,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
 
     if(!rows.length)return;
     saveFeedCache(name,rows);
+    void enrichSourceFeedAi(name,rows,seq);
 
     // Never disturb the user's current reading position. If they are still
     // at the top, replace the cached snapshot with the newly refreshed one.
@@ -3933,6 +4005,7 @@ async function loadFeedPreset(name="latest"){
     if(isSourceScopedFeed(name)){
       state.feedLoading=false;
       state.feedHasMore=true;
+      void enrichSourceFeedAi(name,rows,seq);
       void refreshCachedSourceFeedInBackground(name,preset,seq);
       void refreshAiTrendTopics();
       return;
@@ -3970,6 +4043,7 @@ async function loadFeedPreset(name="latest"){
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
+    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,state.feedRows,seq);
     void refreshAiTrendTopics();
   }catch(error){
     console.warn("feed failed",name,error);
@@ -4006,11 +4080,16 @@ async function loadMoreFeed(){
     // Continuation pages are only deduplicated and appended at the bottom.
     const rows=sortPresetRows(raw,preset);
     const existingIds=new Set(state.feedRows.map(itemVideoId));
+    const existingHashes=new Set(
+      state.feedRows.map(contentHashForRow).filter(Boolean)
+    );
     const added=[];
     for(const row of rows){
       const id=itemVideoId(row);
-      if(!id||existingIds.has(id))continue;
+      const hash=contentHashForRow(row);
+      if(!id||existingIds.has(id)||(hash&&existingHashes.has(hash)))continue;
       existingIds.add(id);
+      if(hash)existingHashes.add(hash);
       added.push(row);
     }
 
@@ -4025,6 +4104,7 @@ async function loadMoreFeed(){
     const visibleTotal=aiDisplayRows(state.feedRows).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
+    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,added,seq);
   }catch(error){
     console.warn("load more failed",name,error);
   }finally{
