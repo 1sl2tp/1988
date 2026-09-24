@@ -41,7 +41,11 @@ const state={
   videoPlaying:false,
   floatRaf:0,
   floatGesture:null,
-  floatBox:null
+  floatBox:null,
+  keepFloating:false,
+  floatDock:"right",
+  floatTucked:false,
+  fullscreenScrollY:null
 };
 
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -68,22 +72,27 @@ async function localEngine(timeoutMs=15000){
 
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.querySelector(".float-move-edge"))return;
+  if(!frame||frame.querySelector(".float-dock-edge"))return;
 
-  const move=document.createElement("div");
-  move.className="float-move-edge";
-  move.setAttribute("aria-hidden","true");
+  const dock=document.createElement("div");
+  dock.className="float-dock-edge";
+  dock.setAttribute("aria-label","Di chuyển hoặc thu gọn video");
 
   const resize=document.createElement("div");
   resize.className="float-resize-edge";
-  resize.setAttribute("aria-hidden","true");
+  resize.setAttribute("aria-label","Đổi kích thước video");
 
-  frame.append(move,resize);
+  frame.append(dock,resize);
 
   const start=(mode,event)=>{
     if(!frame.classList.contains("floating-iframe"))return;
     event.preventDefault();
     event.stopPropagation();
+
+    if(state.floatTucked){
+      state.floatTucked=false;
+      frame.classList.remove("float-tucked");
+    }
 
     const rect=frame.getBoundingClientRect();
     state.floatGesture={
@@ -93,7 +102,8 @@ function ensureFloatHandles(){
       startY:event.clientY,
       left:rect.left,
       top:rect.top,
-      width:rect.width
+      width:rect.width,
+      moved:false
     };
 
     frame.style.left=rect.left+"px";
@@ -105,7 +115,7 @@ function ensureFloatHandles(){
     try{event.currentTarget.setPointerCapture(event.pointerId);}catch{}
   };
 
-  move.addEventListener("pointerdown",event=>start("move",event));
+  dock.addEventListener("pointerdown",event=>start("move",event));
   resize.addEventListener("pointerdown",event=>start("resize",event));
 
   const onMove=event=>{
@@ -113,23 +123,30 @@ function ensureFloatHandles(){
     if(!g||g.id!==event.pointerId||!frame.classList.contains("floating-iframe"))return;
     event.preventDefault();
 
+    const dx=event.clientX-g.startX;
+    const dy=event.clientY-g.startY;
+    if(Math.abs(dx)+Math.abs(dy)>8)g.moved=true;
+
     if(g.mode==="resize"){
       const maxWidth=Math.max(220,Math.min(window.innerWidth-16,560));
       const minWidth=Math.min(220,Math.max(170,window.innerWidth*.42));
-      const width=Math.max(minWidth,Math.min(maxWidth,g.width+(event.clientX-g.startX)));
+      const direction=state.floatDock==="left"?-1:1;
+      const width=Math.max(minWidth,Math.min(maxWidth,g.width+(dx*direction)));
+      const height=width*9/16;
       frame.style.width=width+"px";
 
-      const height=width*9/16;
-      const left=Math.max(8,Math.min(window.innerWidth-width-8,Number.parseFloat(frame.style.left)||g.left));
-      const top=Math.max(8,Math.min(window.innerHeight-height-8,Number.parseFloat(frame.style.top)||g.top));
+      let left=g.left;
+      if(state.floatDock==="left")left=g.left+g.width-width;
+      left=Math.max(8,Math.min(window.innerWidth-width-8,left));
+      const top=Math.max(8,Math.min(window.innerHeight-height-8,g.top+dy*.15));
       frame.style.left=left+"px";
       frame.style.top=top+"px";
       return;
     }
 
     const rect=frame.getBoundingClientRect();
-    const left=Math.max(8,Math.min(window.innerWidth-rect.width-8,g.left+(event.clientX-g.startX)));
-    const top=Math.max(8,Math.min(window.innerHeight-rect.height-8,g.top+(event.clientY-g.startY)));
+    const left=Math.max(8,Math.min(window.innerWidth-rect.width-8,g.left+dx));
+    const top=Math.max(8,Math.min(window.innerHeight-rect.height-8,g.top+dy));
     frame.style.left=left+"px";
     frame.style.top=top+"px";
   };
@@ -139,28 +156,35 @@ function ensureFloatHandles(){
     if(!g||g.id!==event.pointerId)return;
 
     const rect=frame.getBoundingClientRect();
-    if(g.mode==="move"){
+
+    if(g.mode==="move"&&!g.moved){
+      state.floatTucked=!state.floatTucked;
+      frame.classList.toggle("float-tucked",state.floatTucked);
+    }else if(g.mode==="move"){
       const snapLeft=rect.left+rect.width/2<window.innerWidth/2;
+      state.floatDock=snapLeft?"left":"right";
       const left=snapLeft?8:Math.max(8,window.innerWidth-rect.width-8);
       frame.style.left=left+"px";
+      frame.classList.toggle("dock-left",snapLeft);
+      frame.classList.toggle("dock-right",!snapLeft);
     }
 
+    const finalRect=frame.getBoundingClientRect();
     state.floatBox={
-      left:Number.parseFloat(frame.style.left)||rect.left,
-      top:Number.parseFloat(frame.style.top)||rect.top,
-      width:rect.width
+      left:Number.parseFloat(frame.style.left)||finalRect.left,
+      top:Number.parseFloat(frame.style.top)||finalRect.top,
+      width:finalRect.width
     };
     state.floatGesture=null;
   };
 
-  move.addEventListener("pointermove",onMove);
+  dock.addEventListener("pointermove",onMove);
   resize.addEventListener("pointermove",onMove);
-  move.addEventListener("pointerup",stop);
+  dock.addEventListener("pointerup",stop);
   resize.addEventListener("pointerup",stop);
-  move.addEventListener("pointercancel",stop);
+  dock.addEventListener("pointercancel",stop);
   resize.addEventListener("pointercancel",stop);
 }
-
 function restoreFloatBox(){
   const frame=playerSection?.querySelector(".player-frame");
   const box=state.floatBox;
@@ -175,6 +199,9 @@ function restoreFloatBox(){
   frame.style.top=top+"px";
   frame.style.right="auto";
   frame.style.bottom="auto";
+  frame.classList.toggle("dock-left",state.floatDock==="left");
+  frame.classList.toggle("dock-right",state.floatDock!=="left");
+  frame.classList.toggle("float-tucked",state.floatTucked);
 }
 
 function clearFloatBoxStyles(){
@@ -193,7 +220,7 @@ function applyFloatingIframe(force){
     force===false ||
     state.engine!=="iframe" ||
     !state.currentId ||
-    !state.videoPlaying ||
+    (!state.videoPlaying&&!state.keepFloating) ||
     playerSection.hidden
   ){
     if(floating){
@@ -233,7 +260,8 @@ function applyFloatingIframe(force){
         };
       }
     }
-    frame.classList.remove("floating-iframe");
+    frame.classList.remove("floating-iframe","float-tucked");
+    state.floatTucked=false;
     clearFloatBoxStyles();
     playerSection.style.removeProperty("min-height");
   }
@@ -252,6 +280,29 @@ function setupFloatingIframe(){
   window.addEventListener("resize",queueFloatingIframe,{passive:true});
   window.visualViewport?.addEventListener?.("resize",queueFloatingIframe,{passive:true});
   window.visualViewport?.addEventListener?.("scroll",queueFloatingIframe,{passive:true});
+}
+
+function setupFullscreenReturn(){
+  const remember=()=>{
+    state.fullscreenScrollY=window.scrollY;
+  };
+  const restore=()=>{
+    const y=state.fullscreenScrollY;
+    if(y===null||y===undefined)return;
+    requestAnimationFrame(()=>{
+      window.scrollTo({top:y,left:0,behavior:"instant"});
+      applyFloatingIframe();
+    });
+  };
+
+  document.addEventListener("fullscreenchange",()=>{
+    if(document.fullscreenElement)remember();
+    else restore();
+  });
+  document.addEventListener("webkitfullscreenchange",()=>{
+    if(document.webkitFullscreenElement)remember();
+    else restore();
+  });
 }
 
 function showNativePlayer(){
@@ -667,15 +718,20 @@ function returnToVideo(){
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
+  const frame=playerSection?.querySelector(".player-frame");
+  const wasFloating=!!frame?.classList.contains("floating-iframe");
+  const keepScrollY=window.scrollY;
+  state.keepFloating=wasFloating;
+
   state.currentId=id;
   state.currentMeta={...seedMeta};
   state.mode="video";
   state.audioMaster=false;
   state.nativeSource="";
   state.pendingVideoId=id;
-  state.videoPlaying=false;
+  state.videoPlaying=wasFloating;
   playerSection.hidden=false;
-  applyFloatingIframe(false);
+  if(!wasFloating)applyFloatingIframe(false);
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
@@ -688,10 +744,17 @@ async function playVideo(id,seedMeta={}){
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
-  try{
-    playerSection.scrollIntoView({behavior:"smooth",block:"start"});
-  }catch{
-    playerSection.scrollIntoView();
+  if(!wasFloating){
+    try{
+      playerSection.scrollIntoView({behavior:"smooth",block:"start"});
+    }catch{
+      playerSection.scrollIntoView();
+    }
+  }else{
+    requestAnimationFrame(()=>{
+      if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
+      applyFloatingIframe();
+    });
   }
 
   if(state.playerReady&&state.player){
@@ -758,6 +821,7 @@ function initYouTubePlayer(){
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
           state.videoPlaying=true;
+          state.keepFloating=false;
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
           try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
@@ -1089,6 +1153,7 @@ topicChips.addEventListener("click",e=>{
 setupMediaSession();
 setupInstall();
 setupFloatingIframe();
+setupFullscreenReturn();
 updateModeUi();
 
 const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
