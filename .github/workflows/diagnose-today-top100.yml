@@ -1,4 +1,4 @@
-name: Scan broad channel pool
+name: Smoke smart source library
 
 on:
   push:
@@ -8,11 +8,11 @@ permissions:
   contents: read
 
 jobs:
-  scan:
+  smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 6
     steps:
-      - name: Collect channel names from current YouTube.js
+      - name: Test production source library
         shell: bash
         run: |
           set -euo pipefail
@@ -25,159 +25,56 @@ jobs:
           async function connect(){
             let targets=[];
             for(let i=0;i<40;i++){
-              try{
-                targets=await (await fetch('http://127.0.0.1:9222/json')).json();
-                if(targets.length)break;
-              }catch{}
+              try{targets=await (await fetch('http://127.0.0.1:9222/json')).json();if(targets.length)break}catch{}
               await sleep(250);
             }
             const target=targets.find(x=>x.type==='page');
             if(!target?.webSocketDebuggerUrl)throw new Error('no_cdp_target');
             const ws=new WebSocket(target.webSocketDebuggerUrl);
-            let id=0;
-            const pending=new Map();
+            let id=0; const pending=new Map();
             const send=(method,params={})=>new Promise((resolve,reject)=>{
-              const msgId=++id;
-              pending.set(msgId,{resolve,reject});
-              ws.send(JSON.stringify({id:msgId,method,params}));
+              const msgId=++id;pending.set(msgId,{resolve,reject});ws.send(JSON.stringify({id:msgId,method,params}));
             });
-            ws.onmessage=e=>{
-              const m=JSON.parse(e.data);
-              if(m.id&&pending.has(m.id)){
-                const p=pending.get(m.id);pending.delete(m.id);
-                m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);
-              }
-            };
+            ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id&&pending.has(m.id)){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result)}};
             await new Promise((resolve,reject)=>{ws.onopen=resolve;ws.onerror=reject});
             return {ws,send};
           }
-
-          async function main(){
-            const queries=[
-              'tăng giá','chiến tranh','công an','xét xử','vĩ mô','bãi nhiệm','cách chức','bổ nhiệm',
-              'tạm giam','khởi tố','khám xét','tổng thống','lãi','lãi suất','thuế','thủ tướng',
-              'chứng khoán','chủ tịch','tỷ phú','lừa đảo',
-              'tổng bí thư','tạp hóa','phim ngắn trung hoa'
-            ];
-
+          (async()=>{
             const {ws,send}=await connect();
-            await send('Runtime.enable');
-            await send('Page.enable');
-            await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
-            await sleep(4500);
-
-            const expr=`(async()=>{
-              const queries=${JSON.stringify([
-                'tăng giá','chiến tranh','công an','xét xử','vĩ mô','bãi nhiệm','cách chức','bổ nhiệm',
-                'tạm giam','khởi tố','khám xét','tổng thống','lãi','lãi suất','thuế','thủ tướng',
-                'chứng khoán','chủ tịch','tỷ phú','lừa đảo',
-                'tổng bí thư','tạp hóa','phim ngắn trung hoa'
-              ])};
-              const yt=await window.YTLocal.getYT();
-              const str=v=>{
-                if(v==null)return '';
-                if(typeof v==='string'||typeof v==='number')return String(v);
-                if(typeof v.text==='string')return v.text;
-                try{return String(v.toString?.()||'')}catch{return ''}
-              };
-              const channelFromNode=node=>{
-                let channelId=node?.author?.id||'';
-                let channelName=node?.author?.name||'';
-                if(channelId&&channelName)return {channelId,channelName};
-
-                for(const row of node?.metadata?.metadata?.metadata_rows||[]){
-                  for(const part of row?.metadata_parts||[]){
-                    const t=part?.text;
-                    if(!t)continue;
-                    const ep=t.endpoint||t.runs?.[0]?.endpoint;
-                    const bid=ep?.payload?.browseId||'';
-                    if(/^UC[A-Za-z0-9_-]+$/.test(bid)){
-                      channelId=bid;
-                      channelName=channelName||str(t);
-                      return {channelId,channelName};
-                    }
-                  }
-                }
-                return {channelId,channelName};
-              };
-
-              const channels=new Map();
-              const perQuery=[];
-
-              for(const q of queries){
-                let page=null;
-                try{
-                  page=await yt.search(q,{type:'video',upload_date:'week',sort_by:'upload_date'});
-                }catch(e){
-                  perQuery.push({query:q,error:String(e)});
-                  continue;
-                }
-
-                let videos=0;
-                const localChannels=new Set();
-
-                for(let p=0;p<4&&page;p++){
-                  for(const node of Array.from(page.results||[])){
-                    const id=String(node?.video_id||node?.videoId||node?.content_id||node?.id||'');
-                    if(!/^[A-Za-z0-9_-]{11}$/.test(id))continue;
-                    if(node?.content_type&&String(node.content_type).toUpperCase()!=='VIDEO')continue;
-
-                    const {channelId,channelName}=channelFromNode(node);
-                    const key=channelId||('name:'+channelName);
-                    if(!key||key==='name:')continue;
-
-                    videos++;
-                    localChannels.add(key);
-
-                    const verified=Boolean(node?.author?.is_verified||node?.author?.is_verified_artist);
-                    const row=channels.get(key)||{
-                      channelId,
-                      channelName:channelName||'Không rõ',
-                      queries:new Set(),
-                      videoIds:new Set(),
-                      verified:false
-                    };
-                    row.queries.add(q);
-                    row.videoIds.add(id);
-                    row.verified=row.verified||verified;
-                    if(!row.channelName&&channelName)row.channelName=channelName;
-                    channels.set(key,row);
-                  }
-
-                  if(p===3||page.has_continuation===false||typeof page.getContinuation!=='function')break;
-                  try{page=await page.getContinuation()}catch{break}
-                }
-
-                perQuery.push({query:q,videos,channels:localChannels.size});
-              }
-
-              const out=[...channels.values()]
-                .map(x=>({
-                  channelId:x.channelId,
-                  channelName:x.channelName,
-                  verified:x.verified===true,
-                  keywordCount:x.queries.size,
-                  videos:x.videoIds.size
-                }))
-                .sort((a,b)=>
-                  (Number(b.verified)-Number(a.verified))||
-                  (b.videos-a.videos)||
-                  (b.keywordCount-a.keywordCount)||
-                  a.channelName.localeCompare(b.channelName,'vi')
-                );
-
-              return JSON.stringify({
-                queries:perQuery,
-                distinctChannels:out.length,
-                channels:out
-              });
-            })()`;
-
-            const res=await send('Runtime.evaluate',{expression:expr,awaitPromise:true,returnByValue:true});
-            console.log('CHANNELS_JSON='+res?.result?.value);
+            await send('Runtime.enable');await send('Page.enable');
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?smoke='+Date.now()});
+            await sleep(5500);
+            const out=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                const errors=[];
+                window.addEventListener('error',e=>errors.push(String(e.message||e.error||e)));
+                const lib=Array.isArray(window.CHANNEL_LIBRARY)?window.CHANNEL_LIBRARY:[];
+                const local=window.YTLocal;
+                const channels=local?.searchChannels?await local.searchChannels('VTV'):[];
+                document.querySelector('#sourcesBtn')?.click();
+                await new Promise(r=>setTimeout(r,300));
+                const sheetVisible=!document.querySelector('#sourcesSheet')?.hidden;
+                const rows=document.querySelectorAll('#sourceList .source-row').length;
+                const firstPreview=document.querySelector('#sourceList [data-source-preview]');
+                if(firstPreview)firstPreview.click();
+                await new Promise(r=>setTimeout(r,3500));
+                const previewVisible=!document.querySelector('#sourcePreview')?.hidden;
+                const previewVideos=document.querySelectorAll('#sourcePreviewList [data-source-video-id]').length;
+                return JSON.stringify({
+                  lib:lib.length,
+                  searchChannels:channels.slice(0,5),
+                  sheetVisible,
+                  rows,
+                  previewVisible,
+                  previewVideos,
+                  errors
+                });
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('SMOKE_JSON='+out?.result?.value);
             ws.close();
-          }
-
-          main().catch(e=>{console.error(e);process.exit(1)});
+          })().catch(e=>{console.error(e);process.exit(1)});
           NODE
           kill "$PID" 2>/dev/null || true
