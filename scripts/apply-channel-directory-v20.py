@@ -121,7 +121,7 @@ s = s.replace(old_channels, new_channels, 1)
 # In channel mode, the top bar is dedicated to the directory instead of feed ranking.
 s = s.replace(
     '<section class="filter-shelf compact">',
-    '<section v-if="source !== \\'channels\\'" class="filter-shelf compact">',
+    "<section v-if=\"source !== 'channels'\" class=\"filter-shelf compact\">",
     1
 )
 
