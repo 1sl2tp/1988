@@ -176,7 +176,7 @@ Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. H�
 - KHÔNG gộp bản cập nhật mới nếu có thông tin mới đáng kể, diễn biến mới, số liệu mới, quyết định mới hoặc phát ngôn mới.
 - Không cần chọn video đại diện; ứng dụng tự chọn video đăng mới hơn, rồi mới xét view.
 
-PHẠM VI: ${scope==="latest"?"video dưới 24 giờ":"video từ 1 đến dưới 7 ngày"}.
+PHẠM VI: ${scope==="discovery"?"video mới trong tối đa 7 ngày, gồm cả hôm nay":scope==="latest"?"video dưới 24 giờ":"video trong tối đa 7 ngày"}.
 
 OUTPUT chỉ JSON, không Markdown:
 {
@@ -241,7 +241,7 @@ Deno.serve(async(req:Request)=>{
 
   try{
     const body=await req.json().catch(()=>({}));
-    const scope=body?.scope==="week"?"week":"latest";
+    const scope=body?.scope==="discovery"?"discovery":body?.scope==="week"?"week":"latest";
     const videos=normalizeVideos(body?.videos);
     if(videos.length<4)return json({ok:true,topics:[],cached:false,reason:"not_enough_videos"});
 
