@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=player-95">
+  <link rel="stylesheet" href="./src/style.css?v=header-99">
   <title>1988</title>
 </head>
 <body>
@@ -35,14 +35,20 @@
       </form>
       <button id="installBtn" class="install-btn" type="button" hidden>Cài app</button>
     </div>
+
+    <nav class="header-nav" aria-label="Điều hướng nội dung">
+      <div class="header-nav-inner">
+        <section id="topicChips" class="topic-chips" aria-label="Khám phá">
+          <button class="topic-chip live-chip" type="button" data-feed="live">LIVE</button>
+          <button class="topic-chip active" type="button" data-feed="latest">Mới nhất</button>
+          <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
+          <span class="topic-divider" aria-hidden="true"></span>
+        </section>
+      </div>
+    </nav>
   </header>
 
   <main class="app-shell">
-    <section id="topicChips" class="topic-chips" aria-label="Khám phá">
-      <button class="topic-chip live-chip" type="button" data-feed="live">LIVE</button>
-      <button class="topic-chip active" type="button" data-feed="latest">Mới nhất</button>
-      <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
-    </section>
     <div id="trendTopics" class="trend-topics" aria-label="Chủ đề đang nổi" hidden></div>
 
     <section id="playerSection" class="player-section" hidden>
