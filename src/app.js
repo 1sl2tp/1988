@@ -1344,7 +1344,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v11:";
+const FEED_CACHE_PREFIX="1988-discovery-v12:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1388,6 +1388,12 @@ function uploadedWithinLatest(row){
   }
 
   return uploadedWithin(row,DAY_MS);
+}
+
+function uploadedWithinWeek(row){
+  if(row?.isLive)return false;
+  const age=publishedAgeMs(row);
+  return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
 }
 
 async function normalizeRegionalRow(row={}){
@@ -1447,7 +1453,16 @@ const FEED_PRESETS={
   week:{
     title:"Tuần này",
     newest:true,
-    load:(local,reset)=>recentSearch(local,"week","Việt Nam",7*DAY_MS,reset)
+    load:async(local,reset)=>{
+      const rows=await pagedSearch(
+        local,
+        "week",
+        "Việt Nam",
+        {upload_date:"week",sort_by:"upload_date"},
+        reset
+      );
+      return rows.filter(uploadedWithinWeek);
+    }
   },
   news:{
     title:"Thời sự",
