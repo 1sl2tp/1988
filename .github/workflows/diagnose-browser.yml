@@ -156,6 +156,58 @@ jobs:
               returnByValue:true
             });
             console.log('GUIDE_PROBE',guideProbe?.result?.value);
+
+            const hypeProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  const yt=await window.YTLocal.getYT();
+                  const guide=await yt.getGuide();
+                  let hype=null;
+                  for(const section of Array.from(guide?.contents||[])){
+                    for(const item of Array.from(section?.items||[])){
+                      if((item?.endpoint?.payload?.browseId||'')==='FEhype_leaderboard')hype=item;
+                    }
+                  }
+                  if(!hype)return JSON.stringify({ok:false,error:'hype_not_found'});
+                  const parsed=await hype.endpoint.call(yt.actions,{parse:true});
+                  const seen=new Set();
+                  const videos=[];
+                  const walk=(value,depth=0)=>{
+                    if(!value||depth>8||videos.length>=30)return;
+                    if(Array.isArray(value)){for(const x of value)walk(x,depth+1);return;}
+                    if(typeof value!=='object')return;
+                    if(seen.has(value))return;
+                    seen.add(value);
+                    const id=value?.video_id||value?.videoId||value?.content_id||value?.id||'';
+                    if(typeof id==='string'&&/^[A-Za-z0-9_-]{11}$/.test(id)){
+                      videos.push({
+                        type:value?.type||value?.constructor?.name||'',
+                        id,
+                        title:value?.title?.text||String(value?.title||''),
+                        published:String(value?.published?.text||value?.published_time?.text||value?.published_time_text?.text||value?.publishedText||''),
+                        views:String(value?.short_view_count?.text||value?.view_count?.text||value?.views?.text||'')
+                      });
+                    }
+                    for(const k of Object.keys(value)){
+                      if(k.startsWith('#'))continue;
+                      try{walk(value[k],depth+1)}catch{}
+                    }
+                  };
+                  walk(parsed);
+                  return JSON.stringify({
+                    ok:true,
+                    type:parsed?.type||parsed?.constructor?.name||'',
+                    keys:Object.keys(parsed||{}).slice(0,30),
+                    videos:videos.slice(0,20)
+                  });
+                }catch(e){
+                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('HYPE_PROBE',hypeProbe?.result?.value);
             ws.close();
           }
           main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
