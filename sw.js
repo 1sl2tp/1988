@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-fresh-source-v43';
+const CACHE='1988-main-append-only-v44';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=source-scroll-42',
-  './src/app.js?v=fresh-source-43',
+  './src/app.js?v=append-only-44',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/yt-local.js?v=fresh-source-43',
