@@ -643,6 +643,9 @@ function disclosureStorageRead(id){
       checked:!!saved.checked,
       madeWithAi:!!saved.madeWithAi,
       text:String(saved.text||'').slice(0,1200),
+      description:String(saved.description||'').slice(0,2600),
+      title:String(saved.title||'').slice(0,220),
+      uploader:String(saved.uploader||'').slice(0,140),
       at:Number(saved.at)||Date.now()
     };
   }catch{
@@ -656,7 +659,10 @@ function disclosureStorageWrite(id,result){
       at:Date.now(),
       checked:!!result?.checked,
       madeWithAi:!!result?.madeWithAi,
-      text:String(result?.text||'').slice(0,1200)
+      text:String(result?.text||'').slice(0,1200),
+      description:String(result?.description||'').slice(0,2600),
+      title:String(result?.title||'').slice(0,220),
+      uploader:String(result?.uploader||'').slice(0,140)
     }));
   }catch{}
 }
@@ -749,10 +755,19 @@ async function aiDisclosure(id){
     const result=await yt.getInfo(id,{client:'WEB'});
     const nodes=howThisWasMadeNodes(result);
     const textValue=nodes.map(disclosureText).filter(Boolean).join(' · ');
+    const basic=result?.basic_info||{};
+    const description=
+      text(result?.secondary_info?.description)||
+      text(basic?.short_description)||
+      text(basic?.description)||
+      '';
     const out={
       checked:true,
       madeWithAi:isMadeWithAiDisclosure(textValue),
       text:textValue,
+      description:String(description||'').slice(0,2600),
+      title:String(basic?.title||'').slice(0,220),
+      uploader:String(basic?.author||basic?.channel?.name||'').slice(0,140),
       at:Date.now()
     };
     aiDisclosureMemory.set(id,out);
@@ -763,6 +778,9 @@ async function aiDisclosure(id){
       checked:false,
       madeWithAi:false,
       text:'',
+      description:'',
+      title:'',
+      uploader:'',
       at:Date.now()
     };
     aiDisclosureMemory.set(id,out);
