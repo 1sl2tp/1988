@@ -62,6 +62,9 @@ jobs:
       - name: Apply unified cards v12
         run: python3 scripts/apply-card-unify-v12.py
 
+      - name: Apply freshness v13
+        run: python3 scripts/apply-freshness-v13.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
