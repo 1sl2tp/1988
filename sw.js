@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-film-context-v128';
+const CACHE='1988-main-semantic-context-v129';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=search-series-120',
-  './src/app.js?v=film-context-128',
+  './src/style.css?v=context-brief-129',
+  './src/app.js?v=semantic-context-129',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
-  './src/yt-local.js?v=source-preview-meta-114',
+  './src/yt-local.js?v=playlist-context-129',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'

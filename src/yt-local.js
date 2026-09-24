@@ -950,6 +950,15 @@ async function info(id){
   const basic=result?.basic_info||{};
   const thumbnails=Array.isArray(basic.thumbnail)?basic.thumbnail:[];
   const related=normalizeRows(result?.watch_next_feed||[],24);
+  const playlistRaw=result?.playlist||null;
+  const playlistItems=normalizeRows(playlistRaw?.contents||[],100);
+  const playlist=playlistRaw&&playlistItems.length?{
+    id:String(playlistRaw.id||''),
+    title:String(playlistRaw.title||''),
+    currentIndex:Number.isFinite(Number(playlistRaw.current_index))?Number(playlistRaw.current_index):0,
+    isInfinite:playlistRaw.is_infinite===true,
+    items:playlistItems
+  }:null;
   let dimensions=videoDimensionsFromInfo(result);
   if(!dimensions.width||!dimensions.height){
     dimensions=await videoAspect(id);
@@ -960,6 +969,8 @@ async function info(id){
       videoId:id,
       title:String(basic.title||''),
       uploader:String(basic.author||basic.channel?.name||''),
+      channelId:String(basic.channel?.id||basic.channel_id||''),
+      description:String(basic.short_description||basic.description||''),
       views:Number(basic.view_count)||0,
       duration:Number(basic.duration)||0,
       thumbnailUrl:thumbnails[0]?.url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg'),
@@ -968,7 +979,8 @@ async function info(id){
       videoHeight:dimensions.height,
       aspectRatio:dimensions.aspectRatio||16/9
     },
-    related
+    related,
+    playlist
   };
 }
 
