@@ -1687,6 +1687,13 @@ function parentSourceGroup(parent={}){
   return "";
 }
 
+function selectedSourcesForParent(parent={}){
+  const group=parentSourceGroup(parent);
+  const selected=selectedSources();
+  if(!group)return selected;
+  return selected.filter(source=>sourceGroupsFor(source).includes(group));
+}
+
 function librarySourceForVideo(row={}){
   const id=String(row?.channelId||row?._sourceId||row?.uploaderId||"").trim();
   if(id&&libraryHas(id))return libraryRow(id);
@@ -1735,6 +1742,7 @@ function rowMatchesParentRule(parent,row={}){
 
 function locallyTrustedForParent(parent,row={}){
   if(isBlockedSourceRow(row))return false;
+  if(row?._selectedCategorySource===true)return true;
   const group=parentSourceGroup(parent);
   const source=librarySourceForVideo(row);
   if(source&&group&&sourceGroupsFor(source).includes(group))return true;
@@ -1994,6 +2002,38 @@ function aiDisplayRows(rows=[]){
   return out;
 }
 
+function patchRenderedAiMeta(rows=[]){
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=itemVideoId(row);
+    if(!id)continue;
+    const meta=state.aiVideoMeta.get(id);
+    if(!meta)continue;
+    const card=feed?.querySelector?.('[data-video-id="'+CSS.escape(id)+'"]');
+    if(!card)continue;
+
+    const title=clean(meta.displayTitle||row?._displayTitle||row?.title||"");
+    const source=clean(meta.displaySource||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
+    const titleEl=card.querySelector(".card-title");
+    const sourceEl=card.querySelector(".card-channel");
+
+    if(title&&titleEl){
+      titleEl.textContent=title;
+      card.dataset.title=title;
+    }
+    if(source&&sourceEl){
+      const duplicate=sourceEl.querySelector(".card-related")?.textContent||"";
+      sourceEl.textContent=source;
+      if(duplicate){
+        const span=document.createElement("span");
+        span.className="card-related";
+        span.textContent=" · "+duplicate.replace(/^\s*·\s*/,"");
+        sourceEl.appendChild(span);
+      }
+      card.dataset.channel=source;
+    }
+  }
+}
+
 function categoryCacheRows(parentKey=""){
   const cached=state.aiCategoryRows.get(parentKey);
   if(!cached||!Array.isArray(cached.items))return [];
@@ -2123,18 +2163,29 @@ async function loadAiParentDiscovery(parent){
   state.aiCategoryLoading.add(parent.key);
   try{
     const local=await localEngine(12000);
+    const primarySources=selectedSourcesForParent(parent);
+    const primaryIds=new Set(primarySources.map(source=>source.id));
+
+    const cachedPrimary=readSourcePoolCache()
+      .filter(row=>primaryIds.has(String(row?._sourceId||"")))
+      .filter(uploadedWithinCategoryWindow);
+
+    const primaryPromise=cachedPrimary.length
+      ?Promise.resolve(cachedPrimary)
+      :fetchSourcePool(local,primarySources,true).catch(()=>[]);
+
     const queries=[...new Set([
       ...(Array.isArray(parent.queries)?parent.queries:[]),
       parent.label
     ].map(clean).filter(Boolean))].slice(0,4);
 
-    const batches=await Promise.all(
+    const discoveryPromise=Promise.all(
       queries.map((query,index)=>
         collectRecentPages(
           local,
           "ai-fast:"+parent.key+":"+index+":"+fastHash(query),
           query,
-          uploadedWithinWeek,
+          uploadedWithinCategoryWindow,
           true,
           {upload_date:"week",sort_by:"upload_date"},
           1
@@ -2142,26 +2193,46 @@ async function loadAiParentDiscovery(parent){
       )
     );
 
-    let rows=dedupeHashedRows(
-      weekFreshViewedFirst(
-        mergeUniqueRows([],batches.flat()).filter(uploadedWithinWeek)
-      )
-    ).slice(0,120);
+    const [primaryRaw,batches]=await Promise.all([primaryPromise,discoveryPromise]);
+
+    const primaryRows=weekFreshViewedFirst(
+      (Array.isArray(primaryRaw)?primaryRaw:[])
+        .filter(uploadedWithinCategoryWindow)
+        .filter(row=>!isBlockedSourceRow(row))
+        .map(row=>({...row,_selectedCategorySource:true}))
+    );
+
+    const discoveredRows=weekFreshViewedFirst(
+      mergeUniqueRows([],batches.flat())
+        .filter(uploadedWithinCategoryWindow)
+        .filter(row=>!isBlockedSourceRow(row))
+    );
+
+    let rows=dedupeHashedRows([
+      ...primaryRows,
+      ...discoveredRows
+    ]).slice(0,140);
 
     rows=filterRowsForAiParent(parent,rows);
     const {trusted,ambiguous}=splitLocalCategoryRows(parent,rows);
 
+    const selectedTrusted=trusted.filter(row=>row?._selectedCategorySource===true);
+    const otherTrusted=trusted.filter(row=>row?._selectedCategorySource!==true);
+
     state.trendTopics=[];
     renderTrendTopics();
 
-    // The first screen is built from curated sources / strong local rules.
-    // This means the user sees useful content before Gemini has to finish.
-    const fastCandidates=trusted.slice(0,16);
+    const fastCandidates=[
+      ...selectedTrusted,
+      ...otherTrusted
+    ].slice(0,20);
+
     const trustedIds=new Set(trusted.map(itemVideoId).filter(Boolean));
 
     const aiSampleWanted=[
-      ...trusted.slice(0,12),
-      ...ambiguous.slice(0,36)
+      ...selectedTrusted.slice(0,32),
+      ...otherTrusted.slice(0,8),
+      ...ambiguous.slice(0,8)
     ];
     const aiSampleIds=new Set(aiSampleWanted.map(itemVideoId).filter(Boolean));
     const aiSample=rows.filter(row=>aiSampleIds.has(itemVideoId(row))).slice(0,48);
@@ -2191,32 +2262,31 @@ async function loadAiParentDiscovery(parent){
     if(state.activeParent===parent.key){
       if(visibleRows.length){
         renderCards(aiDisplayRows(visibleRows));
-        feedStatus.textContent=visibleRows.length+" video · đang bổ sung…";
+        const selectedCount=visibleRows.filter(row=>row?._selectedCategorySource===true).length;
+        feedStatus.textContent=visibleRows.length+" video"+(selectedCount?" · "+selectedCount+" từ nguồn đã chọn":"")+" · đang bổ sung…";
       }else{
-        feed.innerHTML='<div class="loading">Đang phân loại '+esc(parent.label)+'…</div>';
+        feed.innerHTML='<div class="loading">Đang tải nguồn đã chọn…</div>';
         feedStatus.textContent="";
       }
     }
 
     const classified=await classificationPromise;
     const accepted=classified.acceptedVideoIds||new Set();
-
     state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
 
-    // Curated/strong-rule rows never need Gemini approval.
-    // Ambiguous rows are accepted only if the small AI batch accepts them.
-    let acceptedRows=rows.filter(row=>{
+    if(state.activeParent===parent.key){
+      patchRenderedAiMeta(visibleRows);
+    }
+
+    const acceptedRows=rows.filter(row=>{
       const id=itemVideoId(row);
       return id&&(trustedIds.has(id)||accepted.has(id));
     });
 
-    // Keep the current viewport stable: rows already shown stay where they are.
-    // Only prepare/append unseen rows below.
     const remaining=acceptedRows
       .filter(row=>!visibleIds.has(itemVideoId(row)))
-      .slice(0,Math.max(0,72-visibleRows.length));
+      .slice(0,Math.max(0,88-visibleRows.length));
 
-    let appendedAfterAi=[];
     for(let offset=0;offset<remaining.length;offset+=16){
       const chunk=remaining.slice(offset,offset+16);
       const safeChunk=await filterNativeAiGeneratedRows(local,parent,chunk);
@@ -2224,8 +2294,6 @@ async function loadAiParentDiscovery(parent){
 
       visibleRows=mergeUniqueRows(visibleRows,safeChunk);
       visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-      appendedAfterAi=mergeUniqueRows(appendedAfterAi,safeChunk);
-
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
 
       if(state.activeParent===parent.key&&!state.activeTrend){
@@ -2255,24 +2323,28 @@ async function loadAiParentDiscovery(parent){
         renderCards(aiDisplayRows(trendRows(state.feedRows)));
       }else if(!feed.querySelector("[data-video-id]")){
         renderCards(aiDisplayRows(visibleRows));
+      }else{
+        patchRenderedAiMeta(visibleRows);
       }
-      feedStatus.textContent=visibleRows.length?visibleRows.length+" video":"";
+
+      const selectedCount=visibleRows.filter(row=>row?._selectedCategorySource===true).length;
+      feedStatus.textContent=visibleRows.length
+        ?visibleRows.length+" video"+(selectedCount?" · "+selectedCount+" từ nguồn đã chọn":"")
+        :"";
     }
 
-    // If the curated library already covers the category, stop here.
-    // Otherwise classify one more small ambiguous batch and append only.
     const remainingAmbiguous=ambiguous
       .filter(row=>!aiSampleIds.has(itemVideoId(row)))
-      .slice(0,32);
+      .slice(0,24);
 
-    if(visibleRows.length<48&&remainingAmbiguous.length>=4){
+    if(visibleRows.length<56&&remainingAmbiguous.length>=4){
       const extra=await classifyAiParent(parent,remainingAmbiguous).catch(()=>null);
       if(extra){
         state.aiVideoMeta=new Map([...state.aiVideoMeta,...extra.videoMeta]);
         const extraAccepted=remainingAmbiguous.filter(row=>
           extra.acceptedVideoIds?.has(itemVideoId(row))&&!visibleIds.has(itemVideoId(row))
         );
-        const safeExtra=await filterNativeAiGeneratedRows(local,parent,extraAccepted.slice(0,24));
+        const safeExtra=await filterNativeAiGeneratedRows(local,parent,extraAccepted.slice(0,20));
 
         if(safeExtra.length){
           visibleRows=mergeUniqueRows(visibleRows,safeExtra);
@@ -2299,14 +2371,20 @@ async function loadAiParentDiscovery(parent){
 
           state.aiCategoryRows.set(parent.key,{at:Date.now(),items:visibleRows});
           state.aiCategoryTopics.set(parent.key,topics);
+
           if(state.activeParent===parent.key){
             state.trendTopics=topics;
             renderTrendTopics();
             if(!state.activeTrend)renderCards(aiDisplayRows(safeExtra),{append:true});
+            patchRenderedAiMeta(safeExtra);
             feedStatus.textContent=visibleRows.length+" video";
           }
         }
       }
+    }
+
+    if(cachedPrimary.length&&primarySources.length){
+      void fetchSourcePool(local,primarySources,true).catch(()=>[]);
     }
   }catch(error){
     console.warn("ai category discovery failed",parent?.label||parent?.key,error);
@@ -3352,6 +3430,12 @@ function uploadedWithinWeek(row){
   return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
 }
 
+function uploadedWithinCategoryWindow(row){
+  if(row?.isLive)return false;
+  const age=publishedAgeMs(row);
+  return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+}
+
 async function normalizeRegionalRow(row={}){
   const duration=Number(row?.duration);
   const uploaded=Number(row?.uploaded);
@@ -3454,6 +3538,7 @@ async function fetchSourcePool(local,sources,reset=true){
   const worker=async()=>{
     while(cursor<sources.length){
       const source=sources[cursor++];
+      if(!source||blockedSourceIds.has(source.id))continue;
       try{
         const rows=await local.channelVideosPage(
           "library:"+source.id,
