@@ -253,6 +253,29 @@ let sourceMetaObserver=null;
 const sourceMetaCache=new Map();
 const sourceMetaPending=new Set();
 
+function managedChannelLibrary(){
+  const rows=channelLibrary();
+  const byId=new Map(rows.map(row=>[row.id,row]));
+
+  for(const id of new Set([...selectedSourceIds,...blockedSourceIds])){
+    if(byId.has(id))continue;
+    const meta=sourceMetaCache.get(id)||{};
+    const row={
+      id,
+      name:clean(meta.name||id),
+      thumbnailUrl:clean(meta.thumbnailUrl||""),
+      subscribers:clean(meta.subscribers||""),
+      groups:Array.isArray(sourceGroupOverrides[id])
+        ?sourceGroupOverrides[id].map(String).filter(Boolean)
+        :[]
+    };
+    rows.push(row);
+    byId.set(id,row);
+  }
+
+  return rows;
+}
+
 function persistSourceSelection(){
   try{
     localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
@@ -292,7 +315,11 @@ function hideBlockedSourceNow(id){
 }
 
 function setSourceStatus(id,status){
-  if(!libraryHas(id))return;
+  if(
+    !libraryHas(id) &&
+    !selectedSourceIds.has(id) &&
+    !blockedSourceIds.has(id)
+  )return;
 
   const learnedGroup=sourceManageMode&&sourceManageGroup!=="all"?sourceManageGroup:"";
   if(learnedGroup)assignSourceGroup(id,learnedGroup);
@@ -430,7 +457,7 @@ function isBlockedSourceRow(row={}){
 }
 
 function updateSourceSummary(){
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   const selected=rows.filter(row=>selectedSourceIds.has(row.id)&&!blockedSourceIds.has(row.id)).length;
   const blocked=rows.filter(row=>blockedSourceIds.has(row.id)).length;
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selected);
@@ -452,7 +479,7 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const exists=libraryHas(row.id);
+  const exists=libraryHas(row.id)||selectedSourceIds.has(row.id)||blockedSourceIds.has(row.id);
   const status=exists?sourceStatus(row.id):"normal";
   const active=status==="selected";
   const blocked=status==="blocked";
@@ -504,7 +531,7 @@ function sourceRowHtml(row,{remote=false}={}){
 
 function updateSourceRowMeta(id){
   if(!sourceList)return;
-  const row=libraryRow(id)||sourceRemoteResults.find(item=>item.id===id);
+  const row=libraryRow(id)||managedChannelLibrary().find(item=>item.id===id)||sourceRemoteResults.find(item=>item.id===id);
   if(!row)return;
   const current=sourceList.querySelector('.source-row[data-source-id="'+CSS.escape(id)+'"]');
   if(!current)return;
@@ -568,7 +595,7 @@ function renderSourceGroupTabs(){
     return;
   }
 
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     const count=group.key==="all"
       ?rows.length
@@ -599,7 +626,7 @@ function sourceStatusSection(label,rows=[],options={}){
 
 function renderSourceLibrary(){
   if(!sourceList)return;
-  const rows=channelLibrary();
+  const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
   const groupFilter=row=>
