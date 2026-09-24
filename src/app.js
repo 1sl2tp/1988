@@ -707,9 +707,13 @@ function renderSourceGroupTabs(){
 
   const rows=managedChannelLibrary();
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
+    const explicitIds=new Set([
+      ...selectedSetForScope(group.key),
+      ...blockedSetForScope(group.key)
+    ]);
     const count=group.key===GENERAL_SOURCE_SCOPE
       ?rows.length
-      :rows.filter(row=>sourceGroupsFor(row).includes(group.key)).length;
+      :rows.filter(row=>explicitIds.has(row.id)||sourceGroupsFor(row).includes(group.key)).length;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
@@ -739,10 +743,15 @@ function renderSourceLibrary(){
   const rows=managedChannelLibrary();
   const q=normalizeSearchText(sourceSearch?.value||"");
 
+  const scopedStateIds=new Set([
+    ...selectedSetForScope(sourceManageGroup),
+    ...blockedSetForScope(sourceManageGroup)
+  ]);
   const groupFilter=row=>
     !!q||
     !sourceManageMode||
     sourceManageGroup===GENERAL_SOURCE_SCOPE||
+    scopedStateIds.has(row.id)||
     sourceGroupsFor(row).includes(sourceManageGroup);
 
   const localRows=rows.filter(row=>
@@ -2443,7 +2452,8 @@ async function discoverSourcesForParent(parent,local){
         uploadedWithinCategoryWindow,
         true,
         {upload_date:"week",sort_by:"upload_date"},
-        1
+        1,
+        group
       ).catch(()=>[])
     )
   );
@@ -2917,8 +2927,9 @@ function renderCards(rows=[],options={}){
       : []
   );
   const cards=[];
+  const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
-    if(isBlockedSourceRow(row))continue;
+    if(isBlockedSourceRow(row,renderScope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -3627,16 +3638,16 @@ installSheet.addEventListener("click",e=>{if(e.target===installSheet)installShee
 
 const FEED_CACHE_PREFIX="1988-discovery-v21:";
 
-async function pagedSearch(local,key,query,filters={},reset=false){
+async function pagedSearch(local,key,query,filters={},reset=false,scope=GENERAL_SOURCE_SCOPE){
   try{
     const rows=await local.searchPage(key,query,{type:"video",...filters},reset);
-    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
+    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
   }catch(error){
     console.warn("paged search failed",key,error);
     if(!reset)return [];
     try{
       const rows=await local.search(query,{type:"video",...filters});
-      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row));
+      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
     }catch{
       return [];
     }
@@ -3910,12 +3921,12 @@ async function regionalDiscoveryFeed(local,predicate,reset=false){
   return rows.filter(predicate);
 }
 
-async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3){
+async function collectRecentPages(local,key,query,predicate,reset=false,filters={},maxPages=3,scope=GENERAL_SOURCE_SCOPE){
   const collected=[];
   let first=reset;
 
   for(let page=0;page<maxPages;page++){
-    const rows=await pagedSearch(local,key,query,filters,first);
+    const rows=await pagedSearch(local,key,query,filters,first,scope);
     first=false;
     if(!Array.isArray(rows)||!rows.length)break;
 
