@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-main-sources-v87';
+const CACHE='1988-main-sources-v88';
 const SHELL=[
   './',
   './index.html',
