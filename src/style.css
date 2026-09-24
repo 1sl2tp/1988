@@ -287,8 +287,22 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   touch-action:auto!important;
 }
 
-.player-frame.floating-iframe.dock-right.float-tucked{transform:translateX(calc(100% - 18px))}
-.player-frame.floating-iframe.dock-left.float-tucked{transform:translateX(calc(-100% + 18px))}
+.player-frame.floating-iframe.dock-right.float-tucked{transform:translateX(calc(100% - 6px))}
+.player-frame.floating-iframe.dock-left.float-tucked{transform:translateX(calc(-100% + 6px))}
+
+.player-frame.floating-iframe.float-tucked{
+  border:0;
+  background:transparent;
+  box-shadow:none;
+}
+.player-frame.floating-iframe.float-tucked::before,
+.player-frame.floating-iframe.float-tucked::after{display:none}
+.player-frame.floating-iframe.float-tucked #yt-player,
+.player-frame.floating-iframe.float-tucked iframe,
+.player-frame.floating-iframe.float-tucked video{
+  opacity:0!important;
+  pointer-events:none!important;
+}
 
 /* No invisible resize zones remain. The rail is its own surface beside the player. */
 .float-dock-edge,.float-resize-zone{display:none!important}
@@ -299,29 +313,28 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   position:absolute;
   z-index:30;
   top:50%;
-  width:44px;
-  padding:5px;
+  width:28px;
+  padding:2px;
   flex-direction:column;
-  gap:4px;
   transform:translateY(-50%);
   border:1px solid rgba(255,255,255,.10);
-  border-radius:15px;
-  background:rgba(17,17,20,.88);
-  -webkit-backdrop-filter:blur(12px);
-  backdrop-filter:blur(12px);
-  box-shadow:0 8px 24px rgba(0,0,0,.34);
-  opacity:.42;
-  transition:opacity .15s ease,transform .15s ease;
+  border-radius:10px;
+  background:rgba(17,17,20,.80);
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  box-shadow:0 5px 16px rgba(0,0,0,.28);
+  opacity:.18;
+  transition:opacity .15s ease;
 }
-.player-frame.floating-iframe.dock-right .float-mode-rail{left:-54px}
-.player-frame.floating-iframe.dock-left .float-mode-rail{right:-54px}
+.player-frame.floating-iframe.dock-right .float-mode-rail{left:-34px}
+.player-frame.floating-iframe.dock-left .float-mode-rail{right:-34px}
 .player-frame.floating-iframe .float-mode-rail:hover,
 .player-frame.floating-iframe .float-mode-rail:focus-within{opacity:1}
 
 .float-mode-btn{
   position:relative;
-  width:32px;
-  height:32px;
+  width:22px;
+  height:38px;
   margin:0 auto;
   padding:0;
   display:grid;
@@ -336,7 +349,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .float-mode-btn:hover,.float-mode-btn:focus-visible{background:rgba(255,255,255,.10);color:#fff;outline:none}
 .float-mode-btn.active{background:rgba(255,255,255,.16);color:#fff}
-.float-mode-icon{font-size:20px;line-height:1;font-weight:500;pointer-events:none}
+.float-mode-icon{font-size:17px;line-height:1;font-weight:600;pointer-events:none}
 .float-mode-label{
   position:absolute;
   top:50%;
@@ -364,31 +377,27 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   position:absolute;
   z-index:31;
   top:50%;
-  width:18px;
-  height:52px;
+  width:6px;
+  height:58px;
   padding:0;
   transform:translateY(-50%);
   align-items:center;
   justify-content:center;
-  border:1px solid rgba(255,255,255,.11);
-  background:rgba(18,18,20,.92);
-  color:#fff;
-  font-size:16px;
-  line-height:1;
+  border:0;
+  border-radius:3px;
+  background:rgba(255,255,255,.34);
+  color:transparent;
+  font-size:0;
   -webkit-tap-highlight-color:transparent;
   touch-action:manipulation;
+  box-shadow:0 0 0 1px rgba(0,0,0,.24);
 }
 .player-frame.floating-iframe.float-tucked .float-mode-rail{display:none}
 .player-frame.floating-iframe.float-tucked .float-edge-tab{display:flex}
-.player-frame.floating-iframe.dock-right .float-edge-tab{left:0;border-radius:0 8px 8px 0}
-.player-frame.floating-iframe.dock-left .float-edge-tab{right:0;border-radius:8px 0 0 8px}
+.player-frame.floating-iframe.dock-right .float-edge-tab{left:0}
+.player-frame.floating-iframe.dock-left .float-edge-tab{right:0}
 
-/* Square/portrait only override the small PiP aspect when auto detection is wrong. */
-.player-frame.floating-iframe.float-view-square,
-.player-frame.floating-iframe.float-view-portrait{
-  border-radius:14px;
-  box-shadow:0 18px 54px rgba(0,0,0,.58),0 0 0 1px rgba(255,255,255,.08);
-}
+/* PiP aspect is automatic; the only visible utility control is edge tuck. */
 @media(max-width:640px){
   .player-frame.floating-iframe{
     top:calc(var(--header-stack-h) + var(--safe-top) + 8px);
@@ -403,18 +412,15 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   .player-frame.floating-iframe iframe,
   .player-frame.floating-iframe video{border-radius:11px}
   .player-frame.floating-iframe .float-mode-rail{
-    width:42px;
-    padding:4px;
-    gap:3px;
+    width:26px;
+    padding:2px;
   }
-  .float-mode-btn{width:32px;height:34px}
+  .float-mode-btn{width:20px;height:36px}
   .float-mode-label{display:none}
 }
 
 @media(hover:none){
-  .player-frame.floating-iframe .float-mode-rail{opacity:.72}
-  .player-frame.floating-iframe.float-view-square .float-mode-rail,
-  .player-frame.floating-iframe.float-view-portrait .float-mode-rail{opacity:.72}
+  .player-frame.floating-iframe .float-mode-rail{opacity:.64}
 }
 
 /* Channel library */

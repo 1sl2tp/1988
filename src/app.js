@@ -2142,11 +2142,16 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
     button.setAttribute("aria-pressed",active?"true":"false");
   });
 
+  const tuckIcon=rail?.querySelector?.('[data-float-mode="tuck"] .float-mode-icon');
+  if(tuckIcon)tuckIcon.textContent=state.floatDock==="left"?"‹":"›";
+
   const edgeTab=frame.querySelector(".float-edge-tab");
   if(edgeTab){
-    const tuckedRight=state.floatDock!=="left";
-    edgeTab.textContent=tuckedRight?"‹":"›";
-    edgeTab.setAttribute("aria-label",tuckedRight?"Mở video từ mép phải":"Mở video từ mép trái");
+    edgeTab.textContent="";
+    edgeTab.setAttribute(
+      "aria-label",
+      state.floatDock==="left"?"Mở video từ mép trái":"Mở video từ mép phải"
+    );
   }
 }
 
@@ -2190,13 +2195,21 @@ function setFloatPreset(mode){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
 
   if(mode==="tuck"){
+    const rect=frame.getBoundingClientRect();
+    state.floatBox={
+      left:rect.left,
+      top:rect.top,
+      width:rect.width,
+      height:rect.height
+    };
     state.floatTucked=true;
     updateFloatControlState(frame);
     return;
   }
 
+  // Aspect is automatic. No manual square/portrait mode is exposed.
   state.floatTucked=false;
-  state.floatPreset=state.floatPreset===mode?"auto":mode;
+  state.floatPreset="auto";
   state.floatUserSized=false;
   applyFloatPreset(frame);
 }
@@ -2242,9 +2255,7 @@ function ensureFloatHandles(){
   };
 
   rail.append(
-    makeButton("tuck","⇥","Vào mép"),
-    makeButton("square","□","Khung vuông"),
-    makeButton("portrait","▯","Khung dọc")
+    makeButton("tuck",state.floatDock==="left"?"‹":"›","Thu vào mép")
   );
 
   const edgeTab=document.createElement("button");
@@ -2431,16 +2442,16 @@ function updateFloatingAmbient(frame){
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   const next=normalizedVideoAspect(meta);
   if(!next)return;
+
   state.videoAspect=next;
+  state.floatPreset="auto";
+  state.floatUserSized=false;
 
   const frame=playerSection?.querySelector(".player-frame");
-  if(
-    frame?.classList.contains("floating-iframe") &&
-    !state.floatUserSized &&
-    state.floatPreset==="auto"
-  ){
+  if(frame?.classList.contains("floating-iframe")){
     state.floatBox={top:frame.getBoundingClientRect().top};
     applyAutoFloatAspect(frame,{force:true});
+    updateFloatControlState(frame);
   }
 }
 
