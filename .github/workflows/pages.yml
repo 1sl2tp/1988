@@ -65,6 +65,9 @@ jobs:
       - name: Apply freshness v13
         run: python3 scripts/apply-freshness-v13.py
 
+      - name: Apply publisher sources v14
+        run: python3 scripts/apply-sources-v14.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
