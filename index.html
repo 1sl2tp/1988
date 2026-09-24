@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=smart-sources-61">
+  <link rel="stylesheet" href="./src/style.css?v=source-popup-62">
   <title>1988</title>
 </head>
 <body>
@@ -110,9 +110,12 @@
         <button id="closeSourcesSheet" type="button" aria-label="Đóng">×</button>
       </div>
       <div id="sourceBrowse" class="source-browse">
-        <div class="source-search-wrap">
-          <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh trên YouTube">
-          <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
+        <div class="source-search-bar">
+          <div class="source-search-wrap">
+            <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh trên YouTube">
+            <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
+          </div>
+          <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
         </div>
         <div id="sourceSearchStatus" class="source-search-status"></div>
         <div id="sourceList" class="source-list"></div>
@@ -123,6 +126,16 @@
           <strong id="sourcePreviewTitle"></strong>
         </div>
         <div id="sourcePreviewList" class="source-preview-list"></div>
+      </div>
+
+      <div id="sourceVideoPopup" class="source-video-popup" hidden>
+        <div class="source-video-popup-card">
+          <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
+          <div class="source-video-popup-frame">
+            <iframe id="sourceVideoFrame" title="Video YouTube" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+          </div>
+          <div id="sourceVideoPopupTitle" class="source-video-popup-title"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -141,8 +154,8 @@
   <script src="./src/media-core.js?v=2"></script>
   <script src="./src/html5-background.js?v=9"></script>
   <script src="./src/channel-library.js?v=smart-sources-61"></script>
-  <script type="module" src="./src/yt-local.js?v=smart-sources-61"></script>
+  <script type="module" src="./src/yt-local.js?v=source-popup-62"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=smart-sources-61"></script>
+  <script defer src="./src/app.js?v=source-popup-62"></script>
 </body>
 </html>
