@@ -341,7 +341,7 @@ function resumeVideoAfterReturn(){
         applyFloatingIframe();
         return;
       }
-      state.player?.playVideo?.();
+      ensureIframePlaying();
     }catch{}
   };
 
@@ -677,7 +677,7 @@ function playVideoEngine(){
     void nativePlayer.play().catch(()=>{});
     return;
   }
-  try{state.player?.playVideo?.();}catch{}
+  try{ensureIframePlaying();}catch{}
 }
 
 function pauseVideoEngine(){
@@ -844,7 +844,7 @@ async function playVideo(id,seedMeta={}){
     try{
       state.player.unMute?.();
       state.player.loadVideoById(id);
-      state.player.playVideo?.();
+      ensureIframePlaying();
       statusText.textContent="Video YouTube đang phát";
     }catch{
       state.pendingVideoId=id;
@@ -870,6 +870,34 @@ async function playVideo(id,seedMeta={}){
   }).catch(()=>{});
 }
 
+function forceCaptionsOff(){
+  if(!state.player)return;
+  try{
+    state.player.setOption?.("captions","track",{});
+  }catch{}
+  try{
+    state.player.setOption?.("cc","track",{});
+  }catch{}
+}
+
+function ensureIframePlaying(){
+  if(!state.player||!state.currentId||!state.intentPlay||state.mode!=="video")return;
+
+  const attempt=()=>{
+    if(!state.player||!state.currentId||!state.intentPlay||state.mode!=="video")return;
+    forceCaptionsOff();
+    try{
+      const ps=state.player.getPlayerState?.();
+      if(ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING)return;
+      state.player.playVideo?.();
+    }catch{}
+  };
+
+  attempt();
+  setTimeout(attempt,180);
+  setTimeout(attempt,520);
+}
+
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
 
@@ -892,18 +920,20 @@ function initYouTubePlayer(){
     events:{
       onReady(){
         state.playerReady=true;
+        forceCaptionsOff();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
         if(id){
           try{
             state.player.unMute?.();
             state.player.loadVideoById(id);
-            state.player.playVideo?.();
+            ensureIframePlaying();
           }catch{}
         }
       },
       onStateChange(event){
         if(event.data===YT.PlayerState.PLAYING){
+          forceCaptionsOff();
           state.videoPlaying=true;
           state.intentPlay=true;
           state.resumeOnReturn=false;
@@ -912,6 +942,12 @@ function initYouTubePlayer(){
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
           try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
+        }else if(event.data===YT.PlayerState.BUFFERING){
+          forceCaptionsOff();
+          if(state.intentPlay)ensureIframePlaying();
+        }else if(event.data===YT.PlayerState.CUED){
+          forceCaptionsOff();
+          if(state.intentPlay)ensureIframePlaying();
         }else if(event.data===YT.PlayerState.PAUSED){
           state.videoPlaying=false;
 
@@ -943,6 +979,9 @@ function initYouTubePlayer(){
           applyFloatingIframe();
           if(state.mode==="video")statusText.textContent="Đã phát xong";
         }
+      },
+      onApiChange(){
+        forceCaptionsOff();
       },
       onError(){
         statusText.textContent="YouTube không phát được video này";
