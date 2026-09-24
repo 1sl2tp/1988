@@ -10,6 +10,8 @@ chromium.setGraphicsMode = false;
 
 let browserPromise = null;
 const cache = new Map();
+const warmFeeds = new Map();
+const refreshInFlight = new Map();
 
 function json(res, status, data) {
   res.writeHead(status, {
@@ -214,9 +216,9 @@ async function collectRecommend(max = 60) {
   try {
     await page.goto('https://www.tiktok.com/foryou?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 22000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      timeout: 14000,
+    }).catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
 
     const apiRows = await tryRecommendApi(page, max);
     if (apiRows.length >= 8) return apiRows;
@@ -234,9 +236,9 @@ async function collectExplore(max = 60) {
   try {
     await page.goto('https://www.tiktok.com/explore?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 22000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      timeout: 14000,
+    }).catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
     await scrollFeed(page, 8);
     return await collectVideoLinks(page, max);
   } finally {
@@ -337,9 +339,9 @@ async function collectLive(max = 30) {
   try {
     await page.goto('https://www.tiktok.com/live?lang=vi-VN&region=VN', {
       waitUntil: 'domcontentloaded',
-      timeout: 22000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 2500));
+      timeout: 14000,
+    }).catch(() => null);
+    await new Promise((resolve) => setTimeout(resolve, 1800));
     await scrollFeed(page, 5);
 
     const handles = await page.evaluate(() => {
@@ -381,29 +383,100 @@ function putCache(key, value) {
   }
 }
 
+
+async function refreshPublicFeed(mode) {
+  if (!['recommend', 'explore', 'live'].includes(mode)) return [];
+  if (refreshInFlight.has(mode)) return refreshInFlight.get(mode);
+
+  const task = (async () => {
+    const started = Date.now();
+    let items = [];
+    try {
+      if (mode === 'recommend') items = await collectRecommend(70);
+      else if (mode === 'explore') items = await collectExplore(70);
+      else items = await collectLive(40);
+
+      if (items.length) {
+        warmFeeds.set(mode, { at: Date.now(), items });
+        console.log('prefetch:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
+      } else {
+        console.log('prefetch:empty', mode, 'ms=' + (Date.now() - started));
+      }
+      return items;
+    } catch (error) {
+      console.error('prefetch:failed', mode, error?.message || error);
+      return [];
+    } finally {
+      refreshInFlight.delete(mode);
+    }
+  })();
+
+  refreshInFlight.set(mode, task);
+  return task;
+}
+
+function publicFeedCache(mode, limit) {
+  const row = warmFeeds.get(mode);
+  if (!row?.items?.length) return null;
+  const maxAge = mode === 'live' ? 2 * 60 * 1000 : 8 * 60 * 1000;
+  if (Date.now() - row.at > maxAge) {
+    void refreshPublicFeed(mode);
+  }
+  return row.items.slice(0, limit);
+}
+
+async function withTimeout(promise, ms, fallback = []) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(fallback), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function feed(mode, handles, limit) {
   const started = Date.now();
   console.log('feed:start', mode, 'handles=' + handles.length, 'limit=' + limit);
-  const cacheKey = mode + ':' + handles.join(',') + ':' + limit;
-  const ttl = mode === 'live' ? 45_000 : 90_000;
-  const hit = cached(cacheKey, ttl);
-  if (hit) return hit;
 
-  let items = [];
-  if (mode === 'recommend') items = await collectRecommend(limit);
-  else if (mode === 'explore') items = await collectExplore(limit);
-  else if (mode === 'following') items = await collectFollowing(handles, limit);
-  else if (mode === 'live') items = await collectLive(limit);
-  else throw new Error('unsupported_mode');
+  if (['recommend', 'explore', 'live'].includes(mode)) {
+    let items = publicFeedCache(mode, limit);
+    if (!items) {
+      items = await withTimeout(refreshPublicFeed(mode), 30000, []);
+      items = items.slice(0, limit);
+    }
 
-  const value = {
-    items,
-    sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
-    mode,
-  };
-  putCache(cacheKey, value);
-  console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
-  return value;
+    const value = {
+      items,
+      sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
+      mode,
+      warming: items.length === 0 && refreshInFlight.has(mode),
+    };
+    console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
+    return value;
+  }
+
+  if (mode === 'following') {
+    const cacheKey = mode + ':' + handles.join(',') + ':' + limit;
+    const hit = cached(cacheKey, 90_000);
+    if (hit) return hit;
+
+    const items = await withTimeout(collectFollowing(handles, limit), 30000, []);
+    const value = {
+      items,
+      sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
+      mode,
+    };
+    putCache(cacheKey, value);
+    console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
+    return value;
+  }
+
+  throw new Error('unsupported_mode');
 }
 
 const server = http.createServer(async (req, res) => {
@@ -450,6 +523,22 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, '0.0.0.0', () => {
   console.log('1988 TikTok browser service listening on', PORT);
   void getBrowser()
-    .then(() => console.log('chromium:warm'))
+    .then(async () => {
+      console.log('chromium:warm');
+      await Promise.allSettled([
+        refreshPublicFeed('recommend'),
+        refreshPublicFeed('explore'),
+        refreshPublicFeed('live'),
+      ]);
+    })
     .catch((error) => console.error('chromium:warm-failed', error?.message || error));
+
+  setInterval(() => {
+    void refreshPublicFeed('recommend');
+    void refreshPublicFeed('explore');
+  }, 5 * 60 * 1000).unref();
+
+  setInterval(() => {
+    void refreshPublicFeed('live');
+  }, 60 * 1000).unref();
 });
