@@ -459,6 +459,25 @@ function fmtDuration(sec){
 }
 
 
+const IDENTIFIED_NEWS_SOURCES=[
+  {
+    groups:["news","economy","security"],
+    aliases:["vtv24","vtv news","thoi bao vtv","vtv1","vnews","thong tan xa viet nam","vietnamplus","vtc now","vtc news"]
+  },
+  {
+    groups:["security","news"],
+    aliases:["antv","cong an nhan dan","bao cong an nhan dan","cand","quoc phong viet nam","qpvn","quan doi nhan dan"]
+  },
+  {
+    groups:["news","economy","security"],
+    aliases:["thanh nien","tuoi tre","vnexpress","dan tri","vietnamnet","lao dong","nguoi lao dong","plo","phap luat tp hcm","bao tin tuc"]
+  },
+  {
+    groups:["economy"],
+    aliases:["vtv money","vtvmoney","vneconomy","bao dau tu","dau tu online"]
+  }
+];
+
 const SOURCE_ALIASES=[
   {name:"VTV24",aliases:["vtv24","vtv 24"]},
   {name:"VTC NOW",aliases:["vtc now","vtcnow","vtc"]},
@@ -550,11 +569,48 @@ function publishedAgeMs(row={}){
   return Number.MAX_SAFE_INTEGER;
 }
 
-function newestFirst(rows=[]){
+function identifiedSourcePriority(row={},group=""){
+  if(!group)return 0;
+  const channel=normalizeSearchText(row?.uploaderName||row?.uploader||row?.channelName||"");
+  if(!channel)return 0;
+
+  for(let i=0;i<IDENTIFIED_NEWS_SOURCES.length;i++){
+    const source=IDENTIFIED_NEWS_SOURCES[i];
+    if(!source.groups.includes(group))continue;
+    if(source.aliases.some(alias=>channel.includes(normalizeSearchText(alias)))){
+      return IDENTIFIED_NEWS_SOURCES.length-i;
+    }
+  }
+  return 0;
+}
+
+function newestFirst(rows=[],group=""){
   return rows
-    .map((row,index)=>({row,index,age:publishedAgeMs(row)}))
-    .sort((a,b)=>(a.age-b.age)||(a.index-b.index))
+    .map((row,index)=>({
+      row,
+      index,
+      age:publishedAgeMs(row),
+      source:identifiedSourcePriority(row,group)
+    }))
+    .sort((a,b)=>
+      (a.age-b.age) ||
+      (b.source-a.source) ||
+      (a.index-b.index)
+    )
     .map(item=>item.row);
+}
+
+function mostViewedFirst(rows=[]){
+  return rows
+    .map((row,index)=>({row,index,views:Number(row?.views)||0}))
+    .sort((a,b)=>(b.views-a.views)||(a.index-b.index))
+    .map(item=>item.row);
+}
+
+function sortPresetRows(rows=[],preset={}){
+  if(preset.mostViewed)return mostViewedFirst(rows);
+  if(preset.newest)return newestFirst(rows,preset.sourceGroup||"");
+  return rows;
 }
 
 function mergeUniqueRows(base=[],extra=[]){
@@ -1325,21 +1381,25 @@ const FEED_PRESETS={
   popular:{
     title:"Xem nhiều",
     newest:false,
-    load:(local,reset)=>pagedSearch(local,"popular","Việt Nam",{prioritize:"popularity"},reset)
+    mostViewed:true,
+    load:(local,reset)=>pagedSearch(local,"popular","Việt Nam",{sort_by:"view_count"},reset)
   },
   news:{
     title:"Thời sự",
     newest:true,
+    sourceGroup:"news",
     load:(local,reset)=>pagedSearch(local,"news","thời sự Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   economy:{
     title:"Kinh tế",
     newest:true,
+    sourceGroup:"economy",
     load:(local,reset)=>pagedSearch(local,"economy","kinh tế Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   security:{
     title:"An ninh",
     newest:true,
+    sourceGroup:"security",
     load:(local,reset)=>pagedSearch(local,"security","an ninh pháp luật Việt Nam",{upload_date:"week",sort_by:"upload_date"},reset)
   },
   music:{
@@ -1399,7 +1459,7 @@ async function loadFeedPreset(name="home"){
 
   const cached=readFeedCache(name);
   if(cached.length){
-    const rows=preset.newest?newestFirst(cached):cached;
+    const rows=sortPresetRows(cached,preset);
     state.feedRows=rows;
     renderCards(rows);
     feedStatus.textContent="Đang cập nhật…";
@@ -1412,7 +1472,7 @@ async function loadFeedPreset(name="home"){
     const local=await localEngine(16000);
     const rowsRaw=await preset.load(local,true);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
-    const rows=preset.newest?newestFirst(rowsRaw):rowsRaw;
+    const rows=sortPresetRows(rowsRaw,preset);
     if(!Array.isArray(rows)||!rows.length)throw new Error("empty_feed");
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
@@ -1448,18 +1508,19 @@ async function loadMoreFeed(){
     const raw=await preset.load(local,false);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
-    const rows=preset.newest?newestFirst(raw):raw;
-    const before=state.feedRows.length;
-    state.feedRows=mergeUniqueRows(state.feedRows,rows);
-    const added=state.feedRows.slice(before);
+    const rows=sortPresetRows(raw,preset);
+    const beforeIds=new Set(state.feedRows.map(itemVideoId));
+    const merged=mergeUniqueRows(state.feedRows,rows);
+    const addedCount=merged.reduce((count,row)=>count+(beforeIds.has(itemVideoId(row))?0:1),0);
 
-    if(!added.length){
+    if(!addedCount){
       state.feedHasMore=false;
       feedStatus.textContent="";
       return;
     }
 
-    renderCards(added,{append:true});
+    state.feedRows=sortPresetRows(merged,preset);
+    renderCards(state.feedRows);
     saveFeedCache(name,state.feedRows);
     feedStatus.textContent="";
   }catch(error){
