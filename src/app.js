@@ -992,25 +992,11 @@ function setupSourceLibrary(){
     const row=sourcePreviewRows.get(id);
     if(!id||!row)return;
 
-    // A source-management preview is only for choosing a video.
-    // Playback always happens in the main media player.
-    closeSourceVideo();
-    clearTimeout(sourceSearchTimer);
-    sourceSearchSeq++;
-    sourcePreviewSeq++;
-    sourceMetaObserver?.disconnect?.();
-    sourceMetaObserver=null;
-    if(sourcesSheet)sourcesSheet.hidden=true;
-    if(sourcePreview)sourcePreview.hidden=true;
-    if(sourceBrowse)sourceBrowse.hidden=false;
-    if(sourceSearch)sourceSearch.value="";
-    sourceRemoteResults=[];
-    sourcePreviewRows=new Map();
-    if(clearSourceSearch)clearSourceSearch.hidden=true;
-    if(sourceSearchStatus)sourceSearchStatus.textContent="";
-    setSourceManageMode(false);
-
-    void playVideo(id,row);
+    // Keep Quản lý nguồn exactly where it is. Only switch the main media
+    // player to the chosen video so the user can continue browsing the source.
+    sourcePreviewList.querySelectorAll(".source-video-row.playing").forEach(el=>el.classList.remove("playing"));
+    button.classList.add("playing");
+    void playVideo(id,{...row,_keepSourceManagerOpen:true});
   });
 }
 
@@ -3114,13 +3100,15 @@ async function playVideo(id,seedMeta={}){
   updateModeUi();
   statusText.textContent="Đang mở YouTube…";
 
-  if(!wasFloating){
+  const keepSourceManagerOpen=seedMeta?._keepSourceManagerOpen===true&&!sourcesSheet?.hidden;
+
+  if(!wasFloating&&!keepSourceManagerOpen){
     try{
       playerSection.scrollIntoView({behavior:"smooth",block:"start"});
     }catch{
       playerSection.scrollIntoView();
     }
-  }else{
+  }else if(wasFloating){
     requestAnimationFrame(()=>{
       if(Math.abs(window.scrollY-keepScrollY)>2)window.scrollTo({top:keepScrollY,left:0,behavior:"instant"});
       applyFloatingIframe();
@@ -3142,22 +3130,46 @@ async function playVideo(id,seedMeta={}){
     initYouTubePlayer();
   }
 
-  // Metadata is optional: iframe starts immediately, while details/related
-  // results are enriched in parallel without delaying playback.
-  void localEngine(7000).then(async local=>{
-    const detail=await local.info(id).catch(()=>({meta:{},related:[]}));
-    if(state.currentId!==id)return;
-    const meta={...seedMeta,...(detail?.meta||{})};
-    state.currentMeta=meta;
-    updateCurrentVideoAspect(meta);
-    updateNow(meta);
-    backgroundPlayer.setMetadata(meta);
-    const related=Array.isArray(detail?.related)?detail.related:[];
-    if(related.length&&!state.activeFeed){
-      feedTitle.textContent="Gợi ý tiếp theo";
-      state.feedHasMore=false;
-      renderCards(related.slice(0,24));
+  // Resolve the real video shape first. Full info/watch-next can be much
+  // slower, so the floating player must not wait for it before becoming tall.
+  void localEngine(7000).then(local=>{
+    if(typeof local?.videoAspect==="function"){
+      void local.videoAspect(id).then(dimensions=>{
+        if(state.currentId!==id)return;
+        const width=Number(dimensions?.width)||0;
+        const height=Number(dimensions?.height)||0;
+        const aspectRatio=Number(dimensions?.aspectRatio)||(
+          width>0&&height>0?width/height:0
+        );
+        if(!aspectRatio)return;
+
+        const meta={
+          ...(state.currentMeta||{}),
+          videoWidth:width,
+          videoHeight:height,
+          aspectRatio
+        };
+        state.currentMeta=meta;
+        updateCurrentVideoAspect(meta);
+      }).catch(()=>{});
     }
+
+    // Metadata is optional: iframe starts immediately, while details/related
+    // results are enriched in parallel without delaying playback.
+    void local.info(id).then(detail=>{
+      if(state.currentId!==id)return;
+      const meta={...seedMeta,...(state.currentMeta||{}),...(detail?.meta||{})};
+      state.currentMeta=meta;
+      updateCurrentVideoAspect(meta);
+      updateNow(meta);
+      backgroundPlayer.setMetadata(meta);
+      const related=Array.isArray(detail?.related)?detail.related:[];
+      if(related.length&&!state.activeFeed){
+        feedTitle.textContent="Gợi ý tiếp theo";
+        state.feedHasMore=false;
+        renderCards(related.slice(0,24));
+      }
+    }).catch(()=>{});
   }).catch(()=>{});
 }
 

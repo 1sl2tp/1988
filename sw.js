@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-feed-v94';
+const CACHE='1988-main-player-v95';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=sources-87',
-  './src/app.js?v=feed-94',
+  './src/style.css?v=player-95',
+  './src/app.js?v=player-95',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
-  './src/yt-local.js?v=player-93',
+  './src/yt-local.js?v=player-95',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
