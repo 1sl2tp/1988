@@ -886,51 +886,91 @@ async function aiDisclosure(id){
   }
 }
 
+function validDimensions(width,height,source=""){
+  width=Number(width)||0;
+  height=Number(height)||0;
+  if(width<=0||height<=0)return null;
+  const ratio=width/height;
+  if(!Number.isFinite(ratio)||ratio<.25||ratio>4)return null;
+  return {width,height,aspectRatio:ratio,source};
+}
+
+function pickVideoDimensions(candidates=[]){
+  const rows=(Array.isArray(candidates)?candidates:[])
+    .filter(row=>row&&row.width>0&&row.height>0);
+
+  if(!rows.length)return {width:0,height:0,aspectRatio:0,source:""};
+
+  // A real portrait candidate wins over generic 16:9 embed/player fallbacks.
+  // This is the important case for Shorts and vertical drama videos.
+  const portrait=rows
+    .filter(row=>row.aspectRatio<.80)
+    .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+  if(portrait)return portrait;
+
+  const square=rows
+    .filter(row=>row.aspectRatio>=.80&&row.aspectRatio<=1.20)
+    .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+  if(square)return square;
+
+  // Otherwise use the highest-resolution landscape candidate.
+  return rows.sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+}
+
 function videoDimensionsFromInfo(result={}){
-  const rows=[
+  const candidates=[];
+
+  const formats=[
     ...(Array.isArray(result?.streaming_data?.formats)?result.streaming_data.formats:[]),
     ...(Array.isArray(result?.streaming_data?.adaptive_formats)?result.streaming_data.adaptive_formats:[]),
     ...(Array.isArray(result?.streaming_data?.adaptiveFormats)?result.streaming_data.adaptiveFormats:[])
-  ]
-    .map(row=>({width:Number(row?.width)||0,height:Number(row?.height)||0}))
-    .filter(row=>row.width>0&&row.height>0);
+  ];
 
-  let best=null;
-  if(rows.length){
-    const groups={portrait:[],square:[],landscape:[]};
-    for(const row of rows){
-      const ratio=row.width/row.height;
-      if(ratio<.80)groups.portrait.push(row);
-      else if(ratio<=1.20)groups.square.push(row);
-      else groups.landscape.push(row);
-    }
-
-    const dominant=Object.values(groups)
-      .sort((a,b)=>b.length-a.length)[0]||rows;
-    best=(dominant.length?dominant:rows)
-      .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0]||null;
+  for(const row of formats){
+    const candidate=validDimensions(row?.width,row?.height,"stream");
+    if(candidate)candidates.push(candidate);
   }
 
-  if(!best){
-    const embed=result?.embed||result?.microformat?.embed||{};
-    const width=Number(embed?.width)||0;
-    const height=Number(embed?.height)||0;
-    if(width>0&&height>0)best={width,height};
-  }
-
+  // YouTube.js exposes embed dimensions through basic_info in some clients.
+  // These are fallback hints only; a portrait stream candidate above wins.
   const basic=result?.basic_info||{};
-  const isShort=basic?.is_short===true||basic?.isShort===true||result?.is_short===true;
-  if(isShort&&best&&best.width>=best.height){
-    const height=Math.max(best.height,best.width);
-    best={width:Math.round(height*9/16),height};
+  const embeds=[
+    basic?.embed,
+    result?.embed,
+    result?.microformat,
+    result?.microformat?.embed,
+    result?.player_microformat,
+    result?.player_microformat?.embed
+  ];
+  for(const embed of embeds){
+    const candidate=validDimensions(embed?.width,embed?.height,"embed");
+    if(candidate)candidates.push(candidate);
   }
 
-  if(!best)return {width:0,height:0,aspectRatio:0};
-  return {
-    width:best.width,
-    height:best.height,
-    aspectRatio:best.width/best.height
-  };
+  const direct=[
+    validDimensions(basic?.width,basic?.height,"basic"),
+    validDimensions(result?.width,result?.height,"direct")
+  ].filter(Boolean);
+  candidates.push(...direct);
+
+  const isShort=
+    basic?.is_short===true||
+    basic?.isShort===true||
+    result?.is_short===true||
+    result?.isShort===true;
+
+  let best=pickVideoDimensions(candidates);
+  if(isShort&&best.width>0&&best.aspectRatio>=.80){
+    const height=Math.max(best.height,best.width);
+    best={
+      width:Math.round(height*9/16),
+      height,
+      aspectRatio:9/16,
+      source:"short"
+    };
+  }
+
+  return best;
 }
 
 const videoAspectCache=new Map();
@@ -946,29 +986,25 @@ async function videoAspect(id){
 
   const task=(async()=>{
     const yt=await getYT();
+    const candidates=[];
 
-    for(const client of ['WEB','MWEB','IOS','ANDROID']){
+    // Probe more than one client. Some clients expose only generic 16:9
+    // metadata while another exposes the actual portrait stream dimensions.
+    const clients=["IOS","WEB","ANDROID","MWEB"];
+
+    for(const client of clients){
       try{
         const basic=await yt.getBasicInfo(id,{client});
         const dimensions=videoDimensionsFromInfo(basic);
         if(dimensions.width>0&&dimensions.height>0){
-          videoAspectCache.set(id,{at:Date.now(),value:dimensions});
-          return dimensions;
-        }
-
-        const formats=[
-          ...(Array.isArray(basic?.streaming_data?.formats)?basic.streaming_data.formats:[]),
-          ...(Array.isArray(basic?.streaming_data?.adaptive_formats)?basic.streaming_data.adaptive_formats:[])
-        ];
-        const videoFormats=formats
-          .filter(format=>Number(format?.width)>0&&Number(format?.height)>0)
-          .sort((a,b)=>(Number(b.width)*Number(b.height))-(Number(a.width)*Number(a.height)));
-
-        if(videoFormats.length){
-          const width=Number(videoFormats[0].width)||0;
-          const height=Number(videoFormats[0].height)||0;
-          if(width>0&&height>0){
-            const value={width,height,aspectRatio:width/height};
+          candidates.push({...dimensions,source:"basic:"+client});
+          // If we already found a real portrait shape, use it immediately.
+          if(dimensions.aspectRatio<.80){
+            const value={
+              width:dimensions.width,
+              height:dimensions.height,
+              aspectRatio:dimensions.aspectRatio
+            };
             videoAspectCache.set(id,{at:Date.now(),value});
             return value;
           }
@@ -976,7 +1012,54 @@ async function videoAspect(id){
       }catch{}
     }
 
-    return {width:0,height:0,aspectRatio:0};
+    // getStreamingData runs the player's actual format chooser. It is slower
+    // than getBasicInfo, so use it only when BasicInfo did not reveal portrait.
+    for(const client of ["IOS","WEB"]){
+      try{
+        const format=await yt.getStreamingData(id,{
+          type:"video",
+          quality:"best",
+          format:"any",
+          client
+        });
+        const dimensions=validDimensions(format?.width,format?.height,"format:"+client);
+        if(dimensions){
+          candidates.push(dimensions);
+          if(dimensions.aspectRatio<.80){
+            const value={
+              width:dimensions.width,
+              height:dimensions.height,
+              aspectRatio:dimensions.aspectRatio
+            };
+            videoAspectCache.set(id,{at:Date.now(),value});
+            return value;
+          }
+        }
+      }catch{}
+    }
+
+    // Shorts endpoint is another useful orientation signal. It is safe to
+    // ignore failures because normal /watch videos may not support it.
+    if(typeof yt.getShortsVideoInfo==="function"){
+      try{
+        const shorts=await yt.getShortsVideoInfo(id,"WEB");
+        const dimensions=videoDimensionsFromInfo(shorts);
+        if(dimensions.width>0&&dimensions.height>0){
+          candidates.push({...dimensions,source:"shorts"});
+        }
+      }catch{}
+    }
+
+    const best=pickVideoDimensions(candidates);
+    const value={
+      width:Number(best?.width)||0,
+      height:Number(best?.height)||0,
+      aspectRatio:Number(best?.aspectRatio)||0
+    };
+    if(value.width>0&&value.height>0){
+      videoAspectCache.set(id,{at:Date.now(),value});
+    }
+    return value;
   })().finally(()=>videoAspectPending.delete(id));
 
   videoAspectPending.set(id,task);
