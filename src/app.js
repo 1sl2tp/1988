@@ -1346,7 +1346,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v6:";
+const FEED_CACHE_PREFIX="1988-discovery-v8:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -1512,7 +1512,7 @@ async function loadFeedPreset(name="today"){
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
     renderCards(state.feedRows);
-    state.feedHasMore=!preset.finite;
+    state.feedHasMore=true;
     feedStatus.textContent="";
   }catch(error){
     console.warn("feed failed",name,error);
