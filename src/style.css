@@ -872,3 +872,224 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .player-frame.fullscreen-active video{
   touch-action:auto!important;
 }
+
+
+/* ============================================================
+   WATCH + BROWSE LAYOUT
+   Large player at the top remains unchanged. Once the user starts
+   browsing, the same real UI reorganizes for fast discovery.
+   ============================================================ */
+
+@media(min-width:960px){
+  html.watch-browse .app-shell{
+    width:min(1580px,100%);
+    display:grid;
+    grid-template-columns:minmax(0,1.42fr) minmax(390px,.88fr);
+    grid-template-areas:
+      "trend trend"
+      "feed player";
+    align-items:start;
+    gap:0 20px;
+    padding-left:16px;
+    padding-right:16px;
+  }
+
+  html.watch-browse .trend-topics{
+    grid-area:trend;
+    min-width:0;
+  }
+
+  html.watch-browse .feed-section{
+    grid-area:feed;
+    min-width:0;
+    margin:0;
+  }
+
+  html.watch-browse .player-section{
+    grid-area:player;
+    position:sticky;
+    top:calc(var(--header-stack-h) + var(--safe-top) + 10px);
+    align-self:start;
+    min-width:0;
+    margin:0;
+    z-index:14;
+  }
+
+  html.watch-browse .player-card{
+    border-radius:13px;
+    background:#080809;
+    overflow:hidden;
+  }
+
+  html.watch-browse .player-frame{
+    width:100%;
+    aspect-ratio:16/9;
+    border-radius:12px;
+    background:#000;
+  }
+
+  /* Browsing mode prioritizes the video + list. Rich context is still
+     available when the user returns to the focused top view. */
+  html.watch-browse .player-section .series-panel,
+  html.watch-browse .player-section .context-brief{
+    display:none!important;
+  }
+
+  html.watch-browse .section-head{
+    margin-top:0;
+  }
+
+  html.watch-browse .feed{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px 12px;
+  }
+
+  html.watch-browse .card{
+    border-radius:11px;
+  }
+
+  html.watch-browse .card-copy{
+    padding:8px 9px 10px;
+  }
+
+  html.watch-browse .card-title{
+    font-size:13px;
+    line-height:1.3;
+  }
+
+  html.watch-browse .card-channel,
+  html.watch-browse .card-stats{
+    font-size:10.5px;
+  }
+}
+
+@media(min-width:1500px){
+  html.watch-browse .app-shell{
+    grid-template-columns:minmax(0,1.55fr) minmax(470px,.85fr);
+    gap:0 24px;
+  }
+
+  html.watch-browse .feed{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+@media(max-width:720px){
+  html.watch-browse .app-shell{
+    width:100%;
+    padding-top:0;
+  }
+
+  html.watch-browse .trend-topics{
+    margin-bottom:6px;
+  }
+
+  html.watch-browse .player-section{
+    position:sticky;
+    top:calc(var(--header-stack-h) + var(--safe-top));
+    z-index:70;
+    margin:0 0 9px;
+    background:#000;
+    box-shadow:0 8px 24px rgba(0,0,0,.30);
+  }
+
+  html.watch-browse .player-card{
+    border-radius:0;
+    overflow:hidden;
+  }
+
+  html.watch-browse .player-frame{
+    width:100%;
+    max-height:42vh;
+    aspect-ratio:16/9;
+    border-radius:0;
+    background:#000;
+  }
+
+  html.watch-browse .player-section .series-panel,
+  html.watch-browse .player-section .context-brief{
+    display:none!important;
+  }
+
+  html.watch-browse .feed-section{
+    padding:0 8px;
+  }
+
+  html.watch-browse .section-head{
+    margin:0 2px 8px;
+  }
+
+  html.watch-browse .section-head h2{
+    font-size:15px;
+  }
+
+  html.watch-browse .feed{
+    display:flex;
+    flex-direction:column;
+    gap:0;
+  }
+
+  html.watch-browse .feed>.card{
+    display:grid;
+    grid-template-columns:minmax(132px,42%) minmax(0,1fr);
+    align-items:start;
+    gap:0;
+    min-height:86px;
+    padding:8px 0;
+    border:0;
+    border-bottom:1px solid rgba(255,255,255,.075);
+    border-radius:0;
+    background:transparent;
+    overflow:visible;
+  }
+
+  html.watch-browse .feed>.card:last-child{
+    border-bottom:0;
+  }
+
+  html.watch-browse .feed>.card .thumb-wrap{
+    width:100%;
+    aspect-ratio:16/9;
+    border-radius:9px;
+  }
+
+  html.watch-browse .feed>.card .card-copy{
+    min-width:0;
+    padding:1px 2px 0 10px;
+  }
+
+  html.watch-browse .feed>.card .card-title{
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+    overflow:hidden;
+    margin:0 0 5px;
+    font-size:13px;
+    line-height:1.28;
+    font-weight:700;
+  }
+
+  html.watch-browse .feed>.card .card-channel{
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    margin-bottom:2px;
+    font-size:10.5px;
+    line-height:1.25;
+  }
+
+  html.watch-browse .feed>.card .card-stats{
+    display:block;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:10px;
+    line-height:1.25;
+  }
+
+  html.watch-browse .feed>.card .duration,
+  html.watch-browse .feed>.card .live-badge{
+    font-size:9px;
+  }
+}

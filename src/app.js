@@ -21,6 +21,8 @@ const lockBtn=$("#lockBtn");
 const shareBtn=$("#shareBtn");
 const statusText=$("#statusText");
 const feed=$("#feed");
+const feedSection=document.querySelector(".feed-section");
+const appShell=document.querySelector(".app-shell");
 const feedTitle=$("#feedTitle");
 const feedStatus=$("#feedStatus");
 const searchRefinements=$("#searchRefinements");
@@ -2735,12 +2737,124 @@ function finishFloatEntry(frame){
   });
 }
 
+let watchBrowseActive=false;
+let watchBrowseRaf=0;
+let watchBrowseMutating=false;
+let watchBrowseTriggerY=0;
+
+function watchBrowseViewportSupported(){
+  const width=Math.max(0,window.innerWidth||document.documentElement.clientWidth||0);
+  return width<=720||width>=960;
+}
+
+function computeWatchBrowseTrigger(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame||playerSection?.hidden)return Number.POSITIVE_INFINITY;
+
+  const top=Math.max(0,playerSection.offsetTop||0);
+  const height=Math.max(1,frame.getBoundingClientRect().height||frame.offsetHeight||0);
+  const viewport=Math.max(320,window.innerHeight||0);
+
+  // Enter only when the user has moved well into browsing, not while simply
+  // watching the large 16:9 player at the top.
+  return top+Math.min(height*.72,viewport*.52);
+}
+
+function cleanupFloatingForBrowse(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+  if(frame.classList.contains("floating-iframe")){
+    frame.classList.remove(
+      "floating-iframe","float-tucked","dock-left","dock-right",
+      "float-view-square","float-view-portrait"
+    );
+    state.floatTucked=false;
+    clearFloatBoxStyles();
+    playerSection.style.removeProperty("min-height");
+  }
+}
+
+function setWatchBrowseLayout(active){
+  active=!!active;
+  if(active===watchBrowseActive)return;
+
+  const anchorTop=feedSection?.getBoundingClientRect?.().top;
+  watchBrowseMutating=true;
+  watchBrowseActive=active;
+  document.documentElement.classList.toggle("watch-browse",active);
+
+  if(active)cleanupFloatingForBrowse();
+
+  requestAnimationFrame(()=>{
+    if(Number.isFinite(anchorTop)&&feedSection){
+      const after=feedSection.getBoundingClientRect().top;
+      const delta=after-anchorTop;
+      if(Math.abs(delta)>1){
+        window.scrollBy({top:delta,left:0,behavior:"instant"});
+      }
+    }
+
+    requestAnimationFrame(()=>{
+      watchBrowseMutating=false;
+      if(!active)queueFloatingIframe();
+    });
+  });
+}
+
+function syncWatchBrowseLayout(){
+  if(watchBrowseMutating)return;
+
+  const canUse=
+    watchBrowseViewportSupported() &&
+    !!state.currentId &&
+    !playerSection?.hidden &&
+    !isPlayerFullscreen();
+
+  if(!canUse){
+    if(watchBrowseActive)setWatchBrowseLayout(false);
+    return;
+  }
+
+  if(!watchBrowseActive){
+    watchBrowseTriggerY=computeWatchBrowseTrigger();
+  }
+
+  const exitY=Math.max(20,watchBrowseTriggerY-110);
+  const target=watchBrowseActive
+    ?window.scrollY>exitY
+    :window.scrollY>=watchBrowseTriggerY;
+
+  if(target!==watchBrowseActive)setWatchBrowseLayout(target);
+}
+
+function queueWatchBrowseLayout(){
+  if(watchBrowseRaf)return;
+  watchBrowseRaf=requestAnimationFrame(()=>{
+    watchBrowseRaf=0;
+    syncWatchBrowseLayout();
+  });
+}
+
+function setupWatchBrowseLayout(){
+  window.addEventListener("scroll",queueWatchBrowseLayout,{passive:true});
+  window.addEventListener("resize",()=>{
+    if(!watchBrowseActive)watchBrowseTriggerY=0;
+    queueWatchBrowseLayout();
+  },{passive:true});
+  window.visualViewport?.addEventListener?.("resize",queueWatchBrowseLayout,{passive:true});
+}
+
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
   if(isPlayerFullscreen())return;
 
   const floating=frame.classList.contains("floating-iframe");
+
+  if(document.documentElement.classList.contains("watch-browse")){
+    cleanupFloatingForBrowse();
+    return;
+  }
 
   if(
     force===false ||
@@ -8241,6 +8355,7 @@ setupMediaSession();
 setupInstall();
 setupSourceLibrary();
 setupFloatingIframe();
+setupWatchBrowseLayout();
 setupFullscreenReturn();
 updateModeUi();
 renderParentCategories();

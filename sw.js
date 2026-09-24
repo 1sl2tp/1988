@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-pip-clean-controls-v165';
+const CACHE='1988-main-watch-browse-v166';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-clean-controls-165',
-  './src/app.js?v=pip-ambient-164',
+  './src/style.css?v=watch-browse-166',
+  './src/app.js?v=watch-browse-166',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
