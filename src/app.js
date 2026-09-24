@@ -91,6 +91,7 @@ const state={
   aiCategoryRows:new Map(),
   aiCategoryTopics:new Map(),
   aiCategoryLoading:new Set(),
+  feedTrendTopics:new Map(),
   feedSeq:0,
   sourceLibraryDirty:false
 };
@@ -2742,7 +2743,8 @@ function renderParentCategories(){
 
 function renderTrendTopics(){
   if(!trendTopics)return;
-  if(!state.activeParent||!state.trendTopics.length){
+  const feedFilterMode=!state.activeParent&&isSourceScopedFeed(state.activeFeed);
+  if((!state.activeParent&&!feedFilterMode)||!state.trendTopics.length){
     state.activeTrend="";
     trendTopics.hidden=true;
     trendTopics.innerHTML="";
@@ -2808,6 +2810,7 @@ const SOURCE_DISCOVERY_TTL=12*60*1000;
 const sourceDiscoveryAt=new Map();
 
 async function discoverSourcesForParent(parent,local){
+  if(document.hidden)return;
   const group=parentSourceGroup(parent);
   if(!group)return;
 
@@ -2892,6 +2895,7 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
 }
 
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
+  if(document.hidden)return;
   try{
     const group=parentSourceGroup(parent);
     const raw=await fetchSourcePool(local,sources,true,group);
@@ -3987,6 +3991,13 @@ document.addEventListener("visibilitychange",()=>{
     markPlaybackTransition();
     return;
   }
+
+  // Hidden Chrome tabs do no feed/AI maintenance. Resume only the active
+  // source feed when the user actually returns to this app.
+  if(isSourceScopedFeed(state.activeFeed)&&!state.activeParent&&state.feedRows.length){
+    void enrichSourceFeedAi(state.activeFeed,state.feedRows,state.feedSeq);
+  }
+
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
     return;
@@ -4210,7 +4221,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   };
 
   const workers=Array.from(
-    {length:Math.min(8,sources.length)},
+    {length:Math.min(4,sources.length)},
     ()=>worker()
   );
   await Promise.all(workers);
@@ -4247,7 +4258,7 @@ async function selectedSourceFeed(local,predicate,reset=false){
   if(reset){
     const cached=readSourcePoolCache();
     if(cached.length){
-      void refreshSourcePool(local,sources);
+      if(!document.hidden)void refreshSourcePool(local,sources);
       return cached.filter(predicate);
     }
 
@@ -4405,6 +4416,7 @@ function feedAiContentKey(name,rows=[]){
 }
 
 async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
+  if(document.hidden)return;
   if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return;
 
   const sample=dedupeHashedRows(newestFirst(rows)).slice(0,72);
@@ -4412,11 +4424,22 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   if(input.length<4)return;
 
   const cacheKey=feedAiContentKey(name,sample);
+  const feedParent={
+    key:"feed-"+name,
+    label:name==="week"?"Tuần này":"Mới nhất"
+  };
   const saved=readAiTrendCache("feed-content:"+cacheKey,input);
-  if(saved.videoMeta.size){
-    state.aiVideoMeta=new Map([...state.aiVideoMeta,...saved.videoMeta]);
+  if(saved.videoMeta.size||saved.topics.length){
+    if(saved.videoMeta.size){
+      state.aiVideoMeta=new Map([...state.aiVideoMeta,...saved.videoMeta]);
+    }
+    if(saved.topics.length){
+      state.feedTrendTopics.set(name,saved.topics.slice(0,10));
+    }
 
     if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
+      state.trendTopics=state.feedTrendTopics.get(name)||[];
+      renderTrendTopics();
       if(window.scrollY<120){
         renderCurrentTrendFeed();
       }else{
@@ -4440,7 +4463,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
         body:JSON.stringify({
           mode:"classify",
           scope:"feed:"+name,
-          parentLabel:"Nội dung",
+          parentLabel:feedParent.label,
           videos:input
         })
       });
@@ -4449,15 +4472,23 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
       if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
 
       const videoMeta=normalizeAiVideoMeta(payload,input);
-      if(!videoMeta.size)return;
+      const topics=normalizeAiChildTopics(payload,input,feedParent).slice(0,10);
+      if(!videoMeta.size&&!topics.length)return;
 
-      state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
-      saveAiTrendCache("feed-content:"+cacheKey,[],[],videoMeta);
+      if(videoMeta.size){
+        state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
+      }
+      if(topics.length){
+        state.feedTrendTopics.set(name,topics);
+      }
+      saveAiTrendCache("feed-content:"+cacheKey,[],topics,videoMeta);
 
       if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
-        // AI may group same-content videos, but must never change chronological
-        // order. Near the top we can safely collapse duplicate cards; while the
-        // user is reading lower down we only patch cleaned titles.
+        state.trendTopics=state.feedTrendTopics.get(name)||[];
+        renderTrendTopics();
+
+        // Filters never change the source pool or chronological ordering.
+        // They only hide cards outside the selected content topic.
         if(window.scrollY<120){
           renderCurrentTrendFeed();
         }else{
@@ -4474,6 +4505,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
 }
 
 async function refreshCachedSourceFeedInBackground(name,preset,seq){
+  if(document.hidden)return;
   try{
     const local=await localEngine(16000);
     const sources=selectedSources();
@@ -4544,6 +4576,10 @@ async function loadFeedPreset(name="latest"){
     renderTrendTopics();
   }
   setActiveChip(name);
+  if(isSourceScopedFeed(name)){
+    state.trendTopics=state.feedTrendTopics.get(name)||[];
+    renderTrendTopics();
+  }
   feedTitle.textContent=preset.title;
 
   const cached=readFeedCache(name);
@@ -4654,7 +4690,7 @@ async function loadMoreFeed(){
     const visibleTotal=aiDisplayRows(state.feedRows).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
-    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,added,seq);
+    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,state.feedRows,seq);
   }catch(error){
     console.warn("load more failed",name,error);
   }finally{
