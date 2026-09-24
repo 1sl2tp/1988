@@ -746,51 +746,82 @@ def _tiktok_handle_from_url(value):
 
 
 def _discover_tiktok_links(query, limit=24):
-    try:
-        response = requests.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": query},
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 Chrome/153 Safari/537.36"
-                ),
-                "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.6",
-            },
-            proxies=_requests_proxies(),
-            timeout=(6, 16),
-        )
-        response.raise_for_status()
-        body = html.unescape(response.text)
-        for _ in range(2):
-            body = unquote(body)
-    except Exception as exc:
-        app.logger.warning("tiktok web discovery failed %s: %s", query, exc)
-        return []
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 Chrome/153 Safari/537.36"
+        ),
+        "Accept-Language": "vi-VN,vi;q=0.9,en;q=0.6",
+    }
+
+    providers = [
+        ("bing", "https://www.bing.com/search", {"q": query, "count": 50, "setlang": "vi-VN"}),
+        ("google", "https://www.google.com/search", {"q": query, "num": 50, "hl": "vi"}),
+        ("brave", "https://search.brave.com/search", {"q": query, "source": "web"}),
+        ("duckduckgo", "https://html.duckduckgo.com/html/", {"q": query}),
+    ]
 
     pattern = re.compile(
         r"https?://(?:www\.)?tiktok\.com/@([A-Za-z0-9._-]{2,64})"
         r"(?:/video/(\d{12,24})|/live)?",
         re.I,
     )
+
     rows = []
     seen = set()
-    for match in pattern.finditer(body):
-        handle = match.group(1)
-        post_id = match.group(2) or ""
-        url = (
-            f"https://www.tiktok.com/@{handle}/video/{post_id}"
-            if post_id
-            else f"https://www.tiktok.com/@{handle}"
-        )
-        key = (handle.lower(), post_id)
-        if key in seen:
-            continue
-        seen.add(key)
-        rows.append({"handle": handle, "id": post_id, "url": url})
-        if len(rows) >= limit:
-            break
-    return rows
+    errors = []
+
+    for provider, url, params in providers:
+        try:
+            response = requests.get(
+                url,
+                params=params,
+                headers=headers,
+                timeout=(4, 10),
+            )
+            response.raise_for_status()
+            body = html.unescape(response.text)
+            for _ in range(3):
+                body = unquote(body)
+
+            for match in pattern.finditer(body):
+                handle = match.group(1)
+                post_id = match.group(2) or ""
+                item_url = (
+                    f"https://www.tiktok.com/@{handle}/video/{post_id}"
+                    if post_id
+                    else f"https://www.tiktok.com/@{handle}"
+                )
+                key = (handle.lower(), post_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append({
+                    "handle": handle,
+                    "id": post_id,
+                    "url": item_url,
+                    "discoveredBy": provider,
+                })
+                if len(rows) >= limit:
+                    break
+
+            if rows:
+                app.logger.info(
+                    "tiktok discovery provider=%s query=%s rows=%s",
+                    provider,
+                    query[:80],
+                    len(rows),
+                )
+                return rows[:limit]
+        except Exception as exc:
+            errors.append(f"{provider}:{str(exc)[:120]}")
+
+    app.logger.warning(
+        "tiktok web discovery exhausted providers query=%s errors=%s",
+        query[:100],
+        " | ".join(errors),
+    )
+    return []
 
 
 def _extract_tiktok_post_url(url):
