@@ -241,6 +241,14 @@ function openChannelSource(row: PublisherOption) {
 
 s = s.replace(state_anchor, state_anchor + "\n" + channel_state, 1)
 
+# remove obsolete loadChannels
+s = re.sub(
+    r"""\nasync function loadChannels\(current: number\) \{[\s\S]*?\n\}\n\n(?=async function loadPlaylists)""",
+    "\n",
+    s,
+    count=1
+)
+
 # Channel mode no longer needs a separate channel search after dynamic source discovery.
 s = s.replace(
     """    if (source.value === 'channels') await loadChannels(current);
