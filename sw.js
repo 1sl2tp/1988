@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-pip-ambient-v164';
+const CACHE='1988-main-pip-clean-controls-v165';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=pip-ambient-164',
+  './src/style.css?v=pip-clean-controls-165',
   './src/app.js?v=pip-ambient-164',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
