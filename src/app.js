@@ -38,6 +38,11 @@ const sourcePreview=$("#sourcePreview");
 const backSourcePreview=$("#backSourcePreview");
 const sourcePreviewTitle=$("#sourcePreviewTitle");
 const sourcePreviewList=$("#sourcePreviewList");
+const sourceSettingsBtn=$("#sourceSettingsBtn");
+const sourceVideoPopup=$("#sourceVideoPopup");
+const closeSourceVideoPopup=$("#closeSourceVideoPopup");
+const sourceVideoFrame=$("#sourceVideoFrame");
+const sourceVideoPopupTitle=$("#sourceVideoPopupTitle");
 
 const state={
   player:null,
@@ -92,7 +97,12 @@ function readStoredArray(key){
 
 let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
   .filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
-  .map(row=>({id:String(row.id),name:clean(row.name)}));
+  .map(row=>({
+    id:String(row.id),
+    name:clean(row.name),
+    thumbnailUrl:clean(row.thumbnailUrl||""),
+    subscribers:clean(row.subscribers||"")
+  }));
 let hiddenSourceIds=new Set(
   readStoredArray(SOURCE_HIDDEN_KEY)
     .map(String)
@@ -105,7 +115,12 @@ function channelLibrary(){
   for(const row of [...BASE_CHANNEL_LIBRARY,...customSources]){
     if(!row||hiddenSourceIds.has(row.id)||seen.has(row.id))continue;
     seen.add(row.id);
-    out.push({id:row.id,name:clean(row.name)});
+    out.push({
+      id:row.id,
+      name:clean(row.name),
+      thumbnailUrl:clean(row.thumbnailUrl||""),
+      subscribers:clean(row.subscribers||"")
+    });
   }
   return out;
 }
@@ -145,6 +160,10 @@ let sourceSearchTimer=0;
 let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
+let sourceManageMode=false;
+let sourceMetaObserver=null;
+const sourceMetaCache=new Map();
+const sourceMetaPending=new Set();
 
 function persistSourceSelection(){
   try{
@@ -174,6 +193,16 @@ function isSourceScopedFeed(name){
   return name==="latest"||name==="week";
 }
 
+function safeSourceThumb(value=""){
+  const raw=clean(value);
+  if(raw.startsWith("//"))return "https:"+raw;
+  return raw;
+}
+
+function sourceMetaFor(row){
+  return {...row,...(sourceMetaCache.get(row.id)||{})};
+}
+
 function updateSourceSummary(){
   const rows=channelLibrary();
   const count=selectedSourceIds.size;
@@ -181,31 +210,98 @@ function updateSourceSummary(){
   if(sourceSummary)sourceSummary.textContent=count+" / "+rows.length;
 }
 
+function sourceAvatarHtml(row){
+  const meta=sourceMetaFor(row);
+  const image=safeSourceThumb(meta.thumbnailUrl);
+  const initial=clean(meta.name||row.name||"?").slice(0,1).toUpperCase()||"?";
+  return '<span class="source-avatar">'+
+    (image?'<img src="'+esc(image)+'" alt="" loading="lazy">':'<span>'+esc(initial)+'</span>')+
+  '</span>';
+}
+
 function sourceRowHtml(row,{remote=false}={}){
+  const meta=sourceMetaFor(row);
   const active=selectedSourceIds.has(row.id);
   const exists=libraryHas(row.id);
-  const sub=remote&&!exists
-    ?"Kết quả từ YouTube"
-    :"Xem video mới";
+  const subscriber=clean(meta.subscribers||"");
+  const sub=subscriber
+    ?subscriber+" · Xem mới"
+    :(remote&&!exists?"Kết quả từ YouTube":"Xem video mới");
 
   if(remote&&!exists){
     return '<div class="source-row remote" data-source-id="'+esc(row.id)+'">'+
       '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
-        '<span class="source-row-name">'+esc(row.name)+'</span>'+
-        '<span class="source-row-sub">'+esc(sub)+'</span>'+
+        sourceAvatarHtml(row)+
+        '<span class="source-row-info">'+
+          '<span class="source-row-name">'+esc(meta.name||row.name)+'</span>'+
+          '<span class="source-row-sub">'+esc(sub)+'</span>'+
+        '</span>'+
       '</button>'+
       '<button class="source-add" type="button" data-source-add="'+esc(row.id)+'">+ Thêm</button>'+
     '</div>';
   }
 
-  return '<div class="source-row'+(active?' active':'')+'" data-source-id="'+esc(row.id)+'">'+
+  return '<div class="source-row'+(active?' active':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
     '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
-      '<span class="source-row-name">'+esc(row.name)+'</span>'+
-      '<span class="source-row-sub">'+esc(sub)+'</span>'+
+      sourceAvatarHtml(row)+
+      '<span class="source-row-info">'+
+        '<span class="source-row-name">'+esc(meta.name||row.name)+'</span>'+
+        '<span class="source-row-sub">'+esc(sub)+'</span>'+
+      '</span>'+
     '</button>'+
     '<button class="source-toggle" type="button" data-source-toggle="'+esc(row.id)+'" aria-label="'+(active?'Tắt nguồn':'Bật nguồn')+'" aria-pressed="'+(active?'true':'false')+'">✓</button>'+
-    '<button class="source-delete" type="button" data-source-delete="'+esc(row.id)+'" aria-label="Xóa kênh">×</button>'+
+    (sourceManageMode?'<button class="source-delete" type="button" data-source-delete="'+esc(row.id)+'" aria-label="Xóa kênh">Xóa</button>':"")+
   '</div>';
+}
+
+function updateSourceRowMeta(id){
+  if(!sourceList)return;
+  const row=libraryRow(id)||sourceRemoteResults.find(item=>item.id===id);
+  if(!row)return;
+  const current=sourceList.querySelector('.source-row[data-source-id="'+CSS.escape(id)+'"]');
+  if(!current)return;
+  const remote=!libraryHas(id);
+  const wrap=document.createElement("div");
+  wrap.innerHTML=sourceRowHtml(row,{remote}).trim();
+  const replacement=wrap.firstElementChild;
+  if(replacement)current.replaceWith(replacement);
+}
+
+async function ensureSourceMeta(id){
+  if(!id||sourceMetaPending.has(id)||sourceMetaCache.has(id))return;
+  sourceMetaPending.add(id);
+  try{
+    const local=await localEngine(12000);
+    const meta=await local.channelMeta(id);
+    if(meta&&meta.id){
+      sourceMetaCache.set(id,meta);
+      updateSourceRowMeta(id);
+    }
+  }catch(error){
+    console.warn("channel meta failed",id,error);
+  }finally{
+    sourceMetaPending.delete(id);
+  }
+}
+
+function observeSourceRows(){
+  sourceMetaObserver?.disconnect?.();
+  sourceMetaObserver=null;
+  if(!sourceList||!("IntersectionObserver" in window))return;
+
+  sourceMetaObserver=new IntersectionObserver(entries=>{
+    for(const entry of entries){
+      if(!entry.isIntersecting)continue;
+      const id=entry.target?.dataset?.sourceId||"";
+      sourceMetaObserver?.unobserve?.(entry.target);
+      if(id)void ensureSourceMeta(id);
+    }
+  },{root:sourceList,rootMargin:"180px 0px"});
+
+  sourceList.querySelectorAll(".source-row[data-source-id]").forEach(row=>{
+    const id=row.dataset.sourceId||"";
+    if(id&&!sourceMetaCache.has(id))sourceMetaObserver.observe(row);
+  });
 }
 
 function renderSourceLibrary(){
@@ -237,6 +333,7 @@ function renderSourceLibrary(){
   }
 
   sourceList.innerHTML=parts.join("");
+  requestAnimationFrame(observeSourceRows);
 }
 
 async function searchSourceChannels(query){
@@ -257,6 +354,10 @@ async function searchSourceChannels(query){
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
     sourceRemoteResults=Array.isArray(rows)?rows:[];
+    for(const row of sourceRemoteResults){
+      if(row?.id)sourceMetaCache.set(row.id,row);
+    }
+
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
         ?"Có "+sourceRemoteResults.length+" kết quả từ YouTube"
@@ -289,10 +390,21 @@ function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
   hiddenSourceIds.delete(row.id);
+  const meta=sourceMetaFor(row);
   if(!BASE_CHANNEL_ID_SET.has(row.id)){
     const existing=customSources.find(item=>item.id===row.id);
-    if(existing)existing.name=clean(row.name)||existing.name;
-    else customSources.push({id:row.id,name:clean(row.name)||"Kênh YouTube"});
+    if(existing){
+      existing.name=clean(meta.name)||existing.name;
+      existing.thumbnailUrl=safeSourceThumb(meta.thumbnailUrl)||existing.thumbnailUrl||"";
+      existing.subscribers=clean(meta.subscribers)||existing.subscribers||"";
+    }else{
+      customSources.push({
+        id:row.id,
+        name:clean(meta.name)||"Kênh YouTube",
+        thumbnailUrl:safeSourceThumb(meta.thumbnailUrl),
+        subscribers:clean(meta.subscribers)
+      });
+    }
   }
 
   selectedSourceIds.add(row.id);
@@ -330,6 +442,16 @@ function toggleSource(id){
   renderSourceLibrary();
 }
 
+function setSourceManageMode(enabled){
+  sourceManageMode=enabled===true;
+  if(sourceSettingsBtn){
+    sourceSettingsBtn.classList.toggle("active",sourceManageMode);
+    sourceSettingsBtn.setAttribute("aria-pressed",sourceManageMode?"true":"false");
+    sourceSettingsBtn.setAttribute("aria-label",sourceManageMode?"Xong cài đặt":"Cài đặt thư viện");
+  }
+  renderSourceLibrary();
+}
+
 async function openSourcePreview(id,rowHint=null){
   const row=libraryRow(id)||rowHint||sourceRemoteResults.find(item=>item.id===id);
   if(!row||!sourcePreview||!sourceBrowse)return;
@@ -337,7 +459,7 @@ async function openSourcePreview(id,rowHint=null){
   const seq=++sourcePreviewSeq;
   sourceBrowse.hidden=true;
   sourcePreview.hidden=false;
-  sourcePreviewTitle.textContent=row.name;
+  sourcePreviewTitle.textContent=sourceMetaFor(row).name||row.name;
   sourcePreviewRows=new Map();
   sourcePreviewList.innerHTML='<div class="source-empty">Đang tải video mới…</div>';
 
@@ -372,7 +494,25 @@ async function openSourcePreview(id,rowHint=null){
   }
 }
 
+function openSourceVideo(id,row){
+  if(!sourceVideoPopup||!sourceVideoFrame||!id)return;
+  const title=clean(row?.title)||"Video";
+  sourceVideoPopupTitle.textContent=title;
+  sourceVideoFrame.src=
+    "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
+    "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0";
+  sourceVideoPopup.hidden=false;
+}
+
+function closeSourceVideo(){
+  if(!sourceVideoPopup||!sourceVideoFrame)return;
+  sourceVideoPopup.hidden=true;
+  sourceVideoFrame.src="about:blank";
+  if(sourceVideoPopupTitle)sourceVideoPopupTitle.textContent="";
+}
+
 function closeSourcePreview(){
+  closeSourceVideo();
   sourcePreviewSeq++;
   sourcePreviewRows=new Map();
   if(sourcePreview)sourcePreview.hidden=true;
@@ -384,6 +524,8 @@ function openSourceLibrary(){
   if(!sourcesSheet)return;
   sourceRemoteResults=[];
   sourcePreviewSeq++;
+  closeSourceVideo();
+  setSourceManageMode(false);
   if(sourcePreview)sourcePreview.hidden=true;
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
@@ -395,13 +537,17 @@ function openSourceLibrary(){
 
 function closeSourceLibrary(){
   if(!sourcesSheet)return;
+  closeSourceVideo();
   clearTimeout(sourceSearchTimer);
   sourceSearchSeq++;
   sourcePreviewSeq++;
+  sourceMetaObserver?.disconnect?.();
+  sourceMetaObserver=null;
   sourcesSheet.hidden=true;
   sourceSearch.value="";
   sourceRemoteResults=[];
   sourcePreviewRows=new Map();
+  setSourceManageMode(false);
   if(clearSourceSearch)clearSourceSearch.hidden=true;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
   if(sourcePreview)sourcePreview.hidden=true;
@@ -421,6 +567,12 @@ function setupSourceLibrary(){
   sourcesBtn?.addEventListener("click",openSourceLibrary);
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
   backSourcePreview?.addEventListener("click",closeSourcePreview);
+  closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
+  sourceSettingsBtn?.addEventListener("click",()=>setSourceManageMode(!sourceManageMode));
+
+  sourceVideoPopup?.addEventListener("click",event=>{
+    if(event.target===sourceVideoPopup)closeSourceVideo();
+  });
 
   sourcesSheet?.addEventListener("click",event=>{
     if(event.target===sourcesSheet)closeSourceLibrary();
@@ -468,8 +620,7 @@ function setupSourceLibrary(){
     const id=button.dataset.sourceVideoId||"";
     const row=sourcePreviewRows.get(id);
     if(!id||!row)return;
-    closeSourceLibrary();
-    void playVideo(id,row);
+    openSourceVideo(id,row);
   });
 }
 
@@ -1758,7 +1909,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v15:";
+const FEED_CACHE_PREFIX="1988-discovery-v16:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
