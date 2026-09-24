@@ -26,9 +26,44 @@ jobs:
           echo '--- SHAPE ---'
           jq 'if type=="object" then {ok,source,dataType:(.data|type),dataLen:(if (.data|type)=="array" then (.data|length) elif (.data.items?|type)=="array" then (.data.items|length) else null end),first:(if (.data|type)=="array" then .data[0] elif (.data.items?|type)=="array" then .data.items[0] else .data end)} else . end' /tmp/trending.json 2>/dev/null || true
 
-          echo '=== SEARCH CONTROL ==='
-          curl -sS --max-time 25 -w '\nHTTP=%{http_code}\n' "$BASE?action=search&q=music&filter=videos" -o /tmp/search.json || true
-          jq '{ok,source,count:(.data.items//[]|length),first:(.data.items//[])[0]}' /tmp/search.json 2>/dev/null || head -c 2000 /tmp/search.json || true
+          echo '=== REGIONAL COUNTS USING FRONTEND RULES ==='
+          node <<'NODE'
+          const fs=require('fs');
+          const body=JSON.parse(fs.readFileSync('/tmp/trending.json','utf8'));
+          const rows=Array.isArray(body?.data)?body.data:[];
+          const now=Date.now();
+          const age=row=>{
+            const u=Number(row?.uploaded||0);
+            if(Number.isFinite(u)&&u>0){
+              const ms=u<1e12?u*1000:u;
+              return Math.max(0,now-ms);
+            }
+            const raw=String(row?.uploadedDate||'').toLowerCase();
+            const m=raw.match(/(\d+)\s*(second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)/);
+            if(!m)return Number.MAX_SAFE_INTEGER;
+            const n=Number(m[1])||0, unit=m[2], minute=60000;
+            if(unit.startsWith('second'))return n*1000;
+            if(unit.startsWith('minute'))return n*minute;
+            if(unit.startsWith('hour'))return n*60*minute;
+            if(unit.startsWith('day'))return n*24*60*minute;
+            if(unit.startsWith('week'))return n*7*24*60*minute;
+            if(unit.startsWith('month'))return n*30*24*60*minute;
+            return n*365*24*60*minute;
+          };
+          const isLive=row=>Number(row?.duration)<0||Number(row?.uploaded)===-1;
+          const live=rows.filter(isLive);
+          const today=rows.filter(r=>!isLive(r)&&age(r)<=24*60*60*1000);
+          const week=rows.filter(r=>!isLive(r)&&age(r)<=7*24*60*60*1000);
+          console.log(JSON.stringify({
+            total:rows.length,
+            live:live.length,
+            today:today.length,
+            week:week.length,
+            liveSample:live.slice(0,3).map(r=>({title:r.title,duration:r.duration,uploaded:r.uploaded,uploadedDate:r.uploadedDate})),
+            todaySample:today.slice(0,3).map(r=>({title:r.title,views:r.views,uploaded:r.uploaded,uploadedDate:r.uploadedDate})),
+            weekSample:week.slice(0,3).map(r=>({title:r.title,views:r.views,uploaded:r.uploaded,uploadedDate:r.uploadedDate}))
+          },null,2));
+          NODE
 
           echo '=== DEPLOYED ASSETS ==='
           curl -sS -L --max-time 25 https://yt.taphoa.xyz/ -o /tmp/index.html || true
