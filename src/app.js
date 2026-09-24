@@ -764,6 +764,15 @@ function ensureFloatHandles(){
         if(dir.includes("w"))left+=width-maxWidth;
         width=maxWidth;
       }
+
+      // Side-edge resizing behaves like the YouTube mini player:
+      // widening/narrowing also changes the height and grows upward.
+      if(dir==="e"||dir==="w"){
+        const ratio=Math.max(.42,Math.min(1.8,g.height/Math.max(1,g.width)));
+        height=Math.max(minHeight,Math.min(maxHeight,width*ratio));
+        top=g.top+g.height-height;
+      }
+
       if(height>maxHeight){
         if(dir.includes("n"))top+=height-maxHeight;
         height=maxHeight;
@@ -864,6 +873,18 @@ function clearFloatBoxStyles(){
   for(const prop of ["left","top","right","bottom","width","height","aspect-ratio","--float-ambient-image"])frame.style.removeProperty(prop);
 }
 
+function updateFloatingAmbient(frame){
+  if(!frame)return;
+  const ambientUrl=clean(state.currentMeta?.thumbnailUrl||state.currentMeta?.thumbnail||"")||
+    (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"");
+  if(!ambientUrl){
+    frame.style.removeProperty("--float-ambient-image");
+    return;
+  }
+  const safeAmbient=ambientUrl.replace(/["'\\\n\r]/g,"");
+  frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
+}
+
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -906,17 +927,13 @@ function applyFloatingIframe(force){
       ? !originalReturning
       : passedOriginal;
 
+  if(shouldFloat||floating)updateFloatingAmbient(frame);
   if(shouldFloat===floating)return;
 
   if(shouldFloat){
     playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
     frame.classList.add("floating-iframe");
-    const ambientUrl=clean(state.currentMeta?.thumbnailUrl||state.currentMeta?.thumbnail||"")||
-      (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"");
-    if(ambientUrl){
-      const safeAmbient=ambientUrl.replace(/["'\\\n\r]/g,"");
-      frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
-    }
+    updateFloatingAmbient(frame);
     ensureFloatHandles();
     restoreFloatBox();
   }else{
