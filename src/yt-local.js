@@ -17,6 +17,7 @@ Platform.shim.eval=async (data,env={})=>{
 let ytPromise=null;
 let webPoMinterPromise=null;
 const videoPoTokenCache=new Map();
+const discoveryPages=new Map();
 
 function text(value){
   if(value===undefined||value===null)return '';
@@ -245,20 +246,82 @@ function proxiedMediaUrl(raw){
   return makeProxyUrl(raw,headers);
 }
 
+function pageRows(result,limit=36){
+  return normalizeRows(
+    result?.results||
+    result?.contents?.contents||
+    result?.contents||
+    [],
+    limit
+  );
+}
+
+async function nextPage(result){
+  if(!result)return null;
+  try{
+    if(result.has_continuation===false)return null;
+    if(typeof result.getContinuation==='function')return await result.getContinuation();
+  }catch{}
+  return null;
+}
+
 async function search(query,filters={}){
   const yt=await getYT();
   const result=await yt.search(String(query||'').trim(),{type:'video',...filters});
-  return normalizeRows(result?.results||[],36);
+  return pageRows(result,36);
+}
+
+async function searchPage(key,query,filters={},reset=false){
+  const id='search:'+String(key||query||'default');
+  const yt=await getYT();
+  let result=null;
+
+  if(!reset&&discoveryPages.has(id)){
+    result=await nextPage(discoveryPages.get(id));
+    if(!result)return [];
+  }else{
+    result=await yt.search(String(query||'').trim(),{type:'video',...filters});
+  }
+
+  discoveryPages.set(id,result);
+  return pageRows(result,36);
 }
 
 async function home(){
   const yt=await getYT();
   try{
     const result=await yt.getHomeFeed();
-    const rows=normalizeRows(result?.contents?.contents||[],30);
+    const rows=pageRows(result,30);
     if(rows.length)return rows;
   }catch{}
-  return search('Việt Nam',{type:'video',prioritize:'popularity'});
+  return search('Việt Nam',{type:'video',sort_by:'upload_date'});
+}
+
+async function homePage(key='home',reset=false){
+  const id='home:'+String(key||'home');
+  const yt=await getYT();
+  let result=null;
+
+  if(!reset&&discoveryPages.has(id)){
+    result=await nextPage(discoveryPages.get(id));
+    if(!result)return [];
+  }else{
+    try{result=await yt.getHomeFeed()}catch{}
+    if(!result)return searchPage(id,'Việt Nam',{type:'video',sort_by:'upload_date'},reset);
+  }
+
+  discoveryPages.set(id,result);
+  return pageRows(result,36);
+}
+
+function resetDiscovery(key=''){
+  if(!key){
+    discoveryPages.clear();
+    return;
+  }
+  for(const id of [...discoveryPages.keys()]){
+    if(id.endsWith(':'+key)||id.includes(':'+key+':'))discoveryPages.delete(id);
+  }
 }
 
 async function suggestions(query){
@@ -436,7 +499,7 @@ async function media(id,kind='video'){
   throw lastError||new Error('no_media_stream');
 }
 
-const api={getYT,search,home,suggestions,info,media,normalizeRows};
+const api={getYT,search,searchPage,home,homePage,resetDiscovery,suggestions,info,media,normalizeRows};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
