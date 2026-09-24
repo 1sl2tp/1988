@@ -322,7 +322,7 @@ function isBlockedSourceRow(row={}){
     const source=libraryRow(id);
     if(!source)continue;
     const blockedName=normalizeSearchText(sourceMetaFor(source).name||source.name||"");
-    if(blockedName&&(name===blockedName||name.includes(blockedName)||blockedName.includes(name)))return true;
+    if(blockedName&&name===blockedName)return true;
   }
   return false;
 }
