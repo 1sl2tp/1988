@@ -2608,8 +2608,14 @@ function showIframePlayer(){
 }
 
 function clearSuggestions(){
-  suggestions.hidden=true;
-  suggestions.innerHTML="";
+  if(suggestions){
+    suggestions.hidden=true;
+    suggestions.innerHTML="";
+  }
+  if(searchRefinements){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+  }
 }
 
 function setActiveChip(name){
@@ -5501,8 +5507,10 @@ async function doSearch(value){
   feed.classList.remove("search-grouped");
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
-  renderSearchRefinements(q,searchScope,[]);
-  void enrichSearchRefinements(q,searchScope,[],seq);
+  if(searchRefinements){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+  }
 
   const showRows=rows=>{
     if(seq!==state.searchSeq)return false;
@@ -5515,8 +5523,6 @@ async function doSearch(value){
 
     state.feedRows=scoped;
     renderSearchGroups(scoped,q,searchScope);
-    renderSearchRefinements(q,searchScope,scoped);
-    void enrichSearchRefinements(q,searchScope,scoped,seq);
     void enrichSearchGroups(scoped,q,searchScope,seq);
     rememberDiscoveredSources(scoped,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
     return true;
@@ -5546,27 +5552,14 @@ async function doSearch(value){
     }
 
     feed.classList.remove("search-grouped");
-    feed.innerHTML='<div class="empty">Chưa thấy kết quả đúng ý. Chọn một gợi ý bên trên để tìm tiếp.</div>';
+    feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
     feedStatus.textContent="";
-    renderSearchRefinements(q,searchScope,[]);
-    void enrichSearchRefinements(q,searchScope,[],seq);
   }catch{
     feed.classList.remove("search-grouped");
-    feed.innerHTML='<div class="error">Chưa tìm được video. Chọn một gợi ý bên trên để thử cách tìm khác.</div>';
+    feed.innerHTML='<div class="error">Chưa tìm được video.</div>';
     feedStatus.textContent="";
-    renderSearchRefinements(q,searchScope,[]);
-    void enrichSearchRefinements(q,searchScope,[],seq);
   }
 }
-
-searchRefinements?.addEventListener("click",event=>{
-  const button=event.target.closest("[data-search-refine]");
-  if(!button)return;
-  const value=clean(button.dataset.searchRefine||"");
-  if(!value)return;
-  queryInput.value=value;
-  void doSearch(value);
-});
 
 seriesAutoplay?.addEventListener("click",()=>{
   state.seriesAutoplay=!state.seriesAutoplay;
@@ -5586,50 +5579,13 @@ searchForm.addEventListener("submit",e=>{
   queryInput.blur();
 });
 
-let suggestTimer=0;
-let suggestSeq=0;
+// Search is explicit: type, press Enter (or Tìm), then show results.
 queryInput.addEventListener("input",()=>{
-  clearTimeout(suggestTimer);
-  const q=clean(queryInput.value);
-  if(q.length<2){
-    clearSuggestions();
-    return;
-  }
-  const seq=++suggestSeq;
-  suggestTimer=setTimeout(async()=>{
-    let rows=[];
-    try{
-      const r=await api("suggestions",{q},4000);
-      rows=Array.isArray(r?.data)?r.data:[];
-    }catch{}
-    if(!rows.length){
-      try{
-        const local=await localEngine(6000);
-        rows=await local.suggestions(q);
-      }catch{}
-    }
-    if(seq!==suggestSeq||clean(queryInput.value)!==q)return;
-    if(!rows.length){
-      clearSuggestions();
-      return;
-    }
-    suggestions.innerHTML=rows.slice(0,8).map(value=>
-      '<button type="button" data-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
-    ).join("");
-    suggestions.hidden=false;
-  },140);
-});
-
-suggestions.addEventListener("click",e=>{
-  const button=e.target.closest("[data-suggestion]");
-  if(!button)return;
-  queryInput.value=button.dataset.suggestion||"";
   clearSuggestions();
-  void doSearch(queryInput.value);
-});
-
-document.addEventListener("click",e=>{
-  if(!e.target.closest(".search-box"))clearSuggestions();
+  if(searchRefinements){
+    searchRefinements.hidden=true;
+    searchRefinements.innerHTML="";
+  }
 });
 
 feed.addEventListener("click",e=>{

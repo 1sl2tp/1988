@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-film-series-discovery-v121';
+const CACHE='1988-main-search-direct-v122';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=search-series-120',
-  './src/app.js?v=film-series-discovery-121',
+  './src/app.js?v=search-direct-122',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
