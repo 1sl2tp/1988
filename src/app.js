@@ -2126,7 +2126,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v17:";
+const FEED_CACHE_PREFIX="1988-discovery-v18:";
 
 async function pagedSearch(local,key,query,filters={},reset=false){
   try{
@@ -2483,6 +2483,11 @@ async function loadFeedPreset(name="latest"){
   state.feedLoading=true;
   state.feedHasMore=true;
   state.feedRows=[];
+  if(!isSourceScopedFeed(name)){
+    state.trendTopics=[];
+    state.activeTrend="";
+    renderTrendTopics();
+  }
   setActiveChip(name);
   feedTitle.textContent=preset.title;
 
