@@ -125,6 +125,12 @@ p.write_text(s)
 # Home rows: Shorts and obvious short-form URLs open as portrait reels.
 p = Path("src/pages/HomePage.vue")
 s = p.read_text()
+if "layout?: 'portrait' | 'square' | 'landscape';" not in s:
+    s = s.replace(
+        "  viewCount?: number;\n};",
+        "  viewCount?: number;\n  layout?: 'portrait' | 'square' | 'landscape';\n};",
+        1
+    )
 if "const layout = source.value === 'shorts'" not in s:
     s = s.replace(
         r'''  const channel = String(row?.uploaderName || row?.uploader || row?.channelName || 'YouTube');
