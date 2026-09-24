@@ -2649,9 +2649,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  let ratio=responsivePlayerAspect(meta);
+  // Use the video's measured/original ratio directly. Do not round it into
+  // preset 16:9 / square / portrait boxes.
+  let ratio=explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9;
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
-  ratio=Math.max(.42,Math.min(2.4,ratio));
 
   frame.classList.remove(
     "watch-aspect-wide",
@@ -2660,9 +2661,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   const aspectClass=
-    ratio>=1.32
+    ratio>=1.2
       ?"watch-aspect-wide"
-      :ratio>=.82
+      :ratio>=.8
         ?"watch-aspect-square"
         :"watch-aspect-portrait";
   frame.classList.add(aspectClass);
@@ -2674,6 +2675,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     "watch-video-square",
     "watch-video-portrait"
   );
+
   if(root.classList.contains("watch-browse")){
     root.classList.add(
       aspectClass==="watch-aspect-wide"
@@ -2684,7 +2686,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
   }
 
-  const watchMode=root.classList.contains("watch-browse");
+  if(!root.classList.contains("watch-browse")){
+    frame.style.removeProperty("--watch-player-width");
+    frame.style.removeProperty("--watch-player-height");
+    return;
+  }
+
   const viewportWidth=Math.max(
     280,
     Number(window.visualViewport?.width)||window.innerWidth||0
@@ -2694,26 +2701,19 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     Number(window.visualViewport?.height)||window.innerHeight||0
   );
 
-  if(!watchMode){
-    frame.style.removeProperty("--watch-player-width");
-    frame.style.removeProperty("--watch-player-height");
-    return;
-  }
-
   const mobile=window.innerWidth<=720;
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    // Mobile: keep enough room for the source row and scrollable result list.
-    const heightShare=
-      ratio>=1.32
-        ?.42
-        :ratio>=.82
-          ?.48
-          :.56;
-
-    const heightCap=Math.max(170,viewportHeight*heightShare);
-    const width=Math.min(viewportWidth,heightCap*ratio);
+    // Fit the original ratio inside the real mobile viewport. Wide videos use
+    // the full width; tall videos are height-limited and centered, but never
+    // cropped or stretched.
+    const headerHeight=
+      parseFloat(getComputedStyle(root).getPropertyValue("--header-row-h"))||52;
+    const navHeight=
+      parseFloat(getComputedStyle(root).getPropertyValue("--nav-row-h"))||44;
+    const maxHeight=Math.max(220,viewportHeight-headerHeight-navHeight-120);
+    const width=Math.min(viewportWidth,maxHeight*ratio);
     const height=width/ratio;
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
@@ -2722,9 +2722,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   }
 
   if(desktop){
-    // Desktop: landscape fills the available player column. Square/portrait
-    // instead use the viewport height as the limiting dimension, so vertical
-    // video becomes a real tall frame instead of sitting inside a 16:9 box.
     const sectionWidth=Math.max(
       320,
       playerSection?.getBoundingClientRect?.().width||viewportWidth*.42
@@ -2734,12 +2731,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       parseFloat(styles.getPropertyValue("--header-stack-h"))||100;
     const safeTop=
       parseFloat(styles.getPropertyValue("--safe-top"))||0;
-    const availableHeight=Math.max(
-      300,
-      viewportHeight-headerHeight-safeTop-28
+    const maxHeight=Math.max(
+      320,
+      viewportHeight-headerHeight-safeTop-24
     );
 
-    const width=Math.min(sectionWidth,availableHeight*ratio);
+    const width=Math.min(sectionWidth,maxHeight*ratio);
     const height=width/ratio;
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");

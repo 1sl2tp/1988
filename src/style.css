@@ -1922,3 +1922,48 @@ html.watch-browse .player-frame video{
   object-fit:contain!important;
 }
 
+
+
+/* ============================================================
+   ORIGINAL VIDEO ASPECT v174
+   Player box follows the measured source ratio exactly.
+   ============================================================ */
+html.watch-browse .player-frame{
+  aspect-ratio:var(--watch-video-aspect,16/9)!important;
+  overflow:hidden;
+  background:#000;
+}
+
+html.watch-browse .player-frame #yt-player,
+html.watch-browse .player-frame iframe,
+html.watch-browse .player-frame video{
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  background:#000;
+}
+
+@media(max-width:720px){
+  html.watch-browse .player-section{
+    justify-content:center;
+    background:#000;
+  }
+
+  html.watch-browse .player-frame{
+    width:var(--watch-player-width,100%);
+    height:var(--watch-player-height,auto);
+    max-width:100%;
+    max-height:none;
+    margin:0 auto;
+    border-radius:0;
+  }
+}
+
+@media(min-width:960px){
+  html.watch-browse .player-frame{
+    width:var(--watch-player-width,100%);
+    height:var(--watch-player-height,auto);
+    max-width:100%;
+    margin:0 auto;
+  }
+}
