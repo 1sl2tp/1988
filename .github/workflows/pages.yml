@@ -83,6 +83,9 @@ jobs:
       - name: Apply TikTok modes v19
         run: python3 scripts/apply-tiktok-v19.py
 
+      - name: Apply channel directory v20
+        run: python3 scripts/apply-channel-directory-v20.py
+
       - name: Build exact Kira proof
         run: bash scripts/build-kira-proof.sh
 
