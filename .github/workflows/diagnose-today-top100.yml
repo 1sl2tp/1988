@@ -1,21 +1,18 @@
 name: Diagnose today top channels
 
 on:
-  workflow_dispatch:
   push:
-    branches: [main]
-    paths:
-      - '.github/workflows/diagnose-today-top100.yml'
+    branches: [diag-keyword-channel-scan]
 
 permissions:
   contents: read
 
 jobs:
-  report:
+  scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
-      - name: Collect current YouTube.js today channels
+      - name: Scan current YouTube.js results
         shell: bash
         run: |
           set -euo pipefail
@@ -47,8 +44,7 @@ jobs:
             ws.onmessage=e=>{
               const m=JSON.parse(e.data);
               if(m.id&&pending.has(m.id)){
-                const p=pending.get(m.id);
-                pending.delete(m.id);
+                const p=pending.get(m.id);pending.delete(m.id);
                 m.error?p.reject(new Error(JSON.stringify(m.error))):p.resolve(m.result);
               }
             };
@@ -57,182 +53,110 @@ jobs:
           }
 
           async function main(){
+            const queries=['tổng bí thư','tổng thống','tỷ phú','chủ tịch','tạm giam','thuế','tạp hóa','phim ngắn trung hoa'];
             const {ws,send}=await connect();
             await send('Runtime.enable');
             await send('Page.enable');
             await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
-            await sleep(5000);
+            await sleep(4500);
 
-            const report=await send('Runtime.evaluate',{
-              expression:`(async()=>{
-                const yt=await window.YTLocal.getYT();
+            const expr=`(async()=>{
+              const queries=${JSON.stringify(queries)};
+              const yt=await window.YTLocal.getYT();
 
-                const str=v=>{
-                  if(v==null)return '';
-                  if(typeof v==='string'||typeof v==='number')return String(v);
-                  if(typeof v.text==='string')return v.text;
-                  try{return String(v.toString?.()||'')}catch{return ''}
-                };
-                const norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
-                const parseMetric=value=>{
-                  const raw=String(value||'').trim();
-                  if(!raw)return 0;
-                  const low=norm(raw).replace(/,/g,'.');
-                  const m=low.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(ty|tr|trieu|m|n|nghin|k|b)?/);
-                  if(!m)return 0;
-                  let n=Number(m[1])||0;
-                  const unit=m[2]||'';
-                  if(unit==='ty'||unit==='b')n*=1e9;
-                  else if(unit==='tr'||unit==='trieu'||unit==='m')n*=1e6;
-                  else if(unit==='n'||unit==='nghin'||unit==='k')n*=1e3;
-                  return Math.round(n);
-                };
-                const channelFromLockup=node=>{
-                  for(const row of node?.metadata?.metadata?.metadata_rows||[]){
-                    for(const part of row?.metadata_parts||[]){
-                      const t=part?.text;
-                      if(!t)continue;
-                      const runs=t.runs||[];
-                      const endpoint=t.endpoint||runs[0]?.endpoint;
-                      const id=endpoint?.payload?.browseId||'';
-                      if(/^UC[A-Za-z0-9_-]+$/.test(id)){
-                        return {id,name:str(t)};
-                      }
+              const str=v=>{
+                if(v==null)return '';
+                if(typeof v==='string'||typeof v==='number')return String(v);
+                if(typeof v.text==='string')return v.text;
+                try{return String(v.toString?.()||'')}catch{return ''}
+              };
+              const norm=s=>String(s||'').normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+              const metric=value=>{
+                const raw=norm(value).replace(/,/g,'.');
+                const m=raw.match(/([0-9]+(?:\\.[0-9]+)?)\\s*(ty|tr|trieu|m|n|nghin|k|b)?/);
+                if(!m)return 0;
+                let n=Number(m[1])||0;
+                const u=m[2]||'';
+                if(u==='ty'||u==='b')n*=1e9;
+                else if(u==='tr'||u==='trieu'||u==='m')n*=1e6;
+                else if(u==='n'||u==='nghin'||u==='k')n*=1e3;
+                return Math.round(n);
+              };
+              const lockupParts=node=>{
+                const out=[];
+                for(const row of node?.metadata?.metadata?.metadata_rows||[]){
+                  for(const part of row?.metadata_parts||[]){
+                    const t=part?.text;
+                    if(t)out.push(t);
+                  }
+                }
+                return out;
+              };
+              const rowOf=node=>{
+                if(!node||typeof node!=='object')return null;
+                const id=String(node.video_id||node.videoId||node.content_id||node.id||'');
+                if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+                if(node.content_type&&String(node.content_type).toUpperCase()!=='VIDEO')return null;
+
+                let channelId=node.author?.id||'';
+                let channelName=node.author?.name||'';
+                const parts=lockupParts(node);
+                if(!channelId){
+                  for(const part of parts){
+                    const t=part?.text;
+                    const ep=t?.endpoint||t?.runs?.[0]?.endpoint;
+                    const bid=ep?.payload?.browseId||'';
+                    if(/^UC[A-Za-z0-9_-]+$/.test(bid)){
+                      channelId=bid;
+                      channelName=channelName||str(t);
+                      break;
                     }
                   }
-                  return {id:'',name:''};
-                };
-                const textParts=node=>{
-                  const out=[];
-                  for(const row of node?.metadata?.metadata?.metadata_rows||[]){
-                    for(const part of row?.metadata_parts||[]){
-                      const t=str(part?.text);
-                      if(t)out.push(t);
-                    }
-                  }
-                  return out;
-                };
-                const rowOf=node=>{
-                  if(!node||typeof node!=='object')return null;
-                  const id=String(node.video_id||node.videoId||node.content_id||node.id||'');
-                  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
-                  if(node.content_type&&String(node.content_type).toUpperCase()!=='VIDEO')return null;
+                }
+                const textParts=parts.map(p=>str(p?.text)).filter(Boolean);
+                const viewText=str(node.short_view_count||node.view_count||node.views)||textParts.find(x=>/lượt xem|views?/i.test(x))||'';
+                const published=str(node.published||node.published_time||node.published_time_text)||textParts.find(x=>/trước|ago/i.test(x))||'';
+                const title=str(node.title||node.video_title||node.metadata?.title)||'Video';
+                return {id,title,channelId,channelName,views:metric(viewText),viewText,published};
+              };
 
-                  let channel={id:node.author?.id||'',name:node.author?.name||''};
-                  if(!channel.id){
-                    const c=channelFromLockup(node);
-                    channel={id:c.id||channel.id,name:c.name||channel.name};
-                  }
-
-                  const parts=textParts(node);
-                  const viewText=str(node.short_view_count||node.view_count||node.views)||parts.find(x=>/lượt xem|views?/i.test(x))||'';
-                  const published=str(node.published||node.published_time||node.published_time_text)||parts.find(x=>/trước|ago/i.test(x))||'';
-                  const title=str(node.title||node.video_title||node.metadata?.title)||'Video';
-                  const isLive=!!node.is_live||parts.some(x=>/đang xem|watching now|trực tiếp|\\blive\\b/i.test(x));
-                  return {id,title,channelId:channel.id,channelName:channel.name,viewText,views:parseMetric(viewText),published,isLive};
-                };
-
-                let page=await yt.search('Việt Nam',{type:'video',upload_date:'today',sort_by:'upload_date'});
-                const all=[];
-                for(let p=0;p<3&&page;p++){
+              const perQuery=[];
+              const all=[];
+              for(const q of queries){
+                let page=await yt.search(q,{type:'video',upload_date:'week',sort_by:'upload_date'});
+                const seen=new Set();
+                const rows=[];
+                for(let p=0;p<2&&page;p++){
                   for(const node of Array.from(page.results||[])){
                     const row=rowOf(node);
-                    if(row)all.push(row);
+                    if(!row||seen.has(row.id))continue;
+                    seen.add(row.id);
+                    rows.push(row);
+                    all.push({...row,query:q});
                   }
-                  if(p===2||page.has_continuation===false||typeof page.getContinuation!=='function')break;
+                  if(p===1||page.has_continuation===false||typeof page.getContinuation!=='function')break;
                   try{page=await page.getContinuation()}catch{break}
                 }
+                perQuery.push({query:q,videos:rows.length,channels:new Set(rows.map(r=>r.channelId||('name:'+r.channelName)).filter(Boolean)).size});
+              }
 
-                const seen=new Set();
-                const videos=[];
-                for(const row of all){
-                  if(seen.has(row.id))continue;
-                  seen.add(row.id);
-                  const label=norm(row.published);
-                  if(row.isLive)continue;
-                  if(/\\b(ngay|tuan|thang|nam|day|days|week|weeks|month|months|year|years)\\b/.test(label))continue;
-                  videos.push(row);
-                }
+              const map=new Map();
+              for(const r of all){
+                const key=r.channelId||('name:'+r.channelName);
+                if(!key||key==='name:')continue;
+                const c=map.get(key)||{channelId:r.channelId,channelName:r.channelName||'Không rõ',videos:0,views:0,queries:new Set()};
+                c.videos++;
+                c.views+=Number(r.views)||0;
+                c.queries.add(r.query);
+                map.set(key,c);
+              }
+              const channels=[...map.values()].map(c=>({...c,queries:[...c.queries]}));
+              return JSON.stringify({queries:perQuery,channels,totalRows:all.length,distinctChannels:channels.length});
+            })()`;
 
-                const channels=new Map();
-                for(const v of videos){
-                  const key=v.channelId||('name:'+v.channelName);
-                  if(!key||key==='name:')continue;
-                  const c=channels.get(key)||{
-                    channelId:v.channelId,
-                    channelName:v.channelName||'Không rõ',
-                    newVideos:0,
-                    recentViews:0,
-                    maxVideoViews:0,
-                    subscribersText:'',
-                    subscribers:0
-                  };
-                  c.newVideos++;
-                  c.recentViews+=Number(v.views)||0;
-                  c.maxVideoViews=Math.max(c.maxVideoViews,Number(v.views)||0);
-                  channels.set(key,c);
-                }
+            const res=await send('Runtime.evaluate',{expression:expr,awaitPromise:true,returnByValue:true});
+            const data=JSON.parse(res?.result?.value||'{}');
 
-                const list=[...channels.values()];
-                let next=0;
-                const workers=Array.from({length:Math.min(8,list.length)},async()=>{
-                  while(true){
-                    const index=next++;
-                    if(index>=list.length)return;
-                    const c=list[index];
-                    if(!c.channelId)continue;
-                    try{
-                      const channel=await Promise.race([
-                        yt.getChannel(c.channelId),
-                        new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),6000))
-                      ]);
-                      const strings=[];
-                      const seenObj=new Set();
-                      const walk=(value,depth=0)=>{
-                        if(value==null||depth>5||strings.length>120)return;
-                        if(typeof value==='string'){strings.push(value);return}
-                        if(typeof value==='number')return;
-                        if(typeof value?.text==='string')strings.push(value.text);
-                        if(typeof value!=='object'||seenObj.has(value))return;
-                        seenObj.add(value);
-                        if(Array.isArray(value)){for(const x of value)walk(x,depth+1);return}
-                        for(const [k,v] of Object.entries(value)){
-                          if(/actions|memo|page|contents|endpoint|thumbnails?/i.test(k))continue;
-                          try{walk(v,depth+1)}catch{}
-                        }
-                      };
-                      walk(channel.header);
-                      const subText=
-                        str(channel.header?.subscribers)||
-                        strings.find(x=>/người đăng ký|subscriber/i.test(x))||
-                        '';
-                      c.subscribersText=subText;
-                      c.subscribers=parseMetric(subText);
-                    }catch{}
-                  }
-                });
-                await Promise.all(workers);
-
-                list.sort((a,b)=>
-                  (b.subscribers-a.subscribers)||
-                  (b.recentViews-a.recentViews)||
-                  (b.newVideos-a.newVideos)||
-                  a.channelName.localeCompare(b.channelName,'vi')
-                );
-
-                return JSON.stringify({
-                  query:'Việt Nam',
-                  pagesScanned:3,
-                  rawUniqueVideos:seen.size,
-                  latestUnder24h:videos.length,
-                  distinctChannels:list.length,
-                  channels:list.slice(0,100)
-                });
-              })()`,
-              awaitPromise:true,
-              returnByValue:true
-            });
-            const data=JSON.parse(report?.result?.value||'{}');
             const bases=[
               'https://pipedapi.ducks.party',
               'https://pipedapi.adminforge.de',
@@ -240,23 +164,22 @@ jobs:
             ];
             let cursor=0;
             const channels=Array.isArray(data.channels)?data.channels:[];
-            const workers=Array.from({length:Math.min(8,channels.length)},async()=>{
+            const workers=Array.from({length:Math.min(10,channels.length)},async()=>{
               while(true){
-                const index=cursor++;
-                if(index>=channels.length)return;
-                const c=channels[index];
+                const i=cursor++;
+                if(i>=channels.length)return;
+                const c=channels[i];
                 if(!c.channelId)continue;
                 for(const base of bases){
-                  const controller=new AbortController();
-                  const timer=setTimeout(()=>controller.abort(),6000);
+                  const ac=new AbortController();
+                  const timer=setTimeout(()=>ac.abort(),5000);
                   try{
-                    const res=await fetch(base+'/channel/'+encodeURIComponent(c.channelId),{signal:controller.signal});
-                    if(!res.ok)throw new Error('HTTP '+res.status);
-                    const body=await res.json();
+                    const rr=await fetch(base+'/channel/'+encodeURIComponent(c.channelId),{signal:ac.signal});
+                    if(!rr.ok)throw new Error('HTTP '+rr.status);
+                    const body=await rr.json();
                     const subs=Number(body?.subscriberCount);
                     if(Number.isFinite(subs)&&subs>=0){
                       c.subscribers=subs;
-                      c.subscribersText=subs.toLocaleString('vi-VN');
                       break;
                     }
                   }catch{}finally{clearTimeout(timer)}
@@ -264,14 +187,16 @@ jobs:
               }
             });
             await Promise.all(workers);
+
             channels.sort((a,b)=>
-              (Number(b.subscribers||0)-Number(a.subscribers||0))||
-              (Number(b.recentViews||0)-Number(a.recentViews||0))||
-              (Number(b.newVideos||0)-Number(a.newVideos||0))||
-              String(a.channelName||'').localeCompare(String(b.channelName||''),'vi')
+              (b.queries.length-a.queries.length)||
+              ((b.subscribers||0)-(a.subscribers||0))||
+              (b.views-a.views)||
+              (b.videos-a.videos)||
+              a.channelName.localeCompare(b.channelName,'vi')
             );
             data.channels=channels.slice(0,100);
-            console.log('REPORT_JSON='+JSON.stringify(data));
+            console.log('SCAN_JSON='+JSON.stringify(data));
             ws.close();
           }
           main().catch(e=>{console.error(e);process.exit(1)});
