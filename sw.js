@@ -1,12 +1,12 @@
 'use strict';
 
-const CACHE='1988-main-separator-ui-v66';
+const CACHE='1988-main-video-card-v67';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=separator-ui-66',
+  './src/style.css?v=video-card-67',
   './src/app.js?v=source-header-65',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
