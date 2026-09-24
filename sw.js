@@ -1,17 +1,17 @@
 'use strict';
 
-const CACHE='1988-main-ai-film-v79';
+const CACHE='1988-main-ai-filter-v80';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
   './src/style.css?v=ai-cleanup-71',
-  './src/app.js?v=ai-film-79',
+  './src/app.js?v=ai-filter-80',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=smart-sources-61',
-  './src/yt-local.js?v=source-popup-62',
+  './src/yt-local.js?v=ai-disclosure-80',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
