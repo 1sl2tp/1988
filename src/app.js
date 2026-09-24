@@ -2583,7 +2583,7 @@ function applyFloatingIframe(force){
 
   if(
     force===false ||
-    state.engine!=="iframe" ||
+    !["iframe","native"].includes(state.engine) ||
     !state.currentId ||
     playerSection.hidden
   ){
@@ -2815,6 +2815,74 @@ function setupFullscreenReturn(){
     }
   },{passive:true});
 }
+function nativeFallbackUrl(id){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(String(id||"")))return "";
+  const url=new URL("/video",MEDIA_SERVICE);
+  url.searchParams.set("id",String(id));
+  return url.toString();
+}
+
+function fallbackIframeVideoToNative(id,errorCode=0){
+  id=String(id||"").trim();
+  if(!id||id!==state.currentId)return false;
+
+  const url=nativeFallbackUrl(id);
+  if(!url)return false;
+
+  // Avoid duplicate retries from repeated iframe error callbacks.
+  if(state.engine==="native"&&state.nativeSource===url)return true;
+
+  const resumeAt=getVideoTime();
+
+  try{state.player?.pauseVideo?.();}catch{}
+  state.nativeSource=url;
+  state.mode="video";
+  state.intentPlay=true;
+
+  showNativePlayer();
+  nativePlayer.controls=true;
+  nativePlayer.playsInline=true;
+  nativePlayer.setAttribute("playsinline","");
+  nativePlayer.setAttribute("webkit-playsinline","");
+  nativePlayer.preload="auto";
+  nativePlayer.src=url;
+
+  const targetId=id;
+  const sourceUrl=url;
+
+  const onLoaded=()=>{
+    if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
+    if(resumeAt>0){
+      try{nativePlayer.currentTime=resumeAt}catch{}
+    }
+    void nativePlayer.play().catch(()=>{});
+    applyFloatingIframe();
+  };
+
+  const onPlaying=()=>{
+    if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
+    statusText.textContent="Video đang phát";
+  };
+
+  const onFailure=()=>{
+    if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
+    statusText.textContent="Video này hiện chưa lấy được nguồn phát";
+    console.warn("1988 native video fallback failed",{id:targetId,errorCode});
+  };
+
+  nativePlayer.addEventListener("loadedmetadata",onLoaded,{once:true});
+  nativePlayer.addEventListener("playing",onPlaying,{once:true});
+  nativePlayer.addEventListener("error",onFailure,{once:true});
+
+  try{
+    nativePlayer.load();
+    void nativePlayer.play().catch(()=>{});
+  }catch{}
+
+  statusText.textContent="Đang mở nguồn video dự phòng…";
+  return true;
+}
+
 function showNativePlayer(){
   state.engine="native";
   nativePlayer.hidden=false;
@@ -6848,7 +6916,10 @@ function initYouTubePlayer(){
       onApiChange(){
         forceCaptionsOff();
       },
-      onError(){
+      onError(event){
+        const errorCode=Number(event?.data)||0;
+        console.warn("1988 YouTube iframe error",{id:state.currentId,errorCode});
+        if(fallbackIframeVideoToNative(state.currentId,errorCode))return;
         statusText.textContent="YouTube không phát được video này";
       }
     }
@@ -7061,7 +7132,9 @@ nativePlayer.addEventListener("resize",()=>{
 
 nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;
-  if(state.mode==="video")statusText.textContent="MP4 đang phát";
+  state.videoPlaying=true;
+  if(state.mode==="video")statusText.textContent="Video đang phát";
+  applyFloatingIframe();
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
 });
 nativePlayer.addEventListener("pause",()=>{

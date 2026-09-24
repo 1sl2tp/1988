@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/diagnose-browser.yml'
+      - 'src/app.js'
 
 permissions:
   contents: read
@@ -88,7 +89,7 @@ jobs:
                 if(!card)return JSON.stringify({ok:false,error:'no_video_card'});
                 const id=card.dataset.videoId||'';
                 card.click();
-                await new Promise(r=>setTimeout(r,3500));
+                await new Promise(r=>setTimeout(r,12000));
                 const frame=document.querySelector('#yt-player iframe, iframe[src*="youtube"], iframe[src*="youtube-nocookie"]');
                 const section=document.querySelector('#playerSection');
                 return JSON.stringify({
@@ -101,39 +102,16 @@ jobs:
                   ytReady:!!(window.YT&&typeof window.YT.Player==='function'),
                   ytLocal:!!window.YTLocal,
                   status:document.querySelector('#statusText')?.innerText||'',
-                  scrollY:window.scrollY
+                  scrollY:window.scrollY,
+                  nativeSrc:document.querySelector('#nativePlayer')?.getAttribute('src')||'',
+                  nativeHidden:document.querySelector('#nativePlayer')?.hidden,
+                  nativeReadyState:document.querySelector('#nativePlayer')?.readyState||0
                 });
               })()`,
               awaitPromise:true,
               returnByValue:true
             });
             console.log('PLAYER_PROBE',playerProbe?.result?.value);
-
-            const mediaProbe=await send('Runtime.evaluate',{
-              expression:`(async()=>{
-                try{
-                  const card=document.querySelector('#feed [data-video-id]');
-                  const id=card?.dataset?.videoId||'';
-                  if(!id||!window.YTLocal?.media)return JSON.stringify({ok:false,error:'media_unavailable',id});
-                  const row=await window.YTLocal.media(id,'video');
-                  return JSON.stringify({
-                    ok:!!row?.url,
-                    id,
-                    width:Number(row?.width)||0,
-                    height:Number(row?.height)||0,
-                    quality:row?.quality||'',
-                    client:row?.client||'',
-                    mimeType:row?.mimeType||'',
-                    urlPrefix:String(row?.url||'').slice(0,120)
-                  });
-                }catch(e){
-                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
-                }
-              })()`,
-              awaitPromise:true,
-              returnByValue:true
-            });
-            console.log('MEDIA_PROBE',mediaProbe?.result?.value);
 
             const knownProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{
