@@ -1567,7 +1567,7 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
       '</span>'+
     '</button>'+
     (searchResult&&source
-      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Mở nguồn</button>'
+      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Thêm + mở nguồn</button>'
       :"")+
   '</article>';
 }
@@ -1634,29 +1634,57 @@ function schedulePreviewVideoSearch(){
   sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),280);
 }
 
+function revealAddedSource(id){
+  requestAnimationFrame(()=>{
+    const row=[...(sourceList?.querySelectorAll("[data-source-id]")||[])]
+      .find(el=>el.dataset.sourceId===id);
+    if(!row)return;
+    row.scrollIntoView({block:"nearest",behavior:"smooth"});
+    row.classList.add("just-added");
+    setTimeout(()=>row.classList.remove("just-added"),1400);
+  });
+}
+
 async function openSourceFromSearchVideo(video){
   const base=sourceRowFromVideo(video);
   if(!base)return;
 
-  let row=base;
+  // Add to the left list immediately; do not wait for network metadata.
+  addSource(base);
+  revealAddedSource(base.id);
+
+  const videoId=itemVideoId(video);
+  void openSourcePreview(base.id,base);
+  if(videoId)openSourceVideo(videoId,video);
+
+  sourcePreviewSearchRows=new Map();
+  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+
+  // Upgrade name/avatar/subscriber metadata in the background.
   try{
     const local=await localEngine(12000);
     const meta=await local.channelMeta(base.id);
     if(meta&&meta.id){
-      row={...base,...meta,name:clean(meta.name)||base.name};
+      const row={...base,...meta,name:clean(meta.name)||base.name};
       sourceMetaCache.set(row.id,row);
+
+      if(
+        temporaryGeneralSourceIds.has(row.id)||
+        suggestedSetForScope(sourceManageGroup).has(row.id)||
+        allManagedStateIds().has(row.id)
+      ){
+        refreshSourceManager();
+        revealAddedSource(row.id);
+      }
+
+      if(sourcePreviewSourceId===row.id){
+        sourcePreviewSourceRow=row;
+        syncSourcePreviewHeader();
+      }
     }
-  }catch{}
-
-  // "Mở nguồn" intentionally means: put that channel into the current
-  // source list as Chưa chọn, then open it for review. It does NOT auto-select.
-  addSource(row);
-  sourcePreviewSearchRows=new Map();
-  if(sourcePreviewSearch)sourcePreviewSearch.value="";
-
-  const videoId=itemVideoId(video);
-  void openSourcePreview(row.id,row);
-  if(videoId)openSourceVideo(videoId,video);
+  }catch(error){
+    console.warn("source metadata enrichment failed",base.id,error);
+  }
 }
 
 async function openSourcePreview(id,rowHint=null){

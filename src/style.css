@@ -435,6 +435,11 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .source-row:first-of-type{border-top:0}
 .source-row.active{background:rgba(255,255,255,.025)}
 .source-row.manage{background:rgba(255,255,255,.015);grid-template-columns:minmax(0,1fr) auto}
+.source-row.just-added{
+  outline:1px solid rgba(255,255,255,.42);
+  background:rgba(255,255,255,.07);
+  transition:background .25s ease,outline-color .25s ease
+}
 .source-row.blocked{opacity:.58}
 .source-row.blocked .source-avatar{filter:grayscale(1)}
 .source-main{
