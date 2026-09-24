@@ -367,4 +367,118 @@ if 'class="feed-chip"' not in s:
 if "const feedItems = ref<TrailItem[]>([]);" not in s:
     s = s.replace(
         "const trail = ref<TrailItem[]>([]);",
-        r'''const tr
+        r'''const trail = ref<TrailItem[]>([]);
+const feedItems = ref<TrailItem[]>([]);
+const feedIndex = ref(-1);
+const feedKey = ref('');
+const feedLabel = ref('');''',
+        1
+    )
+
+can_pattern = re.compile(
+    r"const canPrevious = computed\(\(\) => [\s\S]*?\);\nconst canNext = computed\(\(\) => [\s\S]*?\);",
+    re.M
+)
+can_replacement = r'''const canPrevious = computed(() => feedItems.value.length
+  ? feedIndex.value > 0
+  : trailIndex.value > 0);
+const canNext = computed(() => feedItems.value.length
+  ? feedIndex.value >= 0 && feedIndex.value < feedItems.value.length - 1
+  : related.value.some((row: any) => row?.id && row.id !== videoId.value));'''
+s, _ = can_pattern.subn(can_replacement, s, count=1)
+
+if "function hydrateFeedContext" not in s:
+    s = s.replace(
+        "function normalizeShape(value: unknown): Shape | '' {",
+        r'''function hydrateFeedContext() {
+  const key = String(route.query.feed || '');
+  feedKey.value = key;
+  feedItems.value = [];
+  feedIndex.value = -1;
+  feedLabel.value = '';
+
+  if (!key) return;
+
+  try {
+    const raw = sessionStorage.getItem('1988:feed:' + key);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const rows = Array.isArray(parsed?.items) ? parsed.items : [];
+    feedItems.value = rows
+      .map((row: any) => ({
+        id: String(row?.id || ''),
+        shape: normalizeShape(row?.shape) || 'landscape'
+      }))
+      .filter((row: TrailItem) => /^[A-Za-z0-9_-]{11}$/.test(row.id));
+
+    feedLabel.value = String(parsed?.label || '');
+    const requestedIndex = Number(route.query.index);
+    if (Number.isInteger(requestedIndex) && requestedIndex >= 0 && requestedIndex < feedItems.value.length) {
+      feedIndex.value = requestedIndex;
+    } else {
+      feedIndex.value = feedItems.value.findIndex((row) => row.id === videoId.value);
+    }
+  } catch {}
+}
+
+function normalizeShape(value: unknown): Shape | '' {''',
+        1
+    )
+
+nav_pattern = re.compile(
+    r"async function navigateTo\(item: TrailItem,[\s\S]*?\n\}\n\nfunction swipePrevious\(\) \{[\s\S]*?\n\}",
+    re.M
+)
+nav_replacement = r'''async function navigateTo(item: TrailItem, nextDirection: 'next' | 'previous', nextFeedIndex = -1) {
+  if (!item?.id || item.id === videoId.value) return;
+  direction.value = nextDirection;
+  menuOpen.value = false;
+
+  const query: Record<string, string> = { shape: item.shape };
+  if (feedKey.value) {
+    query.feed = feedKey.value;
+    if (nextFeedIndex >= 0) query.index = String(nextFeedIndex);
+  }
+
+  await router.replace({ path: '/watch/' + item.id, query });
+}
+
+function swipeNext() {
+  if (feedItems.value.length && feedIndex.value >= 0) {
+    const nextIndex = feedIndex.value + 1;
+    const next = feedItems.value[nextIndex];
+    if (next) {
+      feedIndex.value = nextIndex;
+      void navigateTo(next, 'next', nextIndex);
+      return;
+    }
+  }
+
+  const next = related.value.find((row: any) => row?.id && row.id !== videoId.value);
+  if (!next?.id) return;
+  const item: TrailItem = { id: next.id, shape: next.shape || 'landscape' };
+  trail.value = trail.value.slice(0, trailIndex.value + 1);
+  trail.value.push(item);
+  trailIndex.value = trail.value.length - 1;
+  void navigateTo(item, 'next');
+}
+
+function swipePrevious() {
+  if (feedItems.value.length && feedIndex.value > 0) {
+    const previousIndex = feedIndex.value - 1;
+    const previous = feedItems.value[previousIndex];
+    if (previous) {
+      feedIndex.value = previousIndex;
+      void navigateTo(previous, 'previous', previousIndex);
+      return;
+    }
+  }
+
+  if (trailIndex.value <= 0) return;
+  trailIndex.value -= 1;
+  const previous = trail.value[trailIndex.value];
+  if (previous) void navigateTo(previous, 'previous');
+}'''
+s, _ = nav_pattern.subn(nav_replacement, s, count=1)
+
+prefet
