@@ -26,6 +26,7 @@ const installBtn=$("#installBtn");
 const installSheet=$("#installSheet");
 const closeInstallSheet=$("#closeInstallSheet");
 const sourcesBtn=$("#sourcesBtn");
+const sourceHeaderCount=$("#sourceHeaderCount");
 const sourcesSheet=$("#sourcesSheet");
 const closeSourcesSheet=$("#closeSourcesSheet");
 const sourceSearch=$("#sourceSearch");
@@ -206,7 +207,7 @@ function sourceMetaFor(row){
 function updateSourceSummary(){
   const rows=channelLibrary();
   const count=selectedSourceIds.size;
-  if(sourcesBtn)sourcesBtn.textContent="Nguồn · "+count;
+  if(sourceHeaderCount)sourceHeaderCount.textContent=String(count);
   if(sourceSummary)sourceSummary.textContent=count+" / "+rows.length;
 }
 
