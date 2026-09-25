@@ -7171,3 +7171,103 @@ html:not(.watch-browse) .app-header{
     border-color:rgba(255,255,255,.28)!important;
   }
 }
+
+
+/* ============================================================
+   WATCH CARD BREATHING + OUTER TINT v208
+   Cards sit slightly farther from the viewport edge so hover/press can
+   expand outside the card like the reference without being clipped.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed-section{
+    overflow-x:hidden!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    isolation:isolate!important;
+    width:calc(100% - 28px)!important;
+    max-width:calc(100% - 28px)!important;
+    margin:0 14px 20px!important;
+    padding:0 0 8px!important;
+    border:1px solid rgba(255,255,255,.20)!important;
+    border-radius:12px!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transform:none!important;
+    transition:
+      border-color .14s ease,
+      transform .12s ease!important;
+  }
+
+  /* This is the larger interaction surface shown only on press/focus.
+     14px list gutter leaves room for a 7px expansion on each side. */
+  html.watch-browse .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card::before{
+    content:""!important;
+    position:absolute!important;
+    z-index:0!important;
+    inset:-7px!important;
+    border-radius:17px!important;
+    pointer-events:none!important;
+    background:var(--card-hover-color,#29292c)!important;
+    opacity:0!important;
+    transform:scale(.992)!important;
+    transition:
+      opacity .14s ease,
+      transform .14s ease!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-copy{
+    position:relative!important;
+    z-index:1!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:active,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within{
+    border-color:rgba(255,255,255,.34)!important;
+    transform:scale(.997)!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:active::before,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within::before{
+    opacity:1!important;
+    transform:scale(1)!important;
+  }
+}
+
+@media(min-width:721px){
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    isolation:isolate!important;
+    margin-inline:8px!important;
+    width:calc(100% - 16px)!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card::before{
+    inset:-7px!important;
+    border-radius:17px!important;
+    background:var(--card-hover-color,#29292c)!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:hover,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within{
+    border-color:rgba(255,255,255,.32)!important;
+  }
+}
