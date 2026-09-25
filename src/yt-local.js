@@ -712,14 +712,20 @@ async function search(query,filters={}){
   return pageRows(result,36);
 }
 
-async function searchChannels(query){
+async function searchChannels(query,options={}){
   const q=String(query||'').trim();
   if(!q)return [];
   const yt=await getYT();
+  const includeVideos=options?.includeVideos!==false;
+
+  const channelPromise=yt.search(q,{type:'channel'}).catch(()=>null);
+  const videoPromise=includeVideos
+    ?yt.search(q,{type:'video'}).catch(()=>null)
+    :Promise.resolve(null);
 
   const [channelResult,videoResult]=await Promise.all([
-    yt.search(q,{type:'channel'}).catch(()=>null),
-    yt.search(q,{type:'video'}).catch(()=>null)
+    channelPromise,
+    videoPromise
   ]);
 
   const channelRows=
@@ -734,7 +740,7 @@ async function searchChannels(query){
     [];
 
   const direct=normalizeChannels(channelRows,24);
-  const fromVideos=channelsFromVideoRows(videoRows,24);
+  const fromVideos=includeVideos?channelsFromVideoRows(videoRows,24):[];
   const out=[];
   const seen=new Set();
 
