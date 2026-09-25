@@ -2243,9 +2243,19 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
   };
 
+  const remoteMatchIds=new Set(
+    q
+      ?sourceRemoteResults.map(row=>String(row?.id||"").trim()).filter(Boolean)
+      :[]
+  );
+
   const localRows=rows.filter(row=>
     groupFilter(row)&&
-    (!q||normalizeSearchText(sourceMetaFor(row).name||row.name).includes(q))
+    (
+      !q||
+      normalizeSearchText(sourceMetaFor(row).name||row.name).includes(q)||
+      remoteMatchIds.has(String(row?.id||"").trim())
+    )
   );
 
   const allLibraryIds=new Set(rows.map(row=>row.id));
@@ -2332,6 +2342,39 @@ function rememberSearchedSourceCandidates(rows=[]){
 }
 
 
+
+async function sourceSearchAlternates(query){
+  const q=normalizeCommittedSearchQuery(query);
+  if(q.length<2)return [];
+
+  const out=[];
+  const seen=new Set([normalizeSearchText(q)]);
+  const push=value=>{
+    value=normalizeCommittedSearchQuery(value);
+    const norm=normalizeSearchText(value);
+    if(!norm||seen.has(norm))return;
+    seen.add(norm);
+    out.push(value);
+  };
+
+  try{
+    const response=await api("suggestions",{q},1200);
+    const rows=Array.isArray(response?.data)?response.data:[];
+    for(const value of rows){
+      const norm=normalizeSearchText(value);
+      if(!norm.includes(normalizeSearchText(q)))continue;
+      push(value);
+      if(out.length>=3)break;
+    }
+  }catch{}
+
+  if(out.length<2)push(q+" official");
+  if(out.length<3)push(q+" channel");
+
+  return out.slice(0,3);
+}
+
+
 async function searchSourceChannels(query){
   const q=normalizeCommittedSearchQuery(query);
   const seq=++sourceSearchSeq;
@@ -2346,19 +2389,67 @@ async function searchSourceChannels(query){
   if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm kênh…";
 
   const byId=new Map();
-  const addCandidate=row=>{
+  const stats=new Map();
+  const videoSourceIds=new Set();
+  const qNorm=normalizeSearchText(q);
+
+  const addCandidate=(row,via="channel")=>{
     if(!row)return false;
     const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
       ?sourceMetaFor(row)
       :sourceCandidateFromVideo(row);
-    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return false;
-    if(!byId.has(candidate.id))byId.set(candidate.id,candidate);
+    const id=String(candidate?.id||"").trim();
+    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+    if(!byId.has(id))byId.set(id,candidate);
+    else{
+      const current=byId.get(id)||{};
+      byId.set(id,{
+        ...current,
+        ...candidate,
+        thumbnailUrl:candidate.thumbnailUrl||current.thumbnailUrl||"",
+        subscribers:candidate.subscribers||current.subscribers||""
+      });
+    }
+
+    const nameNorm=normalizeSearchText(candidate.name||"");
+    let score=0;
+    if(nameNorm===qNorm)score+=80;
+    else if(nameNorm.startsWith(qNorm))score+=50;
+    else if(nameNorm.includes(qNorm))score+=35;
+
+    if(via==="video"){
+      score+=60;
+      videoSourceIds.add(id);
+    }else if(via==="expanded-video"){
+      score+=70;
+      videoSourceIds.add(id);
+    }else if(via==="expanded-channel"){
+      score+=25;
+    }else{
+      score+=10;
+    }
+
+    const prev=stats.get(id)||{score:0,hits:0};
+    stats.set(id,{
+      score:prev.score+score+(prev.hits?8:0),
+      hits:prev.hits+1
+    });
     return true;
   };
 
+  const rankedCandidates=()=>[...byId.values()]
+    .sort((a,b)=>{
+      const bs=stats.get(String(b?.id||""))?.score||0;
+      const as=stats.get(String(a?.id||""))?.score||0;
+      if(bs!==as)return bs-as;
+      return clean(a?.name||"").localeCompare(clean(b?.name||""),"vi");
+    })
+    .slice(0,24);
+
   const publish=()=>{
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return false;
-    sourceRemoteResults=[...byId.values()].slice(0,24);
+    sourceRemoteResults=rankedCandidates();
     rememberSearchedSourceCandidates(sourceRemoteResults);
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
@@ -2369,24 +2460,18 @@ async function searchSourceChannels(query){
     return true;
   };
 
-  const consume=rows=>{
+  const consume=(rows,via)=>{
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-    for(const row of Array.isArray(rows)?rows:[]){
-      addCandidate(row);
-      if(byId.size>=24)break;
-    }
+    for(const row of Array.isArray(rows)?rows:[])addCandidate(row,via);
     if(byId.size)publish();
   };
 
-  // Interactive source search must never wait for youtubei.js startup.
-  // Ask the lightweight backend for channels and video-derived channels now,
-  // while youtubei.js is only a parallel fallback.
   const backendChannelJob=api("search",{q,filter:"channels"},2400)
-    .then(response=>consume(response?.data?.items))
+    .then(response=>consume(response?.data?.items,"channel"))
     .catch(()=>{});
 
   const backendVideoJob=api("search",{q,filter:"videos"},2600)
-    .then(response=>consume(response?.data?.items))
+    .then(response=>consume(response?.data?.items,"video"))
     .catch(()=>{});
 
   let localForMeta=null;
@@ -2398,19 +2483,49 @@ async function searchSourceChannels(query){
         new Promise((_,reject)=>setTimeout(()=>reject(new Error("channel_search_timeout")),1800))
       ]);
     })
-    .then(consume)
+    .then(rows=>consume(rows,"channel"))
     .catch(()=>{});
 
   await Promise.allSettled([backendChannelJob,backendVideoJob,localJob]);
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
+  // "Tìm kiểu 2": khi tên gõ không trùng tên kênh, dùng gợi ý YouTube
+  // và video liên quan để suy ra nguồn thực tế. Ví dụ một nghệ sĩ có thể
+  // được tìm bằng tên thường dùng nhưng kênh chính mang thương hiệu khác.
+  if(!videoSourceIds.size){
+    if(sourceSearchStatus){
+      sourceSearchStatus.textContent=byId.size
+        ?"Đang tìm thêm nguồn liên quan…"
+        :"Đang tìm rộng hơn…";
+    }
+
+    const alternates=await sourceSearchAlternates(q);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+    const jobs=[];
+    for(const alt of alternates.slice(0,2)){
+      jobs.push(
+        api("search",{q:alt,filter:"videos"},3400)
+          .then(response=>consume(response?.data?.items,"expanded-video"))
+          .catch(()=>{})
+      );
+      jobs.push(
+        api("search",{q:alt,filter:"channels"},3000)
+          .then(response=>consume(response?.data?.items,"expanded-channel"))
+          .catch(()=>{})
+      );
+    }
+    await Promise.allSettled(jobs);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+  }
+
   if(byId.size){
     publish();
     if(localForMeta){
-      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),localForMeta,700)
+      void prewarmSourceSearchMetadata(rankedCandidates().slice(0,16),localForMeta,700)
         .then(()=>{
           if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-          sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
+          sourceRemoteResults=rankedCandidates().map(row=>sourceMetaFor(row));
           renderSourceLibrary();
         })
         .catch(()=>{});
