@@ -32,10 +32,33 @@ function cleanText(value: unknown, max = 600) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+const MANAGED_SCOPES = [
+  "live","latest","week","news","economy","law","film","music","tech","sports","entertainment"
+];
+
+function sourceScopeSignature(rows: any[], scope: string) {
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => cleanText(row?.scope, 32) === scope)
+    .map((row) => {
+      const id = cleanId(row?.channel_id);
+      const status = String(row?.status || "");
+      if (!id || (status !== "selected" && status !== "blocked")) return "";
+      return [
+        id,
+        status,
+        cleanText(row?.name, 180),
+        cleanText(row?.thumbnail_url, 1000)
+      ].join("|");
+    })
+    .filter(Boolean)
+    .sort()
+    .join("\n");
+}
 
 function triggerPackageRefresh(supabaseUrl: string, serviceKey: string, scopes: string[] = []) {
-  const managed = new Set(["live","latest","week","news","economy","law","film","music","tech","sports","entertainment"]);
+  const managed = new Set(MANAGED_SCOPES);
   const wanted = [...new Set(scopes.map((s) => cleanText(s, 32)).filter((s) => managed.has(s)))];
+  if (!wanted.length) return;
   const task = fetch(supabaseUrl + "/functions/v1/yt1988-refresh", {
     method: "POST",
     headers: {
@@ -252,6 +275,23 @@ Deno.serve(async (req) => {
 
     const version = Math.max(1, Number(body?.version || Date.now()));
     const rows = stateRows(state);
+
+    // A full profile save is also used for presentation-only changes such as
+    // renaming a tab. Compare the authoritative source rows first so a label
+    // edit does not trigger a costly rebuild of all 11 packages.
+    const currentStateRes = await fetch(
+      rest + "/yt1988_source_state?profile_key=eq." + encodeURIComponent(PROFILE) +
+      "&select=scope,channel_id,status,name,thumbnail_url",
+      { headers: authHeaders }
+    );
+    if (!currentStateRes.ok) {
+      return json({ ok: false, error: "source_compare_failed", detail: await currentStateRes.text() }, 502);
+    }
+    const currentRows = await currentStateRes.json();
+    const changedScopes = MANAGED_SCOPES.filter(
+      (scope) => sourceScopeSignature(currentRows, scope) !== sourceScopeSignature(rows, scope)
+    );
+
     const rpc = await fetch(rest + "/rpc/yt1988_replace_source_state", {
       method: "POST",
       headers: authHeaders,
@@ -286,12 +326,10 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "profile_write_failed", detail: await stateRes.text() }, 502);
     }
 
-    triggerPackageRefresh(
-      supabaseUrl,
-      serviceKey,
-      ["live","latest","week","news","economy","law","film","music","tech","sports","entertainment"]
-    );
-    return json({ ok: true, state, version, updated_at: stateSavedAt });
+    if (changedScopes.length) {
+      triggerPackageRefresh(supabaseUrl, serviceKey, changedScopes);
+    }
+    return json({ ok: true, state, version, updated_at: stateSavedAt, refreshed_scopes: changedScopes });
   }
 
   return json({ ok: false, error: "method_not_allowed" }, 405);
