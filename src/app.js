@@ -1986,21 +1986,46 @@ async function searchSourceChannels(query){
     return;
   }
 
-  if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm toàn bộ kênh trên YouTube…";
+  if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm kênh trên YouTube…";
 
   try{
-    const local=await localEngine(16000);
-    const rows=await local.searchChannels(q);
+    const local=await localEngine(12000);
+    let rows=[];
+
+    try{
+      rows=await local.searchChannels(q);
+    }catch(error){
+      console.warn("channel-only search failed; using video fallback",error);
+    }
+
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+    if(!Array.isArray(rows)||!rows.length){
+      try{
+        const videos=await local.search(q,{type:"video"});
+        const byId=new Map();
+        for(const video of Array.isArray(videos)?videos:[]){
+          const candidate=sourceCandidateFromVideo(video);
+          if(candidate&&!byId.has(candidate.id))byId.set(candidate.id,candidate);
+          if(byId.size>=20)break;
+        }
+        rows=[...byId.values()];
+      }catch(error){
+        console.warn("source search video fallback failed",error);
+      }
+    }
+
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
     sourceRemoteResults=(Array.isArray(rows)?rows:[])
       .filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
+
     rememberSearchedSourceCandidates(sourceRemoteResults,sourceManageGroup);
 
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
-        ?"Có "+sourceRemoteResults.length+" kết quả từ YouTube"
-        :"Không tìm thấy thêm kênh trên YouTube";
+        ?"Có "+sourceRemoteResults.length+" kênh phù hợp"
+        :"Không tìm thấy kênh phù hợp";
     }
     renderSourceLibrary();
   }catch(error){
@@ -2158,11 +2183,20 @@ function syncSourcePreviewHeader(){
     if(sourcePreviewTitle)sourcePreviewTitle.textContent="Xem nguồn";
     if(sourcePreviewStatus)sourcePreviewStatus.textContent="Chọn một kênh ở bên trái để kiểm tra trước khi thêm.";
     if(sourcePreviewSelect)sourcePreviewSelect.hidden=true;
+    if(sourcePreviewSearch){
+      sourcePreviewSearch.disabled=true;
+      sourcePreviewSearch.placeholder="Chọn nguồn trước";
+      sourcePreviewSearch.value="";
+    }
     return;
   }
 
   sourcePreview.classList.remove("is-empty");
   const meta=sourceMetaFor(row);
+  if(sourcePreviewSearch){
+    sourcePreviewSearch.disabled=false;
+    sourcePreviewSearch.placeholder="Tìm video trong "+clean(meta.name||row.name||"nguồn");
+  }
   const exists=libraryHas(id)||allManagedStateIds().has(id);
   const status=exists?sourceStatus(id,sourceManageGroup):"normal";
   const statusText=status==="selected"?"Đã chọn":status==="blocked"?"Đã chặn":"Chưa chọn";
@@ -2266,56 +2300,157 @@ function renderSourcePreviewVideos({force=false}={}){
   }
 
   sourcePreviewList.innerHTML=all
-    .map(video=>sourcePreviewVideoCard(video,{searchResult:searching}))
+    .map(video=>sourcePreviewVideoCard(video,{searchResult:false}))
     .join("");
 }
 
 async function searchPreviewVideos(query){
   const q=clean(query);
+  const sourceId=String(sourcePreviewSourceId||"").trim();
+  const sourceRow=sourcePreviewSourceRow;
   const seq=++sourcePreviewSearchSeq;
-  if(q.length<2){
+
+  if(!sourceId||!sourceRow){
     sourcePreviewSearchRows=new Map();
-    renderSourcePreviewVideos();
+    if(sourcePreviewList){
+      sourcePreviewList.innerHTML='<div class="source-empty">Chọn một nguồn trước khi tìm video</div>';
+    }
     return;
   }
 
-  sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm video trên YouTube…</div>';
+  if(q.length<2){
+    sourcePreviewSearchRows=new Map();
+    renderSourcePreviewVideos({force:true});
+    return;
+  }
+
+  const qNorm=normalizeSearchText(q);
+  const sourceName=clean(sourceMetaFor(sourceRow).name||sourceRow.name||"");
+  const sourceNameNorm=normalizeSearchText(sourceName);
+
+  const matchesQuery=video=>{
+    const haystack=normalizeSearchText([
+      video?.title,
+      video?.uploader,
+      video?._sourceName,
+      video?.description
+    ].filter(Boolean).join(" "));
+    return !!haystack&&haystack.includes(qNorm);
+  };
+
+  const belongsToSource=video=>{
+    const id=String(
+      video?.channelId||
+      video?._sourceId||
+      video?.uploaderId||
+      ""
+    ).trim();
+    if(id)return id===sourceId;
+
+    const uploader=normalizeSearchText(
+      video?.uploader||
+      video?._sourceName||
+      video?.channelName||
+      ""
+    );
+    return !!sourceNameNorm&&uploader===sourceNameNorm;
+  };
+
+  const localMatches=[...sourcePreviewRows.values()].filter(matchesQuery);
 
   try{
-    const local=await localEngine(16000);
-    const rows=await local.search(q);
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+    const local=await localEngine(12000);
+    let remote=[];
 
-    const candidates=(Array.isArray(rows)?rows:[])
-      .filter(row=>itemVideoId(row))
-      .slice(0,24);
-    const normalized=typeof local?.filterEmbeddableRows==="function"
-      ?await local.filterEmbeddableRows(candidates,{concurrency:6})
-      :candidates;
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-    sourcePreviewSearchRows=new Map(normalized.map(video=>[itemVideoId(video),video]));
-    renderSourcePreviewVideos();
+    try{
+      const searchQuery=sourceName?sourceName+" "+q:q;
+      remote=await local.search(searchQuery,{sort_by:"upload_date"});
+    }catch(error){
+      console.warn("source-scoped preview search failed",sourceId,error);
+    }
+
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden||sourcePreviewSourceId!==sourceId)return;
+
+    const merged=[];
+    const seen=new Set();
+    for(const video of [...localMatches,...(Array.isArray(remote)?remote:[])]){
+      const videoId=itemVideoId(video);
+      if(!videoId||seen.has(videoId))continue;
+      if(!belongsToSource(video)||!matchesQuery(video))continue;
+      seen.add(videoId);
+      merged.push(video);
+      if(merged.length>=24)break;
+    }
+
+    const playable=typeof local?.filterEmbeddableRows==="function"
+      ?await local.filterEmbeddableRows(merged,{concurrency:6})
+      :merged;
+
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden||sourcePreviewSourceId!==sourceId)return;
+
+    sourcePreviewSearchRows=new Map(
+      playable.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+    );
+    sourcePreviewRenderSignature="";
+    renderSourcePreviewVideos({force:true});
   }catch(error){
     if(seq!==sourcePreviewSearchSeq)return;
     console.warn("source preview video search failed",error);
-    sourcePreviewSearchRows=new Map();
-    sourcePreviewList.innerHTML='<div class="source-empty">Chưa tìm được video trên YouTube</div>';
+
+    // Keep the instant local matches if the network search fails.
+    sourcePreviewSearchRows=new Map(
+      localMatches.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+    );
+    sourcePreviewRenderSignature="";
+    renderSourcePreviewVideos({force:true});
   }
 }
 
 function schedulePreviewVideoSearch(){
   clearTimeout(sourcePreviewSearchTimer);
+  sourcePreviewSearchTimer=0;
   sourcePreviewSearchSeq++;
-  sourcePreviewSearchRows=new Map();
-  const q=clean(sourcePreviewSearch?.value||"");
 
-  if(q.length<2){
-    renderSourcePreviewVideos();
+  const q=clean(sourcePreviewSearch?.value||"");
+  const sourceId=String(sourcePreviewSourceId||"").trim();
+
+  if(!sourceId){
+    sourcePreviewSearchRows=new Map();
+    if(sourcePreviewList){
+      sourcePreviewList.innerHTML='<div class="source-empty">Chọn một nguồn trước khi tìm video</div>';
+    }
     return;
   }
 
-  sourcePreviewList.innerHTML='<div class="source-empty">Đang chờ tìm video…</div>';
-  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),280);
+  if(q.length<2){
+    sourcePreviewSearchRows=new Map();
+    sourcePreviewRenderSignature="";
+    renderSourcePreviewVideos({force:true});
+    return;
+  }
+
+  // First pass is instant and entirely local to the selected source.
+  const qNorm=normalizeSearchText(q);
+  const instant=[...sourcePreviewRows.values()].filter(video=>
+    normalizeSearchText([
+      video?.title,
+      video?.uploader,
+      video?._sourceName,
+      video?.description
+    ].filter(Boolean).join(" ")).includes(qNorm)
+  );
+
+  sourcePreviewSearchRows=new Map(
+    instant.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+  );
+  sourcePreviewRenderSignature="";
+  if(instant.length){
+    renderSourcePreviewVideos({force:true});
+  }else if(sourcePreviewList){
+    sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm thêm trong nguồn…</div>';
+  }
+
+  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),240);
 }
 
 function revealAddedSource(id){
@@ -2531,7 +2666,11 @@ function resetSourcePreviewPane(){
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
   sourcePreviewRenderSignature="";
-  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  if(sourcePreviewSearch){
+    sourcePreviewSearch.value="";
+    sourcePreviewSearch.disabled=true;
+    sourcePreviewSearch.placeholder="Chọn nguồn trước";
+  }
   if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
   if(sourcePreview){
     sourcePreview.hidden=false;
@@ -3035,6 +3174,14 @@ function setupSourceLibrary(){
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
   sourcePreviewSearch?.addEventListener("input",schedulePreviewVideoSearch);
+  sourcePreviewSearch?.addEventListener("keydown",event=>{
+    if(event.key!=="Enter")return;
+    event.preventDefault();
+    clearTimeout(sourcePreviewSearchTimer);
+    sourcePreviewSearchTimer=0;
+    void searchPreviewVideos(sourcePreviewSearch.value);
+    sourcePreviewSearch.blur();
+  });
   sourceSettingsBtn?.addEventListener("click",()=>{
     if(sourceManageMode){
       setSourceManageMode(false);
@@ -3105,6 +3252,14 @@ function setupSourceLibrary(){
       if(sourceBrowse)sourceBrowse.scrollTop=0;
       if(sourceList)sourceList.scrollTop=0;
     });
+  });
+  sourceSearch?.addEventListener("keydown",event=>{
+    if(event.key!=="Enter")return;
+    event.preventDefault();
+    clearTimeout(sourceSearchTimer);
+    sourceSearchTimer=0;
+    void searchSourceChannels(sourceSearch.value);
+    sourceSearch.blur();
   });
   clearSourceSearch?.addEventListener("click",()=>{
     sourceSearch.value="";
