@@ -76,6 +76,11 @@ const sourcePreviewList=$("#sourcePreviewList");
 const sourceSettingsBtn=$("#sourceSettingsBtn");
 const sourceVideoPopup=$("#sourceVideoPopup");
 const closeSourceVideoPopup=$("#closeSourceVideoPopup");
+const sourceVideoPopupSourceOpen=$("#sourceVideoPopupSourceOpen");
+const sourceVideoPopupAvatar=$("#sourceVideoPopupAvatar");
+const sourceVideoPopupSourceName=$("#sourceVideoPopupSourceName");
+const sourceVideoPopupSourceTarget=$("#sourceVideoPopupSourceTarget");
+const sourceVideoPopupSelect=$("#sourceVideoPopupSelect");
 const sourceVideoFrame=$("#sourceVideoFrame");
 const sourceVideoPopupTitle=$("#sourceVideoPopupTitle");
 const trendTopics=$("#trendTopics");
@@ -646,6 +651,7 @@ let sourcePreviewSearchTimer=0;
 let sourcePreviewSearchSeq=0;
 let sourcePreviewSourceId="";
 let sourcePreviewSourceRow=null;
+let sourceVideoPopupSourceRow=null;
 let sourcePreviewRenderSignature="";
 let sourceManageMode=false;
 let sourceManageGroup=GENERAL_SOURCE_SCOPE;
@@ -1366,6 +1372,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   clearSourceContentLearning(scope);
   refreshSourceManager();
   syncSourcePreviewHeader();
+  syncSourceVideoPopupSource();
 
   // Relearn the "Chưa chọn" suggestions immediately from the new Đã chọn
   // state while the manager is open. The same path is used for every tab.
@@ -2773,8 +2780,9 @@ function sourceCandidateFromVideo(row={}){
       row?.uploaderThumbnailUrl||
       row?.channelThumbnailUrl||
       row?._sourceThumbnailUrl||
-      row?.thumbnailUrl||
-      (typeof row?.thumbnail==="string"?row.thumbnail:"")||
+      row?.uploaderAvatar||
+      row?.channelAvatar||
+      row?.authorAvatar||
       ""
     ),
     subscribers:clean(row?.subscribers||"")
@@ -2987,7 +2995,8 @@ function setSourceManageMode(enabled,{render=true}={}){
 
 
 function sourcePreviewScopeLabel(){
-  return SOURCE_MANAGER_GROUPS.find(item=>item.key===sourceManageGroup)?.label||"Nguồn";
+  if(sourceManageGroup===GENERAL_SOURCE_SCOPE)return "Nguồn";
+  return sourceGroupLabel(sourceManageGroup)||"Nguồn";
 }
 
 function syncSourcePreviewHeader(){
@@ -3041,15 +3050,80 @@ function sourceRowFromVideo(video={}){
     video?.channelName||
     "Kênh YouTube"
   );
-  return {id,name:name||"Kênh YouTube",thumbnailUrl:"",subscribers:""};
+  const thumbnailUrl=sourceAvatarForRow(video,id,name);
+  return {
+    id,
+    name:name||"Kênh YouTube",
+    thumbnailUrl,
+    subscribers:clean(video?.subscribers||"")
+  };
+}
+
+function sourceResultRow(rowOrVideo={}){
+  const base=/^UC[A-Za-z0-9_-]+$/.test(String(rowOrVideo?.id||""))
+    ?rowOrVideo
+    :sourceRowFromVideo(rowOrVideo);
+  const id=String(base?.id||"").trim();
+  if(!id)return null;
+
+  return sourcePreviewSearchChannels.get(id)||
+    sourceMetaCache.get(id)||
+    libraryRow(id)||
+    managedChannelLibrary().find(item=>item.id===id)||
+    base;
+}
+
+function sourceResultAvatarHtml(row={}){
+  const meta=sourceMetaFor(row);
+  const image=safeSourceThumb(meta.thumbnailUrl||"");
+  const fallback=(clean(meta.name||row?.name||"?").charAt(0)||"?").toUpperCase();
+  return '<span class="source-avatar source-result-avatar">'+
+    (image
+      ?'<img src="'+esc(image)+'" alt="" width="40" height="40" loading="lazy" decoding="async">'
+      :'<span class="source-avatar-fallback" aria-hidden="true">'+esc(fallback)+'</span>')+
+  '</span>';
+}
+
+function sourceQuickAddLabel(row={}){
+  const id=String(row?.id||"").trim();
+  const status=id?sourceStatus(id,sourceManageGroup):"normal";
+  if(status==="selected")return "✓ Đã chọn";
+  return "+ "+sourcePreviewScopeLabel();
+}
+
+function quickSelectSource(row={}){
+  const id=String(row?.id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+  const meta=sourceMetaFor(row);
+  const candidate={
+    id,
+    name:clean(meta.name||row?.name)||"Kênh YouTube",
+    thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row?.thumbnailUrl||""),
+    subscribers:clean(meta.subscribers||row?.subscribers||"")
+  };
+
+  sourceMetaCache.set(id,{...sourceMetaCache.get(id),...candidate});
+  if(candidate.thumbnailUrl)rememberSourceAvatar(id,candidate.thumbnailUrl);
+
+  if(!libraryHas(id)&&!allManagedStateIds().has(id)){
+    addSource(candidate);
+  }
+  setSourceStatus(id,"selected",sourceManageGroup);
+
+  sourcePreviewRenderSignature="";
+  renderSourcePreviewVideos({force:true});
+  syncSourceVideoPopupSource();
+  return true;
 }
 
 function sourcePreviewVideoCard(video,{searchResult=false}={}){
   const media=videoUiMeta(video);
   const videoId=media.id;
-  const source=sourceRowFromVideo(video);
+  const source=sourceResultRow(video);
   const sourceName=clean(source?.name||media.channel);
   const metaText=[media.published,media.viewsLabel].filter(Boolean).join(" · ");
+  const sourceId=String(source?.id||"").trim();
 
   return '<article class="source-video-card'+(searchResult?' search-result':'')+'" data-source-video-card="'+esc(videoId)+'">'+
     '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
@@ -3060,8 +3134,16 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
         '<span class="source-video-meta">'+esc(metaText)+'</span>'+
       '</span>'+
     '</button>'+
-    (searchResult&&source
-      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Mở nguồn</button>'
+    (searchResult&&sourceId
+      ?'<div class="source-card-source-bar">'+
+          '<button class="source-card-source-main" type="button" data-source-open-channel="'+esc(sourceId)+'" data-source-video-ref="'+esc(videoId)+'">'+
+            sourceResultAvatarHtml(source)+
+            '<span><strong>'+esc(sourceName||"Kênh YouTube")+'</strong><small>Mở nguồn</small></span>'+
+          '</button>'+
+          '<button class="source-quick-add" type="button" data-source-quick-select="'+esc(sourceId)+'" data-source-video-ref="'+esc(videoId)+'">'+
+            esc(sourceQuickAddLabel(source))+
+          '</button>'+
+        '</div>'
       :"")+
   '</article>';
 }
@@ -3072,11 +3154,14 @@ function sourcePreviewSearchChannelCard(row={}){
   const statusText=status==="selected"?"Đã chọn":status==="blocked"?"Đã chặn":"Kênh YouTube";
   return '<article class="source-video-card search-result source-channel-result" data-source-search-channel-card="'+esc(row.id)+'">'+
     '<button class="source-video-row" type="button" data-source-search-channel="'+esc(row.id)+'">'+
-      sourceAvatarHtml(row)+
+      sourceResultAvatarHtml(row)+
       '<span class="source-video-copy">'+
         '<span class="source-video-title">'+esc(meta.name||row.name||"Kênh YouTube")+'</span>'+
         '<span class="source-video-meta">'+esc([statusText,meta.subscribers].filter(Boolean).join(" · "))+'</span>'+
       '</span>'+
+    '</button>'+
+    '<button class="source-quick-add" type="button" data-source-quick-select="'+esc(row.id)+'">'+
+      esc(sourceQuickAddLabel(row))+
     '</button>'+
   '</article>';
 }
@@ -3350,6 +3435,20 @@ async function searchPreviewVideos(query){
   }
 
   publish();
+
+  // Results stay instant, then missing channel avatars/names are enriched in
+  // place so the user can recognize and add a source without opening it first.
+  const missingMeta=[...channelMap.values()].filter(row=>!sourceMetaComplete(row.id,row));
+  if(missingMeta.length){
+    void prewarmSourceSearchMetadata(missingMeta,null,1200).then(()=>{
+      if(!stillCurrent())return;
+      for(const [id,row] of channelMap){
+        const enriched=sourceMetaCache.get(id);
+        if(enriched)channelMap.set(id,{...row,...enriched});
+      }
+      publish();
+    }).catch(()=>{});
+  }
 }
 function schedulePreviewVideoSearch(){
   clearTimeout(sourcePreviewSearchTimer);
@@ -3521,6 +3620,40 @@ function choosePreviewSource(){
   syncSourcePreviewHeader();
 }
 
+function syncSourceVideoPopupSource(row=sourceVideoPopupSourceRow){
+  if(!sourceVideoPopupSourceName||!sourceVideoPopupSelect)return;
+
+  const resolved=row?sourceResultRow(row):null;
+  sourceVideoPopupSourceRow=resolved;
+
+  if(!resolved){
+    if(sourceVideoPopupSourceName)sourceVideoPopupSourceName.textContent="Nguồn YouTube";
+    if(sourceVideoPopupSourceTarget)sourceVideoPopupSourceTarget.textContent=sourcePreviewScopeLabel();
+    if(sourceVideoPopupAvatar)sourceVideoPopupAvatar.innerHTML="";
+    sourceVideoPopupSelect.hidden=true;
+    return;
+  }
+
+  const meta=sourceMetaFor(resolved);
+  if(sourceVideoPopupSourceName){
+    sourceVideoPopupSourceName.textContent=meta.name||resolved.name||"Nguồn YouTube";
+  }
+  if(sourceVideoPopupSourceTarget){
+    sourceVideoPopupSourceTarget.textContent="Thêm vào "+sourcePreviewScopeLabel();
+  }
+  if(sourceVideoPopupAvatar){
+    sourceVideoPopupAvatar.innerHTML=sourceResultAvatarHtml(resolved);
+  }
+
+  const selected=sourceStatus(resolved.id,sourceManageGroup)==="selected";
+  sourceVideoPopupSelect.hidden=false;
+  sourceVideoPopupSelect.disabled=selected;
+  sourceVideoPopupSelect.classList.toggle("active",selected);
+  sourceVideoPopupSelect.textContent=selected
+    ?"✓ Đã chọn"
+    :"+ "+sourcePreviewScopeLabel();
+}
+
 function sourceVideoCommand(func,args=[]){
   try{
     sourceVideoFrame?.contentWindow?.postMessage(
@@ -3538,6 +3671,8 @@ function openSourceVideo(id,row){
   if(!sourceVideoPopup||!sourceVideoFrame||!id)return;
   const title=clean(row?.title)||"Video";
   sourceVideoPopupTitle.textContent=title;
+  sourceVideoPopupSourceRow=sourceResultRow(row);
+  syncSourceVideoPopupSource();
 
   // Show the player before assigning src. Loading an iframe while its parent is
   // hidden can cause Chrome/Safari to ignore the autoplay request.
@@ -3562,7 +3697,9 @@ function closeSourceVideo(){
   sourceVideoPopup.hidden=true;
   sourceVideoFrame.onload=null;
   sourceVideoFrame.src="about:blank";
+  sourceVideoPopupSourceRow=null;
   if(sourceVideoPopupTitle)sourceVideoPopupTitle.textContent="";
+  syncSourceVideoPopupSource();
 }
 
 function resetSourcePreviewPane(){
@@ -4190,6 +4327,14 @@ function setupSourceLibrary(){
   }
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
+  sourceVideoPopupSelect?.addEventListener("click",()=>{
+    if(sourceVideoPopupSourceRow)quickSelectSource(sourceVideoPopupSourceRow);
+  });
+  sourceVideoPopupSourceOpen?.addEventListener("click",()=>{
+    const row=sourceVideoPopupSourceRow;
+    const id=String(row?.id||"").trim();
+    if(id&&row)void openSourcePreview(id,row);
+  });
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
   sourcePreviewSearch?.addEventListener("input",event=>{
     if(event.isComposing||searchInputIsComposing(sourcePreviewSearch))return;
@@ -4341,6 +4486,25 @@ function setupSourceLibrary(){
   });
 
   sourcePreviewList?.addEventListener("click",event=>{
+    const quickButton=event.target.closest("[data-source-quick-select]");
+    if(quickButton){
+      event.preventDefault();
+      event.stopPropagation();
+      const id=quickButton.dataset.sourceQuickSelect||"";
+      const videoId=quickButton.dataset.sourceVideoRef||"";
+      const video=
+        sourcePreviewSearchRows.get(videoId)||
+        sourcePreviewRows.get(videoId)||
+        null;
+      const row=
+        sourcePreviewSearchChannels.get(id)||
+        sourceMetaCache.get(id)||
+        libraryRow(id)||
+        (video?sourceRowFromVideo(video):null);
+      if(row)quickSelectSource(row);
+      return;
+    }
+
     const channelButton=event.target.closest("[data-source-search-channel]");
     if(channelButton){
       const id=channelButton.dataset.sourceSearchChannel||"";
@@ -4357,7 +4521,7 @@ function setupSourceLibrary(){
     const openSourceButton=event.target.closest("[data-source-open-channel]");
     if(openSourceButton){
       const videoId=openSourceButton.dataset.sourceVideoRef||"";
-      const row=sourcePreviewSearchRows.get(videoId);
+      const row=sourcePreviewSearchRows.get(videoId)||sourcePreviewRows.get(videoId);
       if(row)void openSourceFromSearchVideo(row);
       return;
     }
