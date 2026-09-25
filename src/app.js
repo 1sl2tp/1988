@@ -578,7 +578,9 @@ function applyServerState(remote={}){
     for(const scope of MANAGED_SOURCE_SCOPES){
       const migrateLegacyFeed=
         scopeVersion<2 &&
-        (scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE) &&
+        (scope===LIVE_SOURCE_SCOPE||
+         scope===LATEST_SOURCE_SCOPE||
+         scope===WEEK_SOURCE_SCOPE) &&
         !Array.isArray(remoteScopedSelected?.[scope]) &&
         !Array.isArray(remoteScopedBlocked?.[scope]);
 
