@@ -1148,7 +1148,7 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   CANONICAL HOME + WATCH LAYOUT v229
+   CANONICAL HOME + WATCH LAYOUT v238
    Single source of truth after removing v168-v224 override layers.
    Parent states:
    - html:not(.watch-browse) = Home/Search
