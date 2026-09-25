@@ -5173,3 +5173,62 @@ html.watch-browse .player-frame video{
     background:#222226;
   }
 }
+
+
+/* ============================================================
+   YOUTUBE ICONS + HARD HIDE HEADER v188
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse).home-header-hidden .header-inner{
+    display:none!important;
+  }
+
+  html:not(.watch-browse).home-search-open .header-inner{
+    display:grid!important;
+  }
+
+  html:not(.watch-browse) .header-search{
+    width:82px;
+    grid-template-columns:40px 40px;
+    gap:2px;
+  }
+
+  html:not(.watch-browse) .home-search-toggle,
+  html:not(.watch-browse) .source-header-btn{
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    color:#f1f1f1!important;
+    border-radius:50%!important;
+  }
+
+  html:not(.watch-browse) .home-search-toggle svg,
+  html:not(.watch-browse) .source-header-icon svg{
+    width:22px;
+    height:22px;
+    display:block;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:2;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+  }
+
+  html:not(.watch-browse) .source-header-icon{
+    width:22px;
+    height:22px;
+    display:grid;
+    place-items:center;
+    color:#f1f1f1!important;
+    font-size:0!important;
+  }
+
+  html:not(.watch-browse) .home-search-toggle:active,
+  html:not(.watch-browse) .source-header-btn:active{
+    background:rgba(255,255,255,.10)!important;
+  }
+
+  html:not(.watch-browse).home-search-open .header-search{
+    grid-template-columns:40px minmax(0,1fr) 40px!important;
+  }
+}
