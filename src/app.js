@@ -11198,25 +11198,19 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
     );
   };
 
-  const saved=readAiTrendCache("feed-content:"+cacheKey,input);
-  if(saved.videoMeta.size||saved.topics.length){
-    if(saved.videoMeta.size){
-      state.aiVideoMeta=new Map([...state.aiVideoMeta,...saved.videoMeta]);
+  const applyPackage=(videoMeta,topics)=>{
+    if(videoMeta?.size){
+      state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
     }
-    if(saved.topics.length){
-      state.feedTrendTopics.set(name,saved.topics.slice(0,10));
+    if(Array.isArray(topics)){
+      state.feedTrendTopics.set(name,topics.slice(0,10));
     }
     saveCleanLearning();
+  };
 
-    if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
-      state.trendTopics=state.feedTrendTopics.get(name)||[];
-      renderTrendTopics();
-      if(window.scrollY<120){
-        renderCurrentTrendFeed();
-      }else{
-        patchRenderedAiMeta(sample);
-      }
-    }
+  const saved=readAiTrendCache("feed-content:"+cacheKey,input);
+  if(saved.videoMeta.size||saved.topics.length){
+    applyPackage(saved.videoMeta,saved.topics);
     return true;
   }
 
@@ -11248,35 +11242,15 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
 
       const videoMeta=normalizeAiVideoMeta(payload,input);
       const topics=normalizeAiChildTopics(payload,input,feedParent).slice(0,10);
-
-      if(videoMeta.size){
-        state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
-      }
-      if(topics.length){
-        state.feedTrendTopics.set(name,topics);
-      }
-
-      // AI 1 has now normalized titles/duplicates. Only this cleaned view is
-      // allowed to become the positive profile for AI 2.
-      saveCleanLearning();
+      applyPackage(videoMeta,topics);
 
       if(videoMeta.size||topics.length){
         saveAiTrendCache("feed-content:"+cacheKey,[],topics,videoMeta);
       }
 
-      if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
-        state.trendTopics=state.feedTrendTopics.get(name)||[];
-        renderTrendTopics();
-
-        if(window.scrollY<120){
-          renderCurrentTrendFeed();
-        }else{
-          patchRenderedAiMeta(sample);
-        }
-      }
       return true;
     }catch(error){
-      console.warn("AI 1 feed cleanup failed",name,error);
+      console.warn("AI feed package failed",name,error);
       return false;
     }
   })().finally(()=>feedAiPending.delete(cacheKey));
@@ -11285,47 +11259,59 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   return task;
 }
 
-async function refreshCachedSourceFeedInBackground(name,preset,seq){
-  if(document.hidden)return;
+async function buildSourceFeedSnapshot(name,preset,local=null){
+  if(!isSourceScopedFeed(name))return [];
+  local=local||await localEngine(16000);
+
+  const scope=feedSourceScope(name);
+  const sources=selectedSources(scope);
+  if(!sources.length){
+    saveFeedCache(name,[]);
+    return [];
+  }
+
+  const pool=await refreshSourcePool(local,sources,scope);
+  const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+  const rows=sortPresetRows(
+    (Array.isArray(pool)?pool:[])
+      .filter(predicate)
+      .filter(row=>!isBlockedSourceRow(row,scope)),
+    preset
+  );
+
+  saveFeedCache(name,rows);
+
+  // One AI package is completed before this snapshot is ever painted.
+  // Background packaging never mutates the visible DOM.
+  if(rows.length>=4)await enrichSourceFeedAi(name,rows,state.feedSeq);
+
+  // Source suggestions are independent from visible ordering.
+  void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
+  return rows;
+}
+
+async function refreshLiveSnapshotInBackground(local=null){
+  local=local||await localEngine(12000);
   try{
-    const local=await localEngine(16000);
-    const scope=feedSourceScope(name);
-    const sources=selectedSources(scope);
-    if(!sources.length)return;
-
-    const pool=await refreshSourcePool(local,sources,scope);
-    const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const rows=sortPresetRows(
-      (Array.isArray(pool)?pool:[]).filter(predicate),
-      preset
+      await FEED_PRESETS.live.load(local,true),
+      FEED_PRESETS.live
     );
-
-    if(!rows.length)return;
-    saveFeedCache(name,rows);
-    // AI 1 must finish before AI 2 can learn/search from this refreshed pool.
-    void enrichSourceFeedAi(name,rows,seq)
-      .then(ai1Ready=>{
-        if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
-      });
-
-    if(
-      seq===state.feedSeq &&
-      state.activeFeed===name &&
-      !state.activeParent &&
-      !state.activeTrend
-    ){
-      state.feedRows=mergeUniqueRows([],rows);
-      if(window.scrollY<120){
-        sourceFeedPendingRenderName="";
-        renderCurrentTrendFeed();
-      }else{
-        // Keep the reading position stable; the fresh list is already stored
-        // and will paint as soon as the user returns to the top.
-        sourceFeedPendingRenderName=name;
-      }
-    }
+    saveFeedCache(LIVE_SOURCE_SCOPE,rows);
+    return rows;
   }catch(error){
-    console.warn("background source refresh failed",name,error);
+    console.warn("LIVE snapshot refresh failed",error);
+    return [];
+  }
+}
+
+async function refreshCachedSourceFeedInBackground(name,preset,seq,local=null){
+  if(document.hidden)return [];
+  try{
+    return await buildSourceFeedSnapshot(name,preset,local);
+  }catch(error){
+    console.warn("background source snapshot failed",name,error);
+    return [];
   }
 }
 
