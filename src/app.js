@@ -9841,7 +9841,9 @@ let regionalDiscoveryRefreshPromise=null;
 function regionalAiPool(){
   const seed=Array.isArray(regionalDiscoveryMemory.aiSeed)?regionalDiscoveryMemory.aiSeed:[];
   const rows=seed.length?seed:(Array.isArray(regionalDiscoveryMemory.items)?regionalDiscoveryMemory.items:[]);
-  return rows.filter(uploadedWithinWeek);
+  return rows
+    .filter(uploadedWithinWeek)
+    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
 }
 
 async function fetchRegionalDiscoveryPool(local,reset=false){
