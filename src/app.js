@@ -7985,13 +7985,31 @@ homeSearchToggle?.addEventListener("click",event=>{
   event.preventDefault();
   event.stopPropagation();
 
-  if(document.documentElement.classList.contains("watch-browse")){
-    document.documentElement.classList.remove("watch-search-open");
-    queryInput?.blur?.();
+  const root=document.documentElement;
+
+  if(root.classList.contains("watch-browse")){
+    // The floating watch toolbar was removed in v201, so the persistent
+    // header search icon is now the single search entry point in watch mode.
+    root.classList.remove("watch-categories-open");
+    const open=!root.classList.contains("watch-search-open");
+    root.classList.toggle("watch-search-open",open);
+    if(homeSearchToggle){
+      homeSearchToggle.innerHTML=homeSearchIconMarkup(open);
+      homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
+    }
+    if(open){
+      requestAnimationFrame(()=>{
+        queryInput?.focus?.({preventScroll:true});
+        queryInput?.select?.();
+      });
+    }else{
+      queryInput?.blur?.();
+      clearSuggestions();
+    }
     return;
   }
 
-  setHomeSearchOpen(!document.documentElement.classList.contains("home-search-open"));
+  setHomeSearchOpen(!root.classList.contains("home-search-open"));
 });
 
 seriesAutoplay?.addEventListener("click",()=>{
