@@ -600,6 +600,28 @@ async function hydrateServerState(){
   stateSyncReady=true;
 }
 
+let lastServerStateRefreshAt=0;
+
+async function refreshServerStateOnResume(){
+  if(!stateSyncReady||stateSyncApplying||stateSyncPushPromise)return;
+  if(Date.now()-lastServerStateRefreshAt<15000)return;
+  lastServerStateRefreshAt=Date.now();
+
+  try{
+    const result=await stateSyncFetch("GET",null,2200);
+    if(result?.ok&&result?.exists&&result.state){
+      applyServerState(result.state);
+      await warmSelectedAvatarImages(500);
+      renderParentCategories();
+    }
+  }catch{}
+}
+
+window.addEventListener("pageshow",()=>void refreshServerStateOnResume(),{passive:true});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")void refreshServerStateOnResume();
+},{passive:true});
+
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
@@ -834,8 +856,9 @@ function rememberSourceAvatar(id="",image=""){
   if(sourceAvatarCache[id]!==image){
     sourceAvatarCache[id]=image;
     try{localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));}catch{}
-    scheduleServerStatePush(1400);
+    scheduleServerStatePush(1100);
   }
+  void warmAvatarImage(image);
 
   const base=BASE_CHANNEL_BY_ID.get(id);
   if(base)base.thumbnailUrl=image;
@@ -867,6 +890,53 @@ function canonicalSourceId(row={},channel=""){
     normalizeSearchText(source.name||"")===target
   );
   return String(match?.id||"").trim();
+}
+
+const avatarImageWarmCache=new Map();
+
+function warmAvatarImage(url=""){
+  url=safeSourceThumb(url);
+  if(!url)return Promise.resolve(false);
+  const cached=avatarImageWarmCache.get(url);
+  if(cached)return cached;
+
+  const task=new Promise(resolve=>{
+    const img=new Image();
+    img.decoding="async";
+    let settled=false;
+    const finish=value=>{
+      if(settled)return;
+      settled=true;
+      resolve(value);
+    };
+    img.onload=async()=>{
+      try{await img.decode?.();}catch{}
+      finish(true);
+    };
+    img.onerror=()=>finish(false);
+    img.src=url;
+    if(img.complete&&img.naturalWidth){
+      Promise.resolve(img.decode?.()).catch(()=>{}).finally(()=>finish(true));
+    }
+  });
+
+  avatarImageWarmCache.set(url,task);
+  return task;
+}
+
+async function warmSelectedAvatarImages(maxWait=900){
+  const ids=new Set([...selectedSourceIds]);
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    for(const id of selectedSetForScope(scope))ids.add(id);
+  }
+
+  const urls=[...ids].map(id=>sourceAvatarCached(id)).filter(Boolean);
+  if(!urls.length)return;
+
+  await Promise.race([
+    Promise.allSettled(urls.map(warmAvatarImage)),
+    new Promise(resolve=>setTimeout(resolve,Math.max(200,Number(maxWait)||900)))
+  ]);
 }
 
 function sourceAvatarForRow(row={},sourceId="",channel=""){
@@ -5637,72 +5707,6 @@ function canonicalSearchSeed(query="",scope=""){
   return clean(value);
 }
 
-const SEARCH_REFINEMENT_SUFFIXES={
-  music:["không lời","guitar","piano","acoustic","remix","jazz","live","karaoke"],
-  film:["full","tập 1","thuyết minh","lồng tiếng","vietsub","bản đầy đủ"],
-  tech:["review","so sánh","trải nghiệm","hướng dẫn","mới nhất"],
-  sports:["highlight","toàn trận","phân tích","trực tiếp","bàn thắng"],
-  news:["mới nhất","toàn cảnh","phân tích","trực tiếp"],
-  economy:["mới nhất","phân tích","thị trường","giá hôm nay"],
-  law:["mới nhất","toàn cảnh","phân tích"],
-  entertainment:["full show","phỏng vấn","hậu trường","highlight"],
-  general:["mới nhất","trực tiếp","full"]
-};
-
-function searchRefinementQueries(query="",scope="",remote=[]){
-  const canonical=canonicalSearchSeed(query,scope);
-  const current=normalizeSearchText(query);
-  const out=[];
-  const push=(label,value)=>{
-    value=clean(value);
-    if(!value)return;
-    const key=normalizeSearchText(value);
-    if(!key||key===current||out.some(item=>normalizeSearchText(item.value)===key))return;
-    out.push({label:clean(label)||value,value});
-  };
-
-  if(normalizeSearchText(canonical)!==current)push(canonical,canonical);
-
-  const suffixes=SEARCH_REFINEMENT_SUFFIXES[scope]||SEARCH_REFINEMENT_SUFFIXES.general;
-  for(const suffix of suffixes){
-    if(normalizeSearchText(canonical).includes(normalizeSearchText(suffix)))continue;
-    push(suffix,canonical+" "+suffix);
-    if(out.length>=7)break;
-  }
-
-  for(const value of Array.isArray(remote)?remote:[]){
-    push(clean(value),clean(value));
-    if(out.length>=10)break;
-  }
-  return out;
-}
-
-function renderSearchRefinements(query="",scope="",rows=[],remote=[]){
-  if(!searchRefinements)return;
-  const items=searchRefinementQueries(query,scope,remote);
-  if(!items.length){
-    searchRefinements.hidden=true;
-    searchRefinements.innerHTML="";
-    return;
-  }
-  const label=scope==="music"?"Bạn muốn nghe:":rows.length?"Gợi ý tìm:":"Không thấy đúng ý, thử:";
-  searchRefinements.innerHTML=
-    '<span class="search-refine-label">'+esc(label)+'</span>'+
-    items.map(item=>
-      '<button type="button" data-search-refine="'+esc(item.value)+'">'+esc(item.label)+'</button>'
-    ).join("");
-  searchRefinements.hidden=false;
-}
-
-async function enrichSearchRefinements(query,scope,rows,seq){
-  let remote=[];
-  try{
-    const response=await api("suggestions",{q:canonicalSearchSeed(query,scope)},4500);
-    remote=Array.isArray(response?.data)?response.data:[];
-  }catch{}
-  if(seq!==state.searchSeq||state.searchQuery!==query)return;
-  renderSearchRefinements(query,scope,rows,remote.slice(0,4));
-}
 
 function rowAspectRatio(row={}){
   let ratio=Number(row?.aspectRatio)||0;
@@ -6880,6 +6884,7 @@ async function prewarmSelectedSourceAvatars(){
     });
 
     await Promise.allSettled(workers);
+    await warmSelectedAvatarImages(850);
   })().finally(()=>{
     selectedAvatarPrewarmPromise=null;
   });
@@ -6934,6 +6939,8 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
     });
 
     await Promise.allSettled(workers);
+    const resolvedAvatarUrls=[...missing].map(id=>sourceAvatarCached(id)).filter(Boolean);
+    if(resolvedAvatarUrls.length)await Promise.allSettled(resolvedAvatarUrls.map(warmAvatarImage));
   })();
 
   await Promise.race([
@@ -9834,6 +9841,7 @@ topicChips.addEventListener("click",async e=>{
 
 async function bootstrap1988(){
   await hydrateServerState();
+  await warmSelectedAvatarImages(1000);
 
   setupMediaSession();
   setupInstall();
