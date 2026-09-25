@@ -20,9 +20,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: diagnose-browser-feed
+  cancel-in-progress: true
+
 jobs:
   browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 6
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -422,6 +427,8 @@ jobs:
             console.log('HYPE_PROBE',hypeProbe?.result?.value);
             ws.close();
           }
-          main().catch(e=>{console.error('CDPERR',e);process.exitCode=1});
+          main()
+            .then(()=>process.exit(0))
+            .catch(e=>{console.error('CDPERR',e);process.exit(1)});
           NODE
           kill "$CHROME_PID" 2>/dev/null || true
