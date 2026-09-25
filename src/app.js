@@ -2370,48 +2370,8 @@ let liveSourceCandidateRefreshPromise=null;
 // Strong recurring negatives learned from the user's LIVE block history.
 // Keep this conservative: only channel-name signals that repeatedly appeared
 // in Đã chặn (plus explicit Forex/Gold/Trading terms requested by the user).
-const LIVE_AUTO_BLOCK_PATTERNS=[
-  {key:"garden",re:/\b(nha vuon|vuon|garden|farm|lan rung|hoa lan|vuon lan|vuon mai|mai vang|hoa su)\b/},
-  {key:"ceramic_craft",re:/\b(gom|gom su|my nghe|nhat bai|do go|da quy|spinel|tram huong)\b/},
-  {key:"gold_finance",re:/\b(gia vang|gold|forex|fx forex|trading|forex trading|finance|tai chinh|crypto|bitcoin)\b/},
-  {key:"weather",re:/\b(thoi tiet|du bao thoi tiet|doan gio)\b/},
-  {key:"spiritual",re:/\b(tu vi|phong thuy|cu si|huyen nu|suprememaster)\b/},
-  {key:"lottery_gambling",re:/\b(xo so|xoso|xsmb|xsmn|xsmt|poker)\b/},
-  {key:"passive_music",re:/\b(lofi|nhac khong quang cao)\b/}
-];
-
-function liveAutoBlockReason(candidate={}){
-  const id=String(candidate?.id||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return "";
-  if(selectedSetForScope(LIVE_SOURCE_SCOPE).has(id))return "";
-
-  const name=normalizeSearchText(candidate?.name||"");
-  if(!name)return "";
-  for(const pattern of LIVE_AUTO_BLOCK_PATTERNS){
-    if(pattern.re.test(name))return pattern.key;
-  }
-  return "";
-}
-
-function autoBlockLiveCandidate(candidate={},reason=""){
-  const id=String(candidate?.id||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
-
-  const selected=selectedSetForScope(LIVE_SOURCE_SCOPE);
-  const blocked=blockedSetForScope(LIVE_SOURCE_SCOPE);
-  if(selected.has(id))return false;
-  if(blocked.has(id))return true;
-
-  sourceMetaCache.set(id,{...sourceMetaCache.get(id),...candidate});
-  persistStateSourceMetadata(id);
-  blocked.add(id);
-  temporaryLiveSourceIds.delete(id);
-  suggestedSetForScope(LIVE_SOURCE_SCOPE).delete(id);
-
-  void queueDirectSourceStateWrite(id,"blocked",LIVE_SOURCE_SCOPE);
-  console.info("LIVE auto-block",reason,id,clean(candidate?.name||""));
-  return true;
-}
+// LIVE blocked state is manual/personal only. Discovery may read the exact
+// blocked channel IDs as exclusions, but code/AI never invents new blocked rows.
 
 function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
   const liveRows=(Array.isArray(rows)?rows:[])
@@ -2420,8 +2380,6 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
   if(replace)temporaryLiveSourceIds.clear();
 
   const accepted=[];
-  let autoBlockedChanged=false;
-
   for(const row of liveRows){
     const candidate=sourceCandidateFromVideo(row);
     if(!candidate)continue;
@@ -2431,30 +2389,14 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
       ...candidate
     });
 
-    const negativeReason=liveAutoBlockReason(candidate);
-    if(negativeReason){
-      if(autoBlockLiveCandidate(candidate,negativeReason))autoBlockedChanged=true;
-      continue;
-    }
-
-    // LIVE owns its own Chọn/Chặn state. Current LIVE channels stay visible
-    // in the LIVE manager regardless of other tabs.
-    temporaryLiveSourceIds.add(candidate.id);
     reconcileSourceState(candidate,LIVE_SOURCE_SCOPE);
+    if(isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))continue;
 
-    if(!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))accepted.push(row);
+    temporaryLiveSourceIds.add(candidate.id);
+    accepted.push(row);
   }
 
-  if(autoBlockedChanged){
-    invalidateSourceStateNameIndex();
-    persistSourceLibrary();
-    persistSourceSelection();
-    state.sourceLibraryDirty=true;
-    sourceDiscoveryAt.delete(LIVE_SOURCE_SCOPE);
-    clearSourceContentLearning(LIVE_SOURCE_SCOPE);
-  }
-
-  if(liveRows.length||replace||autoBlockedChanged)updateSourceSummary();
+  if(liveRows.length||replace)updateSourceSummary();
   return accepted;
 }
 
@@ -5869,72 +5811,13 @@ function saveAiTrendCache(cacheKey,parents=[],topics=[],videoMeta=new Map()){
 }
 
 function aiDisplayRows(rows=[]){
-  const enriched=(Array.isArray(rows)?rows:[]).map(row=>{
-    const id=itemVideoId(row);
-    const meta=state.aiVideoMeta.get(id);
-    if(!meta)return row;
-    return {
-      ...row,
-      _displayTitle:meta.displayTitle||"",
-      _displaySource:meta.displaySource||"",
-      _duplicateGroup:meta.duplicateGroup||""
-    };
-  });
-
-  const groups=new Map();
-  for(const row of enriched){
-    const group=clean(row?._duplicateGroup||"");
-    if(!group)continue;
-    const list=groups.get(group)||[];
-    list.push(row);
-    groups.set(group,list);
-  }
-
-  const representativeByGroup=new Map();
-  const countById=new Map();
-  for(const [group,list] of groups){
-    if(list.length<2)continue;
-    const sorted=[...list].sort((a,b)=>{
-      const ageA=publishedAgeMs(a);
-      const ageB=publishedAgeMs(b);
-      if(ageA!==ageB)return ageA-ageB;
-      return (Number(b?.views)||0)-(Number(a?.views)||0);
-    });
-    const representative=sorted[0];
-    representativeByGroup.set(group,itemVideoId(representative));
-    countById.set(itemVideoId(representative),list.length-1);
-  }
-
-  const out=[];
-  for(const row of enriched){
-    const group=clean(row?._duplicateGroup||"");
-    if(group&&representativeByGroup.has(group)){
-      const id=itemVideoId(row);
-      if(representativeByGroup.get(group)!==id)continue;
-      out.push({...row,_duplicateExtra:countById.get(id)||0});
-    }else{
-      out.push(row);
-    }
-  }
-  return out;
+  // UI reads only the packaged snapshot produced by code. AI is never allowed
+  // to rewrite titles, source names, groups or visible ordering.
+  return Array.isArray(rows)?rows:[];
 }
 
-function patchRenderedAiMeta(rows=[]){
-  for(const row of Array.isArray(rows)?rows:[]){
-    const id=itemVideoId(row);
-    if(!id)continue;
-    const meta=state.aiVideoMeta.get(id);
-    if(!meta)continue;
-    const card=feed?.querySelector?.('[data-video-id="'+CSS.escape(id)+'"]');
-    if(!card)continue;
-
-    const title=clean(meta.displayTitle||row?._displayTitle||row?.title||"");
-    const titleEl=card.querySelector(".card-title");
-    if(title&&titleEl){
-      titleEl.textContent=title;
-      card.dataset.title=title;
-    }
-  }
+function patchRenderedAiMeta(){
+  // Intentionally disabled: AI may not patch an already-rendered UI.
 }
 
 function categoryCacheRows(parentKey=""){
@@ -6446,50 +6329,12 @@ async function adaptiveSourceQueries(parent={},local){
   }
 }
 
-async function classifyAiParent(parent,rows=[],options={}){
-  const input=topicInputRows(rows.slice(0,48));
-  const learning=sourceLearningProfile(parent);
-  const group=parentSourceGroup(parent);
-  const filterToParent=options?.filterToParent!==false&&CONTENT_SOURCE_SCOPES.has(group);
-  if(input.length<4){
-    return {
-      topics:[],
-      videoMeta:new Map(),
-      acceptedVideoIds:new Set(input.map(row=>row.id).filter(Boolean))
-    };
-  }
-
-  const response=await fetch(AI_TOPICS_URL,{
-    method:"POST",
-    headers:{
-      "content-type":"application/json",
-      "apikey":SUPABASE_ANON,
-      "authorization":"Bearer "+SUPABASE_ANON
-    },
-    body:JSON.stringify({
-      mode:"classify",
-      scope:"ai:"+parent.key,
-      parentLabel:parent.label,
-      selectedSourceNames:learning.selectedSourceNames,
-      blockedSourceNames:learning.blockedSourceNames,
-      learnedQueries:learning.learnedQueries,
-      filterToParent,
-      videos:input
-    })
-  });
-
-  const payload=await response.json().catch(()=>null);
-  if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-  const acceptedVideoIds=new Set(
-    (Array.isArray(payload?.acceptedVideoIds)?payload.acceptedVideoIds:input.map(row=>row.id))
-      .map(id=>clean(id))
-      .filter(Boolean)
-  );
-
+async function classifyAiParent(parent,rows=[]){
+  const input=Array.isArray(rows)?rows:[];
   return {
-    topics:normalizeAiChildTopics(payload,rows,parent),
-    videoMeta:normalizeAiVideoMeta(payload,input),
-    acceptedVideoIds
+    topics:[],
+    videoMeta:new Map(),
+    acceptedVideoIds:new Set(input.map(itemVideoId).filter(Boolean))
   };
 }
 
@@ -6506,15 +6351,8 @@ const sourceDiscoveryAt=new Map();
 function sourceAlreadyKnownForDiscovery(candidate,group){
   if(!candidate)return true;
 
-  // LIVE recurring negative classes are removed before they can consume
-  // discovery/AI capacity. Exact Chọn always wins over automatic negatives.
-  if(group===LIVE_SOURCE_SCOPE&&liveAutoBlockReason(candidate)){
-    autoBlockLiveCandidate(candidate,liveAutoBlockReason(candidate));
-    return true;
-  }
-
-  // BLACKLIST FIRST: blocked channels never enter AI collection or learning.
-  // Selected channels are positive examples, not discovery candidates.
+  // Exact selected/blocked/current-suggestion IDs are the only exclusions.
+  // Blocked is a personal filter, not an AI learning signal.
   const state=matchSourceState(candidate,group).status;
   if(state==="blocked"||state==="selected")return true;
 
@@ -6617,50 +6455,11 @@ async function collectNewSourceDiscoveryRows(parent,local,group){
 
 async function classifySourceDiscovery(parent,discovery={}){
   const group=parentSourceGroup(parent);
-  const rows=Array.isArray(discovery?.rows)?discovery.rows:[];
-  const sourceCandidates=(Array.isArray(discovery?.sourceCandidates)?discovery.sourceCandidates:[])
-    .filter(candidate=>!sourceAlreadyKnownForDiscovery(candidate,group));
-  if(!rows.length||!sourceCandidates.length)return [];
-
-  const learning=sourceLearningProfile(parent);
-  try{
-    const response=await fetch(AI_TOPICS_URL,{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "apikey":SUPABASE_ANON,
-        "authorization":"Bearer "+SUPABASE_ANON
-      },
-      body:JSON.stringify({
-        mode:"source_discovery",
-        scope:"source:"+group,
-        // The backend intentionally ignores display labels for source learning.
-        selectedSourceNames:learning.selectedSourceNames,
-        blockedSourceNames:learning.blockedSourceNames,
-        learnedQueries:learning.learnedQueries,
-        sourceCandidates
-      })
-    });
-    const payload=await response.json().catch(()=>null);
-    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-
-    const acceptedIds=new Set(
-      (Array.isArray(payload?.acceptedSourceIds)?payload.acceptedSourceIds:[])
-        .map(id=>String(id||"").trim())
-        .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
-    );
-
-    // BLACKLIST LAST as well: state may have changed while AI 2 was running.
-    return rows.filter(row=>{
+  return (Array.isArray(discovery?.rows)?discovery.rows:[])
+    .filter(row=>{
       const candidate=sourceCandidateFromVideo(row);
-      return candidate&&acceptedIds.has(candidate.id)&&!sourceAlreadyKnownForDiscovery(candidate,group);
+      return candidate&&!sourceAlreadyKnownForDiscovery(candidate,group);
     });
-  }catch(error){
-    console.warn("AI 2 source discovery failed",parent?.label||parent?.key,error);
-    // AI 2 owns source discovery. Do not silently replace it with a broad
-    // keyword heuristic, otherwise unrelated channels can leak into suggestions.
-    return [];
-  }
 }
 
 async function discoverSourcesForParent(parent,local){
@@ -6698,18 +6497,10 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
     .filter(row=>!isBlockedSourceRow(row,group));
   if(!source.length)return [];
 
-  // Category tabs are plain selected-source feeds. Learning is background-only
-  // and may not remove/reorder visible cards, so the UI stays stable.
-  const visibleRows=aiDisplayRows(source);
   saveSourceContentLearning(
     group,
-    extractSourceContentTerms(parent,visibleRows)
+    extractSourceContentTerms(parent,source)
   );
-  state.aiCategoryTopics.set(parent.key,[]);
-  if(state.activeParent===parent.key){
-    state.trendTopics=[];
-    renderTrendTopics();
-  }
   return source;
 }
 
@@ -8959,30 +8750,9 @@ function fallbackVideoContext(meta={},related=[]){
 
 async function resolveSelectedVideoContext(id,meta={},related=[]){
   const seq=++state.videoContextSeq;
-  try{
-    const response=await fetch(AI_TOPICS_URL,{
-      method:"POST",
-      headers:{
-        "content-type":"application/json",
-        "apikey":SUPABASE_ANON,
-        "authorization":"Bearer "+SUPABASE_ANON
-      },
-      body:JSON.stringify({
-        mode:"video_context",
-        searchQuery:state.searchQuery||"",
-        videos:[selectedVideoAiRow(id,meta)],
-        related:selectedRelatedAiRows(related)
-      })
-    });
-    const payload=await response.json().catch(()=>null);
-    if(seq!==state.videoContextSeq||state.currentId!==id)return null;
-    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-    return payload?.context||fallbackVideoContext(meta,related);
-  }catch(error){
-    console.warn("video context AI failed",error);
-    if(seq!==state.videoContextSeq||state.currentId!==id)return null;
-    return fallbackVideoContext(meta,related);
-  }
+  const context=fallbackVideoContext(meta,related);
+  if(seq!==state.videoContextSeq||state.currentId!==id)return null;
+  return context;
 }
 
 function firstContextQuery(context={},key="",fallback=""){
@@ -10583,21 +10353,22 @@ function readAtomicSnapshot(name=""){
   return null;
 }
 
-function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig=""}={}){
+function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inputHash=""}={}){
   const items=(Array.isArray(rows)?rows:[]).slice(0,90);
-  if(!items.length)return {changed:false,hash:"",items:[]};
+  if(!items.length)return {changed:false,hash:"",inputHash:"",items:[]};
 
   const hash=snapshotRowsHash(items,sourceSig);
   const current=readAtomicSnapshot(name);
-  if(current?.hash===hash){
+  if(current?.hash===hash&&(!inputHash||current?.inputHash===inputHash)){
     try{
       localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
         slot:current.slot||"a",
         hash,
+        inputHash:inputHash||current?.inputHash||"",
         checkedAt:Date.now()
       }));
     }catch{}
-    return {changed:false,hash,items:current.items};
+    return {changed:false,hash,inputHash:inputHash||current?.inputHash||"",items:current.items};
   }
 
   try{
@@ -10607,6 +10378,7 @@ function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig=""}={})
     const payload={
       slot:nextSlot,
       hash,
+      inputHash:String(inputHash||""),
       at:Date.now(),
       sourceSignature:String(sourceSig||""),
       items
@@ -10624,13 +10396,19 @@ function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig=""}={})
     localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
       slot:nextSlot,
       hash,
+      inputHash:String(inputHash||""),
       checkedAt:Date.now()
     }));
     localStorage.removeItem(snapshotKey(name,oldSlot));
-    return {changed:true,hash,items};
+    return {changed:true,hash,inputHash:String(inputHash||""),items};
   }catch(error){
     console.warn("snapshot commit failed",name,error);
-    return {changed:false,hash:current?.hash||"",items:current?.items||[]};
+    return {
+      changed:false,
+      hash:current?.hash||"",
+      inputHash:current?.inputHash||"",
+      items:current?.items||[]
+    };
   }
 }
 
