@@ -3706,33 +3706,38 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       parseFloat(styles.getPropertyValue("--header-stack-h"))||108;
     const safeTop=
       parseFloat(styles.getPropertyValue("--safe-top"))||0;
-    const maxHeight=Math.max(
+    const firstPassHeight=Math.max(
       260,
-      viewportHeight-headerHeight-safeTop-24
+      viewportHeight-headerHeight-safeTop-56
     );
 
-    // Let the player column grow into the unused browser space instead of
-    // keeping the old fixed .88fr column. Preserve enough room for browsing.
-    const feedMin=Math.min(680,Math.max(500,viewportWidth*.36));
+    // Let the player column use the empty browser area while leaving a useful
+    // browsing column. The browser page itself does not scroll in watch mode.
+    const feedMin=Math.min(620,Math.max(460,viewportWidth*.32));
     const gapAndPadding=56;
     const maxColumnWidth=Math.max(
       320,
       Math.min(
-        viewportWidth*.58,
+        viewportWidth*.68,
         viewportWidth-feedMin-gapAndPadding
       )
     );
     const desiredColumnWidth=Math.max(
       320,
-      Math.min(maxColumnWidth,maxHeight*ratio)
+      Math.min(maxColumnWidth,firstPassHeight*ratio)
     );
     root.style.setProperty("--watch-player-column-w",Math.round(desiredColumnWidth)+"px");
 
-    // Reading the section rect after publishing the grid variable forces the
-    // final parent width, then the media is a pure contain-fit inside it.
-    const sectionWidth=Math.max(
+    // The desktop parent owns the remaining viewport height. Measure that real
+    // pane after the grid variable is applied, then contain-fit the media.
+    const sectionRect=playerSection?.getBoundingClientRect?.();
+    const sectionWidth=Math.max(1,sectionRect?.width||desiredColumnWidth);
+    const maxHeight=Math.max(
       1,
-      playerSection?.getBoundingClientRect?.().width||desiredColumnWidth
+      Math.min(
+        sectionRect?.height||firstPassHeight,
+        viewportHeight-(sectionRect?.top||headerHeight)-12
+      )
     );
     let width=Math.min(sectionWidth,maxHeight*ratio);
     let height=width/ratio;
