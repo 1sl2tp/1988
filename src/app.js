@@ -1984,7 +1984,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     :new Set();
 
   const groupFilter=row=>{
-    if(!sourceManageMode)return true;
+    if(q||!sourceManageMode)return true;
     if(sourceManageGroup===LIVE_SOURCE_SCOPE){
       return temporaryLiveSourceIds.has(row.id)||scopedStateIds.has(row.id);
     }
@@ -10756,8 +10756,16 @@ async function fetchRegionalDiscoveryPool(local,reset=false){
     tasks.push(local.hypeFeed().catch(()=>[]));
   }
 
-  if(selectedSourceIds.size){
-    tasks.push(selectedSourceFeed(local,uploadedWithinWeek,reset).catch(()=>[]));
+  if(selectedSetForScope(LATEST_SOURCE_SCOPE).size){
+    tasks.push(
+      selectedSourceFeed(
+        local,
+        uploadedWithinWeek,
+        reset,
+        null,
+        LATEST_SOURCE_SCOPE
+      ).catch(()=>[])
+    );
   }
 
   const batches=await Promise.all(tasks);
@@ -11105,7 +11113,9 @@ async function loadFeedPreset(name="latest"){
     renderTrendTopics();
   }
 
-  if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
+  const activeFeedScope=isSourceScopedFeed(name)?feedSourceScope(name):"";
+
+  if(isSourceScopedFeed(name)&&!selectedSetForScope(activeFeedScope).size){
     state.feedLoading=false;
     state.feedHasMore=false;
     state.feedRows=[];
@@ -11141,8 +11151,8 @@ async function loadFeedPreset(name="latest"){
   if(!cached.length&&isSourceScopedFeed(name)){
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const perSourceCached=cachedRowsForSources(
-      selectedSources(),
-      GENERAL_SOURCE_SCOPE
+      selectedSources(activeFeedScope),
+      activeFeedScope
     ).filter(predicate);
     if(perSourceCached.length){
       cached=sortPresetRows(perSourceCached,preset);
@@ -11152,7 +11162,7 @@ async function loadFeedPreset(name="latest"){
 
   if(cached.length){
     const rows=sortPresetRows(cached,preset)
-      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,activeFeedScope));
     state.feedRows=rows;
     await prewarmRowSourceAvatars(aiDisplayRows(trendRows(rows)).slice(0,36),560);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
@@ -11199,7 +11209,7 @@ async function loadFeedPreset(name="latest"){
           const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
           const matching=(Array.isArray(batch)?batch:[])
             .filter(predicate)
-            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+            .filter(row=>!isBlockedSourceRow(row,activeFeedScope));
 
           let base=state.feedRows;
           if(meta.replaceSource===true&&source?.id){
@@ -11363,7 +11373,7 @@ setInterval(()=>{
 },SOURCE_FEED_AUTO_REFRESH_MS);
 
 async function loadInitialFeed(){
-  await prewarmRowSourceAvatars(selectedSources(GENERAL_SOURCE_SCOPE),900);
+  await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
   return loadFeedPreset("latest");
 }
 
