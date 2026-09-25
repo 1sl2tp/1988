@@ -148,6 +148,77 @@ function channelRows(data: any) {
   return [];
 }
 
+function decodeXmlText(value: string) {
+  return String(value || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .trim();
+}
+
+async function youtubeRssChannel(id: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4500);
+  try {
+    const endpoint = new URL("https://www.youtube.com/feeds/videos.xml");
+    endpoint.searchParams.set("channel_id", id);
+    const res = await fetch(endpoint, {
+      signal: controller.signal,
+      cache: "no-store",
+      headers: { accept: "application/atom+xml,application/xml,text/xml,*/*" },
+    });
+    if (!res.ok) throw new Error("youtube_rss_http_" + res.status);
+    const xml = await res.text();
+    const feedTitle = decodeXmlText(
+      xml.match(/<feed[\s\S]*?<title>([\s\S]*?)<\/title>/i)?.[1] || ""
+    );
+    const rows: any[] = [];
+
+    for (const match of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)) {
+      const entry = match[1] || "";
+      const videoId = String(entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1] || "").trim();
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) continue;
+      const title = decodeXmlText(entry.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "");
+      const published = String(entry.match(/<published>([^<]+)<\/published>/i)?.[1] || "").trim();
+      const thumbnail = decodeXmlText(entry.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i)?.[1] || "");
+      const views = Number(entry.match(/<media:statistics[^>]+views=["'](\d+)["']/i)?.[1] || 0) || 0;
+      const uploaded = Date.parse(published);
+
+      rows.push({
+        url: "/watch?v=" + videoId,
+        type: "stream",
+        title,
+        thumbnail,
+        uploaderName: feedTitle,
+        uploaderUrl: "/channel/" + id,
+        uploadedDate: published,
+        publishedText: published,
+        duration: 0,
+        views,
+        uploaded: Number.isFinite(uploaded) ? uploaded : 0,
+        uploaderVerified: false,
+        isShort: false,
+      });
+
+      if (rows.length >= 30) break;
+    }
+
+    if (!rows.length) throw new Error("youtube_rss_empty");
+    return {
+      source: "youtube-rss",
+      data: {
+        name: feedTitle,
+        relatedStreams: rows,
+      },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function pipedChannel(id: string) {
   const path = `/channel/${enc(id)}`;
   const cached = getUpstreamCache(path, 60 * 1000);
@@ -184,6 +255,17 @@ async function pipedChannel(id: string) {
       return { source: base, data };
     }
   }
+
+  // Auto-generated YouTube Topic channels are a common case where Piped can
+  // return HTTP 200 with an empty video list. Use YouTube's channel RSS by the
+  // exact channel id, so we do not guess by name or mix another artist/source.
+  try {
+    const rss = await youtubeRssChannel(id);
+    if (channelRows(rss.data).length) {
+      setUpstreamCache(path, rss.source, rss.data);
+      return rss;
+    }
+  } catch {}
 
   if (fallback) return fallback;
   throw new Error("no_channel_instance");
