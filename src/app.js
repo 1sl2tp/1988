@@ -2458,7 +2458,7 @@ function renderSourcePreviewVideos({force=false}={}){
 
   if(!all.length){
     sourcePreviewList.innerHTML='<div class="source-empty">'+
-      (searching?'Không có video phù hợp trong nguồn này':'Kênh chưa có video để hiển thị')+
+      (searching?'Không có kết quả trong nguồn này':'Chưa tải được video của nguồn')+
     '</div>';
     return;
   }
@@ -10497,8 +10497,8 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       }
     }
 
-    // Tentative first-paint rows are UI-only. They never enter source pool/cache
-    // until strict playability verification confirms them.
+    // Some callers may emit UI-only rows, but normal source rows are collected
+    // immediately so first paint does not depend on playability probes.
     if(meta.transient!==true){
       for(const row of batch){
         const id=itemVideoId(row);
@@ -10546,42 +10546,43 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
           source.id,
           reset
         );
-        let rows=(Array.isArray(fetchedRows)?fetchedRows:[]);
+        let rows=quickVisibleRows(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // First paint is intentionally optimistic: YouTube channel listing is
-        // fast, while getBasicInfo/embed checks can be throttled for seconds.
-        // Obvious private/deleted placeholders are removed immediately. These
-        // preview rows are transient and never enter persistent cache.
-        if(reset&&typeof onBatch==="function"&&rows.length){
-          const previewRows=quickVisibleRows(rows).slice(0,SOURCE_FIRST_PAINT_ROWS);
-          if(previewRows.length){
-            emit(previewRows,source,{
-              cached:false,
-              preview:true,
-              transient:true
-            });
-          }
+        // Simple/stable rule:
+        // 1) channel rows are the display source and paint immediately;
+        // 2) only definitive private/deleted/embed failures may be removed later;
+        // 3) timeout/anti-bot/unknown must never erase a source.
+        if(reset&&rows.length){
+          saveSourceChannelCache(source,rows,Date.now(),{replace:true});
+          emit(rows,source,{
+            cached:false,
+            preview:true,
+            replaceSource:true
+          });
         }
 
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
+          // Non-strict mode keeps UNKNOWN rows and removes only definitive
+          // unplayable results. This prevents the "loads then disappears" bug.
           const verifyPromise=local.filterEmbeddableRows(
             rows,
-            {concurrency:8,requirePlayable:true}
+            {concurrency:8,requirePlayable:false}
           );
 
           try{
-            rows=await sourceTimeout(
+            const verified=await sourceTimeout(
               verifyPromise,
               SOURCE_FULL_VERIFY_TIMEOUT_MS,
               "source_full_verify_timeout"
             );
+            rows=Array.isArray(verified)?verified:rows;
           }catch(error){
-            console.warn("source full verify deferred",source.id,error);
+            console.warn("source verify deferred",source.id,error);
 
-            // The timeout only releases this source worker. Verification keeps
-            // running and, once complete, replaces tentative cards and cache.
+            // Keep already-rendered rows. Late verification may only remove
+            // definitive failures; UNKNOWN/timeouts remain visible.
             void verifyPromise.then(verified=>{
-              const confirmed=Array.isArray(verified)?verified:[];
+              const confirmed=Array.isArray(verified)?verified:rows;
               const selectedNow=selectedSetForScope(scope);
               const blockedNow=blockedSetForScope(scope);
               if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
@@ -10600,18 +10601,25 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(reset){
-          saveSourceChannelCache(source,rows,Date.now(),{replace:true});
-          emit(rows,source,{
-            cached:false,
-            verified:true,
-            replaceSource:true
-          });
+          // If YouTube returned an empty channel page, preserve the last good
+          // channel cache rather than converting a transient upstream problem
+          // into "no suitable videos".
+          if(rows.length){
+            saveSourceChannelCache(source,rows,Date.now(),{replace:true});
+            emit(rows,source,{
+              cached:false,
+              verified:true,
+              replaceSource:true
+            });
+          }
         }else{
-          emit(rows,source,{cached:false});
-          saveSourceChannelCache(source,[
-            ...rows,
-            ...readSourceChannelCache(source.id).items
-          ],Date.now());
+          if(rows.length){
+            emit(rows,source,{cached:false});
+            saveSourceChannelCache(source,[
+              ...rows,
+              ...readSourceChannelCache(source.id).items
+            ],Date.now());
+          }
         }
       }catch(error){
         console.warn("source feed failed",source.id,error);
