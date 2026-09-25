@@ -2610,3 +2610,62 @@ html.search-suggestions-open .suggestions{
     background:#242428;
   }
 }
+
+
+/* ============================================================
+   RESPONSIVE FEED GRID v291
+   One rule from the start: desktop card count follows the actual
+   width of the feed pane, not the browser width and not video type.
+   Target card width stays roughly 260-380px:
+   < 820px = 2 cols
+   820-1119px = 3 cols
+   1120-1499px = 4 cols
+   >= 1500px = 5 cols
+   This naturally keeps horizontal Watch compact and lets portrait
+   Watch/Home use more columns when the feed pane has room.
+   ============================================================ */
+@media(min-width:721px){
+  .feed-section{
+    container-type:inline-size;
+    container-name:video-feed;
+  }
+
+  .feed:not(.search-grouped){
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:18px 14px;
+    align-items:start;
+  }
+
+  .feed-loading-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+
+  .feed:not(.search-grouped)>.card{
+    width:100%;
+    min-width:0;
+    margin:0;
+    align-self:start;
+  }
+}
+
+@container video-feed (min-width:820px){
+  .feed:not(.search-grouped),
+  .feed-loading-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+
+@container video-feed (min-width:1120px){
+  .feed:not(.search-grouped),
+  .feed-loading-grid{
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+}
+
+@container video-feed (min-width:1500px){
+  .feed:not(.search-grouped),
+  .feed-loading-grid{
+    grid-template-columns:repeat(5,minmax(0,1fr));
+  }
+}
