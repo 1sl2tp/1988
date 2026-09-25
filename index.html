@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-245">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-246">
   <title>1988</title>
 </head>
 <body>
@@ -25,6 +25,10 @@
       <form id="searchForm" class="header-search" autocomplete="off">
         <button id="homeSearchToggle" class="search-icon home-search-toggle" type="button" aria-label="Mở tìm kiếm"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg></button>
         <input id="queryInput" type="search" inputmode="search" enterkeyhint="search"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
           placeholder="Tìm trên YouTube"
           aria-label="Tìm trên YouTube"
           aria-autocomplete="list"
@@ -224,7 +228,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=245',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=246',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -247,6 +251,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=embed-filter-140"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-245"></script>
+  <script defer src="./src/app.js?v=watch-browse-246"></script>
 </body>
 </html>

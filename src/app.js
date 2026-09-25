@@ -3954,6 +3954,10 @@ function setWatchBrowseLayout(active){
 
   watchBrowseActive=active;
   document.documentElement.classList.toggle("watch-browse",active);
+  if(!active){
+    document.documentElement.classList.remove("watch-search-open","watch-search-results");
+    setSearchEntryIcon(false);
+  }
   applyResponsivePlayerFrame();
 
   if(active){
@@ -8566,7 +8570,7 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
-  document.documentElement.classList.remove("watch-search-open","watch-categories-open");
+  document.documentElement.classList.remove("watch-search-open","watch-search-results","watch-categories-open");
   hideContextBrief();
   const frame=playerSection?.querySelector(".player-frame");
   const wasFloating=!!frame?.classList.contains("floating-iframe");
@@ -9215,20 +9219,33 @@ function homeSearchIconMarkup(open){
     : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg>';
 }
 
+function focusSearchInputForEditing(){
+  if(!queryInput)return;
+
+  // Keep focus inside the original user gesture so mobile browsers reliably
+  // open the software keyboard.
+  try{queryInput.focus({preventScroll:true});}
+  catch{queryInput.focus?.();}
+
+  const end=String(queryInput.value||"").length;
+  try{queryInput.setSelectionRange(end,end);}catch{}
+}
+
+function setSearchEntryIcon(open){
+  if(!homeSearchToggle)return;
+  homeSearchToggle.innerHTML=homeSearchIconMarkup(!!open);
+  homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
+}
+
 function setHomeSearchOpen(open){
   const root=document.documentElement;
   if(root.classList.contains("watch-browse"))return;
   if(open)root.classList.remove("home-header-hidden");
   root.classList.toggle("home-search-open",!!open);
-  if(homeSearchToggle){
-    homeSearchToggle.innerHTML=homeSearchIconMarkup(open);
-    homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
-  }
+  setSearchEntryIcon(open);
+
   if(open){
-    requestAnimationFrame(()=>{
-      queryInput?.focus?.({preventScroll:true});
-      queryInput?.select?.();
-    });
+    focusSearchInputForEditing();
   }else{
     queryInput?.blur?.();
     clearSuggestions();
@@ -9247,19 +9264,14 @@ homeSearchToggle?.addEventListener("click",event=>{
     root.classList.remove("watch-categories-open");
     const open=!root.classList.contains("watch-search-open");
     root.classList.toggle("watch-search-open",open);
-    if(homeSearchToggle){
-      homeSearchToggle.innerHTML=homeSearchIconMarkup(open);
-      homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
-    }
+    setSearchEntryIcon(open);
+
     if(open){
-      requestAnimationFrame(()=>{
-        if(feedSection){
-          feedSection.scrollTop=0;
-          feedSection.scrollLeft=0;
-        }
-        queryInput?.focus?.({preventScroll:true});
-        queryInput?.select?.();
-      });
+      if(feedSection){
+        feedSection.scrollTop=0;
+        feedSection.scrollLeft=0;
+      }
+      focusSearchInputForEditing();
     }else{
       queryInput?.blur?.();
       clearSuggestions();
@@ -9282,30 +9294,33 @@ seriesEpisodes?.addEventListener("click",event=>{
   if(Number.isInteger(index))playSeriesIndex(index);
 });
 
-searchForm.addEventListener("submit",e=>{
-  e.preventDefault();
-  clearSuggestions();
+function commitSearch(value){
+  const q=clean(value);
+  if(!q)return;
+
   const root=document.documentElement;
-  const watchSearch=root.classList.contains("watch-browse");
+  const fromWatch=root.classList.contains("watch-browse");
 
-  // In watch mode Search is its own full-screen browsing state:
-  // keep the expanded search header open while results load. The player is
-  // restored only when the user goes Back or chooses a video.
-  root.classList.remove("home-search-open");
-  if(!watchSearch)root.classList.remove("watch-search-open");
+  clearSuggestions();
+  queryInput?.blur?.();
 
-  if(homeSearchToggle){
-    homeSearchToggle.innerHTML=homeSearchIconMarkup(watchSearch);
-    homeSearchToggle.setAttribute("aria-label",watchSearch?"Đóng tìm kiếm":"Mở tìm kiếm");
-  }
+  // Search editing is finished as soon as the user commits. The back arrow
+  // therefore disappears immediately, while results keep their own view state.
+  root.classList.remove("home-search-open","watch-search-open");
+  root.classList.toggle("watch-search-results",fromWatch);
+  setSearchEntryIcon(false);
 
-  if(watchSearch&&feedSection){
+  if(fromWatch&&feedSection){
     feedSection.scrollTop=0;
     feedSection.scrollLeft=0;
   }
 
-  void doSearch(queryInput.value);
-  queryInput.blur();
+  void doSearch(q);
+}
+
+searchForm.addEventListener("submit",e=>{
+  e.preventDefault();
+  commitSearch(queryInput.value);
 });
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
@@ -9332,9 +9347,7 @@ suggestions?.addEventListener("click",event=>{
   const value=clean(button.dataset.searchSuggestion||button.textContent||"");
   if(!value)return;
   queryInput.value=value;
-  clearSuggestions();
-  void doSearch(value);
-  queryInput.blur();
+  commitSearch(value);
 });
 
 queryInput.addEventListener("blur",()=>{
@@ -10486,6 +10499,9 @@ async function loadInitialFeed(){
 topicChips.addEventListener("click",async e=>{
   const clicked=e.target.closest("[data-feed],[data-ai-parent]");
   if(clicked){
+    document.documentElement.classList.remove("watch-search-open","watch-search-results");
+    setSearchEntryIcon(false);
+
     // Keep the horizontal tab rail where the user was browsing. The selected
     // tab will then be revealed by the parent-level setActiveChip() logic.
     resetHomeViewportInstant({resetTopics:false});

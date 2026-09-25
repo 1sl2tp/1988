@@ -2347,19 +2347,24 @@ html.search-suggestions-open .suggestions{
     font-weight:680;
   }
 
-  /* Watch Search is a dedicated view: Search -> sources -> results. */
-  html.watch-browse.watch-search-open body{
+  /* Watch Search has two independent states:
+     - watch-search-open    = actively editing the query
+     - watch-search-results = committed results with normal header */
+  html.watch-browse.watch-search-open body,
+  html.watch-browse.watch-search-results body{
     grid-template-rows:
       calc(var(--watch-top-row-h) + var(--safe-top))
       var(--watch-source-row-h)
       minmax(0,1fr);
   }
 
-  html.watch-browse.watch-search-open body::before{
+  html.watch-browse.watch-search-open body::before,
+  html.watch-browse.watch-search-results body::before{
     display:none;
   }
 
-  html.watch-browse.watch-search-open .player-section{
+  html.watch-browse.watch-search-open .player-section,
+  html.watch-browse.watch-search-results .player-section{
     display:none!important;
   }
 
@@ -2418,12 +2423,20 @@ html.search-suggestions-open .suggestions{
     -webkit-backdrop-filter:none;
   }
 
-  html.watch-browse.watch-search-open .feed-section{
+  html.watch-browse.watch-search-open .feed-section,
+  html.watch-browse.watch-search-results .feed-section{
     grid-row:3;
     padding-top:8px;
   }
   html.watch-browse.watch-search-open.search-suggestions-open .feed-section{
     padding-top:calc(var(--search-suggestions-h,0px) + 16px);
+  }
+
+  html.watch-browse.watch-search-results .header-inner{
+    grid-row:1;
+  }
+  html.watch-browse.watch-search-results .header-nav{
+    grid-row:2;
   }
 
   html.watch-browse .suggestions{
