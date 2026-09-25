@@ -170,12 +170,15 @@ const SOURCE_FILM_SNAPSHOT_BACKUP_KEY="1988-source-film-before-snapshot-v4";
 const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
 const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
 const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
-const GENERAL_SOURCE_SCOPE="general";
+const GENERAL_SOURCE_SCOPE="general"; // legacy/search-only scope
 const LIVE_SOURCE_SCOPE="live";
+const LATEST_SOURCE_SCOPE="latest";
+const WEEK_SOURCE_SCOPE="week";
 
 const SOURCE_MANAGER_GROUPS=[
-  {key:"live",label:"LIVE"},
-  {key:"general",label:"Mới nhất/Tuần này"},
+  {key:LIVE_SOURCE_SCOPE,label:"LIVE"},
+  {key:LATEST_SOURCE_SCOPE,label:"Mới nhất"},
+  {key:WEEK_SOURCE_SCOPE,label:"Tuần này"},
   {key:"news",label:"Thời sự"},
   {key:"economy",label:"Kinh tế"},
   {key:"law",label:"Pháp luật"},
@@ -197,12 +200,36 @@ const FIXED_CONTENT_CATEGORIES=[
   {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
 ];
 const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
-const GENERAL_SOURCE_DISCOVERY_PARENT={
-  key:"general",
-  group:GENERAL_SOURCE_SCOPE,
-  label:"Mới nhất/Tuần này",
-  queries:[]
+const FEED_SOURCE_SCOPES=new Set([LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]);
+const MANAGED_SOURCE_SCOPES=new Set([
+  LIVE_SOURCE_SCOPE,
+  ...FEED_SOURCE_SCOPES,
+  ...CONTENT_SOURCE_SCOPES
+]);
+const AI_SOURCE_SCOPES=new Set([
+  ...FEED_SOURCE_SCOPES,
+  ...CONTENT_SOURCE_SCOPES
+]);
+const FEED_SOURCE_DISCOVERY_PARENTS={
+  [LATEST_SOURCE_SCOPE]:{
+    key:LATEST_SOURCE_SCOPE,
+    group:LATEST_SOURCE_SCOPE,
+    label:"Mới nhất",
+    queries:[]
+  },
+  [WEEK_SOURCE_SCOPE]:{
+    key:WEEK_SOURCE_SCOPE,
+    group:WEEK_SOURCE_SCOPE,
+    label:"Tuần này",
+    queries:[]
+  }
 };
+function feedSourceScope(name=""){
+  return name===WEEK_SOURCE_SCOPE?WEEK_SOURCE_SCOPE:LATEST_SOURCE_SCOPE;
+}
+function feedSourceParent(name=""){
+  return FEED_SOURCE_DISCOVERY_PARENTS[feedSourceScope(name)]||FEED_SOURCE_DISCOVERY_PARENTS[LATEST_SOURCE_SCOPE];
+}
 
 state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
 
@@ -235,7 +262,7 @@ let sourceAvatarCache=readStoredObject(SOURCE_AVATAR_CACHE_KEY);
 function readScopedSourceState(key){
   const raw=readStoredObject(key);
   const out=new Map();
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     const ids=Array.isArray(raw[scope])?raw[scope]:[];
     out.set(scope,new Set(
       ids.map(String).filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
@@ -259,14 +286,14 @@ let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
 
 function emptyScopedSourceState(){
   return new Map(
-    [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+    [...MANAGED_SOURCE_SCOPES].map(scope=>[scope,new Set()])
   );
 }
 
 let scopedSelectedSourceIds=emptyScopedSourceState();
 let scopedBlockedSourceIds=emptyScopedSourceState();
 let aiSuggestedSourceIds=new Map(
-  [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+  [...AI_SOURCE_SCOPES].map(scope=>[scope,new Set()])
 );
 const temporaryGeneralSourceIds=new Set();
 const temporaryLiveSourceIds=new Set();
@@ -322,7 +349,7 @@ function persistScopedSourceState(){
 
 function suggestedSetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  if(!CONTENT_SOURCE_SCOPES.has(scope))return new Set();
+  if(!AI_SOURCE_SCOPES.has(scope))return new Set();
   if(!aiSuggestedSourceIds.has(scope))aiSuggestedSourceIds.set(scope,new Set());
   return aiSuggestedSourceIds.get(scope);
 }
@@ -330,7 +357,7 @@ function suggestedSetForScope(scope=sourceManageGroup){
 function assignSourceGroup(id,group){
   id=String(id||"").trim();
   group=String(group||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!CONTENT_SOURCE_SCOPES.has(group))return false;
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!AI_SOURCE_SCOPES.has(group))return false;
   const suggested=suggestedSetForScope(group);
   if(suggested.has(id))return false;
   suggested.add(id);
@@ -341,7 +368,7 @@ let selectedSourceIds=new Set();
 
 function pruneLegacyTemporaryCustomSources(){
   const durable=new Set([...selectedSourceIds,...blockedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))durable.add(id);
     for(const id of blockedSetForScope(scope))durable.add(id);
   }
@@ -374,7 +401,7 @@ const sourceMetaPending=new Set();
 
 function sourceScope(scope=sourceManageGroup){
   scope=String(scope||"").trim();
-  if(CONTENT_SOURCE_SCOPES.has(scope))return scope;
+  if(MANAGED_SOURCE_SCOPES.has(scope))return scope;
   if(scope==="other")return "other";
   return GENERAL_SOURCE_SCOPE;
 }
@@ -397,7 +424,7 @@ function blockedSetForScope(scope=sourceManageGroup){
 
 function allManagedStateIds(){
   const ids=new Set([...selectedSourceIds,...blockedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))ids.add(id);
     for(const id of blockedSetForScope(scope))ids.add(id);
   }
@@ -406,7 +433,7 @@ function allManagedStateIds(){
 
 function scopedStateObject(map){
   const out={};
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     out[scope]=[...(map.get(scope)||new Set())];
   }
   return out;
@@ -434,11 +461,15 @@ function legacyLocalSourceStateSnapshot(){
   const scopedBlocked={};
   let scopedCount=0;
 
-  for(const scope of CONTENT_SOURCE_SCOPES){
-    const blockedIds=cleanSourceIdList(scopedBlockedRaw?.[scope]);
+  for(const scope of MANAGED_SOURCE_SCOPES){
+    const legacyFeedScope=scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE;
+    const blockedIds=cleanSourceIdList(
+      scopedBlockedRaw?.[scope] ?? (legacyFeedScope?blocked:[])
+    );
     const blockedSet=new Set(blockedIds);
-    const selectedIds=cleanSourceIdList(scopedSelectedRaw?.[scope])
-      .filter(id=>!blockedSet.has(id));
+    const selectedIds=cleanSourceIdList(
+      scopedSelectedRaw?.[scope] ?? (legacyFeedScope?[...selectedSet]:[])
+    ).filter(id=>!blockedSet.has(id));
     scopedSelected[scope]=selectedIds;
     scopedBlocked[scope]=blockedIds;
     scopedCount+=selectedIds.length+blockedIds.length;
@@ -475,6 +506,7 @@ function clearLegacyLocalSourceState(){
 
 function serverStateSnapshot(){
   return {
+    sourceScopeVersion:2,
     selected:cleanSourceIdList([...selectedSourceIds]),
     blocked:cleanSourceIdList([...blockedSourceIds]),
     customSources:(Array.isArray(customSources)?customSources:[]).map(row=>({
@@ -531,25 +563,38 @@ function applyServerState(remote={}){
       sourceGroupOverrides=remote.sourceGroups;
     }
 
-    if(remote.scopedSelected&&typeof remote.scopedSelected==="object"){
-      const next=new Map();
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        next.set(scope,new Set(cleanSourceIdList(remote.scopedSelected[scope])));
-      }
-      scopedSelectedSourceIds=next;
-    }
+    const scopeVersion=Number(remote.sourceScopeVersion)||0;
+    const remoteScopedSelected=
+      remote.scopedSelected&&typeof remote.scopedSelected==="object"
+        ?remote.scopedSelected
+        :{};
+    const remoteScopedBlocked=
+      remote.scopedBlocked&&typeof remote.scopedBlocked==="object"
+        ?remote.scopedBlocked
+        :{};
 
-    if(remote.scopedBlocked&&typeof remote.scopedBlocked==="object"){
-      const next=new Map();
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        next.set(scope,new Set(cleanSourceIdList(remote.scopedBlocked[scope])));
-      }
-      scopedBlockedSourceIds=next;
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        const selected=scopedSelectedSourceIds.get(scope)||new Set();
-        for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
-      }
+    const nextSelected=new Map();
+    const nextBlocked=new Map();
+    for(const scope of MANAGED_SOURCE_SCOPES){
+      const migrateLegacyFeed=
+        scopeVersion<2 &&
+        (scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE) &&
+        !Array.isArray(remoteScopedSelected?.[scope]) &&
+        !Array.isArray(remoteScopedBlocked?.[scope]);
+
+      const blockedIds=cleanSourceIdList(
+        migrateLegacyFeed?[...blockedSourceIds]:remoteScopedBlocked?.[scope]
+      );
+      const blockedSet=new Set(blockedIds);
+      const selectedIds=cleanSourceIdList(
+        migrateLegacyFeed?[...selectedSourceIds]:remoteScopedSelected?.[scope]
+      ).filter(id=>!blockedSet.has(id));
+
+      nextSelected.set(scope,new Set(selectedIds));
+      nextBlocked.set(scope,blockedSet);
     }
+    scopedSelectedSourceIds=nextSelected;
+    scopedBlockedSourceIds=nextBlocked;
 
     if(remote.avatars&&typeof remote.avatars==="object"&&!Array.isArray(remote.avatars)){
       sourceAvatarCache={...sourceAvatarCache,...remote.avatars};
@@ -564,7 +609,7 @@ function applyServerState(remote={}){
     }
 
     saveServerMetadataCachesLocally();
-    stateSyncDirty=false;
+    stateSyncDirty=(Number(remote.sourceScopeVersion)||0)<2;
     invalidateSourceStateNameIndex?.();
     return true;
   }finally{
@@ -637,6 +682,9 @@ async function hydrateServerState(){
       if(result?.ok&&result?.exists&&result.state){
         applyServerState(result.state);
         stateSyncReady=true;
+        if(stateSyncDirty){
+          await pushServerStateNow({force:true});
+        }
         clearLegacyLocalSourceState();
         return true;
       }
@@ -648,13 +696,13 @@ async function hydrateServerState(){
           selectedSourceIds=new Set(legacy.selected);
           blockedSourceIds=new Set(legacy.blocked);
           scopedSelectedSourceIds=new Map(
-            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+            [...MANAGED_SOURCE_SCOPES].map(scope=>[
               scope,
               new Set(cleanSourceIdList(legacy.scopedSelected?.[scope]))
             ])
           );
           scopedBlockedSourceIds=new Map(
-            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+            [...MANAGED_SOURCE_SCOPES].map(scope=>[
               scope,
               new Set(cleanSourceIdList(legacy.scopedBlocked?.[scope]))
             ])
@@ -667,7 +715,7 @@ async function hydrateServerState(){
         }
 
         for(const id of blockedSourceIds)selectedSourceIds.delete(id);
-        for(const scope of CONTENT_SOURCE_SCOPES){
+        for(const scope of MANAGED_SOURCE_SCOPES){
           const selected=scopedSelectedSourceIds.get(scope)||new Set();
           for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
         }
@@ -710,6 +758,7 @@ async function refreshServerStateOnResume(){
     if(result?.ok&&result?.exists&&result.state){
       applyServerState(result.state);
       stateSyncReady=true;
+      if(stateSyncDirty)await pushServerStateNow({force:true});
       if(sourcesBtn){
         sourcesBtn.disabled=false;
         sourcesBtn.removeAttribute("title");
@@ -731,21 +780,22 @@ document.addEventListener("visibilitychange",()=>{
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
+  if(scope===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds;
+  if(AI_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
   if(scope===GENERAL_SOURCE_SCOPE)return temporaryGeneralSourceIds;
-  if(CONTENT_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
   return new Set();
 }
 
 function sourceDiscoveryParentForGroup(group=sourceManageGroup){
-  if(String(group||"").trim()===LIVE_SOURCE_SCOPE)return null;
   group=sourceScope(group);
-  if(group===GENERAL_SOURCE_SCOPE)return GENERAL_SOURCE_DISCOVERY_PARENT;
+  if(group===LIVE_SOURCE_SCOPE)return null;
+  if(FEED_SOURCE_SCOPES.has(group))return FEED_SOURCE_DISCOVERY_PARENTS[group]||null;
   return FIXED_CONTENT_CATEGORIES.find(item=>item.group===group)||null;
 }
 
 function allTemporarySourceIds(){
   const ids=new Set([...temporaryGeneralSourceIds,...temporaryLiveSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of AI_SOURCE_SCOPES){
     for(const id of suggestedSetForScope(scope))ids.add(id);
   }
   return ids;
@@ -784,9 +834,9 @@ function sourceStatus(id,scope=sourceManageGroup){
 }
 
 function activeSourceScope(){
-  if(state.activeFeed==="live")return GENERAL_SOURCE_SCOPE;
+  if(state.activeFeed===LIVE_SOURCE_SCOPE)return LIVE_SOURCE_SCOPE;
   if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
-  if(isSourceScopedFeed(state.activeFeed))return GENERAL_SOURCE_SCOPE;
+  if(isSourceScopedFeed(state.activeFeed))return feedSourceScope(state.activeFeed);
   return "";
 }
 
@@ -862,7 +912,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
 
   const temporaryKnown=
     temporaryGeneralSourceIds.has(id)||
-    (requestedScope===LIVE_SOURCE_SCOPE&&temporaryLiveSourceIds.has(id))||
+    temporaryLiveSourceIds.has(id)||
     suggestedSetForScope(scope).has(id);
 
   if(
@@ -888,7 +938,8 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   }
 
   temporaryGeneralSourceIds.delete(id);
-  if(CONTENT_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
+  if(scope!==LIVE_SOURCE_SCOPE)temporaryLiveSourceIds.delete(id);
+  if(AI_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
 
   if(status==="blocked")hideBlockedSourceNow(id,scope);
 
@@ -1125,7 +1176,7 @@ function warmAvatarImage(url=""){
 
 async function warmSelectedAvatarImages(maxWait=900){
   const ids=new Set([...selectedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))ids.add(id);
   }
 
@@ -1653,24 +1704,20 @@ function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
-  const liveIds=sourceManageGroup===LIVE_SOURCE_SCOPE
-    ?new Set(temporaryLiveSourceIds)
-    :null;
-  const selectedCount=liveIds
-    ?[...liveIds].filter(id=>selected.has(id)&&!blocked.has(id)).length
-    :[...selected].filter(id=>!blocked.has(id)).length;
-  const blockedCount=liveIds
-    ?[...liveIds].filter(id=>blocked.has(id)).length
-    :blocked.size;
-  const totalCount=liveIds
-    ?liveIds.size
-    :scope===GENERAL_SOURCE_SCOPE
-      ?rows.filter(isGeneralManagerSource).length
-      :new Set([
-          ...suggestedSetForScope(scope),
-          ...selected,
-          ...blocked
-        ]).size;
+  const totalIds=scope===LIVE_SOURCE_SCOPE
+    ?new Set([
+        ...temporaryLiveSourceIds,
+        ...selected,
+        ...blocked
+      ])
+    :new Set([
+        ...suggestedSetForScope(scope),
+        ...selected,
+        ...blocked
+      ]);
+  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
+  const blockedCount=blocked.size;
+  const totalCount=totalIds.size;
 
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
@@ -1859,7 +1906,7 @@ function updateSourceGroupArrows(){
 }
 
 function sourceIsSuggestedAnywhere(id){
-  for(const group of CONTENT_SOURCE_SCOPES){
+  for(const group of AI_SOURCE_SCOPES){
     if(suggestedSetForScope(group).has(id))return true;
   }
   return false;
@@ -1889,19 +1936,18 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
   }
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    let count=0;
-    if(group.key===LIVE_SOURCE_SCOPE){
-      count=temporaryLiveSourceIds.size;
-    }else if(group.key===GENERAL_SOURCE_SCOPE){
-      count=rows.filter(isGeneralManagerSource).length;
-    }else{
-      const ids=new Set([
-        ...suggestedSetForScope(group.key),
-        ...selectedSetForScope(group.key),
-        ...blockedSetForScope(group.key)
-      ]);
-      count=ids.size;
-    }
+    const ids=group.key===LIVE_SOURCE_SCOPE
+      ?new Set([
+          ...temporaryLiveSourceIds,
+          ...selectedSetForScope(group.key),
+          ...blockedSetForScope(group.key)
+        ])
+      :new Set([
+          ...suggestedSetForScope(group.key),
+          ...selectedSetForScope(group.key),
+          ...blockedSetForScope(group.key)
+        ]);
+    const count=ids.size;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
@@ -1934,14 +1980,15 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
   ]);
-  const scopedSuggestionIds=CONTENT_SOURCE_SCOPES.has(sourceManageGroup)
+  const scopedSuggestionIds=AI_SOURCE_SCOPES.has(sourceManageGroup)
     ?suggestedSetForScope(sourceManageGroup)
     :new Set();
 
   const groupFilter=row=>{
     if(q||!sourceManageMode)return true;
-    if(sourceManageGroup===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds.has(row.id);
-    if(sourceManageGroup===GENERAL_SOURCE_SCOPE)return isGeneralManagerSource(row);
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      return temporaryLiveSourceIds.has(row.id)||scopedStateIds.has(row.id);
+    }
     return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
   };
 
@@ -1990,9 +2037,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
         ?"Không có nguồn phù hợp"
         :sourceManageGroup===LIVE_SOURCE_SCOPE
           ?"Chưa có nguồn LIVE đang phát"
-          :sourceManageGroup!==GENERAL_SOURCE_SCOPE
-            ?"Chưa có nguồn trong nhóm này"
-            :"Thư viện đang trống";
+          :"Chưa có nguồn trong tab này";
       parts.push('<div class="source-empty">'+message+'</div>');
     }
   }else{
@@ -2172,13 +2217,13 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
         temporaryLiveSourceIds.add(candidate.id);
         suggestionChanged=true;
       }
+    }else if(hint&&AI_SOURCE_SCOPES.has(hint)){
+      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(hint===GENERAL_SOURCE_SCOPE){
       if(!temporaryGeneralSourceIds.has(candidate.id)){
         temporaryGeneralSourceIds.add(candidate.id);
         suggestionChanged=true;
       }
-    }else if(hint&&CONTENT_SOURCE_SCOPES.has(hint)){
-      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(!temporaryGeneralSourceIds.has(candidate.id)){
       temporaryGeneralSourceIds.add(candidate.id);
       suggestionChanged=true;
@@ -2206,14 +2251,14 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
       ...candidate
     });
 
-    // LIVE is a view over the same manual source state as Mới nhất/Tuần này.
-    // Keep current LIVE channels visible even when they are already Chọn/Chặn.
+    // LIVE owns its own Chọn/Chặn state. Current LIVE channels stay visible
+    // in the LIVE manager regardless of other tabs.
     temporaryLiveSourceIds.add(candidate.id);
-    reconcileSourceState(candidate,GENERAL_SOURCE_SCOPE);
+    reconcileSourceState(candidate,LIVE_SOURCE_SCOPE);
   }
 
   if(liveRows.length||replace)updateSourceSummary();
-  return liveRows.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+  return liveRows.filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE));
 }
 
 function seedLiveSourceCandidatesFromCache(){
@@ -2254,7 +2299,7 @@ async function refreshLiveSourceCandidatesInBackground(){
       if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
         rows=await local.filterEmbeddableRows(rows,{
           concurrency:4,
-          requirePlayable:true
+          requirePlayable:false
         });
       }
 
@@ -2294,7 +2339,7 @@ function addSource(row){
   if(currentStatus==="normal"){
     if(sourceManageGroup===LIVE_SOURCE_SCOPE){
       temporaryLiveSourceIds.add(id);
-    }else if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    }else if(AI_SOURCE_SCOPES.has(sourceManageGroup)){
       assignSourceGroup(id,sourceManageGroup);
     }else{
       temporaryGeneralSourceIds.add(id);
@@ -2652,8 +2697,7 @@ async function openSourceFromSearchVideo(video){
       sourceMetaCache.set(row.id,row);
 
       if(
-        temporaryGeneralSourceIds.has(row.id)||
-        suggestedSetForScope(sourceManageGroup).has(row.id)||
+        temporarySetForScope(sourceManageGroup).has(row.id)||
         allManagedStateIds().has(row.id)
       ){
         refreshSourceManager();
@@ -5327,6 +5371,8 @@ function rowMatchesParentRule(parent,row={}){
       return /giai tri|showbiz|gameshow|hau truong|nghe si|dien vien|hoa hau|concert|truyen hinh thuc te|reality show/.test(text);
     case "news":
       return /thoi su|tin tuc|ban tin|tin nong|truc tiep|quoc te|chinh phu|hoi nghi|du bao thoi tiet/.test(text);
+    case LATEST_SOURCE_SCOPE:
+    case WEEK_SOURCE_SCOPE:
     case GENERAL_SOURCE_SCOPE:
       return true;
     default:
@@ -5631,9 +5677,7 @@ function instantCategoryRows(parent={}){
   const sourceIds=new Set(sources.map(source=>source.id));
   return dedupeHashedRows(newestFirst([
     ...categoryCacheRows(parent.key),
-    ...cachedRowsForSources(sources,group),
-    ...readSourcePoolCache()
-      .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
+    ...cachedRowsForSources(sources,group)
   ]))
     .filter(uploadedWithinCategoryWindow)
     .filter(row=>{
@@ -5916,17 +5960,22 @@ function extractSourceContentTerms(parent={},rows=[]){
 
 async function selectedLearningRows(parent={},local){
   const group=parentSourceGroup(parent);
-  const allSources=group===GENERAL_SOURCE_SCOPE?selectedSources():selectedSourcesForParent(parent);
+  const allSources=group===GENERAL_SOURCE_SCOPE
+    ?selectedSources()
+    :FEED_SOURCE_SCOPES.has(group)
+      ?selectedSources(group)
+      :selectedSourcesForParent(parent);
   if(!allSources.length)return [];
 
   const selectedIds=new Set(allSources.map(source=>source.id));
   let cached=[];
-  if(group===GENERAL_SOURCE_SCOPE){
-    cached=readSourcePoolCache().filter(row=>
-      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
-      uploadedWithinCategoryWindow(row)&&
-      !isBlockedSourceRow(row,group)
-    );
+  if(group===GENERAL_SOURCE_SCOPE||FEED_SOURCE_SCOPES.has(group)){
+    cached=(FEED_SOURCE_SCOPES.has(group)?readSourcePoolCache(group):[])
+      .filter(row=>
+        selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
+        uploadedWithinCategoryWindow(row)&&
+        !isBlockedSourceRow(row,group)
+      );
   }else{
     const parentRows=categoryCacheRows(parent.key);
     cached=parentRows.filter(row=>
@@ -5987,7 +6036,7 @@ async function cleanSelectedRowsForLearning(parent={},rows=[]){
     const batch=source.slice(offset,offset+48);
     try{
       const classified=await classifyAiParent(parent,batch,{
-        filterToParent:group!==GENERAL_SOURCE_SCOPE
+        filterToParent:CONTENT_SOURCE_SCOPES.has(group)
       });
       if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
         state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
@@ -5995,9 +6044,9 @@ async function cleanSelectedRowsForLearning(parent={},rows=[]){
       const acceptedIds=classified?.acceptedVideoIds instanceof Set
         ?classified.acceptedVideoIds
         :new Set(batch.map(itemVideoId).filter(Boolean));
-      const kept=group===GENERAL_SOURCE_SCOPE
-        ?batch
-        :batch.filter(row=>acceptedIds.has(itemVideoId(row)));
+      const kept=CONTENT_SOURCE_SCOPES.has(group)
+        ?batch.filter(row=>acceptedIds.has(itemVideoId(row)))
+        :batch;
       accepted.push(...kept);
     }catch(error){
       console.warn("AI 1 learning cleanup failed",parent?.label||group,error);
@@ -6038,8 +6087,8 @@ async function adaptiveSourceQueries(parent={},local){
   if(!Number(content?.rows))return [];
   const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
 
-  if(group===GENERAL_SOURCE_SCOPE){
-    const selectedNames=sourceLearningNames(GENERAL_SOURCE_SCOPE,"selected").slice(0,4);
+  if(group===GENERAL_SOURCE_SCOPE||FEED_SOURCE_SCOPES.has(group)){
+    const selectedNames=sourceLearningNames(group,"selected").slice(0,4);
     return [...new Set([...learned.slice(0,5),...selectedNames])].slice(0,6);
   }
 
@@ -6052,7 +6101,7 @@ async function classifyAiParent(parent,rows=[],options={}){
   const input=topicInputRows(rows.slice(0,48));
   const learning=sourceLearningProfile(parent);
   const group=parentSourceGroup(parent);
-  const filterToParent=options?.filterToParent!==false&&group!==GENERAL_SOURCE_SCOPE;
+  const filterToParent=options?.filterToParent!==false&&CONTENT_SOURCE_SCOPES.has(group);
   if(input.length<4){
     return {
       topics:[],
@@ -6257,7 +6306,9 @@ async function discoverSourcesForParent(parent,local){
   // explicitly selected in this scope.
   const positiveSources=group===GENERAL_SOURCE_SCOPE
     ?selectedSources()
-    :selectedSourcesForParent(parent);
+    :FEED_SOURCE_SCOPES.has(group)
+      ?selectedSources(group)
+      :selectedSourcesForParent(parent);
   if(!positiveSources.length)return;
 
   const last=Number(sourceDiscoveryAt.get(group)||0);
@@ -10333,7 +10384,7 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
-const SOURCE_POOL_KEY="1988-source-pool-v3";
+const SOURCE_POOL_KEY_PREFIX="1988-source-pool-v4:";
 const SOURCE_POOL_TTL=5*60*1000;
 const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
@@ -10397,9 +10448,9 @@ function sourceNeedsRecheck(sourceId){
   const checkedAt=Number(readSourceChannelCache(sourceId).checkedAt)||0;
   return !checkedAt||Date.now()-checkedAt>=SOURCE_CHANNEL_RECHECK_TTL;
 }
-let sourcePoolMemory={signature:"",at:0,items:[]};
-let sourcePoolRefreshPromise=null;
-let sourcePoolRefreshSignature="";
+
+const sourcePoolMemory=new Map();
+const sourcePoolRefreshes=new Map();
 
 function compactSourcePool(rows=[]){
   const perSource=new Map();
@@ -10414,19 +10465,27 @@ function compactSourcePool(rows=[]){
   return [...perSource.values()].flat();
 }
 
-function readSourcePoolCache(){
-  const signature=sourceSignature();
+function sourcePoolStorageKey(scope){
+  return SOURCE_POOL_KEY_PREFIX+sourceScope(scope);
+}
+
+try{localStorage.removeItem("1988-source-pool-v3");}catch{}
+
+function readSourcePoolCache(scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const signature=sourceSignature(scope);
+  const memory=sourcePoolMemory.get(scope);
   if(
-    sourcePoolMemory.signature===signature &&
-    Array.isArray(sourcePoolMemory.items) &&
-    sourcePoolMemory.items.length &&
-    Date.now()-sourcePoolMemory.at<SOURCE_POOL_TTL
+    memory?.signature===signature &&
+    Array.isArray(memory.items) &&
+    memory.items.length &&
+    Date.now()-memory.at<SOURCE_POOL_TTL
   ){
-    return sourcePoolMemory.items;
+    return memory.items;
   }
 
   try{
-    const row=JSON.parse(localStorage.getItem(SOURCE_POOL_KEY)||"null");
+    const row=JSON.parse(localStorage.getItem(sourcePoolStorageKey(scope))||"null");
     if(
       row &&
       row.signature===signature &&
@@ -10434,11 +10493,11 @@ function readSourcePoolCache(){
       row.items.length &&
       Date.now()-Number(row.at||0)<SOURCE_POOL_TTL
     ){
-      sourcePoolMemory={
+      sourcePoolMemory.set(scope,{
         signature,
         at:Number(row.at)||Date.now(),
         items:row.items
-      };
+      });
       return row.items;
     }
   }catch{}
@@ -10446,20 +10505,38 @@ function readSourcePoolCache(){
   return [];
 }
 
-function saveSourcePoolCache(rows=[]){
-  const signature=sourceSignature();
+function saveSourcePoolCache(rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const signature=sourceSignature(scope);
   const items=compactSourcePool(rows);
   const row={signature,at:Date.now(),items};
-  sourcePoolMemory=row;
-  try{localStorage.setItem(SOURCE_POOL_KEY,JSON.stringify(row));}catch{}
+  sourcePoolMemory.set(scope,row);
+  try{localStorage.setItem(sourcePoolStorageKey(scope),JSON.stringify(row));}catch{}
   return items;
 }
 
-function replaceSourceInPoolCache(source,rows=[]){
+function primeSourceFeedCache(rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  if(scope===LATEST_SOURCE_SCOPE){
+    saveFeedCache(LATEST_SOURCE_SCOPE,sortPresetRows(
+      rows.filter(uploadedWithinLatest),
+      FEED_PRESETS.latest
+    ));
+  }else if(scope===WEEK_SOURCE_SCOPE){
+    saveFeedCache(WEEK_SOURCE_SCOPE,sortPresetRows(
+      rows.filter(uploadedWithinWeek),
+      FEED_PRESETS.week
+    ));
+  }
+}
+
+function replaceSourceInPoolCache(source,rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  if(!FEED_SOURCE_SCOPES.has(scope))return [];
   const sourceId=String(source?.id||source||"").trim();
   if(!sourceId)return [];
   const sourceName=clean(source?.name||"");
-  const current=readSourcePoolCache();
+  const current=readSourcePoolCache(scope);
   const keep=current.filter(row=>String(row?._sourceId||"")!==sourceId);
   const incoming=(Array.isArray(rows)?rows:[])
     .filter(Boolean)
@@ -10468,16 +10545,9 @@ function replaceSourceInPoolCache(source,rows=[]){
       _sourceId:sourceId,
       _sourceName:clean(row?._sourceName||sourceName)
     }));
-  const saved=saveSourcePoolCache([...incoming,...keep]);
-  primeSourceFeedCaches(saved);
+  const saved=saveSourcePoolCache([...incoming,...keep],scope);
+  primeSourceFeedCache(saved,scope);
   return saved;
-}
-
-function primeSourceFeedCaches(rows=[]){
-  const latest=sortPresetRows(rows.filter(uploadedWithinLatest),FEED_PRESETS.latest);
-  const week=sortPresetRows(rows.filter(uploadedWithinWeek),FEED_PRESETS.week);
-  saveFeedCache("latest",latest);
-  saveFeedCache("week",week);
 }
 
 async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE,onBatch=null){
@@ -10504,8 +10574,6 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       }
     }
 
-    // Some callers may emit UI-only rows, but normal source rows are collected
-    // immediately so first paint does not depend on playability probes.
     if(meta.transient!==true){
       for(const row of batch){
         const id=itemVideoId(row);
@@ -10543,22 +10611,16 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         emit(cached.items,source,{cached:true});
       }
 
-      // A recent successful check means there is no reason to hit YouTube again yet,
-      // even if that check returned no new rows.
       if(reset&&!sourceNeedsRecheck(source.id))continue;
 
       try{
         const fetchedRows=await local.channelVideosPage(
-          "library:"+source.id,
+          "library:"+scope+":"+source.id,
           source.id,
           reset
         );
         let rows=quickVisibleRows(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // Simple/stable rule:
-        // 1) channel rows are the display source and paint immediately;
-        // 2) only definitive private/deleted/embed failures may be removed later;
-        // 3) timeout/anti-bot/unknown must never erase a source.
         if(reset&&rows.length){
           saveSourceChannelCache(source,rows,Date.now(),{replace:true});
           emit(rows,source,{
@@ -10569,8 +10631,6 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          // Verification is background-only. Never hold the source queue.
-          // Unknown/timeout stays; only a definitive false may disappear.
           void local.filterEmbeddableRows(
             rows,
             {concurrency:8,requirePlayable:false}
@@ -10581,7 +10641,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
             if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
 
             saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
-            replaceSourceInPoolCache(source,confirmed);
+            replaceSourceInPoolCache(source,confirmed,scope);
             emit(confirmed,source,{
               cached:false,
               verified:true,
@@ -10589,24 +10649,19 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
               late:true
             });
           }).catch(error=>{
-            console.warn("source background verify failed",source.id,error);
+            console.warn("source background verify failed",scope,source.id,error);
           });
         }
 
-        if(reset){
-          // Already emitted above; move straight to the next source.
-          // Empty upstream results preserve the last good cache.
-        }else{
-          if(rows.length){
-            emit(rows,source,{cached:false});
-            saveSourceChannelCache(source,[
-              ...rows,
-              ...readSourceChannelCache(source.id).items
-            ],Date.now());
-          }
+        if(!reset&&rows.length){
+          emit(rows,source,{cached:false});
+          saveSourceChannelCache(source,[
+            ...rows,
+            ...readSourceChannelCache(source.id).items
+          ],Date.now());
         }
       }catch(error){
-        console.warn("source feed failed",source.id,error);
+        console.warn("source feed failed",scope,source.id,error);
       }
     }
   };
@@ -10618,63 +10673,60 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   await Promise.all(workers);
   return mergeUniqueRows([],collected);
 }
-function refreshSourcePool(local,sources,onBatch=null){
-  const signature=sourceSignature();
-  if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
-    return sourcePoolRefreshPromise;
-  }
 
-  sourcePoolRefreshSignature=signature;
-  sourcePoolRefreshPromise=(async()=>{
+function refreshSourcePool(local,sources,scope=LATEST_SOURCE_SCOPE,onBatch=null){
+  scope=sourceScope(scope);
+  const signature=scope+"|"+sourceSignature(scope);
+  const current=sourcePoolRefreshes.get(scope);
+  if(current?.signature===signature)return current.promise;
+
+  const promise=(async()=>{
     const rows=await fetchSourcePool(
       local,
       sources,
       true,
-      GENERAL_SOURCE_SCOPE,
+      scope,
       onBatch
     );
-    if(signature!==sourceSignature())return [];
-    const saved=saveSourcePoolCache(rows);
-    primeSourceFeedCaches(saved);
+    if(signature!==scope+"|"+sourceSignature(scope))return [];
+    const saved=saveSourcePoolCache(rows,scope);
+    primeSourceFeedCache(saved,scope);
     return saved;
   })().finally(()=>{
-    if(sourcePoolRefreshSignature===signature){
-      sourcePoolRefreshPromise=null;
-      sourcePoolRefreshSignature="";
-    }
+    const active=sourcePoolRefreshes.get(scope);
+    if(active?.signature===signature)sourcePoolRefreshes.delete(scope);
   });
 
-  return sourcePoolRefreshPromise;
+  sourcePoolRefreshes.set(scope,{signature,promise});
+  return promise;
 }
 
-async function selectedSourceFeed(local,predicate,reset=false,onBatch=null){
-  const sources=selectedSources();
+async function selectedSourceFeed(local,predicate,reset=false,onBatch=null,scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const sources=selectedSources(scope);
   if(!sources.length)return [];
 
   if(reset){
-    const cached=readSourcePoolCache();
+    const cached=readSourcePoolCache(scope);
     if(cached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
+      if(!document.hidden)void refreshSourcePool(local,sources,scope,onBatch);
       return cached.filter(predicate);
     }
 
-    // The aggregate pool may expire before the per-channel caches do.
-    // Use those channel snapshots immediately instead of blocking the first
-    // paint on a full YouTube + playability refresh across every source.
-    const channelCached=cachedRowsForSources(sources,GENERAL_SOURCE_SCOPE);
+    const channelCached=cachedRowsForSources(sources,scope);
     if(channelCached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
+      if(!document.hidden)void refreshSourcePool(local,sources,scope,onBatch);
       return channelCached.filter(predicate);
     }
 
-    const fresh=await refreshSourcePool(local,sources,onBatch);
+    const fresh=await refreshSourcePool(local,sources,scope,onBatch);
     return fresh.filter(predicate);
   }
 
-  const extra=await fetchSourcePool(local,sources,false,GENERAL_SOURCE_SCOPE);
-  const previous=readSourcePoolCache();
-  const merged=saveSourcePoolCache([...extra,...previous]);
-  primeSourceFeedCaches(merged);
+  const extra=await fetchSourcePool(local,sources,false,scope);
+  const previous=readSourcePoolCache(scope);
+  const merged=saveSourcePoolCache([...extra,...previous],scope);
+  primeSourceFeedCache(merged,scope);
   return extra.filter(predicate);
 }
 
@@ -10704,8 +10756,16 @@ async function fetchRegionalDiscoveryPool(local,reset=false){
     tasks.push(local.hypeFeed().catch(()=>[]));
   }
 
-  if(selectedSourceIds.size){
-    tasks.push(selectedSourceFeed(local,uploadedWithinWeek,reset).catch(()=>[]));
+  if(selectedSetForScope(LATEST_SOURCE_SCOPE).size){
+    tasks.push(
+      selectedSourceFeed(
+        local,
+        uploadedWithinWeek,
+        reset,
+        null,
+        LATEST_SOURCE_SCOPE
+      ).catch(()=>[])
+    );
   }
 
   const batches=await Promise.all(tasks);
@@ -10760,20 +10820,9 @@ const FEED_PRESETS={
     title:"LIVE",
     newest:true,
     load:async(local,reset)=>{
-      // Once the user has chosen sources, LIVE follows the same source pool as
-      // Mới nhất/Tuần này and never falls back to unrelated channels.
-      if(selectedSourceIds.size){
-        const selectedLive=await selectedSourceFeed(
-          local,
-          row=>row?.isLive===true,
-          reset
-        ).catch(()=>[]);
-        rememberLiveSourceCandidates(selectedLive);
-        return selectedLive;
-      }
-
-      // Before any source is selected, discovery is only a bootstrap so the
-      // LIVE source list can be shown and selected immediately.
+      // LIVE remains a global livestream discovery feed. The LIVE Chọn/Chặn
+      // state only filters/prioritizes this LIVE feed and never supplies
+      // Mới nhất/Tuần này.
       let rows=[];
       try{
         rows=await pagedSearch(
@@ -10781,20 +10830,31 @@ const FEED_PRESETS={
           "live",
           "trực tiếp",
           {features:["live"],sort_by:"upload_date"},
-          reset
+          reset,
+          LIVE_SOURCE_SCOPE
         );
       }catch{}
 
-      let liveRows=rememberLiveSourceCandidates(rows);
-      if(liveRows.length)return liveRows;
-
-      try{
-        const fallback=await local.homePage("live-regional",reset);
-        liveRows=rememberLiveSourceCandidates(fallback);
-        return liveRows;
-      }catch{
-        return liveRows;
+      let liveRows=rememberLiveSourceCandidates(rows,{replace:reset});
+      if(!liveRows.length){
+        try{
+          const fallback=await local.homePage("live-regional",reset);
+          liveRows=rememberLiveSourceCandidates(fallback,{replace:reset});
+        }catch{}
       }
+
+      const selected=selectedSetForScope(LIVE_SOURCE_SCOPE);
+      return liveRows
+        .filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))
+        .map((row,index)=>({
+          row,
+          index,
+          interested:selected.has(String(
+            row?._sourceId||row?.channelId||row?.uploaderId||""
+          ))?1:0
+        }))
+        .sort((a,b)=>b.interested-a.interested||a.index-b.index)
+        .map(item=>item.row);
     }
   },
   latest:{
@@ -10804,7 +10864,8 @@ const FEED_PRESETS={
       local,
       uploadedWithinLatest,
       reset,
-      onBatch
+      onBatch,
+      LATEST_SOURCE_SCOPE
     )
   },
   week:{
@@ -10814,7 +10875,8 @@ const FEED_PRESETS={
       local,
       uploadedWithinWeek,
       reset,
-      onBatch
+      onBatch,
+      WEEK_SOURCE_SCOPE
     )
   }
 };
@@ -10824,26 +10886,34 @@ function readFeedCache(name){
     const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
 
-    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature()){
-      const selectedIds=new Set(selectedSources().map(source=>source.id));
+    const scope=isSourceScopedFeed(name)
+      ?feedSourceScope(name)
+      :name===LIVE_SOURCE_SCOPE
+        ?LIVE_SOURCE_SCOPE
+        :GENERAL_SOURCE_SCOPE;
+
+    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature(scope)){
+      const selectedIds=new Set(selectedSources(scope).map(source=>source.id));
+      const blocked=blockedSetForScope(scope);
       return row.items.filter(item=>{
         const sourceId=String(item?._sourceId||item?.channelId||item?.uploaderId||"");
-        if(sourceId)return selectedIds.has(sourceId)&&!blockedSourceIds.has(sourceId);
-        return !isBlockedSourceRow(item);
+        if(sourceId)return selectedIds.has(sourceId)&&!blocked.has(sourceId);
+        return !isBlockedSourceRow(item,scope);
       });
     }
 
-    return row.items.filter(item=>!isBlockedSourceRow(item));
+    return row.items.filter(item=>!isBlockedSourceRow(item,scope));
   }catch{
     return [];
   }
 }
 
 function saveFeedCache(name,rows){
+  const scope=isSourceScopedFeed(name)?feedSourceScope(name):GENERAL_SOURCE_SCOPE;
   try{
     localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
       at:Date.now(),
-      sourceSignature:isSourceScopedFeed(name)?sourceSignature():"",
+      sourceSignature:isSourceScopedFeed(name)?sourceSignature(scope):"",
       items:rows.slice(0,90)
     }));
   }catch{}
@@ -10862,8 +10932,9 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   if(document.hidden)return false;
   if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return false;
 
+  const feedScope=feedSourceScope(name);
   const sample=dedupeHashedRows(newestFirst(rows))
-    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+    .filter(row=>!isBlockedSourceRow(row,feedScope))
     .slice(0,72);
   const input=topicInputRows(sample);
   if(input.length<4)return false;
@@ -10871,7 +10942,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   const cacheKey=feedAiContentKey(name,sample);
   const feedParent={
     key:"feed-"+name,
-    group:GENERAL_SOURCE_SCOPE,
+    group:feedScope,
     label:name==="week"?"Tuần này":"Mới nhất"
   };
   const learning=sourceLearningProfile(feedParent);
@@ -10879,8 +10950,8 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
     const cleaned=aiDisplayRows(sample);
     if(!cleaned.length)return;
     saveSourceContentLearning(
-      GENERAL_SOURCE_SCOPE,
-      extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,cleaned)
+      feedScope,
+      extractSourceContentTerms(feedParent,cleaned)
     );
   };
 
@@ -10975,10 +11046,11 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
   if(document.hidden)return;
   try{
     const local=await localEngine(16000);
-    const sources=selectedSources();
+    const scope=feedSourceScope(name);
+    const sources=selectedSources(scope);
     if(!sources.length)return;
 
-    const pool=await refreshSourcePool(local,sources);
+    const pool=await refreshSourcePool(local,sources,scope);
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const rows=sortPresetRows(
       (Array.isArray(pool)?pool:[]).filter(predicate),
@@ -10990,7 +11062,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
     // AI 1 must finish before AI 2 can learn/search from this refreshed pool.
     void enrichSourceFeedAi(name,rows,seq)
       .then(ai1Ready=>{
-        if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+        if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
       });
 
     if(
@@ -11041,7 +11113,9 @@ async function loadFeedPreset(name="latest"){
     renderTrendTopics();
   }
 
-  if(isSourceScopedFeed(name)&&!selectedSourceIds.size){
+  const activeFeedScope=isSourceScopedFeed(name)?feedSourceScope(name):"";
+
+  if(isSourceScopedFeed(name)&&!selectedSetForScope(activeFeedScope).size){
     state.feedLoading=false;
     state.feedHasMore=false;
     state.feedRows=[];
@@ -11077,8 +11151,8 @@ async function loadFeedPreset(name="latest"){
   if(!cached.length&&isSourceScopedFeed(name)){
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const perSourceCached=cachedRowsForSources(
-      selectedSources(),
-      GENERAL_SOURCE_SCOPE
+      selectedSources(activeFeedScope),
+      activeFeedScope
     ).filter(predicate);
     if(perSourceCached.length){
       cached=sortPresetRows(perSourceCached,preset);
@@ -11088,7 +11162,7 @@ async function loadFeedPreset(name="latest"){
 
   if(cached.length){
     const rows=sortPresetRows(cached,preset)
-      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,activeFeedScope));
     state.feedRows=rows;
     await prewarmRowSourceAvatars(aiDisplayRows(trendRows(rows)).slice(0,36),560);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
@@ -11135,7 +11209,7 @@ async function loadFeedPreset(name="latest"){
           const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
           const matching=(Array.isArray(batch)?batch:[])
             .filter(predicate)
-            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+            .filter(row=>!isBlockedSourceRow(row,activeFeedScope));
 
           let base=state.feedRows;
           if(meta.replaceSource===true&&source?.id){
@@ -11194,7 +11268,7 @@ async function loadFeedPreset(name="latest"){
     if(isSourceScopedFeed(name)){
       void enrichSourceFeedAi(name,state.feedRows,seq)
         .then(ai1Ready=>{
-          if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+          if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
         });
     }
     void refreshAiTrendTopics();
@@ -11299,7 +11373,7 @@ setInterval(()=>{
 },SOURCE_FEED_AUTO_REFRESH_MS);
 
 async function loadInitialFeed(){
-  await prewarmRowSourceAvatars(selectedSources(GENERAL_SOURCE_SCOPE),900);
+  await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
   return loadFeedPreset("latest");
 }
 
