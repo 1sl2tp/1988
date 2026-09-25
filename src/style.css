@@ -6449,3 +6449,198 @@ html:not(.watch-browse) .app-header{
     padding:48px 12px!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE WATCH FINAL v201
+   1) keep the original player surface
+   2) remove the extra floating toolbar
+   3) full YouTube-like recommendation metadata
+   4) scroll remains touch-enabled but scrollbars are invisible
+   5) source/category strip has no container background
+   ============================================================ */
+@media(max-width:720px){
+  /* 1. Do not decorate/crop the real player. Keep its original measured box. */
+  html.watch-browse .player-section,
+  html.watch-browse.watch-video-wide .player-section,
+  html.watch-browse.watch-video-square .player-section,
+  html.watch-browse.watch-video-portrait .player-section{
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    background:#000!important;
+  }
+
+  html.watch-browse .player-card,
+  html.watch-browse .player-frame{
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    background:#000!important;
+  }
+
+  html.watch-browse .player-frame #yt-player,
+  html.watch-browse .player-frame iframe,
+  html.watch-browse .player-frame video{
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    object-fit:contain!important;
+    background:#000!important;
+  }
+
+  /* 2. The old black Search/Grid/Up/Down rail is not part of watch mode. */
+  html.watch-browse .watch-nav-rail,
+  html.watch-browse body>.watch-reco-info{
+    display:none!important;
+  }
+
+  /* 5. Chips float as their own controls: no strip background, border or glow. */
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav,
+  html.watch-browse .header-nav-inner,
+  html.watch-browse.watch-categories-open .header-nav-inner,
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips{
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  /* 4. Keep both horizontal chip swipe and vertical recommendation scroll,
+        but never draw a scrollbar in Safari/Chrome/Firefox. */
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips,
+  html.watch-browse .feed-section,
+  html.watch-browse .search-refinements{
+    scrollbar-width:none!important;
+    -ms-overflow-style:none!important;
+  }
+
+  html.watch-browse .topic-chips::-webkit-scrollbar,
+  html.watch-browse.watch-categories-open .topic-chips::-webkit-scrollbar,
+  html.watch-browse .feed-section::-webkit-scrollbar,
+  html.watch-browse .search-refinements::-webkit-scrollbar{
+    display:none!important;
+    width:0!important;
+    height:0!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed-section{
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-y!important;
+  }
+
+  /* 3. One complete recommendation card per row, matching YouTube mobile:
+        full thumbnail + avatar + title + channel + time/views. */
+  html.watch-browse .feed:not(.search-grouped){
+    display:block!important;
+    width:100%!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    margin:0 0 17px!important;
+    padding:0 8px!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    border-radius:10px!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img{
+    width:100%!important;
+    height:100%!important;
+    display:block!important;
+    border-radius:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain){
+    object-fit:cover!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    object-fit:contain!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy{
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+    padding:9px 4px 0!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-avatar{
+    display:grid!important;
+    place-items:center!important;
+    width:36px!important;
+    height:36px!important;
+    border-radius:50%!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy-main{
+    min-width:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-title{
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    overflow:hidden!important;
+    margin:0!important;
+    color:#f4f4f5!important;
+    font-size:13.5px!important;
+    line-height:1.3!important;
+    font-weight:680!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    display:block!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:#9a9aa2!important;
+    font-size:10.5px!important;
+    line-height:1.3!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel{
+    margin-top:4px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    margin-top:1px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel::after{
+    content:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .thumb-wrap{
+    box-shadow:none!important;
+  }
+}
