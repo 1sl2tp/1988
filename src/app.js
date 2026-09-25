@@ -2458,7 +2458,7 @@ function renderSourcePreviewVideos({force=false}={}){
 
   if(!all.length){
     sourcePreviewList.innerHTML='<div class="source-empty">'+
-      (searching?'Không có video phù hợp trong nguồn này':'Kênh chưa có video để hiển thị')+
+      (searching?'Không có kết quả trong nguồn này':'Chưa tải được video của nguồn')+
     '</div>';
     return;
   }
@@ -10340,18 +10340,7 @@ const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
 const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
-const SOURCE_FULL_VERIFY_TIMEOUT_MS=12000;
 let sourceFeedPendingRenderName="";
-
-function sourceTimeout(promise,ms,label="source_timeout"){
-  let timer=0;
-  return Promise.race([
-    promise,
-    new Promise((_,reject)=>{
-      timer=setTimeout(()=>reject(new Error(label)),Math.max(500,Number(ms)||500));
-    })
-  ]).finally(()=>clearTimeout(timer));
-}
 
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
@@ -10466,6 +10455,24 @@ function saveSourcePoolCache(rows=[]){
   return items;
 }
 
+function replaceSourceInPoolCache(source,rows=[]){
+  const sourceId=String(source?.id||source||"").trim();
+  if(!sourceId)return [];
+  const sourceName=clean(source?.name||"");
+  const current=readSourcePoolCache();
+  const keep=current.filter(row=>String(row?._sourceId||"")!==sourceId);
+  const incoming=(Array.isArray(rows)?rows:[])
+    .filter(Boolean)
+    .map(row=>({
+      ...row,
+      _sourceId:sourceId,
+      _sourceName:clean(row?._sourceName||sourceName)
+    }));
+  const saved=saveSourcePoolCache([...incoming,...keep]);
+  primeSourceFeedCaches(saved);
+  return saved;
+}
+
 function primeSourceFeedCaches(rows=[]){
   const latest=sortPresetRows(rows.filter(uploadedWithinLatest),FEED_PRESETS.latest);
   const week=sortPresetRows(rows.filter(uploadedWithinWeek),FEED_PRESETS.week);
@@ -10497,8 +10504,8 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       }
     }
 
-    // Tentative first-paint rows are UI-only. They never enter source pool/cache
-    // until strict playability verification confirms them.
+    // Some callers may emit UI-only rows, but normal source rows are collected
+    // immediately so first paint does not depend on playability probes.
     if(meta.transient!==true){
       for(const row of batch){
         const id=itemVideoId(row);
@@ -10546,72 +10553,57 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
           source.id,
           reset
         );
-        let rows=(Array.isArray(fetchedRows)?fetchedRows:[]);
+        let rows=quickVisibleRows(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // First paint is intentionally optimistic: YouTube channel listing is
-        // fast, while getBasicInfo/embed checks can be throttled for seconds.
-        // Obvious private/deleted placeholders are removed immediately. These
-        // preview rows are transient and never enter persistent cache.
-        if(reset&&typeof onBatch==="function"&&rows.length){
-          const previewRows=quickVisibleRows(rows).slice(0,SOURCE_FIRST_PAINT_ROWS);
-          if(previewRows.length){
-            emit(previewRows,source,{
-              cached:false,
-              preview:true,
-              transient:true
-            });
-          }
-        }
-
-        if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          const verifyPromise=local.filterEmbeddableRows(
-            rows,
-            {concurrency:8,requirePlayable:true}
-          );
-
-          try{
-            rows=await sourceTimeout(
-              verifyPromise,
-              SOURCE_FULL_VERIFY_TIMEOUT_MS,
-              "source_full_verify_timeout"
-            );
-          }catch(error){
-            console.warn("source full verify deferred",source.id,error);
-
-            // The timeout only releases this source worker. Verification keeps
-            // running and, once complete, replaces tentative cards and cache.
-            void verifyPromise.then(verified=>{
-              const confirmed=Array.isArray(verified)?verified:[];
-              const selectedNow=selectedSetForScope(scope);
-              const blockedNow=blockedSetForScope(scope);
-              if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
-              saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
-              emit(confirmed,source,{
-                cached:false,
-                verified:true,
-                replaceSource:true,
-                late:true
-              });
-            }).catch(lateError=>{
-              console.warn("source late verify failed",source.id,lateError);
-            });
-            continue;
-          }
-        }
-
-        if(reset){
+        // Simple/stable rule:
+        // 1) channel rows are the display source and paint immediately;
+        // 2) only definitive private/deleted/embed failures may be removed later;
+        // 3) timeout/anti-bot/unknown must never erase a source.
+        if(reset&&rows.length){
           saveSourceChannelCache(source,rows,Date.now(),{replace:true});
           emit(rows,source,{
             cached:false,
-            verified:true,
+            preview:true,
             replaceSource:true
           });
+        }
+
+        if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
+          // Verification is background-only. Never hold the source queue.
+          // Unknown/timeout stays; only a definitive false may disappear.
+          void local.filterEmbeddableRows(
+            rows,
+            {concurrency:8,requirePlayable:false}
+          ).then(verified=>{
+            const confirmed=Array.isArray(verified)?verified:rows;
+            const selectedNow=selectedSetForScope(scope);
+            const blockedNow=blockedSetForScope(scope);
+            if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
+
+            saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
+            replaceSourceInPoolCache(source,confirmed);
+            emit(confirmed,source,{
+              cached:false,
+              verified:true,
+              replaceSource:true,
+              late:true
+            });
+          }).catch(error=>{
+            console.warn("source background verify failed",source.id,error);
+          });
+        }
+
+        if(reset){
+          // Already emitted above; move straight to the next source.
+          // Empty upstream results preserve the last good cache.
         }else{
-          emit(rows,source,{cached:false});
-          saveSourceChannelCache(source,[
-            ...rows,
-            ...readSourceChannelCache(source.id).items
-          ],Date.now());
+          if(rows.length){
+            emit(rows,source,{cached:false});
+            saveSourceChannelCache(source,[
+              ...rows,
+              ...readSourceChannelCache(source.id).items
+            ],Date.now());
+          }
         }
       }catch(error){
         console.warn("source feed failed",source.id,error);
