@@ -170,12 +170,15 @@ const SOURCE_FILM_SNAPSHOT_BACKUP_KEY="1988-source-film-before-snapshot-v4";
 const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
 const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
 const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
-const GENERAL_SOURCE_SCOPE="general";
+const GENERAL_SOURCE_SCOPE="general"; // legacy/search-only scope
 const LIVE_SOURCE_SCOPE="live";
+const LATEST_SOURCE_SCOPE="latest";
+const WEEK_SOURCE_SCOPE="week";
 
 const SOURCE_MANAGER_GROUPS=[
-  {key:"live",label:"LIVE"},
-  {key:"general",label:"Mới nhất/Tuần này"},
+  {key:LIVE_SOURCE_SCOPE,label:"LIVE"},
+  {key:LATEST_SOURCE_SCOPE,label:"Mới nhất"},
+  {key:WEEK_SOURCE_SCOPE,label:"Tuần này"},
   {key:"news",label:"Thời sự"},
   {key:"economy",label:"Kinh tế"},
   {key:"law",label:"Pháp luật"},
@@ -197,12 +200,36 @@ const FIXED_CONTENT_CATEGORIES=[
   {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
 ];
 const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
-const GENERAL_SOURCE_DISCOVERY_PARENT={
-  key:"general",
-  group:GENERAL_SOURCE_SCOPE,
-  label:"Mới nhất/Tuần này",
-  queries:[]
+const FEED_SOURCE_SCOPES=new Set([LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]);
+const MANAGED_SOURCE_SCOPES=new Set([
+  LIVE_SOURCE_SCOPE,
+  ...FEED_SOURCE_SCOPES,
+  ...CONTENT_SOURCE_SCOPES
+]);
+const AI_SOURCE_SCOPES=new Set([
+  ...FEED_SOURCE_SCOPES,
+  ...CONTENT_SOURCE_SCOPES
+]);
+const FEED_SOURCE_DISCOVERY_PARENTS={
+  [LATEST_SOURCE_SCOPE]:{
+    key:LATEST_SOURCE_SCOPE,
+    group:LATEST_SOURCE_SCOPE,
+    label:"Mới nhất",
+    queries:[]
+  },
+  [WEEK_SOURCE_SCOPE]:{
+    key:WEEK_SOURCE_SCOPE,
+    group:WEEK_SOURCE_SCOPE,
+    label:"Tuần này",
+    queries:[]
+  }
 };
+function feedSourceScope(name=""){
+  return name===WEEK_SOURCE_SCOPE?WEEK_SOURCE_SCOPE:LATEST_SOURCE_SCOPE;
+}
+function feedSourceParent(name=""){
+  return FEED_SOURCE_DISCOVERY_PARENTS[feedSourceScope(name)]||FEED_SOURCE_DISCOVERY_PARENTS[LATEST_SOURCE_SCOPE];
+}
 
 state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
 
@@ -235,7 +262,7 @@ let sourceAvatarCache=readStoredObject(SOURCE_AVATAR_CACHE_KEY);
 function readScopedSourceState(key){
   const raw=readStoredObject(key);
   const out=new Map();
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     const ids=Array.isArray(raw[scope])?raw[scope]:[];
     out.set(scope,new Set(
       ids.map(String).filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
@@ -259,14 +286,14 @@ let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
 
 function emptyScopedSourceState(){
   return new Map(
-    [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+    [...MANAGED_SOURCE_SCOPES].map(scope=>[scope,new Set()])
   );
 }
 
 let scopedSelectedSourceIds=emptyScopedSourceState();
 let scopedBlockedSourceIds=emptyScopedSourceState();
 let aiSuggestedSourceIds=new Map(
-  [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+  [...AI_SOURCE_SCOPES].map(scope=>[scope,new Set()])
 );
 const temporaryGeneralSourceIds=new Set();
 const temporaryLiveSourceIds=new Set();
@@ -322,7 +349,7 @@ function persistScopedSourceState(){
 
 function suggestedSetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  if(!CONTENT_SOURCE_SCOPES.has(scope))return new Set();
+  if(!AI_SOURCE_SCOPES.has(scope))return new Set();
   if(!aiSuggestedSourceIds.has(scope))aiSuggestedSourceIds.set(scope,new Set());
   return aiSuggestedSourceIds.get(scope);
 }
@@ -330,7 +357,7 @@ function suggestedSetForScope(scope=sourceManageGroup){
 function assignSourceGroup(id,group){
   id=String(id||"").trim();
   group=String(group||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!CONTENT_SOURCE_SCOPES.has(group))return false;
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!AI_SOURCE_SCOPES.has(group))return false;
   const suggested=suggestedSetForScope(group);
   if(suggested.has(id))return false;
   suggested.add(id);
@@ -341,7 +368,7 @@ let selectedSourceIds=new Set();
 
 function pruneLegacyTemporaryCustomSources(){
   const durable=new Set([...selectedSourceIds,...blockedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))durable.add(id);
     for(const id of blockedSetForScope(scope))durable.add(id);
   }
@@ -374,7 +401,7 @@ const sourceMetaPending=new Set();
 
 function sourceScope(scope=sourceManageGroup){
   scope=String(scope||"").trim();
-  if(CONTENT_SOURCE_SCOPES.has(scope))return scope;
+  if(MANAGED_SOURCE_SCOPES.has(scope))return scope;
   if(scope==="other")return "other";
   return GENERAL_SOURCE_SCOPE;
 }
@@ -397,7 +424,7 @@ function blockedSetForScope(scope=sourceManageGroup){
 
 function allManagedStateIds(){
   const ids=new Set([...selectedSourceIds,...blockedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))ids.add(id);
     for(const id of blockedSetForScope(scope))ids.add(id);
   }
@@ -406,7 +433,7 @@ function allManagedStateIds(){
 
 function scopedStateObject(map){
   const out={};
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     out[scope]=[...(map.get(scope)||new Set())];
   }
   return out;
@@ -434,11 +461,15 @@ function legacyLocalSourceStateSnapshot(){
   const scopedBlocked={};
   let scopedCount=0;
 
-  for(const scope of CONTENT_SOURCE_SCOPES){
-    const blockedIds=cleanSourceIdList(scopedBlockedRaw?.[scope]);
+  for(const scope of MANAGED_SOURCE_SCOPES){
+    const legacyFeedScope=scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE;
+    const blockedIds=cleanSourceIdList(
+      scopedBlockedRaw?.[scope] ?? (legacyFeedScope?blocked:[])
+    );
     const blockedSet=new Set(blockedIds);
-    const selectedIds=cleanSourceIdList(scopedSelectedRaw?.[scope])
-      .filter(id=>!blockedSet.has(id));
+    const selectedIds=cleanSourceIdList(
+      scopedSelectedRaw?.[scope] ?? (legacyFeedScope?[...selectedSet]:[])
+    ).filter(id=>!blockedSet.has(id));
     scopedSelected[scope]=selectedIds;
     scopedBlocked[scope]=blockedIds;
     scopedCount+=selectedIds.length+blockedIds.length;
@@ -475,6 +506,7 @@ function clearLegacyLocalSourceState(){
 
 function serverStateSnapshot(){
   return {
+    sourceScopeVersion:2,
     selected:cleanSourceIdList([...selectedSourceIds]),
     blocked:cleanSourceIdList([...blockedSourceIds]),
     customSources:(Array.isArray(customSources)?customSources:[]).map(row=>({
