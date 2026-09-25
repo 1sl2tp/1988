@@ -4541,7 +4541,33 @@ function scheduleNormalSuggestions(){
 }
 
 
-function setActiveChip(name){
+function revealTopicChip(button,{behavior="smooth"}={}){
+  if(!button||!topicChips)return;
+
+  const rail=topicChips;
+  const maxScroll=Math.max(0,rail.scrollWidth-rail.clientWidth);
+  if(maxScroll<=1)return;
+
+  const safeEdge=10;
+  const railRect=rail.getBoundingClientRect();
+  const buttonRect=button.getBoundingClientRect();
+  const safeLeft=railRect.left+safeEdge;
+  const safeRight=railRect.right-safeEdge;
+
+  let delta=0;
+  if(buttonRect.left<safeLeft){
+    delta=buttonRect.left-safeLeft;
+  }else if(buttonRect.right>safeRight){
+    delta=buttonRect.right-safeRight;
+  }
+
+  if(Math.abs(delta)<1)return;
+
+  const left=Math.max(0,Math.min(maxScroll,rail.scrollLeft+delta));
+  rail.scrollTo({left,behavior});
+}
+
+function setActiveChip(name,{behavior="smooth"}={}){
   state.activeFeed=name||"";
   let activeButton=null;
   topicChips?.querySelectorAll(".topic-chip").forEach(button=>{
@@ -4552,10 +4578,13 @@ function setActiveChip(name){
     button.classList.toggle("active",active);
     if(active)activeButton=button;
   });
+
   if(activeButton&&topicChips){
     requestAnimationFrame(()=>{
-      const left=Math.max(0,activeButton.offsetLeft-(topicChips.clientWidth-activeButton.offsetWidth)/2);
-      topicChips.scrollTo({left,behavior:"smooth"});
+      // Move only enough to expose the whole selected tab. Do not re-center
+      // the strip or reset it to the first item; that was the cause of the
+      // clipped/jumping tab seen on mobile.
+      revealTopicChip(activeButton,{behavior});
       syncWatchUtilityState();
     });
   }
@@ -9015,13 +9044,13 @@ function hardResetDocumentTop(){
   },80);
 }
 
-function resetHomeViewportInstant({resetSource=false}={}){
+function resetHomeViewportInstant({resetSource=false,resetTopics=true}={}){
   const root=document.documentElement;
   root.classList.remove("home-header-hidden","home-search-open");
 
   hardResetDocumentTop();
 
-  if(topicChips)topicChips.scrollLeft=0;
+  if(resetTopics&&topicChips)topicChips.scrollLeft=0;
 
   if(resetSource){
     if(sourcesSheet){
@@ -10398,7 +10427,9 @@ async function loadInitialFeed(){
 topicChips.addEventListener("click",async e=>{
   const clicked=e.target.closest("[data-feed],[data-ai-parent]");
   if(clicked){
-    resetHomeViewportInstant();
+    // Keep the horizontal tab rail where the user was browsing. The selected
+    // tab will then be revealed by the parent-level setActiveChip() logic.
+    resetHomeViewportInstant({resetTopics:false});
     document.documentElement.classList.remove("home-header-hidden");
   }
 
@@ -10440,6 +10471,7 @@ topicChips.addEventListener("click",async e=>{
   state.trendTopics=[];
   queryInput.value="";
   clearSuggestions();
+  setActiveChip(button.dataset.feed||"latest");
   void loadFeedPreset(button.dataset.feed||"latest");
 });
 
