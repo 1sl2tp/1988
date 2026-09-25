@@ -8732,3 +8732,24 @@ html:not(.watch-browse).home-search-open .header-inner{
     animation:none!important;
   }
 }
+
+
+/* ============================================================
+   FILM DEFAULT WATCH FRAME v224
+   JS keeps Film playback on the ordinary watch-video-wide path.
+   This guard ensures that ordinary wide path stays full-width 16:9 on mobile.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse.watch-video-wide .player-section{
+    width:100%!important;
+  }
+
+  html.watch-browse.watch-video-wide .player-frame{
+    width:100vw!important;
+    max-width:100vw!important;
+    height:auto!important;
+    max-height:none!important;
+    aspect-ratio:16/9!important;
+    margin:0!important;
+  }
+}
