@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-246">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-247">
   <title>1988</title>
 </head>
 <body>
@@ -171,7 +171,7 @@
           <div class="source-pane-label">Tìm nguồn</div>
           <div class="source-search-bar">
             <div class="source-search-wrap">
-              <input id="sourceSearch" class="source-search" type="search" inputmode="search" autocomplete="off" placeholder="Tìm kênh trên YouTube">
+              <input id="sourceSearch" class="source-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Tìm kênh trên YouTube">
               <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
             </div>
             <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
@@ -202,7 +202,7 @@
 
           <div class="source-preview-toolbar">
             <span class="source-pane-label">Video của nguồn</span>
-            <input id="sourcePreviewSearch" type="search" inputmode="search" autocomplete="off" placeholder="Tìm video trên YouTube">
+            <input id="sourcePreviewSearch" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Chọn nguồn trước" disabled>
           </div>
           <div id="sourcePreviewList" class="source-preview-list">
             <div class="source-preview-placeholder">
@@ -228,7 +228,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=246',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=247',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -251,6 +251,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=embed-filter-140"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-246"></script>
+  <script defer src="./src/app.js?v=watch-browse-247"></script>
 </body>
 </html>

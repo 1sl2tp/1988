@@ -918,6 +918,13 @@ html.search-suggestions-open .suggestions{
   color:#eee;outline:0;padding:0 10px;font-size:11px
 }
 .source-preview-toolbar input:focus{border-color:#55555e}
+.source-preview-toolbar input:disabled{
+  opacity:.55;
+  cursor:default;
+  color:#777780;
+  background:#1a1a1d;
+  border-color:#29292e
+}
 
 .source-preview-list{
   min-height:0;flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;
