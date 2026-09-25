@@ -2755,19 +2755,18 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   WATCH GEOMETRY v297
-   Single-owner geometry: JS computes the final player and feed dimensions;
-   CSS does not subtract another bottom inset and does not impose a second
-   max-height cap.
+   WATCH GEOMETRY v299
+   Single-owner geometry: JS computes the final player and feed dimensions.
 
-   - landscape/square: width-first, with one control-safe bottom inset.
-   - portrait: height-first and full-height. Player top aligns with the top of
-     the left feed-section, so the heading/status row is included in the same
-     geometric frame; player bottom aligns with the bottom of that scroll pane.
-     Width follows the real aspect ratio; remaining width becomes whole 16:9
-     recommendation columns.
+   - portrait: height-first and full-height.
+   - landscape: width-first for media width, but the OUTER player stage uses
+     the full left-column frame height. The real video stays centered inside,
+     leaving top/bottom bands for YouTube/native chrome instead of covering
+     picture content.
+   - square: keeps the compact width-first rule.
 
-   Scrollbar gutter remains outside card geometry.
+   The left heading/status row is part of the frame reference and scrollbar
+   gutter remains outside card geometry.
    ============================================================ */
 @media(min-width:960px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
@@ -2831,6 +2830,56 @@ html.search-suggestions-open .suggestions{
     max-width:100%;
     max-height:none;
     margin-inline:auto;
+  }
+
+  /* Wide video uses a full-height stage. The iframe/video itself fills that
+     stage and keeps its own media aspect internally, so the picture is centered
+     with top/bottom chrome bands instead of title/controls sitting on the image.
+     The artwork layer is intentionally subtle and only decorates unused bands. */
+  html.watch-browse.watch-video-wide:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe){
+    position:relative;
+    isolation:isolate;
+    aspect-ratio:auto;
+    overflow:hidden;
+    border-radius:14px;
+    background:#080809;
+  }
+
+  html.watch-browse.watch-video-wide:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe)::before{
+    content:"";
+    position:absolute;
+    z-index:0;
+    inset:-28px;
+    pointer-events:none;
+    background-image:
+      linear-gradient(rgba(5,5,7,.62),rgba(5,5,7,.62)),
+      var(--pip-art,none);
+    background-position:center;
+    background-size:cover;
+    filter:blur(24px) saturate(1.08);
+    opacity:.34;
+    transform:scale(1.06);
+  }
+
+  html.watch-browse.watch-video-wide:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #yt-player,
+  html.watch-browse.watch-video-wide:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) iframe,
+  html.watch-browse.watch-video-wide:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) video{
+    position:absolute!important;
+    z-index:1;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    border:0!important;
+    background:transparent!important;
+    object-fit:contain!important;
   }
 }
 
