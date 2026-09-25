@@ -36,5 +36,11 @@ assert.match(app,/selectedSourceFeed\([\s\S]*LATEST_SOURCE_SCOPE/);
 assert.match(app,/selectedSourceFeed\([\s\S]*WEEK_SOURCE_SCOPE/);
 assert.match(app,/state\.activeFeed===LIVE_SOURCE_SCOPE\)return LIVE_SOURCE_SCOPE/);
 assert.doesNotMatch(app,/\{key:"general",label:"Mới nhất\/Tuần này"\}/);
+assert.match(app,/const SOURCE_FEED_AUTO_REFRESH_MS=30\*1000/);
+assert.match(app,/function queuePackageUpload\(_snapshotName=""\)\{[\s\S]*return Promise\.resolve\(false\)/);
+assert.match(app,/Client is download-only:[\s\S]*never back-filled/);
+assert.match(app,/Read last complete server package immediately[\s\S]*never crawl YouTube here/);
+assert.match(app,/async function buildSourceFeedSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*readFeedCache/);
+assert.match(app,/async function buildCategorySourceSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*instantCategoryRows/);
 
 console.log('integration-shape: source/player assertions passed');
