@@ -8134,14 +8134,14 @@ function averageThumbTint(url){
 }
 
 function ensureDesktopCardTint(card){
-  if(!card||window.innerWidth<=720)return;
+  if(!card)return;
 
   const art=String(card.dataset.thumb||"").trim();
   if(!art)return;
 
   fallbackCardTint(card);
 
-  if(card.dataset.tintReady==="1")return;
+  if(card.dataset.tintReady==="1"||card.dataset.tintReady==="loading")return;
   card.dataset.tintReady="loading";
 
   void averageThumbTint(art).then(color=>{
@@ -8152,7 +8152,6 @@ function ensureDesktopCardTint(card){
 }
 
 feed.addEventListener("pointerover",event=>{
-  if(window.innerWidth<=720)return;
   ensureDesktopCardTint(event.target.closest("[data-video-id]"));
 },{passive:true});
 
@@ -8184,6 +8183,7 @@ feed.addEventListener("load",event=>{
 feed.addEventListener("pointerdown",e=>{
   const card=e.target.closest("[data-video-id]");
   const id=card?.dataset?.videoId||"";
+  if(card)ensureDesktopCardTint(card);
   if(id)void primePipAspect(id);
 },{passive:true});
 
