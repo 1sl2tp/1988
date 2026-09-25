@@ -131,6 +131,7 @@ const state={
   searchSeq:0,
   searchQuery:"",
   searchScope:"",
+  searchResultsActive:false,
   videoContextSeq:0,
   seriesQueue:[],
   seriesIndex:-1,
@@ -7505,7 +7506,7 @@ async function appendFilmKnowledgeSections(local,currentId,meta={},context={}){
     local.search(castQuery,{type:"video"}).catch(()=>[]),
     local.search(infoQuery,{type:"video"}).catch(()=>[])
   ]);
-  if(state.currentId!==currentId)return false;
+  if(!recommendationStillCurrent())return false;
 
   const used=new Set([...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean));
   const unique=(rows,extra=[])=>strictFilmKnowledgeRows(rows,seed,extra)
@@ -8569,7 +8570,7 @@ async function discoverGenericContextSections(local,currentId,meta={},related=[]
   if(options?.onlyFresh===true)sections=sections.filter(contextSectionIsFresh);
   if(!sections.length)return false;
   const results=await Promise.all(sections.map(async section=>({section,rows:await contextSectionRows(local,section,meta,related,context)})));
-  if(state.currentId!==currentId)return false;
+  if(!recommendationStillCurrent())return false;
   const used=new Set(options?.append===true?[...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean):[]);
   const html=[];
   for(const result of results){
@@ -8632,7 +8633,7 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
     local.search(instrumentalQuery,{type:"video"}).catch(()=>[]),
     local.search(alternativeQuery,{type:"video"}).catch(()=>[])
   ]);
-  if(state.currentId!==currentId)return false;
+  if(!recommendationStillCurrent())return false;
 
   const sameWork=dedupeMusicRows([...(Array.isArray(sameWorkRaw)?sameWorkRaw:[]),...related])
     .filter(row=>!isBlockedSourceRow(row,"music"))
@@ -8663,7 +8664,7 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
       {type:"video"}
     ).catch(()=>[]);
   }
-  if(state.currentId!==currentId)return false;
+  if(!recommendationStillCurrent())return false;
 
   const artistSongs=dedupeMusicRows(artistPool)
     .filter(row=>!isBlockedSourceRow(row,"music"))
@@ -8732,7 +8733,7 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
 
   if(sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&!currentTopicSourceBlocked){
     const channelRows=await local.channelVideosPage("selected-topic-source:"+sourceId,sourceId,true).catch(()=>[]);
-    if(state.currentId!==currentId)return false;
+    if(!recommendationStillCurrent())return false;
     const sameSource=(Array.isArray(channelRows)?channelRows:[])
       .filter(row=>itemVideoId(row)!==currentId)
       .filter(row=>!isBlockedSourceRow(row,contextSourceScope(context)))
@@ -8753,7 +8754,7 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
   }else{
     topicRows=topicRows.filter(row=>!isBlockedSourceRow(row,topicScope));
   }
-  if(state.currentId!==currentId)return false;
+  if(!recommendationStillCurrent())return false;
   if(topicRows.length)html.push(filmSuggestionSection("Cùng chủ đề · "+subject,topicRows,{limit:12,scope:topicScope}));
 
   if(!html.length)return false;
@@ -8765,6 +8766,13 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
 }
 
 async function buildSelectedVideoRecommendations(local,currentId,meta={},related=[],playlist=null){
+  // Search results own the feed until the user explicitly opens a video.
+  // A late watch-next response from the previously playing video must never
+  // overwrite a newly committed search.
+  const recommendationStillCurrent=()=>
+    state.currentId===currentId&&!state.searchResultsActive;
+  if(!recommendationStillCurrent())return false;
+
   hideContextBrief();
 
   // Invalidate any old AI/context request started by an earlier build.
@@ -8788,13 +8796,13 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
     .filter(row=>!isBlockedSourceRow(row,activeSourceScope()||GENERAL_SOURCE_SCOPE))
     .slice(0,30);
 
-  feedTitle.textContent="Video liên quan";
+  feedTitle.textContent="Gợi ý tiếp theo";
   feedStatus.textContent="";
   feed.classList.remove("search-grouped");
 
   if(rows.length){
     await prewarmRowSourceAvatars(rows.slice(0,24),420);
-    if(state.currentId!==currentId)return false;
+    if(!recommendationStillCurrent())return false;
     renderCards(rows,{updateStatus:false});
     return true;
   }
@@ -8804,26 +8812,31 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
   if(q&&local){
     try{
       const fallback=await local.search(q,{type:"video"});
-      if(state.currentId!==currentId)return false;
+      if(!recommendationStillCurrent())return false;
       const plain=mergeUniqueRows([],Array.isArray(fallback)?fallback:[])
         .filter(row=>itemVideoId(row)&&itemVideoId(row)!==currentId)
         .filter(row=>!isBlockedSourceRow(row,activeSourceScope()||GENERAL_SOURCE_SCOPE))
         .slice(0,24);
       if(plain.length){
         await prewarmRowSourceAvatars(plain,420);
-        if(state.currentId!==currentId)return false;
+        if(!recommendationStillCurrent())return false;
         renderCards(plain,{updateStatus:false});
         return true;
       }
     }catch{}
   }
 
-  feed.innerHTML='<div class="empty">Chưa có video liên quan.</div>';
+  feed.innerHTML='<div class="empty">Chưa có gợi ý xem tiếp.</div>';
   return false;
 }
 
 async function playVideo(id,seedMeta={}){
   if(!id)return;
+
+  // Opening a video is the explicit hand-off from Search results to Watch.
+  // From this point recommendations may replace the result list.
+  state.searchResultsActive=false;
+  state.videoContextSeq++;
 
   document.documentElement.classList.remove("watch-search-open","watch-search-results","watch-categories-open");
   hideContextBrief();
@@ -9014,7 +9027,7 @@ async function playVideo(id,seedMeta={}){
       backgroundPlayer.setMetadata(meta);
       const related=Array.isArray(detail?.related)?detail.related:[];
       const playlist=detail?.playlist||null;
-      if(!state.activeFeed){
+      if(!state.activeFeed&&!state.searchResultsActive){
         void buildSelectedVideoRecommendations(local,id,meta,related,playlist);
       }
     }).catch(()=>{});
@@ -9210,6 +9223,7 @@ async function doSearch(value){
   hideContextBrief();
   state.searchQuery=q;
   state.searchScope=GENERAL_SOURCE_SCOPE;
+  state.searchResultsActive=true;
   state.activeParent="";
   state.activeTrend="";
   state.trendTopics=[];
@@ -10560,6 +10574,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
 }
 
 async function loadFeedPreset(name="latest"){
+  state.searchResultsActive=false;
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   const feedChanged=state.activeFeed!==name;
@@ -10754,6 +10769,7 @@ async function loadInitialFeed(){
 topicChips.addEventListener("click",async e=>{
   const clicked=e.target.closest("[data-feed],[data-ai-parent]");
   if(clicked){
+    state.searchResultsActive=false;
     document.documentElement.classList.remove("watch-search-open","watch-search-results");
     setSearchEntryIcon(false);
 
