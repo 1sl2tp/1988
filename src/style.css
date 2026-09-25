@@ -7271,3 +7271,115 @@ html:not(.watch-browse) .app-header{
     border-color:rgba(255,255,255,.32)!important;
   }
 }
+
+
+/* ============================================================
+   WATCH THUMBNAIL SAFE RADIUS v209
+   One thumbnail geometry for every watch recommendation:
+   - preserve all source pixels
+   - add a tiny safe inset so embedded borders never touch the clip edge
+   - use one smooth radius everywhere
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    border-radius:16px!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap{
+    position:relative!important;
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    margin:0!important;
+    padding:2px!important;
+    box-sizing:border-box!important;
+    border:0!important;
+    border-radius:14px!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+    background-clip:padding-box!important;
+    box-shadow:none!important;
+    clip-path:none!important;
+    mask:none!important;
+    -webkit-mask:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:11px!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:none!important;
+    scale:none!important;
+    translate:none!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+    image-rendering:auto!important;
+  }
+
+  /* Old current-video outlines used different radii and made some cards look
+     chopped on one side. Keep the same geometry for current/normal cards. */
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video,
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .thumb-wrap{
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video::after{
+    display:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card::before{
+    border-radius:20px!important;
+  }
+}
+
+@media(min-width:721px){
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    border-radius:16px!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    padding:2px!important;
+    box-sizing:border-box!important;
+    border-radius:14px!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img{
+    border-radius:11px!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video::after{
+    display:none!important;
+  }
+}
