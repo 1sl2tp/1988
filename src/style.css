@@ -2761,10 +2761,11 @@ html.search-suggestions-open .suggestions{
    max-height cap.
 
    - landscape/square: width-first, with one control-safe bottom inset.
-   - portrait: height-first and full-height. Player top aligns with the first
-     thumbnail row and player bottom aligns with the bottom of the left scroll
-     pane. Width follows the real aspect ratio; remaining width becomes whole
-     16:9 recommendation columns.
+   - portrait: height-first and full-height. Player top aligns with the top of
+     the left feed-section, so the heading/status row is included in the same
+     geometric frame; player bottom aligns with the bottom of that scroll pane.
+     Width follows the real aspect ratio; remaining width becomes whole 16:9
+     recommendation columns.
 
    Scrollbar gutter remains outside card geometry.
    ============================================================ */
