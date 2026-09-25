@@ -705,6 +705,10 @@ async function refreshServerStateOnResume(){
     if(result?.ok&&result?.exists&&result.state){
       applyServerState(result.state);
       stateSyncReady=true;
+      if(sourcesBtn){
+        sourcesBtn.disabled=false;
+        sourcesBtn.removeAttribute("title");
+      }
       await warmSelectedAvatarImages(500);
       renderParentCategories();
       if(!document.documentElement.classList.contains("watch-browse")){
@@ -10007,8 +10011,18 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
+  setupFloatingIframe();
+  setupWatchBrowseLayout();
+  setupFullscreenReturn();
+  ensureWatchNavRail();
+  updateModeUi();
+  renderParentCategories();
 
   if(!sourceStateLoaded){
+    if(sourcesBtn){
+      sourcesBtn.disabled=true;
+      sourcesBtn.title="Chưa tải được dữ liệu nguồn từ máy chủ";
+    }
     setActiveChip("latest");
     feedTitle.textContent="Mới nhất";
     feedStatus.textContent="";
@@ -10016,14 +10030,12 @@ async function bootstrap1988(){
     return;
   }
 
+  if(sourcesBtn){
+    sourcesBtn.disabled=false;
+    sourcesBtn.removeAttribute("title");
+  }
   await warmSelectedAvatarImages(1000);
   void prewarmSelectedSourceAvatars();
-  setupFloatingIframe();
-  setupWatchBrowseLayout();
-  setupFullscreenReturn();
-  ensureWatchNavRail();
-  updateModeUi();
-  renderParentCategories();
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
   if(initialVideoId){
