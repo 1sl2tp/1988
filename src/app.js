@@ -4614,8 +4614,7 @@ function clearSuggestionLayout(){
     "--search-suggestions-top",
     "--search-suggestions-left",
     "--search-suggestions-width",
-    "--search-suggestions-max-h",
-    "--search-suggestions-h"
+    "--search-suggestions-max-h"
   ])root.style.removeProperty(name);
 }
 
@@ -4671,21 +4670,9 @@ function syncSuggestionLayout(){
     root.style.setProperty("--search-suggestions-left",Math.round(left)+"px");
     root.style.setProperty("--search-suggestions-width",Math.round(width)+"px");
     root.style.setProperty("--search-suggestions-max-h",Math.round(maxHeight)+"px");
+    // Floating overlay only: opening suggestions must not change app-shell
+    // geometry or trigger a second layout pass.
     root.classList.add("search-suggestions-open");
-
-    // Measure only after fixed geometry has applied. Reserve exactly the
-    // visible panel height so cards/player start below it instead of behind it.
-    requestAnimationFrame(()=>{
-      if(!suggestions||suggestions.hidden){
-        clearSuggestionLayout();
-        return;
-      }
-      const height=Math.min(
-        maxHeight,
-        Math.max(0,Math.ceil(suggestions.getBoundingClientRect().height))
-      );
-      root.style.setProperty("--search-suggestions-h",height+"px");
-    });
   });
 }
 
