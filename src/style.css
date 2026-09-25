@@ -26,7 +26,12 @@ body{margin:0;min-height:100dvh;max-width:100%;overflow-x:hidden;background:var(
 button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}
 .app-header{
   position:sticky;top:0;z-index:50;
-  background:rgba(11,11,12,.96);
+  background:
+    linear-gradient(
+      180deg,
+      var(--page-chrome-soft,rgba(28,28,32,.26)) 0%,
+      rgba(11,11,12,.94) 100%
+    );
   backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
   border-bottom:1px solid rgba(255,255,255,.075);
   box-shadow:0 10px 24px rgba(0,0,0,.16);
@@ -40,7 +45,12 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 .header-nav{
   height:var(--nav-row-h);
   border-top:1px solid rgba(255,255,255,.045);
-  background:rgba(11,11,12,.94)
+  background:
+    linear-gradient(
+      180deg,
+      var(--page-chrome-faint,rgba(28,28,32,.12)) 0%,
+      rgba(11,11,12,.94) 100%
+    )
 }
 .header-nav-inner{
   width:min(1260px,100%);height:100%;margin:auto;padding:0 14px;
@@ -1093,6 +1103,13 @@ html.search-suggestions-open .suggestions{
     margin:0;
     z-index:14;
     overflow:hidden;
+    background:
+      radial-gradient(
+        88% 72% at 50% 38%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 52%,
+        rgba(9,9,10,0) 82%
+      );
   }
 
   html.watch-browse .player-card{
@@ -1397,7 +1414,12 @@ html.search-suggestions-open .suggestions{
     gap:8px;
     border:0;
     box-shadow:none;
-    background:rgba(11,11,12,.34);
+    background:
+      linear-gradient(
+        180deg,
+        rgba(11,11,12,.30) 0%,
+        var(--page-chrome-soft) 100%
+      );
     backdrop-filter:blur(8px) saturate(118%);
     -webkit-backdrop-filter:blur(8px) saturate(118%);
   }
@@ -1946,7 +1968,12 @@ html.search-suggestions-open .suggestions{
     padding:0;
     border:0;
     overflow:visible;
-    background:rgba(11,11,12,.24);
+    background:
+      linear-gradient(
+        180deg,
+        var(--page-chrome-faint) 0%,
+        rgba(11,11,12,.38) 100%
+      );
     backdrop-filter:blur(7px) saturate(114%);
     -webkit-backdrop-filter:blur(7px) saturate(114%);
   }
