@@ -360,6 +360,7 @@ let sourcePreviewSearchTimer=0;
 let sourcePreviewSearchSeq=0;
 let sourcePreviewSourceId="";
 let sourcePreviewSourceRow=null;
+let sourcePreviewRenderSignature="";
 let sourceManageMode=false;
 let sourceManageGroup=GENERAL_SOURCE_SCOPE;
 let sourceBlockedExpanded=false;
@@ -2176,11 +2177,46 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
   '</article>';
 }
 
-function renderSourcePreviewVideos(){
+function sourcePreviewRowsNormalized(rows=[],id=sourcePreviewSourceId,row=sourcePreviewSourceRow){
+  const sourceName=clean(sourceMetaFor(row||{}).name||row?.name||"");
+  return newestFirst(Array.isArray(rows)?rows:[])
+    .filter(video=>itemVideoId(video))
+    .slice(0,24)
+    .map(video=>({
+      ...video,
+      _sourceId:id||video?._sourceId||video?.channelId||"",
+      channelId:video?.channelId||id||"",
+      _sourceName:sourceName||video?._sourceName||video?.uploader||""
+    }));
+}
+
+function sourcePreviewSignature(rows=[],searching=false){
+  return [
+    sourcePreviewSourceId,
+    searching?"search":"channel",
+    ...rows.map(video=>itemVideoId(video))
+  ].join("|");
+}
+
+function renderSourcePreviewLoading(){
+  if(!sourcePreviewList)return;
+  const signature="loading|"+sourcePreviewSourceId;
+  if(sourcePreviewRenderSignature===signature)return;
+  sourcePreviewRenderSignature=signature;
+  sourcePreviewList.innerHTML=
+    '<div class="source-preview-loading" aria-label="Đang tải video">'+
+      '<span></span><span></span><span></span>'+
+    '</div>';
+}
+
+function renderSourcePreviewVideos({force=false}={}){
   if(!sourcePreviewList)return;
   const q=clean(sourcePreviewSearch?.value||"");
   const searching=q.length>=2;
   const all=searching?[...sourcePreviewSearchRows.values()]:[...sourcePreviewRows.values()];
+  const signature=sourcePreviewSignature(all,searching);
+  if(!force&&signature===sourcePreviewRenderSignature)return;
+  sourcePreviewRenderSignature=signature;
 
   if(!all.length){
     sourcePreviewList.innerHTML='<div class="source-empty">'+
@@ -2292,19 +2328,19 @@ async function openSourceFromSearchVideo(video){
 }
 
 async function openSourcePreview(id,rowHint=null){
-  const cached=sourceMetaCache.get(id)||null;
+  const cachedMeta=sourceMetaCache.get(id)||null;
   const row=
     libraryRow(id)||
     rowHint||
     sourceRemoteResults.find(item=>item.id===id)||
     managedChannelLibrary().find(item=>item.id===id)||
-    (cached?{id,...cached}:null);
+    (cachedMeta?{id,...cachedMeta}:null);
   if(!row||!sourcePreview)return;
 
   const seq=++sourcePreviewSeq;
   sourcePreviewSourceId=id;
   sourcePreviewSourceRow=row;
-  if(sourcesSheet)sourcesSheet.dataset.previewOpen="true";
+  sourcePreviewRenderSignature="";
   sourcePreview.hidden=false;
   clearTimeout(sourcePreviewSearchTimer);
   sourcePreviewSearchSeq++;
@@ -2313,8 +2349,17 @@ async function openSourcePreview(id,rowHint=null){
   closeSourceVideo();
   syncSourcePreviewHeader();
 
-  sourcePreviewRows=new Map();
-  sourcePreviewList.innerHTML='<div class="source-empty">Đang tải video mới…</div>';
+  // Prepare the destination pane while the source list is still visible.
+  // Cached channel rows prevent the browse -> blank -> content flash.
+  const cachedRows=sourcePreviewRowsNormalized(readSourceChannelCache(id).items,id,row);
+  sourcePreviewRows=new Map(
+    cachedRows.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+  );
+  if(cachedRows.length)renderSourcePreviewVideos({force:true});
+  else renderSourcePreviewLoading();
+
+  // Switch the parent pane only after the preview has real/stable geometry.
+  if(sourcesSheet)sourcesSheet.dataset.previewOpen="true";
 
   try{
     const local=await localEngine(16000);
@@ -2336,13 +2381,12 @@ async function openSourcePreview(id,rowHint=null){
           if(seq!==sourcePreviewSeq)return;
 
           const normalizedName=normalizeSearchText(sourceName);
-          const exact=(Array.isArray(fallback)?fallback:[]).filter(video=>{
+          rows=(Array.isArray(fallback)?fallback:[]).filter(video=>{
             const channelId=String(video?.channelId||video?._sourceId||video?.uploaderId||"").trim();
             if(channelId&&channelId===id)return true;
             const uploader=normalizeSearchText(video?.uploader||video?._sourceName||"");
             return !!uploader&&uploader===normalizedName;
           });
-          rows=exact;
         }catch(error){
           console.warn("channel preview fallback failed",id,error);
         }
@@ -2351,21 +2395,29 @@ async function openSourcePreview(id,rowHint=null){
 
     if(seq!==sourcePreviewSeq)return;
 
-    const ordered=newestFirst(Array.isArray(rows)?rows:[])
-      .slice(0,20)
-      .map(video=>({
-        ...video,
-        _sourceId:id,
-        channelId:video?.channelId||id,
-        _sourceName:sourceMetaFor(row).name||row.name||video?._sourceName||video?.uploader||""
-      }));
-    sourcePreviewRows=new Map(ordered.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId));
-    renderSourcePreviewVideos();
+    const ordered=sourcePreviewRowsNormalized(rows,id,row).slice(0,20);
+    if(ordered.length){
+      saveSourceChannelCache(
+        {id,name:clean(sourceMetaFor(row).name||row.name||"")},
+        ordered,
+        Date.now()
+      );
+      sourcePreviewRows=new Map(
+        ordered.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+      );
+      renderSourcePreviewVideos();
+    }else if(!cachedRows.length){
+      sourcePreviewRows=new Map();
+      sourcePreviewRenderSignature="";
+      renderSourcePreviewVideos({force:true});
+    }
   }catch(error){
     if(seq!==sourcePreviewSeq)return;
     console.warn("channel preview failed",error);
-    sourcePreviewRows=new Map();
-    sourcePreviewList.innerHTML='<div class="source-empty">Chưa tải được video của kênh</div>';
+    if(!sourcePreviewRows.size){
+      sourcePreviewRenderSignature="error|"+id;
+      sourcePreviewList.innerHTML='<div class="source-empty">Chưa tải được video của kênh</div>';
+    }
   }
 }
 
@@ -2434,6 +2486,7 @@ function resetSourcePreviewPane(){
   sourcePreviewSearchRows=new Map();
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
+  sourcePreviewRenderSignature="";
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
   if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
   if(sourcePreview){
@@ -2892,6 +2945,7 @@ function closeSourceLibrary(){
   sourcePreviewRows=new Map();
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
+  sourcePreviewRenderSignature="";
   if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
   setSourceManageMode(false,{render:false});
   if(clearSourceSearch)clearSourceSearch.hidden=true;
