@@ -10340,18 +10340,7 @@ const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
 const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
-const SOURCE_FULL_VERIFY_TIMEOUT_MS=12000;
 let sourceFeedPendingRenderName="";
-
-function sourceTimeout(promise,ms,label="source_timeout"){
-  let timer=0;
-  return Promise.race([
-    promise,
-    new Promise((_,reject)=>{
-      timer=setTimeout(()=>reject(new Error(label)),Math.max(500,Number(ms)||500));
-    })
-  ]).finally(()=>clearTimeout(timer));
-}
 
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
@@ -10562,56 +10551,32 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          // Non-strict mode keeps UNKNOWN rows and removes only definitive
-          // unplayable results. This prevents the "loads then disappears" bug.
-          const verifyPromise=local.filterEmbeddableRows(
+          // Verification is background-only. Never hold the source queue.
+          // Unknown/timeout stays; only a definitive false may disappear.
+          void local.filterEmbeddableRows(
             rows,
             {concurrency:8,requirePlayable:false}
-          );
+          ).then(verified=>{
+            const confirmed=Array.isArray(verified)?verified:rows;
+            const selectedNow=selectedSetForScope(scope);
+            const blockedNow=blockedSetForScope(scope);
+            if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
 
-          try{
-            const verified=await sourceTimeout(
-              verifyPromise,
-              SOURCE_FULL_VERIFY_TIMEOUT_MS,
-              "source_full_verify_timeout"
-            );
-            rows=Array.isArray(verified)?verified:rows;
-          }catch(error){
-            console.warn("source verify deferred",source.id,error);
-
-            // Keep already-rendered rows. Late verification may only remove
-            // definitive failures; UNKNOWN/timeouts remain visible.
-            void verifyPromise.then(verified=>{
-              const confirmed=Array.isArray(verified)?verified:rows;
-              const selectedNow=selectedSetForScope(scope);
-              const blockedNow=blockedSetForScope(scope);
-              if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
-              saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
-              emit(confirmed,source,{
-                cached:false,
-                verified:true,
-                replaceSource:true,
-                late:true
-              });
-            }).catch(lateError=>{
-              console.warn("source late verify failed",source.id,lateError);
+            saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
+            emit(confirmed,source,{
+              cached:false,
+              verified:true,
+              replaceSource:true,
+              late:true
             });
-            continue;
-          }
+          }).catch(error=>{
+            console.warn("source background verify failed",source.id,error);
+          });
         }
 
         if(reset){
-          // If YouTube returned an empty channel page, preserve the last good
-          // channel cache rather than converting a transient upstream problem
-          // into "no suitable videos".
-          if(rows.length){
-            saveSourceChannelCache(source,rows,Date.now(),{replace:true});
-            emit(rows,source,{
-              cached:false,
-              verified:true,
-              replaceSource:true
-            });
-          }
+          // Already emitted above; move straight to the next source.
+          // Empty upstream results preserve the last good cache.
         }else{
           if(rows.length){
             emit(rows,source,{cached:false});
