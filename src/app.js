@@ -212,9 +212,26 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
     pendingEnter:false,
     enterValue:"",
     lastCompositionAt:0,
-    history:[]
+    history:[],
+    imeCommitTimer:0,
+    lastCommitValue:"",
+    lastCommitAt:0
   };
   searchCommitState.set(input,state);
+
+  const clearImeTimer=()=>{
+    if(state.imeCommitTimer){
+      clearTimeout(state.imeCommitTimer);
+      state.imeCommitTimer=0;
+    }
+  };
+
+  const resetPending=()=>{
+    clearImeTimer();
+    state.composing=false;
+    state.pendingEnter=false;
+    state.enterValue="";
+  };
 
   const remember=value=>{
     const next=normalizeCommittedSearchQuery(value);
@@ -230,20 +247,61 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
 
   const run=value=>{
     const q=repairImeCommittedQuery(value,state);
-    if(!q)return;
+    if(!q){
+      resetPending();
+      return;
+    }
+
+    // A compositionend + submit pair may arrive in the same tick on desktop
+    // Vietnamese IMEs. Commit once, but never keep state that can swallow the
+    // next search.
+    const now=Date.now();
+    if(state.lastCommitValue===q&&now-state.lastCommitAt<160){
+      resetPending();
+      return;
+    }
+
     input.value=q;
     remember(q);
-    state.pendingEnter=false;
-    state.enterValue="";
+    state.lastCommitValue=q;
+    state.lastCommitAt=now;
+    resetPending();
     commit(q);
+  };
+
+  const armImeFallback=()=>{
+    clearImeTimer();
+    state.imeCommitTimer=setTimeout(()=>{
+      state.imeCommitTimer=0;
+      if(!state.pendingEnter)return;
+      // Some browser/IME combinations never deliver compositionend after
+      // Enter/blur. Use the current DOM value and fully reset the IME state so
+      // search #2, #3, ... cannot be blocked by stale composing/pending flags.
+      const value=normalizeCommittedSearchQuery(input.value)||state.enterValue;
+      state.composing=false;
+      run(value);
+    },120);
   };
 
   input.addEventListener("input",()=>{
     remember(input.value);
   });
 
+  input.addEventListener("focus",()=>{
+    // A fresh edit session must never inherit a stale composition flag from
+    // the previous submitted query.
+    if(!state.pendingEnter){
+      clearImeTimer();
+      state.composing=false;
+      state.enterValue="";
+    }
+  });
+
   input.addEventListener("compositionstart",()=>{
+    clearImeTimer();
     state.composing=true;
+    state.pendingEnter=false;
+    state.enterValue="";
     state.lastCompositionAt=Date.now();
     remember(input.value);
   });
@@ -252,42 +310,65 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
     state.composing=false;
     state.lastCompositionAt=Date.now();
     remember(input.value);
-    if(!state.pendingEnter)return;
+    if(!state.pendingEnter){
+      clearImeTimer();
+      return;
+    }
 
-    const value=state.enterValue||input.value;
+    const value=normalizeCommittedSearchQuery(input.value)||state.enterValue;
+    clearImeTimer();
     queueMicrotask(()=>run(value));
   });
 
   input.addEventListener("keydown",event=>{
     if(event.key!=="Enter")return;
 
+    // Prevent the browser's native form-submit race in both normal and IME
+    // paths. We own exactly one commit for every Enter.
+    event.preventDefault();
     remember(input.value);
+
     if(event.isComposing||state.composing||event.keyCode===229){
       state.pendingEnter=true;
       state.enterValue=normalizeCommittedSearchQuery(input.value);
       state.lastCompositionAt=Date.now();
+      armImeFallback();
       return;
     }
 
-    event.preventDefault();
     run(input.value);
+  });
+
+  input.addEventListener("blur",()=>{
+    if(!state.pendingEnter){
+      clearImeTimer();
+      state.composing=false;
+      state.enterValue="";
+      return;
+    }
+
+    // If blur terminates composition without compositionend, do not leave the
+    // form permanently in a pending state.
+    armImeFallback();
   });
 
   if(form){
     form.addEventListener("submit",event=>{
       event.preventDefault();
 
-      if(state.composing||state.pendingEnter){
+      if(state.composing){
         state.pendingEnter=true;
-        if(!state.enterValue)state.enterValue=normalizeCommittedSearchQuery(input.value);
+        state.enterValue=normalizeCommittedSearchQuery(input.value);
+        armImeFallback();
         return;
       }
 
+      // pendingEnter without active composition is stale. Always submit the
+      // current input instead of returning early and blocking later searches.
       run(input.value);
     });
   }
 }
-
 function searchInputIsComposing(input){
   const row=searchCommitState.get(input);
   return !!row?.composing;
@@ -1002,7 +1083,21 @@ async function refreshServerStateOnResume(){
       await warmSelectedAvatarImages(500);
       renderParentCategories();
       if(!document.documentElement.classList.contains("watch-browse")){
-        void loadFeedPreset(state.activeFeed||"latest");
+        const active=state.activeFeed||"latest";
+        void loadFeedPreset(active);
+        // Returning to the app should also check for newly uploaded videos,
+        // not merely repaint the last cached package.
+        setTimeout(()=>{
+          if(isSourceScopedFeed(active)){
+            void refreshCachedSourceFeedInBackground(
+              active,
+              FEED_PRESETS[active],
+              state.feedSeq
+            );
+          }else if(active===LIVE_SOURCE_SCOPE){
+            void refreshLiveSnapshotInBackground();
+          }
+        },120);
       }
     }
   }catch{}
@@ -9984,8 +10079,9 @@ if(!(window.YT&&typeof YT.Player==="function")){
 
 
 
+
 async function doSearch(value){
-  const q=clean(value);
+  const q=normalizeCommittedSearchQuery(value);
   if(!q)return;
 
   clearSuggestions();
@@ -10032,7 +10128,6 @@ async function doSearch(value){
 
   const paintRows=rows=>{
     if(seq!==state.searchSeq||state.searchQuery!==q)return false;
-
     const cleanRows=usableRows(rows);
     if(!cleanRows.length)return false;
 
@@ -10040,73 +10135,49 @@ async function doSearch(value){
     renderCards(cleanRows);
     rememberDiscoveredSources(cleanRows,"");
     feedStatus.textContent=cleanRows.length+" video";
-
-    // Metadata/icons are cosmetic and must never hold search results hostage.
     void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
     return true;
   };
 
-  const requireUsable=(rows,label)=>{
-    const cleanRows=usableRows(rows);
-    if(!cleanRows.length)throw new Error("empty_"+label+"_search");
-    return cleanRows;
-  };
-
-  // Start both real search paths immediately. A source only "wins" when it
-  // has renderable video rows, not merely when its HTTP request succeeds.
-  const backendTask=api("search",{q,filter:"videos"},2800)
-    .then(response=>requireUsable(response?.data?.items,"backend"));
-
-  const localTask=localEngine(1600)
-    .then(local=>Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),2200))
-    ]))
-    .then(rows=>requireUsable(rows,"local"));
-
-  let firstRows=[];
+  // Match the proven Kira search path: one fresh direct discovery request per
+  // submit. No youtubei.js race, no shared session state, no result-source race.
   try{
-    firstRows=await Promise.any([backendTask,localTask]);
+    const response=await api("search",{
+      q,
+      filter:"videos",
+      _fresh:Date.now()
+    },4200);
+
+    if(seq!==state.searchSeq)return;
+    if(paintRows(response?.data?.items))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
 
-  if(paintRows(firstRows)){
-    // The slower path may add useful rows, but it never delays first paint.
-    void Promise.allSettled([localTask,backendTask]).then(results=>{
-      if(seq!==state.searchSeq||state.searchQuery!==q)return;
-      const merged=[...state.feedRows];
-      for(const result of results){
-        if(result.status==="fulfilled")merged.push(...result.value);
-      }
-      const rows=usableRows(merged);
-      if(rows.length<=state.feedRows.length)return;
-      state.feedRows=rows;
-      renderCards(rows);
-      rememberDiscoveredSources(rows,"");
-      feedStatus.textContent=rows.length+" video";
-    });
-    return;
-  }
-
-  // Do not declare "no result" because the first finished path had unusable
-  // rows. Wait for both primary paths and merge anything valid first.
-  const settled=await Promise.allSettled([localTask,backendTask]);
-  if(seq!==state.searchSeq)return;
-
-  const mergedPrimary=[];
-  for(const result of settled){
-    if(result.status==="fulfilled")mergedPrimary.push(...result.value);
-  }
-  if(paintRows(mergedPrimary))return;
-
-  // Piped instances occasionally return an empty videos-only surface while
-  // the same YouTube search still has results in the mixed "all" surface.
-  // Use that as a last non-AI fallback, then keep only actual video rows.
+  // Mixed YouTube search is a cheap backend-only fallback. Keep only videos.
   try{
-    const response=await api("search",{q,filter:"all"},3200);
+    const response=await api("search",{
+      q,
+      filter:"all",
+      _fresh:Date.now()
+    },3600);
+
     if(seq!==state.searchSeq)return;
     if(paintRows(response?.data?.items))return;
+  }catch{}
+
+  if(seq!==state.searchSeq)return;
+
+  // youtubei.js is last-resort only. It must never delay a normal search.
+  try{
+    const local=await localEngine(1200);
+    const rows=await Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),1800))
+    ]);
+
+    if(seq!==state.searchSeq)return;
+    if(paintRows(rows))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
@@ -10364,7 +10435,16 @@ function commitSearch(value){
   void doSearch(q);
 }
 
-bindCommittedSearchInput(queryInput,q=>commitSearch(q),{form:searchForm});
+// Main search uses the same simple submit path as the working Kira proof.
+// Do not keep a custom IME/pending state here: the browser owns composition,
+// and every form submit reads the current input and starts a fresh search.
+searchForm?.addEventListener("submit",event=>{
+  event.preventDefault();
+  const q=normalizeCommittedSearchQuery(queryInput?.value||"");
+  if(!q)return;
+  queryInput.value=q;
+  commitSearch(q);
+});
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
 queryInput.addEventListener("input",()=>{
@@ -11199,6 +11279,63 @@ const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
 let sourceFeedPendingRenderName="";
 
+function sourceFeedRowsSignature(rows=[]){
+  return (Array.isArray(rows)?rows:[])
+    .map(itemVideoId)
+    .filter(Boolean)
+    .join("|");
+}
+
+function freshSnapshotRowsForFeed(name){
+  const preset=FEED_PRESETS[name];
+  if(!preset)return [];
+
+  const scoped=isSourceScopedFeed(name);
+  const scope=scoped
+    ?feedSourceScope(name)
+    :name===LIVE_SOURCE_SCOPE
+      ?LIVE_SOURCE_SCOPE
+      :GENERAL_SOURCE_SCOPE;
+
+  return sortPresetRows(readFeedCache(name),preset)
+    .filter(row=>!MANAGED_SOURCE_SCOPES.has(scope)||!isBlockedSourceRow(row,scope));
+}
+
+function applyActiveFeedSnapshot(name,{force=false}={}){
+  if(
+    state.searchResultsActive||
+    document.documentElement.classList.contains("watch-browse")||
+    state.activeFeed!==name||
+    state.activeParent||
+    state.activeTrend
+  )return false;
+
+  const fresh=freshSnapshotRowsForFeed(name);
+  if(!fresh.length)return false;
+
+  const currentSig=sourceFeedRowsSignature(state.feedRows);
+  const freshSig=sourceFeedRowsSignature(fresh);
+  if(currentSig===freshSig){
+    if(sourceFeedPendingRenderName===name)sourceFeedPendingRenderName="";
+    return false;
+  }
+
+  // Never jump a user who is already reading lower in the list. The fresh
+  // package is already stored; apply it as soon as they return to the top.
+  if(!force&&window.scrollY>=120){
+    sourceFeedPendingRenderName=name;
+    return false;
+  }
+
+  state.feedRows=mergeUniqueRows([],fresh);
+  state.feedHasMore=true;
+  sourceFeedPendingRenderName="";
+  renderCards(state.feedRows);
+  feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
+  void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
+  return true;
+}
+
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
   if(!sourceId)return {items:[],checkedAt:0,at:0};
@@ -11874,6 +12011,7 @@ async function refreshLiveSnapshotInBackground(local=null){
       maxRows:90
     });
     cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
+    if(packaged.length)applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
     return packaged;
   }catch(error){
     console.warn("LIVE snapshot refresh failed",error);
@@ -11884,7 +12022,15 @@ async function refreshLiveSnapshotInBackground(local=null){
 async function refreshCachedSourceFeedInBackground(name,preset,seq,local=null){
   if(document.hidden)return [];
   try{
-    return await buildSourceFeedSnapshot(name,preset,local);
+    const rows=await buildSourceFeedSnapshot(name,preset,local);
+    if(
+      rows.length&&
+      (seq===undefined||seq===null||seq===state.feedSeq)&&
+      state.activeFeed===name
+    ){
+      applyActiveFeedSnapshot(name);
+    }
+    return rows;
   }catch(error){
     console.warn("background source snapshot failed",name,error);
     return [];
@@ -11927,7 +12073,8 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
       for(const name of [LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]){
         const scope=feedSourceScope(name);
         if(!selectedSetForScope(scope).size)continue;
-        await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
+        const packaged=await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
+        if(packaged.length)applyActiveFeedSnapshot(name);
       }
 
       // Pre-build every category snapshot from its selected channels. Opening
@@ -12191,8 +12338,7 @@ function maybeLoadMoreFeed(){
       !state.activeTrend &&
       window.scrollY<120
     ){
-      sourceFeedPendingRenderName="";
-      renderCurrentTrendFeed();
+      applyActiveFeedSnapshot(state.activeFeed,{force:true});
     }
 
     const distance=document.documentElement.scrollHeight-(window.scrollY+window.innerHeight);
