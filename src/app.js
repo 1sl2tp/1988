@@ -2189,20 +2189,49 @@ async function searchSourceChannels(query){
 
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    if(!Array.isArray(rows)||!rows.length){
+    // Blocked channels must never consume search-result capacity. Keep any
+    // matching blocked channel visible from the durable local/server library
+    // (so it can still be unblocked), but remove it from fresh YouTube results
+    // and keep scanning until we refill the list with usable channels.
+    const scope=sourceScope(sourceManageGroup);
+    const byId=new Map();
+    for(const row of Array.isArray(rows)?rows:[]){
+      const id=String(row?.id||"").trim();
+      if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+      if(matchSourceState(row,scope).status==="blocked")continue;
+      if(!byId.has(id))byId.set(id,row);
+      if(byId.size>=24)break;
+    }
+
+    if(byId.size<24){
       try{
-        const videos=await local.search(q,{type:"video"});
-        const byId=new Map();
-        for(const video of Array.isArray(videos)?videos:[]){
-          const candidate=sourceCandidateFromVideo(video);
-          if(candidate&&!byId.has(candidate.id))byId.set(candidate.id,candidate);
-          if(byId.size>=20)break;
+        let first=true;
+        for(let page=0;page<3&&byId.size<24;page++){
+          const videos=await pagedSearch(
+            local,
+            "source-manager:"+scope+":"+fastHash(q),
+            q,
+            {},
+            first,
+            scope
+          );
+          first=false;
+          if(!Array.isArray(videos)||!videos.length)break;
+
+          for(const video of videos){
+            const candidate=sourceCandidateFromVideo(video);
+            if(!candidate||byId.has(candidate.id))continue;
+            if(matchSourceState(candidate,scope).status==="blocked")continue;
+            byId.set(candidate.id,candidate);
+            if(byId.size>=24)break;
+          }
         }
-        rows=[...byId.values()];
       }catch(error){
-        console.warn("source search video fallback failed",error);
+        console.warn("source search video refill failed",error);
       }
     }
+
+    rows=[...byId.values()];
 
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
@@ -2365,19 +2394,38 @@ async function refreshLiveSourceCandidatesInBackground(){
     try{
       const local=await localEngine(12000);
       let rows=[];
+      const liveSourceIds=new Set();
+
       try{
-        rows=await local.search("trực tiếp",{
-          type:"video",
-          features:["live"],
-          sort_by:"upload_date"
-        });
+        let first=true;
+        for(let page=0;page<3&&liveSourceIds.size<24;page++){
+          const batch=await pagedSearch(
+            local,
+            "live-source-manager",
+            "trực tiếp",
+            {features:["live"],sort_by:"upload_date"},
+            first,
+            LIVE_SOURCE_SCOPE
+          );
+          first=false;
+          if(!Array.isArray(batch)||!batch.length)break;
+
+          for(const row of batch){
+            if(row?.isLive!==true)continue;
+            if(isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))continue;
+            rows.push(row);
+            const candidate=sourceCandidateFromVideo(row);
+            if(candidate)liveSourceIds.add(candidate.id);
+          }
+        }
       }catch{}
 
-      rows=(Array.isArray(rows)?rows:[]).filter(row=>row?.isLive);
+      rows=mergeUniqueRows([],rows).filter(row=>row?.isLive===true);
       if(!rows.length){
         try{
           rows=(await local.homePage("live-source-manager",true))
-            .filter(row=>row?.isLive);
+            .filter(row=>row?.isLive)
+            .filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE));
         }catch{}
       }
 
@@ -10383,21 +10431,56 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v22:";
+const FEED_CACHE_PREFIX="1988-discovery-v23:";
+const SEARCH_VISIBLE_TARGET=36;
+const SEARCH_REFILL_MAX_PAGES=4;
 
 async function pagedSearch(local,key,query,filters={},reset=false,scope=GENERAL_SOURCE_SCOPE){
-  try{
-    const rows=await local.searchPage(key,query,{type:"video",...filters},reset);
-    return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
-  }catch(error){
-    console.warn("paged search failed",key,error);
-    if(!reset)return [];
+  // A blocked result must not consume one of the visible result slots.
+  // Continue through YouTube continuations until we have a normal page worth
+  // of usable rows (or the upstream search is exhausted). This applies to
+  // LIVE, category discovery and every other scoped source search.
+  const visible=[];
+  let first=reset;
+  let fetchedAny=false;
+  let lastError=null;
+
+  for(let page=0;page<SEARCH_REFILL_MAX_PAGES;page++){
+    let rows=[];
     try{
-      const rows=await local.search(query,{type:"video",...filters});
-      return (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
-    }catch{
-      return [];
+      rows=await local.searchPage(key,query,{type:"video",...filters},first);
+    }catch(error){
+      lastError=error;
+      break;
     }
+    first=false;
+
+    if(!Array.isArray(rows)||!rows.length)break;
+    fetchedAny=true;
+
+    for(const row of rows){
+      if(isBlockedSourceRow(row,scope))continue;
+      visible.push(row);
+    }
+
+    if(mergeUniqueRows([],visible).length>=SEARCH_VISIBLE_TARGET)break;
+  }
+
+  if(fetchedAny){
+    return mergeUniqueRows([],visible);
+  }
+
+  if(lastError)console.warn("paged search failed",key,lastError);
+  if(!reset)return [];
+
+  try{
+    const rows=await local.search(query,{type:"video",...filters});
+    return mergeUniqueRows(
+      [],
+      (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope))
+    );
+  }catch{
+    return [];
   }
 }
 
