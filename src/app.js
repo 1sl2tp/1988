@@ -10356,7 +10356,7 @@ function readSourceChannelCache(sourceId){
   }
 }
 
-function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
+function saveSourceChannelCache(source,rows=[],checkedAt=Date.now(),options={}){
   const sourceId=String(source?.id||source||"").trim();
   if(!sourceId)return [];
   const name=clean(source?.name||"");
@@ -10364,7 +10364,10 @@ function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
   const incoming=(Array.isArray(rows)?rows:[])
     .filter(Boolean)
     .map(row=>({...row,_sourceId:sourceId,_sourceName:clean(row?._sourceName||name)}));
-  const items=compactSourcePool(mergeUniqueRows(incoming,old.items))
+  const base=options?.replace===true
+    ?incoming
+    :mergeUniqueRows(incoming,old.items);
+  const items=compactSourcePool(base)
     .filter(row=>String(row?._sourceId||"")===sourceId)
     .slice(0,24);
   try{
@@ -10517,7 +10520,10 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(reset){
-          saveSourceChannelCache(source,rows,Date.now());
+          // A fresh channel snapshot is authoritative for this cache window.
+          // Do not keep videos that disappeared because they became private,
+          // deleted, unavailable or embed-disabled.
+          saveSourceChannelCache(source,rows,Date.now(),{replace:true});
           if(rows.length)emit(rows,source,{cached:false});
         }else{
           emit(rows,source,{cached:false});
@@ -10539,7 +10545,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   await Promise.all(workers);
   return mergeUniqueRows([],collected);
 }
-function refreshSourcePool(local,sources){
+function refreshSourcePool(local,sources,onBatch=null){
   const signature=sourceSignature();
   if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
     return sourcePoolRefreshPromise;
@@ -10547,7 +10553,13 @@ function refreshSourcePool(local,sources){
 
   sourcePoolRefreshSignature=signature;
   sourcePoolRefreshPromise=(async()=>{
-    const rows=await fetchSourcePool(local,sources,true,GENERAL_SOURCE_SCOPE);
+    const rows=await fetchSourcePool(
+      local,
+      sources,
+      true,
+      GENERAL_SOURCE_SCOPE,
+      onBatch
+    );
     if(signature!==sourceSignature())return [];
     const saved=saveSourcePoolCache(rows);
     primeSourceFeedCaches(saved);
@@ -10562,18 +10574,27 @@ function refreshSourcePool(local,sources){
   return sourcePoolRefreshPromise;
 }
 
-async function selectedSourceFeed(local,predicate,reset=false){
+async function selectedSourceFeed(local,predicate,reset=false,onBatch=null){
   const sources=selectedSources();
   if(!sources.length)return [];
 
   if(reset){
     const cached=readSourcePoolCache();
     if(cached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources);
+      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
       return cached.filter(predicate);
     }
 
-    const fresh=await refreshSourcePool(local,sources);
+    // The aggregate pool may expire before the per-channel caches do.
+    // Use those channel snapshots immediately instead of blocking the first
+    // paint on a full YouTube + playability refresh across every source.
+    const channelCached=cachedRowsForSources(sources,GENERAL_SOURCE_SCOPE);
+    if(channelCached.length){
+      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
+      return channelCached.filter(predicate);
+    }
+
+    const fresh=await refreshSourcePool(local,sources,onBatch);
     return fresh.filter(predicate);
   }
 
@@ -10706,12 +10727,22 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinLatest,reset)
+    load:(local,reset,onBatch=null)=>selectedSourceFeed(
+      local,
+      uploadedWithinLatest,
+      reset,
+      onBatch
+    )
   },
   week:{
     title:"Tuần này",
     weekFreshViewed:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinWeek,reset)
+    load:(local,reset,onBatch=null)=>selectedSourceFeed(
+      local,
+      uploadedWithinWeek,
+      reset,
+      onBatch
+    )
   }
 };
 
@@ -10969,7 +11000,19 @@ async function loadFeedPreset(name="latest"){
   }
   feedTitle.textContent=preset.title;
 
-  const cached=readFeedCache(name);
+  let cached=readFeedCache(name);
+  if(!cached.length&&isSourceScopedFeed(name)){
+    const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+    const perSourceCached=cachedRowsForSources(
+      selectedSources(),
+      GENERAL_SOURCE_SCOPE
+    ).filter(predicate);
+    if(perSourceCached.length){
+      cached=sortPresetRows(perSourceCached,preset);
+      saveFeedCache(name,cached);
+    }
+  }
+
   if(cached.length){
     const rows=sortPresetRows(cached,preset)
       .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
@@ -10996,7 +11039,26 @@ async function loadFeedPreset(name="latest"){
   try{
     let local=null;
     local=await localEngine(16000);
-    const rowsRaw=await preset.load(local,true);
+
+    const progressiveBatch=isSourceScopedFeed(name)
+      ?(batch)=>{
+          if(seq!==state.feedSeq||state.activeFeed!==name)return;
+          const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+          const matching=(Array.isArray(batch)?batch:[])
+            .filter(predicate)
+            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+          if(!matching.length)return;
+
+          state.feedRows=sortPresetRows(
+            mergeUniqueRows(matching,state.feedRows),
+            preset
+          );
+          renderCurrentTrendFeed();
+          feedStatus.textContent="Đang cập nhật…";
+        }
+      :null;
+
+    const rowsRaw=await preset.load(local,true,progressiveBatch);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
     if(!Array.isArray(rows)||!rows.length){
