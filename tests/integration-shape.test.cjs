@@ -6,6 +6,7 @@ const app=fs.readFileSync(root+'/src/app.js','utf8');
 const sw=fs.readFileSync(root+'/sw.js','utf8');
 const refresh=fs.readFileSync(root+'/supabase/functions/yt1988-refresh/index.ts','utf8');
 const gateway=fs.readFileSync(root+'/supabase/functions/yt1988/index.ts','utf8');
+const stateFn=fs.readFileSync(root+'/supabase/functions/yt1988-state/index.ts','utf8');
 const cacheMigration=fs.readFileSync(root+'/supabase/migrations/20260926050000_channel_snapshot_cache.sql','utf8');
 const refreshConfigMigration=fs.readFileSync(root+'/supabase/migrations/20260926061000_configurable_feed_refresh.sql','utf8');
 
@@ -71,6 +72,10 @@ assert.match(gateway,/if \(!channelRows\(data\)\.length\) continue/);
 assert.match(gateway,/async function youtubeRssChannel\(/);
 assert.match(gateway,/youtube\.com\/feeds\/videos\.xml/);
 assert.match(gateway,/source: "youtube-rss"/);
+assert.match(stateFn,/yt1988_live_keywords/);
+assert.match(stateFn,/add_live_keyword/);
+assert.match(stateFn,/remove_live_keyword/);
+assert.match(stateFn,/empty_live_keyword/);
 assert.match(cacheMigration,/create table if not exists public\.yt1988_channel_cache/);
 assert.match(cacheMigration,/create or replace function public\.yt1988_finish_refresh_v2/);
 assert.match(refreshConfigMigration,/create table if not exists public\.yt1988_refresh_config/);
