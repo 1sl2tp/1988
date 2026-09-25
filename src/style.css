@@ -2886,20 +2886,22 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   MOBILE CHROME CONTINUITY v300
-   The top bar, source/topic row and feed surface share one physical
-   background. State is shown by chips/text, not by changing the row surface.
-   This removes the visible horizontal colour seams on mobile.
+   MOBILE CHROME AMBIENT v301
+   Header, source/topic row and feed use ONE shared surface. JS tints that
+   surface from the nearest visible Home video, or from the video currently
+   playing in Watch. Every row changes together so there are no colour seams.
    ============================================================ */
 @media(max-width:720px){
   :root{
     --mobile-chrome-surface:#0b0b0c;
-    --mobile-chrome-separator:rgba(255,255,255,.055);
+    --mobile-chrome-tint:rgba(11,11,12,.18);
+    --mobile-chrome-separator:rgba(255,255,255,.05);
   }
 
   html:not(.watch-browse) body,
   html.watch-browse body{
     background:var(--mobile-chrome-surface);
+    transition:background-color .30s ease;
   }
 
   html:not(.watch-browse) .header-inner,
@@ -2910,6 +2912,7 @@ html.search-suggestions-open .suggestions{
     backdrop-filter:none!important;
     -webkit-backdrop-filter:none!important;
     box-shadow:none!important;
+    transition:background-color .30s ease;
   }
 
   html:not(.watch-browse) .header-nav::after,
@@ -2923,6 +2926,7 @@ html.search-suggestions-open .suggestions{
   html.watch-browse .feed-section,
   html.watch-browse .section-head{
     background:var(--mobile-chrome-surface)!important;
+    transition:background-color .30s ease;
   }
 
   html.watch-browse .section-head{
@@ -2938,5 +2942,20 @@ html.search-suggestions-open .suggestions{
   html:not(.watch-browse) .header-nav-inner,
   html.watch-browse .header-nav-inner{
     background:transparent!important;
+  }
+
+  @media(prefers-reduced-motion:reduce){
+    html:not(.watch-browse) body,
+    html.watch-browse body,
+    html:not(.watch-browse) .header-inner,
+    html:not(.watch-browse) .header-nav,
+    html.watch-browse .header-inner,
+    html.watch-browse .header-nav,
+    html:not(.watch-browse) .app-shell,
+    html:not(.watch-browse) .feed-section,
+    html.watch-browse .feed-section,
+    html.watch-browse .section-head{
+      transition:none;
+    }
   }
 }
