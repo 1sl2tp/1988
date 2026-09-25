@@ -1137,17 +1137,32 @@ function sourceAvatarForRow(row={},sourceId="",channel=""){
 }
 
 
-function sourceMetaFor(row){
-  const id=String(row?.id||"").trim();
+function sourceMetaFor(row={}){
+  const normalized=window.MediaMeta?.source?.(row)||{};
+  const id=String(row?.id||normalized.id||"").trim();
   const remote=sourceMetaCache.get(id)||{};
   const thumbnailUrl=safeSourceThumb(
     remote?.thumbnailUrl||
     sourceAvatarCached(id)||
+    normalized.avatar||
     row?.thumbnailUrl||
     ""
   );
+  const name=clean(
+    remote?.name||
+    row?.name||
+    normalized.name||
+    ""
+  );
   if(id&&thumbnailUrl)rememberSourceAvatar(id,thumbnailUrl);
-  return {...row,...remote,thumbnailUrl};
+  return {...row,...normalized,...remote,id,name,thumbnailUrl};
+}
+
+function sourceMetaComplete(id,row=null){
+  id=String(id||row?.id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+  const meta=sourceMetaFor(row||{id});
+  return !!clean(meta.name)&&!!safeSourceThumb(meta.thumbnailUrl||"");
 }
 
 function sourceGroupsFor(row={}){
@@ -1736,14 +1751,16 @@ function updateSourceRowMeta(id){
   if(currentSub&&nextSub)currentSub.textContent=nextSub.textContent||"";
 }
 
-async function ensureSourceMeta(id){
-  if(!id||sourceMetaPending.has(id)||sourceMetaCache.has(id))return;
+async function ensureSourceMeta(id,{engine=null}={}){
+  id=String(id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||sourceMetaPending.has(id)||sourceMetaComplete(id))return;
+
   sourceMetaPending.add(id);
   try{
-    const local=await localEngine(12000);
+    const local=engine||await localEngine(12000);
     const meta=await local.channelMeta(id);
     if(meta&&meta.id){
-      sourceMetaCache.set(id,meta);
+      sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
       const image=rememberSourceAvatar(id,meta.thumbnailUrl||"");
       if(image)await warmAvatarImage(image);
       invalidateSourceStateNameIndex();
@@ -1754,6 +1771,30 @@ async function ensureSourceMeta(id){
   }finally{
     sourceMetaPending.delete(id);
   }
+}
+
+async function prewarmSourceSearchMetadata(rows=[],engine=null,maxWait=1200){
+  const ids=[...new Set(
+    (Array.isArray(rows)?rows:[])
+      .map(row=>String(row?.id||"").trim())
+      .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id)&&!sourceMetaComplete(id))
+  )];
+  if(!ids.length)return;
+
+  const local=engine||await localEngine(12000);
+  const queue=ids.slice();
+  const workers=Array.from({length:Math.min(6,queue.length)},async()=>{
+    while(queue.length){
+      const id=queue.shift();
+      if(id)await ensureSourceMeta(id,{engine:local});
+    }
+  });
+  const work=Promise.allSettled(workers);
+
+  await Promise.race([
+    work,
+    new Promise(resolve=>setTimeout(resolve,Math.max(300,Number(maxWait)||1200)))
+  ]);
 }
 
 function observeSourceRows(){
@@ -1772,7 +1813,7 @@ function observeSourceRows(){
 
   sourceList.querySelectorAll(".source-row[data-source-id]").forEach(row=>{
     const id=row.dataset.sourceId||"";
-    if(id&&!sourceMetaCache.has(id))sourceMetaObserver.observe(row);
+    if(id&&!sourceMetaComplete(id))sourceMetaObserver.observe(row);
   });
 }
 
@@ -1967,6 +2008,8 @@ function rememberSearchedSourceCandidates(rows=[],scope=sourceManageGroup){
     if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
 
     sourceMetaCache.set(id,{...sourceMetaCache.get(id),...row});
+    const image=safeSourceThumb(row?.thumbnailUrl||"");
+    if(image)rememberSourceAvatar(id,image);
     const reconciled=reconcileSourceState(row,scope);
     if(reconciled.changed)stateChanged=true;
     if(reconciled.status!=="normal")continue;
@@ -2022,12 +2065,25 @@ async function searchSourceChannels(query){
 
     rememberSearchedSourceCandidates(sourceRemoteResults,sourceManageGroup);
 
+    // Search is proactive: resolve missing channel avatars/name metadata instead
+    // of waiting for an IntersectionObserver after the result has already painted.
+    if(sourceRemoteResults.some(row=>!sourceMetaComplete(row.id))){
+      if(sourceSearchStatus)sourceSearchStatus.textContent="Đang hoàn thiện icon nguồn…";
+      await prewarmSourceSearchMetadata(sourceRemoteResults.slice(0,14),local,1200);
+      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+      sourceRemoteResults=sourceRemoteResults.map(row=>sourceMetaFor(row));
+    }
+
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
         ?"Có "+sourceRemoteResults.length+" kênh phù hợp"
         :"Không tìm thấy kênh phù hợp";
     }
     renderSourceLibrary();
+
+    // Finish any remaining icons in the background; ensureSourceMeta updates
+    // each visible row independently as soon as its channel metadata arrives.
+    void prewarmSourceSearchMetadata(sourceRemoteResults,local,5000);
   }catch(error){
     if(seq!==sourceSearchSeq)return;
     console.warn("channel search failed",error);
@@ -2051,7 +2107,8 @@ function scheduleSourceSearch(){
 }
 
 function sourceCandidateFromVideo(row={}){
-  const name=clean(
+  const normalized=window.MediaMeta?.source?.(row)||{};
+  const name=clean(normalized.name||
     row?._sourceName||
     row?.uploaderName||
     row?.uploader||
@@ -2059,21 +2116,17 @@ function sourceCandidateFromVideo(row={}){
     row?._displaySource||
     ""
   );
-  const id=canonicalSourceId(row,name);
+  const id=canonicalSourceId(row,name)||String(normalized.id||"").trim();
   if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!name)return null;
 
   return {
     id,
     name,
     thumbnailUrl:safeSourceThumb(
+      normalized.avatar||
       row?.uploaderThumbnailUrl||
       row?.channelThumbnailUrl||
       row?._sourceThumbnailUrl||
-      row?.uploaderAvatar||
-      row?.channelAvatar||
-      row?.authorAvatar||
-      row?.ownerAvatar||
-      row?.avatar||
       ""
     ),
     subscribers:""
@@ -2232,17 +2285,17 @@ function sourceRowFromVideo(video={}){
 }
 
 function sourcePreviewVideoCard(video,{searchResult=false}={}){
-  const videoId=itemVideoId(video);
-  const meta=relativePublishedLabel(video);
+  const media=videoUiMeta(video);
+  const videoId=media.id;
   const source=sourceRowFromVideo(video);
-  const sourceName=clean(source?.name||video?.uploader||video?._sourceName||"");
-  const metaText=meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):"");
+  const sourceName=clean(source?.name||media.channel);
+  const metaText=[media.published,media.viewsLabel].filter(Boolean).join(" · ");
 
   return '<article class="source-video-card'+(searchResult?' search-result':'')+'" data-source-video-card="'+esc(videoId)+'">'+
     '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
-      '<img src="'+esc(thumb(video,videoId))+'" alt="" loading="lazy">'+
+      '<img src="'+esc(media.thumbnail)+'" alt="" loading="lazy">'+
       '<span class="source-video-copy">'+
-        '<span class="source-video-title">'+esc(clean(video.title)||"Video")+'</span>'+
+        '<span class="source-video-title">'+esc(media.title)+'</span>'+
         (searchResult&&sourceName?'<span class="source-video-source">'+esc(sourceName)+'</span>':"")+
         '<span class="source-video-meta">'+esc(metaText)+'</span>'+
       '</span>'+
@@ -4245,8 +4298,8 @@ function showWatchRecoInfo(card,{autoHide=true}={}){
   const published=card.dataset.published||"";
   const bits=[];
   if(channel)bits.push(channel);
-  if(viewText)bits.push(viewText);
-  else if(views)bits.push(fmtViews(views)+" lượt xem");
+  const viewsLabel=fmtViewLabel(views,viewText);
+  if(viewsLabel)bits.push(viewsLabel);
   if(published)bits.push(published);
 
   info.querySelector(".watch-reco-title").textContent=title;
@@ -4821,23 +4874,36 @@ function extractVideoId(value=""){
 }
 
 function itemVideoId(row={}){
-  return extractVideoId(row.videoId||row.url||row.id||"");
+  return window.MediaMeta?.videoId?.(row)||
+    extractVideoId(row.videoId||row.url||row.id||"");
 }
 
 function thumb(row={},id=""){
-  const value=row.thumbnail||row.thumbnailUrl||row.thumbnails?.[0]?.url||"";
-  return value||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
+  return window.MediaMeta?.thumbnail?.(row,id)||
+    row.thumbnail||
+    row.thumbnailUrl||
+    row.thumbnails?.[0]?.url||
+    ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
 }
 
 function fmtViews(n){
+  if(window.MediaMeta?.compactNumber)return window.MediaMeta.compactNumber(n);
   n=Number(n)||0;
-  if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
-  if(n>=1e6)return (n/1e6).toFixed(1).replace(".0","")+" Tr";
-  if(n>=1e3)return (n/1e3).toFixed(1).replace(".0","")+" N";
+  if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+"B";
+  if(n>=1e6)return (n/1e6).toFixed(1).replace(".0","")+"M";
+  if(n>=1e3)return (n/1e3).toFixed(1).replace(".0","")+"K";
   return n.toLocaleString("vi-VN");
 }
 
+function fmtViewLabel(n,rawText=""){
+  if(window.MediaMeta?.viewLabel)return window.MediaMeta.viewLabel(n,rawText);
+  const count=Number(n)||0;
+  if(count>0)return count<1000?fmtViews(count)+" lượt xem":fmtViews(count);
+  return clean(rawText).replace(/\s*(?:lượt xem|views?)\s*$/i,"");
+}
+
 function fmtDuration(sec){
+  if(window.MediaMeta?.durationLabel)return window.MediaMeta.durationLabel(sec);
   sec=Math.max(0,Number(sec)||0);
   const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):String(m)+":"+String(s).padStart(2,"0");
@@ -4868,6 +4934,11 @@ function parseDurationValue(value){
 }
 
 function durationSeconds(row={}){
+  if(window.MediaMeta?.durationSeconds){
+    const seconds=window.MediaMeta.durationSeconds(row);
+    if(seconds>0)return seconds;
+  }
+
   const values=[
     row?.duration,
     row?.durationSeconds,
@@ -6281,6 +6352,11 @@ function publishedLabel(row={}){
 }
 
 function relativePublishedLabel(row={}){
+  if(window.MediaMeta?.relativePublished){
+    const label=window.MediaMeta.relativePublished(row);
+    if(label)return label;
+  }
+
   const age=publishedAgeMs(row);
   if(!Number.isFinite(age)||age===Number.MAX_SAFE_INTEGER){
     return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
@@ -6297,14 +6373,53 @@ function relativePublishedLabel(row={}){
   if(hours<24)return hours+" giờ trước";
 
   const days=Math.max(1,Math.floor(hours/24));
-  return days+" ngày trước";
+  if(days<30)return days+" ngày trước";
+  if(days<365)return Math.max(1,Math.floor(days/30))+" tháng trước";
+  return Math.max(1,Math.floor(days/365))+" năm trước";
 }
 
 function feedPublishedLabel(row={}){
   return relativePublishedLabel(row);
 }
 
+function videoUiMeta(row={}){
+  const base=window.MediaMeta?.video?.(row)||{};
+  const channel=clean(
+    base.sourceName||
+    row?._displaySource||
+    row?.uploaderName||
+    row?.uploader||
+    row?.channelName||
+    row?._sourceName||
+    ""
+  );
+  const sourceId=canonicalSourceId(row,channel)||String(base.sourceId||"").trim();
+  const sourceAvatar=sourceAvatarForRow(row,sourceId,channel)||safeSourceThumb(base.sourceAvatar||"");
+  const views=Number(base.views)||Number(row?.views)||0;
+  const rawViewText=clean(row?.viewText||"");
+
+  return {
+    id:base.id||itemVideoId(row),
+    url:base.url||"",
+    title:clean(base.title||row?._displayTitle||row?.title)||"Video",
+    thumbnail:base.thumbnail||thumb(row,itemVideoId(row)),
+    channel,
+    sourceId,
+    sourceAvatar,
+    duration:Number(base.duration)||durationSeconds(row),
+    views,
+    viewsLabel:base.viewsLabel||fmtViewLabel(views,rawViewText),
+    published:base.publishedLabel||relativePublishedLabel(row)||publishedLabel(row),
+    isLive:base.isLive===true||row?.isLive===true
+  };
+}
+
 function publishedAgeMs(row={}){
+  if(window.MediaMeta?.publishedAgeMs){
+    const age=window.MediaMeta.publishedAgeMs(row);
+    if(Number.isFinite(age))return age;
+  }
+
   if(row?.isLive)return -1;
 
   const unix=Number(row?.uploaded||row?.published||row?.publishedAt||0);
@@ -6591,18 +6706,18 @@ function rowAspectRatio(row={}){
 function searchCardHtml(row={},options={}){
   const id=itemVideoId(row);
   if(!id)return "";
-  const title=clean(row._displayTitle||row.title)||"Video";
-  const channel=searchChannelName(row);
-  const sourceId=canonicalSourceId(row,channel)||searchSourceId(row);
-  const sourceAvatar=sourceAvatarForRow(row,sourceId,channel);
-  const views=Number(row.views)||0;
-  const viewText=clean(row.viewText||"");
-  const duration=durationSeconds(row);
-  const isLive=!!row.isLive;
-  const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
+  const media=videoUiMeta(row);
+  const title=media.title;
+  const channel=media.channel||searchChannelName(row);
+  const sourceId=media.sourceId||searchSourceId(row);
+  const sourceAvatar=media.sourceAvatar;
+  const views=media.views;
+  const viewText=media.viewsLabel;
+  const duration=media.duration;
+  const isLive=media.isLive;
+  const published=media.published;
   const statBits=[];
   if(viewText)statBits.push(viewText);
-  else if(views)statBits.push(fmtViews(views)+" lượt xem");
   if(published)statBits.push(published);
   const episode=Number(options.episode)||0;
   const seriesKey=clean(options.seriesKey||"");
@@ -6616,12 +6731,12 @@ function searchCardHtml(row={},options={}){
     '" data-duration="'+esc(String(duration))+
     '" data-live="'+(isLive?'1':'0')+
     '" data-published="'+esc(published)+
-    '" data-thumb="'+esc(thumb(row,id))+
+    '" data-thumb="'+esc(media.thumbnail)+
     '" data-aspect="'+esc(String(rowAspectRatio(row)||""))+
     '" data-search-match="'+(options.match===false?'0':'1')+
     '" data-series-key="'+esc(seriesKey)+
     '" data-episode="'+esc(String(episode||""))+'">'+
-      '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+
+      '<div class="thumb-wrap"><img src="'+esc(media.thumbnail)+'" alt="" loading="lazy">'+
         (isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+
         (episode?'<span class="episode-badge">Tập '+esc(String(episode))+'</span>':'')+
       '</div>'+
@@ -7733,25 +7848,25 @@ function renderCards(rows=[],options={}){
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
-    const title=clean(row._displayTitle||row.title)||"Video";
-    const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||row._sourceName||"");
-    const sourceId=canonicalSourceId(row,channel);
-    const sourceAvatar=sourceAvatarForRow(row,sourceId,channel);
+    const media=videoUiMeta(row);
+    const title=media.title;
+    const channel=media.channel;
+    const sourceId=media.sourceId;
+    const sourceAvatar=media.sourceAvatar;
     const avatarFallback=(channel.charAt(0)||"?").toUpperCase();
     if(sourceAvatar&&!avatarImageReady(sourceAvatar)){
       avatarPaintJobs.push({id,sourceId,image:sourceAvatar});
     }
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
-    const views=Number(row.views)||0;
-    const viewText=clean(row.viewText||"");
-    const duration=durationSeconds(row);
-    const isLive=!!row.isLive;
-    const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
+    const views=media.views;
+    const viewText=media.viewsLabel;
+    const duration=media.duration;
+    const isLive=media.isLive;
+    const published=media.published;
     const statBits=[];
     if(viewText)statBits.push(viewText);
-    else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
-    const thumbUrl=thumb(row,id);
+    const thumbUrl=media.thumbnail;
     const eager=cards.length<12;
     cards.push({
       id,
@@ -7847,14 +7962,15 @@ function rowFromCard(card){
 function updateNow(meta={}){
   const title=clean(meta.title)||"Video";
   const channel=clean(meta.uploader||meta.uploaderName||"");
-  const views=Number(meta.views)||0;
-  const duration=durationSeconds(meta);
-  const published=publishedLabel(meta);
+  const media=videoUiMeta(meta);
+  const views=media.views;
+  const duration=media.duration;
+  const published=media.published;
   videoTitle.textContent=title;
   const bits=[];
   if(channel)bits.push(channel);
-  if(views)bits.push(fmtViews(views)+" lượt xem");
-  if(published)bits.push("Đăng "+published.replace(/^Đăng\s+/i,""));
+  if(media.viewsLabel)bits.push(media.viewsLabel);
+  if(published)bits.push(published);
   if(duration)bits.push(fmtDuration(duration));
   videoMeta.textContent=bits.join(" · ");
   document.title=title+" · 1988";
