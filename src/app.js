@@ -171,8 +171,10 @@ const SOURCE_FILM_RECOVERY_KEY="1988-source-film-recovered-v3";
 const SOURCE_FILM_RECOVERY_BACKUP_KEY="1988-source-film-before-recovery-v3";
 const SOURCE_FILM_LEGACY_BACKUP_KEY="1988-source-film-before-recovery-v1";
 const GENERAL_SOURCE_SCOPE="general";
+const LIVE_SOURCE_SCOPE="live";
 
 const SOURCE_MANAGER_GROUPS=[
+  {key:"live",label:"LIVE"},
   {key:"general",label:"Mới nhất/Tuần này"},
   {key:"news",label:"Thời sự"},
   {key:"economy",label:"Kinh tế"},
@@ -267,6 +269,7 @@ let aiSuggestedSourceIds=new Map(
   [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
 );
 const temporaryGeneralSourceIds=new Set();
+const temporaryLiveSourceIds=new Set();
 try{localStorage.removeItem(SOURCE_AI_SUGGESTIONS_KEY);}catch{}
 
 function channelLibrary(){
@@ -734,13 +737,14 @@ function temporarySetForScope(scope=sourceManageGroup){
 }
 
 function sourceDiscoveryParentForGroup(group=sourceManageGroup){
+  if(String(group||"").trim()===LIVE_SOURCE_SCOPE)return null;
   group=sourceScope(group);
   if(group===GENERAL_SOURCE_SCOPE)return GENERAL_SOURCE_DISCOVERY_PARENT;
   return FIXED_CONTENT_CATEGORIES.find(item=>item.group===group)||null;
 }
 
 function allTemporarySourceIds(){
-  const ids=new Set(temporaryGeneralSourceIds);
+  const ids=new Set([...temporaryGeneralSourceIds,...temporaryLiveSourceIds]);
   for(const scope of CONTENT_SOURCE_SCOPES){
     for(const id of suggestedSetForScope(scope))ids.add(id);
   }
@@ -780,6 +784,7 @@ function sourceStatus(id,scope=sourceManageGroup){
 }
 
 function activeSourceScope(){
+  if(state.activeFeed==="live")return GENERAL_SOURCE_SCOPE;
   if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
   if(isSourceScopedFeed(state.activeFeed))return GENERAL_SOURCE_SCOPE;
   return "";
@@ -844,6 +849,7 @@ function persistStateSourceMetadata(id){
 }
 
 function setSourceStatus(id,status,scope=sourceManageGroup){
+  const requestedScope=String(scope||"").trim();
   scope=sourceScope(scope);
   id=String(id||"").trim();
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return;
@@ -856,6 +862,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
 
   const temporaryKnown=
     temporaryGeneralSourceIds.has(id)||
+    (requestedScope===LIVE_SOURCE_SCOPE&&temporaryLiveSourceIds.has(id))||
     suggestedSetForScope(scope).has(id);
 
   if(
@@ -1646,15 +1653,24 @@ function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
-  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
-  const blockedCount=blocked.size;
-  const totalCount=scope===GENERAL_SOURCE_SCOPE
-    ?rows.filter(isGeneralManagerSource).length
-    :new Set([
-        ...suggestedSetForScope(scope),
-        ...selected,
-        ...blocked
-      ]).size;
+  const liveIds=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?new Set(temporaryLiveSourceIds)
+    :null;
+  const selectedCount=liveIds
+    ?[...liveIds].filter(id=>selected.has(id)&&!blocked.has(id)).length
+    :[...selected].filter(id=>!blocked.has(id)).length;
+  const blockedCount=liveIds
+    ?[...liveIds].filter(id=>blocked.has(id)).length
+    :blocked.size;
+  const totalCount=liveIds
+    ?liveIds.size
+    :scope===GENERAL_SOURCE_SCOPE
+      ?rows.filter(isGeneralManagerSource).length
+      :new Set([
+          ...suggestedSetForScope(scope),
+          ...selected,
+          ...blocked
+        ]).size;
 
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
@@ -1874,7 +1890,9 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     let count=0;
-    if(group.key===GENERAL_SOURCE_SCOPE){
+    if(group.key===LIVE_SOURCE_SCOPE){
+      count=temporaryLiveSourceIds.size;
+    }else if(group.key===GENERAL_SOURCE_SCOPE){
       count=rows.filter(isGeneralManagerSource).length;
     }else{
       const ids=new Set([
@@ -1922,6 +1940,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
 
   const groupFilter=row=>{
     if(q||!sourceManageMode)return true;
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds.has(row.id);
     if(sourceManageGroup===GENERAL_SOURCE_SCOPE)return isGeneralManagerSource(row);
     return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
   };
@@ -1969,9 +1988,11 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     ){
       const message=q
         ?"Không có nguồn phù hợp"
-        :sourceManageGroup!==GENERAL_SOURCE_SCOPE
-          ?"Chưa có nguồn trong nhóm này"
-          :"Thư viện đang trống";
+        :sourceManageGroup===LIVE_SOURCE_SCOPE
+          ?"Chưa có nguồn LIVE đang phát"
+          :sourceManageGroup!==GENERAL_SOURCE_SCOPE
+            ?"Chưa có nguồn trong nhóm này"
+            :"Thư viện đang trống";
       parts.push('<div class="source-empty">'+message+'</div>');
     }
   }else{
@@ -2146,7 +2167,12 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
     if(reconciled.changed)stateChanged=true;
     if(reconciled.status!=="normal")continue;
 
-    if(hint===GENERAL_SOURCE_SCOPE){
+    if(hint===LIVE_SOURCE_SCOPE){
+      if(!temporaryLiveSourceIds.has(candidate.id)){
+        temporaryLiveSourceIds.add(candidate.id);
+        suggestionChanged=true;
+      }
+    }else if(hint===GENERAL_SOURCE_SCOPE){
       if(!temporaryGeneralSourceIds.has(candidate.id)){
         temporaryGeneralSourceIds.add(candidate.id);
         suggestionChanged=true;
@@ -2161,6 +2187,91 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
 
   if(stateChanged)persistReconciledSourceState();
   if(stateChanged||suggestionChanged)updateSourceSummary();
+}
+
+let liveSourceCandidateRefreshPromise=null;
+
+function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
+  const liveRows=(Array.isArray(rows)?rows:[])
+    .filter(row=>row?.isLive);
+
+  if(replace)temporaryLiveSourceIds.clear();
+
+  for(const row of liveRows){
+    const candidate=sourceCandidateFromVideo(row);
+    if(!candidate)continue;
+
+    sourceMetaCache.set(candidate.id,{
+      ...sourceMetaCache.get(candidate.id),
+      ...candidate
+    });
+
+    // LIVE is a view over the same manual source state as Mới nhất/Tuần này.
+    // Keep current LIVE channels visible even when they are already Chọn/Chặn.
+    temporaryLiveSourceIds.add(candidate.id);
+    reconcileSourceState(candidate,GENERAL_SOURCE_SCOPE);
+  }
+
+  if(liveRows.length||replace)updateSourceSummary();
+  return liveRows.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+}
+
+function seedLiveSourceCandidatesFromCache(){
+  try{
+    const cached=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+"live")||"null");
+    if(
+      !cached||
+      !Array.isArray(cached.items)||
+      Date.now()-Number(cached.at||0)>10*60*1000
+    )return;
+    rememberLiveSourceCandidates(cached.items,{replace:true});
+  }catch{}
+}
+
+async function refreshLiveSourceCandidatesInBackground(){
+  if(liveSourceCandidateRefreshPromise)return liveSourceCandidateRefreshPromise;
+
+  liveSourceCandidateRefreshPromise=(async()=>{
+    try{
+      const local=await localEngine(12000);
+      let rows=[];
+      try{
+        rows=await local.search("trực tiếp",{
+          type:"video",
+          features:["live"],
+          sort_by:"upload_date"
+        });
+      }catch{}
+
+      rows=(Array.isArray(rows)?rows:[]).filter(row=>row?.isLive);
+      if(!rows.length){
+        try{
+          rows=(await local.homePage("live-source-manager",true))
+            .filter(row=>row?.isLive);
+        }catch{}
+      }
+
+      if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
+        rows=await local.filterEmbeddableRows(rows,{
+          concurrency:4,
+          requirePlayable:true
+        });
+      }
+
+      const liveRows=rememberLiveSourceCandidates(rows,{replace:true});
+      if(!sourcesSheet?.hidden&&sourceManageGroup===LIVE_SOURCE_SCOPE){
+        refreshSourceManager();
+      }
+      return liveRows;
+    }catch(error){
+      console.warn("live source refresh failed",error);
+      return [];
+    }finally{
+      liveSourceCandidateRefreshPromise=null;
+    }
+  })();
+
+  return liveSourceCandidateRefreshPromise;
 }
 
 function addSource(row){
@@ -2181,7 +2292,9 @@ function addSource(row){
   // Mở/Lưu nguồn is temporary until the user explicitly chooses Chọn/Chặn.
   // Only the clicked channel ID is added; all sibling search results stay ephemeral.
   if(currentStatus==="normal"){
-    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      temporaryLiveSourceIds.add(id);
+    }else if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
       assignSourceGroup(id,sourceManageGroup);
     }else{
       temporaryGeneralSourceIds.add(id);
@@ -3048,7 +3161,7 @@ window.visualViewport?.addEventListener?.("resize",closeCardActionMenu,{passive:
 window.visualViewport?.addEventListener?.("scroll",closeCardActionMenu,{passive:true});
 
 function resetSourceManagerInstant(){
-  sourceManageGroup=GENERAL_SOURCE_SCOPE;
+  sourceManageGroup=LIVE_SOURCE_SCOPE;
   sourceBlockedExpanded=false;
   sourceRemoteResults=[];
   sourcePreviewRows=new Map();
@@ -3131,33 +3244,33 @@ function openSourceLibrary(){
   pinSourceManagerTop();
   sourcePreviewSeq++;
   closeSourceVideo();
-  sourceManageGroup=GENERAL_SOURCE_SCOPE;
+  sourceManageGroup=LIVE_SOURCE_SCOPE;
 
   setSourceManageMode(true,{render:false});
   resetSourcePreviewPane();
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
-  if(sourceList)sourceList.innerHTML='<div class="source-empty">Đang mở quản lý nguồn…</div>';
 
-  requestAnimationFrame(()=>{
-    try{
-      refreshSourceManager();
-      pinSourceManagerTop();
-    }catch(error){
-      console.error("open source manager failed",error);
-      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
-    }
+  try{
+    seedLiveSourceCandidatesFromCache();
+    refreshSourceManager();
+    pinSourceManagerTop();
+  }catch(error){
+    console.error("open source manager failed",error);
+    if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
+  }
 
-    setTimeout(()=>{
-      if(sourcesSheet.hidden)return;
-      pinSourceManagerTop();
-      const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
-      if(!parent)return;
-      void localEngine(12000)
-        .then(local=>discoverSourcesForParent(parent,local))
-        .catch(()=>{});
-    },120);
-  });
+  void refreshLiveSourceCandidatesInBackground();
+
+  setTimeout(()=>{
+    if(sourcesSheet.hidden)return;
+    pinSourceManagerTop();
+    const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
+    if(!parent)return;
+    void localEngine(12000)
+      .then(local=>discoverSourcesForParent(parent,local))
+      .catch(()=>{});
+  },120);
 
   setTimeout(()=>{
     pinSourceManagerTop();
@@ -3197,7 +3310,7 @@ function closeSourceLibrary(){
         feed.innerHTML='<div class="loading">Đang cập nhật nguồn…</div>';
         void loadAiParentDiscovery(parent);
       }
-    }else if(isSourceScopedFeed(state.activeFeed)){
+    }else if(state.activeFeed==="live"||isSourceScopedFeed(state.activeFeed)){
       void loadFeedPreset(state.activeFeed);
     }
   }
@@ -3269,6 +3382,12 @@ function setupSourceLibrary(){
       const groupAtClick=sourceManageGroup;
       setTimeout(()=>{
         if(sourcesSheet.hidden||sourceManageGroup!==groupAtClick)return;
+        if(groupAtClick===LIVE_SOURCE_SCOPE){
+          seedLiveSourceCandidatesFromCache();
+          refreshSourceManager();
+          void refreshLiveSourceCandidatesInBackground();
+          return;
+        }
         const parent=sourceDiscoveryParentForGroup(groupAtClick);
         if(!parent)return;
         void localEngine(12000)
@@ -10547,20 +10666,40 @@ const FEED_PRESETS={
     title:"LIVE",
     newest:true,
     load:async(local,reset)=>{
+      // Once the user has chosen sources, LIVE follows the same source pool as
+      // Mới nhất/Tuần này and never falls back to unrelated channels.
+      if(selectedSourceIds.size){
+        const selectedLive=await selectedSourceFeed(
+          local,
+          row=>row?.isLive===true,
+          reset
+        ).catch(()=>[]);
+        rememberLiveSourceCandidates(selectedLive);
+        return selectedLive;
+      }
+
+      // Before any source is selected, discovery is only a bootstrap so the
+      // LIVE source list can be shown and selected immediately.
       let rows=[];
       try{
-        rows=await pagedSearch(local,"live","trực tiếp",{features:["live"],sort_by:"upload_date"},reset);
-      }catch{}
-      const liveRows=rows.filter(row=>row?.isLive);
-      if(liveRows.length)return liveRows;
-      try{
-        return await local.homePage("live-regional",reset).then(items=>
-          items
-            .filter(row=>row?.isLive)
-            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+        rows=await pagedSearch(
+          local,
+          "live",
+          "trực tiếp",
+          {features:["live"],sort_by:"upload_date"},
+          reset
         );
+      }catch{}
+
+      let liveRows=rememberLiveSourceCandidates(rows);
+      if(liveRows.length)return liveRows;
+
+      try{
+        const fallback=await local.homePage("live-regional",reset);
+        liveRows=rememberLiveSourceCandidates(fallback);
+        return liveRows;
       }catch{
-        return rows;
+        return liveRows;
       }
     }
   },
