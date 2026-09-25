@@ -9,6 +9,13 @@ on:
       - 'src/yt-local.js'
       - 'index.html'
       - 'sw.js'
+  pull_request:
+    paths:
+      - '.github/workflows/diagnose-browser.yml'
+      - 'src/app.js'
+      - 'src/yt-local.js'
+      - 'index.html'
+      - 'sw.js'
 
 permissions:
   contents: read
@@ -245,15 +252,31 @@ jobs:
             const appSearchProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{
                 try{
-                  if(typeof doSearch!=='function')return JSON.stringify({ok:false,error:'doSearch_missing'});
-                  await doSearch('reviewer');
-                  await new Promise(r=>setTimeout(r,350));
-                  return JSON.stringify({
-                    ok:true,
+                  const form=document.querySelector('#searchForm');
+                  const input=document.querySelector('#queryInput');
+                  const snapshot=()=>({
+                    q:input?.value||'',
                     cards:document.querySelectorAll('#feed .card[data-video-id]').length,
                     feed:document.querySelector('#feed')?.innerText||'',
-                    status:document.querySelector('#feedStatus')?.innerText||''
+                    status:document.querySelector('#feedStatus')?.innerText||'',
+                    searchSeq:typeof state!=='undefined'?state.searchSeq:null,
+                    searchQuery:typeof state!=='undefined'?state.searchQuery:''
                   });
+                  if(!form||!input)return JSON.stringify({ok:false,error:'search_dom_missing'});
+
+                  const runSubmit=async q=>{
+                    input.focus();
+                    input.value=q;
+                    input.dispatchEvent(new Event('input',{bubbles:true}));
+                    if(typeof form.requestSubmit==='function')form.requestSubmit();
+                    else form.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+                    await new Promise(r=>setTimeout(r,4200));
+                    return snapshot();
+                  };
+
+                  const first=await runSubmit('ronaldo');
+                  const second=await runSubmit('tin tức thể thao');
+                  return JSON.stringify({ok:true,first,second});
                 }catch(e){
                   return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
                 }
@@ -263,8 +286,11 @@ jobs:
             });
             console.log('APP_SEARCH_PROBE',appSearchProbe?.result?.value);
             const appSearchState=JSON.parse(appSearchProbe?.result?.value||'{}');
-            if(!appSearchState.ok||Number(appSearchState.cards||0)<=0){
-              throw new Error('app_search_has_no_cards:'+String(appSearchProbe?.result?.value||''));
+            if(!appSearchState.ok||Number(appSearchState.first?.cards||0)<=0){
+              throw new Error('app_first_search_has_no_cards:'+String(appSearchProbe?.result?.value||''));
+            }
+            if(Number(appSearchState.second?.cards||0)<=0){
+              throw new Error('app_second_search_has_no_cards:'+String(appSearchProbe?.result?.value||''));
             }
 
             const rawProbe=await send('Runtime.evaluate',{
