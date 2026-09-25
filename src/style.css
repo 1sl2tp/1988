@@ -2883,3 +2883,60 @@ html.search-suggestions-open .suggestions{
   }
 }
 
+
+
+/* ============================================================
+   MOBILE CHROME CONTINUITY v300
+   The top bar, source/topic row and feed surface share one physical
+   background. State is shown by chips/text, not by changing the row surface.
+   This removes the visible horizontal colour seams on mobile.
+   ============================================================ */
+@media(max-width:720px){
+  :root{
+    --mobile-chrome-surface:#0b0b0c;
+    --mobile-chrome-separator:rgba(255,255,255,.055);
+  }
+
+  html:not(.watch-browse) body,
+  html.watch-browse body{
+    background:var(--mobile-chrome-surface);
+  }
+
+  html:not(.watch-browse) .header-inner,
+  html:not(.watch-browse) .header-nav,
+  html.watch-browse .header-inner,
+  html.watch-browse .header-nav{
+    background:var(--mobile-chrome-surface)!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .header-nav::after,
+  html.watch-browse .header-nav::after{
+    height:1px;
+    background:var(--mobile-chrome-separator);
+  }
+
+  html:not(.watch-browse) .app-shell,
+  html:not(.watch-browse) .feed-section,
+  html.watch-browse .feed-section,
+  html.watch-browse .section-head{
+    background:var(--mobile-chrome-surface)!important;
+  }
+
+  html.watch-browse .section-head{
+    backdrop-filter:none;
+    -webkit-backdrop-filter:none;
+    box-shadow:none;
+  }
+
+  /* Keep visual hierarchy inside the controls themselves rather than tinting
+     the full source row. */
+  html:not(.watch-browse) .topic-chips,
+  html.watch-browse .topic-chips,
+  html:not(.watch-browse) .header-nav-inner,
+  html.watch-browse .header-nav-inner{
+    background:transparent!important;
+  }
+}
