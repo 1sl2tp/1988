@@ -4390,6 +4390,9 @@ function showIframePlayer(){
 }
 
 let suggestionLayoutRaf=0;
+let normalSuggestionTimer=0;
+let normalSuggestionSeq=0;
+let normalSuggestionArmed=false;
 
 function clearSuggestionLayout(){
   if(suggestionLayoutRaf){
@@ -4477,27 +4480,48 @@ function syncSuggestionLayout(){
   });
 }
 
-function clearSuggestions(){
+function clearSearchSuggestionPanel({invalidate=true}={}){
+  if(invalidate){
+    clearTimeout(normalSuggestionTimer);
+    normalSuggestionTimer=0;
+    normalSuggestionSeq++;
+    normalSuggestionArmed=false;
+  }
+
   if(suggestions){
     suggestions.hidden=true;
     suggestions.innerHTML="";
   }
+  queryInput?.setAttribute?.("aria-expanded","false");
   clearSuggestionLayout();
+}
+
+function clearSearchRefinements(){
   if(searchRefinements){
     searchRefinements.hidden=true;
     searchRefinements.innerHTML="";
   }
 }
 
+function clearSuggestions(){
+  clearSearchSuggestionPanel();
+  clearSearchRefinements();
+}
+
 window.addEventListener("resize",syncSuggestionLayout,{passive:true});
 window.visualViewport?.addEventListener?.("resize",syncSuggestionLayout,{passive:true});
 window.visualViewport?.addEventListener?.("scroll",syncSuggestionLayout,{passive:true});
 
-let normalSuggestionTimer=0;
-let normalSuggestionSeq=0;
-
 function renderNormalSuggestions(items=[]){
   if(!suggestions)return;
+
+  // Suggestions only exist while the user is actively editing the query.
+  // A completed search must never be able to reopen the panel from a stale
+  // async suggestions response.
+  if(!normalSuggestionArmed||document.activeElement!==queryInput){
+    clearSearchSuggestionPanel({invalidate:false});
+    return;
+  }
   const values=[...new Set(
     (Array.isArray(items)?items:[])
       .map(value=>clean(typeof value==="string"?value:(value?.text||value?.query||value?.title||"")))
@@ -4505,9 +4529,7 @@ function renderNormalSuggestions(items=[]){
   )].slice(0,8);
 
   if(!values.length){
-    suggestions.hidden=true;
-    suggestions.innerHTML="";
-    clearSuggestionLayout();
+    clearSearchSuggestionPanel({invalidate:false});
     return;
   }
 
@@ -4515,12 +4537,18 @@ function renderNormalSuggestions(items=[]){
     '<button type="button" data-search-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
   ).join("");
   suggestions.hidden=false;
+  queryInput?.setAttribute?.("aria-expanded","true");
   syncSuggestionLayout();
 }
 
 async function loadNormalSuggestions(value){
   const q=clean(value);
   const seq=++normalSuggestionSeq;
+
+  if(!normalSuggestionArmed||document.activeElement!==queryInput){
+    return;
+  }
+
   if(q.length<2){
     renderNormalSuggestions([]);
     return;
@@ -4528,16 +4556,35 @@ async function loadNormalSuggestions(value){
 
   try{
     const response=await api("suggestions",{q},4200);
-    if(seq!==normalSuggestionSeq||clean(queryInput?.value)!==q)return;
+    if(
+      seq!==normalSuggestionSeq||
+      !normalSuggestionArmed||
+      document.activeElement!==queryInput||
+      clean(queryInput?.value)!==q
+    )return;
+
     renderNormalSuggestions(Array.isArray(response?.data)?response.data:[]);
   }catch{
-    if(seq===normalSuggestionSeq)renderNormalSuggestions([]);
+    if(
+      seq===normalSuggestionSeq&&
+      normalSuggestionArmed&&
+      document.activeElement===queryInput
+    ){
+      renderNormalSuggestions([]);
+    }
   }
 }
 
 function scheduleNormalSuggestions(){
   clearTimeout(normalSuggestionTimer);
-  normalSuggestionTimer=setTimeout(()=>void loadNormalSuggestions(queryInput?.value||""),160);
+  normalSuggestionTimer=0;
+
+  if(!normalSuggestionArmed||document.activeElement!==queryInput)return;
+
+  normalSuggestionTimer=setTimeout(()=>{
+    normalSuggestionTimer=0;
+    void loadNormalSuggestions(queryInput?.value||"");
+  },160);
 }
 
 
@@ -9263,16 +9310,21 @@ searchForm.addEventListener("submit",e=>{
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
 queryInput.addEventListener("input",()=>{
-  if(searchRefinements){
-    searchRefinements.hidden=true;
-    searchRefinements.innerHTML="";
-  }
+  normalSuggestionArmed=true;
+  clearSearchRefinements();
   scheduleNormalSuggestions();
 });
 
 queryInput.addEventListener("focus",()=>{
+  normalSuggestionArmed=true;
   if(clean(queryInput.value).length>=2)scheduleNormalSuggestions();
 });
+
+document.addEventListener("pointerdown",event=>{
+  const target=event.target;
+  if(searchForm?.contains(target)||suggestions?.contains(target))return;
+  clearSearchSuggestionPanel();
+},{passive:true});
 
 suggestions?.addEventListener("click",event=>{
   const button=event.target.closest("[data-search-suggestion]");
@@ -9283,6 +9335,13 @@ suggestions?.addEventListener("click",event=>{
   clearSuggestions();
   void doSearch(value);
   queryInput.blur();
+});
+
+queryInput.addEventListener("blur",()=>{
+  requestAnimationFrame(()=>{
+    if(document.activeElement&&suggestions?.contains(document.activeElement))return;
+    clearSearchSuggestionPanel();
+  });
 });
 
 const desktopCardColorCache=new Map();
