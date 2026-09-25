@@ -2816,3 +2816,24 @@ html.search-suggestions-open .suggestions{
     column-gap:14px;
   }
 }
+
+
+/* ============================================================
+   FEED SCROLLBAR GUTTER v294
+   Keep scrollbar space outside the 2W recommendation geometry.
+   The second card ends before the scrollbar instead of touching it.
+   ============================================================ */
+@media(min-width:960px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    width:var(--watch-feed-column-w,100%);
+    max-width:var(--watch-feed-column-w,100%);
+    box-sizing:border-box;
+    scrollbar-gutter:stable;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed:not(.search-grouped),
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-loading-grid{
+    width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
+    max-width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
+  }
+}
