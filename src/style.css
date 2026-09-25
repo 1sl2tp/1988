@@ -991,6 +991,19 @@ html.search-suggestions-open .suggestions{
    ============================================================ */
 
 @media(min-width:960px){
+  .feed-loading-grid{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:14px;
+    width:100%;
+  }
+  .feed-loading-grid span{
+    display:block;
+    aspect-ratio:16/10;
+    border-radius:10px;
+    background:#1d1d20;
+  }
+
   html.watch-browse,
   html.watch-browse body{
     height:100%;
@@ -2016,6 +2029,48 @@ html.search-suggestions-open .suggestions{
     background:#0b0b0c;
   }
 
+  /* Portrait/long video uses the browser page as the only vertical scroller.
+     No nested feed scroller: swipe upward on the video and continue naturally
+     to Sources + the next cards. */
+  html.watch-browse.watch-video-portrait{
+    height:auto;
+    min-height:100%;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior-y:auto;
+  }
+
+  html.watch-browse.watch-video-portrait body{
+    height:auto;
+    min-height:100dvh;
+    overflow-y:visible;
+    overflow-x:hidden;
+    overscroll-behavior-y:auto;
+    grid-template-rows:
+      calc(var(--watch-top-row-h) + var(--safe-top))
+      var(--watch-stage-h,auto)
+      var(--watch-source-row-h)
+      auto;
+  }
+
+  html.watch-browse.watch-video-portrait .player-section{
+    height:var(--watch-stage-h,auto);
+    min-height:var(--watch-stage-h,auto);
+    max-height:none;
+  }
+
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe){
+    max-height:none;
+  }
+
+  html.watch-browse.watch-video-portrait .feed-section{
+    min-height:0;
+    height:auto;
+    overflow:visible;
+    overscroll-behavior-y:auto;
+    -webkit-overflow-scrolling:auto;
+  }
+
   html.watch-browse .section-head{
     display:flex;
     align-items:center;
@@ -2046,6 +2101,21 @@ html.search-suggestions-open .suggestions{
     width:100%;
     min-height:min-content;
     gap:0;
+  }
+
+  html.watch-browse .feed-loading-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:10px;
+    width:100%;
+    padding:0;
+  }
+
+  html.watch-browse .feed-loading-grid span{
+    display:block;
+    width:100%;
+    aspect-ratio:16/10;
+    background:#1d1d20;
   }
 
   html.watch-browse .feed>.card{
