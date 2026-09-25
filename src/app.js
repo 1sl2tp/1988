@@ -10803,20 +10803,9 @@ const FEED_PRESETS={
     title:"LIVE",
     newest:true,
     load:async(local,reset)=>{
-      // Once the user has chosen sources, LIVE follows the same source pool as
-      // Mới nhất/Tuần này and never falls back to unrelated channels.
-      if(selectedSourceIds.size){
-        const selectedLive=await selectedSourceFeed(
-          local,
-          row=>row?.isLive===true,
-          reset
-        ).catch(()=>[]);
-        rememberLiveSourceCandidates(selectedLive);
-        return selectedLive;
-      }
-
-      // Before any source is selected, discovery is only a bootstrap so the
-      // LIVE source list can be shown and selected immediately.
+      // LIVE remains a global livestream discovery feed. The LIVE Chọn/Chặn
+      // state only filters/prioritizes this LIVE feed and never supplies
+      // Mới nhất/Tuần này.
       let rows=[];
       try{
         rows=await pagedSearch(
@@ -10824,20 +10813,31 @@ const FEED_PRESETS={
           "live",
           "trực tiếp",
           {features:["live"],sort_by:"upload_date"},
-          reset
+          reset,
+          LIVE_SOURCE_SCOPE
         );
       }catch{}
 
       let liveRows=rememberLiveSourceCandidates(rows);
-      if(liveRows.length)return liveRows;
-
-      try{
-        const fallback=await local.homePage("live-regional",reset);
-        liveRows=rememberLiveSourceCandidates(fallback);
-        return liveRows;
-      }catch{
-        return liveRows;
+      if(!liveRows.length){
+        try{
+          const fallback=await local.homePage("live-regional",reset);
+          liveRows=rememberLiveSourceCandidates(fallback);
+        }catch{}
       }
+
+      const selected=selectedSetForScope(LIVE_SOURCE_SCOPE);
+      return liveRows
+        .filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))
+        .map((row,index)=>({
+          row,
+          index,
+          interested:selected.has(String(
+            row?._sourceId||row?.channelId||row?.uploaderId||""
+          ))?1:0
+        }))
+        .sort((a,b)=>b.interested-a.interested||a.index-b.index)
+        .map(item=>item.row);
     }
   },
   latest:{
@@ -10847,7 +10847,8 @@ const FEED_PRESETS={
       local,
       uploadedWithinLatest,
       reset,
-      onBatch
+      onBatch,
+      LATEST_SOURCE_SCOPE
     )
   },
   week:{
@@ -10857,7 +10858,8 @@ const FEED_PRESETS={
       local,
       uploadedWithinWeek,
       reset,
-      onBatch
+      onBatch,
+      WEEK_SOURCE_SCOPE
     )
   }
 };
@@ -10867,26 +10869,34 @@ function readFeedCache(name){
     const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
 
-    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature()){
-      const selectedIds=new Set(selectedSources().map(source=>source.id));
+    const scope=isSourceScopedFeed(name)
+      ?feedSourceScope(name)
+      :name===LIVE_SOURCE_SCOPE
+        ?LIVE_SOURCE_SCOPE
+        :GENERAL_SOURCE_SCOPE;
+
+    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature(scope)){
+      const selectedIds=new Set(selectedSources(scope).map(source=>source.id));
+      const blocked=blockedSetForScope(scope);
       return row.items.filter(item=>{
         const sourceId=String(item?._sourceId||item?.channelId||item?.uploaderId||"");
-        if(sourceId)return selectedIds.has(sourceId)&&!blockedSourceIds.has(sourceId);
-        return !isBlockedSourceRow(item);
+        if(sourceId)return selectedIds.has(sourceId)&&!blocked.has(sourceId);
+        return !isBlockedSourceRow(item,scope);
       });
     }
 
-    return row.items.filter(item=>!isBlockedSourceRow(item));
+    return row.items.filter(item=>!isBlockedSourceRow(item,scope));
   }catch{
     return [];
   }
 }
 
 function saveFeedCache(name,rows){
+  const scope=isSourceScopedFeed(name)?feedSourceScope(name):GENERAL_SOURCE_SCOPE;
   try{
     localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
       at:Date.now(),
-      sourceSignature:isSourceScopedFeed(name)?sourceSignature():"",
+      sourceSignature:isSourceScopedFeed(name)?sourceSignature(scope):"",
       items:rows.slice(0,90)
     }));
   }catch{}
