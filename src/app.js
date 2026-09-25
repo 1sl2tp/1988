@@ -11982,7 +11982,7 @@ function freshSnapshotRowsForFeed(name){
 function applyActiveFeedSnapshot(name,{force=false}={}){
   if(
     state.searchResultsActive||
-    document.documentElement.classList.contains("watch-browse")||
+    watchPlaybackVisible()||
     state.activeFeed!==name||
     state.activeParent||
     state.activeTrend
@@ -12018,7 +12018,7 @@ function applyActiveCategorySnapshot(parent,{force=false}={}){
   if(
     !parent?.key||
     state.searchResultsActive||
-    document.documentElement.classList.contains("watch-browse")||
+    watchPlaybackVisible()||
     state.activeParent!==parent.key||
     state.activeTrend
   )return false;
@@ -12920,6 +12920,26 @@ setInterval(()=>{
   if(document.hidden||state.searchResultsActive)return;
   void refreshAllSourceSnapshotsInBackground({force:true});
 },SOURCE_FEED_AUTO_REFRESH_MS);
+
+// A normal browser tab may be restored from session/BFCache with an old in-memory
+// feed even though the server package has already changed. Incognito starts from
+// a clean page, which is why it can look newer. On every real resume, compare
+// against the authoritative server manifest immediately and repaint the active
+// feed when no video is currently playing.
+let packageResumeSyncAt=0;
+function syncServerPackagesOnResume(){
+  if(document.hidden||state.searchResultsActive)return;
+  const now=Date.now();
+  if(now-packageResumeSyncAt<1500)return;
+  packageResumeSyncAt=now;
+  void refreshAllSourceSnapshotsInBackground({force:true});
+}
+
+window.addEventListener("pageshow",syncServerPackagesOnResume,{passive:true});
+window.addEventListener("focus",syncServerPackagesOnResume,{passive:true});
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")syncServerPackagesOnResume();
+},{passive:true});
 
 async function loadInitialFeed(){
   await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
