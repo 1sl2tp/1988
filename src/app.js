@@ -5117,6 +5117,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-side-gap");
     root.style.removeProperty("--watch-player-column-w");
     root.style.removeProperty("--watch-feed-column-w");
+    root.style.removeProperty("--watch-feed-content-w");
+    root.style.removeProperty("--watch-scroll-gutter");
     root.style.removeProperty("--watch-card-unit");
   };
 
@@ -5201,14 +5203,17 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
     const layoutGap=parseFloat(shellStyle?.columnGap)||14;
     const feedGap=parseFloat(feedStyle?.columnGap)||14;
+    const scrollGutter=10;
     const playerUnits=ratio>=1.2?2:1;
     const totalUnits=2+playerUnits;
 
-    // First solve W from the horizontal equation:
-    // innerWidth = 2W + feedGap + layoutGap + playerUnits*W.
+    // First solve W from the horizontal equation. Reserve a real scrollbar
+    // gutter outside the 2-card geometry so the right card never touches or
+    // sits underneath the feed scrollbar.
+    // innerWidth = 2W + feedGap + scrollGutter + layoutGap + playerUnits*W.
     const widthUnit=Math.max(
       1,
-      (innerWidth-feedGap-layoutGap)/totalUnits
+      (innerWidth-feedGap-scrollGutter-layoutGap)/totalUnits
     );
 
     // Then apply only the natural vertical constraint of the actual video.
@@ -5228,10 +5233,13 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
 
     const playerWidth=playerUnits*unit;
     const playerHeight=playerWidth/ratio;
-    const feedWidth=2*unit+feedGap;
+    const feedContentWidth=2*unit+feedGap;
+    const feedColumnWidth=feedContentWidth+scrollGutter;
 
     root.style.setProperty("--watch-card-unit",Math.round(unit*100)/100+"px");
-    root.style.setProperty("--watch-feed-column-w",Math.round(feedWidth*100)/100+"px");
+    root.style.setProperty("--watch-feed-content-w",Math.round(feedContentWidth*100)/100+"px");
+    root.style.setProperty("--watch-feed-column-w",Math.round(feedColumnWidth*100)/100+"px");
+    root.style.setProperty("--watch-scroll-gutter",scrollGutter+"px");
     root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
 
     frame.style.setProperty("--watch-player-width",Math.round(playerWidth)+"px");
