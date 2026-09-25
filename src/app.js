@@ -10339,7 +10339,20 @@ const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
 const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
+const SOURCE_FIRST_PAINT_ROWS=6;
+const SOURCE_FIRST_PAINT_TIMEOUT_MS=6500;
+const SOURCE_FULL_VERIFY_TIMEOUT_MS=14000;
 let sourceFeedPendingRenderName="";
+
+function sourceTimeout(promise,ms,label="source_timeout"){
+  let timer=0;
+  return Promise.race([
+    promise,
+    new Promise((_,reject)=>{
+      timer=setTimeout(()=>reject(new Error(label)),Math.max(500,Number(ms)||500));
+    })
+  ]).finally(()=>clearTimeout(timer));
+}
 
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
@@ -10513,10 +10526,41 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         );
         let rows=(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // Source feeds use the same playability gate as Search. Private,
-        // deleted/unavailable and embed-disabled videos must never enter cache.
+        // First paint: verify only a handful of newest rows first and emit them
+        // immediately. This keeps strict private/embed filtering without making
+        // the UI wait for the entire channel snapshot.
+        if(
+          reset &&
+          typeof onBatch==="function" &&
+          rows.length &&
+          typeof local?.filterEmbeddableRows==="function"
+        ){
+          try{
+            const previewCandidates=rows.slice(0,SOURCE_FIRST_PAINT_ROWS);
+            const previewRows=await sourceTimeout(
+              local.filterEmbeddableRows(
+                previewCandidates,
+                {concurrency:SOURCE_FIRST_PAINT_ROWS,requirePlayable:true}
+              ),
+              SOURCE_FIRST_PAINT_TIMEOUT_MS,
+              "source_first_paint_timeout"
+            );
+            if(Array.isArray(previewRows)&&previewRows.length){
+              emit(previewRows,source,{cached:false,preview:true});
+            }
+          }catch(error){
+            console.warn("source first paint probe failed",source.id,error);
+          }
+        }
+
+        // Full source verification continues after first paint. A timeout skips
+        // this source for the current refresh rather than freezing every feed.
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          rows=await local.filterEmbeddableRows(rows,{concurrency:5,requirePlayable:true});
+          rows=await sourceTimeout(
+            local.filterEmbeddableRows(rows,{concurrency:8,requirePlayable:true}),
+            SOURCE_FULL_VERIFY_TIMEOUT_MS,
+            "source_full_verify_timeout"
+          );
         }
 
         if(reset){
@@ -11036,6 +11080,22 @@ async function loadFeedPreset(name="latest"){
     feedStatus.textContent="";
   }
 
+  const firstPaintWatchdog=
+    isSourceScopedFeed(name)&&!cached.length
+      ?setTimeout(()=>{
+          if(
+            seq!==state.feedSeq ||
+            state.activeFeed!==name ||
+            state.feedRows.length
+          )return;
+          feed.innerHTML=
+            '<div class="error">Nguồn đang phản hồi chậm.<br>'+
+            '<button class="retry-feed" type="button">Tải lại</button></div>';
+          feedStatus.textContent="";
+          state.feedLoading=false;
+        },9000)
+      :0;
+
   try{
     let local=null;
     local=await localEngine(16000);
@@ -11100,6 +11160,7 @@ async function loadFeedPreset(name="latest"){
       feedStatus.textContent="Dữ liệu gần nhất";
     }
   }finally{
+    if(firstPaintWatchdog)clearTimeout(firstPaintWatchdog);
     if(seq===state.feedSeq)state.feedLoading=false;
     setTimeout(maybeLoadMoreFeed,120);
   }

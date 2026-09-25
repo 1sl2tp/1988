@@ -14,10 +14,32 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Capture browser console
         shell: bash
         run: |
           set -euo pipefail
+          EXPECTED="$(grep -oE 'watch-browse-[0-9]+' index.html | tail -1)"
+          export EXPECTED
+          echo "EXPECTED=$EXPECTED"
+
+          READY=0
+          for i in $(seq 1 60); do
+            BODY="$(curl -fsS -H 'Cache-Control: no-cache' "https://yt.taphoa.xyz/?diag=$GITHUB_SHA-$i" || true)"
+            if printf '%s' "$BODY" | grep -q "$EXPECTED"; then
+              READY=1
+              echo "Production has $EXPECTED"
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" != "1" ]; then
+            echo "Production did not reach $EXPECTED in time"
+            exit 1
+          fi
+
           CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
           echo "CHROME=$CHROME"
           "$CHROME" --headless --no-sandbox --disable-gpu --disable-dev-shm-usage             --remote-debugging-port=9222 about:blank >/tmp/chrome.log 2>&1 &
@@ -68,8 +90,28 @@ jobs:
             await send('Runtime.enable');
             await send('Network.enable');
             await send('Page.enable');
-            await send('Page.navigate',{url:'https://yt.taphoa.xyz/'});
-            await sleep(12000);
+            const expected=process.env.EXPECTED||'';
+            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?diag='+Date.now()});
+
+            let stateValue='';
+            for(let i=0;i<40;i++){
+              await sleep(1000);
+              const snapshot=await send('Runtime.evaluate',{
+                expression:`JSON.stringify({
+                  feed:document.querySelector('#feed')?.innerText||'',
+                  cards:document.querySelectorAll('#feed .card').length,
+                  scripts:[...document.scripts].map(s=>s.src).filter(Boolean)
+                })`,
+                returnByValue:true
+              });
+              stateValue=snapshot?.result?.value||'';
+              let parsed={};
+              try{parsed=JSON.parse(stateValue||'{}')}catch{}
+              const versionOk=(parsed.scripts||[]).some(src=>src.includes(expected));
+              const leftLoading=!String(parsed.feed||'').includes('Đang tải');
+              if(versionOk&&(Number(parsed.cards||0)>0||leftLoading))break;
+            }
+
             const res=await send('Runtime.evaluate',{
               expression:`JSON.stringify({
                 feed:document.querySelector('#feed')?.innerText,
@@ -82,6 +124,12 @@ jobs:
               returnByValue:true
             });
             console.log('STATE',res?.result?.value);
+            const state=JSON.parse(res?.result?.value||'{}');
+            const versionOk=(state.scripts||[]).some(src=>src.includes(expected));
+            if(!versionOk)throw new Error('production_version_mismatch:'+expected);
+            if(String(state.feed||'').includes('Đang tải')){
+              throw new Error('feed_still_loading');
+            }
 
             const playerProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{
