@@ -8691,3 +8691,44 @@ html:not(.watch-browse).home-search-open .header-inner{
     content:none!important;
   }
 }
+
+
+/* ============================================================
+   HOME HIDDEN CHROME CLEANUP v223
+   When Home chrome auto-hides while scrolling, hide the shared ambient
+   surface itself too. No translucent/blurred Search+Sources-sized band remains.
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse).home-header-hidden .app-header{
+    background:transparent!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-inner,
+  html:not(.watch-browse).home-header-hidden .header-nav{
+    background:transparent!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-nav::after{
+    display:none!important;
+    content:none!important;
+  }
+
+  /* Avatar geometry never changes while the real image resolves. */
+  html:not(.watch-browse) .card-avatar,
+  html.watch-browse .card-avatar{
+    contain:layout paint!important;
+  }
+
+  html:not(.watch-browse) .card-avatar img,
+  html.watch-browse .card-avatar img{
+    opacity:1!important;
+    transition:none!important;
+    animation:none!important;
+  }
+}
