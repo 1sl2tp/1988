@@ -8618,3 +8618,76 @@ html:not(.watch-browse).home-search-open .header-inner{
     height:100%!important;
   }
 }
+
+
+/* ============================================================
+   SOURCE ROW SINGLE DIVIDER v221
+   Mobile:
+   - exactly ONE divider under the whole source/chip row
+   - full viewport width, 2px thick
+   - no individual chip underline
+   - no second divider under "Mới nhất"
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse) .header-nav,
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    position:relative!important;
+    border-top:0!important;
+    border-bottom:0!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+  }
+
+  html:not(.watch-browse) .header-nav::after,
+  html.watch-browse .header-nav::after,
+  html.watch-browse.watch-categories-open .header-nav::after{
+    content:""!important;
+    display:block!important;
+    position:absolute!important;
+    left:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:100%!important;
+    height:2px!important;
+    background:rgba(255,255,255,.14)!important;
+    border:0!important;
+    border-radius:0!important;
+    pointer-events:none!important;
+    z-index:20!important;
+  }
+
+  /* Chips never draw their own underline. */
+  html:not(.watch-browse) .topic-chip,
+  html:not(.watch-browse) .topic-chip.active,
+  html.watch-browse .topic-chip,
+  html.watch-browse .topic-chip.active{
+    border-bottom:0!important;
+    text-decoration:none!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip::before,
+  html:not(.watch-browse) .topic-chip::after,
+  html:not(.watch-browse) .topic-chip.active::before,
+  html:not(.watch-browse) .topic-chip.active::after,
+  html.watch-browse .topic-chip::before,
+  html.watch-browse .topic-chip::after,
+  html.watch-browse .topic-chip.active::before,
+  html.watch-browse .topic-chip.active::after{
+    border-bottom:0!important;
+    text-decoration:none!important;
+    box-shadow:none!important;
+  }
+
+  /* Remove the old second divider under "Mới nhất". */
+  html.watch-browse .section-head{
+    border-bottom:0!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .section-head::after{
+    display:none!important;
+    content:none!important;
+  }
+}
