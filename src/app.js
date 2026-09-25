@@ -762,11 +762,6 @@ function serverStateSnapshot(){
       durableIds.has(row.id)
     ),
     sourceGroups:{},
-    sourceNames:Object.fromEntries(
-      Object.entries(sourceNameOverrides||{})
-        .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
-        .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
-    ),
     scopedSelected:scopedStateObject(scopedSelectedSourceIds),
     scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
     avatars:{}
@@ -811,12 +806,16 @@ function applyServerState(remote={}){
       sourceGroupOverrides=remote.sourceGroups;
     }
 
-    if(remote.sourceNames&&typeof remote.sourceNames==="object"&&!Array.isArray(remote.sourceNames)){
-      sourceNameOverrides=Object.fromEntries(
-        Object.entries(remote.sourceNames)
-          .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
+    // The state service stores source metadata row-by-row. Reuse those saved
+    // names as display overrides so an admin rename follows the account across
+    // devices instead of being replaced by fresh YouTube metadata.
+    if(Array.isArray(remote.customSources)){
+      const savedNames=Object.fromEntries(
+        remote.customSources
+          .map(row=>[String(row?.id||"").trim(),clean(row?.name||"")])
           .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
       );
+      sourceNameOverrides={...sourceNameOverrides,...savedNames};
     }
 
     const scopeVersion=Number(remote.sourceScopeVersion)||0;
@@ -2450,23 +2449,47 @@ function renameManagedSource(id){
     libraryRow(id)||
     {id};
 
-  const current=clean(sourceNameOverrides[id]||sourceMetaFor(row).name||row.name||"");
-  const entered=window.prompt(
-    "Đổi tên nguồn\nĐể trống để dùng lại tên gốc trên YouTube.",
-    current
-  );
+  const meta=sourceMetaFor(row);
+  const current=clean(sourceNameOverrides[id]||meta.name||row.name||"");
+  const entered=window.prompt("Đổi tên nguồn",current);
   if(entered===null)return false;
 
   const next=clean(entered);
-  if(next){
-    sourceNameOverrides[id]=next;
+  if(!next||next===current)return false;
+
+  sourceNameOverrides[id]=next;
+
+  // Store the edited display name in the same durable source metadata that
+  // Chọn/Chặn already syncs through Supabase. This works for built-in channels
+  // too: customSources acts as the user's metadata override for that channel ID.
+  const existing=customSources.find(item=>item?.id===id);
+  const payload={
+    id,
+    name:next,
+    thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row?.thumbnailUrl||""),
+    subscribers:clean(meta.subscribers||row?.subscribers||"")
+  };
+  if(existing){
+    existing.name=next;
+    if(payload.thumbnailUrl)existing.thumbnailUrl=payload.thumbnailUrl;
+    if(payload.subscribers)existing.subscribers=payload.subscribers;
   }else{
-    delete sourceNameOverrides[id];
+    customSources.push(payload);
   }
 
   persistSourceLibrary();
   invalidateSourceStateNameIndex?.();
-  scheduleServerStatePush(80);
+
+  // Update every durable row for this channel immediately so the renamed
+  // source is the same on PC, mobile and PWA without waiting for a full sync.
+  for(const scope of [GENERAL_SOURCE_SCOPE,...MANAGED_SOURCE_SCOPES]){
+    const status=sourceStatus(id,scope);
+    if(status==="selected"||status==="blocked"){
+      void queueDirectSourceStateWrite(id,status,scope);
+    }
+  }
+  scheduleServerStatePush(120);
+
   refreshSourceManager();
   syncSourcePreviewHeader();
   return true;
