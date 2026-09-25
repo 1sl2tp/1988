@@ -8451,3 +8451,30 @@ html:not(.watch-browse).home-search-open .header-inner{
     margin:0!important;
   }
 }
+
+
+/* ============================================================
+   CANONICAL SOURCE AVATAR v218
+   One source/channel = one real avatar. Never display initial-letter fallbacks.
+   Empty slots are neutral only while the canonical image is resolving.
+   ============================================================ */
+.card-avatar,
+.source-avatar{
+  color:transparent!important;
+  text-indent:-9999px!important;
+}
+
+.card-avatar:empty,
+.source-avatar:empty{
+  background:#232326!important;
+}
+
+.card-avatar>span,
+.source-avatar>span{
+  display:none!important;
+}
+
+.card-avatar img,
+.source-avatar img{
+  text-indent:0!important;
+}
