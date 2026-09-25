@@ -2402,13 +2402,8 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
 
 function seedLiveSourceCandidatesFromCache(){
   try{
-    const cached=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+"live")||"null");
-    if(
-      !cached||
-      !Array.isArray(cached.items)||
-      Date.now()-Number(cached.at||0)>10*60*1000
-    )return;
-    rememberLiveSourceCandidates(cached.items,{replace:true});
+    const rows=readFeedCache(LIVE_SOURCE_SCOPE);
+    if(rows.length)rememberLiveSourceCandidates(rows,{replace:true});
   }catch{}
 }
 
@@ -10700,19 +10695,9 @@ function saveSourcePoolCache(rows=[],scope=LATEST_SOURCE_SCOPE){
   return items;
 }
 
-function primeSourceFeedCache(rows=[],scope=LATEST_SOURCE_SCOPE){
-  scope=sourceScope(scope);
-  if(scope===LATEST_SOURCE_SCOPE){
-    saveFeedCache(LATEST_SOURCE_SCOPE,sortPresetRows(
-      rows.filter(uploadedWithinLatest),
-      FEED_PRESETS.latest
-    ));
-  }else if(scope===WEEK_SOURCE_SCOPE){
-    saveFeedCache(WEEK_SOURCE_SCOPE,sortPresetRows(
-      rows.filter(uploadedWithinWeek),
-      FEED_PRESETS.week
-    ));
-  }
+function primeSourceFeedCache(){
+  // Source-pool cache is raw transport data only. Final feed snapshots are
+  // committed exclusively by packageRowsWithAi(), never by per-channel refresh.
 }
 
 function replaceSourceInPoolCache(source,rows=[],scope=LATEST_SOURCE_SCOPE){
@@ -11389,8 +11374,12 @@ async function loadFeedPreset(name="latest"){
       activeFeedScope
     ).filter(predicate);
     if(perSourceCached.length){
-      reserve=sortPresetRows(perSourceCached,preset);
-      saveFeedCache(name,reserve);
+      const rawReserve=sortPresetRows(perSourceCached,preset);
+      reserve=await packageRowsWithAi("feed:"+name,rawReserve,{
+        sourceSignature:sourceSignature(activeFeedScope),
+        maxRows:90
+      });
+      cleanupLegacyFeedCaches(name);
     }
   }
 
