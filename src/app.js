@@ -779,21 +779,22 @@ document.addEventListener("visibilitychange",()=>{
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
+  if(scope===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds;
+  if(AI_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
   if(scope===GENERAL_SOURCE_SCOPE)return temporaryGeneralSourceIds;
-  if(CONTENT_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
   return new Set();
 }
 
 function sourceDiscoveryParentForGroup(group=sourceManageGroup){
-  if(String(group||"").trim()===LIVE_SOURCE_SCOPE)return null;
   group=sourceScope(group);
-  if(group===GENERAL_SOURCE_SCOPE)return GENERAL_SOURCE_DISCOVERY_PARENT;
+  if(group===LIVE_SOURCE_SCOPE)return null;
+  if(FEED_SOURCE_SCOPES.has(group))return FEED_SOURCE_DISCOVERY_PARENTS[group]||null;
   return FIXED_CONTENT_CATEGORIES.find(item=>item.group===group)||null;
 }
 
 function allTemporarySourceIds(){
   const ids=new Set([...temporaryGeneralSourceIds,...temporaryLiveSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of AI_SOURCE_SCOPES){
     for(const id of suggestedSetForScope(scope))ids.add(id);
   }
   return ids;
@@ -832,9 +833,9 @@ function sourceStatus(id,scope=sourceManageGroup){
 }
 
 function activeSourceScope(){
-  if(state.activeFeed==="live")return GENERAL_SOURCE_SCOPE;
+  if(state.activeFeed===LIVE_SOURCE_SCOPE)return LIVE_SOURCE_SCOPE;
   if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
-  if(isSourceScopedFeed(state.activeFeed))return GENERAL_SOURCE_SCOPE;
+  if(isSourceScopedFeed(state.activeFeed))return feedSourceScope(state.activeFeed);
   return "";
 }
 
@@ -910,7 +911,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
 
   const temporaryKnown=
     temporaryGeneralSourceIds.has(id)||
-    (requestedScope===LIVE_SOURCE_SCOPE&&temporaryLiveSourceIds.has(id))||
+    temporaryLiveSourceIds.has(id)||
     suggestedSetForScope(scope).has(id);
 
   if(
@@ -936,7 +937,8 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   }
 
   temporaryGeneralSourceIds.delete(id);
-  if(CONTENT_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
+  if(scope!==LIVE_SOURCE_SCOPE)temporaryLiveSourceIds.delete(id);
+  if(AI_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
 
   if(status==="blocked")hideBlockedSourceNow(id,scope);
 
