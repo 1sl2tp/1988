@@ -13,14 +13,14 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-244">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-245">
   <title>1988</title>
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <a class="brand" href="./" aria-label="1988">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 18"><path d="M9.2 5.1 15.8 9l-6.6 3.9Z"></path></svg></span><strong>1988</strong>
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 18"><path d="M7.55 3.55 17.55 9 7.55 14.45Z"></path></svg></span><strong>1988</strong>
       </a>
       <form id="searchForm" class="header-search" autocomplete="off">
         <button id="homeSearchToggle" class="search-icon home-search-toggle" type="button" aria-label="Mở tìm kiếm"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg></button>
@@ -42,7 +42,7 @@
     <nav class="header-nav" aria-label="Điều hướng nội dung">
       <div class="header-nav-inner">
         <section id="topicChips" class="topic-chips" aria-label="Khám phá">
-          <button class="topic-chip live-chip" type="button" data-feed="live" aria-label="LIVE" title="LIVE"><svg class="live-chip-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="2.2"></circle><path d="M8.6 8.6a4.8 4.8 0 0 0 0 6.8M15.4 8.6a4.8 4.8 0 0 1 0 6.8M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"></path></svg></button>
+          <button class="topic-chip live-chip" type="button" data-feed="live" aria-label="LIVE" title="LIVE"><svg class="live-chip-icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="live-chip-dot" cx="12" cy="12" r="2.55"></circle><path class="live-chip-wave" d="M8.35 8.25C6.35 10.3 6.35 13.7 8.35 15.75M15.65 8.25C17.65 10.3 17.65 13.7 15.65 15.75M5.45 5.45C1.95 9.05 1.95 14.95 5.45 18.55M18.55 5.45C22.05 9.05 22.05 14.95 18.55 18.55"></path></svg></button>
           <button class="topic-chip active" type="button" data-feed="latest">Mới nhất</button>
           <button class="topic-chip" type="button" data-feed="week">Tuần này</button>
           <span class="topic-divider" aria-hidden="true"></span>
@@ -224,7 +224,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=244',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=245',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -247,6 +247,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=embed-filter-140"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-244"></script>
+  <script defer src="./src/app.js?v=watch-browse-245"></script>
 </body>
 </html>
