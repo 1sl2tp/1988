@@ -2042,6 +2042,8 @@ function openSourceLibrary(){
 
     setTimeout(()=>{
       if(sourcesSheet.hidden)return;
+      resetSourceManagerInstant();
+      hardResetDocumentTop();
       const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
       if(!parent)return;
       void localEngine(12000)
@@ -2052,11 +2054,8 @@ function openSourceLibrary(){
 
   setTimeout(()=>{
     resetSourceManagerInstant();
-    if(window.innerWidth>720){
-      try{sourceSearch?.focus({preventScroll:true});}catch{sourceSearch?.focus();}
-    }else{
-      sourceSearch?.blur();
-    }
+    hardResetDocumentTop();
+    sourceSearch?.blur();
   },80);
 }
 
@@ -7806,43 +7805,68 @@ async function doSearch(value){
   }
 }
 
+function hardResetDocumentTop(){
+  const root=document.documentElement;
+  const previousBehavior=root.style.scrollBehavior;
+  root.style.scrollBehavior="auto";
+
+  const apply=()=>{
+    const scroller=document.scrollingElement||document.documentElement;
+    if(scroller){
+      scroller.scrollTop=0;
+      scroller.scrollLeft=0;
+    }
+    document.documentElement.scrollTop=0;
+    document.documentElement.scrollLeft=0;
+    if(document.body){
+      document.body.scrollTop=0;
+      document.body.scrollLeft=0;
+    }
+    try{window.scrollTo(0,0);}catch{}
+  };
+
+  apply();
+  requestAnimationFrame(apply);
+  setTimeout(()=>{
+    apply();
+    root.style.scrollBehavior=previousBehavior;
+  },80);
+}
+
 function resetHomeViewportInstant({resetSource=false}={}){
   const root=document.documentElement;
+  root.classList.remove("home-header-hidden","home-search-open");
 
-  root.classList.remove("home-header-hidden");
-  root.classList.remove("home-search-open");
+  hardResetDocumentTop();
 
-  const scroller=document.scrollingElement||document.documentElement;
-  if(scroller)scroller.scrollTop=0;
-  document.documentElement.scrollTop=0;
-  if(document.body)document.body.scrollTop=0;
-
-  // Keep horizontal navigation at its natural first position as well.
   if(topicChips)topicChips.scrollLeft=0;
 
   if(resetSource){
-    if(sourcesSheet)sourcesSheet.scrollTop=0;
-    if(sourceBrowse)sourceBrowse.scrollTop=0;
-    if(sourceList)sourceList.scrollTop=0;
+    if(sourcesSheet){
+      sourcesSheet.scrollTop=0;
+      sourcesSheet.scrollLeft=0;
+    }
+    if(sourceBrowse){
+      sourceBrowse.scrollTop=0;
+      sourceBrowse.scrollLeft=0;
+    }
+    if(sourceList){
+      sourceList.scrollTop=0;
+      sourceList.scrollLeft=0;
+    }
     if(sourceGroupTabs)sourceGroupTabs.scrollLeft=0;
-    if(sourcePreviewList)sourcePreviewList.scrollTop=0;
+    if(sourcePreviewList){
+      sourcePreviewList.scrollTop=0;
+      sourcePreviewList.scrollLeft=0;
+    }
   }
-
-  // Sync the anti-jitter header state without waiting for another scroll frame.
-  try{
-    homeHeaderLastY=0;
-    homeHeaderDirectionStartY=0;
-  }catch{}
 }
 
-let homeHeaderLastY=Math.max(0,Number(document.scrollingElement?.scrollTop)||Number(window.scrollY)||0);
-let homeHeaderDirectionStartY=homeHeaderLastY;
 let homeHeaderScrollRaf=0;
 
 function setHomeHeaderHidden(hidden){
   const root=document.documentElement;
   if(
-    window.innerWidth>720||
     root.classList.contains("watch-browse")||
     root.classList.contains("home-search-open")
   )hidden=false;
@@ -7865,47 +7889,19 @@ function updateHomeHeaderOnScroll(){
   const root=document.documentElement;
   const y=rootHomeScrollY();
 
-  if(window.innerWidth>720||root.classList.contains("watch-browse")){
+  if(root.classList.contains("watch-browse")){
     root.classList.remove("home-header-hidden");
-    homeHeaderLastY=y;
-    homeHeaderDirectionStartY=y;
     return;
   }
 
   if(root.classList.contains("home-search-open")){
     setHomeHeaderHidden(false);
-    homeHeaderLastY=y;
-    homeHeaderDirectionStartY=y;
     return;
   }
 
-  if(y<=18){
-    setHomeHeaderHidden(false);
-    homeHeaderDirectionStartY=y;
-    homeHeaderLastY=y;
-    return;
-  }
-
-  const delta=y-homeHeaderLastY;
-  if(delta===0)return;
-
-  const direction=delta>0?1:-1;
-  const previousDirection=homeHeaderLastY-homeHeaderDirectionStartY>=0?1:-1;
-  if(direction!==previousDirection)homeHeaderDirectionStartY=homeHeaderLastY;
-
-  const travel=Math.abs(y-homeHeaderDirectionStartY);
-
-  // Hysteresis prevents Safari's tiny elastic-scroll changes from toggling
-  // the header repeatedly. Down needs 28px; up needs 20px.
-  if(direction>0&&travel>=28&&y>=64){
-    setHomeHeaderHidden(true);
-    homeHeaderDirectionStartY=y;
-  }else if(direction<0&&travel>=20){
-    setHomeHeaderHidden(false);
-    homeHeaderDirectionStartY=y;
-  }
-
-  homeHeaderLastY=y;
+  // One deterministic rule on mobile and desktop:
+  // once the page leaves the top, hide Search + Source together.
+  setHomeHeaderHidden(y>32);
 }
 
 function onHomeScroll(){
@@ -7913,8 +7909,6 @@ function onHomeScroll(){
   homeHeaderScrollRaf=requestAnimationFrame(updateHomeHeaderOnScroll);
 }
 
-// Only the document viewport controls the home header. Do not capture scroll
-// events from horizontal chip/card rails.
 window.addEventListener("scroll",onHomeScroll,{passive:true});
 document.addEventListener("scroll",event=>{
   if(event.target===document||event.target===document.scrollingElement)onHomeScroll();
@@ -7924,7 +7918,7 @@ let homeTouchStartY=null;
 let homeTouchStartX=null;
 
 document.addEventListener("touchstart",event=>{
-  if(window.innerWidth>720||event.touches?.length!==1)return;
+  if(event.touches?.length!==1)return;
   const touch=event.touches[0];
   homeTouchStartY=touch.clientY;
   homeTouchStartX=touch.clientX;
@@ -7932,7 +7926,6 @@ document.addEventListener("touchstart",event=>{
 
 document.addEventListener("touchmove",event=>{
   if(
-    window.innerWidth>720||
     homeTouchStartY===null||
     homeTouchStartX===null||
     document.documentElement.classList.contains("watch-browse")||
@@ -7944,15 +7937,10 @@ document.addEventListener("touchmove",event=>{
   if(!touch)return;
   const dy=touch.clientY-homeTouchStartY;
   const dx=touch.clientX-homeTouchStartX;
-
-  // Ignore horizontal swipes on chips/rails.
   if(Math.abs(dy)<14||Math.abs(dy)<=Math.abs(dx)*1.15)return;
 
-  if(dy<0){
-    setHomeHeaderHidden(true);
-  }else{
-    setHomeHeaderHidden(false);
-  }
+  if(dy<0)setHomeHeaderHidden(true);
+  else if(rootHomeScrollY()<=32)setHomeHeaderHidden(false);
 
   homeTouchStartY=touch.clientY;
   homeTouchStartX=touch.clientX;
@@ -8034,22 +8022,6 @@ queryInput.addEventListener("input",()=>{
   }
 });
 
-function setDesktopAmbientArt(card){
-  if(window.innerWidth<=720)return;
-  const root=document.documentElement;
-  const art=String(card?.dataset?.thumb||"").trim();
-
-  if(!art){
-    root.classList.remove("home-ambient-on");
-    root.style.removeProperty("--home-ambient-art");
-    return;
-  }
-
-  const escaped=art.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"");
-  root.style.setProperty("--home-ambient-art",'url("'+escaped+'")');
-  root.classList.add("home-ambient-on");
-}
-
 function ensureDesktopCardArt(card){
   if(!card||window.innerWidth<=720||card.dataset.artReady==="1")return;
   const art=String(card.dataset.thumb||"").trim();
@@ -8061,14 +8033,7 @@ function ensureDesktopCardArt(card){
 
 feed.addEventListener("pointerover",event=>{
   if(window.innerWidth<=720)return;
-  const card=event.target.closest("[data-video-id]");
-  ensureDesktopCardArt(card);
-  setDesktopAmbientArt(card);
-},{passive:true});
-
-feed.addEventListener("pointerleave",()=>{
-  if(window.innerWidth<=720)return;
-  setDesktopAmbientArt(null);
+  ensureDesktopCardArt(event.target.closest("[data-video-id]"));
 },{passive:true});
 
 feed.addEventListener("pointerdown",e=>{
