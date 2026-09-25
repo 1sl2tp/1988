@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-225">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-226">
   <title>1988</title>
 </head>
 <body>
@@ -25,8 +25,8 @@
       <form id="searchForm" class="header-search" autocomplete="off">
         <button id="homeSearchToggle" class="search-icon home-search-toggle" type="button" aria-label="Mở tìm kiếm"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg></button>
         <input id="queryInput" type="search" inputmode="search" enterkeyhint="search"
-          placeholder="Tìm video hoặc dán link YouTube"
-          aria-label="Tìm video hoặc dán link YouTube">
+          placeholder="Tìm trên YouTube"
+          aria-label="Tìm trên YouTube">
         <button type="submit" aria-label="Tìm">Tìm</button>
         <button id="sourcesBtn" class="source-header-btn" type="button" aria-label="Quản lý nguồn" title="Nguồn">
           <span class="source-header-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.12-1.28l2-1.56-2-3.46-2.45.98A7 7 0 0 0 14.2 5.4L13.8 2h-4l-.4 3.4a7 7 0 0 0-2.23 1.28L4.72 5.7l-2 3.46 2 1.56A7 7 0 0 0 4.6 12c0 .44.04.87.12 1.28l-2 1.56 2 3.46 2.45-.98A7 7 0 0 0 9.4 18.6l.4 3.4h4l.4-3.4a7 7 0 0 0 2.23-1.28l2.45.98 2-3.46-2-1.56c.08-.41.12-.84.12-1.28Z"></path></svg></span>
@@ -221,7 +221,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=225',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=226',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -244,6 +244,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=pip-storyboard-auto-139"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-225"></script>
+  <script defer src="./src/app.js?v=watch-browse-226"></script>
 </body>
 </html>
