@@ -2180,6 +2180,68 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
   if(stateChanged||suggestionChanged)updateSourceSummary();
 }
 
+let liveSourceCandidateRefreshPromise=null;
+
+function rememberLiveSourceCandidates(rows=[]){
+  const liveRows=(Array.isArray(rows)?rows:[])
+    .filter(row=>row?.isLive)
+    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+  if(liveRows.length)rememberDiscoveredSources(liveRows,LIVE_SOURCE_SCOPE);
+  return liveRows;
+}
+
+function seedLiveSourceCandidatesFromCache(){
+  try{
+    rememberLiveSourceCandidates(readFeedCache("live"));
+  }catch{}
+}
+
+async function refreshLiveSourceCandidatesInBackground(){
+  if(liveSourceCandidateRefreshPromise)return liveSourceCandidateRefreshPromise;
+
+  liveSourceCandidateRefreshPromise=(async()=>{
+    try{
+      const local=await localEngine(12000);
+      let rows=[];
+      try{
+        rows=await local.search("trực tiếp",{
+          type:"video",
+          features:["live"],
+          sort_by:"upload_date"
+        });
+      }catch{}
+
+      rows=(Array.isArray(rows)?rows:[]).filter(row=>row?.isLive);
+      if(!rows.length){
+        try{
+          rows=(await local.homePage("live-source-manager",true))
+            .filter(row=>row?.isLive);
+        }catch{}
+      }
+
+      if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
+        rows=await local.filterEmbeddableRows(rows,{
+          concurrency:4,
+          requirePlayable:true
+        });
+      }
+
+      const liveRows=rememberLiveSourceCandidates(rows);
+      if(!sourcesSheet?.hidden&&sourceManageGroup===LIVE_SOURCE_SCOPE){
+        refreshSourceManager();
+      }
+      return liveRows;
+    }catch(error){
+      console.warn("live source refresh failed",error);
+      return [];
+    }finally{
+      liveSourceCandidateRefreshPromise=null;
+    }
+  })();
+
+  return liveSourceCandidateRefreshPromise;
+}
+
 function addSource(row){
   if(!row||!/^UC[A-Za-z0-9_-]+$/.test(String(row.id||"")))return;
 
@@ -2198,7 +2260,9 @@ function addSource(row){
   // Mở/Lưu nguồn is temporary until the user explicitly chooses Chọn/Chặn.
   // Only the clicked channel ID is added; all sibling search results stay ephemeral.
   if(currentStatus==="normal"){
-    if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      temporaryLiveSourceIds.add(id);
+    }else if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
       assignSourceGroup(id,sourceManageGroup);
     }else{
       temporaryGeneralSourceIds.add(id);
@@ -3286,6 +3350,12 @@ function setupSourceLibrary(){
       const groupAtClick=sourceManageGroup;
       setTimeout(()=>{
         if(sourcesSheet.hidden||sourceManageGroup!==groupAtClick)return;
+        if(groupAtClick===LIVE_SOURCE_SCOPE){
+          seedLiveSourceCandidatesFromCache();
+          refreshSourceManager();
+          void refreshLiveSourceCandidatesInBackground();
+          return;
+        }
         const parent=sourceDiscoveryParentForGroup(groupAtClick);
         if(!parent)return;
         void localEngine(12000)
@@ -10564,20 +10634,40 @@ const FEED_PRESETS={
     title:"LIVE",
     newest:true,
     load:async(local,reset)=>{
+      // Once the user has chosen sources, LIVE follows the same source pool as
+      // Mới nhất/Tuần này and never falls back to unrelated channels.
+      if(selectedSourceIds.size){
+        const selectedLive=await selectedSourceFeed(
+          local,
+          row=>row?.isLive===true,
+          reset
+        ).catch(()=>[]);
+        rememberLiveSourceCandidates(selectedLive);
+        return selectedLive;
+      }
+
+      // Before any source is selected, discovery is only a bootstrap so the
+      // LIVE source list can be shown and selected immediately.
       let rows=[];
       try{
-        rows=await pagedSearch(local,"live","trực tiếp",{features:["live"],sort_by:"upload_date"},reset);
-      }catch{}
-      const liveRows=rows.filter(row=>row?.isLive);
-      if(liveRows.length)return liveRows;
-      try{
-        return await local.homePage("live-regional",reset).then(items=>
-          items
-            .filter(row=>row?.isLive)
-            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+        rows=await pagedSearch(
+          local,
+          "live",
+          "trực tiếp",
+          {features:["live"],sort_by:"upload_date"},
+          reset
         );
+      }catch{}
+
+      let liveRows=rememberLiveSourceCandidates(rows);
+      if(liveRows.length)return liveRows;
+
+      try{
+        const fallback=await local.homePage("live-regional",reset);
+        liveRows=rememberLiveSourceCandidates(fallback);
+        return liveRows;
       }catch{
-        return rows;
+        return liveRows;
       }
     }
   },
