@@ -5439,3 +5439,407 @@ html:not(.watch-browse) .topic-chip:focus-visible{
   outline:2px solid rgba(255,255,255,.45);
   outline-offset:2px;
 }
+
+
+/* ============================================================
+   MOBILE FIXED WATCH STACK v198
+   Search -> player -> source chips are fixed viewport rows.
+   Only the recommendation list scrolls.
+   This intentionally overrides legacy v168-v184 watch overlays.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --watch-top-row-h:50px;
+    --watch-source-row-h:42px;
+    width:100%;
+    height:100%;
+    overflow:hidden!important;
+    overscroll-behavior:none;
+    background:#09090a;
+  }
+
+  html.watch-browse body{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:
+      calc(var(--watch-top-row-h) + var(--safe-top))
+      auto
+      var(--watch-source-row-h)
+      minmax(0,1fr)!important;
+    width:100%!important;
+    height:100dvh!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    overscroll-behavior:none!important;
+    background:#09090a!important;
+  }
+
+  /* Flatten wrappers so the four real watch rows participate in one grid. */
+  html.watch-browse .app-header,
+  html.watch-browse .app-shell{
+    display:contents!important;
+  }
+
+  /* ROW 1 — persistent 1988 + Search + Source controls. */
+  html.watch-browse .header-inner{
+    grid-row:1!important;
+    grid-column:1!important;
+    position:relative!important;
+    inset:auto!important;
+    z-index:90!important;
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    align-items:center!important;
+    width:100%!important;
+    height:calc(var(--watch-top-row-h) + var(--safe-top))!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:
+      calc(5px + var(--safe-top))
+      9px
+      5px!important;
+    gap:8px!important;
+    opacity:1!important;
+    visibility:visible!important;
+    transform:none!important;
+    pointer-events:auto!important;
+    overflow:visible!important;
+    border:0!important;
+    border-bottom:1px solid rgba(255,255,255,.055)!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .header-inner .install-btn{
+    display:none!important;
+  }
+
+  html.watch-browse .brand{
+    display:inline-flex!important;
+    min-width:0;
+    font-size:16px!important;
+    gap:5px!important;
+  }
+
+  html.watch-browse .brand-mark{
+    width:25px!important;
+    height:18px!important;
+    border-radius:6px!important;
+    font-size:8px!important;
+  }
+
+  html.watch-browse .header-search{
+    justify-self:end!important;
+    display:grid!important;
+    grid-template-columns:40px 40px!important;
+    align-items:center!important;
+    width:82px!important;
+    height:40px!important;
+    gap:2px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:20px!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .home-search-toggle,
+  html.watch-browse .source-header-btn{
+    display:grid!important;
+    place-items:center!important;
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:50%!important;
+    background:transparent!important;
+    color:#f1f1f1!important;
+  }
+
+  html.watch-browse .home-search-toggle svg,
+  html.watch-browse .source-header-icon svg{
+    width:22px!important;
+    height:22px!important;
+    fill:none!important;
+    stroke:currentColor!important;
+    stroke-width:2!important;
+    stroke-linecap:round!important;
+    stroke-linejoin:round!important;
+  }
+
+  html.watch-browse .source-header-icon{
+    display:grid!important;
+    place-items:center!important;
+    width:22px!important;
+    height:22px!important;
+    font-size:0!important;
+  }
+
+  html.watch-browse #queryInput,
+  html.watch-browse .header-search>button[type="submit"]{
+    display:none!important;
+  }
+
+  /* Search expands in the same fixed top row, never over the video. */
+  html.watch-browse.watch-search-open .header-inner{
+    left:auto!important;
+    right:auto!important;
+    top:auto!important;
+    bottom:auto!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    height:calc(var(--watch-top-row-h) + var(--safe-top))!important;
+    padding:
+      calc(5px + var(--safe-top))
+      9px
+      5px!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner .brand{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-search{
+    justify-self:stretch!important;
+    grid-template-columns:40px minmax(0,1fr) 40px!important;
+    width:100%!important;
+    height:40px!important;
+    gap:0!important;
+    border:1px solid #303038!important;
+    border-radius:20px!important;
+    background:#18181b!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse.watch-search-open #queryInput{
+    display:block!important;
+    width:100%!important;
+    height:38px!important;
+    padding:0 8px!important;
+    font-size:14px!important;
+  }
+
+  /* ROW 2 — persistent player. */
+  html.watch-browse .player-section,
+  html.watch-browse.watch-video-wide .player-section,
+  html.watch-browse.watch-video-square .player-section,
+  html.watch-browse.watch-video-portrait .player-section{
+    grid-row:2!important;
+    grid-column:1!important;
+    position:relative!important;
+    inset:auto!important;
+    z-index:40!important;
+    align-self:start!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    width:100%!important;
+    height:auto!important;
+    min-width:0!important;
+    min-height:0!important;
+    max-height:46dvh!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    background:#000!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .player-card,
+  html.watch-browse.watch-video-wide .player-card,
+  html.watch-browse.watch-video-square .player-card,
+  html.watch-browse.watch-video-portrait .player-card{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#000!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .player-frame{
+    position:relative!important;
+    inset:auto!important;
+    flex:0 1 auto!important;
+    width:var(--watch-player-width,100%)!important;
+    height:var(--watch-player-height,auto)!important;
+    max-width:100%!important;
+    max-height:46dvh!important;
+    margin:0 auto!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#000!important;
+    box-shadow:none!important;
+    transform:none!important;
+  }
+
+  html.watch-browse .player-frame #yt-player,
+  html.watch-browse .player-frame iframe,
+  html.watch-browse .player-frame video{
+    width:100%!important;
+    height:100%!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    background:#000!important;
+  }
+
+  html.watch-browse .player-section .now,
+  html.watch-browse .player-section .series-panel,
+  html.watch-browse .player-section .context-brief,
+  html.watch-browse .watch-nav-rail,
+  html.watch-browse body>.watch-reco-info{
+    display:none!important;
+  }
+
+  /* ROW 3 — persistent source/category strip directly under the player. */
+  html.watch-browse .header-nav{
+    grid-row:3!important;
+    grid-column:1!important;
+    position:relative!important;
+    inset:auto!important;
+    z-index:60!important;
+    display:block!important;
+    width:100%!important;
+    height:var(--watch-source-row-h)!important;
+    min-height:var(--watch-source-row-h)!important;
+    margin:0!important;
+    padding:0!important;
+    opacity:1!important;
+    visibility:visible!important;
+    transform:none!important;
+    pointer-events:auto!important;
+    border:0!important;
+    border-top:1px solid rgba(255,255,255,.045)!important;
+    border-bottom:1px solid rgba(255,255,255,.055)!important;
+    border-radius:0!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse .header-nav-inner{
+    width:100%!important;
+    max-width:none!important;
+    height:100%!important;
+    margin:0!important;
+    padding:0 7px!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse .topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:100%!important;
+    gap:6px!important;
+    padding:5px 0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  html.watch-browse .topic-chips::-webkit-scrollbar{
+    display:none!important;
+  }
+
+  html.watch-browse .topic-chip{
+    flex:0 0 auto!important;
+    width:auto!important;
+    height:31px!important;
+    padding:0 10px!important;
+    border:0!important;
+    border-radius:8px!important;
+    background:#242426!important;
+    color:#e7e7e9!important;
+    font-size:10.5px!important;
+    font-weight:650!important;
+    white-space:nowrap!important;
+  }
+
+  html.watch-browse .topic-chip.active{
+    background:#f2f2f3!important;
+    color:#111!important;
+  }
+
+  html.watch-browse .topic-divider{
+    flex:0 0 auto!important;
+    display:block!important;
+    height:18px!important;
+    margin:0 1px!important;
+  }
+
+  /* Old category-overlay state must not take ownership of the source row. */
+  html.watch-browse.watch-categories-open .header-nav{
+    grid-row:3!important;
+    position:relative!important;
+    inset:auto!important;
+    width:100%!important;
+    height:var(--watch-source-row-h)!important;
+    max-height:none!important;
+    border-radius:0!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse.watch-categories-open .header-nav-inner,
+  html.watch-browse.watch-categories-open .topic-chips{
+    max-height:none!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-chips{
+    display:flex!important;
+    grid-template-columns:none!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-chip{
+    width:auto!important;
+    height:31px!important;
+  }
+
+  /* ROW 4 — the only vertical scroll surface. */
+  html.watch-browse .feed-section{
+    grid-row:4!important;
+    grid-column:1!important;
+    position:relative!important;
+    inset:auto!important;
+    z-index:1!important;
+    display:block!important;
+    min-width:0!important;
+    min-height:0!important;
+    width:100%!important;
+    height:100%!important;
+    margin:0!important;
+    padding:7px 8px calc(12px + var(--safe-bottom))!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-gutter:auto!important;
+    background:#09090a!important;
+  }
+
+  html.watch-browse .section-head{
+    display:none!important;
+  }
+
+  html.watch-browse .search-refinements{
+    margin:0 0 7px!important;
+  }
+}
