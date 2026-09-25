@@ -2182,17 +2182,34 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
 
 let liveSourceCandidateRefreshPromise=null;
 
-function rememberLiveSourceCandidates(rows=[]){
+function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
   const liveRows=(Array.isArray(rows)?rows:[])
-    .filter(row=>row?.isLive)
-    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
-  if(liveRows.length)rememberDiscoveredSources(liveRows,LIVE_SOURCE_SCOPE);
-  return liveRows;
+    .filter(row=>row?.isLive);
+
+  if(replace)temporaryLiveSourceIds.clear();
+
+  for(const row of liveRows){
+    const candidate=sourceCandidateFromVideo(row);
+    if(!candidate)continue;
+
+    sourceMetaCache.set(candidate.id,{
+      ...sourceMetaCache.get(candidate.id),
+      ...candidate
+    });
+
+    // LIVE is a view over the same manual source state as Mới nhất/Tuần này.
+    // Keep current LIVE channels visible even when they are already Chọn/Chặn.
+    temporaryLiveSourceIds.add(candidate.id);
+    reconcileSourceState(candidate,GENERAL_SOURCE_SCOPE);
+  }
+
+  if(liveRows.length||replace)updateSourceSummary();
+  return liveRows.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
 }
 
 function seedLiveSourceCandidatesFromCache(){
   try{
-    rememberLiveSourceCandidates(readFeedCache("live"));
+    rememberLiveSourceCandidates(readFeedCache("live"),{replace:true});
   }catch{}
 }
 
@@ -2226,7 +2243,7 @@ async function refreshLiveSourceCandidatesInBackground(){
         });
       }
 
-      const liveRows=rememberLiveSourceCandidates(rows);
+      const liveRows=rememberLiveSourceCandidates(rows,{replace:true});
       if(!sourcesSheet?.hidden&&sourceManageGroup===LIVE_SOURCE_SCOPE){
         refreshSourceManager();
       }
