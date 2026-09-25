@@ -3964,16 +3964,109 @@ function showIframePlayer(){
   ytPlayerHost.hidden=false;
 }
 
+let suggestionLayoutRaf=0;
+
+function clearSuggestionLayout(){
+  if(suggestionLayoutRaf){
+    cancelAnimationFrame(suggestionLayoutRaf);
+    suggestionLayoutRaf=0;
+  }
+  const root=document.documentElement;
+  root.classList.remove("search-suggestions-open");
+  for(const name of [
+    "--search-suggestions-top",
+    "--search-suggestions-left",
+    "--search-suggestions-width",
+    "--search-suggestions-max-h",
+    "--search-suggestions-h"
+  ])root.style.removeProperty(name);
+}
+
+function syncSuggestionLayout(){
+  if(!suggestions||suggestions.hidden||!suggestions.childElementCount){
+    clearSuggestionLayout();
+    return;
+  }
+  if(suggestionLayoutRaf)return;
+
+  suggestionLayoutRaf=requestAnimationFrame(()=>{
+    suggestionLayoutRaf=0;
+    if(!suggestions||suggestions.hidden||!suggestions.childElementCount){
+      clearSuggestionLayout();
+      return;
+    }
+
+    const root=document.documentElement;
+    const formRect=searchForm?.getBoundingClientRect?.();
+    const navRect=document.querySelector(".header-nav")?.getBoundingClientRect?.();
+    const innerRect=document.querySelector(".header-inner")?.getBoundingClientRect?.();
+    const viewport=window.visualViewport;
+    const viewportLeft=Math.max(0,Number(viewport?.offsetLeft)||0);
+    const viewportTop=Math.max(0,Number(viewport?.offsetTop)||0);
+    const viewportWidth=Math.max(280,Number(viewport?.width)||window.innerWidth||0);
+    const viewportHeight=Math.max(240,Number(viewport?.height)||window.innerHeight||0);
+    const viewportRight=viewportLeft+viewportWidth;
+    const viewportBottom=viewportTop+viewportHeight;
+
+    const formLeft=Number(formRect?.left)||viewportLeft+8;
+    const formWidth=Number(formRect?.width)||Math.max(200,viewportWidth-16);
+    const left=Math.max(viewportLeft+8,formLeft);
+    const width=Math.max(
+      200,
+      Math.min(formWidth,viewportRight-left-8)
+    );
+
+    const visibleBottoms=[
+      Number(formRect?.bottom)||0,
+      Number(innerRect?.bottom)||0,
+      Number(navRect?.bottom)||0
+    ].filter(value=>Number.isFinite(value)&&value>0);
+    const top=Math.min(
+      viewportBottom-96,
+      Math.max(viewportTop+8,...visibleBottoms)+4
+    );
+    const maxHeight=Math.max(
+      88,
+      Math.min(360,viewportBottom-top-8)
+    );
+
+    root.style.setProperty("--search-suggestions-top",Math.round(top)+"px");
+    root.style.setProperty("--search-suggestions-left",Math.round(left)+"px");
+    root.style.setProperty("--search-suggestions-width",Math.round(width)+"px");
+    root.style.setProperty("--search-suggestions-max-h",Math.round(maxHeight)+"px");
+    root.classList.add("search-suggestions-open");
+
+    // Measure only after fixed geometry has applied. Reserve exactly the
+    // visible panel height so cards/player start below it instead of behind it.
+    requestAnimationFrame(()=>{
+      if(!suggestions||suggestions.hidden){
+        clearSuggestionLayout();
+        return;
+      }
+      const height=Math.min(
+        maxHeight,
+        Math.max(0,Math.ceil(suggestions.getBoundingClientRect().height))
+      );
+      root.style.setProperty("--search-suggestions-h",height+"px");
+    });
+  });
+}
+
 function clearSuggestions(){
   if(suggestions){
     suggestions.hidden=true;
     suggestions.innerHTML="";
   }
+  clearSuggestionLayout();
   if(searchRefinements){
     searchRefinements.hidden=true;
     searchRefinements.innerHTML="";
   }
 }
+
+window.addEventListener("resize",syncSuggestionLayout,{passive:true});
+window.visualViewport?.addEventListener?.("resize",syncSuggestionLayout,{passive:true});
+window.visualViewport?.addEventListener?.("scroll",syncSuggestionLayout,{passive:true});
 
 let normalSuggestionTimer=0;
 let normalSuggestionSeq=0;
@@ -3989,6 +4082,7 @@ function renderNormalSuggestions(items=[]){
   if(!values.length){
     suggestions.hidden=true;
     suggestions.innerHTML="";
+    clearSuggestionLayout();
     return;
   }
 
@@ -3996,6 +4090,7 @@ function renderNormalSuggestions(items=[]){
     '<button type="button" data-search-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
   ).join("");
   suggestions.hidden=false;
+  syncSuggestionLayout();
 }
 
 async function loadNormalSuggestions(value){
@@ -8527,6 +8622,7 @@ seriesEpisodes?.addEventListener("click",event=>{
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
+  clearSuggestions();
   const root=document.documentElement;
   const watchSearch=root.classList.contains("watch-browse");
 
