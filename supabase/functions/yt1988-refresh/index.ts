@@ -21,9 +21,21 @@ const SCOPE_META:any={
 const CONTENT_SCOPES=new Set(SCOPES.filter((s)=>SCOPE_META[s]?.kind==="content"));
 const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
-const CHANNEL_RECHECK_MS=8*60*1000;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
-const MAX_CHANNEL_FETCHES_PER_RUN=20;
+const MAX_CHANNEL_FETCHES_PER_RUN=30;
+const DEFAULT_SCOPE_INTERVAL_MINUTES:any={
+  live:2,
+  latest:2,
+  week:5,
+  news:5,
+  economy:10,
+  law:10,
+  film:10,
+  music:10,
+  tech:5,
+  sports:5,
+  entertainment:5
+};
 const cors={
   "access-control-allow-origin":"*",
   "access-control-allow-headers":"authorization, x-client-info, apikey, content-type",
@@ -323,6 +335,28 @@ Deno.serve(async(req:Request)=>{
     const packageRows=await packageRes.json();
     const currentByScope=new Map((Array.isArray(packageRows)?packageRows:[]).map((r:any)=>[r.scope,r]));
 
+    // Refresh cadence is data, not code. This keeps "2/5/10 minutes" adjustable
+    // without changing the worker. If config is temporarily unavailable, use
+    // the safe defaults above.
+    const intervalByScope=new Map<string,number>(
+      SCOPES.map((scope)=>[scope,Number(DEFAULT_SCOPE_INTERVAL_MINUTES[scope])||10])
+    );
+    try{
+      const configRes=await fetch(
+        rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&enabled=eq.true&select=scope,interval_minutes",
+        {headers:authHeaders}
+      );
+      if(configRes.ok){
+        const configRows=await configRes.json();
+        for(const row of Array.isArray(configRows)?configRows:[]){
+          const scope=clean(row?.scope,32);
+          const minutes=Math.max(1,Math.min(1440,Number(row?.interval_minutes)||0));
+          if(SCOPES.includes(scope)&&minutes>0)intervalByScope.set(scope,minutes);
+        }
+      }
+    }catch{}
+
     const blockedByScope=new Map<string,Set<string>>();
     const selectedByScope=new Map<string,any[]>();
     const channelMeta=new Map<string,any>();
@@ -433,13 +467,20 @@ Deno.serve(async(req:Request)=>{
       const value=Date.parse(String(cacheById.get(id)?.checked_at||""));
       return Number.isFinite(value)?value:0;
     };
+    const channelRecheckMs=(id:string)=>{
+      const minutes=scopes
+        .filter((scope)=>(selectedByScope.get(scope)||[]).some((source:any)=>source.id===id))
+        .map((scope)=>Number(intervalByScope.get(scope))||10);
+      const fastest=minutes.length?Math.min(...minutes):10;
+      return Math.max(60*1000,fastest*60*1000);
+    };
     const dueIds=neededIds
       .filter((id)=>{
         const cached=cacheById.get(id);
         const retry=Date.parse(String(cached?.retry_after||""));
         if(Number.isFinite(retry)&&retry>now)return false;
         const checked=checkedTime(id);
-        return !checked||now-checked>=CHANNEL_RECHECK_MS||!channelRows.get(id)?.length;
+        return !checked||now-checked>=channelRecheckMs(id)||!channelRows.get(id)?.length;
       })
       .sort((a,b)=>checkedTime(a)-checkedTime(b))
       .slice(0,MAX_CHANNEL_FETCHES_PER_RUN);
