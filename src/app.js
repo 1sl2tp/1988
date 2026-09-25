@@ -152,6 +152,11 @@ const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
+const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
+let stateSyncReady=false;
+let stateSyncApplying=false;
+let stateSyncTimer=0;
+let stateSyncPushPromise=null;
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
@@ -303,6 +308,7 @@ function persistSourceLibrary(){
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
     persistSuggestedSourceState();
   }catch{}
+  scheduleServerStatePush();
 }
 
 function persistScopedSourceState(){
@@ -316,6 +322,7 @@ function persistScopedSourceState(){
     localStorage.setItem(SOURCE_SCOPED_SELECTION_KEY,JSON.stringify(selected));
     localStorage.setItem(SOURCE_SCOPED_BLOCKED_KEY,JSON.stringify(blocked));
   }catch{}
+  scheduleServerStatePush();
 }
 
 function suggestedSetForScope(scope=sourceManageGroup){
@@ -416,6 +423,183 @@ function allManagedStateIds(){
   }
   return ids;
 }
+
+function scopedStateObject(map){
+  const out={};
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    out[scope]=[...(map.get(scope)||new Set())];
+  }
+  return out;
+}
+
+function cleanSourceIdList(value){
+  return (Array.isArray(value)?value:[])
+    .map(String)
+    .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id));
+}
+
+function serverStateSnapshot(){
+  return {
+    selected:cleanSourceIdList([...selectedSourceIds]),
+    blocked:cleanSourceIdList([...blockedSourceIds]),
+    customSources:(Array.isArray(customSources)?customSources:[]).map(row=>({
+      id:String(row?.id||""),
+      name:clean(row?.name||""),
+      thumbnailUrl:safeSourceThumb(row?.thumbnailUrl||""),
+      subscribers:clean(row?.subscribers||"")
+    })).filter(row=>/^UC[A-Za-z0-9_-]+$/.test(row.id)&&row.name),
+    sourceGroups:sourceGroupOverrides&&typeof sourceGroupOverrides==="object"
+      ?sourceGroupOverrides
+      :{},
+    scopedSelected:scopedStateObject(scopedSelectedSourceIds),
+    scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
+    avatars:sourceAvatarCache&&typeof sourceAvatarCache==="object"
+      ?sourceAvatarCache
+      :{}
+  };
+}
+
+function saveServerStateLocally(){
+  try{
+    localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
+    localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
+    localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
+    localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
+    localStorage.setItem(SOURCE_SCOPED_SELECTION_KEY,JSON.stringify(scopedStateObject(scopedSelectedSourceIds)));
+    localStorage.setItem(SOURCE_SCOPED_BLOCKED_KEY,JSON.stringify(scopedStateObject(scopedBlockedSourceIds)));
+    localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));
+    localStorage.removeItem(SOURCE_HIDDEN_KEY);
+  }catch{}
+}
+
+function applyServerState(remote={}){
+  if(!remote||typeof remote!=="object"||Array.isArray(remote))return false;
+
+  stateSyncApplying=true;
+  try{
+    if(Array.isArray(remote.selected)){
+      selectedSourceIds=new Set(cleanSourceIdList(remote.selected));
+    }
+    if(Array.isArray(remote.blocked)){
+      blockedSourceIds=new Set(cleanSourceIdList(remote.blocked));
+      for(const id of blockedSourceIds)selectedSourceIds.delete(id);
+    }
+
+    if(Array.isArray(remote.customSources)){
+      customSources=remote.customSources
+        .filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
+        .map(row=>({
+          id:String(row.id),
+          name:clean(row.name),
+          thumbnailUrl:safeSourceThumb(row.thumbnailUrl||""),
+          subscribers:clean(row.subscribers||"")
+        }));
+    }
+
+    if(remote.sourceGroups&&typeof remote.sourceGroups==="object"&&!Array.isArray(remote.sourceGroups)){
+      sourceGroupOverrides=remote.sourceGroups;
+    }
+
+    if(remote.scopedSelected&&typeof remote.scopedSelected==="object"){
+      const next=new Map();
+      for(const scope of CONTENT_SOURCE_SCOPES){
+        next.set(scope,new Set(cleanSourceIdList(remote.scopedSelected[scope])));
+      }
+      scopedSelectedSourceIds=next;
+    }
+
+    if(remote.scopedBlocked&&typeof remote.scopedBlocked==="object"){
+      const next=new Map();
+      for(const scope of CONTENT_SOURCE_SCOPES){
+        next.set(scope,new Set(cleanSourceIdList(remote.scopedBlocked[scope])));
+      }
+      scopedBlockedSourceIds=next;
+      for(const scope of CONTENT_SOURCE_SCOPES){
+        const selected=scopedSelectedSourceIds.get(scope)||new Set();
+        for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
+      }
+    }
+
+    if(remote.avatars&&typeof remote.avatars==="object"&&!Array.isArray(remote.avatars)){
+      sourceAvatarCache={...sourceAvatarCache,...remote.avatars};
+      for(const [id,imageRaw] of Object.entries(sourceAvatarCache)){
+        const image=safeSourceThumb(imageRaw);
+        if(!image)continue;
+        const base=BASE_CHANNEL_BY_ID.get(id);
+        if(base)base.thumbnailUrl=image;
+        const custom=customSources.find(row=>row?.id===id);
+        if(custom)custom.thumbnailUrl=image;
+      }
+    }
+
+    saveServerStateLocally();
+    invalidateSourceStateNameIndex?.();
+    return true;
+  }finally{
+    stateSyncApplying=false;
+  }
+}
+
+async function stateSyncFetch(method="GET",body=null,timeout=2200){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const response=await fetch(STATE_SYNC_URL,{
+      method,
+      cache:"no-store",
+      signal:controller.signal,
+      headers:{
+        "content-type":"application/json",
+        "x-1988-pin":SETTINGS_PIN
+      },
+      body:body==null?undefined:JSON.stringify(body)
+    });
+    if(!response.ok)throw new Error("state_sync_"+response.status);
+    return await response.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+async function pushServerStateNow({force=false}={}){
+  if((!stateSyncReady&&!force)||stateSyncApplying)return false;
+  if(stateSyncPushPromise)return stateSyncPushPromise;
+
+  const payload={state:serverStateSnapshot(),version:Date.now()};
+  stateSyncPushPromise=stateSyncFetch("POST",payload,3500)
+    .then(result=>!!result?.ok)
+    .catch(error=>{
+      console.warn("1988 state push failed",error);
+      return false;
+    })
+    .finally(()=>{stateSyncPushPromise=null;});
+
+  return stateSyncPushPromise;
+}
+
+function scheduleServerStatePush(delay=700){
+  if(!stateSyncReady||stateSyncApplying)return;
+  clearTimeout(stateSyncTimer);
+  stateSyncTimer=setTimeout(()=>void pushServerStateNow(),Math.max(120,Number(delay)||700));
+}
+
+async function hydrateServerState(){
+  try{
+    const result=await stateSyncFetch("GET",null,2400);
+    if(result?.ok&&result?.exists&&result.state){
+      applyServerState(result.state);
+    }else if(result?.ok&&!result?.exists){
+      // First upgraded device seeds the server with its current local choices.
+      stateSyncReady=true;
+      await pushServerStateNow({force:true});
+      return;
+    }
+  }catch(error){
+    console.warn("1988 state pull failed; using local state",error);
+  }
+  stateSyncReady=true;
+}
+
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
@@ -650,6 +834,7 @@ function rememberSourceAvatar(id="",image=""){
   if(sourceAvatarCache[id]!==image){
     sourceAvatarCache[id]=image;
     try{localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));}catch{}
+    scheduleServerStatePush(1400);
   }
 
   const base=BASE_CHANNEL_BY_ID.get(id);
@@ -3670,6 +3855,52 @@ function clearSuggestions(){
   }
 }
 
+let normalSuggestionTimer=0;
+let normalSuggestionSeq=0;
+
+function renderNormalSuggestions(items=[]){
+  if(!suggestions)return;
+  const values=[...new Set(
+    (Array.isArray(items)?items:[])
+      .map(value=>clean(typeof value==="string"?value:(value?.text||value?.query||value?.title||"")))
+      .filter(Boolean)
+  )].slice(0,8);
+
+  if(!values.length){
+    suggestions.hidden=true;
+    suggestions.innerHTML="";
+    return;
+  }
+
+  suggestions.innerHTML=values.map(value=>
+    '<button type="button" data-search-suggestion="'+esc(value)+'">'+esc(value)+'</button>'
+  ).join("");
+  suggestions.hidden=false;
+}
+
+async function loadNormalSuggestions(value){
+  const q=clean(value);
+  const seq=++normalSuggestionSeq;
+  if(q.length<2){
+    renderNormalSuggestions([]);
+    return;
+  }
+
+  try{
+    const response=await api("suggestions",{q},4200);
+    if(seq!==normalSuggestionSeq||clean(queryInput?.value)!==q)return;
+    renderNormalSuggestions(Array.isArray(response?.data)?response.data:[]);
+  }catch{
+    if(seq===normalSuggestionSeq)renderNormalSuggestions([]);
+  }
+}
+
+function scheduleNormalSuggestions(){
+  clearTimeout(normalSuggestionTimer);
+  normalSuggestionTimer=setTimeout(()=>void loadNormalSuggestions(queryInput?.value||""),160);
+}
+
+
 function setActiveChip(name){
   state.activeFeed=name||"";
   let activeButton=null;
@@ -6649,7 +6880,6 @@ async function prewarmSelectedSourceAvatars(){
     });
 
     await Promise.allSettled(workers);
-    queueHomeChannelAvatars();
   })().finally(()=>{
     selectedAvatarPrewarmPromise=null;
   });
@@ -6711,13 +6941,6 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
     new Promise(resolve=>setTimeout(resolve,Math.max(120,Number(maxWait)||520)))
   ]);
 }
-
-const mobileFeedAutoHydrator=new MutationObserver(()=>{
-  if(window.innerWidth>720)return;
-  queueHomeChannelAvatars();
-  feed.querySelectorAll(".card[data-video-id]").forEach(ensureDesktopCardTint);
-});
-mobileFeedAutoHydrator.observe(feed,{childList:true,subtree:false});
 
 function renderCards(rows=[],options={}){
   const append=options.append===true;
@@ -6783,7 +7006,6 @@ function renderCards(rows=[],options={}){
   }
   ensureWatchNavRail();
   syncWatchCurrentCard();
-  queueHomeChannelAvatars();
   normalizeRenderedThumbnails();
 
   // v216: mobile cards always use a static sampled metadata surface.
@@ -8070,24 +8292,23 @@ if(!(window.YT&&typeof YT.Player==="function")){
 async function doSearch(value){
   const q=clean(value);
   if(!q)return;
-  clearSuggestions();
 
-  const searchScope=
-    state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
-      ?state.activeParent
-      :activeSourceScope()||GENERAL_SOURCE_SCOPE;
+  clearSuggestions();
+  clearSeriesContext();
+
   const seq=++state.searchSeq;
   state.searchQuery=q;
-  state.searchScope=searchScope;
-
+  state.searchScope=GENERAL_SOURCE_SCOPE;
+  state.activeParent="";
+  state.activeTrend="";
+  state.trendTopics=[];
+  renderTrendTopics();
   setActiveChip("");
   state.feedHasMore=false;
   state.feedRows=[];
-  clearSeriesContext();
 
   const id=extractVideoId(q);
   if(id){
-    if(searchRefinements)searchRefinements.hidden=true;
     await playVideo(id,{
       title:"Đang tải thông tin…",
       thumbnailUrl:"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"
@@ -8095,7 +8316,7 @@ async function doSearch(value){
     return;
   }
 
-  feedTitle.textContent='Kết quả cho “'+q+'”';
+  feedTitle.textContent='Kết quả tìm kiếm';
   feed.classList.remove("search-grouped");
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
@@ -8104,48 +8325,39 @@ async function doSearch(value){
     searchRefinements.innerHTML="";
   }
 
-  const showRows=rows=>{
+  const showRows=async rows=>{
     if(seq!==state.searchSeq)return false;
-    const scoped=sourceAwareRows(
-      (Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,searchScope)),
-      q,
-      searchScope
-    );
-    if(!scoped.length)return false;
+    const cleanRows=(Array.isArray(rows)?rows:[])
+      .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+    if(!cleanRows.length)return false;
 
-    const ranked=renderDirectSearchResults(scoped,q,searchScope);
-    rememberDiscoveredSources(ranked,searchScope===GENERAL_SOURCE_SCOPE?"":searchScope);
+    // Resolve source icons before first visible paint. No post-render avatar jump.
+    await prewarmRowSourceAvatars(cleanRows,650);
+    if(seq!==state.searchSeq)return false;
+
+    state.feedRows=cleanRows;
+    renderCards(cleanRows);
+    rememberDiscoveredSources(cleanRows,"");
+    feedStatus.textContent=cleanRows.length?cleanRows.length+" video":"";
     return true;
   };
 
   try{
-    const r=await api("search",{q,filter:"videos"},10000);
-    const rows=Array.isArray(r?.data?.items)?r.data.items:[];
-    if(showRows(rows))return;
-    throw new Error("empty_search");
+    const response=await api("search",{q,filter:"videos"},10000);
+    const rows=Array.isArray(response?.data?.items)?response.data.items:[];
+    if(await showRows(rows))return;
   }catch(error){
     console.warn("1988 search API failed; trying local engine",error);
   }
 
   try{
     const local=await localEngine(9000);
-    let rows=await local.search(q,{type:"video"});
-    if(showRows(rows))return;
+    const rows=await local.search(q,{type:"video"});
+    if(await showRows(rows))return;
 
-    const canonical=canonicalSearchSeed(q,searchScope);
-    if(normalizeSearchText(canonical)!==normalizeSearchText(q)){
-      rows=await local.search(canonical,{type:"video"});
-      if(showRows(rows)){
-        queryInput.value=canonical;
-        return;
-      }
-    }
-
-    feed.classList.remove("search-grouped");
     feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
     feedStatus.textContent="";
   }catch{
-    feed.classList.remove("search-grouped");
     feed.innerHTML='<div class="error">Chưa tìm được video.</div>';
     feedStatus.textContent="";
   }
@@ -8395,13 +8607,28 @@ searchForm.addEventListener("submit",e=>{
   queryInput.blur();
 });
 
-// Search is explicit: type, press Enter (or Tìm), then show results.
+// Normal YouTube-like suggestions while typing; search runs only on submit/click.
 queryInput.addEventListener("input",()=>{
-  clearSuggestions();
   if(searchRefinements){
     searchRefinements.hidden=true;
     searchRefinements.innerHTML="";
   }
+  scheduleNormalSuggestions();
+});
+
+queryInput.addEventListener("focus",()=>{
+  if(clean(queryInput.value).length>=2)scheduleNormalSuggestions();
+});
+
+suggestions?.addEventListener("click",event=>{
+  const button=event.target.closest("[data-search-suggestion]");
+  if(!button)return;
+  const value=clean(button.dataset.searchSuggestion||button.textContent||"");
+  if(!value)return;
+  queryInput.value=value;
+  clearSuggestions();
+  void doSearch(value);
+  queryInput.blur();
 });
 
 const desktopCardColorCache=new Map();
@@ -9548,10 +9775,7 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
 async function loadInitialFeed(){
-  await Promise.race([
-    prewarmSelectedSourceAvatars(),
-    new Promise(resolve=>setTimeout(resolve,850))
-  ]);
+  await prewarmRowSourceAvatars(selectedSources(GENERAL_SOURCE_SCOPE),900);
   return loadFeedPreset("latest");
 }
 
@@ -9573,6 +9797,9 @@ topicChips.addEventListener("click",async e=>{
     setActiveChip(state.activeFeed);
     feedTitle.textContent=parent.label;
     renderTrendTopics();
+
+    await prewarmRowSourceAvatars(selectedSourcesForParent(parent),700);
+    if(state.activeParent!==key)return;
 
     const cached=categoryCacheRows(key);
     if(cached.length){
@@ -9605,29 +9832,36 @@ topicChips.addEventListener("click",async e=>{
   void loadFeedPreset(button.dataset.feed||"latest");
 });
 
-setupMediaSession();
-setupInstall();
-setupSourceLibrary();
-void prewarmSelectedSourceAvatars();
-setupFloatingIframe();
-setupWatchBrowseLayout();
-setupFullscreenReturn();
-ensureWatchNavRail();
-updateModeUi();
-renderParentCategories();
+async function bootstrap1988(){
+  await hydrateServerState();
 
-const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
-if(initialVideoId){
-  void playVideo(initialVideoId,{
-    title:"Đang tải thông tin…",
-    thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
-  });
-}else{
+  setupMediaSession();
+  setupInstall();
+  setupSourceLibrary();
+  void prewarmSelectedSourceAvatars();
+  setupFloatingIframe();
+  setupWatchBrowseLayout();
+  setupFullscreenReturn();
+  ensureWatchNavRail();
+  updateModeUi();
+  renderParentCategories();
+
+  const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
+  if(initialVideoId){
+    void playVideo(initialVideoId,{
+      title:"Đang tải thông tin…",
+      thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
+    });
+    return;
+  }
+
   resetHomeViewportInstant();
   window.addEventListener("pageshow",()=>{
     if(!document.documentElement.classList.contains("watch-browse")){
       resetHomeViewportInstant();
     }
   },{passive:true});
-  loadInitialFeed();
+  await loadInitialFeed();
 }
+
+void bootstrap1988();
