@@ -83,6 +83,41 @@ function normalizeSourceNames(input:any,max=24){
   }
   return out;
 }
+
+function normalizeSourceCandidates(input:any){
+  const rows=Array.isArray(input)?input:[];
+  const out:any[]=[];
+  const seen=new Set<string>();
+  for(const row of rows){
+    const id=clean(row?.id,64);
+    const name=clean(row?.name,120);
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!name||seen.has(id))continue;
+    seen.add(id);
+    const samples=(Array.isArray(row?.samples)?row.samples:[])
+      .map((sample:any)=>({
+        title:clean(sample?.title,220),
+        published:clean(sample?.published,80),
+        views:Number.isFinite(Number(sample?.views))?Math.max(0,Math.round(Number(sample.views))):0
+      }))
+      .filter((sample:any)=>sample.title)
+      .slice(0,4);
+    if(!samples.length)continue;
+    out.push({id,name,samples});
+    if(out.length>=48)break;
+  }
+  return out;
+}
+
+function validateSourceDiscoveryResult(value:any,candidates:any[]){
+  const allowed=new Set(candidates.map(row=>row.id));
+  return {
+    acceptedSourceIds:[...new Set(
+      (Array.isArray(value?.acceptedSourceIds)?value.acceptedSourceIds:[])
+        .map((id:any)=>clean(id,64))
+        .filter((id:string)=>allowed.has(id))
+    )].slice(0,24)
+  };
+}
 function compactCatalogLabel(value:any){
   const raw=clean(value,28).replace(/\s+/g," ").trim();
   if(!raw)return "";
@@ -406,12 +441,12 @@ ${JSON.stringify(videos)}
   throw new Error(lastError);
 }
 
-async function callGemini(cfg:any,scope:string,videos:any[],parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]}){
+async function callGemini(cfg:any,scope:string,videos:any[],parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]},filterToParent=true){
   const instruction=`
 Bạn đang xử lý một batch video YouTube mới của ứng dụng 1988. Hãy làm BỐN việc trong CÙNG một lần. Chỉ dựa trên metadata đầu vào, không bịa thêm sự kiện.
 
 ${SHORT_DRAMA_REFERENCE}
-${parentLabel?`NHÓM CHA ĐANG XỬ LÝ: "${parentLabel}". Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.`:""}
+${parentLabel?`${filterToParent?"NHÓM CHA ĐANG XỬ LÝ":"NGỮ CẢNH TAB"}: "${parentLabel}". ${filterToParent?"Giữ đúng tên cha này, chỉ chia nhánh con bên trong và loại video lệch chủ đề nếu có.":"Không dùng tên tab để loại video; chỉ làm sạch, phân loại, nhận diện trùng và chuẩn hóa metadata."}`:""}
 ${parentLabel&&learning.selectedSourceNames.length?`TÍN HIỆU HỌC TỪ NGUỒN ĐÃ CHỌN (ví dụ DƯƠNG):
 - ${learning.selectedSourceNames.join("\n- ")}
 Hãy học KIỂU nội dung, cụm thể loại và phong cách chủ đề chung từ các tên nguồn này để nhận diện nguồn/video tương tự tốt hơn. Đây KHÔNG phải whitelist; đừng ưu tiên chính kênh cũ chỉ vì tên giống.`:""}
@@ -419,7 +454,7 @@ ${parentLabel&&learning.blockedSourceNames.length?`NGUỒN ĐÃ CHẶN (ví dụ
 - ${learning.blockedSourceNames.join("\n- ")}
 Không dùng các nguồn bị chặn làm mẫu dương. Nếu ứng viên có branding/nội dung rất gần ví dụ âm và không có bằng chứng rõ phù hợp nhóm thì loại.`:""}
 ${parentLabel&&learning.learnedQueries.length?`CỤM TÌM KIẾM ĐÃ HỌC TỪ LỰA CHỌN: ${learning.learnedQueries.join(" | ")}. Dùng như tín hiệu ngữ nghĩa bổ sung, không phải luật cứng.`:""}
-${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
+${parentLabel&&filterToParent?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - Trả "acceptedVideoIds" gồm CHỈ các video thực sự thuộc nhóm cha này. Video lệch nhóm phải loại khỏi acceptedVideoIds, dù nó được tìm thấy do từ khóa mơ hồ.
 - Phân loại theo NGỮ CẢNH cả tiêu đề, không theo một từ đơn lẻ.
 - Nếu nhóm là "Công nghệ": các motif truyện/phim như "trọng sinh", "xuyên không", "kiếp này", "hệ thống", "hoàn thưởng", "tổng tài", "ở rể", "tu tiên", "thần y", "chiến thần", "thiên kim", "báo thù" KHÔNG phải công nghệ khi tiêu đề mang ngữ cảnh phim/cốt truyện.
@@ -428,15 +463,14 @@ ${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - Nếu nhóm là "Phim", "Phim ngắn" hoặc "Nhạc": ngoài acceptedVideoIds, trả "aiGeneratedLikelyIds" cho video mà BẢN THÂN tác phẩm có tín hiệu mạnh là do AI tạo nhưng YouTube chưa gắn nhãn.
 - Chỉ đánh dấu khi bằng chứng metadata đủ mạnh, dựa trên tổ hợp title + channel + description + howMade. Ví dụ: mô tả/kênh nêu rõ AI film, AI short film, AI animation, AI music, generated with AI, Suno, Udio, Veo, Sora, Kling, Runway, Hailuo, Pika, Luma, Midjourney hoặc quy trình tạo tác phẩm tương đương.
 - KHÔNG đánh dấu chỉ vì video nói về AI, review công cụ AI, có chữ "AI" trong chủ đề, hoặc chỉ dùng AI cho script/thumbnail/phụ đề/chỉnh sửa nhỏ.
-- Nếu không đủ chắc chắn thì KHÔNG đưa vào aiGeneratedLikelyIds.`:""}
+- Nếu không đủ chắc chắn thì KHÔNG đưa vào aiGeneratedLikelyIds.`:`AI 1 KHÔNG được loại video theo tên tab trong lượt này. acceptedVideoIds phải giữ toàn bộ video hợp lệ đầu vào; nhiệm vụ chính là làm sạch tiêu đề/tên nguồn, phân loại chủ đề và nhận diện nội dung trùng.`}
 
-1) MENU CHA TỰ ĐỘNG
-- Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
-- Tên cha phải rất ngắn, tự nhiên, quen với người Việt, thường 1-3 từ. Ví dụ chỉ để hiểu cấp độ: "Thời sự", "An ninh", "Kinh tế", "Công nghệ", "Thể thao", "Giải trí", "Nhạc", "Phim", "Phim ngắn", "Đời sống". Đây KHÔNG phải danh sách bắt buộc.
-- Không tạo cha theo mốc thời gian như "Mới nhất", "Tuần này", "Hôm nay", "LIVE", và không dùng "Trend" làm loại nội dung.
-- Không tạo hai cha đồng nghĩa hoặc quá gần nhau. Nếu "Phim ngắn" đủ lớn và khác rõ "Phim" thì có thể tách riêng; nếu không thì gộp hợp lý.
-- Một video có thể thuộc tối đa 2 cha khi thật sự giao nhau, nhưng ưu tiên 1 cha rõ nhất.
-- Chỉ tạo cha có ít nhất 2 video trong batch. Không cố tạo đủ số lượng nếu dữ liệu không có.
+1) PHÂN LOẠI NỘI BỘ — KHÔNG QUYẾT ĐỊNH TAB
+- Các tab LIVE / Mới nhất / Tuần này / Thời sự / Kinh tế / Pháp luật / Phim / Nhạc / Công nghệ / Thể thao / Giải trí là CỐ ĐỊNH do ứng dụng quản lý.
+- AI 1 không được tạo, xóa, đổi tên hoặc chuyển tab. Trường "parents" chỉ là nhãn phân loại nội bộ nếu hữu ích cho chủ đề con.
+- Tên phân loại phải rất ngắn, tự nhiên, quen với người Việt, thường 1-3 từ.
+- Không tạo nhóm theo mốc thời gian như "Mới nhất", "Tuần này", "Hôm nay", "LIVE", và không dùng "Trend" làm loại nội dung.
+- Một video có thể thuộc tối đa 2 nhãn nội bộ khi thật sự giao nhau, nhưng ưu tiên 1 nhãn rõ nhất.
 
 2) CHỦ ĐỀ / NHÁNH CON
 - Tạo tối đa 5-10 chủ đề con hoặc sự kiện đang nổi, mỗi chủ đề gắn với đúng một cha đã tạo ở trên.
@@ -452,6 +486,7 @@ ${parentLabel?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - displayTitle phải ngắn, rõ nghĩa hơn nhưng KHÔNG được thêm sự kiện, suy đoán, đánh giá hay thay đổi mức độ chắc chắn của tiêu đề gốc.
 - Giữ nguyên tên người, địa danh, số liệu, mốc thời gian và tình trạng pháp lý như "bị khởi tố", "tạm giam", "nghi", "cáo buộc" nếu tiêu đề gốc có.
 - Chỉ bỏ rác trình bày: hashtag cuối câu, tên kênh chen lặp vào tiêu đề, ALL CAPS không cần thiết, dấu câu lặp, cụm quảng bá kiểu "TIN NÓNG", "MỚI NHẤT" khi không mang nội dung.
+- Có thể sửa lỗi chính tả/viết hoa rõ ràng khi chắc chắn, nhưng không được đổi tên riêng, số liệu, thuật ngữ hoặc ý nghĩa.
 - Không biến câu hỏi thành khẳng định; không biến cáo buộc thành sự thật.
 - displaySource chỉ rút gọn BRANDING, không đổi danh tính nguồn. Ví dụ "VTV Nam Bộ - Tin Tức Tổng Hợp" -> "VTV Nam Bộ". Không đổi "VTV24" thành "VTV", không đổi một kênh thành cơ quan khác.
 - Nếu title/source đã sạch thì KHÔNG cần trả cleanup cho video đó.
@@ -516,6 +551,56 @@ ${JSON.stringify(videos)}
       }
       lastError=`ai_http_${response.status}`;
       console.error("[yt1988-topics:ai]",model,response.status,String(payload?.error?.message||"request_failed").slice(0,300));
+      if(response.status===401||response.status===403)break;
+    }catch(error){
+      lastError=String((error as any)?.message||error||"ai_network");
+    }
+  }
+  throw new Error(lastError);
+}
+
+
+async function callSourceDiscoveryGemini(cfg:any,candidates:any[],parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]}){
+  const instruction=[
+    "Bạn là AI 2 của ứng dụng 1988. Nhiệm vụ DUY NHẤT: tìm/duyệt KÊNH MỚI có nội dung tương tự các nguồn người dùng đã chọn.",
+    "Không làm sạch tiêu đề, không gộp video trùng, không tạo menu và không tự thêm kênh.",
+    "Danh sách Chặn là ví dụ ÂM tuyệt đối: không chọn lại kênh bị chặn và không dùng chúng làm mẫu dương.",
+    "Danh sách Chọn + cụm nội dung đã học là ví dụ DƯƠNG. Hãy so nội dung thực tế của các video mẫu, không so tên kênh đơn thuần.",
+    "Ưu tiên kênh đang hoạt động gần đây. Mẫu ứng viên đã được client khoanh vùng thời gian trước khi gửi để giảm tải.",
+    "Nếu nhóm là một chủ đề cố định như Thời sự/Kinh tế/Pháp luật/Phim/Nhạc/Công nghệ/Thể thao/Giải trí thì chỉ nhận kênh có phần lớn mẫu phù hợp nhóm đó.",
+    "Nếu nhóm là Mới nhất/Tuần này thì học kiểu nội dung tổng hợp từ các nguồn đã chọn, không ép vào một chủ đề duy nhất.",
+    "Không chọn chỉ vì một video tình cờ trùng từ khóa. Cần dấu hiệu tương đồng đủ rõ qua các mẫu của kênh.",
+    "OUTPUT chỉ JSON: {\"acceptedSourceIds\":[\"UC...\"]}",
+    "NHÓM: "+clean(parentLabel,80),
+    "NGUỒN ĐÃ CHỌN (DƯƠNG): "+JSON.stringify(learning.selectedSourceNames||[]),
+    "NGUỒN ĐÃ CHẶN (ÂM): "+JSON.stringify(learning.blockedSourceNames||[]),
+    "CỤM NỘI DUNG ĐÃ HỌC: "+JSON.stringify(learning.learnedQueries||[]),
+    "ỨNG VIÊN KÊNH: "+JSON.stringify(candidates)
+  ].join("\n");
+
+  const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
+  const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"]
+    .filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+
+  let lastError="ai_failed";
+  for(const model of models){
+    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+        body:JSON.stringify({
+          contents:[{role:"user",parts:[{text:instruction}]}],
+          generationConfig:{temperature:0.08,responseMimeType:"application/json"}
+        })
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        const text=responseText(payload);
+        if(!text)throw new Error("empty_ai_response");
+        return {model,text};
+      }
+      lastError=`ai_http_${response.status}`;
       if(response.status===401||response.status===403)break;
     }catch(error){
       lastError=String((error as any)?.message||error||"ai_network");
@@ -789,10 +874,56 @@ Deno.serve(async(req:Request)=>{
 
   try{
     const body=await req.json().catch(()=>({}));
-    const mode=body?.mode==="catalog"?"catalog":body?.mode==="video_context"?"video_context":"classify";
+    const mode=
+      body?.mode==="catalog"?"catalog":
+      body?.mode==="video_context"?"video_context":
+      body?.mode==="source_discovery"?"source_discovery":
+      "classify";
     const videos=normalizeVideos(body?.videos);
     const cfg=await runtimeConfig();
     if(!cfg.key)return json({ok:false,error:"ai_not_configured"},503);
+
+    if(mode==="source_discovery"){
+      const candidates=normalizeSourceCandidates(body?.sourceCandidates);
+      if(!candidates.length)return json({ok:true,acceptedSourceIds:[],cached:false,reason:"no_candidates"});
+      const parentLabel=clean(body?.parentLabel,80);
+      const learning={
+        selectedSourceNames:normalizeSourceNames(body?.selectedSourceNames,24),
+        blockedSourceNames:normalizeSourceNames(body?.blockedSourceNames,24),
+        learnedQueries:normalizeSourceNames(body?.learnedQueries,12)
+      };
+      const canonical=candidates
+        .map(row=>[row.id,row.name,...row.samples.map((sample:any)=>[sample.title,sample.published,sample.views].join("|"))].join("\t"))
+        .sort()
+        .join("\n");
+      const learningCanonical=[
+        ...learning.selectedSourceNames.map((name:string)=>"+"+name),
+        ...learning.blockedSourceNames.map((name:string)=>"-"+name),
+        ...learning.learnedQueries.map((name:string)=>"?"+name)
+      ].sort().join("\n");
+      const fingerprint=await sha256("source_discovery\n"+parentLabel+"\n"+learningCanonical+"\n"+canonical);
+      const freshnessBucket=Math.floor(Date.now()/(6*60*60*1000));
+      const cacheKey="v1:source_discovery:"+freshnessBucket+":"+fingerprint;
+      const cached=await db.from("yt1988_ai_topic_cache")
+        .select("result,model,created_at")
+        .eq("cache_key",cacheKey)
+        .maybeSingle();
+      if(!cached.error&&cached.data?.result){
+        return json({ok:true,...cached.data.result,model:cached.data.model||null,fingerprint,cached:true});
+      }
+      const ai=await callSourceDiscoveryGemini(cfg,candidates,parentLabel,learning);
+      const result=validateSourceDiscoveryResult(parseJson(ai.text),candidates);
+      await db.from("yt1988_ai_topic_cache").upsert({
+        cache_key:cacheKey,
+        scope:"source_discovery",
+        fingerprint,
+        model:ai.model,
+        video_count:candidates.reduce((sum:number,row:any)=>sum+row.samples.length,0),
+        result,
+        created_at:new Date().toISOString()
+      },{onConflict:"cache_key"});
+      return json({ok:true,...result,model:ai.model,fingerprint,cached:false});
+    }
 
     if(mode==="video_context"){
       const video=videos[0]||null;
@@ -870,8 +1001,13 @@ Deno.serve(async(req:Request)=>{
     }
 
     const rawScope=clean(body?.scope,80);
-    const scope=rawScope==="week"?"week":rawScope==="latest"?"latest":rawScope.startsWith("ai:")?rawScope:"latest";
+    const scope=
+      rawScope==="week"||rawScope==="feed:week"?"week":
+      rawScope==="latest"||rawScope==="feed:latest"?"latest":
+      rawScope.startsWith("ai:")?rawScope:
+      "latest";
     const parentLabel=clean(body?.parentLabel,28);
+    const filterToParent=body?.filterToParent!==false;
     const learning={
       selectedSourceNames:normalizeSourceNames(body?.selectedSourceNames,24),
       blockedSourceNames:normalizeSourceNames(body?.blockedSourceNames,24),
@@ -891,8 +1027,8 @@ Deno.serve(async(req:Request)=>{
       ...learning.blockedSourceNames.map((name:string)=>"-"+name),
       ...learning.learnedQueries.map((name:string)=>"?"+name)
     ].sort().join("\n");
-    const fingerprint=await sha256(scope+"\n"+parentLabel+"\n"+learningCanonical+"\n"+canonical);
-    const cacheKey="v9:classify:"+scope+":"+fingerprint;
+    const fingerprint=await sha256(scope+"\n"+parentLabel+"\nfilterToParent="+String(filterToParent)+"\n"+learningCanonical+"\n"+canonical);
+    const cacheKey="v10:classify:"+scope+":"+fingerprint;
 
     const cached=await db.from("yt1988_ai_topic_cache")
       .select("result,model,created_at")
@@ -909,7 +1045,7 @@ Deno.serve(async(req:Request)=>{
       });
     }
 
-    const ai=await callGemini(cfg,scope,videos,parentLabel,learning);
+    const ai=await callGemini(cfg,scope,videos,parentLabel,learning,filterToParent);
     const parsed=parseJson(ai.text);
     const result=validateResult(parsed,videos);
 
