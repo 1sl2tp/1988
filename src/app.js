@@ -6327,6 +6327,9 @@ function topicInputRows(rows=[]){
       channel:clean(row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||""),
       published:clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||publishedLabel(row)||""),
       views:Number(row?.views)||0,
+      duration:Number(row?.duration)||0,
+      description:clean(row?.description||row?.shortDescription||"").slice(0,1200),
+      howMade:clean(row?.howMade||row?.how_made||"").slice(0,500),
       contentHash:contentHashForRow(row)
     }))
     .filter(row=>row.id&&row.title);
@@ -6346,6 +6349,151 @@ function contentHashForRow(row={}){
   const title=normalizeSearchText(clean(row?._displayTitle||row?.title||""));
   if(title.length<16)return "";
   return fastHash(title);
+}
+
+// Review is a presentation label, so detect it from the current server-synced
+// label rather than hard-coding a scope key. Renaming a tab to/from Review
+// immediately changes this cleanup policy without changing source ownership.
+function isReviewPackageLabel(label=""){
+  const norm=normalizeSearchText(label);
+  return norm==="review"||norm==="review phim"||norm.startsWith("review ");
+}
+
+function packageContext(snapshotName="",explicitScope="",explicitLabel=""){
+  let scope=String(explicitScope||"").trim();
+  if(!scope){
+    if(snapshotName.startsWith("category:"))scope=snapshotName.slice(9);
+    else if(snapshotName.startsWith("feed:"))scope=snapshotName.slice(5);
+  }
+  const label=clean(
+    explicitLabel||
+    (MANAGED_SOURCE_SCOPES.has(scope)?sourceGroupLabel(scope):"")
+  );
+  return {scope,label,review:isReviewPackageLabel(label)};
+}
+
+function reviewAdSignals(row={}){
+  const title=clean(row?._displayTitle||row?.title||"");
+  const normalized=normalizeSearchText(title);
+  const signals=[];
+
+  // Vietnamese mobile numbers. Years, episode numbers and normal short codes
+  // do not match this pattern.
+  if(/(?:^|[^\d])(?:\+?84|0)(?:3|5|7|8|9)(?:[\s.\-]?\d){8}(?:[^\d]|$)/u.test(title)){
+    signals.push("phone");
+  }
+
+  if(/(?:https?:\/\/|www\.|(?:^|\s)[a-z0-9-]+\.(?:com|net|org|vn|me|io|cc|xyz)(?:\s|\/|$))/iu.test(title)){
+    signals.push("url");
+  }
+
+  const hasContact=/\b(?:zalo|telegram|whatsapp|hotline|lien he|inbox|ib)\b/u.test(normalized);
+  const hasHandle=/(?:^|\s)@[a-z0-9_.-]{4,}/iu.test(title);
+  if(hasContact)signals.push("contact");
+  if(hasHandle)signals.push("handle");
+
+  if(/\b(?:giftcode|coupon|voucher|ma giam gia|ma khuyen mai|nhap ma|code tan thu|code nhan qua|ma nhan qua|affiliate)\b/u.test(normalized)){
+    signals.push("promo_code");
+  }
+
+  return signals;
+}
+
+function isStrongReviewAd(row={}){
+  const signals=reviewAdSignals(row);
+  if(signals.includes("phone")||signals.includes("url")||signals.includes("promo_code"))return true;
+  return signals.includes("contact")&&signals.includes("handle");
+}
+
+function cleanReviewDisplayTitle(value=""){
+  const original=clean(value);
+  if(!original)return "";
+
+  let title=original
+    .replace(/https?:\/\/\S+|www\.\S+/giu," ")
+    .replace(/(?:#[\p{L}\p{N}_-]+\s*)+$/gu," ")
+    .replace(/^\s*(?:review\s*phim|phim\s*review|tóm\s*tắt\s*phim|tom\s*tat\s*phim|movie\s*recap)\s*[:|\-–—]*\s*/iu,"")
+    .replace(/\b(?:full\s*tập|full\s*tap|trọn\s*bộ|tron\s*bo|vietsub|thuyết\s*minh|thuyet\s*minh)\b/giu," ")
+    .replace(/([!?.,])\1{1,}/g,"$1")
+    .replace(/\s{2,}/g," ")
+    .replace(/^[\s|:;\-–—]+|[\s|:;\-–—]+$/g,"")
+    .trim();
+
+  // Collapse an immediately repeated word, but never rewrite non-adjacent
+  // wording because that can change a film name.
+  title=title.replace(/\b([\p{L}\p{N}]{3,})\s+\1\b/giu,"$1").trim();
+  return title.length>=10?title:original;
+}
+
+const REVIEW_CORE_STOPWORDS=new Set([
+  "review","phim","movie","recap","tom","tat","full","tap","tron","bo",
+  "vietsub","thuyet","minh","hay","sieu","pham","moi","nhat","official",
+  "video","clip","short","shorts"
+]);
+
+function reviewEpisodeKey(value=""){
+  const text=normalizeSearchText(value);
+  const m=text.match(/\b(?:tap|ep|episode|phan|part)\s*0*(\d{1,4})\b/);
+  return m?String(Number(m[1])):"";
+}
+
+function reviewSemanticTokens(row={}){
+  const title=cleanReviewDisplayTitle(row?._displayTitle||row?.title||"");
+  const episode=reviewEpisodeKey(title);
+  const tokens=normalizeSearchText(title)
+    .split(" ")
+    .filter(token=>
+      token.length>=2 &&
+      !REVIEW_CORE_STOPWORDS.has(token) &&
+      !/^\d{4}$/.test(token)
+    );
+  return {episode,tokens:[...new Set(tokens)]};
+}
+
+function tokenOverlapRatio(a=[],b=[]){
+  if(!a.length||!b.length)return 0;
+  const bSet=new Set(b);
+  let common=0;
+  for(const token of a)if(bSet.has(token))common+=1;
+  return common/Math.max(a.length,b.length);
+}
+
+function prepareReviewPackageRows(rows=[]){
+  const out=[];
+  const signatures=[];
+
+  for(const sourceRow of Array.isArray(rows)?rows:[]){
+    if(isStrongReviewAd(sourceRow))continue;
+
+    const rawTitle=clean(sourceRow?._displayTitle||sourceRow?.title||"");
+    const displayTitle=cleanReviewDisplayTitle(rawTitle);
+    const row=displayTitle&&displayTitle!==rawTitle
+      ?{...sourceRow,_displayTitle:displayTitle}
+      :sourceRow;
+
+    const sig=reviewSemanticTokens(row);
+    let duplicate=false;
+
+    if(sig.tokens.length>=4){
+      for(const prior of signatures){
+        // Explicitly different episodes/parts are never collapsed locally.
+        if(sig.episode&&prior.episode&&sig.episode!==prior.episode)continue;
+
+        const sameCore=sig.tokens.join(" ")===prior.tokens.join(" ");
+        const veryClose=tokenOverlapRatio(sig.tokens,prior.tokens)>=.84;
+        if(sameCore||veryClose){
+          duplicate=true;
+          break;
+        }
+      }
+    }
+
+    if(duplicate)continue;
+    out.push(row);
+    signatures.push(sig);
+  }
+
+  return out;
 }
 
 function normalizeAiCatalogParents(payload){
@@ -7475,7 +7623,9 @@ async function buildCategorySourceSnapshot(parent,local=null){
 
   const packaged=await packageRowsWithAi("category:"+parent.key,rows,{
     sourceSignature:sourceSignature(group),
-    maxRows:90
+    maxRows:90,
+    scope:group,
+    parentLabel:sourceGroupLabel(group)
   });
 
   state.aiCategoryRows.set(parent.key,{at:Date.now(),items:packaged});
@@ -12379,16 +12529,30 @@ const snapshotPackagePending=new Map();
 
 async function packageRowsWithAi(snapshotName,rows=[],{
   sourceSignature:sourceSig="",
-  maxRows=90
+  maxRows=90,
+  scope:explicitScope="",
+  parentLabel:explicitLabel=""
 }={}){
-  const base=dedupeHashedRows(Array.isArray(rows)?rows:[])
+  const context=packageContext(snapshotName,explicitScope,explicitLabel);
+  const prepared=context.review
+    ?prepareReviewPackageRows(rows)
+    :(Array.isArray(rows)?rows:[]);
+
+  const base=dedupeHashedRows(prepared)
     .slice(0,Math.max(1,Number(maxRows)||90));
   if(!base.length)return [];
 
-  const inputHash=snapshotRowsHash(base,sourceSig);
+  // Include the active filtering policy in the input hash. Renaming a tab to
+  // "Review" must rebuild the package even when raw YouTube rows are unchanged.
+  const policyKey=context.review
+    ?"review-quality-v2:"+normalizeSearchText(context.label)
+    :"default-dedupe-v2";
+  const inputHash=fastHash(
+    snapshotRowsHash(base,sourceSig)+"|"+policyKey
+  );
   const current=readAtomicSnapshot(snapshotName);
 
-  // Same raw package => zero AI calls, zero cache churn.
+  // Same raw package + same policy => zero AI calls, zero cache churn.
   if(
     current?.inputHash===inputHash &&
     Array.isArray(current.items) &&
@@ -12427,6 +12591,9 @@ async function packageRowsWithAi(snapshotName,rows=[],{
         },
         body:JSON.stringify({
           mode:"dedupe",
+          scope:context.scope,
+          parentLabel:context.label,
+          reviewMode:context.review,
           videos:input
         })
       });
@@ -12444,11 +12611,25 @@ async function packageRowsWithAi(snapshotName,rows=[],{
       )];
       const keepSet=new Set(keepIds);
 
-      // AI can only remove duplicates. Code owns the existing deterministic
-      // order and never accepts AI-created IDs or UI metadata.
-      const packaged=keepSet.size
+      const cleanupMap=new Map(
+        (Array.isArray(payload?.cleanups)?payload.cleanups:[])
+          .map(item=>[
+            clean(item?.id),
+            clean(item?.displayTitle||"").slice(0,180)
+          ])
+          .filter(([id,title])=>allowed.has(id)&&title.length>=8)
+      );
+
+      // AI may identify semantic duplicate groups / strong ad rows, but code
+      // owns IDs, order and rendering. Cleanup is display-only and cannot
+      // invent rows or mutate source ownership.
+      const selected=keepSet.size
         ?base.filter(row=>keepSet.has(itemVideoId(row)))
         :base;
+      const packaged=selected.map(row=>{
+        const title=cleanupMap.get(itemVideoId(row));
+        return title?{...row,_displayTitle:title}:row;
+      });
 
       commitAtomicSnapshot(snapshotName,packaged,{
         sourceSignature:sourceSig,
@@ -12485,7 +12666,9 @@ async function buildSourceFeedSnapshot(name,preset,local=null){
 
   const packaged=await packageRowsWithAi("feed:"+name,rows,{
     sourceSignature:sourceSignature(scope),
-    maxRows:90
+    maxRows:90,
+    scope,
+    parentLabel:sourceGroupLabel(scope)
   });
 
   if(packaged.length){
@@ -12510,7 +12693,9 @@ async function refreshLiveSnapshotInBackground(local=null){
     );
     const packaged=await packageRowsWithAi("feed:"+LIVE_SOURCE_SCOPE,rows,{
       sourceSignature:sourceSignature(LIVE_SOURCE_SCOPE),
-      maxRows:90
+      maxRows:90,
+      scope:LIVE_SOURCE_SCOPE,
+      parentLabel:sourceGroupLabel(LIVE_SOURCE_SCOPE)
     });
     cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
     if(packaged.length)applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
