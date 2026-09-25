@@ -7763,57 +7763,90 @@ async function doSearch(value){
   }
 }
 
-let homeHeaderLastY=Math.max(0,document.scrollingElement?.scrollTop||window.scrollY||0);
+let homeHeaderLastY=Math.max(0,Number(document.scrollingElement?.scrollTop)||Number(window.scrollY)||0);
+let homeHeaderDirectionStartY=homeHeaderLastY;
 let homeHeaderScrollRaf=0;
-let homeHeaderScrollEvent=null;
 
 function setHomeHeaderHidden(hidden){
   const root=document.documentElement;
-  if(window.innerWidth>720||root.classList.contains("watch-browse")||root.classList.contains("home-search-open"))hidden=false;
+  if(
+    window.innerWidth>720||
+    root.classList.contains("watch-browse")||
+    root.classList.contains("home-search-open")
+  )hidden=false;
   root.classList.toggle("home-header-hidden",!!hidden);
 }
 
-function homeScrollY(event){
-  const target=event?.target;
-  if(target&&target!==document&&target!==window&&typeof target.scrollTop==="number"){
-    return Math.max(0,Number(target.scrollTop)||0);
-  }
-  return Math.max(0,Number(document.scrollingElement?.scrollTop)||Number(window.scrollY)||0);
+function rootHomeScrollY(){
+  return Math.max(
+    0,
+    Number(document.scrollingElement?.scrollTop)||
+    Number(document.documentElement?.scrollTop)||
+    Number(document.body?.scrollTop)||
+    Number(window.scrollY)||
+    0
+  );
 }
 
-function updateHomeHeaderOnScroll(event){
+function updateHomeHeaderOnScroll(){
   homeHeaderScrollRaf=0;
   const root=document.documentElement;
+  const y=rootHomeScrollY();
+
   if(window.innerWidth>720||root.classList.contains("watch-browse")){
     root.classList.remove("home-header-hidden");
-    homeHeaderLastY=homeScrollY(event);
+    homeHeaderLastY=y;
+    homeHeaderDirectionStartY=y;
     return;
   }
 
-  const y=homeScrollY(event);
-  const delta=y-homeHeaderLastY;
-
-  if(y<=12){
+  if(root.classList.contains("home-search-open")){
     setHomeHeaderHidden(false);
-  }else if(!root.classList.contains("home-search-open")){
-    if(delta>3)setHomeHeaderHidden(true);
-    else if(delta<-3)setHomeHeaderHidden(false);
+    homeHeaderLastY=y;
+    homeHeaderDirectionStartY=y;
+    return;
+  }
+
+  if(y<=18){
+    setHomeHeaderHidden(false);
+    homeHeaderDirectionStartY=y;
+    homeHeaderLastY=y;
+    return;
+  }
+
+  const delta=y-homeHeaderLastY;
+  if(delta===0)return;
+
+  const direction=delta>0?1:-1;
+  const previousDirection=homeHeaderLastY-homeHeaderDirectionStartY>=0?1:-1;
+  if(direction!==previousDirection)homeHeaderDirectionStartY=homeHeaderLastY;
+
+  const travel=Math.abs(y-homeHeaderDirectionStartY);
+
+  // Hysteresis prevents Safari's tiny elastic-scroll changes from toggling
+  // the header repeatedly. Down needs 28px; up needs 20px.
+  if(direction>0&&travel>=28){
+    setHomeHeaderHidden(true);
+    homeHeaderDirectionStartY=y;
+  }else if(direction<0&&travel>=20){
+    setHomeHeaderHidden(false);
+    homeHeaderDirectionStartY=y;
   }
 
   homeHeaderLastY=y;
 }
 
-function onHomeScroll(event){
-  homeHeaderScrollEvent=event;
+function onHomeScroll(){
   if(homeHeaderScrollRaf)return;
-  homeHeaderScrollRaf=requestAnimationFrame(()=>{
-    updateHomeHeaderOnScroll(homeHeaderScrollEvent);
-    homeHeaderScrollEvent=null;
-  });
+  homeHeaderScrollRaf=requestAnimationFrame(updateHomeHeaderOnScroll);
 }
 
+// Only the document viewport controls the home header. Do not capture scroll
+// events from horizontal chip/card rails.
 window.addEventListener("scroll",onHomeScroll,{passive:true});
-document.addEventListener("scroll",onHomeScroll,{passive:true,capture:true});
+document.addEventListener("scroll",event=>{
+  if(event.target===document||event.target===document.scrollingElement)onHomeScroll();
+},{passive:true});
 
 function homeSearchIconMarkup(open){
   return open
