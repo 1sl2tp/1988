@@ -2110,7 +2110,7 @@ async function hydrateSourceSearchMetadata(rows=[],engine=null,seq=sourceSearchS
           Object.assign(row,merged);
           sourceMetaCache.set(id,{...sourceMetaCache.get(id),...merged});
           const image=rememberSourceAvatar(id,merged.thumbnailUrl||"");
-          if(image)void warmAvatarImage(image);
+          if(image)await warmAvatarImage(image);
 
           if(seq===sourceSearchSeq&&!sourcesSheet?.hidden){
             updateSourceRowMeta(id);
@@ -2286,7 +2286,8 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
   const meta=relativePublishedLabel(video);
   const source=sourceRowFromVideo(video);
   const sourceName=clean(source?.name||video?.uploader||video?._sourceName||"");
-  const metaText=meta+(video.views?(" · "+fmtViewLabel(video.views,video.viewText||"")):"");
+  const viewLabel=fmtViewLabel(video.views,video.viewText||"");
+  const metaText=[meta,viewLabel].filter(Boolean).join(" · ");
 
   return '<article class="source-video-card'+(searchResult?' search-result':'')+'" data-source-video-card="'+esc(videoId)+'">'+
     '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
@@ -6657,8 +6658,7 @@ function searchCardHtml(row={},options={}){
   const isLive=!!row.isLive;
   const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
   const statBits=[];
-  if(viewText)statBits.push(viewText);
-  else if(views)statBits.push(fmtViewLabel(views,viewText));
+  if(viewText||views)statBits.push(fmtViewLabel(views,viewText));
   if(published)statBits.push(published);
   const episode=Number(options.episode)||0;
   const seriesKey=clean(options.seriesKey||"");
@@ -7905,11 +7905,11 @@ function updateNow(meta={}){
   const views=Number(meta.views)||0;
   const viewText=clean(meta.viewText||"");
   const duration=durationSeconds(meta);
-  const published=publishedLabel(meta);
+  const published=relativePublishedLabel(meta)||publishedLabel(meta);
   videoTitle.textContent=title;
   const bits=[];
   if(channel)bits.push(channel);
-  if(views)bits.push(fmtViewLabel(views,viewText));
+  if(views||viewText)bits.push(fmtViewLabel(views,viewText));
   if(published)bits.push("Đăng "+published.replace(/^Đăng\s+/i,""));
   if(duration)bits.push(fmtDuration(duration));
   videoMeta.textContent=bits.join(" · ");
