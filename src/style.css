@@ -7748,3 +7748,142 @@ html:not(.watch-browse) .app-header{
     margin-left:0!important;
   }
 }
+
+
+/* ============================================================
+   VIDEO AMBIENT CHROME v213
+   Watch: Search + source chips + "Mới nhất" softly inherit the playing
+   video's sampled color. Home: the same chrome follows the nearest visible
+   video while scrolling. Static gradients only; no animation.
+   ============================================================ */
+:root{
+  --page-chrome-tint:rgb(28,28,32);
+  --page-chrome-glow:rgba(28,28,32,.52);
+  --page-chrome-soft:rgba(28,28,32,.26);
+  --page-chrome-faint:rgba(28,28,32,.12);
+}
+
+/* Mobile watch ambient chrome. */
+@media(max-width:720px){
+  html.watch-browse .header-inner{
+    background:
+      radial-gradient(115% 165% at 50% 118%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 38%,
+        rgba(11,11,12,.78) 70%,
+        rgba(11,11,12,.94) 100%)!important;
+    border-bottom:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(9px) saturate(118%)!important;
+    -webkit-backdrop-filter:blur(9px) saturate(118%)!important;
+  }
+
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    background:
+      radial-gradient(125% 190% at 50% -34%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 48%,
+        rgba(11,11,12,.82) 88%)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(8px) saturate(112%)!important;
+    -webkit-backdrop-filter:blur(8px) saturate(112%)!important;
+  }
+
+  html.watch-browse .header-nav-inner,
+  html.watch-browse .topic-chips{
+    background:transparent!important;
+  }
+
+  /* Let the player's color breathe a little into its surroundings, similar
+     to YouTube ambient mode, without drawing a visible frame. */
+  html.watch-browse .player-section{
+    box-shadow:
+      0 -22px 42px -30px var(--page-chrome-glow),
+      0 24px 52px -34px var(--page-chrome-glow)!important;
+  }
+
+  html.watch-browse .section-head{
+    display:flex!important;
+    align-items:center!important;
+    min-height:34px!important;
+    margin:0!important;
+    padding:7px 12px 5px!important;
+    border:0!important;
+    background:
+      radial-gradient(105% 170% at 50% -52%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 44%,
+        rgba(11,11,12,.94) 86%)!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(5px)!important;
+    -webkit-backdrop-filter:blur(5px)!important;
+  }
+
+  html.watch-browse .section-head strong{
+    color:#f2f2f4!important;
+  }
+
+  /* Search view remains clean: no player-dependent glow competing with input. */
+  html.watch-browse.watch-search-open .header-inner{
+    background:#0b0b0c!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-nav{
+    background:#0b0b0c!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+}
+
+/* Homepage uses the nearest visible video as its ambient source. */
+html:not(.watch-browse) .header-inner{
+  background:
+    radial-gradient(125% 180% at 50% 122%,
+      var(--page-chrome-glow) 0%,
+      var(--page-chrome-soft) 36%,
+      rgba(11,11,12,.80) 70%,
+      rgba(11,11,12,.96) 100%)!important;
+  border-bottom:0!important;
+  box-shadow:none!important;
+  backdrop-filter:blur(9px) saturate(116%)!important;
+  -webkit-backdrop-filter:blur(9px) saturate(116%)!important;
+}
+
+html:not(.watch-browse) .header-nav{
+  background:
+    radial-gradient(125% 180% at 50% -42%,
+      var(--page-chrome-soft) 0%,
+      var(--page-chrome-faint) 46%,
+      rgba(11,11,12,.90) 88%)!important;
+  border-top:0!important;
+  border-bottom:0!important;
+  box-shadow:none!important;
+  backdrop-filter:blur(7px) saturate(112%)!important;
+  -webkit-backdrop-filter:blur(7px) saturate(112%)!important;
+}
+
+html:not(.watch-browse) .header-nav-inner,
+html:not(.watch-browse) .topic-chips{
+  background:transparent!important;
+}
+
+html:not(.watch-browse) .section-head{
+  position:relative;
+  z-index:1;
+  border:0!important;
+  background:
+    radial-gradient(105% 160% at 50% -58%,
+      var(--page-chrome-faint) 0%,
+      rgba(11,11,12,0) 78%)!important;
+}
+
+/* Expanded search should stay neutral/readable on both home and watch. */
+html:not(.watch-browse).home-search-open .header-inner{
+  background:#0b0b0c!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
