@@ -465,13 +465,12 @@ ${parentLabel&&filterToParent?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - KHÔNG đánh dấu chỉ vì video nói về AI, review công cụ AI, có chữ "AI" trong chủ đề, hoặc chỉ dùng AI cho script/thumbnail/phụ đề/chỉnh sửa nhỏ.
 - Nếu không đủ chắc chắn thì KHÔNG đưa vào aiGeneratedLikelyIds.`:`AI 1 KHÔNG được loại video theo tên tab trong lượt này. acceptedVideoIds phải giữ toàn bộ video hợp lệ đầu vào; nhiệm vụ chính là làm sạch tiêu đề/tên nguồn, phân loại chủ đề và nhận diện nội dung trùng.`}
 
-1) MENU CHA TỰ ĐỘNG
-- Tự nhìn toàn bộ batch và tạo tối đa 5-9 nhóm CHA phù hợp nhất với nội dung thực tế đang có.
-- Tên cha phải rất ngắn, tự nhiên, quen với người Việt, thường 1-3 từ. Ví dụ chỉ để hiểu cấp độ: "Thời sự", "An ninh", "Kinh tế", "Công nghệ", "Thể thao", "Giải trí", "Nhạc", "Phim", "Phim ngắn", "Đời sống". Đây KHÔNG phải danh sách bắt buộc.
-- Không tạo cha theo mốc thời gian như "Mới nhất", "Tuần này", "Hôm nay", "LIVE", và không dùng "Trend" làm loại nội dung.
-- Không tạo hai cha đồng nghĩa hoặc quá gần nhau. Nếu "Phim ngắn" đủ lớn và khác rõ "Phim" thì có thể tách riêng; nếu không thì gộp hợp lý.
-- Một video có thể thuộc tối đa 2 cha khi thật sự giao nhau, nhưng ưu tiên 1 cha rõ nhất.
-- Chỉ tạo cha có ít nhất 2 video trong batch. Không cố tạo đủ số lượng nếu dữ liệu không có.
+1) PHÂN LOẠI NỘI BỘ — KHÔNG QUYẾT ĐỊNH TAB
+- Các tab LIVE / Mới nhất / Tuần này / Thời sự / Kinh tế / Pháp luật / Phim / Nhạc / Công nghệ / Thể thao / Giải trí là CỐ ĐỊNH do ứng dụng quản lý.
+- AI 1 không được tạo, xóa, đổi tên hoặc chuyển tab. Trường "parents" chỉ là nhãn phân loại nội bộ nếu hữu ích cho chủ đề con.
+- Tên phân loại phải rất ngắn, tự nhiên, quen với người Việt, thường 1-3 từ.
+- Không tạo nhóm theo mốc thời gian như "Mới nhất", "Tuần này", "Hôm nay", "LIVE", và không dùng "Trend" làm loại nội dung.
+- Một video có thể thuộc tối đa 2 nhãn nội bộ khi thật sự giao nhau, nhưng ưu tiên 1 nhãn rõ nhất.
 
 2) CHỦ ĐỀ / NHÁNH CON
 - Tạo tối đa 5-10 chủ đề con hoặc sự kiện đang nổi, mỗi chủ đề gắn với đúng một cha đã tạo ở trên.
@@ -487,6 +486,7 @@ ${parentLabel&&filterToParent?`QUAN TRỌNG KHI LỌC NHÓM "${parentLabel}":
 - displayTitle phải ngắn, rõ nghĩa hơn nhưng KHÔNG được thêm sự kiện, suy đoán, đánh giá hay thay đổi mức độ chắc chắn của tiêu đề gốc.
 - Giữ nguyên tên người, địa danh, số liệu, mốc thời gian và tình trạng pháp lý như "bị khởi tố", "tạm giam", "nghi", "cáo buộc" nếu tiêu đề gốc có.
 - Chỉ bỏ rác trình bày: hashtag cuối câu, tên kênh chen lặp vào tiêu đề, ALL CAPS không cần thiết, dấu câu lặp, cụm quảng bá kiểu "TIN NÓNG", "MỚI NHẤT" khi không mang nội dung.
+- Có thể sửa lỗi chính tả/viết hoa rõ ràng khi chắc chắn, nhưng không được đổi tên riêng, số liệu, thuật ngữ hoặc ý nghĩa.
 - Không biến câu hỏi thành khẳng định; không biến cáo buộc thành sự thật.
 - displaySource chỉ rút gọn BRANDING, không đổi danh tính nguồn. Ví dụ "VTV Nam Bộ - Tin Tức Tổng Hợp" -> "VTV Nam Bộ". Không đổi "VTV24" thành "VTV", không đổi một kênh thành cơ quan khác.
 - Nếu title/source đã sạch thì KHÔNG cần trả cleanup cho video đó.
@@ -1001,7 +1001,11 @@ Deno.serve(async(req:Request)=>{
     }
 
     const rawScope=clean(body?.scope,80);
-    const scope=rawScope==="week"?"week":rawScope==="latest"?"latest":rawScope.startsWith("ai:")?rawScope:"latest";
+    const scope=
+      rawScope==="week"||rawScope==="feed:week"?"week":
+      rawScope==="latest"||rawScope==="feed:latest"?"latest":
+      rawScope.startsWith("ai:")?rawScope:
+      "latest";
     const parentLabel=clean(body?.parentLabel,28);
     const filterToParent=body?.filterToParent!==false;
     const learning={
