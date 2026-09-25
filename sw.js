@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-main-watch-browse-v271';
+const CACHE='1988-main-watch-browse-v272';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
@@ -47,13 +47,13 @@ const SHELL=[
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=watch-browse-271',
-  './src/app.js?v=watch-browse-271',
+  './src/style.css?v=watch-browse-272',
+  './src/app.js?v=watch-browse-272',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
   './src/media-meta.js?v=1',
-  './src/yt-local.js?v=search-fast-271',
+  './src/yt-local.js?v=search-fast-272',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
