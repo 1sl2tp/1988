@@ -8,6 +8,7 @@ const MEDIA_SERVICE="https://one988-media.onrender.com";
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
 const queryInput=$("#queryInput");
+const homeSearchToggle=$("#homeSearchToggle");
 const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
@@ -6295,6 +6296,16 @@ function renderCards(rows=[],options={}){
     seen.add(id);
     const title=clean(row._displayTitle||row.title)||"Video";
     const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||row._sourceName||"");
+    const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+    const sourceMeta=(sourceId&&(sourceMetaCache.get(sourceId)||libraryRow(sourceId)))||{};
+    const sourceAvatar=safeSourceThumb(
+      row?.uploaderThumbnailUrl||
+      row?.channelThumbnailUrl||
+      row?._sourceThumbnailUrl||
+      sourceMeta?.thumbnailUrl||
+      ""
+    );
+    const sourceInitial=(channel||"1988").trim().slice(0,1).toUpperCase()||"•";
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
@@ -6308,9 +6319,15 @@ function renderCards(rows=[],options={}){
     cards.push(
       '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(String(row?._sourceId||row?.channelId||row?.uploaderId||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
-        '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
-          '<div class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</div>'+
-          '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
+        '<div class="card-copy">'+
+          '<span class="card-avatar" aria-hidden="true">'+
+            (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="lazy">':'<span>'+esc(sourceInitial)+'</span>')+
+          '</span>'+
+          '<div class="card-copy-main">'+
+            '<div class="card-title">'+esc(title)+'</div>'+
+            '<div class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</div>'+
+            '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
+          '</div>'+
         '</div>'+
       '</article>'
     );
@@ -7653,6 +7670,38 @@ async function doSearch(value){
   }
 }
 
+function setHomeSearchOpen(open){
+  const root=document.documentElement;
+  if(root.classList.contains("watch-browse"))return;
+  root.classList.toggle("home-search-open",!!open);
+  if(homeSearchToggle){
+    homeSearchToggle.textContent=open?"←":"⌕";
+    homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
+  }
+  if(open){
+    requestAnimationFrame(()=>{
+      queryInput?.focus?.({preventScroll:true});
+      queryInput?.select?.();
+    });
+  }else{
+    queryInput?.blur?.();
+    clearSuggestions();
+  }
+}
+
+homeSearchToggle?.addEventListener("click",event=>{
+  event.preventDefault();
+  event.stopPropagation();
+
+  if(document.documentElement.classList.contains("watch-browse")){
+    document.documentElement.classList.remove("watch-search-open");
+    queryInput?.blur?.();
+    return;
+  }
+
+  setHomeSearchOpen(!document.documentElement.classList.contains("home-search-open"));
+});
+
 seriesAutoplay?.addEventListener("click",()=>{
   state.seriesAutoplay=!state.seriesAutoplay;
   renderSeriesPanel();
@@ -7667,7 +7716,11 @@ seriesEpisodes?.addEventListener("click",event=>{
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
-  document.documentElement.classList.remove("watch-search-open");
+  document.documentElement.classList.remove("watch-search-open","home-search-open");
+  if(homeSearchToggle){
+    homeSearchToggle.textContent="⌕";
+    homeSearchToggle.setAttribute("aria-label","Mở tìm kiếm");
+  }
   void doSearch(queryInput.value);
   queryInput.blur();
 });

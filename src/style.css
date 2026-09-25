@@ -4714,3 +4714,372 @@ html.watch-browse .player-frame video{
     grid-template-columns:1fr!important;
   }
 }
+
+
+/* ============================================================
+   YOUTUBE-LIKE MOBILE HOME v185
+   Mobile home only: compact logo/actions header, horizontal chips,
+   one large video card per row. No bottom navigation.
+   ============================================================ */
+.card-avatar{
+  display:none;
+}
+.card-copy-main{
+  min-width:0;
+}
+
+@media(max-width:720px){
+  /* HOME ONLY. Watch mode keeps its dedicated player layout. */
+  html:not(.watch-browse){
+    --header-row-h:52px;
+    --nav-row-h:44px;
+    --header-stack-h:96px;
+    background:#0b0b0c;
+  }
+
+  html:not(.watch-browse) body{
+    background:#0b0b0c;
+    overflow-x:hidden;
+  }
+
+  html:not(.watch-browse) .app-header{
+    position:sticky;
+    top:0;
+    z-index:70;
+    padding-top:var(--safe-top);
+    border-bottom:0;
+    background:rgba(11,11,12,.975);
+    box-shadow:none;
+    backdrop-filter:blur(16px);
+    -webkit-backdrop-filter:blur(16px);
+  }
+
+  html:not(.watch-browse) .header-inner{
+    width:100%;
+    height:var(--header-row-h);
+    margin:0;
+    padding:7px 10px;
+    display:grid;
+    grid-template-columns:auto minmax(0,1fr);
+    align-items:center;
+    gap:8px;
+  }
+
+  html:not(.watch-browse) .brand{
+    gap:5px;
+    font-size:17px;
+    font-weight:760;
+    letter-spacing:-.35px;
+  }
+
+  html:not(.watch-browse) .brand-mark{
+    width:27px;
+    height:19px;
+    border-radius:6px;
+    font-size:9px;
+  }
+
+  /* Collapsed home header = search icon + source/settings icon. */
+  html:not(.watch-browse) .header-search{
+    justify-self:end;
+    width:78px;
+    height:38px;
+    display:grid;
+    grid-template-columns:38px 38px;
+    align-items:center;
+    gap:2px;
+    border:0;
+    border-radius:19px;
+    background:transparent;
+    overflow:visible;
+  }
+
+  html:not(.watch-browse) .home-search-toggle,
+  html:not(.watch-browse) .source-header-btn{
+    width:38px;
+    height:38px;
+    min-width:38px;
+    margin:0;
+    padding:0;
+    display:grid;
+    place-items:center;
+    border:0;
+    border-radius:50%;
+    background:transparent;
+    color:#f4f4f5;
+  }
+
+  html:not(.watch-browse) .home-search-toggle{
+    font-size:24px;
+    line-height:1;
+    font-weight:400;
+  }
+
+  html:not(.watch-browse) .source-header-btn{
+    border-left:0;
+  }
+
+  html:not(.watch-browse) .source-header-icon{
+    font-size:18px;
+    color:#eeeef0;
+  }
+
+  html:not(.watch-browse) #queryInput,
+  html:not(.watch-browse) .header-search>button[type="submit"]{
+    display:none;
+  }
+
+  html:not(.watch-browse) .search-icon{
+    padding:0;
+  }
+
+  /* Expanded search mirrors YouTube: one focused bar, logo temporarily gone. */
+  html:not(.watch-browse).home-search-open .header-inner{
+    grid-template-columns:minmax(0,1fr);
+  }
+
+  html:not(.watch-browse).home-search-open .brand{
+    display:none;
+  }
+
+  html:not(.watch-browse).home-search-open .header-search{
+    justify-self:stretch;
+    width:100%;
+    height:40px;
+    grid-template-columns:40px minmax(0,1fr) 40px;
+    gap:0;
+    border:1px solid #303038;
+    border-radius:20px;
+    background:#1b1b1e;
+    box-shadow:none;
+  }
+
+  html:not(.watch-browse).home-search-open #queryInput{
+    display:block;
+    height:38px;
+    padding:0 8px;
+    font-size:14px;
+  }
+
+  html:not(.watch-browse).home-search-open .home-search-toggle,
+  html:not(.watch-browse).home-search-open .source-header-btn{
+    width:38px;
+    height:38px;
+  }
+
+  html:not(.watch-browse).home-search-open .home-search-toggle{
+    font-size:21px;
+  }
+
+  html:not(.watch-browse) .suggestions{
+    top:44px;
+    left:0;
+    right:0;
+    border-radius:12px;
+  }
+
+  /* YouTube-like chip row. */
+  html:not(.watch-browse) .header-nav{
+    height:var(--nav-row-h);
+    border-top:0;
+    border-bottom:1px solid rgba(255,255,255,.055);
+    background:#0b0b0c;
+  }
+
+  html:not(.watch-browse) .header-nav-inner{
+    width:100%;
+    height:100%;
+    padding:0 8px;
+  }
+
+  html:not(.watch-browse) .topic-chips{
+    height:100%;
+    gap:7px;
+    padding:6px 0;
+  }
+
+  html:not(.watch-browse) .topic-chip{
+    height:32px;
+    padding:0 11px;
+    border:0;
+    border-radius:8px;
+    background:#232326;
+    color:#e3e3e5;
+    font-size:11px;
+    font-weight:600;
+  }
+
+  html:not(.watch-browse) .topic-chip.active{
+    background:#f3f3f4;
+    color:#111;
+    border:0;
+  }
+
+  html:not(.watch-browse) .topic-chip.live-chip{
+    color:#ff4b45;
+    background:#1d1d20;
+    box-shadow:inset 0 0 0 1px rgba(255,69,58,.45);
+  }
+
+  html:not(.watch-browse) .topic-chip.live-chip.active{
+    color:#ff453a;
+    background:rgba(255,69,58,.10);
+  }
+
+  html:not(.watch-browse) .topic-divider{
+    height:20px;
+    margin:0 1px;
+  }
+
+  /* Feed becomes the main visual surface, like YouTube mobile home. */
+  html:not(.watch-browse) .app-shell{
+    width:100%;
+    max-width:none;
+    margin:0;
+    padding:0 0 24px;
+  }
+
+  html:not(.watch-browse) .trend-topics{
+    display:none!important;
+  }
+
+  html:not(.watch-browse) .feed-section{
+    width:100%;
+    margin:0;
+    padding:0;
+  }
+
+  html:not(.watch-browse) .section-head{
+    display:none!important;
+  }
+
+  html:not(.watch-browse) .search-refinements{
+    margin:8px 10px 4px;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped){
+    display:block;
+    width:100%;
+    margin:0;
+    padding:0;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card{
+    width:100%;
+    min-width:0;
+    margin:0 0 17px;
+    padding:0 8px;
+    overflow:visible;
+    border:0;
+    border-radius:0;
+    background:transparent;
+    box-shadow:none;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%;
+    aspect-ratio:16/9;
+    overflow:hidden;
+    border-radius:12px;
+    background:#171719;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .duration{
+    right:7px;
+    bottom:7px;
+    padding:3px 5px;
+    border-radius:5px;
+    background:rgba(0,0,0,.78);
+    color:#fff;
+    font-size:9.5px;
+    font-weight:700;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .live-badge{
+    left:7px;
+    bottom:7px;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-copy{
+    display:grid;
+    grid-template-columns:36px minmax(0,1fr);
+    gap:10px;
+    align-items:start;
+    padding:9px 4px 0;
+    border:0;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-avatar{
+    width:36px;
+    height:36px;
+    display:grid;
+    place-items:center;
+    overflow:hidden;
+    border-radius:50%;
+    background:#252529;
+    color:#f1f1f2;
+    font-size:13px;
+    font-weight:760;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-avatar img{
+    width:100%;
+    height:100%;
+    display:block;
+    object-fit:cover;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-avatar>span{
+    transform:translateY(-.5px);
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-copy-main{
+    min-width:0;
+    padding-right:2px;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-title{
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+    overflow:hidden;
+    margin:0;
+    color:#f4f4f5;
+    font-size:13.5px;
+    line-height:1.3;
+    font-weight:680;
+    letter-spacing:-.08px;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-channel,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-stats{
+    display:inline;
+    margin:4px 0 0;
+    color:#8d8d96;
+    font-size:10.5px;
+    line-height:1.35;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-channel::after{
+    content:" · ";
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-related{
+    color:#8d8d96;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:active .thumb-wrap{
+    transform:scale(.995);
+  }
+
+  /* Search results keep one-column readability too. */
+  html:not(.watch-browse) .feed.search-grouped{
+    padding:8px;
+  }
+}
