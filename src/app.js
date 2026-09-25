@@ -10433,7 +10433,10 @@ installSheet.addEventListener("click",e=>{if(e.target===installSheet)installShee
 
 const FEED_CACHE_PREFIX="1988-discovery-v23:";
 const SEARCH_VISIBLE_TARGET=36;
-const SEARCH_REFILL_MAX_PAGES=4;
+// Block-heavy tabs may need to pass many continuation pages before enough
+// usable rows remain. Keep scanning until the visible target is refilled or
+// YouTube is exhausted; this is only a hard failsafe against pathological loops.
+const SEARCH_REFILL_MAX_PAGES=20;
 
 async function pagedSearch(local,key,query,filters={},reset=false,scope=GENERAL_SOURCE_SCOPE){
   // A blocked result must not consume one of the visible result slots.
