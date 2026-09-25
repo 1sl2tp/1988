@@ -999,7 +999,7 @@ async function stateSyncFetch(method="GET",body=null,timeout=2200,{keepalive=fal
       signal:controller.signal,
       headers:{
         "content-type":"application/json",
-        "x-1988-pin":SETTINGS_PIN
+        ...(method==="POST"?{"x-1988-pin":SETTINGS_PIN}:{})
       },
       body:body==null?undefined:JSON.stringify(body)
     });
@@ -11735,7 +11735,7 @@ async function packageSyncFetch(method="GET",scope="",body=null,timeout=5200){
       signal:controller.signal,
       headers:{
         "content-type":"application/json",
-        "x-1988-pin":SETTINGS_PIN
+        ...(method==="POST"?{"x-1988-pin":SETTINGS_PIN}:{})
       },
       body:body==null?undefined:JSON.stringify(body)
     });
