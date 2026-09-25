@@ -467,7 +467,7 @@ function feedSourceParent(name=""){
   return FEED_SOURCE_DISCOVERY_PARENTS[feedSourceScope(name)]||FEED_SOURCE_DISCOVERY_PARENTS[LATEST_SOURCE_SCOPE];
 }
 
-state.parentCategories=sourceCategoryRows();
+state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
 
 const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
