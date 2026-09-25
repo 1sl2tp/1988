@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const PROFILE="owner";
+const PIN_SHA256="fbdf2bdc4b2a45f3508c8ced68098f58375edbf2fe81ec8fe4b113185670939a";
 const SCOPES=[
   "live","latest","week","news","economy","law",
   "film","music","tech","sports","entertainment"
@@ -41,6 +42,11 @@ function normalizeText(value:any){
     .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
     .replace(/đ/g,"d").replace(/Đ/g,"D")
     .toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+}
+async function sha256(value:string){
+  const bytes=new TextEncoder().encode(value);
+  const digest=await crypto.subtle.digest("SHA-256",bytes);
+  return [...new Uint8Array(digest)].map((b)=>b.toString(16).padStart(2,"0")).join("");
 }
 function fastHash(value:any){
   let hash=2166136261;
@@ -215,6 +221,11 @@ Deno.serve(async(req:Request)=>{
   const supabaseUrl=Deno.env.get("SUPABASE_URL")||"";
   const serviceKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"";
   if(!supabaseUrl||!serviceKey)return json({ok:false,error:"server_config"},500);
+
+  const serviceAuth=req.headers.get("authorization")==="Bearer "+serviceKey;
+  const pin=req.headers.get("x-1988-pin")||"";
+  const pinAuth=!!pin&&await sha256(pin)===PIN_SHA256;
+  if(!serviceAuth&&!pinAuth)return json({ok:false,error:"unauthorized"},401);
 
   const rest=supabaseUrl+"/rest/v1";
   const authHeaders={
