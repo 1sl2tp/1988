@@ -5122,6 +5122,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
+    root.style.removeProperty("--watch-player-bottom-safe");
     root.style.removeProperty("--watch-card-unit");
   };
 
@@ -5185,6 +5186,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
+    root.style.removeProperty("--watch-player-bottom-safe");
     root.style.removeProperty("--watch-card-unit");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
@@ -5232,7 +5234,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const sectionTop=Math.max(0,sectionRect?.top||0);
     const feedTop=Math.max(sectionTop,feedRect?.top||sectionTop);
     const playerTopOffset=Math.max(0,Math.min(56,feedTop-sectionTop));
-    const bottomEdge=12;
+    // Outer bottom space must be larger than the internal grid gap because
+    // YouTube's own control row sits against the bottom edge. Keep one full
+    // grid gap plus an 8px control-safe inset so rounded clipping never eats
+    // the last pixels of the player.
+    const controlSafeInset=8;
+    const bottomEdge=gridGap+controlSafeInset;
     const availableHeight=Math.max(
       1,
       viewportHeight-sectionTop-playerTopOffset-bottomEdge
@@ -5262,6 +5269,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-scroll-gutter",scrollGutter+"px");
     root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
     root.style.setProperty("--watch-player-top-offset",Math.round(playerTopOffset)+"px");
+    root.style.setProperty("--watch-player-bottom-safe",bottomEdge+"px");
 
     frame.style.setProperty("--watch-player-width",Math.round(playerWidth)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(playerHeight)+"px");

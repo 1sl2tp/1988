@@ -2781,9 +2781,9 @@ html.search-suggestions-open .suggestions{
     max-width:var(--watch-feed-column-w,100%);
     justify-self:end;
     box-sizing:border-box;
-    padding-bottom:12px;
+    padding-bottom:var(--watch-grid-gap,14px);
     scrollbar-gutter:stable;
-    scroll-padding-block:12px;
+    scroll-padding-block:var(--watch-grid-gap,14px);
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed:not(.search-grouped){
@@ -2819,6 +2819,7 @@ html.search-suggestions-open .suggestions{
     max-width:var(--watch-player-column-w,100%);
     justify-self:start;
     padding-top:var(--watch-player-top-offset,0px);
+    padding-bottom:var(--watch-player-bottom-safe,22px);
     box-sizing:border-box;
   }
 
