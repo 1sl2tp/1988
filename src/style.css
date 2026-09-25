@@ -1378,19 +1378,25 @@ html.search-suggestions-open .suggestions{
 
 /* Card hierarchy is identical everywhere: card > thumb + metadata > avatar/text. */
 .card-copy{
+  position:relative;
   display:grid;
-  grid-template-columns:36px minmax(0,1fr) 30px;
+  grid-template-columns:36px minmax(0,1fr);
   gap:10px;
   align-items:start;
 }
 .card-copy-main{
   min-width:0;
 }
+.card-copy-main .card-title{
+  padding-right:30px;
+}
 .card-more-btn{
-  align-self:start;
+  position:absolute;
+  top:7px;
+  right:6px;
   width:30px;
   height:34px;
-  margin:-2px -4px 0 0;
+  margin:0;
   padding:0;
   border:0;
   border-radius:17px;
@@ -1524,8 +1530,9 @@ html.search-suggestions-open .suggestions{
   display:grid;
   grid-template-columns:minmax(0,1fr);
   gap:2px;
+  width:100%;
   min-width:0;
-  max-width:100%;
+  max-width:none;
   margin-top:4px;
   color:#92929a;
   font-size:10.5px;
@@ -1534,8 +1541,9 @@ html.search-suggestions-open .suggestions{
 }
 .card-meta-line .card-channel{
   display:block;
+  width:100%;
   min-width:0;
-  max-width:100%;
+  max-width:none;
   margin:0;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1584,7 +1592,7 @@ html.search-suggestions-open .suggestions{
 
   html.watch-browse .card-copy,
   html:not(.watch-browse) .card-copy{
-    grid-template-columns:34px minmax(0,1fr) 30px;
+    grid-template-columns:34px minmax(0,1fr);
     gap:9px;
   }
 }
