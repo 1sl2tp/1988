@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-271">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-272">
   <title>1988</title>
 </head>
 <body>
@@ -201,8 +201,8 @@
           </div>
 
           <div class="source-preview-toolbar">
-            <span class="source-pane-label">Video của nguồn</span>
-            <input id="sourcePreviewSearch" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Chọn nguồn trước" disabled>
+            <span class="source-pane-label">Tìm kênh / video</span>
+            <input id="sourcePreviewSearch" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Tìm kênh hoặc video YouTube">
           </div>
           <div id="sourcePreviewList" class="source-preview-list">
             <div class="source-preview-placeholder">
@@ -228,7 +228,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=271',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=272',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -250,8 +250,8 @@
   <script src="./src/html5-background.js?v=9"></script>
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script src="./src/media-meta.js?v=1"></script>
-  <script type="module" src="./src/yt-local.js?v=search-fast-271"></script>
+  <script type="module" src="./src/yt-local.js?v=search-fast-272"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-271"></script>
+  <script defer src="./src/app.js?v=watch-browse-272"></script>
 </body>
 </html>
