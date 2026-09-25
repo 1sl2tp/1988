@@ -5742,7 +5742,7 @@ function searchCardHtml(row={},options={}){
   const seriesKey=clean(options.seriesKey||"");
 
   return '<article class="card search-card" data-video-id="'+esc(id)+
-    '" data-source-id="'+esc(searchSourceId(row))+
+    '" data-source-id="'+esc(sourceId)+
     '" data-title="'+esc(title)+
     '" data-channel="'+esc(channel)+
     '" data-views="'+esc(String(views))+
@@ -6896,6 +6896,7 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
   if(window.innerWidth>720)return;
 
   const missing=new Set();
+  const warmUrls=new Set();
 
   for(const row of Array.isArray(rows)?rows:[]){
     const channel=clean(
@@ -6904,51 +6905,57 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
       row?.uploader||
       row?.channelName||
       row?._sourceName||
+      row?.name||
       ""
     );
-    const id=canonicalSourceId(row,channel);
+    const id=canonicalSourceId(row,channel)||
+      (/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))?String(row.id):"");
     if(!id)continue;
 
-    // Rows that already carry the real channel image seed the canonical cache
-    // immediately, so the first card paint can use it without a second pass.
-    const direct=sourceAvatarForRow(row,id,channel);
-    if(direct)continue;
+    const image=sourceAvatarForRow(row,id,channel)||sourceAvatarCached(id);
+    if(image){
+      warmUrls.add(image);
+      continue;
+    }
 
-    if(!sourceAvatarCached(id))missing.add(id);
+    missing.add(id);
   }
 
-  if(!missing.size)return;
-
   const work=(async()=>{
-    let engine;
-    try{engine=await localEngine(10000);}catch{return;}
+    if(missing.size){
+      let engine;
+      try{engine=await localEngine(10000);}catch{engine=null;}
 
-    const queue=[...missing];
-    const workers=Array.from({length:Math.min(6,queue.length)},async()=>{
-      while(queue.length){
-        const id=queue.shift();
-        if(!id)continue;
-        try{
-          const meta=await engine.channelMeta(id);
-          if(meta&&meta.id){
-            sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
-            rememberSourceAvatar(id,meta.thumbnailUrl||"");
+      if(engine){
+        const queue=[...missing];
+        const workers=Array.from({length:Math.min(6,queue.length)},async()=>{
+          while(queue.length){
+            const id=queue.shift();
+            if(!id)continue;
+            try{
+              const meta=await engine.channelMeta(id);
+              if(meta&&meta.id){
+                sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
+                const image=rememberSourceAvatar(id,meta.thumbnailUrl||"");
+                if(image)warmUrls.add(image);
+              }
+            }catch{}
           }
-        }catch{}
+        });
+        await Promise.allSettled(workers);
       }
-    });
+    }
 
-    await Promise.allSettled(workers);
-    const resolvedAvatarUrls=[...missing].map(id=>sourceAvatarCached(id)).filter(Boolean);
-    if(resolvedAvatarUrls.length)await Promise.allSettled(resolvedAvatarUrls.map(warmAvatarImage));
+    if(warmUrls.size){
+      await Promise.allSettled([...warmUrls].map(warmAvatarImage));
+    }
   })();
 
   await Promise.race([
     work,
-    new Promise(resolve=>setTimeout(resolve,Math.max(120,Number(maxWait)||520)))
+    new Promise(resolve=>setTimeout(resolve,Math.max(160,Number(maxWait)||520)))
   ]);
 }
-
 function renderCards(rows=[],options={}){
   const append=options.append===true;
   if(!append)feed.classList.remove("search-grouped");
@@ -9650,6 +9657,8 @@ async function loadFeedPreset(name="latest"){
   if(cached.length){
     const rows=sortPresetRows(cached,preset);
     state.feedRows=rows;
+    await prewarmRowSourceAvatars(aiDisplayRows(trendRows(rows)).slice(0,36),560);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
     renderCurrentTrendFeed();
 
     if(isSourceScopedFeed(name)){
@@ -9693,6 +9702,8 @@ async function loadFeedPreset(name="latest"){
     if(isSourceScopedFeed(name)){
       saveSourceContentLearning(GENERAL_SOURCE_SCOPE,extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,state.feedRows));
     }
+    await prewarmRowSourceAvatars(aiDisplayRows(trendRows(state.feedRows)).slice(0,36),560);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
@@ -9756,7 +9767,11 @@ async function loadMoreFeed(){
 
     state.feedRows.push(...added);
     const visibleAdded=aiDisplayRows(added);
-    if(visibleAdded.length)renderCards(visibleAdded,{append:true,updateStatus:false});
+    if(visibleAdded.length){
+      await prewarmRowSourceAvatars(visibleAdded,420);
+      if(seq!==state.feedSeq||state.activeFeed!==name)return;
+      renderCards(visibleAdded,{append:true,updateStatus:false});
+    }
     const visibleTotal=aiDisplayRows(state.feedRows).length;
     feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
     saveFeedCache(name,state.feedRows);
