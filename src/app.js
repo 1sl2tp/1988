@@ -3595,10 +3595,11 @@ function responsivePlayerAspect(meta=state.currentMeta||{}){
 
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.classList.contains("floating-iframe"))return;
+  if(!frame)return;
 
-  // Inline watch geometry follows the real media shape. The fake PiP has its
-  // own fixed box path and is deliberately excluded above.
+  // A stale v235 fake-PiP class must never own geometry again.
+  if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
+
   let ratio=responsivePlayerAspect(meta);
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
 
@@ -3635,9 +3636,17 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
   }
 
-  if(!root.classList.contains("watch-browse")){
+  const clearWatchGeometry=()=>{
     frame.style.removeProperty("--watch-player-width");
     frame.style.removeProperty("--watch-player-height");
+    root.style.removeProperty("--watch-stage-w");
+    root.style.removeProperty("--watch-stage-h");
+    root.style.removeProperty("--watch-side-gap");
+    root.style.removeProperty("--watch-player-column-w");
+  };
+
+  if(!root.classList.contains("watch-browse")){
+    clearWatchGeometry();
     return;
   }
 
@@ -3654,29 +3663,37 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    // Mobile watch has three fixed layers above the recommendation scroller.
-    // Cap tall/square media to 46% of the visual viewport and publish the
-    // REAL rendered stage height so the chips + scroll region start exactly
-    // below the player on iOS Safari.
-    const rotatedLandscape=viewportWidth>viewportHeight;
-    const mobileStyles=getComputedStyle(root);
-    const topRow=parseFloat(mobileStyles.getPropertyValue("--watch-top-row-h"))||52;
-    const sourceRow=parseFloat(mobileStyles.getPropertyValue("--watch-source-row-h"))||48;
-    const landscapeReserve=topRow+sourceRow+Math.max(12,viewportHeight*.04);
-    const availableHeight=Math.max(
+    const styles=getComputedStyle(root);
+    const topRow=parseFloat(styles.getPropertyValue("--watch-top-row-h"))||52;
+    const sourceRow=parseFloat(styles.getPropertyValue("--watch-source-row-h"))||48;
+
+    // Fit the real media rectangle inside the current browser viewport.
+    // Landscape 16:9 naturally becomes full-width; portrait/square may grow
+    // taller until the browser height is the limiting edge. Keep only a small
+    // recommendation peek so the list remains reachable without a layout jump.
+    const feedPeek=Math.max(44,Math.min(72,viewportHeight*.08));
+    const maxWidth=viewportWidth;
+    const maxHeight=Math.max(
       140,
-      rotatedLandscape
-        ?Math.min(viewportHeight*.72,Math.max(140,viewportHeight-landscapeReserve))
-        :viewportHeight*.46
+      viewportHeight-topRow-sourceRow-feedPeek
     );
-    const width=Math.min(viewportWidth,availableHeight*ratio);
-    const height=width/ratio;
+
+    let width=Math.min(maxWidth,maxHeight*ratio);
+    let height=width/ratio;
+    if(height>maxHeight){
+      height=maxHeight;
+      width=height*ratio;
+    }
+
+    width=Math.max(1,Math.min(maxWidth,width));
+    height=Math.max(1,Math.min(maxHeight,height));
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
     root.style.setProperty("--watch-stage-w",Math.round(width)+"px");
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
+    root.style.removeProperty("--watch-player-column-w");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
     root.classList.add("watch-tools-bottom");
@@ -3684,30 +3701,63 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   }
 
   if(desktop){
-    const sectionWidth=Math.max(
-      320,
-      playerSection?.getBoundingClientRect?.().width||viewportWidth*.42
-    );
     const styles=getComputedStyle(root);
     const headerHeight=
-      parseFloat(styles.getPropertyValue("--header-stack-h"))||100;
+      parseFloat(styles.getPropertyValue("--header-stack-h"))||108;
     const safeTop=
       parseFloat(styles.getPropertyValue("--safe-top"))||0;
-    const maxHeight=Math.max(
-      320,
-      viewportHeight-headerHeight-safeTop-24
+    const firstPassHeight=Math.max(
+      260,
+      viewportHeight-headerHeight-safeTop-56
     );
 
-    const width=Math.min(sectionWidth,maxHeight*ratio);
-    const height=width/ratio;
+    // Let the player column use the empty browser area while leaving a useful
+    // browsing column. The browser page itself does not scroll in watch mode.
+    const feedMin=Math.min(620,Math.max(460,viewportWidth*.32));
+    const gapAndPadding=56;
+    const maxColumnWidth=Math.max(
+      320,
+      Math.min(
+        viewportWidth*.68,
+        viewportWidth-feedMin-gapAndPadding
+      )
+    );
+    const desiredColumnWidth=Math.max(
+      320,
+      Math.min(maxColumnWidth,firstPassHeight*ratio)
+    );
+    root.style.setProperty("--watch-player-column-w",Math.round(desiredColumnWidth)+"px");
+
+    // The desktop parent owns the remaining viewport height. Measure that real
+    // pane after the grid variable is applied, then contain-fit the media.
+    const sectionRect=playerSection?.getBoundingClientRect?.();
+    const sectionWidth=Math.max(1,sectionRect?.width||desiredColumnWidth);
+    const maxHeight=Math.max(
+      1,
+      Math.min(
+        sectionRect?.height||firstPassHeight,
+        viewportHeight-(sectionRect?.top||headerHeight)-12
+      )
+    );
+    let width=Math.min(sectionWidth,maxHeight*ratio);
+    let height=width/ratio;
+    if(height>maxHeight){
+      height=maxHeight;
+      width=height*ratio;
+    }
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+    root.style.removeProperty("--watch-stage-w");
+    root.style.removeProperty("--watch-stage-h");
+    root.style.removeProperty("--watch-side-gap");
     return;
   }
 
+  // 721–959px keeps the normal inline layout, but never PiP.
   frame.style.removeProperty("--watch-player-width");
   frame.style.removeProperty("--watch-player-height");
+  root.style.removeProperty("--watch-player-column-w");
 }
 
 function queueResponsivePlayerFrame(){
@@ -4047,115 +4097,24 @@ function ensureWatchNavRail(){
   document.querySelectorAll("body > .watch-reco-info").forEach(el=>el.remove());
   return;
 }
-function applyFloatingIframe(force){
+function applyFloatingIframe(){
+  // v236: playback has one canonical place only. Clean up any stale floating
+  // class left by an older cached bundle, then keep the real player inline.
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
-  if(isPlayerFullscreen())return;
 
-  const floating=frame.classList.contains("floating-iframe");
-
-  if(document.documentElement.classList.contains("watch-browse")){
-    cleanupFloatingForBrowse();
-    return;
+  if(frame.classList.contains("floating-iframe")){
+    frame.classList.remove(
+      "floating-iframe","float-tucked","dock-left","dock-right",
+      "float-view-square","float-view-portrait","float-entering"
+    );
   }
-
-  if(
-    force===false ||
-    !["iframe","native"].includes(state.engine) ||
-    !state.currentId ||
-    playerSection.hidden
-  ){
-    if(floating){
-      const rect=frame.getBoundingClientRect();
-      if(rect.width>0){
-        state.floatBox={left:rect.left,top:rect.top,width:rect.width,height:rect.height};
-      }
-      frame.classList.remove("floating-iframe","float-tucked");
-      state.floatTucked=false;
-      clearFloatBoxStyles();
-      playerSection.style.removeProperty("min-height");
-      queueResponsivePlayerFrame();
-    }
-    return;
-  }
-
-  const rect=playerSection.getBoundingClientRect();
-  const chipsBottom=topicChips?.getBoundingClientRect?.().bottom||0;
-  const boundary=Math.max(0,chipsBottom);
-  const nearTop=window.scrollY<=12;
-
-  // Float only after the original player area has completely passed the
-  // sticky header/chips. As soon as that original area comes back into view,
-  // return the iframe to its real place.
-  const passedOriginal=rect.bottom<=boundary+4;
-  const originalReturning=rect.bottom>boundary+18;
-
-  const shouldFloat=nearTop
-    ? false
-    : floating
-      ? !originalReturning
-      : passedOriginal;
-
-  if(shouldFloat||floating)updateFloatingAmbient(frame);
-  if(shouldFloat===floating){
-    if(floating&&state.floatPreset!=="auto"){
-      applyFloatPreset(frame);
-    }else if(floating&&state.floatPreset==="auto"){
-      const box=frame.getBoundingClientRect();
-      const boxRatio=box.width>0&&box.height>0?box.width/box.height:0;
-      const target=Number(state.videoAspect)||16/9;
-      if(!boxRatio||Math.abs(boxRatio-target)>.045){
-        applyAutoFloatAspect(frame,{force:true});
-      }
-    }
-    return;
-  }
-
-  if(shouldFloat){
-    playerSection.style.minHeight=Math.max(1,Math.round(frame.getBoundingClientRect().height))+"px";
-
-    // Avoid the visible full-width -> PiP shrink. Pre-size to the FINAL PiP
-    // box while transitions are disabled, then switch to fixed positioning.
-    frame.classList.add("float-entering");
-    const entryRatio=state.videoAspect||16/9;
-    const entrySize=scaledAutoFloatSize(frame,entryRatio);
-    placeAutoFloatAtEdge(frame,entrySize);
-
-    frame.classList.add("floating-iframe");
-    updateFloatingAmbient(frame);
-    ensureFloatHandles();
-
-    if(state.floatPreset==="auto"){
-      restoreFloatBox();
-
-      requestAnimationFrame(()=>{
-        // We are now operating on the PiP state, not the inline state.
-        syncAspectFromYoutubePlayer(state.player);
-        applyAutoFloatAspect(frame,{force:true});
-      });
-    }else{
-      applyFloatPreset(frame);
-    }
-
-    finishFloatEntry(frame);
-  }else{
-    if(floating){
-      const rect=frame.getBoundingClientRect();
-      if(rect.width>0){
-        state.floatBox={
-          left:rect.left,
-          top:rect.top,
-          width:rect.width,
-          height:rect.height
-        };
-      }
-    }
-    frame.classList.remove("floating-iframe","float-tucked","dock-left","dock-right","float-view-square","float-view-portrait");
-    state.floatTucked=false;
-    clearFloatBoxStyles();
-    playerSection.style.removeProperty("min-height");
-    queueResponsivePlayerFrame();
-  }
+  state.floatTucked=false;
+  state.floatUserSized=false;
+  state.floatPreset="auto";
+  clearFloatBoxStyles();
+  playerSection.style.removeProperty("min-height");
+  queueResponsivePlayerFrame();
 }
 
 function getFullscreenElement(){
@@ -4171,21 +4130,14 @@ function isPlayerFullscreen(){
 }
 
 function queueFloatingIframe(){
-  const frame=playerSection?.querySelector(".player-frame");
-  if(isPlayerFullscreen())return;
-  if(frame?.classList.contains("floating-iframe"))state.fullscreenScrollY=window.scrollY;
-  if(state.floatRaf)return;
-  state.floatRaf=requestAnimationFrame(()=>{
-    state.floatRaf=0;
-    applyFloatingIframe();
-  });
+  // Kept as a compatibility no-op for older call sites.
+  applyFloatingIframe();
 }
 
 function setupFloatingIframe(){
-  window.addEventListener("scroll",queueFloatingIframe,{passive:true});
-  window.addEventListener("resize",queueFloatingIframe,{passive:true});
-  window.visualViewport?.addEventListener?.("resize",queueFloatingIframe,{passive:true});
-  window.visualViewport?.addEventListener?.("scroll",queueFloatingIframe,{passive:true});
+  // Fake PiP was removed in v236. Responsive sizing is handled by the single
+  // inline player and setupWatchBrowseLayout()/visualViewport listeners.
+  applyFloatingIframe();
 }
 
 function markPlaybackTransition(){
@@ -10420,7 +10372,7 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
-  setupFloatingIframe();
+  applyFloatingIframe();
   setupWatchBrowseLayout();
   setupFullscreenReturn();
   ensureWatchNavRail();
