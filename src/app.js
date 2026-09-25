@@ -7921,13 +7921,15 @@ function searchCardHtml(row={},options={}){
           (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
         '</span>'+
         '<div class="card-copy-main">'+
-          '<div class="card-title">'+esc(title)+'</div>'+
+          '<div class="card-title-row">'+
+            '<div class="card-title">'+esc(title)+'</div>'+
+            cardMoreButtonHtml()+
+          '</div>'+
           '<div class="card-meta-line">'+
             '<span class="card-channel">'+esc(channel)+'</span>'+
             (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
           '</div>'+
         '</div>'+
-        cardMoreButtonHtml()+
       '</div>'+
     '</article>';
 }
@@ -9056,13 +9058,15 @@ function renderCards(rows=[],options={}){
                 :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
             '</span>'+
             '<div class="card-copy-main">'+
-              '<div class="card-title">'+esc(title)+'</div>'+
+              '<div class="card-title-row">'+
+                '<div class="card-title">'+esc(title)+'</div>'+
+                cardMoreButtonHtml()+
+              '</div>'+
               '<div class="card-meta-line">'+
                 '<span class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</span>'+
                 (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
               '</div>'+
             '</div>'+
-            cardMoreButtonHtml()+
           '</div>'+
         '</article>'
     });
