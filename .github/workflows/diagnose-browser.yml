@@ -130,6 +130,9 @@ jobs:
             if(String(state.feed||'').includes('Đang tải')){
               throw new Error('feed_still_loading');
             }
+            if(Number(state.cards||0)<=0){
+              throw new Error('feed_has_no_video_cards:'+String(state.feed||'').slice(0,160));
+            }
 
             const playerProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{

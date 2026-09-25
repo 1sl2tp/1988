@@ -10339,9 +10339,8 @@ const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
 const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
-const SOURCE_FIRST_PAINT_ROWS=6;
-const SOURCE_FIRST_PAINT_TIMEOUT_MS=6500;
-const SOURCE_FULL_VERIFY_TIMEOUT_MS=14000;
+const SOURCE_FIRST_PAINT_ROWS=8;
+const SOURCE_FULL_VERIFY_TIMEOUT_MS=12000;
 let sourceFeedPendingRenderName="";
 
 function sourceTimeout(promise,ms,label="source_timeout"){
@@ -10486,23 +10485,46 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       .filter(Boolean)
       .map(row=>({...row,_sourceId:source.id,_sourceName:clean(row?._sourceName||source.name)}));
 
-    for(const row of batch){
-      const id=itemVideoId(row);
-      if(!id)continue;
-      const existing=collectedIndex.get(id);
-      if(existing===undefined){
+    if(meta.replaceSource===true){
+      const keep=collected.filter(row=>String(row?._sourceId||"")!==source.id);
+      collected.length=0;
+      collectedIndex.clear();
+      for(const row of keep){
+        const id=itemVideoId(row);
+        if(!id)continue;
         collectedIndex.set(id,collected.length);
         collected.push(row);
-      }else if(meta.cached!==true){
-        // Fresh YouTube metadata replaces cached title/views/published state.
-        collected[existing]={...collected[existing],...row};
       }
     }
 
-    if(typeof onBatch==="function"&&batch.length){
+    // Tentative first-paint rows are UI-only. They never enter source pool/cache
+    // until strict playability verification confirms them.
+    if(meta.transient!==true){
+      for(const row of batch){
+        const id=itemVideoId(row);
+        if(!id)continue;
+        const existing=collectedIndex.get(id);
+        if(existing===undefined){
+          collectedIndex.set(id,collected.length);
+          collected.push(row);
+        }else if(meta.cached!==true){
+          collected[existing]={...collected[existing],...row};
+        }
+      }
+    }
+
+    if(typeof onBatch==="function"&&(batch.length||meta.replaceSource===true)){
       try{onBatch(batch,source,meta)}catch{}
     }
   };
+
+  const quickVisibleRows=rows=>(Array.isArray(rows)?rows:[])
+    .filter(row=>{
+      const id=itemVideoId(row);
+      const title=clean(row?.title||row?._displayTitle||"");
+      if(!id)return false;
+      return !/^(?:\[?private video\]?|\[?deleted video\]?|video unavailable|video riêng tư|video không khả dụng|video đã bị xóa)$/i.test(title);
+    });
 
   const worker=async()=>{
     while(cursor<list.length){
@@ -10526,49 +10548,64 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         );
         let rows=(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // First paint: verify only a handful of newest rows first and emit them
-        // immediately. This keeps strict private/embed filtering without making
-        // the UI wait for the entire channel snapshot.
-        if(
-          reset &&
-          typeof onBatch==="function" &&
-          rows.length &&
-          typeof local?.filterEmbeddableRows==="function"
-        ){
-          try{
-            const previewCandidates=rows.slice(0,SOURCE_FIRST_PAINT_ROWS);
-            const previewRows=await sourceTimeout(
-              local.filterEmbeddableRows(
-                previewCandidates,
-                {concurrency:SOURCE_FIRST_PAINT_ROWS,requirePlayable:true}
-              ),
-              SOURCE_FIRST_PAINT_TIMEOUT_MS,
-              "source_first_paint_timeout"
-            );
-            if(Array.isArray(previewRows)&&previewRows.length){
-              emit(previewRows,source,{cached:false,preview:true});
-            }
-          }catch(error){
-            console.warn("source first paint probe failed",source.id,error);
+        // First paint is intentionally optimistic: YouTube channel listing is
+        // fast, while getBasicInfo/embed checks can be throttled for seconds.
+        // Obvious private/deleted placeholders are removed immediately. These
+        // preview rows are transient and never enter persistent cache.
+        if(reset&&typeof onBatch==="function"&&rows.length){
+          const previewRows=quickVisibleRows(rows).slice(0,SOURCE_FIRST_PAINT_ROWS);
+          if(previewRows.length){
+            emit(previewRows,source,{
+              cached:false,
+              preview:true,
+              transient:true
+            });
           }
         }
 
-        // Full source verification continues after first paint. A timeout skips
-        // this source for the current refresh rather than freezing every feed.
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          rows=await sourceTimeout(
-            local.filterEmbeddableRows(rows,{concurrency:8,requirePlayable:true}),
-            SOURCE_FULL_VERIFY_TIMEOUT_MS,
-            "source_full_verify_timeout"
+          const verifyPromise=local.filterEmbeddableRows(
+            rows,
+            {concurrency:8,requirePlayable:true}
           );
+
+          try{
+            rows=await sourceTimeout(
+              verifyPromise,
+              SOURCE_FULL_VERIFY_TIMEOUT_MS,
+              "source_full_verify_timeout"
+            );
+          }catch(error){
+            console.warn("source full verify deferred",source.id,error);
+
+            // The timeout only releases this source worker. Verification keeps
+            // running and, once complete, replaces tentative cards and cache.
+            void verifyPromise.then(verified=>{
+              const confirmed=Array.isArray(verified)?verified:[];
+              const selectedNow=selectedSetForScope(scope);
+              const blockedNow=blockedSetForScope(scope);
+              if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
+              saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
+              emit(confirmed,source,{
+                cached:false,
+                verified:true,
+                replaceSource:true,
+                late:true
+              });
+            }).catch(lateError=>{
+              console.warn("source late verify failed",source.id,lateError);
+            });
+            continue;
+          }
         }
 
         if(reset){
-          // A fresh channel snapshot is authoritative for this cache window.
-          // Do not keep videos that disappeared because they became private,
-          // deleted, unavailable or embed-disabled.
           saveSourceChannelCache(source,rows,Date.now(),{replace:true});
-          if(rows.length)emit(rows,source,{cached:false});
+          emit(rows,source,{
+            cached:false,
+            verified:true,
+            replaceSource:true
+          });
         }else{
           emit(rows,source,{cached:false});
           saveSourceChannelCache(source,[
@@ -11101,20 +11138,32 @@ async function loadFeedPreset(name="latest"){
     local=await localEngine(16000);
 
     const progressiveBatch=isSourceScopedFeed(name)
-      ?(batch)=>{
+      ?(batch,source,meta={})=>{
           if(seq!==state.feedSeq||state.activeFeed!==name)return;
           const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
           const matching=(Array.isArray(batch)?batch:[])
             .filter(predicate)
             .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
-          if(!matching.length)return;
+
+          let base=state.feedRows;
+          if(meta.replaceSource===true&&source?.id){
+            base=base.filter(row=>String(row?._sourceId||"")!==source.id);
+          }
+
+          if(!matching.length&&base===state.feedRows)return;
 
           state.feedRows=sortPresetRows(
-            mergeUniqueRows(matching,state.feedRows),
+            mergeUniqueRows(matching,base),
             preset
           );
-          renderCurrentTrendFeed();
-          feedStatus.textContent="Đang cập nhật…";
+
+          if(state.feedRows.length){
+            renderCurrentTrendFeed();
+            feedStatus.textContent=meta.verified?"":"Đang xác minh…";
+          }else if(meta.verified){
+            feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
+            feedStatus.textContent="";
+          }
         }
       :null;
 
@@ -11122,6 +11171,13 @@ async function loadFeedPreset(name="latest"){
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
     if(!Array.isArray(rows)||!rows.length){
+      if(isSourceScopedFeed(name)&&state.feedRows.length){
+        // Strict verification may still be finishing in late promises. Keep
+        // the already-rendered transient rows instead of blanking the screen.
+        state.feedHasMore=true;
+        feedStatus.textContent="Đang xác minh…";
+        return;
+      }
       if(isSourceScopedFeed(name)){
         state.feedRows=[];
         state.feedHasMore=false;
