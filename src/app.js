@@ -1703,24 +1703,20 @@ function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
-  const liveIds=sourceManageGroup===LIVE_SOURCE_SCOPE
-    ?new Set(temporaryLiveSourceIds)
-    :null;
-  const selectedCount=liveIds
-    ?[...liveIds].filter(id=>selected.has(id)&&!blocked.has(id)).length
-    :[...selected].filter(id=>!blocked.has(id)).length;
-  const blockedCount=liveIds
-    ?[...liveIds].filter(id=>blocked.has(id)).length
-    :blocked.size;
-  const totalCount=liveIds
-    ?liveIds.size
-    :scope===GENERAL_SOURCE_SCOPE
-      ?rows.filter(isGeneralManagerSource).length
-      :new Set([
-          ...suggestedSetForScope(scope),
-          ...selected,
-          ...blocked
-        ]).size;
+  const totalIds=scope===LIVE_SOURCE_SCOPE
+    ?new Set([
+        ...temporaryLiveSourceIds,
+        ...selected,
+        ...blocked
+      ])
+    :new Set([
+        ...suggestedSetForScope(scope),
+        ...selected,
+        ...blocked
+      ]);
+  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
+  const blockedCount=blocked.size;
+  const totalCount=totalIds.size;
 
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
@@ -1909,7 +1905,7 @@ function updateSourceGroupArrows(){
 }
 
 function sourceIsSuggestedAnywhere(id){
-  for(const group of CONTENT_SOURCE_SCOPES){
+  for(const group of AI_SOURCE_SCOPES){
     if(suggestedSetForScope(group).has(id))return true;
   }
   return false;
@@ -1939,19 +1935,18 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
   }
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    let count=0;
-    if(group.key===LIVE_SOURCE_SCOPE){
-      count=temporaryLiveSourceIds.size;
-    }else if(group.key===GENERAL_SOURCE_SCOPE){
-      count=rows.filter(isGeneralManagerSource).length;
-    }else{
-      const ids=new Set([
-        ...suggestedSetForScope(group.key),
-        ...selectedSetForScope(group.key),
-        ...blockedSetForScope(group.key)
-      ]);
-      count=ids.size;
-    }
+    const ids=group.key===LIVE_SOURCE_SCOPE
+      ?new Set([
+          ...temporaryLiveSourceIds,
+          ...selectedSetForScope(group.key),
+          ...blockedSetForScope(group.key)
+        ])
+      :new Set([
+          ...suggestedSetForScope(group.key),
+          ...selectedSetForScope(group.key),
+          ...blockedSetForScope(group.key)
+        ]);
+    const count=ids.size;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
     '</button>';
@@ -1984,14 +1979,15 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
   ]);
-  const scopedSuggestionIds=CONTENT_SOURCE_SCOPES.has(sourceManageGroup)
+  const scopedSuggestionIds=AI_SOURCE_SCOPES.has(sourceManageGroup)
     ?suggestedSetForScope(sourceManageGroup)
     :new Set();
 
   const groupFilter=row=>{
-    if(q||!sourceManageMode)return true;
-    if(sourceManageGroup===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds.has(row.id);
-    if(sourceManageGroup===GENERAL_SOURCE_SCOPE)return isGeneralManagerSource(row);
+    if(!sourceManageMode)return true;
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      return temporaryLiveSourceIds.has(row.id)||scopedStateIds.has(row.id);
+    }
     return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
   };
 
@@ -2040,9 +2036,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
         ?"Không có nguồn phù hợp"
         :sourceManageGroup===LIVE_SOURCE_SCOPE
           ?"Chưa có nguồn LIVE đang phát"
-          :sourceManageGroup!==GENERAL_SOURCE_SCOPE
-            ?"Chưa có nguồn trong nhóm này"
-            :"Thư viện đang trống";
+          :"Chưa có nguồn trong tab này";
       parts.push('<div class="source-empty">'+message+'</div>');
     }
   }else{
@@ -2222,13 +2216,13 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
         temporaryLiveSourceIds.add(candidate.id);
         suggestionChanged=true;
       }
+    }else if(hint&&AI_SOURCE_SCOPES.has(hint)){
+      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(hint===GENERAL_SOURCE_SCOPE){
       if(!temporaryGeneralSourceIds.has(candidate.id)){
         temporaryGeneralSourceIds.add(candidate.id);
         suggestionChanged=true;
       }
-    }else if(hint&&CONTENT_SOURCE_SCOPES.has(hint)){
-      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(!temporaryGeneralSourceIds.has(candidate.id)){
       temporaryGeneralSourceIds.add(candidate.id);
       suggestionChanged=true;
@@ -2256,14 +2250,14 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
       ...candidate
     });
 
-    // LIVE is a view over the same manual source state as Mới nhất/Tuần này.
-    // Keep current LIVE channels visible even when they are already Chọn/Chặn.
+    // LIVE owns its own Chọn/Chặn state. Current LIVE channels stay visible
+    // in the LIVE manager regardless of other tabs.
     temporaryLiveSourceIds.add(candidate.id);
-    reconcileSourceState(candidate,GENERAL_SOURCE_SCOPE);
+    reconcileSourceState(candidate,LIVE_SOURCE_SCOPE);
   }
 
   if(liveRows.length||replace)updateSourceSummary();
-  return liveRows.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+  return liveRows.filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE));
 }
 
 function seedLiveSourceCandidatesFromCache(){
@@ -2304,7 +2298,7 @@ async function refreshLiveSourceCandidatesInBackground(){
       if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
         rows=await local.filterEmbeddableRows(rows,{
           concurrency:4,
-          requirePlayable:true
+          requirePlayable:false
         });
       }
 
@@ -2344,7 +2338,7 @@ function addSource(row){
   if(currentStatus==="normal"){
     if(sourceManageGroup===LIVE_SOURCE_SCOPE){
       temporaryLiveSourceIds.add(id);
-    }else if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
+    }else if(AI_SOURCE_SCOPES.has(sourceManageGroup)){
       assignSourceGroup(id,sourceManageGroup);
     }else{
       temporaryGeneralSourceIds.add(id);
