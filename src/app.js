@@ -5116,6 +5116,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-stage-h");
     root.style.removeProperty("--watch-side-gap");
     root.style.removeProperty("--watch-player-column-w");
+    root.style.removeProperty("--watch-feed-column-w");
+    root.style.removeProperty("--watch-card-unit");
   };
 
   if(!root.classList.contains("watch-browse")){
@@ -5179,53 +5181,61 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   }
 
   if(desktop){
-    const styles=getComputedStyle(root);
-    const headerHeight=
-      parseFloat(styles.getPropertyValue("--header-stack-h"))||108;
-    const safeTop=
-      parseFloat(styles.getPropertyValue("--safe-top"))||0;
-    const firstPassHeight=Math.max(
-      260,
-      viewportHeight-headerHeight-safeTop-56
-    );
+    // Desktop Watch uses one geometric unit W: the width of one 16:9
+    // recommendation card. The player is expressed only as a multiple of W:
+    //   wide video     = 2W
+    //   square/portrait = 1W
+    // The feed is always two cards = 2W. This keeps thumbnails and the
+    // current video visually proportional instead of sizing each pane with
+    // unrelated viewport percentages.
+    const shellRect=appShell?.getBoundingClientRect?.();
+    const shellStyle=appShell?getComputedStyle(appShell):null;
+    const feedStyle=feed?getComputedStyle(feed):null;
 
-    // Let the player column use the empty browser area while leaving a useful
-    // browsing column. The browser page itself does not scroll in watch mode.
-    const feedMin=Math.min(600,Math.max(430,viewportWidth*.28));
-    const gapAndPadding=40;
-    const maxColumnWidth=Math.max(
-      320,
-      Math.min(
-        viewportWidth*.70,
-        viewportWidth-feedMin-gapAndPadding
-      )
-    );
-    const desiredColumnWidth=Math.max(
-      320,
-      Math.min(maxColumnWidth,firstPassHeight*ratio)
-    );
-    root.style.setProperty("--watch-player-column-w",Math.round(desiredColumnWidth)+"px");
-
-    // The desktop parent owns the remaining viewport height. Measure that real
-    // pane after the grid variable is applied, then contain-fit the media.
-    const sectionRect=playerSection?.getBoundingClientRect?.();
-    const sectionWidth=Math.max(1,sectionRect?.width||desiredColumnWidth);
-    const maxHeight=Math.max(
+    const shellPadding=
+      (parseFloat(shellStyle?.paddingLeft)||0)+
+      (parseFloat(shellStyle?.paddingRight)||0);
+    const innerWidth=Math.max(
       1,
-      Math.min(
-        sectionRect?.height||firstPassHeight,
-        viewportHeight-(sectionRect?.top||headerHeight)-12
-      )
+      (shellRect?.width||viewportWidth)-shellPadding
     );
-    let width=Math.min(sectionWidth,maxHeight*ratio);
-    let height=width/ratio;
-    if(height>maxHeight){
-      height=maxHeight;
-      width=height*ratio;
-    }
+    const layoutGap=parseFloat(shellStyle?.columnGap)||14;
+    const feedGap=parseFloat(feedStyle?.columnGap)||14;
+    const playerUnits=ratio>=1.2?2:1;
+    const totalUnits=2+playerUnits;
 
-    frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
-    frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
+    // First solve W from the horizontal equation:
+    // innerWidth = 2W + feedGap + layoutGap + playerUnits*W.
+    const widthUnit=Math.max(
+      1,
+      (innerWidth-feedGap-layoutGap)/totalUnits
+    );
+
+    // Then apply only the natural vertical constraint of the actual video.
+    // If a portrait video would be taller than the available watch pane, W
+    // shrinks together for both the player and recommendation cards so their
+    // geometry remains related.
+    const sectionTop=Math.max(
+      0,
+      playerSection?.getBoundingClientRect?.().top||0
+    );
+    const availableHeight=Math.max(1,viewportHeight-sectionTop-12);
+    const heightUnit=Math.max(
+      1,
+      availableHeight*ratio/playerUnits
+    );
+    const unit=Math.max(1,Math.min(widthUnit,heightUnit));
+
+    const playerWidth=playerUnits*unit;
+    const playerHeight=playerWidth/ratio;
+    const feedWidth=2*unit+feedGap;
+
+    root.style.setProperty("--watch-card-unit",Math.round(unit*100)/100+"px");
+    root.style.setProperty("--watch-feed-column-w",Math.round(feedWidth*100)/100+"px");
+    root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
+
+    frame.style.setProperty("--watch-player-width",Math.round(playerWidth)+"px");
+    frame.style.setProperty("--watch-player-height",Math.round(playerHeight)+"px");
     root.style.removeProperty("--watch-stage-w");
     root.style.removeProperty("--watch-stage-h");
     root.style.removeProperty("--watch-side-gap");
@@ -5236,6 +5246,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.style.removeProperty("--watch-player-width");
   frame.style.removeProperty("--watch-player-height");
   root.style.removeProperty("--watch-player-column-w");
+  root.style.removeProperty("--watch-feed-column-w");
+  root.style.removeProperty("--watch-card-unit");
 }
 
 function queueResponsivePlayerFrame(){

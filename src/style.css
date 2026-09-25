@@ -2752,3 +2752,67 @@ html.search-suggestions-open .suggestions{
     margin-inline:2px 3px;
   }
 }
+
+
+/* ============================================================
+   WATCH GEOMETRY v293
+   W = width of one normal 16:9 recommendation thumbnail.
+   Desktop watch uses only multiples of W:
+   - feed = 2 cards = 2W (+ one card gap)
+   - landscape player = 2W
+   - square / portrait player = 1W
+   JS solves W from the real available width and the video's natural
+   height constraint. No independent vw percentage is allowed to resize
+   the player away from the recommendation-card geometry.
+   ============================================================ */
+@media(min-width:960px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
+    grid-template-columns:
+      var(--watch-feed-column-w,minmax(0,1fr))
+      var(--watch-player-column-w,44vw);
+    column-gap:14px;
+    justify-content:center;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    width:var(--watch-feed-column-w,100%);
+    max-width:var(--watch-feed-column-w,100%);
+    justify-self:end;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed:not(.search-grouped){
+    display:grid;
+    width:var(--watch-feed-column-w,100%);
+    grid-template-columns:
+      repeat(2,minmax(0,var(--watch-card-unit,1fr)))!important;
+    column-gap:14px;
+    row-gap:14px;
+    align-items:start;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed:not(.search-grouped)>.card{
+    width:var(--watch-card-unit,100%);
+    max-width:var(--watch-card-unit,100%);
+    min-width:0;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    width:var(--watch-player-column-w,100%);
+    max-width:var(--watch-player-column-w,100%);
+    justify-self:start;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe){
+    width:var(--watch-player-width,100%);
+    height:var(--watch-player-height,auto);
+    max-width:100%;
+    margin-inline:auto;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-loading-grid{
+    width:var(--watch-feed-column-w,100%);
+    grid-template-columns:
+      repeat(2,minmax(0,var(--watch-card-unit,1fr)))!important;
+    column-gap:14px;
+  }
+}
