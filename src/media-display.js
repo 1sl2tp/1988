@@ -18,9 +18,24 @@
     const n=number(value);
     if(!n)return "";
     const short=compact(n);
-    // Small counts stay explicit. Compact counts already carry enough meaning,
-    // so omit "lượt xem" to keep cards narrow and consistent.
+    // 100 -> "100 lượt xem"; 1.000 -> "1K"; 10.000 -> "10K";
+    // 1.000.000 -> "1M"; 1.000.000.000 -> "1B".
     return word&&n<1000?short+" lượt xem":short;
+  }
+
+  function viewsText(raw="",value=0){
+    const n=number(value);
+    if(n)return views(n,{word:true});
+
+    let text=clean(raw);
+    if(!text)return "";
+
+    // When YouTube already supplies a localized view string, keep it but drop
+    // the long noun on compact counts so narrow cards do not waste a line.
+    if(text.length>10){
+      text=text.replace(/\s*(?:lượt\s*xem|views?)\s*$/i,"").trim();
+    }
+    return text;
   }
 
   function duration(value){
@@ -107,6 +122,7 @@
     number,
     compact,
     views,
+    viewsText,
     duration,
     relativeAge,
     source,
