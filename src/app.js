@@ -844,9 +844,14 @@ function persistStateSourceMetadata(id){
 
 function setSourceStatus(id,status,scope=sourceManageGroup){
   scope=sourceScope(scope);
+  id=String(id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return;
+
   invalidateSourceStateNameIndex();
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
+  const beforeSelected=new Set(selected);
+  const beforeBlocked=new Set(blocked);
 
   const temporaryKnown=
     temporaryGeneralSourceIds.has(id)||
@@ -878,6 +883,37 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   if(CONTENT_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
 
   if(status==="blocked")hideBlockedSourceNow(id,scope);
+
+  // One user action may change durable state for this channel ID only.
+  const changedSelected=[...new Set([...beforeSelected,...selected])].filter(
+    sourceId=>beforeSelected.has(sourceId)!==selected.has(sourceId)
+  );
+  const changedBlocked=[...new Set([...beforeBlocked,...blocked])].filter(
+    sourceId=>beforeBlocked.has(sourceId)!==blocked.has(sourceId)
+  );
+  if(
+    changedSelected.some(sourceId=>sourceId!==id)||
+    changedBlocked.some(sourceId=>sourceId!==id)
+  ){
+    console.error("source state integrity violation",{
+      id,scope,status,changedSelected,changedBlocked
+    });
+    selected.clear();
+    blocked.clear();
+    for(const sourceId of beforeSelected)selected.add(sourceId);
+    for(const sourceId of beforeBlocked)blocked.add(sourceId);
+
+    if(status==="selected"){
+      blocked.delete(id);
+      selected.add(id);
+    }else if(status==="blocked"){
+      selected.delete(id);
+      blocked.add(id);
+    }else{
+      selected.delete(id);
+      blocked.delete(id);
+    }
+  }
 
   persistSourceLibrary();
   persistSourceSelection();
@@ -1570,49 +1606,29 @@ function sourceStateNameIndex(scope=sourceManageGroup){
 
 function matchSourceState(row={},scope=sourceManageGroup){
   scope=sourceScope(scope);
-  const id=String(row?.id||row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
+  const id=String(
+    row?.id||
+    row?._sourceId||
+    row?.channelId||
+    row?.uploaderId||
+    ""
+  ).trim();
+
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)){
+    return {status:"normal",canonicalId:""};
+  }
+
   const blocked=blockedSetForScope(scope);
   const selected=selectedSetForScope(scope);
 
-  if(id&&blocked.has(id))return {status:"blocked",canonicalId:id};
-  if(id&&selected.has(id))return {status:"selected",canonicalId:id};
-
-  const name=sourceRowName(row);
-  if(!name||name.length<3)return {status:"normal",canonicalId:""};
-
-  const index=sourceStateNameIndex(scope);
-  if(index.blockedNames.has(name)){
-    return {status:"blocked",canonicalId:index.blockedNames.get(name)};
-  }
-  if(index.selectedNames.has(name)){
-    return {status:"selected",canonicalId:index.selectedNames.get(name)};
-  }
-  return {status:"normal",canonicalId:""};
+  if(blocked.has(id))return {status:"blocked",canonicalId:id};
+  if(selected.has(id))return {status:"selected",canonicalId:id};
+  return {status:"normal",canonicalId:id};
 }
 
 function reconcileSourceState(row={},scope=sourceManageGroup){
-  scope=sourceScope(scope);
-  const id=String(row?.id||row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return {status:"normal",changed:false};
-
   const match=matchSourceState(row,scope);
-  if(match.status==="normal")return {...match,changed:false};
-
-  const blocked=blockedSetForScope(scope);
-  const selected=selectedSetForScope(scope);
-  let changed=false;
-
-  if(match.status==="blocked"){
-    if(selected.delete(id))changed=true;
-    if(!blocked.has(id)){blocked.add(id);changed=true;}
-  }else if(match.status==="selected"){
-    if(blocked.has(id)){
-      return {status:"blocked",canonicalId:id,changed:false};
-    }
-    if(!selected.has(id)){selected.add(id);changed=true;}
-  }
-
-  return {...match,changed};
+  return {...match,changed:false};
 }
 
 function persistReconciledSourceState(){
@@ -1895,13 +1911,6 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   if(!sourceList)return;
   const q=normalizeSearchText(sourceSearch?.value||"");
 
-  let reconciled=false;
-  for(const row of rows){
-    const result=reconcileSourceState(row,sourceManageGroup);
-    if(result.changed)reconciled=true;
-  }
-  if(reconciled)persistReconciledSourceState();
-
   const scopedStateIds=new Set([
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
@@ -1932,13 +1941,6 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     const normalRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="normal");
     const selectedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="selected");
     const blockedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="blocked");
-
-    let remoteChanged=false;
-    for(const row of remoteRows){
-      const result=reconcileSourceState(row,sourceManageGroup);
-      if(result.changed)remoteChanged=true;
-    }
-    if(remoteChanged)persistReconciledSourceState();
 
     const normalRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="normal");
     const selectedRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="selected");
@@ -1998,25 +2000,17 @@ function refreshSourceManager(){
   updateSourceSummary(rows);
 }
 
-function rememberSearchedSourceCandidates(rows=[],scope=sourceManageGroup){
-  scope=sourceScope(scope);
-  const temporary=temporarySetForScope(scope);
-  let stateChanged=false;
-
+function rememberSearchedSourceCandidates(rows=[]){
   for(const row of Array.isArray(rows)?rows:[]){
     const id=String(row?.id||"").trim();
     if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
 
-    sourceMetaCache.set(id,{...sourceMetaCache.get(id),...row});
-    const image=safeSourceThumb(row?.thumbnailUrl||"");
-    if(image)rememberSourceAvatar(id,image);
-    const reconciled=reconcileSourceState(row,scope);
-    if(reconciled.changed)stateChanged=true;
-    if(reconciled.status!=="normal")continue;
-    temporary.add(id);
-  }
+    const next={...sourceMetaCache.get(id),...row};
+    sourceMetaCache.set(id,next);
 
-  if(stateChanged)persistReconciledSourceState();
+    const image=safeSourceThumb(next.thumbnailUrl||row?.thumbnailUrl||"");
+    if(image)rememberSourceAvatar(id,image);
+  }
 }
 
 async function searchSourceChannels(query){
@@ -2063,7 +2057,8 @@ async function searchSourceChannels(query){
     sourceRemoteResults=(Array.isArray(rows)?rows:[])
       .filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
 
-    rememberSearchedSourceCandidates(sourceRemoteResults,sourceManageGroup);
+    // Search results are ephemeral metadata only; they never alter Chọn/Chặn.
+    rememberSearchedSourceCandidates(sourceRemoteResults);
 
     // Search is proactive: resolve missing channel avatars/name metadata instead
     // of waiting for an IntersectionObserver after the result has already painted.
@@ -2180,11 +2175,11 @@ function addSource(row){
     subscribers:clean(meta.subscribers||row.subscribers||"")
   });
 
-  const reconciled=reconcileSourceState({...row,id},sourceManageGroup);
-  if(reconciled.changed)persistReconciledSourceState();
+  const currentStatus=sourceStatus(id,sourceManageGroup);
 
-  // Mở/Lưu nguồn is temporary until the user chooses Chọn or Chặn.
-  if(reconciled.status==="normal"){
+  // Mở/Lưu nguồn is temporary until the user explicitly chooses Chọn/Chặn.
+  // Only the clicked channel ID is added; all sibling search results stay ephemeral.
+  if(currentStatus==="normal"){
     if(CONTENT_SOURCE_SCOPES.has(sourceManageGroup)){
       assignSourceGroup(id,sourceManageGroup);
     }else{
