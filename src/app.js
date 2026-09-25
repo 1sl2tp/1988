@@ -5,6 +5,10 @@ const AI_TOPICS_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt198
 const SUPABASE_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE";
 const MEDIA_SERVICE="https://one988-media.onrender.com";
 
+try{
+  if("scrollRestoration" in history)history.scrollRestoration="manual";
+}catch{}
+
 const $=s=>document.querySelector(s);
 const searchForm=$("#searchForm");
 const queryInput=$("#queryInput");
@@ -1983,7 +1987,12 @@ function submitSettingsAccess(){
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
+  resetHomeViewportInstant({resetSource:true});
   sourcesSheet.hidden=false;
+  sourcesSheet.scrollTop=0;
+  if(sourceBrowse)sourceBrowse.scrollTop=0;
+  if(sourceList)sourceList.scrollTop=0;
+  if(sourceGroupTabs)sourceGroupTabs.scrollLeft=0;
   sourceRemoteResults=[];
   sourcePreviewSeq++;
   closeSourceVideo();
@@ -2057,6 +2066,7 @@ function setupSourceLibrary(){
   // Bind the open action before doing any source-state calculations.
   // Even if old local data is malformed, the manager must still open.
   sourcesBtn?.addEventListener("click",()=>{
+    resetHomeViewportInstant({resetSource:true});
     requestSettingsAccess(openSourceLibrary);
   });
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
@@ -7763,6 +7773,35 @@ async function doSearch(value){
   }
 }
 
+function resetHomeViewportInstant({resetSource=false}={}){
+  const root=document.documentElement;
+
+  root.classList.remove("home-header-hidden");
+  root.classList.remove("home-search-open");
+
+  const scroller=document.scrollingElement||document.documentElement;
+  if(scroller)scroller.scrollTop=0;
+  document.documentElement.scrollTop=0;
+  if(document.body)document.body.scrollTop=0;
+
+  // Keep horizontal navigation at its natural first position as well.
+  if(topicChips)topicChips.scrollLeft=0;
+
+  if(resetSource){
+    if(sourcesSheet)sourcesSheet.scrollTop=0;
+    if(sourceBrowse)sourceBrowse.scrollTop=0;
+    if(sourceList)sourceList.scrollTop=0;
+    if(sourceGroupTabs)sourceGroupTabs.scrollLeft=0;
+    if(sourcePreviewList)sourcePreviewList.scrollTop=0;
+  }
+
+  // Sync the anti-jitter header state without waiting for another scroll frame.
+  try{
+    homeHeaderLastY=0;
+    homeHeaderDirectionStartY=0;
+  }catch{}
+}
+
 let homeHeaderLastY=Math.max(0,Number(document.scrollingElement?.scrollTop)||Number(window.scrollY)||0);
 let homeHeaderDirectionStartY=homeHeaderLastY;
 let homeHeaderScrollRaf=0;
@@ -8939,5 +8978,11 @@ if(initialVideoId){
     thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
   });
 }else{
+  resetHomeViewportInstant();
+  window.addEventListener("pageshow",()=>{
+    if(!document.documentElement.classList.contains("watch-browse")){
+      resetHomeViewportInstant();
+    }
+  },{passive:true});
   loadInitialFeed();
 }
