@@ -5602,7 +5602,7 @@ const SOURCE_CONTENT_LEARNING_TTL=25*60*1000;
 // currently selected sources in the scope.
 const SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES=12;
 const SOURCE_CONTENT_LEARNING_MAX_ROWS=120;
-const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v2:";
+const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v3:";
 const sourceContentLearningMemory=new Map();
 
 function sourceLearningNames(scope,status="selected"){
@@ -5854,13 +5854,50 @@ async function selectedLearningRows(parent={},local){
   }
 }
 
+async function cleanSelectedRowsForLearning(parent={},rows=[]){
+  const group=parentSourceGroup(parent);
+  if(!group)return [];
+
+  const source=dedupeHashedRows(newestFirst(Array.isArray(rows)?rows:[]))
+    .filter(row=>!isBlockedSourceRow(row,group))
+    .slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS*2);
+  if(!source.length)return [];
+
+  const accepted=[];
+  for(let offset=0;offset<source.length;offset+=48){
+    const batch=source.slice(offset,offset+48);
+    try{
+      const classified=await classifyAiParent(parent,batch,{
+        filterToParent:group!==GENERAL_SOURCE_SCOPE
+      });
+      if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
+        state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
+      }
+      const acceptedIds=classified?.acceptedVideoIds instanceof Set
+        ?classified.acceptedVideoIds
+        :new Set(batch.map(itemVideoId).filter(Boolean));
+      const kept=group===GENERAL_SOURCE_SCOPE
+        ?batch
+        :batch.filter(row=>acceptedIds.has(itemVideoId(row)));
+      accepted.push(...kept);
+    }catch(error){
+      console.warn("AI 1 learning cleanup failed",parent?.label||group,error);
+      accepted.push(...batch);
+    }
+  }
+
+  // AI 2 learns only from AI 1-cleaned, deduplicated selected-source content.
+  return aiDisplayRows(dedupeHashedRows(newestFirst(accepted)));
+}
+
 async function ensureSourceContentLearning(parent={},local){
   const group=parentSourceGroup(parent);
   if(!group)return {terms:[],hashtags:[],rows:0,sources:0};
   const saved=readSourceContentLearning(group);
   if(saved)return saved;
   const rows=await selectedLearningRows(parent,local);
-  return saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
+  const cleaned=await cleanSelectedRowsForLearning(parent,rows);
+  return saveSourceContentLearning(group,extractSourceContentTerms(parent,cleaned));
 }
 
 function sourceLearningProfile(parent={}){
@@ -5889,9 +5926,11 @@ async function adaptiveSourceQueries(parent={},local){
   return [...new Set([...learned.slice(0,5),...(fallback?[fallback]:[])])].slice(0,6);
 }
 
-async function classifyAiParent(parent,rows=[]){
+async function classifyAiParent(parent,rows=[],options={}){
   const input=topicInputRows(rows.slice(0,48));
   const learning=sourceLearningProfile(parent);
+  const group=parentSourceGroup(parent);
+  const filterToParent=options?.filterToParent!==false&&group!==GENERAL_SOURCE_SCOPE;
   if(input.length<4){
     return {
       topics:[],
@@ -5914,6 +5953,7 @@ async function classifyAiParent(parent,rows=[]){
       selectedSourceNames:learning.selectedSourceNames,
       blockedSourceNames:learning.blockedSourceNames,
       learnedQueries:learning.learnedQueries,
+      filterToParent,
       videos:input
     })
   });
@@ -5935,14 +5975,17 @@ async function classifyAiParent(parent,rows=[]){
 
 const SOURCE_DISCOVERY_TTL=12*60*1000;
 const SOURCE_DISCOVERY_TARGET=48;
-const SOURCE_DISCOVERY_MAX_PAGES=8;
+const SOURCE_DISCOVERY_WINDOWS=[
+  {key:"recent",uploadDate:"month",maxAgeMs:90*24*60*60*1000,maxPages:4},
+  {key:"year",uploadDate:"year",maxAgeMs:365*24*60*60*1000,maxPages:4}
+];
 const sourceDiscoveryAt=new Map();
 
 function sourceAlreadyKnownForDiscovery(candidate,group){
   if(!candidate)return true;
 
-  // First load the durable group state. Chặn is the blacklist and Chọn is
-  // already saved, so neither one is a new AI discovery.
+  // BLACKLIST FIRST: blocked channels never enter AI 2 collection or learning.
+  // Selected channels are positive examples, not discovery candidates.
   const state=matchSourceState(candidate,group).status;
   if(state==="blocked"||state==="selected")return true;
 
@@ -5961,82 +6004,127 @@ function sourceAlreadyKnownForDiscovery(candidate,group){
 
 async function collectNewSourceDiscoveryRows(parent,local,group){
   const queries=await adaptiveSourceQueries(parent,local);
-  if(!queries.length)return {rows:[],exhausted:true};
+  if(!queries.length)return {rows:[],sourceCandidates:[],exhausted:true};
 
   const representatives=new Map();
   let exhausted=false;
 
-  for(let page=0;page<SOURCE_DISCOVERY_MAX_PAGES;page++){
-    const batches=await Promise.all(
-      queries.map((query,index)=>
-        pagedSearch(
-          local,
-          "source-discovery:"+group+":"+index+":"+fastHash(query),
-          query,
-          {upload_date:"week",sort_by:"upload_date"},
-          page===0,
-          group
-        ).catch(()=>[])
-      )
-    );
+  for(const windowDef of SOURCE_DISCOVERY_WINDOWS){
+    for(let page=0;page<windowDef.maxPages;page++){
+      const batches=await Promise.all(
+        queries.map((query,index)=>
+          pagedSearch(
+            local,
+            "source-discovery:"+group+":"+windowDef.key+":"+index+":"+fastHash(query),
+            query,
+            {upload_date:windowDef.uploadDate,sort_by:"upload_date"},
+            page===0,
+            group
+          ).catch(()=>[])
+        )
+      );
 
-    if(!batches.some(rows=>Array.isArray(rows)&&rows.length)){
-      exhausted=true;
-      break;
-    }
-
-    for(const row of batches.flat()){
-      if(!uploadedWithinCategoryWindow(row))continue;
-      const candidate=sourceCandidateFromVideo(row);
-      if(!candidate)continue;
-
-      // Blocked and already-known channels do not consume the discovery quota.
-      // Continue through later YouTube pages until the NEW-channel target is filled.
-      if(sourceAlreadyKnownForDiscovery(candidate,group))continue;
-
-      const key=candidate.id;
-      if(!representatives.has(key)){
-        representatives.set(key,{
-          ...row,
-          _sourceId:candidate.id,
-          _sourceName:candidate.name
-        });
+      if(!batches.some(rows=>Array.isArray(rows)&&rows.length)){
+        exhausted=true;
+        break;
       }
-    }
 
+      for(const row of batches.flat()){
+        if(isBlockedSourceRow(row,group))continue;
+        if(!uploadedWithin(row,windowDef.maxAgeMs))continue;
+
+        const candidate=sourceCandidateFromVideo(row);
+        if(!candidate||sourceAlreadyKnownForDiscovery(candidate,group))continue;
+
+        let entry=representatives.get(candidate.id);
+        if(!entry){
+          entry={candidate,rows:[],videoIds:new Set()};
+          representatives.set(candidate.id,entry);
+        }
+        const videoId=itemVideoId(row);
+        if(videoId&&!entry.videoIds.has(videoId)&&entry.rows.length<4){
+          entry.videoIds.add(videoId);
+          entry.rows.push({
+            ...row,
+            _sourceId:candidate.id,
+            _sourceName:candidate.name
+          });
+        }
+      }
+
+      if(representatives.size>=SOURCE_DISCOVERY_TARGET)break;
+    }
     if(representatives.size>=SOURCE_DISCOVERY_TARGET)break;
   }
 
+  const entries=[...representatives.values()]
+    .filter(entry=>entry.rows.length)
+    .slice(0,SOURCE_DISCOVERY_TARGET);
+
   return {
-    rows:[...representatives.values()].slice(0,SOURCE_DISCOVERY_TARGET),
+    rows:entries.map(entry=>entry.rows[0]),
+    sourceCandidates:entries.map(entry=>({
+      id:entry.candidate.id,
+      name:entry.candidate.name,
+      samples:entry.rows.map(row=>({
+        title:clean(row?._displayTitle||row?.title||""),
+        published:clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||publishedLabel(row)||""),
+        views:Number(row?.views)||0
+      }))
+    })),
     exhausted
   };
 }
 
-async function classifySourceDiscovery(parent,rows=[]){
-  const accepted=[];
-  const source=Array.isArray(rows)?rows:[];
-  const batchSize=24;
+async function classifySourceDiscovery(parent,discovery={}){
+  const group=parentSourceGroup(parent);
+  const rows=Array.isArray(discovery?.rows)?discovery.rows:[];
+  const sourceCandidates=(Array.isArray(discovery?.sourceCandidates)?discovery.sourceCandidates:[])
+    .filter(candidate=>!sourceAlreadyKnownForDiscovery(candidate,group));
+  if(!rows.length||!sourceCandidates.length)return [];
 
-  for(let offset=0;offset<source.length;offset+=batchSize){
-    const batch=source.slice(offset,offset+batchSize);
-    if(!batch.length)continue;
+  const learning=sourceLearningProfile(parent);
+  try{
+    const response=await fetch(AI_TOPICS_URL,{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "apikey":SUPABASE_ANON,
+        "authorization":"Bearer "+SUPABASE_ANON
+      },
+      body:JSON.stringify({
+        mode:"source_discovery",
+        scope:"source:"+group,
+        parentLabel:parent?.label||"",
+        selectedSourceNames:learning.selectedSourceNames,
+        blockedSourceNames:learning.blockedSourceNames,
+        learnedQueries:learning.learnedQueries,
+        sourceCandidates
+      })
+    });
+    const payload=await response.json().catch(()=>null);
+    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
 
-    try{
-      const classified=await classifyAiParent(parent,batch);
-      const acceptedIds=classified?.acceptedVideoIds instanceof Set
-        ?classified.acceptedVideoIds
-        :new Set();
-      if(acceptedIds.size){
-        accepted.push(...batch.filter(row=>acceptedIds.has(itemVideoId(row))));
-      }
-    }catch(error){
-      console.warn("source AI classify failed",parent?.label||parent?.key,error);
-      accepted.push(...batch.filter(row=>rowMatchesParentRule(parent,row)));
-    }
+    const acceptedIds=new Set(
+      (Array.isArray(payload?.acceptedSourceIds)?payload.acceptedSourceIds:[])
+        .map(id=>String(id||"").trim())
+        .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
+    );
+
+    // BLACKLIST LAST as well: state may have changed while AI 2 was running.
+    return rows.filter(row=>{
+      const candidate=sourceCandidateFromVideo(row);
+      return candidate&&acceptedIds.has(candidate.id)&&!sourceAlreadyKnownForDiscovery(candidate,group);
+    });
+  }catch(error){
+    console.warn("AI 2 source discovery failed",parent?.label||parent?.key,error);
+    return rows.filter(row=>{
+      const candidate=sourceCandidateFromVideo(row);
+      return candidate&&
+        !sourceAlreadyKnownForDiscovery(candidate,group)&&
+        rowMatchesParentRule(parent,row);
+    });
   }
-
-  return accepted;
 }
 
 async function discoverSourcesForParent(parent,local){
@@ -6054,7 +6142,7 @@ async function discoverSourcesForParent(parent,local){
       return;
     }
 
-    const accepted=await classifySourceDiscovery(parent,discovery.rows);
+    const accepted=await classifySourceDiscovery(parent,discovery);
     if(accepted.length){
       rememberDiscoveredSources(accepted,group);
       if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
