@@ -1004,9 +1004,11 @@ html.search-suggestions-open .suggestions{
   }
 
   html.watch-browse .app-shell{
-    width:min(1580px,100%);
+    width:100%;
+    max-width:none;
     height:calc(100dvh - var(--header-stack-h) - var(--safe-top));
     min-height:0;
+    margin:0;
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(320px,var(--watch-player-column-w,44vw));
     grid-template-rows:auto minmax(0,1fr);
@@ -1014,10 +1016,18 @@ html.search-suggestions-open .suggestions{
       "trend trend"
       "feed player";
     align-items:stretch;
-    gap:0 20px;
-    padding-left:16px;
-    padding-right:16px;
+    gap:0 14px;
+    padding-left:10px;
+    padding-right:10px;
     overflow:hidden;
+  }
+
+  html.watch-browse .header-inner,
+  html.watch-browse .header-nav-inner{
+    width:100%;
+    max-width:none;
+    margin-left:0;
+    margin-right:0;
   }
 
   html.watch-browse .trend-topics{
@@ -1035,7 +1045,23 @@ html.search-suggestions-open .suggestions{
     overflow-y:auto;
     overflow-x:hidden;
     overscroll-behavior-y:contain;
-    scrollbar-gutter:stable;
+    scrollbar-gutter:auto;
+    scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.08) transparent;
+  }
+
+  html.watch-browse .feed-section::-webkit-scrollbar{
+    width:3px;
+  }
+  html.watch-browse .feed-section::-webkit-scrollbar-track{
+    background:transparent;
+  }
+  html.watch-browse .feed-section::-webkit-scrollbar-thumb{
+    border-radius:999px;
+    background:rgba(255,255,255,.07);
+  }
+  html.watch-browse .feed-section:hover::-webkit-scrollbar-thumb{
+    background:rgba(255,255,255,.13);
   }
 
   html.watch-browse .player-section{
@@ -1111,12 +1137,11 @@ html.search-suggestions-open .suggestions{
 
 @media(min-width:1500px){
   html.watch-browse .app-shell{
-    grid-template-columns:minmax(0,1.55fr) minmax(470px,.85fr);
-    gap:0 24px;
+    grid-template-columns:minmax(430px,1fr) minmax(320px,var(--watch-player-column-w,56vw));
   }
 
   html.watch-browse .feed{
-    grid-template-columns:repeat(3,minmax(0,1fr));
+    grid-template-columns:repeat(2,minmax(0,1fr));
   }
 }
 
@@ -1242,22 +1267,21 @@ html.search-suggestions-open .suggestions{
   animation:none;
 }
 .card-meta-line{
-  display:flex;
-  align-items:baseline;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:2px;
   min-width:0;
   max-width:100%;
   margin-top:4px;
   color:#92929a;
   font-size:10.5px;
   line-height:1.3;
-  white-space:nowrap;
   overflow:hidden;
 }
 .card-meta-line .card-channel{
   display:block;
-  flex:0 1 auto;
   min-width:0;
-  max-width:52%;
+  max-width:100%;
   margin:0;
   overflow:hidden;
   text-overflow:ellipsis;
@@ -1266,17 +1290,17 @@ html.search-suggestions-open .suggestions{
   font:inherit;
 }
 .card-meta-line .card-meta-sep{
-  flex:0 0 auto;
+  display:none;
 }
 .card-meta-line .card-stats{
   display:block;
-  flex:1 1 auto;
+  width:100%;
   min-width:0;
   margin:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
-  color:inherit;
+  color:#7f7f88;
   font:inherit;
 }
 .thumb-wrap img.thumb-fit-contain{
@@ -2189,7 +2213,17 @@ html.search-suggestions-open .suggestions{
 /* Desktop watch remains two-column and gets the sampled metadata surface only on cards. */
 @media(min-width:960px){
   html.watch-browse .card-copy{
-    background:var(--card-hover-color,rgba(255,255,255,.025));
+    background:#1d1d20;
     border-radius:0 0 11px 11px;
+    transition:none;
+  }
+  html.watch-browse .card:hover .card-copy{
+    background:#242428;
+  }
+  html:not(.watch-browse) .card-copy{
+    transition:none;
+  }
+  html:not(.watch-browse) .card:hover .card-copy{
+    background:#242428;
   }
 }
