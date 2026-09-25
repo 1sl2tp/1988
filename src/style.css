@@ -6644,3 +6644,41 @@ html:not(.watch-browse) .app-header{
     box-shadow:none!important;
   }
 }
+
+
+/* ============================================================
+   THUMBNAIL NO-CROP v202
+   Preserve the full source thumbnail. This fixes artwork/text/borders
+   placed right against an edge being shaved by object-fit:cover or
+   by the extra watch-card corner clipping.
+   ============================================================ */
+.thumb-wrap{
+  background:#0b0b0c!important;
+}
+
+.thumb-wrap img,
+.thumb-wrap img:not(.thumb-fit-contain),
+.thumb-wrap img.thumb-fit-contain{
+  width:100%!important;
+  height:100%!important;
+  display:block!important;
+  object-fit:contain!important;
+  object-position:center center!important;
+  transform:none!important;
+  background:#0b0b0c!important;
+}
+
+/* In the mobile watch list the artwork itself owns its edge treatment.
+   Do not clip a source border/logo/text that sits on the outer pixels. */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    border-radius:0!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img{
+    border-radius:0!important;
+    object-fit:contain!important;
+  }
+}
