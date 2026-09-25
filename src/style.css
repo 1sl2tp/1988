@@ -882,6 +882,10 @@ html.search-suggestions-open .suggestions{
   height:30px;padding:0 9px;border:1px solid #323239;border-radius:7px;background:#1d1d21;
   color:#b8b8bf;font-size:10.5px;white-space:nowrap
 }
+.source-state-btn.rename{
+  width:30px;padding:0;font-size:14px;line-height:1;color:#d5d5da
+}
+.source-state-btn.rename:hover{background:#29292f;border-color:#484850;color:#fff}
 .source-state-btn.select.active{background:#f1f1f2;border-color:#f1f1f2;color:#111;font-weight:750}
 .source-state-btn.block.active{background:#3a1719;border-color:#713036;color:#ffb2b7;font-weight:750}
 .source-empty{padding:34px 8px;text-align:center;color:var(--muted);font-size:13px}
