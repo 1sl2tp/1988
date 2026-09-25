@@ -155,6 +155,7 @@ const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
+const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
 let stateSyncReady=false;
 let stateSyncApplying=false;
 let stateSyncDirty=false;
@@ -10441,6 +10442,177 @@ function cleanupLegacyFeedCaches(name=""){
     for(const key of remove)localStorage.removeItem(key);
   }catch{}
 }
+
+let packageSyncApplying=false;
+let packageManifestLastAt=0;
+let packageWriteClock=Date.now();
+const packageUploadChains=new Map();
+const pendingPackageUploads=new Map();
+
+function packageSnapshotName(scope=""){
+  scope=String(scope||"").trim();
+  if(scope===LIVE_SOURCE_SCOPE||scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE){
+    return "feed:"+scope;
+  }
+  if(CONTENT_SOURCE_SCOPES.has(scope))return "category:"+scope;
+  return "";
+}
+
+function packageScopeFromSnapshotName(name=""){
+  name=String(name||"").trim();
+  if(name.startsWith("feed:")){
+    const scope=name.slice(5);
+    return [LIVE_SOURCE_SCOPE,LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE].includes(scope)?scope:"";
+  }
+  if(name.startsWith("category:")){
+    const scope=name.slice(9);
+    return CONTENT_SOURCE_SCOPES.has(scope)?scope:"";
+  }
+  return "";
+}
+
+async function packageSyncFetch(method="GET",scope="",body=null,timeout=5200){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const url=scope
+      ?PACKAGE_SYNC_URL+"?scope="+encodeURIComponent(scope)
+      :PACKAGE_SYNC_URL;
+    const response=await fetch(url,{
+      method,
+      cache:"no-store",
+      signal:controller.signal,
+      headers:{
+        "content-type":"application/json",
+        "x-1988-pin":SETTINGS_PIN
+      },
+      body:body==null?undefined:JSON.stringify(body)
+    });
+    if(!response.ok)throw new Error("package_sync_"+response.status);
+    return await response.json();
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+function nextPackageWriteVersion(){
+  const now=Date.now();
+  packageWriteClock=Math.max(now,packageWriteClock+1);
+  return packageWriteClock;
+}
+
+function queuePackageUpload(snapshotName=""){
+  if(packageSyncApplying)return Promise.resolve(false);
+  const scope=packageScopeFromSnapshotName(snapshotName);
+  const row=readAtomicSnapshot(snapshotName);
+  if(!scope||!row?.hash||!Array.isArray(row.items)||!row.items.length){
+    return Promise.resolve(false);
+  }
+
+  const payload={
+    scope,
+    hash:row.hash,
+    inputHash:clean(row.inputHash||""),
+    sourceSignature:clean(row.sourceSignature||""),
+    items:row.items,
+    version:nextPackageWriteVersion()
+  };
+  pendingPackageUploads.set(scope,payload);
+
+  const previous=packageUploadChains.get(scope)||Promise.resolve();
+  const task=previous.catch(()=>{}).then(async()=>{
+    const latest=pendingPackageUploads.get(scope);
+    if(!latest||latest.hash!==payload.hash||latest.version!==payload.version)return true;
+
+    try{
+      const result=await packageSyncFetch("POST","",latest,7000);
+      if(!result?.ok)throw new Error("package_write_failed");
+      if(pendingPackageUploads.get(scope)?.version===latest.version){
+        pendingPackageUploads.delete(scope);
+      }
+      return true;
+    }catch(error){
+      console.warn("package upload failed",scope,error);
+      return false;
+    }
+  }).finally(()=>{
+    if(packageUploadChains.get(scope)===task)packageUploadChains.delete(scope);
+  });
+
+  packageUploadChains.set(scope,task);
+  return task;
+}
+
+function applyServerPackage(scope,pkg={}){
+  const snapshotName=packageSnapshotName(scope);
+  const items=Array.isArray(pkg?.items)?pkg.items:[];
+  const sourceSig=clean(pkg?.source_signature||pkg?.sourceSignature||"");
+  const expectedHash=clean(pkg?.hash||"");
+  if(!snapshotName||!items.length||!expectedHash)return false;
+
+  const actualHash=snapshotRowsHash(items,sourceSig);
+  if(actualHash!==expectedHash){
+    console.warn("server package hash mismatch",scope,expectedHash,actualHash);
+    return false;
+  }
+
+  packageSyncApplying=true;
+  try{
+    commitAtomicSnapshot(snapshotName,items,{
+      sourceSignature:sourceSig,
+      inputHash:clean(pkg?.input_hash||pkg?.inputHash||"")
+    });
+    if(CONTENT_SOURCE_SCOPES.has(scope)){
+      state.aiCategoryRows.set(scope,{at:Date.now(),items});
+    }
+  }finally{
+    packageSyncApplying=false;
+  }
+  return true;
+}
+
+async function hydrateServerPackages({force=false}={}){
+  if(!force&&Date.now()-packageManifestLastAt<60*1000)return true;
+
+  try{
+    const result=await packageSyncFetch("GET","",null,5200);
+    if(!result?.ok)throw new Error("package_manifest_failed");
+    const manifest=result.manifest&&typeof result.manifest==="object"?result.manifest:{};
+
+    const downloads=[];
+    for(const group of SOURCE_MANAGER_GROUPS){
+      const scope=group.key;
+      const snapshotName=packageSnapshotName(scope);
+      if(!snapshotName)continue;
+
+      const local=readAtomicSnapshot(snapshotName);
+      const remote=manifest[scope];
+
+      if(remote?.hash&&remote.hash!==local?.hash){
+        downloads.push(
+          packageSyncFetch("GET",scope,null,7000)
+            .then(pkgResult=>{
+              if(pkgResult?.ok&&pkgResult?.exists&&pkgResult.package){
+                applyServerPackage(scope,pkgResult.package);
+              }
+            })
+            .catch(error=>console.warn("package download failed",scope,error))
+        );
+      }else if(!remote?.hash&&local?.hash){
+        // First server migration: publish this device's complete package.
+        void queuePackageUpload(snapshotName);
+      }
+    }
+
+    if(downloads.length)await Promise.all(downloads);
+    packageManifestLastAt=Date.now();
+    return true;
+  }catch(error){
+    console.warn("package manifest sync failed",error);
+    return false;
+  }
+}
+
 const SEARCH_VISIBLE_TARGET=36;
 // Block-heavy tabs may need to pass many continuation pages before enough
 // usable rows remain. Keep scanning until the visible target is refilled or
