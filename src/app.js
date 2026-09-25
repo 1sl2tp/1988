@@ -3974,7 +3974,10 @@ function setWatchBrowseLayout(active){
       feedSection.scrollLeft=0;
     }
     watchBrowseMutating=false;
-    if(!active)queueFloatingIframe();
+    if(!active){
+      queueFloatingIframe();
+      queueHomeChromeTintFromFeed(true);
+    }
   });
 }
 
@@ -7578,8 +7581,12 @@ function renderCards(rows=[],options={}){
   syncWatchCurrentCard();
   normalizeRenderedThumbnails();
 
-  // v238: card surfaces are static. Do not sample thumbnails while scrolling
-  // or hovering; it causes visible jank on long feeds.
+  // Home chrome follows the top video once per stable feed/category paint.
+  // No scroll/pointer sampling is reintroduced.
+  if(!append&&!watchPlaybackVisible()){
+    queueHomeChromeTintFromFeed();
+  }
+
   return cards.length;
 }
 
@@ -7625,7 +7632,7 @@ function updateNow(meta={}){
     currentCard?.dataset?.thumb||
     ""
   );
-  if(art)applyChromeTintFromArt(art,"watch");
+  if(art)applyChromeTintFromArt(art,"watch",state.currentId);
 }
 
 function updateModeUi(){
@@ -9324,11 +9331,54 @@ function applyPageChromeTint(color,scope="watch"){
   root.dataset.chromeTintScope=scope;
 }
 
-function applyChromeTintFromArt(art,scope="watch"){
+let pageChromeTintSeq=0;
+let homeChromeTintThumb="";
+let homeChromeTintRaf=0;
+
+function watchPlaybackVisible(){
+  return !!state.currentId&&!playerSection?.hidden;
+}
+
+function applyChromeTintFromArt(art,scope="watch",guardId=""){
   art=String(art||"").trim();
   if(!art)return;
+
+  const requestSeq=++pageChromeTintSeq;
+  const expectedVideoId=String(guardId||"").trim();
+
   void averageThumbTint(art).then(color=>{
-    if(color)applyPageChromeTint(color,scope);
+    if(requestSeq!==pageChromeTintSeq||!color)return;
+
+    if(scope==="home"&&watchPlaybackVisible())return;
+    if(
+      scope==="watch"&&
+      expectedVideoId&&
+      String(state.currentId||"")!==expectedVideoId
+    )return;
+
+    applyPageChromeTint(color,scope);
+  });
+}
+
+function syncHomeChromeTintFromFeed(force=false){
+  if(watchPlaybackVisible())return;
+
+  const card=feed.querySelector(":scope > .card[data-video-id]");
+  const art=String(card?.dataset?.thumb||"").trim();
+  if(!art)return;
+
+  if(!force&&art===homeChromeTintThumb)return;
+  homeChromeTintThumb=art;
+  applyChromeTintFromArt(art,"home");
+}
+
+function queueHomeChromeTintFromFeed(force=false){
+  if(force)homeChromeTintThumb="";
+  if(homeChromeTintRaf)return;
+
+  homeChromeTintRaf=requestAnimationFrame(()=>{
+    homeChromeTintRaf=0;
+    syncHomeChromeTintFromFeed(force);
   });
 }
 
