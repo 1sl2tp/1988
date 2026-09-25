@@ -10727,9 +10727,11 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
 
     if(!rows.length)return;
     saveFeedCache(name,rows);
-    saveSourceContentLearning(GENERAL_SOURCE_SCOPE,extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,rows));
-    void enrichSourceFeedAi(name,rows,seq);
-    void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+    // AI 1 must finish before AI 2 can learn/search from this refreshed pool.
+    void enrichSourceFeedAi(name,rows,seq)
+      .then(ai1Ready=>{
+        if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+      });
 
     if(
       seq===state.feedSeq &&
@@ -10858,17 +10860,16 @@ async function loadFeedPreset(name="latest"){
     }
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
-    if(isSourceScopedFeed(name)){
-      saveSourceContentLearning(GENERAL_SOURCE_SCOPE,extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,state.feedRows));
-    }
     await prewarmRowSourceAvatars(aiDisplayRows(trendRows(state.feedRows)).slice(0,36),560);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     renderCurrentTrendFeed();
     state.feedHasMore=true;
     feedStatus.textContent="";
     if(isSourceScopedFeed(name)){
-      void enrichSourceFeedAi(name,state.feedRows,seq);
-      void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+      void enrichSourceFeedAi(name,state.feedRows,seq)
+        .then(ai1Ready=>{
+          if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+        });
     }
     void refreshAiTrendTopics();
   }catch(error){
