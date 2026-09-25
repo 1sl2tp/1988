@@ -6723,87 +6723,58 @@ async function loadAiParentDiscovery(parent){
         feed.innerHTML='<div class="empty">Chưa chọn nguồn '+esc(parent.label)+'. Mở “Nguồn” để chọn kênh.</div>';
         feedStatus.textContent="";
       }
-
-      void localEngine(12000).then(local=>discoverSourcesForParent(parent,local)).catch(()=>{});
       return;
     }
 
-    const instantCached=instantCategoryRows(parent);
-
-    if(instantCached.length){
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instantCached});
+    // Reserve snapshot first: this package is persistent and has no TTL.
+    // It is shown immediately while the replacement package is built silently.
+    const reserve=instantCategoryRows(parent);
+    if(reserve.length){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
       state.aiCategoryTopics.set(parent.key,[]);
       state.trendTopics=[];
       renderTrendTopics();
 
       if(state.activeParent===parent.key){
-        const visible=aiDisplayRows(instantCached);
-        await prewarmRowSourceAvatars(visible,360);
+        const visible=aiDisplayRows(reserve);
+        await prewarmRowSourceAvatars(visible.slice(0,36),260);
         if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
         renderCards(visible);
-        feedStatus.textContent=instantCached.length+" video";
+        feedStatus.textContent=visible.length?visible.length+" video":"";
       }
 
-      void localEngine(12000).then(local=>
-        refreshSelectedCategoryInBackground(parent,local,sources,seq)
-      ).catch(()=>{});
+      void localEngine(12000)
+        .then(local=>refreshSelectedCategoryInBackground(parent,local,sources,seq))
+        .catch(()=>{});
       return;
     }
 
-    if(state.activeParent===parent.key){
-      feed.innerHTML='<div class="loading">Đang tải '+esc(parent.label)+' từ nguồn đã chọn…</div>';
-      feedStatus.textContent="";
-    }
-
+    // First-ever package only. Do not show a timeout/retry state; build one
+    // complete sorted snapshot and paint it once.
     const local=await localEngine(12000);
-    let progressiveRows=[];
-    const raw=await fetchSourcePool(local,sources,true,group,(batch)=>{
-      const ready=dedupeHashedRows(
-        newestFirst(
-          batch
-            .filter(uploadedWithinCategoryWindow)
-            .filter(row=>!isBlockedSourceRow(row,group))
-            .map(row=>({...row,_selectedCategorySource:true}))
-        )
-      );
-      if(!ready.length)return;
-      progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
-      // Cold load waits for the full source pass and paints once, avoiding
-      // repeated black thumbnail placeholders as each channel finishes.
-    });
-    let rows=dedupeHashedRows(
-      newestFirst(
-        (Array.isArray(raw)?raw:[])
-          .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row,group))
-          .map(row=>({...row,_selectedCategorySource:true}))
-      )
-    ).slice(0,90);
+    const rows=await buildCategorySourceSnapshot(parent,local);
+    if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
 
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
     renderTrendTopics();
 
-    if(state.activeParent===parent.key){
-      if(rows.length){
-        renderCards(aiDisplayRows(rows));
-        feedStatus.textContent=rows.length+" video";
-      }else{
-        feed.innerHTML='<div class="empty">Chưa có video mới từ nguồn đã chọn.</div>';
-        feedStatus.textContent="";
-      }
+    if(rows.length){
+      const visible=aiDisplayRows(rows);
+      await prewarmRowSourceAvatars(visible.slice(0,36),320);
+      if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
+      renderCards(visible);
+      feedStatus.textContent=visible.length?visible.length+" video":"";
+      void discoverSourcesForParent(parent,local).catch(()=>{});
+    }else{
+      feed.innerHTML='<div class="empty">Chưa có video mới từ nguồn đã chọn.</div>';
+      feedStatus.textContent="";
     }
-
-    // Do not reclassify/remove cards by the tab title. Learn from the exact
-    // selected-source snapshot in the background, then discover similar sources.
-    void enrichSelectedCategoryInBackground(parent,rows)
-      .then(learnedRows=>{if(learnedRows) return discoverSourcesForParent(parent,local);});
   }catch(error){
-    console.warn("selected category failed",parent?.label||parent?.key,error);
-    if(state.activeParent===parent?.key){
-      feedStatus.textContent="Chưa tải đủ nội dung";
+    console.warn("selected category snapshot failed",parent?.label||parent?.key,error);
+    if(state.activeParent===parent?.key&&!instantCategoryRows(parent).length){
+      feed.innerHTML='<div class="empty">Chưa có gói dữ liệu dự trữ cho tab này.</div>';
+      feedStatus.textContent="";
     }
   }finally{
     state.aiCategoryLoading.delete(parent.key);
@@ -10627,6 +10598,17 @@ function readNewestLegacyFeedCache(name=""){
   }catch{}
   return best;
 }
+
+function cleanupLegacyFeedCaches(name=""){
+  try{
+    const remove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||"";
+      if(key.startsWith("1988-discovery-")&&key.endsWith(":"+name))remove.push(key);
+    }
+    for(const key of remove)localStorage.removeItem(key);
+  }catch{}
+}
 const SEARCH_VISIBLE_TARGET=36;
 // Block-heavy tabs may need to pass many continuation pages before enough
 // usable rows remain. Keep scanning until the visible target is refilled or
@@ -11302,9 +11284,7 @@ function saveFeedCache(name,rows){
   const result=commitAtomicSnapshot("feed:"+name,rows,{sourceSignature:signature});
 
   // Remove the old single-slot cache only after a valid atomic package exists.
-  if(result.hash){
-    try{localStorage.removeItem(FEED_CACHE_PREFIX+name);}catch{}
-  }
+  if(result.hash)cleanupLegacyFeedCaches(name);
   return result;
 }
 
@@ -11567,37 +11547,31 @@ async function loadFeedPreset(name="latest"){
   setActiveChip(name);
   feedTitle.textContent=preset.title;
 
-  let cached=readFeedCache(name);
-  if(!cached.length&&scoped){
+  let reserve=readFeedCache(name);
+  if(!reserve.length&&scoped){
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const perSourceCached=cachedRowsForSources(
       selectedSources(activeFeedScope),
       activeFeedScope
     ).filter(predicate);
     if(perSourceCached.length){
-      cached=sortPresetRows(perSourceCached,preset);
-      saveFeedCache(name,cached);
+      reserve=sortPresetRows(perSourceCached,preset);
+      saveFeedCache(name,reserve);
     }
   }
 
-  // A cached package is already complete. Apply its cached/one-shot AI package
-  // before first paint, then never reorder the visible list in the background.
-  if(cached.length){
-    const rows=sortPresetRows(cached,preset)
+  // Stale-while-revalidate: always paint the last complete package first.
+  // No AI/network work is allowed to delay or reorder this paint.
+  if(reserve.length){
+    const rows=sortPresetRows(reserve,preset)
       .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
 
-    if(scoped&&rows.length>=4){
-      await enrichSourceFeedAi(name,rows,seq);
-      if(seq!==state.feedSeq||state.activeFeed!==name)return;
-      state.trendTopics=state.feedTrendTopics.get(name)||[];
-    }else{
-      state.trendTopics=[];
-    }
+    state.feedRows=mergeUniqueRows([],rows);
+    state.trendTopics=state.feedTrendTopics.get(name)||[];
     renderTrendTopics();
 
-    state.feedRows=mergeUniqueRows([],rows);
     const visible=aiDisplayRows(trendRows(state.feedRows));
-    await prewarmRowSourceAvatars(visible.slice(0,36),420);
+    await prewarmRowSourceAvatars(visible.slice(0,36),260);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
     renderCards(visible);
@@ -11605,8 +11579,8 @@ async function loadFeedPreset(name="latest"){
     state.feedLoading=false;
     state.feedHasMore=true;
 
-    // Refresh the next package silently. It becomes visible only on a future
-    // tab entry/reload, so there is no "loaded -> sorted again" jump.
+    // Build a replacement package silently. Atomic commit + hash comparison
+    // means unchanged data performs no swap and no duplicate AI request.
     if(scoped){
       void refreshCachedSourceFeedInBackground(name,preset,seq);
     }else if(name===LIVE_SOURCE_SCOPE){
@@ -11615,27 +11589,16 @@ async function loadFeedPreset(name="latest"){
     return;
   }
 
-  feed.innerHTML='<div class="loading">Đang tải và sắp xếp…</div>';
+  // Only a brand-new browser/profile can reach this branch. Keep it visual and
+  // quiet: no "source slow", no timeout, no retry churn.
+  feed.innerHTML=
+    '<div class="feed-loading-grid" aria-label="Đang chuẩn bị dữ liệu">'+
+      '<span></span><span></span><span></span><span></span>'+
+    '</div>';
   feedStatus.textContent="";
-
-  const firstPaintWatchdog=setTimeout(()=>{
-    if(
-      seq!==state.feedSeq ||
-      state.activeFeed!==name ||
-      state.feedRows.length
-    )return;
-    feed.innerHTML=
-      '<div class="error">Nguồn đang phản hồi chậm.<br>'+
-      '<button class="retry-feed" type="button">Tải lại</button></div>';
-    feedStatus.textContent="";
-    state.feedLoading=false;
-  },9000);
 
   try{
     const local=await localEngine(16000);
-
-    // No progressive paint: collect the whole current snapshot, sort/dedupe,
-    // run the single feed AI package, and only then expose it to the DOM.
     const rowsRaw=await preset.load(local,true,null);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
@@ -11650,7 +11613,6 @@ async function loadFeedPreset(name="latest"){
       state.feedHasMore=false;
       state.trendTopics=[];
       renderTrendTopics();
-      saveFeedCache(name,[]);
       feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
       feedStatus.textContent="";
       return;
@@ -11658,34 +11620,37 @@ async function loadFeedPreset(name="latest"){
 
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
-
-    if(scoped&&state.feedRows.length>=4){
-      await enrichSourceFeedAi(name,state.feedRows,seq);
-      if(seq!==state.feedSeq||state.activeFeed!==name)return;
-      state.trendTopics=state.feedTrendTopics.get(name)||[];
-    }else{
-      state.trendTopics=[];
-    }
+    state.trendTopics=state.feedTrendTopics.get(name)||[];
     renderTrendTopics();
 
     const visible=aiDisplayRows(trendRows(state.feedRows));
-    await prewarmRowSourceAvatars(visible.slice(0,36),420);
+    await prewarmRowSourceAvatars(visible.slice(0,36),320);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
     renderCards(visible);
     feedStatus.textContent=visible.length?visible.length+" video":"";
     state.feedHasMore=true;
 
+    // AI/source discovery are maintenance jobs only; they never block paint.
     if(scoped){
+      void enrichSourceFeedAi(name,state.feedRows,seq).catch(()=>{});
       void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
     }
   }catch(error){
-    console.warn("feed failed",name,error);
-    feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
-    feedStatus.textContent="";
-    state.feedHasMore=false;
+    console.warn("first source package failed",name,error);
+    if(seq===state.feedSeq&&state.activeFeed===name){
+      const fallback=readFeedCache(name);
+      if(fallback.length){
+        state.feedRows=sortPresetRows(fallback,preset);
+        renderCards(aiDisplayRows(state.feedRows));
+        feedStatus.textContent=state.feedRows.length+" video";
+      }else{
+        feed.innerHTML='<div class="empty">Chưa có gói dữ liệu dự trữ.</div>';
+        feedStatus.textContent="";
+      }
+      state.feedHasMore=false;
+    }
   }finally{
-    clearTimeout(firstPaintWatchdog);
     if(seq===state.feedSeq)state.feedLoading=false;
     setTimeout(maybeLoadMoreFeed,120);
   }
