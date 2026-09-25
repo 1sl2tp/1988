@@ -2518,6 +2518,248 @@ function submitSettingsAccess(){
   action?.();
 }
 
+function cardMoreButtonHtml(){
+  return '<button class="card-more-btn" type="button" data-card-more aria-label="Tùy chọn video" title="Tùy chọn">'+
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.7"></circle><circle cx="12" cy="12" r="1.7"></circle><circle cx="12" cy="19" r="1.7"></circle></svg>'+
+  '</button>';
+}
+
+let activeCardActionCard=null;
+let activeCardActionButton=null;
+
+function ensureCardActionMenu(){
+  let menu=document.getElementById("cardActionMenu");
+  if(menu)return menu;
+
+  menu=document.createElement("div");
+  menu.id="cardActionMenu";
+  menu.className="card-action-menu";
+  menu.hidden=true;
+  menu.setAttribute("role","menu");
+  document.body.appendChild(menu);
+  return menu;
+}
+
+function closeCardActionMenu(){
+  const menu=document.getElementById("cardActionMenu");
+  if(menu){
+    menu.hidden=true;
+    menu.innerHTML="";
+  }
+  activeCardActionButton?.setAttribute("aria-expanded","false");
+  activeCardActionCard=null;
+  activeCardActionButton=null;
+}
+
+function cardActionScope(){
+  return activeSourceScope()||
+    (CONTENT_SOURCE_SCOPES.has(state.searchScope)?state.searchScope:GENERAL_SOURCE_SCOPE)||
+    GENERAL_SOURCE_SCOPE;
+}
+
+function cardActionSourceRow(card){
+  if(!card)return null;
+  const id=String(card.dataset.sourceId||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
+
+  return {
+    id,
+    name:clean(card.dataset.channel||"")||id,
+    thumbnailUrl:sourceAvatarCached(id)||"",
+    subscribers:""
+  };
+}
+
+function ensureCardActionSource(card,scope){
+  const row=cardActionSourceRow(card);
+  if(!row)return null;
+
+  sourceMetaCache.set(row.id,{...sourceMetaCache.get(row.id),...row});
+
+  if(
+    !libraryHas(row.id)&&
+    !allManagedStateIds().has(row.id)
+  ){
+    temporarySetForScope(scope).add(row.id);
+  }
+  return row;
+}
+
+function cardActionStatus(card,scope=cardActionScope()){
+  const row=cardActionSourceRow(card);
+  if(!row)return "normal";
+  return matchSourceState(row,scope).status;
+}
+
+function publicCardVideoUrl(card){
+  const id=String(card?.dataset?.videoId||"").trim();
+  if(!id)return "";
+  const url=new URL(location.origin+location.pathname);
+  url.searchParams.set("v",id);
+  url.hash="";
+  return url.toString();
+}
+
+async function shareCardVideo(card,button=null){
+  const url=publicCardVideoUrl(card);
+  if(!url)return false;
+  const data={
+    title:clean(card?.dataset?.title)||"1988",
+    url
+  };
+
+  try{
+    if(navigator.share){
+      await navigator.share(data);
+      closeCardActionMenu();
+      return true;
+    }
+  }catch(error){
+    if(error?.name==="AbortError")return false;
+  }
+
+  try{
+    await navigator.clipboard.writeText(url);
+    if(button){
+      const old=button.textContent;
+      button.textContent="Đã sao chép link";
+      setTimeout(()=>{
+        if(button.isConnected)button.textContent=old;
+        closeCardActionMenu();
+      },650);
+    }else{
+      closeCardActionMenu();
+    }
+    return true;
+  }catch{
+    return false;
+  }
+}
+
+function removeBlockedSourceFromVisibleFeed(card,scope){
+  const row=cardActionSourceRow(card);
+  if(!row)return;
+
+  state.feedRows=(Array.isArray(state.feedRows)?state.feedRows:[])
+    .filter(item=>!isBlockedSourceRow(item,scope));
+
+  for(const item of [...feed.querySelectorAll(".card[data-video-id]")]){
+    const sameId=String(item.dataset.sourceId||"")===row.id;
+    const sameName=normalizeSearchText(item.dataset.channel||"")===normalizeSearchText(row.name||"");
+    if(sameId||sameName)item.remove();
+  }
+
+  const total=feed.querySelectorAll(".card[data-video-id]").length;
+  feedStatus.textContent=total?total+" video":"";
+}
+
+function positionCardActionMenu(button,menu){
+  const rect=button.getBoundingClientRect();
+  const viewport=window.visualViewport;
+  const leftEdge=Math.max(8,Number(viewport?.offsetLeft)||0);
+  const topEdge=Math.max(8,Number(viewport?.offsetTop)||0);
+  const width=Math.max(280,Number(viewport?.width)||window.innerWidth||0);
+  const height=Math.max(240,Number(viewport?.height)||window.innerHeight||0);
+  const rightEdge=leftEdge+width-8;
+  const bottomEdge=topEdge+height-8;
+
+  menu.style.left="-9999px";
+  menu.style.top="-9999px";
+  menu.hidden=false;
+
+  const menuRect=menu.getBoundingClientRect();
+  const menuWidth=Math.max(180,menuRect.width||0);
+  const menuHeight=Math.max(44,menuRect.height||0);
+
+  let left=Math.min(rightEdge-menuWidth,Math.max(leftEdge,rect.right-menuWidth));
+  let top=rect.bottom+6;
+  if(top+menuHeight>bottomEdge)top=Math.max(topEdge,rect.top-menuHeight-6);
+
+  menu.style.left=Math.round(left)+"px";
+  menu.style.top=Math.round(top)+"px";
+}
+
+function openCardActionMenu(card,button){
+  if(!card||!button)return;
+  if(activeCardActionCard===card&&!ensureCardActionMenu().hidden){
+    closeCardActionMenu();
+    return;
+  }
+
+  closeCardActionMenu();
+  const menu=ensureCardActionMenu();
+  const unlocked=settingsAccessSaved();
+  const scope=cardActionScope();
+  const source=cardActionSourceRow(card);
+  const status=source?cardActionStatus(card,scope):"normal";
+
+  const actions=[];
+  if(unlocked&&source){
+    actions.push(
+      '<button type="button" class="card-action-item'+(status==="selected"?' active':'')+'" data-card-action="interested"'+(status==="selected"?' disabled':'')+'>'+
+        (status==="selected"?'✓ Đã quan tâm':'Quan tâm')+
+      '</button>'
+    );
+    actions.push(
+      '<button type="button" class="card-action-item danger'+(status==="blocked"?' active':'')+'" data-card-action="not-interested"'+(status==="blocked"?' disabled':'')+'>'+
+        (status==="blocked"?'Đã chặn':'Không quan tâm')+
+      '</button>'
+    );
+  }
+  actions.push('<button type="button" class="card-action-item" data-card-action="share">Chia sẻ link</button>');
+
+  menu.innerHTML=actions.join("");
+  activeCardActionCard=card;
+  activeCardActionButton=button;
+  button.setAttribute("aria-expanded","true");
+  positionCardActionMenu(button,menu);
+}
+
+async function handleCardAction(action,button){
+  const card=activeCardActionCard;
+  if(!card)return;
+
+  if(action==="share"){
+    await shareCardVideo(card,button);
+    return;
+  }
+
+  if(!settingsAccessSaved())return;
+
+  const scope=cardActionScope();
+  const source=ensureCardActionSource(card,scope);
+  if(!source)return;
+
+  if(action==="interested"){
+    setSourceStatus(source.id,"selected",scope);
+    void pushServerStateNow();
+    closeCardActionMenu();
+    return;
+  }
+
+  if(action==="not-interested"){
+    setSourceStatus(source.id,"blocked",scope);
+    void pushServerStateNow();
+    removeBlockedSourceFromVisibleFeed(card,scope);
+    closeCardActionMenu();
+  }
+}
+
+document.addEventListener("click",event=>{
+  const menu=document.getElementById("cardActionMenu");
+  if(!menu||menu.hidden)return;
+  if(menu.contains(event.target)||event.target.closest?.("[data-card-more]"))return;
+  closeCardActionMenu();
+});
+
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape")closeCardActionMenu();
+});
+
+window.addEventListener("resize",closeCardActionMenu,{passive:true});
+window.visualViewport?.addEventListener?.("resize",closeCardActionMenu,{passive:true});
+window.visualViewport?.addEventListener?.("scroll",closeCardActionMenu,{passive:true});
+
 function resetSourceManagerInstant(){
   sourceManageGroup=GENERAL_SOURCE_SCOPE;
   sourceBlockedExpanded=false;
@@ -6040,6 +6282,7 @@ function searchCardHtml(row={},options={}){
             (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
           '</div>'+
         '</div>'+
+        cardMoreButtonHtml()+
       '</div>'+
     '</article>';
 }
@@ -7165,6 +7408,7 @@ function renderCards(rows=[],options={}){
               (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
             '</div>'+
           '</div>'+
+          cardMoreButtonHtml()+
         '</div>'+
       '</article>'
     );
@@ -8990,6 +9234,7 @@ feed.addEventListener("load",event=>{
 },true);
 
 feed.addEventListener("pointerdown",e=>{
+  if(e.target.closest("[data-card-more]"))return;
   const card=e.target.closest("[data-video-id]");
   const id=card?.dataset?.videoId||"";
   if(card)ensureDesktopCardTint(card);
@@ -9003,12 +9248,29 @@ feed.addEventListener("click",e=>{
     return;
   }
 
+  const more=e.target.closest("[data-card-more]");
+  if(more){
+    e.preventDefault();
+    e.stopPropagation();
+    const card=more.closest("[data-video-id]");
+    openCardActionMenu(card,more);
+    return;
+  }
+
   const card=e.target.closest("[data-video-id]");
   if(!card)return;
   const id=card.dataset.videoId;
   showWatchRecoInfo(card,{autoHide:true});
   setSeriesContextFromCard(card);
   playVideo(id,rowFromCard(card));
+});
+
+document.addEventListener("click",event=>{
+  const actionButton=event.target.closest?.("[data-card-action]");
+  if(!actionButton)return;
+  event.preventDefault();
+  event.stopPropagation();
+  void handleCardAction(actionButton.dataset.cardAction||"",actionButton);
 });
 
 shareBtn.addEventListener("click",async()=>{
