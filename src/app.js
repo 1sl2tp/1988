@@ -5908,7 +5908,7 @@ const SOURCE_CONTENT_LEARNING_TTL=25*60*1000;
 // currently selected sources in the scope.
 const SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES=12;
 const SOURCE_CONTENT_LEARNING_MAX_ROWS=120;
-const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v3:";
+const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v4:";
 const sourceContentLearningMemory=new Map();
 
 function sourceLearningNames(scope,status="selected"){
