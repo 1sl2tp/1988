@@ -6569,6 +6569,7 @@ function renderCards(rows=[],options={}){
   ensureWatchNavRail();
   syncWatchCurrentCard();
   queueHomeChannelAvatars();
+  normalizeRenderedThumbnails();
   return cards.length;
 }
 
@@ -8204,6 +8205,38 @@ feed.addEventListener("pointerover",event=>{
   if(window.innerWidth<=720)return;
   ensureDesktopCardTint(event.target.closest("[data-video-id]"));
 },{passive:true});
+
+function normalizeThumbnailFit(img){
+  if(!img||!img.closest(".thumb-wrap"))return;
+
+  const apply=()=>{
+    const w=Number(img.naturalWidth)||0;
+    const h=Number(img.naturalHeight)||0;
+    if(!w||!h)return;
+
+    const ratio=w/h;
+    const target=16/9;
+    const delta=Math.abs(ratio-target)/target;
+
+    // Preserve the whole frame when a source thumbnail is not truly 16:9.
+    // Normal YouTube 16:9 thumbnails keep cover for a full-bleed image.
+    img.classList.toggle("thumb-fit-contain",delta>.035);
+  };
+
+  if(img.complete)apply();
+  else img.addEventListener("load",apply,{once:true});
+}
+
+function normalizeRenderedThumbnails(){
+  feed.querySelectorAll(".thumb-wrap img").forEach(normalizeThumbnailFit);
+}
+
+feed.addEventListener("load",event=>{
+  const img=event.target;
+  if(img instanceof HTMLImageElement&&img.closest(".thumb-wrap")){
+    normalizeThumbnailFit(img);
+  }
+},true);
 
 feed.addEventListener("pointerdown",e=>{
   const card=e.target.closest("[data-video-id]");
