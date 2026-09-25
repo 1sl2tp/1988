@@ -2366,11 +2366,60 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
 
 let liveSourceCandidateRefreshPromise=null;
 
+// Strong recurring negatives learned from the user's LIVE block history.
+// Keep this conservative: only channel-name signals that repeatedly appeared
+// in Đã chặn (plus explicit Forex/Gold/Trading terms requested by the user).
+const LIVE_AUTO_BLOCK_PATTERNS=[
+  {key:"garden",re:/\b(nha vuon|vuon|garden|farm|lan rung|hoa lan|vuon lan|vuon mai|mai vang|hoa su)\b/},
+  {key:"ceramic_craft",re:/\b(gom|gom su|my nghe|nhat bai|do go|da quy|spinel|tram huong)\b/},
+  {key:"gold_finance",re:/\b(gia vang|gold|forex|fx forex|trading|forex trading|finance|tai chinh|crypto|bitcoin)\b/},
+  {key:"weather",re:/\b(thoi tiet|du bao thoi tiet|doan gio)\b/},
+  {key:"spiritual",re:/\b(tu vi|phong thuy|cu si|huyen nu|suprememaster)\b/},
+  {key:"lottery_gambling",re:/\b(xo so|xoso|xsmb|xsmn|xsmt|poker)\b/},
+  {key:"passive_music",re:/\b(lofi|nhac khong quang cao)\b/}
+];
+
+function liveAutoBlockReason(candidate={}){
+  const id=String(candidate?.id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return "";
+  if(selectedSetForScope(LIVE_SOURCE_SCOPE).has(id))return "";
+
+  const name=normalizeSearchText(candidate?.name||"");
+  if(!name)return "";
+  for(const pattern of LIVE_AUTO_BLOCK_PATTERNS){
+    if(pattern.re.test(name))return pattern.key;
+  }
+  return "";
+}
+
+function autoBlockLiveCandidate(candidate={},reason=""){
+  const id=String(candidate?.id||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+  const selected=selectedSetForScope(LIVE_SOURCE_SCOPE);
+  const blocked=blockedSetForScope(LIVE_SOURCE_SCOPE);
+  if(selected.has(id))return false;
+  if(blocked.has(id))return true;
+
+  sourceMetaCache.set(id,{...sourceMetaCache.get(id),...candidate});
+  persistStateSourceMetadata(id);
+  blocked.add(id);
+  temporaryLiveSourceIds.delete(id);
+  suggestedSetForScope(LIVE_SOURCE_SCOPE).delete(id);
+
+  void queueDirectSourceStateWrite(id,"blocked",LIVE_SOURCE_SCOPE);
+  console.info("LIVE auto-block",reason,id,clean(candidate?.name||""));
+  return true;
+}
+
 function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
   const liveRows=(Array.isArray(rows)?rows:[])
     .filter(row=>row?.isLive);
 
   if(replace)temporaryLiveSourceIds.clear();
+
+  const accepted=[];
+  let autoBlockedChanged=false;
 
   for(const row of liveRows){
     const candidate=sourceCandidateFromVideo(row);
@@ -2381,14 +2430,31 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
       ...candidate
     });
 
+    const negativeReason=liveAutoBlockReason(candidate);
+    if(negativeReason){
+      if(autoBlockLiveCandidate(candidate,negativeReason))autoBlockedChanged=true;
+      continue;
+    }
+
     // LIVE owns its own Chọn/Chặn state. Current LIVE channels stay visible
     // in the LIVE manager regardless of other tabs.
     temporaryLiveSourceIds.add(candidate.id);
     reconcileSourceState(candidate,LIVE_SOURCE_SCOPE);
+
+    if(!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))accepted.push(row);
   }
 
-  if(liveRows.length||replace)updateSourceSummary();
-  return liveRows.filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE));
+  if(autoBlockedChanged){
+    invalidateSourceStateNameIndex();
+    persistSourceLibrary();
+    persistSourceSelection();
+    state.sourceLibraryDirty=true;
+    sourceDiscoveryAt.delete(LIVE_SOURCE_SCOPE);
+    clearSourceContentLearning(LIVE_SOURCE_SCOPE);
+  }
+
+  if(liveRows.length||replace||autoBlockedChanged)updateSourceSummary();
+  return accepted;
 }
 
 function seedLiveSourceCandidatesFromCache(){
@@ -6298,7 +6364,14 @@ const sourceDiscoveryAt=new Map();
 function sourceAlreadyKnownForDiscovery(candidate,group){
   if(!candidate)return true;
 
-  // BLACKLIST FIRST: blocked channels never enter AI 2 collection or learning.
+  // LIVE recurring negative classes are removed before they can consume
+  // discovery/AI capacity. Exact Chọn always wins over automatic negatives.
+  if(group===LIVE_SOURCE_SCOPE&&liveAutoBlockReason(candidate)){
+    autoBlockLiveCandidate(candidate,liveAutoBlockReason(candidate));
+    return true;
+  }
+
+  // BLACKLIST FIRST: blocked channels never enter AI collection or learning.
   // Selected channels are positive examples, not discovery candidates.
   const state=matchSourceState(candidate,group).status;
   if(state==="blocked"||state==="selected")return true;
