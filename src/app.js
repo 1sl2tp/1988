@@ -1736,8 +1736,18 @@ function updateSourceRowMeta(id){
   if(currentSub&&nextSub)currentSub.textContent=nextSub.textContent||"";
 }
 
+function sourceMetaComplete(id=""){
+  id=String(id||"").trim();
+  if(!id)return false;
+  const cached=sourceMetaCache.get(id)||{};
+  return !!(
+    clean(cached.name||"")&&
+    safeSourceThumb(cached.thumbnailUrl||sourceAvatarCached(id)||"")
+  );
+}
+
 async function ensureSourceMeta(id){
-  if(!id||sourceMetaPending.has(id)||sourceMetaCache.has(id))return;
+  if(!id||sourceMetaPending.has(id)||sourceMetaComplete(id))return;
   sourceMetaPending.add(id);
   try{
     const local=await localEngine(12000);
@@ -1772,7 +1782,7 @@ function observeSourceRows(){
 
   sourceList.querySelectorAll(".source-row[data-source-id]").forEach(row=>{
     const id=row.dataset.sourceId||"";
-    if(id&&!sourceMetaCache.has(id))sourceMetaObserver.observe(row);
+    if(id&&!sourceMetaComplete(id))sourceMetaObserver.observe(row);
   });
 }
 
@@ -2020,6 +2030,9 @@ async function searchSourceChannels(query){
     sourceRemoteResults=(Array.isArray(rows)?rows:[])
       .filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
 
+    await hydrateSourceSearchMetadata(sourceRemoteResults,local,seq,850);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
     rememberSearchedSourceCandidates(sourceRemoteResults,sourceManageGroup);
 
     if(sourceSearchStatus){
@@ -2051,33 +2064,70 @@ function scheduleSourceSearch(){
 }
 
 function sourceCandidateFromVideo(row={}){
+  const shared=window.MediaDisplay?.source?.(row)||{};
   const name=clean(
-    row?._sourceName||
-    row?.uploaderName||
-    row?.uploader||
-    row?.channelName||
+    shared.name||
     row?._displaySource||
     ""
   );
-  const id=canonicalSourceId(row,name);
+  const id=canonicalSourceId(row,name)||String(shared.id||"").trim();
   if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!name)return null;
 
   return {
     id,
     name,
-    thumbnailUrl:safeSourceThumb(
-      row?.uploaderThumbnailUrl||
-      row?.channelThumbnailUrl||
-      row?._sourceThumbnailUrl||
-      row?.uploaderAvatar||
-      row?.channelAvatar||
-      row?.authorAvatar||
-      row?.ownerAvatar||
-      row?.avatar||
-      ""
-    ),
+    thumbnailUrl:safeSourceThumb(shared.icon||""),
     subscribers:""
   };
+}
+
+async function hydrateSourceSearchMetadata(rows=[],engine=null,seq=sourceSearchSeq,maxWait=900){
+  const list=(Array.isArray(rows)?rows:[]).filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
+  if(!list.length)return list;
+
+  const missing=list.filter(row=>{
+    const meta=sourceMetaFor(row);
+    return !safeSourceThumb(meta.thumbnailUrl||"")||!clean(meta.name||row.name||"");
+  });
+  if(!missing.length)return list;
+
+  if(!engine){
+    try{engine=await localEngine(12000);}catch{return list;}
+  }
+
+  const queue=[...missing];
+  const work=Promise.allSettled(
+    Array.from({length:Math.min(6,queue.length)},async()=>{
+      while(queue.length){
+        const row=queue.shift();
+        if(!row)continue;
+        const id=String(row.id||"").trim();
+        try{
+          const meta=await engine.channelMeta(id);
+          if(!meta?.id)continue;
+
+          const merged={...row,...meta,id};
+          Object.assign(row,merged);
+          sourceMetaCache.set(id,{...sourceMetaCache.get(id),...merged});
+          const image=rememberSourceAvatar(id,merged.thumbnailUrl||"");
+          if(image)void warmAvatarImage(image);
+
+          if(seq===sourceSearchSeq&&!sourcesSheet?.hidden){
+            updateSourceRowMeta(id);
+          }
+        }catch(error){
+          console.warn("source search metadata hydrate failed",id,error);
+        }
+      }
+    })
+  );
+
+  await Promise.race([
+    work,
+    new Promise(resolve=>setTimeout(resolve,Math.max(200,Number(maxWait)||900)))
+  ]);
+
+  return list;
 }
 
 function rememberDiscoveredSources(rows=[],groupHint=""){
@@ -2236,7 +2286,7 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
   const meta=relativePublishedLabel(video);
   const source=sourceRowFromVideo(video);
   const sourceName=clean(source?.name||video?.uploader||video?._sourceName||"");
-  const metaText=meta+(video.views?(" · "+fmtViews(video.views)+" lượt xem"):"");
+  const metaText=meta+(video.views?(" · "+fmtViewLabel(video.views,video.viewText||"")):"");
 
   return '<article class="source-video-card'+(searchResult?' search-result':'')+'" data-source-video-card="'+esc(videoId)+'">'+
     '<button class="source-video-row" type="button" data-source-video-id="'+esc(videoId)+'">'+
@@ -4245,8 +4295,7 @@ function showWatchRecoInfo(card,{autoHide=true}={}){
   const published=card.dataset.published||"";
   const bits=[];
   if(channel)bits.push(channel);
-  if(viewText)bits.push(viewText);
-  else if(views)bits.push(fmtViews(views)+" lượt xem");
+  if(viewText||views)bits.push(fmtViewLabel(views,viewText));
   if(published)bits.push(published);
 
   info.querySelector(".watch-reco-title").textContent=title;
@@ -4830,14 +4879,17 @@ function thumb(row={},id=""){
 }
 
 function fmtViews(n){
-  n=Number(n)||0;
-  if(n>=1e9)return (n/1e9).toFixed(1).replace(".0","")+" tỷ";
-  if(n>=1e6)return (n/1e6).toFixed(1).replace(".0","")+" Tr";
-  if(n>=1e3)return (n/1e3).toFixed(1).replace(".0","")+" N";
-  return n.toLocaleString("vi-VN");
+  return window.MediaDisplay?.compact?.(n)||
+    (Number(n)||0).toLocaleString("vi-VN");
+}
+
+function fmtViewLabel(n,raw=""){
+  return window.MediaDisplay?.viewsText?.(raw,n)||
+    (Number(n)?fmtViews(n)+" lượt xem":clean(raw));
 }
 
 function fmtDuration(sec){
+  if(window.MediaDisplay?.duration)return window.MediaDisplay.duration(sec);
   sec=Math.max(0,Number(sec)||0);
   const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=Math.floor(sec%60);
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):String(m)+":"+String(s).padStart(2,"0");
@@ -6286,6 +6338,8 @@ function relativePublishedLabel(row={}){
     return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"")||publishedLabel(row);
   }
 
+  if(window.MediaDisplay?.relativeAge)return window.MediaDisplay.relativeAge(age);
+
   const seconds=Math.max(0,Math.floor(age/1000));
   if(seconds<10)return "Vừa xong";
   if(seconds<60)return seconds+" giây trước";
@@ -6297,7 +6351,9 @@ function relativePublishedLabel(row={}){
   if(hours<24)return hours+" giờ trước";
 
   const days=Math.max(1,Math.floor(hours/24));
-  return days+" ngày trước";
+  if(days<30)return days+" ngày trước";
+  if(days<365)return Math.max(1,Math.floor(days/30))+" tháng trước";
+  return Math.max(1,Math.floor(days/365))+" năm trước";
 }
 
 function feedPublishedLabel(row={}){
@@ -6602,7 +6658,7 @@ function searchCardHtml(row={},options={}){
   const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
   const statBits=[];
   if(viewText)statBits.push(viewText);
-  else if(views)statBits.push(fmtViews(views)+" lượt xem");
+  else if(views)statBits.push(fmtViewLabel(views,viewText));
   if(published)statBits.push(published);
   const episode=Number(options.episode)||0;
   const seriesKey=clean(options.seriesKey||"");
@@ -7748,8 +7804,7 @@ function renderCards(rows=[],options={}){
     const isLive=!!row.isLive;
     const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
     const statBits=[];
-    if(viewText)statBits.push(viewText);
-    else if(views)statBits.push(fmtViews(views)+" lượt xem");
+    if(viewText||views)statBits.push(fmtViewLabel(views,viewText));
     if(published)statBits.push(published);
     const thumbUrl=thumb(row,id);
     const eager=cards.length<12;
@@ -7848,12 +7903,13 @@ function updateNow(meta={}){
   const title=clean(meta.title)||"Video";
   const channel=clean(meta.uploader||meta.uploaderName||"");
   const views=Number(meta.views)||0;
+  const viewText=clean(meta.viewText||"");
   const duration=durationSeconds(meta);
   const published=publishedLabel(meta);
   videoTitle.textContent=title;
   const bits=[];
   if(channel)bits.push(channel);
-  if(views)bits.push(fmtViews(views)+" lượt xem");
+  if(views)bits.push(fmtViewLabel(views,viewText));
   if(published)bits.push("Đăng "+published.replace(/^Đăng\s+/i,""));
   if(duration)bits.push(fmtDuration(duration));
   videoMeta.textContent=bits.join(" · ");
