@@ -7886,6 +7886,20 @@ queryInput.addEventListener("input",()=>{
   }
 });
 
+function ensureDesktopCardArt(card){
+  if(!card||window.innerWidth<=720||card.dataset.artReady==="1")return;
+  const art=String(card.dataset.thumb||"").trim();
+  if(!art)return;
+  const escaped=art.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"");
+  card.style.setProperty("--card-art",'url("'+escaped+'")');
+  card.dataset.artReady="1";
+}
+
+feed.addEventListener("pointerover",event=>{
+  if(window.innerWidth<=720)return;
+  ensureDesktopCardArt(event.target.closest("[data-video-id]"));
+},{passive:true});
+
 feed.addEventListener("pointerdown",e=>{
   const card=e.target.closest("[data-video-id]");
   const id=card?.dataset?.videoId||"";

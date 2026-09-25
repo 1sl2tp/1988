@@ -5232,3 +5232,138 @@ html.watch-browse .player-frame video{
     grid-template-columns:40px minmax(0,1fr) 40px!important;
   }
 }
+
+
+/* ============================================================
+   DESKTOP YOUTUBE SPACING + VIDEO-COLOR HOVER v189
+   ============================================================ */
+@media(min-width:721px){
+  /* Home feed gets more breathing room from the browser edges. */
+  html:not(.watch-browse) .app-shell{
+    width:min(1560px,calc(100% - 64px));
+    margin-inline:auto;
+    padding:18px 0 42px;
+  }
+
+  html:not(.watch-browse) .feed-section{
+    width:100%;
+    padding-inline:0;
+  }
+
+  html:not(.watch-browse) .section-head{
+    margin-bottom:14px;
+  }
+
+  /* Fewer, larger cards like YouTube web rather than a dense dashboard. */
+  html:not(.watch-browse) .feed:not(.search-grouped){
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    gap:30px 22px!important;
+  }
+
+  html:not(.watch-browse) .card{
+    position:relative;
+    isolation:isolate;
+    overflow:visible;
+    border:0;
+    border-radius:14px;
+    background:transparent;
+    transition:
+      transform .16s ease,
+      background .16s ease,
+      box-shadow .16s ease;
+  }
+
+  /* The thumbnail itself becomes a soft ambient color field on hover.
+     Since it uses the actual image, every card gets a different tint. */
+  html:not(.watch-browse) .card::before{
+    content:"";
+    position:absolute;
+    z-index:-1;
+    inset:-8px;
+    border-radius:18px;
+    pointer-events:none;
+    background-image:
+      linear-gradient(rgba(10,10,12,.64),rgba(10,10,12,.74)),
+      var(--card-art,none);
+    background-position:center;
+    background-size:cover;
+    filter:blur(22px) saturate(1.35);
+    opacity:0;
+    transform:scale(.98);
+    transition:
+      opacity .18s ease,
+      transform .18s ease;
+  }
+
+  html:not(.watch-browse) .card:hover{
+    z-index:3;
+    transform:translateY(-2px);
+  }
+
+  html:not(.watch-browse) .card:hover::before,
+  html:not(.watch-browse) .card:focus-within::before{
+    opacity:.42;
+    transform:scale(1.02);
+  }
+
+  html:not(.watch-browse) .card .thumb-wrap{
+    border-radius:12px;
+    overflow:hidden;
+    box-shadow:0 1px 0 rgba(255,255,255,.025);
+  }
+
+  html:not(.watch-browse) .card .card-copy{
+    position:relative;
+    z-index:1;
+    padding:10px 4px 2px;
+    border-radius:0 0 12px 12px;
+    transition:background .16s ease;
+  }
+
+  html:not(.watch-browse) .card:hover .card-copy{
+    background:rgba(15,15,18,.34);
+  }
+
+  html:not(.watch-browse) .card-title{
+    font-size:14px;
+    line-height:1.34;
+  }
+
+  html:not(.watch-browse) .card-channel,
+  html:not(.watch-browse) .card-stats{
+    font-size:11px;
+  }
+
+  /* Search rows inherit the same comfortable visual density. */
+  html:not(.watch-browse) .search-source-scroll{
+    grid-auto-columns:minmax(260px,calc((100% - 44px)/3));
+    gap:22px;
+  }
+}
+
+@media(min-width:1480px){
+  html:not(.watch-browse) .app-shell{
+    width:min(1700px,calc(100% - 88px));
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped){
+    grid-template-columns:repeat(4,minmax(0,1fr))!important;
+    gap:32px 24px!important;
+  }
+
+  html:not(.watch-browse) .search-source-scroll{
+    grid-auto-columns:minmax(270px,calc((100% - 72px)/4));
+    gap:24px;
+  }
+}
+
+@media(min-width:721px) and (max-width:980px){
+  html:not(.watch-browse) .app-shell{
+    width:calc(100% - 40px);
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped){
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    gap:24px 18px!important;
+  }
+}
