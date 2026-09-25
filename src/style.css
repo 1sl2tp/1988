@@ -1377,14 +1377,24 @@ html.search-suggestions-open .suggestions{
 }
 
 /* Card hierarchy is identical everywhere: card > thumb + metadata > avatar/text. */
+.feed>.card{
+  align-self:start;
+}
 .card-copy{
   display:grid;
-  grid-template-columns:36px minmax(0,1fr) 30px;
+  grid-template-columns:36px minmax(0,1fr);
   gap:10px;
   align-items:start;
 }
 .card-copy-main{
   min-width:0;
+}
+.card-title-row{
+  min-width:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) 30px;
+  gap:4px;
+  align-items:start;
 }
 .card-more-btn{
   align-self:start;
@@ -1524,6 +1534,7 @@ html.search-suggestions-open .suggestions{
   display:grid;
   grid-template-columns:minmax(0,1fr);
   gap:2px;
+  width:100%;
   min-width:0;
   max-width:100%;
   margin-top:4px;
@@ -1584,7 +1595,7 @@ html.search-suggestions-open .suggestions{
 
   html.watch-browse .card-copy,
   html:not(.watch-browse) .card-copy{
-    grid-template-columns:34px minmax(0,1fr) 30px;
+    grid-template-columns:34px minmax(0,1fr);
     gap:9px;
   }
 }
