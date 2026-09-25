@@ -7561,3 +7561,34 @@ html:not(.watch-browse) .app-header{
     margin-left:0!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE THUMBNAIL MICRO-ZOOM v211
+   Many news thumbnails bake a rounded red/white/blue frame into the image.
+   Keep the YouTube-like full-bleed card, but zoom the artwork by only 1.8%
+   so those baked-in borders disappear without noticeably cropping content.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap{
+    overflow:hidden!important;
+    border-radius:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:scale(1.018)!important;
+    transform-origin:center center!important;
+  }
+}
