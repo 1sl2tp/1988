@@ -393,6 +393,7 @@ let sourceSearchSeq=0;
 let sourcePreviewSeq=0;
 let sourcePreviewRows=new Map();
 let sourcePreviewSearchRows=new Map();
+let sourcePreviewSearchChannels=new Map();
 let sourcePreviewSearchTimer=0;
 let sourcePreviewSearchSeq=0;
 let sourcePreviewSourceId="";
@@ -2569,25 +2570,23 @@ function syncSourcePreviewHeader(){
   const id=sourcePreviewSourceId;
   const row=sourcePreviewSourceRow;
 
+  // The right search is global YouTube search, not "search inside this source".
+  // It stays available even when no channel is currently selected.
+  if(sourcePreviewSearch){
+    sourcePreviewSearch.disabled=false;
+    sourcePreviewSearch.placeholder="Tìm kênh hoặc video YouTube";
+  }
+
   if(!id||!row){
     sourcePreview.classList.add("is-empty");
     if(sourcePreviewTitle)sourcePreviewTitle.textContent="Xem nguồn";
-    if(sourcePreviewStatus)sourcePreviewStatus.textContent="Chọn một kênh ở bên trái để kiểm tra trước khi thêm.";
+    if(sourcePreviewStatus)sourcePreviewStatus.textContent="Tìm kênh/video hoặc chọn một kênh bên trái để xem.";
     if(sourcePreviewSelect)sourcePreviewSelect.hidden=true;
-    if(sourcePreviewSearch){
-      sourcePreviewSearch.disabled=true;
-      sourcePreviewSearch.placeholder="Chọn nguồn trước";
-      sourcePreviewSearch.value="";
-    }
     return;
   }
 
   sourcePreview.classList.remove("is-empty");
   const meta=sourceMetaFor(row);
-  if(sourcePreviewSearch){
-    sourcePreviewSearch.disabled=false;
-    sourcePreviewSearch.placeholder="Tìm video trong "+clean(meta.name||row.name||"nguồn");
-  }
   const exists=libraryHas(id)||allManagedStateIds().has(id);
   const status=exists?sourceStatus(id,sourceManageGroup):"normal";
   const statusText=status==="selected"?"Đã chọn":status==="blocked"?"Đã chặn":"Chưa chọn";
@@ -2637,8 +2636,23 @@ function sourcePreviewVideoCard(video,{searchResult=false}={}){
       '</span>'+
     '</button>'+
     (searchResult&&source
-      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Thêm + mở nguồn</button>'
+      ?'<button class="source-open-channel" type="button" data-source-open-channel="'+esc(source.id)+'" data-source-video-ref="'+esc(videoId)+'">Mở nguồn</button>'
       :"")+
+  '</article>';
+}
+
+function sourcePreviewSearchChannelCard(row={}){
+  const meta=sourceMetaFor(row);
+  const status=matchSourceState(row,sourceManageGroup).status;
+  const statusText=status==="selected"?"Đã chọn":status==="blocked"?"Đã chặn":"Kênh YouTube";
+  return '<article class="source-video-card search-result source-channel-result" data-source-search-channel-card="'+esc(row.id)+'">'+
+    '<button class="source-video-row" type="button" data-source-search-channel="'+esc(row.id)+'">'+
+      sourceAvatarHtml(row)+
+      '<span class="source-video-copy">'+
+        '<span class="source-video-title">'+esc(meta.name||row.name||"Kênh YouTube")+'</span>'+
+        '<span class="source-video-meta">'+esc([statusText,meta.subscribers].filter(Boolean).join(" · "))+'</span>'+
+      '</span>'+
+    '</button>'+
   '</article>';
 }
 
@@ -2678,15 +2692,48 @@ function renderSourcePreviewVideos({force=false}={}){
   if(!sourcePreviewList)return;
   const q=clean(sourcePreviewSearch?.value||"");
   const searching=q.length>=2;
-  const all=searching?[...sourcePreviewSearchRows.values()]:[...sourcePreviewRows.values()];
-  const signature=sourcePreviewSignature(all,searching);
+
+  if(searching){
+    const channels=[...sourcePreviewSearchChannels.values()];
+    const videos=[...sourcePreviewSearchRows.values()];
+    const signature=[
+      "global-search",
+      q,
+      ...channels.map(row=>row.id),
+      ...videos.map(itemVideoId)
+    ].join("|");
+    if(!force&&signature===sourcePreviewRenderSignature)return;
+    sourcePreviewRenderSignature=signature;
+
+    if(!channels.length&&!videos.length){
+      sourcePreviewList.innerHTML='<div class="source-empty">Không có kết quả phù hợp</div>';
+      return;
+    }
+
+    const parts=[];
+    if(channels.length){
+      parts.push('<div class="source-group-label">Kênh · '+channels.length+'</div>');
+      parts.push(channels.map(sourcePreviewSearchChannelCard).join(""));
+    }
+    if(videos.length){
+      parts.push('<div class="source-group-label">Video · '+videos.length+'</div>');
+      parts.push(videos.map(video=>sourcePreviewVideoCard(video,{searchResult:true})).join(""));
+    }
+    sourcePreviewList.innerHTML=parts.join("");
+    return;
+  }
+
+  const all=[...sourcePreviewRows.values()];
+  const signature=sourcePreviewSignature(all,false);
   if(!force&&signature===sourcePreviewRenderSignature)return;
   sourcePreviewRenderSignature=signature;
 
   if(!all.length){
-    sourcePreviewList.innerHTML='<div class="source-empty">'+
-      (searching?'Không có kết quả trong nguồn này':'Chưa tải được video của nguồn')+
-    '</div>';
+    sourcePreviewList.innerHTML=
+      '<div class="source-preview-placeholder">'+
+        '<strong>Xem trước nguồn ngay tại đây</strong>'+
+        '<span>Tìm kênh/video ở ô trên hoặc chọn một kênh bên trái.</span>'+
+      '</div>';
     return;
   }
 
@@ -2697,101 +2744,93 @@ function renderSourcePreviewVideos({force=false}={}){
 
 async function searchPreviewVideos(query){
   const q=clean(query);
-  const sourceId=String(sourcePreviewSourceId||"").trim();
-  const sourceRow=sourcePreviewSourceRow;
   const seq=++sourcePreviewSearchSeq;
-
-  if(!sourceId||!sourceRow){
-    sourcePreviewSearchRows=new Map();
-    if(sourcePreviewList){
-      sourcePreviewList.innerHTML='<div class="source-empty">Chọn một nguồn trước khi tìm video</div>';
-    }
-    return;
-  }
 
   if(q.length<2){
     sourcePreviewSearchRows=new Map();
+    sourcePreviewSearchChannels=new Map();
+    sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
     return;
   }
 
-  const qNorm=normalizeSearchText(q);
-  const sourceName=clean(sourceMetaFor(sourceRow).name||sourceRow.name||"");
-  const sourceNameNorm=normalizeSearchText(sourceName);
-
-  const matchesQuery=video=>{
-    const haystack=normalizeSearchText([
-      video?.title,
-      video?.uploader,
-      video?._sourceName,
-      video?.description
-    ].filter(Boolean).join(" "));
-    return !!haystack&&haystack.includes(qNorm);
-  };
-
-  const belongsToSource=video=>{
-    const id=String(
-      video?.channelId||
-      video?._sourceId||
-      video?.uploaderId||
-      ""
-    ).trim();
-    if(id)return id===sourceId;
-
-    const uploader=normalizeSearchText(
-      video?.uploader||
-      video?._sourceName||
-      video?.channelName||
-      ""
-    );
-    return !!sourceNameNorm&&uploader===sourceNameNorm;
-  };
-
-  const localMatches=[...sourcePreviewRows.values()].filter(matchesQuery);
-
   try{
-    const local=await localEngine(12000);
-    let remote=[];
+    const local=await localEngine(9000);
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
-    try{
-      const searchQuery=sourceName?sourceName+" "+q:q;
-      remote=await local.search(searchQuery,{sort_by:"upload_date"});
-    }catch(error){
-      console.warn("source-scoped preview search failed",sourceId,error);
+    const channelTask=Promise.race([
+      local.searchChannels(q,{includeVideos:false}),
+      new Promise(resolve=>setTimeout(()=>resolve([]),5200))
+    ]).catch(()=>[]);
+
+    const videoTask=Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise(resolve=>setTimeout(()=>resolve([]),5200))
+    ]).catch(()=>[]);
+
+    let [channels,videos]=await Promise.all([channelTask,videoTask]);
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+
+    if(!Array.isArray(videos)||!videos.length){
+      try{
+        const response=await api("search",{q,filter:"videos"},4800);
+        videos=Array.isArray(response?.data?.items)?response.data.items:[];
+      }catch{}
     }
 
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden||sourcePreviewSourceId!==sourceId)return;
+    const channelMap=new Map();
+    const addChannel=row=>{
+      if(!row)return;
+      const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
+        ?sourceMetaFor(row)
+        :sourceCandidateFromVideo(row);
+      if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return;
+      if(!channelMap.has(candidate.id))channelMap.set(candidate.id,candidate);
+    };
 
-    const merged=[];
-    const seen=new Set();
-    for(const video of [...localMatches,...(Array.isArray(remote)?remote:[])]){
-      const videoId=itemVideoId(video);
-      if(!videoId||seen.has(videoId))continue;
-      if(!belongsToSource(video)||!matchesQuery(video))continue;
-      seen.add(videoId);
-      merged.push(video);
-      if(merged.length>=24)break;
+    for(const row of Array.isArray(channels)?channels:[]){
+      addChannel(row);
+      if(channelMap.size>=12)break;
+    }
+    for(const video of Array.isArray(videos)?videos:[]){
+      addChannel(video);
+      if(channelMap.size>=12)break;
     }
 
-    const playable=typeof local?.filterEmbeddableRows==="function"
-      ?await local.filterEmbeddableRows(merged,{concurrency:6})
-      :merged;
-
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden||sourcePreviewSourceId!==sourceId)return;
-
-    sourcePreviewSearchRows=new Map(
-      playable.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+    sourcePreviewSearchChannels=new Map(
+      [...channelMap.values()].slice(0,12).map(row=>[row.id,row])
     );
+
+    const videoRows=mergeUniqueRows([],Array.isArray(videos)?videos:[]).slice(0,24);
+    sourcePreviewSearchRows=new Map(
+      videoRows.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
+    );
+
+    rememberSearchedSourceCandidates([...sourcePreviewSearchChannels.values()]);
     sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
+
+    // Names/avatars may improve later, but never hold the search UI.
+    void prewarmSourceSearchMetadata(
+      [...sourcePreviewSearchChannels.values()].slice(0,12),
+      local,
+      1800
+    ).then(()=>{
+      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+      sourcePreviewSearchChannels=new Map(
+        [...sourcePreviewSearchChannels.values()].map(row=>[
+          row.id,
+          sourceMetaFor(row)
+        ])
+      );
+      sourcePreviewRenderSignature="";
+      renderSourcePreviewVideos({force:true});
+    }).catch(()=>{});
   }catch(error){
     if(seq!==sourcePreviewSearchSeq)return;
-    console.warn("source preview video search failed",error);
-
-    // Keep the instant local matches if the network search fails.
-    sourcePreviewSearchRows=new Map(
-      localMatches.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
-    );
+    console.warn("global source/video search failed",error);
+    sourcePreviewSearchRows=new Map();
+    sourcePreviewSearchChannels=new Map();
     sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
   }
@@ -2803,45 +2842,24 @@ function schedulePreviewVideoSearch(){
   sourcePreviewSearchSeq++;
 
   const q=clean(sourcePreviewSearch?.value||"");
-  const sourceId=String(sourcePreviewSourceId||"").trim();
-
-  if(!sourceId){
-    sourcePreviewSearchRows=new Map();
-    if(sourcePreviewList){
-      sourcePreviewList.innerHTML='<div class="source-empty">Chọn một nguồn trước khi tìm video</div>';
-    }
-    return;
-  }
 
   if(q.length<2){
     sourcePreviewSearchRows=new Map();
+    sourcePreviewSearchChannels=new Map();
     sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
     return;
   }
 
-  // First pass is instant and entirely local to the selected source.
-  const qNorm=normalizeSearchText(q);
-  const instant=[...sourcePreviewRows.values()].filter(video=>
-    normalizeSearchText([
-      video?.title,
-      video?.uploader,
-      video?._sourceName,
-      video?.description
-    ].filter(Boolean).join(" ")).includes(qNorm)
-  );
-
-  sourcePreviewSearchRows=new Map(
-    instant.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
-  );
+  // Right-side search is global YouTube search. Never prepend the selected
+  // channel name and never restrict results to the currently previewed source.
+  sourcePreviewSearchRows=new Map();
+  sourcePreviewSearchChannels=new Map();
   sourcePreviewRenderSignature="";
-  if(instant.length){
-    renderSourcePreviewVideos({force:true});
-  }else if(sourcePreviewList){
-    sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm thêm trong nguồn…</div>';
+  if(sourcePreviewList){
+    sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm kênh và video…</div>';
   }
-
-  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),240);
+  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),180);
 }
 
 function revealAddedSource(id){
@@ -2859,41 +2877,26 @@ async function openSourceFromSearchVideo(video){
   const base=sourceRowFromVideo(video);
   if(!base)return;
 
-  // Add to the left list immediately; do not wait for network metadata.
-  addSource(base);
-  revealAddedSource(base.id);
-
-  const videoId=itemVideoId(video);
-  void openSourcePreview(base.id,base);
-  if(videoId)openSourceVideo(videoId,video);
-
+  // Search results only navigate to the channel preview. They never add/select
+  // a source implicitly; Chọn/Chặn remains an explicit user action.
+  sourceMetaCache.set(base.id,{...sourceMetaCache.get(base.id),...base});
   sourcePreviewSearchRows=new Map();
+  sourcePreviewSearchChannels=new Map();
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  void openSourcePreview(base.id,base);
 
-  // Upgrade name/avatar/subscriber metadata in the background.
   try{
-    const local=await localEngine(12000);
+    const local=await localEngine(8000);
     const meta=await local.channelMeta(base.id);
     if(meta&&meta.id){
       const row={...base,...meta,name:clean(meta.name)||base.name};
       sourceMetaCache.set(row.id,row);
-
-      if(
-        temporarySetForScope(sourceManageGroup).has(row.id)||
-        allManagedStateIds().has(row.id)
-      ){
-        refreshSourceManager();
-        revealAddedSource(row.id);
-      }
-
       if(sourcePreviewSourceId===row.id){
         sourcePreviewSourceRow=row;
         syncSourcePreviewHeader();
       }
     }
-  }catch(error){
-    console.warn("source metadata enrichment failed",base.id,error);
-  }
+  }catch{}
 }
 
 async function openSourcePreview(id,rowHint=null){
@@ -2914,6 +2917,7 @@ async function openSourcePreview(id,rowHint=null){
   clearTimeout(sourcePreviewSearchTimer);
   sourcePreviewSearchSeq++;
   sourcePreviewSearchRows=new Map();
+  sourcePreviewSearchChannels=new Map();
   if(sourcePreviewSearch)sourcePreviewSearch.value="";
   closeSourceVideo();
   syncSourcePreviewHeader();
@@ -3053,13 +3057,14 @@ function resetSourcePreviewPane(){
   sourcePreviewSearchSeq++;
   sourcePreviewRows=new Map();
   sourcePreviewSearchRows=new Map();
+  sourcePreviewSearchChannels=new Map();
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
   sourcePreviewRenderSignature="";
   if(sourcePreviewSearch){
     sourcePreviewSearch.value="";
-    sourcePreviewSearch.disabled=true;
-    sourcePreviewSearch.placeholder="Chọn nguồn trước";
+    sourcePreviewSearch.disabled=false;
+    sourcePreviewSearch.placeholder="Tìm kênh hoặc video YouTube";
   }
   if(sourcesSheet)delete sourcesSheet.dataset.previewOpen;
   if(sourcePreview){
@@ -3710,6 +3715,19 @@ function setupSourceLibrary(){
   });
 
   sourcePreviewList?.addEventListener("click",event=>{
+    const channelButton=event.target.closest("[data-source-search-channel]");
+    if(channelButton){
+      const id=channelButton.dataset.sourceSearchChannel||"";
+      const row=sourcePreviewSearchChannels.get(id)||sourceMetaCache.get(id)||null;
+      if(id&&row){
+        sourcePreviewSearchRows=new Map();
+        sourcePreviewSearchChannels=new Map();
+        if(sourcePreviewSearch)sourcePreviewSearch.value="";
+        void openSourcePreview(id,row);
+      }
+      return;
+    }
+
     const openSourceButton=event.target.closest("[data-source-open-channel]");
     if(openSourceButton){
       const videoId=openSourceButton.dataset.sourceVideoRef||"";
