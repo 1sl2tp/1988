@@ -9916,6 +9916,7 @@ document.addEventListener("visibilitychange",()=>{
   // source feed when the user actually returns to this app.
   if(isSourceScopedFeed(state.activeFeed)&&!state.activeParent&&state.feedRows.length){
     void enrichSourceFeedAi(state.activeFeed,state.feedRows,state.feedSeq);
+    void refreshActiveSourceFeedIfDue();
   }
 
   if(MediaCore.modeUsesAudio(state.mode)){
@@ -9978,7 +9979,7 @@ function setupInstall(){
 closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
-const FEED_CACHE_PREFIX="1988-discovery-v21:";
+const FEED_CACHE_PREFIX="1988-discovery-v22:";
 
 async function pagedSearch(local,key,query,filters={},reset=false,scope=GENERAL_SOURCE_SCOPE){
   try{
@@ -10064,11 +10065,13 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
-const SOURCE_POOL_KEY="1988-source-pool-v2";
-const SOURCE_POOL_TTL=30*60*1000;
-const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v1:";
-const SOURCE_CHANNEL_CACHE_MAX_AGE=6*60*60*1000;
-const SOURCE_CHANNEL_RECHECK_TTL=8*60*1000;
+const SOURCE_POOL_KEY="1988-source-pool-v3";
+const SOURCE_POOL_TTL=5*60*1000;
+const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
+const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
+const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
+const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
+let sourceFeedPendingRenderName="";
 
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
@@ -10093,7 +10096,7 @@ function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
   const incoming=(Array.isArray(rows)?rows:[])
     .filter(Boolean)
     .map(row=>({...row,_sourceId:sourceId,_sourceName:clean(row?._sourceName||name)}));
-  const items=compactSourcePool(mergeUniqueRows(old.items,incoming))
+  const items=compactSourcePool(mergeUniqueRows(incoming,old.items))
     .filter(row=>String(row?._sourceId||"")===sourceId)
     .slice(0,24);
   try{
@@ -10189,6 +10192,7 @@ function primeSourceFeedCaches(rows=[]){
 
 async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE,onBatch=null){
   const collected=[];
+  const collectedIndex=new Map();
   let cursor=0;
   const blocked=blockedSetForScope(scope);
   const list=Array.isArray(sources)?sources:[];
@@ -10197,7 +10201,20 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
     const batch=(Array.isArray(rows)?rows:[])
       .filter(Boolean)
       .map(row=>({...row,_sourceId:source.id,_sourceName:clean(row?._sourceName||source.name)}));
-    if(batch.length)collected.push(...batch);
+
+    for(const row of batch){
+      const id=itemVideoId(row);
+      if(!id)continue;
+      const existing=collectedIndex.get(id);
+      if(existing===undefined){
+        collectedIndex.set(id,collected.length);
+        collected.push(row);
+      }else if(meta.cached!==true){
+        // Fresh YouTube metadata replaces cached title/views/published state.
+        collected[existing]={...collected[existing],...row};
+      }
+    }
+
     if(typeof onBatch==="function"&&batch.length){
       try{onBatch(batch,source,meta)}catch{}
     }
@@ -10218,20 +10235,27 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       if(reset&&!sourceNeedsRecheck(source.id))continue;
 
       try{
-        const rows=await local.channelVideosPage(
+        const fetchedRows=await local.channelVideosPage(
           "library:"+source.id,
           source.id,
           reset
         );
+        let rows=(Array.isArray(fetchedRows)?fetchedRows:[]);
+
+        // Source feeds use the same playability gate as Search. Private,
+        // deleted/unavailable and embed-disabled videos must never enter cache.
+        if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
+          rows=await local.filterEmbeddableRows(rows,{concurrency:5});
+        }
 
         if(reset){
-          saveSourceChannelCache(source,Array.isArray(rows)?rows:[],Date.now());
-          if(Array.isArray(rows)&&rows.length)emit(rows,source,{cached:false});
-        }else if(Array.isArray(rows)){
+          saveSourceChannelCache(source,rows,Date.now());
+          if(rows.length)emit(rows,source,{cached:false});
+        }else{
           emit(rows,source,{cached:false});
           saveSourceChannelCache(source,[
-            ...readSourceChannelCache(source.id).items,
-            ...rows
+            ...rows,
+            ...readSourceChannelCache(source.id).items
           ],Date.now());
         }
       }catch(error){
@@ -10241,7 +10265,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   };
 
   const workers=Array.from(
-    {length:Math.min(4,list.length)},
+    {length:Math.min(3,list.length)},
     ()=>worker()
   );
   await Promise.all(workers);
@@ -10287,7 +10311,7 @@ async function selectedSourceFeed(local,predicate,reset=false){
 
   const extra=await fetchSourcePool(local,sources,false,GENERAL_SOURCE_SCOPE);
   const previous=readSourcePoolCache();
-  const merged=saveSourcePoolCache([...previous,...extra]);
+  const merged=saveSourcePoolCache([...extra,...previous]);
   primeSourceFeedCaches(merged);
   return extra.filter(predicate);
 }
@@ -10556,21 +10580,40 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
     void enrichSourceFeedAi(name,rows,seq);
     void discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
 
-    // Never disturb the user's current reading position. If they are still
-    // at the top, replace the cached snapshot with the newly refreshed one.
     if(
       seq===state.feedSeq &&
       state.activeFeed===name &&
       !state.activeParent &&
-      !state.activeTrend &&
-      window.scrollY<120
+      !state.activeTrend
     ){
       state.feedRows=mergeUniqueRows([],rows);
-      renderCurrentTrendFeed();
+      if(window.scrollY<120){
+        sourceFeedPendingRenderName="";
+        renderCurrentTrendFeed();
+      }else{
+        // Keep the reading position stable; the fresh list is already stored
+        // and will paint as soon as the user returns to the top.
+        sourceFeedPendingRenderName=name;
+      }
     }
   }catch(error){
     console.warn("background source refresh failed",name,error);
   }
+}
+
+async function refreshActiveSourceFeedIfDue(){
+  if(document.hidden)return;
+  const name=state.activeFeed;
+  if(
+    !isSourceScopedFeed(name)||
+    state.activeParent||
+    state.activeTrend||
+    !state.feedRows.length
+  )return;
+
+  const preset=FEED_PRESETS[name];
+  if(!preset)return;
+  await refreshCachedSourceFeedInBackground(name,preset,state.feedSeq);
 }
 
 async function loadFeedPreset(name="latest"){
@@ -10753,6 +10796,18 @@ function maybeLoadMoreFeed(){
   if(feedScrollRaf)return;
   feedScrollRaf=requestAnimationFrame(()=>{
     feedScrollRaf=0;
+
+    if(
+      sourceFeedPendingRenderName &&
+      sourceFeedPendingRenderName===state.activeFeed &&
+      !state.activeParent &&
+      !state.activeTrend &&
+      window.scrollY<120
+    ){
+      sourceFeedPendingRenderName="";
+      renderCurrentTrendFeed();
+    }
+
     const distance=document.documentElement.scrollHeight-(window.scrollY+window.innerHeight);
     if(distance<1100)void loadMoreFeed();
   });
@@ -10760,6 +10815,9 @@ function maybeLoadMoreFeed(){
 
 window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
+setInterval(()=>{
+  void refreshActiveSourceFeedIfDue();
+},SOURCE_FEED_AUTO_REFRESH_MS);
 
 async function loadInitialFeed(){
   await prewarmRowSourceAvatars(selectedSources(GENERAL_SOURCE_SCOPE),900);
