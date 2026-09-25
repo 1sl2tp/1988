@@ -10245,7 +10245,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         // Source feeds use the same playability gate as Search. Private,
         // deleted/unavailable and embed-disabled videos must never enter cache.
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          rows=await local.filterEmbeddableRows(rows,{concurrency:5});
+          rows=await local.filterEmbeddableRows(rows,{concurrency:5,requirePlayable:true});
         }
 
         if(reset){
