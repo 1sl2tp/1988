@@ -6462,8 +6462,10 @@ function renderCards(rows=[],options={}){
           '</span>'+
           '<div class="card-copy-main">'+
             '<div class="card-title">'+esc(title)+'</div>'+
-            '<div class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</div>'+
-            '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
+            '<div class="card-meta-line">'+
+              '<span class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</span>'+
+              (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
+            '</div>'+
           '</div>'+
         '</div>'+
       '</article>'
@@ -6485,11 +6487,12 @@ function renderCards(rows=[],options={}){
   queueHomeChannelAvatars();
   normalizeRenderedThumbnails();
 
-  // v212: mobile watch metadata has its tint all the time, not only on
-  // hover/press. Sample once after render so there is no interaction effect.
-  if(document.documentElement.classList.contains("watch-browse")&&window.innerWidth<=720){
+  // v216: mobile cards always use a static sampled metadata surface.
+  // Home also uses the nearest visible card to tint Search + source chrome.
+  if(window.innerWidth<=720){
     feed.querySelectorAll("[data-video-id]").forEach(ensureDesktopCardTint);
-  }else{
+  }
+  if(!document.documentElement.classList.contains("watch-browse")){
     scheduleHomeChromeTint(true);
   }
 
