@@ -5228,7 +5228,9 @@ const SOURCE_LEARNING_STOPWORDS=new Set([
 ]);
 
 const SOURCE_CONTENT_LEARNING_TTL=25*60*1000;
-const SOURCE_CONTENT_LEARNING_MAX_SOURCES=12;
+// Network warm-up is capped, but learning itself uses cached rows from ALL
+// currently selected sources in the scope.
+const SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES=12;
 const SOURCE_CONTENT_LEARNING_MAX_ROWS=120;
 const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v2:";
 const sourceContentLearningMemory=new Map();
@@ -5297,6 +5299,36 @@ function learningTokenize(value=""){
     .filter(Boolean);
 }
 
+function balancedSourceLearningRows(rows=[],scope=GENERAL_SOURCE_SCOPE,maxRows=SOURCE_CONTENT_LEARNING_MAX_ROWS){
+  const buckets=new Map();
+  for(const row of newestFirst(Array.isArray(rows)?rows:[])){
+    if(isBlockedSourceRow(row,scope))continue;
+    const sourceKey=
+      String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim()||
+      normalizeSearchText(row?._sourceName||row?.uploaderName||row?.uploader||row?.channelName||"")||
+      "unknown";
+    if(!buckets.has(sourceKey))buckets.set(sourceKey,[]);
+    buckets.get(sourceKey).push(row);
+  }
+
+  const queues=[...buckets.values()];
+  const out=[];
+  let depth=0;
+  while(out.length<maxRows){
+    let added=false;
+    for(const queue of queues){
+      if(depth<queue.length){
+        out.push(queue[depth]);
+        added=true;
+        if(out.length>=maxRows)break;
+      }
+    }
+    if(!added)break;
+    depth++;
+  }
+  return out;
+}
+
 function extractSourceContentTerms(parent={},rows=[]){
   const group=parentSourceGroup(parent);
   const score=new Map();
@@ -5304,9 +5336,7 @@ function extractSourceContentTerms(parent={},rows=[]){
   const hashtagScore=new Map();
   const blockedNames=sourceLearningNames(group,"blocked").map(normalizeSearchText);
   const blockedTokens=new Set(blockedNames.flatMap(name=>name.split(" ").filter(token=>token.length>=3)));
-  const items=newestFirst(Array.isArray(rows)?rows:[])
-    .filter(row=>!isBlockedSourceRow(row,group))
-    .slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS);
+  const items=balancedSourceLearningRows(rows,group,SOURCE_CONTENT_LEARNING_MAX_ROWS);
 
   const addTerm=(phrase,weight,channel)=>{
     const key=normalizeSearchText(phrase);
@@ -5397,33 +5427,60 @@ function extractSourceContentTerms(parent={},rows=[]){
 
 async function selectedLearningRows(parent={},local){
   const group=parentSourceGroup(parent);
-  const sources=(group===GENERAL_SOURCE_SCOPE?selectedSources():selectedSourcesForParent(parent))
-    .slice(0,SOURCE_CONTENT_LEARNING_MAX_SOURCES);
-  if(!sources.length)return [];
+  const allSources=group===GENERAL_SOURCE_SCOPE?selectedSources():selectedSourcesForParent(parent);
+  if(!allSources.length)return [];
 
-  const selectedIds=new Set(sources.map(source=>source.id));
+  const selectedIds=new Set(allSources.map(source=>source.id));
   let cached=[];
   if(group===GENERAL_SOURCE_SCOPE){
     cached=readSourcePoolCache().filter(row=>
-      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&uploadedWithinCategoryWindow(row)
+      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
+      uploadedWithinCategoryWindow(row)&&
+      !isBlockedSourceRow(row,group)
     );
   }else{
     const parentRows=categoryCacheRows(parent.key);
     cached=parentRows.filter(row=>
-      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&uploadedWithinCategoryWindow(row)
+      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
+      uploadedWithinCategoryWindow(row)&&
+      !isBlockedSourceRow(row,group)
     );
   }
-  if(cached.length>=Math.min(20,sources.length*3))return cached;
+
+  // If cached category/feed rows already cover enough of the current selected
+  // set, learn from those ALL-source rows instead of arbitrarily taking the
+  // first N selected channels.
+  const cachedSourceCount=new Set(
+    cached.map(row=>String(row?._sourceId||row?.channelId||row?.uploaderId||"")).filter(Boolean)
+  ).size;
+  if(
+    cached.length>=Math.min(24,allSources.length*2)&&
+    cachedSourceCount>=Math.min(allSources.length,8)
+  ){
+    return dedupeHashedRows(newestFirst(cached)).slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS*2);
+  }
+
+  const fetchSources=allSources.length<=SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES
+    ?allSources
+    :Array.from({length:SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES},(_,index)=>
+        allSources[Math.min(
+          allSources.length-1,
+          Math.floor(index*allSources.length/SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES)
+        )]
+      ).filter((source,index,list)=>source&&list.findIndex(item=>item?.id===source.id)===index);
 
   try{
-    const fresh=await fetchSourcePool(local,sources,true,group);
+    const fresh=await fetchSourcePool(local,fetchSources,true,group);
     return dedupeHashedRows(
-      newestFirst((Array.isArray(fresh)?fresh:[])
+      newestFirst([
+        ...cached,
+        ...(Array.isArray(fresh)?fresh:[])
+      ])
         .filter(uploadedWithinCategoryWindow)
-        .filter(row=>!isBlockedSourceRow(row,group)))
-    ).slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS);
+        .filter(row=>!isBlockedSourceRow(row,group))
+    ).slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS*2);
   }catch{
-    return cached;
+    return dedupeHashedRows(newestFirst(cached)).slice(0,SOURCE_CONTENT_LEARNING_MAX_ROWS*2);
   }
 }
 
@@ -6843,7 +6900,14 @@ function setDiscoveredFilmSeries(group={},currentMeta={}){
 function filmSuggestionSection(title,rows=[],options={}){
   const cards=[];
   const seen=new Set();
+  const scope=sourceScope(
+    options.scope||
+    state.currentMeta?._watchScope||
+    activeSourceScope()||
+    GENERAL_SOURCE_SCOPE
+  );
   for(const row of rows){
+    if(isBlockedSourceRow(row,scope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -8039,8 +8103,16 @@ async function contextSectionRows(local,section={},meta={},related=[],context={}
   let rows=[];
 
   const mode=clean(section?.sourceMode||"any");
+  const currentSourceBlocked=
+    sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)
+      ?isBlockedSourceRow({...meta,_sourceId:sourceId,channelId:sourceId},scope)
+      :false;
+
+  if(mode==="same_channel"&&currentSourceBlocked)return [];
+
   if(
     ["same_channel","creator"].includes(mode)&&
+    !currentSourceBlocked&&
     sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&
     (
       mode==="same_channel"||
@@ -8165,7 +8237,11 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
   const originalChannel=original?searchChannelName(original):searchChannelName(meta);
 
   let artistPool=[];
-  if(originalSourceId&&/^UC[A-Za-z0-9_-]+$/.test(originalSourceId)){
+  const originalSourceBlocked=
+    originalSourceId&&/^UC[A-Za-z0-9_-]+$/.test(originalSourceId)
+      ?isBlockedSourceRow({id:originalSourceId,_sourceId:originalSourceId,name:originalChannel},"music")
+      :false;
+  if(originalSourceId&&/^UC[A-Za-z0-9_-]+$/.test(originalSourceId)&&!originalSourceBlocked){
     artistPool=await local.channelVideosPage("selected-music-artist:"+originalSourceId,originalSourceId,true).catch(()=>[]);
   }else if(creator){
     artistPool=await local.search(
@@ -8234,7 +8310,13 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
   const sourceId=searchSourceId(meta);
   const html=[];
 
-  if(sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)){
+  const topicScope=contextSourceScope(context);
+  const currentTopicSourceBlocked=
+    sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)
+      ?isBlockedSourceRow({...meta,_sourceId:sourceId,channelId:sourceId},topicScope)
+      :false;
+
+  if(sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&!currentTopicSourceBlocked){
     const channelRows=await local.channelVideosPage("selected-topic-source:"+sourceId,sourceId,true).catch(()=>[]);
     if(state.currentId!==currentId)return false;
     const sameSource=(Array.isArray(channelRows)?channelRows:[])
@@ -8252,10 +8334,13 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
     const searched=await local.search(topicQuery,{type:"video"}).catch(()=>[]);
     topicRows=mergeUniqueRows(searched,topicRows)
       .filter(row=>itemVideoId(row)!==currentId)
+      .filter(row=>!isBlockedSourceRow(row,topicScope))
       .slice(0,12);
+  }else{
+    topicRows=topicRows.filter(row=>!isBlockedSourceRow(row,topicScope));
   }
   if(state.currentId!==currentId)return false;
-  if(topicRows.length)html.push(filmSuggestionSection("Cùng chủ đề · "+subject,topicRows,{limit:12}));
+  if(topicRows.length)html.push(filmSuggestionSection("Cùng chủ đề · "+subject,topicRows,{limit:12,scope:topicScope}));
 
   if(!html.length)return false;
   feedTitle.textContent=subject||"Gợi ý tiếp theo";
@@ -9756,7 +9841,9 @@ let regionalDiscoveryRefreshPromise=null;
 function regionalAiPool(){
   const seed=Array.isArray(regionalDiscoveryMemory.aiSeed)?regionalDiscoveryMemory.aiSeed:[];
   const rows=seed.length?seed:(Array.isArray(regionalDiscoveryMemory.items)?regionalDiscoveryMemory.items:[]);
-  return rows.filter(uploadedWithinWeek);
+  return rows
+    .filter(uploadedWithinWeek)
+    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
 }
 
 async function fetchRegionalDiscoveryPool(local,reset=false){
@@ -9778,7 +9865,9 @@ async function fetchRegionalDiscoveryPool(local,reset=false){
   }
 
   const batches=await Promise.all(tasks);
-  const incoming=mergeUniqueRows([],batches.flat()).filter(uploadedWithinWeek);
+  const incoming=mergeUniqueRows([],batches.flat())
+    .filter(uploadedWithinWeek)
+    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
 
   if(reset){
     regionalDiscoveryMemory={
@@ -9834,7 +9923,11 @@ const FEED_PRESETS={
       const liveRows=rows.filter(row=>row?.isLive);
       if(liveRows.length)return liveRows;
       try{
-        return await local.homePage("live-regional",reset).then(items=>items.filter(row=>row?.isLive));
+        return await local.homePage("live-regional",reset).then(items=>
+          items
+            .filter(row=>row?.isLive)
+            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+        );
       }catch{
         return rows;
       }
