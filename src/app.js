@@ -151,6 +151,7 @@ const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
+const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
@@ -220,6 +221,8 @@ function readStoredObject(key){
   }
 }
 
+let sourceAvatarCache=readStoredObject(SOURCE_AVATAR_CACHE_KEY);
+
 function readScopedSourceState(key){
   const raw=readStoredObject(key);
   const out=new Map();
@@ -269,7 +272,7 @@ function channelLibrary(){
     out.push({
       id:row.id,
       name:clean(row.name),
-      thumbnailUrl:clean(row.thumbnailUrl||""),
+      thumbnailUrl:clean(sourceAvatarCache[row.id]||row.thumbnailUrl||""),
       subscribers:clean(row.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[row.id])
         ?sourceGroupOverrides[row.id].map(String).filter(Boolean)
@@ -555,6 +558,8 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
     persistStateSourceMetadata(id);
     blocked.delete(id);
     selected.add(id);
+    void ensureSourceMeta(id);
+    void prewarmSelectedSourceAvatars();
   }else if(status==="blocked"){
     persistStateSourceMetadata(id);
     selected.delete(id);
@@ -627,8 +632,92 @@ function safeSourceThumb(value=""){
   return raw;
 }
 
+function sourceAvatarCached(id=""){
+  id=String(id||"").trim();
+  if(!id)return "";
+  return safeSourceThumb(
+    sourceAvatarCache[id]||
+    libraryRow(id)?.thumbnailUrl||
+    ""
+  );
+}
+
+function rememberSourceAvatar(id="",image=""){
+  id=String(id||"").trim();
+  image=safeSourceThumb(image);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!image)return "";
+
+  if(sourceAvatarCache[id]!==image){
+    sourceAvatarCache[id]=image;
+    try{localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));}catch{}
+  }
+
+  const base=BASE_CHANNEL_BY_ID.get(id);
+  if(base)base.thumbnailUrl=image;
+
+  const custom=customSources.find(row=>row?.id===id);
+  if(custom)custom.thumbnailUrl=image;
+
+  const cached=sourceMetaCache.get(id);
+  if(cached&&!safeSourceThumb(cached.thumbnailUrl||"")){
+    sourceMetaCache.set(id,{...cached,thumbnailUrl:image});
+  }
+
+  return image;
+}
+
+function canonicalSourceId(row={},channel=""){
+  const direct=String(
+    row?._sourceId||
+    row?.channelId||
+    row?.uploaderId||
+    ""
+  ).trim();
+  if(/^UC[A-Za-z0-9_-]+$/.test(direct))return direct;
+
+  const target=normalizeSearchText(channel||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
+  if(!target)return "";
+
+  const match=channelLibrary().find(source=>
+    normalizeSearchText(source.name||"")===target
+  );
+  return String(match?.id||"").trim();
+}
+
+function sourceAvatarForRow(row={},sourceId="",channel=""){
+  sourceId=String(sourceId||canonicalSourceId(row,channel)||"").trim();
+
+  const direct=safeSourceThumb(
+    row?.uploaderThumbnailUrl||
+    row?.channelThumbnailUrl||
+    row?._sourceThumbnailUrl||
+    ""
+  );
+  if(direct&&sourceId)return rememberSourceAvatar(sourceId,direct);
+  if(direct)return direct;
+
+  const meta=sourceId?sourceMetaCache.get(sourceId):null;
+  const cached=safeSourceThumb(
+    meta?.thumbnailUrl||
+    sourceAvatarCached(sourceId)||
+    ""
+  );
+  if(cached&&sourceId)return rememberSourceAvatar(sourceId,cached);
+  return cached;
+}
+
+
 function sourceMetaFor(row){
-  return {...row,...(sourceMetaCache.get(row?.id)||{})};
+  const id=String(row?.id||"").trim();
+  const remote=sourceMetaCache.get(id)||{};
+  const thumbnailUrl=safeSourceThumb(
+    remote?.thumbnailUrl||
+    sourceAvatarCached(id)||
+    row?.thumbnailUrl||
+    ""
+  );
+  if(id&&thumbnailUrl)rememberSourceAvatar(id,thumbnailUrl);
+  return {...row,...remote,thumbnailUrl};
 }
 
 function sourceGroupsFor(row={}){
@@ -1116,9 +1205,8 @@ function updateSourceSummary(rows=managedChannelLibrary()){
 function sourceAvatarHtml(row){
   const meta=sourceMetaFor(row);
   const image=safeSourceThumb(meta.thumbnailUrl);
-  const initial=clean(meta.name||row.name||"?").slice(0,1).toUpperCase()||"?";
   return '<span class="source-avatar">'+
-    (image?'<img src="'+esc(image)+'" alt="" loading="lazy">':'<span>'+esc(initial)+'</span>')+
+    (image?'<img src="'+esc(image)+'" alt="" loading="eager">':'')+
   '</span>';
 }
 
@@ -1196,6 +1284,7 @@ async function ensureSourceMeta(id){
     const meta=await local.channelMeta(id);
     if(meta&&meta.id){
       sourceMetaCache.set(id,meta);
+      rememberSourceAvatar(id,meta.thumbnailUrl||"");
       invalidateSourceStateNameIndex();
       updateSourceRowMeta(id);
     }
@@ -5402,16 +5491,8 @@ function searchCardHtml(row={},options={}){
   if(!id)return "";
   const title=clean(row._displayTitle||row.title)||"Video";
   const channel=searchChannelName(row);
-  const sourceId=searchSourceId(row);
-  const sourceMeta=(sourceId&&(sourceMetaCache.get(sourceId)||libraryRow(sourceId)))||{};
-  const sourceAvatar=safeSourceThumb(
-    row?.uploaderThumbnailUrl||
-    row?.channelThumbnailUrl||
-    row?._sourceThumbnailUrl||
-    sourceMeta?.thumbnailUrl||
-    ""
-  );
-  const sourceInitial=(channel||"1988").trim().slice(0,1).toUpperCase()||"•";
+  const sourceId=canonicalSourceId(row,channel)||searchSourceId(row);
+  const sourceAvatar=sourceAvatarForRow(row,sourceId,channel);
   const views=Number(row.views)||0;
   const viewText=clean(row.viewText||"");
   const duration=durationSeconds(row);
@@ -5444,7 +5525,7 @@ function searchCardHtml(row={},options={}){
       '</div>'+
       '<div class="card-copy">'+
         '<span class="card-avatar" aria-hidden="true">'+
-          (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="lazy">':'<span>'+esc(sourceInitial)+'</span>')+
+          (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
         '</span>'+
         '<div class="card-copy-main">'+
           '<div class="card-title">'+esc(title)+'</div>'+
@@ -6426,7 +6507,7 @@ function paintCardChannelAvatar(card,image=""){
 }
 
 function paintHomeChannelAvatar(sourceId,meta={}){
-  const image=safeSourceThumb(meta?.thumbnailUrl||"");
+  const image=rememberSourceAvatar(sourceId,meta?.thumbnailUrl||"");
   if(!image)return false;
   let painted=false;
   for(const card of feed.querySelectorAll("[data-source-id]")){
@@ -6531,6 +6612,50 @@ function queueHomeChannelAvatars(){
   homeAvatarQueueTimer=setTimeout(()=>void hydrateHomeChannelAvatars(),40);
 }
 
+let selectedAvatarPrewarmPromise=null;
+
+async function prewarmSelectedSourceAvatars(){
+  if(selectedAvatarPrewarmPromise)return selectedAvatarPrewarmPromise;
+
+  const ids=new Set([...selectedSourceIds]);
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    for(const id of selectedSetForScope(scope))ids.add(id);
+  }
+
+  const missing=[...ids].filter(id=>
+    /^UC[A-Za-z0-9_-]+$/.test(id)&&!sourceAvatarCached(id)
+  );
+
+  if(!missing.length)return;
+
+  selectedAvatarPrewarmPromise=(async()=>{
+    let engine;
+    try{engine=await localEngine(12000);}catch{return;}
+
+    const queue=[...missing];
+    const workers=Array.from({length:Math.min(6,queue.length)},async()=>{
+      while(queue.length){
+        const id=queue.shift();
+        if(!id)continue;
+        try{
+          const meta=await engine.channelMeta(id);
+          if(meta&&meta.id){
+            sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
+            rememberSourceAvatar(id,meta.thumbnailUrl||"");
+          }
+        }catch{}
+      }
+    });
+
+    await Promise.allSettled(workers);
+    queueHomeChannelAvatars();
+  })().finally(()=>{
+    selectedAvatarPrewarmPromise=null;
+  });
+
+  return selectedAvatarPrewarmPromise;
+}
+
 const mobileFeedAutoHydrator=new MutationObserver(()=>{
   if(window.innerWidth>720)return;
   queueHomeChannelAvatars();
@@ -6559,16 +6684,8 @@ function renderCards(rows=[],options={}){
     seen.add(id);
     const title=clean(row._displayTitle||row.title)||"Video";
     const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||row._sourceName||"");
-    const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
-    const sourceMeta=(sourceId&&(sourceMetaCache.get(sourceId)||libraryRow(sourceId)))||{};
-    const sourceAvatar=safeSourceThumb(
-      row?.uploaderThumbnailUrl||
-      row?.channelThumbnailUrl||
-      row?._sourceThumbnailUrl||
-      sourceMeta?.thumbnailUrl||
-      ""
-    );
-    const sourceInitial=(channel||"1988").trim().slice(0,1).toUpperCase()||"•";
+    const sourceId=canonicalSourceId(row,channel);
+    const sourceAvatar=sourceAvatarForRow(row,sourceId,channel);
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
@@ -6580,11 +6697,11 @@ function renderCards(rows=[],options={}){
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
     cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(String(row?._sourceId||row?.channelId||row?.uploaderId||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
+      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy">'+
           '<span class="card-avatar" aria-hidden="true">'+
-            (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="lazy">':'<span>'+esc(sourceInitial)+'</span>')+
+            (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
           '</span>'+
           '<div class="card-copy-main">'+
             '<div class="card-title">'+esc(title)+'</div>'+
@@ -9368,7 +9485,11 @@ function maybeLoadMoreFeed(){
 window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 
-function loadInitialFeed(){
+async function loadInitialFeed(){
+  await Promise.race([
+    prewarmSelectedSourceAvatars(),
+    new Promise(resolve=>setTimeout(resolve,850))
+  ]);
   return loadFeedPreset("latest");
 }
 
@@ -9418,6 +9539,7 @@ topicChips.addEventListener("click",e=>{
 setupMediaSession();
 setupInstall();
 setupSourceLibrary();
+void prewarmSelectedSourceAvatars();
 setupFloatingIframe();
 setupWatchBrowseLayout();
 setupFullscreenReturn();
