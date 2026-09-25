@@ -21,8 +21,8 @@ select,
   color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Arial,sans-serif;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{background:var(--bg);min-width:280px;overscroll-behavior-y:none}
-body{margin:0;min-height:100dvh;background:var(--bg);color:var(--text);padding-bottom:var(--safe-bottom)}
+html{background:var(--bg);min-width:280px;max-width:100%;overflow-x:hidden;overscroll-behavior-y:none}
+body{margin:0;min-height:100dvh;max-width:100%;overflow-x:hidden;background:var(--bg);color:var(--text);padding-bottom:var(--safe-bottom)}
 button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;cursor:default}
 .app-header{
   position:sticky;top:0;z-index:50;
@@ -994,7 +994,7 @@ html.search-suggestions-open .suggestions{
   html.watch-browse .app-shell{
     width:min(1580px,100%);
     display:grid;
-    grid-template-columns:minmax(0,1.42fr) minmax(390px,.88fr);
+    grid-template-columns:minmax(0,1fr) minmax(320px,var(--watch-player-column-w,44vw));
     grid-template-areas:
       "trend trend"
       "feed player";
@@ -1020,9 +1020,12 @@ html.search-suggestions-open .suggestions{
     position:sticky;
     top:calc(var(--header-stack-h) + var(--safe-top) + 10px);
     align-self:start;
+    justify-self:stretch;
     min-width:0;
+    max-width:100%;
     margin:0;
     z-index:14;
+    overflow:hidden;
   }
 
   html.watch-browse .player-card{
@@ -1031,10 +1034,15 @@ html.search-suggestions-open .suggestions{
     overflow:hidden;
   }
 
-  html.watch-browse .player-frame:not(.floating-iframe){
-    width:100%;
+  html.watch-browse .player-frame{
+    width:var(--watch-player-width,100%);
+    max-width:100%;
+    height:var(--watch-player-height,auto);
+    max-height:calc(100dvh - var(--header-stack-h) - var(--safe-top) - 24px);
+    margin-inline:auto;
     aspect-ratio:var(--watch-video-aspect,16/9);
     border-radius:12px;
+    overflow:hidden;
     background:#000;
   }
 
