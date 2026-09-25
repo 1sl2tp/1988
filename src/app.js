@@ -9220,13 +9220,6 @@ suggestions?.addEventListener("click",event=>{
 
 const desktopCardColorCache=new Map();
 
-function fallbackCardTint(card){
-  const art=String(card?.dataset?.thumb||"").trim();
-  if(!art)return;
-  const escaped=art.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"");
-  card.style.setProperty("--card-art",'url("'+escaped+'")');
-}
-
 function averageThumbTint(url){
   url=String(url||"").trim();
   if(!url)return Promise.resolve("");
@@ -9256,7 +9249,6 @@ function averageThumbTint(url){
           if(alpha<.5)continue;
           const rr=data[i],gg=data[i+1],bb=data[i+2];
           const lum=(rr+gg+bb)/3;
-          // Ignore extreme black/white pixels so titles/bars do not dominate.
           if(lum<18||lum>238)continue;
           r+=rr;g+=gg;b+=bb;count++;
         }
@@ -9264,9 +9256,6 @@ function averageThumbTint(url){
         if(!count){resolve("");return;}
 
         r/=count;g/=count;b/=count;
-
-        // Stronger YouTube-like sampled card surface: keep it dark,
-        // but let the video's dominant color read clearly.
         const mix=.34;
         const base=[15,15,15];
         const out=[
@@ -9274,7 +9263,6 @@ function averageThumbTint(url){
           Math.round(base[1]*(1-mix)+g*mix),
           Math.round(base[2]*(1-mix)+b*mix)
         ];
-
         resolve("rgb("+out.join(",")+")");
       }catch{
         resolve("");
@@ -9289,10 +9277,7 @@ function averageThumbTint(url){
   return task;
 }
 
-let homeChromeTintFrame=0;
-let homeChromeTintThumb="";
-
-function applyPageChromeTint(color,scope="home"){
+function applyPageChromeTint(color,scope="watch"){
   const root=document.documentElement;
   const match=String(color||"").match(/\d+(?:\.\d+)?/g);
   if(!match||match.length<3)return;
@@ -9308,74 +9293,11 @@ function applyPageChromeTint(color,scope="home"){
   root.dataset.chromeTintScope=scope;
 }
 
-function applyChromeTintFromArt(art,scope="home"){
+function applyChromeTintFromArt(art,scope="watch"){
   art=String(art||"").trim();
   if(!art)return;
   void averageThumbTint(art).then(color=>{
     if(color)applyPageChromeTint(color,scope);
-  });
-}
-
-function nearestHomeCard(){
-  if(document.documentElement.classList.contains("watch-browse"))return null;
-  const cards=[...feed.querySelectorAll(".card[data-video-id]")];
-  if(!cards.length)return null;
-
-  const headerHeight=Math.max(
-    0,
-    document.querySelector(".app-header")?.getBoundingClientRect?.().height||0
-  );
-  const targetY=headerHeight+18;
-  let best=null;
-  let bestScore=Infinity;
-
-  for(const card of cards){
-    const rect=card.getBoundingClientRect();
-    if(rect.bottom<targetY-100||rect.top>window.innerHeight+120)continue;
-    const anchorY=rect.top+Math.min(rect.height*.28,90);
-    const score=Math.abs(anchorY-targetY);
-    if(score<bestScore){
-      best=card;
-      bestScore=score;
-    }
-  }
-  return best||cards[0];
-}
-
-function syncHomeChromeTint(force=false){
-  if(document.documentElement.classList.contains("watch-browse"))return;
-  const card=nearestHomeCard();
-  const art=String(card?.dataset?.thumb||"").trim();
-  if(!art||(!force&&art===homeChromeTintThumb))return;
-  homeChromeTintThumb=art;
-  applyChromeTintFromArt(art,"home");
-}
-
-function scheduleHomeChromeTint(force=false){
-  if(document.documentElement.classList.contains("watch-browse"))return;
-  if(force)homeChromeTintThumb="";
-  if(homeChromeTintFrame)return;
-  homeChromeTintFrame=requestAnimationFrame(()=>{
-    homeChromeTintFrame=0;
-    syncHomeChromeTint(force);
-  });
-}
-
-function ensureDesktopCardTint(card){
-  if(!card)return;
-
-  const art=String(card.dataset.thumb||"").trim();
-  if(!art)return;
-
-  fallbackCardTint(card);
-
-  if(card.dataset.tintReady==="1"||card.dataset.tintReady==="loading")return;
-  card.dataset.tintReady="loading";
-
-  void averageThumbTint(art).then(color=>{
-    if(card.dataset.thumb!==art)return;
-    if(color)card.style.setProperty("--card-hover-color",color);
-    card.dataset.tintReady="1";
   });
 }
 
