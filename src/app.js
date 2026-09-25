@@ -3571,6 +3571,47 @@ function fmtDuration(sec){
   return h?String(h)+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"):String(m)+":"+String(s).padStart(2,"0");
 }
 
+function parseDurationValue(value){
+  if(value==null||value==="")return 0;
+  if(typeof value==="number"&&Number.isFinite(value))return Math.max(0,value);
+
+  const raw=String(value).trim();
+  if(!raw)return 0;
+  if(/^\d+(?:\.\d+)?$/.test(raw))return Math.max(0,Number(raw)||0);
+
+  if(/^\d{1,3}:\d{1,2}(?::\d{1,2})?$/.test(raw)){
+    const parts=raw.split(":").map(Number);
+    if(parts.length===2)return Math.max(0,parts[0]*60+parts[1]);
+    if(parts.length===3)return Math.max(0,parts[0]*3600+parts[1]*60+parts[2]);
+  }
+
+  const iso=raw.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+  if(iso)return Math.max(0,(Number(iso[1])||0)*3600+(Number(iso[2])||0)*60+(Number(iso[3])||0));
+
+  const human=raw.match(/^(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?$/i);
+  if(human&&(human[1]||human[2]||human[3])){
+    return Math.max(0,(Number(human[1])||0)*3600+(Number(human[2])||0)*60+(Number(human[3])||0));
+  }
+  return 0;
+}
+
+function durationSeconds(row={}){
+  const values=[
+    row?.duration,
+    row?.durationSeconds,
+    row?.lengthSeconds,
+    row?.length,
+    row?.videoDuration,
+    row?.durationText,
+    row?.contentDetails?.duration
+  ];
+  for(const value of values){
+    const seconds=parseDurationValue(value);
+    if(seconds>0)return seconds;
+  }
+  return 0;
+}
+
 
 const IDENTIFIED_NEWS_SOURCES=[
   {
@@ -5286,7 +5327,7 @@ function searchCardHtml(row={},options={}){
   const channel=searchChannelName(row);
   const views=Number(row.views)||0;
   const viewText=clean(row.viewText||"");
-  const duration=Number(row.duration)||0;
+  const duration=durationSeconds(row);
   const isLive=!!row.isLive;
   const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
   const statBits=[];
@@ -6360,7 +6401,7 @@ function renderCards(rows=[],options={}){
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
-    const duration=Number(row.duration)||0;
+    const duration=durationSeconds(row);
     const isLive=!!row.isLive;
     const published=feedPublishedLabel(row)||publishedLabel(row)||clean(row.publishedText||"");
     const statBits=[];
@@ -6421,7 +6462,7 @@ function updateNow(meta={}){
   const title=clean(meta.title)||"Video";
   const channel=clean(meta.uploader||meta.uploaderName||"");
   const views=Number(meta.views)||0;
-  const duration=Number(meta.duration)||0;
+  const duration=durationSeconds(meta);
   const published=publishedLabel(meta);
   videoTitle.textContent=title;
   const bits=[];
