@@ -5215,47 +5215,82 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
     const gridGap=14;
     const scrollGutter=10;
+    const portrait=ratio<.8;
     const wide=ratio>=1.2;
-
-    // One 4-unit geometry for every desktop Watch state:
-    //   wide video      => feed 2W | player spans 2W + one inner gap
-    //   square/portrait => feed 3W | player spans 1W
-    // So the whole row is ALWAYS 4W + 3 gaps (+ scrollbar gutter).
-    // Changing video orientation only redistributes the same four units.
-    const feedColumns=wide?2:3;
-    const playerSpan=wide?2:1;
-    const widthUnit=Math.max(
-      1,
-      (innerWidth-(gridGap*3)-scrollGutter)/4
-    );
 
     const sectionRect=playerSection?.getBoundingClientRect?.();
     const feedRect=feed?.getBoundingClientRect?.();
+    const feedSectionRect=feedSection?.getBoundingClientRect?.();
     const sectionTop=Math.max(0,sectionRect?.top||0);
     const feedTop=Math.max(sectionTop,feedRect?.top||sectionTop);
     const playerTopOffset=Math.max(0,Math.min(56,feedTop-sectionTop));
-    // Outer bottom space must be larger than the internal grid gap because
-    // YouTube's own control row sits against the bottom edge. Keep one full
-    // grid gap plus an 8px control-safe inset so rounded clipping never eats
-    // the last pixels of the player.
+
+    // Portrait must be height-first. Use the same visible bottom line as the
+    // left browse pane: fix the full portrait height first, derive its width
+    // from the real aspect ratio, then split only the space that remains.
     const controlSafeInset=8;
     const bottomEdge=gridGap+controlSafeInset;
+    const feedBottom=Math.min(
+      viewportHeight,
+      feedSectionRect?.bottom||viewportHeight
+    );
     const availableHeight=Math.max(
       1,
-      viewportHeight-sectionTop-playerTopOffset-bottomEdge
+      feedBottom-feedTop-bottomEdge
     );
 
-    // The height constraint also preserves W. For a 2-column landscape
-    // player its width is (2W + gap); for portrait it is exactly W.
-    const heightUnit=playerSpan===2
-      ?Math.max(1,(availableHeight*ratio-gridGap)/2)
-      :Math.max(1,availableHeight*ratio);
+    let feedColumns=2;
+    let playerWidth=1;
+    let playerHeight=1;
+    let unit=1;
 
-    const unit=Math.max(1,Math.min(widthUnit,heightUnit));
-    const playerWidth=playerSpan===2
-      ?(2*unit+gridGap)
-      :unit;
-    const playerHeight=playerWidth/ratio;
+    if(portrait){
+      // 1) Full usable height first.
+      playerHeight=availableHeight;
+      // 2) Natural width follows from the portrait ratio.
+      playerWidth=Math.max(1,playerHeight*ratio);
+
+      // 3) Only after the player is fixed do we divide the remaining width
+      // into whole 16:9 cards. Prefer each card to share the same width as
+      // the portrait player; if even one card cannot fit, only the card shrinks.
+      const feedRoom=Math.max(
+        1,
+        innerWidth-playerWidth-gridGap-scrollGutter
+      );
+      const preferredUnit=playerWidth;
+
+      feedColumns=Math.max(
+        1,
+        Math.min(
+          4,
+          Math.floor((feedRoom+gridGap)/(preferredUnit+gridGap))
+        )
+      );
+
+      const maxUnitForFeed=Math.max(
+        1,
+        (feedRoom-Math.max(0,feedColumns-1)*gridGap)/feedColumns
+      );
+      unit=Math.max(1,Math.min(preferredUnit,maxUnitForFeed));
+    }else{
+      // Landscape/square keeps the four-unit width geometry.
+      feedColumns=wide?2:3;
+      const playerSpan=wide?2:1;
+      const widthUnit=Math.max(
+        1,
+        (innerWidth-(gridGap*3)-scrollGutter)/4
+      );
+      const heightUnit=playerSpan===2
+        ?Math.max(1,(availableHeight*ratio-gridGap)/2)
+        :Math.max(1,availableHeight*ratio);
+
+      unit=Math.max(1,Math.min(widthUnit,heightUnit));
+      playerWidth=playerSpan===2
+        ?(2*unit+gridGap)
+        :unit;
+      playerHeight=playerWidth/ratio;
+    }
+
     const feedContentWidth=
       feedColumns*unit+
       Math.max(0,feedColumns-1)*gridGap;
@@ -5289,6 +5324,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   root.style.removeProperty("--watch-grid-gap");
   root.style.removeProperty("--watch-feed-cols");
   root.style.removeProperty("--watch-player-top-offset");
+  root.style.removeProperty("--watch-player-bottom-safe");
   root.style.removeProperty("--watch-card-unit");
 }
 

@@ -2755,17 +2755,18 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   WATCH GEOMETRY v294
-   One geometric system for desktop Watch.
+   WATCH GEOMETRY v296
+   One geometric system for desktop Watch, with orientation deciding the
+   primary constraint instead of forcing every video into the same equation.
 
-   W = width of one normal 16:9 recommendation thumbnail.
-   The watch row always contains 4 W-units and 3 equal gaps:
-   - landscape: 2 feed cards | 2-unit player
-   - square/portrait: 3 feed cards | 1-unit player
+   - landscape/square: width-first, using the 16:9 card unit W.
+   - portrait: height-first. The player fills the usable height of the left
+     browsing frame first; its width follows the real portrait aspect ratio;
+     only then is the remaining width divided into whole 16:9 card columns.
 
-   The scrollbar has its own gutter outside the card geometry. The player
-   starts at the same vertical line as the first thumbnail, and the scroll
-   pane keeps explicit bottom/side breathing room.
+   The scrollbar keeps a separate gutter outside card geometry. Player top
+   aligns with the first thumbnail row and both sides share the same safe
+   bottom line.
    ============================================================ */
 @media(min-width:960px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
