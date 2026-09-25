@@ -5460,3 +5460,36 @@ html.watch-browse .player-frame video{
     }
   }
 }
+
+
+/* ============================================================
+   MOBILE HIDE SEARCH + SOURCE TOGETHER v191
+   Force the whole search/source control cluster to follow the
+   collapsing top row; no reflow, no orphan source icon.
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse) .header-search,
+  html:not(.watch-browse) .home-search-toggle,
+  html:not(.watch-browse) .source-header-btn,
+  html:not(.watch-browse) .source-header-icon{
+    transition:opacity .12s ease,visibility 0s linear 0s!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-search,
+  html:not(.watch-browse).home-header-hidden .home-search-toggle,
+  html:not(.watch-browse).home-header-hidden .source-header-btn,
+  html:not(.watch-browse).home-header-hidden .source-header-icon{
+    opacity:0!important;
+    visibility:hidden!important;
+    pointer-events:none!important;
+  }
+
+  html:not(.watch-browse).home-search-open .header-search,
+  html:not(.watch-browse).home-search-open .home-search-toggle,
+  html:not(.watch-browse).home-search-open .source-header-btn,
+  html:not(.watch-browse).home-search-open .source-header-icon{
+    opacity:1!important;
+    visibility:visible!important;
+    pointer-events:auto!important;
+  }
+}
