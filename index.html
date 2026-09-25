@@ -193,7 +193,17 @@
 
           <div id="sourceVideoPopup" class="source-video-popup" hidden>
             <div class="source-video-popup-card">
-              <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
+              <div class="source-video-popup-source">
+                <button id="sourceVideoPopupSourceOpen" class="source-video-popup-source-main" type="button" aria-label="Mở nguồn">
+                  <span id="sourceVideoPopupAvatar" class="source-video-popup-avatar" aria-hidden="true"></span>
+                  <span class="source-video-popup-source-copy">
+                    <strong id="sourceVideoPopupSourceName">Nguồn YouTube</strong>
+                    <small id="sourceVideoPopupSourceTarget"></small>
+                  </span>
+                </button>
+                <button id="sourceVideoPopupSelect" class="source-video-popup-select" type="button" hidden>+ Nguồn</button>
+                <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
+              </div>
               <div class="source-video-popup-frame">
                 <iframe id="sourceVideoFrame" title="Video YouTube" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
               </div>
@@ -229,7 +239,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=286',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=289',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -253,6 +263,6 @@
   <script src="./src/media-meta.js?v=1"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-288"></script>
+  <script defer src="./src/app.js?v=watch-browse-289"></script>
 </body>
 </html>
