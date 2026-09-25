@@ -3012,7 +3012,23 @@ function setWatchBrowseLayout(active){
   document.documentElement.classList.toggle("watch-browse",active);
   applyResponsivePlayerFrame();
 
+  if(active){
+    // Enter watch mode at the top of its own recommendation scroller.
+    // The search/player/source rows stay fixed by CSS.
+    try{
+      const scroller=document.scrollingElement||document.documentElement;
+      if(scroller)scroller.scrollTop=0;
+      document.documentElement.scrollTop=0;
+      if(document.body)document.body.scrollTop=0;
+      window.scrollTo(0,0);
+    }catch{}
+  }
+
   requestAnimationFrame(()=>{
+    if(active&&feedSection){
+      feedSection.scrollTop=0;
+      feedSection.scrollLeft=0;
+    }
     watchBrowseMutating=false;
     if(!active)queueFloatingIframe();
   });
