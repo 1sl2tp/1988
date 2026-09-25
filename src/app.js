@@ -147,6 +147,81 @@ const state={
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const clean=s=>String(s??"").replace(/\s+/g," ").trim();
 
+function normalizeCommittedSearchQuery(value=""){
+  // Keep the user's exact words; only remove invisible/control whitespace.
+  // Do not AI-correct, append suggestions or rewrite the query.
+  return clean(
+    String(value??"")
+      .replace(/[\u200B-\u200D\uFEFF]/g,"")
+      .replace(/[\r\n\t]+/g," ")
+  );
+}
+
+const searchCommitState=new WeakMap();
+
+function bindCommittedSearchInput(input,commit,{form=null}={}){
+  if(!input||typeof commit!=="function"||searchCommitState.has(input))return;
+
+  const state={
+    composing:false,
+    pendingEnter:false,
+    enterValue:""
+  };
+  searchCommitState.set(input,state);
+
+  const run=value=>{
+    const q=normalizeCommittedSearchQuery(value);
+    if(!q)return;
+    input.value=q;
+    state.pendingEnter=false;
+    state.enterValue="";
+    commit(q);
+  };
+
+  input.addEventListener("compositionstart",()=>{
+    state.composing=true;
+  });
+
+  input.addEventListener("compositionend",()=>{
+    state.composing=false;
+    if(!state.pendingEnter)return;
+
+    // On macOS/Safari/Chrome Vietnamese IME, Enter can both finish the
+    // composition and trigger search. Use the value captured BEFORE Enter so
+    // the committed syllable cannot be appended twice (e.g. "anh tho" ->
+    // "anh thotho").
+    const value=state.enterValue||input.value;
+    queueMicrotask(()=>run(value));
+  });
+
+  input.addEventListener("keydown",event=>{
+    if(event.key!=="Enter")return;
+
+    if(event.isComposing||state.composing||event.keyCode===229){
+      state.pendingEnter=true;
+      state.enterValue=normalizeCommittedSearchQuery(input.value);
+      return;
+    }
+
+    event.preventDefault();
+    run(input.value);
+  });
+
+  if(form){
+    form.addEventListener("submit",event=>{
+      event.preventDefault();
+
+      if(state.composing||state.pendingEnter){
+        state.pendingEnter=true;
+        if(!state.enterValue)state.enterValue=normalizeCommittedSearchQuery(input.value);
+        return;
+      }
+
+      run(input.value);
+    });
+  }
+}
+
 const SOURCE_SELECTION_KEY="1988-source-selection-v1";
 const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
@@ -2185,7 +2260,7 @@ function rememberSearchedSourceCandidates(rows=[]){
 }
 
 async function searchSourceChannels(query){
-  const q=clean(query);
+  const q=normalizeCommittedSearchQuery(query);
   const seq=++sourceSearchSeq;
   if(q.length<2){
     sourceRemoteResults=[];
@@ -2194,9 +2269,9 @@ async function searchSourceChannels(query){
     return;
   }
 
+  if(sourceSearch)sourceSearch.value=q;
   if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm kênh…";
 
-  const scope=sourceScope(sourceManageGroup);
   const byId=new Map();
   const addCandidate=row=>{
     if(!row)return false;
@@ -2204,8 +2279,6 @@ async function searchSourceChannels(query){
       ?sourceMetaFor(row)
       :sourceCandidateFromVideo(row);
     if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return false;
-    // Interactive channel search shows every matching channel, including ones
-    // already selected/blocked, so the user can inspect or change its state.
     if(!byId.has(candidate.id))byId.set(candidate.id,candidate);
     return true;
   };
@@ -2217,83 +2290,52 @@ async function searchSourceChannels(query){
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
         ?"Có "+sourceRemoteResults.length+" kênh phù hợp"
-        :"Đang tìm thêm…";
+        :"Đang tìm kênh…";
     }
     renderSourceLibrary();
     return true;
   };
 
   try{
-    const local=await localEngine(7000);
+    const local=await localEngine(5200);
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    // Fast path: one normal video search. It is the same lightweight path as
-    // homepage search and is enough to derive channel IDs immediately.
-    let videos=[];
-    try{
-      videos=await Promise.race([
-        local.search(q,{type:"video"}),
-        new Promise(resolve=>setTimeout(()=>resolve([]),5200))
-      ]);
-    }catch{}
+    // Interactive search is progressive: channel search and video-derived
+    // channel search start together; whichever returns first paints first.
+    const directTask=Promise.race([
+      local.searchChannels(q,{includeVideos:false}),
+      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+    ]).catch(()=>[]);
 
-    for(const row of Array.isArray(videos)?videos:[]){
-      addCandidate(row);
-      if(byId.size>=24)break;
-    }
-    publish();
+    const videoTask=Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+    ]).catch(()=>[]);
 
-    // Channel-only search is enrichment, never a blocker for the first result.
-    // It can add exact channel matches after the video-derived list is visible.
-    void (async()=>{
-      try{
-        const direct=await Promise.race([
-          local.searchChannels(q,{includeVideos:false}),
-          new Promise(resolve=>setTimeout(()=>resolve([]),6500))
-        ]);
-        if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-        for(const row of Array.isArray(direct)?direct:[]){
-          addCandidate(row);
-          if(byId.size>=24)break;
-        }
-        publish();
-
-        // Only when still sparse, take at most one continuation page. Do not
-        // reuse the deep 20-page discovery refill logic in an interactive box.
-        if(byId.size<12){
-          const more=await local.searchPage(
-            "source-manager-ui:"+scope+":"+fastHash(q),
-            q,
-            {type:"video"},
-            true
-          ).catch(()=>[]);
-          if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-          for(const row of Array.isArray(more)?more:[]){
-            addCandidate(row);
-            if(byId.size>=24)break;
-          }
-          publish();
-        }
-
-        // Avatar/name enrichment is background-only and may not delay results.
-        void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,3000)
-          .then(()=>{
-            if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-            sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
-            renderSourceLibrary();
-          })
-          .catch(()=>{});
-      }catch(error){
-        console.warn("source channel enrichment failed",error);
+    const directJob=directTask.then(rows=>{
+      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+      for(const row of Array.isArray(rows)?rows:[]){
+        addCandidate(row);
+        if(byId.size>=24)break;
       }
-    })();
+      publish();
+    });
+
+    const videoJob=videoTask.then(rows=>{
+      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+      for(const row of Array.isArray(rows)?rows:[]){
+        addCandidate(row);
+        if(byId.size>=24)break;
+      }
+      publish();
+    });
+
+    await Promise.allSettled([directJob,videoJob]);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
     if(!byId.size){
-      // Independent backend fallback. This path only runs if local YouTube
-      // search produced nothing quickly.
       try{
-        const response=await api("search",{q,filter:"videos"},5200);
+        const response=await api("search",{q,filter:"videos"},3600);
         const fallback=Array.isArray(response?.data?.items)?response.data.items:[];
         for(const row of fallback){
           addCandidate(row);
@@ -2303,7 +2345,18 @@ async function searchSourceChannels(query){
       }catch{}
     }
 
-    if(seq===sourceSearchSeq&&!sourcesSheet?.hidden&&!byId.size){
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+    if(byId.size){
+      if(sourceSearchStatus)sourceSearchStatus.textContent="Có "+Math.min(24,byId.size)+" kênh phù hợp";
+      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,1200)
+        .then(()=>{
+          if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+          sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
+          renderSourceLibrary();
+        })
+        .catch(()=>{});
+    }else{
       sourceRemoteResults=[];
       if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
       renderSourceLibrary();
@@ -2744,7 +2797,7 @@ function renderSourcePreviewVideos({force=false}={}){
 }
 
 async function searchPreviewVideos(query){
-  const q=clean(query);
+  const q=normalizeCommittedSearchQuery(query);
   const seq=++sourcePreviewSearchSeq;
 
   if(q.length<2){
@@ -2755,67 +2808,111 @@ async function searchPreviewVideos(query){
     return;
   }
 
+  if(sourcePreviewSearch)sourcePreviewSearch.value=q;
+
+  const channelMap=new Map();
+  const videoMap=new Map();
+
+  const addChannel=row=>{
+    if(!row)return;
+    const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
+      ?sourceMetaFor(row)
+      :sourceCandidateFromVideo(row);
+    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return;
+    if(!channelMap.has(candidate.id))channelMap.set(candidate.id,candidate);
+  };
+
+  const addVideos=rows=>{
+    for(const video of Array.isArray(rows)?rows:[]){
+      const id=itemVideoId(video);
+      if(!id||videoMap.has(id))continue;
+      videoMap.set(id,video);
+      addChannel(video);
+      if(videoMap.size>=24)break;
+    }
+  };
+
+  const publish=()=>{
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+    sourcePreviewSearchChannels=new Map(
+      [...channelMap.values()].slice(0,12).map(row=>[row.id,row])
+    );
+    sourcePreviewSearchRows=new Map(
+      [...videoMap.values()].slice(0,24).map(video=>[itemVideoId(video),video])
+    );
+    rememberSearchedSourceCandidates([...sourcePreviewSearchChannels.values()]);
+    sourcePreviewRenderSignature="";
+    renderSourcePreviewVideos({force:true});
+  };
+
   try{
-    const local=await localEngine(9000);
+    const local=await localEngine(5200);
     if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
     const channelTask=Promise.race([
       local.searchChannels(q,{includeVideos:false}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),5200))
+      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
     ]).catch(()=>[]);
 
-    const videoTask=Promise.race([
+    const localVideoTask=Promise.race([
       local.search(q,{type:"video"}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),5200))
+      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
     ]).catch(()=>[]);
 
-    let [channels,videos]=await Promise.all([channelTask,videoTask]);
+    const backendVideoTask=api("search",{q,filter:"videos"},3600)
+      .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
+      .catch(()=>[]);
+
+    // Publish channels as soon as channel search returns.
+    const channelJob=channelTask.then(rows=>{
+      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+      for(const row of Array.isArray(rows)?rows:[]){
+        addChannel(row);
+        if(channelMap.size>=12)break;
+      }
+      publish();
+    });
+
+    // Publish videos as soon as either YouTube path returns; don't wait for
+    // the slower request. The second path only enriches the same result view.
+    const firstVideoJob=Promise.any([
+      localVideoTask.then(rows=>{
+        if(!rows?.length)throw new Error("empty_local");
+        return rows;
+      }),
+      backendVideoTask.then(rows=>{
+        if(!rows?.length)throw new Error("empty_backend");
+        return rows;
+      })
+    ]).then(rows=>{
+      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+      addVideos(rows);
+      publish();
+    }).catch(()=>{});
+
+    const enrichVideoJob=Promise.allSettled([localVideoTask,backendVideoTask]).then(results=>{
+      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+      for(const result of results){
+        if(result.status==="fulfilled")addVideos(result.value);
+      }
+      publish();
+    });
+
+    await Promise.allSettled([channelJob,firstVideoJob,enrichVideoJob]);
     if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
-    if(!Array.isArray(videos)||!videos.length){
-      try{
-        const response=await api("search",{q,filter:"videos"},4800);
-        videos=Array.isArray(response?.data?.items)?response.data.items:[];
-      }catch{}
+    if(!channelMap.size&&!videoMap.size){
+      sourcePreviewSearchRows=new Map();
+      sourcePreviewSearchChannels=new Map();
+      sourcePreviewRenderSignature="";
+      renderSourcePreviewVideos({force:true});
+      return;
     }
 
-    const channelMap=new Map();
-    const addChannel=row=>{
-      if(!row)return;
-      const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
-        ?sourceMetaFor(row)
-        :sourceCandidateFromVideo(row);
-      if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return;
-      if(!channelMap.has(candidate.id))channelMap.set(candidate.id,candidate);
-    };
-
-    for(const row of Array.isArray(channels)?channels:[]){
-      addChannel(row);
-      if(channelMap.size>=12)break;
-    }
-    for(const video of Array.isArray(videos)?videos:[]){
-      addChannel(video);
-      if(channelMap.size>=12)break;
-    }
-
-    sourcePreviewSearchChannels=new Map(
-      [...channelMap.values()].slice(0,12).map(row=>[row.id,row])
-    );
-
-    const videoRows=mergeUniqueRows([],Array.isArray(videos)?videos:[]).slice(0,24);
-    sourcePreviewSearchRows=new Map(
-      videoRows.map(video=>[itemVideoId(video),video]).filter(([videoId])=>videoId)
-    );
-
-    rememberSearchedSourceCandidates([...sourcePreviewSearchChannels.values()]);
-    sourcePreviewRenderSignature="";
-    renderSourcePreviewVideos({force:true});
-
-    // Names/avatars may improve later, but never hold the search UI.
     void prewarmSourceSearchMetadata(
-      [...sourcePreviewSearchChannels.values()].slice(0,12),
+      [...channelMap.values()].slice(0,12),
       local,
-      1800
+      900
     ).then(()=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       sourcePreviewSearchChannels=new Map(
@@ -3571,12 +3668,10 @@ function setupSourceLibrary(){
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
   sourcePreviewSearch?.addEventListener("input",schedulePreviewVideoSearch);
-  sourcePreviewSearch?.addEventListener("keydown",event=>{
-    if(event.key!=="Enter")return;
-    event.preventDefault();
+  bindCommittedSearchInput(sourcePreviewSearch,q=>{
     clearTimeout(sourcePreviewSearchTimer);
     sourcePreviewSearchTimer=0;
-    void searchPreviewVideos(sourcePreviewSearch.value);
+    void searchPreviewVideos(q);
     sourcePreviewSearch.blur();
   });
   sourceSettingsBtn?.addEventListener("click",()=>{
@@ -3655,12 +3750,10 @@ function setupSourceLibrary(){
       if(sourceList)sourceList.scrollTop=0;
     });
   });
-  sourceSearch?.addEventListener("keydown",event=>{
-    if(event.key!=="Enter")return;
-    event.preventDefault();
+  bindCommittedSearchInput(sourceSearch,q=>{
     clearTimeout(sourceSearchTimer);
     sourceSearchTimer=0;
-    void searchSourceChannels(sourceSearch.value);
+    void searchSourceChannels(q);
     sourceSearch.blur();
   });
   clearSourceSearch?.addEventListener("click",()=>{
@@ -9964,10 +10057,7 @@ function commitSearch(value){
   void doSearch(q);
 }
 
-searchForm.addEventListener("submit",e=>{
-  e.preventDefault();
-  commitSearch(queryInput.value);
-});
+bindCommittedSearchInput(queryInput,q=>commitSearch(q),{form:searchForm});
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
 queryInput.addEventListener("input",()=>{
