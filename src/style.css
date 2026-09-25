@@ -5133,58 +5133,76 @@ html.watch-browse .player-frame video{
   background:#ff453a;
 }
 
+/* ============================================================
+   HOME INTERACTION CONSOLIDATED v195
+   One header mechanism, one desktop hover mechanism.
+   ============================================================ */
 
-/* MOBILE HOME SCROLL HEADER + CHANNEL AVATAR v187 */
-@media(max-width:720px){
-  html:not(.watch-browse) .header-inner{
-    overflow:hidden;
-    transition:
-      height .18s ease,
-      padding-top .18s ease,
-      padding-bottom .18s ease,
-      opacity .12s ease;
-  }
-
-  html:not(.watch-browse).home-header-hidden .header-inner{
-    height:0!important;
-    min-height:0!important;
-    padding-top:0!important;
-    padding-bottom:0!important;
-    opacity:0!important;
-    pointer-events:none!important;
-  }
-
-  html:not(.watch-browse).home-search-open .header-inner{
-    height:var(--header-row-h)!important;
-    min-height:var(--header-row-h)!important;
-    padding:7px 10px!important;
-    opacity:1!important;
-    pointer-events:auto!important;
-  }
-
-  html:not(.watch-browse) .card-avatar{
-    position:relative;
-    isolation:isolate;
-    flex:0 0 36px;
-    box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
-  }
-
-  html:not(.watch-browse) .card-avatar img{
-    background:#222226;
-  }
+/* Home header is an overlay, so collapsing its top row never changes
+   document height and never causes a scroll jump. */
+html:not(.watch-browse) .app-header{
+  position:fixed!important;
+  top:0!important;
+  left:0!important;
+  right:0!important;
+  z-index:80!important;
+  height:calc(var(--header-stack-h) + var(--safe-top))!important;
+  padding-top:var(--safe-top)!important;
+  overflow:visible!important;
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+  pointer-events:none!important;
 }
 
+html:not(.watch-browse) .header-inner,
+html:not(.watch-browse) .header-nav{
+  transform:translate3d(0,0,0);
+  transition:
+    transform .16s cubic-bezier(.2,.7,.2,1),
+    opacity .12s ease!important;
+  will-change:transform;
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+  pointer-events:auto;
+}
 
-/* ============================================================
-   YOUTUBE ICONS + HARD HIDE HEADER v188
-   ============================================================ */
+html:not(.watch-browse) .header-inner{
+  background:#0b0b0c!important;
+}
+
+html:not(.watch-browse) .header-nav{
+  background:#0b0b0c!important;
+}
+
+/* Scrolled state: the complete first row goes away together:
+   logo + Search + Source. Chips move into the top position. */
+html:not(.watch-browse).home-header-hidden .header-inner{
+  opacity:0!important;
+  visibility:hidden!important;
+  transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
+  pointer-events:none!important;
+}
+
+html:not(.watch-browse).home-header-hidden .header-nav{
+  transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
+}
+
+/* Opening Search always restores the complete first row instantly. */
+html:not(.watch-browse).home-search-open .header-inner{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:translate3d(0,0,0)!important;
+  pointer-events:auto!important;
+}
+
+html:not(.watch-browse).home-search-open .header-nav{
+  transform:translate3d(0,0,0)!important;
+}
+
 @media(max-width:720px){
-  html:not(.watch-browse).home-header-hidden .header-inner{
-    display:none!important;
-  }
-
-  html:not(.watch-browse).home-search-open .header-inner{
-    display:grid!important;
+  html:not(.watch-browse) .app-shell{
+    padding-top:calc(var(--header-stack-h) + var(--safe-top))!important;
   }
 
   html:not(.watch-browse) .header-search{
@@ -5231,18 +5249,25 @@ html.watch-browse .player-frame video{
   html:not(.watch-browse).home-search-open .header-search{
     grid-template-columns:40px minmax(0,1fr) 40px!important;
   }
+
+  html:not(.watch-browse) .card-avatar{
+    position:relative;
+    isolation:isolate;
+    flex:0 0 36px;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+  }
+
+  html:not(.watch-browse) .card-avatar img{
+    background:#222226;
+  }
 }
 
-
-/* ============================================================
-   DESKTOP YOUTUBE SPACING + VIDEO-COLOR HOVER v189
-   ============================================================ */
+/* Desktop layout follows the looser YouTube grid spacing. */
 @media(min-width:721px){
-  /* Home feed gets more breathing room from the browser edges. */
   html:not(.watch-browse) .app-shell{
     width:min(1560px,calc(100% - 64px));
     margin-inline:auto;
-    padding:18px 0 42px;
+    padding:calc(var(--header-stack-h) + var(--safe-top) + 18px) 0 42px!important;
   }
 
   html:not(.watch-browse) .feed-section{
@@ -5254,74 +5279,67 @@ html.watch-browse .player-frame video{
     margin-bottom:14px;
   }
 
-  /* Fewer, larger cards like YouTube web rather than a dense dashboard. */
   html:not(.watch-browse) .feed:not(.search-grouped){
     grid-template-columns:repeat(3,minmax(0,1fr))!important;
     gap:30px 22px!important;
   }
 
+  /* YouTube-like rich-card interaction:
+     a very light sampled tint, not a large blurred halo. */
   html:not(.watch-browse) .card{
     position:relative;
     isolation:isolate;
-    overflow:visible;
-    border:0;
-    border-radius:14px;
-    background:transparent;
-    transition:
-      transform .16s ease,
-      background .16s ease,
-      box-shadow .16s ease;
+    overflow:hidden!important;
+    border:0!important;
+    border-radius:14px!important;
+    background-color:transparent!important;
+    transition:background-color .14s ease!important;
+    transform:none!important;
+    box-shadow:none!important;
   }
 
-  /* The thumbnail itself becomes a soft ambient color field on hover.
-     Since it uses the actual image, every card gets a different tint. */
   html:not(.watch-browse) .card::before{
     content:"";
     position:absolute;
-    z-index:-1;
-    inset:-8px;
-    border-radius:18px;
+    z-index:0;
+    inset:0;
+    border-radius:inherit;
     pointer-events:none;
-    background-image:
-      linear-gradient(rgba(10,10,12,.64),rgba(10,10,12,.74)),
-      var(--card-art,none);
+    background-image:var(--card-art,none);
     background-position:center;
     background-size:cover;
-    filter:blur(22px) saturate(1.35);
+    filter:blur(30px) saturate(1.12) brightness(.55);
     opacity:0;
-    transform:scale(.98);
-    transition:
-      opacity .18s ease,
-      transform .18s ease;
+    transition:opacity .14s ease;
   }
 
-  html:not(.watch-browse) .card:hover{
-    z-index:3;
-    transform:translateY(-2px);
+  html:not(.watch-browse) .card:hover,
+  html:not(.watch-browse) .card:focus-within{
+    background-color:var(--card-hover-color,rgba(255,255,255,.035))!important;
   }
 
   html:not(.watch-browse) .card:hover::before,
   html:not(.watch-browse) .card:focus-within::before{
-    opacity:.42;
-    transform:scale(1.02);
+    opacity:.055;
+  }
+
+  html:not(.watch-browse) .card .thumb-wrap,
+  html:not(.watch-browse) .card .card-copy{
+    position:relative;
+    z-index:1;
   }
 
   html:not(.watch-browse) .card .thumb-wrap{
     border-radius:12px;
     overflow:hidden;
-    box-shadow:0 1px 0 rgba(255,255,255,.025);
+    box-shadow:none!important;
   }
 
-  html:not(.watch-browse) .card .card-copy{
-    position:relative;
-    z-index:1;
-    padding:10px 4px 2px;
-    border-radius:0 0 12px 12px;
-    transition:background .16s ease;
-  }
-
+  html:not(.watch-browse) .card .card-copy,
   html:not(.watch-browse) .card:hover .card-copy{
-    background:rgba(15,15,18,.34);
+    padding:10px 4px 4px;
+    background:transparent!important;
+    border-radius:0!important;
   }
 
   html:not(.watch-browse) .card-title{
@@ -5334,7 +5352,6 @@ html.watch-browse .player-frame video{
     font-size:11px;
   }
 
-  /* Search rows inherit the same comfortable visual density. */
   html:not(.watch-browse) .search-source-scroll{
     grid-auto-columns:minmax(260px,calc((100% - 44px)/3));
     gap:22px;
@@ -5368,272 +5385,10 @@ html.watch-browse .player-frame video{
   }
 }
 
-
-/* ============================================================
-   MOBILE HEADER NO-REFLOW v190
-   Hide/show uses transforms only. No height/display toggles while scrolling.
-   ============================================================ */
-@media(max-width:720px){
-  html:not(.watch-browse){
-    --home-header-shift:var(--header-row-h);
-  }
-
-  html:not(.watch-browse) .app-header{
-    position:fixed!important;
-    top:0!important;
-    left:0!important;
-    right:0!important;
-    z-index:80!important;
-    height:calc(var(--header-stack-h) + var(--safe-top))!important;
-    padding-top:var(--safe-top)!important;
-    overflow:visible!important;
-    background:transparent!important;
-    border:0!important;
-    box-shadow:none!important;
-    pointer-events:none!important;
-  }
-
+@media(prefers-reduced-motion:reduce){
   html:not(.watch-browse) .header-inner,
-  html:not(.watch-browse) .header-nav{
-    display:grid!important;
-    transform:translate3d(0,0,0);
-    transition:
-      transform .18s cubic-bezier(.2,.7,.2,1),
-      opacity .14s ease!important;
-    will-change:transform;
-    backface-visibility:hidden;
-    -webkit-backface-visibility:hidden;
-    pointer-events:auto;
-  }
-
-  html:not(.watch-browse) .header-inner{
-    height:var(--header-row-h)!important;
-    min-height:var(--header-row-h)!important;
-    padding:7px 10px!important;
-    opacity:1!important;
-    background:#0b0b0c!important;
-  }
-
-  html:not(.watch-browse) .header-nav{
-    height:var(--nav-row-h)!important;
-    min-height:var(--nav-row-h)!important;
-    background:#0b0b0c!important;
-  }
-
-  html:not(.watch-browse) .app-shell{
-    padding-top:calc(var(--header-stack-h) + var(--safe-top))!important;
-  }
-
-  /* Override older display:none / height:0 rules. */
-  html:not(.watch-browse).home-header-hidden .header-inner{
-    display:grid!important;
-    height:var(--header-row-h)!important;
-    min-height:var(--header-row-h)!important;
-    padding:7px 10px!important;
-    opacity:0!important;
-    transform:translate3d(0,calc(-1 * var(--home-header-shift)),0)!important;
-    pointer-events:none!important;
-  }
-
-  html:not(.watch-browse).home-header-hidden .header-nav{
-    transform:translate3d(0,calc(-1 * var(--home-header-shift)),0)!important;
-  }
-
-  html:not(.watch-browse).home-search-open .header-inner{
-    display:grid!important;
-    height:var(--header-row-h)!important;
-    min-height:var(--header-row-h)!important;
-    padding:7px 10px!important;
-    opacity:1!important;
-    transform:translate3d(0,0,0)!important;
-    pointer-events:auto!important;
-  }
-
-  html:not(.watch-browse).home-search-open .header-nav{
-    transform:translate3d(0,0,0)!important;
-  }
-
-  @media(prefers-reduced-motion:reduce){
-    html:not(.watch-browse) .header-inner,
-    html:not(.watch-browse) .header-nav{
-      transition:none!important;
-    }
-  }
-}
-
-
-/* ============================================================
-   MOBILE HIDE SEARCH + SOURCE TOGETHER v191
-   Force the whole search/source control cluster to follow the
-   collapsing top row; no reflow, no orphan source icon.
-   ============================================================ */
-@media(max-width:720px){
-  html:not(.watch-browse) .header-search,
-  html:not(.watch-browse) .home-search-toggle,
-  html:not(.watch-browse) .source-header-btn,
-  html:not(.watch-browse) .source-header-icon{
-    transition:opacity .12s ease,visibility 0s linear 0s!important;
-  }
-
-  html:not(.watch-browse).home-header-hidden .header-search,
-  html:not(.watch-browse).home-header-hidden .home-search-toggle,
-  html:not(.watch-browse).home-header-hidden .source-header-btn,
-  html:not(.watch-browse).home-header-hidden .source-header-icon{
-    opacity:0!important;
-    visibility:hidden!important;
-    pointer-events:none!important;
-  }
-
-  html:not(.watch-browse).home-search-open .header-search,
-  html:not(.watch-browse).home-search-open .home-search-toggle,
-  html:not(.watch-browse).home-search-open .source-header-btn,
-  html:not(.watch-browse).home-search-open .source-header-icon{
-    opacity:1!important;
-    visibility:visible!important;
-    pointer-events:auto!important;
-  }
-}
-
-
-/* ============================================================
-   DESKTOP PAGE AMBIENT + MOBILE GESTURE STABILITY v193
-   ============================================================ */
-@media(min-width:721px){
-  html:not(.watch-browse) body{
-    position:relative;
-    isolation:isolate;
-    background:#0b0b0c;
-  }
-
-  html:not(.watch-browse) body::before{
-    content:"";
-    position:fixed;
-    z-index:0;
-    inset:-36px;
-    pointer-events:none;
-    background-image:
-      linear-gradient(
-        180deg,
-        rgba(11,11,12,.82) 0%,
-        rgba(11,11,12,.90) 48%,
-        rgba(11,11,12,.96) 100%
-      ),
-      var(--home-ambient-art,none);
-    background-position:center;
-    background-size:cover;
-    filter:blur(24px) saturate(1.22);
-    opacity:0;
-    transform:scale(1.035);
-    transition:opacity .18s ease;
-  }
-
-  html:not(.watch-browse).home-ambient-on body::before{
-    opacity:.34;
-  }
-
-  html:not(.watch-browse) .app-shell{
-    position:relative;
-    z-index:1;
-  }
-
-  html:not(.watch-browse) .app-header{
-    z-index:80;
-  }
-}
-
-@media(max-width:720px){
-  /* One class controls the complete top row. No child is allowed to remain
-     visible independently while a vertical swipe hides it. */
-  html:not(.watch-browse).home-header-hidden .header-inner,
-  html:not(.watch-browse).home-header-hidden .header-inner .brand,
-  html:not(.watch-browse).home-header-hidden .header-inner .header-search,
-  html:not(.watch-browse).home-header-hidden .header-inner .home-search-toggle,
-  html:not(.watch-browse).home-header-hidden .header-inner .source-header-btn,
-  html:not(.watch-browse).home-header-hidden .header-inner .source-header-icon{
-    opacity:0!important;
-    pointer-events:none!important;
-  }
-
-  html:not(.watch-browse).home-header-hidden .header-inner .header-search,
-  html:not(.watch-browse).home-header-hidden .header-inner .source-header-btn{
-    visibility:hidden!important;
-  }
-}
-
-
-/* ============================================================
-   FINAL HOME SCROLL + LOCAL CARD HOVER v194
-   ============================================================ */
-
-/* Any viewport: once the home page leaves the top, Search and Source
-   disappear as one control group. Source lives inside .header-search. */
-html:not(.watch-browse).home-header-hidden .header-search,
-html:not(.watch-browse).home-header-hidden .source-header-btn,
-html:not(.watch-browse).home-header-hidden .source-header-icon,
-html:not(.watch-browse).home-header-hidden .home-search-toggle{
-  opacity:0!important;
-  visibility:hidden!important;
-  pointer-events:none!important;
-}
-
-/* Desktop: keep logo/chips stable, only remove the Search + Source controls. */
-@media(min-width:721px){
-  html:not(.watch-browse) .header-search{
-    transition:opacity .14s ease,transform .16s ease!important;
-  }
-
-  html:not(.watch-browse).home-header-hidden .header-search{
-    transform:translate3d(0,-8px,0)!important;
-  }
-
-  /* v193 page-wide ambient was too broad. Disable it entirely. */
-  html:not(.watch-browse) body::before,
-  html:not(.watch-browse).home-ambient-on body::before{
-    opacity:0!important;
-    background-image:none!important;
-  }
-
-  /* YouTube-style interaction layer localized to the hovered rich card.
-     The card uses its own thumbnail as a softly blurred color field. */
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card{
-    position:relative;
-    isolation:isolate;
-    overflow:visible!important;
-    background:transparent!important;
-  }
-
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card::before{
-    content:"";
-    position:absolute;
-    z-index:0;
-    inset:-9px;
-    border-radius:18px;
-    pointer-events:none;
-    background-image:
-      linear-gradient(rgba(10,10,12,.48),rgba(10,10,12,.66)),
-      var(--card-art,none);
-    background-position:center;
-    background-size:cover;
-    filter:blur(18px) saturate(1.45) brightness(.74);
-    opacity:0;
-    transform:scale(.985);
-    transition:opacity .16s ease,transform .16s ease;
-  }
-
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card:hover::before,
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card:focus-within::before{
-    opacity:.56;
-    transform:scale(1.015);
-  }
-
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap,
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-copy{
-    position:relative;
-    z-index:1;
-  }
-
-  html:not(.watch-browse) .feed:not(.search-grouped)>.card:hover .card-copy{
-    background:rgba(12,12,14,.42)!important;
-    border-radius:0 0 12px 12px;
+  html:not(.watch-browse) .header-nav,
+  html:not(.watch-browse) .card{
+    transition:none!important;
   }
 }
