@@ -758,6 +758,7 @@ async function refreshServerStateOnResume(){
     if(result?.ok&&result?.exists&&result.state){
       applyServerState(result.state);
       stateSyncReady=true;
+      if(stateSyncDirty)await pushServerStateNow({force:true});
       if(sourcesBtn){
         sourcesBtn.disabled=false;
         sourcesBtn.removeAttribute("title");
@@ -1175,7 +1176,7 @@ function warmAvatarImage(url=""){
 
 async function warmSelectedAvatarImages(maxWait=900){
   const ids=new Set([...selectedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
+  for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))ids.add(id);
   }
 
@@ -10470,6 +10471,8 @@ function compactSourcePool(rows=[]){
 function sourcePoolStorageKey(scope){
   return SOURCE_POOL_KEY_PREFIX+sourceScope(scope);
 }
+
+try{localStorage.removeItem("1988-source-pool-v3");}catch{}
 
 function readSourcePoolCache(scope=LATEST_SOURCE_SCOPE){
   scope=sourceScope(scope);
