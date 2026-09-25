@@ -6707,3 +6707,152 @@ html:not(.watch-browse) .app-header{
     transform:none!important;
   }
 }
+
+
+/* ============================================================
+   WATCH LIST CONTENT + TINT v204
+   - Wide mode must not hide title/channel/stats.
+   - Mobile watch is always one complete card per row.
+   - Desktop watch uses the same sampled thumbnail hover tint as home.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped){
+    display:block!important;
+    grid-template-columns:none!important;
+    width:100%!important;
+    height:auto!important;
+    overflow:visible!important;
+    gap:0!important;
+    padding:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    flex:none!important;
+    margin:0 0 18px!important;
+    padding:0 8px 8px!important;
+    border:0!important;
+    border-radius:12px!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  /* Override the old v182 "wide mode is image-only" rule with equal/higher
+     specificity so metadata is always present under the thumbnail. */
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-copy{
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+    min-width:0!important;
+    padding:9px 4px 2px!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-title,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-title,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-title,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-title{
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    overflow:hidden!important;
+    margin:0!important;
+    color:#f4f4f5!important;
+    font-size:13.5px!important;
+    line-height:1.3!important;
+    font-weight:680!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-stats{
+    display:block!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:#9a9aa2!important;
+    font-size:10.5px!important;
+    line-height:1.3!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-channel{
+    margin-top:4px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-stats,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-stats{
+    margin-top:1px!important;
+  }
+
+  /* Touch feedback mirrors the desktop hover surface without a permanent box. */
+  html.watch-browse .feed:not(.search-grouped)>.card:active{
+    background:rgba(255,255,255,.055)!important;
+  }
+}
+
+/* Desktop watch: same sampled-color interaction surface already used on home. */
+@media(min-width:960px){
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    isolation:isolate!important;
+    overflow:visible!important;
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card::before{
+    content:"";
+    position:absolute;
+    z-index:0;
+    inset:-10px -10px -11px;
+    border-radius:18px;
+    pointer-events:none;
+    background:var(--card-hover-color,#242426);
+    opacity:0;
+    transform:scale(.992);
+    transition:opacity .14s ease,transform .14s ease;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:hover,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within{
+    z-index:3;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:hover::before,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within::before{
+    opacity:1;
+    transform:scale(1);
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy{
+    position:relative!important;
+    z-index:1!important;
+    background:transparent!important;
+  }
+}
