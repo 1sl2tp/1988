@@ -6489,6 +6489,8 @@ function renderCards(rows=[],options={}){
   // hover/press. Sample once after render so there is no interaction effect.
   if(document.documentElement.classList.contains("watch-browse")&&window.innerWidth<=720){
     feed.querySelectorAll("[data-video-id]").forEach(ensureDesktopCardTint);
+  }else{
+    scheduleHomeChromeTint(true);
   }
 
   return cards.length;
@@ -6526,6 +6528,17 @@ function updateNow(meta={}){
   videoMeta.textContent=bits.join(" · ");
   document.title=title+" · 1988";
   updateMediaSession(meta);
+
+  const currentCard=[...feed.querySelectorAll("[data-video-id]")]
+    .find(card=>card.dataset.videoId===state.currentId);
+  const art=clean(
+    meta.thumbnailUrl||
+    meta.thumbnail||
+    meta.poster||
+    currentCard?.dataset?.thumb||
+    ""
+  );
+  if(art)applyChromeTintFromArt(art,"watch");
 }
 
 function updateModeUi(){
@@ -8139,6 +8152,82 @@ function averageThumbTint(url){
   desktopCardColorCache.set(url,task);
   return task;
 }
+
+let homeChromeTintFrame=0;
+let homeChromeTintThumb="";
+
+function applyPageChromeTint(color,scope="home"){
+  const root=document.documentElement;
+  const match=String(color||"").match(/\d+(?:\.\d+)?/g);
+  if(!match||match.length<3)return;
+
+  const r=Math.max(0,Math.min(255,Math.round(Number(match[0])||0)));
+  const g=Math.max(0,Math.min(255,Math.round(Number(match[1])||0)));
+  const b=Math.max(0,Math.min(255,Math.round(Number(match[2])||0)));
+
+  root.style.setProperty("--page-chrome-tint",`rgb(${r},${g},${b})`);
+  root.style.setProperty("--page-chrome-glow",`rgba(${r},${g},${b},.52)`);
+  root.style.setProperty("--page-chrome-soft",`rgba(${r},${g},${b},.26)`);
+  root.style.setProperty("--page-chrome-faint",`rgba(${r},${g},${b},.12)`);
+  root.dataset.chromeTintScope=scope;
+}
+
+function applyChromeTintFromArt(art,scope="home"){
+  art=String(art||"").trim();
+  if(!art)return;
+  void averageThumbTint(art).then(color=>{
+    if(color)applyPageChromeTint(color,scope);
+  });
+}
+
+function nearestHomeCard(){
+  if(document.documentElement.classList.contains("watch-browse"))return null;
+  const cards=[...feed.querySelectorAll(".card[data-video-id]")];
+  if(!cards.length)return null;
+
+  const headerHeight=Math.max(
+    0,
+    document.querySelector(".app-header")?.getBoundingClientRect?.().height||0
+  );
+  const targetY=headerHeight+18;
+  let best=null;
+  let bestScore=Infinity;
+
+  for(const card of cards){
+    const rect=card.getBoundingClientRect();
+    if(rect.bottom<targetY-100||rect.top>window.innerHeight+120)continue;
+    const anchorY=rect.top+Math.min(rect.height*.28,90);
+    const score=Math.abs(anchorY-targetY);
+    if(score<bestScore){
+      best=card;
+      bestScore=score;
+    }
+  }
+  return best||cards[0];
+}
+
+function syncHomeChromeTint(force=false){
+  if(document.documentElement.classList.contains("watch-browse"))return;
+  const card=nearestHomeCard();
+  const art=String(card?.dataset?.thumb||"").trim();
+  if(!art||(!force&&art===homeChromeTintThumb))return;
+  homeChromeTintThumb=art;
+  applyChromeTintFromArt(art,"home");
+}
+
+function scheduleHomeChromeTint(force=false){
+  if(document.documentElement.classList.contains("watch-browse"))return;
+  if(force)homeChromeTintThumb="";
+  if(homeChromeTintFrame)return;
+  homeChromeTintFrame=requestAnimationFrame(()=>{
+    homeChromeTintFrame=0;
+    syncHomeChromeTint(force);
+  });
+}
+
+window.addEventListener("scroll",()=>scheduleHomeChromeTint(false),{passive:true});
+window.addEventListener("resize",()=>scheduleHomeChromeTint(true),{passive:true});
+feedSection?.addEventListener("scroll",()=>scheduleHomeChromeTint(false),{passive:true});
 
 function ensureDesktopCardTint(card){
   if(!card)return;
