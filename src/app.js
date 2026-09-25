@@ -5324,6 +5324,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   root.style.removeProperty("--watch-grid-gap");
   root.style.removeProperty("--watch-feed-cols");
   root.style.removeProperty("--watch-player-top-offset");
+  root.style.removeProperty("--watch-player-bottom-safe");
   root.style.removeProperty("--watch-card-unit");
 }
 
