@@ -6484,6 +6484,13 @@ function renderCards(rows=[],options={}){
   syncWatchCurrentCard();
   queueHomeChannelAvatars();
   normalizeRenderedThumbnails();
+
+  // v212: mobile watch metadata has its tint all the time, not only on
+  // hover/press. Sample once after render so there is no interaction effect.
+  if(document.documentElement.classList.contains("watch-browse")&&window.innerWidth<=720){
+    feed.querySelectorAll("[data-video-id]").forEach(ensureDesktopCardTint);
+  }
+
   return cards.length;
 }
 
