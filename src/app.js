@@ -2193,96 +2193,124 @@ async function searchSourceChannels(query){
     return;
   }
 
-  if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm kênh trên YouTube…";
+  if(sourceSearchStatus)sourceSearchStatus.textContent="Đang tìm kênh…";
 
-  try{
-    const local=await localEngine(12000);
-    let rows=[];
+  const scope=sourceScope(sourceManageGroup);
+  const byId=new Map();
+  const addCandidate=row=>{
+    if(!row)return false;
+    const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
+      ?sourceMetaFor(row)
+      :sourceCandidateFromVideo(row);
+    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return false;
+    if(matchSourceState(candidate,scope).status==="blocked")return false;
+    if(!byId.has(candidate.id))byId.set(candidate.id,candidate);
+    return true;
+  };
 
-    try{
-      rows=await local.searchChannels(q);
-    }catch(error){
-      console.warn("channel-only search failed; using video fallback",error);
-    }
-
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-    // Blocked channels must never consume search-result capacity. Keep any
-    // matching blocked channel visible from the durable local/server library
-    // (so it can still be unblocked), but remove it from fresh YouTube results
-    // and keep scanning until we refill the list with usable channels.
-    const scope=sourceScope(sourceManageGroup);
-    const byId=new Map();
-    for(const row of Array.isArray(rows)?rows:[]){
-      const id=String(row?.id||"").trim();
-      if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
-      if(matchSourceState(row,scope).status==="blocked")continue;
-      if(!byId.has(id))byId.set(id,row);
-      if(byId.size>=24)break;
-    }
-
-    if(byId.size<24){
-      try{
-        let first=true;
-        for(let page=0;page<3&&byId.size<24;page++){
-          const videos=await pagedSearch(
-            local,
-            "source-manager:"+scope+":"+fastHash(q),
-            q,
-            {},
-            first,
-            scope
-          );
-          first=false;
-          if(!Array.isArray(videos)||!videos.length)break;
-
-          for(const video of videos){
-            const candidate=sourceCandidateFromVideo(video);
-            if(!candidate||byId.has(candidate.id))continue;
-            if(matchSourceState(candidate,scope).status==="blocked")continue;
-            byId.set(candidate.id,candidate);
-            if(byId.size>=24)break;
-          }
-        }
-      }catch(error){
-        console.warn("source search video refill failed",error);
-      }
-    }
-
-    rows=[...byId.values()];
-
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-    sourceRemoteResults=(Array.isArray(rows)?rows:[])
-      .filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
-
-    // Search results are ephemeral metadata only; they never alter Chọn/Chặn.
+  const publish=()=>{
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return false;
+    sourceRemoteResults=[...byId.values()].slice(0,24);
     rememberSearchedSourceCandidates(sourceRemoteResults);
-
-    // Search is proactive: resolve missing channel avatars/name metadata instead
-    // of waiting for an IntersectionObserver after the result has already painted.
-    if(sourceRemoteResults.some(row=>!sourceMetaComplete(row.id))){
-      if(sourceSearchStatus)sourceSearchStatus.textContent="Đang hoàn thiện icon nguồn…";
-      await prewarmSourceSearchMetadata(sourceRemoteResults.slice(0,14),local,1200);
-      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-      sourceRemoteResults=sourceRemoteResults.map(row=>sourceMetaFor(row));
-    }
-
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
         ?"Có "+sourceRemoteResults.length+" kênh phù hợp"
-        :"Không tìm thấy kênh phù hợp";
+        :"Đang tìm thêm…";
     }
     renderSourceLibrary();
+    return true;
+  };
 
-    // Finish any remaining icons in the background; ensureSourceMeta updates
-    // each visible row independently as soon as its channel metadata arrives.
-    void prewarmSourceSearchMetadata(sourceRemoteResults,local,5000);
+  try{
+    const local=await localEngine(7000);
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+    // Fast path: one normal video search. It is the same lightweight path as
+    // homepage search and is enough to derive channel IDs immediately.
+    let videos=[];
+    try{
+      videos=await Promise.race([
+        local.search(q,{type:"video"}),
+        new Promise(resolve=>setTimeout(()=>resolve([]),5200))
+      ]);
+    }catch{}
+
+    for(const row of Array.isArray(videos)?videos:[]){
+      addCandidate(row);
+      if(byId.size>=24)break;
+    }
+    publish();
+
+    // Channel-only search is enrichment, never a blocker for the first result.
+    // It can add exact channel matches after the video-derived list is visible.
+    void (async()=>{
+      try{
+        const direct=await Promise.race([
+          local.searchChannels(q,{includeVideos:false}),
+          new Promise(resolve=>setTimeout(()=>resolve([]),6500))
+        ]);
+        if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+        for(const row of Array.isArray(direct)?direct:[]){
+          addCandidate(row);
+          if(byId.size>=24)break;
+        }
+        publish();
+
+        // Only when still sparse, take at most one continuation page. Do not
+        // reuse the deep 20-page discovery refill logic in an interactive box.
+        if(byId.size<12){
+          const more=await local.searchPage(
+            "source-manager-ui:"+scope+":"+fastHash(q),
+            q,
+            {type:"video"},
+            true
+          ).catch(()=>[]);
+          if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+          for(const row of Array.isArray(more)?more:[]){
+            addCandidate(row);
+            if(byId.size>=24)break;
+          }
+          publish();
+        }
+
+        // Avatar/name enrichment is background-only and may not delay results.
+        void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,3000)
+          .then(()=>{
+            if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+            sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
+            renderSourceLibrary();
+          })
+          .catch(()=>{});
+      }catch(error){
+        console.warn("source channel enrichment failed",error);
+      }
+    })();
+
+    if(!byId.size){
+      // Independent backend fallback. This path only runs if local YouTube
+      // search produced nothing quickly.
+      try{
+        const response=await api("search",{q,filter:"videos"},5200);
+        const fallback=Array.isArray(response?.data?.items)?response.data.items:[];
+        for(const row of fallback){
+          addCandidate(row);
+          if(byId.size>=24)break;
+        }
+        publish();
+      }catch{}
+    }
+
+    if(seq===sourceSearchSeq&&!sourcesSheet?.hidden&&!byId.size){
+      sourceRemoteResults=[];
+      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
+      renderSourceLibrary();
+    }
   }catch(error){
     if(seq!==sourceSearchSeq)return;
     console.warn("channel search failed",error);
     sourceRemoteResults=[];
-    if(sourceSearchStatus)sourceSearchStatus.textContent="Chưa tìm được kênh trên YouTube";
+    if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
     renderSourceLibrary();
   }
 }
@@ -9579,7 +9607,7 @@ async function doSearch(value){
     return;
   }
 
-  feedTitle.textContent='Kết quả tìm kiếm';
+  feedTitle.textContent="Kết quả tìm kiếm";
   feed.classList.remove("search-grouped");
   feed.innerHTML='<div class="loading">Đang tìm…</div>';
   feedStatus.textContent="";
@@ -9588,90 +9616,81 @@ async function doSearch(value){
     searchRefinements.innerHTML="";
   }
 
-  const showRows=async rows=>{
-    if(seq!==state.searchSeq)return false;
-    const cleanRows=(Array.isArray(rows)?rows:[])
-      .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+  const paintRows=rows=>{
+    if(seq!==state.searchSeq||state.searchQuery!==q)return false;
+
+    const cleanRows=mergeUniqueRows(
+      [],
+      (Array.isArray(rows)?rows:[])
+        .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+    ).slice(0,60);
+
     if(!cleanRows.length)return false;
 
-    let local=null;
-    try{local=await localEngine(6000);}catch{}
+    state.feedRows=cleanRows;
+    renderCards(cleanRows);
+    rememberDiscoveredSources(cleanRows,"");
+    feedStatus.textContent=cleanRows.length+" video";
 
-    // Validate the first visible batch BEFORE paint, so a video with embedding
-    // disabled never becomes a tappable card. The rest is checked in the
-    // background and appended only after it passes the same test.
-    const firstBatch=cleanRows.slice(0,12);
-    const tail=cleanRows.slice(12);
-    let firstPlayable=firstBatch;
-
-    if(typeof local?.filterEmbeddableRows==="function"){
-      feedStatus.textContent="Đang lọc video có thể phát…";
-      firstPlayable=await local.filterEmbeddableRows(firstBatch,{concurrency:6});
-      if(seq!==state.searchSeq)return false;
-    }
-
-    if(firstPlayable.length){
-      await prewarmRowSourceAvatars(firstPlayable,520);
-      if(seq!==state.searchSeq)return false;
-
-      state.feedRows=firstPlayable;
-      renderCards(firstPlayable);
-      rememberDiscoveredSources(firstPlayable,"");
-      feedStatus.textContent=firstPlayable.length+" video";
-    }else if(tail.length){
-      feed.innerHTML='<div class="loading">Đang lọc video có thể phát…</div>';
-      feedStatus.textContent="";
-      state.feedRows=[];
-    }else{
-      return false;
-    }
-
-    if(tail.length){
-      void (async()=>{
-        let tailPlayable=tail;
-        if(typeof local?.filterEmbeddableRows==="function"){
-          tailPlayable=await local.filterEmbeddableRows(tail,{concurrency:6});
-        }
-        if(seq!==state.searchSeq||state.searchQuery!==q)return;
-
-        if(tailPlayable.length){
-          await prewarmRowSourceAvatars(tailPlayable,420);
-          if(seq!==state.searchSeq||state.searchQuery!==q)return;
-
-          const append=state.feedRows.length>0;
-          state.feedRows=[...state.feedRows,...tailPlayable];
-          renderCards(tailPlayable,{append,updateStatus:false});
-          rememberDiscoveredSources(tailPlayable,"");
-          feedStatus.textContent=state.feedRows.length+" video";
-        }else if(!state.feedRows.length){
-          feed.innerHTML='<div class="empty">Chưa thấy video có thể phát trên 1988.</div>';
-          feedStatus.textContent="";
-        }
-      })();
-    }
-
+    // Metadata/icons are cosmetic and must never hold search results hostage.
+    void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
     return true;
   };
 
   try{
-    const response=await api("search",{q,filter:"videos"},10000);
-    const rows=Array.isArray(response?.data?.items)?response.data.items:[];
-    if(await showRows(rows))return;
+    const local=await localEngine(6500);
+    if(seq!==state.searchSeq)return;
+
+    // Search is deliberately AI-free and direct. Prefer the local YouTube
+    // engine; race a short backend fallback so a slow upstream never leaves
+    // the UI stuck on "Đang tìm…".
+    const localTask=Promise.resolve()
+      .then(()=>local.search(q,{type:"video"}))
+      .then(rows=>{
+        if(!Array.isArray(rows)||!rows.length)throw new Error("empty_local_search");
+        return rows;
+      });
+
+    const backendTask=Promise.resolve()
+      .then(()=>api("search",{q,filter:"videos"},5200))
+      .then(response=>{
+        const rows=Array.isArray(response?.data?.items)?response.data.items:[];
+        if(!rows.length)throw new Error("empty_backend_search");
+        return rows;
+      });
+
+    let firstRows=[];
+    try{
+      firstRows=await Promise.any([localTask,backendTask]);
+    }catch{}
+
+    if(paintRows(firstRows)){
+      // Whichever path lost the race may still produce useful extra results.
+      void Promise.allSettled([localTask,backendTask]).then(results=>{
+        if(seq!==state.searchSeq||state.searchQuery!==q)return;
+        const merged=[...state.feedRows];
+        for(const result of results){
+          if(result.status==="fulfilled")merged.push(...result.value);
+        }
+        const rows=mergeUniqueRows(
+          [],
+          merged.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+        ).slice(0,60);
+        if(rows.length<=state.feedRows.length)return;
+        state.feedRows=rows;
+        renderCards(rows);
+        rememberDiscoveredSources(rows,"");
+        feedStatus.textContent=rows.length+" video";
+      });
+      return;
+    }
   }catch(error){
-    console.warn("1988 search API failed; trying local engine",error);
+    console.warn("direct search failed",error);
   }
 
-  try{
-    const local=await localEngine(9000);
-    const rows=await local.search(q,{type:"video"});
-    if(await showRows(rows))return;
-
-    feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
-    feedStatus.textContent="";
-  }catch{
-    feed.innerHTML='<div class="error">Chưa tìm được video.</div>';
-    feedStatus.textContent="";
-  }
+  if(seq!==state.searchSeq)return;
+  feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
+  feedStatus.textContent="";
 }
 
 function hardResetDocumentTop(){
