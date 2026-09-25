@@ -2204,7 +2204,8 @@ async function searchSourceChannels(query){
       ?sourceMetaFor(row)
       :sourceCandidateFromVideo(row);
     if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return false;
-    if(matchSourceState(candidate,scope).status==="blocked")return false;
+    // Interactive channel search shows every matching channel, including ones
+    // already selected/blocked, so the user can inspect or change its state.
     if(!byId.has(candidate.id))byId.set(candidate.id,candidate);
     return true;
   };
@@ -3397,6 +3398,7 @@ function resetSourceManagerInstant(){
   sourceRemoteResults=[];
   sourcePreviewRows=new Map();
   sourcePreviewSearchRows=new Map();
+  sourcePreviewSearchChannels=new Map();
   sourcePreviewSourceId="";
   sourcePreviewSourceRow=null;
 
