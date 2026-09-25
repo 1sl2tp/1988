@@ -10545,7 +10545,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   await Promise.all(workers);
   return mergeUniqueRows([],collected);
 }
-function refreshSourcePool(local,sources){
+function refreshSourcePool(local,sources,onBatch=null){
   const signature=sourceSignature();
   if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
     return sourcePoolRefreshPromise;
@@ -10553,7 +10553,13 @@ function refreshSourcePool(local,sources){
 
   sourcePoolRefreshSignature=signature;
   sourcePoolRefreshPromise=(async()=>{
-    const rows=await fetchSourcePool(local,sources,true,GENERAL_SOURCE_SCOPE);
+    const rows=await fetchSourcePool(
+      local,
+      sources,
+      true,
+      GENERAL_SOURCE_SCOPE,
+      onBatch
+    );
     if(signature!==sourceSignature())return [];
     const saved=saveSourcePoolCache(rows);
     primeSourceFeedCaches(saved);
@@ -10568,14 +10574,14 @@ function refreshSourcePool(local,sources){
   return sourcePoolRefreshPromise;
 }
 
-async function selectedSourceFeed(local,predicate,reset=false){
+async function selectedSourceFeed(local,predicate,reset=false,onBatch=null){
   const sources=selectedSources();
   if(!sources.length)return [];
 
   if(reset){
     const cached=readSourcePoolCache();
     if(cached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources);
+      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
       return cached.filter(predicate);
     }
 
@@ -10584,11 +10590,11 @@ async function selectedSourceFeed(local,predicate,reset=false){
     // paint on a full YouTube + playability refresh across every source.
     const channelCached=cachedRowsForSources(sources,GENERAL_SOURCE_SCOPE);
     if(channelCached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources);
+      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
       return channelCached.filter(predicate);
     }
 
-    const fresh=await refreshSourcePool(local,sources);
+    const fresh=await refreshSourcePool(local,sources,onBatch);
     return fresh.filter(predicate);
   }
 
@@ -10721,12 +10727,22 @@ const FEED_PRESETS={
   latest:{
     title:"Mới nhất",
     newest:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinLatest,reset)
+    load:(local,reset,onBatch=null)=>selectedSourceFeed(
+      local,
+      uploadedWithinLatest,
+      reset,
+      onBatch
+    )
   },
   week:{
     title:"Tuần này",
     weekFreshViewed:true,
-    load:(local,reset)=>selectedSourceFeed(local,uploadedWithinWeek,reset)
+    load:(local,reset,onBatch=null)=>selectedSourceFeed(
+      local,
+      uploadedWithinWeek,
+      reset,
+      onBatch
+    )
   }
 };
 
@@ -11023,7 +11039,26 @@ async function loadFeedPreset(name="latest"){
   try{
     let local=null;
     local=await localEngine(16000);
-    const rowsRaw=await preset.load(local,true);
+
+    const progressiveBatch=isSourceScopedFeed(name)
+      ?(batch)=>{
+          if(seq!==state.feedSeq||state.activeFeed!==name)return;
+          const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+          const matching=(Array.isArray(batch)?batch:[])
+            .filter(predicate)
+            .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
+          if(!matching.length)return;
+
+          state.feedRows=sortPresetRows(
+            mergeUniqueRows(matching,state.feedRows),
+            preset
+          );
+          renderCurrentTrendFeed();
+          feedStatus.textContent="Đang cập nhật…";
+        }
+      :null;
+
+    const rowsRaw=await preset.load(local,true,progressiveBatch);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
     const rows=sortPresetRows(rowsRaw,preset);
     if(!Array.isArray(rows)||!rows.length){
