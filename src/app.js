@@ -153,6 +153,7 @@ const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
+const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 let stateSyncReady=false;
 let stateSyncApplying=false;
@@ -4012,6 +4013,57 @@ function normalizedVideoAspect(meta=state.currentMeta||{}){
   return ratio;
 }
 
+function readVideoAspectHabits(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(VIDEO_ASPECT_HABIT_KEY)||"{}");
+    return raw&&typeof raw==="object"&&!Array.isArray(raw)?raw:{};
+  }catch{
+    return {};
+  }
+}
+
+const videoAspectHabits=readVideoAspectHabits();
+
+function videoAspectHabitScope(meta={}){
+  const explicit=String(meta?._watchScope||"").trim();
+  if(CONTENT_SOURCE_SCOPES.has(explicit))return explicit;
+  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
+  if(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))return state.searchScope;
+  return "";
+}
+
+function canonicalHabitAspect(ratio){
+  ratio=validPipAspect(ratio);
+  if(!ratio)return 0;
+  if(ratio<.80)return 9/16;
+  if(ratio<=1.20)return 1;
+  return 16/9;
+}
+
+function rememberedVideoAspect(meta={}){
+  const scope=videoAspectHabitScope(meta);
+  if(!scope)return 0;
+  return validPipAspect(videoAspectHabits?.[scope]?.ratio);
+}
+
+function rememberVideoAspectHabit(meta={},ratio=0){
+  const scope=videoAspectHabitScope(meta);
+  const canonical=canonicalHabitAspect(ratio);
+  if(!scope||!canonical)return;
+
+  const previous=validPipAspect(videoAspectHabits?.[scope]?.ratio);
+  if(previous===canonical)return;
+
+  videoAspectHabits[scope]={
+    ratio:canonical,
+    orientation:canonical<.80?"portrait":canonical>1.20?"landscape":"square",
+    at:Date.now()
+  };
+  try{
+    localStorage.setItem(VIDEO_ASPECT_HABIT_KEY,JSON.stringify(videoAspectHabits));
+  }catch{}
+}
+
 function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   const viewportW=Math.max(240,window.innerWidth);
   const viewportH=Math.max(180,window.innerHeight);
@@ -4422,6 +4474,7 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   if(verified){
     state.videoAspectVerified=true;
     if(next<.80)state.videoAspectPortraitLocked=true;
+    rememberVideoAspectHabit(meta,next);
   }
 
   state.floatPreset="auto";
@@ -9296,13 +9349,6 @@ async function playVideo(id,seedMeta={}){
   const cachedAspect=cachedPipAspect(id);
   const seedAspect=validPipAspect(seedMeta?.aspectRatio);
 
-  // Never block playback for aspect detection. Use only information that is
-  // already available synchronously. If the next video's shape is unknown,
-  // preserve the current PiP shape until the async Auto probe catches up.
-  const immediateAspect=
-    cachedAspect||
-    (seedAspect&&seedAspect<=1.20?seedAspect:0);
-
   const currentPlaybackScope=
     (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))
       ?state.activeParent
@@ -9313,6 +9359,16 @@ async function playVideo(id,seedMeta={}){
     ...seedMeta,
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
   };
+  const habitAspect=rememberedVideoAspect(playbackMeta);
+
+  // Never block playback for aspect detection. Exact per-video knowledge wins.
+  // If this video's shape is still unknown, start with the last VERIFIED shape
+  // used in the same content tab (especially Film) instead of flashing 16:9
+  // first and then snapping back to portrait a moment later.
+  const immediateAspect=
+    cachedAspect||
+    (seedAspect&&seedAspect<=1.20?seedAspect:0)||
+    habitAspect;
 
   state.keepFloating=wasFloating;
   state.currentId=id;
