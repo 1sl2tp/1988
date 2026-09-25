@@ -5177,15 +5177,19 @@ html:not(.watch-browse) .header-nav{
 
 /* Scrolled state: the complete first row goes away together:
    logo + Search + Source. Chips move into the top position. */
-html:not(.watch-browse).home-header-hidden .header-inner{
+html:not(.watch-browse).home-header-hidden .header-inner,
+html:not(.watch-browse).home-header-hidden .header-nav{
   opacity:0!important;
   visibility:hidden!important;
-  transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
   pointer-events:none!important;
 }
 
-html:not(.watch-browse).home-header-hidden .header-nav{
+html:not(.watch-browse).home-header-hidden .header-inner{
   transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
+}
+
+html:not(.watch-browse).home-header-hidden .header-nav{
+  transform:translate3d(0,calc(-1 * var(--header-stack-h)),0)!important;
 }
 
 /* Opening Search always restores the complete first row instantly. */
@@ -5303,29 +5307,26 @@ html:not(.watch-browse).home-search-open .header-nav{
     content:"";
     position:absolute;
     z-index:0;
-    inset:-10px -11px -11px;
-    border-radius:19px;
+    /* 22px desktop column gap => ~11px each side, matching YouTube's
+       rich-item interaction surface right up to the neighboring card. */
+    inset:-12px -11px -13px;
+    border-radius:20px;
     pointer-events:none;
-    background:
-      linear-gradient(var(--card-hover-color,rgba(30,30,32,.92)),var(--card-hover-color,rgba(30,30,32,.92))),
-      var(--card-art,none);
-    background-position:center;
-    background-size:cover;
-    filter:blur(12px) saturate(1.22) brightness(.70);
+    background:var(--card-hover-color,#242426);
     opacity:0;
-    transform:scale(.985);
+    transform:scale(.992);
     transition:opacity .14s ease,transform .14s ease;
   }
 
   html:not(.watch-browse) .card:hover,
   html:not(.watch-browse) .card:focus-within{
     z-index:3;
-    background-color:var(--card-hover-color,rgba(255,255,255,.055))!important;
+    background:transparent!important;
   }
 
   html:not(.watch-browse) .card:hover::before,
   html:not(.watch-browse) .card:focus-within::before{
-    opacity:.68;
+    opacity:1;
     transform:scale(1);
   }
 
@@ -5417,4 +5418,24 @@ html:not(.watch-browse).home-search-open .header-nav{
   min-height:auto!important;
   overflow:visible!important;
   scrollbar-gutter:auto!important;
+}
+
+
+/* ============================================================
+   HOME CHIP FOCUS CLEANUP v197
+   No persistent white/blue ring after tapping a source/feed chip.
+   Keyboard focus remains visible.
+   ============================================================ */
+html:not(.watch-browse) .topic-chip:focus{
+  outline:none;
+}
+
+html:not(.watch-browse) .topic-chip:focus:not(:focus-visible){
+  outline:none!important;
+  box-shadow:none;
+}
+
+html:not(.watch-browse) .topic-chip:focus-visible{
+  outline:2px solid rgba(255,255,255,.45);
+  outline-offset:2px;
 }
