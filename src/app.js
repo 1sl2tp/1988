@@ -5371,6 +5371,8 @@ function rowMatchesParentRule(parent,row={}){
       return /giai tri|showbiz|gameshow|hau truong|nghe si|dien vien|hoa hau|concert|truyen hinh thuc te|reality show/.test(text);
     case "news":
       return /thoi su|tin tuc|ban tin|tin nong|truc tiep|quoc te|chinh phu|hoi nghi|du bao thoi tiet/.test(text);
+    case LATEST_SOURCE_SCOPE:
+    case WEEK_SOURCE_SCOPE:
     case GENERAL_SOURCE_SCOPE:
       return true;
     default:
@@ -5960,17 +5962,22 @@ function extractSourceContentTerms(parent={},rows=[]){
 
 async function selectedLearningRows(parent={},local){
   const group=parentSourceGroup(parent);
-  const allSources=group===GENERAL_SOURCE_SCOPE?selectedSources():selectedSourcesForParent(parent);
+  const allSources=group===GENERAL_SOURCE_SCOPE
+    ?selectedSources()
+    :FEED_SOURCE_SCOPES.has(group)
+      ?selectedSources(group)
+      :selectedSourcesForParent(parent);
   if(!allSources.length)return [];
 
   const selectedIds=new Set(allSources.map(source=>source.id));
   let cached=[];
-  if(group===GENERAL_SOURCE_SCOPE){
-    cached=readSourcePoolCache().filter(row=>
-      selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
-      uploadedWithinCategoryWindow(row)&&
-      !isBlockedSourceRow(row,group)
-    );
+  if(group===GENERAL_SOURCE_SCOPE||FEED_SOURCE_SCOPES.has(group)){
+    cached=(FEED_SOURCE_SCOPES.has(group)?readSourcePoolCache(group):[])
+      .filter(row=>
+        selectedIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||""))&&
+        uploadedWithinCategoryWindow(row)&&
+        !isBlockedSourceRow(row,group)
+      );
   }else{
     const parentRows=categoryCacheRows(parent.key);
     cached=parentRows.filter(row=>
@@ -6031,7 +6038,7 @@ async function cleanSelectedRowsForLearning(parent={},rows=[]){
     const batch=source.slice(offset,offset+48);
     try{
       const classified=await classifyAiParent(parent,batch,{
-        filterToParent:group!==GENERAL_SOURCE_SCOPE
+        filterToParent:CONTENT_SOURCE_SCOPES.has(group)
       });
       if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
         state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
@@ -6039,9 +6046,9 @@ async function cleanSelectedRowsForLearning(parent={},rows=[]){
       const acceptedIds=classified?.acceptedVideoIds instanceof Set
         ?classified.acceptedVideoIds
         :new Set(batch.map(itemVideoId).filter(Boolean));
-      const kept=group===GENERAL_SOURCE_SCOPE
-        ?batch
-        :batch.filter(row=>acceptedIds.has(itemVideoId(row)));
+      const kept=CONTENT_SOURCE_SCOPES.has(group)
+        ?batch.filter(row=>acceptedIds.has(itemVideoId(row)))
+        :batch;
       accepted.push(...kept);
     }catch(error){
       console.warn("AI 1 learning cleanup failed",parent?.label||group,error);
@@ -6082,8 +6089,8 @@ async function adaptiveSourceQueries(parent={},local){
   if(!Number(content?.rows))return [];
   const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
 
-  if(group===GENERAL_SOURCE_SCOPE){
-    const selectedNames=sourceLearningNames(GENERAL_SOURCE_SCOPE,"selected").slice(0,4);
+  if(group===GENERAL_SOURCE_SCOPE||FEED_SOURCE_SCOPES.has(group)){
+    const selectedNames=sourceLearningNames(group,"selected").slice(0,4);
     return [...new Set([...learned.slice(0,5),...selectedNames])].slice(0,6);
   }
 
@@ -6096,7 +6103,7 @@ async function classifyAiParent(parent,rows=[],options={}){
   const input=topicInputRows(rows.slice(0,48));
   const learning=sourceLearningProfile(parent);
   const group=parentSourceGroup(parent);
-  const filterToParent=options?.filterToParent!==false&&group!==GENERAL_SOURCE_SCOPE;
+  const filterToParent=options?.filterToParent!==false&&CONTENT_SOURCE_SCOPES.has(group);
   if(input.length<4){
     return {
       topics:[],
@@ -6301,7 +6308,9 @@ async function discoverSourcesForParent(parent,local){
   // explicitly selected in this scope.
   const positiveSources=group===GENERAL_SOURCE_SCOPE
     ?selectedSources()
-    :selectedSourcesForParent(parent);
+    :FEED_SOURCE_SCOPES.has(group)
+      ?selectedSources(group)
+      :selectedSourcesForParent(parent);
   if(!positiveSources.length)return;
 
   const last=Number(sourceDiscoveryAt.get(group)||0);
@@ -10915,8 +10924,9 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   if(document.hidden)return false;
   if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return false;
 
+  const feedScope=feedSourceScope(name);
   const sample=dedupeHashedRows(newestFirst(rows))
-    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+    .filter(row=>!isBlockedSourceRow(row,feedScope))
     .slice(0,72);
   const input=topicInputRows(sample);
   if(input.length<4)return false;
@@ -10924,7 +10934,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
   const cacheKey=feedAiContentKey(name,sample);
   const feedParent={
     key:"feed-"+name,
-    group:GENERAL_SOURCE_SCOPE,
+    group:feedScope,
     label:name==="week"?"Tuần này":"Mới nhất"
   };
   const learning=sourceLearningProfile(feedParent);
@@ -10932,8 +10942,8 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
     const cleaned=aiDisplayRows(sample);
     if(!cleaned.length)return;
     saveSourceContentLearning(
-      GENERAL_SOURCE_SCOPE,
-      extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,cleaned)
+      feedScope,
+      extractSourceContentTerms(feedParent,cleaned)
     );
   };
 
@@ -11028,10 +11038,11 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
   if(document.hidden)return;
   try{
     const local=await localEngine(16000);
-    const sources=selectedSources();
+    const scope=feedSourceScope(name);
+    const sources=selectedSources(scope);
     if(!sources.length)return;
 
-    const pool=await refreshSourcePool(local,sources);
+    const pool=await refreshSourcePool(local,sources,scope);
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const rows=sortPresetRows(
       (Array.isArray(pool)?pool:[]).filter(predicate),
@@ -11043,7 +11054,7 @@ async function refreshCachedSourceFeedInBackground(name,preset,seq){
     // AI 1 must finish before AI 2 can learn/search from this refreshed pool.
     void enrichSourceFeedAi(name,rows,seq)
       .then(ai1Ready=>{
-        if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+        if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
       });
 
     if(
@@ -11247,7 +11258,7 @@ async function loadFeedPreset(name="latest"){
     if(isSourceScopedFeed(name)){
       void enrichSourceFeedAi(name,state.feedRows,seq)
         .then(ai1Ready=>{
-          if(ai1Ready)return discoverSourcesForParent(GENERAL_SOURCE_DISCOVERY_PARENT,local);
+          if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
         });
     }
     void refreshAiTrendTopics();
