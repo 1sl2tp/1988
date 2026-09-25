@@ -22,6 +22,11 @@ const aiDisclosureMemory=new Map();
 const AI_DISCLOSURE_TTL=12*60*60*1000;
 const AI_DISCLOSURE_STORAGE_PREFIX='1988-ai-disclosure-v1:';
 
+const embedPlaybackCache=new Map();
+const embedPlaybackPending=new Map();
+const EMBED_PLAYBACK_TTL=6*60*60*1000;
+const EMBED_PLAYBACK_UNKNOWN_TTL=10*60*1000;
+
 function text(value){
   if(value===undefined||value===null)return '';
   if(typeof value==='string'||typeof value==='number')return String(value);
@@ -516,6 +521,163 @@ async function nextPage(result){
     if(typeof result.getContinuation==='function')return await result.getContinuation();
   }catch{}
   return null;
+}
+
+function classifyEmbedPlayback(info){
+  const play=info?.playability_status||{};
+  const status=String(play?.status||'').trim().toUpperCase();
+  const reason=text(play?.reason||'').trim();
+  const reasonNorm=reason.toLowerCase();
+  const embeddable=
+    typeof play?.embeddable==='boolean'
+      ?play.embeddable
+      :typeof play?.playableInEmbed==='boolean'
+        ?play.playableInEmbed
+        :null;
+
+  if(embeddable===false){
+    return {playable:false,definitive:true,status:status||'UNPLAYABLE',reason:reason||'embed_disabled'};
+  }
+
+  if(
+    /other\s+(?:web)?sites?|embedding|embed(?:ding)?\s+(?:has\s+been\s+)?disabled|playback\s+on\s+other/i.test(reason)
+  ){
+    return {playable:false,definitive:true,status:status||'UNPLAYABLE',reason};
+  }
+
+  if(status==='OK'){
+    return {playable:true,definitive:true,status,reason};
+  }
+
+  // Bot-verification failures are transport noise, not proof that the video
+  // itself cannot be embedded. Keep the result visible and retry later.
+  if(/bot|confirm\s+you(?:'re| are)\s+not/i.test(reasonNorm)){
+    return {playable:null,definitive:false,status,reason};
+  }
+
+  if([
+    'UNPLAYABLE',
+    'ERROR',
+    'AGE_CHECK_REQUIRED',
+    'CONTENT_CHECK_REQUIRED',
+    'LOGIN_REQUIRED',
+    'LIVE_STREAM_OFFLINE'
+  ].includes(status)){
+    return {playable:false,definitive:true,status,reason};
+  }
+
+  return {playable:null,definitive:false,status,reason};
+}
+
+function rememberEmbedPlayback(id,result){
+  id=String(id||'').trim();
+  if(!VIDEO_ID_RE.test(id))return result;
+  const ttl=result?.definitive?EMBED_PLAYBACK_TTL:EMBED_PLAYBACK_UNKNOWN_TTL;
+  embedPlaybackCache.set(id,{at:Date.now(),ttl,result});
+  return result;
+}
+
+function cachedEmbedPlayback(id){
+  id=String(id||'').trim();
+  const cached=embedPlaybackCache.get(id);
+  if(!cached)return null;
+  if(Date.now()-cached.at>cached.ttl){
+    embedPlaybackCache.delete(id);
+    return null;
+  }
+  return cached.result||null;
+}
+
+async function embedPlaybackStatus(id){
+  id=String(id||'').trim();
+  if(!VIDEO_ID_RE.test(id))return {playable:null,definitive:false,status:'INVALID_ID',reason:''};
+
+  const cached=cachedEmbedPlayback(id);
+  if(cached)return cached;
+
+  const pending=embedPlaybackPending.get(id);
+  if(pending)return pending;
+
+  const task=(async()=>{
+    const yt=await getYT();
+    let last={playable:null,definitive:false,status:'',reason:''};
+
+    // Ask the embedded client first because this matches the real 1988 player.
+    // Fall back to WEB only when the embedded answer is inconclusive.
+    for(const client of ['WEB_EMBEDDED','WEB']){
+      try{
+        const info=await yt.getBasicInfo(id,{client});
+        const result=classifyEmbedPlayback(info);
+        last={...result,client};
+
+        if(result.playable===false)return rememberEmbedPlayback(id,last);
+        if(result.playable===true)return rememberEmbedPlayback(id,last);
+      }catch(error){
+        last={
+          playable:null,
+          definitive:false,
+          status:'PROBE_ERROR',
+          reason:String(error?.message||error||''),
+          client
+        };
+      }
+    }
+
+    return rememberEmbedPlayback(id,last);
+  })().finally(()=>embedPlaybackPending.delete(id));
+
+  embedPlaybackPending.set(id,task);
+  return task;
+}
+
+function markEmbedUnplayable(id,reason='iframe_embed_error'){
+  return rememberEmbedPlayback(String(id||'').trim(),{
+    playable:false,
+    definitive:true,
+    status:'UNPLAYABLE',
+    reason:String(reason||'iframe_embed_error'),
+    client:'iframe'
+  });
+}
+
+async function filterEmbeddableRows(rows=[],options={}){
+  const list=(Array.isArray(rows)?rows:[]).filter(Boolean);
+  if(!list.length)return [];
+
+  const concurrency=Math.max(1,Math.min(10,Number(options?.concurrency)||6));
+  const output=new Array(list.length);
+  let cursor=0;
+
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=list.length)return;
+      const row=list[index];
+      const id=String(
+        row?.videoId||
+        row?.id||
+        row?.video_id||
+        row?.content_id||
+        ''
+      ).trim();
+
+      if(!VIDEO_ID_RE.test(id)){
+        output[index]=row;
+        continue;
+      }
+
+      try{
+        const status=await embedPlaybackStatus(id);
+        // Unknown stays visible; only a definitive "cannot play here" is removed.
+        if(status?.playable!==false)output[index]=row;
+      }catch{
+        output[index]=row;
+      }
+    }
+  };
+
+  await Promise.all(Array.from({length:Math.min(concurrency,list.length)},worker));
+  return output.filter(Boolean);
 }
 
 async function search(query,filters={}){
@@ -1508,7 +1670,7 @@ async function visualContentAspect(id){
   return task;
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,visualContentAspect,normalizeRows,normalizeChannels};
+const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,visualContentAspect,embedPlaybackStatus,filterEmbeddableRows,markEmbedUnplayable,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 
