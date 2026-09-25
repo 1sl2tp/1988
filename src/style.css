@@ -6856,3 +6856,79 @@ html:not(.watch-browse) .app-header{
     background:transparent!important;
   }
 }
+
+
+/* ============================================================
+   WATCH SEARCH VIEW v205
+   Search in mobile watch mode is a dedicated view:
+   search bar -> chips -> results. The current player is not shown.
+   ============================================================ */
+@media(max-width:720px){
+  /* Reference layout: once Search opens, remove the player layer entirely. */
+  html.watch-browse.watch-search-open .player-section,
+  html.watch-browse.watch-search-open.watch-video-wide .player-section,
+  html.watch-browse.watch-search-open.watch-video-square .player-section,
+  html.watch-browse.watch-search-open.watch-video-portrait .player-section{
+    display:none!important;
+    visibility:hidden!important;
+    pointer-events:none!important;
+  }
+
+  /* Chips move directly under the expanded search row. */
+  html.watch-browse.watch-search-open .header-nav,
+  html.watch-browse.watch-search-open.watch-categories-open .header-nav{
+    display:block!important;
+    position:fixed!important;
+    z-index:110!important;
+    top:calc(var(--watch-top-row-h) + var(--safe-top))!important;
+    left:0!important;
+    right:0!important;
+    bottom:auto!important;
+    width:100%!important;
+    height:var(--watch-source-row-h)!important;
+    min-height:var(--watch-source-row-h)!important;
+    max-height:var(--watch-source-row-h)!important;
+    margin:0!important;
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  /* Results/loading own all remaining viewport space. */
+  html.watch-browse.watch-search-open .feed-section,
+  html.watch-browse.watch-search-open.watch-video-wide .feed-section,
+  html.watch-browse.watch-search-open.watch-video-square .feed-section,
+  html.watch-browse.watch-search-open.watch-video-portrait .feed-section{
+    display:block!important;
+    position:fixed!important;
+    z-index:30!important;
+    top:calc(
+      var(--watch-top-row-h) +
+      var(--safe-top) +
+      var(--watch-source-row-h)
+    )!important;
+    left:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:8px 0 calc(16px + var(--safe-bottom))!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    background:#0b0b0c!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-y!important;
+  }
+
+  html.watch-browse.watch-search-open .section-head{
+    display:none!important;
+  }
+
+  /* Search suggestions, when present, belong to the search row and must stay
+     above chips/results instead of falling behind the hidden player layer. */
+  html.watch-browse.watch-search-open .suggestions{
+    z-index:140!important;
+  }
+}
