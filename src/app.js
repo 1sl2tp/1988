@@ -379,6 +379,7 @@ const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
+const SOURCE_NAME_OVERRIDES_KEY="1988-source-name-overrides-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
@@ -492,6 +493,11 @@ function readStoredObject(key){
 }
 
 let sourceAvatarCache=readStoredObject(SOURCE_AVATAR_CACHE_KEY);
+let sourceNameOverrides=Object.fromEntries(
+  Object.entries(readStoredObject(SOURCE_NAME_OVERRIDES_KEY))
+    .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
+    .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
+);
 
 function readScopedSourceState(key){
   const raw=readStoredObject(key);
@@ -541,7 +547,7 @@ function channelLibrary(){
     seen.add(row.id);
     out.push({
       id:row.id,
-      name:clean(row.name),
+      name:clean(sourceNameOverrides[row.id]||row.name),
       thumbnailUrl:clean(sourceAvatarCache[row.id]||row.thumbnailUrl||""),
       subscribers:clean(row.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[row.id])
@@ -571,6 +577,7 @@ function persistSourceLibrary(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
+    localStorage.setItem(SOURCE_NAME_OVERRIDES_KEY,JSON.stringify(sourceNameOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
     persistSuggestedSourceState();
   }catch{}
@@ -755,6 +762,11 @@ function serverStateSnapshot(){
       durableIds.has(row.id)
     ),
     sourceGroups:{},
+    sourceNames:Object.fromEntries(
+      Object.entries(sourceNameOverrides||{})
+        .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
+        .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
+    ),
     scopedSelected:scopedStateObject(scopedSelectedSourceIds),
     scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
     avatars:{}
@@ -765,6 +777,7 @@ function saveServerMetadataCachesLocally(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
+    localStorage.setItem(SOURCE_NAME_OVERRIDES_KEY,JSON.stringify(sourceNameOverrides));
     localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));
   }catch{}
   clearLegacyLocalSourceState();
@@ -796,6 +809,14 @@ function applyServerState(remote={}){
 
     if(remote.sourceGroups&&typeof remote.sourceGroups==="object"&&!Array.isArray(remote.sourceGroups)){
       sourceGroupOverrides=remote.sourceGroups;
+    }
+
+    if(remote.sourceNames&&typeof remote.sourceNames==="object"&&!Array.isArray(remote.sourceNames)){
+      sourceNameOverrides=Object.fromEntries(
+        Object.entries(remote.sourceNames)
+          .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
+          .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
+      );
     }
 
     const scopeVersion=Number(remote.sourceScopeVersion)||0;
@@ -1156,7 +1177,7 @@ function managedChannelLibrary(){
     const meta=sourceMetaCache.get(id)||{};
     rows.push({
       id,
-      name:clean(meta.name||stored.name||id),
+      name:clean(sourceNameOverrides[id]||meta.name||stored.name||id),
       thumbnailUrl:clean(meta.thumbnailUrl||stored.thumbnailUrl||""),
       subscribers:clean(meta.subscribers||stored.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[id])
@@ -1605,6 +1626,7 @@ function sourceMetaFor(row={}){
     ""
   );
   const name=clean(
+    sourceNameOverrides[id]||
     remote?.name||
     row?.name||
     normalized.name||
@@ -2137,6 +2159,7 @@ function sourceRowHtml(row,{remote=false}={}){
 
   const manageControls=
     '<div class="source-state-actions">'+
+      '<button class="source-state-btn rename" type="button" data-source-rename="'+esc(row.id)+'" title="Đổi tên nguồn" aria-label="Đổi tên nguồn">✎</button>'+
       '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
       '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
     '</div>';
@@ -2415,6 +2438,38 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   renderSourceGroupTabs(rows);
   sourceList.innerHTML=parts.join("");
   requestAnimationFrame(observeSourceRows);
+}
+
+function renameManagedSource(id){
+  id=String(id||"").trim();
+  if(!sourceManageMode||!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+  const row=
+    managedChannelLibrary().find(item=>item.id===id)||
+    sourceRemoteResults.find(item=>item.id===id)||
+    libraryRow(id)||
+    {id};
+
+  const current=clean(sourceNameOverrides[id]||sourceMetaFor(row).name||row.name||"");
+  const entered=window.prompt(
+    "Đổi tên nguồn\nĐể trống để dùng lại tên gốc trên YouTube.",
+    current
+  );
+  if(entered===null)return false;
+
+  const next=clean(entered);
+  if(next){
+    sourceNameOverrides[id]=next;
+  }else{
+    delete sourceNameOverrides[id];
+  }
+
+  persistSourceLibrary();
+  invalidateSourceStateNameIndex?.();
+  scheduleServerStatePush(80);
+  refreshSourceManager();
+  syncSourcePreviewHeader();
+  return true;
 }
 
 function refreshSourceManager(){
@@ -4227,6 +4282,12 @@ function setupSourceLibrary(){
       const id=addButton.dataset.sourceAdd||"";
       const row=sourceRemoteResults.find(item=>item.id===id);
       if(row)addSource(row);
+      return;
+    }
+
+    const renameButton=event.target.closest("[data-source-rename]");
+    if(renameButton){
+      renameManagedSource(renameButton.dataset.sourceRename||"");
       return;
     }
 
