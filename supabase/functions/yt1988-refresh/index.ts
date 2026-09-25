@@ -300,6 +300,7 @@ Deno.serve(async(req:Request)=>{
       scopes.flatMap((scope)=>selectedByScope.get(scope)||[]).map((s:any)=>s.id)
     )];
     const channelRows=new Map<string,any[]>();
+    const channelFetchOk=new Set<string>();
 
     await mapLimit(neededIds,10,async(id)=>{
       const source=channelMeta.get(id)||{id,name:id};
@@ -317,6 +318,7 @@ Deno.serve(async(req:Request)=>{
           id,
           raw.map((row:any)=>normalizeRow(row,source)).filter(Boolean).slice(0,30)
         );
+        channelFetchOk.add(id);
       }catch(error){
         console.warn("channel refresh failed",id,String(error));
         channelRows.set(id,[]);
@@ -346,6 +348,24 @@ Deno.serve(async(req:Request)=>{
       const selected=selectedByScope.get(scope)||[];
       const blocked=blockedByScope.get(scope)||new Set<string>();
       const selectedIds=new Set(selected.map((s:any)=>s.id));
+
+      // Never replace a healthy shared package with a partial outage. A scope
+      // refresh needs a majority of its selected channels to have answered.
+      if(selected.length){
+        const okCount=selected.filter((s:any)=>channelFetchOk.has(s.id)).length;
+        const minOk=Math.max(1,Math.ceil(selected.length*.6));
+        if(okCount<minOk){
+          results.push({
+            scope,
+            changed:false,
+            reason:"insufficient_channel_refresh",
+            okChannels:okCount,
+            selectedChannels:selected.length
+          });
+          continue;
+        }
+      }
+
       let raw:any[]=[];
 
       for(const source of selected){
