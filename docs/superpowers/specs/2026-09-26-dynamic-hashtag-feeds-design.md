@@ -99,6 +99,9 @@ For hashtag `H`:
    - refresh due channel snapshots,
    - keep last known good snapshot when an upstream request fails,
    - include only videos whose normalized age is <= 7 days,
+   - exclude short-form videos whose verified duration is **under 60 seconds**,
+   - duration exactly 60 seconds or longer remains eligible,
+   - duration `0` / missing / unknown is never treated as "<60s"; resolve/enrich duration first when the row is otherwise eligible,
    - exclude blocked sources/videos,
    - deduplicate videos,
    - apply the existing common unwanted-content/ad/noise rules,
@@ -126,6 +129,20 @@ Therefore:
 - the user only needs to add the relevant sources.
 
 The learning model/cache is keyed by `hashtag_id` and source signature, never by label text.
+
+## Short-video Exclusion
+
+Dynamic hashtag feeds do not include short videos under 60 seconds.
+
+Canonical rule:
+
+- verified duration `1..59` seconds => reject;
+- verified duration `>=60` seconds => keep eligible;
+- live streams are handled by their own live semantics, not by the short-duration rule;
+- duration `0`, missing, malformed, or unknown => do not reject solely from duration; attempt metadata enrichment first;
+- if a row is explicitly marked as a YouTube Short but duration is not yet known, resolve duration before package commit so an unknown value cannot bypass or falsely trigger the rule.
+
+This filter is applied centrally in the shared hashtag engine, before adaptive learning/package commit, so every existing and future hashtag inherits it automatically.
 
 ## Refresh Scheduling
 
@@ -263,6 +280,9 @@ Tests must prove:
 
 - one generic hashtag path handles all hashtag IDs;
 - all hashtag videos are <= 7 days old;
+- no committed hashtag package contains a video with verified duration `1..59` seconds;
+- a 60-second video remains eligible;
+- unknown duration is enriched or preserved for later validation rather than being misclassified as a short;
 - zero-source hashtag performs no channel fetch;
 - package safety guard prevents catastrophic shrink;
 - a shared channel cache can serve more than one hashtag.
