@@ -5091,6 +5091,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.classList.add(aspectClass);
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
+  // Keep the current artwork available to the inline stage as well as PiP.
+  // Landscape Watch uses it behind the centered media as a soft ambient band.
+  syncFloatArtwork(frame);
+
   const root=document.documentElement;
   root.classList.remove(
     "watch-film-default",
@@ -5283,22 +5287,28 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       );
       unit=Math.max(1,Math.min(preferredUnit,maxUnitForFeed));
     }else{
-      // Landscape/square keeps the four-unit width geometry.
+      // LANDSCAPE/SQUARE:
+      // Width remains the primary constraint. For a wide video, do NOT shrink
+      // the player box to the media's own 16:9 height. The outer stage spans
+      // the full left-column frame height; YouTube/native media stays centered
+      // inside it with natural aspect, leaving top/bottom bands for chrome.
       feedColumns=wide?2:3;
       const playerSpan=wide?2:1;
       const widthUnit=Math.max(
         1,
         (innerWidth-(gridGap*3)-scrollGutter)/4
       );
-      const heightUnit=playerSpan===2
-        ?Math.max(1,(safePaneHeight*ratio-gridGap)/2)
-        :Math.max(1,safePaneHeight*ratio);
 
-      unit=Math.max(1,Math.min(widthUnit,heightUnit));
-      playerWidth=playerSpan===2
-        ?(2*unit+gridGap)
-        :unit;
-      playerHeight=playerWidth/ratio;
+      if(wide){
+        unit=widthUnit;
+        playerWidth=2*unit+gridGap;
+        playerHeight=fullPaneHeight;
+      }else{
+        const heightUnit=Math.max(1,safePaneHeight*ratio);
+        unit=Math.max(1,Math.min(widthUnit,heightUnit));
+        playerWidth=unit;
+        playerHeight=playerWidth/ratio;
+      }
     }
 
     const feedContentWidth=
