@@ -3099,21 +3099,7 @@ function explicitVideoAspect(meta={}){
 
 let responsivePlayerRaf=0;
 
-function isFilmDefaultFrame(meta=state.currentMeta||{}){
-  const scope=clean(meta?._watchScope||"")||
-    (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)?state.activeParent:"")||
-    (state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope)?state.searchScope:"")||
-    activeSourceScope()||
-    "";
-
-  // Film is a normal YouTube watch surface. Keep the player's DEFAULT 16:9
-  // box from the very first paint, regardless of whether the movie itself
-  // contains portrait/9:16 footage or duration metadata has arrived yet.
-  return scope==="film";
-}
-
 function responsivePlayerAspect(meta=state.currentMeta||{}){
-  if(isFilmDefaultFrame(meta))return 16/9;
   return explicitVideoAspect(meta)||
     validPipAspect(state.videoAspect)||
     16/9;
@@ -3123,13 +3109,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Film videos keep YouTube's original/default 16:9 player
-  // box. This is still the NORMAL wide-player path (not a custom film mode),
-  // so native fullscreen remains available.
-  const longFilm=isFilmDefaultFrame(meta);
-  let ratio=longFilm
-    ?16/9
-    :(explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9);
+  // Inline watch geometry follows the real media shape. The fake PiP has its
+  // own fixed box path and is deliberately excluded above.
+  let ratio=responsivePlayerAspect(meta);
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
 
   frame.classList.remove(
@@ -3188,7 +3170,17 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     // Cap tall/square media to 46% of the visual viewport and publish the
     // REAL rendered stage height so the chips + scroll region start exactly
     // below the player on iOS Safari.
-    const availableHeight=Math.max(140,viewportHeight*.46);
+    const rotatedLandscape=viewportWidth>viewportHeight;
+    const mobileStyles=getComputedStyle(root);
+    const topRow=parseFloat(mobileStyles.getPropertyValue("--watch-top-row-h"))||52;
+    const sourceRow=parseFloat(mobileStyles.getPropertyValue("--watch-source-row-h"))||48;
+    const landscapeReserve=topRow+sourceRow+Math.max(12,viewportHeight*.04);
+    const availableHeight=Math.max(
+      140,
+      rotatedLandscape
+        ?Math.min(viewportHeight*.72,Math.max(140,viewportHeight-landscapeReserve))
+        :viewportHeight*.46
+    );
     const width=Math.min(viewportWidth,availableHeight*ratio);
     const height=width/ratio;
 
@@ -3239,17 +3231,6 @@ function queueResponsivePlayerFrame(){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
-  // visualContentAspect can detect portrait/9:16 imagery INSIDE a Film video
-  // upload. Do not let that reshape a long-form film away from YouTube's
-  // original/default player box.
-  if(isFilmDefaultFrame(meta)){
-    state.videoAspect=16/9;
-    state.videoAspectVerified=true;
-    state.videoAspectPortraitLocked=false;
-    applyResponsivePlayerFrame(meta);
-    return;
-  }
-
   const next=explicitVideoAspect(meta);
   if(!next)return;
 
@@ -3605,6 +3586,7 @@ function applyFloatingIframe(force){
       state.floatTucked=false;
       clearFloatBoxStyles();
       playerSection.style.removeProperty("min-height");
+      queueResponsivePlayerFrame();
     }
     return;
   }
@@ -3684,6 +3666,7 @@ function applyFloatingIframe(force){
     state.floatTucked=false;
     clearFloatBoxStyles();
     playerSection.style.removeProperty("min-height");
+    queueResponsivePlayerFrame();
   }
 }
 
@@ -7787,7 +7770,7 @@ async function playVideo(id,seedMeta={}){
   const wasFloating=!!frame?.classList.contains("floating-iframe");
   const keepScrollY=window.scrollY;
   const previousAspect=validPipAspect(state.videoAspect)||16/9;
-  const cachedAspect=wasFloating?cachedPipAspect(id):0;
+  const cachedAspect=cachedPipAspect(id);
   const seedAspect=validPipAspect(seedMeta?.aspectRatio);
 
   // Never block playback for aspect detection. Use only information that is
@@ -7811,44 +7794,34 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
-  const longFilmDefault=isFilmDefaultFrame(playbackMeta);
-  state.videoAspect=longFilmDefault
-    ?16/9
-    :(immediateAspect||(
-      wasFloating
-        ?previousAspect
-        :normalizedVideoAspect(playbackMeta)
-    ));
-  state.videoAspectVerified=longFilmDefault||!!cachedAspect;
-  state.videoAspectPortraitLocked=!longFilmDefault&&!!cachedAspect&&cachedAspect<.80;
+  state.videoAspect=immediateAspect||(
+    wasFloating
+      ?previousAspect
+      :normalizedVideoAspect(playbackMeta)
+  );
+  state.videoAspectVerified=!!cachedAspect;
+  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
 
-  // Warm/resolve the next aspect in parallel. This must never delay
-  // loadVideoById(). If it resolves first, PiP reshapes while playback starts.
-  if(wasFloating){
-    void primePipAspect(id).then(ratio=>{
-      if(state.currentId!==id)return;
-      if(isFilmDefaultFrame(state.currentMeta)){
-        state.videoAspect=16/9;
-        state.videoAspectVerified=true;
-        state.videoAspectPortraitLocked=false;
-        ratio=16/9;
-      }else{
-        ratio=validPipAspect(ratio);
-        if(!ratio)return;
-        state.videoAspect=ratio;
-        state.videoAspectVerified=true;
-        state.videoAspectPortraitLocked=ratio<.80;
-      }
+  // Warm/resolve the real media shape for BOTH inline watch and fake PiP.
+  // Playback starts immediately; geometry is corrected as soon as the probe
+  // resolves, so portrait/square videos never stay trapped in a 16:9 shell.
+  void primePipAspect(id).then(ratio=>{
+    if(state.currentId!==id)return;
+    ratio=validPipAspect(ratio);
+    if(!ratio)return;
 
-      const activeFrame=playerSection?.querySelector(".player-frame");
-      if(activeFrame?.classList.contains("floating-iframe")){
-        applyAutoFloatAspect(activeFrame,{force:true});
-      }
-    }).catch(()=>{});
-  }
+    const meta={
+      ...(state.currentMeta||{}),
+      aspectRatio:ratio,
+      _aspectVerified:true,
+      _aspectSource:"aspect-prime"
+    };
+    state.currentMeta=meta;
+    updateCurrentVideoAspect(meta);
+  }).catch(()=>{});
 
   if(wasFloating&&frame){
     const floatRect=frame.getBoundingClientRect();
@@ -7879,7 +7852,7 @@ async function playVideo(id,seedMeta={}){
 
   updateNow(seedMeta);
   showIframePlayer();
-  applyResponsivePlayerFrame(seedMeta);
+  applyResponsivePlayerFrame(state.currentMeta);
   ensureWatchNavRail();
   syncWatchCurrentCard({scroll:true});
   updateModeUi();
