@@ -1984,21 +1984,46 @@ function submitSettingsAccess(){
   action?.();
 }
 
+function resetSourceManagerInstant(){
+  sourceManageGroup=GENERAL_SOURCE_SCOPE;
+  sourceBlockedExpanded=false;
+  sourceRemoteResults=[];
+  sourcePreviewRows=new Map();
+  sourcePreviewSearchRows=new Map();
+  sourcePreviewSourceId="";
+  sourcePreviewSourceRow=null;
+
+  if(sourceSearch)sourceSearch.value="";
+  if(sourcePreviewSearch)sourcePreviewSearch.value="";
+  if(clearSourceSearch)clearSourceSearch.hidden=true;
+  if(sourceSearchStatus)sourceSearchStatus.textContent="";
+
+  const resetScroll=element=>{
+    if(!element)return;
+    element.scrollTop=0;
+    element.scrollLeft=0;
+  };
+
+  resetScroll(sourcesSheet);
+  resetScroll(sourcesSheet?.querySelector?.(".sources-sheet"));
+  resetScroll(sourcesSheet?.querySelector?.(".source-workspace"));
+  resetScroll(sourceBrowse);
+  resetScroll(sourceList);
+  resetScroll(sourcePreview);
+  resetScroll(sourcePreviewList);
+  resetScroll(sourceGroupTabs);
+}
+
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
   resetHomeViewportInstant({resetSource:true});
+  resetSourceManagerInstant();
   sourcesSheet.hidden=false;
-  sourcesSheet.scrollTop=0;
-  if(sourceBrowse)sourceBrowse.scrollTop=0;
-  if(sourceList)sourceList.scrollTop=0;
-  if(sourceGroupTabs)sourceGroupTabs.scrollLeft=0;
-  sourceRemoteResults=[];
+  resetSourceManagerInstant();
   sourcePreviewSeq++;
   closeSourceVideo();
-  sourceManageGroup=state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
-    ?state.activeParent
-    :GENERAL_SOURCE_SCOPE;
+  sourceManageGroup=GENERAL_SOURCE_SCOPE;
 
   setSourceManageMode(true,{render:false});
   resetSourcePreviewPane();
@@ -2009,6 +2034,7 @@ function openSourceLibrary(){
   requestAnimationFrame(()=>{
     try{
       refreshSourceManager();
+      resetSourceManagerInstant();
     }catch(error){
       console.error("open source manager failed",error);
       if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
@@ -2024,7 +2050,14 @@ function openSourceLibrary(){
     },120);
   });
 
-  setTimeout(()=>sourceSearch?.focus(),80);
+  setTimeout(()=>{
+    resetSourceManagerInstant();
+    if(window.innerWidth>720){
+      try{sourceSearch?.focus({preventScroll:true});}catch{sourceSearch?.focus();}
+    }else{
+      sourceSearch?.blur();
+    }
+  },80);
 }
 
 function closeSourceLibrary(){
@@ -7887,6 +7920,49 @@ document.addEventListener("scroll",event=>{
   if(event.target===document||event.target===document.scrollingElement)onHomeScroll();
 },{passive:true});
 
+let homeTouchStartY=null;
+let homeTouchStartX=null;
+
+document.addEventListener("touchstart",event=>{
+  if(window.innerWidth>720||event.touches?.length!==1)return;
+  const touch=event.touches[0];
+  homeTouchStartY=touch.clientY;
+  homeTouchStartX=touch.clientX;
+},{passive:true});
+
+document.addEventListener("touchmove",event=>{
+  if(
+    window.innerWidth>720||
+    homeTouchStartY===null||
+    homeTouchStartX===null||
+    document.documentElement.classList.contains("watch-browse")||
+    document.documentElement.classList.contains("home-search-open")||
+    (sourcesSheet&&!sourcesSheet.hidden)
+  )return;
+
+  const touch=event.touches?.[0];
+  if(!touch)return;
+  const dy=touch.clientY-homeTouchStartY;
+  const dx=touch.clientX-homeTouchStartX;
+
+  // Ignore horizontal swipes on chips/rails.
+  if(Math.abs(dy)<14||Math.abs(dy)<=Math.abs(dx)*1.15)return;
+
+  if(dy<0){
+    setHomeHeaderHidden(true);
+  }else{
+    setHomeHeaderHidden(false);
+  }
+
+  homeTouchStartY=touch.clientY;
+  homeTouchStartX=touch.clientX;
+},{passive:true});
+
+document.addEventListener("touchend",()=>{
+  homeTouchStartY=null;
+  homeTouchStartX=null;
+},{passive:true});
+
 function homeSearchIconMarkup(open){
   return open
     ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"></path><path d="m11 18-6-6 6-6"></path></svg>'
@@ -7958,6 +8034,22 @@ queryInput.addEventListener("input",()=>{
   }
 });
 
+function setDesktopAmbientArt(card){
+  if(window.innerWidth<=720)return;
+  const root=document.documentElement;
+  const art=String(card?.dataset?.thumb||"").trim();
+
+  if(!art){
+    root.classList.remove("home-ambient-on");
+    root.style.removeProperty("--home-ambient-art");
+    return;
+  }
+
+  const escaped=art.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"");
+  root.style.setProperty("--home-ambient-art",'url("'+escaped+'")');
+  root.classList.add("home-ambient-on");
+}
+
 function ensureDesktopCardArt(card){
   if(!card||window.innerWidth<=720||card.dataset.artReady==="1")return;
   const art=String(card.dataset.thumb||"").trim();
@@ -7969,7 +8061,14 @@ function ensureDesktopCardArt(card){
 
 feed.addEventListener("pointerover",event=>{
   if(window.innerWidth<=720)return;
-  ensureDesktopCardArt(event.target.closest("[data-video-id]"));
+  const card=event.target.closest("[data-video-id]");
+  ensureDesktopCardArt(card);
+  setDesktopAmbientArt(card);
+},{passive:true});
+
+feed.addEventListener("pointerleave",()=>{
+  if(window.innerWidth<=720)return;
+  setDesktopAmbientArt(null);
 },{passive:true});
 
 feed.addEventListener("pointerdown",e=>{
