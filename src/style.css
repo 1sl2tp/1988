@@ -322,7 +322,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   bottom:calc(12px + var(--safe-bottom));
   z-index:90;
   width:min(360px,36vw);
-  aspect-ratio:16/9;
+  aspect-ratio:auto;
   isolation:isolate;
   border:0;
   border-radius:12px;
@@ -940,9 +940,9 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     overflow:hidden;
   }
 
-  html.watch-browse .player-frame{
+  html.watch-browse .player-frame:not(.floating-iframe){
     width:100%;
-    aspect-ratio:16/9;
+    aspect-ratio:var(--watch-video-aspect,16/9);
     border-radius:12px;
     background:#000;
   }
@@ -996,7 +996,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 
 
 /* ============================================================
-   CANONICAL HOME + WATCH LAYOUT v227
+   CANONICAL HOME + WATCH LAYOUT v229
    Single source of truth after removing v168-v224 override layers.
    Parent states:
    - html:not(.watch-browse) = Home/Search
