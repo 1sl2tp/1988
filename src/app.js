@@ -8142,8 +8142,9 @@ function averageThumbTint(url){
 
         r/=count;g/=count;b/=count;
 
-        // Mix only ~15% of the thumbnail into YouTube-like #0f0f0f.
-        const mix=.15;
+        // Stronger YouTube-like sampled card surface: keep it dark,
+        // but let the video's dominant color read clearly.
+        const mix=.34;
         const base=[15,15,15];
         const out=[
           Math.round(base[0]*(1-mix)+r*mix),
