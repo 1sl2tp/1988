@@ -8167,3 +8167,221 @@ html:not(.watch-browse).home-search-open .header-inner{
     background:rgba(255,255,255,.05)!important;
   }
 }
+
+
+/* ============================================================
+   HOME + WATCH YOUTUBE CARD UNIFY v216
+   Mobile Home now mirrors Watch:
+   - ambient Search + source cluster
+   - square/full-width artwork, no rounded card frame
+   - permanent sampled-color metadata surface
+   - source + views + time are one compact line
+   ============================================================ */
+@media(max-width:720px){
+  /* HOME ambient cluster: Search + source row behave as one colored surface. */
+  html:not(.watch-browse) .app-header{
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .header-inner{
+    background:
+      radial-gradient(118% 180% at 50% 122%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 40%,
+        rgba(11,11,12,.78) 72%,
+        rgba(11,11,12,.96) 100%)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(9px) saturate(118%)!important;
+    -webkit-backdrop-filter:blur(9px) saturate(118%)!important;
+  }
+
+  html:not(.watch-browse) .header-nav{
+    background:
+      radial-gradient(128% 205% at 50% -38%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 50%,
+        rgba(11,11,12,.86) 89%)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(8px) saturate(114%)!important;
+    -webkit-backdrop-filter:blur(8px) saturate(114%)!important;
+    overflow:visible!important;
+  }
+
+  html:not(.watch-browse) .header-nav::after{
+    content:""!important;
+    position:absolute!important;
+    left:12px!important;
+    right:12px!important;
+    bottom:0!important;
+    height:1px!important;
+    background:rgba(255,255,255,.075)!important;
+    pointer-events:none!important;
+  }
+
+  html:not(.watch-browse) .header-nav-inner,
+  html:not(.watch-browse) .topic-chips{
+    background:transparent!important;
+  }
+
+  /* HOME cards: image reaches the full feed width and has square edges. */
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    min-width:0!important;
+    margin:0 0 18px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transform:none!important;
+    transition:none!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card::before{
+    display:none!important;
+    content:none!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap{
+    position:relative!important;
+    width:100%!important;
+    max-width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain){
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:scale(1.018)!important;
+    transform-origin:center center!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  /* HOME info surface is square, full width, and always follows image color. */
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-copy{
+    position:relative!important;
+    z-index:1!important;
+    width:100%!important;
+    max-width:100%!important;
+    margin:0!important;
+    padding:10px 12px 10px!important;
+    box-sizing:border-box!important;
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+    border:0!important;
+    border-radius:0!important;
+    background:var(--card-hover-color,#1d1d20)!important;
+    box-shadow:none!important;
+    transform:none!important;
+    transition:none!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:active,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:focus-within{
+    background:transparent!important;
+    transform:none!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:active .card-copy,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:focus-within .card-copy{
+    background:var(--card-hover-color,#1d1d20)!important;
+  }
+
+  /* Shared one-line metadata row on Home + Watch. */
+  html:not(.watch-browse) .card-meta-line,
+  html.watch-browse .card-meta-line{
+    display:flex!important;
+    align-items:baseline!important;
+    min-width:0!important;
+    max-width:100%!important;
+    margin-top:4px!important;
+    color:#92929a!important;
+    font-size:10.5px!important;
+    line-height:1.3!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+  }
+
+  html:not(.watch-browse) .card-meta-line .card-channel,
+  html.watch-browse .card-meta-line .card-channel{
+    display:block!important;
+    flex:0 1 auto!important;
+    min-width:0!important;
+    max-width:52%!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:inherit!important;
+    font:inherit!important;
+    line-height:inherit!important;
+  }
+
+  html:not(.watch-browse) .card-meta-line .card-meta-sep,
+  html.watch-browse .card-meta-line .card-meta-sep{
+    display:block!important;
+    flex:0 0 auto!important;
+    margin:0!important;
+    padding:0!important;
+    color:inherit!important;
+  }
+
+  html:not(.watch-browse) .card-meta-line .card-stats,
+  html.watch-browse .card-meta-line .card-stats{
+    display:block!important;
+    flex:1 1 auto!important;
+    min-width:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:inherit!important;
+    font:inherit!important;
+    line-height:inherit!important;
+  }
+
+  /* Old pseudo separator is no longer needed because markup owns the separator. */
+  html:not(.watch-browse) .card-meta-line .card-channel::after,
+  html.watch-browse .card-meta-line .card-channel::after{
+    content:none!important;
+  }
+
+  /* Keep Home search mode neutral/readable just like Watch search mode. */
+  html:not(.watch-browse).home-search-open .header-inner,
+  html:not(.watch-browse).home-search-open .header-nav{
+    background:#0b0b0c!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+}
