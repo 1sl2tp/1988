@@ -991,17 +991,33 @@ html.search-suggestions-open .suggestions{
    ============================================================ */
 
 @media(min-width:960px){
+  html.watch-browse,
+  html.watch-browse body{
+    height:100%;
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+
+  html.watch-browse body{
+    height:100dvh;
+    min-height:0;
+  }
+
   html.watch-browse .app-shell{
     width:min(1580px,100%);
+    height:calc(100dvh - var(--header-stack-h) - var(--safe-top));
+    min-height:0;
     display:grid;
     grid-template-columns:minmax(0,1fr) minmax(320px,var(--watch-player-column-w,44vw));
+    grid-template-rows:auto minmax(0,1fr);
     grid-template-areas:
       "trend trend"
       "feed player";
-    align-items:start;
+    align-items:stretch;
     gap:0 20px;
     padding-left:16px;
     padding-right:16px;
+    overflow:hidden;
   }
 
   html.watch-browse .trend-topics{
@@ -1012,16 +1028,28 @@ html.search-suggestions-open .suggestions{
   html.watch-browse .feed-section{
     grid-area:feed;
     min-width:0;
+    min-height:0;
+    height:100%;
     margin:0;
+    padding-bottom:18px;
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior-y:contain;
+    scrollbar-gutter:stable;
   }
 
   html.watch-browse .player-section{
     grid-area:player;
-    position:sticky;
-    top:calc(var(--header-stack-h) + var(--safe-top) + 10px);
-    align-self:start;
+    position:relative;
+    top:auto;
+    align-self:stretch;
     justify-self:stretch;
+    display:grid;
+    place-items:start center;
     min-width:0;
+    min-height:0;
+    width:100%;
+    height:100%;
     max-width:100%;
     margin:0;
     z-index:14;
