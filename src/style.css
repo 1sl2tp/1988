@@ -47,13 +47,18 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   overflow:hidden
 }
 .brand{display:inline-flex;align-items:center;gap:7px;color:#fff;text-decoration:none;font-size:20px;letter-spacing:-.5px}
-.brand-mark{width:31px;height:22px;border-radius:7px;display:grid;place-items:center;background:#f20d3a;color:#fff;font-size:11px;padding-left:2px}
+.brand-mark{width:31px;height:22px;border-radius:7px;display:grid;place-items:center;background:#f20d3a;color:#fff;padding:0}
+.brand-mark svg{display:block;width:18px;height:14px;fill:currentColor;stroke:none}
 .header-search{
   position:relative;height:40px;display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;align-items:center;
   border:0;border-top:1px solid #303037;border-bottom:1px solid #303037;border-radius:0;
   background:rgba(255,255,255,.018);overflow:visible
 }
-.search-icon{padding-left:13px;color:#8f8f98;font-size:19px}
+.search-icon{padding:0;color:#8f8f98;font-size:19px}
+.home-search-toggle{
+  width:42px;height:38px;margin:0;padding:0;border:0;background:transparent;
+  display:grid;place-items:center;color:#f3f3f4;line-height:1;box-shadow:none
+}
 #queryInput{min-width:0;height:38px;border:0;outline:0;background:transparent;color:#fff;padding:0 10px;font-size:16px}
 .header-search>button[type="submit"]{
   height:32px;margin-right:0;padding:0 14px;border:0;border-left:1px solid #2d2d33;border-radius:0;
@@ -65,7 +70,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .source-header-icon{font-size:16px;line-height:1;color:#c8c8ce}
 
-/* CANONICAL HEADER SVG ICONS v227 */
+/* CANONICAL HEADER SVG ICONS v230 */
 .home-search-toggle svg,
 .source-header-icon svg{
   display:block;
@@ -105,8 +110,16 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 }
 .topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap;scroll-snap-align:center}
 .topic-chip.active{background:#f2f2f3;color:#111;border-color:#f2f2f3;font-weight:750}
-.topic-chip.live-chip{color:#ff453a;border-color:rgba(255,69,58,.42)}
+.topic-chip.live-chip{
+  width:36px;min-width:36px;padding:0;display:grid;place-items:center;
+  color:#ff453a;border-color:rgba(255,69,58,.42)
+}
 .topic-chip.live-chip.active{color:#ff453a;background:rgba(255,69,58,.10);border-color:rgba(255,69,58,.58);font-weight:800}
+.live-chip-icon{
+  display:block;width:20px;height:20px;overflow:visible;
+  fill:currentColor;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round
+}
+.live-chip-icon circle{stroke:none}
 
 .trend-topics{
   display:flex;gap:4px;overflow-x:auto;margin:0 0 10px;padding:0 2px 7px;
@@ -728,10 +741,11 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   text-align:left;display:grid;grid-template-columns:36px minmax(0,1fr);align-items:center;gap:9px
 }
 .source-avatar{
-  width:34px;height:34px;border-radius:50%;overflow:hidden;background:#29292e;color:#bdbdc4;
-  display:grid;place-items:center;font-size:13px;font-weight:750
+  width:34px;height:34px;min-width:34px;min-height:34px;border-radius:50%;overflow:hidden;background:#29292e;color:#bdbdc4;
+  display:grid;place-items:center;font-size:13px;font-weight:750;contain:layout paint;isolation:isolate
 }
-.source-avatar img{width:100%;height:100%;display:block;object-fit:cover}
+.source-avatar img{width:100%;height:100%;display:block;object-fit:cover;border-radius:50%}
+.source-avatar-fallback{display:grid;width:100%;height:100%;place-items:center;color:#c8c8ce;font-size:12px;font-weight:760;line-height:1}
 .source-row-info{min-width:0;display:flex;flex-direction:column;justify-content:center}
 .source-row-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:650}
 .source-row-sub{margin-top:3px;color:#85858e;font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1035,8 +1049,15 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   color:transparent;
   contain:layout paint;
 }
-.card-avatar>span{
-  display:none!important;
+.card-avatar-fallback{
+  display:grid!important;
+  width:100%;
+  height:100%;
+  place-items:center;
+  color:#c8c8ce;
+  font-size:12px;
+  font-weight:760;
+  line-height:1;
 }
 .card-avatar img{
   display:block;
