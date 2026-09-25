@@ -84,6 +84,137 @@ function normalizeSourceNames(input:any,max=24){
   return out;
 }
 
+function normalizeSourceRefs(input:any,max=48){
+  const rows=Array.isArray(input)?input:[];
+  const out:any[]=[];
+  const seen=new Set<string>();
+  for(const row of rows){
+    const id=clean(row?.id,64);
+    const name=clean(row?.name,120);
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id)||seen.has(id))continue;
+    seen.add(id);
+    out.push({id,name});
+    if(out.length>=max)break;
+  }
+  return out;
+}
+
+function validateSourceQueryResult(value:any,fallback:any[]=[]){
+  const raw=[
+    ...(Array.isArray(value?.queries)?value.queries:[]),
+    ...(Array.isArray(fallback)?fallback:[])
+  ];
+  const out:string[]=[];
+  const seen=new Set<string>();
+  for(const item of raw){
+    const q=clean(item,100);
+    const key=q.toLocaleLowerCase("vi-VN");
+    if(q.length<2||seen.has(key))continue;
+    seen.add(key);
+    out.push(q);
+    if(out.length>=8)break;
+  }
+  return {queries:out};
+}
+
+function dedupeNormalize(value:any){
+  return String(value??"")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .replace(/đ/g,"d")
+    .replace(/Đ/g,"D")
+    .toLowerCase()
+    .replace(/[^a-z0-9@.+:/-]+/g," ")
+    .trim();
+}
+
+function strongReviewSpamIds(videos:any[],reviewMode=false){
+  if(!reviewMode)return new Set<string>();
+  const out=new Set<string>();
+
+  for(const row of videos){
+    const title=clean(row?.title,240);
+    const norm=dedupeNormalize(title);
+
+    const phone=/(?:^|[^\d])(?:\+?84|0)(?:3|5|7|8|9)(?:[\s.\-]?\d){8}(?:[^\d]|$)/u.test(title);
+    const url=/(?:https?:\/\/|www\.|(?:^|\s)[a-z0-9-]+\.(?:com|net|org|vn|me|io|cc|xyz)(?:\s|\/|$))/iu.test(title);
+    const promo=/\b(?:giftcode|coupon|voucher|ma giam gia|ma khuyen mai|nhap ma|code tan thu|code nhan qua|ma nhan qua|affiliate)\b/u.test(norm);
+    const contact=/\b(?:zalo|telegram|whatsapp|hotline|lien he|inbox|ib)\b/u.test(norm);
+    const handle=/(?:^|\s)@[a-z0-9_.-]{4,}/iu.test(title);
+
+    if(phone||url||promo||(contact&&handle))out.add(row.id);
+  }
+
+  return out;
+}
+
+function validateDedupeResult(value:any,videos:any[],options:any={}){
+  const reviewMode=options?.reviewMode===true;
+  const order=videos.map(row=>row.id);
+  const allowed=new Set(order);
+  const parent=new Map<string,string>();
+
+  const find=(id:string):string=>{
+    const p=parent.get(id)||id;
+    if(p===id)return id;
+    const root=find(p);
+    parent.set(id,root);
+    return root;
+  };
+  const union=(a:string,b:string)=>{
+    const ra=find(a),rb=find(b);
+    if(ra!==rb)parent.set(rb,ra);
+  };
+
+  for(const id of order)parent.set(id,id);
+
+  for(const rawGroup of Array.isArray(value?.duplicateGroups)?value.duplicateGroups:[]){
+    const ids=[...new Set(
+      (Array.isArray(rawGroup)?rawGroup:rawGroup?.videoIds||[])
+        .map((id:any)=>clean(id,32))
+        .filter((id:string)=>allowed.has(id))
+    )];
+    if(ids.length<2)continue;
+    const first=ids[0];
+    for(const id of ids.slice(1))union(first,id);
+  }
+
+  const spamIds=new Set<string>([
+    ...strongReviewSpamIds(videos,reviewMode),
+    ...(Array.isArray(value?.spamVideoIds)?value.spamVideoIds:[])
+      .map((id:any)=>clean(id,32))
+      .filter((id:string)=>allowed.has(id))
+  ]);
+
+  // Code chooses the first already-sorted NON-SPAM row as representative.
+  // AI can identify groups, but cannot reorder the feed or invent IDs.
+  const seenRoots=new Set<string>();
+  const keepVideoIds:string[]=[];
+  for(const id of order){
+    if(spamIds.has(id))continue;
+    const root=find(id);
+    if(seenRoots.has(root))continue;
+    seenRoots.add(root);
+    keepVideoIds.push(id);
+  }
+
+  const cleanups:any[]=[];
+  for(const row of Array.isArray(value?.cleanups)?value.cleanups:[]){
+    const id=clean(row?.id,32);
+    if(!allowed.has(id)||spamIds.has(id))continue;
+    const displayTitle=clean(row?.displayTitle,180);
+    if(displayTitle.length<8)continue;
+    cleanups.push({id,displayTitle});
+    if(cleanups.length>=80)break;
+  }
+
+  return {
+    keepVideoIds,
+    cleanups,
+    droppedSpamVideoIds:[...spamIds]
+  };
+}
+
 function normalizeSourceCandidates(input:any){
   const rows=Array.isArray(input)?input:[];
   const out:any[]=[];
@@ -560,21 +691,142 @@ ${JSON.stringify(videos)}
 }
 
 
-async function callSourceDiscoveryGemini(cfg:any,candidates:any[],parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]}){
+async function callDedupeGemini(cfg:any,videos:any[],options:any={}){
+  const parentLabel=clean(options?.parentLabel,80);
+  const reviewMode=options?.reviewMode===true;
+  const samples=videos.map((row:any)=>({
+    id:row.id,
+    title:row.title,
+    channel:row.channel,
+    published:row.published,
+    views:row.views,
+    duration:row.duration,
+    description:row.description
+  }));
+
+  const reviewRules=reviewMode?[
+    "ĐÂY LÀ TAB REVIEW. Ngoài trùng tiêu đề/chủ đề, phải nhận diện cùng TÁC PHẨM/BỘ PHIM dù câu chữ giật tít khác nhau.",
+    "Khi so phim, hãy bỏ qua các từ rác dạng: review phim, tóm tắt phim, movie recap, full tập, trọn bộ, vietsub, thuyết minh, phim hay, siêu phẩm, hashtag/emoji và tên kênh lặp.",
+    "Nếu hai video cùng bộ phim/tác phẩm VÀ cùng tập/phần hoặc cùng đoạn recap gần như giống nhau thì gom duplicateGroups.",
+    "Nếu cùng bộ phim nhưng KHÁC tập/phần/episode hoặc nội dung kể một phần cốt truyện khác rõ ràng thì KHÔNG gom.",
+    "Phát hiện quảng cáo/rác trong tiêu đề: số điện thoại, hotline, Zalo/Telegram/WhatsApp để liên hệ, URL/domain, mã giảm giá, giftcode/coupon/voucher, mã nhận quà/tân thủ, affiliate. Trả các video này vào spamVideoIds.",
+    "Không coi năm phát hành, S01E12, EP12, Tập 12, Phần 2 hoặc con số thuộc tên phim là quảng cáo.",
+    "Có thể trả cleanups để làm sạch HIỂN THỊ: chỉ bỏ prefix review/tóm tắt, FULL/TRỌN BỘ/VIETSUB/THUYẾT MINH, hashtag/emoji/dấu lặp/rác quảng cáo. Không được viết lại cốt truyện hoặc đổi tên riêng."
+  ]:[
+    "Chỉ gom những video thực sự gần trùng. Nếu chỉ cùng chủ đề nhưng nội dung khác thì KHÔNG gom.",
+    "Không cần lọc quảng cáo theo ngữ nghĩa tab trong chế độ thường."
+  ];
+
   const instruction=[
-    "Bạn là AI 2 của ứng dụng 1988. Nhiệm vụ DUY NHẤT: tìm/duyệt KÊNH MỚI có nội dung tương tự các nguồn người dùng đã chọn.",
+    "Bạn là worker làm sạch + phát hiện VIDEO TRÙNG cho ứng dụng 1988.",
+    "Không sắp xếp, không tạo UI, không quyết định Chọn/Chặn, không tìm kiếm và không invent videoId.",
+    "Tên tab chỉ là ngữ cảnh bổ sung. Code vẫn sở hữu thứ tự và chọn video đại diện.",
+    parentLabel?"TAB HIỆN TẠI: "+parentLabel:"",
+    ...reviewRules,
+    "OUTPUT chỉ JSON:",
+    "{",
+    "  \"duplicateGroups\":[{\"videoIds\":[\"id1\",\"id2\"],\"canonicalWork\":\"tên tác phẩm nếu biết\"}],",
+    "  \"spamVideoIds\":[\"id3\"],",
+    "  \"cleanups\":[{\"id\":\"id1\",\"displayTitle\":\"tiêu đề chỉ làm sạch rác trình bày\"}]",
+    "}",
+    "Nếu không có gì: {\"duplicateGroups\":[],\"spamVideoIds\":[],\"cleanups\":[]}",
+    "VIDEO: "+JSON.stringify(samples)
+  ].filter(Boolean).join("\n");
+
+  const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
+  const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"]
+    .filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+
+  let lastError="ai_failed";
+  for(const model of models){
+    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+        body:JSON.stringify({
+          contents:[{role:"user",parts:[{text:instruction}]}],
+          generationConfig:{temperature:0,responseMimeType:"application/json"}
+        })
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        const text=responseText(payload);
+        if(!text)throw new Error("empty_ai_response");
+        return {model,text};
+      }
+      lastError=`ai_http_${response.status}`;
+      if(response.status===401||response.status===403)break;
+    }catch(error){
+      lastError=String((error as any)?.message||error||"ai_network");
+    }
+  }
+  throw new Error(lastError);
+}
+
+async function callSourceQueryGemini(cfg:any,videos:any[],state:any){
+  const instruction=[
+    "Bạn là bộ trợ lý tạo TỪ KHÓA để code của ứng dụng 1988 tự tìm thêm kênh YouTube.",
+    "Bạn KHÔNG tìm YouTube, KHÔNG chọn kênh, KHÔNG thay đổi UI, KHÔNG tự Chọn/Chặn.",
+    "Chỉ đọc tối đa khoảng 100 video gần nhất từ các KÊNH ĐÃ CHỌN và tạo 6-8 truy vấn tìm kiếm ngắn, tự nhiên, bao quát đúng các kiểu nội dung người dùng đang xem.",
+    "Tên tab không có ý nghĩa ngữ nghĩa. Chỉ nội dung video của KÊNH ĐÃ CHỌN là tín hiệu dương.",
+    "KÊNH ĐÃ CHẶN chỉ là DANH SÁCH LOẠI TRỪ, tuyệt đối không dùng nội dung của chúng để suy luận sở thích.",
+    "KÊNH ĐANG GỢI Ý cũng chỉ là DANH SÁCH LOẠI TRỪ để tránh tạo truy vấn quá giống và lặp lại cùng nhóm kênh.",
+    "Ưu tiên cụm chủ đề, nhân vật, dạng nội dung, tác phẩm hoặc nhu cầu xem lặp lại ở nhiều video/kênh đã chọn.",
+    "Tránh dùng nguyên tên kênh làm truy vấn nếu có thể diễn đạt bằng nội dung.",
+    "Không tạo từ khóa quá chung như video, youtube, mới nhất, hôm nay, live nếu không thực sự là chủ đề.",
+    "OUTPUT chỉ JSON: {\"queries\":[\"...\"]}",
+    "KÊNH ĐÃ CHỌN: "+JSON.stringify(state.selectedSources||[]),
+    "KÊNH ĐÃ CHẶN - CHỈ LOẠI TRỪ: "+JSON.stringify(state.blockedSources||[]),
+    "KÊNH ĐANG GỢI Ý - CHỈ LOẠI TRỪ: "+JSON.stringify(state.suggestedSources||[]),
+    "VIDEO MẪU TỪ ĐÃ CHỌN: "+JSON.stringify(videos)
+  ].join("\n");
+
+  const configuredModel=/^gemini[-_.a-z0-9]+$/i.test(String(cfg.model||""))?String(cfg.model).trim():"";
+  const models=[configuredModel,"gemini-3.5-flash-lite","gemini-3.6-flash"]
+    .filter((v:string,i:number,a:string[])=>v&&a.indexOf(v)===i);
+
+  let lastError="ai_failed";
+  for(const model of models){
+    const endpoint=`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    try{
+      const response=await fetch(endpoint,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-goog-api-key":cfg.key},
+        body:JSON.stringify({
+          contents:[{role:"user",parts:[{text:instruction}]}],
+          generationConfig:{temperature:0.18,responseMimeType:"application/json"}
+        })
+      });
+      const payload=await response.json().catch(()=>null);
+      if(response.ok){
+        const text=responseText(payload);
+        if(!text)throw new Error("empty_ai_response");
+        return {model,text};
+      }
+      lastError=`ai_http_${response.status}`;
+      if(response.status===401||response.status===403)break;
+    }catch(error){
+      lastError=String((error as any)?.message||error||"ai_network");
+    }
+  }
+  throw new Error(lastError);
+}
+
+async function callSourceDiscoveryGemini(cfg:any,candidates:any[],_parentLabel="",learning:any={selectedSourceNames:[],blockedSourceNames:[],learnedQueries:[]}){
+  const instruction=[
+    "Bạn là AI gợi ý nguồn của ứng dụng 1988. Nhiệm vụ DUY NHẤT: chọn KÊNH MỚI có nội dung tương tự các nguồn người dùng đã chọn trong cùng một tab.",
+    "Tên tab chỉ là nhãn giao diện và CẤM dùng làm tín hiệu ngữ nghĩa. Người dùng có thể đổi tên tab bất kỳ lúc nào mà kết quả học phải giữ nguyên.",
     "Không làm sạch tiêu đề, không gộp video trùng, không tạo menu và không tự thêm kênh.",
     "Danh sách Chặn là ví dụ ÂM tuyệt đối: không chọn lại kênh bị chặn và không dùng chúng làm mẫu dương.",
-    "Danh sách Chọn + cụm nội dung đã học là ví dụ DƯƠNG. Hãy so nội dung thực tế của các video mẫu, không so tên kênh đơn thuần.",
-    "Ưu tiên kênh đang hoạt động gần đây. Mẫu ứng viên đã được client khoanh vùng thời gian trước khi gửi để giảm tải.",
-    "Nếu nhóm là một chủ đề cố định như Thời sự/Kinh tế/Pháp luật/Phim/Nhạc/Công nghệ/Thể thao/Giải trí thì chỉ nhận kênh có phần lớn mẫu phù hợp nhóm đó.",
-    "Nếu nhóm là Mới nhất/Tuần này thì học kiểu nội dung tổng hợp từ các nguồn đã chọn, không ép vào một chủ đề duy nhất.",
-    "Không chọn chỉ vì một video tình cờ trùng từ khóa. Cần dấu hiệu tương đồng đủ rõ qua các mẫu của kênh.",
+    "Danh sách Chọn + cụm nội dung đã học từ video của các nguồn đã chọn là ví dụ DƯƠNG.",
+    "So nội dung thực tế của các video mẫu ứng viên với tín hiệu DƯƠNG; không quyết định theo tên tab và không so tên kênh đơn thuần.",
+    "Ưu tiên kênh đang hoạt động gần đây. Không chọn chỉ vì một video tình cờ trùng từ khóa; cần dấu hiệu tương đồng đủ rõ qua các mẫu của kênh.",
+    "Nếu tín hiệu DƯƠNG còn ít, hãy bảo thủ và chỉ nhận ứng viên có liên hệ nội dung rõ.",
     "OUTPUT chỉ JSON: {\"acceptedSourceIds\":[\"UC...\"]}",
-    "NHÓM: "+clean(parentLabel,80),
     "NGUỒN ĐÃ CHỌN (DƯƠNG): "+JSON.stringify(learning.selectedSourceNames||[]),
     "NGUỒN ĐÃ CHẶN (ÂM): "+JSON.stringify(learning.blockedSourceNames||[]),
-    "CỤM NỘI DUNG ĐÃ HỌC: "+JSON.stringify(learning.learnedQueries||[]),
+    "CỤM NỘI DUNG ĐÃ HỌC TỪ ĐÃ CHỌN: "+JSON.stringify(learning.learnedQueries||[]),
     "ỨNG VIÊN KÊNH: "+JSON.stringify(candidates)
   ].join("\n");
 
@@ -875,6 +1127,7 @@ Deno.serve(async(req:Request)=>{
   try{
     const body=await req.json().catch(()=>({}));
     const mode=
+      body?.mode==="dedupe"?"dedupe":
       body?.mode==="catalog"?"catalog":
       body?.mode==="video_context"?"video_context":
       body?.mode==="source_discovery"?"source_discovery":
@@ -883,7 +1136,133 @@ Deno.serve(async(req:Request)=>{
     const cfg=await runtimeConfig();
     if(!cfg.key)return json({ok:false,error:"ai_not_configured"},503);
 
+    if(mode==="dedupe"){
+      const sample=videos.slice(0,120);
+      const parentLabel=clean(body?.parentLabel,80);
+      const reviewMode=
+        body?.reviewMode===true ||
+        /^review(?:\s|$)/i.test(dedupeNormalize(parentLabel));
+
+      const emptyResult=validateDedupeResult(
+        {duplicateGroups:[],spamVideoIds:[],cleanups:[]},
+        sample,
+        {reviewMode,parentLabel}
+      );
+      if(sample.length<4){
+        return json({
+          ok:true,
+          ...emptyResult,
+          cached:false,
+          reason:"not_enough_videos"
+        });
+      }
+
+      const canonical=sample
+        .map((row:any)=>[
+          row.id,row.title,row.channel,row.published,row.views,row.contentHash,
+          row.description
+        ].join("\t"))
+        .join("\n");
+      const fingerprint=await sha256(
+        "dedupe_v2\nreview="+String(reviewMode)+"\nlabel="+parentLabel+"\n"+canonical
+      );
+      const cacheKey="v2:dedupe:"+fingerprint;
+
+      const cached=await db.from("yt1988_ai_topic_cache")
+        .select("result,model,created_at")
+        .eq("cache_key",cacheKey)
+        .maybeSingle();
+
+      if(!cached.error&&cached.data?.result){
+        const result=validateDedupeResult(
+          cached.data.result,
+          sample,
+          {reviewMode,parentLabel}
+        );
+        return json({ok:true,...result,model:cached.data.model||null,fingerprint,cached:true});
+      }
+
+      const ai=await callDedupeGemini(cfg,sample,{reviewMode,parentLabel});
+      const parsed=parseJson(ai.text);
+      const result=validateDedupeResult(parsed,sample,{reviewMode,parentLabel});
+
+      await db.from("yt1988_ai_topic_cache").upsert({
+        cache_key:cacheKey,
+        scope:reviewMode?"dedupe_review":"dedupe",
+        fingerprint,
+        model:ai.model,
+        video_count:sample.length,
+        result:{
+          duplicateGroups:Array.isArray(parsed?.duplicateGroups)?parsed.duplicateGroups:[],
+          spamVideoIds:Array.isArray(parsed?.spamVideoIds)?parsed.spamVideoIds:[],
+          cleanups:Array.isArray(parsed?.cleanups)?parsed.cleanups:[]
+        },
+        created_at:new Date().toISOString()
+      },{onConflict:"cache_key"});
+
+      return json({ok:true,...result,model:ai.model,fingerprint,cached:false});
+    }
+
     if(mode==="source_discovery"){
+      const phase=clean(body?.phase,24);
+
+      if(phase==="queries"){
+        const selectedSources=normalizeSourceRefs(body?.selectedSources,48);
+        const blockedSources=normalizeSourceRefs(body?.blockedSources,48);
+        const suggestedSources=normalizeSourceRefs(body?.suggestedSources,48);
+        const fallbackQueries=normalizeSourceNames(body?.fallbackQueries,8);
+        const sample=videos.slice(0,100);
+
+        if(!sample.length){
+          return json({ok:true,queries:fallbackQueries,cached:false,reason:"no_selected_videos"});
+        }
+
+        const stateCanonical=[
+          ...selectedSources.map((row:any)=>"+"+row.id+"|"+row.name),
+          ...blockedSources.map((row:any)=>"-"+row.id+"|"+row.name),
+          ...suggestedSources.map((row:any)=>"~"+row.id+"|"+row.name)
+        ].sort().join("\n");
+        const videoCanonical=sample
+          .map((row:any)=>[row.id,row.title,row.channel,row.published,row.views,row.contentHash].join("\t"))
+          .sort()
+          .join("\n");
+        const fingerprint=await sha256(
+          "source_queries_v1\n"+stateCanonical+"\n"+videoCanonical
+        );
+        const freshnessBucket=Math.floor(Date.now()/(6*60*60*1000));
+        const cacheKey="v1:source_queries:"+freshnessBucket+":"+fingerprint;
+        const cached=await db.from("yt1988_ai_topic_cache")
+          .select("result,model,created_at")
+          .eq("cache_key",cacheKey)
+          .maybeSingle();
+
+        if(!cached.error&&cached.data?.result){
+          const result=validateSourceQueryResult(cached.data.result,fallbackQueries);
+          return json({ok:true,...result,model:cached.data.model||null,fingerprint,cached:true});
+        }
+
+        const ai=await callSourceQueryGemini(cfg,sample,{
+          selectedSources,
+          blockedSources,
+          suggestedSources
+        });
+        const result=validateSourceQueryResult(parseJson(ai.text),fallbackQueries);
+
+        await db.from("yt1988_ai_topic_cache").upsert({
+          cache_key:cacheKey,
+          scope:"source_queries",
+          fingerprint,
+          model:ai.model,
+          video_count:sample.length,
+          result,
+          created_at:new Date().toISOString()
+        },{onConflict:"cache_key"});
+
+        return json({ok:true,...result,model:ai.model,fingerprint,cached:false});
+      }
+
+      // Backward compatibility for an older cached PWA: it may still send
+      // candidate channels for AI acceptance until the service worker updates.
       const candidates=normalizeSourceCandidates(body?.sourceCandidates);
       if(!candidates.length)return json({ok:true,acceptedSourceIds:[],cached:false,reason:"no_candidates"});
       const parentLabel=clean(body?.parentLabel,80);
@@ -901,9 +1280,9 @@ Deno.serve(async(req:Request)=>{
         ...learning.blockedSourceNames.map((name:string)=>"-"+name),
         ...learning.learnedQueries.map((name:string)=>"?"+name)
       ].sort().join("\n");
-      const fingerprint=await sha256("source_discovery\n"+parentLabel+"\n"+learningCanonical+"\n"+canonical);
+      const fingerprint=await sha256("source_discovery_v2\n"+learningCanonical+"\n"+canonical);
       const freshnessBucket=Math.floor(Date.now()/(6*60*60*1000));
-      const cacheKey="v1:source_discovery:"+freshnessBucket+":"+fingerprint;
+      const cacheKey="v2:source_discovery:"+freshnessBucket+":"+fingerprint;
       const cached=await db.from("yt1988_ai_topic_cache")
         .select("result,model,created_at")
         .eq("cache_key",cacheKey)
