@@ -2142,7 +2142,11 @@ function setupSourceLibrary(){
   // Even if old local data is malformed, the manager must still open.
   sourcesBtn?.addEventListener("click",()=>{
     resetHomeViewportInstant({resetSource:true});
-    requestSettingsAccess(openSourceLibrary);
+    document.documentElement.classList.remove("home-header-hidden");
+    requestSettingsAccess(()=>{
+      resetHomeViewportInstant({resetSource:true});
+      openSourceLibrary();
+    });
   });
   closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
 
@@ -2217,11 +2221,21 @@ function setupSourceLibrary(){
     if(event.target===sourcesSheet)closeSourceLibrary();
   });
 
-  sourceSearch?.addEventListener("input",scheduleSourceSearch);
+  sourceSearch?.addEventListener("input",()=>{
+    if(sourceBrowse)sourceBrowse.scrollTop=0;
+    if(sourceList)sourceList.scrollTop=0;
+    scheduleSourceSearch();
+    requestAnimationFrame(()=>{
+      if(sourceBrowse)sourceBrowse.scrollTop=0;
+      if(sourceList)sourceList.scrollTop=0;
+    });
+  });
   clearSourceSearch?.addEventListener("click",()=>{
     sourceSearch.value="";
+    if(sourceBrowse)sourceBrowse.scrollTop=0;
+    if(sourceList)sourceList.scrollTop=0;
     scheduleSourceSearch();
-    sourceSearch.focus();
+    try{sourceSearch.focus({preventScroll:true});}catch{sourceSearch.focus();}
   });
 
   sourceList?.addEventListener("click",event=>{
@@ -9127,6 +9141,12 @@ function loadInitialFeed(){
 }
 
 topicChips.addEventListener("click",e=>{
+  const clicked=e.target.closest("[data-feed],[data-ai-parent]");
+  if(clicked){
+    resetHomeViewportInstant();
+    document.documentElement.classList.remove("home-header-hidden");
+  }
+
   const parentButton=e.target.closest("[data-ai-parent]");
   if(parentButton){
     const key=parentButton.dataset.aiParent||"";
