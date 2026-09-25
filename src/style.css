@@ -5559,3 +5559,81 @@ html.watch-browse .player-frame video{
     visibility:hidden!important;
   }
 }
+
+
+/* ============================================================
+   FINAL HOME SCROLL + LOCAL CARD HOVER v194
+   ============================================================ */
+
+/* Any viewport: once the home page leaves the top, Search and Source
+   disappear as one control group. Source lives inside .header-search. */
+html:not(.watch-browse).home-header-hidden .header-search,
+html:not(.watch-browse).home-header-hidden .source-header-btn,
+html:not(.watch-browse).home-header-hidden .source-header-icon,
+html:not(.watch-browse).home-header-hidden .home-search-toggle{
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+}
+
+/* Desktop: keep logo/chips stable, only remove the Search + Source controls. */
+@media(min-width:721px){
+  html:not(.watch-browse) .header-search{
+    transition:opacity .14s ease,transform .16s ease!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-search{
+    transform:translate3d(0,-8px,0)!important;
+  }
+
+  /* v193 page-wide ambient was too broad. Disable it entirely. */
+  html:not(.watch-browse) body::before,
+  html:not(.watch-browse).home-ambient-on body::before{
+    opacity:0!important;
+    background-image:none!important;
+  }
+
+  /* YouTube-style interaction layer localized to the hovered rich card.
+     The card uses its own thumbnail as a softly blurred color field. */
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card{
+    position:relative;
+    isolation:isolate;
+    overflow:visible!important;
+    background:transparent!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card::before{
+    content:"";
+    position:absolute;
+    z-index:0;
+    inset:-9px;
+    border-radius:18px;
+    pointer-events:none;
+    background-image:
+      linear-gradient(rgba(10,10,12,.48),rgba(10,10,12,.66)),
+      var(--card-art,none);
+    background-position:center;
+    background-size:cover;
+    filter:blur(18px) saturate(1.45) brightness(.74);
+    opacity:0;
+    transform:scale(.985);
+    transition:opacity .16s ease,transform .16s ease;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:hover::before,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:focus-within::before{
+    opacity:.56;
+    transform:scale(1.015);
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap,
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .card-copy{
+    position:relative;
+    z-index:1;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card:hover .card-copy{
+    background:rgba(12,12,14,.42)!important;
+    border-radius:0 0 12px 12px;
+  }
+}
