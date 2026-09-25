@@ -5899,3 +5899,553 @@ html:not(.watch-browse) .app-header{
     object-fit:contain!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE YOUTUBE WATCH SHELL v200
+   Stable iOS/Safari layout: Search -> player -> source chips are
+   fixed viewport layers; only the recommendation list scrolls.
+   Does not rely on display:contents/grid flattening across wrappers.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --watch-top-row-h:52px;
+    --watch-source-row-h:44px;
+    width:100%!important;
+    height:100dvh!important;
+    min-height:100dvh!important;
+    overflow:hidden!important;
+    overscroll-behavior:none!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse body{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    height:100dvh!important;
+    min-height:100dvh!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    overscroll-behavior:none!important;
+    background:#0b0b0c!important;
+  }
+
+  /* Keep the original DOM wrappers, but remove them from layout ownership.
+     Each visible watch layer is fixed explicitly, which is reliable on iOS. */
+  html.watch-browse .app-header{
+    display:block!important;
+    position:static!important;
+    width:100%!important;
+    height:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .app-shell{
+    display:block!important;
+    position:static!important;
+    width:100%!important;
+    height:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .trend-topics{
+    display:none!important;
+  }
+
+  /* 1. Search/header row */
+  html.watch-browse .header-inner{
+    display:grid!important;
+    position:fixed!important;
+    z-index:120!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    width:100%!important;
+    height:calc(var(--watch-top-row-h) + var(--safe-top))!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:
+      calc(6px + var(--safe-top))
+      10px
+      6px!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    align-items:center!important;
+    gap:8px!important;
+    opacity:1!important;
+    visibility:visible!important;
+    transform:none!important;
+    pointer-events:auto!important;
+    overflow:visible!important;
+    border:0!important;
+    border-bottom:1px solid rgba(255,255,255,.055)!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .brand{
+    display:inline-flex!important;
+    gap:5px!important;
+    font-size:17px!important;
+    line-height:1!important;
+  }
+
+  html.watch-browse .brand-mark{
+    width:27px!important;
+    height:19px!important;
+    border-radius:6px!important;
+    font-size:9px!important;
+  }
+
+  html.watch-browse .header-search{
+    justify-self:end!important;
+    display:grid!important;
+    grid-template-columns:40px 40px!important;
+    align-items:center!important;
+    width:82px!important;
+    height:40px!important;
+    gap:2px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:20px!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .home-search-toggle,
+  html.watch-browse .source-header-btn{
+    display:grid!important;
+    place-items:center!important;
+    width:40px!important;
+    min-width:40px!important;
+    height:40px!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:50%!important;
+    background:transparent!important;
+    color:#f3f3f4!important;
+  }
+
+  html.watch-browse .home-search-toggle svg,
+  html.watch-browse .source-header-icon svg{
+    width:22px!important;
+    height:22px!important;
+    display:block!important;
+    fill:none!important;
+    stroke:currentColor!important;
+    stroke-width:2!important;
+    stroke-linecap:round!important;
+    stroke-linejoin:round!important;
+  }
+
+  html.watch-browse .source-header-icon{
+    width:22px!important;
+    height:22px!important;
+    display:grid!important;
+    place-items:center!important;
+    font-size:0!important;
+  }
+
+  html.watch-browse #queryInput,
+  html.watch-browse .header-search>button[type="submit"]{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner{
+    grid-template-columns:minmax(0,1fr)!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner .brand{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-search{
+    justify-self:stretch!important;
+    grid-template-columns:40px minmax(0,1fr) 40px!important;
+    width:100%!important;
+    gap:0!important;
+    border:1px solid #303038!important;
+    background:#18181b!important;
+  }
+
+  html.watch-browse.watch-search-open #queryInput{
+    display:block!important;
+    width:100%!important;
+    height:38px!important;
+    padding:0 8px!important;
+    font-size:14px!important;
+  }
+
+  /* 2. Player row */
+  html.watch-browse .player-section,
+  html.watch-browse.watch-video-wide .player-section,
+  html.watch-browse.watch-video-square .player-section,
+  html.watch-browse.watch-video-portrait .player-section{
+    display:flex!important;
+    position:fixed!important;
+    z-index:80!important;
+    top:calc(var(--watch-top-row-h) + var(--safe-top))!important;
+    left:0!important;
+    right:0!important;
+    width:100%!important;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-width:0!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    align-items:center!important;
+    justify-content:center!important;
+    overflow:hidden!important;
+    background:#000!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .player-card,
+  html.watch-browse.watch-video-wide .player-card,
+  html.watch-browse.watch-video-square .player-card,
+  html.watch-browse.watch-video-portrait .player-card{
+    display:flex!important;
+    width:100%!important;
+    height:100%!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    align-items:center!important;
+    justify-content:center!important;
+    overflow:hidden!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#000!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .player-frame{
+    position:relative!important;
+    flex:0 0 auto!important;
+    width:var(--watch-player-width,100%)!important;
+    height:var(--watch-player-height,var(--watch-stage-h,56.25vw))!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0 auto!important;
+    border:0!important;
+    border-radius:0!important;
+    aspect-ratio:auto!important;
+    overflow:hidden!important;
+    background:#000!important;
+    box-shadow:none!important;
+    transform:none!important;
+  }
+
+  html.watch-browse .player-frame #yt-player,
+  html.watch-browse .player-frame iframe,
+  html.watch-browse .player-frame video{
+    width:100%!important;
+    height:100%!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    background:#000!important;
+  }
+
+  html.watch-browse .player-section .now,
+  html.watch-browse .player-section .series-panel,
+  html.watch-browse .player-section .context-brief,
+  html.watch-browse .watch-nav-rail,
+  html.watch-browse body>.watch-reco-info{
+    display:none!important;
+  }
+
+  /* 3. Source/category chips row — always directly below the player. */
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    display:block!important;
+    position:fixed!important;
+    z-index:100!important;
+    top:calc(var(--watch-top-row-h) + var(--safe-top) + var(--watch-stage-h,56.25vw))!important;
+    left:0!important;
+    right:0!important;
+    bottom:auto!important;
+    width:100%!important;
+    height:var(--watch-source-row-h)!important;
+    min-height:var(--watch-source-row-h)!important;
+    max-height:var(--watch-source-row-h)!important;
+    margin:0!important;
+    padding:0!important;
+    opacity:1!important;
+    visibility:visible!important;
+    transform:none!important;
+    pointer-events:auto!important;
+    overflow:hidden!important;
+    border:0!important;
+    border-top:1px solid rgba(255,255,255,.04)!important;
+    border-bottom:1px solid rgba(255,255,255,.06)!important;
+    border-radius:0!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  html.watch-browse .header-nav-inner,
+  html.watch-browse.watch-categories-open .header-nav-inner{
+    width:100%!important;
+    max-width:none!important;
+    height:100%!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0 8px!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:100%!important;
+    max-height:none!important;
+    gap:7px!important;
+    padding:6px 0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    grid-template-columns:none!important;
+    scrollbar-width:none!important;
+    scroll-snap-type:none!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x!important;
+  }
+
+  html.watch-browse .topic-chip,
+  html.watch-browse.watch-categories-open .topic-chip{
+    flex:0 0 auto!important;
+    width:auto!important;
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 11px!important;
+    border:0!important;
+    border-radius:8px!important;
+    background:#232326!important;
+    color:#e3e3e5!important;
+    font-size:11px!important;
+    font-weight:600!important;
+    text-align:center!important;
+    white-space:nowrap!important;
+  }
+
+  html.watch-browse .topic-chip.active,
+  html.watch-browse.watch-categories-open .topic-chip.active{
+    background:#f3f3f4!important;
+    color:#111!important;
+  }
+
+  html.watch-browse .topic-divider,
+  html.watch-browse.watch-categories-open .topic-divider{
+    display:block!important;
+    flex:0 0 1px!important;
+    width:1px!important;
+    height:20px!important;
+    margin:0 1px!important;
+  }
+
+  /* 4. The only vertical scroll surface. */
+  html.watch-browse .feed-section,
+  html.watch-browse.watch-video-wide .feed-section,
+  html.watch-browse.watch-video-square .feed-section,
+  html.watch-browse.watch-video-portrait .feed-section{
+    display:block!important;
+    position:fixed!important;
+    z-index:20!important;
+    top:calc(
+      var(--watch-top-row-h) +
+      var(--safe-top) +
+      var(--watch-stage-h,56.25vw) +
+      var(--watch-source-row-h)
+    )!important;
+    left:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:100%!important;
+    height:auto!important;
+    min-width:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:8px 0 calc(16px + var(--safe-bottom))!important;
+    overflow-y:scroll!important;
+    overflow-x:hidden!important;
+    overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    touch-action:pan-y!important;
+    scrollbar-gutter:auto!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  html.watch-browse .section-head{
+    display:none!important;
+  }
+
+  html.watch-browse .search-refinements{
+    margin:0 8px 8px!important;
+  }
+
+  /* YouTube-like recommendation list: one full-width video per row. */
+  html.watch-browse .feed:not(.search-grouped),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped){
+    display:block!important;
+    width:100%!important;
+    height:auto!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    touch-action:pan-y!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    display:block!important;
+    position:relative!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    height:auto!important;
+    margin:0 0 17px!important;
+    padding:0 8px!important;
+    overflow:visible!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transform:none!important;
+    opacity:1!important;
+    scroll-snap-align:none!important;
+    touch-action:pan-y!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    overflow:hidden!important;
+    border-radius:10px!important;
+    background:#151518!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain){
+    width:100%!important;
+    height:100%!important;
+    display:block!important;
+    object-fit:cover!important;
+    border-radius:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    object-fit:contain!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .duration{
+    right:7px!important;
+    bottom:7px!important;
+    padding:3px 5px!important;
+    border-radius:5px!important;
+    font-size:9.5px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .live-badge{
+    left:7px!important;
+    bottom:7px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy{
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+    min-width:0!important;
+    padding:9px 4px 0!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-avatar{
+    display:grid!important;
+    place-items:center!important;
+    width:36px!important;
+    height:36px!important;
+    overflow:hidden!important;
+    border-radius:50%!important;
+    background:#252529!important;
+    color:#f1f1f2!important;
+    font-size:13px!important;
+    font-weight:760!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-avatar img{
+    width:100%!important;
+    height:100%!important;
+    display:block!important;
+    object-fit:cover!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy-main{
+    min-width:0!important;
+    padding-right:2px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-title{
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    overflow:hidden!important;
+    margin:0!important;
+    color:#f4f4f5!important;
+    font-size:13.5px!important;
+    line-height:1.3!important;
+    font-weight:680!important;
+    letter-spacing:-.08px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    display:inline!important;
+    margin:4px 0 0!important;
+    color:#8d8d96!important;
+    font-size:10.5px!important;
+    line-height:1.35!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel::after{
+    content:" · "!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .thumb-wrap{
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .loading,
+  html.watch-browse .empty,
+  html.watch-browse .error{
+    min-height:160px!important;
+    padding:48px 12px!important;
+  }
+}
