@@ -25,14 +25,14 @@ select,
   --media-red-line:rgba(242,13,58,.46);
   --brand-mark-w:30px;
   --brand-mark-h:21px;
-  --brand-play-w:16px;
-  --brand-play-h:12px;
+  --brand-play-w:19px;
+  --brand-play-h:14px;
   --brand-text-size:19px;
   --header-action-size:40px;
   --header-icon-size:20px;
   --topic-control-h:34px;
   --topic-live-w:34px;
-  --topic-live-icon-size:18px;
+  --topic-live-icon-size:19px;
 
   color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Arial,sans-serif;
 }
@@ -94,7 +94,8 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   background:var(--media-red);
   color:#fff;
   padding:0;
-  overflow:hidden
+  overflow:hidden;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.035)
 }
 .brand-mark svg{
   display:block;
@@ -218,7 +219,8 @@ html.search-suggestions-open .suggestions{
   place-items:center;
   line-height:1;
   color:var(--media-red);
-  border-color:var(--media-red-line)
+  border-color:rgba(242,13,58,.38);
+  background:rgba(242,13,58,.035)
 }
 .topic-chip.live-chip.active{
   color:var(--media-red);
@@ -231,13 +233,20 @@ html.search-suggestions-open .suggestions{
   width:var(--topic-live-icon-size);
   height:var(--topic-live-icon-size);
   overflow:visible;
-  fill:currentColor;
-  stroke:currentColor;
-  stroke-width:1.75;
-  stroke-linecap:round;
-  stroke-linejoin:round
+  color:currentColor
 }
-.live-chip-icon circle{stroke:none}
+.live-chip-icon .live-chip-dot{
+  fill:currentColor;
+  stroke:none
+}
+.live-chip-icon .live-chip-wave{
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  vector-effect:non-scaling-stroke
+}
 
 .trend-topics{
   display:flex;gap:4px;overflow-x:auto;margin:0 0 10px;padding:0 2px 7px;
@@ -1448,14 +1457,14 @@ html.search-suggestions-open .suggestions{
   :root{
     --brand-mark-w:27px;
     --brand-mark-h:19px;
-    --brand-play-w:14px;
-    --brand-play-h:10px;
+    --brand-play-w:17px;
+    --brand-play-h:12px;
     --brand-text-size:17px;
     --header-action-size:40px;
     --header-icon-size:20px;
     --topic-control-h:32px;
     --topic-live-w:32px;
-    --topic-live-icon-size:17px;
+    --topic-live-icon-size:18px;
   }
 
   html:not(.watch-browse){
