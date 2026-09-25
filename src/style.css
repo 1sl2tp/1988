@@ -1617,16 +1617,18 @@ html.search-suggestions-open .suggestions{
     font-size:14px;
   }
   html:not(.watch-browse).home-search-open .header-search>button[type="submit"]{
-    display:grid;
+    display:none!important;
+  }
+  html:not(.watch-browse).home-search-open .source-header-btn{
+    grid-column:3;
+    grid-row:1;
     width:40px;
+    min-width:40px;
     height:38px;
-    padding:0;
-    place-items:center;
-    overflow:hidden;
-    border:0;
+    align-self:center;
+    justify-self:center;
     border-left:1px solid #303038;
-    background:transparent;
-    color:transparent;
+    border-radius:0 20px 20px 0;
   }
 
   html:not(.watch-browse) .suggestions{
@@ -2238,15 +2240,18 @@ html.search-suggestions-open .suggestions{
   }
 
   html.watch-browse.watch-search-open .header-search>button[type="submit"]{
-    display:grid;
+    display:none!important;
+  }
+  html.watch-browse.watch-search-open .source-header-btn{
+    grid-column:3;
+    grid-row:1;
     width:40px;
+    min-width:40px;
     height:38px;
-    padding:0;
-    place-items:center;
-    border:0;
+    align-self:center;
+    justify-self:center;
     border-left:1px solid #303038;
-    background:transparent;
-    color:transparent;
+    border-radius:0 20px 20px 0;
   }
 
   html.watch-browse.watch-search-open .header-nav{
