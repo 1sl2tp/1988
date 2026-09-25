@@ -6966,3 +6966,208 @@ html:not(.watch-browse) .app-header{
     box-shadow:none!important;
   }
 }
+
+
+/* ============================================================
+   WATCH HEADER SIZE + LIST BORDER v207
+   - Opening a video must not shrink Search/Settings vs the original header.
+   - Expanded watch search uses the full mobile width.
+   - Recommendation rows have a real visible outline without clipping artwork.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --watch-top-row-h:52px!important;
+  }
+
+  /* Collapsed watch header = exact same geometry as the original mobile home. */
+  html.watch-browse .header-inner{
+    position:fixed!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    bottom:auto!important;
+    width:100vw!important;
+    max-width:none!important;
+    height:calc(52px + var(--safe-top))!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:
+      calc(7px + var(--safe-top))
+      10px
+      7px!important;
+    display:grid!important;
+    grid-template-columns:auto minmax(0,1fr)!important;
+    align-items:center!important;
+    gap:8px!important;
+    transform:none!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .brand{
+    font-size:17px!important;
+    gap:5px!important;
+  }
+
+  html.watch-browse .brand-mark{
+    width:27px!important;
+    height:19px!important;
+    border-radius:6px!important;
+    font-size:9px!important;
+  }
+
+  html.watch-browse .header-search{
+    justify-self:end!important;
+    width:82px!important;
+    min-width:82px!important;
+    max-width:82px!important;
+    height:40px!important;
+    min-height:40px!important;
+    display:grid!important;
+    grid-template-columns:40px 40px!important;
+    align-items:center!important;
+    gap:2px!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:20px!important;
+    background:transparent!important;
+    overflow:visible!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .home-search-toggle,
+  html.watch-browse .source-header-btn{
+    width:40px!important;
+    min-width:40px!important;
+    max-width:40px!important;
+    height:40px!important;
+    min-height:40px!important;
+    max-height:40px!important;
+    margin:0!important;
+    padding:0!important;
+    display:grid!important;
+    place-items:center!important;
+    border:0!important;
+    border-radius:50%!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .home-search-toggle svg,
+  html.watch-browse .source-header-icon svg{
+    width:22px!important;
+    min-width:22px!important;
+    height:22px!important;
+    min-height:22px!important;
+    transform:none!important;
+  }
+
+  /* Expanded Search must be the full-width original pill, never the narrow
+     legacy watch overlay from v183/v184. */
+  html.watch-browse.watch-search-open .header-inner{
+    position:fixed!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    bottom:auto!important;
+    width:100vw!important;
+    max-width:none!important;
+    height:calc(52px + var(--safe-top))!important;
+    margin:0!important;
+    padding:
+      calc(6px + var(--safe-top))
+      10px
+      6px!important;
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    align-items:center!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner .brand{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-search{
+    justify-self:stretch!important;
+    width:calc(100vw - 20px)!important;
+    min-width:0!important;
+    max-width:none!important;
+    height:40px!important;
+    min-height:40px!important;
+    margin:0!important;
+    padding:0!important;
+    display:grid!important;
+    grid-template-columns:40px minmax(0,1fr) 40px!important;
+    gap:0!important;
+    border:1px solid #303038!important;
+    border-radius:20px!important;
+    background:#1b1b1e!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse.watch-search-open #queryInput{
+    display:block!important;
+    width:100%!important;
+    min-width:0!important;
+    height:38px!important;
+    margin:0!important;
+    padding:0 8px!important;
+    font-size:14px!important;
+  }
+
+  /* Recommendation cards: a visible outline around image + metadata.
+     The card itself never clips, so embedded thumbnail borders stay intact. */
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    width:calc(100% - 16px)!important;
+    min-width:0!important;
+    max-width:none!important;
+    margin:0 8px 16px!important;
+    padding:0 0 8px!important;
+    border:1px solid rgba(255,255,255,.18)!important;
+    border-radius:12px!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transition:
+      background-color .14s ease,
+      border-color .14s ease!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%!important;
+    border-radius:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-copy{
+    padding:9px 8px 2px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:active{
+    background:rgba(255,255,255,.055)!important;
+    border-color:rgba(255,255,255,.30)!important;
+  }
+}
+
+@media(min-width:960px){
+  html.watch-browse .feed:not(.search-grouped)>.card{
+    border:1px solid rgba(255,255,255,.13)!important;
+    border-radius:12px!important;
+    transition:border-color .14s ease!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:hover,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within{
+    border-color:rgba(255,255,255,.28)!important;
+  }
+}
