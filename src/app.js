@@ -2014,13 +2014,58 @@ function resetSourceManagerInstant(){
   resetScroll(sourceGroupTabs);
 }
 
+function pinSourceManagerTop(){
+  const reset=()=>{
+    hardResetDocumentTop();
+    if(sourcesSheet){
+      sourcesSheet.scrollTop=0;
+      sourcesSheet.scrollLeft=0;
+    }
+    const sheet=sourcesSheet?.querySelector?.(".sources-sheet");
+    if(sheet){
+      sheet.scrollTop=0;
+      sheet.scrollLeft=0;
+    }
+    const workspace=sourcesSheet?.querySelector?.(".source-workspace");
+    if(workspace){
+      workspace.scrollTop=0;
+      workspace.scrollLeft=0;
+    }
+    if(sourceBrowse){
+      sourceBrowse.scrollTop=0;
+      sourceBrowse.scrollLeft=0;
+    }
+    if(sourceList){
+      sourceList.scrollTop=0;
+      sourceList.scrollLeft=0;
+    }
+    if(sourcePreview){
+      sourcePreview.scrollTop=0;
+      sourcePreview.scrollLeft=0;
+    }
+    if(sourcePreviewList){
+      sourcePreviewList.scrollTop=0;
+      sourcePreviewList.scrollLeft=0;
+    }
+    if(sourceGroupTabs)sourceGroupTabs.scrollLeft=0;
+  };
+
+  reset();
+  requestAnimationFrame(()=>{
+    reset();
+    requestAnimationFrame(reset);
+  });
+  setTimeout(reset,80);
+  setTimeout(reset,220);
+}
+
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
   resetHomeViewportInstant({resetSource:true});
   resetSourceManagerInstant();
   sourcesSheet.hidden=false;
-  resetSourceManagerInstant();
+  pinSourceManagerTop();
   sourcePreviewSeq++;
   closeSourceVideo();
   sourceManageGroup=GENERAL_SOURCE_SCOPE;
@@ -2034,7 +2079,7 @@ function openSourceLibrary(){
   requestAnimationFrame(()=>{
     try{
       refreshSourceManager();
-      resetSourceManagerInstant();
+      pinSourceManagerTop();
     }catch(error){
       console.error("open source manager failed",error);
       if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
@@ -2042,8 +2087,7 @@ function openSourceLibrary(){
 
     setTimeout(()=>{
       if(sourcesSheet.hidden)return;
-      resetSourceManagerInstant();
-      hardResetDocumentTop();
+      pinSourceManagerTop();
       const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
       if(!parent)return;
       void localEngine(12000)
@@ -2053,8 +2097,7 @@ function openSourceLibrary(){
   });
 
   setTimeout(()=>{
-    resetSourceManagerInstant();
-    hardResetDocumentTop();
+    pinSourceManagerTop();
     sourceSearch?.blur();
   },80);
 }
@@ -2123,10 +2166,26 @@ function setupSourceLibrary(){
   sourceGroupTabs?.addEventListener("click",event=>{
     const button=event.target.closest("[data-source-group]");
     if(!button)return;
+
+    // A source-group change is a fresh view: never preserve the old scroll.
+    if(sourceList)sourceList.scrollTop=0;
+    if(sourceBrowse)sourceBrowse.scrollTop=0;
+    if(sourcePreviewList)sourcePreviewList.scrollTop=0;
+
     sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
     sourceBlockedExpanded=false;
     resetSourcePreviewPane();
     refreshSourceManager();
+
+    requestAnimationFrame(()=>{
+      if(sourceList)sourceList.scrollTop=0;
+      if(sourceBrowse)sourceBrowse.scrollTop=0;
+      if(sourcePreviewList)sourcePreviewList.scrollTop=0;
+      if(sourceGroupTabs){
+        const active=sourceGroupTabs.querySelector(".source-group-chip.active");
+        if(active)sourceGroupTabs.scrollLeft=Math.max(0,active.offsetLeft-6);
+      }
+    });
 
     {
       const groupAtClick=sourceManageGroup;
@@ -8022,18 +8081,97 @@ queryInput.addEventListener("input",()=>{
   }
 });
 
-function ensureDesktopCardArt(card){
-  if(!card||window.innerWidth<=720||card.dataset.artReady==="1")return;
-  const art=String(card.dataset.thumb||"").trim();
+const desktopCardColorCache=new Map();
+
+function fallbackCardTint(card){
+  const art=String(card?.dataset?.thumb||"").trim();
   if(!art)return;
   const escaped=art.replace(/\\/g,"\\\\").replace(/"/g,'\\"').replace(/[\r\n]/g,"");
   card.style.setProperty("--card-art",'url("'+escaped+'")');
-  card.dataset.artReady="1";
+}
+
+function averageThumbTint(url){
+  url=String(url||"").trim();
+  if(!url)return Promise.resolve("");
+
+  const cached=desktopCardColorCache.get(url);
+  if(cached)return cached;
+
+  const task=new Promise(resolve=>{
+    const img=new Image();
+    img.crossOrigin="anonymous";
+    img.decoding="async";
+
+    img.onload=()=>{
+      try{
+        const canvas=document.createElement("canvas");
+        canvas.width=12;
+        canvas.height=8;
+        const ctx=canvas.getContext("2d",{willReadFrequently:true});
+        if(!ctx){resolve("");return;}
+
+        ctx.drawImage(img,0,0,12,8);
+        const data=ctx.getImageData(0,0,12,8).data;
+
+        let r=0,g=0,b=0,count=0;
+        for(let i=0;i<data.length;i+=4){
+          const alpha=data[i+3]/255;
+          if(alpha<.5)continue;
+          const rr=data[i],gg=data[i+1],bb=data[i+2];
+          const lum=(rr+gg+bb)/3;
+          // Ignore extreme black/white pixels so titles/bars do not dominate.
+          if(lum<18||lum>238)continue;
+          r+=rr;g+=gg;b+=bb;count++;
+        }
+
+        if(!count){resolve("");return;}
+
+        r/=count;g/=count;b/=count;
+
+        // Mix only ~15% of the thumbnail into YouTube-like #0f0f0f.
+        const mix=.15;
+        const base=[15,15,15];
+        const out=[
+          Math.round(base[0]*(1-mix)+r*mix),
+          Math.round(base[1]*(1-mix)+g*mix),
+          Math.round(base[2]*(1-mix)+b*mix)
+        ];
+
+        resolve("rgb("+out.join(",")+")");
+      }catch{
+        resolve("");
+      }
+    };
+
+    img.onerror=()=>resolve("");
+    img.src=url;
+  });
+
+  desktopCardColorCache.set(url,task);
+  return task;
+}
+
+function ensureDesktopCardTint(card){
+  if(!card||window.innerWidth<=720)return;
+
+  const art=String(card.dataset.thumb||"").trim();
+  if(!art)return;
+
+  fallbackCardTint(card);
+
+  if(card.dataset.tintReady==="1")return;
+  card.dataset.tintReady="loading";
+
+  void averageThumbTint(art).then(color=>{
+    if(card.dataset.thumb!==art)return;
+    if(color)card.style.setProperty("--card-hover-color",color);
+    card.dataset.tintReady="1";
+  });
 }
 
 feed.addEventListener("pointerover",event=>{
   if(window.innerWidth<=720)return;
-  ensureDesktopCardArt(event.target.closest("[data-video-id]"));
+  ensureDesktopCardTint(event.target.closest("[data-video-id]"));
 },{passive:true});
 
 feed.addEventListener("pointerdown",e=>{
