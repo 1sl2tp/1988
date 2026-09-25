@@ -5214,25 +5214,35 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const wide=ratio>=1.2;
 
     const sectionRect=playerSection?.getBoundingClientRect?.();
-    const feedRect=feed?.getBoundingClientRect?.();
     const feedSectionRect=feedSection?.getBoundingClientRect?.();
     const sectionTop=Math.max(0,sectionRect?.top||0);
-    const feedTop=Math.max(sectionTop,feedRect?.top||sectionTop);
-    const playerTopOffset=Math.max(0,Math.min(56,feedTop-sectionTop));
+
+    // The left column's geometric frame starts at the TOP of feed-section,
+    // not at the first thumbnail. That means the heading/status row (e.g.
+    // "Phim ngắn" + count) is part of the reference frame too.
+    const frameTop=Math.max(
+      sectionTop,
+      feedSectionRect?.top||sectionTop
+    );
+    const playerTopOffset=Math.max(
+      0,
+      Math.min(56,frameTop-sectionTop)
+    );
 
     // One owner for vertical geometry:
-    // - portrait uses the ENTIRE visible height of the left scroll pane.
+    // - portrait uses the ENTIRE visible height of the left column frame,
+    //   including its heading/status row.
     // - landscape/square may reserve a bottom control-safe inset.
     // CSS must not subtract a second bottom padding or max-height later.
     const controlSafeInset=8;
     const bottomEdge=gridGap+controlSafeInset;
-    const feedBottom=Math.min(
+    const frameBottom=Math.min(
       viewportHeight,
       feedSectionRect?.bottom||viewportHeight
     );
     const fullPaneHeight=Math.max(
       1,
-      feedBottom-feedTop
+      frameBottom-frameTop
     );
     const safePaneHeight=Math.max(
       1,
@@ -5245,7 +5255,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     let unit=1;
 
     if(portrait){
-      // 1) Full usable height first.
+      // 1) Full left-column frame height first, INCLUDING the heading row.
       playerHeight=fullPaneHeight;
       // 2) Natural width follows from the portrait ratio.
       playerWidth=Math.max(1,playerHeight*ratio);
