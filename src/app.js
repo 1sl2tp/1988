@@ -5176,6 +5176,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
     root.style.removeProperty("--watch-player-column-w");
+    root.style.removeProperty("--watch-feed-column-w");
+    root.style.removeProperty("--watch-feed-content-w");
+    root.style.removeProperty("--watch-scroll-gutter");
+    root.style.removeProperty("--watch-card-unit");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
     root.classList.add("watch-tools-bottom");
@@ -5255,6 +5259,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.style.removeProperty("--watch-player-height");
   root.style.removeProperty("--watch-player-column-w");
   root.style.removeProperty("--watch-feed-column-w");
+  root.style.removeProperty("--watch-feed-content-w");
+  root.style.removeProperty("--watch-scroll-gutter");
   root.style.removeProperty("--watch-card-unit");
 }
 
