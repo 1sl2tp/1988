@@ -1,0 +1,30 @@
+name: Validate 1988
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Test source
+        run: |
+          node tests/media-core.test.cjs
+          node tests/integration-shape.test.cjs .
+          node tests/backend-media-proxy.test.cjs
+          python -m py_compile backend/ytdlp/server.py
+          node --check src/media-core.js
+          node --check src/app.js
+          node --check src/yt-local.js
