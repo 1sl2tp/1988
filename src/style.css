@@ -141,6 +141,7 @@ html.search-suggestions-open .suggestions{
   background:transparent;
   scrollbar-width:none;-webkit-overflow-scrolling:touch;
   scroll-behavior:smooth;scroll-snap-type:x proximity;
+  scroll-padding-inline:10px;
   overscroll-behavior-x:contain
 }
 .topic-chips::-webkit-scrollbar{display:none}
@@ -148,7 +149,7 @@ html.search-suggestions-open .suggestions{
   flex:0 0 1px;width:1px;height:22px;margin:0 3px;
   align-self:center;background:rgba(255,255,255,.11);border-radius:999px
 }
-.topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap;scroll-snap-align:center}
+.topic-chip{flex:0 0 auto;height:34px;padding:0 13px;border:1px solid #2d2d33;border-radius:9px;background:var(--chip);color:#ddd;font-size:12px;white-space:nowrap;scroll-snap-align:start;scroll-margin-inline:10px}
 .topic-chip.active{background:#f2f2f3;color:#111;border-color:#f2f2f3;font-weight:750}
 .topic-chip.live-chip{
   width:36px;min-width:36px;padding:0;display:grid;place-items:center;
