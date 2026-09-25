@@ -401,16 +401,7 @@ html.search-suggestions-open .suggestions{
 
 @media(max-width:900px){.feed{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){
-  :root{
-    --header-row-h:56px;--nav-row-h:48px;--header-stack-h:104px;
-    --brand-mark-w:27px;--brand-mark-h:19px;
-    --brand-play-w:14px;--brand-play-h:10px;
-    --brand-text-size:17px;
-    --header-icon-size:20px;
-    --topic-control-h:32px;
-    --topic-live-w:32px;
-    --topic-live-icon-size:17px;
-  }
+  :root{--header-row-h:56px;--nav-row-h:48px;--header-stack-h:104px}
   body{padding-bottom:var(--safe-bottom)}
   .header-inner{height:var(--header-row-h);padding:7px 10px;grid-template-columns:auto minmax(0,1fr)}
   .header-nav{height:var(--nav-row-h)}
@@ -1454,6 +1445,19 @@ html.search-suggestions-open .suggestions{
 
 /* ---------------------------- MOBILE ---------------------------- */
 @media(max-width:720px){
+  :root{
+    --brand-mark-w:27px;
+    --brand-mark-h:19px;
+    --brand-play-w:14px;
+    --brand-play-h:10px;
+    --brand-text-size:17px;
+    --header-action-size:40px;
+    --header-icon-size:20px;
+    --topic-control-h:32px;
+    --topic-live-w:32px;
+    --topic-live-icon-size:17px;
+  }
+
   html:not(.watch-browse){
     --header-row-h:52px;
     --nav-row-h:48px;
@@ -1664,6 +1668,12 @@ html.search-suggestions-open .suggestions{
 
   html:not(.watch-browse) .topic-chip.live-chip:not(.active){
     background:rgba(29,29,32,.72);
+  }
+  html:not(.watch-browse) .topic-chip.live-chip.active{
+    background:var(--media-red-soft);
+    color:var(--media-red);
+    border-color:rgba(242,13,58,.62);
+    font-weight:800;
   }
 
   html:not(.watch-browse) .topic-divider{
@@ -2144,6 +2154,12 @@ html.search-suggestions-open .suggestions{
     color:#111;
     border-color:#f2f2f3;
     font-weight:750;
+  }
+  html.watch-browse .topic-chip.live-chip.active{
+    background:var(--media-red-soft);
+    color:var(--media-red);
+    border-color:rgba(242,13,58,.62);
+    font-weight:800;
   }
 
   html.watch-browse .feed-section{
