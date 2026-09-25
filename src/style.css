@@ -1057,12 +1057,71 @@ html.search-suggestions-open .suggestions{
 /* Card hierarchy is identical everywhere: card > thumb + metadata > avatar/text. */
 .card-copy{
   display:grid;
-  grid-template-columns:36px minmax(0,1fr);
+  grid-template-columns:36px minmax(0,1fr) 30px;
   gap:10px;
   align-items:start;
 }
 .card-copy-main{
   min-width:0;
+}
+.card-more-btn{
+  align-self:start;
+  width:30px;
+  height:34px;
+  margin:-2px -4px 0 0;
+  padding:0;
+  border:0;
+  border-radius:17px;
+  background:transparent;
+  color:#d5d5da;
+  display:grid;
+  place-items:center;
+  line-height:1;
+}
+.card-more-btn:hover,
+.card-more-btn[aria-expanded="true"]{
+  background:rgba(255,255,255,.08);
+  color:#fff;
+}
+.card-more-btn svg{
+  display:block;
+  width:20px;
+  height:20px;
+  fill:currentColor;
+  stroke:none;
+}
+.card-action-menu{
+  position:fixed;
+  z-index:260;
+  width:min(220px,calc(100vw - 16px));
+  min-width:184px;
+  padding:6px;
+  border:1px solid #34343a;
+  border-radius:12px;
+  background:#1b1b1e;
+  box-shadow:0 16px 44px rgba(0,0,0,.58);
+  overflow:hidden;
+}
+.card-action-menu[hidden]{display:none}
+.card-action-item{
+  width:100%;
+  min-height:42px;
+  padding:0 12px;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:#f3f3f4;
+  text-align:left;
+  font-size:13px;
+  font-weight:650;
+}
+.card-action-item:hover{background:rgba(255,255,255,.07)}
+.card-action-item.active{color:#fff;font-weight:780}
+.card-action-item.danger{color:#ff7770}
+.card-action-item:disabled{
+  opacity:.72;
+  cursor:default;
+  background:rgba(255,255,255,.035);
 }
 .card-avatar{
   display:grid;
@@ -1164,7 +1223,7 @@ html.search-suggestions-open .suggestions{
 
   html.watch-browse .card-copy,
   html:not(.watch-browse) .card-copy{
-    grid-template-columns:34px minmax(0,1fr);
+    grid-template-columns:34px minmax(0,1fr) 30px;
     gap:9px;
   }
 }
