@@ -6642,44 +6642,46 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
   return source;
 }
 
+async function buildCategorySourceSnapshot(parent,local=null){
+  const group=parentSourceGroup(parent);
+  if(!group)return [];
+  const sources=selectedSourcesForParent(parent);
+  if(!sources.length){
+    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
+    return [];
+  }
+
+  local=local||await localEngine(12000);
+  const raw=await fetchSourcePool(local,sources,true,group);
+  const rows=dedupeHashedRows(
+    newestFirst(
+      (Array.isArray(raw)?raw:[])
+        .filter(uploadedWithinCategoryWindow)
+        .filter(row=>!isBlockedSourceRow(row,group))
+        .map(row=>({...row,_selectedCategorySource:true}))
+    )
+  ).slice(0,90);
+
+  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+
+  if(rows.length){
+    saveSourceContentLearning(
+      group,
+      extractSourceContentTerms(parent,aiDisplayRows(rows))
+    );
+  }
+  return rows;
+}
+
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
   if(document.hidden)return;
   try{
-    const group=parentSourceGroup(parent);
-    let progressiveRows=categoryCacheRows(parent.key);
-    const raw=await fetchSourcePool(local,sources,true,group,(batch)=>{
-      const ready=dedupeHashedRows(
-        newestFirst(
-          batch
-            .filter(uploadedWithinCategoryWindow)
-            .filter(row=>!isBlockedSourceRow(row,group))
-            .map(row=>({...row,_selectedCategorySource:true}))
-        )
-      );
-      if(!ready.length)return;
-      progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
-      // Background refresh updates the data snapshot only. Keep the visible
-      // DOM stable while the user is reading.
-    });
-    const rows=dedupeHashedRows(
-      newestFirst(
-        (Array.isArray(raw)?raw:[])
-          .filter(uploadedWithinCategoryWindow)
-          .filter(row=>!isBlockedSourceRow(row,group))
-          .map(row=>({...row,_selectedCategorySource:true}))
-      )
-    ).slice(0,90);
-
+    const rows=await buildCategorySourceSnapshot(parent,local);
     if(!rows.length)return;
 
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
-
-    // New snapshot is stored for the next category entry; do not rebuild the
-    // current visible list after a background refresh.
-
-    void enrichSelectedCategoryInBackground(parent,rows)
-      .then(learnedRows=>{if(learnedRows) return discoverSourcesForParent(parent,local);});
+    // Suggestions are learned after the complete snapshot is packaged. Never
+    // mutate/reorder the visible category while the user is reading it.
+    void discoverSourcesForParent(parent,local).catch(()=>{});
   }catch(error){
     console.warn("category source refresh failed",parent?.label||parent?.key,error);
   }
@@ -11335,16 +11337,17 @@ async function loadFeedPreset(name="latest"){
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   const feedChanged=state.activeFeed!==name;
+
   if(feedChanged){
     state.activeTrend="";
     state.activeParent="";
     state.trendTopics=[];
-    renderTrendTopics();
   }
 
-  const activeFeedScope=isSourceScopedFeed(name)?feedSourceScope(name):"";
+  const scoped=isSourceScopedFeed(name);
+  const activeFeedScope=scoped?feedSourceScope(name):"";
 
-  if(isSourceScopedFeed(name)&&!selectedSetForScope(activeFeedScope).size){
+  if(scoped&&!selectedSetForScope(activeFeedScope).size){
     state.feedLoading=false;
     state.feedHasMore=false;
     state.feedRows=[];
@@ -11356,28 +11359,23 @@ async function loadFeedPreset(name="latest"){
     feedTitle.textContent=preset.title;
     feedStatus.textContent="";
     feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
-    void refreshAiTrendTopics();
     return;
   }
 
   state.feedLoading=true;
   state.feedHasMore=true;
   state.feedRows=[];
-  if(!isSourceScopedFeed(name)){
+  if(!scoped){
     state.activeParent="";
     state.activeTrend="";
     state.trendTopics=[];
-    renderTrendTopics();
   }
+
   setActiveChip(name);
-  if(isSourceScopedFeed(name)){
-    state.trendTopics=state.feedTrendTopics.get(name)||[];
-    renderTrendTopics();
-  }
   feedTitle.textContent=preset.title;
 
   let cached=readFeedCache(name);
-  if(!cached.length&&isSourceScopedFeed(name)){
+  if(!cached.length&&scoped){
     const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
     const perSourceCached=cachedRowsForSources(
       selectedSources(activeFeedScope),
@@ -11389,129 +11387,112 @@ async function loadFeedPreset(name="latest"){
     }
   }
 
+  // A cached package is already complete. Apply its cached/one-shot AI package
+  // before first paint, then never reorder the visible list in the background.
   if(cached.length){
     const rows=sortPresetRows(cached,preset)
-      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,activeFeedScope));
-    state.feedRows=rows;
-    await prewarmRowSourceAvatars(aiDisplayRows(trendRows(rows)).slice(0,36),560);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
-    renderCurrentTrendFeed();
+      .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
 
-    if(isSourceScopedFeed(name)){
-      state.feedLoading=false;
-      state.feedHasMore=true;
-      void enrichSourceFeedAi(name,rows,seq);
+    if(scoped&&rows.length>=4){
+      await enrichSourceFeedAi(name,rows,seq);
+      if(seq!==state.feedSeq||state.activeFeed!==name)return;
+      state.trendTopics=state.feedTrendTopics.get(name)||[];
+    }else{
+      state.trendTopics=[];
+    }
+    renderTrendTopics();
+
+    state.feedRows=mergeUniqueRows([],rows);
+    const visible=aiDisplayRows(trendRows(state.feedRows));
+    await prewarmRowSourceAvatars(visible.slice(0,36),420);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+
+    renderCards(visible);
+    feedStatus.textContent=visible.length?visible.length+" video":"";
+    state.feedLoading=false;
+    state.feedHasMore=true;
+
+    // Refresh the next package silently. It becomes visible only on a future
+    // tab entry/reload, so there is no "loaded -> sorted again" jump.
+    if(scoped){
       void refreshCachedSourceFeedInBackground(name,preset,seq);
-      void refreshAiTrendTopics();
+    }else if(name===LIVE_SOURCE_SCOPE){
+      void refreshLiveSnapshotInBackground();
+    }
+    return;
+  }
+
+  feed.innerHTML='<div class="loading">Đang tải và sắp xếp…</div>';
+  feedStatus.textContent="";
+
+  const firstPaintWatchdog=setTimeout(()=>{
+    if(
+      seq!==state.feedSeq ||
+      state.activeFeed!==name ||
+      state.feedRows.length
+    )return;
+    feed.innerHTML=
+      '<div class="error">Nguồn đang phản hồi chậm.<br>'+
+      '<button class="retry-feed" type="button">Tải lại</button></div>';
+    feedStatus.textContent="";
+    state.feedLoading=false;
+  },9000);
+
+  try{
+    const local=await localEngine(16000);
+
+    // No progressive paint: collect the whole current snapshot, sort/dedupe,
+    // run the single feed AI package, and only then expose it to the DOM.
+    const rowsRaw=await preset.load(local,true,null);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+
+    const rows=sortPresetRows(
+      (Array.isArray(rowsRaw)?rowsRaw:[])
+        .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope)),
+      preset
+    );
+
+    if(!rows.length){
+      state.feedRows=[];
+      state.feedHasMore=false;
+      state.trendTopics=[];
+      renderTrendTopics();
+      saveFeedCache(name,[]);
+      feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
+      feedStatus.textContent="";
       return;
     }
 
-    feedStatus.textContent="Đang cập nhật…";
-  }else{
-    feed.innerHTML='<div class="loading">Đang tải…</div>';
-    feedStatus.textContent="";
-  }
-
-  const firstPaintWatchdog=
-    isSourceScopedFeed(name)&&!cached.length
-      ?setTimeout(()=>{
-          if(
-            seq!==state.feedSeq ||
-            state.activeFeed!==name ||
-            state.feedRows.length
-          )return;
-          feed.innerHTML=
-            '<div class="error">Nguồn đang phản hồi chậm.<br>'+
-            '<button class="retry-feed" type="button">Tải lại</button></div>';
-          feedStatus.textContent="";
-          state.feedLoading=false;
-        },9000)
-      :0;
-
-  try{
-    let local=null;
-    local=await localEngine(16000);
-
-    const progressiveBatch=isSourceScopedFeed(name)
-      ?(batch,source,meta={})=>{
-          if(seq!==state.feedSeq||state.activeFeed!==name)return;
-          const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
-          const matching=(Array.isArray(batch)?batch:[])
-            .filter(predicate)
-            .filter(row=>!isBlockedSourceRow(row,activeFeedScope));
-
-          let base=state.feedRows;
-          if(meta.replaceSource===true&&source?.id){
-            base=base.filter(row=>String(row?._sourceId||"")!==source.id);
-          }
-
-          if(!matching.length&&base===state.feedRows)return;
-
-          state.feedRows=sortPresetRows(
-            mergeUniqueRows(matching,base),
-            preset
-          );
-
-          if(state.feedRows.length){
-            renderCurrentTrendFeed();
-            feedStatus.textContent=meta.verified?"":"Đang xác minh…";
-          }else if(meta.verified){
-            feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
-            feedStatus.textContent="";
-          }
-        }
-      :null;
-
-    const rowsRaw=await preset.load(local,true,progressiveBatch);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
-    const rows=sortPresetRows(rowsRaw,preset);
-    if(!Array.isArray(rows)||!rows.length){
-      if(isSourceScopedFeed(name)&&state.feedRows.length){
-        // Strict verification may still be finishing in late promises. Keep
-        // the already-rendered transient rows instead of blanking the screen.
-        state.feedHasMore=true;
-        feedStatus.textContent="Đang xác minh…";
-        return;
-      }
-      if(isSourceScopedFeed(name)){
-        state.feedRows=[];
-        state.feedHasMore=false;
-        state.activeParent="";
-        state.activeTrend="";
-        state.trendTopics=[];
-        renderTrendTopics();
-        saveFeedCache(name,[]);
-        feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
-        feedStatus.textContent="";
-        return;
-      }
-      throw new Error("empty_feed");
-    }
     state.feedRows=mergeUniqueRows([],rows);
     saveFeedCache(name,state.feedRows);
-    await prewarmRowSourceAvatars(aiDisplayRows(trendRows(state.feedRows)).slice(0,36),560);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
-    renderCurrentTrendFeed();
-    state.feedHasMore=true;
-    feedStatus.textContent="";
-    if(isSourceScopedFeed(name)){
-      void enrichSourceFeedAi(name,state.feedRows,seq)
-        .then(ai1Ready=>{
-          if(ai1Ready)return discoverSourcesForParent(feedSourceParent(name),local);
-        });
+
+    if(scoped&&state.feedRows.length>=4){
+      await enrichSourceFeedAi(name,state.feedRows,seq);
+      if(seq!==state.feedSeq||state.activeFeed!==name)return;
+      state.trendTopics=state.feedTrendTopics.get(name)||[];
+    }else{
+      state.trendTopics=[];
     }
-    void refreshAiTrendTopics();
+    renderTrendTopics();
+
+    const visible=aiDisplayRows(trendRows(state.feedRows));
+    await prewarmRowSourceAvatars(visible.slice(0,36),420);
+    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+
+    renderCards(visible);
+    feedStatus.textContent=visible.length?visible.length+" video":"";
+    state.feedHasMore=true;
+
+    if(scoped){
+      void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
+    }
   }catch(error){
     console.warn("feed failed",name,error);
-    if(!cached.length){
-      feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
-      feedStatus.textContent="";
-      state.feedHasMore=false;
-    }else{
-      feedStatus.textContent="Dữ liệu gần nhất";
-    }
+    feed.innerHTML='<div class="error">Chưa tải được '+esc(preset.title)+'.<br><button class="retry-feed" type="button">Tải lại</button></div>';
+    feedStatus.textContent="";
+    state.feedHasMore=false;
   }finally{
-    if(firstPaintWatchdog)clearTimeout(firstPaintWatchdog);
+    clearTimeout(firstPaintWatchdog);
     if(seq===state.feedSeq)state.feedLoading=false;
     setTimeout(maybeLoadMoreFeed,120);
   }
