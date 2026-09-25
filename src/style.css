@@ -4438,3 +4438,279 @@ html.watch-browse .player-frame video{
     box-shadow:0 14px 40px rgba(0,0,0,.38)!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE READABLE GRID + WORKING OVERLAYS v184
+   Search/source/category overlays remain reachable; recommendations
+   use a readable two-column vertical grid with duration + metadata.
+   ============================================================ */
+@media(max-width:720px){
+  /* Keep the header DOM alive for temporary search/category/source sheets.
+     Its visible rows remain hidden until a tool explicitly opens them. */
+  html.watch-browse .app-header{
+    display:contents!important;
+  }
+
+  html.watch-browse .header-inner{
+    display:none!important;
+  }
+
+  html.watch-browse .header-nav{
+    display:none!important;
+  }
+
+  /* Search button: reveal the real search form, including the source/settings
+     button, without restoring the permanent mobile header. */
+  html.watch-browse.watch-search-open .header-inner{
+    display:grid!important;
+    position:fixed!important;
+    z-index:96!important;
+    left:8px!important;
+    right:8px!important;
+    top:8px!important;
+    width:auto!important;
+    height:42px!important;
+    min-height:42px!important;
+    padding:0!important;
+    margin:0!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    background:transparent!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner .brand,
+  html.watch-browse.watch-search-open .header-inner .install-btn{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-search{
+    display:grid!important;
+    width:100%!important;
+    height:42px!important;
+    grid-template-columns:auto minmax(0,1fr) auto!important;
+    border:1px solid rgba(255,255,255,.14)!important;
+    border-radius:12px!important;
+    overflow:visible!important;
+    background:rgba(18,18,22,.97)!important;
+    box-shadow:0 14px 40px rgba(0,0,0,.42)!important;
+    backdrop-filter:blur(18px)!important;
+    -webkit-backdrop-filter:blur(18px)!important;
+  }
+
+  html.watch-browse.watch-search-open #queryInput{
+    display:block!important;
+    height:40px!important;
+    min-width:0!important;
+    font-size:13px!important;
+  }
+
+  html.watch-browse.watch-search-open .source-header-btn{
+    display:grid!important;
+    width:40px!important;
+    height:40px!important;
+  }
+
+  /* Category/source selector sheet. */
+  html.watch-browse.watch-categories-open .header-nav{
+    display:block!important;
+    position:fixed!important;
+    z-index:95!important;
+    left:8px!important;
+    right:8px!important;
+    top:auto!important;
+    bottom:calc(8px + var(--safe-bottom))!important;
+    width:auto!important;
+    height:auto!important;
+    max-height:52dvh!important;
+    margin:0!important;
+    padding:0!important;
+    border:1px solid rgba(255,255,255,.11)!important;
+    border-radius:16px!important;
+    overflow:hidden!important;
+    background:rgba(18,18,22,.98)!important;
+    box-shadow:0 18px 46px rgba(0,0,0,.44)!important;
+    backdrop-filter:blur(18px)!important;
+    -webkit-backdrop-filter:blur(18px)!important;
+  }
+
+  html.watch-browse.watch-categories-open .header-nav-inner{
+    width:100%!important;
+    max-width:none!important;
+    height:auto!important;
+    max-height:52dvh!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-chips{
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    width:100%!important;
+    height:auto!important;
+    max-height:52dvh!important;
+    gap:7px!important;
+    padding:9px!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    scrollbar-width:none!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-chips::-webkit-scrollbar{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-chip{
+    width:100%!important;
+    height:36px!important;
+    padding:0 11px!important;
+    border-radius:10px!important;
+    text-align:left!important;
+    font-size:11px!important;
+  }
+
+  html.watch-browse.watch-categories-open .topic-divider{
+    display:none!important;
+  }
+
+  /* Do not concatenate the legacy "Video liên quan" pseudo label. */
+  html.watch-browse .section-head h2::after,
+  html.watch-browse.watch-video-wide .section-head h2::after{
+    content:none!important;
+    display:none!important;
+  }
+
+  /* Feed becomes a readable vertical grid rather than tiny horizontal cards. */
+  html.watch-browse .feed-section,
+  html.watch-browse.watch-video-wide .feed-section,
+  html.watch-browse.watch-video-square .feed-section,
+  html.watch-browse.watch-video-portrait .feed-section{
+    overflow:visible!important;
+    margin:0 7px 12px!important;
+    padding:10px 8px 12px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped){
+    display:grid!important;
+    grid-template-columns:repeat(2,minmax(0,1fr))!important;
+    align-items:start!important;
+    gap:12px 8px!important;
+    width:100%!important;
+    height:auto!important;
+    overflow:visible!important;
+    padding:0!important;
+    scroll-snap-type:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:none!important;
+    height:auto!important;
+    display:flex!important;
+    flex-direction:column!important;
+    padding:0!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:11px!important;
+    overflow:visible!important;
+    background:transparent!important;
+    opacity:1!important;
+    transform:none!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    position:relative!important;
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    border-radius:10px!important;
+    overflow:hidden!important;
+    background:#151518!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img{
+    width:100%!important;
+    height:100%!important;
+    object-fit:cover!important;
+    border-radius:10px!important;
+  }
+
+  /* Duration is always readable on non-live cards when data is available. */
+  html.watch-browse .feed:not(.search-grouped)>.card .duration{
+    display:block!important;
+    position:absolute!important;
+    right:5px!important;
+    bottom:5px!important;
+    z-index:4!important;
+    padding:2px 5px!important;
+    border-radius:5px!important;
+    background:rgba(0,0,0,.82)!important;
+    color:#fff!important;
+    font-size:9px!important;
+    line-height:1.15!important;
+    font-weight:650!important;
+    letter-spacing:.05px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy{
+    display:block!important;
+    min-width:0!important;
+    padding:7px 2px 3px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-title{
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:3!important;
+    overflow:hidden!important;
+    min-height:0!important;
+    margin:0!important;
+    color:#f1f1f3!important;
+    font-size:11.25px!important;
+    line-height:1.28!important;
+    font-weight:700!important;
+    letter-spacing:-.05px!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel{
+    display:block!important;
+    margin-top:5px!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:#9b9ba3!important;
+    font-size:9.4px!important;
+    line-height:1.15!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    display:block!important;
+    margin-top:2px!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    color:#777780!important;
+    font-size:8.9px!important;
+    line-height:1.15!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .thumb-wrap{
+    box-shadow:0 0 0 2px rgba(255,255,255,.88)!important;
+  }
+}
+
+/* Very narrow phones keep cards legible instead of crushing two columns. */
+@media(max-width:360px){
+  html.watch-browse .feed:not(.search-grouped){
+    grid-template-columns:1fr!important;
+  }
+}
