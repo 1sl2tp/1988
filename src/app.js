@@ -1086,6 +1086,20 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   clearSourceContentLearning(scope);
   refreshSourceManager();
   syncSourcePreviewHeader();
+
+  // Relearn the "Chưa chọn" suggestions immediately from the new Đã chọn
+  // state while the manager is open. The same path is used for every tab.
+  if(sourceManageMode&&!sourcesSheet?.hidden){
+    const parent=sourceDiscoveryParentForGroup(scope);
+    if(parent){
+      setTimeout(()=>{
+        if(sourcesSheet.hidden||sourceScope(sourceManageGroup)!==scope)return;
+        void localEngine(12000)
+          .then(local=>discoverSourcesForParent(parent,local))
+          .catch(()=>{});
+      },80);
+    }
+  }
 }
 
 function selectedSources(scope=GENERAL_SOURCE_SCOPE){
@@ -6308,16 +6322,22 @@ async function collectNewSourceDiscoveryRows(parent,local,group){
 
   const representatives=new Map();
   let exhausted=false;
+  const discoveryWindows=group===LIVE_SOURCE_SCOPE
+    ?[{key:"live",uploadDate:"",maxAgeMs:Number.MAX_SAFE_INTEGER,maxPages:3}]
+    :SOURCE_DISCOVERY_WINDOWS;
 
-  for(const windowDef of SOURCE_DISCOVERY_WINDOWS){
+  for(const windowDef of discoveryWindows){
     for(let page=0;page<windowDef.maxPages;page++){
+      const filters=group===LIVE_SOURCE_SCOPE
+        ?{features:["live"],sort_by:"upload_date"}
+        :{upload_date:windowDef.uploadDate,sort_by:"upload_date"};
       const batches=await Promise.all(
         queries.map((query,index)=>
           pagedSearch(
             local,
             "source-discovery:"+group+":"+windowDef.key+":"+index+":"+fastHash(query),
             query,
-            {upload_date:windowDef.uploadDate,sort_by:"upload_date"},
+            filters,
             page===0,
             group
           ).catch(()=>[])
@@ -6331,7 +6351,11 @@ async function collectNewSourceDiscoveryRows(parent,local,group){
 
       for(const row of batches.flat()){
         if(isBlockedSourceRow(row,group))continue;
-        if(!uploadedWithin(row,windowDef.maxAgeMs))continue;
+        if(group===LIVE_SOURCE_SCOPE){
+          if(row?.isLive!==true)continue;
+        }else if(!uploadedWithin(row,windowDef.maxAgeMs)){
+          continue;
+        }
 
         const candidate=sourceCandidateFromVideo(row);
         if(!candidate||sourceAlreadyKnownForDiscovery(candidate,group))continue;
