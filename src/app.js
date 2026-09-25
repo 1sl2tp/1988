@@ -10582,7 +10582,9 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
             // running and, once complete, replaces tentative cards and cache.
             void verifyPromise.then(verified=>{
               const confirmed=Array.isArray(verified)?verified:[];
-              if(!selectedSourceIds.has(source.id)||blockedSourceIds.has(source.id))return;
+              const selectedNow=selectedSetForScope(scope);
+              const blockedNow=blockedSetForScope(scope);
+              if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
               saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
               emit(confirmed,source,{
                 cached:false,
