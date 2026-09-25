@@ -8478,3 +8478,144 @@ html:not(.watch-browse).home-search-open .header-inner{
 .source-avatar img{
   text-indent:0!important;
 }
+
+
+/* ============================================================
+   SOURCE ROW AMBIENT GROUP v219
+   The source/chip row must read as part of the same sampled-video surface,
+   not as a separate black strip.
+   HOME: one shared ambient background spans Search + sources.
+   WATCH: one shared band sits behind Search + player + sources + "Mới nhất".
+   ============================================================ */
+@media(max-width:720px){
+  /* ---------------- HOME ---------------- */
+  html:not(.watch-browse) .app-header{
+    background:
+      radial-gradient(
+        130% 170% at 50% 72%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 48%,
+        var(--page-chrome-faint) 68%,
+        rgba(11,11,12,.94) 100%
+      )!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  /* Child rows are now translucent windows into the SAME parent ambient band. */
+  html:not(.watch-browse) .header-inner{
+    background:rgba(11,11,12,.34)!important;
+    backdrop-filter:blur(9px) saturate(120%)!important;
+    -webkit-backdrop-filter:blur(9px) saturate(120%)!important;
+  }
+
+  html:not(.watch-browse) .header-nav{
+    background:rgba(11,11,12,.24)!important;
+    backdrop-filter:blur(8px) saturate(118%)!important;
+    -webkit-backdrop-filter:blur(8px) saturate(118%)!important;
+  }
+
+  html:not(.watch-browse) .header-nav-inner,
+  html:not(.watch-browse) .topic-chips{
+    background:transparent!important;
+  }
+
+  /* Opaque chips previously hid almost all sampled color. */
+  html:not(.watch-browse) .topic-chip:not(.active){
+    background:rgba(35,35,38,.76)!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.live-chip:not(.active){
+    background:rgba(29,29,32,.72)!important;
+  }
+
+  /* ---------------- WATCH ---------------- */
+  html.watch-browse body{
+    position:relative!important;
+    isolation:isolate!important;
+  }
+
+  /* One continuous ambient layer behind the complete top watch cluster. */
+  html.watch-browse body::before{
+    content:""!important;
+    position:fixed!important;
+    z-index:0!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    height:calc(
+      var(--safe-top) +
+      var(--watch-top-row-h) +
+      var(--watch-stage-h) +
+      var(--watch-source-row-h) +
+      40px
+    )!important;
+    pointer-events:none!important;
+    background:
+      radial-gradient(
+        125% 105% at 50% 54%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 50%,
+        var(--page-chrome-faint) 70%,
+        rgba(9,9,10,.96) 100%
+      )!important;
+  }
+
+  html.watch-browse .header-inner{
+    background:rgba(11,11,12,.38)!important;
+    backdrop-filter:blur(9px) saturate(120%)!important;
+    -webkit-backdrop-filter:blur(9px) saturate(120%)!important;
+  }
+
+  html.watch-browse .player-section{
+    background:transparent!important;
+  }
+
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    background:rgba(11,11,12,.24)!important;
+    backdrop-filter:blur(8px) saturate(118%)!important;
+    -webkit-backdrop-filter:blur(8px) saturate(118%)!important;
+  }
+
+  html.watch-browse .header-nav-inner,
+  html.watch-browse.watch-categories-open .header-nav-inner,
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips{
+    background:transparent!important;
+  }
+
+  html.watch-browse .topic-chip:not(.active){
+    background:rgba(35,35,38,.76)!important;
+  }
+
+  html.watch-browse .topic-chip.live-chip:not(.active){
+    background:rgba(29,29,32,.72)!important;
+  }
+
+  html.watch-browse .section-head{
+    background:
+      linear-gradient(
+        to bottom,
+        rgba(11,11,12,.18),
+        rgba(11,11,12,.50)
+      )!important;
+    backdrop-filter:blur(5px) saturate(112%)!important;
+    -webkit-backdrop-filter:blur(5px) saturate(112%)!important;
+  }
+
+  /* Search mode intentionally remains neutral. */
+  html.watch-browse.watch-search-open body::before{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-inner,
+  html.watch-browse.watch-search-open .header-nav,
+  html:not(.watch-browse).home-search-open .app-header,
+  html:not(.watch-browse).home-search-open .header-inner,
+  html:not(.watch-browse).home-search-open .header-nav{
+    background:#0b0b0c!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+}
