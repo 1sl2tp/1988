@@ -666,6 +666,7 @@ async function filterEmbeddableRows(rows=[],options={}){
   if(!list.length)return [];
 
   const concurrency=Math.max(1,Math.min(10,Number(options?.concurrency)||6));
+  const requirePlayable=options?.requirePlayable===true;
   const output=new Array(list.length);
   let cursor=0;
 
@@ -688,10 +689,15 @@ async function filterEmbeddableRows(rows=[],options={}){
 
       try{
         const status=await embedPlaybackStatus(id);
-        // Unknown stays visible; only a definitive "cannot play here" is removed.
-        if(status?.playable!==false)output[index]=row;
+        // Search may keep unknown rows to avoid false negatives. Selected-source
+        // feeds are strict: only confirmed playable rows may enter cache/feed.
+        if(requirePlayable){
+          if(status?.playable===true)output[index]=row;
+        }else if(status?.playable!==false){
+          output[index]=row;
+        }
       }catch{
-        output[index]=row;
+        if(!requirePlayable)output[index]=row;
       }
     }
   };
