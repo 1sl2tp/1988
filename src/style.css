@@ -2755,22 +2755,24 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   WATCH GEOMETRY v293
+   WATCH GEOMETRY v294
+   One geometric system for desktop Watch.
+
    W = width of one normal 16:9 recommendation thumbnail.
-   Desktop watch uses only multiples of W:
-   - feed = 2 cards = 2W (+ one card gap)
-   - landscape player = 2W
-   - square / portrait player = 1W
-   JS solves W from the real available width and the video's natural
-   height constraint. No independent vw percentage is allowed to resize
-   the player away from the recommendation-card geometry.
+   The watch row always contains 4 W-units and 3 equal gaps:
+   - landscape: 2 feed cards | 2-unit player
+   - square/portrait: 3 feed cards | 1-unit player
+
+   The scrollbar has its own gutter outside the card geometry. The player
+   starts at the same vertical line as the first thumbnail, and the scroll
+   pane keeps explicit bottom/side breathing room.
    ============================================================ */
 @media(min-width:960px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
     grid-template-columns:
       var(--watch-feed-column-w,minmax(0,1fr))
       var(--watch-player-column-w,44vw);
-    column-gap:14px;
+    column-gap:var(--watch-grid-gap,14px);
     justify-content:center;
   }
 
@@ -2778,15 +2780,20 @@ html.search-suggestions-open .suggestions{
     width:var(--watch-feed-column-w,100%);
     max-width:var(--watch-feed-column-w,100%);
     justify-self:end;
+    box-sizing:border-box;
+    padding-bottom:12px;
+    scrollbar-gutter:stable;
+    scroll-padding-block:12px;
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed:not(.search-grouped){
     display:grid;
-    width:var(--watch-feed-column-w,100%);
+    width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
+    max-width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
     grid-template-columns:
-      repeat(2,minmax(0,var(--watch-card-unit,1fr)))!important;
-    column-gap:14px;
-    row-gap:14px;
+      repeat(var(--watch-feed-cols,2),minmax(0,var(--watch-card-unit,1fr)))!important;
+    column-gap:var(--watch-grid-gap,14px);
+    row-gap:var(--watch-grid-gap,14px);
     align-items:start;
   }
 
@@ -2794,12 +2801,25 @@ html.search-suggestions-open .suggestions{
     width:var(--watch-card-unit,100%);
     max-width:var(--watch-card-unit,100%);
     min-width:0;
+    margin:0;
+    align-self:start;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-loading-grid{
+    width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
+    max-width:var(--watch-feed-content-w,calc(100% - var(--watch-scroll-gutter,10px)));
+    grid-template-columns:
+      repeat(var(--watch-feed-cols,2),minmax(0,var(--watch-card-unit,1fr)))!important;
+    column-gap:var(--watch-grid-gap,14px);
+    row-gap:var(--watch-grid-gap,14px);
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
     width:var(--watch-player-column-w,100%);
     max-width:var(--watch-player-column-w,100%);
     justify-self:start;
+    padding-top:var(--watch-player-top-offset,0px);
+    box-sizing:border-box;
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe){
@@ -2808,11 +2828,5 @@ html.search-suggestions-open .suggestions{
     max-width:100%;
     margin-inline:auto;
   }
-
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-loading-grid{
-    width:var(--watch-feed-column-w,100%);
-    grid-template-columns:
-      repeat(2,minmax(0,var(--watch-card-unit,1fr)))!important;
-    column-gap:14px;
-  }
 }
+
