@@ -4890,8 +4890,15 @@ function explicitVideoAspect(meta={}){
 let responsivePlayerRaf=0;
 
 function responsivePlayerAspect(meta=state.currentMeta||{}){
+  // Auto mode is horizontal by default. Once a verified portrait video turns
+  // the player vertical, keep that portrait lock authoritative for the rest of
+  // the same viewing flow instead of letting card/thumbnail metadata flip it
+  // back to 16:9.
+  const locked=validPipAspect(state.videoAspect);
+  if(state.videoAspectPortraitLocked&&locked&&locked<.80)return locked;
+
   return explicitVideoAspect(meta)||
-    validPipAspect(state.videoAspect)||
+    locked||
     16/9;
 }
 
@@ -9840,12 +9847,10 @@ async function playVideo(id,seedMeta={}){
   const previousPlaybackMeta=state.currentMeta||{};
   const previousDisplayedAspect=validPipAspect(state.videoAspect);
   const previousPlaybackScope=videoAspectHabitScope(previousPlaybackMeta);
-  if(
-    previousDisplayedAspect &&
-    (state.videoAspectVerified||state.videoAspectPortraitLocked)
-  ){
-    rememberVideoAspectHabit(previousPlaybackMeta,previousDisplayedAspect);
-  }
+  const previousPortraitLocked=
+    state.videoAspectPortraitLocked===true&&
+    previousDisplayedAspect>0&&
+    previousDisplayedAspect<.80;
 
   // Preserve where the click came from before Search hands off to Watch.
   // This is needed for the remembered portrait/landscape habit on Search.
@@ -9863,7 +9868,6 @@ async function playVideo(id,seedMeta={}){
   const keepScrollY=window.scrollY;
   const previousAspect=validPipAspect(state.videoAspect)||16/9;
   const cachedAspect=cachedPipAspect(id);
-  const seedAspect=validPipAspect(seedMeta?.aspectRatio);
 
   const currentPlaybackScope=
     enteredFromSearch
@@ -9884,31 +9888,26 @@ async function playVideo(id,seedMeta={}){
       !targetPlaybackScope||
       previousPlaybackScope===targetPlaybackScope
     );
-  const carriedAspect=samePlaybackScope
-    ?canonicalHabitAspect(previousDisplayedAspect)
-    :0;
-  const habitAspect=rememberedVideoAspect(playbackMeta);
+  const carryPortraitLock=samePlaybackScope&&previousPortraitLocked;
 
-  // Never block playback for aspect detection. Exact per-video knowledge wins.
-  // Otherwise carry the shape that is visibly on screen to the next item in
-  // the same viewing flow. This prevents a portrait series from reopening as
-  // square/16:9 because card thumbnail metadata arrived before media metadata.
-  const immediateAspect=
-    cachedAspect||
-    carriedAspect||
-    habitAspect||
-    (seedAspect&&seedAspect<=1.20?seedAspect:0);
+  // Keep this state machine intentionally simple:
+  // 1) auto/default = horizontal 16:9;
+  // 2) if the real video is verified portrait, lock portrait;
+  // 3) while continuing in the same viewing flow, keep portrait locked until
+  //    the user leaves that flow. Do not let card/thumbnail metadata re-enable
+  //    horizontal auto sizing.
+  const immediateAspect=carryPortraitLock
+    ?9/16
+    :(cachedAspect||16/9);
 
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
-  state.videoAspect=immediateAspect||(
-    wasFloating
-      ?previousAspect
-      :normalizedVideoAspect(playbackMeta)
-  );
-  state.videoAspectVerified=!!cachedAspect;
-  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
+  state.videoAspect=immediateAspect;
+  state.videoAspectVerified=!!cachedAspect||carryPortraitLock;
+  state.videoAspectPortraitLocked=
+    carryPortraitLock||
+    (!!cachedAspect&&cachedAspect<.80);
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
