@@ -5436,7 +5436,7 @@ function aiDisplayRows(rows=[]){
     return {
       ...row,
       _displayTitle:meta.displayTitle||"",
-      _displaySource:"",
+      _displaySource:meta.displaySource||"",
       _duplicateGroup:meta.duplicateGroup||""
     };
   });
@@ -5977,10 +5977,12 @@ async function classifyAiParent(parent,rows=[],options={}){
 }
 
 const SOURCE_DISCOVERY_TTL=12*60*1000;
-const SOURCE_DISCOVERY_TARGET=48;
+const SOURCE_DISCOVERY_TARGET=32;
 const SOURCE_DISCOVERY_WINDOWS=[
-  {key:"recent",uploadDate:"month",maxAgeMs:90*24*60*60*1000,maxPages:4},
-  {key:"year",uploadDate:"year",maxAgeMs:365*24*60*60*1000,maxPages:4}
+  // Fast pass: recent activity first. Broaden to the last year only when the
+  // recent pool cannot provide enough new channels.
+  {key:"recent",uploadDate:"month",maxAgeMs:90*24*60*60*1000,maxPages:3},
+  {key:"year",uploadDate:"year",maxAgeMs:365*24*60*60*1000,maxPages:3}
 ];
 const sourceDiscoveryAt=new Map();
 
@@ -6045,7 +6047,7 @@ async function collectNewSourceDiscoveryRows(parent,local,group){
           representatives.set(candidate.id,entry);
         }
         const videoId=itemVideoId(row);
-        if(videoId&&!entry.videoIds.has(videoId)&&entry.rows.length<4){
+        if(videoId&&!entry.videoIds.has(videoId)&&entry.rows.length<3){
           entry.videoIds.add(videoId);
           entry.rows.push({
             ...row,
@@ -6121,12 +6123,9 @@ async function classifySourceDiscovery(parent,discovery={}){
     });
   }catch(error){
     console.warn("AI 2 source discovery failed",parent?.label||parent?.key,error);
-    return rows.filter(row=>{
-      const candidate=sourceCandidateFromVideo(row);
-      return candidate&&
-        !sourceAlreadyKnownForDiscovery(candidate,group)&&
-        rowMatchesParentRule(parent,row);
-    });
+    // AI 2 owns source discovery. Do not silently replace it with a broad
+    // keyword heuristic, otherwise unrelated channels can leak into suggestions.
+    return [];
   }
 }
 
@@ -6166,41 +6165,58 @@ async function discoverSourcesForParent(parent,local){
 
 async function enrichSelectedCategoryInBackground(parent,rows=[]){
   const group=parentSourceGroup(parent);
-  const source=(Array.isArray(rows)?rows:[])
+  const source=dedupeHashedRows(newestFirst(Array.isArray(rows)?rows:[]))
     .filter(row=>!isBlockedSourceRow(row,group));
-  const sample=source.slice(0,48);
-  if(!sample.length)return [];
+  if(!source.length)return [];
 
   try{
-    // AI 1: only selected-source content reaches this point. It may clean
-    // titles/source branding, classify, group duplicates and reject content
-    // that is clearly outside the fixed category.
-    const classified=await classifyAiParent(parent,sample,{filterToParent:true});
-    if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
-      state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
-    }
+    // AI 1 owns content cleanup/filtering only. Process the full selected
+    // source snapshot in bounded batches so no raw tail leaks into AI 2.
+    const accepted=[];
+    const topicRows=[];
+    for(let offset=0;offset<source.length;offset+=48){
+      const batch=source.slice(offset,offset+48);
+      const classified=await classifyAiParent(parent,batch,{filterToParent:true});
 
-    const acceptedIds=classified?.acceptedVideoIds instanceof Set
-      ?classified.acceptedVideoIds
-      :new Set(sample.map(itemVideoId).filter(Boolean));
-    const accepted=source.filter((row,index)=>
-      index>=48||acceptedIds.has(itemVideoId(row))
-    );
+      if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
+        state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
+      }
+
+      const acceptedIds=classified?.acceptedVideoIds instanceof Set
+        ?classified.acceptedVideoIds
+        :new Set(batch.map(itemVideoId).filter(Boolean));
+      accepted.push(...batch.filter(row=>acceptedIds.has(itemVideoId(row))));
+
+      for(const topic of classified?.topics||[]){
+        topicRows.push(topic);
+      }
+    }
 
     const visibleRows=aiDisplayRows(accepted);
     const visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-    const topics=(classified.topics||[])
-      .map(topic=>({
+    const topicMap=new Map();
+    for(const topic of topicRows){
+      const key=normalizeSearchText(topic?.label||"");
+      if(!key)continue;
+      const existing=topicMap.get(key)||{
         ...topic,
-        videoIds:new Set([...topic.videoIds].filter(id=>visibleIds.has(id)))
-      }))
+        videoIds:new Set(),
+        channels:new Set()
+      };
+      for(const id of topic.videoIds||[]){
+        if(visibleIds.has(id))existing.videoIds.add(id);
+      }
+      for(const channel of topic.channels||[])existing.channels.add(channel);
+      topicMap.set(key,existing);
+    }
+    const topics=[...topicMap.values()]
       .filter(topic=>topic.videoIds.size>=2)
       .slice(0,10);
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:accepted});
     state.aiCategoryTopics.set(parent.key,topics);
 
-    // AI 2 learns only after AI 1 cleanup/dedup and never sees blocked rows.
+    // AI 2 gets only AI 1-cleaned, duplicate-collapsed, non-blocked examples.
     saveSourceContentLearning(
       group,
       extractSourceContentTerms(parent,visibleRows)
@@ -6210,7 +6226,7 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
       state.trendTopics=topics;
       renderTrendTopics();
 
-      const allowed=new Set(aiDisplayRows(accepted).map(itemVideoId).filter(Boolean));
+      const allowed=new Set(visibleRows.map(itemVideoId).filter(Boolean));
       for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
         if(!allowed.has(card.dataset.videoId))card.remove();
       }
@@ -6222,7 +6238,8 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
     return accepted;
   }catch(error){
     console.warn("AI 1 category cleanup failed",parent?.label||parent?.key,error);
-    // Do not let AI 2 learn from uncleaned content if AI 1 failed.
+    // Fail closed for learning/discovery. The selected-source feed itself can
+    // keep its raw snapshot, but AI 2 receives nothing from a failed AI 1 pass.
     return null;
   }
 }
