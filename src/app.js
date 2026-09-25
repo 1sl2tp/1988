@@ -193,14 +193,16 @@ const SOURCE_MANAGER_GROUPS=[
 ];
 
 const FIXED_CONTENT_CATEGORIES=[
-  {key:"news",group:"news",label:"Thời sự",queries:["thời sự mới nhất","tin tức mới nhất"]},
-  {key:"economy",group:"economy",label:"Kinh tế",queries:["kinh tế mới nhất","thị trường tài chính"]},
-  {key:"law",group:"law",label:"Pháp luật",queries:["pháp luật mới nhất","an ninh trật tự"]},
-  {key:"film",group:"film",label:"Phim",queries:["phim mới","phim ngắn","short drama"]},
-  {key:"music",group:"music",label:"Nhạc",queries:["nhạc mới","MV mới"]},
-  {key:"tech",group:"tech",label:"Công nghệ",queries:["công nghệ mới","khoa học công nghệ"]},
-  {key:"sports",group:"sports",label:"Thể thao",queries:["thể thao mới","bóng đá mới"]},
-  {key:"entertainment",group:"entertainment",label:"Giải trí",queries:["giải trí mới","showbiz mới"]}
+  // Labels are presentation only. Source discovery never derives meaning from
+  // these names, so a tab can be renamed without changing its learned profile.
+  {key:"news",group:"news",label:"Thời sự"},
+  {key:"economy",group:"economy",label:"Kinh tế"},
+  {key:"law",group:"law",label:"Pháp luật"},
+  {key:"film",group:"film",label:"Phim"},
+  {key:"music",group:"music",label:"Nhạc"},
+  {key:"tech",group:"tech",label:"Công nghệ"},
+  {key:"sports",group:"sports",label:"Thể thao"},
+  {key:"entertainment",group:"entertainment",label:"Giải trí"}
 ];
 const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
 const FEED_SOURCE_SCOPES=new Set([LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]);
@@ -210,8 +212,8 @@ const MANAGED_SOURCE_SCOPES=new Set([
   ...CONTENT_SOURCE_SCOPES
 ]);
 const AI_SOURCE_SCOPES=new Set([
-  ...FEED_SOURCE_SCOPES,
-  ...CONTENT_SOURCE_SCOPES
+  // Every managed tab learns suggestions from its own Đã chọn list.
+  ...MANAGED_SOURCE_SCOPES
 ]);
 const FEED_SOURCE_DISCOVERY_PARENTS={
   [LATEST_SOURCE_SCOPE]:{
@@ -865,7 +867,6 @@ document.addEventListener("visibilitychange",()=>{
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  if(scope===LIVE_SOURCE_SCOPE)return temporaryLiveSourceIds;
   if(AI_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
   if(scope===GENERAL_SOURCE_SCOPE)return temporaryGeneralSourceIds;
   return new Set();
@@ -873,9 +874,25 @@ function temporarySetForScope(scope=sourceManageGroup){
 
 function sourceDiscoveryParentForGroup(group=sourceManageGroup){
   group=sourceScope(group);
-  if(group===LIVE_SOURCE_SCOPE)return null;
-  if(FEED_SOURCE_SCOPES.has(group))return FEED_SOURCE_DISCOVERY_PARENTS[group]||null;
-  return FIXED_CONTENT_CATEGORIES.find(item=>item.group===group)||null;
+  if(!MANAGED_SOURCE_SCOPES.has(group))return null;
+  const tab=SOURCE_MANAGER_GROUPS.find(item=>item.key===group);
+  return {
+    key:group,
+    group,
+    // Label is UI only; the source learner uses scope + selected content.
+    label:tab?.label||group,
+    queries:[]
+  };
+}
+
+function unselectedSourceIdsForScope(scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  // LIVE needs a broad bootstrap only until the first explicit choice.
+  // After that, "Chưa chọn" means learned suggestions just like every tab.
+  if(scope===LIVE_SOURCE_SCOPE&&!selectedSetForScope(scope).size){
+    return temporaryLiveSourceIds;
+  }
+  return suggestedSetForScope(scope);
 }
 
 function allTemporarySourceIds(){
@@ -1789,17 +1806,11 @@ function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
-  const totalIds=scope===LIVE_SOURCE_SCOPE
-    ?new Set([
-        ...temporaryLiveSourceIds,
-        ...selected,
-        ...blocked
-      ])
-    :new Set([
-        ...suggestedSetForScope(scope),
-        ...selected,
-        ...blocked
-      ]);
+  const totalIds=new Set([
+    ...unselectedSourceIdsForScope(scope),
+    ...selected,
+    ...blocked
+  ]);
   const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
   const blockedCount=blocked.size;
   const totalCount=totalIds.size;
@@ -2021,17 +2032,11 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
   }
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
-    const ids=group.key===LIVE_SOURCE_SCOPE
-      ?new Set([
-          ...temporaryLiveSourceIds,
-          ...selectedSetForScope(group.key),
-          ...blockedSetForScope(group.key)
-        ])
-      :new Set([
-          ...suggestedSetForScope(group.key),
-          ...selectedSetForScope(group.key),
-          ...blockedSetForScope(group.key)
-        ]);
+    const ids=new Set([
+      ...unselectedSourceIdsForScope(group.key),
+      ...selectedSetForScope(group.key),
+      ...blockedSetForScope(group.key)
+    ]);
     const count=ids.size;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
       esc(group.label)+' <span>'+count+'</span>'+
@@ -2065,15 +2070,12 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     ...selectedSetForScope(sourceManageGroup),
     ...blockedSetForScope(sourceManageGroup)
   ]);
-  const scopedSuggestionIds=AI_SOURCE_SCOPES.has(sourceManageGroup)
-    ?suggestedSetForScope(sourceManageGroup)
+  const scopedSuggestionIds=sourceManageMode
+    ?unselectedSourceIdsForScope(sourceManageGroup)
     :new Set();
 
   const groupFilter=row=>{
     if(q||!sourceManageMode)return true;
-    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
-      return temporaryLiveSourceIds.has(row.id)||scopedStateIds.has(row.id);
-    }
     return scopedStateIds.has(row.id)||scopedSuggestionIds.has(row.id);
   };
 
@@ -2326,13 +2328,13 @@ function rememberDiscoveredSources(rows=[],groupHint=""){
     if(reconciled.changed)stateChanged=true;
     if(reconciled.status!=="normal")continue;
 
-    if(hint===LIVE_SOURCE_SCOPE){
+    if(hint&&AI_SOURCE_SCOPES.has(hint)){
+      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
+    }else if(hint===LIVE_SOURCE_SCOPE){
       if(!temporaryLiveSourceIds.has(candidate.id)){
         temporaryLiveSourceIds.add(candidate.id);
         suggestionChanged=true;
       }
-    }else if(hint&&AI_SOURCE_SCOPES.has(hint)){
-      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
     }else if(hint===GENERAL_SOURCE_SCOPE){
       if(!temporaryGeneralSourceIds.has(candidate.id)){
         temporaryGeneralSourceIds.add(candidate.id);
@@ -3563,7 +3565,6 @@ function setupSourceLibrary(){
           seedLiveSourceCandidatesFromCache();
           refreshSourceManager();
           void refreshLiveSourceCandidatesInBackground();
-          return;
         }
         const parent=sourceDiscoveryParentForGroup(groupAtClick);
         if(!parent)return;
@@ -5444,16 +5445,11 @@ function isShortDramaStoryTitle(row={}){
 }
 
 function parentSourceGroup(parent={}){
-  if(parent?.group)return String(parent.group);
-  const key=normalizeSearchText(parent?.label||parent?.key||"");
-  if(/thoi su|tin tuc/.test(key))return "news";
-  if(/kinh te|thi truong|tai chinh/.test(key))return "economy";
-  if(/phap luat|an ninh/.test(key))return "law";
-  if(/phim/.test(key))return "film";
-  if(/nhac|am nhac/.test(key))return "music";
-  if(/cong nghe|khoa hoc/.test(key))return "tech";
-  if(/the thao/.test(key))return "sports";
-  if(/giai tri/.test(key))return "entertainment";
+  // Scope identity is explicit and stable. Never infer a source tab from its
+  // display label; renaming "Thời sự", "Phim", etc. must not change behavior.
+  const explicit=String(parent?.group||parent?.key||"").trim();
+  if(explicit===GENERAL_SOURCE_SCOPE)return GENERAL_SOURCE_SCOPE;
+  if(MANAGED_SOURCE_SCOPES.has(explicit))return explicit;
   return "";
 }
 
@@ -6054,7 +6050,6 @@ function extractSourceContentTerms(parent={},rows=[]){
     for(const phrase of uniquePhrases)addTerm(phrase,weight,sourceId);
   }
 
-  const baseText=normalizeSearchText((Array.isArray(parent?.queries)?parent.queries:[]).join(" ")+" "+clean(parent?.label||""));
   const ranked=[...score.entries()]
     .map(([phrase,value])=>{
       const channelCount=channelsByTerm.get(phrase)?.size||0;
@@ -6062,10 +6057,9 @@ function extractSourceContentTerms(parent={},rows=[]){
       const words=key.split(" ").filter(Boolean);
       const crossSourceBoost=1+Math.min(3,Math.max(0,channelCount-1))*0.8;
       const phraseBoost=1+Math.min(2,Math.max(0,words.length-1))*0.35;
-      const baseBoost=baseText.includes(key)?1.18:1;
-      return [phrase,value*crossSourceBoost*phraseBoost*baseBoost,channelCount];
+      return [phrase,value*crossSourceBoost*phraseBoost,channelCount];
     })
-    .filter(([phrase,value])=>value>1.2&&normalizeSearchText(phrase)!==normalizeSearchText(parent?.label||""))
+    .filter(([,value])=>value>1.2)
     .sort((a,b)=>b[1]-a[1]||b[2]-a[2]||b[0].length-a[0].length);
 
   const terms=[];
@@ -6095,9 +6089,7 @@ async function selectedLearningRows(parent={},local){
   const group=parentSourceGroup(parent);
   const allSources=group===GENERAL_SOURCE_SCOPE
     ?selectedSources()
-    :FEED_SOURCE_SCOPES.has(group)
-      ?selectedSources(group)
-      :selectedSourcesForParent(parent);
+    :selectedSources(group);
   if(!allSources.length)return [];
 
   const selectedIds=new Set(allSources.map(source=>source.id));
@@ -6198,9 +6190,15 @@ async function ensureSourceContentLearning(parent={},local){
   if(!group)return {terms:[],hashtags:[],rows:0,sources:0};
   const saved=readSourceContentLearning(group);
   if(saved)return saved;
+
+  // Learn directly from the current selected channels. Do not run a second AI
+  // pass that tries to decide what the tab name means; this keeps all tabs
+  // identical and removes the category-name dependency/jitter.
   const rows=await selectedLearningRows(parent,local);
-  const cleaned=await cleanSelectedRowsForLearning(parent,rows);
-  return saveSourceContentLearning(group,extractSourceContentTerms(parent,cleaned));
+  return saveSourceContentLearning(
+    group,
+    extractSourceContentTerms(parent,aiDisplayRows(rows))
+  );
 }
 
 function sourceLearningProfile(parent={}){
@@ -6216,18 +6214,14 @@ function sourceLearningProfile(parent={}){
 
 async function adaptiveSourceQueries(parent={},local){
   const group=parentSourceGroup(parent);
+  if(!group)return [];
   const content=await ensureSourceContentLearning(parent,local);
-  if(!Number(content?.rows))return [];
   const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
+  const selectedNames=sourceLearningNames(group,"selected").slice(0,5);
 
-  if(group===GENERAL_SOURCE_SCOPE||FEED_SOURCE_SCOPES.has(group)){
-    const selectedNames=sourceLearningNames(group,"selected").slice(0,4);
-    return [...new Set([...learned.slice(0,5),...selectedNames])].slice(0,6);
-  }
-
-  const base=(Array.isArray(parent?.queries)&&parent.queries.length?parent.queries:[parent?.label]).map(clean).filter(Boolean);
-  const fallback=base.find(Boolean);
-  return [...new Set([...learned.slice(0,5),...(fallback?[fallback]:[])])].slice(0,6);
+  // Search only from what this tab has actually selected/learned. The display
+  // name of the tab is deliberately absent.
+  return [...new Set([...learned.slice(0,6),...selectedNames])].slice(0,8);
 }
 
 async function classifyAiParent(parent,rows=[],options={}){
@@ -6401,7 +6395,7 @@ async function classifySourceDiscovery(parent,discovery={}){
       body:JSON.stringify({
         mode:"source_discovery",
         scope:"source:"+group,
-        parentLabel:parent?.label||"",
+        // The backend intentionally ignores display labels for source learning.
         selectedSourceNames:learning.selectedSourceNames,
         blockedSourceNames:learning.blockedSourceNames,
         learnedQueries:learning.learnedQueries,
@@ -6435,13 +6429,11 @@ async function discoverSourcesForParent(parent,local){
   const group=parentSourceGroup(parent);
   if(!group)return;
 
-  // AI 2 has no generic discovery mode: it only learns from sources the user
-  // explicitly selected in this scope.
+  // Every tab has exactly the same learning rule: its own Đã chọn sources are
+  // the positive examples. Tab labels have no semantic role.
   const positiveSources=group===GENERAL_SOURCE_SCOPE
     ?selectedSources()
-    :FEED_SOURCE_SCOPES.has(group)
-      ?selectedSources(group)
-      :selectedSourcesForParent(parent);
+    :selectedSources(group);
   if(!positiveSources.length)return;
 
   const last=Number(sourceDiscoveryAt.get(group)||0);
@@ -6472,79 +6464,19 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
     .filter(row=>!isBlockedSourceRow(row,group));
   if(!source.length)return [];
 
-  try{
-    // AI 1 owns content cleanup/filtering only. Process the full selected
-    // source snapshot in bounded batches so no raw tail leaks into AI 2.
-    const accepted=[];
-    const topicRows=[];
-    for(let offset=0;offset<source.length;offset+=48){
-      const batch=source.slice(offset,offset+48);
-      const classified=await classifyAiParent(parent,batch,{filterToParent:true});
-
-      if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
-        state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
-      }
-
-      const acceptedIds=classified?.acceptedVideoIds instanceof Set
-        ?classified.acceptedVideoIds
-        :new Set(batch.map(itemVideoId).filter(Boolean));
-      accepted.push(...batch.filter(row=>acceptedIds.has(itemVideoId(row))));
-
-      for(const topic of classified?.topics||[]){
-        topicRows.push(topic);
-      }
-    }
-
-    const visibleRows=aiDisplayRows(accepted);
-    const visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-    const topicMap=new Map();
-    for(const topic of topicRows){
-      const key=normalizeSearchText(topic?.label||"");
-      if(!key)continue;
-      const existing=topicMap.get(key)||{
-        ...topic,
-        videoIds:new Set(),
-        channels:new Set()
-      };
-      for(const id of topic.videoIds||[]){
-        if(visibleIds.has(id))existing.videoIds.add(id);
-      }
-      for(const channel of topic.channels||[])existing.channels.add(channel);
-      topicMap.set(key,existing);
-    }
-    const topics=[...topicMap.values()]
-      .filter(topic=>topic.videoIds.size>=2)
-      .slice(0,10);
-
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:accepted});
-    state.aiCategoryTopics.set(parent.key,topics);
-
-    // AI 2 gets only AI 1-cleaned, duplicate-collapsed, non-blocked examples.
-    saveSourceContentLearning(
-      group,
-      extractSourceContentTerms(parent,visibleRows)
-    );
-
-    if(state.activeParent===parent.key){
-      state.trendTopics=topics;
-      renderTrendTopics();
-
-      const allowed=new Set(visibleRows.map(itemVideoId).filter(Boolean));
-      for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
-        if(!allowed.has(card.dataset.videoId))card.remove();
-      }
-      patchRenderedAiMeta(accepted);
-      const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
-      feedStatus.textContent=total?total+" video":"";
-    }
-
-    return accepted;
-  }catch(error){
-    console.warn("AI 1 category cleanup failed",parent?.label||parent?.key,error);
-    // Fail closed for learning/discovery. The selected-source feed itself can
-    // keep its raw snapshot, but AI 2 receives nothing from a failed AI 1 pass.
-    return null;
+  // Category tabs are plain selected-source feeds. Learning is background-only
+  // and may not remove/reorder visible cards, so the UI stays stable.
+  const visibleRows=aiDisplayRows(source);
+  saveSourceContentLearning(
+    group,
+    extractSourceContentTerms(parent,visibleRows)
+  );
+  state.aiCategoryTopics.set(parent.key,[]);
+  if(state.activeParent===parent.key){
+    state.trendTopics=[];
+    renderTrendTopics();
   }
+  return source;
 }
 
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
@@ -6583,24 +6515,8 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
     // New snapshot is stored for the next category entry; do not rebuild the
     // current visible list after a background refresh.
 
-    void filterNativeAiGeneratedRows(local,parent,rows).then(safeRows=>{
-      if(safeRows.length!==rows.length){
-        state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
-        if(seq===state.feedSeq&&state.activeParent===parent.key){
-          const allowed=new Set(aiDisplayRows(safeRows).map(itemVideoId).filter(Boolean));
-          for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
-            if(!allowed.has(card.dataset.videoId))card.remove();
-          }
-          const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
-          feedStatus.textContent=total?total+" video":"";
-        }
-      }
-      void enrichSelectedCategoryInBackground(parent,safeRows)
-        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
-    }).catch(()=>{
-      void enrichSelectedCategoryInBackground(parent,rows)
-        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
-    });
+    void enrichSelectedCategoryInBackground(parent,rows)
+      .then(learnedRows=>{if(learnedRows) return discoverSourcesForParent(parent,local);});
   }catch(error){
     console.warn("category source refresh failed",parent?.label||parent?.key,error);
   }
@@ -6699,26 +6615,10 @@ async function loadAiParentDiscovery(parent){
       }
     }
 
-    // Native YouTube AI disclosure is checked after first paint so Film/Music
-    // are not held hostage by dozens of getInfo() requests.
-    void filterNativeAiGeneratedRows(local,parent,rows).then(safeRows=>{
-      if(safeRows.length!==rows.length){
-        state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
-        if(state.activeParent===parent.key){
-          const allowed=new Set(aiDisplayRows(safeRows).map(itemVideoId).filter(Boolean));
-          for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
-            if(!allowed.has(card.dataset.videoId))card.remove();
-          }
-          const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
-          feedStatus.textContent=total?total+" video":"";
-        }
-      }
-      void enrichSelectedCategoryInBackground(parent,safeRows)
-        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
-    }).catch(()=>{
-      void enrichSelectedCategoryInBackground(parent,rows)
-        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
-    });
+    // Do not reclassify/remove cards by the tab title. Learn from the exact
+    // selected-source snapshot in the background, then discover similar sources.
+    void enrichSelectedCategoryInBackground(parent,rows)
+      .then(learnedRows=>{if(learnedRows) return discoverSourcesForParent(parent,local);});
   }catch(error){
     console.warn("selected category failed",parent?.label||parent?.key,error);
     if(state.activeParent===parent?.key){
