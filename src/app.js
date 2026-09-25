@@ -7999,6 +7999,10 @@ homeSearchToggle?.addEventListener("click",event=>{
     }
     if(open){
       requestAnimationFrame(()=>{
+        if(feedSection){
+          feedSection.scrollTop=0;
+          feedSection.scrollLeft=0;
+        }
         queryInput?.focus?.({preventScroll:true});
         queryInput?.select?.();
       });
@@ -8026,11 +8030,25 @@ seriesEpisodes?.addEventListener("click",event=>{
 
 searchForm.addEventListener("submit",e=>{
   e.preventDefault();
-  document.documentElement.classList.remove("watch-search-open","home-search-open");
+  const root=document.documentElement;
+  const watchSearch=root.classList.contains("watch-browse");
+
+  // In watch mode Search is its own full-screen browsing state:
+  // keep the expanded search header open while results load. The player is
+  // restored only when the user goes Back or chooses a video.
+  root.classList.remove("home-search-open");
+  if(!watchSearch)root.classList.remove("watch-search-open");
+
   if(homeSearchToggle){
-    homeSearchToggle.innerHTML=homeSearchIconMarkup(false);
-    homeSearchToggle.setAttribute("aria-label","Mở tìm kiếm");
+    homeSearchToggle.innerHTML=homeSearchIconMarkup(watchSearch);
+    homeSearchToggle.setAttribute("aria-label",watchSearch?"Đóng tìm kiếm":"Mở tìm kiếm");
   }
+
+  if(watchSearch&&feedSection){
+    feedSection.scrollTop=0;
+    feedSection.scrollLeft=0;
+  }
+
   void doSearch(queryInput.value);
   queryInput.blur();
 });
