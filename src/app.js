@@ -1653,15 +1653,24 @@ function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=selectedSetForScope(scope);
   const blocked=blockedSetForScope(scope);
-  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
-  const blockedCount=blocked.size;
-  const totalCount=scope===GENERAL_SOURCE_SCOPE
-    ?rows.filter(isGeneralManagerSource).length
-    :new Set([
-        ...suggestedSetForScope(scope),
-        ...selected,
-        ...blocked
-      ]).size;
+  const liveIds=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?new Set(temporaryLiveSourceIds)
+    :null;
+  const selectedCount=liveIds
+    ?[...liveIds].filter(id=>selected.has(id)&&!blocked.has(id)).length
+    :[...selected].filter(id=>!blocked.has(id)).length;
+  const blockedCount=liveIds
+    ?[...liveIds].filter(id=>blocked.has(id)).length
+    :blocked.size;
+  const totalCount=liveIds
+    ?liveIds.size
+    :scope===GENERAL_SOURCE_SCOPE
+      ?rows.filter(isGeneralManagerSource).length
+      :new Set([
+          ...suggestedSetForScope(scope),
+          ...selected,
+          ...blocked
+        ]).size;
 
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
@@ -2209,7 +2218,13 @@ function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
 
 function seedLiveSourceCandidatesFromCache(){
   try{
-    rememberLiveSourceCandidates(readFeedCache("live"),{replace:true});
+    const cached=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+"live")||"null");
+    if(
+      !cached||
+      !Array.isArray(cached.items)||
+      Date.now()-Number(cached.at||0)>10*60*1000
+    )return;
+    rememberLiveSourceCandidates(cached.items,{replace:true});
   }catch{}
 }
 
