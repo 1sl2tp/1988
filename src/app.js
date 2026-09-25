@@ -563,25 +563,38 @@ function applyServerState(remote={}){
       sourceGroupOverrides=remote.sourceGroups;
     }
 
-    if(remote.scopedSelected&&typeof remote.scopedSelected==="object"){
-      const next=new Map();
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        next.set(scope,new Set(cleanSourceIdList(remote.scopedSelected[scope])));
-      }
-      scopedSelectedSourceIds=next;
-    }
+    const scopeVersion=Number(remote.sourceScopeVersion)||0;
+    const remoteScopedSelected=
+      remote.scopedSelected&&typeof remote.scopedSelected==="object"
+        ?remote.scopedSelected
+        :{};
+    const remoteScopedBlocked=
+      remote.scopedBlocked&&typeof remote.scopedBlocked==="object"
+        ?remote.scopedBlocked
+        :{};
 
-    if(remote.scopedBlocked&&typeof remote.scopedBlocked==="object"){
-      const next=new Map();
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        next.set(scope,new Set(cleanSourceIdList(remote.scopedBlocked[scope])));
-      }
-      scopedBlockedSourceIds=next;
-      for(const scope of CONTENT_SOURCE_SCOPES){
-        const selected=scopedSelectedSourceIds.get(scope)||new Set();
-        for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
-      }
+    const nextSelected=new Map();
+    const nextBlocked=new Map();
+    for(const scope of MANAGED_SOURCE_SCOPES){
+      const migrateLegacyFeed=
+        scopeVersion<2 &&
+        (scope===LATEST_SOURCE_SCOPE||scope===WEEK_SOURCE_SCOPE) &&
+        !Array.isArray(remoteScopedSelected?.[scope]) &&
+        !Array.isArray(remoteScopedBlocked?.[scope]);
+
+      const blockedIds=cleanSourceIdList(
+        migrateLegacyFeed?[...blockedSourceIds]:remoteScopedBlocked?.[scope]
+      );
+      const blockedSet=new Set(blockedIds);
+      const selectedIds=cleanSourceIdList(
+        migrateLegacyFeed?[...selectedSourceIds]:remoteScopedSelected?.[scope]
+      ).filter(id=>!blockedSet.has(id));
+
+      nextSelected.set(scope,new Set(selectedIds));
+      nextBlocked.set(scope,blockedSet);
     }
+    scopedSelectedSourceIds=nextSelected;
+    scopedBlockedSourceIds=nextBlocked;
 
     if(remote.avatars&&typeof remote.avatars==="object"&&!Array.isArray(remote.avatars)){
       sourceAvatarCache={...sourceAvatarCache,...remote.avatars};
@@ -596,7 +609,7 @@ function applyServerState(remote={}){
     }
 
     saveServerMetadataCachesLocally();
-    stateSyncDirty=false;
+    stateSyncDirty=(Number(remote.sourceScopeVersion)||0)<2;
     invalidateSourceStateNameIndex?.();
     return true;
   }finally{
@@ -669,6 +682,9 @@ async function hydrateServerState(){
       if(result?.ok&&result?.exists&&result.state){
         applyServerState(result.state);
         stateSyncReady=true;
+        if(stateSyncDirty){
+          await pushServerStateNow({force:true});
+        }
         clearLegacyLocalSourceState();
         return true;
       }
@@ -680,13 +696,13 @@ async function hydrateServerState(){
           selectedSourceIds=new Set(legacy.selected);
           blockedSourceIds=new Set(legacy.blocked);
           scopedSelectedSourceIds=new Map(
-            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+            [...MANAGED_SOURCE_SCOPES].map(scope=>[
               scope,
               new Set(cleanSourceIdList(legacy.scopedSelected?.[scope]))
             ])
           );
           scopedBlockedSourceIds=new Map(
-            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+            [...MANAGED_SOURCE_SCOPES].map(scope=>[
               scope,
               new Set(cleanSourceIdList(legacy.scopedBlocked?.[scope]))
             ])
@@ -699,7 +715,7 @@ async function hydrateServerState(){
         }
 
         for(const id of blockedSourceIds)selectedSourceIds.delete(id);
-        for(const scope of CONTENT_SOURCE_SCOPES){
+        for(const scope of MANAGED_SOURCE_SCOPES){
           const selected=scopedSelectedSourceIds.get(scope)||new Set();
           for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
         }
