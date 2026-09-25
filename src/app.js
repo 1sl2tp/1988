@@ -1224,15 +1224,7 @@ async function refreshServerStateOnResume(){
         // Returning to the app should also check for newly uploaded videos,
         // not merely repaint the last cached package.
         setTimeout(()=>{
-          if(isSourceScopedFeed(active)){
-            void refreshCachedSourceFeedInBackground(
-              active,
-              FEED_PRESETS[active],
-              state.feedSeq
-            );
-          }else if(active===LIVE_SOURCE_SCOPE){
-            void refreshLiveSnapshotInBackground();
-          }
+          void refreshAllSourceSnapshotsInBackground({force:true});
         },120);
       }
     }
@@ -7715,41 +7707,11 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
   return source;
 }
 
-async function buildCategorySourceSnapshot(parent,local=null){
-  const group=parentSourceGroup(parent);
-  if(!group)return [];
-  const sources=selectedSourcesForParent(parent);
-  if(!sources.length){
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
-    return [];
-  }
-
-  local=local||await localEngine(12000);
-  const raw=await fetchSourcePool(local,sources,true,group);
-  const rows=dedupeHashedRows(
-    newestFirst(
-      (Array.isArray(raw)?raw:[])
-        .filter(uploadedWithinCategoryWindow)
-        .filter(row=>!isBlockedSourceRow(row,group))
-        .map(row=>({...row,_selectedCategorySource:true}))
-    )
-  ).slice(0,90);
-
-  if(!rows.length)return [];
-
-  const packaged=await packageRowsWithAi("category:"+parent.key,rows,{
-    sourceSignature:sourceSignature(group),
-    maxRows:90,
-    scope:group,
-    parentLabel:sourceGroupLabel(group)
-  });
-
-  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:packaged});
-  saveSourceContentLearning(
-    group,
-    extractSourceContentTerms(parent,packaged)
-  );
-  return packaged;
+async function buildCategorySourceSnapshot(parent,_local=null){
+  await hydrateServerPackages({force:true});
+  const rows=instantCategoryRows(parent);
+  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+  return rows;
 }
 
 async function refreshSelectedCategoryInBackground(parent,_local=null,_sources=null,_seq=null){
@@ -12604,6 +12566,12 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   scope:explicitScope="",
   parentLabel:explicitLabel=""
 }={}){
+  const managedScope=packageScopeFromSnapshotName(snapshotName);
+  if(managedScope){
+    await hydrateServerPackages({force:true});
+    return readAtomicSnapshot(snapshotName)?.items||[];
+  }
+
   const context=packageContext(snapshotName,explicitScope,explicitLabel);
   const rawRows=Array.isArray(rows)?rows:[];
   const qualityRows=context.kind==="content"
@@ -12721,63 +12689,15 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   return task;
 }
 
-async function buildSourceFeedSnapshot(name,preset,local=null){
-  if(!isSourceScopedFeed(name))return [];
-  local=local||await localEngine(16000);
-
-  const scope=feedSourceScope(name);
-  const sources=selectedSources(scope);
-  if(!sources.length)return [];
-
-  const pool=await refreshSourcePool(local,sources,scope);
-  const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
-  const rows=sortPresetRows(
-    (Array.isArray(pool)?pool:[])
-      .filter(predicate)
-      .filter(row=>!isBlockedSourceRow(row,scope)),
-    preset
-  );
-
-  const packaged=await packageRowsWithAi("feed:"+name,rows,{
-    sourceSignature:sourceSignature(scope),
-    maxRows:90,
-    scope,
-    parentLabel:sourceGroupLabel(scope)
-  });
-
-  if(packaged.length){
-    saveSourceContentLearning(
-      scope,
-      extractSourceContentTerms(feedSourceParent(name),packaged)
-    );
-  }
-
-  // Separate maintenance job: AI supplies search phrases only; code searches.
-  void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
-  cleanupLegacyFeedCaches(name);
-  return packaged;
+async function buildSourceFeedSnapshot(name,_preset,_local=null){
+  await hydrateServerPackages({force:true});
+  return readFeedCache(name);
 }
 
-async function refreshLiveSnapshotInBackground(local=null){
-  local=local||await localEngine(12000);
-  try{
-    const rows=sortPresetRows(
-      await FEED_PRESETS.live.load(local,true),
-      FEED_PRESETS.live
-    );
-    const packaged=await packageRowsWithAi("feed:"+LIVE_SOURCE_SCOPE,rows,{
-      sourceSignature:sourceSignature(LIVE_SOURCE_SCOPE),
-      maxRows:90,
-      scope:LIVE_SOURCE_SCOPE,
-      parentLabel:sourceGroupLabel(LIVE_SOURCE_SCOPE)
-    });
-    cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
-    if(packaged.length)applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
-    return packaged;
-  }catch(error){
-    console.warn("LIVE snapshot refresh failed",error);
-    return [];
-  }
+async function refreshLiveSnapshotInBackground(_local=null){
+  await hydrateServerPackages({force:true});
+  applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
+  return readFeedCache(LIVE_SOURCE_SCOPE);
 }
 
 async function refreshCachedSourceFeedInBackground(name,_preset,_seq,_local=null){
