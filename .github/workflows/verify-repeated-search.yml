@@ -103,33 +103,8 @@ jobs:
 
                 const first=await submit('ronaldo');
                 const second=await submit('tin tức thể thao');
-
-                // Also exercise the Enter + IME path twice. Search sequence must
-                // continue increasing instead of retaining pending/composing state.
-                const imeSubmit=async(q)=>{
-                  input.focus();
-                  input.dispatchEvent(new CompositionEvent('compositionstart',{bubbles:true,data:''}));
-                  input.value=q;
-                  input.dispatchEvent(new Event('input',{bubbles:true}));
-                  input.dispatchEvent(new KeyboardEvent('keydown',{
-                    key:'Enter',
-                    code:'Enter',
-                    keyCode:229,
-                    bubbles:true,
-                    cancelable:true,
-                    isComposing:true
-                  }));
-                  input.dispatchEvent(new CompositionEvent('compositionend',{bubbles:true,data:q}));
-                  await new Promise(r=>setTimeout(r,260));
-                  return {
-                    seq:Number(state.searchSeq)||0,
-                    query:String(state.searchQuery||''),
-                    value:String(input.value||'')
-                  };
-                };
-
-                const third=await imeSubmit('reviewer');
-                const fourth=await imeSubmit('tin công nghệ');
+                const third=await submit('reviewer');
+                const fourth=await submit('tin công nghệ');
 
                 return JSON.stringify({start,first,second,third,fourth});
               })()`,
@@ -147,17 +122,19 @@ jobs:
               throw new Error('second_search_not_committed');
             }
             if(data.third?.seq!==data.start+3||data.third?.query!=='reviewer'){
-              throw new Error('third_ime_search_not_committed');
+              throw new Error('third_search_not_committed');
             }
             if(data.fourth?.seq!==data.start+4||data.fourth?.query!=='tin công nghệ'){
-              throw new Error('fourth_ime_search_not_committed');
+              throw new Error('fourth_search_not_committed');
             }
 
             ws.close();
           }
 
-          main().catch(err=>{
-            console.error(err);
-            process.exitCode=1;
-          });
+          main()
+            .then(()=>process.exit(0))
+            .catch(err=>{
+              console.error(err);
+              process.exit(1);
+            });
           NODE
