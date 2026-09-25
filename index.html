@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-224">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-225">
   <title>1988</title>
 </head>
 <body>
@@ -211,10 +211,30 @@
   <script>
   (function(){
     if(!('serviceWorker' in navigator))return;
+
+    let reloading=false;
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(reloading)return;
+      reloading=true;
+      location.reload();
+    });
+
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js',{scope:'./',updateViaCache:'none'});
-        await reg.update().catch(()=>{});
+        const reg=await navigator.serviceWorker.register('./sw.js?v=225',{
+          scope:'./',
+          updateViaCache:'none'
+        });
+
+        const update=()=>reg.update().catch(()=>{});
+        await update();
+
+        window.addEventListener('pageshow',update,{passive:true});
+        document.addEventListener('visibilitychange',()=>{
+          if(document.visibilityState==='visible')update();
+        },{passive:true});
+
+        setInterval(update,5*60*1000);
       }catch(e){}
     });
   })();
@@ -224,6 +244,6 @@
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script type="module" src="./src/yt-local.js?v=pip-storyboard-auto-139"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-224"></script>
+  <script defer src="./src/app.js?v=watch-browse-225"></script>
 </body>
 </html>
