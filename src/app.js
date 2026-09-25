@@ -3198,99 +3198,11 @@ function syncWatchUtilityState(){
 }
 
 function ensureWatchNavRail(){
-  if(!playerSection)return;
-  let rail=playerSection.querySelector(".watch-nav-rail");
-  if(rail){
-    syncWatchUtilityState();
-    return;
-  }
-
-  rail=document.createElement("div");
-  rail.className="watch-nav-rail";
-  rail.setAttribute("role","toolbar");
-  rail.setAttribute("aria-label","Điều khiển xem nhanh");
-
-  const iconSvg=(name)=>{
-    const icons={
-      search:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>',
-      grid:'<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="2.2"></circle><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle><circle cx="16" cy="16" r="2.2"></circle></svg>',
-      up:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 14 6-6 6 6"></path></svg>',
-      down:'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"></path></svg>'
-    };
-    return icons[name]||"";
-  };
-
-  const makeButton=(attrs,label,icon)=>{
-    const button=document.createElement("button");
-    button.type="button";
-    Object.entries(attrs).forEach(([key,value])=>button.dataset[key]=value);
-    button.setAttribute("aria-label",label);
-    button.innerHTML='<span class="watch-tool-icon">'+iconSvg(icon)+'</span>';
-    return button;
-  };
-
-  const search=makeButton({watchAction:"search"},"Tìm kiếm","search");
-  search.className="watch-tool-btn watch-search-btn";
-  search.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    const root=document.documentElement;
-    root.classList.remove("watch-categories-open");
-    hideWatchRecoInfo();
-    root.classList.toggle("watch-search-open");
-    if(root.classList.contains("watch-search-open")){
-      requestAnimationFrame(()=>{
-        queryInput?.focus?.({preventScroll:true});
-        queryInput?.select?.();
-      });
-    }
-  });
-
-  const category=makeButton(
-    {watchAction:"categories"},
-    "Chọn danh mục",
-    "grid"
-  );
-  category.className="watch-tool-btn watch-category-btn";
-  category.insertAdjacentHTML("beforeend",'<span class="watch-category-label">'+esc(watchActiveCategoryLabel())+'</span>');
-  category.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    const root=document.documentElement;
-    root.classList.remove("watch-search-open");
-    hideWatchRecoInfo();
-    root.classList.toggle("watch-categories-open");
-  });
-
-  const prev=makeButton({watchNav:"prev"},"Video trước","up");
-  const next=makeButton({watchNav:"next"},"Video tiếp theo","down");
-  prev.className="watch-tool-btn watch-step-btn";
-  next.className="watch-tool-btn watch-step-btn";
-
-  prev.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    navigateWatchVideo(-1);
-  });
-  next.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    navigateWatchVideo(1);
-  });
-
-  rail.append(search,category,prev,next);
-  playerSection.appendChild(rail);
-
-  if(topicChips&&!topicChips.dataset.watchOverlayBound){
-    topicChips.dataset.watchOverlayBound="1";
-    topicChips.addEventListener("click",()=>{
-      document.documentElement.classList.remove("watch-categories-open");
-      requestAnimationFrame(syncWatchUtilityState);
-    });
-  }
-
-  syncWatchCurrentCard();
-  syncWatchUtilityState();
+  // Mobile watch v201: the extra floating search/grid/up/down toolbar is gone.
+  // Remove a stale toolbar left in the DOM by an older cached bundle as well.
+  playerSection?.querySelectorAll(".watch-nav-rail").forEach(el=>el.remove());
+  document.querySelectorAll("body > .watch-reco-info").forEach(el=>el.remove());
+  return;
 }
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
