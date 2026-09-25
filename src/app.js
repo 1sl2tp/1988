@@ -74,6 +74,8 @@ const sourcePreviewSelect=$("#sourcePreviewSelect");
 const sourcePreviewSearch=$("#sourcePreviewSearch");
 const sourcePreviewList=$("#sourcePreviewList");
 const sourceSettingsBtn=$("#sourceSettingsBtn");
+const sourceLocalTools=$("#sourceLocalTools");
+const sourceDataResetBtn=$("#sourceDataResetBtn");
 const sourceVideoPopup=$("#sourceVideoPopup");
 const closeSourceVideoPopup=$("#closeSourceVideoPopup");
 const sourceVideoPopupSourceOpen=$("#sourceVideoPopupSourceOpen");
@@ -413,6 +415,40 @@ const GENERAL_SOURCE_SCOPE="general"; // legacy/search-only scope
 const LIVE_SOURCE_SCOPE="live";
 const LATEST_SOURCE_SCOPE="latest";
 const WEEK_SOURCE_SCOPE="week";
+
+const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
+const LOCAL_DATA_SCHEMA_VERSION="310";
+const LOCAL_VOLATILE_PREFIXES=[
+  "1988-tab-snapshot-",
+  "1988-discovery-",
+  "1988-source-channel-",
+  "1988-source-pool-",
+  "1988-ai-trends-",
+  "1988-ai-catalog-",
+  "1988-source-learning-"
+];
+
+function clearVolatileLocalData(){
+  try{
+    const remove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||"";
+      if(LOCAL_VOLATILE_PREFIXES.some(prefix=>key.startsWith(prefix)))remove.push(key);
+    }
+    for(const key of remove)localStorage.removeItem(key);
+  }catch{}
+}
+
+function ensureLocalDataSchema(){
+  try{
+    const current=localStorage.getItem(LOCAL_DATA_SCHEMA_KEY)||"";
+    if(current===LOCAL_DATA_SCHEMA_VERSION)return;
+    clearVolatileLocalData();
+    localStorage.setItem(LOCAL_DATA_SCHEMA_KEY,LOCAL_DATA_SCHEMA_VERSION);
+  }catch{}
+}
+
+ensureLocalDataSchema();
 
 const SOURCE_SCOPE_DEFINITIONS=[
   // These 11 keys are storage identities. Their semantic profile is explicit
@@ -3076,6 +3112,8 @@ function setSourceManageMode(enabled,{render=true}={}){
       :"Tìm kênh trên YouTube";
   }
 
+  if(sourceLocalTools)sourceLocalTools.hidden=!sourceManageMode;
+
   if(render)refreshSourceManager();
 }
 
@@ -4393,6 +4431,62 @@ function closeSourceLibrary(){
   }
 }
 
+async function clearLocalDataAndReload(){
+  if(!sourceDataResetBtn)return;
+  const ok=window.confirm(
+    "Dọn dữ liệu cục bộ của 1988 trên máy này và tải lại bản mới?\n\n"+
+    "Nguồn đã chọn/chặn nằm trên máy chủ nên không bị mất."
+  );
+  if(!ok)return;
+
+  sourceDataResetBtn.disabled=true;
+  sourceDataResetBtn.textContent="Đang dọn…";
+
+  try{
+    // Full local reset for this app only. Keep the settings unlock flag so the
+    // admin does not have to re-enter the PIN immediately after maintenance.
+    const keep=new Set(["1988-settings-unlocked-v1",LOCAL_DATA_SCHEMA_KEY]);
+    const remove=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||"";
+      if(key.startsWith("1988-")&&!keep.has(key))remove.push(key);
+    }
+    for(const key of remove)localStorage.removeItem(key);
+    localStorage.setItem(LOCAL_DATA_SCHEMA_KEY,LOCAL_DATA_SCHEMA_VERSION);
+
+    try{
+      const removeSession=[];
+      for(let i=0;i<sessionStorage.length;i++){
+        const key=sessionStorage.key(i)||"";
+        if(key.startsWith("1988-"))removeSession.push(key);
+      }
+      for(const key of removeSession)sessionStorage.removeItem(key);
+    }catch{}
+
+    if("caches" in window){
+      try{
+        const keys=await caches.keys();
+        await Promise.all(keys.filter(key=>key.startsWith("1988-")).map(key=>caches.delete(key)));
+      }catch{}
+    }
+
+    if("serviceWorker" in navigator){
+      try{
+        const regs=await navigator.serviceWorker.getRegistrations();
+        await Promise.all(
+          regs
+            .filter(reg=>String(reg.scope||"").startsWith(location.origin))
+            .map(reg=>reg.unregister().catch(()=>false))
+        );
+      }catch{}
+    }
+  }finally{
+    const url=new URL(location.href);
+    url.searchParams.set("_refresh",LOCAL_DATA_SCHEMA_VERSION+"-"+Date.now());
+    location.replace(url.href);
+  }
+}
+
 function setupSourceLibrary(){
   // Bind the open action before doing any source-state calculations.
   // Even if old local data is malformed, the manager must still open.
@@ -4438,6 +4532,9 @@ function setupSourceLibrary(){
       return;
     }
     requestSettingsAccess(()=>setSourceManageMode(true));
+  });
+  sourceDataResetBtn?.addEventListener("click",()=>{
+    requestSettingsAccess(()=>{ void clearLocalDataAndReload(); });
   });
 
   sourceGroupTabs?.addEventListener("click",event=>{
