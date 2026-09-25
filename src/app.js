@@ -2699,8 +2699,7 @@ async function openSourceFromSearchVideo(video){
       sourceMetaCache.set(row.id,row);
 
       if(
-        temporaryGeneralSourceIds.has(row.id)||
-        suggestedSetForScope(sourceManageGroup).has(row.id)||
+        temporarySetForScope(sourceManageGroup).has(row.id)||
         allManagedStateIds().has(row.id)
       ){
         refreshSourceManager();
@@ -5680,9 +5679,7 @@ function instantCategoryRows(parent={}){
   const sourceIds=new Set(sources.map(source=>source.id));
   return dedupeHashedRows(newestFirst([
     ...categoryCacheRows(parent.key),
-    ...cachedRowsForSources(sources,group),
-    ...readSourcePoolCache()
-      .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
+    ...cachedRowsForSources(sources,group)
   ]))
     .filter(uploadedWithinCategoryWindow)
     .filter(row=>{
@@ -10840,11 +10837,11 @@ const FEED_PRESETS={
         );
       }catch{}
 
-      let liveRows=rememberLiveSourceCandidates(rows);
+      let liveRows=rememberLiveSourceCandidates(rows,{replace:reset});
       if(!liveRows.length){
         try{
           const fallback=await local.homePage("live-regional",reset);
-          liveRows=rememberLiveSourceCandidates(fallback);
+          liveRows=rememberLiveSourceCandidates(fallback,{replace:reset});
         }catch{}
       }
 
