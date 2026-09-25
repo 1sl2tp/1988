@@ -10065,8 +10065,9 @@ if(!(window.YT&&typeof YT.Player==="function")){
 
 
 
+
 async function doSearch(value){
-  const q=clean(value);
+  const q=normalizeCommittedSearchQuery(value);
   if(!q)return;
 
   clearSuggestions();
@@ -10113,7 +10114,6 @@ async function doSearch(value){
 
   const paintRows=rows=>{
     if(seq!==state.searchSeq||state.searchQuery!==q)return false;
-
     const cleanRows=usableRows(rows);
     if(!cleanRows.length)return false;
 
@@ -10121,73 +10121,49 @@ async function doSearch(value){
     renderCards(cleanRows);
     rememberDiscoveredSources(cleanRows,"");
     feedStatus.textContent=cleanRows.length+" video";
-
-    // Metadata/icons are cosmetic and must never hold search results hostage.
     void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
     return true;
   };
 
-  const requireUsable=(rows,label)=>{
-    const cleanRows=usableRows(rows);
-    if(!cleanRows.length)throw new Error("empty_"+label+"_search");
-    return cleanRows;
-  };
-
-  // Start both real search paths immediately. A source only "wins" when it
-  // has renderable video rows, not merely when its HTTP request succeeds.
-  const backendTask=api("search",{q,filter:"videos"},2800)
-    .then(response=>requireUsable(response?.data?.items,"backend"));
-
-  const localTask=localEngine(1600)
-    .then(local=>Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),2200))
-    ]))
-    .then(rows=>requireUsable(rows,"local"));
-
-  let firstRows=[];
+  // Match the proven Kira search path: one fresh direct discovery request per
+  // submit. No youtubei.js race, no shared session state, no result-source race.
   try{
-    firstRows=await Promise.any([backendTask,localTask]);
+    const response=await api("search",{
+      q,
+      filter:"videos",
+      _fresh:Date.now()
+    },4200);
+
+    if(seq!==state.searchSeq)return;
+    if(paintRows(response?.data?.items))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
 
-  if(paintRows(firstRows)){
-    // The slower path may add useful rows, but it never delays first paint.
-    void Promise.allSettled([localTask,backendTask]).then(results=>{
-      if(seq!==state.searchSeq||state.searchQuery!==q)return;
-      const merged=[...state.feedRows];
-      for(const result of results){
-        if(result.status==="fulfilled")merged.push(...result.value);
-      }
-      const rows=usableRows(merged);
-      if(rows.length<=state.feedRows.length)return;
-      state.feedRows=rows;
-      renderCards(rows);
-      rememberDiscoveredSources(rows,"");
-      feedStatus.textContent=rows.length+" video";
-    });
-    return;
-  }
-
-  // Do not declare "no result" because the first finished path had unusable
-  // rows. Wait for both primary paths and merge anything valid first.
-  const settled=await Promise.allSettled([localTask,backendTask]);
-  if(seq!==state.searchSeq)return;
-
-  const mergedPrimary=[];
-  for(const result of settled){
-    if(result.status==="fulfilled")mergedPrimary.push(...result.value);
-  }
-  if(paintRows(mergedPrimary))return;
-
-  // Piped instances occasionally return an empty videos-only surface while
-  // the same YouTube search still has results in the mixed "all" surface.
-  // Use that as a last non-AI fallback, then keep only actual video rows.
+  // Mixed YouTube search is a cheap backend-only fallback. Keep only videos.
   try{
-    const response=await api("search",{q,filter:"all"},3200);
+    const response=await api("search",{
+      q,
+      filter:"all",
+      _fresh:Date.now()
+    },3600);
+
     if(seq!==state.searchSeq)return;
     if(paintRows(response?.data?.items))return;
+  }catch{}
+
+  if(seq!==state.searchSeq)return;
+
+  // youtubei.js is last-resort only. It must never delay a normal search.
+  try{
+    const local=await localEngine(1200);
+    const rows=await Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),1800))
+    ]);
+
+    if(seq!==state.searchSeq)return;
+    if(paintRows(rows))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
@@ -10445,7 +10421,16 @@ function commitSearch(value){
   void doSearch(q);
 }
 
-bindCommittedSearchInput(queryInput,q=>commitSearch(q),{form:searchForm});
+// Main search uses the same simple submit path as the working Kira proof.
+// Do not keep a custom IME/pending state here: the browser owns composition,
+// and every form submit reads the current input and starts a fresh search.
+searchForm?.addEventListener("submit",event=>{
+  event.preventDefault();
+  const q=normalizeCommittedSearchQuery(queryInput?.value||"");
+  if(!q)return;
+  queryInput.value=q;
+  commitSearch(q);
+});
 
 // Normal YouTube-like suggestions while typing; search runs only on submit/click.
 queryInput.addEventListener("input",()=>{
