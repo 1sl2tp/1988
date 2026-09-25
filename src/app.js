@@ -7763,8 +7763,9 @@ async function doSearch(value){
   }
 }
 
-let homeHeaderLastY=Math.max(0,window.scrollY||0);
+let homeHeaderLastY=Math.max(0,document.scrollingElement?.scrollTop||window.scrollY||0);
 let homeHeaderScrollRaf=0;
+let homeHeaderScrollEvent=null;
 
 function setHomeHeaderHidden(hidden){
   const root=document.documentElement;
@@ -7772,28 +7773,47 @@ function setHomeHeaderHidden(hidden){
   root.classList.toggle("home-header-hidden",!!hidden);
 }
 
-function updateHomeHeaderOnScroll(){
+function homeScrollY(event){
+  const target=event?.target;
+  if(target&&target!==document&&target!==window&&typeof target.scrollTop==="number"){
+    return Math.max(0,Number(target.scrollTop)||0);
+  }
+  return Math.max(0,Number(document.scrollingElement?.scrollTop)||Number(window.scrollY)||0);
+}
+
+function updateHomeHeaderOnScroll(event){
   homeHeaderScrollRaf=0;
   const root=document.documentElement;
   if(window.innerWidth>720||root.classList.contains("watch-browse")){
     root.classList.remove("home-header-hidden");
-    homeHeaderLastY=Math.max(0,window.scrollY||0);
+    homeHeaderLastY=homeScrollY(event);
     return;
   }
-  const y=Math.max(0,window.scrollY||0);
+
+  const y=homeScrollY(event);
   const delta=y-homeHeaderLastY;
-  if(y<=12)setHomeHeaderHidden(false);
-  else if(!root.classList.contains("home-search-open")){
-    if(delta>5)setHomeHeaderHidden(true);
-    else if(delta<-5)setHomeHeaderHidden(false);
+
+  if(y<=12){
+    setHomeHeaderHidden(false);
+  }else if(!root.classList.contains("home-search-open")){
+    if(delta>3)setHomeHeaderHidden(true);
+    else if(delta<-3)setHomeHeaderHidden(false);
   }
+
   homeHeaderLastY=y;
 }
 
-window.addEventListener("scroll",()=>{
+function onHomeScroll(event){
+  homeHeaderScrollEvent=event;
   if(homeHeaderScrollRaf)return;
-  homeHeaderScrollRaf=requestAnimationFrame(updateHomeHeaderOnScroll);
-},{passive:true});
+  homeHeaderScrollRaf=requestAnimationFrame(()=>{
+    updateHomeHeaderOnScroll(homeHeaderScrollEvent);
+    homeHeaderScrollEvent=null;
+  });
+}
+
+window.addEventListener("scroll",onHomeScroll,{passive:true});
+document.addEventListener("scroll",onHomeScroll,{passive:true,capture:true});
 
 function setHomeSearchOpen(open){
   const root=document.documentElement;
