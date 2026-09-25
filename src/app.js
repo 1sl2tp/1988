@@ -8160,17 +8160,10 @@ function normalizeThumbnailFit(img){
   if(!img||!img.closest(".thumb-wrap"))return;
 
   const apply=()=>{
-    const w=Number(img.naturalWidth)||0;
-    const h=Number(img.naturalHeight)||0;
-    if(!w||!h)return;
-
-    const ratio=w/h;
-    const target=16/9;
-    const delta=Math.abs(ratio-target)/target;
-
-    // Preserve the whole frame when a source thumbnail is not truly 16:9.
-    // Normal YouTube 16:9 thumbnails keep cover for a full-bleed image.
-    img.classList.toggle("thumb-fit-contain",delta>.035);
+    // v206: always preserve the full source thumbnail. Do not use aspect-ratio
+    // heuristics that can switch a 16:9 thumbnail back to cover and shave off
+    // artwork, logos or embedded borders at the left/right edges.
+    img.classList.add("thumb-fit-contain");
   };
 
   if(img.complete)apply();
