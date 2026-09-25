@@ -128,8 +128,26 @@ function dedupeNormalize(value:any){
     .trim();
 }
 
-function strongReviewSpamIds(videos:any[],reviewMode=false){
-  if(!reviewMode)return new Set<string>();
+const CONTENT_PROFILES=new Set([
+  "explore","review","comedy","short_film",
+  "music","technology","sports","showbiz"
+]);
+
+function normalizeContentProfile(value:any){
+  const profile=dedupeNormalize(clean(value,40)).replace(/\s+/g,"_");
+  const allowed=new Set([
+    "live","day","week","explore","review","comedy","short_film",
+    "music","technology","sports","showbiz","general"
+  ]);
+  return allowed.has(profile)?profile:"general";
+}
+
+function profileIsContent(profile=""){
+  return CONTENT_PROFILES.has(normalizeContentProfile(profile));
+}
+
+function strongContentSpamIds(videos:any[],contentProfile="general"){
+  if(!profileIsContent(contentProfile))return new Set<string>();
   const out=new Set<string>();
 
   for(const row of videos){
@@ -149,7 +167,8 @@ function strongReviewSpamIds(videos:any[],reviewMode=false){
 }
 
 function validateDedupeResult(value:any,videos:any[],options:any={}){
-  const reviewMode=options?.reviewMode===true;
+  const contentProfile=normalizeContentProfile(options?.contentProfile);
+  const allowSemanticRemoval=profileIsContent(contentProfile);
   const order=videos.map(row=>row.id);
   const allowed=new Set(order);
   const parent=new Map<string,string>();
@@ -180,18 +199,24 @@ function validateDedupeResult(value:any,videos:any[],options:any={}){
   }
 
   const spamIds=new Set<string>([
-    ...strongReviewSpamIds(videos,reviewMode),
-    ...(Array.isArray(value?.spamVideoIds)?value.spamVideoIds:[])
+    ...strongContentSpamIds(videos,contentProfile),
+    ...(allowSemanticRemoval&&Array.isArray(value?.spamVideoIds)?value.spamVideoIds:[])
       .map((id:any)=>clean(id,32))
       .filter((id:string)=>allowed.has(id))
   ]);
 
-  // Code chooses the first already-sorted NON-SPAM row as representative.
-  // AI can identify groups, but cannot reorder the feed or invent IDs.
+  const rejectedIds=new Set<string>(
+    (allowSemanticRemoval&&Array.isArray(value?.rejectVideoIds)?value.rejectVideoIds:[])
+      .map((id:any)=>clean(id,32))
+      .filter((id:string)=>allowed.has(id)&&!spamIds.has(id))
+  );
+
+  // Code chooses the first already-sorted acceptable item as representative.
+  // AI may only refer to existing IDs; it never controls ordering.
   const seenRoots=new Set<string>();
   const keepVideoIds:string[]=[];
   for(const id of order){
-    if(spamIds.has(id))continue;
+    if(spamIds.has(id)||rejectedIds.has(id))continue;
     const root=find(id);
     if(seenRoots.has(root))continue;
     seenRoots.add(root);
@@ -201,7 +226,7 @@ function validateDedupeResult(value:any,videos:any[],options:any={}){
   const cleanups:any[]=[];
   for(const row of Array.isArray(value?.cleanups)?value.cleanups:[]){
     const id=clean(row?.id,32);
-    if(!allowed.has(id)||spamIds.has(id))continue;
+    if(!allowed.has(id)||spamIds.has(id)||rejectedIds.has(id))continue;
     const displayTitle=clean(row?.displayTitle,180);
     if(displayTitle.length<8)continue;
     cleanups.push({id,displayTitle});
@@ -211,7 +236,8 @@ function validateDedupeResult(value:any,videos:any[],options:any={}){
   return {
     keepVideoIds,
     cleanups,
-    droppedSpamVideoIds:[...spamIds]
+    droppedSpamVideoIds:[...spamIds],
+    droppedOffProfileVideoIds:[...rejectedIds]
   };
 }
 
@@ -691,9 +717,88 @@ ${JSON.stringify(videos)}
 }
 
 
+function profileDedupeRules(profile="general"){
+  switch(normalizeContentProfile(profile)){
+    case "live":
+      return [
+        "LIVE: chỉ gộp khi là cùng một livestream/rebroadcast/cùng luồng gần như y hệt.",
+        "Cùng một sự kiện nhưng camera, bình luận, kênh phát hoặc góc nội dung khác thì giữ riêng.",
+        "Không loại video theo chủ đề."
+      ];
+    case "day":
+    case "week":
+      return [
+        "Đây là feed theo THỜI GIAN. Không loại video theo chủ đề.",
+        "Có thể gộp nhiều nguồn đăng cùng một bản tin/sự kiện khi thông tin gần như trùng.",
+        "Bản cập nhật có diễn biến, số liệu, quyết định hoặc phát ngôn mới đáng kể phải giữ."
+      ];
+    case "explore":
+      return [
+        "KHÁM PHÁ gồm kiến thức, lịch sử, cổ đại, khoa học, thiên nhiên, địa lý, văn hóa, khảo cổ, bí ẩn, sự thật/thông tin thú vị.",
+        "rejectVideoIds chỉ dùng cho video rõ ràng lệch hệ Khám phá; nếu còn hợp lý hoặc khó chắc thì GIỮ.",
+        "Chỉ gộp cùng clip/tài liệu/nội dung kiến thức gần như lặp lại; cùng đề tài rộng không phải trùng."
+      ];
+    case "review":
+      return [
+        "REVIEW ở đây chủ yếu là review/tóm tắt phim, movie recap, phân tích/giải thích phim.",
+        "Nhận diện cùng TÁC PHẨM/BỘ PHIM dù câu chữ giật tít khác nhau.",
+        "Bỏ qua khi so trùng các từ rác: review phim, tóm tắt phim, movie recap, full tập, trọn bộ, vietsub, thuyết minh, phim hay, siêu phẩm, hashtag/emoji, tên kênh lặp.",
+        "Cùng phim + cùng tập/phần hoặc cùng đoạn recap gần tương đương => gom. Khác tập/phần/episode rõ ràng => giữ.",
+        "rejectVideoIds dùng cho video rõ ràng không phải review/recap/phân tích tác phẩm."
+      ];
+    case "comedy":
+      return [
+        "HÀI gồm hài kịch, tiểu phẩm, sketch, parody, sitcom, clip gây cười.",
+        "Gộp cùng một tiểu phẩm/đoạn hài bị reupload/cắt lại gần như giống nhau.",
+        "Khác tập, khác tiểu phẩm, khác màn biểu diễn hoặc góc dựng đáng kể thì giữ.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng không phải hài."
+      ];
+    case "short_film":
+      return [
+        "PHIM NGẮN gồm short drama, mini drama, ngôn tình/cổ trang/tổng tài/trọng sinh/xuyên không/hệ thống và motif kể chuyện tương tự.",
+        "Gộp cùng tác phẩm/câu chuyện + cùng tập/phần hoặc cùng bản reupload gần như giống nhau.",
+        "Khác tập/phần/episode phải giữ; không gộp chỉ vì cùng motif tổng tài/trọng sinh/xuyên không.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng không phải phim ngắn/drama kể chuyện."
+      ];
+    case "music":
+      return [
+        "NHẠC: gộp khi cùng đúng bản thu/video bị reupload gần như giống nhau.",
+        "Cùng một bài hát nhưng official MV, live, acoustic, cover, remix, karaoke, instrumental hoặc phiên bản biểu diễn khác phải giữ riêng.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng không phải âm nhạc/biểu diễn âm nhạc."
+      ];
+    case "technology":
+      return [
+        "CÔNG NGHỆ gồm điện thoại, máy tính, chip, phần mềm, AI kỹ thuật, thiết bị, khoa học công nghệ.",
+        "Các motif phim như trọng sinh/xuyên không/hệ thống/tổng tài không phải công nghệ khi đang kể chuyện.",
+        "Gộp cùng bản tin/clip công nghệ gần như trùng; cùng một sản phẩm nhưng review/đánh giá của người khác phải giữ.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng lệch công nghệ."
+      ];
+    case "sports":
+      return [
+        "THỂ THAO gồm bóng đá, võ thuật, tennis, billiards, esports và các môn thi đấu.",
+        "Gộp cùng highlight/clip thi đấu bị reupload gần như giống nhau.",
+        "Bình luận, phân tích, phỏng vấn, camera/góc quay hoặc bản tổng hợp khác đáng kể phải giữ.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng không phải thể thao."
+      ];
+    case "showbiz":
+      return [
+        "SHOWBIZ gồm tin nghệ sĩ, diễn viên, ca sĩ, hoa hậu, người mẫu, gameshow, hậu trường và sự kiện giải trí.",
+        "Gộp nhiều nguồn kể cùng một sự kiện với gần như cùng thông tin.",
+        "Bản cập nhật có diễn biến/phát ngôn/thông tin mới đáng kể phải giữ.",
+        "rejectVideoIds chỉ cho nội dung rõ ràng không thuộc showbiz/giải trí."
+      ];
+    default:
+      return [
+        "Chỉ gom những video thực sự gần trùng. Nếu chỉ cùng chủ đề nhưng nội dung khác thì KHÔNG gom.",
+        "Không loại video theo chủ đề."
+      ];
+  }
+}
+
 async function callDedupeGemini(cfg:any,videos:any[],options:any={}){
   const parentLabel=clean(options?.parentLabel,80);
-  const reviewMode=options?.reviewMode===true;
+  const contentProfile=normalizeContentProfile(options?.contentProfile);
+  const contentMode=profileIsContent(contentProfile);
   const samples=videos.map((row:any)=>({
     id:row.id,
     title:row.title,
@@ -704,32 +809,36 @@ async function callDedupeGemini(cfg:any,videos:any[],options:any={}){
     description:row.description
   }));
 
-  const reviewRules=reviewMode?[
-    "ĐÂY LÀ TAB REVIEW. Ngoài trùng tiêu đề/chủ đề, phải nhận diện cùng TÁC PHẨM/BỘ PHIM dù câu chữ giật tít khác nhau.",
-    "Khi so phim, hãy bỏ qua các từ rác dạng: review phim, tóm tắt phim, movie recap, full tập, trọn bộ, vietsub, thuyết minh, phim hay, siêu phẩm, hashtag/emoji và tên kênh lặp.",
-    "Nếu hai video cùng bộ phim/tác phẩm VÀ cùng tập/phần hoặc cùng đoạn recap gần như giống nhau thì gom duplicateGroups.",
-    "Nếu cùng bộ phim nhưng KHÁC tập/phần/episode hoặc nội dung kể một phần cốt truyện khác rõ ràng thì KHÔNG gom.",
-    "Phát hiện quảng cáo/rác trong tiêu đề: số điện thoại, hotline, Zalo/Telegram/WhatsApp để liên hệ, URL/domain, mã giảm giá, giftcode/coupon/voucher, mã nhận quà/tân thủ, affiliate. Trả các video này vào spamVideoIds.",
-    "Không coi năm phát hành, S01E12, EP12, Tập 12, Phần 2 hoặc con số thuộc tên phim là quảng cáo.",
-    "Có thể trả cleanups để làm sạch HIỂN THỊ: chỉ bỏ prefix review/tóm tắt, FULL/TRỌN BỘ/VIETSUB/THUYẾT MINH, hashtag/emoji/dấu lặp/rác quảng cáo. Không được viết lại cốt truyện hoặc đổi tên riêng."
-  ]:[
-    "Chỉ gom những video thực sự gần trùng. Nếu chỉ cùng chủ đề nhưng nội dung khác thì KHÔNG gom.",
-    "Không cần lọc quảng cáo theo ngữ nghĩa tab trong chế độ thường."
-  ];
-
   const instruction=[
-    "Bạn là worker làm sạch + phát hiện VIDEO TRÙNG cho ứng dụng 1988.",
+    "Bạn là worker LỌC CHẤT LƯỢNG + phát hiện VIDEO TRÙNG cho ứng dụng 1988.",
+    "Code đã định nghĩa 11 scope cố định; TÊN HIỂN THỊ có thể đổi nhưng profile ngữ nghĩa dưới đây là nguồn sự thật. Không suy profile từ tên tab.",
     "Không sắp xếp, không tạo UI, không quyết định Chọn/Chặn, không tìm kiếm và không invent videoId.",
-    "Tên tab chỉ là ngữ cảnh bổ sung. Code vẫn sở hữu thứ tự và chọn video đại diện.",
-    parentLabel?"TAB HIỆN TẠI: "+parentLabel:"",
-    ...reviewRules,
+    "Code vẫn sở hữu thứ tự và chọn video đại diện.",
+    "PROFILE: "+contentProfile,
+    parentLabel?"TÊN HIỂN THỊ HIỆN TẠI: "+parentLabel:"",
+    ...profileDedupeRules(contentProfile),
+    "QUY TẮC CHUNG VỀ TRÙNG:",
+    "- Không gộp chỉ vì cùng chủ đề/từ khóa.",
+    "- Nếu một video có thông tin/phiên bản/góc nội dung khác đáng kể thì giữ.",
+    "QUY TẮC LÀM SẠCH:",
+    "- cleanups chỉ bỏ rác trình bày: hashtag cuối câu, emoji/dấu lặp, branding/tên kênh lặp, ALL CAPS không cần thiết, prefix/suffix quảng bá không mang nội dung.",
+    "- Không đổi tên riêng, số liệu, mốc thời gian, tên tác phẩm hoặc ý nghĩa/cấp độ chắc chắn.",
+    ...(contentMode?[
+      "QUY TẮC SPAM CHO CÁC TAB NỘI DUNG:",
+      "- spamVideoIds: quảng cáo rõ ràng trong title như số điện thoại/hotline, Zalo/Telegram/WhatsApp liên hệ, URL/domain bán hàng, giftcode/coupon/voucher/mã giảm giá/mã nhận quà/affiliate.",
+      "- Không coi năm phát hành, S01E12, EP12, Tập 12, Phần 2 hoặc số thuộc tên tác phẩm/sản phẩm là quảng cáo.",
+      "- rejectVideoIds chỉ khi nội dung RÕ RÀNG lệch profile; không chắc thì giữ."
+    ]:[
+      "Không dùng spamVideoIds/rejectVideoIds để lọc chủ đề cho feed thời gian/LIVE."
+    ]),
     "OUTPUT chỉ JSON:",
     "{",
-    "  \"duplicateGroups\":[{\"videoIds\":[\"id1\",\"id2\"],\"canonicalWork\":\"tên tác phẩm nếu biết\"}],",
+    "  \"duplicateGroups\":[{\"videoIds\":[\"id1\",\"id2\"],\"canonicalWork\":\"nếu có\"}],",
     "  \"spamVideoIds\":[\"id3\"],",
+    "  \"rejectVideoIds\":[\"id4\"],",
     "  \"cleanups\":[{\"id\":\"id1\",\"displayTitle\":\"tiêu đề chỉ làm sạch rác trình bày\"}]",
     "}",
-    "Nếu không có gì: {\"duplicateGroups\":[],\"spamVideoIds\":[],\"cleanups\":[]}",
+    "Nếu không có gì: {\"duplicateGroups\":[],\"spamVideoIds\":[],\"rejectVideoIds\":[],\"cleanups\":[]}",
     "VIDEO: "+JSON.stringify(samples)
   ].filter(Boolean).join("\n");
 
@@ -1139,14 +1248,15 @@ Deno.serve(async(req:Request)=>{
     if(mode==="dedupe"){
       const sample=videos.slice(0,120);
       const parentLabel=clean(body?.parentLabel,80);
-      const reviewMode=
-        body?.reviewMode===true ||
-        /^review(?:\s|$)/i.test(dedupeNormalize(parentLabel));
+      const contentProfile=normalizeContentProfile(
+        body?.contentProfile||
+        (body?.reviewMode===true?"review":"general")
+      );
 
       const emptyResult=validateDedupeResult(
-        {duplicateGroups:[],spamVideoIds:[],cleanups:[]},
+        {duplicateGroups:[],spamVideoIds:[],rejectVideoIds:[],cleanups:[]},
         sample,
-        {reviewMode,parentLabel}
+        {contentProfile,parentLabel}
       );
       if(sample.length<4){
         return json({
@@ -1164,9 +1274,9 @@ Deno.serve(async(req:Request)=>{
         ].join("\t"))
         .join("\n");
       const fingerprint=await sha256(
-        "dedupe_v2\nreview="+String(reviewMode)+"\nlabel="+parentLabel+"\n"+canonical
+        "dedupe_v3\nprofile="+contentProfile+"\nlabel="+parentLabel+"\n"+canonical
       );
-      const cacheKey="v2:dedupe:"+fingerprint;
+      const cacheKey="v3:dedupe:"+fingerprint;
 
       const cached=await db.from("yt1988_ai_topic_cache")
         .select("result,model,created_at")
@@ -1177,24 +1287,29 @@ Deno.serve(async(req:Request)=>{
         const result=validateDedupeResult(
           cached.data.result,
           sample,
-          {reviewMode,parentLabel}
+          {contentProfile,parentLabel}
         );
         return json({ok:true,...result,model:cached.data.model||null,fingerprint,cached:true});
       }
 
-      const ai=await callDedupeGemini(cfg,sample,{reviewMode,parentLabel});
+      const ai=await callDedupeGemini(cfg,sample,{contentProfile,parentLabel});
       const parsed=parseJson(ai.text);
-      const result=validateDedupeResult(parsed,sample,{reviewMode,parentLabel});
+      const result=validateDedupeResult(
+        parsed,
+        sample,
+        {contentProfile,parentLabel}
+      );
 
       await db.from("yt1988_ai_topic_cache").upsert({
         cache_key:cacheKey,
-        scope:reviewMode?"dedupe_review":"dedupe",
+        scope:"dedupe_"+contentProfile,
         fingerprint,
         model:ai.model,
         video_count:sample.length,
         result:{
           duplicateGroups:Array.isArray(parsed?.duplicateGroups)?parsed.duplicateGroups:[],
           spamVideoIds:Array.isArray(parsed?.spamVideoIds)?parsed.spamVideoIds:[],
+          rejectVideoIds:Array.isArray(parsed?.rejectVideoIds)?parsed.rejectVideoIds:[],
           cleanups:Array.isArray(parsed?.cleanups)?parsed.cleanups:[]
         },
         created_at:new Date().toISOString()
