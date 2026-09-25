@@ -3094,6 +3094,7 @@ function renderSourcePreviewVideos({force=false}={}){
 }
 
 
+
 async function searchPreviewVideos(query){
   const q=normalizeCommittedSearchQuery(query);
   const seq=++sourcePreviewSearchSeq;
@@ -3112,26 +3113,48 @@ async function searchPreviewVideos(query){
   const videoMap=new Map();
 
   const addChannel=row=>{
-    if(!row)return;
+    if(!row)return false;
     const candidate=/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||""))
       ?sourceMetaFor(row)
       :sourceCandidateFromVideo(row);
-    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(String(candidate.id||"")))return;
-    if(!channelMap.has(candidate.id))channelMap.set(candidate.id,candidate);
+    const id=String(candidate?.id||"").trim();
+    if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+    if(!channelMap.has(id)){
+      channelMap.set(id,candidate);
+    }else{
+      const current=channelMap.get(id)||{};
+      channelMap.set(id,{
+        ...current,
+        ...candidate,
+        thumbnailUrl:candidate.thumbnailUrl||current.thumbnailUrl||"",
+        subscribers:candidate.subscribers||current.subscribers||""
+      });
+    }
+    return true;
   };
 
   const addVideos=rows=>{
+    let added=0;
     for(const video of Array.isArray(rows)?rows:[]){
       const id=itemVideoId(video);
       if(!id||videoMap.has(id))continue;
       videoMap.set(id,video);
       addChannel(video);
+      added++;
       if(videoMap.size>=24)break;
     }
+    return added;
+  };
+
+  const addMixedRows=rows=>{
+    for(const row of Array.isArray(rows)?rows:[])addChannel(row);
+    addVideos(rows);
   };
 
   const publish=()=>{
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return false;
+
     sourcePreviewSearchChannels=new Map(
       [...channelMap.values()].slice(0,12).map(row=>[row.id,row])
     );
@@ -3141,49 +3164,88 @@ async function searchPreviewVideos(query){
     rememberSearchedSourceCandidates([...sourcePreviewSearchChannels.values()]);
     sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
+    return !!(sourcePreviewSearchChannels.size||sourcePreviewSearchRows.size);
   };
 
-  // Right-side search is global YouTube search. Start network search
-  // immediately; youtubei.js is a parallel fallback, never a prerequisite.
-  const backendVideoJob=api("search",{q,filter:"videos"},2600)
-    .then(response=>{
-      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      addVideos(response?.data?.items);
-      if(videoMap.size||channelMap.size)publish();
-    })
-    .catch(()=>{});
+  const stillCurrent=()=>seq===sourcePreviewSearchSeq&&!sourcesSheet?.hidden;
 
-  const backendChannelJob=api("search",{q,filter:"channels"},2400)
-    .then(response=>{
-      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      for(const row of Array.isArray(response?.data?.items)?response.data.items:[]){
-        addChannel(row);
-        if(channelMap.size>=12)break;
+  // Use the same proven path as the main/Kira search: every submit gets fresh,
+  // stateless backend requests. youtubei.js is not allowed to race or suppress
+  // these results.
+  const fresh=Date.now();
+
+  const videoJob=api("search",{
+    q,
+    filter:"videos",
+    _fresh:fresh
+  },4200).then(response=>{
+    if(!stillCurrent())return;
+    addVideos(response?.data?.items);
+    if(videoMap.size||channelMap.size)publish();
+  }).catch(()=>{});
+
+  const channelJob=api("search",{
+    q,
+    filter:"channels",
+    _fresh:fresh+1
+  },3400).then(response=>{
+    if(!stillCurrent())return;
+    for(const row of Array.isArray(response?.data?.items)?response.data.items:[]){
+      addChannel(row);
+      if(channelMap.size>=12)break;
+    }
+    if(videoMap.size||channelMap.size)publish();
+  }).catch(()=>{});
+
+  await Promise.allSettled([videoJob,channelJob]);
+  if(!stillCurrent())return;
+
+  // If one backend surface is temporarily empty, retry through YouTube's mixed
+  // search surface before ever showing "Không có kết quả phù hợp".
+  if(!videoMap.size&&!channelMap.size){
+    try{
+      const response=await api("search",{
+        q,
+        filter:"all",
+        _fresh:Date.now()
+      },3800);
+      if(!stillCurrent())return;
+      addMixedRows(response?.data?.items);
+      if(videoMap.size||channelMap.size)publish();
+    }catch{}
+  }
+
+  if(!stillCurrent())return;
+
+  // Last-resort only: local youtubei.js may recover an upstream backend miss,
+  // but it never delays or replaces the normal direct search.
+  if(!videoMap.size&&!channelMap.size){
+    try{
+      const local=await localEngine(1200);
+      const [videos,channels]=await Promise.allSettled([
+        Promise.race([
+          local.search(q,{type:"video"}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("preview_video_timeout")),1800))
+        ]),
+        Promise.race([
+          local.searchChannels(q,{includeVideos:false}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("preview_channel_timeout")),1800))
+        ])
+      ]);
+
+      if(!stillCurrent())return;
+
+      if(videos.status==="fulfilled")addVideos(videos.value);
+      if(channels.status==="fulfilled"){
+        for(const row of Array.isArray(channels.value)?channels.value:[])addChannel(row);
       }
       if(videoMap.size||channelMap.size)publish();
-    })
-    .catch(()=>{});
+    }catch{}
+  }
 
-  let localForMeta=null;
-  const localVideoJob=localEngine(1400)
-    .then(local=>{
-      localForMeta=local;
-      return Promise.race([
-        local.search(q,{type:"video"}),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error("video_search_timeout")),1800))
-      ]);
-    })
-    .then(rows=>{
-      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      addVideos(rows);
-      if(videoMap.size||channelMap.size)publish();
-    })
-    .catch(()=>{});
+  if(!stillCurrent())return;
 
-  await Promise.allSettled([backendVideoJob,backendChannelJob,localVideoJob]);
-  if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-
-  if(!channelMap.size&&!videoMap.size){
+  if(!videoMap.size&&!channelMap.size){
     sourcePreviewSearchRows=new Map();
     sourcePreviewSearchChannels=new Map();
     sourcePreviewRenderSignature="";
@@ -3192,23 +3254,6 @@ async function searchPreviewVideos(query){
   }
 
   publish();
-  if(localForMeta){
-    void prewarmSourceSearchMetadata(
-      [...channelMap.values()].slice(0,12),
-      localForMeta,
-      650
-    ).then(()=>{
-      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      sourcePreviewSearchChannels=new Map(
-        [...sourcePreviewSearchChannels.values()].map(row=>[
-          row.id,
-          sourceMetaFor(row)
-        ])
-      );
-      sourcePreviewRenderSignature="";
-      renderSourcePreviewVideos({force:true});
-    }).catch(()=>{});
-  }
 }
 function schedulePreviewVideoSearch(){
   clearTimeout(sourcePreviewSearchTimer);
