@@ -144,6 +144,60 @@ Canonical rule:
 
 This filter is applied centrally in the shared hashtag engine, before adaptive learning/package commit, so every existing and future hashtag inherits it automatically.
 
+## LIVE-specific Filtering
+
+LIVE is a system feed and does **not** use the 7-day hashtag rules.
+
+### Only currently-live streams may be shown
+
+The current implementation must not treat a cached `isLive=true`, `duration<0`, or `uploaded=-1` flag as sufficient proof that a stream is still live.
+
+For every LIVE package commit:
+
+1. Discover candidate livestreams from search/selected LIVE sources.
+2. Revalidate candidate video IDs with fresh video/stream metadata using a short no-store TTL.
+3. A row is eligible only when fresh metadata still indicates an active livestream.
+4. Prefer a positive active-live signal such as current livestream state plus a usable live/HLS stream.
+5. If fresh metadata reports the stream ended, became a replay/VOD, or no longer has an active-live signal, remove it immediately.
+6. If verification fails or times out, do **not** keep the row visible merely because an older cache said it was live.
+7. LIVE snapshots have a short hard expiry and are not allowed to use the normal stale-while-revalidate behavior used by 7-day hashtag/channel snapshots.
+
+This makes LIVE intentionally fail closed: it is better to temporarily omit an unverifiable stream than to keep an already-ended livestream on screen.
+
+### LIVE blocked keywords
+
+Add a server-owned LIVE keyword block list in Quản lý nguồn → Live.
+
+UI:
+
+- section label: `Từ khóa chặn`;
+- one compact input that accepts one phrase at a time;
+- Enter / add button saves a keyword;
+- saved keywords render as removable chips;
+- examples: `xổ số`, `cây cảnh`;
+- matching is case-insensitive and accent-insensitive, so `xo so` and `xổ số` are equivalent for matching;
+- keywords are shared across PC, mobile web, and PWA.
+
+Matching:
+
+- compare against normalized video title;
+- compare against normalized source/channel name;
+- optionally compare description only when description metadata is already available; never fetch descriptions solely for keyword blocking;
+- phrase matching is literal after normalization — do not let AI invent broader blocked topics;
+- manual blocked channel IDs still take precedence and remain separate from keyword blocks.
+
+If any saved LIVE keyword matches, exclude the stream before package commit and before it is offered as a Live source suggestion.
+
+The keyword list is presentation-independent and stored on the server, not only in localStorage.
+
+### LIVE refresh behavior
+
+- LIVE refresh remains independent from dynamic hashtags.
+- Ended-live verification should run more frequently than content hashtag refresh.
+- Keyword changes trigger an immediate LIVE package rebuild.
+- Removing a keyword also triggers an immediate LIVE rebuild.
+- A LIVE package with zero verified active streams is valid and should render an empty LIVE state rather than stale ended streams.
+
 ## Refresh Scheduling
 
 `Live/Ngày/Tuần` retain system-feed scheduling.
@@ -291,6 +345,10 @@ Tests must prove:
 
 Tests must prove:
 
+- LIVE management exposes server-backed blocked-keyword chips and add/remove behavior;
+- a keyword such as `xổ số` blocks normalized `xo so` title/source matches;
+- LIVE cards whose fresh verifier says ended/replay are removed even if stale cache still has `isLive=true`;
+- an unverifiable stale LIVE candidate is omitted instead of retained;
 - dynamic hashtags render without changing JS constants;
 - rename changes label only;
 - source manager uses `Gợi ý nguồn`;
