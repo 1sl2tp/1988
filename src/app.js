@@ -2470,6 +2470,7 @@ async function sourceSearchAlternates(query){
 }
 
 
+
 async function searchSourceChannels(query){
   const q=normalizeCommittedSearchQuery(query);
   const seq=++sourceSearchSeq;
@@ -2485,7 +2486,6 @@ async function searchSourceChannels(query){
 
   const byId=new Map();
   const stats=new Map();
-  const videoSourceIds=new Set();
   const qNorm=normalizeSearchText(q);
 
   const addCandidate=(row,via="channel")=>{
@@ -2496,8 +2496,9 @@ async function searchSourceChannels(query){
     const id=String(candidate?.id||"").trim();
     if(!candidate||!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
 
-    if(!byId.has(id))byId.set(id,candidate);
-    else{
+    if(!byId.has(id)){
+      byId.set(id,candidate);
+    }else{
       const current=byId.get(id)||{};
       byId.set(id,{
         ...current,
@@ -2509,25 +2510,19 @@ async function searchSourceChannels(query){
 
     const nameNorm=normalizeSearchText(candidate.name||"");
     let score=0;
-    if(nameNorm===qNorm)score+=80;
-    else if(nameNorm.startsWith(qNorm))score+=50;
-    else if(nameNorm.includes(qNorm))score+=35;
+    if(nameNorm===qNorm)score+=90;
+    else if(nameNorm.startsWith(qNorm))score+=60;
+    else if(nameNorm.includes(qNorm))score+=40;
 
-    if(via==="video"){
-      score+=60;
-      videoSourceIds.add(id);
-    }else if(via==="expanded-video"){
-      score+=70;
-      videoSourceIds.add(id);
-    }else if(via==="expanded-channel"){
-      score+=25;
-    }else{
-      score+=10;
-    }
+    if(via==="video")score+=75;
+    else if(via==="expanded-video")score+=65;
+    else if(via==="preview")score+=55;
+    else if(via==="channel")score+=30;
+    else score+=20;
 
     const prev=stats.get(id)||{score:0,hits:0};
     stats.set(id,{
-      score:prev.score+score+(prev.hits?8:0),
+      score:prev.score+score+(prev.hits?10:0),
       hits:prev.hits+1
     });
     return true;
@@ -2552,7 +2547,7 @@ async function searchSourceChannels(query){
         :"Đang tìm kênh…";
     }
     renderSourceLibrary();
-    return true;
+    return !!sourceRemoteResults.length;
   };
 
   const consume=(rows,via)=>{
@@ -2561,98 +2556,97 @@ async function searchSourceChannels(query){
     if(byId.size)publish();
   };
 
-  const backendChannelJob=api("search",{q,filter:"channels"},2400)
-    .then(response=>consume(response?.data?.items,"channel"))
-    .catch(()=>{});
+  // If the right-side global search already resolved the same query, reuse its
+  // channels immediately so the two panes can never disagree about "no result".
+  if(
+    normalizeSearchText(sourcePreviewSearch?.value||"")===qNorm
+  ){
+    for(const row of sourcePreviewSearchChannels.values())addCandidate(row,"preview");
+    for(const row of sourcePreviewSearchRows.values())addCandidate(row,"preview");
+    if(byId.size)publish();
+  }
 
-  const backendVideoJob=api("search",{q,filter:"videos"},2600)
-    .then(response=>consume(response?.data?.items,"video"))
-    .catch(()=>{});
+  // Same stateless/fresh path as main search and the right preview pane.
+  const fresh=Date.now();
+  const videoJob=api("search",{
+    q,
+    filter:"videos",
+    _fresh:fresh
+  },4200).then(response=>consume(response?.data?.items,"video")).catch(()=>{});
 
-  let localForMeta=null;
-  const localReady=localEngine(1400)
-    .then(local=>{
-      localForMeta=local;
-      return local;
-    });
+  const channelJob=api("search",{
+    q,
+    filter:"channels",
+    _fresh:fresh+1
+  },3400).then(response=>consume(response?.data?.items,"channel")).catch(()=>{});
 
-  const localChannelJob=localReady
-    .then(local=>Promise.race([
-      local.searchChannels(q,{includeVideos:false}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("channel_search_timeout")),1800))
-    ]))
-    .then(rows=>consume(rows,"channel"))
-    .catch(()=>{});
-
-  // "Kiểu 2" ngay từ lượt đầu: tìm video theo từ người dùng gõ rồi lấy
-  // uploader/channel của các video. Cách này bắt được trường hợp tên tìm
-  // khác tên kênh (ví dụ tên nghệ sĩ -> tên thương hiệu của kênh).
-  const localVideoJob=localReady
-    .then(local=>Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_video_search_timeout")),2000))
-    ]))
-    .then(rows=>consume(rows,"video"))
-    .catch(()=>{});
-
-  await Promise.allSettled([
-    backendChannelJob,
-    backendVideoJob,
-    localChannelJob,
-    localVideoJob
-  ]);
+  await Promise.allSettled([videoJob,channelJob]);
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-  // "Tìm kiểu 2": khi tên gõ không trùng tên kênh, dùng gợi ý YouTube
-  // và video liên quan để suy ra nguồn thực tế. Ví dụ một nghệ sĩ có thể
-  // được tìm bằng tên thường dùng nhưng kênh chính mang thương hiệu khác.
-  const hasNameMatch=[...byId.values()].some(row=>
-    normalizeSearchText(row?.name||"").includes(qNorm)
-  );
+  // Mixed search is the first fallback. It often contains the right uploader
+  // even when a direct channel-name lookup does not (e.g. artist alias cases).
+  if(!byId.size){
+    try{
+      const response=await api("search",{
+        q,
+        filter:"all",
+        _fresh:Date.now()
+      },3800);
+      consume(response?.data?.items,"video");
+    }catch{}
+  }
 
-  if(!videoSourceIds.size||!hasNameMatch){
-    if(sourceSearchStatus){
-      sourceSearchStatus.textContent=byId.size
-        ?"Đang tìm thêm nguồn liên quan…"
-        :"Đang tìm rộng hơn…";
-    }
+  if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
+  // "Kiểu 2": broaden only when direct discovery is still weak.
+  if(!byId.size){
     const alternates=await sourceSearchAlternates(q);
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    const jobs=[];
     for(const alt of alternates.slice(0,2)){
-      jobs.push(
-        api("search",{q:alt,filter:"videos"},3400)
-          .then(response=>consume(response?.data?.items,"expanded-video"))
-          .catch(()=>{})
-      );
-      jobs.push(
-        api("search",{q:alt,filter:"channels"},3000)
-          .then(response=>consume(response?.data?.items,"expanded-channel"))
-          .catch(()=>{})
-      );
+      try{
+        const response=await api("search",{
+          q:alt,
+          filter:"videos",
+          _fresh:Date.now()
+        },3600);
+        consume(response?.data?.items,"expanded-video");
+      }catch{}
+      if(byId.size>=12)break;
     }
-    await Promise.allSettled(jobs);
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
   }
+
+  if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+
+  // youtubei.js is last-resort only; never make the source list depend on it.
+  if(!byId.size){
+    try{
+      const local=await localEngine(1200);
+      const [videos,channels]=await Promise.allSettled([
+        Promise.race([
+          local.search(q,{type:"video"}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_video_timeout")),1800))
+        ]),
+        Promise.race([
+          local.searchChannels(q,{includeVideos:false}),
+          new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_channel_timeout")),1800))
+        ])
+      ]);
+
+      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+      if(videos.status==="fulfilled")consume(videos.value,"video");
+      if(channels.status==="fulfilled")consume(channels.value,"channel");
+    }catch{}
+  }
+
+  if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
   if(byId.size){
     publish();
-    if(localForMeta){
-      void prewarmSourceSearchMetadata(rankedCandidates().slice(0,16),localForMeta,700)
-        .then(()=>{
-          if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-          sourceRemoteResults=rankedCandidates().map(row=>sourceMetaFor(row));
-          renderSourceLibrary();
-        })
-        .catch(()=>{});
-    }
     return;
   }
 
   sourceRemoteResults=[];
-
   const localMatches=managedChannelLibrary().filter(row=>
     normalizeSearchText(sourceMetaFor(row).name||row.name).includes(qNorm)
   );
@@ -3162,6 +3156,28 @@ async function searchPreviewVideos(query){
       [...videoMap.values()].slice(0,24).map(video=>[itemVideoId(video),video])
     );
     rememberSearchedSourceCandidates([...sourcePreviewSearchChannels.values()]);
+
+    // Keep the left source pane in sync when both boxes contain the same query.
+    // The right pane has already proved these channel IDs are valid results.
+    if(
+      normalizeSearchText(sourceSearch?.value||"")===normalizeSearchText(q) &&
+      sourcePreviewSearchChannels.size
+    ){
+      const merged=new Map(
+        sourceRemoteResults.map(row=>[String(row?.id||"").trim(),row])
+      );
+      for(const row of sourcePreviewSearchChannels.values()){
+        const id=String(row?.id||"").trim();
+        if(id)merged.set(id,row);
+      }
+      sourceRemoteResults=[...merged.values()].slice(0,24);
+      rememberSearchedSourceCandidates(sourceRemoteResults);
+      if(sourceSearchStatus){
+        sourceSearchStatus.textContent="Có "+sourceRemoteResults.length+" kênh phù hợp";
+      }
+      renderSourceLibrary();
+    }
+
     sourcePreviewRenderSignature="";
     renderSourcePreviewVideos({force:true});
     return !!(sourcePreviewSearchChannels.size||sourcePreviewSearchRows.size);
