@@ -6,6 +6,9 @@ on:
     paths:
       - '.github/workflows/diagnose-browser.yml'
       - 'src/app.js'
+      - 'src/yt-local.js'
+      - 'index.html'
+      - 'sw.js'
 
 permissions:
   contents: read
@@ -211,6 +214,58 @@ jobs:
               returnByValue:true
             });
             console.log('HOME_PROBE',probe?.result?.value);
+
+            const searchProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  if(!window.YTLocal)return JSON.stringify({ok:false,error:'YTLocal missing'});
+                  const rows=await window.YTLocal.search('reviewer',{type:'video'});
+                  return JSON.stringify({
+                    ok:true,
+                    count:Array.isArray(rows)?rows.length:-1,
+                    sample:(Array.isArray(rows)?rows:[]).slice(0,5).map(r=>({
+                      id:r.videoId||r.id||'',
+                      title:r.title||'',
+                      uploader:r.uploader||''
+                    }))
+                  });
+                }catch(e){
+                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('SEARCH_PROBE',searchProbe?.result?.value);
+            const searchState=JSON.parse(searchProbe?.result?.value||'{}');
+            if(!searchState.ok||Number(searchState.count||0)<=0){
+              throw new Error('ytlocal_search_has_no_rows:'+String(searchProbe?.result?.value||''));
+            }
+
+            const appSearchProbe=await send('Runtime.evaluate',{
+              expression:`(async()=>{
+                try{
+                  if(typeof doSearch!=='function')return JSON.stringify({ok:false,error:'doSearch_missing'});
+                  await doSearch('reviewer');
+                  await new Promise(r=>setTimeout(r,350));
+                  return JSON.stringify({
+                    ok:true,
+                    cards:document.querySelectorAll('#feed .card[data-video-id]').length,
+                    feed:document.querySelector('#feed')?.innerText||'',
+                    status:document.querySelector('#feedStatus')?.innerText||''
+                  });
+                }catch(e){
+                  return JSON.stringify({ok:false,error:String(e),stack:e?.stack||''});
+                }
+              })()`,
+              awaitPromise:true,
+              returnByValue:true
+            });
+            console.log('APP_SEARCH_PROBE',appSearchProbe?.result?.value);
+            const appSearchState=JSON.parse(appSearchProbe?.result?.value||'{}');
+            if(!appSearchState.ok||Number(appSearchState.cards||0)<=0){
+              throw new Error('app_search_has_no_cards:'+String(appSearchProbe?.result?.value||''));
+            }
 
             const rawProbe=await send('Runtime.evaluate',{
               expression:`(async()=>{
