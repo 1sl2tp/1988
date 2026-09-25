@@ -304,7 +304,9 @@ Deno.serve(async(req:Request)=>{
     const channelRows=new Map<string,any[]>();
     const channelFetchOk=new Set<string>();
 
-    await mapLimit(neededIds,10,async(id)=>{
+    // Keep nested channel requests below the Edge Function burst limit.
+    // The cron rotates scopes, so a refresh only needs a small bounded fan-out.
+    await mapLimit(neededIds,4,async(id)=>{
       const source=channelMeta.get(id)||{id,name:id};
       try{
         const url=supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(id);
