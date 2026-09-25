@@ -212,9 +212,26 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
     pendingEnter:false,
     enterValue:"",
     lastCompositionAt:0,
-    history:[]
+    history:[],
+    imeCommitTimer:0,
+    lastCommitValue:"",
+    lastCommitAt:0
   };
   searchCommitState.set(input,state);
+
+  const clearImeTimer=()=>{
+    if(state.imeCommitTimer){
+      clearTimeout(state.imeCommitTimer);
+      state.imeCommitTimer=0;
+    }
+  };
+
+  const resetPending=()=>{
+    clearImeTimer();
+    state.composing=false;
+    state.pendingEnter=false;
+    state.enterValue="";
+  };
 
   const remember=value=>{
     const next=normalizeCommittedSearchQuery(value);
@@ -230,20 +247,61 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
 
   const run=value=>{
     const q=repairImeCommittedQuery(value,state);
-    if(!q)return;
+    if(!q){
+      resetPending();
+      return;
+    }
+
+    // A compositionend + submit pair may arrive in the same tick on desktop
+    // Vietnamese IMEs. Commit once, but never keep state that can swallow the
+    // next search.
+    const now=Date.now();
+    if(state.lastCommitValue===q&&now-state.lastCommitAt<160){
+      resetPending();
+      return;
+    }
+
     input.value=q;
     remember(q);
-    state.pendingEnter=false;
-    state.enterValue="";
+    state.lastCommitValue=q;
+    state.lastCommitAt=now;
+    resetPending();
     commit(q);
+  };
+
+  const armImeFallback=()=>{
+    clearImeTimer();
+    state.imeCommitTimer=setTimeout(()=>{
+      state.imeCommitTimer=0;
+      if(!state.pendingEnter)return;
+      // Some browser/IME combinations never deliver compositionend after
+      // Enter/blur. Use the current DOM value and fully reset the IME state so
+      // search #2, #3, ... cannot be blocked by stale composing/pending flags.
+      const value=normalizeCommittedSearchQuery(input.value)||state.enterValue;
+      state.composing=false;
+      run(value);
+    },120);
   };
 
   input.addEventListener("input",()=>{
     remember(input.value);
   });
 
+  input.addEventListener("focus",()=>{
+    // A fresh edit session must never inherit a stale composition flag from
+    // the previous submitted query.
+    if(!state.pendingEnter){
+      clearImeTimer();
+      state.composing=false;
+      state.enterValue="";
+    }
+  });
+
   input.addEventListener("compositionstart",()=>{
+    clearImeTimer();
     state.composing=true;
+    state.pendingEnter=false;
+    state.enterValue="";
     state.lastCompositionAt=Date.now();
     remember(input.value);
   });
@@ -252,42 +310,65 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
     state.composing=false;
     state.lastCompositionAt=Date.now();
     remember(input.value);
-    if(!state.pendingEnter)return;
+    if(!state.pendingEnter){
+      clearImeTimer();
+      return;
+    }
 
-    const value=state.enterValue||input.value;
+    const value=normalizeCommittedSearchQuery(input.value)||state.enterValue;
+    clearImeTimer();
     queueMicrotask(()=>run(value));
   });
 
   input.addEventListener("keydown",event=>{
     if(event.key!=="Enter")return;
 
+    // Prevent the browser's native form-submit race in both normal and IME
+    // paths. We own exactly one commit for every Enter.
+    event.preventDefault();
     remember(input.value);
+
     if(event.isComposing||state.composing||event.keyCode===229){
       state.pendingEnter=true;
       state.enterValue=normalizeCommittedSearchQuery(input.value);
       state.lastCompositionAt=Date.now();
+      armImeFallback();
       return;
     }
 
-    event.preventDefault();
     run(input.value);
+  });
+
+  input.addEventListener("blur",()=>{
+    if(!state.pendingEnter){
+      clearImeTimer();
+      state.composing=false;
+      state.enterValue="";
+      return;
+    }
+
+    // If blur terminates composition without compositionend, do not leave the
+    // form permanently in a pending state.
+    armImeFallback();
   });
 
   if(form){
     form.addEventListener("submit",event=>{
       event.preventDefault();
 
-      if(state.composing||state.pendingEnter){
+      if(state.composing){
         state.pendingEnter=true;
-        if(!state.enterValue)state.enterValue=normalizeCommittedSearchQuery(input.value);
+        state.enterValue=normalizeCommittedSearchQuery(input.value);
+        armImeFallback();
         return;
       }
 
+      // pendingEnter without active composition is stale. Always submit the
+      // current input instead of returning early and blocking later searches.
       run(input.value);
     });
   }
 }
-
 function searchInputIsComposing(input){
   const row=searchCommitState.get(input);
   return !!row?.composing;
