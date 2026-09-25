@@ -2844,7 +2844,28 @@ function explicitVideoAspect(meta={}){
 
 let responsivePlayerRaf=0;
 
+function isLongFilmPlayback(meta=state.currentMeta||{}){
+  const scope=clean(meta?._watchScope||"")||
+    (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)?state.activeParent:"")||
+    (state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope)?state.searchScope:"")||
+    activeSourceScope()||
+    "";
+
+  if(scope!=="film")return false;
+
+  const currentCard=[...feed.querySelectorAll("[data-video-id]")]
+    .find(card=>card.dataset.videoId===state.currentId);
+
+  const duration=Math.max(
+    Number(durationSeconds(meta))||0,
+    Number(currentCard?.dataset?.duration)||0
+  );
+
+  return duration>=20*60;
+}
+
 function responsivePlayerAspect(meta=state.currentMeta||{}){
+  if(isLongFilmPlayback(meta))return 16/9;
   return explicitVideoAspect(meta)||
     validPipAspect(state.videoAspect)||
     16/9;
@@ -2854,9 +2875,13 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Standard/default player sizing: normal 16:9 content stays on the
-  // regular wide-player path so YouTube keeps its full native control set.
-  let ratio=explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9;
+  // Film episodes/full movies keep YouTube's original/default 16:9 player
+  // box. This is still the NORMAL wide-player path (not a custom film mode),
+  // so native fullscreen remains available.
+  const longFilm=isLongFilmPlayback(meta);
+  let ratio=longFilm
+    ?16/9
+    :(explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9);
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
 
   frame.classList.remove(
@@ -2966,6 +2991,17 @@ function queueResponsivePlayerFrame(){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
+  // visualContentAspect can detect a portrait scene INSIDE a normal 16:9 film
+  // upload. Do not let that reshape a long-form film away from YouTube's
+  // original/default player box.
+  if(isLongFilmPlayback(meta)){
+    state.videoAspect=16/9;
+    state.videoAspectVerified=true;
+    state.videoAspectPortraitLocked=false;
+    applyResponsivePlayerFrame(meta);
+    return;
+  }
+
   const next=explicitVideoAspect(meta);
   if(!next)return;
 
@@ -7632,13 +7668,16 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
-  state.videoAspect=immediateAspect||(
-    wasFloating
-      ?previousAspect
-      :normalizedVideoAspect(playbackMeta)
-  );
-  state.videoAspectVerified=!!cachedAspect;
-  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
+  const longFilmDefault=isLongFilmPlayback(playbackMeta);
+  state.videoAspect=longFilmDefault
+    ?16/9
+    :(immediateAspect||(
+      wasFloating
+        ?previousAspect
+        :normalizedVideoAspect(playbackMeta)
+    ));
+  state.videoAspectVerified=longFilmDefault||!!cachedAspect;
+  state.videoAspectPortraitLocked=!longFilmDefault&&!!cachedAspect&&cachedAspect<.80;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
@@ -7648,12 +7687,18 @@ async function playVideo(id,seedMeta={}){
   if(wasFloating){
     void primePipAspect(id).then(ratio=>{
       if(state.currentId!==id)return;
-      ratio=validPipAspect(ratio);
-      if(!ratio)return;
-
-      state.videoAspect=ratio;
-      state.videoAspectVerified=true;
-      state.videoAspectPortraitLocked=ratio<.80;
+      if(isLongFilmPlayback(state.currentMeta)){
+        state.videoAspect=16/9;
+        state.videoAspectVerified=true;
+        state.videoAspectPortraitLocked=false;
+        ratio=16/9;
+      }else{
+        ratio=validPipAspect(ratio);
+        if(!ratio)return;
+        state.videoAspect=ratio;
+        state.videoAspectVerified=true;
+        state.videoAspectPortraitLocked=ratio<.80;
+      }
 
       const activeFrame=playerSection?.querySelector(".player-frame");
       if(activeFrame?.classList.contains("floating-iframe")){
