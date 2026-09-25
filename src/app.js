@@ -11015,6 +11015,18 @@ function applyPageChromeTint(color,scope="watch"){
   root.style.setProperty("--page-chrome-glow",`rgba(${r},${g},${b},.52)`);
   root.style.setProperty("--page-chrome-soft",`rgba(${r},${g},${b},.26)`);
   root.style.setProperty("--page-chrome-faint",`rgba(${r},${g},${b},.12)`);
+
+  // Mobile uses ONE shared dark surface for header -> source row -> feed.
+  // The sampled video colour only nudges that surface, so all rows change
+  // together without creating separate coloured bands.
+  const mobileMix=.32;
+  const base=[11,11,12];
+  const sr=Math.round(base[0]*(1-mobileMix)+r*mobileMix);
+  const sg=Math.round(base[1]*(1-mobileMix)+g*mobileMix);
+  const sb=Math.round(base[2]*(1-mobileMix)+b*mobileMix);
+  root.style.setProperty("--mobile-chrome-surface",`rgb(${sr},${sg},${sb})`);
+  root.style.setProperty("--mobile-chrome-tint",`rgba(${r},${g},${b},.18)`);
+
   root.dataset.chromeTintScope=scope;
 }
 
@@ -11047,10 +11059,44 @@ function applyChromeTintFromArt(art,scope="watch",guardId=""){
   });
 }
 
+function homeChromeCandidateCard(){
+  const cards=[...feed.querySelectorAll(":scope > .card[data-video-id]")];
+  if(!cards.length)return null;
+
+  const viewportHeight=Math.max(
+    320,
+    Number(window.visualViewport?.height)||window.innerHeight||0
+  );
+  // Aim slightly above centre: this is where the user is usually reading the
+  // current card after the fixed mobile header has taken its space.
+  const targetY=viewportHeight*.42;
+  let best=null;
+  let bestScore=Infinity;
+
+  for(const card of cards){
+    const rect=card.getBoundingClientRect();
+    if(rect.bottom<=0||rect.top>=viewportHeight)continue;
+
+    const visibleTop=Math.max(0,rect.top);
+    const visibleBottom=Math.min(viewportHeight,rect.bottom);
+    const visible=Math.max(0,visibleBottom-visibleTop);
+    const centre=(visibleTop+visibleBottom)/2;
+    // Nearest visible card wins; a small visible-area bonus prevents rapid
+    // colour flipping when two cards straddle the focal line.
+    const score=Math.abs(centre-targetY)-visible*.08;
+    if(score<bestScore){
+      best=card;
+      bestScore=score;
+    }
+  }
+
+  return best||cards[0]||null;
+}
+
 function syncHomeChromeTintFromFeed(force=false){
   if(watchPlaybackVisible())return;
 
-  const card=feed.querySelector(":scope > .card[data-video-id]");
+  const card=homeChromeCandidateCard();
   const art=String(card?.dataset?.thumb||"").trim();
   if(!art)return;
 
@@ -11068,6 +11114,16 @@ function queueHomeChromeTintFromFeed(force=false){
     syncHomeChromeTintFromFeed(force);
   });
 }
+
+// Home tint follows the video nearest the current reading position. Watch mode
+// is guarded above, so scrolling recommendations beside an open player cannot
+// steal the colour from the video that is actually playing.
+const queueHomeChromeTintOnScroll=()=>{
+  if(!watchPlaybackVisible())queueHomeChromeTintFromFeed();
+};
+window.addEventListener("scroll",queueHomeChromeTintOnScroll,{passive:true});
+feedSection?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
+window.visualViewport?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
 
 function normalizeThumbnailFit(img){
   if(!img||!img.closest(".thumb-wrap"))return;
