@@ -5939,9 +5939,23 @@ function patchRenderedAiMeta(rows=[]){
 
 function categoryCacheRows(parentKey=""){
   const cached=state.aiCategoryRows.get(parentKey);
-  if(!cached||!Array.isArray(cached.items))return [];
-  if(Date.now()-Number(cached.at||0)>15*60*1000)return [];
-  return cached.items;
+  if(cached&&Array.isArray(cached.items)&&cached.items.length)return cached.items;
+
+  const stored=readAtomicSnapshot("category:"+parentKey);
+  if(!stored||!Array.isArray(stored.items)||!stored.items.length)return [];
+
+  const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===parentKey);
+  const group=parentSourceGroup(parent||{key:parentKey,group:parentKey});
+  const selectedIds=new Set(selectedSources(group).map(source=>source.id));
+  const blocked=blockedSetForScope(group);
+  const items=stored.items.filter(row=>{
+    const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
+    if(sourceId&&!selectedIds.has(sourceId))return false;
+    return !blocked.has(sourceId)&&!isBlockedSourceRow(row,group);
+  });
+
+  if(items.length)state.aiCategoryRows.set(parentKey,{at:Number(stored.at)||Date.now(),items});
+  return items;
 }
 
 function instantCategoryRows(parent={}){
@@ -6662,9 +6676,11 @@ async function buildCategorySourceSnapshot(parent,local=null){
     )
   ).slice(0,90);
 
-  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
-
   if(rows.length){
+    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+    commitAtomicSnapshot("category:"+parent.key,rows,{
+      sourceSignature:sourceSignature(group)
+    });
     saveSourceContentLearning(
       group,
       extractSourceContentTerms(parent,aiDisplayRows(rows))
@@ -10503,6 +10519,114 @@ closeInstallSheet.addEventListener("click",()=>{installSheet.hidden=true;});
 installSheet.addEventListener("click",e=>{if(e.target===installSheet)installSheet.hidden=true;});
 
 const FEED_CACHE_PREFIX="1988-discovery-v23:";
+const TAB_SNAPSHOT_PREFIX="1988-tab-snapshot-v1:";
+
+function snapshotKey(name="",suffix=""){
+  return TAB_SNAPSHOT_PREFIX+String(name||"")+":"+suffix;
+}
+
+function snapshotRowsHash(rows=[],sourceSig=""){
+  const body=(Array.isArray(rows)?rows:[]).slice(0,90).map(row=>[
+    itemVideoId(row),
+    clean(row?._displayTitle||row?.title||""),
+    clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
+    String(row?._sourceId||row?.channelId||row?.uploaderId||""),
+    row?.isLive===true?"1":"0"
+  ].join("|")).join("\n");
+  return fastHash(String(sourceSig||"")+"\n"+body);
+}
+
+function readAtomicSnapshot(name=""){
+  try{
+    const pointer=JSON.parse(localStorage.getItem(snapshotKey(name,"ptr"))||"null");
+    const preferred=pointer?.slot==="b"?"b":"a";
+    const slots=[preferred,preferred==="a"?"b":"a"];
+
+    for(const slot of slots){
+      const raw=localStorage.getItem(snapshotKey(name,slot));
+      if(!raw)continue;
+      const row=JSON.parse(raw);
+      if(!row||!Array.isArray(row.items)||!row.items.length)continue;
+      const actual=snapshotRowsHash(row.items,row.sourceSignature||"");
+      if(!row.hash||row.hash!==actual)continue;
+      return row;
+    }
+  }catch{}
+  return null;
+}
+
+function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig=""}={}){
+  const items=(Array.isArray(rows)?rows:[]).slice(0,90);
+  if(!items.length)return {changed:false,hash:"",items:[]};
+
+  const hash=snapshotRowsHash(items,sourceSig);
+  const current=readAtomicSnapshot(name);
+  if(current?.hash===hash){
+    try{
+      localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
+        slot:current.slot||"a",
+        hash,
+        checkedAt:Date.now()
+      }));
+    }catch{}
+    return {changed:false,hash,items:current.items};
+  }
+
+  try{
+    const pointer=JSON.parse(localStorage.getItem(snapshotKey(name,"ptr"))||"null");
+    const oldSlot=pointer?.slot==="b"?"b":"a";
+    const nextSlot=oldSlot==="a"?"b":"a";
+    const payload={
+      slot:nextSlot,
+      hash,
+      at:Date.now(),
+      sourceSignature:String(sourceSig||""),
+      items
+    };
+
+    // Double-buffer commit: write + verify the new package first, then move
+    // the pointer, and only after that delete the old package.
+    localStorage.setItem(snapshotKey(name,nextSlot),JSON.stringify(payload));
+    const verify=JSON.parse(localStorage.getItem(snapshotKey(name,nextSlot))||"null");
+    if(!verify||verify.hash!==hash||snapshotRowsHash(verify.items,verify.sourceSignature||"")!==hash){
+      localStorage.removeItem(snapshotKey(name,nextSlot));
+      return {changed:false,hash:current?.hash||"",items:current?.items||[]};
+    }
+
+    localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
+      slot:nextSlot,
+      hash,
+      checkedAt:Date.now()
+    }));
+    localStorage.removeItem(snapshotKey(name,oldSlot));
+    return {changed:true,hash,items};
+  }catch(error){
+    console.warn("snapshot commit failed",name,error);
+    return {changed:false,hash:current?.hash||"",items:current?.items||[]};
+  }
+}
+
+function clearAtomicSnapshot(name=""){
+  try{
+    localStorage.removeItem(snapshotKey(name,"a"));
+    localStorage.removeItem(snapshotKey(name,"b"));
+    localStorage.removeItem(snapshotKey(name,"ptr"));
+  }catch{}
+}
+
+function readNewestLegacyFeedCache(name=""){
+  let best=null;
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i)||"";
+      if(!key.startsWith("1988-discovery-")||!key.endsWith(":"+name))continue;
+      const row=JSON.parse(localStorage.getItem(key)||"null");
+      if(!row||!Array.isArray(row.items)||!row.items.length)continue;
+      if(!best||Number(row.at||0)>Number(best.at||0))best=row;
+    }
+  }catch{}
+  return best;
+}
 const SEARCH_VISIBLE_TARGET=36;
 // Block-heavy tabs may need to pass many continuation pages before enough
 // usable rows remain. Keep scanning until the visible target is refilled or
@@ -11125,40 +11249,63 @@ const FEED_PRESETS={
 
 function readFeedCache(name){
   try{
-    const row=JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null");
-    if(!row||!Array.isArray(row.items)||!row.items.length)return [];
-
     const scope=isSourceScopedFeed(name)
       ?feedSourceScope(name)
       :name===LIVE_SOURCE_SCOPE
         ?LIVE_SOURCE_SCOPE
         :GENERAL_SOURCE_SCOPE;
+    const currentSignature=MANAGED_SOURCE_SCOPES.has(scope)?sourceSignature(scope):"";
 
-    if(isSourceScopedFeed(name)&&row.sourceSignature!==sourceSignature(scope)){
+    let row=readAtomicSnapshot("feed:"+name);
+
+    if(!row){
+      const legacy=
+        JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null")||
+        readNewestLegacyFeedCache(name);
+      if(legacy&&Array.isArray(legacy.items)&&legacy.items.length){
+        commitAtomicSnapshot("feed:"+name,legacy.items,{
+          sourceSignature:legacy.sourceSignature||currentSignature
+        });
+        row=readAtomicSnapshot("feed:"+name)||legacy;
+      }
+    }
+
+    if(!row||!Array.isArray(row.items)||!row.items.length)return [];
+
+    const blocked=blockedSetForScope(scope);
+    let items=row.items.filter(item=>!isBlockedSourceRow(item,scope));
+
+    // A source-list change never discards the reserve package. Filter the old
+    // package to the still-selected channels, then let background refresh
+    // atomically replace it with the new version.
+    if(isSourceScopedFeed(name)&&row.sourceSignature!==currentSignature){
       const selectedIds=new Set(selectedSources(scope).map(source=>source.id));
-      const blocked=blockedSetForScope(scope);
-      return row.items.filter(item=>{
+      items=items.filter(item=>{
         const sourceId=String(item?._sourceId||item?.channelId||item?.uploaderId||"");
-        if(sourceId)return selectedIds.has(sourceId)&&!blocked.has(sourceId);
-        return !isBlockedSourceRow(item,scope);
+        return sourceId?selectedIds.has(sourceId)&&!blocked.has(sourceId):true;
       });
     }
 
-    return row.items.filter(item=>!isBlockedSourceRow(item,scope));
+    return items;
   }catch{
     return [];
   }
 }
 
 function saveFeedCache(name,rows){
-  const scope=isSourceScopedFeed(name)?feedSourceScope(name):GENERAL_SOURCE_SCOPE;
-  try{
-    localStorage.setItem(FEED_CACHE_PREFIX+name,JSON.stringify({
-      at:Date.now(),
-      sourceSignature:isSourceScopedFeed(name)?sourceSignature(scope):"",
-      items:rows.slice(0,90)
-    }));
-  }catch{}
+  const scope=isSourceScopedFeed(name)
+    ?feedSourceScope(name)
+    :name===LIVE_SOURCE_SCOPE
+      ?LIVE_SOURCE_SCOPE
+      :GENERAL_SOURCE_SCOPE;
+  const signature=MANAGED_SOURCE_SCOPES.has(scope)?sourceSignature(scope):"";
+  const result=commitAtomicSnapshot("feed:"+name,rows,{sourceSignature:signature});
+
+  // Remove the old single-slot cache only after a valid atomic package exists.
+  if(result.hash){
+    try{localStorage.removeItem(FEED_CACHE_PREFIX+name);}catch{}
+  }
+  return result;
 }
 
 const FEED_AI_CONTENT_TTL=30*60*1000;
@@ -11278,11 +11425,14 @@ async function buildSourceFeedSnapshot(name,preset,local=null){
     preset
   );
 
-  saveFeedCache(name,rows);
+  const saved=saveFeedCache(name,rows);
 
-  // One AI package is completed before this snapshot is ever painted.
-  // Background packaging never mutates the visible DOM.
-  if(rows.length>=4)await enrichSourceFeedAi(name,rows,state.feedSeq);
+  // AI is a background package and never blocks first paint. Only a changed
+  // content hash is sent for a new AI package; identical snapshots cost zero
+  // extra AI calls.
+  if(rows.length>=4&&saved.changed){
+    void enrichSourceFeedAi(name,rows,state.feedSeq).catch(()=>{});
+  }
 
   // Source suggestions are independent from visible ordering.
   void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
