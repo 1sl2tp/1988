@@ -142,6 +142,53 @@ async function piped(path: string, cacheMs = 0) {
   }
 }
 
+function channelRows(data: any) {
+  if (Array.isArray(data?.relatedStreams)) return data.relatedStreams;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
+}
+
+async function pipedChannel(id: string) {
+  const path = `/channel/${enc(id)}`;
+  const cached = getUpstreamCache(path, 60 * 1000);
+  if (cached && channelRows(cached.data).length) return cached;
+
+  const ordered = [
+    ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
+    ...PIPED_APIS,
+  ].filter((base, index, rows) => base && rows.indexOf(base) === index);
+
+  let fallback: { source: string; data: any } | null = null;
+
+  // A channel page that returns HTTP 200 but no videos is not treated as the
+  // winner. This fixes the old "first successful Piped instance wins" behavior
+  // that could package one channel while every other selected channel vanished.
+  for (let start = 0; start < ordered.length; start += 4) {
+    const group = ordered.slice(start, start + 4);
+    const settled = await Promise.allSettled(
+      group.map(async (base) => ({
+        base,
+        data: await fetchJson(base, path, 2600),
+      })),
+    );
+
+    for (const row of settled) {
+      if (row.status !== "fulfilled") continue;
+      const { base, data } = row.value;
+      if (!fallback) fallback = { source: base, data };
+      if (!channelRows(data).length) continue;
+
+      preferredApi = base;
+      preferredUntil = Date.now() + API_TTL_MS;
+      setUpstreamCache(path, base, data);
+      return { source: base, data };
+    }
+  }
+
+  if (fallback) return fallback;
+  throw new Error("no_channel_instance");
+}
+
 function enc(value: string) {
   return encodeURIComponent(value);
 }
@@ -952,8 +999,8 @@ Deno.serve(async (req) => {
     } else if (action === "channel") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "channel")) return json({ ok: false, error: "invalid_channel" }, 400, 0);
-      path = `/channel/${enc(id)}`;
-      maxAge = 60;
+      const result = await pipedChannel(id);
+      return json({ ok: true, source: result.source, data: result.data }, 200, 60);
     } else if (action === "channel_next") {
       const id = String(url.searchParams.get("id") || "").trim();
       const nextpage = String(url.searchParams.get("nextpage") || "");
