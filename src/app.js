@@ -61,6 +61,7 @@ const sourceSearchStatus=$("#sourceSearchStatus");
 const sourceGroupNav=$("#sourceGroupNav");
 const sourceGroupTabs=$("#sourceGroupTabs");
 const sourceGroupPrev=$("#sourceGroupPrev");
+const sourceGroupRename=$("#sourceGroupRename");
 const sourceGroupNext=$("#sourceGroupNext");
 const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
@@ -379,7 +380,7 @@ const SOURCE_CUSTOM_KEY="1988-source-custom-v1";
 const SOURCE_HIDDEN_KEY="1988-source-hidden-v1"; // legacy: migrated to blocked
 const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
-const SOURCE_NAME_OVERRIDES_KEY="1988-source-name-overrides-v1";
+const SOURCE_GROUP_LABELS_KEY="1988-source-group-labels-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
@@ -466,7 +467,7 @@ function feedSourceParent(name=""){
   return FEED_SOURCE_DISCOVERY_PARENTS[feedSourceScope(name)]||FEED_SOURCE_DISCOVERY_PARENTS[LATEST_SOURCE_SCOPE];
 }
 
-state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
+state.parentCategories=sourceCategoryRows();
 
 const BASE_CHANNEL_LIBRARY=Array.isArray(window.CHANNEL_LIBRARY)
   ?window.CHANNEL_LIBRARY.filter(row=>row&&/^UC[A-Za-z0-9_-]+$/.test(String(row.id||""))&&row.name)
@@ -493,11 +494,24 @@ function readStoredObject(key){
 }
 
 let sourceAvatarCache=readStoredObject(SOURCE_AVATAR_CACHE_KEY);
-let sourceNameOverrides=Object.fromEntries(
-  Object.entries(readStoredObject(SOURCE_NAME_OVERRIDES_KEY))
-    .map(([id,name])=>[String(id||"").trim(),clean(name||"")])
-    .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
+let sourceGroupLabelOverrides=Object.fromEntries(
+  Object.entries(readStoredObject(SOURCE_GROUP_LABELS_KEY))
+    .map(([key,label])=>[String(key||"").trim(),clean(label||"").slice(0,32)])
+    .filter(([key,label])=>SOURCE_MANAGER_GROUPS.some(item=>item.key===key)&&label)
 );
+
+function sourceGroupLabel(key=""){
+  key=String(key||"").trim();
+  const base=SOURCE_MANAGER_GROUPS.find(item=>item.key===key)?.label||key;
+  return clean(sourceGroupLabelOverrides[key]||base).slice(0,32)||base;
+}
+
+function sourceCategoryRows(){
+  return FIXED_CONTENT_CATEGORIES.map(item=>({
+    ...item,
+    label:sourceGroupLabel(item.group)
+  }));
+}
 
 function readScopedSourceState(key){
   const raw=readStoredObject(key);
@@ -547,7 +561,7 @@ function channelLibrary(){
     seen.add(row.id);
     out.push({
       id:row.id,
-      name:clean(sourceNameOverrides[row.id]||row.name),
+      name:clean(row.name),
       thumbnailUrl:clean(sourceAvatarCache[row.id]||row.thumbnailUrl||""),
       subscribers:clean(row.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[row.id])
@@ -577,7 +591,7 @@ function persistSourceLibrary(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
-    localStorage.setItem(SOURCE_NAME_OVERRIDES_KEY,JSON.stringify(sourceNameOverrides));
+    localStorage.setItem(SOURCE_GROUP_LABELS_KEY,JSON.stringify(sourceGroupLabelOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
     persistSuggestedSourceState();
   }catch{}
@@ -762,6 +776,11 @@ function serverStateSnapshot(){
       durableIds.has(row.id)
     ),
     sourceGroups:{},
+    sourceLabels:Object.fromEntries(
+      SOURCE_MANAGER_GROUPS
+        .map(item=>[item.key,sourceGroupLabelOverrides[item.key]||""])
+        .filter(([,label])=>!!label)
+    ),
     scopedSelected:scopedStateObject(scopedSelectedSourceIds),
     scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
     avatars:{}
@@ -772,7 +791,7 @@ function saveServerMetadataCachesLocally(){
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
-    localStorage.setItem(SOURCE_NAME_OVERRIDES_KEY,JSON.stringify(sourceNameOverrides));
+    localStorage.setItem(SOURCE_GROUP_LABELS_KEY,JSON.stringify(sourceGroupLabelOverrides));
     localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));
   }catch{}
   clearLegacyLocalSourceState();
@@ -806,16 +825,12 @@ function applyServerState(remote={}){
       sourceGroupOverrides=remote.sourceGroups;
     }
 
-    // The state service stores source metadata row-by-row. Reuse those saved
-    // names as display overrides so an admin rename follows the account across
-    // devices instead of being replaced by fresh YouTube metadata.
-    if(Array.isArray(remote.customSources)){
-      const savedNames=Object.fromEntries(
-        remote.customSources
-          .map(row=>[String(row?.id||"").trim(),clean(row?.name||"")])
-          .filter(([id,name])=>/^UC[A-Za-z0-9_-]+$/.test(id)&&name)
+    if(remote.sourceLabels&&typeof remote.sourceLabels==="object"&&!Array.isArray(remote.sourceLabels)){
+      sourceGroupLabelOverrides=Object.fromEntries(
+        Object.entries(remote.sourceLabels)
+          .map(([key,label])=>[String(key||"").trim(),clean(label||"").slice(0,32)])
+          .filter(([key,label])=>SOURCE_MANAGER_GROUPS.some(item=>item.key===key)&&label)
       );
-      sourceNameOverrides={...sourceNameOverrides,...savedNames};
     }
 
     const scopeVersion=Number(remote.sourceScopeVersion)||0;
@@ -864,6 +879,7 @@ function applyServerState(remote={}){
     }
 
     saveServerMetadataCachesLocally();
+    applySourceGroupLabelsUi?.();
     stateSyncDirty=(Number(remote.sourceScopeVersion)||0)<2;
     invalidateSourceStateNameIndex?.();
     return true;
@@ -1144,7 +1160,7 @@ function sourceDiscoveryParentForGroup(group=sourceManageGroup){
     key:group,
     group,
     // Label is UI only; the source learner uses scope + selected content.
-    label:tab?.label||group,
+    label:sourceGroupLabel(group)||tab?.label||group,
     queries:[]
   };
 }
@@ -1176,7 +1192,7 @@ function managedChannelLibrary(){
     const meta=sourceMetaCache.get(id)||{};
     rows.push({
       id,
-      name:clean(sourceNameOverrides[id]||meta.name||stored.name||id),
+      name:clean(meta.name||stored.name||id),
       thumbnailUrl:clean(meta.thumbnailUrl||stored.thumbnailUrl||""),
       subscribers:clean(meta.subscribers||stored.subscribers||""),
       groups:Array.isArray(sourceGroupOverrides[id])
@@ -1625,7 +1641,6 @@ function sourceMetaFor(row={}){
     ""
   );
   const name=clean(
-    sourceNameOverrides[id]||
     remote?.name||
     row?.name||
     normalized.name||
@@ -1996,11 +2011,10 @@ function recoverHistoricFilmManualState(){
 // Historic Film recovery is intentionally disabled after server-state migration.
 
 function sourceGroupLabels(row={}){
-  const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
   return sourceGroupsFor(row)
     .filter(key=>key!=="other")
     .slice(0,2)
-    .map(key=>map.get(key))
+    .map(key=>sourceGroupLabel(key))
     .filter(Boolean);
 }
 
@@ -2130,7 +2144,7 @@ function sourceRowHtml(row,{remote=false}={}){
   const blocked=status==="blocked";
   const subscriber=clean(meta.subscribers||"");
   const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Chưa chọn";
-  const groupLabel=SOURCE_MANAGER_GROUPS.find(item=>item.key===sourceManageGroup)?.label||"";
+  const groupLabel=sourceGroupLabel(sourceManageGroup);
   const subBits=[];
   if(sourceManageGroup!==GENERAL_SOURCE_SCOPE&&groupLabel)subBits.push(groupLabel);
   if(subscriber)subBits.push(subscriber);
@@ -2158,7 +2172,6 @@ function sourceRowHtml(row,{remote=false}={}){
 
   const manageControls=
     '<div class="source-state-actions">'+
-      '<button class="source-state-btn rename" type="button" data-source-rename="'+esc(row.id)+'" title="Đổi tên nguồn" aria-label="Đổi tên nguồn">✎</button>'+
       '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
       '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
     '</div>';
@@ -2320,7 +2333,7 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
     ]);
     const count=ids.size;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
-      esc(group.label)+' <span>'+count+'</span>'+
+      esc(sourceGroupLabel(group.key))+' <span>'+count+'</span>'+
     '</button>';
   }).join("");
 
@@ -2439,59 +2452,48 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   requestAnimationFrame(observeSourceRows);
 }
 
-function renameManagedSource(id){
-  id=String(id||"").trim();
-  if(!sourceManageMode||!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+function applySourceGroupLabelsUi(){
+  const latestButton=topicChips?.querySelector('[data-feed="'+LATEST_SOURCE_SCOPE+'"]');
+  const weekButton=topicChips?.querySelector('[data-feed="'+WEEK_SOURCE_SCOPE+'"]');
+  const liveButton=topicChips?.querySelector('[data-feed="'+LIVE_SOURCE_SCOPE+'"]');
 
-  const row=
-    managedChannelLibrary().find(item=>item.id===id)||
-    sourceRemoteResults.find(item=>item.id===id)||
-    libraryRow(id)||
-    {id};
+  if(latestButton)latestButton.textContent=sourceGroupLabel(LATEST_SOURCE_SCOPE);
+  if(weekButton)weekButton.textContent=sourceGroupLabel(WEEK_SOURCE_SCOPE);
+  if(liveButton){
+    liveButton.setAttribute("aria-label",sourceGroupLabel(LIVE_SOURCE_SCOPE));
+    liveButton.setAttribute("title",sourceGroupLabel(LIVE_SOURCE_SCOPE));
+  }
 
-  const meta=sourceMetaFor(row);
-  const current=clean(sourceNameOverrides[id]||meta.name||row.name||"");
+  renderParentCategories();
+
+  if(!state.searchResultsActive){
+    if(state.activeParent){
+      feedTitle.textContent=sourceGroupLabel(state.activeParent);
+    }else if(MANAGED_SOURCE_SCOPES.has(sourceScope(state.activeFeed))){
+      feedTitle.textContent=sourceGroupLabel(state.activeFeed);
+    }
+  }
+}
+
+function renameSourceGroup(group=sourceManageGroup){
+  group=sourceScope(group);
+  if(!sourceManageMode||!MANAGED_SOURCE_SCOPES.has(group))return false;
+
+  const current=sourceGroupLabel(group);
   const entered=window.prompt("Đổi tên nguồn",current);
   if(entered===null)return false;
 
-  const next=clean(entered);
+  const next=clean(entered).slice(0,32);
   if(!next||next===current)return false;
 
-  sourceNameOverrides[id]=next;
+  sourceGroupLabelOverrides[group]=next;
+  try{
+    localStorage.setItem(SOURCE_GROUP_LABELS_KEY,JSON.stringify(sourceGroupLabelOverrides));
+  }catch{}
 
-  // Store the edited display name in the same durable source metadata that
-  // Chọn/Chặn already syncs through Supabase. This works for built-in channels
-  // too: customSources acts as the user's metadata override for that channel ID.
-  const existing=customSources.find(item=>item?.id===id);
-  const payload={
-    id,
-    name:next,
-    thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row?.thumbnailUrl||""),
-    subscribers:clean(meta.subscribers||row?.subscribers||"")
-  };
-  if(existing){
-    existing.name=next;
-    if(payload.thumbnailUrl)existing.thumbnailUrl=payload.thumbnailUrl;
-    if(payload.subscribers)existing.subscribers=payload.subscribers;
-  }else{
-    customSources.push(payload);
-  }
-
-  persistSourceLibrary();
-  invalidateSourceStateNameIndex?.();
-
-  // Update every durable row for this channel immediately so the renamed
-  // source is the same on PC, mobile and PWA without waiting for a full sync.
-  for(const scope of [GENERAL_SOURCE_SCOPE,...MANAGED_SOURCE_SCOPES]){
-    const status=sourceStatus(id,scope);
-    if(status==="selected"||status==="blocked"){
-      void queueDirectSourceStateWrite(id,status,scope);
-    }
-  }
-  scheduleServerStatePush(120);
-
+  scheduleServerStatePush(80);
+  applySourceGroupLabelsUi();
   refreshSourceManager();
-  syncSourcePreviewHeader();
   return true;
 }
 
@@ -4256,6 +4258,9 @@ function setupSourceLibrary(){
   sourceGroupNext?.addEventListener("click",()=>{
     sourceGroupTabs?.scrollBy({left:Math.max(180,(sourceGroupTabs?.clientWidth||240)*.72),behavior:"smooth"});
   });
+  sourceGroupRename?.addEventListener("click",()=>{
+    renameSourceGroup(sourceManageGroup);
+  });
   window.addEventListener("resize",()=>requestAnimationFrame(updateSourceGroupArrows),{passive:true});
 
   sourceVideoPopup?.addEventListener("click",event=>{
@@ -4305,12 +4310,6 @@ function setupSourceLibrary(){
       const id=addButton.dataset.sourceAdd||"";
       const row=sourceRemoteResults.find(item=>item.id===id);
       if(row)addSource(row);
-      return;
-    }
-
-    const renameButton=event.target.closest("[data-source-rename]");
-    if(renameButton){
-      renameManagedSource(renameButton.dataset.sourceRename||"");
       return;
     }
 
@@ -6546,7 +6545,7 @@ function renderParentCategories(){
   if(!topicChips)return;
   topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
 
-  state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
+  state.parentCategories=sourceCategoryRows();
 
   if(state.activeParent&&!state.parentCategories.some(parent=>parent.key===state.activeParent)){
     state.activeParent="";
@@ -7309,7 +7308,7 @@ function renderCurrentTrendFeed(){
 }
 
 async function refreshAiTrendTopics(){
-  state.parentCategories=FIXED_CONTENT_CATEGORIES.map(item=>({...item}));
+  state.parentCategories=sourceCategoryRows();
   renderParentCategories();
 }
 
@@ -12273,7 +12272,7 @@ async function loadFeedPreset(name="latest"){
     state.trendTopics=[];
     setActiveChip(name);
     renderTrendTopics();
-    feedTitle.textContent=preset.title;
+    feedTitle.textContent=sourceGroupLabel(name);
     feedStatus.textContent="";
     feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
     return;
@@ -12289,7 +12288,7 @@ async function loadFeedPreset(name="latest"){
   }
 
   setActiveChip(name);
-  feedTitle.textContent=preset.title;
+  feedTitle.textContent=sourceGroupLabel(name);
 
   let reserve=readFeedCache(name);
   if(!reserve.length&&scoped){
@@ -12583,6 +12582,7 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
+  applySourceGroupLabelsUi();
   applyFloatingIframe();
   setupWatchBrowseLayout();
   setupFullscreenReturn();
