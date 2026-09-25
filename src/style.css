@@ -2755,18 +2755,18 @@ html.search-suggestions-open .suggestions{
 
 
 /* ============================================================
-   WATCH GEOMETRY v296
-   One geometric system for desktop Watch, with orientation deciding the
-   primary constraint instead of forcing every video into the same equation.
+   WATCH GEOMETRY v297
+   Single-owner geometry: JS computes the final player and feed dimensions;
+   CSS does not subtract another bottom inset and does not impose a second
+   max-height cap.
 
-   - landscape/square: width-first, using the 16:9 card unit W.
-   - portrait: height-first. The player fills the usable height of the left
-     browsing frame first; its width follows the real portrait aspect ratio;
-     only then is the remaining width divided into whole 16:9 card columns.
+   - landscape/square: width-first, with one control-safe bottom inset.
+   - portrait: height-first and full-height. Player top aligns with the first
+     thumbnail row and player bottom aligns with the bottom of the left scroll
+     pane. Width follows the real aspect ratio; remaining width becomes whole
+     16:9 recommendation columns.
 
-   The scrollbar keeps a separate gutter outside card geometry. Player top
-   aligns with the first thumbnail row and both sides share the same safe
-   bottom line.
+   Scrollbar gutter remains outside card geometry.
    ============================================================ */
 @media(min-width:960px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
@@ -2820,7 +2820,7 @@ html.search-suggestions-open .suggestions{
     max-width:var(--watch-player-column-w,100%);
     justify-self:start;
     padding-top:var(--watch-player-top-offset,0px);
-    padding-bottom:var(--watch-player-bottom-safe,22px);
+    padding-bottom:0;
     box-sizing:border-box;
   }
 
@@ -2828,6 +2828,7 @@ html.search-suggestions-open .suggestions{
     width:var(--watch-player-width,100%);
     height:var(--watch-player-height,auto);
     max-width:100%;
+    max-height:none;
     margin-inline:auto;
   }
 }
