@@ -7506,7 +7506,7 @@ async function appendFilmKnowledgeSections(local,currentId,meta={},context={}){
     local.search(castQuery,{type:"video"}).catch(()=>[]),
     local.search(infoQuery,{type:"video"}).catch(()=>[])
   ]);
-  if(!recommendationStillCurrent())return false;
+  if(state.currentId!==currentId)return false;
 
   const used=new Set([...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean));
   const unique=(rows,extra=[])=>strictFilmKnowledgeRows(rows,seed,extra)
@@ -8570,7 +8570,7 @@ async function discoverGenericContextSections(local,currentId,meta={},related=[]
   if(options?.onlyFresh===true)sections=sections.filter(contextSectionIsFresh);
   if(!sections.length)return false;
   const results=await Promise.all(sections.map(async section=>({section,rows:await contextSectionRows(local,section,meta,related,context)})));
-  if(!recommendationStillCurrent())return false;
+  if(state.currentId!==currentId)return false;
   const used=new Set(options?.append===true?[...feed.querySelectorAll("[data-video-id]")].map(card=>card.dataset.videoId).filter(Boolean):[]);
   const html=[];
   for(const result of results){
@@ -8633,7 +8633,7 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
     local.search(instrumentalQuery,{type:"video"}).catch(()=>[]),
     local.search(alternativeQuery,{type:"video"}).catch(()=>[])
   ]);
-  if(!recommendationStillCurrent())return false;
+  if(state.currentId!==currentId)return false;
 
   const sameWork=dedupeMusicRows([...(Array.isArray(sameWorkRaw)?sameWorkRaw:[]),...related])
     .filter(row=>!isBlockedSourceRow(row,"music"))
@@ -8664,7 +8664,7 @@ async function discoverMusicForPlayback(local,currentId,meta={},related=[],conte
       {type:"video"}
     ).catch(()=>[]);
   }
-  if(!recommendationStillCurrent())return false;
+  if(state.currentId!==currentId)return false;
 
   const artistSongs=dedupeMusicRows(artistPool)
     .filter(row=>!isBlockedSourceRow(row,"music"))
@@ -8733,7 +8733,7 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
 
   if(sourceId&&/^UC[A-Za-z0-9_-]+$/.test(sourceId)&&!currentTopicSourceBlocked){
     const channelRows=await local.channelVideosPage("selected-topic-source:"+sourceId,sourceId,true).catch(()=>[]);
-    if(!recommendationStillCurrent())return false;
+    if(state.currentId!==currentId)return false;
     const sameSource=(Array.isArray(channelRows)?channelRows:[])
       .filter(row=>itemVideoId(row)!==currentId)
       .filter(row=>!isBlockedSourceRow(row,contextSourceScope(context)))
@@ -8754,7 +8754,7 @@ async function discoverTopicForPlayback(local,currentId,meta={},related=[],conte
   }else{
     topicRows=topicRows.filter(row=>!isBlockedSourceRow(row,topicScope));
   }
-  if(!recommendationStillCurrent())return false;
+  if(state.currentId!==currentId)return false;
   if(topicRows.length)html.push(filmSuggestionSection("Cùng chủ đề · "+subject,topicRows,{limit:12,scope:topicScope}));
 
   if(!html.length)return false;
