@@ -2,12 +2,11 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const cors={
   "access-control-allow-origin":"*",
-  "access-control-allow-headers":"authorization, x-client-info, apikey, content-type, x-1988-pin",
+  "access-control-allow-headers":"authorization, x-client-info, apikey, content-type",
   "access-control-allow-methods":"GET, POST, OPTIONS",
   "cache-control":"no-store"
 };
 const PROFILE="owner";
-const PIN_SHA256="fbdf2bdc4b2a45f3508c8ced68098f58375edbf2fe81ec8fe4b113185670939a";
 const SCOPES=new Set(["live","latest","week","news","economy","law","film","music","tech","sports","entertainment"]);
 
 function json(data:unknown,status=200){
@@ -15,11 +14,6 @@ function json(data:unknown,status=200){
     status,
     headers:{...cors,"content-type":"application/json; charset=utf-8"}
   });
-}
-async function sha256(value:string){
-  const bytes=new TextEncoder().encode(value);
-  const digest=await crypto.subtle.digest("SHA-256",bytes);
-  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,"0")).join("");
 }
 function clean(value:unknown,max=200){
   return String(value||"").replace(/\s+/g," ").trim().slice(0,max);
