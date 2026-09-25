@@ -2821,9 +2821,11 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    // First layer is the media itself. Fit the original aspect inside the
-    // visual viewport, then let our menus/recommendations flow underneath.
-    const availableHeight=viewportHeight;
+    // Mobile watch has three fixed layers above the recommendation scroller.
+    // Cap tall/square media to 46% of the visual viewport and publish the
+    // REAL rendered stage height so the chips + scroll region start exactly
+    // below the player on iOS Safari.
+    const availableHeight=Math.max(140,viewportHeight*.46);
     const width=Math.min(viewportWidth,availableHeight*ratio);
     const height=width/ratio;
 
