@@ -879,9 +879,20 @@ function canonicalSourceId(row={},channel=""){
     row?._sourceId||
     row?.channelId||
     row?.uploaderId||
+    row?.authorId||
     ""
   ).trim();
   if(/^UC[A-Za-z0-9_-]+$/.test(direct))return direct;
+
+  const sourceUrl=clean(
+    row?.channelUrl||
+    row?.uploaderUrl||
+    row?.authorUrl||
+    row?.ownerUrl||
+    ""
+  );
+  const urlId=sourceUrl.match(/\/channel\/(UC[A-Za-z0-9_-]+)/i)?.[1]||"";
+  if(/^UC[A-Za-z0-9_-]+$/.test(urlId))return urlId;
 
   const target=normalizeSearchText(channel||row?._displaySource||row?.uploaderName||row?.uploader||row?.channelName||row?._sourceName||"");
   if(!target)return "";
@@ -893,10 +904,19 @@ function canonicalSourceId(row={},channel=""){
 }
 
 const avatarImageWarmCache=new Map();
+const avatarImageWarmReady=new Set();
+const avatarImageWarmFailedAt=new Map();
+
+function avatarImageReady(url=""){
+  url=safeSourceThumb(url);
+  return !!url&&avatarImageWarmReady.has(url);
+}
 
 function warmAvatarImage(url=""){
   url=safeSourceThumb(url);
   if(!url)return Promise.resolve(false);
+  if(avatarImageWarmReady.has(url))return Promise.resolve(true);
+  if(Date.now()-(avatarImageWarmFailedAt.get(url)||0)<5*60*1000)return Promise.resolve(false);
   const cached=avatarImageWarmCache.get(url);
   if(cached)return cached;
 
@@ -907,16 +927,27 @@ function warmAvatarImage(url=""){
     const finish=value=>{
       if(settled)return;
       settled=true;
+      if(value){
+        avatarImageWarmReady.add(url);
+        avatarImageWarmFailedAt.delete(url);
+      }else{
+        avatarImageWarmFailedAt.set(url,Date.now());
+        avatarImageWarmCache.delete(url);
+      }
       resolve(value);
     };
     img.onload=async()=>{
       try{await img.decode?.();}catch{}
-      finish(true);
+      finish(img.naturalWidth>0);
     };
     img.onerror=()=>finish(false);
     img.src=url;
-    if(img.complete&&img.naturalWidth){
-      Promise.resolve(img.decode?.()).catch(()=>{}).finally(()=>finish(true));
+    if(img.complete){
+      if(img.naturalWidth){
+        Promise.resolve(img.decode?.()).catch(()=>{}).finally(()=>finish(true));
+      }else{
+        finish(false);
+      }
     }
   });
 
@@ -946,6 +977,11 @@ function sourceAvatarForRow(row={},sourceId="",channel=""){
     row?.uploaderThumbnailUrl||
     row?.channelThumbnailUrl||
     row?._sourceThumbnailUrl||
+    row?.uploaderAvatar||
+    row?.channelAvatar||
+    row?.authorAvatar||
+    row?.ownerAvatar||
+    row?.avatar||
     ""
   );
   if(direct&&sourceId)return rememberSourceAvatar(sourceId,direct);
@@ -1460,8 +1496,18 @@ function updateSourceSummary(rows=managedChannelLibrary()){
 function sourceAvatarHtml(row){
   const meta=sourceMetaFor(row);
   const image=safeSourceThumb(meta.thumbnailUrl);
+  const fallback=(clean(meta.name||row?.name||"?").charAt(0)||"?").toUpperCase();
+
+  if(image&&!avatarImageReady(image)&&row?.id){
+    void warmAvatarImage(image).then(ok=>{
+      if(ok)updateSourceRowMeta(String(row.id||""));
+    });
+  }
+
   return '<span class="source-avatar">'+
-    (image?'<img src="'+esc(image)+'" alt="" loading="eager">':'')+
+    (image&&avatarImageReady(image)
+      ?'<img src="'+esc(image)+'" alt="" width="36" height="36" decoding="async">'
+      :'<span class="source-avatar-fallback" aria-hidden="true">'+esc(fallback)+'</span>')+
   '</span>';
 }
 
@@ -1524,11 +1570,31 @@ function updateSourceRowMeta(id){
   if(!row)return;
   const current=sourceList.querySelector('.source-row[data-source-id="'+CSS.escape(id)+'"]');
   if(!current)return;
+
   const remote=!libraryHas(id);
   const wrap=document.createElement("div");
   wrap.innerHTML=sourceRowHtml(row,{remote}).trim();
   const replacement=wrap.firstElementChild;
-  if(replacement)current.replaceWith(replacement);
+  if(!replacement)return;
+
+  const currentAction=current.querySelector(".source-add,.source-toggle,.source-state-actions");
+  const nextAction=replacement.querySelector(".source-add,.source-toggle,.source-state-actions");
+  if((currentAction?.className||"")!==(nextAction?.className||"")){
+    current.replaceWith(replacement);
+    return;
+  }
+
+  const currentAvatar=current.querySelector(".source-avatar");
+  const nextAvatar=replacement.querySelector(".source-avatar");
+  if(currentAvatar&&nextAvatar)currentAvatar.replaceChildren(...[...nextAvatar.childNodes].map(node=>node.cloneNode(true)));
+
+  const currentName=current.querySelector(".source-row-name");
+  const nextName=replacement.querySelector(".source-row-name");
+  if(currentName&&nextName)currentName.textContent=nextName.textContent||"";
+
+  const currentSub=current.querySelector(".source-row-sub");
+  const nextSub=replacement.querySelector(".source-row-sub");
+  if(currentSub&&nextSub)currentSub.textContent=nextSub.textContent||"";
 }
 
 async function ensureSourceMeta(id){
@@ -1539,7 +1605,8 @@ async function ensureSourceMeta(id){
     const meta=await local.channelMeta(id);
     if(meta&&meta.id){
       sourceMetaCache.set(id,meta);
-      rememberSourceAvatar(id,meta.thumbnailUrl||"");
+      const image=rememberSourceAvatar(id,meta.thumbnailUrl||"");
+      if(image)await warmAvatarImage(image);
       invalidateSourceStateNameIndex();
       updateSourceRowMeta(id);
     }
@@ -6589,7 +6656,21 @@ function paintCardChannelAvatar(card,image=""){
   if(!card||!image)return false;
   const avatar=card.querySelector(".card-avatar");
   if(!avatar)return false;
-  avatar.innerHTML='<img src="'+esc(image)+'" alt="" loading="lazy">';
+
+  if(!avatarImageReady(image)){
+    void warmAvatarImage(image).then(ok=>{
+      if(ok&&card.isConnected)paintCardChannelAvatar(card,image);
+    });
+    return true;
+  }
+
+  const img=document.createElement("img");
+  img.src=image;
+  img.alt="";
+  img.width=36;
+  img.height=36;
+  img.decoding="async";
+  avatar.replaceChildren(img);
   return true;
 }
 
@@ -6626,8 +6707,6 @@ function sourceCandidateForCard(card){
 }
 
 async function hydrateHomeChannelAvatars(){
-  if(window.innerWidth>720)return;
-
   const ids=[];
   const now=Date.now();
 
@@ -6639,7 +6718,9 @@ async function hydrateHomeChannelAvatars(){
 
     const id=candidate.id;
     const cached=candidate.meta;
-    if(cached&&paintCardChannelAvatar(card,cached.thumbnailUrl||"")){
+    const cachedImage=safeSourceThumb(cached?.thumbnailUrl||sourceAvatarCached(id)||"");
+    if(cachedImage&&await warmAvatarImage(cachedImage)){
+      paintCardChannelAvatar(card,cachedImage);
       homeAvatarResolved.add(id);
       continue;
     }
@@ -6667,7 +6748,8 @@ async function hydrateHomeChannelAvatars(){
       const image=safeSourceThumb(meta?.thumbnailUrl||"");
       if(meta&&meta.id&&image){
         sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
-        if(paintHomeChannelAvatar(id,meta)){
+        rememberSourceAvatar(id,image);
+        if(await warmAvatarImage(image)&&paintHomeChannelAvatar(id,meta)){
           homeAvatarResolved.add(id);
           homeAvatarFailedAt.delete(id);
           return;
@@ -6694,7 +6776,6 @@ async function hydrateHomeChannelAvatars(){
 }
 
 function queueHomeChannelAvatars(){
-  if(window.innerWidth>720)return;
   clearTimeout(homeAvatarQueueTimer);
   homeAvatarQueueTimer=setTimeout(()=>void hydrateHomeChannelAvatars(),40);
 }
@@ -6744,8 +6825,6 @@ async function prewarmSelectedSourceAvatars(){
 }
 
 async function prewarmRowSourceAvatars(rows=[],maxWait=520){
-  if(window.innerWidth>720)return;
-
   const missing=new Set();
   const warmUrls=new Set();
 
@@ -6800,6 +6879,11 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
     if(warmUrls.size){
       await Promise.allSettled([...warmUrls].map(warmAvatarImage));
     }
+
+    for(const id of missing){
+      const image=sourceAvatarCached(id);
+      if(image&&avatarImageReady(image))paintHomeChannelAvatar(id,{thumbnailUrl:image});
+    }
   })();
 
   await Promise.race([
@@ -6820,6 +6904,7 @@ function renderCards(rows=[],options={}){
       : []
   );
   const cards=[];
+  const avatarPaintJobs=[];
   const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
     if(isBlockedSourceRow(row,renderScope))continue;
@@ -6830,6 +6915,10 @@ function renderCards(rows=[],options={}){
     const channel=clean(row._displaySource||row.uploaderName||row.uploader||row.channelName||row._sourceName||"");
     const sourceId=canonicalSourceId(row,channel);
     const sourceAvatar=sourceAvatarForRow(row,sourceId,channel);
+    const avatarFallback=(channel.charAt(0)||"?").toUpperCase();
+    if(sourceAvatar&&!avatarImageReady(sourceAvatar)){
+      avatarPaintJobs.push({id,sourceId,image:sourceAvatar});
+    }
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
     const views=Number(row.views)||0;
     const viewText=clean(row.viewText||"");
@@ -6845,7 +6934,9 @@ function renderCards(rows=[],options={}){
         '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
         '<div class="card-copy">'+
           '<span class="card-avatar" aria-hidden="true">'+
-            (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
+            (sourceAvatar&&avatarImageReady(sourceAvatar)
+              ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
+              :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
           '</span>'+
           '<div class="card-copy-main">'+
             '<div class="card-title">'+esc(title)+'</div>'+
@@ -6869,6 +6960,13 @@ function renderCards(rows=[],options={}){
     const total=feed.querySelectorAll("[data-video-id]").length;
     feedStatus.textContent=total?total+" video":"";
   }
+
+  for(const job of avatarPaintJobs){
+    const card=feed.querySelector('.card[data-video-id="'+CSS.escape(job.id)+'"]');
+    if(card)paintCardChannelAvatar(card,job.image);
+  }
+  queueHomeChannelAvatars();
+
   ensureWatchNavRail();
   syncWatchCurrentCard();
   normalizeRenderedThumbnails();
