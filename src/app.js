@@ -6724,7 +6724,7 @@ function renderParentCategories(){
 
   for(const parent of state.parentCategories){
     const button=document.createElement("button");
-    button.className="topic-chip";
+    button.className="topic-chip topic-subject";
     button.type="button";
     button.dataset.aiParent=parent.key;
     button.textContent=parent.label;
