@@ -148,8 +148,7 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const clean=s=>String(s??"").replace(/\s+/g," ").trim();
 
 function normalizeCommittedSearchQuery(value=""){
-  // Keep the user's exact words; only remove invisible/control whitespace.
-  // Do not AI-correct, append suggestions or rewrite the query.
+  // Search commit is deterministic and local: no AI/autocomplete rewrite.
   return clean(
     String(value??"")
       .replace(/[\u200B-\u200D\uFEFF]/g,"")
@@ -159,37 +158,102 @@ function normalizeCommittedSearchQuery(value=""){
 
 const searchCommitState=new WeakMap();
 
+function repairImeCommittedQuery(value,state={}){
+  const current=normalizeCommittedSearchQuery(value);
+  if(!current)return "";
+
+  // Only repair a duplicated IME commit when composition happened very
+  // recently. This prevents changing an intentionally typed repeated word.
+  const imeRecent=
+    state.pendingEnter||
+    state.composing||
+    (Date.now()-Number(state.lastCompositionAt||0)<1400);
+  if(!imeRecent)return current;
+
+  const history=Array.isArray(state.history)?state.history:[];
+  for(let i=history.length-1;i>=0;i--){
+    const previous=normalizeCommittedSearchQuery(history[i]?.value||"");
+    if(!previous||previous===current)continue;
+    if(Date.now()-Number(history[i]?.at||0)>1800)continue;
+
+    const lastWord=previous.split(/\s+/).filter(Boolean).at(-1)||"";
+    // Typical Vietnamese IME Enter bug:
+    //   jack -> jackjack
+    //   anh tho -> anh thotho
+    if(lastWord.length>=3&&current===previous+lastWord)return previous;
+
+    // Also cover a duplicated whole query without an inserted space.
+    if(previous.length>=3&&current===previous+previous)return previous;
+  }
+
+  // Final conservative fallback when the duplicated token itself is exactly
+  // two equal halves (jackjack, thotho). Require >=3 chars per half so common
+  // short words such as "mama" are not rewritten.
+  const parts=current.split(/\s+/);
+  const tail=parts.at(-1)||"";
+  if(tail.length>=6&&tail.length%2===0){
+    const half=tail.length/2;
+    const left=tail.slice(0,half);
+    const right=tail.slice(half);
+    if(left===right&&left.length>=3){
+      parts[parts.length-1]=left;
+      return parts.join(" ");
+    }
+  }
+
+  return current;
+}
+
 function bindCommittedSearchInput(input,commit,{form=null}={}){
   if(!input||typeof commit!=="function"||searchCommitState.has(input))return;
 
   const state={
     composing:false,
     pendingEnter:false,
-    enterValue:""
+    enterValue:"",
+    lastCompositionAt:0,
+    history:[]
   };
   searchCommitState.set(input,state);
 
+  const remember=value=>{
+    const next=normalizeCommittedSearchQuery(value);
+    if(!next)return;
+    const last=state.history.at(-1);
+    if(last?.value===next){
+      last.at=Date.now();
+      return;
+    }
+    state.history.push({value:next,at:Date.now()});
+    if(state.history.length>12)state.history.splice(0,state.history.length-12);
+  };
+
   const run=value=>{
-    const q=normalizeCommittedSearchQuery(value);
+    const q=repairImeCommittedQuery(value,state);
     if(!q)return;
     input.value=q;
+    remember(q);
     state.pendingEnter=false;
     state.enterValue="";
     commit(q);
   };
 
+  input.addEventListener("input",()=>{
+    remember(input.value);
+  });
+
   input.addEventListener("compositionstart",()=>{
     state.composing=true;
+    state.lastCompositionAt=Date.now();
+    remember(input.value);
   });
 
   input.addEventListener("compositionend",()=>{
     state.composing=false;
+    state.lastCompositionAt=Date.now();
+    remember(input.value);
     if(!state.pendingEnter)return;
 
-    // On macOS/Safari/Chrome Vietnamese IME, Enter can both finish the
-    // composition and trigger search. Use the value captured BEFORE Enter so
-    // the committed syllable cannot be appended twice (e.g. "anh tho" ->
-    // "anh thotho").
     const value=state.enterValue||input.value;
     queueMicrotask(()=>run(value));
   });
@@ -197,9 +261,11 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
   input.addEventListener("keydown",event=>{
     if(event.key!=="Enter")return;
 
+    remember(input.value);
     if(event.isComposing||state.composing||event.keyCode===229){
       state.pendingEnter=true;
       state.enterValue=normalizeCommittedSearchQuery(input.value);
+      state.lastCompositionAt=Date.now();
       return;
     }
 
@@ -220,6 +286,11 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
       run(input.value);
     });
   }
+}
+
+function searchInputIsComposing(input){
+  const row=searchCommitState.get(input);
+  return !!row?.composing;
 }
 
 const SOURCE_SELECTION_KEY="1988-source-selection-v1";
@@ -2296,20 +2367,33 @@ async function searchSourceChannels(query){
     return true;
   };
 
+  // Start the same fast backend video search immediately. It can derive
+  // channel IDs before yt-local/channel search has even finished loading.
+  const backendTask=api("search",{q,filter:"videos"},3000)
+    .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
+    .catch(()=>[]);
+
+  const backendJob=backendTask.then(rows=>{
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+    for(const row of rows){
+      addCandidate(row);
+      if(byId.size>=24)break;
+    }
+    if(byId.size)publish();
+  });
+
   try{
-    const local=await localEngine(5200);
+    const local=await localEngine(3600);
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    // Interactive search is progressive: channel search and video-derived
-    // channel search start together; whichever returns first paints first.
     const directTask=Promise.race([
       local.searchChannels(q,{includeVideos:false}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
     ]).catch(()=>[]);
 
     const videoTask=Promise.race([
       local.search(q,{type:"video"}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
     ]).catch(()=>[]);
 
     const directJob=directTask.then(rows=>{
@@ -2318,7 +2402,7 @@ async function searchSourceChannels(query){
         addCandidate(row);
         if(byId.size>=24)break;
       }
-      publish();
+      if(byId.size)publish();
     });
 
     const videoJob=videoTask.then(rows=>{
@@ -2327,29 +2411,15 @@ async function searchSourceChannels(query){
         addCandidate(row);
         if(byId.size>=24)break;
       }
-      publish();
+      if(byId.size)publish();
     });
 
-    await Promise.allSettled([directJob,videoJob]);
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-    if(!byId.size){
-      try{
-        const response=await api("search",{q,filter:"videos"},3600);
-        const fallback=Array.isArray(response?.data?.items)?response.data.items:[];
-        for(const row of fallback){
-          addCandidate(row);
-          if(byId.size>=24)break;
-        }
-        publish();
-      }catch{}
-    }
-
+    await Promise.allSettled([backendJob,directJob,videoJob]);
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
     if(byId.size){
-      if(sourceSearchStatus)sourceSearchStatus.textContent="Có "+Math.min(24,byId.size)+" kênh phù hợp";
-      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,1200)
+      publish();
+      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,800)
         .then(()=>{
           if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
           sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
@@ -2362,11 +2432,17 @@ async function searchSourceChannels(query){
       renderSourceLibrary();
     }
   }catch(error){
-    if(seq!==sourceSearchSeq)return;
-    console.warn("channel search failed",error);
-    sourceRemoteResults=[];
-    if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
-    renderSourceLibrary();
+    // yt-local is optional for interactive search; keep backend-derived rows.
+    await backendJob;
+    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+    if(byId.size){
+      publish();
+    }else{
+      console.warn("channel search failed",error);
+      sourceRemoteResults=[];
+      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
+      renderSourceLibrary();
+    }
   }
 }
 
@@ -2845,60 +2921,48 @@ async function searchPreviewVideos(query){
     renderSourcePreviewVideos({force:true});
   };
 
+  // Backend starts immediately, exactly like homepage search. Do not wait for
+  // yt-local before the first visible result.
+  const backendVideoTask=api("search",{q,filter:"videos"},3000)
+    .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
+    .catch(()=>[]);
+
+  const backendJob=backendVideoTask.then(rows=>{
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+    addVideos(rows);
+    if(videoMap.size||channelMap.size)publish();
+  });
+
   try{
-    const local=await localEngine(5200);
+    const local=await localEngine(3600);
     if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
     const channelTask=Promise.race([
       local.searchChannels(q,{includeVideos:false}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
     ]).catch(()=>[]);
 
     const localVideoTask=Promise.race([
       local.search(q,{type:"video"}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),3600))
+      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
     ]).catch(()=>[]);
 
-    const backendVideoTask=api("search",{q,filter:"videos"},3600)
-      .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
-      .catch(()=>[]);
-
-    // Publish channels as soon as channel search returns.
     const channelJob=channelTask.then(rows=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       for(const row of Array.isArray(rows)?rows:[]){
         addChannel(row);
         if(channelMap.size>=12)break;
       }
-      publish();
+      if(channelMap.size||videoMap.size)publish();
     });
 
-    // Publish videos as soon as either YouTube path returns; don't wait for
-    // the slower request. The second path only enriches the same result view.
-    const firstVideoJob=Promise.any([
-      localVideoTask.then(rows=>{
-        if(!rows?.length)throw new Error("empty_local");
-        return rows;
-      }),
-      backendVideoTask.then(rows=>{
-        if(!rows?.length)throw new Error("empty_backend");
-        return rows;
-      })
-    ]).then(rows=>{
+    const localVideoJob=localVideoTask.then(rows=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       addVideos(rows);
-      publish();
-    }).catch(()=>{});
-
-    const enrichVideoJob=Promise.allSettled([localVideoTask,backendVideoTask]).then(results=>{
-      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      for(const result of results){
-        if(result.status==="fulfilled")addVideos(result.value);
-      }
-      publish();
+      if(videoMap.size||channelMap.size)publish();
     });
 
-    await Promise.allSettled([channelJob,firstVideoJob,enrichVideoJob]);
+    await Promise.allSettled([backendJob,channelJob,localVideoJob]);
     if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
     if(!channelMap.size&&!videoMap.size){
@@ -2909,10 +2973,11 @@ async function searchPreviewVideos(query){
       return;
     }
 
+    publish();
     void prewarmSourceSearchMetadata(
       [...channelMap.values()].slice(0,12),
       local,
-      900
+      700
     ).then(()=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       sourcePreviewSearchChannels=new Map(
@@ -2925,12 +2990,17 @@ async function searchPreviewVideos(query){
       renderSourcePreviewVideos({force:true});
     }).catch(()=>{});
   }catch(error){
-    if(seq!==sourcePreviewSearchSeq)return;
-    console.warn("global source/video search failed",error);
-    sourcePreviewSearchRows=new Map();
-    sourcePreviewSearchChannels=new Map();
-    sourcePreviewRenderSignature="";
-    renderSourcePreviewVideos({force:true});
+    await backendJob;
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+    if(videoMap.size||channelMap.size){
+      publish();
+    }else{
+      console.warn("global source/video search failed",error);
+      sourcePreviewSearchRows=new Map();
+      sourcePreviewSearchChannels=new Map();
+      sourcePreviewRenderSignature="";
+      renderSourcePreviewVideos({force:true});
+    }
   }
 }
 
@@ -3774,7 +3844,10 @@ function setupSourceLibrary(){
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourcePreviewSelect?.addEventListener("click",choosePreviewSource);
-  sourcePreviewSearch?.addEventListener("input",schedulePreviewVideoSearch);
+  sourcePreviewSearch?.addEventListener("input",event=>{
+    if(event.isComposing||searchInputIsComposing(sourcePreviewSearch))return;
+    schedulePreviewVideoSearch();
+  });
   bindCommittedSearchInput(sourcePreviewSearch,q=>{
     clearTimeout(sourcePreviewSearchTimer);
     sourcePreviewSearchTimer=0;
@@ -3848,7 +3921,8 @@ function setupSourceLibrary(){
     if(event.target===sourcesSheet)closeSourceLibrary();
   });
 
-  sourceSearch?.addEventListener("input",()=>{
+  sourceSearch?.addEventListener("input",event=>{
+    if(event.isComposing||searchInputIsComposing(sourceSearch))return;
     if(sourceBrowse)sourceBrowse.scrollTop=0;
     if(sourceList)sourceList.scrollTop=0;
     scheduleSourceSearch();
