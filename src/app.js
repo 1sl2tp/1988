@@ -2475,24 +2475,47 @@ async function searchSourceChannels(query){
     .catch(()=>{});
 
   let localForMeta=null;
-  const localJob=localEngine(1400)
+  const localReady=localEngine(1400)
     .then(local=>{
       localForMeta=local;
-      return Promise.race([
-        local.searchChannels(q,{includeVideos:false}),
-        new Promise((_,reject)=>setTimeout(()=>reject(new Error("channel_search_timeout")),1800))
-      ]);
-    })
+      return local;
+    });
+
+  const localChannelJob=localReady
+    .then(local=>Promise.race([
+      local.searchChannels(q,{includeVideos:false}),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("channel_search_timeout")),1800))
+    ]))
     .then(rows=>consume(rows,"channel"))
     .catch(()=>{});
 
-  await Promise.allSettled([backendChannelJob,backendVideoJob,localJob]);
+  // "Kiểu 2" ngay từ lượt đầu: tìm video theo từ người dùng gõ rồi lấy
+  // uploader/channel của các video. Cách này bắt được trường hợp tên tìm
+  // khác tên kênh (ví dụ tên nghệ sĩ -> tên thương hiệu của kênh).
+  const localVideoJob=localReady
+    .then(local=>Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("source_video_search_timeout")),2000))
+    ]))
+    .then(rows=>consume(rows,"video"))
+    .catch(()=>{});
+
+  await Promise.allSettled([
+    backendChannelJob,
+    backendVideoJob,
+    localChannelJob,
+    localVideoJob
+  ]);
   if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
   // "Tìm kiểu 2": khi tên gõ không trùng tên kênh, dùng gợi ý YouTube
   // và video liên quan để suy ra nguồn thực tế. Ví dụ một nghệ sĩ có thể
   // được tìm bằng tên thường dùng nhưng kênh chính mang thương hiệu khác.
-  if(!videoSourceIds.size){
+  const hasNameMatch=[...byId.values()].some(row=>
+    normalizeSearchText(row?.name||"").includes(qNorm)
+  );
+
+  if(!videoSourceIds.size||!hasNameMatch){
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=byId.size
         ?"Đang tìm thêm nguồn liên quan…"
@@ -2534,7 +2557,16 @@ async function searchSourceChannels(query){
   }
 
   sourceRemoteResults=[];
-  if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
+
+  const localMatches=managedChannelLibrary().filter(row=>
+    normalizeSearchText(sourceMetaFor(row).name||row.name).includes(qNorm)
+  );
+
+  if(sourceSearchStatus){
+    sourceSearchStatus.textContent=localMatches.length
+      ?"Có "+localMatches.length+" kênh trong thư viện"
+      :"Không tìm thấy kênh phù hợp";
+  }
   renderSourceLibrary();
 }
 function scheduleSourceSearch(){
