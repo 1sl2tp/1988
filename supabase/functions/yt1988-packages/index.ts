@@ -80,44 +80,7 @@ Deno.serve(async(req:Request)=>{
   }
 
   if(req.method==="POST"){
-    const pin=req.headers.get("x-1988-pin")||"";
-    if(!pin||await sha256(pin)!==PIN_SHA256)return json({ok:false,error:"unauthorized"},401);
-
-    let body:any={};
-    try{body=await req.json();}catch{return json({ok:false,error:"bad_json"},400);}
-
-    const scope=clean(body?.scope,32);
-    const hash=clean(body?.hash,80);
-    const inputHash=clean(body?.inputHash,80);
-    const sourceSignature=clean(body?.sourceSignature,300);
-    const items=Array.isArray(body?.items)?body.items.slice(0,90):null;
-    const version=Math.max(1,Number(body?.version||Date.now()));
-
-    if(!SCOPES.has(scope)||!hash||!items||!items.length){
-      return json({ok:false,error:"bad_package"},400);
-    }
-
-    const rpc=await fetch(rest+"/rpc/yt1988_set_package",{
-      method:"POST",
-      headers,
-      body:JSON.stringify({
-        p_profile_key:PROFILE,
-        p_scope:scope,
-        p_hash:hash,
-        p_input_hash:inputHash,
-        p_source_signature:sourceSignature,
-        p_items:items,
-        p_version:version
-      })
-    });
-    if(!rpc.ok)return json({ok:false,error:"write_failed",detail:await rpc.text()},502);
-    const saved=await rpc.json();
-    return json({
-      ok:true,
-      package:saved,
-      hash:clean(saved?.hash||hash,80),
-      version:Number(saved?.version||version)
-    });
+    return json({ok:false,error:"server_owned_packages"},405);
   }
 
   return json({ok:false,error:"method_not_allowed"},405);
