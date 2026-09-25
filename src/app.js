@@ -6052,7 +6052,7 @@ const SOURCE_LEARNING_STOPWORDS=new Set([
 const SOURCE_CONTENT_LEARNING_TTL=25*60*1000;
 // Network warm-up is capped, but learning itself uses cached rows from ALL
 // currently selected sources in the scope.
-const SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES=12;
+const SOURCE_CONTENT_LEARNING_FETCH_MAX_SOURCES=20;
 const SOURCE_CONTENT_LEARNING_MAX_ROWS=120;
 const SOURCE_CONTENT_LEARNING_KEY_PREFIX="1988-source-learning-v4:";
 const sourceContentLearningMemory=new Map();
@@ -6156,8 +6156,6 @@ function extractSourceContentTerms(parent={},rows=[]){
   const score=new Map();
   const channelsByTerm=new Map();
   const hashtagScore=new Map();
-  const blockedNames=sourceLearningNames(group,"blocked").map(normalizeSearchText);
-  const blockedTokens=new Set(blockedNames.flatMap(name=>name.split(" ").filter(token=>token.length>=3)));
   const items=balancedSourceLearningRows(rows,group,SOURCE_CONTENT_LEARNING_MAX_ROWS);
 
   const addTerm=(phrase,weight,channel)=>{
@@ -6165,7 +6163,7 @@ function extractSourceContentTerms(parent={},rows=[]){
     if(!key||key.length<3)return;
     const words=key.split(" ").filter(Boolean);
     if(!words.length)return;
-    if(words.every(word=>SOURCE_LEARNING_STOPWORDS.has(word)||blockedTokens.has(word)))return;
+    if(words.every(word=>SOURCE_LEARNING_STOPWORDS.has(word)))return;
     if(words.some(word=>/^\d+$/.test(word)&&words.length===1))return;
     score.set(phrase,(score.get(phrase)||0)+weight);
     if(!channelsByTerm.has(phrase))channelsByTerm.set(phrase,new Set());
@@ -6372,16 +6370,80 @@ function sourceLearningProfile(parent={}){
   };
 }
 
+function sourceContextRows(scope,status="selected",limit=48){
+  scope=sourceScope(scope);
+  const ids=status==="blocked"
+    ?blockedSetForScope(scope)
+    :status==="suggested"
+      ?suggestedSetForScope(scope)
+      :selectedSetForScope(scope);
+  const out=[];
+  for(const id of ids){
+    const meta=sourceMetaCache.get(id)||libraryRow(id)||{};
+    out.push({
+      id:String(id||""),
+      name:clean(meta?.name||"")
+    });
+    if(out.length>=limit)break;
+  }
+  return out.filter(row=>/^UC[A-Za-z0-9_-]+$/.test(row.id));
+}
+
 async function adaptiveSourceQueries(parent={},local){
   const group=parentSourceGroup(parent);
   if(!group)return [];
-  const content=await ensureSourceContentLearning(parent,local);
-  const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
-  const selectedNames=sourceLearningNames(group,"selected").slice(0,5);
 
-  // Search only from what this tab has actually selected/learned. The display
-  // name of the tab is deliberately absent.
-  return [...new Set([...learned.slice(0,6),...selectedNames])].slice(0,8);
+  // Build one balanced sample from the latest selected-source package.
+  // Around 100 videos / up to 20 selected channels is enough context for AI
+  // to suggest useful search phrases without letting AI touch search itself.
+  const learningRows=await selectedLearningRows(parent,local);
+  const sample=balancedSourceLearningRows(
+    learningRows,
+    group,
+    100
+  );
+  if(!sample.length)return [];
+
+  const localTerms=extractSourceContentTerms(parent,sample);
+  const fallbackQueries=[
+    ...(localTerms?.hashtags||[]),
+    ...(localTerms?.terms||[])
+  ].filter(Boolean).slice(0,8);
+
+  try{
+    const response=await fetch(AI_TOPICS_URL,{
+      method:"POST",
+      headers:{
+        "content-type":"application/json",
+        "apikey":SUPABASE_ANON,
+        "authorization":"Bearer "+SUPABASE_ANON
+      },
+      body:JSON.stringify({
+        mode:"source_discovery",
+        phase:"queries",
+        scope:"source:"+group,
+        videos:topicInputRows(sample).slice(0,100),
+        selectedSources:sourceContextRows(group,"selected",48),
+        blockedSources:sourceContextRows(group,"blocked",48),
+        suggestedSources:sourceContextRows(group,"suggested",48),
+        fallbackQueries
+      })
+    });
+
+    const payload=await response.json().catch(()=>null);
+    if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
+
+    const queries=[...new Set(
+      (Array.isArray(payload?.queries)?payload.queries:[])
+        .map(value=>clean(value))
+        .filter(value=>value.length>=2)
+    )].slice(0,8);
+
+    return queries.length?queries:fallbackQueries;
+  }catch(error){
+    console.warn("source query helper failed",group,error);
+    return fallbackQueries;
+  }
 }
 
 async function classifyAiParent(parent,rows=[],options={}){
@@ -6606,8 +6668,6 @@ async function discoverSourcesForParent(parent,local){
   const group=parentSourceGroup(parent);
   if(!group)return;
 
-  // Every tab has exactly the same learning rule: its own Đã chọn sources are
-  // the positive examples. Tab labels have no semantic role.
   const positiveSources=group===GENERAL_SOURCE_SCOPE
     ?selectedSources()
     :selectedSources(group);
@@ -6617,15 +6677,12 @@ async function discoverSourcesForParent(parent,local){
   if(Date.now()-last<SOURCE_DISCOVERY_TTL)return;
 
   try{
+    // AI only supplies search phrases from selected-video context. YouTube
+    // search itself is always the local engine. Exact selected/blocked/current
+    // suggestion IDs are filtered by code before a channel can be suggested.
     const discovery=await collectNewSourceDiscoveryRows(parent,local,group);
-    if(!discovery.rows.length){
-      sourceDiscoveryAt.set(group,Date.now());
-      return;
-    }
-
-    const accepted=await classifySourceDiscovery(parent,discovery);
-    if(accepted.length){
-      rememberDiscoveredSources(accepted,group);
+    if(discovery.rows.length){
+      rememberDiscoveredSources(discovery.rows,group);
       if(sourceManageMode&&!sourcesSheet?.hidden)renderSourceLibrary();
     }
 
