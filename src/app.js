@@ -11355,7 +11355,8 @@ const SOURCE_POOL_KEY_PREFIX="1988-source-pool-v4:";
 const SOURCE_POOL_TTL=5*60*1000;
 const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
-const SOURCE_CHANNEL_RECHECK_TTL=2*60*1000;
+const SOURCE_CHANNEL_RECHECK_TTL=60*1000;
+const SOURCE_ACTIVE_FEED_REFRESH_MS=60*1000;
 const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
 let sourceFeedPendingRenderName="";
@@ -11644,28 +11645,10 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
           });
         }
 
-        if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          void local.filterEmbeddableRows(
-            rows,
-            {concurrency:8,requirePlayable:false}
-          ).then(verified=>{
-            const confirmed=Array.isArray(verified)?verified:rows;
-            const selectedNow=selectedSetForScope(scope);
-            const blockedNow=blockedSetForScope(scope);
-            if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
-
-            saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
-            replaceSourceInPoolCache(source,confirmed,scope);
-            emit(confirmed,source,{
-              cached:false,
-              verified:true,
-              replaceSource:true,
-              late:true
-            });
-          }).catch(error=>{
-            console.warn("source background verify failed",scope,source.id,error);
-          });
-        }
+        // Feed refresh only needs the channel's newest upload list. Do not run
+        // per-video /player embeddability probes here: they create hundreds of
+        // slow 403 requests and do not affect whether a fresh card can be shown.
+        // Playback validation remains lazy when the user actually opens a video.
 
         if(!reset&&rows.length){
           emit(rows,source,{cached:false});
@@ -12429,6 +12412,21 @@ function maybeLoadMoreFeed(){
 
 window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
+setInterval(()=>{
+  if(document.hidden||state.searchResultsActive)return;
+  const active=state.activeFeed||LATEST_SOURCE_SCOPE;
+
+  if(isSourceScopedFeed(active)){
+    void refreshCachedSourceFeedInBackground(
+      active,
+      FEED_PRESETS[active],
+      state.feedSeq
+    );
+  }else if(active===LIVE_SOURCE_SCOPE){
+    void refreshLiveSnapshotInBackground();
+  }
+},SOURCE_ACTIVE_FEED_REFRESH_MS);
+
 setInterval(()=>{
   void refreshAllSourceSnapshotsInBackground();
 },SOURCE_FEED_AUTO_REFRESH_MS);
