@@ -6682,3 +6682,28 @@ html:not(.watch-browse) .app-header{
     object-fit:contain!important;
   }
 }
+
+
+/* ============================================================
+   THUMBNAIL EDGE FRAME TRIM v203
+   Some YouTube thumbnails contain their own red/yellow/white rounded frame.
+   Crop only a few outer pixels by gently zooming true 16:9 artwork.
+   Non-16:9 thumbnails remain fully contained and are never zoom-cropped.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain){
+    object-fit:contain!important;
+    transform:scale(1.026)!important;
+    transform-origin:center center!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    object-fit:contain!important;
+    transform:none!important;
+  }
+}
