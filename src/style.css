@@ -1569,7 +1569,9 @@ html.search-suggestions-open .suggestions{
   font:inherit;
 }
 .thumb-wrap img.thumb-fit-contain{
-  object-fit:contain;
+  /* Feed artwork must fill the 16:9 card. RSS often supplies hqdefault
+     in 4:3; contain creates the black side bars seen on fresh packages. */
+  object-fit:cover;
 }
 
 /* Desktop/tablet: keep base grid, but make the responsive player honor JS geometry. */
@@ -1973,7 +1975,7 @@ html.search-suggestions-open .suggestions{
     padding:0;
     border:0;
     border-radius:0;
-    object-fit:contain;
+    object-fit:cover;
     object-position:center;
     transform:scale(1.018);
     transform-origin:center;
@@ -2455,7 +2457,7 @@ html.search-suggestions-open .suggestions{
     padding:0;
     border:0;
     border-radius:0;
-    object-fit:contain;
+    object-fit:cover;
     object-position:center;
     transform:scale(1.018);
     transform-origin:center;
