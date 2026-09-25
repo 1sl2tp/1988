@@ -7887,3 +7887,151 @@ html:not(.watch-browse).home-search-open .header-inner{
   backdrop-filter:none!important;
   -webkit-backdrop-filter:none!important;
 }
+
+
+/* ============================================================
+   YOUTUBE SOURCE ROW SPACING v214
+   One spacing system for Home + Watch mobile:
+   48px source row, 8px chip gaps, 12px side breathing room,
+   and a small 6px separation before the content surface.
+   ============================================================ */
+@media(max-width:720px){
+  /* HOME */
+  html:not(.watch-browse){
+    --header-row-h:52px!important;
+    --nav-row-h:48px!important;
+    --header-stack-h:100px!important;
+  }
+
+  html:not(.watch-browse) .header-nav{
+    height:48px!important;
+    min-height:48px!important;
+    max-height:48px!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+  }
+
+  html:not(.watch-browse) .header-nav-inner{
+    width:100%!important;
+    height:100%!important;
+    margin:0!important;
+    padding:0 12px!important;
+    overflow:hidden!important;
+  }
+
+  html:not(.watch-browse) .topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:100%!important;
+    gap:8px!important;
+    padding:8px 0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html:not(.watch-browse) .topic-chips::-webkit-scrollbar{
+    display:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip{
+    flex:0 0 auto!important;
+    width:auto!important;
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 12px!important;
+    border-radius:8px!important;
+    font-size:11px!important;
+    line-height:32px!important;
+  }
+
+  html:not(.watch-browse) .topic-divider{
+    flex:0 0 auto!important;
+    height:20px!important;
+    margin:0!important;
+  }
+
+  html:not(.watch-browse) .app-shell{
+    padding-top:calc(var(--header-stack-h) + var(--safe-top))!important;
+  }
+
+  html:not(.watch-browse) .feed-section{
+    padding-top:6px!important;
+  }
+
+  /* WATCH */
+  html.watch-browse{
+    --watch-source-row-h:48px!important;
+  }
+
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    height:48px!important;
+    min-height:48px!important;
+    max-height:48px!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+  }
+
+  html.watch-browse .header-nav-inner,
+  html.watch-browse.watch-categories-open .header-nav-inner{
+    width:100%!important;
+    height:100%!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0 12px!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:100%!important;
+    max-height:none!important;
+    gap:8px!important;
+    padding:8px 0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html.watch-browse .topic-chip,
+  html.watch-browse.watch-categories-open .topic-chip{
+    flex:0 0 auto!important;
+    width:auto!important;
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 12px!important;
+    border-radius:8px!important;
+    font-size:11px!important;
+    line-height:32px!important;
+  }
+
+  html.watch-browse .topic-divider{
+    flex:0 0 auto!important;
+    height:20px!important;
+    margin:0!important;
+  }
+
+  html.watch-browse .feed-section,
+  html.watch-browse.watch-video-wide .feed-section,
+  html.watch-browse.watch-video-square .feed-section,
+  html.watch-browse.watch-video-portrait .feed-section{
+    padding-top:6px!important;
+  }
+
+  /* Search mode keeps the same source row spacing so opening Search does not jump. */
+  html.watch-browse.watch-search-open .header-nav,
+  html.watch-browse.watch-search-open.watch-categories-open .header-nav{
+    height:48px!important;
+    min-height:48px!important;
+    max-height:48px!important;
+  }
+}
