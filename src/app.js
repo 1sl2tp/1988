@@ -6132,6 +6132,13 @@ async function discoverSourcesForParent(parent,local){
   const group=parentSourceGroup(parent);
   if(!group)return;
 
+  // AI 2 has no generic discovery mode: it only learns from sources the user
+  // explicitly selected in this scope.
+  const positiveSources=group===GENERAL_SOURCE_SCOPE
+    ?selectedSources()
+    :selectedSourcesForParent(parent);
+  if(!positiveSources.length)return;
+
   const last=Number(sourceDiscoveryAt.get(group)||0);
   if(Date.now()-last<SOURCE_DISCOVERY_TTL)return;
 
@@ -6155,14 +6162,30 @@ async function discoverSourcesForParent(parent,local){
 }
 
 async function enrichSelectedCategoryInBackground(parent,rows=[]){
-  const sample=(Array.isArray(rows)?rows:[]).slice(0,48);
-  if(sample.length<4)return;
+  const group=parentSourceGroup(parent);
+  const source=(Array.isArray(rows)?rows:[])
+    .filter(row=>!isBlockedSourceRow(row,group));
+  const sample=source.slice(0,48);
+  if(!sample.length)return [];
 
   try{
-    const classified=await classifyAiParent(parent,sample);
-    state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
+    // AI 1: only selected-source content reaches this point. It may clean
+    // titles/source branding, classify, group duplicates and reject content
+    // that is clearly outside the fixed category.
+    const classified=await classifyAiParent(parent,sample,{filterToParent:true});
+    if(classified?.videoMeta instanceof Map&&classified.videoMeta.size){
+      state.aiVideoMeta=new Map([...state.aiVideoMeta,...classified.videoMeta]);
+    }
 
-    const visibleIds=new Set(rows.map(itemVideoId).filter(Boolean));
+    const acceptedIds=classified?.acceptedVideoIds instanceof Set
+      ?classified.acceptedVideoIds
+      :new Set(sample.map(itemVideoId).filter(Boolean));
+    const accepted=source.filter((row,index)=>
+      index>=48||acceptedIds.has(itemVideoId(row))
+    );
+
+    const visibleRows=aiDisplayRows(accepted);
+    const visibleIds=new Set(visibleRows.map(itemVideoId).filter(Boolean));
     const topics=(classified.topics||[])
       .map(topic=>({
         ...topic,
@@ -6171,15 +6194,34 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
       .filter(topic=>topic.videoIds.size>=2)
       .slice(0,10);
 
+    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:accepted});
     state.aiCategoryTopics.set(parent.key,topics);
+
+    // AI 2 learns only after AI 1 cleanup/dedup and never sees blocked rows.
+    saveSourceContentLearning(
+      group,
+      extractSourceContentTerms(parent,visibleRows)
+    );
 
     if(state.activeParent===parent.key){
       state.trendTopics=topics;
       renderTrendTopics();
-      patchRenderedAiMeta(rows);
+
+      const allowed=new Set(aiDisplayRows(accepted).map(itemVideoId).filter(Boolean));
+      for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
+        if(!allowed.has(card.dataset.videoId))card.remove();
+      }
+      patchRenderedAiMeta(accepted);
+      const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
+      feedStatus.textContent=total?total+" video":"";
     }
+
+    return accepted;
   }catch(error){
-    console.warn("category enrichment failed",parent?.label||parent?.key,error);
+    console.warn("AI 1 category cleanup failed",parent?.label||parent?.key,error);
+    const visibleRows=aiDisplayRows(source);
+    saveSourceContentLearning(group,extractSourceContentTerms(parent,visibleRows));
+    return source;
   }
 }
 
@@ -6215,7 +6257,6 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
     if(!rows.length)return;
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
-    saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
 
     // New snapshot is stored for the next category entry; do not rebuild the
     // current visible list after a background refresh.
@@ -6232,10 +6273,12 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
           feedStatus.textContent=total?total+" video":"";
         }
       }
-      void enrichSelectedCategoryInBackground(parent,safeRows);
-    }).catch(()=>{});
-
-    void discoverSourcesForParent(parent,local);
+      void enrichSelectedCategoryInBackground(parent,safeRows)
+        .then(()=>discoverSourcesForParent(parent,local));
+    }).catch(()=>{
+      void enrichSelectedCategoryInBackground(parent,rows)
+        .then(()=>discoverSourcesForParent(parent,local));
+    });
   }catch(error){
     console.warn("category source refresh failed",parent?.label||parent?.key,error);
   }
@@ -6349,12 +6392,12 @@ async function loadAiParentDiscovery(parent){
           feedStatus.textContent=total?total+" video":"";
         }
       }
-      void enrichSelectedCategoryInBackground(parent,safeRows);
+      void enrichSelectedCategoryInBackground(parent,safeRows)
+        .then(()=>discoverSourcesForParent(parent,local));
     }).catch(()=>{
-      void enrichSelectedCategoryInBackground(parent,rows);
+      void enrichSelectedCategoryInBackground(parent,rows)
+        .then(()=>discoverSourcesForParent(parent,local));
     });
-
-    void discoverSourcesForParent(parent,local);
   }catch(error){
     console.warn("selected category failed",parent?.label||parent?.key,error);
     if(state.activeParent===parent?.key){
