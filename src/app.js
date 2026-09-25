@@ -6524,17 +6524,19 @@ async function buildCategorySourceSnapshot(parent,local=null){
     )
   ).slice(0,90);
 
-  if(rows.length){
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
-    commitAtomicSnapshot("category:"+parent.key,rows,{
-      sourceSignature:sourceSignature(group)
-    });
-    saveSourceContentLearning(
-      group,
-      extractSourceContentTerms(parent,aiDisplayRows(rows))
-    );
-  }
-  return rows;
+  if(!rows.length)return [];
+
+  const packaged=await packageRowsWithAi("category:"+parent.key,rows,{
+    sourceSignature:sourceSignature(group),
+    maxRows:90
+  });
+
+  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:packaged});
+  saveSourceContentLearning(
+    group,
+    extractSourceContentTerms(parent,packaged)
+  );
+  return packaged;
 }
 
 async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
@@ -6584,7 +6586,7 @@ async function loadAiParentDiscovery(parent){
       renderTrendTopics();
 
       if(state.activeParent===parent.key){
-        const visible=aiDisplayRows(reserve);
+        const visible=reserve;
         await prewarmRowSourceAvatars(visible.slice(0,36),260);
         if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
         renderCards(visible);
@@ -6608,7 +6610,7 @@ async function loadAiParentDiscovery(parent){
     renderTrendTopics();
 
     if(rows.length){
-      const visible=aiDisplayRows(rows);
+      const visible=rows;
       await prewarmRowSourceAvatars(visible.slice(0,36),320);
       if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
       renderCards(visible);
@@ -6631,8 +6633,10 @@ async function loadAiParentDiscovery(parent){
 
 function renderCurrentTrendFeed(){
   renderParentCategories();
+  state.activeTrend="";
+  state.trendTopics=[];
   renderTrendTopics();
-  renderCards(aiDisplayRows(trendRows(state.feedRows)));
+  renderCards(state.feedRows);
 }
 
 async function refreshAiTrendTopics(){
@@ -6643,11 +6647,9 @@ async function refreshAiTrendTopics(){
 trendTopics?.addEventListener("click",event=>{
   const button=event.target.closest("[data-trend]");
   if(!button)return;
-  state.activeTrend=button.dataset.trend||"";
+  state.activeTrend="";
+  state.trendTopics=[];
   renderTrendTopics();
-  const visible=aiDisplayRows(trendRows(state.feedRows));
-  renderCards(visible);
-  feedStatus.textContent=visible.length?visible.length+" video":"";
 });
 
 function requestedSource(query=""){
@@ -11123,62 +11125,48 @@ function saveFeedCache(name,rows){
   return result;
 }
 
-const FEED_AI_CONTENT_TTL=30*60*1000;
-const feedAiPending=new Map();
+const snapshotPackagePending=new Map();
 
-function feedAiContentKey(name,rows=[]){
-  const input=topicInputRows(rows).slice(0,72);
-  const body=input.map(row=>row.id+"|"+row.title+"|"+row.contentHash).join("\n");
-  return String(name||"feed")+":"+fastHash(body);
-}
+async function packageRowsWithAi(snapshotName,rows=[],{
+  sourceSignature:sourceSig="",
+  maxRows=90
+}={}){
+  const base=dedupeHashedRows(Array.isArray(rows)?rows:[])
+    .slice(0,Math.max(1,Number(maxRows)||90));
+  if(!base.length)return [];
 
-async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
-  if(document.hidden)return false;
-  if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return false;
+  const inputHash=snapshotRowsHash(base,sourceSig);
+  const current=readAtomicSnapshot(snapshotName);
 
-  const feedScope=feedSourceScope(name);
-  const sample=dedupeHashedRows(newestFirst(rows))
-    .filter(row=>!isBlockedSourceRow(row,feedScope))
-    .slice(0,72);
-  const input=topicInputRows(sample);
-  if(input.length<4)return false;
-
-  const cacheKey=feedAiContentKey(name,sample);
-  const feedParent={
-    key:"feed-"+name,
-    group:feedScope,
-    label:name==="week"?"Tuần này":"Mới nhất"
-  };
-  const learning=sourceLearningProfile(feedParent);
-  const saveCleanLearning=()=>{
-    const cleaned=aiDisplayRows(sample);
-    if(!cleaned.length)return;
-    saveSourceContentLearning(
-      feedScope,
-      extractSourceContentTerms(feedParent,cleaned)
-    );
-  };
-
-  const applyPackage=(videoMeta,topics)=>{
-    if(videoMeta?.size){
-      state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
-    }
-    if(Array.isArray(topics)){
-      state.feedTrendTopics.set(name,topics.slice(0,10));
-    }
-    saveCleanLearning();
-  };
-
-  const saved=readAiTrendCache("feed-content:"+cacheKey,input);
-  if(saved.videoMeta.size||saved.topics.length){
-    applyPackage(saved.videoMeta,saved.topics);
-    return true;
+  // Same raw package => zero AI calls, zero cache churn.
+  if(
+    current?.inputHash===inputHash &&
+    Array.isArray(current.items) &&
+    current.items.length
+  ){
+    return current.items;
   }
 
-  if(feedAiPending.has(cacheKey))return feedAiPending.get(cacheKey);
+  const commitLocal=()=>{
+    commitAtomicSnapshot(snapshotName,base,{
+      sourceSignature:sourceSig,
+      inputHash
+    });
+    return base;
+  };
+
+  if(base.length<4)return commitLocal();
+
+  const pendingKey=snapshotName+"|"+inputHash;
+  if(snapshotPackagePending.has(pendingKey)){
+    return snapshotPackagePending.get(pendingKey);
+  }
 
   const task=(async()=>{
     try{
+      const input=topicInputRows(base).slice(0,120);
+      if(input.length<4)return commitLocal();
+
       const response=await fetch(AI_TOPICS_URL,{
         method:"POST",
         headers:{
@@ -11187,36 +11175,42 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
           "authorization":"Bearer "+SUPABASE_ANON
         },
         body:JSON.stringify({
-          mode:"classify",
-          scope:"feed:"+name,
-          parentLabel:feedParent.label,
-          selectedSourceNames:learning.selectedSourceNames,
-          blockedSourceNames:learning.blockedSourceNames,
-          learnedQueries:learning.learnedQueries,
-          filterToParent:false,
+          mode:"dedupe",
           videos:input
         })
       });
 
       const payload=await response.json().catch(()=>null);
-      if(!response.ok||payload?.ok===false)throw new Error(payload?.error||("HTTP "+response.status));
-
-      const videoMeta=normalizeAiVideoMeta(payload,input);
-      const topics=normalizeAiChildTopics(payload,input,feedParent).slice(0,10);
-      applyPackage(videoMeta,topics);
-
-      if(videoMeta.size||topics.length){
-        saveAiTrendCache("feed-content:"+cacheKey,[],topics,videoMeta);
+      if(!response.ok||payload?.ok===false){
+        throw new Error(payload?.error||("HTTP "+response.status));
       }
 
-      return true;
-    }catch(error){
-      console.warn("AI feed package failed",name,error);
-      return false;
-    }
-  })().finally(()=>feedAiPending.delete(cacheKey));
+      const allowed=new Set(base.map(itemVideoId).filter(Boolean));
+      const keepIds=[...new Set(
+        (Array.isArray(payload?.keepVideoIds)?payload.keepVideoIds:[])
+          .map(id=>clean(id))
+          .filter(id=>allowed.has(id))
+      )];
+      const keepSet=new Set(keepIds);
 
-  feedAiPending.set(cacheKey,task);
+      // AI can only remove duplicates. Code owns the existing deterministic
+      // order and never accepts AI-created IDs or UI metadata.
+      const packaged=keepSet.size
+        ?base.filter(row=>keepSet.has(itemVideoId(row)))
+        :base;
+
+      commitAtomicSnapshot(snapshotName,packaged,{
+        sourceSignature:sourceSig,
+        inputHash
+      });
+      return packaged;
+    }catch(error){
+      console.warn("AI dedupe package failed",snapshotName,error);
+      return commitLocal();
+    }
+  })().finally(()=>snapshotPackagePending.delete(pendingKey));
+
+  snapshotPackagePending.set(pendingKey,task);
   return task;
 }
 
@@ -11226,10 +11220,7 @@ async function buildSourceFeedSnapshot(name,preset,local=null){
 
   const scope=feedSourceScope(name);
   const sources=selectedSources(scope);
-  if(!sources.length){
-    saveFeedCache(name,[]);
-    return [];
-  }
+  if(!sources.length)return [];
 
   const pool=await refreshSourcePool(local,sources,scope);
   const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
@@ -11240,18 +11231,22 @@ async function buildSourceFeedSnapshot(name,preset,local=null){
     preset
   );
 
-  const saved=saveFeedCache(name,rows);
+  const packaged=await packageRowsWithAi("feed:"+name,rows,{
+    sourceSignature:sourceSignature(scope),
+    maxRows:90
+  });
 
-  // AI is a background package and never blocks first paint. Only a changed
-  // content hash is sent for a new AI package; identical snapshots cost zero
-  // extra AI calls.
-  if(rows.length>=4&&saved.changed){
-    void enrichSourceFeedAi(name,rows,state.feedSeq).catch(()=>{});
+  if(packaged.length){
+    saveSourceContentLearning(
+      scope,
+      extractSourceContentTerms(feedSourceParent(name),packaged)
+    );
   }
 
-  // Source suggestions are independent from visible ordering.
+  // Separate maintenance job: AI supplies search phrases only; code searches.
   void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
-  return rows;
+  cleanupLegacyFeedCaches(name);
+  return packaged;
 }
 
 async function refreshLiveSnapshotInBackground(local=null){
@@ -11261,8 +11256,12 @@ async function refreshLiveSnapshotInBackground(local=null){
       await FEED_PRESETS.live.load(local,true),
       FEED_PRESETS.live
     );
-    saveFeedCache(LIVE_SOURCE_SCOPE,rows);
-    return rows;
+    const packaged=await packageRowsWithAi("feed:"+LIVE_SOURCE_SCOPE,rows,{
+      sourceSignature:sourceSignature(LIVE_SOURCE_SCOPE),
+      maxRows:90
+    });
+    cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
+    return packaged;
   }catch(error){
     console.warn("LIVE snapshot refresh failed",error);
     return [];
@@ -11402,10 +11401,11 @@ async function loadFeedPreset(name="latest"){
       .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
 
     state.feedRows=mergeUniqueRows([],rows);
-    state.trendTopics=state.feedTrendTopics.get(name)||[];
+    state.activeTrend="";
+    state.trendTopics=[];
     renderTrendTopics();
 
-    const visible=aiDisplayRows(trendRows(state.feedRows));
+    const visible=state.feedRows;
     await prewarmRowSourceAvatars(visible.slice(0,36),260);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
@@ -11453,12 +11453,22 @@ async function loadFeedPreset(name="latest"){
       return;
     }
 
-    state.feedRows=mergeUniqueRows([],rows);
-    saveFeedCache(name,state.feedRows);
-    state.trendTopics=state.feedTrendTopics.get(name)||[];
+    const packageName="feed:"+name;
+    const packageSignature=scoped
+      ?sourceSignature(activeFeedScope)
+      :name===LIVE_SOURCE_SCOPE
+        ?sourceSignature(LIVE_SOURCE_SCOPE)
+        :"";
+    state.feedRows=await packageRowsWithAi(packageName,rows,{
+      sourceSignature:packageSignature,
+      maxRows:90
+    });
+    if(name)cleanupLegacyFeedCaches(name);
+    state.activeTrend="";
+    state.trendTopics=[];
     renderTrendTopics();
 
-    const visible=aiDisplayRows(trendRows(state.feedRows));
+    const visible=state.feedRows;
     await prewarmRowSourceAvatars(visible.slice(0,36),320);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
@@ -11466,9 +11476,9 @@ async function loadFeedPreset(name="latest"){
     feedStatus.textContent=visible.length?visible.length+" video":"";
     state.feedHasMore=true;
 
-    // AI/source discovery are maintenance jobs only; they never block paint.
+    // Source discovery is a separate maintenance job. AI only proposes
+    // search phrases; it cannot touch this packaged UI snapshot.
     if(scoped){
-      void enrichSourceFeedAi(name,state.feedRows,seq).catch(()=>{});
       void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
     }
   }catch(error){
@@ -11477,7 +11487,7 @@ async function loadFeedPreset(name="latest"){
       const fallback=readFeedCache(name);
       if(fallback.length){
         state.feedRows=sortPresetRows(fallback,preset);
-        renderCards(aiDisplayRows(state.feedRows));
+        renderCards(state.feedRows);
         feedStatus.textContent=state.feedRows.length+" video";
       }else{
         feed.innerHTML='<div class="empty">Chưa có gói dữ liệu dự trữ.</div>';
@@ -11530,16 +11540,18 @@ async function loadMoreFeed(){
     }
 
     state.feedRows.push(...added);
-    const visibleAdded=aiDisplayRows(added);
-    if(visibleAdded.length){
-      await prewarmRowSourceAvatars(visibleAdded,420);
+    if(added.length){
+      await prewarmRowSourceAvatars(added,420);
       if(seq!==state.feedSeq||state.activeFeed!==name)return;
-      renderCards(visibleAdded,{append:true,updateStatus:false});
+      renderCards(added,{append:true,updateStatus:false});
     }
-    const visibleTotal=aiDisplayRows(state.feedRows).length;
-    feedStatus.textContent=visibleTotal?visibleTotal+" video":"";
-    saveFeedCache(name,state.feedRows);
-    if(isSourceScopedFeed(name))void enrichSourceFeedAi(name,state.feedRows,seq);
+    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
+
+    if(isSourceScopedFeed(name)){
+      void refreshCachedSourceFeedInBackground(name,preset,seq);
+    }else if(name===LIVE_SOURCE_SCOPE){
+      void refreshLiveSnapshotInBackground();
+    }
   }catch(error){
     console.warn("load more failed",name,error);
   }finally{
@@ -11610,7 +11622,7 @@ topicChips.addEventListener("click",async e=>{
     const instant=instantCategoryRows(parent);
     if(instant.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instant});
-      const visible=aiDisplayRows(instant);
+      const visible=instant;
       renderCards(visible);
       feedStatus.textContent=visible.length?visible.length+" video":"";
       void prewarmRowSourceAvatars(visible,480);
