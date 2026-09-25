@@ -7383,3 +7383,181 @@ html:not(.watch-browse) .app-header{
     display:none!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE YOUTUBE FULL-BLEED CARDS v210
+   YouTube-like mobile recommendations:
+   - image is edge-to-edge / full width
+   - no white card border
+   - only the metadata area gets the raised/tinted surface on press/focus
+   - channel + views/time stay on one compact line
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed-section{
+    padding-left:0!important;
+    padding-right:0!important;
+    overflow-x:hidden!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped){
+    width:100%!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card{
+    position:relative!important;
+    isolation:isolate!important;
+    display:block!important;
+    width:100%!important;
+    max-width:none!important;
+    min-width:0!important;
+    margin:0 0 18px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:visible!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transform:none!important;
+  }
+
+  /* Disable the old full-card tint/outline. On mobile the picture stays clean. */
+  html.watch-browse .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card::before,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card::before{
+    display:none!important;
+    content:none!important;
+  }
+
+  /* Full-bleed thumbnail: no outer inset, no artificial frame. */
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap{
+    position:relative!important;
+    width:100vw!important;
+    max-width:100vw!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    margin:0!important;
+    padding:0!important;
+    box-sizing:border-box!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    width:100%!important;
+    height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:none!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  /* Only metadata gets an interaction surface. */
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .card-copy,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .card-copy{
+    position:relative!important;
+    z-index:1!important;
+    width:calc(100% - 16px)!important;
+    margin:0 8px!important;
+    padding:9px 8px 8px!important;
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:10px!important;
+    align-items:start!important;
+    border:0!important;
+    border-radius:12px!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    transition:background-color .14s ease!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card:active .card-copy,
+  html.watch-browse .feed:not(.search-grouped)>.card:focus-within .card-copy{
+    background:var(--card-hover-color,rgba(255,255,255,.075))!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .card-copy{
+    background:var(--card-hover-color,rgba(255,255,255,.075))!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video,
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video .thumb-wrap{
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card.is-current-video::after{
+    display:none!important;
+    content:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-copy-main{
+    min-width:0!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-title{
+    margin:0!important;
+    display:-webkit-box!important;
+    -webkit-box-orient:vertical!important;
+    -webkit-line-clamp:2!important;
+    overflow:hidden!important;
+    color:#f4f4f5!important;
+    font-size:13.5px!important;
+    line-height:1.3!important;
+    font-weight:680!important;
+  }
+
+  /* Channel/source + views/time = one line like YouTube mobile. */
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel,
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    display:inline!important;
+    margin:4px 0 0!important;
+    padding:0!important;
+    color:#92929a!important;
+    font-size:10.5px!important;
+    line-height:1.3!important;
+    white-space:nowrap!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-channel::after{
+    content:" · "!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .card-stats{
+    margin-left:0!important;
+  }
+}
