@@ -5843,3 +5843,59 @@ html:not(.watch-browse) .topic-chip:focus-visible{
     margin:0 0 7px!important;
   }
 }
+
+
+/* ============================================================
+   THUMBNAIL EDGE + HIDDEN HEADER CLEANUP v199
+   ============================================================ */
+
+/* The old sticky-header backdrop blur remained active even after its rows
+   were hidden, creating the large white/grey blurred band seen on scroll. */
+html:not(.watch-browse) .app-header{
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+
+/* Thumbnail surface is always dark; transparent/letterboxed sources can
+   never reveal a white browser/card background. */
+.thumb-wrap{
+  background:#0b0b0c!important;
+}
+
+.thumb-wrap img{
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  background:#0b0b0c!important;
+  object-position:center center!important;
+}
+
+/* Most YouTube thumbnails are exactly 16:9 and remain full bleed. */
+.thumb-wrap img:not(.thumb-fit-contain){
+  object-fit:cover!important;
+}
+
+/* Non-16:9 source thumbnails keep the complete image instead of losing
+   text/logos/people at the edges. Any spare area stays dark, never white. */
+.thumb-wrap img.thumb-fit-contain{
+  object-fit:contain!important;
+  transform:none!important;
+}
+
+/* Radius belongs to the clipping surface only. Do not round the image twice,
+   which was shaving additional pixels off some thumbnails. */
+.thumb-wrap img{
+  border-radius:0!important;
+}
+
+@media(max-width:720px){
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
+    background:#0b0b0c!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    object-fit:contain!important;
+  }
+}
