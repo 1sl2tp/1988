@@ -1083,7 +1083,21 @@ async function refreshServerStateOnResume(){
       await warmSelectedAvatarImages(500);
       renderParentCategories();
       if(!document.documentElement.classList.contains("watch-browse")){
-        void loadFeedPreset(state.activeFeed||"latest");
+        const active=state.activeFeed||"latest";
+        void loadFeedPreset(active);
+        // Returning to the app should also check for newly uploaded videos,
+        // not merely repaint the last cached package.
+        setTimeout(()=>{
+          if(isSourceScopedFeed(active)){
+            void refreshCachedSourceFeedInBackground(
+              active,
+              FEED_PRESETS[active],
+              state.feedSeq
+            );
+          }else if(active===LIVE_SOURCE_SCOPE){
+            void refreshLiveSnapshotInBackground();
+          }
+        },120);
       }
     }
   }catch{}
@@ -11265,6 +11279,63 @@ const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
 let sourceFeedPendingRenderName="";
 
+function sourceFeedRowsSignature(rows=[]){
+  return (Array.isArray(rows)?rows:[])
+    .map(itemVideoId)
+    .filter(Boolean)
+    .join("|");
+}
+
+function freshSnapshotRowsForFeed(name){
+  const preset=FEED_PRESETS[name];
+  if(!preset)return [];
+
+  const scoped=isSourceScopedFeed(name);
+  const scope=scoped
+    ?feedSourceScope(name)
+    :name===LIVE_SOURCE_SCOPE
+      ?LIVE_SOURCE_SCOPE
+      :GENERAL_SOURCE_SCOPE;
+
+  return sortPresetRows(readFeedCache(name),preset)
+    .filter(row=>!MANAGED_SOURCE_SCOPES.has(scope)||!isBlockedSourceRow(row,scope));
+}
+
+function applyActiveFeedSnapshot(name,{force=false}={}){
+  if(
+    state.searchResultsActive||
+    document.documentElement.classList.contains("watch-browse")||
+    state.activeFeed!==name||
+    state.activeParent||
+    state.activeTrend
+  )return false;
+
+  const fresh=freshSnapshotRowsForFeed(name);
+  if(!fresh.length)return false;
+
+  const currentSig=sourceFeedRowsSignature(state.feedRows);
+  const freshSig=sourceFeedRowsSignature(fresh);
+  if(currentSig===freshSig){
+    if(sourceFeedPendingRenderName===name)sourceFeedPendingRenderName="";
+    return false;
+  }
+
+  // Never jump a user who is already reading lower in the list. The fresh
+  // package is already stored; apply it as soon as they return to the top.
+  if(!force&&window.scrollY>=120){
+    sourceFeedPendingRenderName=name;
+    return false;
+  }
+
+  state.feedRows=mergeUniqueRows([],fresh);
+  state.feedHasMore=true;
+  sourceFeedPendingRenderName="";
+  renderCards(state.feedRows);
+  feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
+  void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
+  return true;
+}
+
 function readSourceChannelCache(sourceId){
   sourceId=String(sourceId||"").trim();
   if(!sourceId)return {items:[],checkedAt:0,at:0};
@@ -11940,6 +12011,7 @@ async function refreshLiveSnapshotInBackground(local=null){
       maxRows:90
     });
     cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
+    if(packaged.length)applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
     return packaged;
   }catch(error){
     console.warn("LIVE snapshot refresh failed",error);
@@ -11950,7 +12022,15 @@ async function refreshLiveSnapshotInBackground(local=null){
 async function refreshCachedSourceFeedInBackground(name,preset,seq,local=null){
   if(document.hidden)return [];
   try{
-    return await buildSourceFeedSnapshot(name,preset,local);
+    const rows=await buildSourceFeedSnapshot(name,preset,local);
+    if(
+      rows.length&&
+      (seq===undefined||seq===null||seq===state.feedSeq)&&
+      state.activeFeed===name
+    ){
+      applyActiveFeedSnapshot(name);
+    }
+    return rows;
   }catch(error){
     console.warn("background source snapshot failed",name,error);
     return [];
@@ -11993,7 +12073,8 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
       for(const name of [LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]){
         const scope=feedSourceScope(name);
         if(!selectedSetForScope(scope).size)continue;
-        await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
+        const packaged=await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
+        if(packaged.length)applyActiveFeedSnapshot(name);
       }
 
       // Pre-build every category snapshot from its selected channels. Opening
@@ -12257,8 +12338,7 @@ function maybeLoadMoreFeed(){
       !state.activeTrend &&
       window.scrollY<120
     ){
-      sourceFeedPendingRenderName="";
-      renderCurrentTrendFeed();
+      applyActiveFeedSnapshot(state.activeFeed,{force:true});
     }
 
     const distance=document.documentElement.scrollHeight-(window.scrollY+window.innerHeight);
