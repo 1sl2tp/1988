@@ -11327,10 +11327,10 @@ function normalizeThumbnailFit(img){
   if(!img||!img.closest(".thumb-wrap"))return;
 
   const apply=()=>{
-    // v206: always preserve the full source thumbnail. Do not use aspect-ratio
-    // heuristics that can switch a 16:9 thumbnail back to cover and shave off
-    // artwork, logos or embedded borders at the left/right edges.
-    img.classList.add("thumb-fit-contain");
+    // v308: feed cards are always a 16:9 visual surface. RSS can return
+    // 4:3 hqdefault artwork, so never force contain here: it creates black
+    // side bars and makes the thumbnail look smaller than the card.
+    img.classList.remove("thumb-fit-contain");
   };
 
   if(img.complete)apply();
