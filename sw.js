@@ -1,13 +1,13 @@
 'use strict';
 
-const CACHE='1988-main-watch-browse-v231';
+const CACHE='1988-main-watch-browse-v232';
 const SHELL=[
   './',
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=watch-browse-231',
-  './src/app.js?v=watch-browse-231',
+  './src/style.css?v=watch-browse-232',
+  './src/app.js?v=watch-browse-232',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
