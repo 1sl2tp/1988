@@ -35,20 +35,36 @@ jobs:
           export EXPECTED
           echo "EXPECTED=$EXPECTED"
 
-          READY=0
-          for i in $(seq 1 60); do
-            BODY="$(curl -fsS -H 'Cache-Control: no-cache' "https://yt.taphoa.xyz/?diag=$GITHUB_SHA-$i" || true)"
-            if printf '%s' "$BODY" | grep -q "$EXPECTED"; then
-              READY=1
-              echo "Production has $EXPECTED"
-              break
+          SERVER_PID=""
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/1988-http.log 2>&1 &
+            SERVER_PID=$!
+            TARGET_URL="http://127.0.0.1:4173/?diag=$GITHUB_SHA"
+            for i in $(seq 1 20); do
+              if curl -fsS "$TARGET_URL" | grep -q "$EXPECTED"; then
+                echo "Local branch has $EXPECTED"
+                break
+              fi
+              sleep 0.25
+            done
+          else
+            READY=0
+            for i in $(seq 1 60); do
+              BODY="$(curl -fsS -H 'Cache-Control: no-cache' "https://yt.taphoa.xyz/?diag=$GITHUB_SHA-$i" || true)"
+              if printf '%s' "$BODY" | grep -q "$EXPECTED"; then
+                READY=1
+                echo "Production has $EXPECTED"
+                break
+              fi
+              sleep 2
+            done
+            if [ "$READY" != "1" ]; then
+              echo "Production did not reach $EXPECTED in time"
+              exit 1
             fi
-            sleep 2
-          done
-          if [ "$READY" != "1" ]; then
-            echo "Production did not reach $EXPECTED in time"
-            exit 1
+            TARGET_URL="https://yt.taphoa.xyz/?diag=$GITHUB_SHA"
           fi
+          export TARGET_URL
 
           CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
           echo "CHROME=$CHROME"
@@ -101,7 +117,7 @@ jobs:
             await send('Network.enable');
             await send('Page.enable');
             const expected=process.env.EXPECTED||'';
-            await send('Page.navigate',{url:'https://yt.taphoa.xyz/?diag='+Date.now()});
+            await send('Page.navigate',{url:process.env.TARGET_URL||('https://yt.taphoa.xyz/?diag='+Date.now())});
 
             let stateValue='';
             for(let i=0;i<40;i++){
@@ -136,7 +152,7 @@ jobs:
             console.log('STATE',res?.result?.value);
             const state=JSON.parse(res?.result?.value||'{}');
             const versionOk=(state.scripts||[]).some(src=>src.includes(expected));
-            if(!versionOk)throw new Error('production_version_mismatch:'+expected);
+            if(!versionOk)throw new Error('browser_version_mismatch:'+expected);
             if(String(state.feed||'').includes('Đang tải')){
               throw new Error('feed_still_loading');
             }
