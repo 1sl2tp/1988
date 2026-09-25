@@ -10455,6 +10455,24 @@ function saveSourcePoolCache(rows=[]){
   return items;
 }
 
+function replaceSourceInPoolCache(source,rows=[]){
+  const sourceId=String(source?.id||source||"").trim();
+  if(!sourceId)return [];
+  const sourceName=clean(source?.name||"");
+  const current=readSourcePoolCache();
+  const keep=current.filter(row=>String(row?._sourceId||"")!==sourceId);
+  const incoming=(Array.isArray(rows)?rows:[])
+    .filter(Boolean)
+    .map(row=>({
+      ...row,
+      _sourceId:sourceId,
+      _sourceName:clean(row?._sourceName||sourceName)
+    }));
+  const saved=saveSourcePoolCache([...incoming,...keep]);
+  primeSourceFeedCaches(saved);
+  return saved;
+}
+
 function primeSourceFeedCaches(rows=[]){
   const latest=sortPresetRows(rows.filter(uploadedWithinLatest),FEED_PRESETS.latest);
   const week=sortPresetRows(rows.filter(uploadedWithinWeek),FEED_PRESETS.week);
@@ -10563,6 +10581,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
             if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
 
             saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
+            replaceSourceInPoolCache(source,confirmed);
             emit(confirmed,source,{
               cached:false,
               verified:true,
