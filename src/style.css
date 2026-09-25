@@ -6685,31 +6685,6 @@ html:not(.watch-browse) .app-header{
 
 
 /* ============================================================
-   THUMBNAIL EDGE FRAME TRIM v203
-   Some YouTube thumbnails contain their own red/yellow/white rounded frame.
-   Crop only a few outer pixels by gently zooming true 16:9 artwork.
-   Non-16:9 thumbnails remain fully contained and are never zoom-cropped.
-   ============================================================ */
-@media(max-width:720px){
-  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap{
-    overflow:hidden!important;
-    background:#0b0b0c!important;
-  }
-
-  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain){
-    object-fit:contain!important;
-    transform:scale(1.026)!important;
-    transform-origin:center center!important;
-  }
-
-  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
-    object-fit:contain!important;
-    transform:none!important;
-  }
-}
-
-
-/* ============================================================
    WATCH LIST CONTENT + TINT v204
    - Wide mode must not hide title/channel/stats.
    - Mobile watch is always one complete card per row.
@@ -6930,5 +6905,64 @@ html:not(.watch-browse) .app-header{
      above chips/results instead of falling behind the hidden player layer. */
   html.watch-browse.watch-search-open .suggestions{
     z-index:140!important;
+  }
+}
+
+
+/* ============================================================
+   THUMBNAIL HARD NO-CLIP v206
+   Final mobile rule: never zoom/crop recommendation artwork.
+   Source thumbnail pixels, embedded borders and left/right edges
+   must remain fully visible in every watch aspect.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap{
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:16/9!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:hidden!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+    clip-path:none!important;
+    mask:none!important;
+    -webkit-mask:none!important;
+  }
+
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img,
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img:not(.thumb-fit-contain),
+  html.watch-browse .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-wide .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-square .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain,
+  html.watch-browse.watch-video-portrait .feed:not(.search-grouped)>.card .thumb-wrap img.thumb-fit-contain{
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    object-fit:contain!important;
+    object-position:center center!important;
+    transform:none!important;
+    scale:none!important;
+    translate:none!important;
+    clip-path:none!important;
+    mask:none!important;
+    -webkit-mask:none!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
   }
 }
