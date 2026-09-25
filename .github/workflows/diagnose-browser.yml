@@ -65,6 +65,11 @@ jobs:
             TARGET_URL="https://yt.taphoa.xyz/?diag=$GITHUB_SHA"
           fi
           export TARGET_URL
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            export REPEATED_SEARCH_ONLY=1
+          else
+            export REPEATED_SEARCH_ONLY=0
+          fi
 
           CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || command -v chromium-browser || true)"
           echo "CHROME=$CHROME"
@@ -307,6 +312,11 @@ jobs:
             }
             if(Number(appSearchState.second?.cards||0)<=0){
               throw new Error('app_second_search_has_no_cards:'+String(appSearchProbe?.result?.value||''));
+            }
+            if(process.env.REPEATED_SEARCH_ONLY==='1'){
+              console.log('REPEATED_SEARCH_OK',JSON.stringify(appSearchState));
+              ws.close();
+              return;
             }
 
             const rawProbe=await send('Runtime.evaluate',{
