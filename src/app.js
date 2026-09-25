@@ -4026,9 +4026,12 @@ const videoAspectHabits=readVideoAspectHabits();
 
 function videoAspectHabitScope(meta={}){
   const explicit=String(meta?._watchScope||"").trim();
-  if(CONTENT_SOURCE_SCOPES.has(explicit))return explicit;
+  if(explicit==="search")return "search";
+  if(MANAGED_SOURCE_SCOPES.has(explicit))return explicit;
   if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
-  if(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))return state.searchScope;
+  if(state.activeFeed===LIVE_SOURCE_SCOPE)return LIVE_SOURCE_SCOPE;
+  if(isSourceScopedFeed(state.activeFeed))return feedSourceScope(state.activeFeed);
+  if(state.searchQuery)return "search";
   return "";
 }
 
@@ -4042,23 +4045,33 @@ function canonicalHabitAspect(ratio){
 
 function rememberedVideoAspect(meta={}){
   const scope=videoAspectHabitScope(meta);
-  if(!scope)return 0;
-  return validPipAspect(videoAspectHabits?.[scope]?.ratio);
+  const scoped=scope?validPipAspect(videoAspectHabits?.[scope]?.ratio):0;
+  if(scoped)return scoped;
+
+  // A video opened from Search/direct link may not have a tab identity yet.
+  // Fall back to the last verified viewing shape instead of flashing 16:9.
+  return validPipAspect(videoAspectHabits?.global?.ratio);
 }
 
 function rememberVideoAspectHabit(meta={},ratio=0){
   const scope=videoAspectHabitScope(meta);
   const canonical=canonicalHabitAspect(ratio);
-  if(!scope||!canonical)return;
+  if(!canonical)return;
 
-  const previous=validPipAspect(videoAspectHabits?.[scope]?.ratio);
-  if(previous===canonical)return;
+  const orientation=canonical<.80?"portrait":canonical>1.20?"landscape":"square";
+  const next={ratio:canonical,orientation,at:Date.now()};
+  let changed=false;
 
-  videoAspectHabits[scope]={
-    ratio:canonical,
-    orientation:canonical<.80?"portrait":canonical>1.20?"landscape":"square",
-    at:Date.now()
-  };
+  if(validPipAspect(videoAspectHabits?.global?.ratio)!==canonical){
+    videoAspectHabits.global=next;
+    changed=true;
+  }
+  if(scope&&validPipAspect(videoAspectHabits?.[scope]?.ratio)!==canonical){
+    videoAspectHabits[scope]=next;
+    changed=true;
+  }
+
+  if(!changed)return;
   try{
     localStorage.setItem(VIDEO_ASPECT_HABIT_KEY,JSON.stringify(videoAspectHabits));
   }catch{}
@@ -9335,6 +9348,10 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
+  // Preserve where the click came from before Search hands off to Watch.
+  // This is needed for the remembered portrait/landscape habit on Search.
+  const enteredFromSearch=state.searchResultsActive===true;
+
   // Opening a video is the explicit hand-off from Search results to Watch.
   // From this point recommendations may replace the result list.
   state.searchResultsActive=false;
@@ -9350,11 +9367,13 @@ async function playVideo(id,seedMeta={}){
   const seedAspect=validPipAspect(seedMeta?.aspectRatio);
 
   const currentPlaybackScope=
-    (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))
-      ?state.activeParent
-      :(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))
-        ?state.searchScope
-        :activeSourceScope()||"";
+    enteredFromSearch
+      ?"search"
+      :(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))
+        ?state.activeParent
+        :(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))
+          ?state.searchScope
+          :activeSourceScope()||"";
   const playbackMeta={
     ...seedMeta,
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
