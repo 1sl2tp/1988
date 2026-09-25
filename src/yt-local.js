@@ -504,14 +504,23 @@ function proxiedMediaUrl(raw){
 }
 
 function pageRows(result,limit=36){
-  return normalizeRows(
-    result?.videos||
-    result?.results||
-    result?.contents?.contents||
-    result?.contents||
-    [],
-    limit
-  );
+  // Search/home payloads can expose several parsed views at once. An empty
+  // result.videos array is still truthy in JS, so the old `a||b||c` form
+  // could stop there and never inspect result.results even when YouTube had
+  // returned usable video rows. Try each known surface until one normalizes.
+  const surfaces=[
+    result?.videos,
+    result?.results,
+    result?.contents?.contents,
+    result?.contents
+  ];
+
+  for(const rows of surfaces){
+    const normalized=normalizeRows(rows,limit);
+    if(normalized.length)return normalized;
+  }
+
+  return [];
 }
 
 async function nextPage(result){

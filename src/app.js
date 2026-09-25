@@ -9983,6 +9983,7 @@ if(!(window.YT&&typeof YT.Player==="function")){
 }
 
 
+
 async function doSearch(value){
   const q=clean(value);
   if(!q)return;
@@ -10022,15 +10023,17 @@ async function doSearch(value){
     searchRefinements.innerHTML="";
   }
 
+  const usableRows=rows=>mergeUniqueRows(
+    [],
+    (Array.isArray(rows)?rows:[])
+      .filter(row=>itemVideoId(row))
+      .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+  ).slice(0,60);
+
   const paintRows=rows=>{
     if(seq!==state.searchSeq||state.searchQuery!==q)return false;
 
-    const cleanRows=mergeUniqueRows(
-      [],
-      (Array.isArray(rows)?rows:[])
-        .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
-    ).slice(0,60);
-
+    const cleanRows=usableRows(rows);
     if(!cleanRows.length)return false;
 
     state.feedRows=cleanRows;
@@ -10043,24 +10046,23 @@ async function doSearch(value){
     return true;
   };
 
-  // Start both real search paths immediately. The previous implementation
-  // waited up to 6.5s for youtubei.js before even starting the backend.
-  const backendTask=api("search",{q,filter:"videos"},2600)
-    .then(response=>{
-      const rows=Array.isArray(response?.data?.items)?response.data.items:[];
-      if(!rows.length)throw new Error("empty_backend_search");
-      return rows;
-    });
+  const requireUsable=(rows,label)=>{
+    const cleanRows=usableRows(rows);
+    if(!cleanRows.length)throw new Error("empty_"+label+"_search");
+    return cleanRows;
+  };
 
-  const localTask=localEngine(1400)
+  // Start both real search paths immediately. A source only "wins" when it
+  // has renderable video rows, not merely when its HTTP request succeeds.
+  const backendTask=api("search",{q,filter:"videos"},2800)
+    .then(response=>requireUsable(response?.data?.items,"backend"));
+
+  const localTask=localEngine(1600)
     .then(local=>Promise.race([
       local.search(q,{type:"video"}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),1800))
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),2200))
     ]))
-    .then(rows=>{
-      if(!Array.isArray(rows)||!rows.length)throw new Error("empty_local_search");
-      return rows;
-    });
+    .then(rows=>requireUsable(rows,"local"));
 
   let firstRows=[];
   try{
@@ -10070,17 +10072,14 @@ async function doSearch(value){
   if(seq!==state.searchSeq)return;
 
   if(paintRows(firstRows)){
-    // The slower path may still add useful rows, but it never delays first paint.
+    // The slower path may add useful rows, but it never delays first paint.
     void Promise.allSettled([localTask,backendTask]).then(results=>{
       if(seq!==state.searchSeq||state.searchQuery!==q)return;
       const merged=[...state.feedRows];
       for(const result of results){
         if(result.status==="fulfilled")merged.push(...result.value);
       }
-      const rows=mergeUniqueRows(
-        [],
-        merged.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
-      ).slice(0,60);
+      const rows=usableRows(merged);
       if(rows.length<=state.feedRows.length)return;
       state.feedRows=rows;
       renderCards(rows);
@@ -10090,6 +10089,27 @@ async function doSearch(value){
     return;
   }
 
+  // Do not declare "no result" because the first finished path had unusable
+  // rows. Wait for both primary paths and merge anything valid first.
+  const settled=await Promise.allSettled([localTask,backendTask]);
+  if(seq!==state.searchSeq)return;
+
+  const mergedPrimary=[];
+  for(const result of settled){
+    if(result.status==="fulfilled")mergedPrimary.push(...result.value);
+  }
+  if(paintRows(mergedPrimary))return;
+
+  // Piped instances occasionally return an empty videos-only surface while
+  // the same YouTube search still has results in the mixed "all" surface.
+  // Use that as a last non-AI fallback, then keep only actual video rows.
+  try{
+    const response=await api("search",{q,filter:"all"},3200);
+    if(seq!==state.searchSeq)return;
+    if(paintRows(response?.data?.items))return;
+  }catch{}
+
+  if(seq!==state.searchSeq)return;
   feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
   feedStatus.textContent="";
 }
