@@ -2844,27 +2844,7 @@ function explicitVideoAspect(meta={}){
 
 let responsivePlayerRaf=0;
 
-function playbackScope(meta=state.currentMeta||{}){
-  const explicit=clean(meta?._watchScope||"");
-  if(explicit)return explicit;
-  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
-  if(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))return state.searchScope;
-  return activeSourceScope()||"";
-}
-
-function isLongFilmPlayback(meta=state.currentMeta||{}){
-  if(playbackScope(meta)!=="film")return false;
-  const currentCard=[...feed.querySelectorAll("[data-video-id]")]
-    .find(card=>card.dataset.videoId===state.currentId);
-  const duration=Math.max(
-    Number(durationSeconds(meta))||0,
-    Number(currentCard?.dataset?.duration)||0
-  );
-  return duration>=20*60;
-}
-
 function responsivePlayerAspect(meta=state.currentMeta||{}){
-  if(isLongFilmPlayback(meta))return 16/9;
   return explicitVideoAspect(meta)||
     validPipAspect(state.videoAspect)||
     16/9;
@@ -2874,12 +2854,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Long-form film is intentionally kept in YouTube's standard 16:9
-  // player box. Other content still follows its measured/original ratio.
-  const filmDefault=isLongFilmPlayback(meta);
-  let ratio=filmDefault
-    ?16/9
-    :(explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9);
+  // Standard/default player sizing: normal 16:9 content stays on the
+  // regular wide-player path so YouTube keeps its full native control set.
+  let ratio=explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9;
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
 
   frame.classList.remove(
@@ -2898,8 +2875,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
   const root=document.documentElement;
-  root.classList.toggle("watch-film-default",filmDefault&&root.classList.contains("watch-browse"));
   root.classList.remove(
+    "watch-film-default",
     "watch-video-wide",
     "watch-video-square",
     "watch-video-portrait"
@@ -2989,14 +2966,6 @@ function queueResponsivePlayerFrame(){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
-  if(isLongFilmPlayback(meta)){
-    state.videoAspect=16/9;
-    state.videoAspectVerified=true;
-    state.videoAspectPortraitLocked=false;
-    applyResponsivePlayerFrame(meta);
-    return;
-  }
-
   const next=explicitVideoAspect(meta);
   if(!next)return;
 
@@ -7663,14 +7632,11 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
-  const longFilmDefault=isLongFilmPlayback(playbackMeta);
-  state.videoAspect=longFilmDefault
-    ?16/9
-    :(immediateAspect||(
-      wasFloating
-        ?previousAspect
-        :normalizedVideoAspect(playbackMeta)
-    ));
+  state.videoAspect=immediateAspect||(
+    wasFloating
+      ?previousAspect
+      :normalizedVideoAspect(playbackMeta)
+  );
   state.videoAspectVerified=!!cachedAspect;
   state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
   state.floatPreset="auto";
