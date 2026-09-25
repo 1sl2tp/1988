@@ -11309,6 +11309,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
       sourceSignature:sourceSig,
       inputHash
     });
+    void queuePackageUpload(snapshotName);
     return base;
   };
 
@@ -11360,6 +11361,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
         sourceSignature:sourceSig,
         inputHash
       });
+      void queuePackageUpload(snapshotName);
       return packaged;
     }catch(error){
       console.warn("AI dedupe package failed",snapshotName,error);
@@ -11460,6 +11462,8 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
 
   allSourceSnapshotRefreshPromise=(async()=>{
     try{
+      // One small manifest check first; only changed tab packages are fetched.
+      await hydrateServerPackages({force});
       const local=await localEngine(16000);
 
       // Package LIVE + Mới nhất + Tuần này first, because these are the first
@@ -11839,6 +11843,11 @@ async function bootstrap1988(){
     sourcesBtn.disabled=false;
     sourcesBtn.removeAttribute("title");
   }
+
+  // New browsers first hydrate the shared package manifest. This lets them use
+  // ready-made tab packages instead of rebuilding all 11 tabs locally.
+  await hydrateServerPackages({force:true});
+
   await warmManagedAvatarImages(900);
   void prewarmSelectedSourceAvatars();
 
