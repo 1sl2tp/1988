@@ -155,6 +155,7 @@ const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 let stateSyncReady=false;
 let stateSyncApplying=false;
+let stateSyncDirty=false;
 let stateSyncTimer=0;
 let stateSyncPushPromise=null;
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
@@ -249,19 +250,18 @@ let customSources=readStoredArray(SOURCE_CUSTOM_KEY)
     subscribers:clean(row.subscribers||"")
   }));
 
-const legacyHiddenSourceIds=readStoredArray(SOURCE_HIDDEN_KEY)
-  .map(String)
-  .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id));
-
-let blockedSourceIds=new Set(
-  [...readStoredArray(SOURCE_BLOCKED_KEY),...legacyHiddenSourceIds]
-    .map(String)
-    .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id))
-);
+let blockedSourceIds=new Set();
 
 let sourceGroupOverrides=readStoredObject(SOURCE_GROUPS_KEY);
-let scopedSelectedSourceIds=readScopedSourceState(SOURCE_SCOPED_SELECTION_KEY);
-let scopedBlockedSourceIds=readScopedSourceState(SOURCE_SCOPED_BLOCKED_KEY);
+
+function emptyScopedSourceState(){
+  return new Map(
+    [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+  );
+}
+
+let scopedSelectedSourceIds=emptyScopedSourceState();
+let scopedBlockedSourceIds=emptyScopedSourceState();
 let aiSuggestedSourceIds=new Map(
   [...CONTENT_SOURCE_SCOPES].map(scope=>[scope,new Set()])
 );
@@ -301,9 +301,10 @@ function persistSuggestedSourceState(){
 }
 
 function persistSourceLibrary(){
+  // Only non-authoritative metadata caches may live locally. Manual Chọn/Chặn
+  // state is server-only and is never written to localStorage.
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
-    localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
     persistSuggestedSourceState();
@@ -312,16 +313,6 @@ function persistSourceLibrary(){
 }
 
 function persistScopedSourceState(){
-  try{
-    const selected={};
-    const blocked={};
-    for(const scope of CONTENT_SOURCE_SCOPES){
-      selected[scope]=[...(scopedSelectedSourceIds.get(scope)||new Set())];
-      blocked[scope]=[...(scopedBlockedSourceIds.get(scope)||new Set())];
-    }
-    localStorage.setItem(SOURCE_SCOPED_SELECTION_KEY,JSON.stringify(selected));
-    localStorage.setItem(SOURCE_SCOPED_BLOCKED_KEY,JSON.stringify(blocked));
-  }catch{}
   scheduleServerStatePush();
 }
 
@@ -342,24 +333,7 @@ function assignSourceGroup(id,group){
   return true;
 }
 
-function readSourceSelection(){
-  try{
-    const saved=JSON.parse(localStorage.getItem(SOURCE_SELECTION_KEY)||"null");
-    if(Array.isArray(saved)){
-      return new Set(
-        saved
-          .map(String)
-          .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id)&&!blockedSourceIds.has(id))
-      );
-    }
-  }catch{}
-
-  const defaults=channelLibrary().slice(0,12).map(row=>row.id);
-  try{localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify(defaults));}catch{}
-  return new Set(defaults);
-}
-
-let selectedSourceIds=readSourceSelection();
+let selectedSourceIds=new Set();
 
 function pruneLegacyTemporaryCustomSources(){
   const durable=new Set([...selectedSourceIds,...blockedSourceIds]);
@@ -373,7 +347,8 @@ function pruneLegacyTemporaryCustomSources(){
     try{localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));}catch{}
   }
 }
-pruneLegacyTemporaryCustomSources();
+// Server state is hydrated before the source manager/feed starts. Do not prune
+// metadata against an empty pre-hydration Chọn/Chặn set.
 
 let sourceRemoteResults=[];
 let sourceSearchTimer=0;
@@ -438,6 +413,61 @@ function cleanSourceIdList(value){
     .filter(id=>/^UC[A-Za-z0-9_-]+$/.test(id));
 }
 
+function legacyLocalSourceStateSnapshot(){
+  const legacyBlocked=[
+    ...readStoredArray(SOURCE_BLOCKED_KEY),
+    ...readStoredArray(SOURCE_HIDDEN_KEY)
+  ];
+  const selected=cleanSourceIdList(readStoredArray(SOURCE_SELECTION_KEY));
+  const blocked=cleanSourceIdList(legacyBlocked);
+  const selectedSet=new Set(selected);
+  for(const id of blocked)selectedSet.delete(id);
+
+  const scopedSelectedRaw=readStoredObject(SOURCE_SCOPED_SELECTION_KEY);
+  const scopedBlockedRaw=readStoredObject(SOURCE_SCOPED_BLOCKED_KEY);
+  const scopedSelected={};
+  const scopedBlocked={};
+  let scopedCount=0;
+
+  for(const scope of CONTENT_SOURCE_SCOPES){
+    const blockedIds=cleanSourceIdList(scopedBlockedRaw?.[scope]);
+    const blockedSet=new Set(blockedIds);
+    const selectedIds=cleanSourceIdList(scopedSelectedRaw?.[scope])
+      .filter(id=>!blockedSet.has(id));
+    scopedSelected[scope]=selectedIds;
+    scopedBlocked[scope]=blockedIds;
+    scopedCount+=selectedIds.length+blockedIds.length;
+  }
+
+  return {
+    selected:[...selectedSet],
+    blocked,
+    scopedSelected,
+    scopedBlocked,
+    hasState:selectedSet.size>0||blocked.length>0||scopedCount>0
+  };
+}
+
+function clearLegacyLocalSourceState(){
+  try{
+    for(const key of [
+      SOURCE_SELECTION_KEY,
+      SOURCE_BLOCKED_KEY,
+      SOURCE_HIDDEN_KEY,
+      SOURCE_SCOPED_SELECTION_KEY,
+      SOURCE_SCOPED_BLOCKED_KEY,
+      SOURCE_SCOPED_MIGRATION_KEY,
+      SOURCE_SCOPE_ISOLATION_KEY,
+      SOURCE_SCOPE_ISOLATION_BACKUP_KEY,
+      SOURCE_FILM_SNAPSHOT_RECOVERY_KEY,
+      SOURCE_FILM_SNAPSHOT_BACKUP_KEY,
+      SOURCE_FILM_RECOVERY_KEY,
+      SOURCE_FILM_RECOVERY_BACKUP_KEY,
+      SOURCE_FILM_LEGACY_BACKUP_KEY
+    ])localStorage.removeItem(key);
+  }catch{}
+}
+
 function serverStateSnapshot(){
   return {
     selected:cleanSourceIdList([...selectedSourceIds]),
@@ -459,17 +489,13 @@ function serverStateSnapshot(){
   };
 }
 
-function saveServerStateLocally(){
+function saveServerMetadataCachesLocally(){
   try{
-    localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
-    localStorage.setItem(SOURCE_BLOCKED_KEY,JSON.stringify([...blockedSourceIds]));
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
-    localStorage.setItem(SOURCE_SCOPED_SELECTION_KEY,JSON.stringify(scopedStateObject(scopedSelectedSourceIds)));
-    localStorage.setItem(SOURCE_SCOPED_BLOCKED_KEY,JSON.stringify(scopedStateObject(scopedBlockedSourceIds)));
     localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));
-    localStorage.removeItem(SOURCE_HIDDEN_KEY);
   }catch{}
+  clearLegacyLocalSourceState();
 }
 
 function applyServerState(remote={}){
@@ -532,7 +558,8 @@ function applyServerState(remote={}){
       }
     }
 
-    saveServerStateLocally();
+    saveServerMetadataCachesLocally();
+    stateSyncDirty=false;
     invalidateSourceStateNameIndex?.();
     return true;
   }finally{
@@ -565,10 +592,19 @@ async function pushServerStateNow({force=false}={}){
   if((!stateSyncReady&&!force)||stateSyncApplying)return false;
   if(stateSyncPushPromise)return stateSyncPushPromise;
 
+  clearTimeout(stateSyncTimer);
+  stateSyncTimer=0;
+
   const payload={state:serverStateSnapshot(),version:Date.now()};
-  stateSyncPushPromise=stateSyncFetch("POST",payload,3500)
-    .then(result=>!!result?.ok)
+  stateSyncPushPromise=stateSyncFetch("POST",payload,4200)
+    .then(result=>{
+      const ok=!!result?.ok;
+      stateSyncDirty=!ok;
+      if(ok)clearLegacyLocalSourceState();
+      return ok;
+    })
     .catch(error=>{
+      stateSyncDirty=true;
       console.warn("1988 state push failed",error);
       return false;
     })
@@ -577,42 +613,107 @@ async function pushServerStateNow({force=false}={}){
   return stateSyncPushPromise;
 }
 
-function scheduleServerStatePush(delay=700){
+function scheduleServerStatePush(delay=140){
+  stateSyncDirty=true;
   if(!stateSyncReady||stateSyncApplying)return;
   clearTimeout(stateSyncTimer);
-  stateSyncTimer=setTimeout(()=>void pushServerStateNow(),Math.max(120,Number(delay)||700));
+  stateSyncTimer=setTimeout(
+    ()=>void pushServerStateNow(),
+    Math.max(80,Number(delay)||140)
+  );
 }
 
 async function hydrateServerState(){
-  try{
-    const result=await stateSyncFetch("GET",null,2400);
-    if(result?.ok&&result?.exists&&result.state){
-      applyServerState(result.state);
-    }else if(result?.ok&&!result?.exists){
-      // First upgraded device seeds the server with its current local choices.
-      stateSyncReady=true;
-      await pushServerStateNow({force:true});
-      return;
+  let lastError=null;
+
+  for(let attempt=0;attempt<2;attempt++){
+    try{
+      const result=await stateSyncFetch("GET",null,attempt===0?3200:4600);
+      if(result?.ok&&result?.exists&&result.state){
+        applyServerState(result.state);
+        stateSyncReady=true;
+        clearLegacyLocalSourceState();
+        return true;
+      }
+
+      if(result?.ok&&!result?.exists){
+        // One-time migration path only. After this write Chọn/Chặn is server-only.
+        const legacy=legacyLocalSourceStateSnapshot();
+        if(legacy.hasState){
+          selectedSourceIds=new Set(legacy.selected);
+          blockedSourceIds=new Set(legacy.blocked);
+          scopedSelectedSourceIds=new Map(
+            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+              scope,
+              new Set(cleanSourceIdList(legacy.scopedSelected?.[scope]))
+            ])
+          );
+          scopedBlockedSourceIds=new Map(
+            [...CONTENT_SOURCE_SCOPES].map(scope=>[
+              scope,
+              new Set(cleanSourceIdList(legacy.scopedBlocked?.[scope]))
+            ])
+          );
+        }else{
+          selectedSourceIds=new Set(channelLibrary().slice(0,12).map(row=>row.id));
+          blockedSourceIds=new Set();
+          scopedSelectedSourceIds=emptyScopedSourceState();
+          scopedBlockedSourceIds=emptyScopedSourceState();
+        }
+
+        for(const id of blockedSourceIds)selectedSourceIds.delete(id);
+        for(const scope of CONTENT_SOURCE_SCOPES){
+          const selected=scopedSelectedSourceIds.get(scope)||new Set();
+          for(const id of scopedBlockedSourceIds.get(scope)||[])selected.delete(id);
+        }
+
+        stateSyncReady=true;
+        stateSyncDirty=true;
+        const saved=await pushServerStateNow({force:true});
+        if(saved){
+          clearLegacyLocalSourceState();
+          return true;
+        }
+        stateSyncReady=false;
+        return false;
+      }
+    }catch(error){
+      lastError=error;
+      if(attempt===0)await new Promise(resolve=>setTimeout(resolve,220));
     }
-  }catch(error){
-    console.warn("1988 state pull failed; using local state",error);
   }
-  stateSyncReady=true;
+
+  stateSyncReady=false;
+  console.warn("1988 state pull failed; refusing local Chọn/Chặn fallback",lastError);
+  return false;
 }
 
 let lastServerStateRefreshAt=0;
 
 async function refreshServerStateOnResume(){
-  if(!stateSyncReady||stateSyncApplying||stateSyncPushPromise)return;
+  if(stateSyncApplying||stateSyncPushPromise)return;
   if(Date.now()-lastServerStateRefreshAt<15000)return;
   lastServerStateRefreshAt=Date.now();
 
+  if(stateSyncDirty&&stateSyncReady){
+    const saved=await pushServerStateNow();
+    if(saved)return;
+  }
+
   try{
-    const result=await stateSyncFetch("GET",null,2200);
+    const result=await stateSyncFetch("GET",null,3200);
     if(result?.ok&&result?.exists&&result.state){
       applyServerState(result.state);
+      stateSyncReady=true;
+      if(sourcesBtn){
+        sourcesBtn.disabled=false;
+        sourcesBtn.removeAttribute("title");
+      }
       await warmSelectedAvatarImages(500);
       renderParentCategories();
+      if(!document.documentElement.classList.contains("watch-browse")){
+        void loadFeedPreset(state.activeFeed||"latest");
+      }
     }
   }catch{}
 }
@@ -665,9 +766,6 @@ function managedChannelLibrary(){
 }
 
 function persistSourceSelection(){
-  try{
-    localStorage.setItem(SOURCE_SELECTION_KEY,JSON.stringify([...selectedSourceIds]));
-  }catch{}
   persistScopedSourceState();
 }
 
@@ -1097,7 +1195,7 @@ function ensureSourceScopeIsolation(){
   }
 }
 
-ensureSourceScopeIsolation();
+// Legacy local scope migration is intentionally disabled. Server state is authoritative.
 
 const HISTORIC_FILM_SOURCE_IDS=[
   "UCGb92d__VZAy-WJfywGD5mQ","UCCFbvjKJoIFnOFbijZ-Ttyg","UCfrJX6Jb-jvn1sk1eOR7FsQ",
@@ -1362,7 +1460,7 @@ function recoverHistoricFilmManualState(){
     console.warn("historic film snapshot recovery failed",error);
   }
 }
-recoverHistoricFilmManualState();
+// Historic Film recovery is intentionally disabled after server-state migration.
 
 function sourceGroupLabels(row={}){
   const map=new Map(SOURCE_MANAGER_GROUPS.map(item=>[item.key,item.label]));
@@ -1779,7 +1877,11 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
       ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
     ],{blocked:true}));
 
-    if(!unselectedHtml.length&&!selectedRows.length&&!blockedRows.length){
+    if(
+      !unselectedHtml.length&&
+      !selectedRows.length&&!selectedRemote.length&&
+      !blockedRows.length&&!blockedRemote.length
+    ){
       const message=q
         ?"Không có nguồn phù hợp"
         :sourceManageGroup!==GENERAL_SOURCE_SCOPE
@@ -1814,6 +1916,25 @@ function refreshSourceManager(){
   updateSourceSummary(rows);
 }
 
+function rememberSearchedSourceCandidates(rows=[],scope=sourceManageGroup){
+  scope=sourceScope(scope);
+  const temporary=temporarySetForScope(scope);
+  let stateChanged=false;
+
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=String(row?.id||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+
+    sourceMetaCache.set(id,{...sourceMetaCache.get(id),...row});
+    const reconciled=reconcileSourceState(row,scope);
+    if(reconciled.changed)stateChanged=true;
+    if(reconciled.status!=="normal")continue;
+    temporary.add(id);
+  }
+
+  if(stateChanged)persistReconciledSourceState();
+}
+
 async function searchSourceChannels(query){
   const q=clean(query);
   const seq=++sourceSearchSeq;
@@ -1831,10 +1952,9 @@ async function searchSourceChannels(query){
     const rows=await local.searchChannels(q);
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    sourceRemoteResults=Array.isArray(rows)?rows:[];
-    for(const row of sourceRemoteResults){
-      if(row?.id)sourceMetaCache.set(row.id,row);
-    }
+    sourceRemoteResults=(Array.isArray(rows)?rows:[])
+      .filter(row=>/^UC[A-Za-z0-9_-]+$/.test(String(row?.id||"")));
+    rememberSearchedSourceCandidates(sourceRemoteResults,sourceManageGroup);
 
     if(sourceSearchStatus){
       sourceSearchStatus.textContent=sourceRemoteResults.length
@@ -1865,9 +1985,6 @@ function scheduleSourceSearch(){
 }
 
 function sourceCandidateFromVideo(row={}){
-  const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
-
   const name=clean(
     row?._sourceName||
     row?.uploaderName||
@@ -1876,7 +1993,8 @@ function sourceCandidateFromVideo(row={}){
     row?._displaySource||
     ""
   );
-  if(!name)return null;
+  const id=canonicalSourceId(row,name);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!name)return null;
 
   return {
     id,
@@ -1885,6 +2003,11 @@ function sourceCandidateFromVideo(row={}){
       row?.uploaderThumbnailUrl||
       row?.channelThumbnailUrl||
       row?._sourceThumbnailUrl||
+      row?.uploaderAvatar||
+      row?.channelAvatar||
+      row?.authorAvatar||
+      row?.ownerAvatar||
+      row?.avatar||
       ""
     ),
     subscribers:""
@@ -2533,6 +2656,8 @@ function closeSourceLibrary(){
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
   if(sourcePreview)sourcePreview.hidden=true;
   if(sourceBrowse)sourceBrowse.hidden=false;
+
+  if(stateSyncDirty&&stateSyncReady)void pushServerStateNow();
 
   if(state.sourceLibraryDirty){
     state.sourceLibraryDirty=false;
@@ -9680,7 +9805,8 @@ async function loadFeedPreset(name="latest"){
 
   const cached=readFeedCache(name);
   if(cached.length){
-    const rows=sortPresetRows(cached,preset);
+    const rows=sortPresetRows(cached,preset)
+      .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
     state.feedRows=rows;
     await prewarmRowSourceAvatars(aiDisplayRows(trendRows(rows)).slice(0,36),560);
     if(seq!==state.feedSeq||state.activeFeed!==name)return;
@@ -9880,19 +10006,36 @@ topicChips.addEventListener("click",async e=>{
 });
 
 async function bootstrap1988(){
-  await hydrateServerState();
-  await warmSelectedAvatarImages(1000);
+  const sourceStateLoaded=await hydrateServerState();
 
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
-  void prewarmSelectedSourceAvatars();
   setupFloatingIframe();
   setupWatchBrowseLayout();
   setupFullscreenReturn();
   ensureWatchNavRail();
   updateModeUi();
   renderParentCategories();
+
+  if(!sourceStateLoaded){
+    if(sourcesBtn){
+      sourcesBtn.disabled=true;
+      sourcesBtn.title="Chưa tải được dữ liệu nguồn từ máy chủ";
+    }
+    setActiveChip("latest");
+    feedTitle.textContent="Mới nhất";
+    feedStatus.textContent="";
+    feed.innerHTML='<div class="error">Không tải được dữ liệu nguồn từ máy chủ. Hãy thử tải lại trang.</div>';
+    return;
+  }
+
+  if(sourcesBtn){
+    sourcesBtn.disabled=false;
+    sourcesBtn.removeAttribute("title");
+  }
+  await warmSelectedAvatarImages(1000);
+  void prewarmSelectedSourceAvatars();
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
   if(initialVideoId){
