@@ -10377,7 +10377,7 @@ async function recentSearch(local,key,query,maxAgeMs,reset=false,filters={}){
   return rows.filter(row=>uploadedWithin(row,maxAgeMs));
 }
 
-const SOURCE_POOL_KEY="1988-source-pool-v3";
+const SOURCE_POOL_KEY_PREFIX="1988-source-pool-v4:";
 const SOURCE_POOL_TTL=5*60*1000;
 const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
@@ -10441,9 +10441,9 @@ function sourceNeedsRecheck(sourceId){
   const checkedAt=Number(readSourceChannelCache(sourceId).checkedAt)||0;
   return !checkedAt||Date.now()-checkedAt>=SOURCE_CHANNEL_RECHECK_TTL;
 }
-let sourcePoolMemory={signature:"",at:0,items:[]};
-let sourcePoolRefreshPromise=null;
-let sourcePoolRefreshSignature="";
+
+const sourcePoolMemory=new Map();
+const sourcePoolRefreshes=new Map();
 
 function compactSourcePool(rows=[]){
   const perSource=new Map();
@@ -10458,19 +10458,25 @@ function compactSourcePool(rows=[]){
   return [...perSource.values()].flat();
 }
 
-function readSourcePoolCache(){
-  const signature=sourceSignature();
+function sourcePoolStorageKey(scope){
+  return SOURCE_POOL_KEY_PREFIX+sourceScope(scope);
+}
+
+function readSourcePoolCache(scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const signature=sourceSignature(scope);
+  const memory=sourcePoolMemory.get(scope);
   if(
-    sourcePoolMemory.signature===signature &&
-    Array.isArray(sourcePoolMemory.items) &&
-    sourcePoolMemory.items.length &&
-    Date.now()-sourcePoolMemory.at<SOURCE_POOL_TTL
+    memory?.signature===signature &&
+    Array.isArray(memory.items) &&
+    memory.items.length &&
+    Date.now()-memory.at<SOURCE_POOL_TTL
   ){
-    return sourcePoolMemory.items;
+    return memory.items;
   }
 
   try{
-    const row=JSON.parse(localStorage.getItem(SOURCE_POOL_KEY)||"null");
+    const row=JSON.parse(localStorage.getItem(sourcePoolStorageKey(scope))||"null");
     if(
       row &&
       row.signature===signature &&
@@ -10478,11 +10484,11 @@ function readSourcePoolCache(){
       row.items.length &&
       Date.now()-Number(row.at||0)<SOURCE_POOL_TTL
     ){
-      sourcePoolMemory={
+      sourcePoolMemory.set(scope,{
         signature,
         at:Number(row.at)||Date.now(),
         items:row.items
-      };
+      });
       return row.items;
     }
   }catch{}
@@ -10490,20 +10496,38 @@ function readSourcePoolCache(){
   return [];
 }
 
-function saveSourcePoolCache(rows=[]){
-  const signature=sourceSignature();
+function saveSourcePoolCache(rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const signature=sourceSignature(scope);
   const items=compactSourcePool(rows);
   const row={signature,at:Date.now(),items};
-  sourcePoolMemory=row;
-  try{localStorage.setItem(SOURCE_POOL_KEY,JSON.stringify(row));}catch{}
+  sourcePoolMemory.set(scope,row);
+  try{localStorage.setItem(sourcePoolStorageKey(scope),JSON.stringify(row));}catch{}
   return items;
 }
 
-function replaceSourceInPoolCache(source,rows=[]){
+function primeSourceFeedCache(rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  if(scope===LATEST_SOURCE_SCOPE){
+    saveFeedCache(LATEST_SOURCE_SCOPE,sortPresetRows(
+      rows.filter(uploadedWithinLatest),
+      FEED_PRESETS.latest
+    ));
+  }else if(scope===WEEK_SOURCE_SCOPE){
+    saveFeedCache(WEEK_SOURCE_SCOPE,sortPresetRows(
+      rows.filter(uploadedWithinWeek),
+      FEED_PRESETS.week
+    ));
+  }
+}
+
+function replaceSourceInPoolCache(source,rows=[],scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  if(!FEED_SOURCE_SCOPES.has(scope))return [];
   const sourceId=String(source?.id||source||"").trim();
   if(!sourceId)return [];
   const sourceName=clean(source?.name||"");
-  const current=readSourcePoolCache();
+  const current=readSourcePoolCache(scope);
   const keep=current.filter(row=>String(row?._sourceId||"")!==sourceId);
   const incoming=(Array.isArray(rows)?rows:[])
     .filter(Boolean)
@@ -10512,16 +10536,9 @@ function replaceSourceInPoolCache(source,rows=[]){
       _sourceId:sourceId,
       _sourceName:clean(row?._sourceName||sourceName)
     }));
-  const saved=saveSourcePoolCache([...incoming,...keep]);
-  primeSourceFeedCaches(saved);
+  const saved=saveSourcePoolCache([...incoming,...keep],scope);
+  primeSourceFeedCache(saved,scope);
   return saved;
-}
-
-function primeSourceFeedCaches(rows=[]){
-  const latest=sortPresetRows(rows.filter(uploadedWithinLatest),FEED_PRESETS.latest);
-  const week=sortPresetRows(rows.filter(uploadedWithinWeek),FEED_PRESETS.week);
-  saveFeedCache("latest",latest);
-  saveFeedCache("week",week);
 }
 
 async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCOPE,onBatch=null){
@@ -10548,8 +10565,6 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
       }
     }
 
-    // Some callers may emit UI-only rows, but normal source rows are collected
-    // immediately so first paint does not depend on playability probes.
     if(meta.transient!==true){
       for(const row of batch){
         const id=itemVideoId(row);
@@ -10587,22 +10602,16 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         emit(cached.items,source,{cached:true});
       }
 
-      // A recent successful check means there is no reason to hit YouTube again yet,
-      // even if that check returned no new rows.
       if(reset&&!sourceNeedsRecheck(source.id))continue;
 
       try{
         const fetchedRows=await local.channelVideosPage(
-          "library:"+source.id,
+          "library:"+scope+":"+source.id,
           source.id,
           reset
         );
         let rows=quickVisibleRows(Array.isArray(fetchedRows)?fetchedRows:[]);
 
-        // Simple/stable rule:
-        // 1) channel rows are the display source and paint immediately;
-        // 2) only definitive private/deleted/embed failures may be removed later;
-        // 3) timeout/anti-bot/unknown must never erase a source.
         if(reset&&rows.length){
           saveSourceChannelCache(source,rows,Date.now(),{replace:true});
           emit(rows,source,{
@@ -10613,8 +10622,6 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(rows.length&&typeof local?.filterEmbeddableRows==="function"){
-          // Verification is background-only. Never hold the source queue.
-          // Unknown/timeout stays; only a definitive false may disappear.
           void local.filterEmbeddableRows(
             rows,
             {concurrency:8,requirePlayable:false}
@@ -10625,7 +10632,7 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
             if(!selectedNow.has(source.id)||blockedNow.has(source.id))return;
 
             saveSourceChannelCache(source,confirmed,Date.now(),{replace:true});
-            replaceSourceInPoolCache(source,confirmed);
+            replaceSourceInPoolCache(source,confirmed,scope);
             emit(confirmed,source,{
               cached:false,
               verified:true,
@@ -10633,24 +10640,19 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
               late:true
             });
           }).catch(error=>{
-            console.warn("source background verify failed",source.id,error);
+            console.warn("source background verify failed",scope,source.id,error);
           });
         }
 
-        if(reset){
-          // Already emitted above; move straight to the next source.
-          // Empty upstream results preserve the last good cache.
-        }else{
-          if(rows.length){
-            emit(rows,source,{cached:false});
-            saveSourceChannelCache(source,[
-              ...rows,
-              ...readSourceChannelCache(source.id).items
-            ],Date.now());
-          }
+        if(!reset&&rows.length){
+          emit(rows,source,{cached:false});
+          saveSourceChannelCache(source,[
+            ...rows,
+            ...readSourceChannelCache(source.id).items
+          ],Date.now());
         }
       }catch(error){
-        console.warn("source feed failed",source.id,error);
+        console.warn("source feed failed",scope,source.id,error);
       }
     }
   };
@@ -10662,63 +10664,60 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
   await Promise.all(workers);
   return mergeUniqueRows([],collected);
 }
-function refreshSourcePool(local,sources,onBatch=null){
-  const signature=sourceSignature();
-  if(sourcePoolRefreshPromise&&sourcePoolRefreshSignature===signature){
-    return sourcePoolRefreshPromise;
-  }
 
-  sourcePoolRefreshSignature=signature;
-  sourcePoolRefreshPromise=(async()=>{
+function refreshSourcePool(local,sources,scope=LATEST_SOURCE_SCOPE,onBatch=null){
+  scope=sourceScope(scope);
+  const signature=scope+"|"+sourceSignature(scope);
+  const current=sourcePoolRefreshes.get(scope);
+  if(current?.signature===signature)return current.promise;
+
+  const promise=(async()=>{
     const rows=await fetchSourcePool(
       local,
       sources,
       true,
-      GENERAL_SOURCE_SCOPE,
+      scope,
       onBatch
     );
-    if(signature!==sourceSignature())return [];
-    const saved=saveSourcePoolCache(rows);
-    primeSourceFeedCaches(saved);
+    if(signature!==scope+"|"+sourceSignature(scope))return [];
+    const saved=saveSourcePoolCache(rows,scope);
+    primeSourceFeedCache(saved,scope);
     return saved;
   })().finally(()=>{
-    if(sourcePoolRefreshSignature===signature){
-      sourcePoolRefreshPromise=null;
-      sourcePoolRefreshSignature="";
-    }
+    const active=sourcePoolRefreshes.get(scope);
+    if(active?.signature===signature)sourcePoolRefreshes.delete(scope);
   });
 
-  return sourcePoolRefreshPromise;
+  sourcePoolRefreshes.set(scope,{signature,promise});
+  return promise;
 }
 
-async function selectedSourceFeed(local,predicate,reset=false,onBatch=null){
-  const sources=selectedSources();
+async function selectedSourceFeed(local,predicate,reset=false,onBatch=null,scope=LATEST_SOURCE_SCOPE){
+  scope=sourceScope(scope);
+  const sources=selectedSources(scope);
   if(!sources.length)return [];
 
   if(reset){
-    const cached=readSourcePoolCache();
+    const cached=readSourcePoolCache(scope);
     if(cached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
+      if(!document.hidden)void refreshSourcePool(local,sources,scope,onBatch);
       return cached.filter(predicate);
     }
 
-    // The aggregate pool may expire before the per-channel caches do.
-    // Use those channel snapshots immediately instead of blocking the first
-    // paint on a full YouTube + playability refresh across every source.
-    const channelCached=cachedRowsForSources(sources,GENERAL_SOURCE_SCOPE);
+    const channelCached=cachedRowsForSources(sources,scope);
     if(channelCached.length){
-      if(!document.hidden)void refreshSourcePool(local,sources,onBatch);
+      if(!document.hidden)void refreshSourcePool(local,sources,scope,onBatch);
       return channelCached.filter(predicate);
     }
 
-    const fresh=await refreshSourcePool(local,sources,onBatch);
+    const fresh=await refreshSourcePool(local,sources,scope,onBatch);
     return fresh.filter(predicate);
   }
 
-  const extra=await fetchSourcePool(local,sources,false,GENERAL_SOURCE_SCOPE);
-  const previous=readSourcePoolCache();
-  const merged=saveSourcePoolCache([...extra,...previous]);
-  primeSourceFeedCaches(merged);
+  const extra=await fetchSourcePool(local,sources,false,scope);
+  const previous=readSourcePoolCache(scope);
+  const merged=saveSourcePoolCache([...extra,...previous],scope);
+  primeSourceFeedCache(merged,scope);
   return extra.filter(predicate);
 }
 
