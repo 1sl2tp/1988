@@ -159,6 +159,9 @@ let stateSyncApplying=false;
 let stateSyncDirty=false;
 let stateSyncTimer=0;
 let stateSyncPushPromise=null;
+let sourceWriteClock=Date.now();
+const sourceWriteChains=new Map();
+const pendingSourceWrites=new Map();
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
@@ -333,18 +336,17 @@ function persistSuggestedSourceState(){
 
 function persistSourceLibrary(){
   // Only non-authoritative metadata caches may live locally. Manual Chọn/Chặn
-  // state is server-only and is never written to localStorage.
+  // state is written immediately to Supabase by queueDirectSourceStateWrite().
   try{
     localStorage.setItem(SOURCE_CUSTOM_KEY,JSON.stringify(customSources));
     localStorage.setItem(SOURCE_GROUPS_KEY,JSON.stringify(sourceGroupOverrides));
     localStorage.removeItem(SOURCE_HIDDEN_KEY);
     persistSuggestedSourceState();
   }catch{}
-  scheduleServerStatePush();
 }
 
 function persistScopedSourceState(){
-  scheduleServerStatePush();
+  // Authoritative Chọn/Chặn state is row-based in Supabase, never localStorage.
 }
 
 function suggestedSetForScope(scope=sourceManageGroup){
@@ -505,8 +507,9 @@ function clearLegacyLocalSourceState(){
 }
 
 function serverStateSnapshot(){
+  const durableIds=allManagedStateIds();
   return {
-    sourceScopeVersion:2,
+    sourceScopeVersion:3,
     selected:cleanSourceIdList([...selectedSourceIds]),
     blocked:cleanSourceIdList([...blockedSourceIds]),
     customSources:(Array.isArray(customSources)?customSources:[]).map(row=>({
@@ -514,15 +517,15 @@ function serverStateSnapshot(){
       name:clean(row?.name||""),
       thumbnailUrl:safeSourceThumb(row?.thumbnailUrl||""),
       subscribers:clean(row?.subscribers||"")
-    })).filter(row=>/^UC[A-Za-z0-9_-]+$/.test(row.id)&&row.name),
-    sourceGroups:sourceGroupOverrides&&typeof sourceGroupOverrides==="object"
-      ?sourceGroupOverrides
-      :{},
+    })).filter(row=>
+      /^UC[A-Za-z0-9_-]+$/.test(row.id) &&
+      row.name &&
+      durableIds.has(row.id)
+    ),
+    sourceGroups:{},
     scopedSelected:scopedStateObject(scopedSelectedSourceIds),
     scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
-    avatars:sourceAvatarCache&&typeof sourceAvatarCache==="object"
-      ?sourceAvatarCache
-      :{}
+    avatars:{}
   };
 }
 
@@ -617,13 +620,14 @@ function applyServerState(remote={}){
   }
 }
 
-async function stateSyncFetch(method="GET",body=null,timeout=2200){
+async function stateSyncFetch(method="GET",body=null,timeout=2200,{keepalive=false}={}){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),timeout);
   try{
     const response=await fetch(STATE_SYNC_URL,{
       method,
       cache:"no-store",
+      keepalive,
       signal:controller.signal,
       headers:{
         "content-type":"application/json",
@@ -637,6 +641,87 @@ async function stateSyncFetch(method="GET",body=null,timeout=2200){
     clearTimeout(timer);
   }
 }
+
+function nextSourceWriteVersion(){
+  const now=Date.now();
+  sourceWriteClock=Math.max(now,sourceWriteClock+1);
+  return sourceWriteClock;
+}
+
+function directSourceWritePayload(id,status,scope){
+  id=String(id||"").trim();
+  scope=sourceScope(scope);
+  const row=stateMetadataCandidate(id);
+  const meta=row?sourceMetaFor(row):{};
+  return {
+    op:"set_source",
+    scope,
+    channel_id:id,
+    status:status==="selected"||status==="blocked"?status:"normal",
+    version:nextSourceWriteVersion(),
+    source:{
+      name:clean(meta?.name||row?.name||""),
+      thumbnailUrl:safeSourceThumb(meta?.thumbnailUrl||row?.thumbnailUrl||""),
+      subscribers:clean(meta?.subscribers||row?.subscribers||"")
+    }
+  };
+}
+
+function queueDirectSourceStateWrite(id,status,scope){
+  const op=directSourceWritePayload(id,status,scope);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(op.channel_id))return Promise.resolve(false);
+  const key=op.scope+"|"+op.channel_id;
+  pendingSourceWrites.set(key,op);
+
+  const previous=sourceWriteChains.get(key)||Promise.resolve();
+  const task=previous.catch(()=>{}).then(async()=>{
+    const latest=pendingSourceWrites.get(key);
+    if(!latest||latest.version!==op.version)return true;
+
+    let lastError=null;
+    for(let attempt=0;attempt<2;attempt++){
+      try{
+        const result=await stateSyncFetch("POST",latest,attempt===0?2600:4200);
+        if(!result?.ok)throw new Error("source_state_write_failed");
+        if(pendingSourceWrites.get(key)?.version===latest.version){
+          pendingSourceWrites.delete(key);
+        }
+        return true;
+      }catch(error){
+        lastError=error;
+        if(attempt===0)await new Promise(resolve=>setTimeout(resolve,120));
+      }
+    }
+
+    stateSyncDirty=true;
+    console.warn("1988 direct source state write failed",latest.scope,latest.channel_id,lastError);
+    return false;
+  }).finally(()=>{
+    if(sourceWriteChains.get(key)===task)sourceWriteChains.delete(key);
+  });
+
+  sourceWriteChains.set(key,task);
+  return task;
+}
+
+function flushPendingSourceWritesOnPageHide(){
+  for(const op of pendingSourceWrites.values()){
+    try{
+      void fetch(STATE_SYNC_URL,{
+        method:"POST",
+        cache:"no-store",
+        keepalive:true,
+        headers:{
+          "content-type":"application/json",
+          "x-1988-pin":SETTINGS_PIN
+        },
+        body:JSON.stringify(op)
+      });
+    }catch{}
+  }
+}
+
+window.addEventListener("pagehide",flushPendingSourceWritesOnPageHide,{capture:true});
 
 async function pushServerStateNow({force=false}={}){
   if((!stateSyncReady&&!force)||stateSyncApplying)return false;
@@ -974,6 +1059,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
     }
   }
 
+  void queueDirectSourceStateWrite(id,status,scope);
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
@@ -1050,7 +1136,6 @@ function rememberSourceAvatar(id="",image=""){
   if(sourceAvatarCache[id]!==image){
     sourceAvatarCache[id]=image;
     try{localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));}catch{}
-    scheduleServerStatePush(1100);
   }
   queueAvatarRuntimeCache(image);
   void warmAvatarImage(image);
