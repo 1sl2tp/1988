@@ -526,21 +526,37 @@ async function nextPage(result){
 function classifyEmbedPlayback(info){
   const play=info?.playability_status||{};
   const status=String(play?.status||'').trim().toUpperCase();
-  const reason=text(play?.reason||'').trim();
+  const reasonParts=[
+    text(play?.reason),
+    text(play?.subreason),
+    text(play?.messages),
+    text(play?.error_screen?.reason),
+    text(play?.error_screen?.subreason),
+    text(info?.basic_info?.reason)
+  ].map(value=>String(value||'').trim()).filter(Boolean);
+  const reason=reasonParts.join(' · ');
   const reasonNorm=reason.toLowerCase();
-  const embeddable=
-    typeof play?.embeddable==='boolean'
-      ?play.embeddable
-      :typeof play?.playableInEmbed==='boolean'
-        ?play.playableInEmbed
-        :null;
+  const basic=info?.basic_info||{};
+  const embeddable=[
+    play?.embeddable,
+    play?.playableInEmbed,
+    basic?.is_embeddable,
+    basic?.isEmbeddable,
+    basic?.playable_in_embed
+  ].find(value=>typeof value==='boolean')??null;
 
   if(embeddable===false){
     return {playable:false,definitive:true,status:status||'UNPLAYABLE',reason:reason||'embed_disabled'};
   }
 
   if(
-    /other\s+(?:web)?sites?|embedding|embed(?:ding)?\s+(?:has\s+been\s+)?disabled|playback\s+on\s+other/i.test(reason)
+    /other\s+(?:web)?sites?|embedding|embed(?:ding)?\s+(?:has\s+been\s+)?disabled|playback\s+on\s+other|watch\s+(?:this\s+)?video\s+on\s+youtube|xem\s+trên\s+youtube/i.test(reason)
+  ){
+    return {playable:false,definitive:true,status:status||'UNPLAYABLE',reason};
+  }
+
+  if(
+    /private\s+video|video\s+is\s+private|video\s+unavailable|not\s+available|has\s+been\s+removed|deleted\s+video|members?[- ]only|video\s+riêng\s+tư|video\s+không\s+khả\s+dụng|đã\s+bị\s+xóa|không\s+có\s+sẵn/i.test(reason)
   ){
     return {playable:false,definitive:true,status:status||'UNPLAYABLE',reason};
   }
@@ -640,11 +656,17 @@ function markEmbedUnplayable(id,reason='iframe_embed_error'){
   });
 }
 
+function obviousUnavailableRow(row={}){
+  const title=text(row?.title||row?._displayTitle||'').trim();
+  return /^(?:\[?private video\]?|\[?deleted video\]?|video unavailable|video riêng tư|video không khả dụng|video đã bị xóa)$/i.test(title);
+}
+
 async function filterEmbeddableRows(rows=[],options={}){
-  const list=(Array.isArray(rows)?rows:[]).filter(Boolean);
+  const list=(Array.isArray(rows)?rows:[]).filter(row=>row&&!obviousUnavailableRow(row));
   if(!list.length)return [];
 
   const concurrency=Math.max(1,Math.min(10,Number(options?.concurrency)||6));
+  const requirePlayable=options?.requirePlayable===true;
   const output=new Array(list.length);
   let cursor=0;
 
@@ -662,16 +684,20 @@ async function filterEmbeddableRows(rows=[],options={}){
       ).trim();
 
       if(!VIDEO_ID_RE.test(id)){
-        output[index]=row;
         continue;
       }
 
       try{
         const status=await embedPlaybackStatus(id);
-        // Unknown stays visible; only a definitive "cannot play here" is removed.
-        if(status?.playable!==false)output[index]=row;
+        // Search may keep unknown rows to avoid false negatives. Selected-source
+        // feeds are strict: only confirmed playable rows may enter cache/feed.
+        if(requirePlayable){
+          if(status?.playable===true)output[index]=row;
+        }else if(status?.playable!==false){
+          output[index]=row;
+        }
       }catch{
-        output[index]=row;
+        if(!requirePlayable)output[index]=row;
       }
     }
   };
