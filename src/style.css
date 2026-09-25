@@ -5493,3 +5493,69 @@ html.watch-browse .player-frame video{
     pointer-events:auto!important;
   }
 }
+
+
+/* ============================================================
+   DESKTOP PAGE AMBIENT + MOBILE GESTURE STABILITY v193
+   ============================================================ */
+@media(min-width:721px){
+  html:not(.watch-browse) body{
+    position:relative;
+    isolation:isolate;
+    background:#0b0b0c;
+  }
+
+  html:not(.watch-browse) body::before{
+    content:"";
+    position:fixed;
+    z-index:0;
+    inset:-36px;
+    pointer-events:none;
+    background-image:
+      linear-gradient(
+        180deg,
+        rgba(11,11,12,.82) 0%,
+        rgba(11,11,12,.90) 48%,
+        rgba(11,11,12,.96) 100%
+      ),
+      var(--home-ambient-art,none);
+    background-position:center;
+    background-size:cover;
+    filter:blur(24px) saturate(1.22);
+    opacity:0;
+    transform:scale(1.035);
+    transition:opacity .18s ease;
+  }
+
+  html:not(.watch-browse).home-ambient-on body::before{
+    opacity:.34;
+  }
+
+  html:not(.watch-browse) .app-shell{
+    position:relative;
+    z-index:1;
+  }
+
+  html:not(.watch-browse) .app-header{
+    z-index:80;
+  }
+}
+
+@media(max-width:720px){
+  /* One class controls the complete top row. No child is allowed to remain
+     visible independently while a vertical swipe hides it. */
+  html:not(.watch-browse).home-header-hidden .header-inner,
+  html:not(.watch-browse).home-header-hidden .header-inner .brand,
+  html:not(.watch-browse).home-header-hidden .header-inner .header-search,
+  html:not(.watch-browse).home-header-hidden .header-inner .home-search-toggle,
+  html:not(.watch-browse).home-header-hidden .header-inner .source-header-btn,
+  html:not(.watch-browse).home-header-hidden .header-inner .source-header-icon{
+    opacity:0!important;
+    pointer-events:none!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-inner .header-search,
+  html:not(.watch-browse).home-header-hidden .header-inner .source-header-btn{
+    visibility:hidden!important;
+  }
+}
