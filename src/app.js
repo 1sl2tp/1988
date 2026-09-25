@@ -10356,7 +10356,7 @@ function readSourceChannelCache(sourceId){
   }
 }
 
-function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
+function saveSourceChannelCache(source,rows=[],checkedAt=Date.now(),options={}){
   const sourceId=String(source?.id||source||"").trim();
   if(!sourceId)return [];
   const name=clean(source?.name||"");
@@ -10364,7 +10364,10 @@ function saveSourceChannelCache(source,rows=[],checkedAt=Date.now()){
   const incoming=(Array.isArray(rows)?rows:[])
     .filter(Boolean)
     .map(row=>({...row,_sourceId:sourceId,_sourceName:clean(row?._sourceName||name)}));
-  const items=compactSourcePool(mergeUniqueRows(incoming,old.items))
+  const base=options?.replace===true
+    ?incoming
+    :mergeUniqueRows(incoming,old.items);
+  const items=compactSourcePool(base)
     .filter(row=>String(row?._sourceId||"")===sourceId)
     .slice(0,24);
   try{
@@ -10517,7 +10520,10 @@ async function fetchSourcePool(local,sources,reset=true,scope=GENERAL_SOURCE_SCO
         }
 
         if(reset){
-          saveSourceChannelCache(source,rows,Date.now());
+          // A fresh channel snapshot is authoritative for this cache window.
+          // Do not keep videos that disappeared because they became private,
+          // deleted, unavailable or embed-disabled.
+          saveSourceChannelCache(source,rows,Date.now(),{replace:true});
           if(rows.length)emit(rows,source,{cached:false});
         }else{
           emit(rows,source,{cached:false});
@@ -10571,6 +10577,15 @@ async function selectedSourceFeed(local,predicate,reset=false){
     if(cached.length){
       if(!document.hidden)void refreshSourcePool(local,sources);
       return cached.filter(predicate);
+    }
+
+    // The aggregate pool may expire before the per-channel caches do.
+    // Use those channel snapshots immediately instead of blocking the first
+    // paint on a full YouTube + playability refresh across every source.
+    const channelCached=cachedRowsForSources(sources,GENERAL_SOURCE_SCOPE);
+    if(channelCached.length){
+      if(!document.hidden)void refreshSourcePool(local,sources);
+      return channelCached.filter(predicate);
     }
 
     const fresh=await refreshSourcePool(local,sources);
@@ -10969,7 +10984,19 @@ async function loadFeedPreset(name="latest"){
   }
   feedTitle.textContent=preset.title;
 
-  const cached=readFeedCache(name);
+  let cached=readFeedCache(name);
+  if(!cached.length&&isSourceScopedFeed(name)){
+    const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
+    const perSourceCached=cachedRowsForSources(
+      selectedSources(),
+      GENERAL_SOURCE_SCOPE
+    ).filter(predicate);
+    if(perSourceCached.length){
+      cached=sortPresetRows(perSourceCached,preset);
+      saveFeedCache(name,cached);
+    }
+  }
+
   if(cached.length){
     const rows=sortPresetRows(cached,preset)
       .filter(row=>!isSourceScopedFeed(name)||!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
