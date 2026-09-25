@@ -254,11 +254,22 @@ async function pipedChannel(id: string) {
       setUpstreamCache(path, base, data);
       return { source: base, data };
     }
+
+    // If the first Piped batch has no usable videos, do not spend the whole
+    // request budget walking every instance. YouTube RSS is exact by channel id
+    // and works for Topic/auto-generated channels that Piped often returns empty.
+    if (start === 0) {
+      try {
+        const rss = await youtubeRssChannel(id);
+        if (channelRows(rss.data).length) {
+          setUpstreamCache(path, rss.source, rss.data);
+          return rss;
+        }
+      } catch {}
+    }
   }
 
-  // Auto-generated YouTube Topic channels are a common case where Piped can
-  // return HTTP 200 with an empty video list. Use YouTube's channel RSS by the
-  // exact channel id, so we do not guess by name or mix another artist/source.
+  // Last chance in case the first RSS attempt was a transient network failure.
   try {
     const rss = await youtubeRssChannel(id);
     if (channelRows(rss.data).length) {
