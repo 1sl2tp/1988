@@ -7815,13 +7815,19 @@ function onHomeScroll(event){
 window.addEventListener("scroll",onHomeScroll,{passive:true});
 document.addEventListener("scroll",onHomeScroll,{passive:true,capture:true});
 
+function homeSearchIconMarkup(open){
+  return open
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"></path><path d="m11 18-6-6 6-6"></path></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg>';
+}
+
 function setHomeSearchOpen(open){
   const root=document.documentElement;
   if(root.classList.contains("watch-browse"))return;
   if(open)root.classList.remove("home-header-hidden");
   root.classList.toggle("home-search-open",!!open);
   if(homeSearchToggle){
-    homeSearchToggle.textContent=open?"←":"⌕";
+    homeSearchToggle.innerHTML=homeSearchIconMarkup(open);
     homeSearchToggle.setAttribute("aria-label",open?"Đóng tìm kiếm":"Mở tìm kiếm");
   }
   if(open){
@@ -7864,7 +7870,7 @@ searchForm.addEventListener("submit",e=>{
   e.preventDefault();
   document.documentElement.classList.remove("watch-search-open","home-search-open");
   if(homeSearchToggle){
-    homeSearchToggle.textContent="⌕";
+    homeSearchToggle.innerHTML=homeSearchIconMarkup(false);
     homeSearchToggle.setAttribute("aria-label","Mở tìm kiếm");
   }
   void doSearch(queryInput.value);
