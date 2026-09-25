@@ -3281,9 +3281,101 @@ function closeCardActionMenu(){
 }
 
 function cardActionScope(){
-  return activeSourceScope()||
-    (CONTENT_SOURCE_SCOPES.has(state.searchScope)?state.searchScope:GENERAL_SOURCE_SCOPE)||
-    GENERAL_SOURCE_SCOPE;
+  // Only a real source/feed tab gives an implicit destination. Search,
+  // recommendations and other neutral views must ask which tab to use.
+  return activeSourceScope()||"";
+}
+
+function cardActionIcon(name=""){
+  const common='viewBox="0 0 24 24" aria-hidden="true"';
+  if(name==="interested"){
+    return '<svg '+common+'><path d="M12 20.4 4.2 13.1A5.2 5.2 0 0 1 11.5 5.7l.5.5.5-.5a5.2 5.2 0 0 1 7.3 7.4L12 20.4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
+  }
+  if(name==="not-interested"){
+    return '<svg '+common+'><circle cx="12" cy="12" r="8.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m6.2 6.2 11.6 11.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  }
+  if(name==="share"){
+    return '<svg '+common+'><circle cx="18" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="19" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8 10.9 7.9-4.6M8 13.1l7.9 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  }
+  return '<svg '+common+'><rect x="4" y="4" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="4" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="14" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="14" y="14" width="6" height="6" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>';
+}
+
+function cardActionItemHtml(action,label,{danger=false,active=false,disabled=false}={}){
+  return '<button type="button" class="card-action-item'+
+    (danger?' danger':'')+
+    (active?' active':'')+
+    '" data-card-action="'+esc(action)+'"'+
+    (disabled?' disabled':'')+'>'+
+      '<span class="card-action-icon">'+cardActionIcon(action)+'</span>'+
+      '<span class="card-action-label">'+esc(label)+'</span>'+
+    '</button>';
+}
+
+function showCardActionScopePicker(action){
+  const card=activeCardActionCard;
+  const button=activeCardActionButton;
+  const source=cardActionSourceRow(card);
+  if(!card||!button||!source)return;
+
+  const menu=ensureCardActionMenu();
+  const interested=action==="interested";
+  const title=interested?"Quan tâm ở nguồn nào?":"Không quan tâm ở nguồn nào?";
+
+  const rows=SOURCE_MANAGER_GROUPS.map(group=>{
+    const status=matchSourceState(source,group.key).status;
+    const target=interested?"selected":"blocked";
+    const already=status===target;
+    const suffix=status==="selected"
+      ?"Đã quan tâm"
+      :status==="blocked"
+        ?"Đã chặn"
+        :"";
+
+    return '<button type="button" class="card-action-scope'+
+      (already?' active':'')+
+      '" data-card-scope="'+esc(group.key)+'" data-card-scope-action="'+esc(action)+'"'+
+      (already?' disabled':'')+'>'+
+        '<span>'+esc(group.label)+'</span>'+
+        (suffix?'<small>'+esc(suffix)+'</small>':'')+
+      '</button>';
+  }).join("");
+
+  menu.innerHTML=
+    '<div class="card-action-picker-head">'+
+      '<button type="button" class="card-action-back" data-card-action-back aria-label="Quay lại">‹</button>'+
+      '<strong>'+esc(title)+'</strong>'+
+    '</div>'+
+    '<div class="card-action-scope-list">'+rows+'</div>';
+
+  positionCardActionMenu(button,menu);
+}
+
+function applyCardSourceAction(action,scope){
+  const card=activeCardActionCard;
+  if(!card||!scope)return false;
+
+  const source=ensureCardActionSource(card,scope);
+  if(!source)return false;
+
+  if(action==="interested"){
+    setSourceStatus(source.id,"selected",scope);
+    closeCardActionMenu();
+    return true;
+  }
+
+  if(action==="not-interested"){
+    setSourceStatus(source.id,"blocked",scope);
+
+    // Remove immediately only when the card is being viewed inside the same
+    // source tab. Search/neutral views stay intact after a scoped preference.
+    if(activeSourceScope()===scope){
+      removeBlockedSourceFromVisibleFeed(card,scope);
+    }
+    closeCardActionMenu();
+    return true;
+  }
+
+  return false;
 }
 
 function cardActionSourceRow(card){
@@ -3350,10 +3442,15 @@ async function shareCardVideo(card,button=null){
   try{
     await navigator.clipboard.writeText(url);
     if(button){
-      const old=button.textContent;
-      button.textContent="Đã sao chép link";
+      const label=button.querySelector?.(".card-action-label");
+      const old=label?.textContent||button.textContent;
+      if(label)label.textContent="Đã sao chép link";
+      else button.textContent="Đã sao chép link";
       setTimeout(()=>{
-        if(button.isConnected)button.textContent=old;
+        if(button.isConnected){
+          if(label)label.textContent=old;
+          else button.textContent=old;
+        }
         closeCardActionMenu();
       },650);
     }else{
@@ -3418,24 +3515,30 @@ function openCardActionMenu(card,button){
   closeCardActionMenu();
   const menu=ensureCardActionMenu();
   const unlocked=settingsAccessSaved();
-  const scope=cardActionScope();
+  const implicitScope=cardActionScope();
   const source=cardActionSourceRow(card);
-  const status=source?cardActionStatus(card,scope):"normal";
+  const status=source&&implicitScope
+    ?cardActionStatus(card,implicitScope)
+    :"normal";
 
   const actions=[];
   if(unlocked&&source){
     actions.push(
-      '<button type="button" class="card-action-item'+(status==="selected"?' active':'')+'" data-card-action="interested"'+(status==="selected"?' disabled':'')+'>'+
-        (status==="selected"?'✓ Đã quan tâm':'Quan tâm')+
-      '</button>'
+      cardActionItemHtml(
+        "interested",
+        status==="selected"&&implicitScope?"Đã quan tâm":"Quan tâm",
+        {active:status==="selected"&&!!implicitScope,disabled:status==="selected"&&!!implicitScope}
+      )
     );
     actions.push(
-      '<button type="button" class="card-action-item danger'+(status==="blocked"?' active':'')+'" data-card-action="not-interested"'+(status==="blocked"?' disabled':'')+'>'+
-        (status==="blocked"?'Đã chặn':'Không quan tâm')+
-      '</button>'
+      cardActionItemHtml(
+        "not-interested",
+        status==="blocked"&&implicitScope?"Đã chặn":"Không quan tâm",
+        {danger:true,active:status==="blocked"&&!!implicitScope,disabled:status==="blocked"&&!!implicitScope}
+      )
     );
   }
-  actions.push('<button type="button" class="card-action-item" data-card-action="share">Chia sẻ link</button>');
+  actions.push(cardActionItemHtml("share","Chia sẻ link"));
 
   menu.innerHTML=actions.join("");
   activeCardActionCard=card;
@@ -3454,24 +3557,28 @@ async function handleCardAction(action,button){
   }
 
   if(!settingsAccessSaved())return;
+  if(action!=="interested"&&action!=="not-interested")return;
 
-  const scope=cardActionScope();
-  const source=ensureCardActionSource(card,scope);
-  if(!source)return;
+  const implicitScope=cardActionScope();
 
-  if(action==="interested"){
-    setSourceStatus(source.id,"selected",scope);
-    void pushServerStateNow();
-    closeCardActionMenu();
+  // Inside LIVE/Mới nhất/Tuần này/Thời sự… the current source tab is already
+  // unambiguous, so apply immediately without asking.
+  if(implicitScope){
+    applyCardSourceAction(action,implicitScope);
     return;
   }
 
-  if(action==="not-interested"){
-    setSourceStatus(source.id,"blocked",scope);
-    void pushServerStateNow();
-    removeBlockedSourceFromVisibleFeed(card,scope);
-    closeCardActionMenu();
-  }
+  // Search and other neutral views have no source context. Ask which source
+  // tab this preference belongs to.
+  showCardActionScopePicker(action);
+}
+
+function restoreCardActionRootMenu(){
+  const card=activeCardActionCard;
+  const button=activeCardActionButton;
+  if(!card||!button)return;
+  activeCardActionCard=null;
+  openCardActionMenu(card,button);
 }
 
 document.addEventListener("click",event=>{
@@ -10276,6 +10383,24 @@ feed.addEventListener("click",e=>{
 });
 
 document.addEventListener("click",event=>{
+  const scopeButton=event.target.closest?.("[data-card-scope]");
+  if(scopeButton){
+    event.preventDefault();
+    event.stopPropagation();
+    const scope=scopeButton.dataset.cardScope||"";
+    const action=scopeButton.dataset.cardScopeAction||"";
+    applyCardSourceAction(action,scope);
+    return;
+  }
+
+  const backButton=event.target.closest?.("[data-card-action-back]");
+  if(backButton){
+    event.preventDefault();
+    event.stopPropagation();
+    restoreCardActionRootMenu();
+    return;
+  }
+
   const actionButton=event.target.closest?.("[data-card-action]");
   if(!actionButton)return;
   event.preventDefault();
