@@ -957,6 +957,7 @@ function rememberSourceAvatar(id="",image=""){
     try{localStorage.setItem(SOURCE_AVATAR_CACHE_KEY,JSON.stringify(sourceAvatarCache));}catch{}
     scheduleServerStatePush(1100);
   }
+  queueAvatarRuntimeCache(image);
   void warmAvatarImage(image);
 
   const base=BASE_CHANNEL_BY_ID.get(id);
@@ -1005,6 +1006,29 @@ function canonicalSourceId(row={},channel=""){
 const avatarImageWarmCache=new Map();
 const avatarImageWarmReady=new Set();
 const avatarImageWarmFailedAt=new Map();
+const avatarRuntimeCacheQueued=new Set();
+let avatarRuntimeCacheTimer=0;
+
+function flushAvatarRuntimeCache(){
+  avatarRuntimeCacheTimer=0;
+  if(!avatarRuntimeCacheQueued.size)return;
+  const urls=[...avatarRuntimeCacheQueued];
+  avatarRuntimeCacheQueued.clear();
+  try{
+    navigator.serviceWorker?.controller?.postMessage?.({
+      type:"CACHE_AVATARS",
+      urls
+    });
+  }catch{}
+}
+
+function queueAvatarRuntimeCache(url=""){
+  url=safeSourceThumb(url);
+  if(!url)return;
+  avatarRuntimeCacheQueued.add(url);
+  if(avatarRuntimeCacheTimer)return;
+  avatarRuntimeCacheTimer=setTimeout(flushAvatarRuntimeCache,40);
+}
 
 function avatarImageReady(url=""){
   url=safeSourceThumb(url);
@@ -1014,6 +1038,7 @@ function avatarImageReady(url=""){
 function warmAvatarImage(url=""){
   url=safeSourceThumb(url);
   if(!url)return Promise.resolve(false);
+  queueAvatarRuntimeCache(url);
   if(avatarImageWarmReady.has(url))return Promise.resolve(true);
   if(Date.now()-(avatarImageWarmFailedAt.get(url)||0)<5*60*1000)return Promise.resolve(false);
   const cached=avatarImageWarmCache.get(url);
@@ -1061,11 +1086,26 @@ async function warmSelectedAvatarImages(maxWait=900){
   }
 
   const urls=[...ids].map(id=>sourceAvatarCached(id)).filter(Boolean);
+  urls.forEach(queueAvatarRuntimeCache);
   if(!urls.length)return;
 
   await Promise.race([
     Promise.allSettled(urls.map(warmAvatarImage)),
     new Promise(resolve=>setTimeout(resolve,Math.max(200,Number(maxWait)||900)))
+  ]);
+}
+
+async function warmManagedAvatarImages(maxWait=900){
+  const ids=new Set([...allManagedStateIds()]);
+  for(const id of allTemporarySourceIds())ids.add(id);
+
+  const urls=[...ids].map(id=>sourceAvatarCached(id)).filter(Boolean);
+  urls.forEach(queueAvatarRuntimeCache);
+  if(!urls.length)return;
+
+  await Promise.race([
+    Promise.allSettled(urls.map(warmAvatarImage)),
+    new Promise(resolve=>setTimeout(resolve,Math.max(180,Number(maxWait)||900)))
   ]);
 }
 
@@ -3717,12 +3757,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
 
     // Let the player column use the empty browser area while leaving a useful
     // browsing column. The browser page itself does not scroll in watch mode.
-    const feedMin=Math.min(620,Math.max(460,viewportWidth*.32));
-    const gapAndPadding=56;
+    const feedMin=Math.min(600,Math.max(430,viewportWidth*.28));
+    const gapAndPadding=40;
     const maxColumnWidth=Math.max(
       320,
       Math.min(
-        viewportWidth*.68,
+        viewportWidth*.70,
         viewportWidth-feedMin-gapAndPadding
       )
     );
@@ -7322,10 +7362,8 @@ let selectedAvatarPrewarmPromise=null;
 async function prewarmSelectedSourceAvatars(){
   if(selectedAvatarPrewarmPromise)return selectedAvatarPrewarmPromise;
 
-  const ids=new Set([...selectedSourceIds]);
-  for(const scope of CONTENT_SOURCE_SCOPES){
-    for(const id of selectedSetForScope(scope))ids.add(id);
-  }
+  const ids=new Set([...allManagedStateIds()]);
+  for(const id of allTemporarySourceIds())ids.add(id);
 
   const missing=[...ids].filter(id=>
     /^UC[A-Za-z0-9_-]+$/.test(id)&&!sourceAvatarCached(id)
@@ -7353,7 +7391,7 @@ async function prewarmSelectedSourceAvatars(){
     });
 
     await Promise.allSettled(workers);
-    await warmSelectedAvatarImages(850);
+    await warmManagedAvatarImages(850);
   })().finally(()=>{
     selectedAvatarPrewarmPromise=null;
   });
@@ -7509,15 +7547,8 @@ function renderCards(rows=[],options={}){
   syncWatchCurrentCard();
   normalizeRenderedThumbnails();
 
-  // v216: mobile cards always use a static sampled metadata surface.
-  // Home also uses the nearest visible card to tint Search + source chrome.
-  if(window.innerWidth<=720){
-    feed.querySelectorAll("[data-video-id]").forEach(ensureDesktopCardTint);
-  }
-  if(!document.documentElement.classList.contains("watch-browse")){
-    scheduleHomeChromeTint(true);
-  }
-
+  // v238: card surfaces are static. Do not sample thumbnails while scrolling
+  // or hovering; it causes visible jank on long feeds.
   return cards.length;
 }
 
@@ -9330,10 +9361,6 @@ function scheduleHomeChromeTint(force=false){
   });
 }
 
-window.addEventListener("scroll",()=>scheduleHomeChromeTint(false),{passive:true});
-window.addEventListener("resize",()=>scheduleHomeChromeTint(true),{passive:true});
-feedSection?.addEventListener("scroll",()=>scheduleHomeChromeTint(false),{passive:true});
-
 function ensureDesktopCardTint(card){
   if(!card)return;
 
@@ -9351,10 +9378,6 @@ function ensureDesktopCardTint(card){
     card.dataset.tintReady="1";
   });
 }
-
-feed.addEventListener("pointerover",event=>{
-  ensureDesktopCardTint(event.target.closest("[data-video-id]"));
-},{passive:true});
 
 function normalizeThumbnailFit(img){
   if(!img||!img.closest(".thumb-wrap"))return;
@@ -9385,7 +9408,6 @@ feed.addEventListener("pointerdown",e=>{
   if(e.target.closest("[data-card-more]"))return;
   const card=e.target.closest("[data-video-id]");
   const id=card?.dataset?.videoId||"";
-  if(card)ensureDesktopCardTint(card);
   if(id)void primePipAspect(id);
 },{passive:true});
 
@@ -10452,7 +10474,7 @@ async function bootstrap1988(){
     sourcesBtn.disabled=false;
     sourcesBtn.removeAttribute("title");
   }
-  await warmSelectedAvatarImages(1000);
+  await warmManagedAvatarImages(900);
   void prewarmSelectedSourceAvatars();
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
