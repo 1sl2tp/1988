@@ -3954,6 +3954,10 @@ function setWatchBrowseLayout(active){
 
   watchBrowseActive=active;
   document.documentElement.classList.toggle("watch-browse",active);
+  if(!active){
+    document.documentElement.classList.remove("watch-search-open","watch-search-results");
+    setSearchEntryIcon(false);
+  }
   applyResponsivePlayerFrame();
 
   if(active){
