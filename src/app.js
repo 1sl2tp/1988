@@ -2246,9 +2246,13 @@ async function searchPreviewVideos(query){
     const rows=await local.search(q);
     if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
-    const normalized=(Array.isArray(rows)?rows:[])
+    const candidates=(Array.isArray(rows)?rows:[])
       .filter(row=>itemVideoId(row))
       .slice(0,24);
+    const normalized=typeof local?.filterEmbeddableRows==="function"
+      ?await local.filterEmbeddableRows(candidates,{concurrency:6})
+      :candidates;
+    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
     sourcePreviewSearchRows=new Map(normalized.map(video=>[itemVideoId(video),video]));
     renderSourcePreviewVideos();
   }catch(error){
@@ -8760,6 +8764,11 @@ function initYouTubePlayer(){
       onError(event){
         const errorCode=Number(event?.data)||0;
         console.warn("1988 YouTube iframe error",{id:state.currentId,errorCode});
+
+        if(errorCode===101||errorCode===150){
+          try{window.YTLocal?.markEmbedUnplayable?.(state.currentId,"iframe_error_"+errorCode)}catch{}
+        }
+
         if(fallbackIframeVideoToNative(state.currentId,errorCode))return;
         statusText.textContent="YouTube không phát được video này";
       }
@@ -8829,14 +8838,62 @@ async function doSearch(value){
       .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE));
     if(!cleanRows.length)return false;
 
-    // Resolve source icons before first visible paint. No post-render avatar jump.
-    await prewarmRowSourceAvatars(cleanRows,650);
-    if(seq!==state.searchSeq)return false;
+    let local=null;
+    try{local=await localEngine(6000);}catch{}
 
-    state.feedRows=cleanRows;
-    renderCards(cleanRows);
-    rememberDiscoveredSources(cleanRows,"");
-    feedStatus.textContent=cleanRows.length?cleanRows.length+" video":"";
+    // Validate the first visible batch BEFORE paint, so a video with embedding
+    // disabled never becomes a tappable card. The rest is checked in the
+    // background and appended only after it passes the same test.
+    const firstBatch=cleanRows.slice(0,12);
+    const tail=cleanRows.slice(12);
+    let firstPlayable=firstBatch;
+
+    if(typeof local?.filterEmbeddableRows==="function"){
+      feedStatus.textContent="Đang lọc video có thể phát…";
+      firstPlayable=await local.filterEmbeddableRows(firstBatch,{concurrency:6});
+      if(seq!==state.searchSeq)return false;
+    }
+
+    if(firstPlayable.length){
+      await prewarmRowSourceAvatars(firstPlayable,520);
+      if(seq!==state.searchSeq)return false;
+
+      state.feedRows=firstPlayable;
+      renderCards(firstPlayable);
+      rememberDiscoveredSources(firstPlayable,"");
+      feedStatus.textContent=firstPlayable.length+" video";
+    }else if(tail.length){
+      feed.innerHTML='<div class="loading">Đang lọc video có thể phát…</div>';
+      feedStatus.textContent="";
+      state.feedRows=[];
+    }else{
+      return false;
+    }
+
+    if(tail.length){
+      void (async()=>{
+        let tailPlayable=tail;
+        if(typeof local?.filterEmbeddableRows==="function"){
+          tailPlayable=await local.filterEmbeddableRows(tail,{concurrency:6});
+        }
+        if(seq!==state.searchSeq||state.searchQuery!==q)return;
+
+        if(tailPlayable.length){
+          await prewarmRowSourceAvatars(tailPlayable,420);
+          if(seq!==state.searchSeq||state.searchQuery!==q)return;
+
+          const append=state.feedRows.length>0;
+          state.feedRows=[...state.feedRows,...tailPlayable];
+          renderCards(tailPlayable,{append,updateStatus:false});
+          rememberDiscoveredSources(tailPlayable,"");
+          feedStatus.textContent=state.feedRows.length+" video";
+        }else if(!state.feedRows.length){
+          feed.innerHTML='<div class="empty">Chưa thấy video có thể phát trên 1988.</div>';
+          feedStatus.textContent="";
+        }
+      })();
+    }
+
     return true;
   };
 
