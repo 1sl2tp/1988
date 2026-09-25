@@ -5882,7 +5882,9 @@ async function cleanSelectedRowsForLearning(parent={},rows=[]){
       accepted.push(...kept);
     }catch(error){
       console.warn("AI 1 learning cleanup failed",parent?.label||group,error);
-      accepted.push(...batch);
+      // Fail closed for AI 2: dirty/unclassified rows must not become
+      // positive training examples when AI 1 is unavailable.
+      return [];
     }
   }
 
@@ -5914,6 +5916,7 @@ function sourceLearningProfile(parent={}){
 async function adaptiveSourceQueries(parent={},local){
   const group=parentSourceGroup(parent);
   const content=await ensureSourceContentLearning(parent,local);
+  if(!Number(content?.rows))return [];
   const learned=[...(content?.hashtags||[]),...(content?.terms||[])].filter(Boolean);
 
   if(group===GENERAL_SOURCE_SCOPE){
@@ -6219,9 +6222,8 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
     return accepted;
   }catch(error){
     console.warn("AI 1 category cleanup failed",parent?.label||parent?.key,error);
-    const visibleRows=aiDisplayRows(source);
-    saveSourceContentLearning(group,extractSourceContentTerms(parent,visibleRows));
-    return source;
+    // Do not let AI 2 learn from uncleaned content if AI 1 failed.
+    return null;
   }
 }
 
@@ -6274,10 +6276,10 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
         }
       }
       void enrichSelectedCategoryInBackground(parent,safeRows)
-        .then(()=>discoverSourcesForParent(parent,local));
+        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
     }).catch(()=>{
       void enrichSelectedCategoryInBackground(parent,rows)
-        .then(()=>discoverSourcesForParent(parent,local));
+        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
     });
   }catch(error){
     console.warn("category source refresh failed",parent?.label||parent?.key,error);
@@ -6363,7 +6365,6 @@ async function loadAiParentDiscovery(parent){
     ).slice(0,90);
 
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
-    saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
     renderTrendTopics();
@@ -6393,10 +6394,10 @@ async function loadAiParentDiscovery(parent){
         }
       }
       void enrichSelectedCategoryInBackground(parent,safeRows)
-        .then(()=>discoverSourcesForParent(parent,local));
+        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
     }).catch(()=>{
       void enrichSelectedCategoryInBackground(parent,rows)
-        .then(()=>discoverSourcesForParent(parent,local));
+        .then(ai1Rows=>{if(ai1Rows) return discoverSourcesForParent(parent,local);});
     });
   }catch(error){
     console.warn("selected category failed",parent?.label||parent?.key,error);
@@ -10598,12 +10599,14 @@ function feedAiContentKey(name,rows=[]){
 }
 
 async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
-  if(document.hidden)return;
-  if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return;
+  if(document.hidden)return false;
+  if(!isSourceScopedFeed(name)||!Array.isArray(rows)||rows.length<4)return false;
 
-  const sample=dedupeHashedRows(newestFirst(rows)).slice(0,72);
+  const sample=dedupeHashedRows(newestFirst(rows))
+    .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+    .slice(0,72);
   const input=topicInputRows(sample);
-  if(input.length<4)return;
+  if(input.length<4)return false;
 
   const cacheKey=feedAiContentKey(name,sample);
   const feedParent={
@@ -10612,6 +10615,15 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
     label:name==="week"?"Tuần này":"Mới nhất"
   };
   const learning=sourceLearningProfile(feedParent);
+  const saveCleanLearning=()=>{
+    const cleaned=aiDisplayRows(sample);
+    if(!cleaned.length)return;
+    saveSourceContentLearning(
+      GENERAL_SOURCE_SCOPE,
+      extractSourceContentTerms(GENERAL_SOURCE_DISCOVERY_PARENT,cleaned)
+    );
+  };
+
   const saved=readAiTrendCache("feed-content:"+cacheKey,input);
   if(saved.videoMeta.size||saved.topics.length){
     if(saved.videoMeta.size){
@@ -10620,6 +10632,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
     if(saved.topics.length){
       state.feedTrendTopics.set(name,saved.topics.slice(0,10));
     }
+    saveCleanLearning();
 
     if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
       state.trendTopics=state.feedTrendTopics.get(name)||[];
@@ -10630,7 +10643,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
         patchRenderedAiMeta(sample);
       }
     }
-    return;
+    return true;
   }
 
   if(feedAiPending.has(cacheKey))return feedAiPending.get(cacheKey);
@@ -10651,6 +10664,7 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
           selectedSourceNames:learning.selectedSourceNames,
           blockedSourceNames:learning.blockedSourceNames,
           learnedQueries:learning.learnedQueries,
+          filterToParent:false,
           videos:input
         })
       });
@@ -10660,7 +10674,6 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
 
       const videoMeta=normalizeAiVideoMeta(payload,input);
       const topics=normalizeAiChildTopics(payload,input,feedParent).slice(0,10);
-      if(!videoMeta.size&&!topics.length)return;
 
       if(videoMeta.size){
         state.aiVideoMeta=new Map([...state.aiVideoMeta,...videoMeta]);
@@ -10668,22 +10681,29 @@ async function enrichSourceFeedAi(name,rows=[],seq=state.feedSeq){
       if(topics.length){
         state.feedTrendTopics.set(name,topics);
       }
-      saveAiTrendCache("feed-content:"+cacheKey,[],topics,videoMeta);
+
+      // AI 1 has now normalized titles/duplicates. Only this cleaned view is
+      // allowed to become the positive profile for AI 2.
+      saveCleanLearning();
+
+      if(videoMeta.size||topics.length){
+        saveAiTrendCache("feed-content:"+cacheKey,[],topics,videoMeta);
+      }
 
       if(seq===state.feedSeq&&state.activeFeed===name&&!state.activeParent){
         state.trendTopics=state.feedTrendTopics.get(name)||[];
         renderTrendTopics();
 
-        // Filters never change the source pool or chronological ordering.
-        // They only hide cards outside the selected content topic.
         if(window.scrollY<120){
           renderCurrentTrendFeed();
         }else{
           patchRenderedAiMeta(sample);
         }
       }
+      return true;
     }catch(error){
-      console.warn("feed AI enrichment failed",name,error);
+      console.warn("AI 1 feed cleanup failed",name,error);
+      return false;
     }
   })().finally(()=>feedAiPending.delete(cacheKey));
 
