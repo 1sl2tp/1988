@@ -999,7 +999,7 @@ async function stateSyncFetch(method="GET",body=null,timeout=2200,{keepalive=fal
       signal:controller.signal,
       headers:{
         "content-type":"application/json",
-        "x-1988-pin":SETTINGS_PIN
+        ...(method==="POST"?{"x-1988-pin":SETTINGS_PIN}:{})
       },
       body:body==null?undefined:JSON.stringify(body)
     });
@@ -1224,15 +1224,7 @@ async function refreshServerStateOnResume(){
         // Returning to the app should also check for newly uploaded videos,
         // not merely repaint the last cached package.
         setTimeout(()=>{
-          if(isSourceScopedFeed(active)){
-            void refreshCachedSourceFeedInBackground(
-              active,
-              FEED_PRESETS[active],
-              state.feedSeq
-            );
-          }else if(active===LIVE_SOURCE_SCOPE){
-            void refreshLiveSnapshotInBackground();
-          }
+          void refreshAllSourceSnapshotsInBackground({force:true});
         },120);
       }
     }
@@ -7715,55 +7707,17 @@ async function enrichSelectedCategoryInBackground(parent,rows=[]){
   return source;
 }
 
-async function buildCategorySourceSnapshot(parent,local=null){
-  const group=parentSourceGroup(parent);
-  if(!group)return [];
-  const sources=selectedSourcesForParent(parent);
-  if(!sources.length){
-    state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
-    return [];
-  }
-
-  local=local||await localEngine(12000);
-  const raw=await fetchSourcePool(local,sources,true,group);
-  const rows=dedupeHashedRows(
-    newestFirst(
-      (Array.isArray(raw)?raw:[])
-        .filter(uploadedWithinCategoryWindow)
-        .filter(row=>!isBlockedSourceRow(row,group))
-        .map(row=>({...row,_selectedCategorySource:true}))
-    )
-  ).slice(0,90);
-
-  if(!rows.length)return [];
-
-  const packaged=await packageRowsWithAi("category:"+parent.key,rows,{
-    sourceSignature:sourceSignature(group),
-    maxRows:90,
-    scope:group,
-    parentLabel:sourceGroupLabel(group)
-  });
-
-  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:packaged});
-  saveSourceContentLearning(
-    group,
-    extractSourceContentTerms(parent,packaged)
-  );
-  return packaged;
+async function buildCategorySourceSnapshot(parent,_local=null){
+  await hydrateServerPackages({force:true});
+  const rows=instantCategoryRows(parent);
+  state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
+  return rows;
 }
 
-async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
+async function refreshSelectedCategoryInBackground(parent,_local=null,_sources=null,_seq=null){
   if(document.hidden)return;
-  try{
-    const rows=await buildCategorySourceSnapshot(parent,local);
-    if(!rows.length)return;
-
-    // Suggestions are learned after the complete snapshot is packaged. Never
-    // mutate/reorder the visible category while the user is reading it.
-    void discoverSourcesForParent(parent,local).catch(()=>{});
-  }catch(error){
-    console.warn("category source refresh failed",parent?.label||parent?.key,error);
-  }
+  await hydrateServerPackages({force:true});
+  applyActiveCategorySnapshot(parent);
 }
 
 async function loadAiParentDiscovery(parent){
@@ -7773,9 +7727,7 @@ async function loadAiParentDiscovery(parent){
   const seq=state.feedSeq;
 
   try{
-    const group=parentSourceGroup(parent);
     const sources=selectedSourcesForParent(parent);
-
     if(!sources.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
       state.aiCategoryTopics.set(parent.key,[]);
@@ -7789,54 +7741,34 @@ async function loadAiParentDiscovery(parent){
       return;
     }
 
-    // Reserve snapshot first: this package is persistent and has no TTL.
-    // It is shown immediately while the replacement package is built silently.
-    const reserve=instantCategoryRows(parent);
-    if(reserve.length){
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
-      state.aiCategoryTopics.set(parent.key,[]);
-      state.trendTopics=[];
-      renderTrendTopics();
-
-      if(state.activeParent===parent.key){
-        const visible=reserve;
-        await prewarmRowSourceAvatars(visible.slice(0,36),260);
-        if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
-        renderCards(visible);
-        feedStatus.textContent=visible.length?visible.length+" video":"";
-      }
-
-      void localEngine(12000)
-        .then(local=>refreshSelectedCategoryInBackground(parent,local,sources,seq))
-        .catch(()=>{});
-      return;
+    let reserve=instantCategoryRows(parent);
+    if(!reserve.length){
+      await hydrateServerPackages({force:true});
+      reserve=instantCategoryRows(parent);
     }
-
-    // First-ever package only. Do not show a timeout/retry state; build one
-    // complete sorted snapshot and paint it once.
-    const local=await localEngine(12000);
-    const rows=await buildCategorySourceSnapshot(parent,local);
     if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
 
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
     renderTrendTopics();
 
-    if(rows.length){
-      const visible=rows;
-      await prewarmRowSourceAvatars(visible.slice(0,36),320);
+    if(reserve.length){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
+      state.feedRows=mergeUniqueRows([],reserve);
+      state.feedHasMore=false;
+      await prewarmRowSourceAvatars(reserve.slice(0,36),260);
       if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
-      renderCards(visible);
-      feedStatus.textContent=visible.length?visible.length+" video":"";
-      void discoverSourcesForParent(parent,local).catch(()=>{});
+      renderCards(reserve);
+      feedStatus.textContent=reserve.length?reserve.length+" video":"";
+      void refreshSelectedCategoryInBackground(parent);
     }else{
-      feed.innerHTML='<div class="empty">Chưa có video mới từ nguồn đã chọn.</div>';
+      feed.innerHTML='<div class="empty">Máy chủ chưa có gói dữ liệu cho tab này.</div>';
       feedStatus.textContent="";
     }
   }catch(error){
-    console.warn("selected category snapshot failed",parent?.label||parent?.key,error);
+    console.warn("server category package failed",parent?.label||parent?.key,error);
     if(state.activeParent===parent?.key&&!instantCategoryRows(parent).length){
-      feed.innerHTML='<div class="empty">Chưa có gói dữ liệu dự trữ cho tab này.</div>';
+      feed.innerHTML='<div class="empty">Chưa tải được gói dữ liệu từ máy chủ.</div>';
       feedStatus.textContent="";
     }
   }finally{
@@ -11803,7 +11735,7 @@ async function packageSyncFetch(method="GET",scope="",body=null,timeout=5200){
       signal:controller.signal,
       headers:{
         "content-type":"application/json",
-        "x-1988-pin":SETTINGS_PIN
+        ...(method==="POST"?{"x-1988-pin":SETTINGS_PIN}:{})
       },
       body:body==null?undefined:JSON.stringify(body)
     });
@@ -11820,46 +11752,10 @@ function nextPackageWriteVersion(){
   return packageWriteClock;
 }
 
-function queuePackageUpload(snapshotName=""){
-  if(packageSyncApplying)return Promise.resolve(false);
-  const scope=packageScopeFromSnapshotName(snapshotName);
-  const row=readAtomicSnapshot(snapshotName);
-  if(!scope||!row?.hash||!Array.isArray(row.items)||!row.items.length){
-    return Promise.resolve(false);
-  }
-
-  const payload={
-    scope,
-    hash:row.hash,
-    inputHash:clean(row.inputHash||""),
-    sourceSignature:clean(row.sourceSignature||""),
-    items:row.items,
-    version:nextPackageWriteVersion()
-  };
-  pendingPackageUploads.set(scope,payload);
-
-  const previous=packageUploadChains.get(scope)||Promise.resolve();
-  const task=previous.catch(()=>{}).then(async()=>{
-    const latest=pendingPackageUploads.get(scope);
-    if(!latest||latest.hash!==payload.hash||latest.version!==payload.version)return true;
-
-    try{
-      const result=await packageSyncFetch("POST","",latest,7000);
-      if(!result?.ok)throw new Error("package_write_failed");
-      if(pendingPackageUploads.get(scope)?.version===latest.version){
-        pendingPackageUploads.delete(scope);
-      }
-      return true;
-    }catch(error){
-      console.warn("package upload failed",scope,error);
-      return false;
-    }
-  }).finally(()=>{
-    if(packageUploadChains.get(scope)===task)packageUploadChains.delete(scope);
-  });
-
-  packageUploadChains.set(scope,task);
-  return task;
+function queuePackageUpload(_snapshotName=""){
+  // v304: browsers/PWA are read-only package consumers. Source mutations are
+  // sent to yt1988-state; the server refresh worker alone builds/writes feeds.
+  return Promise.resolve(false);
 }
 
 function applyServerPackage(scope,pkg={}){
@@ -11891,7 +11787,7 @@ function applyServerPackage(scope,pkg={}){
 }
 
 async function hydrateServerPackages({force=false}={}){
-  if(!force&&Date.now()-packageManifestLastAt<60*1000)return true;
+  if(!force&&Date.now()-packageManifestLastAt<SERVER_PACKAGE_MANIFEST_TTL)return true;
 
   try{
     const result=await packageSyncFetch("GET","",null,5200);
@@ -11907,6 +11803,8 @@ async function hydrateServerPackages({force=false}={}){
       const local=readAtomicSnapshot(snapshotName);
       const remote=manifest[scope];
 
+      // Client is download-only: a missing server package is never back-filled
+      // from a browser/PWA cache, because that could reintroduce old logic.
       if(remote?.hash&&remote.hash!==local?.hash){
         downloads.push(
           packageSyncFetch("GET",scope,null,7000)
@@ -11917,9 +11815,6 @@ async function hydrateServerPackages({force=false}={}){
             })
             .catch(error=>console.warn("package download failed",scope,error))
         );
-      }else if(!remote?.hash&&local?.hash){
-        // First server migration: publish this device's complete package.
-        void queuePackageUpload(snapshotName);
       }
     }
 
@@ -12060,16 +11955,13 @@ const SOURCE_POOL_TTL=5*60*1000;
 const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=60*1000;
-const SOURCE_ACTIVE_FEED_REFRESH_MS=60*1000;
-const SOURCE_FEED_AUTO_REFRESH_MS=2*60*1000;
+const SERVER_PACKAGE_MANIFEST_TTL=15*1000;
+const SOURCE_FEED_AUTO_REFRESH_MS=30*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
 let sourceFeedPendingRenderName="";
 
 function sourceFeedRowsSignature(rows=[]){
-  return (Array.isArray(rows)?rows:[])
-    .map(itemVideoId)
-    .filter(Boolean)
-    .join("|");
+  return snapshotRowsHash(Array.isArray(rows)?rows:[],"");
 }
 
 function freshSnapshotRowsForFeed(name){
@@ -12116,6 +12008,31 @@ function applyActiveFeedSnapshot(name,{force=false}={}){
   state.feedRows=mergeUniqueRows([],fresh);
   state.feedHasMore=true;
   sourceFeedPendingRenderName="";
+  renderCards(state.feedRows);
+  feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
+  void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
+  return true;
+}
+
+function applyActiveCategorySnapshot(parent,{force=false}={}){
+  if(
+    !parent?.key||
+    state.searchResultsActive||
+    document.documentElement.classList.contains("watch-browse")||
+    state.activeParent!==parent.key||
+    state.activeTrend
+  )return false;
+
+  const fresh=instantCategoryRows(parent);
+  if(!fresh.length)return false;
+  const currentSig=sourceFeedRowsSignature(state.feedRows);
+  const freshSig=sourceFeedRowsSignature(fresh);
+  if(currentSig===freshSig)return false;
+
+  if(!force&&window.scrollY>=120)return false;
+
+  state.feedRows=mergeUniqueRows([],fresh);
+  state.feedHasMore=false;
   renderCards(state.feedRows);
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
   void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
@@ -12649,6 +12566,12 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   scope:explicitScope="",
   parentLabel:explicitLabel=""
 }={}){
+  const managedScope=packageScopeFromSnapshotName(snapshotName);
+  if(managedScope){
+    await hydrateServerPackages({force:true});
+    return readAtomicSnapshot(snapshotName)?.items||[];
+  }
+
   const context=packageContext(snapshotName,explicitScope,explicitLabel);
   const rawRows=Array.isArray(rows)?rows:[];
   const qualityRows=context.kind==="content"
@@ -12766,96 +12689,33 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   return task;
 }
 
-async function buildSourceFeedSnapshot(name,preset,local=null){
-  if(!isSourceScopedFeed(name))return [];
-  local=local||await localEngine(16000);
-
-  const scope=feedSourceScope(name);
-  const sources=selectedSources(scope);
-  if(!sources.length)return [];
-
-  const pool=await refreshSourcePool(local,sources,scope);
-  const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
-  const rows=sortPresetRows(
-    (Array.isArray(pool)?pool:[])
-      .filter(predicate)
-      .filter(row=>!isBlockedSourceRow(row,scope)),
-    preset
-  );
-
-  const packaged=await packageRowsWithAi("feed:"+name,rows,{
-    sourceSignature:sourceSignature(scope),
-    maxRows:90,
-    scope,
-    parentLabel:sourceGroupLabel(scope)
-  });
-
-  if(packaged.length){
-    saveSourceContentLearning(
-      scope,
-      extractSourceContentTerms(feedSourceParent(name),packaged)
-    );
-  }
-
-  // Separate maintenance job: AI supplies search phrases only; code searches.
-  void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
-  cleanupLegacyFeedCaches(name);
-  return packaged;
+async function buildSourceFeedSnapshot(name,_preset,_local=null){
+  await hydrateServerPackages({force:true});
+  return readFeedCache(name);
 }
 
-async function refreshLiveSnapshotInBackground(local=null){
-  local=local||await localEngine(12000);
-  try{
-    const rows=sortPresetRows(
-      await FEED_PRESETS.live.load(local,true),
-      FEED_PRESETS.live
-    );
-    const packaged=await packageRowsWithAi("feed:"+LIVE_SOURCE_SCOPE,rows,{
-      sourceSignature:sourceSignature(LIVE_SOURCE_SCOPE),
-      maxRows:90,
-      scope:LIVE_SOURCE_SCOPE,
-      parentLabel:sourceGroupLabel(LIVE_SOURCE_SCOPE)
-    });
-    cleanupLegacyFeedCaches(LIVE_SOURCE_SCOPE);
-    if(packaged.length)applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
-    return packaged;
-  }catch(error){
-    console.warn("LIVE snapshot refresh failed",error);
-    return [];
-  }
+async function refreshLiveSnapshotInBackground(_local=null){
+  await hydrateServerPackages({force:true});
+  applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
+  return readFeedCache(LIVE_SOURCE_SCOPE);
 }
 
-async function refreshCachedSourceFeedInBackground(name,preset,seq,local=null){
+async function refreshCachedSourceFeedInBackground(name,_preset,_seq,_local=null){
   if(document.hidden)return [];
-  try{
-    const rows=await buildSourceFeedSnapshot(name,preset,local);
-    if(
-      rows.length&&
-      (seq===undefined||seq===null||seq===state.feedSeq)&&
-      state.activeFeed===name
-    ){
-      applyActiveFeedSnapshot(name);
-    }
-    return rows;
-  }catch(error){
-    console.warn("background source snapshot failed",name,error);
-    return [];
-  }
+  await hydrateServerPackages({force:true});
+  applyActiveFeedSnapshot(name);
+  return freshSnapshotRowsForFeed(name);
 }
 
 async function refreshActiveSourceFeedIfDue(){
   if(document.hidden)return;
-  const name=state.activeFeed;
-  if(
-    !isSourceScopedFeed(name)||
-    state.activeParent||
-    state.activeTrend||
-    !state.feedRows.length
-  )return;
-
-  const preset=FEED_PRESETS[name];
-  if(!preset)return;
-  await refreshCachedSourceFeedInBackground(name,preset,state.feedSeq);
+  await hydrateServerPackages({force:true});
+  if(state.activeParent){
+    const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===state.activeParent);
+    if(parent)applyActiveCategorySnapshot(parent);
+    return;
+  }
+  if(state.activeFeed)applyActiveFeedSnapshot(state.activeFeed);
 }
 
 let allSourceSnapshotRefreshPromise=null;
@@ -12864,40 +12724,24 @@ let allSourceSnapshotLastAt=0;
 async function refreshAllSourceSnapshotsInBackground({force=false}={}){
   if(document.hidden)return false;
   if(allSourceSnapshotRefreshPromise)return allSourceSnapshotRefreshPromise;
-  if(!force&&Date.now()-allSourceSnapshotLastAt<60*1000)return false;
+  if(!force&&Date.now()-allSourceSnapshotLastAt<SERVER_PACKAGE_MANIFEST_TTL)return false;
 
   allSourceSnapshotRefreshPromise=(async()=>{
     try{
-      // One small manifest check first; only changed tab packages are fetched.
-      await hydrateServerPackages({force});
-      const local=await localEngine(16000);
+      const ok=await hydrateServerPackages({force:true});
+      if(!ok)return false;
 
-      // Package LIVE + Mới nhất + Tuần này first, because these are the first
-      // tabs the user normally reaches. None of these calls repaint the DOM.
-      await refreshLiveSnapshotInBackground(local);
-
-      for(const name of [LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]){
-        const scope=feedSourceScope(name);
-        if(!selectedSetForScope(scope).size)continue;
-        const packaged=await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
-        if(packaged.length)applyActiveFeedSnapshot(name);
-      }
-
-      // Pre-build every category snapshot from its selected channels. Opening
-      // a category then becomes a cache read + one paint, not fetch -> reorder.
-      for(const parent of FIXED_CONTENT_CATEGORIES){
-        if(!selectedSourcesForParent(parent).length)continue;
-        try{
-          await buildCategorySourceSnapshot(parent,local);
-        }catch(error){
-          console.warn("category snapshot package failed",parent?.key,error);
-        }
+      if(state.activeParent){
+        const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===state.activeParent);
+        if(parent)applyActiveCategorySnapshot(parent);
+      }else if(state.activeFeed){
+        applyActiveFeedSnapshot(state.activeFeed);
       }
 
       allSourceSnapshotLastAt=Date.now();
       return true;
     }catch(error){
-      console.warn("all source snapshot refresh failed",error);
+      console.warn("server package refresh failed",error);
       return false;
     }finally{
       allSourceSnapshotRefreshPromise=null;
@@ -12938,7 +12782,7 @@ async function loadFeedPreset(name="latest"){
   }
 
   state.feedLoading=true;
-  state.feedHasMore=true;
+  state.feedHasMore=false;
   state.feedRows=[];
   if(!scoped){
     state.activeParent="";
@@ -12949,132 +12793,50 @@ async function loadFeedPreset(name="latest"){
   setActiveChip(name);
   feedTitle.textContent=sourceGroupLabel(name);
 
+  // Read last complete server package immediately. If this browser has never
+  // seen it, perform one manifest comparison/download; never crawl YouTube here.
   let reserve=readFeedCache(name);
-  if(!reserve.length&&scoped){
-    const predicate=name==="latest"?uploadedWithinLatest:uploadedWithinWeek;
-    const perSourceCached=cachedRowsForSources(
-      selectedSources(activeFeedScope),
-      activeFeedScope
-    ).filter(predicate);
-    if(perSourceCached.length){
-      const rawReserve=sortPresetRows(perSourceCached,preset);
-      reserve=await packageRowsWithAi("feed:"+name,rawReserve,{
-        sourceSignature:sourceSignature(activeFeedScope),
-        maxRows:90
-      });
-      cleanupLegacyFeedCaches(name);
-    }
+  if(!reserve.length){
+    await hydrateServerPackages({force:true});
+    reserve=readFeedCache(name);
   }
 
-  // Stale-while-revalidate: always paint the last complete package first.
-  // No AI/network work is allowed to delay or reorder this paint.
-  if(reserve.length){
-    const rows=sortPresetRows(reserve,preset)
-      .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
+  if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
-    state.feedRows=mergeUniqueRows([],rows);
-    state.activeTrend="";
-    state.trendTopics=[];
-    renderTrendTopics();
+  state.activeTrend="";
+  state.trendTopics=[];
+  renderTrendTopics();
 
-    const visible=state.feedRows;
-    await prewarmRowSourceAvatars(visible.slice(0,36),260);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
-
-    renderCards(visible);
-    feedStatus.textContent=visible.length?visible.length+" video":"";
+  if(!reserve.length){
+    feed.innerHTML='<div class="empty">Máy chủ chưa có gói dữ liệu cho mục này.</div>';
+    feedStatus.textContent="";
     state.feedLoading=false;
-    state.feedHasMore=true;
-
-    // Build a replacement package silently. Atomic commit + hash comparison
-    // means unchanged data performs no swap and no duplicate AI request.
-    if(scoped){
-      void refreshCachedSourceFeedInBackground(name,preset,seq);
-    }else if(name===LIVE_SOURCE_SCOPE){
-      void refreshLiveSnapshotInBackground();
-    }
     return;
   }
 
-  // Only a brand-new browser/profile can reach this branch. Keep it visual and
-  // quiet: no "source slow", no timeout, no retry churn.
-  feed.innerHTML=
-    '<div class="feed-loading-grid" aria-label="Đang chuẩn bị dữ liệu">'+
-      '<span></span><span></span><span></span><span></span>'+
-    '</div>';
-  feedStatus.textContent="";
+  const rows=sortPresetRows(reserve,preset)
+    .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
 
-  try{
-    const local=await localEngine(16000);
-    const rowsRaw=await preset.load(local,true,null);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
+  state.feedRows=mergeUniqueRows([],rows);
+  const visible=state.feedRows;
+  await prewarmRowSourceAvatars(visible.slice(0,36),260);
+  if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
-    const rows=sortPresetRows(
-      (Array.isArray(rowsRaw)?rowsRaw:[])
-        .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope)),
-      preset
-    );
+  renderCards(visible);
+  feedStatus.textContent=visible.length?visible.length+" video":"";
+  state.feedLoading=false;
+  state.feedHasMore=false;
 
-    if(!rows.length){
-      state.feedRows=[];
-      state.feedHasMore=false;
-      state.trendTopics=[];
-      renderTrendTopics();
-      feed.innerHTML='<div class="empty">Chưa có video phù hợp.</div>';
-      feedStatus.textContent="";
-      return;
-    }
-
-    const packageName="feed:"+name;
-    const packageSignature=scoped
-      ?sourceSignature(activeFeedScope)
-      :name===LIVE_SOURCE_SCOPE
-        ?sourceSignature(LIVE_SOURCE_SCOPE)
-        :"";
-    state.feedRows=await packageRowsWithAi(packageName,rows,{
-      sourceSignature:packageSignature,
-      maxRows:90
-    });
-    if(name)cleanupLegacyFeedCaches(name);
-    state.activeTrend="";
-    state.trendTopics=[];
-    renderTrendTopics();
-
-    const visible=state.feedRows;
-    await prewarmRowSourceAvatars(visible.slice(0,36),320);
-    if(seq!==state.feedSeq||state.activeFeed!==name)return;
-
-    renderCards(visible);
-    feedStatus.textContent=visible.length?visible.length+" video":"";
-    state.feedHasMore=true;
-
-    // Source discovery is a separate maintenance job. AI only proposes
-    // search phrases; it cannot touch this packaged UI snapshot.
-    if(scoped){
-      void discoverSourcesForParent(feedSourceParent(name),local).catch(()=>{});
-    }
-  }catch(error){
-    console.warn("first source package failed",name,error);
-    if(seq===state.feedSeq&&state.activeFeed===name){
-      const fallback=readFeedCache(name);
-      if(fallback.length){
-        state.feedRows=sortPresetRows(fallback,preset);
-        renderCards(state.feedRows);
-        feedStatus.textContent=state.feedRows.length+" video";
-      }else{
-        feed.innerHTML='<div class="empty">Chưa có gói dữ liệu dự trữ.</div>';
-        feedStatus.textContent="";
-      }
-      state.feedHasMore=false;
-    }
-  }finally{
-    if(seq===state.feedSeq)state.feedLoading=false;
-    setTimeout(maybeLoadMoreFeed,120);
-  }
+  // A cheap manifest check may replace the local package later; no feed crawl.
+  void refreshCachedSourceFeedInBackground(name,preset,seq);
 }
 
 async function loadMoreFeed(){
   const name=state.activeFeed;
+  if([LIVE_SOURCE_SCOPE,LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE].includes(name)){
+    state.feedHasMore=false;
+    return;
+  }
   const preset=FEED_PRESETS[name];
   if(!name||!preset||state.feedLoading||!state.feedHasMore)return;
   if(state.activeParent||state.activeTrend)return;
@@ -13156,27 +12918,13 @@ window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 setInterval(()=>{
   if(document.hidden||state.searchResultsActive)return;
-  const active=state.activeFeed||LATEST_SOURCE_SCOPE;
-
-  if(isSourceScopedFeed(active)){
-    void refreshCachedSourceFeedInBackground(
-      active,
-      FEED_PRESETS[active],
-      state.feedSeq
-    );
-  }else if(active===LIVE_SOURCE_SCOPE){
-    void refreshLiveSnapshotInBackground();
-  }
-},SOURCE_ACTIVE_FEED_REFRESH_MS);
-
-setInterval(()=>{
-  void refreshAllSourceSnapshotsInBackground();
+  void refreshAllSourceSnapshotsInBackground({force:true});
 },SOURCE_FEED_AUTO_REFRESH_MS);
 
 async function loadInitialFeed(){
   await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
   const result=await loadFeedPreset("latest");
-  setTimeout(()=>void refreshAllSourceSnapshotsInBackground(),500);
+  setTimeout(()=>void refreshAllSourceSnapshotsInBackground({force:true}),500);
   return result;
 }
 
