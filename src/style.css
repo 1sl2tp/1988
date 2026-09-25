@@ -834,6 +834,20 @@ html.search-suggestions-open .suggestions{
 }
 .source-preview-placeholder strong{color:#c9c9cf;font-size:14px}
 .source-preview-placeholder span{max-width:420px;font-size:11px;line-height:1.55}
+.source-preview-loading{
+  grid-column:1/-1;
+  display:grid;
+  gap:10px;
+  padding:0;
+}
+.source-preview-loading span{
+  display:block;
+  width:100%;
+  aspect-ratio:16/5;
+  border:1px solid #29292f;
+  border-radius:10px;
+  background:#1c1c20;
+}
 .source-video-card{
   position:relative;min-width:0;align-self:start;display:flex;flex-direction:column;
   border:1px solid #29292f;border-radius:11px;overflow:hidden;background:#1c1c20
@@ -892,12 +906,45 @@ html.search-suggestions-open .suggestions{
     padding:9px 12px calc(14px + var(--safe-bottom))
   }
   .source-group-nav{padding-bottom:8px}
-  .source-workspace{display:block;position:relative;min-height:0;flex:1}
-  .source-browse{height:100%;padding:8px 0 0;border-right:0}
-  .source-preview{height:100%;padding:8px 0 0}
-  .source-preview.is-empty{display:none}
-  .sources-sheet[data-preview-open="true"] .source-browse{display:none}
-  .sources-sheet[data-preview-open="true"] .source-preview{display:flex}
+  .source-workspace{
+    display:block;
+    position:relative;
+    min-height:0;
+    flex:1;
+    overflow:hidden;
+    contain:layout paint;
+  }
+  .source-browse,
+  .source-preview{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    min-height:0;
+    padding:8px 0 0;
+    border-right:0;
+    background:#1a1a1d;
+    transform:translate3d(0,0,0);
+    transition:none;
+  }
+  .source-browse{
+    z-index:1;
+    visibility:visible;
+    pointer-events:auto;
+  }
+  .source-preview{
+    z-index:2;
+    visibility:hidden;
+    pointer-events:none;
+  }
+  .sources-sheet[data-preview-open="true"] .source-browse{
+    visibility:hidden;
+    pointer-events:none;
+  }
+  .sources-sheet[data-preview-open="true"] .source-preview{
+    visibility:visible;
+    pointer-events:auto;
+  }
   .source-preview-head{grid-template-columns:36px minmax(0,1fr) auto;gap:7px}
   .source-preview-head>button:first-child{
     display:block;width:34px;height:34px;border:0;border-radius:9px;background:#242428;color:#fff;font-size:25px
@@ -1241,7 +1288,8 @@ html.search-suggestions-open .suggestions{
     background:#0b0b0c;
   }
 
-  /* HOME: one fixed parent owns Search + sources. */
+  /* HOME: Search + sources are one fixed parent. Hide/move this parent as a
+     unit so child backgrounds can never remain as an orphan strip. */
   html:not(.watch-browse) .app-header{
     position:fixed;
     top:0;
@@ -1254,20 +1302,15 @@ html.search-suggestions-open .suggestions{
     border:0;
     box-shadow:none;
     pointer-events:none;
-    background:
-      radial-gradient(
-        130% 170% at 50% 72%,
-        var(--page-chrome-glow) 0%,
-        var(--page-chrome-soft) 48%,
-        var(--page-chrome-faint) 68%,
-        rgba(11,11,12,.94) 100%
-      );
+    background:transparent;
+    transform:translate3d(0,0,0);
+    transition:transform .14s ease;
+    will-change:transform;
   }
 
   html:not(.watch-browse) .header-inner,
   html:not(.watch-browse) .header-nav{
     pointer-events:auto;
-    transition:transform .12s ease,opacity .10s ease;
   }
 
   html:not(.watch-browse) .header-inner{
@@ -1454,34 +1497,19 @@ html.search-suggestions-open .suggestions{
     );
   }
 
-  /* Home chrome disappears as a complete parent; no leftover blur band. */
+  /* Hide Search + sources as one physical parent. */
   html:not(.watch-browse).home-header-hidden .app-header{
-    background:transparent;
-    backdrop-filter:none;
-    -webkit-backdrop-filter:none;
-    box-shadow:none;
-  }
-  html:not(.watch-browse).home-header-hidden .header-inner,
-  html:not(.watch-browse).home-header-hidden .header-nav{
-    opacity:0;
-    visibility:hidden;
+    transform:translate3d(
+      0,
+      calc(-1 * (var(--header-stack-h) + var(--safe-top) + 2px)),
+      0
+    );
     pointer-events:none;
-    background:transparent;
-    backdrop-filter:none;
-    -webkit-backdrop-filter:none;
-  }
-  html:not(.watch-browse).home-header-hidden .header-inner{
-    transform:translate3d(0,-52px,0);
-  }
-  html:not(.watch-browse).home-header-hidden .header-nav{
-    transform:translate3d(0,-100px,0);
-  }
-  html:not(.watch-browse).home-header-hidden .header-nav::after{
-    display:none;
   }
 
   /* Home expanded Search. */
   html:not(.watch-browse).home-search-open .app-header{
+    transform:translate3d(0,0,0);
     background:#0b0b0c;
   }
   html:not(.watch-browse).home-search-open .header-inner{
