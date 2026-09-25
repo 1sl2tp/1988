@@ -8035,3 +8035,135 @@ html:not(.watch-browse).home-search-open .header-inner{
     max-height:48px!important;
   }
 }
+
+
+/* ============================================================
+   WATCH AMBIENT STRIP + DIVIDER v215
+   Mobile watch chrome is one continuous ambient surface:
+   Search -> Player -> Source chips -> "Mới nhất".
+   A thin YouTube-like separator sits below the source row.
+   ============================================================ */
+@media(max-width:720px){
+  html.watch-browse{
+    --watch-divider:rgba(255,255,255,.085);
+    --watch-section-divider:rgba(255,255,255,.055);
+  }
+
+  /* Search/header: keep the current video tint visible instead of a flat bar. */
+  html.watch-browse .header-inner{
+    background:
+      radial-gradient(118% 180% at 50% 122%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 40%,
+        rgba(11,11,12,.78) 72%,
+        rgba(11,11,12,.96) 100%)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(9px) saturate(118%)!important;
+    -webkit-backdrop-filter:blur(9px) saturate(118%)!important;
+  }
+
+  /* Player bridges the color between the header and source strip. */
+  html.watch-browse .player-section{
+    box-shadow:
+      0 -24px 48px -31px var(--page-chrome-glow),
+      0 28px 58px -35px var(--page-chrome-glow)!important;
+  }
+
+  /* Source row is part of the same ambient block, not a separate black slab. */
+  html.watch-browse .header-nav,
+  html.watch-browse.watch-categories-open .header-nav{
+    position:fixed!important;
+    background:
+      radial-gradient(128% 205% at 50% -38%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 50%,
+        rgba(11,11,12,.86) 89%)!important;
+    border:0!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(8px) saturate(114%)!important;
+    -webkit-backdrop-filter:blur(8px) saturate(114%)!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .header-nav-inner,
+  html.watch-browse.watch-categories-open .header-nav-inner,
+  html.watch-browse .topic-chips,
+  html.watch-browse.watch-categories-open .topic-chips{
+    background:transparent!important;
+  }
+
+  /* YouTube-like section divider directly below source chips. */
+  html.watch-browse .header-nav::after,
+  html.watch-browse.watch-categories-open .header-nav::after{
+    content:""!important;
+    position:absolute!important;
+    left:12px!important;
+    right:12px!important;
+    bottom:0!important;
+    height:1px!important;
+    background:var(--watch-divider)!important;
+    pointer-events:none!important;
+    z-index:3!important;
+  }
+
+  /* "Mới nhất" continues the same sampled color for one more visual beat. */
+  html.watch-browse .section-head{
+    display:flex!important;
+    align-items:center!important;
+    min-height:36px!important;
+    margin:0!important;
+    padding:9px 12px 7px!important;
+    border:0!important;
+    background:
+      radial-gradient(112% 170% at 50% -58%,
+        var(--page-chrome-soft) 0%,
+        var(--page-chrome-faint) 46%,
+        rgba(11,11,12,.95) 88%)!important;
+    box-shadow:none!important;
+    backdrop-filter:blur(5px) saturate(108%)!important;
+    -webkit-backdrop-filter:blur(5px) saturate(108%)!important;
+  }
+
+  html.watch-browse .section-head h2,
+  html.watch-browse .section-head strong{
+    margin:0!important;
+    color:#f3f3f4!important;
+    font-size:12px!important;
+    line-height:1.2!important;
+    font-weight:760!important;
+  }
+
+  /* A quieter second divider starts the actual recommendation list. */
+  html.watch-browse .section-head::after{
+    content:""!important;
+    position:absolute!important;
+    left:12px!important;
+    right:12px!important;
+    bottom:0!important;
+    height:1px!important;
+    background:var(--watch-section-divider)!important;
+    pointer-events:none!important;
+  }
+
+  html.watch-browse .feed-section,
+  html.watch-browse.watch-video-wide .feed-section,
+  html.watch-browse.watch-video-square .feed-section,
+  html.watch-browse.watch-video-portrait .feed-section{
+    padding-top:0!important;
+    background:#0b0b0c!important;
+  }
+
+  /* Search mode stays neutral and readable. */
+  html.watch-browse.watch-search-open .header-inner,
+  html.watch-browse.watch-search-open .header-nav,
+  html.watch-browse.watch-search-open.watch-categories-open .header-nav{
+    background:#0b0b0c!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+  }
+
+  html.watch-browse.watch-search-open .header-nav::after{
+    background:rgba(255,255,255,.05)!important;
+  }
+}
