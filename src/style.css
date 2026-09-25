@@ -64,6 +64,25 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   background:rgba(255,255,255,.035);color:#e7e7ea;display:grid;place-items:center
 }
 .source-header-icon{font-size:16px;line-height:1;color:#c8c8ce}
+
+/* CANONICAL HEADER SVG ICONS v227 */
+.home-search-toggle svg,
+.source-header-icon svg{
+  display:block;
+  width:22px;
+  height:22px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.9;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  overflow:visible;
+}
+.home-search-toggle,
+.source-header-btn,
+.source-header-icon{
+  color:#f3f3f4;
+}
 .install-btn{height:36px;border:1px solid #35353b;border-radius:18px;background:#202024;color:#fff;padding:0 13px;font-size:12px}
 .suggestions{position:absolute;top:45px;left:0;right:0;overflow:hidden;border:1px solid #33343a;border-radius:13px;background:#19191c;box-shadow:0 18px 45px rgba(0,0,0,.55)}
 .suggestions[hidden]{display:none}.suggestions button{width:100%;min-height:44px;border:0;border-bottom:1px solid #27272b;background:transparent;color:#fff;padding:0 14px;text-align:left}.suggestions button:last-child{border:0}
@@ -977,7 +996,7 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
 
 
 /* ============================================================
-   CANONICAL HOME + WATCH LAYOUT v226
+   CANONICAL HOME + WATCH LAYOUT v227
    Single source of truth after removing v168-v224 override layers.
    Parent states:
    - html:not(.watch-browse) = Home/Search
@@ -1225,7 +1244,13 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     border:0;
     box-shadow:none;
     overflow:visible;
-    background:rgba(11,11,12,.24);
+    isolation:isolate;
+    background:
+      linear-gradient(
+        180deg,
+        var(--page-chrome-faint) 0%,
+        rgba(11,11,12,.46) 100%
+      );
     backdrop-filter:blur(7px) saturate(114%);
     -webkit-backdrop-filter:blur(7px) saturate(114%);
   }
@@ -1538,9 +1563,9 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
       radial-gradient(
         125% 105% at 50% 54%,
         var(--page-chrome-glow) 0%,
-        var(--page-chrome-soft) 50%,
-        var(--page-chrome-faint) 70%,
-        rgba(9,9,10,.96) 100%
+        var(--page-chrome-soft) 46%,
+        var(--page-chrome-faint) 72%,
+        rgba(9,9,10,.92) 100%
       );
   }
 
@@ -1564,7 +1589,12 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     gap:8px;
     border:0;
     box-shadow:none;
-    background:rgba(11,11,12,.38);
+    background:
+      linear-gradient(
+        180deg,
+        rgba(11,11,12,.40) 0%,
+        var(--page-chrome-soft) 100%
+      );
     backdrop-filter:blur(8px) saturate(118%);
     -webkit-backdrop-filter:blur(8px) saturate(118%);
   }
@@ -1624,38 +1654,48 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
     grid-column:1;
     position:relative;
     z-index:40;
-    display:flex;
-    align-items:center;
-    justify-content:center;
+    display:grid;
+    place-items:center;
     width:100%;
     height:var(--watch-stage-h,56.25vw);
-    min-height:0;
+    min-height:var(--watch-stage-h,56.25vw);
+    max-height:var(--watch-stage-h,56.25vw);
     margin:0;
     overflow:hidden;
-    background:#000;
+    isolation:isolate;
+    background:transparent;
     box-shadow:none;
   }
 
   html.watch-browse .player-card{
+    position:relative;
+    display:grid;
+    place-items:center;
     width:100%;
     height:100%;
+    min-height:0;
     margin:0;
     padding:0;
     border:0;
     border-radius:0;
     overflow:hidden;
-    background:#000;
+    contain:layout paint;
+    background:transparent;
   }
 
   html.watch-browse .player-frame:not(.floating-iframe){
+    position:relative;
+    align-self:center;
+    justify-self:center;
     width:var(--watch-player-width,100vw);
     max-width:100vw;
     height:var(--watch-player-height,var(--watch-stage-h,56.25vw));
     max-height:var(--watch-stage-h,56.25vw);
-    margin:0 auto;
+    margin:0;
     border:0;
     border-radius:0;
     overflow:hidden;
+    contain:layout paint;
     aspect-ratio:var(--watch-video-aspect,16/9);
     background:#000;
   }
@@ -1663,8 +1703,15 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{opacity:.4;curso
   html.watch-browse .player-frame:not(.floating-iframe) iframe,
   html.watch-browse .player-frame:not(.floating-iframe) video,
   html.watch-browse .player-frame:not(.floating-iframe) #yt-player{
+    position:absolute!important;
+    inset:0!important;
+    display:block!important;
     width:100%!important;
     height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    border:0!important;
   }
 
   html.watch-browse .player-section .series-panel,
