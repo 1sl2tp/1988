@@ -2705,16 +2705,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const desktop=window.innerWidth>=960;
 
   if(mobile){
-    const styles=getComputedStyle(root);
-    const railHeight=
-      parseFloat(styles.getPropertyValue("--watch-feed-rail-h"))||92;
-    const safeBottom=
-      parseFloat(styles.getPropertyValue("--safe-bottom"))||0;
-    const availableHeight=Math.max(
-      240,
-      viewportHeight-railHeight-safeBottom
-    );
-
+    // First layer is the media itself. Fit the original aspect inside the
+    // visual viewport, then let our menus/recommendations flow underneath.
+    const availableHeight=viewportHeight;
     const width=Math.min(viewportWidth,availableHeight*ratio);
     const height=width/ratio;
 
@@ -2725,12 +2718,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
-    const sideGap=Math.max(0,viewportWidth-width);
-    if(aspectClass==="watch-aspect-portrait"&&sideGap>=54){
-      root.classList.add("watch-tools-side");
-    }else{
-      root.classList.add("watch-tools-bottom");
-    }
+    root.classList.add("watch-tools-bottom");
     return;
   }
 
