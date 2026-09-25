@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const root=process.argv[2]||'.';
 const html=fs.readFileSync(root+'/index.html','utf8');
 const app=fs.readFileSync(root+'/src/app.js','utf8');
+const sw=fs.readFileSync(root+'/sw.js','utf8');
 const refresh=fs.readFileSync(root+'/supabase/functions/yt1988-refresh/index.ts','utf8');
 const gateway=fs.readFileSync(root+'/supabase/functions/yt1988/index.ts','utf8');
 const cacheMigration=fs.readFileSync(root+'/supabase/migrations/20260926050000_channel_snapshot_cache.sql','utf8');
