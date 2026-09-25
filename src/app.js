@@ -414,54 +414,148 @@ const LIVE_SOURCE_SCOPE="live";
 const LATEST_SOURCE_SCOPE="latest";
 const WEEK_SOURCE_SCOPE="week";
 
-const SOURCE_MANAGER_GROUPS=[
-  {key:LIVE_SOURCE_SCOPE,label:"LIVE"},
-  {key:LATEST_SOURCE_SCOPE,label:"Mới nhất"},
-  {key:WEEK_SOURCE_SCOPE,label:"Tuần này"},
-  {key:"news",label:"Thời sự"},
-  {key:"economy",label:"Kinh tế"},
-  {key:"law",label:"Pháp luật"},
-  {key:"film",label:"Phim"},
-  {key:"music",label:"Nhạc"},
-  {key:"tech",label:"Công nghệ"},
-  {key:"sports",label:"Thể thao"},
-  {key:"entertainment",label:"Giải trí"}
+const SOURCE_SCOPE_DEFINITIONS=[
+  // These 11 keys are storage identities. Their semantic profile is explicit
+  // and NEVER inferred from the editable display label, preventing a rename
+  // from silently switching filtering rules.
+  {
+    key:LIVE_SOURCE_SCOPE,
+    defaultLabel:"Live",
+    kind:"live",
+    profile:"live",
+    timeMode:"live",
+    filterAiDisclosure:false
+  },
+  {
+    key:LATEST_SOURCE_SCOPE,
+    defaultLabel:"Ngày",
+    kind:"time",
+    profile:"day",
+    timeMode:"under_24h",
+    filterAiDisclosure:false
+  },
+  {
+    key:WEEK_SOURCE_SCOPE,
+    defaultLabel:"Tuần",
+    kind:"time",
+    profile:"week",
+    timeMode:"day_1_to_7",
+    filterAiDisclosure:false
+  },
+  {
+    key:"news",
+    defaultLabel:"Khám phá",
+    kind:"content",
+    profile:"explore",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"economy",
+    defaultLabel:"Review",
+    kind:"content",
+    profile:"review",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"law",
+    defaultLabel:"Hài",
+    kind:"content",
+    profile:"comedy",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"film",
+    defaultLabel:"Phim ngắn",
+    kind:"content",
+    profile:"short_film",
+    timeMode:"under_7d",
+    filterAiDisclosure:true
+  },
+  {
+    key:"music",
+    defaultLabel:"Nhạc",
+    kind:"content",
+    profile:"music",
+    timeMode:"under_7d",
+    filterAiDisclosure:true
+  },
+  {
+    key:"tech",
+    defaultLabel:"Công nghệ",
+    kind:"content",
+    profile:"technology",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"sports",
+    defaultLabel:"Thể thao",
+    kind:"content",
+    profile:"sports",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"entertainment",
+    defaultLabel:"Showbiz",
+    kind:"content",
+    profile:"showbiz",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  }
 ];
 
-const FIXED_CONTENT_CATEGORIES=[
-  // Labels are presentation only. Source discovery never derives meaning from
-  // these names, so a tab can be renamed without changing its learned profile.
-  {key:"news",group:"news",label:"Thời sự"},
-  {key:"economy",group:"economy",label:"Kinh tế"},
-  {key:"law",group:"law",label:"Pháp luật"},
-  {key:"film",group:"film",label:"Phim"},
-  {key:"music",group:"music",label:"Nhạc"},
-  {key:"tech",group:"tech",label:"Công nghệ"},
-  {key:"sports",group:"sports",label:"Thể thao"},
-  {key:"entertainment",group:"entertainment",label:"Giải trí"}
-];
-const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
-const FEED_SOURCE_SCOPES=new Set([LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]);
-const MANAGED_SOURCE_SCOPES=new Set([
-  LIVE_SOURCE_SCOPE,
-  ...FEED_SOURCE_SCOPES,
-  ...CONTENT_SOURCE_SCOPES
-]);
-const AI_SOURCE_SCOPES=new Set([
-  // Every managed tab learns suggestions from its own Đã chọn list.
-  ...MANAGED_SOURCE_SCOPES
-]);
+const SOURCE_SCOPE_BY_KEY=new Map(
+  SOURCE_SCOPE_DEFINITIONS.map(item=>[item.key,item])
+);
+
+function sourceScopeDefinition(key=""){
+  return SOURCE_SCOPE_BY_KEY.get(String(key||"").trim())||null;
+}
+
+function sourceContentProfile(key=""){
+  return sourceScopeDefinition(key)?.profile||"general";
+}
+
+const SOURCE_MANAGER_GROUPS=SOURCE_SCOPE_DEFINITIONS.map(item=>({
+  key:item.key,
+  label:item.defaultLabel
+}));
+
+const FIXED_CONTENT_CATEGORIES=SOURCE_SCOPE_DEFINITIONS
+  .filter(item=>item.kind==="content")
+  .map(item=>({
+    key:item.key,
+    group:item.key,
+    label:item.defaultLabel,
+    profile:item.profile
+  }));
+
+const CONTENT_SOURCE_SCOPES=new Set(
+  SOURCE_SCOPE_DEFINITIONS.filter(item=>item.kind==="content").map(item=>item.key)
+);
+const FEED_SOURCE_SCOPES=new Set(
+  SOURCE_SCOPE_DEFINITIONS.filter(item=>item.kind==="time").map(item=>item.key)
+);
+const MANAGED_SOURCE_SCOPES=new Set(SOURCE_SCOPE_DEFINITIONS.map(item=>item.key));
+const AI_SOURCE_SCOPES=new Set(MANAGED_SOURCE_SCOPES);
+
 const FEED_SOURCE_DISCOVERY_PARENTS={
   [LATEST_SOURCE_SCOPE]:{
     key:LATEST_SOURCE_SCOPE,
     group:LATEST_SOURCE_SCOPE,
-    label:"Mới nhất",
+    label:sourceScopeDefinition(LATEST_SOURCE_SCOPE)?.defaultLabel||"Ngày",
+    profile:"day",
     queries:[]
   },
   [WEEK_SOURCE_SCOPE]:{
     key:WEEK_SOURCE_SCOPE,
     group:WEEK_SOURCE_SCOPE,
-    label:"Tuần này",
+    label:sourceScopeDefinition(WEEK_SOURCE_SCOPE)?.defaultLabel||"Tuần",
+    profile:"week",
     queries:[]
   }
 };
@@ -507,7 +601,7 @@ let sourceGroupLabelOverrides=Object.fromEntries(
 
 function sourceGroupLabel(key=""){
   key=String(key||"").trim();
-  const base=SOURCE_MANAGER_GROUPS.find(item=>item.key===key)?.label||key;
+  const base=sourceScopeDefinition(key)?.defaultLabel||key;
   return clean(sourceGroupLabelOverrides[key]||base).slice(0,32)||base;
 }
 
@@ -6351,25 +6445,25 @@ function contentHashForRow(row={}){
   return fastHash(title);
 }
 
-// Review is a presentation label, so detect it from the current server-synced
-// label rather than hard-coding a scope key. Renaming a tab to/from Review
-// immediately changes this cleanup policy without changing source ownership.
-function isReviewPackageLabel(label=""){
-  const norm=normalizeSearchText(label);
-  return norm==="review"||norm==="review phim"||norm.startsWith("review ");
-}
-
 function packageContext(snapshotName="",explicitScope="",explicitLabel=""){
   let scope=String(explicitScope||"").trim();
   if(!scope){
     if(snapshotName.startsWith("category:"))scope=snapshotName.slice(9);
     else if(snapshotName.startsWith("feed:"))scope=snapshotName.slice(5);
   }
+  const definition=sourceScopeDefinition(scope);
   const label=clean(
     explicitLabel||
     (MANAGED_SOURCE_SCOPES.has(scope)?sourceGroupLabel(scope):"")
   );
-  return {scope,label,review:isReviewPackageLabel(label)};
+  const profile=definition?.profile||"general";
+  return {
+    scope,
+    label,
+    kind:definition?.kind||"general",
+    profile,
+    review:profile==="review"
+  };
 }
 
 function reviewAdSignals(row={}){
@@ -12544,9 +12638,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
 
   // Include the active filtering policy in the input hash. Renaming a tab to
   // "Review" must rebuild the package even when raw YouTube rows are unchanged.
-  const policyKey=context.review
-    ?"review-quality-v2:"+normalizeSearchText(context.label)
-    :"default-dedupe-v2";
+  const policyKey="scope-policy-v3:"+context.profile;
   const inputHash=fastHash(
     snapshotRowsHash(base,sourceSig)+"|"+policyKey
   );
@@ -12593,6 +12685,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
           mode:"dedupe",
           scope:context.scope,
           parentLabel:context.label,
+          contentProfile:context.profile,
           reviewMode:context.review,
           videos:input
         })
