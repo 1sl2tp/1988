@@ -414,54 +414,148 @@ const LIVE_SOURCE_SCOPE="live";
 const LATEST_SOURCE_SCOPE="latest";
 const WEEK_SOURCE_SCOPE="week";
 
-const SOURCE_MANAGER_GROUPS=[
-  {key:LIVE_SOURCE_SCOPE,label:"LIVE"},
-  {key:LATEST_SOURCE_SCOPE,label:"Mới nhất"},
-  {key:WEEK_SOURCE_SCOPE,label:"Tuần này"},
-  {key:"news",label:"Thời sự"},
-  {key:"economy",label:"Kinh tế"},
-  {key:"law",label:"Pháp luật"},
-  {key:"film",label:"Phim"},
-  {key:"music",label:"Nhạc"},
-  {key:"tech",label:"Công nghệ"},
-  {key:"sports",label:"Thể thao"},
-  {key:"entertainment",label:"Giải trí"}
+const SOURCE_SCOPE_DEFINITIONS=[
+  // These 11 keys are storage identities. Their semantic profile is explicit
+  // and NEVER inferred from the editable display label, preventing a rename
+  // from silently switching filtering rules.
+  {
+    key:LIVE_SOURCE_SCOPE,
+    defaultLabel:"Live",
+    kind:"live",
+    profile:"live",
+    timeMode:"live",
+    filterAiDisclosure:false
+  },
+  {
+    key:LATEST_SOURCE_SCOPE,
+    defaultLabel:"Ngày",
+    kind:"time",
+    profile:"day",
+    timeMode:"under_24h",
+    filterAiDisclosure:false
+  },
+  {
+    key:WEEK_SOURCE_SCOPE,
+    defaultLabel:"Tuần",
+    kind:"time",
+    profile:"week",
+    timeMode:"day_1_to_7",
+    filterAiDisclosure:false
+  },
+  {
+    key:"news",
+    defaultLabel:"Khám phá",
+    kind:"content",
+    profile:"explore",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"economy",
+    defaultLabel:"Review",
+    kind:"content",
+    profile:"review",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"law",
+    defaultLabel:"Hài",
+    kind:"content",
+    profile:"comedy",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"film",
+    defaultLabel:"Phim ngắn",
+    kind:"content",
+    profile:"short_film",
+    timeMode:"under_7d",
+    filterAiDisclosure:true
+  },
+  {
+    key:"music",
+    defaultLabel:"Nhạc",
+    kind:"content",
+    profile:"music",
+    timeMode:"under_7d",
+    filterAiDisclosure:true
+  },
+  {
+    key:"tech",
+    defaultLabel:"Công nghệ",
+    kind:"content",
+    profile:"technology",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"sports",
+    defaultLabel:"Thể thao",
+    kind:"content",
+    profile:"sports",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  },
+  {
+    key:"entertainment",
+    defaultLabel:"Showbiz",
+    kind:"content",
+    profile:"showbiz",
+    timeMode:"under_7d",
+    filterAiDisclosure:false
+  }
 ];
 
-const FIXED_CONTENT_CATEGORIES=[
-  // Labels are presentation only. Source discovery never derives meaning from
-  // these names, so a tab can be renamed without changing its learned profile.
-  {key:"news",group:"news",label:"Thời sự"},
-  {key:"economy",group:"economy",label:"Kinh tế"},
-  {key:"law",group:"law",label:"Pháp luật"},
-  {key:"film",group:"film",label:"Phim"},
-  {key:"music",group:"music",label:"Nhạc"},
-  {key:"tech",group:"tech",label:"Công nghệ"},
-  {key:"sports",group:"sports",label:"Thể thao"},
-  {key:"entertainment",group:"entertainment",label:"Giải trí"}
-];
-const CONTENT_SOURCE_SCOPES=new Set(FIXED_CONTENT_CATEGORIES.map(item=>item.group));
-const FEED_SOURCE_SCOPES=new Set([LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]);
-const MANAGED_SOURCE_SCOPES=new Set([
-  LIVE_SOURCE_SCOPE,
-  ...FEED_SOURCE_SCOPES,
-  ...CONTENT_SOURCE_SCOPES
-]);
-const AI_SOURCE_SCOPES=new Set([
-  // Every managed tab learns suggestions from its own Đã chọn list.
-  ...MANAGED_SOURCE_SCOPES
-]);
+const SOURCE_SCOPE_BY_KEY=new Map(
+  SOURCE_SCOPE_DEFINITIONS.map(item=>[item.key,item])
+);
+
+function sourceScopeDefinition(key=""){
+  return SOURCE_SCOPE_BY_KEY.get(String(key||"").trim())||null;
+}
+
+function sourceContentProfile(key=""){
+  return sourceScopeDefinition(key)?.profile||"general";
+}
+
+const SOURCE_MANAGER_GROUPS=SOURCE_SCOPE_DEFINITIONS.map(item=>({
+  key:item.key,
+  label:item.defaultLabel
+}));
+
+const FIXED_CONTENT_CATEGORIES=SOURCE_SCOPE_DEFINITIONS
+  .filter(item=>item.kind==="content")
+  .map(item=>({
+    key:item.key,
+    group:item.key,
+    label:item.defaultLabel,
+    profile:item.profile
+  }));
+
+const CONTENT_SOURCE_SCOPES=new Set(
+  SOURCE_SCOPE_DEFINITIONS.filter(item=>item.kind==="content").map(item=>item.key)
+);
+const FEED_SOURCE_SCOPES=new Set(
+  SOURCE_SCOPE_DEFINITIONS.filter(item=>item.kind==="time").map(item=>item.key)
+);
+const MANAGED_SOURCE_SCOPES=new Set(SOURCE_SCOPE_DEFINITIONS.map(item=>item.key));
+const AI_SOURCE_SCOPES=new Set(MANAGED_SOURCE_SCOPES);
+
 const FEED_SOURCE_DISCOVERY_PARENTS={
   [LATEST_SOURCE_SCOPE]:{
     key:LATEST_SOURCE_SCOPE,
     group:LATEST_SOURCE_SCOPE,
-    label:"Mới nhất",
+    label:sourceScopeDefinition(LATEST_SOURCE_SCOPE)?.defaultLabel||"Ngày",
+    profile:"day",
     queries:[]
   },
   [WEEK_SOURCE_SCOPE]:{
     key:WEEK_SOURCE_SCOPE,
     group:WEEK_SOURCE_SCOPE,
-    label:"Tuần này",
+    label:sourceScopeDefinition(WEEK_SOURCE_SCOPE)?.defaultLabel||"Tuần",
+    profile:"week",
     queries:[]
   }
 };
@@ -507,7 +601,7 @@ let sourceGroupLabelOverrides=Object.fromEntries(
 
 function sourceGroupLabel(key=""){
   key=String(key||"").trim();
-  const base=SOURCE_MANAGER_GROUPS.find(item=>item.key===key)?.label||key;
+  const base=sourceScopeDefinition(key)?.defaultLabel||key;
   return clean(sourceGroupLabelOverrides[key]||base).slice(0,32)||base;
 }
 
@@ -6351,25 +6445,25 @@ function contentHashForRow(row={}){
   return fastHash(title);
 }
 
-// Review is a presentation label, so detect it from the current server-synced
-// label rather than hard-coding a scope key. Renaming a tab to/from Review
-// immediately changes this cleanup policy without changing source ownership.
-function isReviewPackageLabel(label=""){
-  const norm=normalizeSearchText(label);
-  return norm==="review"||norm==="review phim"||norm.startsWith("review ");
-}
-
 function packageContext(snapshotName="",explicitScope="",explicitLabel=""){
   let scope=String(explicitScope||"").trim();
   if(!scope){
     if(snapshotName.startsWith("category:"))scope=snapshotName.slice(9);
     else if(snapshotName.startsWith("feed:"))scope=snapshotName.slice(5);
   }
+  const definition=sourceScopeDefinition(scope);
   const label=clean(
     explicitLabel||
     (MANAGED_SOURCE_SCOPES.has(scope)?sourceGroupLabel(scope):"")
   );
-  return {scope,label,review:isReviewPackageLabel(label)};
+  const profile=definition?.profile||"general";
+  return {
+    scope,
+    label,
+    kind:definition?.kind||"general",
+    profile,
+    review:profile==="review"
+  };
 }
 
 function reviewAdSignals(row={}){
@@ -6403,6 +6497,10 @@ function isStrongReviewAd(row={}){
   const signals=reviewAdSignals(row);
   if(signals.includes("phone")||signals.includes("url")||signals.includes("promo_code"))return true;
   return signals.includes("contact")&&signals.includes("handle");
+}
+
+function isStrongContentAd(row={}){
+  return isStrongReviewAd(row);
 }
 
 function cleanReviewDisplayTitle(value=""){
@@ -6657,41 +6755,58 @@ function librarySourceForVideo(row={}){
 
 function rowMatchesParentRule(parent,row={}){
   const group=parentSourceGroup(parent);
+  const profile=sourceContentProfile(group);
   const text=normalizeSearchText(
-    [row?.title,row?._displayTitle,row?.uploader,row?.uploaderName,row?.channelName]
+    [
+      row?.title,row?._displayTitle,row?.description,
+      row?.uploader,row?.uploaderName,row?.channelName
+    ]
       .map(clean)
       .filter(Boolean)
       .join(" ")
   );
   if(!text)return false;
 
-  switch(group){
-    case "film":
-      return /\bphim\b|vietsub|thuyet minh|review phim|phim ngan|tong tai|trong sinh|trung sinh|xuyen khong|hoan thuong|chien than|than y|o re|thien kim|nu de|tu tien|co trang|ngon tinh|giam bao|thau thi|long soai|dien chu/.test(text)||
+  switch(profile){
+    case "short_film":
+      return /\bphim\b|vietsub|thuyet minh|phim ngan|short drama|mini drama|tong tai|trong sinh|trung sinh|xuyen khong|hoan thuong|chien than|than y|o re|thien kim|nu de|tu tien|co trang|ngon tinh|giam bao|thau thi|long soai|dien chu/.test(text)||
         isShortDramaStoryTitle(row);
+
+    case "review":
+      return /review phim|phim review|tom tat phim|movie recap|review movie|review series|review anime|review hoat hinh|review drama|phan tich phim|giai thich phim/.test(text)||
+        (/\bphim\b/.test(text)&&/review|tom tat|recap|phan tich|giai thich/.test(text));
+
+    case "comedy":
+      return /\bhai\b|hai kich|tieu pham|comedy|parody|sketch|sitcom|hai tet|hai dan gian|gay cuoi|cuoi vo bung|xả xì chét|xa xi chet/.test(text);
+
     case "music":
-      return /\bnhac\b|\bmv\b|official audio|lyric|lyrics|ca khuc|bai hat|ca si|live session|acoustic|cover|remix|karaoke|bolero|vpop|rap viet/.test(text);
-    case "economy":
-      return /kinh te|tai chinh|thi truong|chung khoan|co phieu|dau tu|gia vang|ty gia|lai suat|ngan hang|doanh nghiep|bitcoin|bat dong san/.test(text);
-    case "law":
-      return /phap luat|an ninh|cong an|canh sat|vu an|khoi to|bat giu|truy na|dieu tra|xet xu|toi pham|ma tuy|lua dao/.test(text);
-    case "tech":
-      return /cong nghe|smartphone|iphone|android|chip|phan mem|may tinh|laptop|robot|tri tue nhan tao|artificial intelligence|openai|google ai|samsung|apple/.test(text)&&!isShortDramaStoryTitle(row);
+      return /\bnhac\b|\bmv\b|official audio|lyric|lyrics|ca khuc|bai hat|ca si|live session|acoustic|cover|remix|karaoke|bolero|vpop|rap viet|concert|music video/.test(text);
+
+    case "technology":
+      return /cong nghe|smartphone|iphone|android|chip|phan mem|may tinh|laptop|robot|tri tue nhan tao|artificial intelligence|openai|google ai|samsung|apple|camera|tai nghe|smartwatch|review dien thoai|danh gia dien thoai/.test(text)&&
+        !isShortDramaStoryTitle(row);
+
     case "sports":
-      return /the thao|bong da|cau thu|tran dau|ban thang|v league|premier league|champions league|world cup|aff cup|tennis|pickleball|formula 1|f1/.test(text);
-    case "entertainment":
-      return /giai tri|showbiz|gameshow|hau truong|nghe si|dien vien|hoa hau|concert|truyen hinh thuc te|reality show/.test(text);
-    case "news":
-      return /thoi su|tin tuc|ban tin|tin nong|truc tiep|quoc te|chinh phu|hoi nghi|du bao thoi tiet/.test(text);
-    case LATEST_SOURCE_SCOPE:
-    case WEEK_SOURCE_SCOPE:
-    case GENERAL_SOURCE_SCOPE:
+      return /the thao|bong da|cau thu|tran dau|ban thang|v league|premier league|champions league|world cup|aff cup|tennis|pickleball|formula 1|\bf1\b|billiards|bi a|esports|vo thuat/.test(text);
+
+    case "showbiz":
+      return /showbiz|giai tri|nghe si|dien vien|ca si|hoa hau|nguoi mau|gameshow|hau truong|truyen hinh thuc te|reality show|tham do|scandal|sao viet|sao hoa ngu|sao han/.test(text);
+
+    case "explore":
+      return /kham pha|kien thuc|lich su|co dai|khoa hoc|vu tru|thien nhien|dong vat|dia ly|van hoa|khao co|bi an|su that|top 10|the gioi|tri thuc|phat minh|van minh/.test(text);
+
+    case "live":
+      return row?.isLive===true;
+
+    case "day":
+    case "week":
+    case "general":
       return true;
+
     default:
-      return false;
+      return true;
   }
 }
-
 function locallyTrustedForParent(parent,row={}){
   const group=parentSourceGroup(parent);
   if(isBlockedSourceRow(row,group))return false;
@@ -6714,17 +6829,18 @@ function splitLocalCategoryRows(parent,rows=[]){
 
 function filterRowsForAiParent(parent,rows=[]){
   const group=parentSourceGroup(parent);
+  const profile=sourceContentProfile(group);
   const base=rows.filter(row=>!isBlockedSourceRow(row,group));
-  const key=normalizeSearchText(parent?.label||"");
-  if(key==="cong nghe"){
+
+  if(profile==="technology"){
     return base.filter(row=>!isShortDramaStoryTitle(row));
   }
   return base;
 }
 
 function aiDisclosureRequired(parent){
-  const key=normalizeSearchText(parent?.label||"");
-  return key==="phim"||key==="phim ngan"||key==="nhac";
+  const group=parentSourceGroup(parent);
+  return sourceScopeDefinition(group)?.filterAiDisclosure===true;
 }
 
 async function filterNativeAiGeneratedRows(local,parent,rows=[]){
@@ -12534,9 +12650,13 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   parentLabel:explicitLabel=""
 }={}){
   const context=packageContext(snapshotName,explicitScope,explicitLabel);
+  const rawRows=Array.isArray(rows)?rows:[];
+  const qualityRows=context.kind==="content"
+    ?rawRows.filter(row=>!isStrongContentAd(row))
+    :rawRows;
   const prepared=context.review
-    ?prepareReviewPackageRows(rows)
-    :(Array.isArray(rows)?rows:[]);
+    ?prepareReviewPackageRows(qualityRows)
+    :qualityRows;
 
   const base=dedupeHashedRows(prepared)
     .slice(0,Math.max(1,Number(maxRows)||90));
@@ -12544,9 +12664,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
 
   // Include the active filtering policy in the input hash. Renaming a tab to
   // "Review" must rebuild the package even when raw YouTube rows are unchanged.
-  const policyKey=context.review
-    ?"review-quality-v2:"+normalizeSearchText(context.label)
-    :"default-dedupe-v2";
+  const policyKey="scope-policy-v3:"+context.profile;
   const inputHash=fastHash(
     snapshotRowsHash(base,sourceSig)+"|"+policyKey
   );
@@ -12593,6 +12711,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
           mode:"dedupe",
           scope:context.scope,
           parentLabel:context.label,
+          contentProfile:context.profile,
           reviewMode:context.review,
           videos:input
         })
