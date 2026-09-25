@@ -20,6 +20,10 @@ const SCOPE_META:any={
 };
 const CONTENT_SCOPES=new Set(SCOPES.filter((s)=>SCOPE_META[s]?.kind==="content"));
 const DAY_MS=24*60*60*1000;
+const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
+const CHANNEL_RECHECK_MS=8*60*1000;
+const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
+const MAX_CHANNEL_FETCHES_PER_RUN=20;
 const cors={
   "access-control-allow-origin":"*",
   "access-control-allow-headers":"authorization, x-client-info, apikey, content-type",
@@ -67,6 +71,26 @@ function channelId(row:any){
 function isLive(row:any){
   return row?.isLive===true||Number(row?.duration)<0||Number(row?.uploaded)===-1;
 }
+function relativeAgeMs(value:any){
+  const raw=normalizeText(value);
+  if(!raw)return Number.MAX_SAFE_INTEGER;
+  if(/\b(vua xong|just now|moments ago|few seconds ago)\b/.test(raw))return 0;
+
+  const match=raw.match(/(\d+)\s*(giay|phut|gio|ngay|tuan|thang|nam|second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\b/);
+  if(!match)return Number.MAX_SAFE_INTEGER;
+
+  const n=Math.max(0,Number(match[1])||0);
+  const unit=match[2];
+  const minute=60*1000;
+  if(/giay|second/.test(unit))return n*1000;
+  if(/phut|minute/.test(unit))return n*minute;
+  if(/gio|hour/.test(unit))return n*60*minute;
+  if(/ngay|day/.test(unit))return n*24*60*minute;
+  if(/tuan|week/.test(unit))return n*7*24*60*minute;
+  if(/thang|month/.test(unit))return n*30*24*60*minute;
+  if(/nam|year/.test(unit))return n*365*24*60*minute;
+  return Number.MAX_SAFE_INTEGER;
+}
 function ageMs(row:any){
   if(isLive(row))return -1;
   const value=Number(row?.uploaded||row?.published||row?.publishedAt||0);
@@ -74,7 +98,12 @@ function ageMs(row:any){
     const ms=value<1e12?value*1000:value;
     return Math.max(0,Date.now()-ms);
   }
-  const parsed=Date.parse(clean(row?.uploadDate||row?.uploadedDate||row?.publishedText||"",100));
+
+  const raw=clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"",120);
+  const relative=relativeAgeMs(raw);
+  if(Number.isFinite(relative)&&relative!==Number.MAX_SAFE_INTEGER)return relative;
+
+  const parsed=Date.parse(raw);
   return Number.isFinite(parsed)?Math.max(0,Date.now()-parsed):Number.MAX_SAFE_INTEGER;
 }
 function publishedText(row:any){
@@ -201,11 +230,44 @@ async function claimLease(rest:string,headers:any){
   if(!res.ok)return false;
   return (await res.json())===true;
 }
+async function queuePendingRefresh(rest:string,headers:any,scopes:string[]){
+  if(!scopes.length)return;
+  await fetch(rest+"/rpc/yt1988_queue_refresh",{
+    method:"POST",headers,
+    body:JSON.stringify({p_profile_key:PROFILE,p_scopes:scopes})
+  }).catch(()=>{});
+}
 async function finishLease(rest:string,headers:any,ok:boolean,error=""){
+  try{
+    const res=await fetch(rest+"/rpc/yt1988_finish_refresh_v2",{
+      method:"POST",headers,
+      body:JSON.stringify({p_profile_key:PROFILE,p_ok:ok,p_error:clean(error,1800)})
+    });
+    if(res.ok){
+      const pending=await res.json().catch(()=>[]);
+      return Array.isArray(pending)?pending.filter((s:any)=>SCOPES.includes(clean(s,32))):[];
+    }
+  }catch{}
+
   await fetch(rest+"/rpc/yt1988_finish_refresh",{
     method:"POST",headers,
-    body:JSON.stringify({p_profile_key:PROFILE,p_ok:ok,p_error:clean(error,1000)})
+    body:JSON.stringify({p_profile_key:PROFILE,p_ok:ok,p_error:clean(error,1800)})
   }).catch(()=>{});
+  return [];
+}
+function triggerFollowupRefresh(supabaseUrl:string,serviceKey:string,scopes:string[]){
+  const wanted=[...new Set(scopes.map((s)=>clean(s,32)).filter((s)=>SCOPES.includes(s)))];
+  if(!wanted.length)return;
+  const task=fetch(supabaseUrl+"/functions/v1/yt1988-refresh",{
+    method:"POST",
+    headers:{
+      "apikey":serviceKey,
+      "authorization":"Bearer "+serviceKey,
+      "content-type":"application/json"
+    },
+    body:JSON.stringify({scopes:wanted})
+  }).catch((error)=>console.warn("followup refresh failed",String(error)));
+  try{(globalThis as any).EdgeRuntime?.waitUntil?.(task);}catch{}
 }
 
 Deno.serve(async(req:Request)=>{
@@ -235,7 +297,8 @@ Deno.serve(async(req:Request)=>{
   const scopes=requested.size?[...requested]:SCOPES.slice();
 
   if(!await claimLease(rest,authHeaders)){
-    return json({ok:true,skipped:true,reason:"refresh_already_running"});
+    await queuePendingRefresh(rest,authHeaders,scopes);
+    return json({ok:true,skipped:true,queued:true,reason:"refresh_already_running",scopes});
   }
 
   let ok=false;
@@ -253,7 +316,7 @@ Deno.serve(async(req:Request)=>{
 
     const packageRes=await fetch(
       rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
-      "&select=scope,hash,input_hash,source_signature,version",
+      "&select=scope,hash,input_hash,source_signature,version,items,updated_at",
       {headers:authHeaders}
     );
     if(!packageRes.ok)throw new Error("package_manifest_read_failed");
@@ -277,14 +340,14 @@ Deno.serve(async(req:Request)=>{
       }else if(row?.status==="selected"){
         selectedByScope.get(scope)?.push({
           id,
-          name:clean(row?.name,180)||id,
+          name:clean(row?.name,180),
           thumbnailUrl:clean(row?.thumbnail_url,1000)
         });
       }
       if(!channelMeta.has(id)){
         channelMeta.set(id,{
           id,
-          name:clean(row?.name,180)||id,
+          name:clean(row?.name,180),
           thumbnailUrl:clean(row?.thumbnail_url,1000)
         });
       }
@@ -303,32 +366,184 @@ Deno.serve(async(req:Request)=>{
     )];
     const channelRows=new Map<string,any[]>();
     const channelFetchOk=new Set<string>();
+    const cacheById=new Map<string,any>();
+    const cacheWrites:any[]=[];
+    const now=Date.now();
 
-    // Keep nested channel requests below the Edge Function burst limit.
-    // The cron rotates scopes, so a refresh only needs a small bounded fan-out.
-    await mapLimit(neededIds,4,async(id)=>{
-      const source=channelMeta.get(id)||{id,name:id};
+    // Load persistent per-channel snapshots. These are the server equivalent
+    // of the old browser channel cache: one failed upstream request must never
+    // erase a channel that was previously fetched successfully.
+    for(let start=0;start<neededIds.length;start+=50){
+      const ids=neededIds.slice(start,start+50);
+      if(!ids.length)continue;
+      const cacheRes=await fetch(
+        rest+"/yt1988_channel_cache?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")"+
+        "&select=channel_id,items,hash,newest_video_id,newest_uploaded_at,source_name,thumbnail_url,checked_at,last_success_at,last_error,retry_after,version",
+        {headers:authHeaders}
+      );
+      if(!cacheRes.ok){
+        console.warn("channel cache read failed",await cacheRes.text());
+        continue;
+      }
+      const cacheRows=await cacheRes.json();
+      for(const row of Array.isArray(cacheRows)?cacheRows:[]){
+        const id=clean(row?.channel_id,180);
+        if(id)cacheById.set(id,row);
+      }
+    }
+
+    // Existing packages are also valid reserve data during the first migration
+    // run, before every selected channel has its own cache row.
+    for(const pkg of Array.isArray(packageRows)?packageRows:[]){
+      for(const item of Array.isArray(pkg?.items)?pkg.items:[]){
+        const id=channelId(item);
+        if(!id||cacheById.has(id))continue;
+        const list=(cacheById.get(id)?.items)||[];
+        list.push(item);
+        cacheById.set(id,{
+          channel_id:id,
+          items:list,
+          source_name:clean(item?._sourceName||item?.uploaderName||item?.uploader||"",180),
+          thumbnail_url:"",
+          checked_at:pkg?.updated_at||null,
+          last_success_at:pkg?.updated_at||null,
+          retry_after:null,
+          hash:""
+        });
+      }
+    }
+
+    for(const id of neededIds){
+      const cached=cacheById.get(id);
+      const source=channelMeta.get(id)||{id,name:""};
+      if(!source.name&&cached?.source_name)source.name=clean(cached.source_name,180);
+      if(!source.thumbnailUrl&&cached?.thumbnail_url)source.thumbnailUrl=clean(cached.thumbnail_url,1000);
+      channelMeta.set(id,source);
+
+      const successAt=Date.parse(String(cached?.last_success_at||cached?.checked_at||""));
+      const rows=dedupeRows(Array.isArray(cached?.items)?cached.items:[])
+        .map((row:any)=>normalizeRow(row,source)).filter(Boolean).slice(0,30);
+      if(rows.length&&Number.isFinite(successAt)&&now-successAt<=CHANNEL_CACHE_MAX_AGE_MS){
+        channelRows.set(id,rows);
+      }
+    }
+
+    const checkedTime=(id:string)=>{
+      const value=Date.parse(String(cacheById.get(id)?.checked_at||""));
+      return Number.isFinite(value)?value:0;
+    };
+    const dueIds=neededIds
+      .filter((id)=>{
+        const cached=cacheById.get(id);
+        const retry=Date.parse(String(cached?.retry_after||""));
+        if(Number.isFinite(retry)&&retry>now)return false;
+        const checked=checkedTime(id);
+        return !checked||now-checked>=CHANNEL_RECHECK_MS||!channelRows.get(id)?.length;
+      })
+      .sort((a,b)=>checkedTime(a)-checkedTime(b))
+      .slice(0,MAX_CHANNEL_FETCHES_PER_RUN);
+
+    // Bound both request count and concurrency. Large tabs are refreshed in
+    // rotation; uncached channels get priority on the next pass.
+    await mapLimit(dueIds,3,async(id,index)=>{
+      const source=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
+      const previous=cacheById.get(id)||{};
+      const previousRows=channelRows.get(id)||[];
+      const checkedAt=new Date().toISOString();
+
       try{
         const url=supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(id);
         const result=await fetchJson(url,{
           "apikey":serviceKey,
           "authorization":"Bearer "+serviceKey
-        },6500);
+        },7500);
         const data=result?.data||{};
         const raw=Array.isArray(data?.relatedStreams)
           ?data.relatedStreams
           :Array.isArray(data?.items)?data.items:[];
-        channelRows.set(
-          id,
-          raw.map((row:any)=>normalizeRow(row,source)).filter(Boolean).slice(0,30)
+        const fresh=dedupeRows(
+          raw.map((row:any)=>normalizeRow(row,source)).filter(Boolean)
+        ).slice(0,30);
+
+        if(!fresh.length)throw new Error("empty_channel_payload");
+
+        const sourceName=clean(
+          source?.name||
+          fresh[0]?.uploaderName||
+          fresh[0]?.uploader||
+          fresh[0]?._sourceName||
+          previous?.source_name||
+          "",
+          180
         );
+        if(sourceName&&!source.name){
+          source.name=sourceName;
+          channelMeta.set(id,source);
+        }
+
+        channelRows.set(id,fresh);
         channelFetchOk.add(id);
+
+        const newest=fresh
+          .map((row:any)=>({id:videoId(row),age:ageMs(row)}))
+          .filter((row:any)=>row.id&&Number.isFinite(row.age)&&row.age>=0&&row.age<Number.MAX_SAFE_INTEGER)
+          .sort((a:any,b:any)=>a.age-b.age)[0]||null;
+
+        const cacheHash=fastHash(fresh.map((row:any)=>[
+          videoId(row),clean(row?.title,300),publishedText(row)
+        ].join("|")).join("\n"));
+
+        cacheWrites.push({
+          profile_key:PROFILE,
+          channel_id:id,
+          items:fresh,
+          hash:cacheHash,
+          newest_video_id:newest?.id||"",
+          newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():null,
+          source_name:sourceName,
+          thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+          checked_at:checkedAt,
+          last_success_at:checkedAt,
+          last_error:"",
+          retry_after:null,
+          version:Date.now()*100+index
+        });
       }catch(error){
         console.warn("channel refresh failed",id,String(error));
-        channelRows.set(id,[]);
+        const message=clean(String((error as any)?.message||error||"channel_refresh_failed"),500);
+        cacheWrites.push({
+          profile_key:PROFILE,
+          channel_id:id,
+          items:previousRows,
+          hash:clean(previous?.hash,100),
+          newest_video_id:clean(previous?.newest_video_id,64),
+          newest_uploaded_at:previous?.newest_uploaded_at||null,
+          source_name:clean(source?.name||previous?.source_name||"",180),
+          thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+          checked_at:checkedAt,
+          last_success_at:previous?.last_success_at||null,
+          last_error:message,
+          retry_after:new Date(Date.now()+CHANNEL_FAILURE_RETRY_MS).toISOString(),
+          version:Date.now()*100+index
+        });
       }
       return true;
     });
+
+    for(let start=0;start<cacheWrites.length;start+=20){
+      const chunk=cacheWrites.slice(start,start+20);
+      if(!chunk.length)continue;
+      const writeRes=await fetch(
+        rest+"/yt1988_channel_cache?on_conflict=profile_key,channel_id",
+        {
+          method:"POST",
+          headers:{...authHeaders,"prefer":"resolution=merge-duplicates,return=minimal"},
+          body:JSON.stringify(chunk)
+        }
+      );
+      if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());
+    }
 
     let globalLive:any[]=[];
     if(scopes.includes("live")){
@@ -346,29 +561,36 @@ Deno.serve(async(req:Request)=>{
     }
 
     const results:any[]=[];
+    const degradedNotes:string[]=[];
     for(let scopeIndex=0;scopeIndex<scopes.length;scopeIndex++){
       const scope=scopes[scopeIndex];
       const meta=SCOPE_META[scope]||{profile:"general",label:scope,kind:"content"};
       const selected=selectedByScope.get(scope)||[];
       const blocked=blockedByScope.get(scope)||new Set<string>();
       const selectedIds=new Set(selected.map((s:any)=>s.id));
+      const current=currentByScope.get(scope);
 
-      // Never replace a healthy shared package with a partial outage. A scope
-      // refresh needs a majority of its selected channels to have answered.
-      if(selected.length){
-        const okCount=selected.filter((s:any)=>channelFetchOk.has(s.id)).length;
-        const minOk=Math.max(1,Math.ceil(selected.length*.6));
-        if(okCount<minOk){
-          results.push({
-            scope,
-            changed:false,
-            reason:"insufficient_channel_refresh",
-            okChannels:okCount,
-            selectedChannels:selected.length
-          });
-          continue;
-        }
+      // Coverage is based on usable snapshots, not only requests from this run.
+      // This is the key stale-while-revalidate guarantee: a temporary 429/503
+      // reuses the previous good channel rows instead of deleting them.
+      const usableChannels=selected.filter((s:any)=>(channelRows.get(s.id)||[]).length).length;
+      const coverage=selected.length?usableChannels/selected.length:1;
+      if(selected.length&&coverage<.6){
+        const reason="insufficient_channel_snapshots:"+usableChannels+"/"+selected.length;
+        degradedNotes.push(scope+":"+reason);
+        results.push({
+          scope,
+          changed:false,
+          reason:"insufficient_channel_snapshots",
+          usableChannels,
+          selectedChannels:selected.length
+        });
+        continue;
       }
+
+      const attempted=selected.filter((s:any)=>dueIds.includes(s.id)).length;
+      const freshOk=selected.filter((s:any)=>channelFetchOk.has(s.id)).length;
+      if(attempted>freshOk)degradedNotes.push(scope+":channel_errors="+(attempted-freshOk));
 
       let raw:any[]=[];
 
@@ -425,8 +647,6 @@ Deno.serve(async(req:Request)=>{
       const policyKey="server-scope-policy-v4:"+meta.profile;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
-      const current=currentByScope.get(scope);
-
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
         results.push({scope,changed:false,reason:"same_input"});
         continue;
@@ -488,6 +708,29 @@ Deno.serve(async(req:Request)=>{
         continue;
       }
 
+      // Content tabs should never collapse from a recently healthy package to
+      // a tiny partial package in a single refresh. Time feeds and LIVE are
+      // intentionally excluded because their membership naturally changes fast.
+      const currentItems=Array.isArray(current?.items)?current.items:[];
+      const sameSelection=current?.source_signature===sig;
+      const currentAt=Date.parse(String(current?.updated_at||""));
+      const currentRecent=Number.isFinite(currentAt)&&Date.now()-currentAt<6*60*60*1000;
+      if(meta.kind==="content"&&sameSelection&&currentRecent&&currentItems.length>=8){
+        const currentSources=new Set(currentItems.map(channelId).filter(Boolean)).size;
+        const nextSources=new Set(packaged.map(channelId).filter(Boolean)).size;
+        const itemCollapse=packaged.length<Math.max(3,Math.floor(currentItems.length*.35));
+        const sourceCollapse=currentSources>=4&&nextSources<Math.max(1,Math.floor(currentSources*.4));
+        if(itemCollapse||sourceCollapse){
+          const reason="catastrophic_package_shrink:"+currentItems.length+"->"+packaged.length+
+            ",sources="+currentSources+"->"+nextSources;
+          degradedNotes.push(scope+":"+reason);
+          results.push({scope,changed:false,reason:"catastrophic_package_shrink",
+            previousItems:currentItems.length,nextItems:packaged.length,
+            previousSources:currentSources,nextSources});
+          continue;
+        }
+      }
+
       const hash=snapshotRowsHash(packaged,sig);
       if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
         results.push({scope,changed:false,reason:"same_package"});
@@ -512,12 +755,20 @@ Deno.serve(async(req:Request)=>{
       results.push({scope,changed:true,items:packaged.length,hash});
     }
 
+    const degraded=degradedNotes.length>0;
     ok=true;
-    await finishLease(rest,authHeaders,true,"");
-    return json({ok:true,scopes:results});
+    const pending=await finishLease(
+      rest,
+      authHeaders,
+      !degraded,
+      degraded?degradedNotes.slice(0,12).join(";"):""
+    );
+    triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    return json({ok:true,degraded,pending_scopes:pending,scopes:results});
   }catch(error){
     failure=String((error as any)?.message||error||"refresh_failed");
-    await finishLease(rest,authHeaders,false,failure);
-    return json({ok:false,error:failure},500);
+    const pending=await finishLease(rest,authHeaders,false,failure);
+    triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    return json({ok:false,error:failure,pending_scopes:pending},500);
   }
 });
