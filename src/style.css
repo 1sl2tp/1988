@@ -951,6 +951,20 @@ html.search-suggestions-open .suggestions{
   border:1px solid #29292f;border-radius:11px;overflow:hidden;background:#1c1c20
 }
 .source-video-card:hover{border-color:#3c3c44;background:#202025}
+.source-channel-result .source-video-row{
+  min-height:64px!important;padding:9px 10px!important;display:grid!important;
+  grid-template-columns:38px minmax(0,1fr)!important;align-items:center;gap:10px
+}
+.source-channel-result .source-avatar{
+  width:38px;height:38px;min-width:38px;min-height:38px
+}
+.source-channel-result .source-video-copy{
+  min-height:0;padding:0;display:block!important
+}
+.source-channel-result .source-video-title{
+  min-height:0;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis
+}
+.source-channel-result .source-video-meta{margin-top:4px}
 .source-video-row{
   width:100%;height:auto!important;min-height:0!important;align-self:start;
   padding:0 0 9px;border:0;border-radius:0;overflow:hidden;
