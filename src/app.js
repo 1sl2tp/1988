@@ -1349,6 +1349,7 @@ function canonicalSourceId(row={},channel=""){
     row?.uploaderUrl||
     row?.authorUrl||
     row?.ownerUrl||
+    row?.url||
     ""
   );
   const urlId=sourceUrl.match(/\/channel\/(UC[A-Za-z0-9_-]+)/i)?.[1]||"";
@@ -2330,6 +2331,7 @@ function rememberSearchedSourceCandidates(rows=[]){
   }
 }
 
+
 async function searchSourceChannels(query){
   const q=normalizeCommittedSearchQuery(query);
   const seq=++sourceSearchSeq;
@@ -2367,85 +2369,59 @@ async function searchSourceChannels(query){
     return true;
   };
 
-  // Start the same fast backend video search immediately. It can derive
-  // channel IDs before yt-local/channel search has even finished loading.
-  const backendTask=api("search",{q,filter:"videos"},3000)
-    .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
-    .catch(()=>[]);
-
-  const backendJob=backendTask.then(rows=>{
+  const consume=rows=>{
     if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-    for(const row of rows){
+    for(const row of Array.isArray(rows)?rows:[]){
       addCandidate(row);
       if(byId.size>=24)break;
     }
     if(byId.size)publish();
-  });
+  };
 
-  try{
-    const local=await localEngine(3600);
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
+  // Interactive source search must never wait for youtubei.js startup.
+  // Ask the lightweight backend for channels and video-derived channels now,
+  // while youtubei.js is only a parallel fallback.
+  const backendChannelJob=api("search",{q,filter:"channels"},2400)
+    .then(response=>consume(response?.data?.items))
+    .catch(()=>{});
 
-    const directTask=Promise.race([
-      local.searchChannels(q,{includeVideos:false}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
-    ]).catch(()=>[]);
+  const backendVideoJob=api("search",{q,filter:"videos"},2600)
+    .then(response=>consume(response?.data?.items))
+    .catch(()=>{});
 
-    const videoTask=Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
-    ]).catch(()=>[]);
+  let localForMeta=null;
+  const localJob=localEngine(1400)
+    .then(local=>{
+      localForMeta=local;
+      return Promise.race([
+        local.searchChannels(q,{includeVideos:false}),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("channel_search_timeout")),1800))
+      ]);
+    })
+    .then(consume)
+    .catch(()=>{});
 
-    const directJob=directTask.then(rows=>{
-      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-      for(const row of Array.isArray(rows)?rows:[]){
-        addCandidate(row);
-        if(byId.size>=24)break;
-      }
-      if(byId.size)publish();
-    });
+  await Promise.allSettled([backendChannelJob,backendVideoJob,localJob]);
+  if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
 
-    const videoJob=videoTask.then(rows=>{
-      if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-      for(const row of Array.isArray(rows)?rows:[]){
-        addCandidate(row);
-        if(byId.size>=24)break;
-      }
-      if(byId.size)publish();
-    });
-
-    await Promise.allSettled([backendJob,directJob,videoJob]);
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-
-    if(byId.size){
-      publish();
-      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),local,800)
+  if(byId.size){
+    publish();
+    if(localForMeta){
+      void prewarmSourceSearchMetadata([...byId.values()].slice(0,16),localForMeta,700)
         .then(()=>{
           if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
           sourceRemoteResults=[...byId.values()].slice(0,24).map(row=>sourceMetaFor(row));
           renderSourceLibrary();
         })
         .catch(()=>{});
-    }else{
-      sourceRemoteResults=[];
-      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
-      renderSourceLibrary();
     }
-  }catch(error){
-    // yt-local is optional for interactive search; keep backend-derived rows.
-    await backendJob;
-    if(seq!==sourceSearchSeq||sourcesSheet?.hidden)return;
-    if(byId.size){
-      publish();
-    }else{
-      console.warn("channel search failed",error);
-      sourceRemoteResults=[];
-      if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
-      renderSourceLibrary();
-    }
+    return;
   }
-}
 
+  sourceRemoteResults=[];
+  if(sourceSearchStatus)sourceSearchStatus.textContent="Không tìm thấy kênh phù hợp";
+  renderSourceLibrary();
+}
 function scheduleSourceSearch(){
   clearTimeout(sourceSearchTimer);
   sourceSearchSeq++;
@@ -2456,7 +2432,7 @@ function scheduleSourceSearch(){
   renderSourceLibrary();
 
   if(q.length<2)return;
-  sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),320);
+  sourceSearchTimer=setTimeout(()=>void searchSourceChannels(q),120);
 }
 
 function sourceCandidateFromVideo(row={}){
@@ -2466,6 +2442,7 @@ function sourceCandidateFromVideo(row={}){
     row?.uploaderName||
     row?.uploader||
     row?.channelName||
+    row?.name||
     row?._displaySource||
     ""
   );
@@ -2480,9 +2457,11 @@ function sourceCandidateFromVideo(row={}){
       row?.uploaderThumbnailUrl||
       row?.channelThumbnailUrl||
       row?._sourceThumbnailUrl||
+      row?.thumbnailUrl||
+      (typeof row?.thumbnail==="string"?row.thumbnail:"")||
       ""
     ),
-    subscribers:""
+    subscribers:clean(row?.subscribers||"")
   };
 }
 
@@ -2872,6 +2851,7 @@ function renderSourcePreviewVideos({force=false}={}){
     .join("");
 }
 
+
 async function searchPreviewVideos(query){
   const q=normalizeCommittedSearchQuery(query);
   const seq=++sourcePreviewSearchSeq;
@@ -2921,63 +2901,60 @@ async function searchPreviewVideos(query){
     renderSourcePreviewVideos({force:true});
   };
 
-  // Backend starts immediately, exactly like homepage search. Do not wait for
-  // yt-local before the first visible result.
-  const backendVideoTask=api("search",{q,filter:"videos"},3000)
-    .then(response=>Array.isArray(response?.data?.items)?response.data.items:[])
-    .catch(()=>[]);
-
-  const backendJob=backendVideoTask.then(rows=>{
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-    addVideos(rows);
-    if(videoMap.size||channelMap.size)publish();
-  });
-
-  try{
-    const local=await localEngine(3600);
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-
-    const channelTask=Promise.race([
-      local.searchChannels(q,{includeVideos:false}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
-    ]).catch(()=>[]);
-
-    const localVideoTask=Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise(resolve=>setTimeout(()=>resolve([]),2800))
-    ]).catch(()=>[]);
-
-    const channelJob=channelTask.then(rows=>{
+  // Right-side search is global YouTube search. Start network search
+  // immediately; youtubei.js is a parallel fallback, never a prerequisite.
+  const backendVideoJob=api("search",{q,filter:"videos"},2600)
+    .then(response=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-      for(const row of Array.isArray(rows)?rows:[]){
+      addVideos(response?.data?.items);
+      if(videoMap.size||channelMap.size)publish();
+    })
+    .catch(()=>{});
+
+  const backendChannelJob=api("search",{q,filter:"channels"},2400)
+    .then(response=>{
+      if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+      for(const row of Array.isArray(response?.data?.items)?response.data.items:[]){
         addChannel(row);
         if(channelMap.size>=12)break;
       }
-      if(channelMap.size||videoMap.size)publish();
-    });
+      if(videoMap.size||channelMap.size)publish();
+    })
+    .catch(()=>{});
 
-    const localVideoJob=localVideoTask.then(rows=>{
+  let localForMeta=null;
+  const localVideoJob=localEngine(1400)
+    .then(local=>{
+      localForMeta=local;
+      return Promise.race([
+        local.search(q,{type:"video"}),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("video_search_timeout")),1800))
+      ]);
+    })
+    .then(rows=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       addVideos(rows);
       if(videoMap.size||channelMap.size)publish();
-    });
+    })
+    .catch(()=>{});
 
-    await Promise.allSettled([backendJob,channelJob,localVideoJob]);
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
+  await Promise.allSettled([backendVideoJob,backendChannelJob,localVideoJob]);
+  if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
 
-    if(!channelMap.size&&!videoMap.size){
-      sourcePreviewSearchRows=new Map();
-      sourcePreviewSearchChannels=new Map();
-      sourcePreviewRenderSignature="";
-      renderSourcePreviewVideos({force:true});
-      return;
-    }
+  if(!channelMap.size&&!videoMap.size){
+    sourcePreviewSearchRows=new Map();
+    sourcePreviewSearchChannels=new Map();
+    sourcePreviewRenderSignature="";
+    renderSourcePreviewVideos({force:true});
+    return;
+  }
 
-    publish();
+  publish();
+  if(localForMeta){
     void prewarmSourceSearchMetadata(
       [...channelMap.values()].slice(0,12),
-      local,
-      700
+      localForMeta,
+      650
     ).then(()=>{
       if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
       sourcePreviewSearchChannels=new Map(
@@ -2989,21 +2966,8 @@ async function searchPreviewVideos(query){
       sourcePreviewRenderSignature="";
       renderSourcePreviewVideos({force:true});
     }).catch(()=>{});
-  }catch(error){
-    await backendJob;
-    if(seq!==sourcePreviewSearchSeq||sourcesSheet?.hidden)return;
-    if(videoMap.size||channelMap.size){
-      publish();
-    }else{
-      console.warn("global source/video search failed",error);
-      sourcePreviewSearchRows=new Map();
-      sourcePreviewSearchChannels=new Map();
-      sourcePreviewRenderSignature="";
-      renderSourcePreviewVideos({force:true});
-    }
   }
 }
-
 function schedulePreviewVideoSearch(){
   clearTimeout(sourcePreviewSearchTimer);
   sourcePreviewSearchTimer=0;
@@ -3027,7 +2991,7 @@ function schedulePreviewVideoSearch(){
   if(sourcePreviewList){
     sourcePreviewList.innerHTML='<div class="source-empty">Đang tìm kênh và video…</div>';
   }
-  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),180);
+  sourcePreviewSearchTimer=setTimeout(()=>void searchPreviewVideos(q),120);
 }
 
 function revealAddedSource(id){
@@ -9871,6 +9835,7 @@ if(!(window.YT&&typeof YT.Player==="function")){
   },100);
 }
 
+
 async function doSearch(value){
   const q=clean(value);
   if(!q)return;
@@ -9931,62 +9896,56 @@ async function doSearch(value){
     return true;
   };
 
+  // Start both real search paths immediately. The previous implementation
+  // waited up to 6.5s for youtubei.js before even starting the backend.
+  const backendTask=api("search",{q,filter:"videos"},2600)
+    .then(response=>{
+      const rows=Array.isArray(response?.data?.items)?response.data.items:[];
+      if(!rows.length)throw new Error("empty_backend_search");
+      return rows;
+    });
+
+  const localTask=localEngine(1400)
+    .then(local=>Promise.race([
+      local.search(q,{type:"video"}),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),1800))
+    ]))
+    .then(rows=>{
+      if(!Array.isArray(rows)||!rows.length)throw new Error("empty_local_search");
+      return rows;
+    });
+
+  let firstRows=[];
   try{
-    const local=await localEngine(6500);
-    if(seq!==state.searchSeq)return;
-
-    // Search is deliberately AI-free and direct. Prefer the local YouTube
-    // engine; race a short backend fallback so a slow upstream never leaves
-    // the UI stuck on "Đang tìm…".
-    const localTask=Promise.resolve()
-      .then(()=>local.search(q,{type:"video"}))
-      .then(rows=>{
-        if(!Array.isArray(rows)||!rows.length)throw new Error("empty_local_search");
-        return rows;
-      });
-
-    const backendTask=Promise.resolve()
-      .then(()=>api("search",{q,filter:"videos"},5200))
-      .then(response=>{
-        const rows=Array.isArray(response?.data?.items)?response.data.items:[];
-        if(!rows.length)throw new Error("empty_backend_search");
-        return rows;
-      });
-
-    let firstRows=[];
-    try{
-      firstRows=await Promise.any([localTask,backendTask]);
-    }catch{}
-
-    if(paintRows(firstRows)){
-      // Whichever path lost the race may still produce useful extra results.
-      void Promise.allSettled([localTask,backendTask]).then(results=>{
-        if(seq!==state.searchSeq||state.searchQuery!==q)return;
-        const merged=[...state.feedRows];
-        for(const result of results){
-          if(result.status==="fulfilled")merged.push(...result.value);
-        }
-        const rows=mergeUniqueRows(
-          [],
-          merged.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
-        ).slice(0,60);
-        if(rows.length<=state.feedRows.length)return;
-        state.feedRows=rows;
-        renderCards(rows);
-        rememberDiscoveredSources(rows,"");
-        feedStatus.textContent=rows.length+" video";
-      });
-      return;
-    }
-  }catch(error){
-    console.warn("direct search failed",error);
-  }
+    firstRows=await Promise.any([backendTask,localTask]);
+  }catch{}
 
   if(seq!==state.searchSeq)return;
+
+  if(paintRows(firstRows)){
+    // The slower path may still add useful rows, but it never delays first paint.
+    void Promise.allSettled([localTask,backendTask]).then(results=>{
+      if(seq!==state.searchSeq||state.searchQuery!==q)return;
+      const merged=[...state.feedRows];
+      for(const result of results){
+        if(result.status==="fulfilled")merged.push(...result.value);
+      }
+      const rows=mergeUniqueRows(
+        [],
+        merged.filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
+      ).slice(0,60);
+      if(rows.length<=state.feedRows.length)return;
+      state.feedRows=rows;
+      renderCards(rows);
+      rememberDiscoveredSources(rows,"");
+      feedStatus.textContent=rows.length+" video";
+    });
+    return;
+  }
+
   feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
   feedStatus.textContent="";
 }
-
 function hardResetDocumentTop(){
   const root=document.documentElement;
   const previousBehavior=root.style.scrollBehavior;
