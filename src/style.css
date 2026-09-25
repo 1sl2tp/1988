@@ -1346,7 +1346,7 @@ html.search-suggestions-open .suggestions{
 .card-action-item{
   width:100%;
   min-height:42px;
-  padding:0 12px;
+  padding:0 11px;
   border:0;
   border-radius:8px;
   background:transparent;
@@ -1354,15 +1354,55 @@ html.search-suggestions-open .suggestions{
   text-align:left;
   font-size:13px;
   font-weight:650;
+  display:grid;
+  grid-template-columns:20px minmax(0,1fr);
+  align-items:center;
+  gap:9px;
 }
+.card-action-icon{
+  width:18px;height:18px;display:grid;place-items:center;color:#bdbdc5
+}
+.card-action-icon svg{width:18px;height:18px;display:block}
+.card-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-action-item:hover{background:rgba(255,255,255,.07)}
 .card-action-item.active{color:#fff;font-weight:780}
+.card-action-item.active .card-action-icon{color:#fff}
 .card-action-item.danger{color:#ff7770}
+.card-action-item.danger .card-action-icon{color:#ff7770}
 .card-action-item:disabled{
   opacity:.72;
   cursor:default;
   background:rgba(255,255,255,.035);
 }
+.card-action-picker-head{
+  min-height:38px;padding:1px 4px 6px;display:grid;
+  grid-template-columns:30px minmax(0,1fr);align-items:center;gap:5px;
+  border-bottom:1px solid #303036
+}
+.card-action-picker-head strong{
+  min-width:0;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.card-action-back{
+  width:30px;height:30px;border:0;border-radius:7px;background:transparent;
+  color:#ddd;font-size:22px;line-height:1
+}
+.card-action-back:hover{background:rgba(255,255,255,.07)}
+.card-action-scope-list{
+  max-height:min(360px,60vh);overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding-top:5px;scrollbar-gutter:stable
+}
+.card-action-scope{
+  width:100%;min-height:36px;padding:0 9px;border:0;border-radius:7px;
+  background:transparent;color:#ededf0;text-align:left;
+  display:flex;align-items:center;justify-content:space-between;gap:8px;
+  font-size:12px;font-weight:650
+}
+.card-action-scope:hover{background:rgba(255,255,255,.07)}
+.card-action-scope small{
+  color:#8d8d96;font-size:9.5px;font-weight:550;white-space:nowrap
+}
+.card-action-scope.active{background:rgba(255,255,255,.045)}
+.card-action-scope:disabled{opacity:.65;cursor:default}
 .card-avatar{
   display:grid;
   place-items:center;
