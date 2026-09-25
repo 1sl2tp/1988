@@ -10438,12 +10438,9 @@ document.addEventListener("visibilitychange",()=>{
   restoreViewport();
   requestAnimationFrame(restoreViewport);
 
-  // Hidden Chrome tabs do no feed/AI maintenance. Resume only the active
-  // source feed when the user actually returns to this app.
-  if(isSourceScopedFeed(state.activeFeed)&&!state.activeParent&&state.feedRows.length){
-    void enrichSourceFeedAi(state.activeFeed,state.feedRows,state.feedSeq);
-    void refreshActiveSourceFeedIfDue();
-  }
+  // When the app becomes visible again, refresh complete snapshots for all
+  // tabs in the background. The currently visible list is never reordered.
+  void refreshAllSourceSnapshotsInBackground();
 
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
@@ -11332,6 +11329,52 @@ async function refreshActiveSourceFeedIfDue(){
   await refreshCachedSourceFeedInBackground(name,preset,state.feedSeq);
 }
 
+let allSourceSnapshotRefreshPromise=null;
+let allSourceSnapshotLastAt=0;
+
+async function refreshAllSourceSnapshotsInBackground({force=false}={}){
+  if(document.hidden)return false;
+  if(allSourceSnapshotRefreshPromise)return allSourceSnapshotRefreshPromise;
+  if(!force&&Date.now()-allSourceSnapshotLastAt<60*1000)return false;
+
+  allSourceSnapshotRefreshPromise=(async()=>{
+    try{
+      const local=await localEngine(16000);
+
+      // Package LIVE + Mới nhất + Tuần này first, because these are the first
+      // tabs the user normally reaches. None of these calls repaint the DOM.
+      await refreshLiveSnapshotInBackground(local);
+
+      for(const name of [LATEST_SOURCE_SCOPE,WEEK_SOURCE_SCOPE]){
+        const scope=feedSourceScope(name);
+        if(!selectedSetForScope(scope).size)continue;
+        await buildSourceFeedSnapshot(name,FEED_PRESETS[name],local);
+      }
+
+      // Pre-build every category snapshot from its selected channels. Opening
+      // a category then becomes a cache read + one paint, not fetch -> reorder.
+      for(const parent of FIXED_CONTENT_CATEGORIES){
+        if(!selectedSourcesForParent(parent).length)continue;
+        try{
+          await buildCategorySourceSnapshot(parent,local);
+        }catch(error){
+          console.warn("category snapshot package failed",parent?.key,error);
+        }
+      }
+
+      allSourceSnapshotLastAt=Date.now();
+      return true;
+    }catch(error){
+      console.warn("all source snapshot refresh failed",error);
+      return false;
+    }finally{
+      allSourceSnapshotRefreshPromise=null;
+    }
+  })();
+
+  return allSourceSnapshotRefreshPromise;
+}
+
 async function loadFeedPreset(name="latest"){
   state.searchResultsActive=false;
   const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
@@ -11579,12 +11622,14 @@ function maybeLoadMoreFeed(){
 window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
 setInterval(()=>{
-  void refreshActiveSourceFeedIfDue();
+  void refreshAllSourceSnapshotsInBackground();
 },SOURCE_FEED_AUTO_REFRESH_MS);
 
 async function loadInitialFeed(){
   await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
-  return loadFeedPreset("latest");
+  const result=await loadFeedPreset("latest");
+  setTimeout(()=>void refreshAllSourceSnapshotsInBackground(),500);
+  return result;
 }
 
 topicChips.addEventListener("click",async e=>{
