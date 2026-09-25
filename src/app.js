@@ -2755,7 +2755,27 @@ function explicitVideoAspect(meta={}){
 
 let responsivePlayerRaf=0;
 
+function playbackScope(meta=state.currentMeta||{}){
+  const explicit=clean(meta?._watchScope||"");
+  if(explicit)return explicit;
+  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
+  if(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))return state.searchScope;
+  return activeSourceScope()||"";
+}
+
+function isLongFilmPlayback(meta=state.currentMeta||{}){
+  if(playbackScope(meta)!=="film")return false;
+  const currentCard=[...feed.querySelectorAll("[data-video-id]")]
+    .find(card=>card.dataset.videoId===state.currentId);
+  const duration=Math.max(
+    Number(durationSeconds(meta))||0,
+    Number(currentCard?.dataset?.duration)||0
+  );
+  return duration>=20*60;
+}
+
 function responsivePlayerAspect(meta=state.currentMeta||{}){
+  if(isLongFilmPlayback(meta))return 16/9;
   return explicitVideoAspect(meta)||
     validPipAspect(state.videoAspect)||
     16/9;
@@ -2765,9 +2785,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Use the video's measured/original ratio directly. Do not round it into
-  // preset 16:9 / square / portrait boxes.
-  let ratio=explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9;
+  // Long-form film is intentionally kept in YouTube's standard 16:9
+  // player box. Other content still follows its measured/original ratio.
+  const filmDefault=isLongFilmPlayback(meta);
+  let ratio=filmDefault
+    ?16/9
+    :(explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9);
   if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
 
   frame.classList.remove(
@@ -2786,6 +2809,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
   const root=document.documentElement;
+  root.classList.toggle("watch-film-default",filmDefault&&root.classList.contains("watch-browse"));
   root.classList.remove(
     "watch-video-wide",
     "watch-video-square",
@@ -2876,6 +2900,14 @@ function queueResponsivePlayerFrame(){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
+  if(isLongFilmPlayback(meta)){
+    state.videoAspect=16/9;
+    state.videoAspectVerified=true;
+    state.videoAspectPortraitLocked=false;
+    applyResponsivePlayerFrame(meta);
+    return;
+  }
+
   const next=explicitVideoAspect(meta);
   if(!next)return;
 
@@ -5370,6 +5402,16 @@ function searchCardHtml(row={},options={}){
   if(!id)return "";
   const title=clean(row._displayTitle||row.title)||"Video";
   const channel=searchChannelName(row);
+  const sourceId=searchSourceId(row);
+  const sourceMeta=(sourceId&&(sourceMetaCache.get(sourceId)||libraryRow(sourceId)))||{};
+  const sourceAvatar=safeSourceThumb(
+    row?.uploaderThumbnailUrl||
+    row?.channelThumbnailUrl||
+    row?._sourceThumbnailUrl||
+    sourceMeta?.thumbnailUrl||
+    ""
+  );
+  const sourceInitial=(channel||"1988").trim().slice(0,1).toUpperCase()||"•";
   const views=Number(row.views)||0;
   const viewText=clean(row.viewText||"");
   const duration=durationSeconds(row);
@@ -5400,9 +5442,17 @@ function searchCardHtml(row={},options={}){
         (isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+
         (episode?'<span class="episode-badge">Tập '+esc(String(episode))+'</span>':'')+
       '</div>'+
-      '<div class="card-copy"><div class="card-title">'+esc(title)+'</div>'+
-        '<div class="card-channel">'+esc(channel)+'</div>'+
-        '<div class="card-stats">'+esc(statBits.join(" · "))+'</div>'+
+      '<div class="card-copy">'+
+        '<span class="card-avatar" aria-hidden="true">'+
+          (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="lazy">':'<span>'+esc(sourceInitial)+'</span>')+
+        '</span>'+
+        '<div class="card-copy-main">'+
+          '<div class="card-title">'+esc(title)+'</div>'+
+          '<div class="card-meta-line">'+
+            '<span class="card-channel">'+esc(channel)+'</span>'+
+            (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
+          '</div>'+
+        '</div>'+
       '</div>'+
     '</article>';
 }
@@ -6363,54 +6413,130 @@ function contextualRelatedRows(rows=[],meta={}){
 
 const homeAvatarLoading=new Set();
 const homeAvatarResolved=new Set();
+const homeAvatarFailedAt=new Map();
+let homeAvatarQueueTimer=0;
+
+function paintCardChannelAvatar(card,image=""){
+  image=safeSourceThumb(image);
+  if(!card||!image)return false;
+  const avatar=card.querySelector(".card-avatar");
+  if(!avatar)return false;
+  avatar.innerHTML='<img src="'+esc(image)+'" alt="" loading="lazy">';
+  return true;
+}
 
 function paintHomeChannelAvatar(sourceId,meta={}){
   const image=safeSourceThumb(meta?.thumbnailUrl||"");
   if(!image)return false;
+  let painted=false;
   for(const card of feed.querySelectorAll("[data-source-id]")){
     if((card.dataset.sourceId||"")!==sourceId)continue;
-    const avatar=card.querySelector(".card-avatar");
-    if(avatar)avatar.innerHTML='<img src="'+esc(image)+'" alt="" loading="lazy">';
+    painted=paintCardChannelAvatar(card,image)||painted;
   }
-  return true;
+  return painted;
+}
+
+function sourceCandidateForCard(card){
+  if(!card)return null;
+  const direct=String(card.dataset.sourceId||"").trim();
+  if(/^UC[A-Za-z0-9_-]+$/.test(direct)){
+    return {id:direct,meta:sourceMetaCache.get(direct)||libraryRow(direct)||null};
+  }
+
+  const channel=normalizeSearchText(card.dataset.channel||"");
+  if(!channel)return null;
+  const candidate=managedChannelLibrary().find(row=>
+    normalizeSearchText(sourceMetaFor(row).name||row.name||"")===channel
+  );
+  if(!candidate?.id)return null;
+
+  card.dataset.sourceId=candidate.id;
+  return {
+    id:candidate.id,
+    meta:sourceMetaCache.get(candidate.id)||libraryRow(candidate.id)||candidate
+  };
 }
 
 async function hydrateHomeChannelAvatars(){
-  if(window.innerWidth>720||document.documentElement.classList.contains("watch-browse"))return;
+  if(window.innerWidth>720)return;
+
   const ids=[];
-  for(const card of feed.querySelectorAll("[data-source-id]")){
-    const id=String(card.dataset.sourceId||"").trim();
-    if(!/^UC[A-Za-z0-9_-]+$/.test(id)||ids.includes(id)||homeAvatarLoading.has(id)||homeAvatarResolved.has(id))continue;
-    const cached=sourceMetaCache.get(id)||libraryRow(id)||null;
-    if(cached&&paintHomeChannelAvatar(id,cached)){
+  const now=Date.now();
+
+  for(const card of feed.querySelectorAll(".card[data-video-id]")){
+    if(card.querySelector(".card-avatar img"))continue;
+
+    const candidate=sourceCandidateForCard(card);
+    if(!candidate?.id)continue;
+
+    const id=candidate.id;
+    const cached=candidate.meta;
+    if(cached&&paintCardChannelAvatar(card,cached.thumbnailUrl||"")){
       homeAvatarResolved.add(id);
       continue;
     }
+
+    if(
+      ids.includes(id)||
+      homeAvatarLoading.has(id)||
+      homeAvatarResolved.has(id)||
+      now-(homeAvatarFailedAt.get(id)||0)<5*60*1000
+    )continue;
+
     ids.push(id);
-    if(ids.length>=8)break;
+    if(ids.length>=16)break;
   }
+
   if(!ids.length)return;
+
   let engine;
   try{engine=await localEngine(10000);}catch{return;}
+
   await Promise.allSettled(ids.map(async id=>{
     homeAvatarLoading.add(id);
     try{
       const meta=await engine.channelMeta(id);
-      if(meta&&meta.id){
+      const image=safeSourceThumb(meta?.thumbnailUrl||"");
+      if(meta&&meta.id&&image){
         sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
-        paintHomeChannelAvatar(id,meta);
+        if(paintHomeChannelAvatar(id,meta)){
+          homeAvatarResolved.add(id);
+          homeAvatarFailedAt.delete(id);
+          return;
+        }
       }
-      homeAvatarResolved.add(id);
-    }catch{}finally{
+      homeAvatarFailedAt.set(id,Date.now());
+    }catch{
+      homeAvatarFailedAt.set(id,Date.now());
+    }finally{
       homeAvatarLoading.delete(id);
     }
   }));
+
+  const pending=[...feed.querySelectorAll(".card[data-video-id]")].some(card=>{
+    if(card.querySelector(".card-avatar img"))return false;
+    const candidate=sourceCandidateForCard(card);
+    if(!candidate?.id)return false;
+    return !homeAvatarResolved.has(candidate.id)&&
+      !homeAvatarLoading.has(candidate.id)&&
+      Date.now()-(homeAvatarFailedAt.get(candidate.id)||0)>=5*60*1000;
+  });
+
+  if(pending)queueHomeChannelAvatars();
 }
 
 function queueHomeChannelAvatars(){
   if(window.innerWidth>720)return;
-  requestAnimationFrame(()=>setTimeout(()=>void hydrateHomeChannelAvatars(),0));
+  clearTimeout(homeAvatarQueueTimer);
+  homeAvatarQueueTimer=setTimeout(()=>void hydrateHomeChannelAvatars(),40);
 }
+
+const mobileFeedAutoHydrator=new MutationObserver(()=>{
+  if(window.innerWidth>720)return;
+  queueHomeChannelAvatars();
+  feed.querySelectorAll(".card[data-video-id]").forEach(ensureDesktopCardTint);
+});
+mobileFeedAutoHydrator.observe(feed,{childList:true,subtree:true});
 
 function renderCards(rows=[],options={}){
   const append=options.append===true;
@@ -7406,14 +7532,28 @@ async function playVideo(id,seedMeta={}){
     cachedAspect||
     (seedAspect&&seedAspect<=1.20?seedAspect:0);
 
+  const currentPlaybackScope=
+    (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))
+      ?state.activeParent
+      :(state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope))
+        ?state.searchScope
+        :activeSourceScope()||"";
+  const playbackMeta={
+    ...seedMeta,
+    _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
+  };
+
   state.keepFloating=wasFloating;
   state.currentId=id;
-  state.currentMeta={...seedMeta};
-  state.videoAspect=immediateAspect||(
-    wasFloating
-      ?previousAspect
-      :normalizedVideoAspect(seedMeta)
-  );
+  state.currentMeta=playbackMeta;
+  const longFilmDefault=isLongFilmPlayback(playbackMeta);
+  state.videoAspect=longFilmDefault
+    ?16/9
+    :(immediateAspect||(
+      wasFloating
+        ?previousAspect
+        :normalizedVideoAspect(playbackMeta)
+    ));
   state.videoAspectVerified=!!cachedAspect;
   state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
   state.floatPreset="auto";
