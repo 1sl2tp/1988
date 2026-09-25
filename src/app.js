@@ -4975,7 +4975,10 @@ async function loadAiParentDiscovery(parent){
       renderTrendTopics();
 
       if(state.activeParent===parent.key){
-        renderCards(aiDisplayRows(instantCached));
+        const visible=aiDisplayRows(instantCached);
+        await prewarmRowSourceAvatars(visible,360);
+        if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
+        renderCards(visible);
         feedStatus.textContent=instantCached.length+" video";
       }
 
@@ -6661,12 +6664,67 @@ async function prewarmSelectedSourceAvatars(){
   return selectedAvatarPrewarmPromise;
 }
 
+async function prewarmRowSourceAvatars(rows=[],maxWait=520){
+  if(window.innerWidth>720)return;
+
+  const missing=new Set();
+
+  for(const row of Array.isArray(rows)?rows:[]){
+    const channel=clean(
+      row?._displaySource||
+      row?.uploaderName||
+      row?.uploader||
+      row?.channelName||
+      row?._sourceName||
+      ""
+    );
+    const id=canonicalSourceId(row,channel);
+    if(!id)continue;
+
+    // Rows that already carry the real channel image seed the canonical cache
+    // immediately, so the first card paint can use it without a second pass.
+    const direct=sourceAvatarForRow(row,id,channel);
+    if(direct)continue;
+
+    if(!sourceAvatarCached(id))missing.add(id);
+  }
+
+  if(!missing.size)return;
+
+  const work=(async()=>{
+    let engine;
+    try{engine=await localEngine(10000);}catch{return;}
+
+    const queue=[...missing];
+    const workers=Array.from({length:Math.min(6,queue.length)},async()=>{
+      while(queue.length){
+        const id=queue.shift();
+        if(!id)continue;
+        try{
+          const meta=await engine.channelMeta(id);
+          if(meta&&meta.id){
+            sourceMetaCache.set(id,{...sourceMetaCache.get(id),...meta});
+            rememberSourceAvatar(id,meta.thumbnailUrl||"");
+          }
+        }catch{}
+      }
+    });
+
+    await Promise.allSettled(workers);
+  })();
+
+  await Promise.race([
+    work,
+    new Promise(resolve=>setTimeout(resolve,Math.max(120,Number(maxWait)||520)))
+  ]);
+}
+
 const mobileFeedAutoHydrator=new MutationObserver(()=>{
   if(window.innerWidth>720)return;
   queueHomeChannelAvatars();
   feed.querySelectorAll(".card[data-video-id]").forEach(ensureDesktopCardTint);
 });
-mobileFeedAutoHydrator.observe(feed,{childList:true,subtree:true});
+mobileFeedAutoHydrator.observe(feed,{childList:true,subtree:false});
 
 function renderCards(rows=[],options={}){
   const append=options.append===true;
@@ -9504,7 +9562,7 @@ async function loadInitialFeed(){
   return loadFeedPreset("latest");
 }
 
-topicChips.addEventListener("click",e=>{
+topicChips.addEventListener("click",async e=>{
   const clicked=e.target.closest("[data-feed],[data-ai-parent]");
   if(clicked){
     resetHomeViewportInstant();
@@ -9526,6 +9584,13 @@ topicChips.addEventListener("click",e=>{
     const cached=categoryCacheRows(key);
     if(cached.length){
       const visible=aiDisplayRows(trendRows(state.feedRows));
+
+      // Keep the card geometry stable: on a cold refresh, resolve the one real
+      // avatar per source before the cached Film/category list becomes visible.
+      // Persisted sessions are immediate because sourceAvatarCache is already hot.
+      await prewarmRowSourceAvatars(visible,480);
+      if(state.activeParent!==key)return;
+
       renderCards(visible);
       feedStatus.textContent=visible.length?visible.length+" video":"";
     }else{
