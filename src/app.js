@@ -2162,7 +2162,9 @@ function setSourceManageMode(enabled,{render=true}={}){
   }
 
   if(sourceSearch){
-    sourceSearch.placeholder=sourceManageMode?"Tìm trong quản lý nguồn":"Tìm kênh trên YouTube";
+    sourceSearch.placeholder=sourceManageMode
+      ?"Tìm nguồn hoặc kênh YouTube"
+      :"Tìm kênh trên YouTube";
   }
 
   if(render)refreshSourceManager();
@@ -2294,7 +2296,7 @@ function renderSourcePreviewVideos({force=false}={}){
 
   if(!all.length){
     sourcePreviewList.innerHTML='<div class="source-empty">'+
-      (searching?'Không có video phù hợp trên YouTube':'Kênh chưa có video để hiển thị')+
+      (searching?'Không có video phù hợp trong nguồn này':'Kênh chưa có video để hiển thị')+
     '</div>';
     return;
   }
