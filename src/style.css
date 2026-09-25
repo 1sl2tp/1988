@@ -5284,12 +5284,13 @@ html:not(.watch-browse).home-search-open .header-nav{
     gap:30px 22px!important;
   }
 
-  /* YouTube-like rich-card interaction:
-     a very light sampled tint, not a large blurred halo. */
+  /* YouTube-like rich-card hover:
+     the sampled tint extends into the inter-card gap and is deliberately
+     stronger than v195, while staying behind the thumbnail/metadata. */
   html:not(.watch-browse) .card{
     position:relative;
     isolation:isolate;
-    overflow:hidden!important;
+    overflow:visible!important;
     border:0!important;
     border-radius:14px!important;
     background-color:transparent!important;
@@ -5302,25 +5303,30 @@ html:not(.watch-browse).home-search-open .header-nav{
     content:"";
     position:absolute;
     z-index:0;
-    inset:0;
-    border-radius:inherit;
+    inset:-10px -11px -11px;
+    border-radius:19px;
     pointer-events:none;
-    background-image:var(--card-art,none);
+    background:
+      linear-gradient(var(--card-hover-color,rgba(30,30,32,.92)),var(--card-hover-color,rgba(30,30,32,.92))),
+      var(--card-art,none);
     background-position:center;
     background-size:cover;
-    filter:blur(30px) saturate(1.12) brightness(.55);
+    filter:blur(12px) saturate(1.22) brightness(.70);
     opacity:0;
-    transition:opacity .14s ease;
+    transform:scale(.985);
+    transition:opacity .14s ease,transform .14s ease;
   }
 
   html:not(.watch-browse) .card:hover,
   html:not(.watch-browse) .card:focus-within{
-    background-color:var(--card-hover-color,rgba(255,255,255,.035))!important;
+    z-index:3;
+    background-color:var(--card-hover-color,rgba(255,255,255,.055))!important;
   }
 
   html:not(.watch-browse) .card:hover::before,
   html:not(.watch-browse) .card:focus-within::before{
-    opacity:.055;
+    opacity:.68;
+    transform:scale(1);
   }
 
   html:not(.watch-browse) .card .thumb-wrap,
@@ -5391,4 +5397,24 @@ html:not(.watch-browse).home-search-open .header-nav{
   html:not(.watch-browse) .card{
     transition:none!important;
   }
+}
+
+
+/* ============================================================
+   SOURCE BROWSE UNIFIED SCROLL v196
+   Search bar + result list are one vertical scroll surface.
+   ============================================================ */
+.source-browse{
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior-y:contain;
+  scrollbar-gutter:stable;
+}
+
+.source-list{
+  flex:0 0 auto!important;
+  min-height:auto!important;
+  overflow:visible!important;
+  scrollbar-gutter:auto!important;
 }
