@@ -3,6 +3,9 @@ const fs=require('node:fs');
 const root=process.argv[2]||'.';
 const html=fs.readFileSync(root+'/index.html','utf8');
 const app=fs.readFileSync(root+'/src/app.js','utf8');
+const refresh=fs.readFileSync(root+'/supabase/functions/yt1988-refresh/index.ts','utf8');
+const gateway=fs.readFileSync(root+'/supabase/functions/yt1988/index.ts','utf8');
+const cacheMigration=fs.readFileSync(root+'/supabase/migrations/20260926050000_channel_snapshot_cache.sql','utf8');
 
 assert.match(html,/id="yt-player"/);
 assert.match(html,/id="nativePlayer"/);
@@ -42,5 +45,15 @@ assert.match(app,/Client is download-only:[\s\S]*never back-filled/);
 assert.match(app,/Read last complete server package immediately[\s\S]*never crawl YouTube here/);
 assert.match(app,/async function buildSourceFeedSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*readFeedCache/);
 assert.match(app,/async function buildCategorySourceSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*instantCategoryRows/);
+assert.match(refresh,/const CHANNEL_RECHECK_MS=8\*60\*1000/);
+assert.match(refresh,/yt1988_channel_cache/);
+assert.match(refresh,/function relativeAgeMs\(/);
+assert.match(refresh,/catastrophic_package_shrink/);
+assert.match(refresh,/yt1988_queue_refresh/);
+assert.match(refresh,/MAX_CHANNEL_FETCHES_PER_RUN=20/);
+assert.match(gateway,/async function pipedChannel\(/);
+assert.match(gateway,/if \(!channelRows\(data\)\.length\) continue/);
+assert.match(cacheMigration,/create table if not exists public\.yt1988_channel_cache/);
+assert.match(cacheMigration,/create or replace function public\.yt1988_finish_refresh_v2/);
 
 console.log('integration-shape: source/player assertions passed');
