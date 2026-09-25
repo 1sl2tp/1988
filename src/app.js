@@ -3710,27 +3710,32 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const styles=getComputedStyle(root);
     const topRow=parseFloat(styles.getPropertyValue("--watch-top-row-h"))||52;
     const sourceRow=parseFloat(styles.getPropertyValue("--watch-source-row-h"))||48;
-
-    // Fit the real media rectangle inside the current browser viewport.
-    // Landscape 16:9 naturally becomes full-width; portrait/square may grow
-    // taller until the browser height is the limiting edge. Keep only a small
-    // recommendation peek so the list remains reachable without a layout jump.
-    const feedPeek=Math.max(44,Math.min(72,viewportHeight*.08));
     const maxWidth=viewportWidth;
-    const maxHeight=Math.max(
-      140,
-      viewportHeight-topRow-sourceRow-feedPeek
-    );
 
-    let width=Math.min(maxWidth,maxHeight*ratio);
+    let width=maxWidth;
     let height=width/ratio;
-    if(height>maxHeight){
-      height=maxHeight;
-      width=height*ratio;
-    }
 
-    width=Math.max(1,Math.min(maxWidth,width));
-    height=Math.max(1,Math.min(maxHeight,height));
+    if(ratio>=.8){
+      const feedPeek=Math.max(44,Math.min(72,viewportHeight*.08));
+      const maxHeight=Math.max(
+        140,
+        viewportHeight-topRow-sourceRow-feedPeek
+      );
+      width=Math.min(maxWidth,maxHeight*ratio);
+      height=width/ratio;
+      if(height>maxHeight){
+        height=maxHeight;
+        width=height*ratio;
+      }
+      width=Math.max(1,Math.min(maxWidth,width));
+      height=Math.max(1,Math.min(maxHeight,height));
+    }else{
+      // Portrait/long video keeps its natural full-width height. The browser
+      // page owns vertical scrolling, so one upward swipe continues directly
+      // to Sources and the next cards.
+      width=Math.max(1,maxWidth);
+      height=Math.max(1,width/ratio);
+    }
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
@@ -5205,6 +5210,27 @@ function categoryCacheRows(parentKey=""){
   return cached.items;
 }
 
+function instantCategoryRows(parent={}){
+  const group=parentSourceGroup(parent);
+  const sources=selectedSourcesForParent(parent);
+  if(!sources.length)return [];
+
+  const sourceIds=new Set(sources.map(source=>source.id));
+  return dedupeHashedRows(newestFirst([
+    ...categoryCacheRows(parent.key),
+    ...cachedRowsForSources(sources,group),
+    ...readSourcePoolCache()
+      .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
+  ]))
+    .filter(uploadedWithinCategoryWindow)
+    .filter(row=>{
+      const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
+      return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
+    })
+    .map(row=>({...row,_selectedCategorySource:true}))
+    .slice(0,90);
+}
+
 function parentRows(rows=[]){
   if(!state.activeParent)return rows;
   return categoryCacheRows(state.activeParent);
@@ -5792,14 +5818,8 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
       if(!ready.length)return;
       progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
-      if(
-        seq===state.feedSeq &&
-        state.activeParent===parent.key &&
-        window.scrollY<120
-      ){
-        renderCards(aiDisplayRows(progressiveRows));
-        feedStatus.textContent=progressiveRows.length+" video";
-      }
+      // Background refresh updates the data snapshot only. Keep the visible
+      // DOM stable while the user is reading.
     });
     const rows=dedupeHashedRows(
       newestFirst(
@@ -5815,21 +5835,19 @@ async function refreshSelectedCategoryInBackground(parent,local,sources,seq){
     state.aiCategoryRows.set(parent.key,{at:Date.now(),items:rows});
     saveSourceContentLearning(group,extractSourceContentTerms(parent,rows));
 
-    if(
-      seq===state.feedSeq &&
-      state.activeParent===parent.key &&
-      window.scrollY<120
-    ){
-      renderCards(aiDisplayRows(rows));
-      feedStatus.textContent=rows.length+" video";
-    }
+    // New snapshot is stored for the next category entry; do not rebuild the
+    // current visible list after a background refresh.
 
     void filterNativeAiGeneratedRows(local,parent,rows).then(safeRows=>{
       if(safeRows.length!==rows.length){
         state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
         if(seq===state.feedSeq&&state.activeParent===parent.key){
-          renderCards(aiDisplayRows(safeRows));
-          feedStatus.textContent=safeRows.length?safeRows.length+" video":"";
+          const allowed=new Set(aiDisplayRows(safeRows).map(itemVideoId).filter(Boolean));
+          for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
+            if(!allowed.has(card.dataset.videoId))card.remove();
+          }
+          const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
+          feedStatus.textContent=total?total+" video":"";
         }
       }
       void enrichSelectedCategoryInBackground(parent,safeRows);
@@ -5866,20 +5884,7 @@ async function loadAiParentDiscovery(parent){
       return;
     }
 
-    const sourceIds=new Set(sources.map(source=>source.id));
-    const instantCached=dedupeHashedRows(newestFirst([
-      ...categoryCacheRows(parent.key),
-      ...cachedRowsForSources(sources,group),
-      ...readSourcePoolCache()
-        .filter(row=>sourceIds.has(String(row?._sourceId||row?.channelId||row?.uploaderId||"")))
-    ]))
-      .filter(uploadedWithinCategoryWindow)
-      .filter(row=>{
-        const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-        return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
-      })
-      .map(row=>({...row,_selectedCategorySource:true}))
-      .slice(0,90);
+    const instantCached=instantCategoryRows(parent);
 
     if(instantCached.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instantCached});
@@ -5920,10 +5925,8 @@ async function loadAiParentDiscovery(parent){
       if(!ready.length)return;
       progressiveRows=dedupeHashedRows(newestFirst([...progressiveRows,...ready])).slice(0,90);
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:progressiveRows});
-      if(seq===state.feedSeq&&state.activeParent===parent.key){
-        renderCards(aiDisplayRows(progressiveRows));
-        feedStatus.textContent=progressiveRows.length+" video";
-      }
+      // Cold load waits for the full source pass and paints once, avoiding
+      // repeated black thumbnail placeholders as each channel finishes.
     });
     let rows=dedupeHashedRows(
       newestFirst(
@@ -5956,8 +5959,12 @@ async function loadAiParentDiscovery(parent){
       if(safeRows.length!==rows.length){
         state.aiCategoryRows.set(parent.key,{at:Date.now(),items:safeRows});
         if(state.activeParent===parent.key){
-          renderCards(aiDisplayRows(safeRows));
-          feedStatus.textContent=safeRows.length?safeRows.length+" video":"";
+          const allowed=new Set(aiDisplayRows(safeRows).map(itemVideoId).filter(Boolean));
+          for(const card of [...feed.querySelectorAll(":scope > .card[data-video-id]")]){
+            if(!allowed.has(card.dataset.videoId))card.remove();
+          }
+          const total=feed.querySelectorAll(":scope > .card[data-video-id]").length;
+          feedStatus.textContent=total?total+" video":"";
         }
       }
       void enrichSelectedCategoryInBackground(parent,safeRows);
@@ -7504,32 +7511,56 @@ function renderCards(rows=[],options={}){
     if(viewText)statBits.push(viewText);
     else if(views)statBits.push(fmtViews(views)+" lượt xem");
     if(published)statBits.push(published);
-    cards.push(
-      '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumb(row,id))+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
-        '<div class="thumb-wrap"><img src="'+esc(thumb(row,id))+'" alt="" loading="lazy">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
-        '<div class="card-copy">'+
-          '<span class="card-avatar" aria-hidden="true">'+
-            (sourceAvatar&&avatarImageReady(sourceAvatar)
-              ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
-              :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
-          '</span>'+
-          '<div class="card-copy-main">'+
-            '<div class="card-title">'+esc(title)+'</div>'+
-            '<div class="card-meta-line">'+
-              '<span class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</span>'+
-              (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
+    const thumbUrl=thumb(row,id);
+    const eager=cards.length<12;
+    cards.push({
+      id,
+      html:
+        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
+          '<div class="thumb-wrap"><img src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
+          '<div class="card-copy">'+
+            '<span class="card-avatar" aria-hidden="true">'+
+              (sourceAvatar&&avatarImageReady(sourceAvatar)
+                ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
+                :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
+            '</span>'+
+            '<div class="card-copy-main">'+
+              '<div class="card-title">'+esc(title)+'</div>'+
+              '<div class="card-meta-line">'+
+                '<span class="card-channel">'+esc(channel)+(duplicateExtra?' · <span class="card-related">+'+esc(String(duplicateExtra))+' nguồn khác</span>':'')+'</span>'+
+                (statBits.length?'<span class="card-meta-sep"> · </span><span class="card-stats">'+esc(statBits.join(" · "))+'</span>':'')+
+              '</div>'+
             '</div>'+
+            cardMoreButtonHtml()+
           '</div>'+
-          cardMoreButtonHtml()+
-        '</div>'+
-      '</article>'
-    );
+        '</article>'
+    });
   }
 
   if(append){
-    if(cards.length)feed.insertAdjacentHTML("beforeend",cards.join(""));
+    if(cards.length)feed.insertAdjacentHTML("beforeend",cards.map(card=>card.html).join(""));
+  }else if(cards.length){
+    const existing=new Map(
+      [...feed.querySelectorAll(":scope > .card[data-video-id]")]
+        .map(card=>[card.dataset.videoId,card])
+        .filter(([id])=>!!id)
+    );
+    const template=document.createElement("template");
+    const fragment=document.createDocumentFragment();
+
+    for(const item of cards){
+      let node=existing.get(item.id)||null;
+      if(node){
+        existing.delete(item.id);
+      }else{
+        template.innerHTML=item.html.trim();
+        node=template.content.firstElementChild;
+      }
+      if(node)fragment.appendChild(node);
+    }
+    feed.replaceChildren(fragment);
   }else{
-    feed.innerHTML=cards.join("")||'<div class="empty">Chưa có video.</div>';
+    feed.innerHTML='<div class="empty">Chưa có video.</div>';
   }
 
   if(options.updateStatus!==false){
@@ -10333,23 +10364,18 @@ topicChips.addEventListener("click",async e=>{
     feedTitle.textContent=parent.label;
     renderTrendTopics();
 
-    await prewarmRowSourceAvatars(selectedSourcesForParent(parent),700);
-    if(state.activeParent!==key)return;
-
-    const cached=categoryCacheRows(key);
-    if(cached.length){
-      const visible=aiDisplayRows(trendRows(state.feedRows));
-
-      // Keep the card geometry stable: on a cold refresh, resolve the one real
-      // avatar per source before the cached Film/category list becomes visible.
-      // Persisted sessions are immediate because sourceAvatarCache is already hot.
-      await prewarmRowSourceAvatars(visible,480);
-      if(state.activeParent!==key)return;
-
+    const instant=instantCategoryRows(parent);
+    if(instant.length){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instant});
+      const visible=aiDisplayRows(instant);
       renderCards(visible);
       feedStatus.textContent=visible.length?visible.length+" video":"";
+      void prewarmRowSourceAvatars(visible,480);
     }else{
-      feed.innerHTML='<div class="loading">Đang tải '+esc(parent.label)+' từ nguồn đã chọn…</div>';
+      feed.innerHTML=
+        '<div class="feed-loading-grid" aria-label="Đang tải '+esc(parent.label)+'">'+
+          '<span></span><span></span><span></span><span></span>'+
+        '</div>';
       feedStatus.textContent="";
     }
 
