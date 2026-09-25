@@ -715,6 +715,30 @@ async function filterEmbeddableRows(rows=[],options={}){
   return output.filter(Boolean);
 }
 
+async function searchDirect(query){
+  const q=String(query||'').trim();
+  if(!q)return [];
+
+  const yt=await getYT();
+  const result=await yt.actions.execute('/search',{
+    query:q,
+    parse:true
+  });
+
+  let nodes=[];
+  try{
+    nodes=result?.contents_memo?.getType?.(
+      YTNodes.Video,
+      YTNodes.CompactVideo
+    )||[];
+  }catch{}
+
+  const direct=normalizeRows(nodes,36);
+  if(direct.length)return direct;
+
+  return pageRows(result,36);
+}
+
 async function search(query,filters={}){
   const yt=await getYT();
   const result=await yt.search(String(query||'').trim(),{type:'video',...filters});
@@ -1711,7 +1735,7 @@ async function visualContentAspect(id){
   return task;
 }
 
-const api={getYT,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,visualContentAspect,embedPlaybackStatus,filterEmbeddableRows,markEmbedUnplayable,normalizeRows,normalizeChannels};
+const api={getYT,searchDirect,search,searchChannels,searchPage,channelVideosPage,channelMeta,home,homePage,hypeFeed,resetDiscovery,suggestions,info,videoAspect,aiDisclosure,media,visualContentAspect,embedPlaybackStatus,filterEmbeddableRows,markEmbedUnplayable,normalizeRows,normalizeChannels};
 window.YTLocal=api;
 window.dispatchEvent(new CustomEvent('ytlocalready'));
 

@@ -10141,6 +10141,7 @@ if(!(window.YT&&typeof YT.Player==="function")){
 
 
 
+
 async function doSearch(value){
   const q=normalizeCommittedSearchQuery(value);
   if(!q)return;
@@ -10200,45 +10201,64 @@ async function doSearch(value){
     return true;
   };
 
-  // Match the proven Kira search path: one fresh direct discovery request per
-  // submit. No youtubei.js race, no shared session state, no result-source race.
-  try{
-    const response=await api("search",{
-      q,
-      filter:"videos",
-      _fresh:Date.now()
-    },4200);
+  const requireRows=(rows,label)=>{
+    const cleanRows=usableRows(rows);
+    if(!cleanRows.length)throw new Error("empty_"+label);
+    return cleanRows;
+  };
 
-    if(seq!==state.searchSeq)return;
-    if(paintRows(response?.data?.items))return;
+  // Match the working Kira proof exactly: direct Innertube /search is the
+  // primary path. Backend search runs in parallel only as a fallback, and an
+  // empty backend response can never beat a valid direct YouTube result.
+  const kiraTask=localEngine(1800)
+    .then(local=>Promise.race([
+      (typeof local.searchDirect==="function"
+        ?local.searchDirect(q)
+        :local.search(q,{type:"video"})),
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("kira_search_timeout")),3200))
+    ]))
+    .then(rows=>requireRows(rows,"kira"));
+
+  const backendTask=api("search",{
+    q,
+    filter:"videos",
+    _fresh:Date.now()
+  },4200).then(response=>requireRows(response?.data?.items,"backend"));
+
+  let first=[];
+  try{
+    first=await Promise.any([kiraTask,backendTask]);
   }catch{}
 
   if(seq!==state.searchSeq)return;
+  if(paintRows(first)){
+    void Promise.allSettled([kiraTask,backendTask]).then(results=>{
+      if(seq!==state.searchSeq||state.searchQuery!==q)return;
+      const merged=[...state.feedRows];
+      for(const result of results){
+        if(result.status==="fulfilled")merged.push(...result.value);
+      }
+      const rows=usableRows(merged);
+      if(rows.length<=state.feedRows.length)return;
+      state.feedRows=rows;
+      renderCards(rows);
+      rememberDiscoveredSources(rows,"");
+      feedStatus.textContent=rows.length+" video";
+    });
+    return;
+  }
 
-  // Mixed YouTube search is a cheap backend-only fallback. Keep only videos.
+  if(seq!==state.searchSeq)return;
+
+  // Mixed backend search is only a secondary fallback.
   try{
     const response=await api("search",{
       q,
       filter:"all",
       _fresh:Date.now()
     },3600);
-
     if(seq!==state.searchSeq)return;
     if(paintRows(response?.data?.items))return;
-  }catch{}
-
-  if(seq!==state.searchSeq)return;
-
-  // youtubei.js is last-resort only. It must never delay a normal search.
-  try{
-    const local=await localEngine(1200);
-    const rows=await Promise.race([
-      local.search(q,{type:"video"}),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("local_search_timeout")),1800))
-    ]);
-
-    if(seq!==state.searchSeq)return;
-    if(paintRows(rows))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
