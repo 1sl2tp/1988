@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-285">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-286">
   <title>1988</title>
 </head>
 <body>
@@ -163,6 +163,7 @@
       <div id="sourceGroupNav" class="source-group-nav" hidden>
         <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
         <div id="sourceGroupTabs" class="source-group-tabs"></div>
+        <button id="sourceGroupRename" class="source-group-rename" type="button" aria-label="Đổi tên nguồn đang chọn" title="Đổi tên nguồn">✎</button>
         <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
       </div>
 
@@ -228,7 +229,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=285',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=286',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -250,8 +251,8 @@
   <script src="./src/html5-background.js?v=9"></script>
   <script src="./src/channel-library.js?v=sources-88"></script>
   <script src="./src/media-meta.js?v=1"></script>
-  <script type="module" src="./src/yt-local.js?v=search-fast-285"></script>
+  <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-285"></script>
+  <script defer src="./src/app.js?v=watch-browse-286"></script>
 </body>
 </html>
