@@ -5119,6 +5119,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-feed-column-w");
     root.style.removeProperty("--watch-feed-content-w");
     root.style.removeProperty("--watch-scroll-gutter");
+    root.style.removeProperty("--watch-grid-gap");
+    root.style.removeProperty("--watch-feed-cols");
+    root.style.removeProperty("--watch-player-top-offset");
     root.style.removeProperty("--watch-card-unit");
   };
 
@@ -5179,6 +5182,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-feed-column-w");
     root.style.removeProperty("--watch-feed-content-w");
     root.style.removeProperty("--watch-scroll-gutter");
+    root.style.removeProperty("--watch-grid-gap");
+    root.style.removeProperty("--watch-feed-cols");
+    root.style.removeProperty("--watch-player-top-offset");
     root.style.removeProperty("--watch-card-unit");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
@@ -5205,46 +5211,57 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       1,
       (shellRect?.width||viewportWidth)-shellPadding
     );
-    const layoutGap=parseFloat(shellStyle?.columnGap)||14;
-    const feedGap=parseFloat(feedStyle?.columnGap)||14;
+    const gridGap=14;
     const scrollGutter=10;
-    const playerUnits=ratio>=1.2?2:1;
-    const totalUnits=2+playerUnits;
+    const wide=ratio>=1.2;
 
-    // First solve W from the horizontal equation. Reserve a real scrollbar
-    // gutter outside the 2-card geometry so the right card never touches or
-    // sits underneath the feed scrollbar.
-    // innerWidth = 2W + feedGap + scrollGutter + layoutGap + playerUnits*W.
+    // One 4-unit geometry for every desktop Watch state:
+    //   wide video      => feed 2W | player spans 2W + one inner gap
+    //   square/portrait => feed 3W | player spans 1W
+    // So the whole row is ALWAYS 4W + 3 gaps (+ scrollbar gutter).
+    // Changing video orientation only redistributes the same four units.
+    const feedColumns=wide?2:3;
+    const playerSpan=wide?2:1;
     const widthUnit=Math.max(
       1,
-      (innerWidth-feedGap-scrollGutter-layoutGap)/totalUnits
+      (innerWidth-(gridGap*3)-scrollGutter)/4
     );
 
-    // Then apply only the natural vertical constraint of the actual video.
-    // If a portrait video would be taller than the available watch pane, W
-    // shrinks together for both the player and recommendation cards so their
-    // geometry remains related.
-    const sectionTop=Math.max(
-      0,
-      playerSection?.getBoundingClientRect?.().top||0
-    );
-    const availableHeight=Math.max(1,viewportHeight-sectionTop-12);
-    const heightUnit=Math.max(
+    const sectionRect=playerSection?.getBoundingClientRect?.();
+    const feedRect=feed?.getBoundingClientRect?.();
+    const sectionTop=Math.max(0,sectionRect?.top||0);
+    const feedTop=Math.max(sectionTop,feedRect?.top||sectionTop);
+    const playerTopOffset=Math.max(0,Math.min(56,feedTop-sectionTop));
+    const bottomEdge=12;
+    const availableHeight=Math.max(
       1,
-      availableHeight*ratio/playerUnits
+      viewportHeight-sectionTop-playerTopOffset-bottomEdge
     );
-    const unit=Math.max(1,Math.min(widthUnit,heightUnit));
 
-    const playerWidth=playerUnits*unit;
+    // The height constraint also preserves W. For a 2-column landscape
+    // player its width is (2W + gap); for portrait it is exactly W.
+    const heightUnit=playerSpan===2
+      ?Math.max(1,(availableHeight*ratio-gridGap)/2)
+      :Math.max(1,availableHeight*ratio);
+
+    const unit=Math.max(1,Math.min(widthUnit,heightUnit));
+    const playerWidth=playerSpan===2
+      ?(2*unit+gridGap)
+      :unit;
     const playerHeight=playerWidth/ratio;
-    const feedContentWidth=2*unit+feedGap;
+    const feedContentWidth=
+      feedColumns*unit+
+      Math.max(0,feedColumns-1)*gridGap;
     const feedColumnWidth=feedContentWidth+scrollGutter;
 
     root.style.setProperty("--watch-card-unit",Math.round(unit*100)/100+"px");
+    root.style.setProperty("--watch-grid-gap",gridGap+"px");
+    root.style.setProperty("--watch-feed-cols",String(feedColumns));
     root.style.setProperty("--watch-feed-content-w",Math.round(feedContentWidth*100)/100+"px");
     root.style.setProperty("--watch-feed-column-w",Math.round(feedColumnWidth*100)/100+"px");
     root.style.setProperty("--watch-scroll-gutter",scrollGutter+"px");
     root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
+    root.style.setProperty("--watch-player-top-offset",Math.round(playerTopOffset)+"px");
 
     frame.style.setProperty("--watch-player-width",Math.round(playerWidth)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(playerHeight)+"px");
