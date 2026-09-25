@@ -2844,28 +2844,21 @@ function explicitVideoAspect(meta={}){
 
 let responsivePlayerRaf=0;
 
-function isLongFilmPlayback(meta=state.currentMeta||{}){
+function isFilmDefaultFrame(meta=state.currentMeta||{}){
   const scope=clean(meta?._watchScope||"")||
     (state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)?state.activeParent:"")||
     (state.searchScope&&CONTENT_SOURCE_SCOPES.has(state.searchScope)?state.searchScope:"")||
     activeSourceScope()||
     "";
 
-  if(scope!=="film")return false;
-
-  const currentCard=[...feed.querySelectorAll("[data-video-id]")]
-    .find(card=>card.dataset.videoId===state.currentId);
-
-  const duration=Math.max(
-    Number(durationSeconds(meta))||0,
-    Number(currentCard?.dataset?.duration)||0
-  );
-
-  return duration>=20*60;
+  // Film is a normal YouTube watch surface. Keep the player's DEFAULT 16:9
+  // box from the very first paint, regardless of whether the movie itself
+  // contains portrait/9:16 footage or duration metadata has arrived yet.
+  return scope==="film";
 }
 
 function responsivePlayerAspect(meta=state.currentMeta||{}){
-  if(isLongFilmPlayback(meta))return 16/9;
+  if(isFilmDefaultFrame(meta))return 16/9;
   return explicitVideoAspect(meta)||
     validPipAspect(state.videoAspect)||
     16/9;
@@ -2875,10 +2868,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Film episodes/full movies keep YouTube's original/default 16:9 player
+  // Film videos keep YouTube's original/default 16:9 player
   // box. This is still the NORMAL wide-player path (not a custom film mode),
   // so native fullscreen remains available.
-  const longFilm=isLongFilmPlayback(meta);
+  const longFilm=isFilmDefaultFrame(meta);
   let ratio=longFilm
     ?16/9
     :(explicitVideoAspect(meta)||validPipAspect(state.videoAspect)||16/9);
@@ -2991,10 +2984,10 @@ function queueResponsivePlayerFrame(){
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
-  // visualContentAspect can detect a portrait scene INSIDE a normal 16:9 film
+  // visualContentAspect can detect portrait/9:16 imagery INSIDE a Film video
   // upload. Do not let that reshape a long-form film away from YouTube's
   // original/default player box.
-  if(isLongFilmPlayback(meta)){
+  if(isFilmDefaultFrame(meta)){
     state.videoAspect=16/9;
     state.videoAspectVerified=true;
     state.videoAspectPortraitLocked=false;
@@ -7726,7 +7719,7 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
-  const longFilmDefault=isLongFilmPlayback(playbackMeta);
+  const longFilmDefault=isFilmDefaultFrame(playbackMeta);
   state.videoAspect=longFilmDefault
     ?16/9
     :(immediateAspect||(
@@ -7745,7 +7738,7 @@ async function playVideo(id,seedMeta={}){
   if(wasFloating){
     void primePipAspect(id).then(ratio=>{
       if(state.currentId!==id)return;
-      if(isLongFilmPlayback(state.currentMeta)){
+      if(isFilmDefaultFrame(state.currentMeta)){
         state.videoAspect=16/9;
         state.videoAspectVerified=true;
         state.videoAspectPortraitLocked=false;
