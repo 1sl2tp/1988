@@ -9834,6 +9834,19 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
 async function playVideo(id,seedMeta={}){
   if(!id)return;
 
+  // Keep the currently displayed shape before switching videos. The next
+  // item should open in the same shape immediately, then correct itself only
+  // when exact per-video dimensions are known.
+  const previousPlaybackMeta=state.currentMeta||{};
+  const previousDisplayedAspect=validPipAspect(state.videoAspect);
+  const previousPlaybackScope=videoAspectHabitScope(previousPlaybackMeta);
+  if(
+    previousDisplayedAspect &&
+    (state.videoAspectVerified||state.videoAspectPortraitLocked)
+  ){
+    rememberVideoAspectHabit(previousPlaybackMeta,previousDisplayedAspect);
+  }
+
   // Preserve where the click came from before Search hands off to Watch.
   // This is needed for the remembered portrait/landscape habit on Search.
   const enteredFromSearch=state.searchResultsActive===true;
@@ -9864,16 +9877,27 @@ async function playVideo(id,seedMeta={}){
     ...seedMeta,
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
   };
+  const targetPlaybackScope=videoAspectHabitScope(playbackMeta);
+  const samePlaybackScope=
+    !!previousDisplayedAspect&&(
+      !previousPlaybackScope||
+      !targetPlaybackScope||
+      previousPlaybackScope===targetPlaybackScope
+    );
+  const carriedAspect=samePlaybackScope
+    ?canonicalHabitAspect(previousDisplayedAspect)
+    :0;
   const habitAspect=rememberedVideoAspect(playbackMeta);
 
   // Never block playback for aspect detection. Exact per-video knowledge wins.
-  // If this video's shape is still unknown, start with the last VERIFIED shape
-  // used in the same content tab (especially Film) instead of flashing 16:9
-  // first and then snapping back to portrait a moment later.
+  // Otherwise carry the shape that is visibly on screen to the next item in
+  // the same viewing flow. This prevents a portrait series from reopening as
+  // square/16:9 because card thumbnail metadata arrived before media metadata.
   const immediateAspect=
     cachedAspect||
-    (seedAspect&&seedAspect<=1.20?seedAspect:0)||
-    habitAspect;
+    carriedAspect||
+    habitAspect||
+    (seedAspect&&seedAspect<=1.20?seedAspect:0);
 
   state.keepFloating=wasFloating;
   state.currentId=id;
