@@ -5122,7 +5122,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
-    root.style.removeProperty("--watch-player-bottom-safe");
     root.style.removeProperty("--watch-card-unit");
   };
 
@@ -5186,7 +5185,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
-    root.style.removeProperty("--watch-player-bottom-safe");
     root.style.removeProperty("--watch-card-unit");
 
     root.classList.remove("watch-tools-side","watch-tools-bottom");
@@ -5195,13 +5193,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   }
 
   if(desktop){
-    // Desktop Watch uses one geometric unit W: the width of one 16:9
-    // recommendation card. The player is expressed only as a multiple of W:
-    //   wide video     = 2W
-    //   square/portrait = 1W
-    // The feed is always two cards = 2W. This keeps thumbnails and the
-    // current video visually proportional instead of sizing each pane with
-    // unrelated viewport percentages.
+    // Desktop Watch has one geometry solver. Orientation chooses the primary
+    // constraint: portrait is height-first; landscape/square is width-first.
+    // After the player is solved, the remaining width determines whole 16:9
+    // recommendation columns. CSS only renders these solved dimensions.
     const shellRect=appShell?.getBoundingClientRect?.();
     const shellStyle=appShell?getComputedStyle(appShell):null;
     const feedStyle=feed?getComputedStyle(feed):null;
@@ -5225,18 +5220,23 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const feedTop=Math.max(sectionTop,feedRect?.top||sectionTop);
     const playerTopOffset=Math.max(0,Math.min(56,feedTop-sectionTop));
 
-    // Portrait must be height-first. Use the same visible bottom line as the
-    // left browse pane: fix the full portrait height first, derive its width
-    // from the real aspect ratio, then split only the space that remains.
+    // One owner for vertical geometry:
+    // - portrait uses the ENTIRE visible height of the left scroll pane.
+    // - landscape/square may reserve a bottom control-safe inset.
+    // CSS must not subtract a second bottom padding or max-height later.
     const controlSafeInset=8;
     const bottomEdge=gridGap+controlSafeInset;
     const feedBottom=Math.min(
       viewportHeight,
       feedSectionRect?.bottom||viewportHeight
     );
-    const availableHeight=Math.max(
+    const fullPaneHeight=Math.max(
       1,
-      feedBottom-feedTop-bottomEdge
+      feedBottom-feedTop
+    );
+    const safePaneHeight=Math.max(
+      1,
+      fullPaneHeight-bottomEdge
     );
 
     let feedColumns=2;
@@ -5246,7 +5246,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
 
     if(portrait){
       // 1) Full usable height first.
-      playerHeight=availableHeight;
+      playerHeight=fullPaneHeight;
       // 2) Natural width follows from the portrait ratio.
       playerWidth=Math.max(1,playerHeight*ratio);
 
@@ -5281,8 +5281,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
         (innerWidth-(gridGap*3)-scrollGutter)/4
       );
       const heightUnit=playerSpan===2
-        ?Math.max(1,(availableHeight*ratio-gridGap)/2)
-        :Math.max(1,availableHeight*ratio);
+        ?Math.max(1,(safePaneHeight*ratio-gridGap)/2)
+        :Math.max(1,safePaneHeight*ratio);
 
       unit=Math.max(1,Math.min(widthUnit,heightUnit));
       playerWidth=playerSpan===2
@@ -5304,7 +5304,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-scroll-gutter",scrollGutter+"px");
     root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
     root.style.setProperty("--watch-player-top-offset",Math.round(playerTopOffset)+"px");
-    root.style.setProperty("--watch-player-bottom-safe",bottomEdge+"px");
 
     frame.style.setProperty("--watch-player-width",Math.round(playerWidth)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(playerHeight)+"px");
@@ -5324,7 +5323,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   root.style.removeProperty("--watch-grid-gap");
   root.style.removeProperty("--watch-feed-cols");
   root.style.removeProperty("--watch-player-top-offset");
-  root.style.removeProperty("--watch-player-bottom-safe");
   root.style.removeProperty("--watch-card-unit");
 }
 
