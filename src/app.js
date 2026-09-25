@@ -7825,7 +7825,7 @@ function updateHomeHeaderOnScroll(){
 
   // Hysteresis prevents Safari's tiny elastic-scroll changes from toggling
   // the header repeatedly. Down needs 28px; up needs 20px.
-  if(direction>0&&travel>=28){
+  if(direction>0&&travel>=28&&y>=64){
     setHomeHeaderHidden(true);
     homeHeaderDirectionStartY=y;
   }else if(direction<0&&travel>=20){
