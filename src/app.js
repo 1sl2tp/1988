@@ -158,6 +158,9 @@ const state={
   videoAspect:16/9,
   keepFloating:false,
   watchMinimized:false,
+  watchPipPinned:false,
+  watchPipAway:false,
+  watchPipEnteredAt:0,
   watchRestoreUntil:0,
   floatDock:"right",
   floatScale:1,
@@ -5855,17 +5858,30 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
   const rail=frame.querySelector(".float-mode-rail");
   rail?.querySelectorAll?.("[data-float-mode]").forEach(button=>{
     const mode=button.dataset.floatMode||"";
-    const active=mode==="tuck"
-      ?state.floatTucked
-      :mode==="scale"
-        ?false
-        :!state.floatTucked&&state.floatPreset===mode;
+    const active=mode==="pin"
+      ?state.watchPipPinned
+      :mode==="tuck"
+        ?state.floatTucked
+        :mode==="scale"
+          ?false
+          :!state.floatTucked&&state.floatPreset===mode;
     button.classList.toggle("active",active);
     button.setAttribute("aria-pressed",active?"true":"false");
   });
 
   const tuckIcon=rail?.querySelector?.('[data-float-mode="tuck"] .float-mode-icon');
   if(tuckIcon)tuckIcon.textContent=state.floatDock==="left"?"‹":"›";
+
+  const pinButton=rail?.querySelector?.('[data-float-mode="pin"]');
+  if(pinButton){
+    pinButton.setAttribute(
+      "aria-label",
+      state.watchPipPinned
+        ?"Bỏ ghim PiP và tự gắn lại khi cuộn về video"
+        :"Ghim PiP để luôn nổi khi cuộn"
+    );
+    pinButton.setAttribute("aria-pressed",state.watchPipPinned?"true":"false");
+  }
 
   const scaleButton=rail?.querySelector?.('[data-float-mode="scale"]');
   const scaleIcon=scaleButton?.querySelector?.(".float-mode-icon");
@@ -5928,6 +5944,38 @@ function setFloatPreset(mode){
   applyFloatPreset(frame);
 }
 
+function watchPageScrollY(){
+  return Math.max(
+    0,
+    Number(document.scrollingElement?.scrollTop)||0,
+    Number(document.documentElement?.scrollTop)||0,
+    Number(document.body?.scrollTop)||0,
+    Number(window.scrollY)||0
+  );
+}
+
+function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
+  if(!state.watchMinimized||!frame?.classList.contains("floating-iframe"))return;
+
+  state.watchPipPinned=!state.watchPipPinned;
+  if(state.watchPipPinned){
+    state.watchPipAway=true;
+    state.watchPipEnteredAt=Date.now();
+    updateFloatControlState(frame);
+    return;
+  }
+
+  const y=watchPageScrollY();
+  state.watchPipAway=y>10;
+  updateFloatControlState(frame);
+
+  // Unpinning at the original media position immediately rejoins inline.
+  // Away from the top it simply returns to automatic follow mode.
+  if(y<=3){
+    setWatchMinimized(false,{preserveScroll:true});
+  }
+}
+
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.dataset.floatControlsReady==="2")return;
@@ -5963,6 +6011,10 @@ function ensureFloatHandles(){
     button.addEventListener("click",event=>{
       event.preventDefault();
       event.stopPropagation();
+      if(mode==="pin"){
+        toggleWatchPipPin(frame);
+        return;
+      }
       if(mode==="scale"){
         cycleFloatScale(frame);
         return;
@@ -5973,6 +6025,7 @@ function ensureFloatHandles(){
   };
 
   rail.append(
+    makeButton("pin","","Ghim PiP để luôn nổi khi cuộn"),
     makeButton("scale","1×","Kích thước PiP 1×"),
     makeButton("tuck",state.floatDock==="left"?"‹":"›","Thu vào mép")
   );
@@ -7365,7 +7418,7 @@ function applyFloatingIframe(force){
   finishFloatEntry(frame);
 }
 
-function setWatchMinimized(minimized){
+function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   const root=document.documentElement;
   minimized=!!minimized;
 
@@ -7379,6 +7432,9 @@ function setWatchMinimized(minimized){
 
     markPlaybackTransition();
     state.watchMinimized=true;
+    state.watchPipPinned=!!pinned;
+    state.watchPipAway=watchPageScrollY()>10;
+    state.watchPipEnteredAt=Date.now();
     root.classList.add("watch-minimized");
     syncNativeMobileControls();
     setWatchBrowseLayout(false);
@@ -7392,12 +7448,15 @@ function setWatchMinimized(minimized){
 
   markPlaybackTransition();
   state.watchMinimized=false;
+  state.watchPipPinned=false;
+  state.watchPipAway=false;
+  state.watchPipEnteredAt=0;
   state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
   syncNativeMobileControls();
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
-  hardResetDocumentTop();
+  if(!preserveScroll)hardResetDocumentTop();
   if(state.intentPlay){
     setTimeout(resumeVideoAfterReturn,80);
   }
@@ -7406,6 +7465,25 @@ function setWatchMinimized(minimized){
 
 function setupWatchMinimizeGesture(){
   const frame=playerSection?.querySelector(".player-frame");
+
+  if(frame&&!frame.querySelector(".watch-pip-trigger")){
+    const pipButton=document.createElement("button");
+    pipButton.type="button";
+    pipButton.className="watch-pip-trigger";
+    pipButton.setAttribute("aria-label","Ghim video ở chế độ PiP");
+    pipButton.innerHTML=
+      '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+        '<rect x="3.5" y="5" width="17" height="13" rx="2"></rect>'+
+        '<rect x="12.5" y="11" width="6" height="4.5" rx="1"></rect>'+
+      '</svg>';
+    pipButton.addEventListener("pointerdown",event=>event.stopPropagation());
+    pipButton.addEventListener("click",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      setWatchMinimized(true,{pinned:true});
+    });
+    frame.appendChild(pipButton);
+  }
 
   // YouTube's iframe owns its own touch stream, so the full-size player is not
   // used as the minimize gesture surface. The transparent overlay is active
@@ -7607,7 +7685,7 @@ function setupWatchMinimizeGesture(){
       Math.abs(dy)>Math.abs(dx)*1.05
     ){
       gesture=null;
-      setWatchMinimized(true);
+      setWatchMinimized(true,{pinned:false});
     }
   },{passive:true,capture:true});
 
@@ -7638,11 +7716,41 @@ function setupWatchMinimizeGesture(){
     if(pageY<4&&feedY<4)return;
 
     gesture=null;
-    setWatchMinimized(true);
+    setWatchMinimized(true,{pinned:false});
   };
 
   window.addEventListener("scroll",minimizeOnScroll,{passive:true});
   feedSection?.addEventListener("scroll",minimizeOnScroll,{passive:true});
+
+  let restoreRaf=0;
+  const restoreInlineOnReturn=()=>{
+    if(restoreRaf)return;
+    restoreRaf=requestAnimationFrame(()=>{
+      restoreRaf=0;
+      if(!state.watchMinimized||state.watchPipPinned)return;
+
+      const y=watchPageScrollY();
+      if(y>20){
+        state.watchPipAway=true;
+        return;
+      }
+
+      // Do not bounce straight back during the same gesture that created PiP.
+      if(Date.now()-Number(state.watchPipEnteredAt||0)<260)return;
+
+      if(state.watchPipAway&&y<=3){
+        gesture=null;
+        setWatchMinimized(false,{preserveScroll:true});
+      }
+    });
+  };
+
+  window.addEventListener("scroll",restoreInlineOnReturn,{passive:true});
+  document.addEventListener("scroll",event=>{
+    if(event.target===document||event.target===document.scrollingElement){
+      restoreInlineOnReturn();
+    }
+  },{passive:true});
 }
 
 function getFullscreenElement(){
