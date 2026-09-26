@@ -540,6 +540,30 @@ let CONTENT_SOURCE_SCOPES=new Set();
 let FEED_SOURCE_SCOPES=new Set();
 let MANAGED_SOURCE_SCOPES=new Set();
 let SERVER_SUGGESTION_SCOPES=new Set();
+let sourceScopeDisplayOrder=[];
+
+function parseSourceScopeDisplayOrder(labels={}){
+  try{
+    const raw=labels.__source_order;
+    const parsed=Array.isArray(raw)?raw:JSON.parse(String(raw||"[]"));
+    return Array.isArray(parsed)?parsed.map(String).filter(Boolean):[];
+  }catch{
+    return [];
+  }
+}
+
+function orderSourceDefinitions(rows=[]){
+  if(!sourceScopeDisplayOrder.length)return rows;
+  const rank=new Map(sourceScopeDisplayOrder.map((key,index)=>[key,index]));
+  return rows
+    .map((row,index)=>({row,index}))
+    .sort((a,b)=>{
+      const ar=rank.has(a.row.key)?rank.get(a.row.key):Number.MAX_SAFE_INTEGER;
+      const br=rank.has(b.row.key)?rank.get(b.row.key):Number.MAX_SAFE_INTEGER;
+      return ar-br||a.index-b.index;
+    })
+    .map(x=>x.row);
+}
 
 function normalizeHashtagDefinitions(rows=[]){
   return (Array.isArray(rows)?rows:[])
@@ -566,10 +590,10 @@ function rebuildSourceScopeRegistry(rows=hashtagDefinitions){
       filterAiDisclosure:false
     }));
 
-  SOURCE_SCOPE_DEFINITIONS=[
+  SOURCE_SCOPE_DEFINITIONS=orderSourceDefinitions([
     ...SYSTEM_SOURCE_SCOPE_DEFINITIONS,
     ...hashtagScopes
-  ];
+  ]);
   SOURCE_SCOPE_BY_KEY=new Map(
     SOURCE_SCOPE_DEFINITIONS.map(item=>[item.key,item])
   );
@@ -1203,6 +1227,11 @@ function applyServerState(remote={}){
 
   stateSyncApplying=true;
   try{
+    const remoteSourceLabels=
+      remote.sourceLabels&&typeof remote.sourceLabels==="object"&&!Array.isArray(remote.sourceLabels)
+        ?remote.sourceLabels
+        :{};
+    sourceScopeDisplayOrder=parseSourceScopeDisplayOrder(remoteSourceLabels);
     setHashtagDefinitions(Array.isArray(remote.hashtags)?remote.hashtags:[]);
 
     if(Array.isArray(remote.selected)){
