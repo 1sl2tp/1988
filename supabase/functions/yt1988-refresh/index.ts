@@ -1,24 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const PROFILE="owner";
-const SCOPES=[
-  "live","latest","week","news","economy","law",
-  "film","music","tech","sports","entertainment"
-];
-const SCOPE_META:any={
+const SYSTEM_SCOPES=["live","latest","week"];
+const HASHTAG_ID_RE=/^hash_[a-z0-9]+$/;
+const SYSTEM_SCOPE_META:any={
   live:{profile:"live",label:"Live",kind:"live"},
   latest:{profile:"day",label:"Ngày",kind:"time"},
-  week:{profile:"week",label:"Tuần",kind:"time"},
-  news:{profile:"explore",label:"Khám phá",kind:"content"},
-  economy:{profile:"review",label:"Review",kind:"content"},
-  law:{profile:"comedy",label:"Hài",kind:"content"},
-  film:{profile:"short_film",label:"Phim ngắn",kind:"content"},
-  music:{profile:"music",label:"Nhạc",kind:"content"},
-  tech:{profile:"technology",label:"Công nghệ",kind:"content"},
-  sports:{profile:"sports",label:"Thể thao",kind:"content"},
-  entertainment:{profile:"showbiz",label:"Showbiz",kind:"content"}
+  week:{profile:"week",label:"Tuần",kind:"time"}
 };
-const CONTENT_SCOPES=new Set(SCOPES.filter((s)=>SCOPE_META[s]?.kind==="content"));
+function validScopeSyntax(value:any){
+  const scope=clean(value,32);
+  return SYSTEM_SCOPES.includes(scope)||HASHTAG_ID_RE.test(scope);
+}
 const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
@@ -39,19 +32,12 @@ const LIVE_SEARCH_QUERIES=[
   "trực tiếp sự kiện",
   "livestream việt nam"
 ];
-const DEFAULT_SCOPE_INTERVAL_MINUTES:any={
+const DEFAULT_SYSTEM_INTERVAL_MINUTES:any={
   live:2,
   latest:2,
-  week:5,
-  news:5,
-  economy:10,
-  law:10,
-  film:10,
-  music:10,
-  tech:5,
-  sports:5,
-  entertainment:5
+  week:5
 };
+const DEFAULT_HASHTAG_INTERVAL_MINUTES=10;
 const cors={
   "access-control-allow-origin":"*",
   "access-control-allow-headers":"authorization, x-client-info, apikey, content-type",
@@ -528,7 +514,7 @@ async function finishLease(rest:string,headers:any,ok:boolean,error=""){
     });
     if(res.ok){
       const pending=await res.json().catch(()=>[]);
-      return Array.isArray(pending)?pending.filter((s:any)=>SCOPES.includes(clean(s,32))):[];
+      return Array.isArray(pending)?pending.filter((s:any)=>validScopeSyntax(s)):[];
     }
   }catch{}
 
@@ -539,7 +525,7 @@ async function finishLease(rest:string,headers:any,ok:boolean,error=""){
   return [];
 }
 function triggerFollowupRefresh(supabaseUrl:string,serviceKey:string,scopes:string[]){
-  const wanted=[...new Set(scopes.map((s)=>clean(s,32)).filter((s)=>SCOPES.includes(s)))];
+  const wanted=[...new Set(scopes.map((s)=>clean(s,32)).filter(validScopeSyntax))];
   if(!wanted.length)return;
   const task=fetch(supabaseUrl+"/functions/v1/yt1988-refresh",{
     method:"POST",
@@ -572,6 +558,39 @@ Deno.serve(async(req:Request)=>{
 
   let body:any={};
   try{body=await req.json();}catch{}
+
+  const hashtagRes=await fetch(
+    rest+"/yt1988_hashtags?profile_key=eq."+encodeURIComponent(PROFILE)+
+    "&enabled=eq.true&select=hashtag_id,label,position&order=position.asc,hashtag_id.asc",
+    {headers:authHeaders}
+  );
+  if(!hashtagRes.ok)return json({ok:false,error:"hashtag_read_failed",detail:await hashtagRes.text()},502);
+  const hashtagRaw=await hashtagRes.json();
+  const hashtagRows=(Array.isArray(hashtagRaw)?hashtagRaw:[])
+    .map((row:any)=>({
+      id:clean(row?.hashtag_id,32),
+      label:clean(row?.label,40),
+      position:Number(row?.position)||0
+    }))
+    .filter((row:any)=>HASHTAG_ID_RE.test(row.id)&&row.label);
+
+  const SCOPES=[
+    ...SYSTEM_SCOPES,
+    ...hashtagRows.map((row:any)=>row.id)
+  ];
+  const SCOPE_META:any={...SYSTEM_SCOPE_META};
+  for(const hashtag of hashtagRows){
+    SCOPE_META[hashtag.id]={
+      profile:"hashtag",
+      label:hashtag.label,
+      kind:"content"
+    };
+  }
+  const DEFAULT_SCOPE_INTERVAL_MINUTES:any={...DEFAULT_SYSTEM_INTERVAL_MINUTES};
+  for(const hashtag of hashtagRows){
+    DEFAULT_SCOPE_INTERVAL_MINUTES[hashtag.id]=DEFAULT_HASHTAG_INTERVAL_MINUTES;
+  }
+
   const requested=new Set(
     (Array.isArray(body?.scopes)?body.scopes:[])
       .map((s:any)=>clean(s,32))
@@ -1071,6 +1090,19 @@ Deno.serve(async(req:Request)=>{
       const selectedIds=new Set(selected.map((s:any)=>s.id));
       const current=currentByScope.get(scope);
 
+      if(meta.kind==="content"&&!selected.length){
+        if(current){
+          const clearRes=await fetch(
+            rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
+            "&scope=eq."+encodeURIComponent(scope),
+            {method:"DELETE",headers:authHeaders}
+          );
+          if(!clearRes.ok)throw new Error("empty_hashtag_package_clear_failed:"+scope+":"+await clearRes.text());
+        }
+        results.push({scope,changed:!!current,reason:"no_selected_sources"});
+        continue;
+      }
+
       // Coverage is based on usable snapshots, not only requests from this run.
       // This is the key stale-while-revalidate guarantee: a temporary 429/503
       // reuses the previous good channel rows instead of deleting them.
@@ -1140,15 +1172,8 @@ Deno.serve(async(req:Request)=>{
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
       if(meta.kind!=="live")raw=raw.slice(0,90);
 
-      if(meta.profile==="review"){
-        raw=raw.map((r:any)=>{
-          const title=reviewCleanTitle(r?._displayTitle||r?.title||"");
-          return title&&title!==r?.title?{...r,_displayTitle:title}:r;
-        });
-      }
-
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v6")+":"+meta.profile;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v7")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
@@ -1168,9 +1193,9 @@ Deno.serve(async(req:Request)=>{
             body:JSON.stringify({
               mode:"dedupe",
               scope,
-              parentLabel:meta.label,
-              contentProfile:meta.profile,
-              reviewMode:meta.profile==="review",
+              parentLabel:meta.kind==="content"?"Hashtag":meta.label,
+              contentProfile:meta.kind==="content"?"hashtag":meta.profile,
+              reviewMode:false,
               videos:raw.slice(0,120).map((r:any)=>({
                 id:videoId(r),
                 title:clean(r?.title,300),
