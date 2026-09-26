@@ -98,6 +98,10 @@ function liveKeywordBlocked(row:any,keywords:string[]){
     return !!needle&&haystack.includes(needle);
   });
 }
+
+function strongFreshLiveSignal(row:any){
+  return Number(row?.duration)<0&&Number(row?.uploaded)===-1;
+}
 function relativeAgeMs(value:any){
   const raw=normalizeText(value);
   if(!raw)return Number.MAX_SAFE_INTEGER;
@@ -308,9 +312,39 @@ async function youtubeRssLiveCandidates(source:any){
   }
 }
 
+async function searchSelectedSourceLiveCandidates(
+  source:any,
+  supabaseUrl:string,
+  serviceKey:string
+){
+  const id=clean(source?.id,180);
+  const query=clean(source?.name,180);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!query)return [];
+  const result=await fetchJson(
+    supabaseUrl+"/functions/v1/yt1988?action=search&q="+encodeURIComponent(query)+"&filter=videos",
+    {
+      "apikey":serviceKey,
+      "authorization":"Bearer "+serviceKey
+    },
+    4200
+  );
+  const raw=Array.isArray(result?.data?.items)?result.data.items:
+    Array.isArray(result?.data)?result.data:[];
+  return raw
+    .map((row:any)=>normalizeRow(row,source))
+    .filter((row:any)=>row&&channelId(row)===id&&strongFreshLiveSignal(row))
+    .slice(0,4);
+}
+
 async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
   const id=videoId(row);
   if(!id)return null;
+  if(strongFreshLiveSignal(row))return {
+    ...row,
+    isLive:true,
+    duration:-1,
+    uploaded:-1
+  };
   const result=await fetchJson(
     supabaseUrl+"/functions/v1/yt1988?action=video&id="+encodeURIComponent(id),
     {
@@ -538,7 +572,15 @@ Deno.serve(async(req:Request)=>{
       }
 
       const liveBlocked=blockedByScope.get("live")||new Set<string>();
-      const rssBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
+      const selectedDiscoveryBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
+        try{
+          const direct=await searchSelectedSourceLiveCandidates(
+            source,supabaseUrl,serviceKey
+          );
+          if(direct.length)return direct;
+        }catch(error){
+          console.warn("selected live search failed",source?.id,String(error));
+        }
         try{
           return await youtubeRssLiveCandidates(source);
         }catch(error){
@@ -558,16 +600,17 @@ Deno.serve(async(req:Request)=>{
         const raw=Array.isArray(result?.data?.items)?result.data.items:
           Array.isArray(result?.data)?result.data:[];
         globalCandidates=raw
-          .slice(0,16)
+          .slice(0,24)
           .map((row:any)=>normalizeRow(row,{}))
-          .filter(Boolean);
+          .filter((row:any)=>row&&strongFreshLiveSignal(row))
+          .slice(0,16);
       }catch(error){
         console.warn("global live discovery failed",String(error));
       }
 
       const selectedIds=new Set(selectedLiveSources.map((source:any)=>source.id));
       const candidates=dedupeRows([
-        ...rssBatches.flat(),
+        ...selectedDiscoveryBatches.flat(),
         ...globalCandidates
       ])
         .filter((row:any)=>{
