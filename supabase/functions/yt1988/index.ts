@@ -148,6 +148,43 @@ function channelRows(data: any) {
   return [];
 }
 
+function rowVideoId(row: any) {
+  const direct = String(row?.id || row?.videoId || "").trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(direct)) return direct;
+  const url = String(row?.url || row?.videoUrl || "").trim();
+  return url.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1] ||
+    url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1] || "";
+}
+
+function mergeYoutubeOriginalTitles(data: any, rssData: any) {
+  const rows = channelRows(data);
+  const rssRows = channelRows(rssData);
+  if (!rows.length || !rssRows.length) return data;
+
+  const originalById = new Map(
+    rssRows
+      .map((row: any) => [rowVideoId(row), row] as const)
+      .filter(([id]) => !!id)
+  );
+
+  const merged = rows.map((row: any) => {
+    const original: any = originalById.get(rowVideoId(row));
+    if (!original) return row;
+    return {
+      ...row,
+      title: String(original?.title || row?.title || "").trim(),
+      uploaderName: String(original?.uploaderName || row?.uploaderName || "").trim(),
+      uploaded: Number(original?.uploaded) > 0 ? Number(original.uploaded) : row?.uploaded,
+      uploadedDate: String(original?.uploadedDate || row?.uploadedDate || ""),
+      publishedText: String(original?.publishedText || row?.publishedText || "")
+    };
+  });
+
+  if (Array.isArray(data?.relatedStreams)) return { ...data, relatedStreams: merged };
+  if (Array.isArray(data?.items)) return { ...data, items: merged };
+  return data;
+}
+
 function decodeXmlText(value: string) {
   return String(value || "")
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
@@ -224,6 +261,10 @@ async function pipedChannel(id: string) {
   const cached = getUpstreamCache(path, 60 * 1000);
   if (cached && channelRows(cached.data).length) return cached;
 
+  // RSS carries the channel's original, non-auto-translated YouTube titles.
+  // Fetch it in parallel and use it to repair Piped rows by exact video id.
+  const rssPromise = youtubeRssChannel(id).catch(() => null);
+
   const ordered = [
     ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
     ...PIPED_APIS,
@@ -231,9 +272,6 @@ async function pipedChannel(id: string) {
 
   let fallback: { source: string; data: any } | null = null;
 
-  // A channel page that returns HTTP 200 but no videos is not treated as the
-  // winner. This fixes the old "first successful Piped instance wins" behavior
-  // that could package one channel while every other selected channel vanished.
   for (let start = 0; start < ordered.length; start += 4) {
     const group = ordered.slice(start, start + 4);
     const settled = await Promise.allSettled(
@@ -249,36 +287,33 @@ async function pipedChannel(id: string) {
       if (!fallback) fallback = { source: base, data };
       if (!channelRows(data).length) continue;
 
+      const rss = await rssPromise;
+      const repaired = rss ? mergeYoutubeOriginalTitles(data, rss.data) : data;
       preferredApi = base;
       preferredUntil = Date.now() + API_TTL_MS;
-      setUpstreamCache(path, base, data);
-      return { source: base, data };
+      setUpstreamCache(path, base, repaired);
+      return { source: base, data: repaired };
     }
 
-    // If the first Piped batch has no usable videos, do not spend the whole
-    // request budget walking every instance. YouTube RSS is exact by channel id
-    // and works for Topic/auto-generated channels that Piped often returns empty.
     if (start === 0) {
-      try {
-        const rss = await youtubeRssChannel(id);
-        if (channelRows(rss.data).length) {
-          setUpstreamCache(path, rss.source, rss.data);
-          return rss;
-        }
-      } catch {}
+      const rss = await rssPromise;
+      if (rss && channelRows(rss.data).length) {
+        setUpstreamCache(path, rss.source, rss.data);
+        return rss;
+      }
     }
   }
 
-  // Last chance in case the first RSS attempt was a transient network failure.
-  try {
-    const rss = await youtubeRssChannel(id);
-    if (channelRows(rss.data).length) {
-      setUpstreamCache(path, rss.source, rss.data);
-      return rss;
-    }
-  } catch {}
+  const rss = await rssPromise;
+  if (rss && channelRows(rss.data).length) {
+    setUpstreamCache(path, rss.source, rss.data);
+    return rss;
+  }
 
-  if (fallback) return fallback;
+  if (fallback) {
+    const repaired = rss ? mergeYoutubeOriginalTitles(fallback.data, rss.data) : fallback.data;
+    return { ...fallback, data: repaired };
+  }
   throw new Error("no_channel_instance");
 }
 
@@ -311,10 +346,10 @@ async function regionalUploadFeed(region = "VN") {
     channels.map(async (id, index) => {
       if (index >= 10) await delay(120);
       try {
-        const data = await fetchJson(trending.source, `/channel/${enc(id)}`, 5000);
+        const result = await pipedChannel(id);
         return {
           id,
-          streams: Array.isArray(data?.relatedStreams) ? data.relatedStreams : [],
+          streams: channelRows(result.data),
         };
       } catch {
         // One bad/slow channel must not break the regional feed.
