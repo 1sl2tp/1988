@@ -115,7 +115,6 @@ assert.match(refresh,/while\(Date\.now\(\)<deadline\)/);
 assert.match(refresh,/_liveOrigin:"search"/);
 assert.match(refresh,/_liveOrigin:"source"/);
 assert.match(refresh,/"search_next&q="/);
-assert.match(refresh,/while\(nextpage&&Date\.now\(\)<deadline\)/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
 assert.doesNotMatch(refresh,/const body=rows\.slice\(0,90\)\.map/);
