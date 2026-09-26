@@ -75,7 +75,7 @@ assert.match(app,/scope===LIVE_SOURCE_SCOPE\?liveEffectiveSelectedSet\(\):select
 assert.match(app,/sourceManageGroup===LIVE_SOURCE_SCOPE/);
 assert.match(app,/LIVE_KEYWORDS_STATE_KEY/);
 assert.match(html,/sw\.js\?v=311/);
-assert.match(sw,/1988-main-watch-browse-v311/);
+assert.match(sw,/1988-main-watch-browse-v317/);
 assert.match(refresh,/DEFAULT_SCOPE_INTERVAL_MINUTES/);
 assert.match(refresh,/yt1988_refresh_config/);
 assert.match(refresh,/channelRecheckMs/);
