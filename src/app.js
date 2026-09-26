@@ -13488,7 +13488,9 @@ function applyServerPackage(scope,pkg={}){
       serverHash:expectedHash
     });
     if(committed?.changed){
-      packageLastChangedScopes.add(scope);
+      if(typeof packageLastChangedScopes!=="undefined"){
+        packageLastChangedScopes.add(scope);
+      }
       if(CONTENT_SOURCE_SCOPES.has(scope)){
         state.categoryRows.set(scope,{at:Date.now(),items});
       }
