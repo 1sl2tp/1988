@@ -3980,3 +3980,39 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile Watch ambient v370.
+   The top header is hidden while watching, but the video-derived ambient
+   colour field remains behind the safe area, player stage and source row. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body::before{
+    display:block!important;
+    content:""!important;
+    position:fixed!important;
+    z-index:0!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    pointer-events:none!important;
+    height:calc(
+      var(--safe-top) +
+      var(--watch-stage-h,56.25vw) +
+      var(--watch-source-row-h) +
+      48px
+    )!important;
+    background:
+      radial-gradient(
+        128% 110% at 50% 42%,
+        var(--page-chrome-glow) 0%,
+        var(--page-chrome-soft) 44%,
+        var(--page-chrome-faint) 70%,
+        rgba(9,9,10,.94) 100%
+      )!important;
+    opacity:1!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-card{
+    background:transparent!important;
+  }
+}
+
