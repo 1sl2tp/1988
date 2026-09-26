@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v1";
+const NON_LIVE_PIPELINE_VERSION="non-live-v2";
 const NON_LIVE_VERIFY_BATCH=120;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -485,6 +485,48 @@ async function youtubePlayerMetadata(id:string){
 
 async function youtubePlayerIsLive(id:string){
   return (await youtubePlayerMetadata(id)).isLive;
+}
+
+
+function exactSearchVideoMeta(data:any,id:string){
+  const items=Array.isArray(data?.items)
+    ?data.items
+    :Array.isArray(data?.data?.items)?data.data.items:[];
+  const row=items.find((item:any)=>videoId(item)===id);
+  if(!row)return null;
+  return {
+    duration:durationSeconds(row),
+    isLive:isLive(row),
+    sourceName:validChannelDisplayName(row?.uploaderName||row?.uploader||row?.channelName||""),
+    sourceThumbnailUrl:clean(
+      row?.uploaderAvatar||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",
+      1000
+    ),
+    thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
+    views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0)
+  };
+}
+
+async function youtubeSearchVideoMetadata(
+  supabaseUrl:string,
+  serviceKey:string,
+  id:string
+){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+  try{
+    const result=await fetchJson(
+      supabaseUrl+"/functions/v1/yt1988?action=search&q="+
+        encodeURIComponent(id)+"&filter=videos",
+      {
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      },
+      6000
+    );
+    return exactSearchVideoMeta(result?.data||result,id);
+  }catch{
+    return null;
+  }
 }
 
 
@@ -1174,6 +1216,15 @@ Deno.serve(async(req:Request)=>{
           "authorization":"Bearer "+serviceKey
         },7500);
         const data=result?.data||{};
+        const discoveredName=validChannelDisplayName(data?.name||data?.title||"");
+        const discoveredAvatar=clean(
+          data?.avatarUrl||data?.thumbnailUrl||data?.avatar||"",
+          1000
+        );
+        if(discoveredName)source.name=discoveredName;
+        if(discoveredAvatar)source.thumbnailUrl=discoveredAvatar;
+        if(discoveredName||discoveredAvatar)channelMeta.set(id,source);
+
         const raw=Array.isArray(data?.relatedStreams)
           ?data.relatedStreams
           :Array.isArray(data?.items)?data.items:[];
@@ -1310,10 +1361,29 @@ Deno.serve(async(req:Request)=>{
           ?youtubeShortsMembership(candidate.id)
           :Promise.resolve(false)
       ]);
+
+      // The channel feed intentionally stays cheap and often has duration=0.
+      // If YouTube's player endpoint is bot-gated, use the existing server
+      // video-search path as the metadata fallback. It returns exact duration,
+      // canonical channel name/avatar and views for the requested video ID.
+      const searchMeta=candidate.needDuration&&Number(playerMeta?.duration)<=0
+        ?await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,candidate.id)
+        :null;
+      const duration=Number(playerMeta?.duration)>0
+        ?Number(playerMeta.duration)
+        :Number(searchMeta?.duration)>0
+          ?Number(searchMeta.duration)
+          :candidate.duration||0;
+
       verificationMeta.set(candidate.id,{
         ...playerMeta,
-        duration:Number(playerMeta?.duration)||candidate.duration||0,
+        duration,
+        isLive:playerMeta?.isLive===true||searchMeta?.isLive===true,
         isShort:isShort===true,
+        sourceName:validChannelDisplayName(searchMeta?.sourceName||""),
+        sourceThumbnailUrl:clean(searchMeta?.sourceThumbnailUrl||"",1000),
+        thumbnailUrl:clean(searchMeta?.thumbnailUrl||"",1000),
+        views:Math.max(0,Number(searchMeta?.views)||0),
         durationCheckedAt:candidate.needDuration?checkedAt:0,
         shortCheckedAt:candidate.needShort?checkedAt:0
       });
@@ -1333,11 +1403,30 @@ Deno.serve(async(req:Request)=>{
           const duration=live
             ?-1
             :(Number(meta.duration)>0?Number(meta.duration):durationSeconds(row));
+          const sourceName=validChannelDisplayName(
+            meta?.sourceName||row?._sourceName||row?.uploaderName||row?.uploader||""
+          );
+          const sourceThumbnailUrl=clean(
+            meta?.sourceThumbnailUrl||row?._sourceThumbnailUrl||"",
+            1000
+          );
+          const sourceMeta=channelMeta.get(channelId)||{id:channelId,name:"",thumbnailUrl:""};
+          if(sourceName)sourceMeta.name=sourceName;
+          if(sourceThumbnailUrl)sourceMeta.thumbnailUrl=sourceThumbnailUrl;
+          if(sourceName||sourceThumbnailUrl)channelMeta.set(channelId,sourceMeta);
+
           return {
             ...row,
             duration:duration||0,
             isLive:live,
             isShort:meta.isShort===true||row?.isShort===true,
+            _sourceName:sourceName||row?._sourceName||"",
+            uploaderName:sourceName||row?.uploaderName||"",
+            uploader:sourceName||row?.uploader||"",
+            _sourceThumbnailUrl:sourceThumbnailUrl||row?._sourceThumbnailUrl||"",
+            thumbnailUrl:clean(meta?.thumbnailUrl||row?.thumbnailUrl||row?.thumbnail||"",1000),
+            thumbnail:clean(meta?.thumbnailUrl||row?.thumbnail||row?.thumbnailUrl||"",1000),
+            views:Math.max(Number(row?.views)||0,Number(meta?.views)||0),
             _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
             _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0
           };
@@ -1386,6 +1475,29 @@ Deno.serve(async(req:Request)=>{
       if(index>=0)cacheWrites[index]={...existing,...write};
       else cacheWrites.push(write);
     }
+
+    const sourceMetaUpdates=[...channelMeta.values()].filter((source:any)=>
+      /^UC[A-Za-z0-9_-]+$/.test(clean(source?.id,180))&&
+      (validChannelDisplayName(source?.name)||clean(source?.thumbnailUrl,1000))
+    );
+    await mapLimit(sourceMetaUpdates,4,async(source:any)=>{
+      const body:any={};
+      const name=validChannelDisplayName(source?.name);
+      const thumbnailUrl=clean(source?.thumbnailUrl,1000);
+      if(name)body.name=name;
+      if(thumbnailUrl)body.thumbnail_url=thumbnailUrl;
+      if(!Object.keys(body).length)return true;
+      await fetch(
+        rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&channel_id=eq."+encodeURIComponent(source.id),
+        {
+          method:"PATCH",
+          headers:{...authHeaders,"prefer":"return=minimal"},
+          body:JSON.stringify(body)
+        }
+      ).catch(()=>{});
+      return true;
+    });
 
     for(let start=0;start<cacheWrites.length;start+=20){
       const chunk=cacheWrites.slice(start,start+20);
