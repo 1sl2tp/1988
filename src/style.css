@@ -3505,3 +3505,62 @@ html.source-manager-page .source-preview{
     pointer-events:auto!important;
   }
 }
+
+
+/* Search layout parity for portrait Watch v344
+   Portrait Watch normally uses a 4-row page (header + video + sources + feed).
+   When Search opens the player is hidden, so that video row must disappear too.
+   Without this override iPhone/Safari keeps the tall portrait stage as an empty
+   black gap, while landscape Watch correctly shows the current feed immediately. */
+@media(max-width:720px){
+  html.watch-browse.watch-video-portrait.watch-search-open,
+  html.watch-browse.watch-video-portrait.watch-search-results{
+    height:100%;
+    min-height:100%;
+    overflow:hidden;
+    overscroll-behavior:none;
+  }
+
+  html.watch-browse.watch-video-portrait.watch-search-open body,
+  html.watch-browse.watch-video-portrait.watch-search-results body{
+    height:100vh!important;
+    min-height:0!important;
+    overflow:hidden!important;
+    overscroll-behavior:none!important;
+    grid-template-rows:
+      calc(var(--watch-top-row-h) + var(--safe-top))
+      var(--watch-source-row-h)
+      minmax(0,1fr)!important;
+  }
+
+  @supports(height:100dvh){
+    html.watch-browse.watch-video-portrait.watch-search-open body,
+    html.watch-browse.watch-video-portrait.watch-search-results body{
+      height:100dvh!important;
+    }
+  }
+
+  html.watch-browse.watch-video-portrait.watch-search-open .header-nav,
+  html.watch-browse.watch-video-portrait.watch-search-results .header-nav{
+    grid-row:2!important;
+  }
+
+  html.watch-browse.watch-video-portrait.watch-search-open .feed-section,
+  html.watch-browse.watch-video-portrait.watch-search-results .feed-section{
+    grid-row:3!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  html.watch-browse.watch-video-portrait.watch-search-open .player-section,
+  html.watch-browse.watch-video-portrait.watch-search-results .player-section{
+    display:none!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+  }
+}
