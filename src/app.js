@@ -12099,11 +12099,7 @@ function readAtomicSnapshot(name=""){
   return null;
 }
 
-function commitAtomicSnapshot(name="",rows=[],{
-  sourceSignature:sourceSig="",
-  inputHash="",
-  serverHash=""
-}={}){
+function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inputHash="",serverHash=""}={}){
   const items=(Array.isArray(rows)?rows:[]);
   serverHash=String(serverHash||"");
 
