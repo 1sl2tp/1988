@@ -60,6 +60,12 @@ const el={
   previewScopes:qs("#previewScopes"),
   videoGrid:qs("#videoGrid"),
   addSource:qs("#addSource"),
+  manageSources:qs("#manageSources"),
+  sourceManagerModal:qs("#sourceManagerModal"),
+  sourceManagerClose:qs("#sourceManagerClose"),
+  sourceManagerSearch:qs("#sourceManagerSearch"),
+  sourceManagerAdd:qs("#sourceManagerAdd"),
+  sourceManagerList:qs("#sourceManagerList"),
   filtersToggle:qs("#filtersToggle"),
   filtersPanel:qs("#filtersPanel"),
   filtersClose:qs("#filtersClose"),
@@ -560,6 +566,64 @@ async function loadState(){
   renderKeywords();
 }
 
+function renderSourceManagerList(query=""){
+  if(!el.sourceManagerList)return;
+  const needle=clean(query).toLocaleLowerCase("vi-VN");
+  const rows=state.scopes.filter(scope=>{
+    if(!needle)return true;
+    return clean(scope.label||scope.key).toLocaleLowerCase("vi-VN").includes(needle);
+  });
+
+  el.sourceManagerList.innerHTML=rows.map(scope=>{
+    const selected=scopeSet("selected",scope.key).size;
+    const suggested=scopeSet("suggested",scope.key).size;
+    const blocked=scopeSet("blocked",scope.key).size;
+    return '<div class="source-manager-row">'+
+      '<button class="source-manager-name" type="button" data-manager-open="'+esc(scope.key)+'">'+
+        '<strong title="'+esc(scope.label||scope.key)+'">'+esc(scope.label||scope.key)+'</strong>'+
+        '<span>'+(scope.custom?'Nguồn tùy chỉnh':'Nguồn hệ thống')+'</span>'+
+      '</button>'+
+      '<span class="source-manager-stat">'+selected+'</span>'+
+      '<span class="source-manager-stat">'+suggested+'</span>'+
+      '<span class="source-manager-stat">'+blocked+'</span>'+
+      '<div class="source-manager-actions">'+
+        '<button class="secondary" type="button" data-manager-rename="'+esc(scope.key)+'">Đổi tên</button>'+
+        (scope.custom?'<button class="danger" type="button" data-manager-delete="'+esc(scope.key)+'">Xóa</button>':'')+
+      '</div>'+
+    '</div>';
+  }).join("")||'<div class="empty">Không có nguồn phù hợp.</div>';
+}
+
+function openSourceManager(){
+  if(!el.sourceManagerModal)return;
+  el.sourceManagerModal.hidden=false;
+  if(el.sourceManagerSearch)el.sourceManagerSearch.value="";
+  renderSourceManagerList();
+  requestAnimationFrame(()=>el.sourceManagerSearch?.focus());
+}
+
+function closeSourceManager(){
+  if(el.sourceManagerModal)el.sourceManagerModal.hidden=true;
+}
+
+async function createSource(){
+  const label=clean(prompt("Tên nguồn mới","")||"");
+  if(!label)return null;
+
+  const result=await stateFetch("POST",{op:"create_hashtag",label});
+  state.remote.hashtags=result.hashtags||state.remote.hashtags;
+  state.scopes=scopeList(state.remote);
+
+  const latest=[...state.scopes].reverse().find(s=>s.custom&&s.label===label);
+  if(latest)state.scope=latest.key;
+
+  renderScopes();
+  renderColumns();
+  renderSourceManagerList(el.sourceManagerSearch?.value||"");
+  if(state.detail)renderPreview();
+  return latest||null;
+}
+
 function openSourceEditor(scope){
   const row=state.scopes.find(x=>x.key===scope);
   if(!row)return;
@@ -569,7 +633,7 @@ function openSourceEditor(scope){
   el.sourceEditPopover.hidden=false;
 }
 
-async function renameScope(scope){
+async async function renameScope(scope){
   const row=state.scopes.find(x=>x.key===scope);
   if(!row)return;
 
@@ -593,6 +657,7 @@ async function renameScope(scope){
 
   state.scopes=scopeList(state.remote);
   renderScopes();
+  renderSourceManagerList(el.sourceManagerSearch?.value||"");
   if(state.detail)renderPreview();
 }
 
@@ -616,6 +681,7 @@ async function deleteScope(scope){
 
   renderScopes();
   renderColumns();
+  renderSourceManagerList(el.sourceManagerSearch?.value||"");
   if(state.detail)renderPreview();
 }
 
@@ -791,20 +857,44 @@ el.videoGrid.addEventListener("click",event=>{
 
 
 
-el.addSource.addEventListener("click",async()=>{
-  const label=clean(prompt("Tên nguồn mới","")||"");
-  if(!label)return;
+el.addSource.addEventListener("click",()=>{
+  void createSource();
+});
 
-  const result=await stateFetch("POST",{op:"create_hashtag",label});
-  state.remote.hashtags=result.hashtags||state.remote.hashtags;
-  state.scopes=scopeList(state.remote);
+el.manageSources?.addEventListener("click",openSourceManager);
+el.sourceManagerClose?.addEventListener("click",closeSourceManager);
+el.sourceManagerAdd?.addEventListener("click",()=>{ void createSource(); });
+el.sourceManagerSearch?.addEventListener("input",()=>{
+  renderSourceManagerList(el.sourceManagerSearch.value);
+});
+el.sourceManagerModal?.addEventListener("click",event=>{
+  if(event.target===el.sourceManagerModal)closeSourceManager();
+});
+el.sourceManagerList?.addEventListener("click",async event=>{
+  const open=event.target.closest("[data-manager-open]");
+  if(open){
+    state.scope=open.dataset.managerOpen;
+    history.replaceState(null,"","?scope="+encodeURIComponent(state.scope));
+    closeSourceManager();
+    renderScopes();
+    renderColumns();
+    renderSearch();
+    if(state.detail)renderPreview();
+    return;
+  }
 
-  const latest=state.scopes.find(s=>s.custom&&s.label===label);
-  if(latest)state.scope=latest.key;
+  const rename=event.target.closest("[data-manager-rename]");
+  if(rename){
+    await renameScope(rename.dataset.managerRename);
+    renderSourceManagerList(el.sourceManagerSearch?.value||"");
+    return;
+  }
 
-  renderScopes();
-  renderColumns();
-  if(state.detail)renderPreview();
+  const del=event.target.closest("[data-manager-delete]");
+  if(del){
+    await deleteScope(del.dataset.managerDelete);
+    renderSourceManagerList(el.sourceManagerSearch?.value||"");
+  }
 });
 
 el.sourceRename.addEventListener("click",async()=>{
