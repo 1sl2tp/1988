@@ -444,6 +444,7 @@ const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_GROUP_LABELS_KEY="1988-source-group-labels-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const HASHTAG_DEFINITIONS_CACHE_KEY="1988-hashtag-definitions-cache-v1";
+const HASHTAG_CONFIG_CACHE_KEY="1988-hashtag-config-cache-v2";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
@@ -539,9 +540,24 @@ const SYSTEM_SOURCE_SCOPE_DEFINITIONS=[
   }
 ];
 
-let hashtagDefinitions=normalizeHashtagDefinitions(
-  readStoredArray(HASHTAG_DEFINITIONS_CACHE_KEY)
-);
+function readStableHashtagConfig(){
+  try{
+    const row=JSON.parse(localStorage.getItem(HASHTAG_CONFIG_CACHE_KEY)||"null");
+    if(row&&typeof row==="object"){
+      return {
+        rows:Array.isArray(row.rows)?row.rows:[],
+        order:Array.isArray(row.order)?row.order.map(String).filter(Boolean):[]
+      };
+    }
+  }catch{}
+  return {
+    rows:readStoredArray(HASHTAG_DEFINITIONS_CACHE_KEY),
+    order:[]
+  };
+}
+
+const stableHashtagConfig=readStableHashtagConfig();
+let hashtagDefinitions=normalizeHashtagDefinitions(stableHashtagConfig.rows);
 let SOURCE_SCOPE_DEFINITIONS=[];
 let SOURCE_SCOPE_BY_KEY=new Map();
 let SOURCE_MANAGER_GROUPS=[];
@@ -550,7 +566,7 @@ let CONTENT_SOURCE_SCOPES=new Set();
 let FEED_SOURCE_SCOPES=new Set();
 let MANAGED_SOURCE_SCOPES=new Set();
 let SERVER_SUGGESTION_SCOPES=new Set();
-let sourceScopeDisplayOrder=[];
+let sourceScopeDisplayOrder=stableHashtagConfig.order.slice();
 
 function parseSourceScopeDisplayOrder(labels={}){
   try{
@@ -561,6 +577,32 @@ function parseSourceScopeDisplayOrder(labels={}){
     return [];
   }
 }
+
+function hashtagConfigSignature(rows=hashtagDefinitions,order=sourceScopeDisplayOrder){
+  const normalized=normalizeHashtagDefinitions(rows);
+  const ordered=Array.isArray(order)?order.map(String).filter(Boolean):[];
+  return JSON.stringify({
+    rows:normalized.map(row=>({
+      id:row.id,
+      label:row.label,
+      position:row.position,
+      enabled:row.enabled
+    })),
+    order:ordered
+  });
+}
+
+function persistStableHashtagConfig(){
+  try{
+    const payload={
+      rows:hashtagDefinitions,
+      order:sourceScopeDisplayOrder
+    };
+    localStorage.setItem(HASHTAG_CONFIG_CACHE_KEY,JSON.stringify(payload));
+    localStorage.setItem(HASHTAG_DEFINITIONS_CACHE_KEY,JSON.stringify(hashtagDefinitions));
+  }catch{}
+}
+
 
 function orderSourceDefinitions(rows=[]){
   const systemKeys=new Set(
@@ -774,22 +816,14 @@ function syncDynamicScopeMaps(){
   }
 }
 
-function setHashtagDefinitions(rows=[]){
-  const before=JSON.stringify(hashtagDefinitions);
+function setHashtagDefinitions(rows=[],{order=sourceScopeDisplayOrder,persist=true}={}){
+  sourceScopeDisplayOrder=Array.isArray(order)
+    ?order.map(String).filter(Boolean)
+    :[];
   rebuildSourceScopeRegistry(rows);
   syncDynamicScopeMaps();
   state.parentCategories=sourceCategoryRows();
-
-  const after=JSON.stringify(hashtagDefinitions);
-  if(after!==before){
-    try{
-      localStorage.setItem(
-        HASHTAG_DEFINITIONS_CACHE_KEY,
-        JSON.stringify(hashtagDefinitions)
-      );
-    }catch{}
-  }
-
+  if(persist)persistStableHashtagConfig();
   return hashtagDefinitions;
 }
 
@@ -1264,8 +1298,23 @@ function applyServerState(remote={}){
       remote.sourceLabels&&typeof remote.sourceLabels==="object"&&!Array.isArray(remote.sourceLabels)
         ?remote.sourceLabels
         :{};
-    sourceScopeDisplayOrder=parseSourceScopeDisplayOrder(remoteSourceLabels);
-    setHashtagDefinitions(Array.isArray(remote.hashtags)?remote.hashtags:[]);
+    const remoteHashtagRows=Array.isArray(remote.hashtags)?remote.hashtags:[];
+    const remoteHashtagOrder=parseSourceScopeDisplayOrder(remoteSourceLabels);
+    const currentHashtagSignature=hashtagConfigSignature();
+    const remoteHashtagSignature=hashtagConfigSignature(
+      remoteHashtagRows,
+      remoteHashtagOrder
+    );
+    const hashtagConfigChanged=
+      !hashtagDefinitions.length ||
+      remoteHashtagSignature!==currentHashtagSignature;
+
+    if(hashtagConfigChanged){
+      setHashtagDefinitions(
+        remoteHashtagRows,
+        {order:remoteHashtagOrder,persist:true}
+      );
+    }
 
     if(Array.isArray(remote.selected)){
       selectedSourceIds=new Set(cleanSourceIdList(remote.selected));
@@ -1374,7 +1423,7 @@ function applyServerState(remote={}){
     }
 
     saveServerMetadataCachesLocally();
-    applySourceGroupLabelsUi?.();
+    applySourceGroupLabelsUi?.({renderCategories:hashtagConfigChanged});
     renderLiveKeywordTools();
     stateSyncDirty=(Number(remote.sourceScopeVersion)||0)<2;
     invalidateSourceStateNameIndex?.();
@@ -14454,9 +14503,9 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
-  // Do not paint cached hashtag tabs before the authoritative server state.
-  // This prevents the visible cache -> server second jump during startup.
-  applySourceGroupLabelsUi({renderCategories:false});
+  // Hashtag tabs are fixed UI configuration. Paint the stable local config
+  // immediately; normal server hydration must not tear it down/rebuild it.
+  applySourceGroupLabelsUi({renderCategories:true});
   applyFloatingIframe(false);
   setupWatchMinimizeGesture();
   setupWatchBrowseLayout();
@@ -14482,10 +14531,7 @@ async function bootstrap1988(){
     requestSettingsAccess(openDedicatedManager);
 
     void sourceStatePromise.then(async ok=>{
-      if(!ok){
-        applySourceGroupLabelsUi();
-        return;
-      }
+      if(!ok)return;
       if(sourcesSheet&&!sourcesSheet.hidden){
         sourceManageGroup=MANAGED_SOURCE_SCOPES.has(sourceScope(SOURCE_MANAGER_SCOPE_PARAM))
           ?sourceScope(SOURCE_MANAGER_SCOPE_PARAM)
@@ -14508,8 +14554,6 @@ async function bootstrap1988(){
     void sourceStatePromise.then(ok=>{
       if(ok){
         if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
-      }else{
-        applySourceGroupLabelsUi();
       }
     });
     void hydrateServerPackages({force:true});
@@ -14527,10 +14571,7 @@ async function bootstrap1988(){
   await loadInitialFeed();
 
   void sourceStatePromise.then(async ok=>{
-    if(!ok){
-      applySourceGroupLabelsUi();
-      return;
-    }
+    if(!ok)return;
     if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
     await warmManagedAvatarImages(900);
     void prewarmSelectedSourceAvatars();
