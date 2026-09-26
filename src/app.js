@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="331";
+const LOCAL_DATA_SCHEMA_VERSION="332";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
