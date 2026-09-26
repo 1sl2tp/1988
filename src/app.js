@@ -4372,10 +4372,18 @@ function cardActionSourceRow(card){
   const id=String(card.dataset.sourceId||"").trim();
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
 
+  const visibleAvatar=safeSourceThumb(
+    card.querySelector?.(".card-avatar img")?.getAttribute?.("src")||
+    card.querySelector?.(".card-avatar img")?.src||
+    ""
+  );
+  const thumbnailUrl=visibleAvatar||sourceAvatarCached(id)||"";
+  if(thumbnailUrl)rememberSourceAvatar(id,thumbnailUrl);
+
   return {
     id,
     name:clean(card.dataset.channel||"")||id,
-    thumbnailUrl:sourceAvatarCached(id)||"",
+    thumbnailUrl,
     subscribers:""
   };
 }
@@ -4439,6 +4447,23 @@ async function openCardSource(card){
     const local=await localEngine(12000);
     let rows=[];
 
+    // Resolve channel identity/avatar together with the video list. Channel
+    // video rows do not consistently include uploader thumbnails, so the
+    // channel avatar must be canonicalized once and applied to every row.
+    const metaTask=local.channelMeta(source.id)
+      .then(meta=>{
+        if(!meta?.id)return null;
+        const mergedMeta={...sourceMetaCache.get(source.id),...source,...meta};
+        sourceMetaCache.set(source.id,mergedMeta);
+        const image=rememberSourceAvatar(
+          source.id,
+          meta.thumbnailUrl||source.thumbnailUrl||""
+        );
+        if(image)mergedMeta.thumbnailUrl=image;
+        return mergedMeta;
+      })
+      .catch(()=>null);
+
     try{
       rows=await local.channelVideosPage(
         "browse-source:"+source.id,
@@ -4448,6 +4473,11 @@ async function openCardSource(card){
     }catch(error){
       console.warn("open source channel videos failed",source.id,error);
     }
+
+    const channelMeta=await Promise.race([
+      metaTask,
+      new Promise(resolve=>setTimeout(()=>resolve(null),1800))
+    ]);
 
     if(seq!==cardSourceOpenSeq)return false;
 
@@ -4469,6 +4499,19 @@ async function openCardSource(card){
 
     if(seq!==cardSourceOpenSeq)return false;
 
+    const canonicalMeta=
+      channelMeta||
+      sourceMetaCache.get(source.id)||
+      source;
+    const canonicalName=clean(canonicalMeta?.name||source.name)||source.name;
+    const canonicalAvatar=safeSourceThumb(
+      canonicalMeta?.thumbnailUrl||
+      source.thumbnailUrl||
+      sourceAvatarCached(source.id)||
+      ""
+    );
+    if(canonicalAvatar)rememberSourceAvatar(source.id,canonicalAvatar);
+
     const ordered=newestFirst(
       mergeUniqueRows([],Array.isArray(rows)?rows:[])
         .filter(row=>itemVideoId(row))
@@ -4476,7 +4519,24 @@ async function openCardSource(card){
           const id=searchSourceId(row);
           return !id||id===source.id;
         })
+        .map(row=>({
+          ...row,
+          _sourceId:source.id,
+          channelId:source.id,
+          _sourceName:canonicalName,
+          uploaderName:clean(row?.uploaderName||row?.uploader||row?.channelName||canonicalName),
+          _sourceThumbnailUrl:canonicalAvatar||row?._sourceThumbnailUrl||"",
+          channelThumbnailUrl:canonicalAvatar||row?.channelThumbnailUrl||"",
+          uploaderThumbnailUrl:canonicalAvatar||row?.uploaderThumbnailUrl||""
+        }))
     );
+
+    if(canonicalAvatar){
+      await Promise.race([
+        warmAvatarImage(canonicalAvatar),
+        new Promise(resolve=>setTimeout(resolve,120))
+      ]).catch(()=>{});
+    }
 
     state.feedRows=ordered;
     renderCards(ordered);
