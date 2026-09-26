@@ -368,6 +368,10 @@ function snapshotRowsHash(rows:any[],sourceSig=""){
     clean(row?._displayTitle||row?.title||"",300),
     publishedText(row),
     clean(row?._sourceId||row?.channelId||row?.uploaderId||"",180),
+    clean(row?._sourceName||row?.uploaderName||row?.uploader||"",180),
+    clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
+    clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",1000),
+    String(Math.max(0,Number(row?.views)||0)),
     isLive(row)?"1":"0",
     String(durationSeconds(row)||0)
   ].join("|")).join("\n");
