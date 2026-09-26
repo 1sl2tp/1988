@@ -1404,7 +1404,6 @@ Deno.serve(async(req:Request)=>{
       const scope=scopes[scopeIndex];
       const meta=SCOPE_META[scope]||{profile:"general",label:scope,kind:"content"};
       const selected=selectedByScope.get(scope)||[];
-      const blocked=blockedByScope.get(scope)||new Set<string>();
       const selectedIds=new Set(selected.map((s:any)=>s.id));
       const current=currentByScope.get(scope);
 
@@ -1446,19 +1445,43 @@ Deno.serve(async(req:Request)=>{
       let raw:any[]=[];
 
       for(const source of selected){
-        for(const row of channelRows.get(source.id)||[]){
-          if(blocked.has(source.id))continue;
-          raw.push(row);
-        }
+        for(const row of channelRows.get(source.id)||[])raw.push(row);
       }
 
       if(scope!=="live"){
-        // Known <=60s videos and all Shorts signals are excluded immediately.
-        // Unknown duration stays eligible while the server verifier retries in
-        // the background; an upstream metadata outage must never empty a tab.
-        raw=raw.filter((r:any)=>!isTooShortVideo(r));
+        const relevantRows=raw.filter((r:any)=>{
+          const age=ageMs(r);
+          if(scope==="latest")return Number.isFinite(age)&&age>=0&&age<DAY_MS;
+          if(scope==="week")return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
+          return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+        });
+        const unresolved=relevantRows.filter((r:any)=>
+          !isLive(r)&&
+          !isTooShortVideo(r)&&
+          (!Number(r?._shortCheckedAt)||durationSeconds(r)<=0)
+        );
+        if(unresolved.length){
+          degradedNotes.push(scope+":waiting_non_live_verification="+unresolved.length);
+          await queuePendingRefresh(rest,authHeaders,[scope]);
+          results.push({
+            scope,
+            changed:false,
+            reason:"waiting_non_live_verification",
+            unresolved:unresolved.length,
+            keptItems:Array.isArray(current?.items)?current.items.length:0
+          });
+          continue;
+        }
+
+        raw=raw.filter((r:any)=>
+          !isLive(r)&&
+          !isTooShortVideo(r)&&
+          durationSeconds(r)>60&&
+          !titleLooksEnglishOnly(r)
+        );
+      }else{
+        raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       }
-      raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
 
       if(scope==="live"){
@@ -1500,7 +1523,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v13")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
