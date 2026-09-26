@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=15">
+  <link rel="stylesheet" href="./sources.css?v=16">
 </head>
 <body>
   <main>
@@ -55,7 +55,10 @@
 
       <div class="column search-column" data-column="search">
         <div class="column-head search-head">
-          <div><strong>Tìm / xem</strong><span id="searchCount"></span></div>
+          <div class="search-head-title">
+            <button id="searchBack" class="search-back" type="button" aria-label="Quay lại" hidden>←</button>
+            <strong>Tìm / xem</strong><span id="searchCount"></span>
+          </div>
           <div class="search-mode">
             <button class="search-mode-btn active" data-search-mode="channel">Kênh</button>
             <button class="search-mode-btn" data-search-mode="video">Video</button>
@@ -177,6 +180,6 @@
   </div>
 
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=13"></script>
+  <script src="./sources.js?v=14"></script>
 </body>
 </html>
