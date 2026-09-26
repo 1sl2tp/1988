@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v27";
+const LIVE_PIPELINE_VERSION="live-v28";
 const NON_LIVE_PIPELINE_VERSION="non-live-v6";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -220,7 +220,10 @@ function liveKeywordBlocked(row:any,keywords:string[]){
 }
 
 function strongFreshLiveSignal(row:any){
-  return Number(row?.duration)<0&&Number(row?.uploaded)===-1;
+  // YouTube search providers are not consistent: some mark a current LIVE via
+  // isLive=true, some via duration=-1, and others via uploaded=-1. Requiring
+  // both numeric sentinels discarded many genuine streams.
+  return isLive(row);
 }
 function relativeAgeMs(value:any){
   const raw=normalizeText(value);
@@ -1944,7 +1947,8 @@ Deno.serve(async(req:Request)=>{
         raw=verifiedLiveRowsCache
           .filter((row:any)=>{
             const sid=channelId(row);
-            return !sid||!allBlockedLiveSourceIds.has(sid);
+            return (!sid||!allBlockedLiveSourceIds.has(sid))&&
+              !titleLooksEnglishOnly(row);
           })
           .sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
