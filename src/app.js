@@ -7854,6 +7854,7 @@ function setupWatchMinimizeGesture(){
   };
 
   window.addEventListener("scroll",minimizeOnScroll,{passive:true});
+  document.body?.addEventListener("scroll",minimizeOnScroll,{passive:true});
   feedSection?.addEventListener("scroll",minimizeOnScroll,{passive:true});
 
   let restoreRaf=0;
@@ -7880,6 +7881,7 @@ function setupWatchMinimizeGesture(){
   };
 
   window.addEventListener("scroll",restoreInlineOnReturn,{passive:true});
+  document.body?.addEventListener("scroll",restoreInlineOnReturn,{passive:true});
   document.addEventListener("scroll",event=>{
     if(event.target===document||event.target===document.scrollingElement){
       restoreInlineOnReturn();
