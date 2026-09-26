@@ -5021,3 +5021,71 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
       auto!important;
   }
 }
+
+
+/* One-column Watch slot/PiP v413.
+   Mobile and 721-959px narrow desktop use the same scroll rule: the normal
+   16:9 media slot scrolls with the list; once that slot is fully above the
+   visible top edge, the SAME iframe floats. >=960px desktop keeps its side
+   player and never enters this automatic PiP path. */
+@media(min-width:721px) and (max-width:959px){
+  html.watch-minimized .player-section.watch-media-slot{
+    position:relative!important;
+    width:100%!important;
+    height:var(--watch-inline-slot-h,56.25vw)!important;
+    min-height:var(--watch-inline-slot-h,56.25vw)!important;
+    max-height:var(--watch-inline-slot-h,56.25vw)!important;
+    margin-top:0!important;
+    margin-bottom:22px!important;
+    padding:0!important;
+    overflow:hidden!important;
+    background:#09090a!important;
+  }
+
+  html.watch-minimized .player-section.watch-media-slot::before{
+    content:"";
+    position:absolute;
+    z-index:0;
+    inset:0;
+    display:block;
+    background-image:
+      linear-gradient(rgba(8,8,10,.16),rgba(8,8,10,.16)),
+      var(--watch-inline-slot-art,none);
+    background-position:center;
+    background-size:cover;
+    background-repeat:no-repeat;
+    pointer-events:none;
+  }
+
+  html.watch-minimized .player-section.watch-media-slot .player-card{
+    position:relative!important;
+    z-index:1!important;
+    width:100%!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    background:transparent!important;
+  }
+
+  html.watch-minimized .player-section.watch-media-slot .now,
+  html.watch-minimized .player-section.watch-media-slot .series-panel,
+  html.watch-minimized .player-section.watch-media-slot .context-brief{
+    display:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    bottom:auto!important;
+  }
+}
+
+/* The compact PiP itself is always a bounded box; source portrait/square
+   geometry may change its aspect, but never the height of the inline slot. */
+@media(max-width:959px){
+  html.watch-minimized .player-frame.floating-iframe{
+    max-width:calc(100vw - 20px)!important;
+    max-height:42vh!important;
+  }
+}
