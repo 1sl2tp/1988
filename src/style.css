@@ -4079,3 +4079,17 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
 .section-head{
   transition:none!important;
 }
+
+
+/* First-paint topic geometry v387.
+   Live already has a fixed square. Reserve one stable width for the two
+   system text tabs so cached/server labels and active state cannot squeeze
+   the rail on startup. */
+.topic-chip[data-feed="latest"]{
+  min-width:72px!important;
+  text-align:center;
+}
+.topic-chip[data-feed="week"]{
+  min-width:72px!important;
+  text-align:center;
+}
