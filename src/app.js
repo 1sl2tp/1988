@@ -13420,7 +13420,9 @@ topicChips.addEventListener("click",async e=>{
 });
 
 async function bootstrap1988(){
-  const sourceStateLoaded=await hydrateServerState();
+  // Package viewing is independent from source-management availability.
+  // Source state refreshes in parallel and never blocks or clears the feed.
+  const sourceStatePromise=hydrateServerState().catch(()=>false);
 
   setupMediaSession();
   setupInstall();
@@ -13433,29 +13435,10 @@ async function bootstrap1988(){
   updateModeUi();
   renderParentCategories();
 
-  if(!sourceStateLoaded){
-    if(sourcesBtn){
-      sourcesBtn.disabled=true;
-      sourcesBtn.title="Chưa tải được dữ liệu nguồn từ máy chủ";
-    }
-    setActiveChip("latest");
-    feedTitle.textContent="Mới nhất";
-    feedStatus.textContent="";
-    feed.innerHTML='<div class="error">Không tải được dữ liệu nguồn từ máy chủ. Hãy thử tải lại trang.</div>';
-    return;
-  }
-
   if(sourcesBtn){
     sourcesBtn.disabled=false;
     sourcesBtn.removeAttribute("title");
   }
-
-  // New browsers first hydrate the shared package manifest. This lets them use
-  // ready-made tab packages instead of rebuilding all 11 tabs locally.
-  await hydrateServerPackages({force:true});
-
-  await warmManagedAvatarImages(900);
-  void prewarmSelectedSourceAvatars();
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
   if(initialVideoId){
@@ -13463,6 +13446,13 @@ async function bootstrap1988(){
       title:"Đang tải thông tin…",
       thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
     });
+    void sourceStatePromise.then(ok=>{
+      if(ok){
+        applySourceGroupLabelsUi();
+        renderParentCategories();
+      }
+    });
+    void hydrateServerPackages({force:true});
     return;
   }
 
@@ -13472,7 +13462,17 @@ async function bootstrap1988(){
       resetHomeViewportInstant();
     }
   },{passive:true});
+
+  // Local reserve paints immediately. Network work runs after paint.
   await loadInitialFeed();
+
+  void sourceStatePromise.then(async ok=>{
+    if(!ok)return;
+    applySourceGroupLabelsUi();
+    renderParentCategories();
+    await warmManagedAvatarImages(900);
+    void prewarmSelectedSourceAvatars();
+  });
 }
 
 void bootstrap1988();
