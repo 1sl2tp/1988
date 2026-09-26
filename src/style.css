@@ -4295,6 +4295,14 @@ body::-webkit-scrollbar-corner,
     scrollbar-gutter:stable;
   }
 
+  /* Home scrolls on the document, not inside .feed-section. The 10px page
+     scrollbar therefore sits outside this element's own scrollbar-gutter.
+     Reserve that width on the right so the -9px hover halo never runs under
+     the page scrollbar and looks clipped. Watch keeps its own stable gutter. */
+  html:not(.watch-browse) .feed-section{
+    padding-right:22px!important;
+  }
+
   .feed>.card{
     position:relative;
     isolation:isolate;
