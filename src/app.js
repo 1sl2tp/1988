@@ -4553,8 +4553,11 @@ function ensureCardActionMenu(){
 function closeCardActionMenu(){
   const menu=document.getElementById("cardActionMenu");
   if(menu){
+    menu.style.visibility="hidden";
+    menu.style.pointerEvents="none";
     menu.hidden=true;
-    menu.innerHTML="";
+    // Keep the last subtree allocated. Rebuilding and immediately destroying
+    // the menu on every tap causes avoidable style/layout work on Safari.
   }
   activeCardActionButton?.setAttribute("aria-expanded","false");
   activeCardActionCard=null;
@@ -4633,6 +4636,8 @@ function showCardActionScopePicker(action){
       '</button>';
   }).join("");
 
+  menu.style.visibility="hidden";
+  menu.style.pointerEvents="none";
   menu.innerHTML=
     '<div class="card-action-picker-head">'+
       '<button type="button" class="card-action-back" data-card-action-back aria-label="Quay lại">‹</button>'+
@@ -4953,6 +4958,9 @@ function positionCardActionMenu(button,menu){
   const rightEdge=leftEdge+width-8;
   const bottomEdge=topEdge+height-8;
 
+  // Never expose the menu while content width/height is being measured.
+  menu.style.visibility="hidden";
+  menu.style.pointerEvents="none";
   menu.style.left="-9999px";
   menu.style.top="-9999px";
   menu.hidden=false;
@@ -4961,12 +4969,14 @@ function positionCardActionMenu(button,menu){
   const menuWidth=Math.max(180,menuRect.width||0);
   const menuHeight=Math.max(44,menuRect.height||0);
 
-  let left=Math.min(rightEdge-menuWidth,Math.max(leftEdge,rect.right-menuWidth));
+  const left=Math.min(rightEdge-menuWidth,Math.max(leftEdge,rect.right-menuWidth));
   let top=rect.bottom+6;
   if(top+menuHeight>bottomEdge)top=Math.max(topEdge,rect.top-menuHeight-6);
 
   menu.style.left=Math.round(left)+"px";
   menu.style.top=Math.round(top)+"px";
+  menu.style.visibility="visible";
+  menu.style.pointerEvents="auto";
 }
 
 function openCardActionMenu(card,button){
@@ -11022,11 +11032,62 @@ function swapVisualImageWhenReady(img,url=""){
   if(probe.complete&&probe.naturalWidth)void commit();
 }
 
+function syncStableCardBadge(currentWrap,nextWrap){
+  if(!currentWrap||!nextWrap)return;
+
+  const current=currentWrap.querySelector(".duration,.live-badge");
+  const next=nextWrap.querySelector(".duration,.live-badge");
+
+  if(!current&&!next)return;
+  if(current&&next&&current.className===next.className){
+    if(current.textContent!==next.textContent){
+      current.textContent=next.textContent||"";
+    }
+    return;
+  }
+  if(!current&&next){
+    currentWrap.appendChild(next.cloneNode(true));
+    return;
+  }
+  if(current&&!next){
+    current.remove();
+    return;
+  }
+  current.replaceWith(next.cloneNode(true));
+}
+
+function syncStableCardMeta(card,nextCard){
+  const current=card?.querySelector(".card-meta-line");
+  const next=nextCard?.querySelector(".card-meta-line");
+  if(!current||!next)return;
+
+  const syncPart=(selector,{html=false}={})=>{
+    const a=current.querySelector(selector);
+    const b=next.querySelector(selector);
+    if(a&&b){
+      if(html){
+        if(a.innerHTML!==b.innerHTML)a.innerHTML=b.innerHTML;
+      }else if(a.textContent!==b.textContent){
+        a.textContent=b.textContent||"";
+      }
+      return;
+    }
+    if(!a&&b)current.appendChild(b.cloneNode(true));
+    else if(a&&!b)a.remove();
+  };
+
+  // Channel may contain the small "+N nguồn khác" span, so update only this
+  // sub-slot instead of rebuilding the whole metadata row.
+  syncPart(".card-channel",{html:true});
+  syncPart(".card-meta-sep");
+  syncPart(".card-stats");
+}
+
 function syncStableCardNode(card,nextCard){
   if(!card||!nextCard)return card;
 
   // Keep the existing card DOM and decoded/composited images alive. Replacing
-  // an entire card during a 30s package refresh makes Safari flash thumbnails,
+  // an entire card during a package refresh makes Safari flash thumbnails,
   // avatars and badges even when the video id is unchanged.
   for(const attr of [...nextCard.attributes]){
     if(card.getAttribute(attr.name)!==attr.value)card.setAttribute(attr.name,attr.value);
@@ -11038,27 +11099,31 @@ function syncStableCardNode(card,nextCard){
     currentTitle.textContent=nextTitle.textContent||"";
   }
 
-  const nextMeta=nextCard.querySelector(".card-meta-line");
-  const currentMeta=card.querySelector(".card-meta-line");
-  if(nextMeta&&currentMeta&&currentMeta.innerHTML!==nextMeta.innerHTML){
-    currentMeta.innerHTML=nextMeta.innerHTML;
-  }
+  syncStableCardMeta(card,nextCard);
 
   const currentThumbWrap=card.querySelector(".thumb-wrap");
   const nextThumbWrap=nextCard.querySelector(".thumb-wrap");
   const currentThumb=currentThumbWrap?.querySelector("img");
   const nextThumb=nextThumbWrap?.querySelector("img");
   if(currentThumb&&nextThumb){
+    const currentSrc=currentThumb.getAttribute("src")||"";
     const nextSrc=nextThumb.getAttribute("src")||"";
-    if(nextSrc)swapVisualImageWhenReady(currentThumb,nextSrc);
+
+    // The data/media layer already canonicalizes YouTube art to 16:9. Once a
+    // video's decoded image is on screen, freeze that visual for this DOM
+    // lifetime. A metadata refresh may discover a larger URL, but swapping src
+    // in-place makes Safari re-composite the thumbnail and visibly blink.
+    const currentBroken=
+      currentThumb.complete &&
+      currentThumb.naturalWidth===0;
+    if(!currentSrc&&nextSrc)currentThumb.src=nextSrc;
+    else if(currentBroken&&nextSrc&&nextSrc!==currentSrc){
+      swapVisualImageWhenReady(currentThumb,nextSrc);
+    }
     currentThumb.loading=nextThumb.loading||currentThumb.loading;
   }
-  if(currentThumbWrap&&nextThumbWrap){
-    currentThumbWrap.querySelectorAll(".duration,.live-badge").forEach(node=>node.remove());
-    nextThumbWrap.querySelectorAll(".duration,.live-badge").forEach(node=>{
-      currentThumbWrap.appendChild(node.cloneNode(true));
-    });
-  }
+
+  syncStableCardBadge(currentThumbWrap,nextThumbWrap);
 
   const currentAvatar=card.querySelector(".card-avatar");
   const nextAvatar=nextCard.querySelector(".card-avatar");
@@ -11091,14 +11156,45 @@ function syncStableCardNode(card,nextCard){
   return card;
 }
 
-function reconcileStableCards(items=[]){
+function reconcileStableCards(items=[],{preserveExistingOrder=false}={}){
+  const existingCards=[...feed.querySelectorAll(":scope > .card[data-video-id]")];
   const existing=new Map(
-    [...feed.querySelectorAll(":scope > .card[data-video-id]")]
+    existingCards
       .map(card=>[card.dataset.videoId,card])
       .filter(([id])=>!!id)
   );
-  const wanted=new Set();
+  const incoming=new Map(items.map(item=>[item.id,item]));
   const template=document.createElement("template");
+
+  if(preserveExistingOrder&&existingCards.length){
+    // Background refreshes are data updates, not navigation. Keep every
+    // currently visible card at the exact same DOM position. Update matching
+    // content in place and append genuinely new videos at the end; stale rows
+    // disappear naturally on the next explicit tab/navigation paint.
+    for(const card of existingCards){
+      const item=incoming.get(card.dataset.videoId||"");
+      if(!item)continue;
+      template.innerHTML=item.html.trim();
+      const fresh=template.content.firstElementChild;
+      if(fresh)syncStableCardNode(card,fresh);
+      incoming.delete(item.id);
+    }
+
+    for(const item of items){
+      if(!incoming.has(item.id))continue;
+      template.innerHTML=item.html.trim();
+      const fresh=template.content.firstElementChild;
+      if(fresh)feed.appendChild(fresh);
+      incoming.delete(item.id);
+    }
+
+    for(const child of [...feed.children]){
+      if(!child.matches?.(".card[data-video-id]"))child.remove();
+    }
+    return;
+  }
+
+  const wanted=new Set();
   let anchor=feed.firstElementChild;
 
   for(const item of items){
@@ -11206,7 +11302,7 @@ function renderCards(rows=[],options={}){
     // Keyed reconciliation keeps existing card/image nodes alive. Package
     // refreshes may update metadata/order, but no longer blank and recreate
     // thumbnails/avatars on mobile Safari.
-    reconcileStableCards(cards);
+    reconcileStableCards(cards,{preserveExistingOrder:refreshExisting});
   }else if(trustedPackage){
     feed.replaceChildren();
   }else{

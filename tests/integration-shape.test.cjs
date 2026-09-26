@@ -131,6 +131,10 @@ assert.match(refresh,/verificationCandidates\.slice\(0,NON_LIVE_VERIFY_BATCH\),8
 assert.match(refresh,/_durationCheckedAt/);
 assert.match(refresh,/_shortCheckedAt/);
 assert.match(app,/String\(durationSeconds\(row\)\|\|0\)/);
+assert.match(app,/function syncStableCardBadge\(/);
+assert.match(app,/preserveExistingOrder:refreshExisting/);
+assert.doesNotMatch(app,/currentThumbWrap\.querySelectorAll\("\\.duration,\\.live-badge"\)\.forEach\(node=>node\.remove\(\)\)/);
+assert.match(app,/menu\.style\.visibility="hidden"[\s\S]{0,500}menu\.style\.visibility="visible"/);
 assert.match(refresh,/String\(durationSeconds\(row\)\|\|0\)/);
 assert.match(refresh,/function titleLooksEnglishOnly\(row:any\)/);
 assert.doesNotMatch(refresh,/non_live_verification_pending/);

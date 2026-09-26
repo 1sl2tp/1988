@@ -4147,3 +4147,29 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
 #lockBtn{
   display:none!important;
 }
+
+
+/* Visual DOM stability v395.
+   Time badges and menus keep fixed composited boxes; no transitions are used
+   to disguise layout changes. */
+.duration,
+.live-badge{
+  font-variant-numeric:tabular-nums;
+  contain:layout paint;
+  transform:translateZ(0);
+  backface-visibility:hidden;
+  transition:none!important;
+  animation:none!important;
+}
+.card-action-menu{
+  contain:layout paint;
+  transform:translateZ(0);
+  backface-visibility:hidden;
+  transition:none!important;
+  animation:none!important;
+}
+.card-action-item,
+.card-action-scope,
+.card-more-btn{
+  transition:none!important;
+}
