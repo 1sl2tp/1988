@@ -107,6 +107,36 @@ function isTooShortVideo(row:any){
   const duration=Number(row?.duration);
   return Number.isFinite(duration)&&duration>0&&duration<=60;
 }
+
+const VI_TITLE_WORDS=new Set(
+  "va voi cua cho trong tren duoi tai tu den nay hom ngay moi nhat khong co la mot nhung nguoi viet nam tin tuc nhac phim hai the thao cong nghe kinh te giai tri truc tiep du bao thoi tiet sau truoc dang da se can gia thi truong xuat khau tong bi bat cong an doi tuyen giai vo dich ban ket chung ca si bai hat lien khuc tuyen chon dem chuyen tinh mua nang mien bac trung ha noi hcm tphcm pin dep may dien thoai xe nha dat hoc sinh giao vien benh vien bo me con tre nuoc dan".split(" ")
+);
+const EN_TITLE_WORDS=new Set(
+  "the and with from this that your you new best how what why when where who whose which for of to in on at after before official news weather forecast today full program woman man market world game match matches highlights could would should really over under into out now top first last released battery design buy buys buying comes come sell sells touring showroom roundup shocking due decline laziness goes goal goals replace candidates breaking morning night year years old young found fire killed dead injured reason using used use many sunny days storm rain president general military aid review music song video live versus vs is are was were be been being has have had do does did can will may might more most less only just all any every about around through during without within between against among than then them they their there here our we us it its he she his her him city country people police court company team player players coach final semi final".split(" ")
+);
+
+function titleLooksEnglishOnly(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",500);
+  if(!raw)return false;
+
+  // Any real Vietnamese diacritic is a strong signal to keep the original title.
+  if(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(raw)){
+    return false;
+  }
+
+  const tokens=normalizeText(raw).split(" ").filter((token)=>token.length>1);
+  if(tokens.length<3)return false;
+
+  let vi=0,en=0;
+  for(const token of tokens){
+    if(VI_TITLE_WORDS.has(token))vi++;
+    if(EN_TITLE_WORDS.has(token))en++;
+  }
+  if(vi>=2)return false;
+  if(en>=3&&en>=vi+2)return true;
+  if(vi===0&&en>=2&&tokens.length>=5)return true;
+  return false;
+}
 function normalizeLiveText(value:any){
   return normalizeText(value);
 }
@@ -908,15 +938,26 @@ Deno.serve(async(req:Request)=>{
       const fastest=minutes.length?Math.min(...minutes):10;
       return Math.max(60*1000,fastest*60*1000);
     };
+    const channelNeedsTitleRepair=(id:string)=>{
+      const rows=dedupeRows(Array.isArray(cacheById.get(id)?.items)?cacheById.get(id).items:[]);
+      return rows.some((row:any)=>titleLooksEnglishOnly(row));
+    };
     const dueIds=neededIds
       .filter((id)=>{
         const cached=cacheById.get(id);
         const retry=Date.parse(String(cached?.retry_after||""));
         if(Number.isFinite(retry)&&retry>now)return false;
         const checked=checkedTime(id);
-        return !checked||now-checked>=channelRecheckMs(id)||!channelRows.get(id)?.length;
+        return channelNeedsTitleRepair(id)||
+          !checked||
+          now-checked>=channelRecheckMs(id)||
+          !channelRows.get(id)?.length;
       })
-      .sort((a,b)=>checkedTime(a)-checkedTime(b))
+      .sort((a,b)=>{
+        const repairDiff=Number(channelNeedsTitleRepair(b))-Number(channelNeedsTitleRepair(a));
+        if(repairDiff)return repairDiff;
+        return checkedTime(a)-checkedTime(b);
+      })
       .slice(0,MAX_CHANNEL_FETCHES_PER_RUN);
 
     // Bound both request count and concurrency. Large tabs are refreshed in
@@ -1064,6 +1105,7 @@ Deno.serve(async(req:Request)=>{
       if(scope!=="live"){
         raw=raw.filter((r:any)=>!isTooShortVideo(r));
       }
+      raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
 
       if(scope==="live"){
         // LIVE is built only from candidates that were freshly verified above.
@@ -1106,7 +1148,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v5")+":"+meta.profile;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v6")+":"+meta.profile;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
