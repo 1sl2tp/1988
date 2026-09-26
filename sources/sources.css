@@ -381,3 +381,356 @@ main{padding-bottom:40px}.source-manager-head{position:sticky;top:58px;z-index:2
   }
   .search-column{min-width:360px}
 }
+
+
+/* v7 full-height professional source manager */
+html,body{
+  width:100%;
+  height:100%;
+  min-height:0;
+  overflow:hidden;
+}
+body{
+  display:grid;
+  grid-template-rows:52px minmax(0,1fr);
+}
+.topbar{
+  position:relative;
+  top:auto;
+  height:52px;
+  min-height:52px;
+  padding:0 14px;
+}
+main{
+  min-height:0;
+  height:auto;
+  padding:0;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  overflow:hidden;
+}
+
+/* Compact source selector: no wasted descriptive block above the workspace. */
+.source-manager-head{
+  position:relative;
+  top:auto;
+  z-index:10;
+  min-height:0;
+  background:#131316;
+}
+.source-manager-title{
+  min-height:36px;
+  padding:6px 14px 2px;
+}
+.source-manager-title>div{
+  display:flex;
+  align-items:baseline;
+  gap:8px;
+  min-width:0;
+}
+.source-manager-title strong{
+  font-size:13px;
+}
+.source-manager-title span{
+  margin:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-size:9.5px;
+}
+.source-manager-title .primary{
+  height:29px;
+  padding:0 10px;
+  font-size:10px;
+}
+.scope-row{
+  padding:2px 14px 7px;
+  gap:4px;
+}
+.scope-chip-wrap{
+  gap:2px;
+}
+.scope-chip{
+  height:28px;
+  max-width:126px;
+  padding:0 9px;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  font-size:10px;
+}
+.scope-edit{
+  width:18px;
+  height:24px;
+  font-size:13px;
+  border-radius:5px;
+}
+
+/* One viewport-high dashboard. Columns 1–3 stay intentionally narrow. */
+.workspace{
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+  display:grid;
+  grid-template-columns:185px 195px 205px minmax(0,1fr);
+  gap:7px;
+  padding:7px 10px 9px;
+  align-items:stretch;
+}
+.column{
+  min-height:0;
+  height:100%;
+  overflow:hidden;
+  border-radius:8px;
+}
+.column-head{
+  flex:0 0 34px;
+  min-height:34px;
+  height:34px;
+  padding:0 7px;
+}
+.column-head strong{font-size:10.5px}
+.column-head span{font-size:8.5px}
+
+/* These three lists must consume every remaining pixel and own their scroll. */
+.column[data-column="suggested"] .channel-list,
+.column[data-column="selected"] .channel-list,
+.column[data-column="blocked"] .channel-list{
+  flex:1 1 auto;
+  min-height:0;
+  max-height:none!important;
+  height:auto;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:1px 4px 6px;
+}
+.column[data-column="suggested"] .channel-card,
+.column[data-column="selected"] .channel-card,
+.column[data-column="blocked"] .channel-card{
+  grid-template-columns:25px minmax(0,1fr) auto;
+  min-height:39px;
+  height:39px;
+  padding:3px 1px;
+  gap:4px;
+}
+.column[data-column="suggested"] .channel-avatar,
+.column[data-column="selected"] .channel-avatar,
+.column[data-column="blocked"] .channel-avatar{
+  width:24px;
+  height:24px;
+}
+.column[data-column="suggested"] .channel-copy,
+.column[data-column="selected"] .channel-copy,
+.column[data-column="blocked"] .channel-copy{
+  width:100%;
+  overflow:hidden;
+}
+.column[data-column="suggested"] .channel-copy strong,
+.column[data-column="selected"] .channel-copy strong,
+.column[data-column="blocked"] .channel-copy strong{
+  display:block;
+  width:100%;
+  max-width:100%;
+  font-size:9.7px;
+  font-weight:650;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.column[data-column="suggested"] .channel-copy span,
+.column[data-column="selected"] .channel-copy span,
+.column[data-column="blocked"] .channel-copy span{
+  display:none!important;
+}
+.column[data-column="suggested"] .card-actions,
+.column[data-column="selected"] .card-actions,
+.column[data-column="blocked"] .card-actions{
+  gap:2px;
+}
+.column[data-column="suggested"] .tiny,
+.column[data-column="selected"] .tiny,
+.column[data-column="blocked"] .tiny{
+  height:20px;
+  padding:0 4px;
+  font-size:7.8px;
+  border-radius:4px;
+}
+
+/* Column 4 receives all flexible width and manages its own vertical space. */
+.search-column{
+  min-width:0!important;
+  height:100%;
+}
+.search-column .search-head{
+  flex:0 0 34px;
+  height:34px;
+  min-height:34px;
+}
+.search-mode-btn{
+  height:23px;
+  padding:0 7px;
+  font-size:9px;
+}
+.search-column .search-box{
+  flex:0 0 34px;
+  height:34px;
+  margin:5px 7px 3px;
+}
+.search-column .search-box input{
+  height:32px;
+  font-size:10.5px;
+}
+.search-column .search-box button{
+  width:43px;
+  font-size:10px;
+}
+.search-column .status{
+  flex:0 0 auto;
+  min-height:15px;
+  padding:0 7px 2px;
+}
+
+/* Search results scroll only when no channel is open. */
+.search-column .search-results{
+  flex:1 1 auto;
+  min-height:0;
+  max-height:none!important;
+  overflow-y:auto;
+}
+.search-column.has-preview .search-results,
+.search-column.has-preview .status{
+  display:none!important;
+}
+
+/* Preview starts directly below the one search box and fills the rest. */
+.column-preview{
+  flex:1 1 auto;
+  min-height:0;
+  height:auto;
+  overflow-y:auto;
+  overflow-x:hidden;
+  border-top:1px solid var(--line);
+}
+.column-preview .preview-head{
+  position:relative;
+  top:auto;
+  padding:6px 7px;
+  min-height:42px;
+}
+.column-preview .preview-avatar{
+  width:30px;
+  height:30px;
+}
+.column-preview .preview-identity{
+  gap:6px;
+}
+.column-preview .preview-identity strong{
+  max-width:210px;
+  font-size:10.8px;
+}
+.column-preview .preview-identity span{
+  font-size:8.8px;
+  margin-top:1px;
+}
+.column-preview .preview-actions{
+  gap:3px;
+}
+.column-preview .preview-actions .tiny{
+  height:23px;
+  padding:0 6px;
+  font-size:8px;
+}
+.column-preview .preview-assign{
+  padding:4px 7px 5px;
+}
+.column-preview .preview-assign>span{
+  margin-bottom:3px;
+  font-size:8px;
+}
+.assign-chip{
+  height:23px;
+  padding:0 6px;
+  font-size:8px;
+}
+
+/* Player must not consume the whole fourth column. */
+.inline-player{
+  padding:5px 7px 7px;
+}
+.inline-player-head{
+  min-height:22px;
+  margin-bottom:4px;
+}
+.inline-player-head strong{
+  font-size:9.5px;
+}
+.inline-player-frame{
+  width:min(100%,540px);
+  aspect-ratio:16/9;
+  margin:0 auto;
+  border-radius:7px;
+}
+.column-preview .preview-toolbar{
+  padding:5px 7px 4px;
+}
+.column-preview .preview-toolbar strong{
+  font-size:10px;
+}
+.column-video-grid{
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:5px!important;
+  padding:0 7px 8px!important;
+}
+.column-video-grid .video-copy{
+  padding:5px;
+}
+.column-video-grid .video-copy strong{
+  -webkit-line-clamp:2;
+  font-size:8.9px;
+  line-height:1.25;
+}
+.column-video-grid .video-copy span{
+  margin-top:2px;
+  font-size:8px;
+}
+
+/* Clean, narrow scrollbars instead of stopping halfway visually. */
+.channel-list,
+.column-preview{
+  scrollbar-width:thin;
+  scrollbar-color:#46464d transparent;
+}
+.channel-list::-webkit-scrollbar,
+.column-preview::-webkit-scrollbar{
+  width:6px;
+}
+.channel-list::-webkit-scrollbar-track,
+.column-preview::-webkit-scrollbar-track{
+  background:transparent;
+}
+.channel-list::-webkit-scrollbar-thumb,
+.column-preview::-webkit-scrollbar-thumb{
+  background:#46464d;
+  border-radius:999px;
+}
+
+/* On medium screens keep the compact columns and let only the dashboard move horizontally. */
+@media(max-width:1120px){
+  .workspace{
+    grid-template-columns:180px 190px 200px minmax(390px,1fr);
+    overflow-x:auto;
+    overflow-y:hidden;
+  }
+  .column{
+    min-width:0!important;
+  }
+}
+@media(max-width:820px){
+  .workspace{
+    grid-template-columns:170px 180px 190px 390px;
+  }
+  .source-manager-title span{display:none}
+  .column-video-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  }
+}
