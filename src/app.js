@@ -6110,7 +6110,7 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
 }
 
 function floatEdgeGap(){
-  return window.innerWidth<=640?8:12;
+  return window.innerWidth<=640?12:12;
 }
 
 function floatScaleValue(value=state.floatScale){
@@ -6148,31 +6148,40 @@ function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
 function placeAutoFloatAtEdge(frame,size){
   if(!frame)return;
   const gap=floatEdgeGap();
+  const safe=floatingSafeInsets();
+  const mobile=window.innerWidth<=640;
+  const bottomGap=mobile
+    ?Math.max(18,safe.bottom+14)
+    :gap;
+  const sideGap=mobile?12:gap;
   const dockLeft=state.floatDock==="left";
 
   frame.style.width=size.width+"px";
   frame.style.height=size.height+"px";
   frame.style.aspectRatio="auto";
   frame.style.top="auto";
-  frame.style.bottom=gap+"px";
+  frame.style.bottom=bottomGap+"px";
 
   if(dockLeft){
-    frame.style.left=gap+"px";
+    frame.style.left=sideGap+"px";
     frame.style.right="auto";
   }else{
     frame.style.left="auto";
-    frame.style.right=gap+"px";
+    frame.style.right=sideGap+"px";
   }
 
   const left=dockLeft
-    ?gap
-    :Math.max(gap,window.innerWidth-size.width-gap);
-  const top=Math.max(gap,window.innerHeight-size.height-gap);
+    ?sideGap
+    :Math.max(sideGap,window.innerWidth-size.width-sideGap);
+  const top=Math.max(
+    safe.top+sideGap,
+    window.innerHeight-size.height-bottomGap
+  );
 
   state.floatBox={
     left,
     top,
-    bottom:gap,
+    bottom:bottomGap,
     width:size.width,
     height:size.height
   };
@@ -6188,7 +6197,7 @@ function floatingSafeInsets(){
 
 function placeFloatingAt(frame,{left=0,top=0,width=0,height=0}={}){
   if(!frame)return;
-  const gap=4;
+  const gap=window.innerWidth<=640?10:4;
   const safe=floatingSafeInsets();
   width=Math.max(1,Math.min(Number(width)||frame.clientWidth||1,window.innerWidth-gap*2));
   height=Math.max(1,Math.min(Number(height)||frame.clientHeight||1,window.innerHeight-safe.top-safe.bottom-gap*2));
