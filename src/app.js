@@ -9055,7 +9055,7 @@ async function buildCategorySourceSnapshot(parent,_local=null){
 async function refreshSelectedCategoryInBackground(parent,_local=null,_sources=null,_seq=null){
   if(document.hidden)return;
   await hydrateServerPackages({force:true});
-  applyActiveCategorySnapshot(parent);
+  if(packageScopeChanged(parent?.key))applyActiveCategorySnapshot(parent);
 }
 
 async function loadParentCategoryPackage(parent){
@@ -9065,32 +9065,25 @@ async function loadParentCategoryPackage(parent){
   const seq=state.feedSeq;
 
   try{
-    let reserve=instantCategoryRows(parent);
+    const reserve=instantCategoryRows(parent);
     if(reserve.length&&state.activeParent===parent.key){
       state.categoryRows.set(parent.key,{at:Date.now(),items:reserve});
       state.feedRows=reserve.slice();
       state.feedHasMore=false;
       renderCards(reserve,{trustedPackage:true});
       feedStatus.textContent=reserve.length+" video";
-      void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     }
 
-    await hydrateServerPackages({force:true});
+    // Switching tabs reads the local package immediately. Manifest checks are
+    // TTL-bound; only a genuinely new package is allowed to repaint the UI.
+    await hydrateServerPackages({force:false});
     if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
 
-    reserve=instantCategoryRows(parent);
-    state.categoryTopics.set(parent.key,[]);
-    state.trendTopics=[];
-    renderTrendTopics();
-
-    const storedBefore=readAtomicSnapshot("category:"+parent.key);
-    if(storedBefore&&Array.isArray(storedBefore.items)&&state.activeParent===parent.key){
-      state.categoryRows.set(parent.key,{at:Date.now(),items:reserve});
-      state.feedRows=reserve.slice();
-      state.feedHasMore=false;
-      renderCards(reserve,{trustedPackage:true});
-      feedStatus.textContent=reserve.length?reserve.length+" video":"";
-      if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
+    if(packageScopeChanged(parent.key)){
+      state.categoryTopics.set(parent.key,[]);
+      state.trendTopics=[];
+      renderTrendTopics();
+      applyActiveCategorySnapshot(parent,{force:true});
     }
   }catch(error){
     console.warn("server category package sync deferred",parent?.label||parent?.key,error);
@@ -14235,14 +14228,14 @@ async function buildSourceFeedSnapshot(name,_preset,_local=null){
 
 async function refreshLiveSnapshotInBackground(_local=null){
   await hydrateServerPackages({force:true});
-  applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
+  if(packageScopeChanged(LIVE_SOURCE_SCOPE))applyActiveFeedSnapshot(LIVE_SOURCE_SCOPE);
   return readFeedCache(LIVE_SOURCE_SCOPE);
 }
 
 async function refreshCachedSourceFeedInBackground(name,_preset,_seq,_local=null){
   if(document.hidden)return [];
   await hydrateServerPackages({force:true});
-  applyActiveFeedSnapshot(name);
+  if(packageScopeChanged(name))applyActiveFeedSnapshot(name);
   return freshSnapshotRowsForFeed(name);
 }
 
@@ -14251,10 +14244,12 @@ async function refreshActiveSourceFeedIfDue(){
   await hydrateServerPackages({force:true});
   if(state.activeParent){
     const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===state.activeParent);
-    if(parent)applyActiveCategorySnapshot(parent);
+    if(parent&&packageScopeChanged(parent.key))applyActiveCategorySnapshot(parent);
     return;
   }
-  if(state.activeFeed)applyActiveFeedSnapshot(state.activeFeed);
+  if(state.activeFeed&&packageScopeChanged(state.activeFeed)){
+    applyActiveFeedSnapshot(state.activeFeed);
+  }
 }
 
 let allSourceSnapshotRefreshPromise=null;
@@ -14272,8 +14267,8 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
 
       if(state.activeParent){
         const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===state.activeParent);
-        if(parent)applyActiveCategorySnapshot(parent);
-      }else if(state.activeFeed){
+        if(parent&&packageScopeChanged(parent.key))applyActiveCategorySnapshot(parent);
+      }else if(state.activeFeed&&packageScopeChanged(state.activeFeed)){
         applyActiveFeedSnapshot(state.activeFeed);
       }
 
@@ -14314,17 +14309,20 @@ async function loadFeedPreset(name="latest"){
     state.feedRows=reserve;
     renderCards(reserve,{trustedPackage:true});
     feedStatus.textContent=reserve.length?reserve.length+" video":"";
-    if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     return true;
   };
 
-  // Paint first, check later.
+  // Local package owns the first paint. Do not paint it a second time merely
+  // because a manifest request completed.
   paintReserve();
   state.feedLoading=false;
 
-  await hydrateServerPackages({force:true});
+  await hydrateServerPackages({force:false});
   if(seq!==state.feedSeq||state.activeFeed!==name)return;
-  paintReserve();
+
+  if(packageScopeChanged(name)){
+    applyActiveFeedSnapshot(name,{force:true});
+  }
 
   state.feedLoading=false;
   state.feedHasMore=false;
@@ -14441,13 +14439,9 @@ document.addEventListener("visibilitychange",()=>{
 },{passive:true});
 
 async function loadInitialFeed(){
-  // Paint the local package first. Avatar enrichment is auxiliary and must
-  // never delay the first visible cards, especially on older iPhones.
-  const resultPromise=loadFeedPreset("latest");
-  void prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
-  const result=await resultPromise;
-  setTimeout(()=>void refreshAllSourceSnapshotsInBackground({force:true}),500);
-  return result;
+  // One local snapshot paint + one manifest check. No second 500ms refresh and
+  // no per-card metadata/avatar enrichment after the page becomes visible.
+  return loadFeedPreset("latest");
 }
 
 topicChips.addEventListener("click",async e=>{
@@ -14487,7 +14481,6 @@ topicChips.addEventListener("click",async e=>{
       const visible=instant;
       renderCards(visible,{trustedPackage:true});
       feedStatus.textContent=visible.length?visible.length+" video":"";
-      void prewarmRowSourceAvatars(visible,480);
     }else{
       const stored=readAtomicSnapshot("category:"+parent.key);
       if(stored&&Array.isArray(stored.items)){
@@ -14573,7 +14566,7 @@ async function bootstrap1988(){
         if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
       }
     });
-    void hydrateServerPackages({force:true});
+    void hydrateServerPackages({force:false});
     return;
   }
 
@@ -14591,8 +14584,6 @@ async function bootstrap1988(){
     if(!ok)return;
     if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
     await warmManagedAvatarImages(900);
-    void prewarmSelectedSourceAvatars();
-    void hydrateServerPackages({force:true});
   });
 }
 
