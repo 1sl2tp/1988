@@ -31,6 +31,7 @@ const STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-st
 const PIN="8881";
 const AUTH_KEY="1988-settings-unlocked-v1";
 const UI_EVENT_KEY="1988-source-ui-event-v1";
+const LOCAL_RESET_EVENT_KEY="1988-local-reset-event-v1";
 const SYSTEM_SCOPES=[
   {key:"live",label:"Live"},
   {key:"latest",label:"Ngày"},
@@ -219,6 +220,11 @@ function sourceOrderFromLabels(labels={}){
 
 function scopeList(remote){
   const labels=remote?.sourceLabels||{};
+  const systemRows=SYSTEM_SCOPES.map(x=>({
+    key:x.key,
+    label:clean(labels[x.key]||x.label),
+    custom:false
+  }));
   const hashtags=(remote?.hashtags||[])
     .filter(x=>x?.enabled!==false)
     .map(x=>({
@@ -226,20 +232,12 @@ function scopeList(remote){
       label:x.label||x.id,
       custom:true
     }));
-  const rows=[
-    ...SYSTEM_SCOPES.map(x=>({
-      key:x.key,
-      label:clean(labels[x.key]||x.label),
-      custom:false
-    })),
-    ...hashtags
-  ];
 
   const savedOrder=sourceOrderFromLabels(labels);
-  if(!savedOrder.length)return rows;
+  if(!savedOrder.length)return [...systemRows,...hashtags];
 
   const rank=new Map(savedOrder.map((key,index)=>[key,index]));
-  return rows
+  const orderedHashtags=hashtags
     .map((row,index)=>({row,index}))
     .sort((a,b)=>{
       const ar=rank.has(a.row.key)?rank.get(a.row.key):Number.MAX_SAFE_INTEGER;
@@ -247,6 +245,8 @@ function scopeList(remote){
       return ar-br||a.index-b.index;
     })
     .map(x=>x.row);
+
+  return [...systemRows,...orderedHashtags];
 }
 
 function currentMeta(id){
@@ -886,8 +886,8 @@ function renderSourceManagerList(query=""){
     const selected=scopeSet("selected",scope.key).size;
     const suggested=scopeSet("suggested",scope.key).size;
     const blocked=scopeSet("blocked",scope.key).size;
-    return '<div class="source-manager-row" data-manager-scope="'+esc(scope.key)+'">'+
-      '<button class="source-manager-drag" type="button" data-manager-drag="'+esc(scope.key)+'" aria-label="Kéo để đổi thứ tự"'+(needle?' disabled':'')+'><span aria-hidden="true">⋮⋮</span></button>'+
+    return '<div class="source-manager-row" data-manager-scope="'+esc(scope.key)+'" data-manager-custom="'+(scope.custom?'1':'0')+'">'+
+      '<button class="source-manager-drag" type="button" data-manager-drag="'+esc(scope.key)+'" aria-label="Kéo để đổi thứ tự"'+((needle||!scope.custom)?' disabled':'')+'><span aria-hidden="true">⋮⋮</span></button>'+
       '<button class="source-manager-name" type="button" data-manager-open="'+esc(scope.key)+'">'+
         '<strong title="'+esc(scope.label||scope.key)+'">'+esc(scope.label||scope.key)+'</strong>'+
         '<span>'+(scope.custom?'Nguồn tùy chỉnh':'Nguồn hệ thống')+'</span>'+
@@ -905,17 +905,16 @@ function renderSourceManagerList(query=""){
 
 async function saveSourceOrderFromManager(){
   if(!el.sourceManagerList||!state.remote)return false;
-  const keys=[...el.sourceManagerList.querySelectorAll(".source-manager-row[data-manager-scope]")]
+  const customKeys=[...el.sourceManagerList.querySelectorAll('.source-manager-row[data-manager-custom="1"]')]
     .map(row=>row.dataset.managerScope)
     .filter(Boolean);
-  if(keys.length!==state.scopes.length)return false;
 
-  const byKey=new Map(state.scopes.map(row=>[row.key,row]));
-  state.scopes=keys.map(key=>byKey.get(key)).filter(Boolean);
   state.remote.sourceLabels={...(state.remote.sourceLabels||{})};
-  state.remote.sourceLabels.__source_order=JSON.stringify(keys);
+  state.remote.sourceLabels.__source_order=JSON.stringify(customKeys);
+  state.scopes=scopeList(state.remote);
 
   renderScopes();
+  renderSourceManagerList(el.sourceManagerSearch?.value||"");
   if(state.detail)renderPreview();
   return savePresentationState();
 }
@@ -955,7 +954,12 @@ function bindSourceManagerDrag(){
 
     const hit=document.elementFromPoint(event.clientX,event.clientY);
     const target=hit?.closest?.(".source-manager-row");
-    if(!target||target===drag.row||target.parentElement!==el.sourceManagerList)return;
+    if(
+      !target||
+      target===drag.row||
+      target.parentElement!==el.sourceManagerList||
+      target.dataset.managerCustom!=="1"
+    )return;
 
     const rect=target.getBoundingClientRect();
     const after=event.clientY>rect.top+rect.height/2;
@@ -1063,6 +1067,10 @@ async function deleteScope(scope){
 }
 
 function applyExternalUiEvent(data={}){
+  if(data?.type==="local-reset"){
+    location.reload();
+    return;
+  }
   if(data?.type!=="source-state")return;
   const id=String(data.id||"").trim();
   const scope=String(data.scope||"").trim();
@@ -1342,6 +1350,10 @@ qs("#resetLocal").addEventListener("click",async()=>{
     if(key.startsWith("1988-")&&key!==AUTH_KEY)localStorage.removeItem(key);
   }
 
+  const resetEvent={type:"local-reset",at:Date.now()};
+  try{bc?.postMessage(resetEvent)}catch{}
+  try{localStorage.setItem(LOCAL_RESET_EVENT_KEY,String(resetEvent.at))}catch{}
+
   if("caches"in window){
     for(const key of await caches.keys()){
       if(key.startsWith("1988-"))await caches.delete(key);
@@ -1363,6 +1375,10 @@ bc?.addEventListener?.("message",event=>{
 });
 
 window.addEventListener("storage",event=>{
+  if(event.key===LOCAL_RESET_EVENT_KEY&&event.newValue){
+    location.reload();
+    return;
+  }
   if(event.key!==UI_EVENT_KEY||!event.newValue)return;
   try{applyExternalUiEvent(JSON.parse(event.newValue));}catch{}
 });
