@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="330";
+const LOCAL_DATA_SCHEMA_VERSION="331";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
@@ -817,11 +817,7 @@ function blockedSetForScope(scope=sourceManageGroup){
 }
 
 function liveEffectiveBlockedSet(){
-  const blocked=new Set(blockedSourceIds);
-  for(const scope of MANAGED_SOURCE_SCOPES){
-    for(const id of blockedSetForScope(scope))blocked.add(id);
-  }
-  return blocked;
+  return new Set(blockedSetForScope(LIVE_SOURCE_SCOPE));
 }
 
 function liveEffectiveSelectedSet(){
@@ -2459,10 +2455,7 @@ function matchSourceState(row={},scope=sourceManageGroup){
     return {...liveSourceManagerState(id),canonicalId:id};
   }
 
-  const blocked=blockedSetForScope(scope);
   const selected=selectedSetForScope(scope);
-
-  if(blocked.has(id))return {status:"blocked",canonicalId:id};
   if(selected.has(id))return {status:"selected",canonicalId:id};
   return {status:"normal",canonicalId:id};
 }
@@ -2485,13 +2478,13 @@ function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
 function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=scope===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(scope);
-  const blocked=scope===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(scope);
+  const blocked=scope===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():new Set();
   const totalIds=new Set([
     ...unselectedSourceIdsForScope(scope),
     ...selected,
     ...blocked
   ]);
-  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
+  const selectedCount=selected.size;
   const blockedCount=blocked.size;
   const totalCount=totalIds.size;
 
@@ -2578,19 +2571,25 @@ function sourceRowHtml(row,{remote=false}={}){
       'aria-label="'+(active?'Bỏ chọn nguồn':blocked?'Bỏ chặn và chọn nguồn':'Chọn nguồn')+'" '+
       'aria-pressed="'+(active?'true':'false')+'">'+(blocked?'×':'✓')+'</button>';
 
-  const manageControls=inheritedSelected
-    ?'<div class="source-state-actions">'+
-      '<button class="source-state-btn select active inherited" type="button" disabled>Đã có</button>'+
-      '<button class="source-state-btn block" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
-    '</div>'
-    :inheritedBlocked
+  const manageControls=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?(inheritedSelected
       ?'<div class="source-state-actions">'+
-        '<button class="source-state-btn block active inherited" type="button" disabled>Đã chặn</button>'+
+        '<button class="source-state-btn select active inherited" type="button" disabled>Đã có</button>'+
+        '<button class="source-state-btn block" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
       '</div>'
-      :'<div class="source-state-actions">'+
-        '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
-        '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
-      '</div>';
+      :inheritedBlocked
+        ?'<div class="source-state-actions">'+
+          '<button class="source-state-btn block active inherited" type="button" disabled>Đã chặn</button>'+
+        '</div>'
+        :'<div class="source-state-actions">'+
+          '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
+          '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
+        '</div>')
+    :'<div class="source-state-actions">'+
+      '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">'+
+        (active?'Đã chọn':'Chọn')+
+      '</button>'+
+    '</div>';
 
   return '<div class="source-row'+(active?' active':'')+(blocked?' blocked':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
     '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
@@ -2743,7 +2742,7 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     const selected=group.key===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(group.key);
-    const blocked=group.key===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(group.key);
+    const blocked=group.key===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():new Set();
     const ids=new Set([
       ...unselectedSourceIdsForScope(group.key),
       ...selected,
@@ -2783,7 +2782,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     :selectedSetForScope(sourceManageGroup);
   const managerBlocked=sourceManageGroup===LIVE_SOURCE_SCOPE
     ?liveEffectiveBlockedSet()
-    :blockedSetForScope(sourceManageGroup);
+    :new Set();
   const scopedStateIds=new Set([
     ...managerSelected,
     ...managerBlocked
@@ -2839,10 +2838,12 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
       ...selectedRows.map(row=>sourceRowHtml(row)),
       ...selectedRemote.map(row=>sourceRowHtml(row,{remote:true}))
     ]));
-    parts.push(sourceStatusSection("Đã chặn",[
-      ...blockedRows.map(row=>sourceRowHtml(row)),
-      ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
-    ],{blocked:true}));
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      parts.push(sourceStatusSection("Đã chặn",[
+        ...blockedRows.map(row=>sourceRowHtml(row)),
+        ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
+      ],{blocked:true}));
+    }
 
     if(
       !unselectedHtml.length&&
@@ -4408,12 +4409,11 @@ function applyCardSourceAction(action,scope){
   }
 
   if(action==="not-interested"){
-    setSourceStatus(source.id,"blocked",scope);
-
-    // Remove immediately only when the card is being viewed inside the same
-    // source tab. Search/neutral views stay intact after a scoped preference.
-    if(activeSourceScope()===scope){
-      removeBlockedSourceFromVisibleFeed(card,scope);
+    if(scope===LIVE_SOURCE_SCOPE){
+      setSourceStatus(source.id,"blocked",scope);
+      if(activeSourceScope()===scope)removeBlockedSourceFromVisibleFeed(card,scope);
+    }else{
+      setSourceStatus(source.id,"normal",scope);
     }
     closeCardActionMenu();
     return true;
