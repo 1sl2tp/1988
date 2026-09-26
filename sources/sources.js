@@ -177,6 +177,16 @@ function stateFetch(method="GET",body){
   });
 }
 
+function sourceOrderFromLabels(labels={}){
+  try{
+    const raw=labels.__source_order;
+    const parsed=Array.isArray(raw)?raw:JSON.parse(String(raw||"[]"));
+    return Array.isArray(parsed)?parsed.map(String).filter(Boolean):[];
+  }catch{
+    return [];
+  }
+}
+
 function scopeList(remote){
   const labels=remote?.sourceLabels||{};
   const hashtags=(remote?.hashtags||[])
@@ -186,7 +196,7 @@ function scopeList(remote){
       label:x.label||x.id,
       custom:true
     }));
-  return [
+  const rows=[
     ...SYSTEM_SCOPES.map(x=>({
       key:x.key,
       label:clean(labels[x.key]||x.label),
@@ -194,6 +204,19 @@ function scopeList(remote){
     })),
     ...hashtags
   ];
+
+  const savedOrder=sourceOrderFromLabels(labels);
+  if(!savedOrder.length)return rows;
+
+  const rank=new Map(savedOrder.map((key,index)=>[key,index]));
+  return rows
+    .map((row,index)=>({row,index}))
+    .sort((a,b)=>{
+      const ar=rank.has(a.row.key)?rank.get(a.row.key):Number.MAX_SAFE_INTEGER;
+      const br=rank.has(b.row.key)?rank.get(b.row.key):Number.MAX_SAFE_INTEGER;
+      return ar-br||a.index-b.index;
+    })
+    .map(x=>x.row);
 }
 
 function currentMeta(id){
@@ -810,7 +833,8 @@ function renderSourceManagerList(query=""){
     const selected=scopeSet("selected",scope.key).size;
     const suggested=scopeSet("suggested",scope.key).size;
     const blocked=scopeSet("blocked",scope.key).size;
-    return '<div class="source-manager-row">'+
+    return '<div class="source-manager-row" data-manager-scope="'+esc(scope.key)+'">'+
+      '<button class="source-manager-drag" type="button" data-manager-drag="'+esc(scope.key)+'" aria-label="Kéo để đổi thứ tự"'+(needle?' disabled':'')+'><span aria-hidden="true">⋮⋮</span></button>'+
       '<button class="source-manager-name" type="button" data-manager-open="'+esc(scope.key)+'">'+
         '<strong title="'+esc(scope.label||scope.key)+'">'+esc(scope.label||scope.key)+'</strong>'+
         '<span>'+(scope.custom?'Nguồn tùy chỉnh':'Nguồn hệ thống')+'</span>'+
@@ -826,11 +850,79 @@ function renderSourceManagerList(query=""){
   }).join("")||'<div class="empty">Không có nguồn phù hợp.</div>';
 }
 
+async function saveSourceOrderFromManager(){
+  if(!el.sourceManagerList||!state.remote)return false;
+  const keys=[...el.sourceManagerList.querySelectorAll(".source-manager-row[data-manager-scope]")]
+    .map(row=>row.dataset.managerScope)
+    .filter(Boolean);
+  if(keys.length!==state.scopes.length)return false;
+
+  const byKey=new Map(state.scopes.map(row=>[row.key,row]));
+  state.scopes=keys.map(key=>byKey.get(key)).filter(Boolean);
+  state.remote.sourceLabels={...(state.remote.sourceLabels||{})};
+  state.remote.sourceLabels.__source_order=JSON.stringify(keys);
+
+  renderScopes();
+  if(state.detail)renderPreview();
+  return savePresentationState();
+}
+
+function bindSourceManagerDrag(){
+  if(!el.sourceManagerList||el.sourceManagerList.dataset.dragBound==="1")return;
+  el.sourceManagerList.dataset.dragBound="1";
+
+  let drag=null;
+
+  const finish=async()=>{
+    if(!drag)return;
+    const row=drag.row;
+    try{drag.handle.releasePointerCapture?.(drag.pointerId)}catch{}
+    row.classList.remove("dragging");
+    document.documentElement.classList.remove("source-manager-reordering");
+    drag=null;
+    await saveSourceOrderFromManager();
+  };
+
+  el.sourceManagerList.addEventListener("pointerdown",event=>{
+    const handle=event.target.closest("[data-manager-drag]");
+    if(!handle||handle.disabled)return;
+    const row=handle.closest(".source-manager-row");
+    if(!row)return;
+
+    event.preventDefault();
+    drag={row,handle,pointerId:event.pointerId};
+    handle.setPointerCapture?.(event.pointerId);
+    row.classList.add("dragging");
+    document.documentElement.classList.add("source-manager-reordering");
+  });
+
+  el.sourceManagerList.addEventListener("pointermove",event=>{
+    if(!drag||event.pointerId!==drag.pointerId)return;
+    event.preventDefault();
+
+    const hit=document.elementFromPoint(event.clientX,event.clientY);
+    const target=hit?.closest?.(".source-manager-row");
+    if(!target||target===drag.row||target.parentElement!==el.sourceManagerList)return;
+
+    const rect=target.getBoundingClientRect();
+    const after=event.clientY>rect.top+rect.height/2;
+    el.sourceManagerList.insertBefore(drag.row,after?target.nextSibling:target);
+  });
+
+  el.sourceManagerList.addEventListener("pointerup",event=>{
+    if(drag&&event.pointerId===drag.pointerId)void finish();
+  });
+  el.sourceManagerList.addEventListener("pointercancel",event=>{
+    if(drag&&event.pointerId===drag.pointerId)void finish();
+  });
+}
+
 function openSourceManager(){
   if(!el.sourceManagerModal)return;
   el.sourceManagerModal.hidden=false;
   if(el.sourceManagerSearch)el.sourceManagerSearch.value="";
   renderSourceManagerList();
+  bindSourceManagerDrag();
   requestAnimationFrame(()=>el.sourceManagerSearch?.focus());
 }
 
