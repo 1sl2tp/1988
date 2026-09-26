@@ -471,7 +471,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="336";
+const LOCAL_DATA_SCHEMA_VERSION="337";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
@@ -487,7 +487,10 @@ function clearVolatileLocalData(){
     const remove=[];
     for(let i=0;i<localStorage.length;i++){
       const key=localStorage.key(i)||"";
-      if(LOCAL_VOLATILE_PREFIXES.some(prefix=>key.startsWith(prefix)))remove.push(key);
+      if(
+        key===VIDEO_ASPECT_HABIT_KEY ||
+        LOCAL_VOLATILE_PREFIXES.some(prefix=>key.startsWith(prefix))
+      )remove.push(key);
     }
     for(const key of remove)localStorage.removeItem(key);
   }catch{}
