@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v24";
+const LIVE_PIPELINE_VERSION="live-v25";
 const NON_LIVE_PIPELINE_VERSION="non-live-v6";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -36,7 +36,7 @@ const YT_PLAYER_CLIENTS:any[]=[
   }
 ];
 const LIVE_SELECTED_CANDIDATES_PER_SOURCE=4;
-const LIVE_SELECTED_SOURCES_PER_RUN=24;
+const LIVE_SELECTED_SOURCES_PER_RUN=32;
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -935,9 +935,25 @@ async function discoverGlobalLiveCandidates(
     }
   });
 
+  const verifyFresh=async(rows:any[],limit=56)=>{
+    const unique=dedupeRows(rows).slice(0,limit);
+    const checked=(await mapLimit(unique,8,async(row)=>{
+      const id=videoId(row);
+      if(!id)return null;
+      try{
+        return (await youtubePlayerIsLive(id))?row:null;
+      }catch{
+        return null;
+      }
+    })).filter(Boolean);
+    return checked;
+  };
+
+  // Search responses can keep the LIVE flag briefly after a stream has ended.
+  // Only publish rows whose YouTube player metadata still confirms LIVE now.
   return {
-    external:dedupeRows(external),
-    selected:dedupeRows(selected)
+    external:await verifyFresh(external,56),
+    selected:await verifyFresh(selected,56)
   };
 }
 
@@ -1300,10 +1316,20 @@ Deno.serve(async(req:Request)=>{
       const remainingSelected=selectedLiveSources.filter(
         (source:any)=>!selectedSeenIds.has(source.id)
       );
-      const activeToRecheck=remainingSelected.filter(
+
+      // Explicit LIVE selections are authoritative: check every one on every
+      // LIVE refresh. Inherited selections from other tabs are rotated so the
+      // worker still stays bounded.
+      const explicitRemaining=remainingSelected.filter(
+        (source:any)=>explicitLiveIds.has(source.id)
+      );
+      const inheritedRemaining=remainingSelected.filter(
+        (source:any)=>!explicitLiveIds.has(source.id)
+      );
+      const activeInherited=inheritedRemaining.filter(
         (source:any)=>previousLiveSourceIds.has(source.id)
       );
-      const rotationPool=remainingSelected
+      const rotationPool=inheritedRemaining
         .filter((source:any)=>!previousLiveSourceIds.has(source.id))
         .sort((a:any,b:any)=>String(a?.id||"").localeCompare(String(b?.id||"")));
       const rotationStart=rotationPool.length
@@ -1313,10 +1339,11 @@ Deno.serve(async(req:Request)=>{
         ...rotationPool.slice(rotationStart),
         ...rotationPool.slice(0,rotationStart)
       ].slice(0,LIVE_SELECTED_SOURCES_PER_RUN);
-      const selectedToCheck=[
-        ...activeToRecheck,
-        ...rotated
-      ];
+
+      const selectedToCheck=[...new Map(
+        [...explicitRemaining,...activeInherited,...rotated]
+          .map((source:any)=>[source.id,source])
+      ).values()];
 
       const selectedCheckedRows=(await mapLimit(selectedToCheck,6,async(source)=>{
         try{
