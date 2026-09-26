@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v3";
+const NON_LIVE_PIPELINE_VERSION="non-live-v4";
 const NON_LIVE_VERIFY_BATCH=120;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -1603,21 +1603,16 @@ Deno.serve(async(req:Request)=>{
           (!Number(r?._shortCheckedAt)||durationSeconds(r)<=0)
         );
         if(unresolved.length){
-          degradedNotes.push(scope+":waiting_non_live_verification="+unresolved.length);
+          // Keep verification moving, but never hold the whole package hostage.
+          // Unverified rows stay out until both Shorts status and duration are known.
+          degradedNotes.push(scope+":non_live_verification_pending="+unresolved.length);
           await queuePendingRefresh(rest,authHeaders,[scope]);
-          results.push({
-            scope,
-            changed:false,
-            reason:"waiting_non_live_verification",
-            unresolved:unresolved.length,
-            keptItems:Array.isArray(current?.items)?current.items.length:0
-          });
-          continue;
         }
 
         raw=raw.filter((r:any)=>
           !isLive(r)&&
           !isTooShortVideo(r)&&
+          Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
           !titleLooksEnglishOnly(r)
         );
