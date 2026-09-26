@@ -2929,6 +2929,18 @@ async function createHashtag({openManager=false}={}){
         const active=sourceGroupTabs?.querySelector(".source-group-chip.active");
         active?.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"center"});
       });
+    }else{
+      state.searchResultsActive=false;
+      state.activeParent=result.hashtag.id;
+      state.activeTrend="";
+      state.trendTopics=[];
+      state.feedRows=[];
+      state.feedHasMore=false;
+      renderTrendTopics();
+      setActiveChip(state.activeFeed);
+      feedTitle.textContent=result.hashtag.label;
+      feedStatus.textContent="";
+      feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh cho tab này.</div>';
     }
     return result.hashtag;
   }catch(error){
@@ -13446,7 +13458,7 @@ topicChips.addEventListener("click",async e=>{
 
   const hashtagAdd=e.target.closest("[data-hashtag-add]");
   if(hashtagAdd){
-    await createHashtag({openManager:false});
+    requestSettingsAccess(()=>{ void createHashtag({openManager:false}); });
     return;
   }
 
