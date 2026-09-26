@@ -18,8 +18,8 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v4";
-const NON_LIVE_VERIFY_BATCH=120;
+const NON_LIVE_PIPELINE_VERSION="non-live-v5";
+const NON_LIVE_VERIFY_BATCH=64;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
 const YT_PLAYER_CLIENTS:any[]=[
@@ -1320,6 +1320,15 @@ Deno.serve(async(req:Request)=>{
       for(const source of selectedByScope.get(scope)||[])verificationScopeChannelIds.add(source.id);
     }
 
+    const currentPackageVideoIds=new Set<string>();
+    for(const scope of scopes){
+      if(scope==="live")continue;
+      for(const row of Array.isArray(currentByScope.get(scope)?.items)?currentByScope.get(scope).items:[]){
+        const id=videoId(row);
+        if(id)currentPackageVideoIds.add(id);
+      }
+    }
+
     const verificationCandidates:any[]=[];
     const verificationCandidateIds=new Set<string>();
     for(const [candidateChannelId,items] of channelRows){
@@ -1355,11 +1364,18 @@ Deno.serve(async(req:Request)=>{
           age,
           duration,
           needDuration,
-          needShort
+          needShort,
+          inCurrentPackage:currentPackageVideoIds.has(id)
         });
       }
     }
-    verificationCandidates.sort((a,b)=>a.age-b.age);
+    // Verify rows already visible in the current package first. This makes a
+    // newly discovered <=60s/Short correction disappear on the next package,
+    // instead of waiting behind hundreds of newer unresolved rows.
+    verificationCandidates.sort((a,b)=>
+      Number(b.inCurrentPackage)-Number(a.inCurrentPackage)||
+      a.age-b.age
+    );
 
     const verificationMeta=new Map<string,any>();
     await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
@@ -1373,22 +1389,16 @@ Deno.serve(async(req:Request)=>{
           :Promise.resolve(false)
       ]);
 
-      // Exact video-ID search is the primary NON-LIVE duration source because
-      // it is fast and already returns duration/channel metadata. Player
-      // metadata is only the fallback when exact search cannot resolve it.
-      const playerMeta=candidate.needDuration&&Number(searchMeta?.duration)<=0
-        ?await youtubePlayerMetadata(candidate.id)
-        :{duration:candidate.duration,isLive:false};
+      // Exact video-ID search is the only duration resolver on the package
+      // critical path. The player endpoint is frequently bot-gated and can hold
+      // the refresh lease for too long. Unresolved rows simply retry later.
       const duration=Number(searchMeta?.duration)>0
         ?Number(searchMeta.duration)
-        :Number(playerMeta?.duration)>0
-          ?Number(playerMeta.duration)
-          :candidate.duration||0;
+        :candidate.duration||0;
 
       verificationMeta.set(candidate.id,{
-        ...playerMeta,
         duration,
-        isLive:playerMeta?.isLive===true||searchMeta?.isLive===true,
+        isLive:searchMeta?.isLive===true,
         isShort:isShort===true,
         sourceName:validChannelDisplayName(searchMeta?.sourceName||""),
         sourceThumbnailUrl:clean(searchMeta?.sourceThumbnailUrl||"",1000),
@@ -1585,9 +1595,17 @@ Deno.serve(async(req:Request)=>{
       if(attempted>freshOk)degradedNotes.push(scope+":channel_errors="+(attempted-freshOk));
 
       let raw:any[]=[];
+      const freshByVideoId=new Map<string,any>();
 
       for(const source of selected){
-        for(const row of channelRows.get(source.id)||[])raw.push(row);
+        const canonicalSource=channelMeta.get(source.id)||source;
+        for(const row of channelRows.get(source.id)||[]){
+          const normalized=normalizeRow(row,canonicalSource);
+          if(!normalized)continue;
+          raw.push(normalized);
+          const id=videoId(normalized);
+          if(id)freshByVideoId.set(id,normalized);
+        }
       }
 
       if(scope!=="live"){
@@ -1609,13 +1627,52 @@ Deno.serve(async(req:Request)=>{
           await queuePendingRefresh(rest,authHeaders,[scope]);
         }
 
-        raw=raw.filter((r:any)=>
+        const verifiedRows=raw.filter((r:any)=>
           !isLive(r)&&
           !isTooShortVideo(r)&&
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
           !titleLooksEnglishOnly(r)
         );
+
+        // Row-level stale-while-revalidate: keep previously published rows while
+        // their refreshed metadata is still unresolved, but immediately drop a
+        // row as soon as the server proves it is a Short or <=60 seconds.
+        // Canonical source metadata is refreshed at the same time, so a channel
+        // ID can never remain as the visible source name after the cache knows
+        // the real channel name.
+        const carryForward=(Array.isArray(current?.items)?current.items:[])
+          .map((oldRow:any)=>{
+            const id=videoId(oldRow);
+            if(!id)return null;
+            const fresh=freshByVideoId.get(id);
+            const sid=channelId(fresh||oldRow);
+            if(!sid||!selectedIds.has(sid))return null;
+
+            if(fresh){
+              if(isLive(fresh)||isTooShortVideo(fresh))return null;
+              const freshDuration=durationSeconds(fresh);
+              if(freshDuration>0&&freshDuration<=60)return null;
+            }
+
+            const source=channelMeta.get(sid)||
+              selected.find((item:any)=>item.id===sid)||
+              {id:sid,name:"",thumbnailUrl:""};
+            const oldDuration=durationSeconds(oldRow);
+            const freshDuration=fresh?durationSeconds(fresh):0;
+            const merged=normalizeRow({
+              ...oldRow,
+              ...(fresh||{}),
+              duration:freshDuration>0?freshDuration:oldDuration,
+              isShort:fresh?.isShort===true||oldRow?.isShort===true,
+              _shortCheckedAt:Number(fresh?._shortCheckedAt)||Number(oldRow?._shortCheckedAt)||0,
+              _durationCheckedAt:Number(fresh?._durationCheckedAt)||Number(oldRow?._durationCheckedAt)||0
+            },source);
+            return merged&&!titleLooksEnglishOnly(merged)?merged:null;
+          })
+          .filter(Boolean);
+
+        raw=dedupeRows([...verifiedRows,...carryForward]);
       }else{
         raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       }
@@ -1652,12 +1709,6 @@ Deno.serve(async(req:Request)=>{
       if(meta.kind!=="live")raw=sortRows(raw);
       raw=dedupeRows(raw)
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
-
-      if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
-        degradedNotes.push(scope+":empty_candidate_kept_previous");
-        results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:current.items.length});
-        continue;
-      }
 
       const sig=sourceSignature(rows,scope);
       const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
