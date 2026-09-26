@@ -84,6 +84,7 @@ assert.match(refresh,/async function verifyLiveCandidate\(/);
 assert.match(refresh,/yt1988_live_keywords/);
 assert.match(refresh,/data\?\.livestream===true/);
 assert.match(refresh,/verifyLiveRows/);
+assert.match(refresh,/if\(!packaged\.length&&scope!==["']live["']\)/);
 assert.match(gateway,/async function pipedChannel\(/);
 assert.match(gateway,/if \(!channelRows\(data\)\.length\) continue/);
 assert.match(gateway,/async function youtubeRssChannel\(/);
