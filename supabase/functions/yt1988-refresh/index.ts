@@ -23,12 +23,12 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v15";
+const LIVE_PIPELINE_VERSION="live-v16";
 const LIVE_SEARCH_QUERIES=[
-  "trực tiếp",
-  "live việt nam",
-  "đang phát trực tiếp",
-  "livestream việt nam"
+  "truc tiep",
+  "live viet nam",
+  "dang phat truc tiep",
+  "livestream viet nam"
 ];
 const DEFAULT_SCOPE_INTERVAL_MINUTES:any={
   live:2,
