@@ -203,7 +203,7 @@ assert.match(refresh,/blockedSourceIds:Set<string>/);
 assert.match(refresh,/selectedSourceIds:Set<string>/);
 assert.match(refresh,/selected:await verifyFresh\(selected,56\)/);
 assert.match(refresh,/const LIVE_SEARCH_QUERIES=\[/);
-assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v24["']/);
+assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v25["']/);
 assert.match(refresh,/meta\.kind===["']live["']\?LIVE_PIPELINE_VERSION/);
 assert.match(refresh,/"trực tiếp"/);
 assert.match(refresh,/"livestream việt nam"/);
