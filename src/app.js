@@ -7226,6 +7226,7 @@ function applyFloatingIframe(force){
     !state.currentId ||
     playerSection.hidden
   ){
+    if(state.engine==="native")nativePlayer.controls=true;
     if(floating){
       frame.classList.remove(
         "floating-iframe","float-tucked","dock-left","dock-right",
@@ -7245,6 +7246,7 @@ function applyFloatingIframe(force){
 
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
+  if(state.engine==="native")nativePlayer.controls=false;
   state.floatTucked=false;
   state.floatPreset="auto";
 
@@ -7411,25 +7413,38 @@ function setupWatchMinimizeGesture(){
     });
   }
 
-  if(!feedSection||feedSection.dataset.watchMinimizeGesture==="1")return;
-  feedSection.dataset.watchMinimizeGesture="1";
+  const root=document.documentElement;
+  if(root.dataset.watchMinimizeGesture==="1")return;
+  root.dataset.watchMinimizeGesture="1";
 
   let gesture=null;
+  let lastTouchAt=0;
 
   const eligible=()=>(
     window.innerWidth<=720 &&
-    document.documentElement.classList.contains("watch-browse") &&
+    root.classList.contains("watch-browse") &&
     !state.watchMinimized &&
     !!state.currentId &&
     !playerSection?.hidden &&
     !isPlayerFullscreen()
   );
 
-  feedSection.addEventListener("touchstart",event=>{
-    if(!eligible()||event.touches?.length!==1){
+  const outsidePlayer=target=>{
+    if(!(target instanceof Element))return false;
+    return !playerSection?.contains(target);
+  };
+
+  document.addEventListener("touchstart",event=>{
+    lastTouchAt=Date.now();
+    if(
+      !eligible() ||
+      event.touches?.length!==1 ||
+      !outsidePlayer(event.target)
+    ){
       gesture=null;
       return;
     }
+
     const touch=event.touches[0];
     gesture={
       x:touch.clientX,
@@ -7437,35 +7452,49 @@ function setupWatchMinimizeGesture(){
       lastX:touch.clientX,
       lastY:touch.clientY
     };
-  },{passive:true});
+  },{passive:true,capture:true});
 
-  feedSection.addEventListener("touchmove",event=>{
+  document.addEventListener("touchmove",event=>{
     if(!gesture||event.touches?.length!==1)return;
+
     const touch=event.touches[0];
     gesture.lastX=touch.clientX;
     gesture.lastY=touch.clientY;
-  },{passive:true});
 
-  const finish=()=>{
-    if(!gesture)return;
-    const current=gesture;
-    gesture=null;
+    const dx=gesture.lastX-gesture.x;
+    const dy=gesture.lastY-gesture.y;
 
-    if(!eligible())return;
-
-    const dx=current.lastX-current.x;
-    const dy=current.lastY-current.y;
-
+    // Minimize as soon as the upward browsing gesture is clear. Do not wait
+    // for touchend; portrait Watch uses the page itself as the scroller, so
+    // waiting until the finger lifts makes PiP feel one gesture late.
     if(
-      dy<=-42 &&
-      Math.abs(dy)>Math.abs(dx)*1.18
+      eligible() &&
+      dy<=-28 &&
+      Math.abs(dy)>Math.abs(dx)*1.10
     ){
+      gesture=null;
       setWatchMinimized(true);
     }
-  };
+  },{passive:true,capture:true});
 
-  feedSection.addEventListener("touchend",finish,{passive:true});
-  feedSection.addEventListener("touchcancel",()=>{gesture=null;},{passive:true});
+  const clearGesture=()=>{gesture=null;};
+  document.addEventListener("touchend",clearGesture,{passive:true,capture:true});
+  document.addEventListener("touchcancel",clearGesture,{passive:true,capture:true});
+
+  // iOS can occasionally hand a portrait page-scroll directly to the browser
+  // without enough touchmove samples. While a real touch is active/recent,
+  // the first vertical page movement is also allowed to trigger PiP.
+  window.addEventListener("scroll",()=>{
+    if(
+      Date.now()-lastTouchAt>700 ||
+      !eligible() ||
+      !root.classList.contains("watch-video-portrait") ||
+      window.scrollY<12
+    )return;
+
+    gesture=null;
+    setWatchMinimized(true);
+  },{passive:true});
 }
 
 function getFullscreenElement(){
@@ -7639,7 +7668,7 @@ function fallbackIframeVideoToNative(
   state.intentPlay=true;
 
   showNativePlayer();
-  nativePlayer.controls=true;
+  nativePlayer.controls=!state.watchMinimized;
   nativePlayer.playsInline=true;
   nativePlayer.setAttribute("playsinline","");
   nativePlayer.setAttribute("webkit-playsinline","");
