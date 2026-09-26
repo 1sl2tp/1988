@@ -4935,3 +4935,89 @@ body::-webkit-scrollbar-corner,
     bottom:auto!important;
   }
 }
+
+
+/* Default YouTube iframe ownership v412.
+   Inline Watch is one stable 16:9 embed on mobile and desktop. The iframe keeps
+   its own rendering/quality/layout; our page only owns the surrounding scroll
+   and the PiP slot transition. */
+html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+.player-frame:not(.floating-iframe){
+  aspect-ratio:16/9!important;
+  background:#000!important;
+}
+
+html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+.player-frame:not(.floating-iframe) #yt-player,
+html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+.player-frame:not(.floating-iframe) iframe{
+  position:absolute!important;
+  inset:0!important;
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:100%!important;
+  max-height:100%!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  transform:none!important;
+  filter:none!important;
+  opacity:1!important;
+  background:#000!important;
+}
+
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      56.25vw
+      auto!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    width:100%!important;
+    height:56.25vw!important;
+    min-height:56.25vw!important;
+    max-height:56.25vw!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe){
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    height:56.25vw!important;
+    min-height:56.25vw!important;
+    max-height:56.25vw!important;
+    margin:0!important;
+    left:0!important;
+    right:auto!important;
+  }
+
+  /* Auto PiP is driven only by the inline slot leaving/entering the viewport.
+     No app-owned surface is allowed to intercept a normal YouTube player tap. */
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-swipe-zone,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-pip-trigger{
+    display:none!important;
+    pointer-events:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #yt-player,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) iframe{
+    pointer-events:auto!important;
+    touch-action:auto!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-inline-slot-h,56.25vw)
+      auto!important;
+  }
+}
