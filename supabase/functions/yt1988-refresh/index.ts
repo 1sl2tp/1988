@@ -23,6 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
+const LIVE_PIPELINE_VERSION="live-v13";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "live việt nam",
@@ -996,7 +997,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const sig=sourceSignature(rows,scope);
-      const policyKey="server-scope-policy-v4:"+meta.profile;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v4")+":"+meta.profile;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
