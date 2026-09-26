@@ -46,6 +46,11 @@ const el={
   searchStatus:qs("#searchStatus"),
   searchList:qs("#searchList"),
   preview:qs("#preview"),
+  searchColumn:qs('.search-column'),
+  inlinePlayer:qs("#inlinePlayer"),
+  inlinePlayerTitle:qs("#inlinePlayerTitle"),
+  inlinePlayerClose:qs("#inlinePlayerClose"),
+  inlineVideoFrame:qs("#inlineVideoFrame"),
   previewAvatar:qs("#previewAvatar"),
   previewName:qs("#previewName"),
   previewMeta:qs("#previewMeta"),
@@ -203,17 +208,24 @@ function actionLabel(kind){
 }
 
 function cardMarkup(row,kind){
+  let actions="";
+  if(kind==="suggested"){
+    actions=
+      '<button class="tiny primary" data-card-action="selected" data-id="'+esc(row.id)+'">Chọn</button>'+
+      '<button class="tiny danger" data-card-action="blocked" data-id="'+esc(row.id)+'">Bỏ</button>';
+  }else if(kind==="selected"){
+    actions='<button class="tiny" data-card-action="normal" data-id="'+esc(row.id)+'">Bỏ</button>';
+  }else{
+    actions='<button class="tiny danger" data-card-action="normal" data-id="'+esc(row.id)+'">Bỏ chặn</button>';
+  }
+
   return '<div class="channel-card" data-card-id="'+esc(row.id)+'">'+
     avatarMarkup(row)+
     '<button class="channel-copy" data-open-channel="'+esc(row.id)+'">'+
-      '<strong>'+esc(row.name||row.id)+'</strong>'+
-      '<span>'+esc(row.subscribers||"Kênh YouTube")+'</span>'+
+      '<strong title="'+esc(row.name||row.id)+'">'+esc(row.name||row.id)+'</strong>'+
+      '<span>'+esc(row.subscribers||"")+'</span>'+
     '</button>'+
-    '<div class="card-actions">'+
-      '<button class="tiny '+(kind==="suggested"?"primary":kind==="blocked"?"danger":"")+'" data-card-action="'+esc(kind)+'" data-id="'+esc(row.id)+'">'+
-        esc(actionLabel(kind))+
-      '</button>'+
-    '</div>'+
+    '<div class="card-actions">'+actions+'</div>'+
   '</div>';
 }
 
@@ -293,14 +305,38 @@ function renderKeywords(){
     :'<span class="status">Chưa có từ khóa chặn</span>';
 }
 
+function closeInlineVideo(){
+  if(!el.inlinePlayer||!el.inlineVideoFrame)return;
+  el.inlinePlayer.hidden=true;
+  el.inlineVideoFrame.src="about:blank";
+  if(el.inlinePlayerTitle)el.inlinePlayerTitle.textContent="";
+}
+
+function playInlineVideo(id,row={}){
+  if(!id||!el.inlinePlayer||!el.inlineVideoFrame)return;
+  const title=clean(row?._displayTitle||row?.title||"Video");
+  if(el.inlinePlayerTitle)el.inlinePlayerTitle.textContent=title;
+  el.inlinePlayer.hidden=false;
+  const origin=encodeURIComponent(location.origin);
+  el.inlineVideoFrame.src=
+    "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
+    "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin="+origin;
+  requestAnimationFrame(()=>{
+    el.inlinePlayer?.scrollIntoView?.({behavior:"smooth",block:"nearest"});
+  });
+}
+
 function renderPreview(){
   const row=state.detail;
   if(!row){
     el.preview.hidden=true;
+    el.searchColumn?.classList.remove("has-preview");
+    closeInlineVideo();
     return;
   }
 
   el.preview.hidden=false;
+  el.searchColumn?.classList.add("has-preview");
   el.previewAvatar.innerHTML=avatarMarkup(row,"preview-avatar-inner");
   el.previewName.textContent=row.name||row.id;
   el.previewMeta.textContent=[
@@ -638,9 +674,8 @@ for(const [list,kind] of [
     if(!action)return;
 
     const id=action.dataset.id;
-    if(kind==="suggested")writeStatus(id,"selected");
-    else if(kind==="selected")writeStatus(id,"normal");
-    else if(kind==="blocked")writeStatus(id,"normal");
+    const status=action.dataset.cardAction||"normal";
+    writeStatus(id,status);
   });
 }
 
@@ -721,9 +756,14 @@ el.previewScopes.addEventListener("click",event=>{
   writeStatus(state.detail.id,st==="selected"?"normal":"selected",scope);
 });
 
+el.inlinePlayerClose?.addEventListener("click",()=>{
+  closeInlineVideo();
+});
+
 el.previewClose.addEventListener("click",()=>{
   state.detail=null;
   state.detailVideos=[];
+  closeInlineVideo();
   renderPreview();
 });
 
@@ -731,7 +771,9 @@ el.videoGrid.addEventListener("click",event=>{
   const card=event.target.closest("[data-preview-video]");
   if(!card)return;
   const id=card.dataset.previewVideo||"";
-  if(id)window.open("../?v="+encodeURIComponent(id),"_blank","noopener");
+  if(!id)return;
+  const row=state.detailVideos.find(v=>(v.videoId||v.id||"")===id)||{};
+  playInlineVideo(id,row);
 });
 
 el.previewSearchForm.addEventListener("submit",async event=>{
