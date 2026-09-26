@@ -5894,6 +5894,8 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
   frame.classList.toggle("float-scale-15",scaleValue===1.5);
   frame.classList.toggle("float-scale-2",scaleValue===2);
 
+  syncFloatOverlayControls(frame);
+
   const edgeTab=frame.querySelector(".float-edge-tab");
   if(edgeTab){
     edgeTab.textContent="";
@@ -5976,13 +5978,69 @@ function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
   }
 }
 
+let floatOverlayTimer=0;
+
+function floatPlaybackActive(){
+  if(state.engine==="native"){
+    return !nativePlayer.paused&&!nativePlayer.ended;
+  }
+  try{
+    const ps=state.player?.getPlayerState?.();
+    return ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING;
+  }catch{}
+  return !!(state.videoPlaying&&state.intentPlay);
+}
+
+function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  const play=frame.querySelector('[data-float-overlay="play"]');
+  if(play){
+    const active=floatPlaybackActive();
+    play.textContent=active?"Ⅱ":"▶";
+    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
+  }
+
+  const pin=frame.querySelector('[data-float-overlay="pin"]');
+  if(pin){
+    pin.classList.toggle("active",!!state.watchPipPinned);
+    pin.setAttribute(
+      "aria-label",
+      state.watchPipPinned?"Bỏ ghim PiP":"Ghim PiP"
+    );
+  }
+}
+
+function showFloatOverlayControls(frame=playerSection?.querySelector(".player-frame"),delay=2600){
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+  clearTimeout(floatOverlayTimer);
+  syncFloatOverlayControls(frame);
+  frame.classList.add("float-controls-open");
+  floatOverlayTimer=setTimeout(()=>{
+    frame.classList.remove("float-controls-open");
+  },delay);
+}
+
+function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")){
+  if(floatPlaybackActive()){
+    state.intentPlay=false;
+    state.videoPlaying=false;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+    pauseVideoEngine();
+  }else{
+    state.intentPlay=true;
+    playVideoEngine();
+  }
+  showFloatOverlayControls(frame);
+}
+
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.dataset.floatControlsReady==="2")return;
 
   // Remove the old invisible move/resize hit zones. They could overlap the
   // YouTube seek bar on Safari and made the player harder to control.
-  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab").forEach(node=>node.remove());
+  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay").forEach(node=>node.remove());
   frame.dataset.floatControlsReady="2";
 
   const rail=document.createElement("div");
@@ -6030,6 +6088,49 @@ function ensureFloatHandles(){
     makeButton("tuck",state.floatDock==="left"?"‹":"›","Thu vào mép")
   );
 
+  const overlay=document.createElement("div");
+  overlay.className="float-player-overlay";
+  overlay.innerHTML=
+    '<div class="float-overlay-top">'+
+      '<button type="button" class="float-overlay-pin" data-float-overlay="pin" aria-label="Ghim PiP">⌖</button>'+
+      '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng PiP">×</button>'+
+    '</div>'+
+    '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">Ⅱ</button>'+
+    '<div class="float-overlay-bottom">'+
+      '<button type="button" class="float-overlay-expand" data-float-overlay="expand" aria-label="Mở rộng">↗ <span>Mở rộng</span></button>'+
+      '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">1×</button>'+
+    '</div>';
+
+  overlay.querySelector('[data-float-overlay="pin"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleWatchPipPin(frame);
+    showFloatOverlayControls(frame);
+  });
+  overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    setWatchMinimized(false);
+  });
+  overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFloatPlayback(frame);
+  });
+  overlay.querySelector('[data-float-overlay="expand"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    setWatchMinimized(false);
+  });
+  overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    cycleFloatScale(frame);
+    const button=event.currentTarget;
+    if(button)button.textContent=floatScaleValue()===1.5?"1.5×":floatScaleValue()+"×";
+    showFloatOverlayControls(frame);
+  });
+
   const edgeTab=document.createElement("button");
   edgeTab.type="button";
   edgeTab.className="float-edge-tab";
@@ -6041,8 +6142,9 @@ function ensureFloatHandles(){
     updateFloatControlState(frame);
   });
 
-  frame.append(rail,edgeTab);
+  frame.append(rail,edgeTab,overlay);
   updateFloatControlState(frame);
+  syncFloatOverlayControls(frame);
 }
 
 function normalizedVideoAspect(meta=state.currentMeta||{}){
@@ -6185,8 +6287,8 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   // small bounding box. Portrait stays portrait and shrinks by height instead
   // of becoming a tall column that covers the browsing list.
   if(mobile){
-    const maxWidth=Math.min(210,viewportW*.48);
-    const maxHeight=Math.min(220,viewportH*.33);
+    const maxWidth=Math.min(232,viewportW*.54);
+    const maxHeight=Math.min(250,viewportH*.38);
 
     let width=maxWidth;
     let height=width/ratio;
@@ -6304,17 +6406,34 @@ function placeAutoFloatAtEdge(frame,size){
   const gap=floatEdgeGap();
   const safe=floatingSafeInsets();
   const mobile=mobileMiniViewport();
-  const bottomGap=mobile
-    ?Math.max(18,safe.bottom+14)
-    :gap;
-  const sideGap=mobile?12:gap;
+  const sideGap=mobile?10:gap;
   const dockLeft=state.floatDock==="left";
 
   frame.style.width=size.width+"px";
   frame.style.height=size.height+"px";
   frame.style.aspectRatio="auto";
-  frame.style.top="auto";
-  frame.style.bottom=bottomGap+"px";
+
+  let top=0;
+  let bottomGap=gap;
+
+  if(mobile){
+    const styles=getComputedStyle(document.documentElement);
+    const headerStack=Math.max(
+      0,
+      parseFloat(styles.getPropertyValue("--header-stack-h"))||0
+    );
+    top=Math.max(safe.top+10,safe.top+headerStack+8);
+    frame.style.top=top+"px";
+    frame.style.bottom="auto";
+  }else{
+    bottomGap=gap;
+    frame.style.top="auto";
+    frame.style.bottom=bottomGap+"px";
+    top=Math.max(
+      safe.top+sideGap,
+      window.innerHeight-size.height-bottomGap
+    );
+  }
 
   if(dockLeft){
     frame.style.left=sideGap+"px";
@@ -6327,15 +6446,11 @@ function placeAutoFloatAtEdge(frame,size){
   const left=dockLeft
     ?sideGap
     :Math.max(sideGap,window.innerWidth-size.width-sideGap);
-  const top=Math.max(
-    safe.top+sideGap,
-    window.innerHeight-size.height-bottomGap
-  );
 
   state.floatBox={
     left,
     top,
-    bottom:bottomGap,
+    bottom:mobile?null:bottomGap,
     width:size.width,
     height:size.height
   };
@@ -7424,6 +7539,7 @@ function applyFloatingIframe(force){
   applyAutoFloatAspect(frame,{force:true});
   syncFloatingPlayerViewport(frame);
   updateFloatControlState(frame);
+  syncFloatOverlayControls(frame);
   finishFloatEntry(frame);
 }
 
@@ -7624,6 +7740,10 @@ function setupWatchMinimizeGesture(){
       )return;
       event.preventDefault();
       event.stopPropagation();
+      if(mobileMiniViewport()){
+        showFloatOverlayControls(frame);
+        return;
+      }
       setWatchMinimized(false);
     });
     zone.addEventListener("pointercancel",event=>{
