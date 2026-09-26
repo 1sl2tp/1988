@@ -104,11 +104,10 @@ assert.match(refresh,/const selectedLiveSources=\[\.\.\.liveSourceById\.values\(
 assert.match(refresh,/SCOPES\.flatMap\(\(scope\)=>selectedByScope\.get\(scope\)\|\|\[\]\)/);
 assert.match(refresh,/async function discoverGlobalLiveCandidates\(/);
 assert.match(refresh,/const LIVE_SEARCH_QUERIES=\[/);
-assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v13["']/);
+assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v14["']/);
 assert.match(refresh,/meta\.kind===["']live["']\?LIVE_PIPELINE_VERSION/);
 assert.match(refresh,/"trực tiếp"/);
 assert.match(refresh,/"live việt nam"/);
-assert.match(refresh,/for\(const query of LIVE_SEARCH_QUERIES\)/);
 assert.match(refresh,/const searchStates=LIVE_SEARCH_QUERIES\.map/);
 assert.match(refresh,/for\(const state of searchStates\)/);
 assert.match(refresh,/let progressed=false/);
