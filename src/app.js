@@ -12056,6 +12056,10 @@ function snapshotRowsHash(rows=[],sourceSig=""){
     clean(row?._displayTitle||row?.title||""),
     clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
     String(row?._sourceId||row?.channelId||row?.uploaderId||""),
+    clean(row?._sourceName||row?.uploaderName||row?.uploader||""),
+    clean(row?.thumbnailUrl||row?.thumbnail||""),
+    clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||""),
+    String(Math.max(0,Number(row?.views)||0)),
     row?.isLive===true?"1":"0",
     String(durationSeconds(row)||0)
   ].join("|")).join("\n");
