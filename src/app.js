@@ -10748,6 +10748,7 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
 function renderCards(rows=[],options={}){
   const append=options.append===true;
   const trustedPackage=options.trustedPackage===true;
+  const refreshExisting=options.refreshExisting===true;
   if(!append)feed.classList.remove("search-grouped");
   if(!options.keepSearchRefinements&&searchRefinements){
     searchRefinements.hidden=true;
@@ -10773,7 +10774,8 @@ function renderCards(rows=[],options={}){
     const sourceId=media.sourceId;
     const sourceAvatar=media.sourceAvatar;
     const avatarFallback=(channel.charAt(0)||"?").toUpperCase();
-    if(sourceAvatar&&!avatarImageReady(sourceAvatar)){
+    const avatarUsable=!!sourceAvatar&&(trustedPackage||avatarImageReady(sourceAvatar));
+    if(sourceAvatar&&!trustedPackage&&!avatarImageReady(sourceAvatar)){
       avatarPaintJobs.push({id,sourceId,image:sourceAvatar});
     }
     const duplicateExtra=Math.max(0,Number(row._duplicateExtra)||0);
@@ -10794,7 +10796,7 @@ function renderCards(rows=[],options={}){
           '<div class="thumb-wrap"><img src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
-              (sourceAvatar&&avatarImageReady(sourceAvatar)
+              (avatarUsable
                 ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
                 :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
             '</span>'+
@@ -10816,11 +10818,13 @@ function renderCards(rows=[],options={}){
   if(append){
     if(cards.length)feed.insertAdjacentHTML("beforeend",cards.map(card=>card.html).join(""));
   }else if(cards.length){
-    const existing=new Map(
-      [...feed.querySelectorAll(":scope > .card[data-video-id]")]
-        .map(card=>[card.dataset.videoId,card])
-        .filter(([id])=>!!id)
-    );
+    const existing=refreshExisting
+      ?new Map()
+      :new Map(
+        [...feed.querySelectorAll(":scope > .card[data-video-id]")]
+          .map(card=>[card.dataset.videoId,card])
+          .filter(([id])=>!!id)
+      );
     const template=document.createElement("template");
     const fragment=document.createDocumentFragment();
 
@@ -10846,11 +10850,13 @@ function renderCards(rows=[],options={}){
     feedStatus.textContent=total?total+" video":"";
   }
 
-  for(const job of avatarPaintJobs){
-    const card=feed.querySelector('.card[data-video-id="'+CSS.escape(job.id)+'"]');
-    if(card)paintCardChannelAvatar(card,job.image);
+  if(!trustedPackage){
+    for(const job of avatarPaintJobs){
+      const card=feed.querySelector('.card[data-video-id="'+CSS.escape(job.id)+'"]');
+      if(card)paintCardChannelAvatar(card,job.image);
+    }
+    queueHomeChannelAvatars();
   }
-  queueHomeChannelAvatars();
 
   ensureWatchNavRail();
   syncWatchCurrentCard();
@@ -13374,7 +13380,12 @@ function cleanupLegacyFeedCaches(name=""){
 let packageSyncApplying=false;
 let packageManifestLastAt=0;
 let packageHydrationPromise=null;
+let packageLastChangedScopes=new Set();
 let packageWriteClock=Date.now();
+
+function packageScopeChanged(scope=""){
+  return packageLastChangedScopes.has(String(scope||"").trim());
+}
 const packageUploadChains=new Map();
 const pendingPackageUploads=new Map();
 
@@ -13452,13 +13463,16 @@ function applyServerPackage(scope,pkg={}){
 
   packageSyncApplying=true;
   try{
-    commitAtomicSnapshot(snapshotName,items,{
+    const committed=commitAtomicSnapshot(snapshotName,items,{
       sourceSignature:sourceSig,
       inputHash:clean(pkg?.input_hash||pkg?.inputHash||""),
       serverHash:expectedHash
     });
-    if(CONTENT_SOURCE_SCOPES.has(scope)){
-      state.categoryRows.set(scope,{at:Date.now(),items});
+    if(committed?.changed){
+      packageLastChangedScopes.add(scope);
+      if(CONTENT_SOURCE_SCOPES.has(scope)){
+        state.categoryRows.set(scope,{at:Date.now(),items});
+      }
     }
   }finally{
     packageSyncApplying=false;
@@ -13467,9 +13481,14 @@ function applyServerPackage(scope,pkg={}){
 }
 
 async function hydrateServerPackages({force=false}={}){
-  if(!force&&Date.now()-packageManifestLastAt<SERVER_PACKAGE_MANIFEST_TTL)return true;
-
   if(packageHydrationPromise)return packageHydrationPromise;
+
+  if(!force&&Date.now()-packageManifestLastAt<SERVER_PACKAGE_MANIFEST_TTL){
+    packageLastChangedScopes=new Set();
+    return true;
+  }
+
+  packageLastChangedScopes=new Set();
   packageHydrationPromise=(async()=>{
   try{
     const result=await packageSyncFetch("GET","",null,15000);
@@ -13685,9 +13704,8 @@ function applyActiveFeedSnapshot(name,{force=false}={}){
   state.feedRows=fresh.slice();
   state.feedHasMore=false;
   sourceFeedPendingRenderName="";
-  renderCards(state.feedRows,{trustedPackage:true});
+  renderCards(state.feedRows,{trustedPackage:true,refreshExisting:true});
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-  void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
   return true;
 }
 
@@ -13710,9 +13728,8 @@ function applyActiveCategorySnapshot(parent,{force=false}={}){
 
   state.feedRows=fresh.slice();
   state.feedHasMore=false;
-  renderCards(state.feedRows,{trustedPackage:true});
+  renderCards(state.feedRows,{trustedPackage:true,refreshExisting:true});
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-  void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
   return true;
 }
 
