@@ -1119,7 +1119,7 @@ Deno.serve(async(req:Request)=>{
           .sort((a:any,b:any)=>a.age-b.age)[0]||null;
 
         const cacheHash=fastHash(fresh.map((row:any)=>[
-          videoId(row),clean(row?.title,300),publishedText(row)
+          videoId(row),clean(row?.title,300),publishedText(row),String(durationSeconds(row)||0)
         ].join("|")).join("\n"));
 
         cacheWrites.push({
