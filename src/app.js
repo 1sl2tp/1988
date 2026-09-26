@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="333";
+const LOCAL_DATA_SCHEMA_VERSION="334";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
@@ -12099,21 +12099,40 @@ function readAtomicSnapshot(name=""){
   return null;
 }
 
-function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inputHash=""}={}){
+function commitAtomicSnapshot(name="",rows=[],{
+  sourceSignature:sourceSig="",
+  inputHash="",
+  serverHash=""
+}={}){
   const items=(Array.isArray(rows)?rows:[]);
+  serverHash=String(serverHash||"");
 
   const hash=snapshotRowsHash(items,sourceSig);
   const current=readAtomicSnapshot(name);
   if(current?.hash===hash&&(!inputHash||current?.inputHash===inputHash)){
     try{
+      const slot=current.slot||"a";
+      const key=snapshotKey(name,slot);
+      const stored=JSON.parse(localStorage.getItem(key)||"null");
+      if(stored&&serverHash&&stored.serverHash!==serverHash){
+        stored.serverHash=serverHash;
+        localStorage.setItem(key,JSON.stringify(stored));
+      }
       localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
-        slot:current.slot||"a",
+        slot,
         hash,
         inputHash:inputHash||current?.inputHash||"",
+        serverHash:serverHash||current?.serverHash||current?.legacyHash||"",
         checkedAt:Date.now()
       }));
     }catch{}
-    return {changed:false,hash,inputHash:inputHash||current?.inputHash||"",items:current.items};
+    return {
+      changed:false,
+      hash,
+      inputHash:inputHash||current?.inputHash||"",
+      serverHash:serverHash||current?.serverHash||current?.legacyHash||"",
+      items:current.items
+    };
   }
 
   try{
@@ -12126,6 +12145,7 @@ function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inpu
       inputHash:String(inputHash||""),
       at:Date.now(),
       sourceSignature:String(sourceSig||""),
+      serverHash,
       items
     };
 
@@ -12135,23 +12155,31 @@ function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inpu
     const verify=JSON.parse(localStorage.getItem(snapshotKey(name,nextSlot))||"null");
     if(!verify||verify.hash!==hash||snapshotRowsHash(verify.items,verify.sourceSignature||"")!==hash){
       localStorage.removeItem(snapshotKey(name,nextSlot));
-      return {changed:false,hash:current?.hash||"",items:current?.items||[]};
+      return {
+        changed:false,
+        hash:current?.hash||"",
+        inputHash:current?.inputHash||"",
+        serverHash:current?.serverHash||current?.legacyHash||"",
+        items:current?.items||[]
+      };
     }
 
     localStorage.setItem(snapshotKey(name,"ptr"),JSON.stringify({
       slot:nextSlot,
       hash,
       inputHash:String(inputHash||""),
+      serverHash,
       checkedAt:Date.now()
     }));
     localStorage.removeItem(snapshotKey(name,oldSlot));
-    return {changed:true,hash,inputHash:String(inputHash||""),items};
+    return {changed:true,hash,inputHash:String(inputHash||""),serverHash,items};
   }catch(error){
     console.warn("snapshot commit failed",name,error);
     return {
       changed:false,
       hash:current?.hash||"",
       inputHash:current?.inputHash||"",
+      serverHash:current?.serverHash||current?.legacyHash||"",
       items:current?.items||[]
     };
   }
@@ -12263,8 +12291,9 @@ function applyServerPackage(scope,pkg={}){
   if(!snapshotName||!Array.isArray(pkg?.items)||!expectedHash)return false;
 
   const actualHash=snapshotRowsHash(items,sourceSig);
-  if(actualHash!==expectedHash){
-    console.warn("server package hash mismatch",scope,expectedHash,actualHash);
+  const legacyHash=snapshotRowsHashV330(items,sourceSig);
+  if(actualHash!==expectedHash&&legacyHash!==expectedHash){
+    console.warn("server package hash mismatch",scope,expectedHash,actualHash,legacyHash);
     return false;
   }
 
@@ -12272,7 +12301,8 @@ function applyServerPackage(scope,pkg={}){
   try{
     commitAtomicSnapshot(snapshotName,items,{
       sourceSignature:sourceSig,
-      inputHash:clean(pkg?.input_hash||pkg?.inputHash||"")
+      inputHash:clean(pkg?.input_hash||pkg?.inputHash||""),
+      serverHash:expectedHash
     });
     if(CONTENT_SOURCE_SCOPES.has(scope)){
       state.aiCategoryRows.set(scope,{at:Date.now(),items});
@@ -12304,7 +12334,10 @@ async function hydrateServerPackages({force=false}={}){
 
       // Keep the last complete local reserve if the server manifest is missing
       // or temporarily unavailable. The browser never deletes packaged data.
-      if(remote?.hash&&remote.hash!==local?.hash){
+      const knownLocalHashes=new Set(
+        [local?.hash,local?.legacyHash,local?.serverHash].filter(Boolean)
+      );
+      if(remote?.hash&&!knownLocalHashes.has(remote.hash)){
         downloads.push(
           packageSyncFetch("GET",scope,null,20000)
             .then(pkgResult=>{
