@@ -108,6 +108,7 @@ if(SOURCE_MANAGER_PAGE)document.documentElement.classList.add("source-manager-pa
 const sourceUiChannel=typeof BroadcastChannel==="function"
   ?new BroadcastChannel("1988-source-ui-v1")
   :null;
+const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
 
 const state={
   player:null,
@@ -1848,15 +1849,18 @@ function setSourceStatus(id,status,scope=sourceManageGroup,{remote=false}={}){
 
   if(!remote){
     void queueDirectSourceStateWrite(id,status,scope);
-    try{
-      sourceUiChannel?.postMessage({
-        type:"source-state",
-        id,
-        status:status==="selected"||status==="blocked"?status:"normal",
-        scope,
-        name:clean(stateMetadataCandidate(id)?.name||"")
-      });
-    }catch{}
+    const uiEvent={
+      type:"source-state",
+      id,
+      status:status==="selected"||status==="blocked"?status:"normal",
+      scope,
+      name:clean(stateMetadataCandidate(id)?.name||""),
+      at:Date.now()
+    };
+    try{sourceUiChannel?.postMessage(uiEvent);}catch{}
+    // Safari versions without BroadcastChannel still sync open tabs instantly
+    // through the storage event.
+    try{localStorage.setItem(SOURCE_UI_EVENT_KEY,JSON.stringify(uiEvent));}catch{}
   }
   persistSourceLibrary();
   persistSourceSelection();
@@ -1872,8 +1876,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup,{remote=false}={}){
 
 }
 
-sourceUiChannel?.addEventListener?.("message",event=>{
-  const data=event?.data||{};
+function applySourceUiEvent(data={}){
   if(data?.type!=="source-state")return;
   const id=String(data.id||"").trim();
   const scope=String(data.scope||"").trim();
@@ -1881,6 +1884,15 @@ sourceUiChannel?.addEventListener?.("message",event=>{
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return;
   if(!MANAGED_SOURCE_SCOPES.has(scope)&&scope!==GENERAL_SOURCE_SCOPE)return;
   setSourceStatus(id,status,scope,{remote:true});
+}
+
+sourceUiChannel?.addEventListener?.("message",event=>{
+  applySourceUiEvent(event?.data||{});
+});
+
+window.addEventListener("storage",event=>{
+  if(event.key!==SOURCE_UI_EVENT_KEY||!event.newValue)return;
+  try{applySourceUiEvent(JSON.parse(event.newValue));}catch{}
 });
 
 function selectedSources(scope=GENERAL_SOURCE_SCOPE){
