@@ -3670,3 +3670,34 @@ html.source-manager-page .source-preview{
     height:calc(100% + 4px)!important;
   }
 }
+
+
+/* iPhone 7 portrait iframe viewport fix v347.
+   Disable scroll anchoring and make the generated YouTube iframe an absolute
+   child of the solved 9:16 frame. JS supplies exact pixel width/height to the
+   iframe browsing context after YT.Player is created. */
+@media(max-width:375px) and (max-height:700px){
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results),
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) body,
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-section,
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-card,
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe){
+    overflow-anchor:none!important;
+  }
+
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe){
+    position:relative!important;
+  }
+
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe) iframe,
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe) video,
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) .player-frame:not(.floating-iframe) #yt-player{
+    position:absolute!important;
+    top:0!important;
+    right:auto!important;
+    bottom:auto!important;
+    left:0!important;
+    margin:0!important;
+    transform:translateZ(0)!important;
+  }
+}
