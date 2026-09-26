@@ -6252,6 +6252,58 @@ function responsivePlayerAspect(meta=state.currentMeta||{}){
     16/9;
 }
 
+function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false}={}){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(
+    !frame||
+    frame.classList.contains("floating-iframe")||
+    window.innerWidth>720
+  )return;
+
+  width=Math.max(1,Math.round(Number(width)||frame.clientWidth||window.innerWidth||1));
+  height=Math.max(1,Math.round(Number(height)||frame.clientHeight||1));
+
+  const apply=()=>{
+    if(!frame.isConnected||frame.classList.contains("floating-iframe"))return;
+    const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
+    const host=frame.querySelector("#yt-player");
+    const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
+      node&&list.indexOf(node)===index
+    );
+
+    for(const node of nodes){
+      node.style.setProperty("position","absolute","important");
+      node.style.setProperty("top","0px","important");
+      node.style.setProperty("right","auto","important");
+      node.style.setProperty("bottom","auto","important");
+      node.style.setProperty("left","0px","important");
+      node.style.setProperty("width",width+"px","important");
+      node.style.setProperty("height",height+"px","important");
+      node.style.setProperty("max-width","none","important");
+      node.style.setProperty("max-height","none","important");
+      node.style.setProperty("margin","0","important");
+      node.style.setProperty("transform","translateZ(0)","important");
+    }
+
+    if(iframe){
+      // Numeric attributes force old WebKit to resize the iframe's browsing
+      // context as well as its CSS box. This is what removes the half-black
+      // portrait player on iPhone 7.
+      iframe.setAttribute("width",String(width));
+      iframe.setAttribute("height",String(height));
+      void iframe.offsetHeight;
+    }
+  };
+
+  apply();
+  if(settle){
+    requestAnimationFrame(apply);
+    setTimeout(apply,80);
+    setTimeout(apply,220);
+    setTimeout(apply,520);
+  }
+}
+
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -6371,6 +6423,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
     root.style.setProperty("--watch-stage-w",Math.round(width)+"px");
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
+
+    syncMobileInlinePlayerViewport(width,height,{
+      settle:ratio<.80&&window.innerWidth<=375
+    });
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
     root.style.removeProperty("--watch-player-column-w");
     root.style.removeProperty("--watch-feed-column-w");
@@ -11610,6 +11666,12 @@ function initYouTubePlayer(){
           ["autoplay","encrypted-media","picture-in-picture","fullscreen"].forEach(value=>allow.add(value));
           iframe.setAttribute("allow",Array.from(allow).join("; "));
         }
+        // YT.Player replaces #yt-player with a real iframe only now.
+        // Re-apply the solved portrait geometry so old iOS does not keep the
+        // initial 16:9 iframe viewport.
+        applyResponsivePlayerFrame(state.currentMeta||{});
+        requestAnimationFrame(()=>applyResponsivePlayerFrame(state.currentMeta||{}));
+
         forceCaptionsOff();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
@@ -11634,6 +11696,10 @@ function initYouTubePlayer(){
           // key distinction between the inline 16:9 player box and the actual
           // portrait/square video content inside it.
           scheduleYoutubeContentAspect(event.target);
+          applyResponsivePlayerFrame(state.currentMeta||{});
+          setTimeout(()=>{
+            if(state.currentId)applyResponsivePlayerFrame(state.currentMeta||{});
+          },120);
           applyFloatingIframe();
 
           if(state.mode==="video")statusText.textContent="Video YouTube đang phát";
