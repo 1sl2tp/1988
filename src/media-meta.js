@@ -93,8 +93,23 @@
     return value.startsWith('//')?'https:'+value:value;
   }
 
+  function cleanLiveTitle(value=''){
+    const original=clean(value);
+    if(!original)return '';
+
+    let out=original;
+    const marker=/^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu;
+    for(let i=0;i<3;i++){
+      const next=out.replace(marker,'').trim();
+      if(!next||next===out)break;
+      out=next;
+    }
+    return out||original;
+  }
+
   function title(row={}){
-    return pick(row?._displayTitle,row?.title,row?.name)||'Video';
+    const raw=pick(row?._displayTitle,row?.title,row?.name)||'Video';
+    return row?.isLive===true?cleanLiveTitle(raw):raw;
   }
 
   function thumbnail(row={},id=''){
@@ -343,6 +358,7 @@
     sourceId,
     sourceName,
     sourceAvatar,
+    cleanLiveTitle,
     title,
     thumbnail,
     parseDuration,
