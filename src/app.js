@@ -6292,10 +6292,13 @@ function applyAutoFloatAspect(frame,{force=false}={}){
 
   if(state.floatUserMoved&&state.floatBox){
     const old=state.floatBox;
-    const centerX=(Number(old.left)||0)+(Number(old.width)||size.width)/2;
     const centerY=(Number(old.top)||0)+(Number(old.height)||size.height)/2;
+    const gap=mobileMiniViewport()?10:4;
+    const left=state.floatDock==="left"
+      ?gap
+      :window.innerWidth-size.width-gap;
     placeFloatingAt(frame,{
-      left:centerX-size.width/2,
+      left,
       top:centerY-size.height/2,
       width:size.width,
       height:size.height
@@ -7418,14 +7421,27 @@ function setupWatchMinimizeGesture(){
       try{zone.releasePointerCapture?.(event.pointerId)}catch{}
 
       if(moved){
-        // Commit layout once, after the gesture. During the drag only the
-        // compositor transform moved, avoiding Safari layout/repaint churn.
+        // Commit once after the gesture, then snap to the nearest side and
+        // make that side the single source of truth. This prevents floatBox
+        // coordinates from disagreeing with floatDock after a drag.
+        const movedLeft=drag.left+drag.dx;
+        const movedTop=drag.top+drag.dy;
+        const centerX=movedLeft+drag.width/2;
+        const gap=mobileMiniViewport()?10:4;
+        state.floatDock=centerX<window.innerWidth/2?"left":"right";
+        const snappedLeft=state.floatDock==="left"
+          ?gap
+          :window.innerWidth-drag.width-gap;
+
         placeFloatingAt(frame,{
-          left:drag.left+drag.dx,
-          top:drag.top+drag.dy,
+          left:snappedLeft,
+          top:movedTop,
           width:drag.width,
           height:drag.height
         });
+        frame.classList.toggle("dock-left",state.floatDock==="left");
+        frame.classList.toggle("dock-right",state.floatDock!=="left");
+        updateFloatControlState(frame);
       }else if(state.watchMinimized){
         setWatchMinimized(false);
       }
