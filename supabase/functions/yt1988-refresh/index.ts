@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v20";
+const LIVE_PIPELINE_VERSION="live-v21";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -298,23 +298,31 @@ async function selectedSourceLiveNow(source:any){
     "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
   };
 
-  // One lightweight HEAD per selected channel. Only a channel whose /live URL
-  // currently resolves to a watch URL gets a body request.
-  const headController=new AbortController();
-  const headTimer=setTimeout(()=>headController.abort(),1900);
+  // Probe /live with GET, not HEAD. YouTube does not consistently redirect
+  // HEAD requests for long-running streams, which caused selected channels such
+  // as Giọng Ca Để Đời to be missed even while visibly LIVE.
+  const probeController=new AbortController();
+  const probeTimer=setTimeout(()=>probeController.abort(),2200);
   let finalUrl="";
   try{
-    const head=await fetch(endpoint,{
-      method:"HEAD",
-      signal:headController.signal,
+    const probe=await fetch(endpoint,{
+      method:"GET",
+      signal:probeController.signal,
       cache:"no-store",
       redirect:"follow",
-      headers
+      headers:{
+        ...headers,
+        "accept":"text/html,application/xhtml+xml"
+      }
     });
-    if(!head.ok)return null;
-    finalUrl=String(head.url||"");
+    if(!probe.ok)return null;
+    finalUrl=String(probe.url||"");
+
+    // We only need the redirect target here. Cancel the body immediately so
+    // scanning the selected library stays lightweight.
+    try{await probe.body?.cancel();}catch{}
   }finally{
-    clearTimeout(headTimer);
+    clearTimeout(probeTimer);
   }
 
   const videoIdValue=
