@@ -3728,12 +3728,24 @@ html.source-manager-page .source-preview{
   }
 }
 
-/* Mobile Watch interaction v362.
+/* Mobile Watch interaction v363.
    Opening a video hides Search/Source chrome. A downward swipe from the thin
    gesture strip at the top of the video returns to browse with a mini-player. */
 @media(max-width:720px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-search{
+    display:grid!important;
+    width:40px!important;
+    min-width:40px!important;
+    grid-template-columns:40px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .home-search-toggle{
     display:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .source-header-btn{
+    grid-column:1!important;
+    grid-row:1!important;
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results)
