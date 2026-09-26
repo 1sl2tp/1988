@@ -5016,12 +5016,15 @@ function openSourceLibrary(){
   // Open the manager on the tab the user is currently viewing. This is
   // especially important just after creating a new hashtag: "Nguồn" must open
   // that hashtag, not jump back to Live.
-  const currentScope=activeSourceScope();
-  sourceManageGroup=MANAGED_SOURCE_SCOPES.has(currentScope)
-    ?currentScope
+  const requestedScope=SOURCE_MANAGER_PAGE
+    ?sourceScope(SOURCE_MANAGER_SCOPE_PARAM)
+    :activeSourceScope();
+  sourceManageGroup=MANAGED_SOURCE_SCOPES.has(requestedScope)
+    ?requestedScope
     :LIVE_SOURCE_SCOPE;
 
   setSourceManageMode(true,{render:false});
+  setSourceAdminTab("sources");
   resetSourcePreviewPane();
   if(sourceBrowse)sourceBrowse.hidden=false;
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
@@ -13954,6 +13957,35 @@ async function bootstrap1988(){
   if(sourcesBtn){
     sourcesBtn.disabled=false;
     sourcesBtn.removeAttribute("title");
+  }
+
+  if(SOURCE_MANAGER_PAGE){
+    const openDedicatedManager=()=>{
+      openSourceLibrary();
+      if(sourceFiltersContent){
+        if(liveKeywordTools&&!sourceFiltersContent.contains(liveKeywordTools))sourceFiltersContent.appendChild(liveKeywordTools);
+        if(sourceLocalTools&&!sourceFiltersContent.contains(sourceLocalTools))sourceFiltersContent.appendChild(sourceLocalTools);
+      }
+      setSourceAdminTab("sources");
+    };
+
+    requestSettingsAccess(openDedicatedManager);
+
+    void sourceStatePromise.then(async ok=>{
+      if(!ok)return;
+      applySourceGroupLabelsUi();
+      renderParentCategories();
+      if(sourcesSheet&&!sourcesSheet.hidden){
+        sourceManageGroup=MANAGED_SOURCE_SCOPES.has(sourceScope(SOURCE_MANAGER_SCOPE_PARAM))
+          ?sourceScope(SOURCE_MANAGER_SCOPE_PARAM)
+          :sourceManageGroup;
+        refreshSourceManager();
+        renderSourceLabelsPanel();
+        renderSourcePreviewScopes();
+      }
+      await warmManagedAvatarImages(600);
+    });
+    return;
   }
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
