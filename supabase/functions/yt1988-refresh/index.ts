@@ -17,9 +17,24 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v23";
+const LIVE_PIPELINE_VERSION="live-v24";
+const NON_LIVE_PIPELINE_VERSION="non-live-v1";
+const NON_LIVE_VERIFY_BATCH=120;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
+const YT_PLAYER_CLIENTS:any[]=[
+  {
+    clientName:"WEB",
+    clientVersion:YT_WEB_PLAYER_CLIENT_VERSION,
+    userAgent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+  },
+  {
+    clientName:"ANDROID",
+    clientVersion:"20.10.38",
+    androidSdkVersion:35,
+    userAgent:"com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+  }
+];
 const LIVE_SELECTED_CANDIDATES_PER_SOURCE=4;
 const LIVE_SELECTED_SOURCES_PER_RUN=24;
 const LIVE_SEARCH_QUERIES=[
