@@ -158,6 +158,11 @@
         </div>
         <button id="closeSourcesSheet" type="button" aria-label="Đóng">×</button>
       </div>
+      <nav id="sourceAdminTabs" class="source-admin-tabs" aria-label="Quản trị nguồn">
+        <button class="source-admin-tab active" type="button" data-source-admin-tab="sources">Nguồn</button>
+        <button class="source-admin-tab" type="button" data-source-admin-tab="labels">Nhãn</button>
+        <button class="source-admin-tab" type="button" data-source-admin-tab="filters">Bộ lọc</button>
+      </nav>
       <div id="sourceGroupNav" class="source-group-nav" hidden>
         <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
         <div id="sourceGroupTabs" class="source-group-tabs"></div>
@@ -166,7 +171,7 @@
         <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
       </div>
 
-      <div class="source-workspace">
+      <div id="sourceWorkspace" class="source-workspace">
         <div id="sourceBrowse" class="source-browse">
           <div class="source-pane-label">Tìm nguồn</div>
           <div class="source-search-bar">
@@ -210,6 +215,8 @@
             <button id="sourcePreviewSelect" class="source-preview-select" type="button" hidden>Chọn nguồn</button>
           </div>
 
+          <div id="sourcePreviewScopes" class="source-preview-scopes" hidden></div>
+
           <div id="sourceVideoPopup" class="source-video-popup" hidden>
             <div class="source-video-popup-card">
               <div class="source-video-popup-source">
@@ -242,6 +249,27 @@
           </div>
         </div>
       </div>
+
+      <section id="sourceLabelsPanel" class="source-admin-panel source-labels-panel" hidden>
+        <div class="source-admin-panel-head">
+          <div>
+            <strong>Quản lý nhãn nguồn</strong>
+            <span>Đổi tên, thêm nhãn và xem số nguồn đang chọn.</span>
+          </div>
+          <button id="sourceLabelsAdd" type="button">+ Thêm nhãn</button>
+        </div>
+        <div id="sourceLabelsList" class="source-labels-list"></div>
+      </section>
+
+      <section id="sourceFiltersPanel" class="source-admin-panel source-filters-panel" hidden>
+        <div class="source-admin-panel-head">
+          <div>
+            <strong>Bộ lọc nguồn</strong>
+            <span>Quản lý từ khóa chặn và dữ liệu cục bộ.</span>
+          </div>
+        </div>
+        <div id="sourceFiltersContent" class="source-filters-content"></div>
+      </section>
     </div>
   </div>
 
