@@ -6407,7 +6407,8 @@ function placeAutoFloatAtEdge(frame,size){
   const safe=floatingSafeInsets();
   const mobile=mobileMiniViewport();
   const sideGap=mobile?10:gap;
-  const dockLeft=state.floatDock==="left";
+  if(mobile)state.floatDock="right";
+  const dockLeft=!mobile&&state.floatDock==="left";
 
   frame.style.width=size.width+"px";
   frame.style.height=size.height+"px";
@@ -7624,6 +7625,9 @@ function setupWatchMinimizeGesture(){
 
     zone.addEventListener("pointerdown",event=>{
       if(!state.watchMinimized||event.isPrimary===false)return;
+      // Mobile PiP has one stable home: top-right. Tapping reveals controls;
+      // dragging is deliberately disabled so page scrolling never fights PiP.
+      if(mobileMiniViewport())return;
       const rect=frame.getBoundingClientRect();
       const safe=floatingSafeInsets();
       const gap=4;
