@@ -6686,6 +6686,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-feed-column-w");
     root.style.removeProperty("--watch-feed-content-w");
     root.style.removeProperty("--watch-scroll-gutter");
+    root.style.removeProperty("--watch-feed-pad-left");
+    root.style.removeProperty("--watch-feed-pad-right");
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
@@ -6758,6 +6760,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.removeProperty("--watch-feed-column-w");
     root.style.removeProperty("--watch-feed-content-w");
     root.style.removeProperty("--watch-scroll-gutter");
+    root.style.removeProperty("--watch-feed-pad-left");
+    root.style.removeProperty("--watch-feed-pad-right");
     root.style.removeProperty("--watch-grid-gap");
     root.style.removeProperty("--watch-feed-cols");
     root.style.removeProperty("--watch-player-top-offset");
@@ -6786,6 +6790,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
     const gridGap=14;
     const scrollGutter=10;
+    const feedPadLeft=10;
+    const feedPadRight=22;
+    const feedChrome=feedPadLeft+feedPadRight+scrollGutter;
     const portrait=ratio<.8;
     const wide=ratio>=1.2;
 
@@ -6841,7 +6848,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       // the portrait player; if even one card cannot fit, only the card shrinks.
       const feedRoom=Math.max(
         1,
-        innerWidth-playerWidth-gridGap-scrollGutter
+        innerWidth-playerWidth-gridGap-feedChrome
       );
       const preferredUnit=playerWidth;
 
@@ -6868,7 +6875,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
       const playerSpan=wide?2:1;
       const widthUnit=Math.max(
         1,
-        (innerWidth-(gridGap*3)-scrollGutter)/4
+        (innerWidth-(gridGap*3)-feedChrome)/4
       );
 
       if(wide){
@@ -6886,7 +6893,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const feedContentWidth=
       feedColumns*unit+
       Math.max(0,feedColumns-1)*gridGap;
-    const feedColumnWidth=feedContentWidth+scrollGutter;
+    const feedColumnWidth=feedContentWidth+feedChrome;
 
     root.style.setProperty("--watch-card-unit",Math.round(unit*100)/100+"px");
     root.style.setProperty("--watch-grid-gap",gridGap+"px");
@@ -6894,6 +6901,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-feed-content-w",Math.round(feedContentWidth*100)/100+"px");
     root.style.setProperty("--watch-feed-column-w",Math.round(feedColumnWidth*100)/100+"px");
     root.style.setProperty("--watch-scroll-gutter",scrollGutter+"px");
+    root.style.setProperty("--watch-feed-pad-left",feedPadLeft+"px");
+    root.style.setProperty("--watch-feed-pad-right",feedPadRight+"px");
     root.style.setProperty("--watch-player-column-w",Math.round(playerWidth*100)/100+"px");
     root.style.setProperty("--watch-player-top-offset",Math.round(playerTopOffset)+"px");
 
