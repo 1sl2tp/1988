@@ -131,7 +131,7 @@ function metaMap(){
   return out;
 }
 
-function scopeSet(kind,scope=state.scope){
+function directScopeSet(kind,scope=state.scope){
   const src=
     kind==="selected"
       ?state.remote?.scopedSelected
@@ -141,10 +141,37 @@ function scopeSet(kind,scope=state.scope){
   return new Set(Array.isArray(src?.[scope])?src[scope]:[]);
 }
 
+function liveEffectiveSelectedSet(){
+  const blocked=directScopeSet("blocked","live");
+  const selected=new Set();
+
+  // LIVE uses one effective selected library:
+  // 1) channels selected manually in LIVE
+  // 2) every channel selected in any enabled non-LIVE source
+  // 3) LIVE's own blocked list always wins
+  for(const scope of state.scopes){
+    for(const id of directScopeSet("selected",scope.key)){
+      if(!blocked.has(id))selected.add(id);
+    }
+  }
+  return selected;
+}
+
+function isInheritedLiveSelected(id){
+  id=String(id||"").trim();
+  if(state.scope!=="live"||!id)return false;
+  return liveEffectiveSelectedSet().has(id)&&!directScopeSet("selected","live").has(id);
+}
+
+function scopeSet(kind,scope=state.scope){
+  if(kind==="selected"&&scope==="live")return liveEffectiveSelectedSet();
+  return directScopeSet(kind,scope);
+}
+
 function sourceStatus(id,scope=state.scope){
-  if(scopeSet("blocked",scope).has(id))return"blocked";
+  if(directScopeSet("blocked",scope).has(id))return"blocked";
   if(scopeSet("selected",scope).has(id))return"selected";
-  if(scopeSet("suggested",scope).has(id))return"suggested";
+  if(directScopeSet("suggested",scope).has(id))return"suggested";
   return"normal";
 }
 
@@ -271,23 +298,29 @@ function actionLabel(kind){
 
 function cardMarkup(row,kind){
   let actions="";
+  const inherited=kind==="selected"&&isInheritedLiveSelected(row.id);
   if(kind==="suggested"){
     actions=
       '<button class="action-icon select" data-card-action="selected" data-id="'+esc(row.id)+'" title="Chọn" aria-label="Chọn">✓</button>'+
       '<button class="action-icon block" data-card-action="blocked" data-id="'+esc(row.id)+'" title="Chặn" aria-label="Chặn">×</button>';
   }else if(kind==="selected"){
-    actions=
-      '<button class="action-icon remove" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ khỏi nguồn" aria-label="Bỏ khỏi nguồn">×</button>';
+    actions=inherited
+      ?'<button class="action-icon block" data-card-action="blocked" data-id="'+esc(row.id)+'" title="Chặn khỏi Live" aria-label="Chặn khỏi Live">×</button>'
+      :'<button class="action-icon remove" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ khỏi nguồn" aria-label="Bỏ khỏi nguồn">×</button>';
   }else{
     actions=
       '<button class="action-icon restore" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ chặn" aria-label="Bỏ chặn">↺</button>';
   }
 
-  return '<div class="channel-card" data-card-id="'+esc(row.id)+'">'+
+  const sub=inherited
+    ?[clean(row.subscribers||""),"Đã có từ nguồn khác"].filter(Boolean).join(" · ")
+    :clean(row.subscribers||"");
+
+  return '<div class="channel-card'+(inherited?' inherited':'')+'" data-card-id="'+esc(row.id)+'">'+
     avatarMarkup(row)+
     '<button class="channel-copy" data-open-channel="'+esc(row.id)+'">'+
       '<strong title="'+esc(row.name||row.id)+'">'+esc(row.name||row.id)+'</strong>'+
-      '<span>'+esc(row.subscribers||"")+'</span>'+
+      '<span>'+esc(sub)+'</span>'+
     '</button>'+
     '<div class="card-actions">'+actions+'</div>'+
   '</div>';
@@ -331,7 +364,8 @@ function searchResultMarkup(row){
     '</button>';
   }
 
-  const currentAction=status==="selected"?"Bỏ":"Chọn";
+  const inheritedLive=state.scope==="live"&&isInheritedLiveSelected(row.id);
+  const currentAction=inheritedLive?"Đã có":status==="selected"?"Bỏ":"Chọn";
   const blockAction=status==="blocked"?"Bỏ chặn":"Chặn";
 
   const otherScopes=state.scopes
@@ -347,7 +381,7 @@ function searchResultMarkup(row){
     media+
     copy+
     '<div class="card-actions">'+
-      '<button class="action-icon select" data-search-select="'+esc(row.id)+'" title="'+esc(currentAction)+'" aria-label="'+esc(currentAction)+'">✓</button>'+
+      '<button class="action-icon select" data-search-select="'+esc(row.id)+'" title="'+esc(currentAction)+'" aria-label="'+esc(currentAction)+'"'+(inheritedLive?' disabled':'')+'>✓</button>'+
       '<button class="action-icon block" data-search-block="'+esc(row.id)+'" title="'+esc(blockAction)+'" aria-label="'+esc(blockAction)+'">×</button>'+
       '<button class="action-icon more" data-toggle-other="'+esc(row._resultKey||row.id)+'" title="Nguồn khác" aria-label="Nguồn khác">…</button>'+
     '</div>'+
