@@ -4284,7 +4284,7 @@ body::-webkit-scrollbar-corner,
 }
 
 
-/* Desktop full-card colour hover v402.
+/* Desktop full-card colour hover v403.
    YouTube-like hover panel: colour belongs to the whole card, including the
    image + metadata area. The panel grows visually with a pseudo-element, so
    grid geometry never changes and neighboring cards never reflow. */
@@ -4302,6 +4302,16 @@ body::-webkit-scrollbar-corner,
     background:transparent!important;
     border-color:transparent!important;
     transition:none!important;
+  }
+
+  /* Thumbnail geometry is permanent. Hover changes only the surrounding
+     colour panel; the image itself never changes radius or size. */
+  .feed>.card .thumb-wrap{
+    border-radius:13px!important;
+    overflow:hidden!important;
+  }
+  .feed>.card .thumb-wrap img{
+    border-radius:13px!important;
   }
 
   .feed>.card::before{
@@ -4347,13 +4357,8 @@ body::-webkit-scrollbar-corner,
   }
 
   .feed>.card.desktop-accent-hover .thumb-wrap{
-    border-radius:13px!important;
     box-shadow:
       0 0 0 1px var(--desktop-card-accent-line,rgba(255,255,255,.08));
-  }
-
-  .feed>.card.desktop-accent-hover .thumb-wrap img{
-    border-radius:13px!important;
   }
 
   .feed>.card.desktop-accent-hover .card-copy{
