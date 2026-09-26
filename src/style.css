@@ -4724,7 +4724,7 @@ body::-webkit-scrollbar-corner,
     min-height:0!important;
     max-height:none!important;
     overflow:visible!important;
-    overscroll-behavior:visible!important;
+    overscroll-behavior:auto!important;
     -webkit-overflow-scrolling:auto!important;
   }
 
