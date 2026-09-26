@@ -189,7 +189,7 @@ function repairImeCommittedQuery(value,state={}){
     if(!previous||previous===current)continue;
     if(Date.now()-Number(history[i]?.at||0)>1800)continue;
 
-    const lastWord=previous.split(/\s+/).filter(Boolean).at(-1)||"";
+    const lastWord=(()=>{const words=previous.split(/\s+/).filter(Boolean);return words[words.length-1]||"";})();
     // Typical Vietnamese IME Enter bug:
     //   jack -> jackjack
     //   anh tho -> anh thotho
@@ -203,7 +203,7 @@ function repairImeCommittedQuery(value,state={}){
   // two equal halves (jackjack, thotho). Require >=3 chars per half so common
   // short words such as "mama" are not rewritten.
   const parts=current.split(/\s+/);
-  const tail=parts.at(-1)||"";
+  const tail=parts[parts.length-1]||"";
   if(tail.length>=6&&tail.length%2===0){
     const half=tail.length/2;
     const left=tail.slice(0,half);
@@ -249,7 +249,7 @@ function bindCommittedSearchInput(input,commit,{form=null}={}){
   const remember=value=>{
     const next=normalizeCommittedSearchQuery(value);
     if(!next)return;
-    const last=state.history.at(-1);
+    const last=state.history[state.history.length-1];
     if(last?.value===next){
       last.at=Date.now();
       return;
@@ -9305,7 +9305,7 @@ function filmEpisodeSequenceScore(episodes=[]){
   for(let i=1;i<nums.length;i++){
     if(nums[i]===nums[i-1]+1)adjacent++;
   }
-  return {count:nums.length,adjacent,first:nums[0]||0,last:nums.at(-1)||0};
+  return {count:nums.length,adjacent,first:nums[0]||0,last:nums[nums.length-1]||0};
 }
 
 function buildFilmSeriesGroups(rows=[],seed="",scope="film"){
@@ -10332,7 +10332,9 @@ function fallbackBriefFromMeta(meta={}){
   const title=clean(meta?._displayTitle||meta?.title||"");
   const channel=clean(searchChannelName(meta)||meta?.uploader||"");
   const description=clean(meta?.description||meta?.shortDescription||"");
-  const firstSentence=description?clean(description.split(/(?<=[.!?])\s+/)[0]||description).slice(0,210):"";
+  const firstSentence=description
+    ?clean((description.match(/^[\s\S]*?[.!?](?:\s|$)/)||[description])[0]||description).slice(0,210)
+    :"";
   const lines=[];
   if(firstSentence)lines.push(firstSentence);
   if(!firstSentence&&channel)lines.push("Video từ "+channel+".");
