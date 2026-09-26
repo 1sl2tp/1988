@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111114">
+  <title>Quản lý nguồn · 1988</title>
+  <link rel="stylesheet" href="./sources.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="../" aria-label="Về 1988"><span class="brand-mark">▶</span><strong>1988</strong></a>
+    <div class="title-wrap"><strong>Quản lý nguồn</strong><span id="scopeSummary"></span></div>
+    <button id="closePage" class="ghost">Đóng</button>
+  </header>
+
+  <nav class="main-tabs" aria-label="Quản lý">
+    <button class="main-tab active" data-main-tab="sources">Nguồn</button>
+    <button class="main-tab" data-main-tab="labels">Nhãn</button>
+    <button class="main-tab" data-main-tab="filters">Bộ lọc</button>
+  </nav>
+
+  <main>
+    <section id="sourcesTab" class="tab-panel">
+      <div class="scope-row-wrap">
+        <div id="scopeRow" class="scope-row"></div>
+      </div>
+
+      <div class="source-layout">
+        <aside class="source-sidebar">
+          <div class="search-mode">
+            <button class="search-mode-btn active" data-search-mode="channel">Kênh</button>
+            <button class="search-mode-btn" data-search-mode="video">Video</button>
+          </div>
+
+          <form id="searchForm" class="search-box">
+            <input id="searchInput" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
+              placeholder="Tìm kênh YouTube">
+            <button type="submit">Tìm</button>
+          </form>
+
+          <div class="state-tabs">
+            <button class="state-tab active" data-state-tab="suggested">Gợi ý <span id="suggestedCount">0</span></button>
+            <button class="state-tab" data-state-tab="selected">Đã chọn <span id="selectedCount">0</span></button>
+            <button class="state-tab" data-state-tab="blocked">Đã chặn <span id="blockedCount">0</span></button>
+          </div>
+
+          <div id="sourceListStatus" class="status"></div>
+          <div id="sourceList" class="source-list"></div>
+        </aside>
+
+        <section class="source-detail">
+          <div id="detailEmpty" class="detail-empty">
+            <strong>Chọn một kênh để làm việc</strong>
+            <span>Tìm kênh hoặc video ở bên trái, sau đó xem video mới nhất và thêm vào nguồn cần dùng.</span>
+          </div>
+
+          <div id="detailContent" hidden>
+            <div class="detail-head">
+              <div class="detail-identity">
+                <div id="detailAvatar" class="detail-avatar"></div>
+                <div><strong id="detailName"></strong><span id="detailMeta"></span></div>
+              </div>
+              <div class="detail-primary-actions">
+                <button id="detailSelect" class="primary"></button>
+                <button id="detailBlock" class="danger"></button>
+              </div>
+            </div>
+
+            <div class="assign-row">
+              <span>Thêm vào nguồn</span>
+              <div id="assignScopes" class="assign-scopes"></div>
+            </div>
+
+            <div class="detail-toolbar">
+              <strong>Video mới nhất</strong>
+              <form id="detailSearchForm">
+                <input id="detailSearchInput" type="search" inputmode="search" enterkeyhint="search"
+                  placeholder="Tìm video khác">
+              </form>
+            </div>
+
+            <div id="videoGrid" class="video-grid"></div>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <section id="labelsTab" class="tab-panel" hidden>
+      <div class="panel-head">
+        <div><strong>Nhãn nguồn</strong><span>Thêm, đổi tên và mở nhanh từng nhãn để quản lý nguồn.</span></div>
+        <button id="addLabel" class="primary">+ Thêm nhãn</button>
+      </div>
+      <div id="labelsList" class="labels-list"></div>
+    </section>
+
+    <section id="filtersTab" class="tab-panel" hidden>
+      <div class="panel-head"><div><strong>Bộ lọc</strong><span>Quản lý từ khóa chặn và dữ liệu cục bộ.</span></div></div>
+      <div class="filters-grid">
+        <section class="filter-card">
+          <strong>Từ khóa chặn Live</strong>
+          <span>Live có tiêu đề hoặc tên kênh chứa cụm từ này sẽ bị ẩn.</span>
+          <div class="filter-entry"><input id="keywordInput" type="text" placeholder="Nhập từ hoặc cụm từ"><button id="keywordAdd">Thêm</button></div>
+          <div id="keywordChips" class="keyword-chips"></div>
+        </section>
+        <section class="filter-card">
+          <strong>Dữ liệu trên máy này</strong>
+          <span>Xóa cache/snapshot cũ và tải lại. Nguồn đã chọn/chặn nằm trên máy chủ.</span>
+          <button id="resetLocal" class="secondary">Dọn dữ liệu & cập nhật</button>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <div id="auth" class="auth" hidden>
+    <form id="authForm" class="auth-card">
+      <strong>Mở Quản lý nguồn</strong>
+      <span>Nhập mã quản trị</span>
+      <input id="authPin" inputmode="numeric" autocomplete="off" maxlength="8">
+      <div id="authError" class="auth-error"></div>
+      <button class="primary">Mở</button>
+    </form>
+  </div>
+
+  <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
+  <script src="./sources.js?v=1"></script>
+</body>
+</html>
