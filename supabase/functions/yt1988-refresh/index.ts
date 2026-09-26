@@ -855,23 +855,20 @@ Deno.serve(async(req:Request)=>{
       }
     }
 
-    for(const scope of SCOPES){
-      const blocked=blockedByScope.get(scope)||new Set();
-      selectedByScope.set(
-        scope,
-        (selectedByScope.get(scope)||[]).filter((s:any)=>!blocked.has(s.id))
-      );
-    }
+    // Only LIVE owns a blacklist. Non-live scopes are simple selected
+    // channel lists; a channel is either selected in that scope or it is not.
+    const liveBlockedIds=blockedByScope.get("live")||new Set<string>();
+    selectedByScope.set(
+      "live",
+      (selectedByScope.get("live")||[]).filter((s:any)=>!liveBlockedIds.has(s.id))
+    );
 
     let liveKeywords:string[]=[];
     let verifiedLiveRowsCache:any[]=[];
 
-    // Shared block set is applied to both LIVE sources:
-    // Source 1 = external search; Source 2 = chosen channels from every tab.
-    const allBlockedLiveSourceIds=new Set<string>(generalBlockedIds);
-    for(const scope of SCOPES){
-      for(const id of blockedByScope.get(scope)||[])allBlockedLiveSourceIds.add(id);
-    }
+    // The LIVE blacklist applies to both LIVE sources:
+    // Source 1 = external search; Source 2 = selected channels.
+    const allBlockedLiveSourceIds=new Set<string>(liveBlockedIds);
 
     const explicitLiveSources=selectedByScope.get("live")||[];
     const explicitLiveIds=new Set(explicitLiveSources.map((source:any)=>source.id));
