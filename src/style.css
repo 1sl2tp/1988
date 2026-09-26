@@ -4680,3 +4680,56 @@ body::-webkit-scrollbar-corner,
     margin-top:0!important;
   }
 }
+
+
+/* Unified mobile Watch scrolling v409.
+   Portrait already used one page-level scroller; landscape/square still kept
+   an inner .feed-section scroller. Use the same body scroller for every video
+   aspect so the first card always starts at the top and PiP reacts to one flow. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results){
+    width:100%!important;
+    height:100%!important;
+    min-height:100%!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    position:fixed!important;
+    inset:0!important;
+    width:100%!important;
+    height:100vh!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    overscroll-behavior-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    grid-template-rows:
+      calc(var(--safe-top) + var(--watch-stage-h,56.25vw))
+      var(--watch-source-row-h)
+      auto!important;
+  }
+
+  @supports(height:100dvh){
+    html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+      height:100dvh!important;
+    }
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:visible!important;
+    overscroll-behavior:visible!important;
+    -webkit-overflow-scrolling:auto!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    top:0!important;
+    transform:none!important;
+  }
+}
