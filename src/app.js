@@ -154,6 +154,7 @@ const state={
   floatGesture:null,
   floatBox:null,
   floatUserSized:false,
+  floatUserMoved:false,
   videoAspect:16/9,
   keepFloating:false,
   watchMinimized:false,
@@ -11620,12 +11621,16 @@ async function playVideo(id,seedMeta={}){
   document.documentElement.classList.remove("watch-search-open","watch-search-results","watch-categories-open");
   hideContextBrief();
   const frame=playerSection?.querySelector(".player-frame");
-  if(state.watchMinimized||document.documentElement.classList.contains("watch-minimized")){
-    state.watchMinimized=false;
-    document.documentElement.classList.remove("watch-minimized");
-    applyFloatingIframe(false);
+  const keepMinimized=!!(
+    state.watchMinimized ||
+    document.documentElement.classList.contains("watch-minimized") ||
+    frame?.classList.contains("floating-iframe")
+  );
+  if(keepMinimized){
+    state.watchMinimized=true;
+    document.documentElement.classList.add("watch-minimized");
   }
-  const wasFloating=!!frame?.classList.contains("floating-iframe");
+  const wasFloating=keepMinimized;
   const keepScrollY=window.scrollY;
   const previousAspect=validPipAspect(state.videoAspect)||16/9;
   const cachedAspect=cachedPipAspect(id);
@@ -11674,7 +11679,10 @@ async function playVideo(id,seedMeta={}){
     (!cachedAspect&&seedPortrait);
   state.videoAspectSourceRank=cachedAspect?3:(seedPortrait?1:0);
   state.floatPreset="auto";
-  state.floatUserSized=false;
+  if(!keepMinimized){
+    state.floatUserSized=false;
+    state.floatUserMoved=false;
+  }
   state.floatTucked=false;
 
   // Warm/resolve the real media shape for BOTH inline watch and fake PiP.
@@ -11697,10 +11705,16 @@ async function playVideo(id,seedMeta={}){
 
   if(wasFloating&&frame){
     const floatRect=frame.getBoundingClientRect();
-    state.floatBox={top:floatRect.top};
+    state.floatBox={
+      left:floatRect.left,
+      top:floatRect.top,
+      width:floatRect.width,
+      height:floatRect.height
+    };
 
-    // Resize the existing PiP for the selected video BEFORE loadVideoById().
+    // Keep the mini-player in place while swapping the selected video.
     applyAutoFloatAspect(frame,{force:true});
+    syncFloatingPlayerViewport(frame);
     updateFloatControlState(frame);
   }
   state.intentPlay=true;
