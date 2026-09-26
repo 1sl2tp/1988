@@ -1,0 +1,41 @@
+name: Probe New 1988 Render V4
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe V4 Node stream backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://one988-1od3.onrender.com'
+          ID='8JA5ODE64c4'
+
+          echo '=== HEALTH ==='
+          curl -sS --fail-with-body --max-time 60 "$BASE/health" -o /tmp/health.json
+          cat /tmp/health.json
+          jq -r '.service,.version // ""' /tmp/health.json || true
+
+          echo
+          echo '=== VIDEO STREAM ==='
+          rm -f /tmp/video.bin /tmp/video.headers
+          curl -sS -L --max-time 20 -D /tmp/video.headers "$BASE/stream?v=$ID" -o /tmp/video.bin || true
+          cat /tmp/video.headers || true
+          wc -c /tmp/video.bin || true
+          true
+
+          echo
+          echo '=== AUDIO STREAM ==='
+          rm -f /tmp/audio.bin /tmp/audio.headers
+          curl -sS -L --max-time 20 -D /tmp/audio.headers "$BASE/audio?v=$ID" -o /tmp/audio.bin || true
+          cat /tmp/audio.headers || true
+          wc -c /tmp/audio.bin || true
+          true
