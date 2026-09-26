@@ -8249,7 +8249,7 @@ function renderCurrentTrendFeed(){
   state.activeTrend="";
   state.trendTopics=[];
   renderTrendTopics();
-  renderCards(state.feedRows);
+  renderCards(state.feedRows,{trustedPackage:true});
 }
 
 async function refreshAiTrendTopics(){
@@ -13407,7 +13407,7 @@ topicChips.addEventListener("click",async e=>{
     if(instant.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instant});
       const visible=instant;
-      renderCards(visible);
+      renderCards(visible,{trustedPackage:true});
       feedStatus.textContent=visible.length?visible.length+" video":"";
       void prewarmRowSourceAvatars(visible,480);
     }else{
