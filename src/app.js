@@ -11262,9 +11262,28 @@ async function playVideo(id,seedMeta={}){
   state.videoPlaying=wasFloating;
   playerSection.hidden=false;
   // Activate the final watch+browse layout immediately when a video opens.
-  // No scroll threshold and no scroll compensation: the scrollbar stays put.
   syncWatchBrowseLayout();
   if(!wasFloating)applyFloatingIframe(false);
+
+  // iPhone 7 / older Safari can preserve the Search/Home page scroll offset
+  // while the layout switches to a tall portrait Watch stage. The new player
+  // then starts halfway down the viewport even though its CSS row is correct.
+  // A newly opened mobile video should always start from the top of Watch.
+  if(window.innerWidth<=720&&!wasFloating){
+    hardResetDocumentTop();
+    if(feedSection){
+      feedSection.scrollTop=0;
+      feedSection.scrollLeft=0;
+    }
+    requestAnimationFrame(()=>{
+      if(state.currentId!==id)return;
+      hardResetDocumentTop();
+    });
+    setTimeout(()=>{
+      if(state.currentId!==id)return;
+      hardResetDocumentTop();
+    },180);
+  }
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
