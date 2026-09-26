@@ -18,8 +18,8 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v4";
-const NON_LIVE_VERIFY_BATCH=120;
+const NON_LIVE_PIPELINE_VERSION="non-live-v5";
+const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
 const YT_PLAYER_CLIENTS:any[]=[
@@ -1320,6 +1320,18 @@ Deno.serve(async(req:Request)=>{
       for(const source of selectedByScope.get(scope)||[])verificationScopeChannelIds.add(source.id);
     }
 
+    const currentPackageVideoIds=new Set<string>();
+    for(const scope of scopes){
+      if(scope==="live")continue;
+      const currentItems=Array.isArray(currentByScope.get(scope)?.items)
+        ?currentByScope.get(scope).items
+        :[];
+      for(const row of currentItems){
+        const id=videoId(row);
+        if(id)currentPackageVideoIds.add(id);
+      }
+    }
+
     const verificationCandidates:any[]=[];
     const verificationCandidateIds=new Set<string>();
     for(const [candidateChannelId,items] of channelRows){
@@ -1355,11 +1367,15 @@ Deno.serve(async(req:Request)=>{
           age,
           duration,
           needDuration,
-          needShort
+          needShort,
+          inCurrentPackage:currentPackageVideoIds.has(id)
         });
       }
     }
-    verificationCandidates.sort((a,b)=>a.age-b.age);
+    verificationCandidates.sort((a,b)=>
+      Number(b.inCurrentPackage)-Number(a.inCurrentPackage)||
+      a.age-b.age
+    );
 
     const verificationMeta=new Map<string,any>();
     await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
@@ -1373,22 +1389,16 @@ Deno.serve(async(req:Request)=>{
           :Promise.resolve(false)
       ]);
 
-      // Exact video-ID search is the primary NON-LIVE duration source because
-      // it is fast and already returns duration/channel metadata. Player
-      // metadata is only the fallback when exact search cannot resolve it.
-      const playerMeta=candidate.needDuration&&Number(searchMeta?.duration)<=0
-        ?await youtubePlayerMetadata(candidate.id)
-        :{duration:candidate.duration,isLive:false};
+      // Keep the package path simple and bounded: exact video-ID search is the
+      // duration source. If it cannot resolve a row, that row stays out of the
+      // next package and is retried on a later scheduled refresh.
       const duration=Number(searchMeta?.duration)>0
         ?Number(searchMeta.duration)
-        :Number(playerMeta?.duration)>0
-          ?Number(playerMeta.duration)
-          :candidate.duration||0;
+        :candidate.duration||0;
 
       verificationMeta.set(candidate.id,{
-        ...playerMeta,
         duration,
-        isLive:playerMeta?.isLive===true||searchMeta?.isLive===true,
+        isLive:searchMeta?.isLive===true,
         isShort:isShort===true,
         sourceName:validChannelDisplayName(searchMeta?.sourceName||""),
         sourceThumbnailUrl:clean(searchMeta?.sourceThumbnailUrl||"",1000),
@@ -1587,33 +1597,22 @@ Deno.serve(async(req:Request)=>{
       let raw:any[]=[];
 
       for(const source of selected){
-        for(const row of channelRows.get(source.id)||[])raw.push(row);
+        const canonicalSource=channelMeta.get(source.id)||source;
+        for(const row of channelRows.get(source.id)||[]){
+          const normalized=normalizeRow(row,canonicalSource);
+          if(normalized)raw.push(normalized);
+        }
       }
 
       if(scope!=="live"){
-        const relevantRows=raw.filter((r:any)=>{
-          const age=ageMs(r);
-          if(scope==="latest")return Number.isFinite(age)&&age>=0&&age<DAY_MS;
-          if(scope==="week")return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
-          return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
-        });
-        const unresolved=relevantRows.filter((r:any)=>
-          !isLive(r)&&
-          !isTooShortVideo(r)&&
-          (!Number(r?._shortCheckedAt)||durationSeconds(r)<=0)
-        );
-        if(unresolved.length){
-          // Keep verification moving, but never hold the whole package hostage.
-          // Unverified rows stay out until both Shorts status and duration are known.
-          degradedNotes.push(scope+":non_live_verification_pending="+unresolved.length);
-          await queuePendingRefresh(rest,authHeaders,[scope]);
-        }
-
+        // NON-LIVE packages contain only rows the server has already resolved.
+        // Unknown rows are omitted and retried by the normal server schedule.
         raw=raw.filter((r:any)=>
           !isLive(r)&&
           !isTooShortVideo(r)&&
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
+          !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")&&
           !titleLooksEnglishOnly(r)
         );
       }else{
