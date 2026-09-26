@@ -58,8 +58,6 @@ const el={
   previewBlock:qs("#previewBlock"),
   previewClose:qs("#previewClose"),
   previewScopes:qs("#previewScopes"),
-  previewSearchForm:qs("#previewSearchForm"),
-  previewSearchInput:qs("#previewSearchInput"),
   videoGrid:qs("#videoGrid"),
   addSource:qs("#addSource"),
   filtersToggle:qs("#filtersToggle"),
@@ -331,12 +329,16 @@ function renderPreview(){
   if(!row){
     el.preview.hidden=true;
     el.searchColumn?.classList.remove("has-preview");
+    el.searchList.hidden=false;
+    el.searchStatus.hidden=false;
     closeInlineVideo();
     return;
   }
 
   el.preview.hidden=false;
   el.searchColumn?.classList.add("has-preview");
+  el.searchList.hidden=true;
+  el.searchStatus.hidden=true;
   el.previewAvatar.innerHTML=avatarMarkup(row,"preview-avatar-inner");
   el.previewName.textContent=row.name||row.id;
   el.previewMeta.textContent=[
@@ -424,6 +426,13 @@ async function openChannel(row,seedVideo=null){
 async function search(q){
   q=clean(q);
   state.searchQuery=q;
+  if(state.detail){
+    state.detail=null;
+    state.detailVideos=[];
+    renderPreview();
+  }
+  el.searchList.hidden=false;
+  el.searchStatus.hidden=false;
   if(!q){
     state.searchRows=[];
     el.searchStatus.textContent="";
@@ -765,6 +774,8 @@ el.previewClose.addEventListener("click",()=>{
   state.detailVideos=[];
   closeInlineVideo();
   renderPreview();
+  el.searchList.hidden=false;
+  el.searchStatus.hidden=false;
 });
 
 el.videoGrid.addEventListener("click",event=>{
@@ -776,22 +787,7 @@ el.videoGrid.addEventListener("click",event=>{
   playInlineVideo(id,row);
 });
 
-el.previewSearchForm.addEventListener("submit",async event=>{
-  event.preventDefault();
-  const q=clean(el.previewSearchInput.value);
-  if(!q||!state.detail)return;
 
-  try{
-    const yt=await waitYT();
-    const rows=await yt.search(q,{type:"video"});
-    state.detailVideos=(rows||[])
-      .filter(v=>String(v.channelId||v._sourceId||v.uploaderId||"")===state.detail.id)
-      .slice(0,30);
-    renderVideos(state.detailVideos);
-  }catch(error){
-    console.warn(error);
-  }
-});
 
 el.addSource.addEventListener("click",async()=>{
   const label=clean(prompt("Tên nguồn mới","")||"");
