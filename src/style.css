@@ -3701,3 +3701,28 @@ html.source-manager-page .source-preview{
     transform:translateZ(0)!important;
   }
 }
+
+
+/* iPhone 7 non-wide playback v348.
+   Native playback is used for square/portrait on iOS 15 compact iPhones;
+   clip its tiny compositor overscan so no 1px black seam remains. */
+@media(max-width:375px) and (max-height:700px){
+  html.watch-browse.watch-video-square .player-frame:not(.floating-iframe),
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe){
+    overflow:hidden!important;
+    background:#000!important;
+  }
+
+  html.watch-browse.watch-video-square #nativePlayer:not([hidden]),
+  html.watch-browse.watch-video-portrait #nativePlayer:not([hidden]){
+    position:absolute!important;
+    top:0!important;
+    left:0!important;
+    right:auto!important;
+    bottom:auto!important;
+    object-fit:cover!important;
+    transform-origin:center center!important;
+    backface-visibility:hidden!important;
+    -webkit-backface-visibility:hidden!important;
+  }
+}
