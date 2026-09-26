@@ -6681,7 +6681,7 @@ function responsivePlayerAspect(meta=state.currentMeta||{}){
     16/9;
 }
 
-function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false,ratio=0}={}){
+function syncMobileInlinePlayerViewport(){
   const frame=playerSection?.querySelector(".player-frame");
   if(
     !frame||
@@ -6689,60 +6689,28 @@ function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false,ratio=0}=
     window.innerWidth>720
   )return;
 
-  width=Math.max(1,Math.round(Number(width)||frame.clientWidth||window.innerWidth||1));
-  height=Math.max(1,Math.round(Number(height)||frame.clientHeight||1));
+  // Default iframe mode: CSS owns the 16:9 box and YouTube owns the content
+  // inside it. Remove old per-video pixel sizing/compositor transforms so
+  // portrait videos cannot become offset or softly rasterized after a resize.
+  const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
+  const host=frame.querySelector("#yt-player");
+  const nodes=[host,iframe].filter((node,index,list)=>
+    node&&list.indexOf(node)===index
+  );
 
-  const apply=()=>{
-    if(!frame.isConnected||frame.classList.contains("floating-iframe"))return;
-    const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
-    const host=frame.querySelector("#yt-player");
-    const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
-      node&&list.indexOf(node)===index
-    );
+  for(const node of nodes){
+    for(const prop of [
+      "position","top","right","bottom","left",
+      "width","height","max-width","max-height",
+      "margin","padding","transform","transform-origin","filter","opacity"
+    ])node.style.removeProperty(prop);
+  }
 
-    for(const node of nodes){
-      node.style.setProperty("position","absolute","important");
-      node.style.setProperty("top","0px","important");
-      node.style.setProperty("right","auto","important");
-      node.style.setProperty("bottom","auto","important");
-      node.style.setProperty("left","0px","important");
-      node.style.setProperty("width",width+"px","important");
-      node.style.setProperty("height",height+"px","important");
-      node.style.setProperty("max-width","none","important");
-      node.style.setProperty("max-height","none","important");
-      node.style.setProperty("margin","0","important");
-      const nativeOverscan=
-        node===nativePlayer &&
-        legacyCompactIphone() &&
-        Number(ratio)>0 &&
-        Number(ratio)<=1.20;
-      node.style.setProperty(
-        "transform",
-        nativeOverscan?"translateZ(0) scale(1.006)":"translateZ(0)",
-        "important"
-      );
-      node.style.setProperty("transform-origin","center center","important");
-    }
-
-    if(iframe){
-      // Numeric attributes force old WebKit to resize the iframe's browsing
-      // context as well as its CSS box. This is what removes the half-black
-      // portrait player on iPhone 7.
-      iframe.setAttribute("width",String(width));
-      iframe.setAttribute("height",String(height));
-      void iframe.offsetHeight;
-    }
-  };
-
-  apply();
-  if(settle){
-    requestAnimationFrame(apply);
-    setTimeout(apply,80);
-    setTimeout(apply,220);
-    setTimeout(apply,520);
+  if(iframe){
+    iframe.removeAttribute("width");
+    iframe.removeAttribute("height");
   }
 }
-
 function syncFloatingPlayerViewport(
   frame=playerSection?.querySelector(".player-frame"),
   {settle=false}={}
