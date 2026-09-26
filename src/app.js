@@ -819,6 +819,61 @@ function blockedSetForScope(scope=sourceManageGroup){
   return scopedBlockedSourceIds.get(scope);
 }
 
+function liveEffectiveBlockedSet(){
+  const blocked=new Set(blockedSourceIds);
+  for(const scope of MANAGED_SOURCE_SCOPES){
+    for(const id of blockedSetForScope(scope))blocked.add(id);
+  }
+  return blocked;
+}
+
+function liveEffectiveSelectedSet(){
+  const blocked=liveEffectiveBlockedSet();
+  const selected=new Set();
+  for(const scope of MANAGED_SOURCE_SCOPES){
+    for(const id of selectedSetForScope(scope)){
+      if(!blocked.has(id))selected.add(id);
+    }
+  }
+  return selected;
+}
+
+function liveSourceManagerState(id=""){
+  id=String(id||"").trim();
+  const directBlocked=blockedSetForScope(LIVE_SOURCE_SCOPE).has(id);
+  const allBlocked=liveEffectiveBlockedSet();
+  if(allBlocked.has(id)){
+    return {
+      status:"blocked",
+      inheritedSelected:false,
+      inheritedBlocked:!directBlocked
+    };
+  }
+
+  const directSelected=selectedSetForScope(LIVE_SOURCE_SCOPE).has(id);
+  if(directSelected){
+    return {
+      status:"selected",
+      inheritedSelected:false,
+      inheritedBlocked:false
+    };
+  }
+
+  if(liveEffectiveSelectedSet().has(id)){
+    return {
+      status:"selected",
+      inheritedSelected:true,
+      inheritedBlocked:false
+    };
+  }
+
+  return {
+    status:"normal",
+    inheritedSelected:false,
+    inheritedBlocked:false
+  };
+}
+
 function allManagedStateIds(){
   const ids=new Set([...selectedSourceIds,...blockedSourceIds]);
   for(const scope of MANAGED_SOURCE_SCOPES){
@@ -2297,6 +2352,10 @@ function matchSourceState(row={},scope=sourceManageGroup){
     return {status:"normal",canonicalId:""};
   }
 
+  if(scope===LIVE_SOURCE_SCOPE){
+    return {...liveSourceManagerState(id),canonicalId:id};
+  }
+
   const blocked=blockedSetForScope(scope);
   const selected=selectedSetForScope(scope);
 
@@ -2322,8 +2381,8 @@ function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
 
 function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
-  const selected=selectedSetForScope(scope);
-  const blocked=blockedSetForScope(scope);
+  const selected=scope===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(scope);
+  const blocked=scope===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(scope);
   const totalIds=new Set([
     ...unselectedSourceIdsForScope(scope),
     ...selected,
@@ -2335,9 +2394,13 @@ function updateSourceSummary(rows=managedChannelLibrary()){
 
   if(sourceHeaderCount)sourceHeaderCount.textContent=String(selectedCount);
   if(sourceSummary){
+    const activeScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
+    const activeSelectedCount=activeScope===LIVE_SOURCE_SCOPE
+      ?liveEffectiveSelectedSet().size
+      :selectedSources(activeScope).length;
     sourceSummary.textContent=sourceManageMode
       ?selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn"
-      :selectedSources(activeSourceScope()||GENERAL_SOURCE_SCOPE).length+" nguồn đã chọn";
+      :activeSelectedCount+" nguồn đã chọn";
   }
 }
 
@@ -2361,13 +2424,15 @@ function sourceAvatarHtml(row){
 
 function sourceRowHtml(row,{remote=false}={}){
   const meta=sourceMetaFor(row);
-  const matched=remote?matchSourceState(row,sourceManageGroup):null;
+  const matched=matchSourceState(row,sourceManageGroup);
   const exists=!remote||matched?.status!=="normal";
-  const status=remote?(matched?.status||"normal"):sourceStatus(row.id,sourceManageGroup);
+  const status=matched?.status||"normal";
   const active=status==="selected";
   const blocked=status==="blocked";
+  const inheritedSelected=sourceManageGroup===LIVE_SOURCE_SCOPE&&matched?.inheritedSelected===true;
+  const inheritedBlocked=sourceManageGroup===LIVE_SOURCE_SCOPE&&matched?.inheritedBlocked===true;
   const subscriber=clean(meta.subscribers||"");
-  const statusLabel=active?"Đã chọn":blocked?"Đã chặn":"Chưa chọn";
+  const statusLabel=active?(inheritedSelected?"Đã có":"Đã chọn"):blocked?(inheritedBlocked?"Đã chặn ở nguồn khác":"Đã chặn"):"Chưa chọn";
   const groupLabel=sourceGroupLabel(sourceManageGroup);
   const subBits=[];
   if(sourceManageGroup!==GENERAL_SOURCE_SCOPE&&groupLabel)subBits.push(groupLabel);
@@ -2394,11 +2459,19 @@ function sourceRowHtml(row,{remote=false}={}){
       'aria-label="'+(active?'Bỏ chọn nguồn':blocked?'Bỏ chặn và chọn nguồn':'Chọn nguồn')+'" '+
       'aria-pressed="'+(active?'true':'false')+'">'+(blocked?'×':'✓')+'</button>';
 
-  const manageControls=
-    '<div class="source-state-actions">'+
-      '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
-      '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
-    '</div>';
+  const manageControls=inheritedSelected
+    ?'<div class="source-state-actions">'+
+      '<button class="source-state-btn select active inherited" type="button" disabled>Đã có</button>'+
+      '<button class="source-state-btn block" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
+    '</div>'
+    :inheritedBlocked
+      ?'<div class="source-state-actions">'+
+        '<button class="source-state-btn block active inherited" type="button" disabled>Đã chặn</button>'+
+      '</div>'
+      :'<div class="source-state-actions">'+
+        '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
+        '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
+      '</div>';
 
   return '<div class="source-row'+(active?' active':'')+(blocked?' blocked':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
     '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
@@ -2550,10 +2623,12 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
   }
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
+    const selected=group.key===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(group.key);
+    const blocked=group.key===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(group.key);
     const ids=new Set([
       ...unselectedSourceIdsForScope(group.key),
-      ...selectedSetForScope(group.key),
-      ...blockedSetForScope(group.key)
+      ...selected,
+      ...blocked
     ]);
     const count=ids.size;
     return '<button class="source-group-chip'+(sourceManageGroup===group.key?' active':'')+'" type="button" data-source-group="'+esc(group.key)+'">'+
@@ -2584,9 +2659,15 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   if(!sourceList)return;
   const q=normalizeSearchText(sourceSearch?.value||"");
 
+  const managerSelected=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?liveEffectiveSelectedSet()
+    :selectedSetForScope(sourceManageGroup);
+  const managerBlocked=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?liveEffectiveBlockedSet()
+    :blockedSetForScope(sourceManageGroup);
   const scopedStateIds=new Set([
-    ...selectedSetForScope(sourceManageGroup),
-    ...blockedSetForScope(sourceManageGroup)
+    ...managerSelected,
+    ...managerBlocked
   ]);
   const scopedSuggestionIds=sourceManageMode
     ?unselectedSourceIdsForScope(sourceManageGroup)
@@ -2620,9 +2701,10 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   const parts=[];
 
   if(sourceManageMode){
-    const normalRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="normal");
-    const selectedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="selected");
-    const blockedRows=localRows.filter(row=>sourceStatus(row.id,sourceManageGroup)==="blocked");
+    const localManagerStatus=row=>matchSourceState(row,sourceManageGroup).status;
+    const normalRows=localRows.filter(row=>localManagerStatus(row)==="normal");
+    const selectedRows=localRows.filter(row=>localManagerStatus(row)==="selected");
+    const blockedRows=localRows.filter(row=>localManagerStatus(row)==="blocked");
 
     const normalRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="normal");
     const selectedRemote=remoteRows.filter(row=>matchSourceState(row,sourceManageGroup).status==="selected");
