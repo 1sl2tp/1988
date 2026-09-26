@@ -189,10 +189,9 @@ function renderScopes(){
   el.scopeRow.innerHTML=state.scopes.map(s=>{
     const count=scopeSet("selected",s.key).size;
     return '<div class="scope-chip-wrap">'+
-      '<button class="scope-chip'+(s.key===state.scope?' active':'')+'" data-scope="'+esc(s.key)+'">'+
-        esc(s.label)+' <span>'+count+'</span>'+
+      '<button class="scope-chip'+(s.key===state.scope?' active':'')+'" data-scope="'+esc(s.key)+'" title="'+esc(s.label)+'">'+
+        '<span class="scope-name">'+esc(s.label)+'</span><span class="scope-count">'+count+'</span>'+
       '</button>'+
-      '<button class="scope-edit" data-scope-edit="'+esc(s.key)+'" aria-label="Sửa '+esc(s.label)+'">⋯</button>'+
     '</div>';
   }).join("");
   el.scopeSummary.textContent=currentScopeLabel()+" · "+scopeSet("selected").size+" chọn";
@@ -300,7 +299,35 @@ function searchResultMarkup(row){
   '</div>';
 }
 
+function renderVideoSearchGrid(){
+  const rows=state.searchRows.filter(row=>row._video);
+  el.searchCount.textContent=rows.length?String(rows.length):"";
+  el.searchList.classList.add("video-search-grid");
+  el.searchList.innerHTML=rows.map(row=>{
+    const video=row._video||{};
+    const id=video.videoId||video.id||"";
+    const thumb=video.thumbnailUrl||video.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
+    const title=clean(video._displayTitle||video.title||"Video");
+    const channel=clean(row.name||"Kênh YouTube");
+    const key=row._resultKey||row.id;
+    return '<article class="video-search-card" data-video-search-open="'+esc(key)+'">'+
+      '<div class="video-search-thumb-wrap">'+
+        '<img class="video-search-thumb" src="'+esc(thumb)+'" alt="">'+
+      '</div>'+
+      '<div class="video-search-copy">'+
+        '<strong title="'+esc(title)+'">'+esc(title)+'</strong>'+
+        '<span title="'+esc(channel)+'">'+esc(channel)+'</span>'+
+      '</div>'+
+    '</article>';
+  }).join("")||'<div class="empty">Không có video phù hợp.</div>';
+}
+
 function renderSearch(){
+  if(state.searchMode==="video"){
+    renderVideoSearchGrid();
+    return;
+  }
+  el.searchList.classList.remove("video-search-grid");
   el.searchCount.textContent=state.searchRows.length?String(state.searchRows.length):"";
   el.searchList.innerHTML=state.searchRows.map(searchResultMarkup).join("")
     ||'<div class="empty">Tìm kênh hoặc video mới ở đây.</div>';
@@ -736,12 +763,6 @@ function requireAuth(){
 }
 
 el.scopeRow.addEventListener("click",event=>{
-  const edit=event.target.closest("[data-scope-edit]");
-  if(edit){
-    openSourceEditor(edit.dataset.scopeEdit);
-    return;
-  }
-
   const button=event.target.closest("[data-scope]");
   if(!button)return;
 
@@ -780,8 +801,13 @@ qsa(".search-mode-btn").forEach(button=>{
     qsa(".search-mode-btn").forEach(x=>x.classList.toggle("active",x===button));
     el.searchInput.placeholder=state.searchMode==="channel"
       ?"Tìm kênh YouTube"
-      :"Tìm video để lấy kênh";
-    if(state.searchQuery)search(state.searchQuery);
+      :"Tìm video YouTube";
+    state.searchRows=[];
+    state.searchQuery="";
+    el.searchInput.value="";
+    el.searchStatus.textContent="";
+    renderSearch();
+    requestAnimationFrame(()=>el.searchInput.focus());
   });
 });
 
@@ -791,6 +817,13 @@ el.searchForm.addEventListener("submit",event=>{
 });
 
 el.searchList.addEventListener("click",event=>{
+  const videoCard=event.target.closest("[data-video-search-open]");
+  if(videoCard){
+    const key=videoCard.dataset.videoSearchOpen;
+    const row=state.searchRows.find(x=>x._resultKey===key);
+    if(row)openChannel(row,row._video||null);
+    return;
+  }
   const toggle=event.target.closest("[data-toggle-other]");
   if(toggle){
     const card=toggle.closest(".channel-card");
