@@ -7,7 +7,8 @@ const cors={
   "cache-control":"no-store"
 };
 const PROFILE="owner";
-const SCOPES=new Set(["live","latest","week","news","economy","law","film","music","tech","sports","entertainment"]);
+const SYSTEM_SCOPES=new Set(["live","latest","week"]);
+const HASHTAG_ID_RE=/^hash_[a-z0-9]+$/;
 
 function json(data:unknown,status=200){
   return new Response(JSON.stringify(data),{
@@ -38,7 +39,20 @@ Deno.serve(async(req:Request)=>{
     const scope=clean(url.searchParams.get("scope"),32);
 
     if(scope){
-      if(!SCOPES.has(scope))return json({ok:false,error:"bad_scope"},400);
+      let valid=SYSTEM_SCOPES.has(scope);
+      if(!valid&&HASHTAG_ID_RE.test(scope)){
+        const check=await fetch(
+          rest+"/yt1988_hashtags?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&hashtag_id=eq."+encodeURIComponent(scope)+
+          "&enabled=eq.true&select=hashtag_id&limit=1",
+          {headers}
+        );
+        if(check.ok){
+          const rows=await check.json();
+          valid=Array.isArray(rows)&&rows.length>0;
+        }
+      }
+      if(!valid)return json({ok:false,error:"bad_scope"},400);
       const res=await fetch(
         rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
         "&scope=eq."+encodeURIComponent(scope)+
@@ -58,10 +72,21 @@ Deno.serve(async(req:Request)=>{
     );
     if(!res.ok)return json({ok:false,error:"read_failed",detail:await res.text()},502);
     const rows=await res.json();
+    const hashtagRes=await fetch(
+      rest+"/yt1988_hashtags?profile_key=eq."+encodeURIComponent(PROFILE)+
+      "&enabled=eq.true&select=hashtag_id",
+      {headers}
+    );
+    const hashtagRows=hashtagRes.ok?await hashtagRes.json():[];
+    const validScopes=new Set([
+      ...SYSTEM_SCOPES,
+      ...(Array.isArray(hashtagRows)?hashtagRows.map((row:any)=>clean(row?.hashtag_id,32)).filter((id:string)=>HASHTAG_ID_RE.test(id)):[])
+    ]);
+
     const manifest:any={};
     for(const row of Array.isArray(rows)?rows:[]){
       const key=clean(row?.scope,32);
-      if(!SCOPES.has(key))continue;
+      if(!validScopes.has(key))continue;
       manifest[key]={
         hash:clean(row?.hash,80),
         inputHash:clean(row?.input_hash,80),
