@@ -174,3 +174,79 @@ main{padding-bottom:40px}.source-manager-head{position:sticky;top:58px;z-index:2
     grid-template-columns:repeat(2,minmax(0,1fr))!important;
   }
 }
+
+
+/* v5 compact status columns; reserve width for search/preview column */
+.workspace{
+  grid-template-columns:
+    minmax(175px,.62fr)
+    minmax(190px,.68fr)
+    minmax(190px,.68fr)
+    minmax(360px,1.6fr);
+  align-items:stretch;
+}
+.column[data-column="suggested"],
+.column[data-column="selected"],
+.column[data-column="blocked"]{
+  min-width:0;
+}
+.column[data-column="suggested"] .channel-card,
+.column[data-column="selected"] .channel-card,
+.column[data-column="blocked"] .channel-card{
+  grid-template-columns:30px minmax(0,1fr) auto;
+  gap:6px;
+  min-height:48px;
+  padding:5px 2px;
+}
+.column[data-column="suggested"] .channel-avatar,
+.column[data-column="selected"] .channel-avatar,
+.column[data-column="blocked"] .channel-avatar{
+  width:28px;
+  height:28px;
+}
+.column[data-column="suggested"] .channel-copy strong,
+.column[data-column="selected"] .channel-copy strong,
+.column[data-column="blocked"] .channel-copy strong{
+  max-width:100%;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  font-size:10.8px;
+}
+.column[data-column="suggested"] .channel-copy span,
+.column[data-column="selected"] .channel-copy span,
+.column[data-column="blocked"] .channel-copy span{
+  font-size:8.8px;
+}
+.column[data-column="suggested"] .card-actions,
+.column[data-column="selected"] .card-actions,
+.column[data-column="blocked"] .card-actions{
+  gap:3px;
+  flex-wrap:nowrap;
+}
+.column[data-column="suggested"] .tiny,
+.column[data-column="selected"] .tiny,
+.column[data-column="blocked"] .tiny{
+  height:24px;
+  padding:0 6px;
+  font-size:8.8px;
+  white-space:nowrap;
+}
+.column[data-column="suggested"] .channel-list,
+.column[data-column="selected"] .channel-list,
+.column[data-column="blocked"] .channel-list{
+  max-height:520px;
+}
+.search-column{
+  min-width:360px;
+}
+
+@media(max-width:1180px){
+  .workspace{
+    grid-template-columns:
+      minmax(180px,220px)
+      minmax(190px,230px)
+      minmax(190px,230px)
+      minmax(360px,1fr);
+  }
+}
