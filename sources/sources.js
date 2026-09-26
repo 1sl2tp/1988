@@ -491,6 +491,7 @@ async function writeStatus(id,status,scope=state.scope){
   renderScopes();
   renderColumns();
   renderSearch();
+  renderSourceManagerList(el.sourceManagerSearch?.value||"");
   if(state.detail?.id===id)renderPreview();
 
   const event={
@@ -633,7 +634,7 @@ function openSourceEditor(scope){
   el.sourceEditPopover.hidden=false;
 }
 
-async async function renameScope(scope){
+async function renameScope(scope){
   const row=state.scopes.find(x=>x.key===scope);
   if(!row)return;
 
