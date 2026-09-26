@@ -3962,3 +3962,21 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile mini player v369: YouTube-like light corner radius, no border/shadow. */
+@media(max-width:720px){
+  html.watch-minimized .player-frame.floating-iframe{
+    border:0!important;
+    border-radius:8px!important;
+    box-shadow:none!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe #yt-player,
+  html.watch-minimized .player-frame.floating-iframe iframe,
+  html.watch-minimized .player-frame.floating-iframe video{
+    border:0!important;
+    border-radius:inherit!important;
+    box-shadow:none!important;
+  }
+}
+
