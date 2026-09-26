@@ -13232,6 +13232,10 @@ async function waitVisualArtReady(art="",scope="home",guardId=""){
 }
 
 function applyChromeTintFromArt(art,scope="watch",guardId="",force=false){
+  // Mobile web/PWA uses one fixed dark chrome. Do not sample thumbnails,
+  // decode extra images, or repaint the page chrome while browsing/playing.
+  if(mobileMiniViewport())return;
+
   art=String(art||"").trim();
   if(!art)return;
 
@@ -13290,7 +13294,7 @@ function homeChromeCandidateCard(){
 }
 
 function syncHomeChromeTintFromFeed(force=false){
-  if(watchPlaybackVisible())return;
+  if(mobileMiniViewport()||watchPlaybackVisible())return;
 
   const card=homeChromeCandidateCard();
   const art=String(card?.dataset?.thumb||"").trim();
@@ -13314,7 +13318,7 @@ function queueHomeChromeTintFromFeed(force=false){
 // Scroll only selects a candidate. The actual visual commit waits until the
 // scroll has settled, then image + colour commit together exactly once.
 const queueHomeChromeTintOnScroll=()=>{
-  if(watchPlaybackVisible())return;
+  if(mobileMiniViewport()||watchPlaybackVisible())return;
   clearTimeout(homeChromeTintTimer);
   homeChromeTintTimer=setTimeout(()=>{
     homeChromeTintTimer=0;
