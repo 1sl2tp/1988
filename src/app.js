@@ -6418,12 +6418,10 @@ function placeAutoFloatAtEdge(frame,size){
   let bottomGap=gap;
 
   if(mobile){
-    const styles=getComputedStyle(document.documentElement);
-    const headerStack=Math.max(
-      0,
-      parseFloat(styles.getPropertyValue("--header-stack-h"))||0
-    );
-    top=Math.max(safe.top+10,safe.top+headerStack+8);
+    // A selected video owns the mobile top edge. The Home header is hidden for
+    // the whole watch/PiP session, so never reserve --header-stack-h here.
+    // Only respect the device safe area/notch.
+    top=Math.max(0,safe.top);
     frame.style.top=top+"px";
     frame.style.bottom="auto";
   }else{
