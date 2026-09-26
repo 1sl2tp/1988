@@ -5,119 +5,115 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=2">
+  <link rel="stylesheet" href="./sources.css?v=3">
 </head>
 <body>
   <header class="topbar">
     <a class="brand" href="../" aria-label="Về 1988"><span class="brand-mark">▶</span><strong>1988</strong></a>
     <div class="title-wrap"><strong>Quản lý nguồn</strong><span id="scopeSummary"></span></div>
-    <button id="closePage" class="ghost">Đóng</button>
+    <div class="top-actions">
+      <button id="filtersToggle" class="icon-btn" type="button" title="Bộ lọc" aria-label="Bộ lọc">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7v5.2L10.2 19v-7z"></path></svg>
+      </button>
+      <button id="closePage" class="ghost">Đóng</button>
+    </div>
   </header>
 
-  <nav class="main-tabs" aria-label="Quản lý">
-    <button class="main-tab" data-main-tab="sources" title="Quản lý tên nguồn">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h6l1.8 2H20v9H4z"></path></svg>
-      <span>Nguồn</span>
-    </button>
-    <button class="main-tab active" data-main-tab="channels" title="Quản lý kênh">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="12" rx="2"></rect><path d="m10 9 5 2.5-5 2.5z"></path><path d="M8 20h8"></path></svg>
-      <span>Kênh</span>
-    </button>
-    <button class="main-tab" data-main-tab="filters" title="Bộ lọc">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7v5.2L10.2 19v-7z"></path></svg>
-      <span>Bộ lọc</span>
-    </button>
-  </nav>
-
   <main>
-    <section id="channelsTab" class="tab-panel">
-      <div class="scope-row-wrap">
-        <div id="scopeRow" class="scope-row"></div>
+    <section class="source-manager-head">
+      <div class="source-manager-title">
+        <div>
+          <strong>Nguồn</strong>
+          <span>Chọn một nguồn để quản lý ngay các kênh gợi ý, đã chọn, đã chặn và tìm mới.</span>
+        </div>
+        <button id="addSource" class="primary">+ Thêm nguồn</button>
+      </div>
+      <div id="scopeRow" class="scope-row"></div>
+    </section>
+
+    <section id="workspace" class="workspace">
+      <div class="column" data-column="suggested">
+        <div class="column-head">
+          <div><strong>Gợi ý</strong><span id="suggestedCount">0</span></div>
+        </div>
+        <div id="suggestedList" class="channel-list"></div>
       </div>
 
-      <div class="source-layout">
-        <aside class="source-sidebar">
+      <div class="column" data-column="selected">
+        <div class="column-head">
+          <div><strong>Đã chọn</strong><span id="selectedCount">0</span></div>
+        </div>
+        <div id="selectedList" class="channel-list"></div>
+      </div>
+
+      <div class="column" data-column="blocked">
+        <div class="column-head">
+          <div><strong>Đã chặn</strong><span id="blockedCount">0</span></div>
+        </div>
+        <div id="blockedList" class="channel-list"></div>
+      </div>
+
+      <div class="column search-column" data-column="search">
+        <div class="column-head search-head">
+          <div><strong>Tìm mới</strong><span id="searchCount"></span></div>
           <div class="search-mode">
             <button class="search-mode-btn active" data-search-mode="channel">Kênh</button>
             <button class="search-mode-btn" data-search-mode="video">Video</button>
           </div>
-
-          <form id="searchForm" class="search-box">
-            <input id="searchInput" type="search" inputmode="search" enterkeyhint="search" autocomplete="off"
-              placeholder="Tìm kênh YouTube">
-            <button type="submit">Tìm</button>
-          </form>
-
-          <div class="state-tabs">
-            <button class="state-tab active" data-state-tab="suggested">Gợi ý <span id="suggestedCount">0</span></button>
-            <button class="state-tab" data-state-tab="selected">Đã chọn <span id="selectedCount">0</span></button>
-            <button class="state-tab" data-state-tab="blocked">Đã chặn <span id="blockedCount">0</span></button>
-          </div>
-
-          <div id="sourceListStatus" class="status"></div>
-          <div class="channel-table-head">
-            <span>Kênh / video</span><span>Trạng thái</span><span>Thao tác</span>
-          </div>
-          <div id="sourceList" class="source-list"></div>
-        </aside>
-
-        <section class="source-detail">
-          <div id="detailEmpty" class="detail-empty">
-            <strong>Chọn một kênh để làm việc</strong>
-            <span>Tìm kênh hoặc video ở bên trái, sau đó xem video mới nhất và thêm vào nguồn cần dùng.</span>
-          </div>
-
-          <div id="detailContent" hidden>
-            <div class="detail-head">
-              <div class="detail-identity">
-                <div id="detailAvatar" class="detail-avatar"></div>
-                <div><strong id="detailName"></strong><span id="detailMeta"></span></div>
-              </div>
-              <div class="detail-primary-actions">
-                <button id="detailSelect" class="primary"></button>
-                <button id="detailBlock" class="danger"></button>
-              </div>
-            </div>
-
-            <div class="assign-row">
-              <span>Thêm vào nguồn</span>
-              <div id="assignScopes" class="assign-scopes"></div>
-            </div>
-
-            <div class="detail-toolbar">
-              <strong>Video mới nhất</strong>
-              <form id="detailSearchForm">
-                <input id="detailSearchInput" type="search" inputmode="search" enterkeyhint="search"
-                  placeholder="Tìm video khác">
-              </form>
-            </div>
-
-            <div id="videoGrid" class="video-grid"></div>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <section id="sourcesTab" class="tab-panel" hidden>
-      <div class="panel-head">
-        <div><strong>Nguồn</strong><span>Thêm, đổi tên, xóa và mở nhanh một nguồn để quản lý kênh.</span></div>
-        <button id="addLabel" class="primary">+ Thêm nguồn</button>
-      </div>
-      <div class="source-table-wrap">
-        <div class="source-table-head">
-          <span>Tên nguồn</span><span>Đã chọn</span><span>Gợi ý</span><span>Đã chặn</span><span>Hành động</span>
         </div>
-        <div id="labelsList" class="labels-list"></div>
+        <form id="searchForm" class="search-box">
+          <input id="searchInput" type="search" inputmode="search" enterkeyhint="search"
+            autocomplete="off" placeholder="Tìm kênh YouTube">
+          <button type="submit">Tìm</button>
+        </form>
+        <div id="searchStatus" class="status"></div>
+        <div id="searchList" class="channel-list search-results"></div>
       </div>
     </section>
 
-    <section id="filtersTab" class="tab-panel" hidden>
-      <div class="panel-head"><div><strong>Bộ lọc</strong><span>Quản lý từ khóa chặn và dữ liệu cục bộ.</span></div></div>
+    <section id="preview" class="preview" hidden>
+      <div class="preview-head">
+        <div class="preview-identity">
+          <div id="previewAvatar" class="preview-avatar"></div>
+          <div>
+            <strong id="previewName"></strong>
+            <span id="previewMeta"></span>
+          </div>
+        </div>
+        <div class="preview-actions">
+          <button id="previewSelect" class="primary"></button>
+          <button id="previewBlock" class="danger"></button>
+          <button id="previewClose" class="icon-btn" aria-label="Đóng xem trước">×</button>
+        </div>
+      </div>
+
+      <div class="preview-assign">
+        <span>Thêm vào nguồn khác</span>
+        <div id="previewScopes" class="scope-assign-row"></div>
+      </div>
+
+      <div class="preview-toolbar">
+        <strong>Video mới nhất</strong>
+        <form id="previewSearchForm">
+          <input id="previewSearchInput" type="search" inputmode="search" enterkeyhint="search" placeholder="Tìm video trong kênh">
+        </form>
+      </div>
+      <div id="videoGrid" class="video-grid"></div>
+    </section>
+
+    <section id="filtersPanel" class="filters-panel" hidden>
+      <div class="filters-head">
+        <div><strong>Bộ lọc</strong><span>Từ khóa chặn và dữ liệu cục bộ.</span></div>
+        <button id="filtersClose" class="icon-btn">×</button>
+      </div>
       <div class="filters-grid">
         <section class="filter-card">
           <strong>Từ khóa chặn Live</strong>
           <span>Live có tiêu đề hoặc tên kênh chứa cụm từ này sẽ bị ẩn.</span>
-          <div class="filter-entry"><input id="keywordInput" type="text" placeholder="Nhập từ hoặc cụm từ"><button id="keywordAdd">Thêm</button></div>
+          <div class="filter-entry">
+            <input id="keywordInput" type="text" placeholder="Nhập từ hoặc cụm từ">
+            <button id="keywordAdd">Thêm</button>
+          </div>
           <div id="keywordChips" class="keyword-chips"></div>
         </section>
         <section class="filter-card">
@@ -128,6 +124,15 @@
       </div>
     </section>
   </main>
+
+  <div id="sourceEditPopover" class="source-edit-popover" hidden>
+    <div class="source-edit-card">
+      <strong id="sourceEditTitle">Nguồn</strong>
+      <button id="sourceRename" class="secondary">Đổi tên</button>
+      <button id="sourceDelete" class="danger">Xóa nguồn</button>
+      <button id="sourceEditClose" class="ghost">Đóng</button>
+    </div>
+  </div>
 
   <div id="auth" class="auth" hidden>
     <form id="authForm" class="auth-card">
@@ -140,6 +145,6 @@
   </div>
 
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=2"></script>
+  <script src="./sources.js?v=3"></script>
 </body>
 </html>
