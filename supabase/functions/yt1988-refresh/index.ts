@@ -1291,7 +1291,7 @@ Deno.serve(async(req:Request)=>{
       await storeServerSourceSuggestions(
         rest,
         authHeaders,
-        LIVE_SOURCE_SCOPE,
+        "live",
         verifiedExternalRows
       ).catch(()=>0);
 
