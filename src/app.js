@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="328";
+const LOCAL_DATA_SCHEMA_VERSION="329";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -8272,7 +8272,10 @@ async function loadAiParentDiscovery(parent){
       feedStatus.textContent=reserve.length?reserve.length+" video":"";
       void refreshSelectedCategoryInBackground(parent);
     }else{
-      feed.innerHTML='<div class="empty">Máy chủ chưa có gói dữ liệu cho tab này.</div>';
+      const packageRow=readAtomicSnapshot("category:"+parent.key);
+      feed.innerHTML=packageRow&&Array.isArray(packageRow.items)
+        ?'<div class="empty">Chưa có video phù hợp trong tab này.</div>'
+        :'<div class="empty">Máy chủ chưa có gói dữ liệu cho tab này.</div>';
       feedStatus.textContent="";
     }
   }catch(error){
@@ -13340,7 +13343,10 @@ async function loadFeedPreset(name="latest"){
   renderTrendTopics();
 
   if(!reserve.length){
-    feed.innerHTML='<div class="empty">Máy chủ chưa có gói dữ liệu cho mục này.</div>';
+    const packageRow=readAtomicSnapshot(packageSnapshotName(name));
+    feed.innerHTML=packageRow&&Array.isArray(packageRow.items)
+      ?'<div class="empty">Chưa có video phù hợp trong mục này.</div>'
+      :'<div class="empty">Máy chủ chưa có gói dữ liệu cho mục này.</div>';
     feedStatus.textContent="";
     state.feedLoading=false;
     return;
