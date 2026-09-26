@@ -125,3 +125,22 @@ test('server normalization never exposes a channel id as channel name',()=>{
  assert.equal(row._sourceThumbnailUrl,'https://yt3.example/avatar.jpg');
  assert.match(row.thumbnailUrl,/i\.ytimg\.com\/vi\/abcdefghijk\/hqdefault\.jpg/);
 });
+
+
+test('exact search metadata supplies duration and canonical source identity',()=>{
+ const meta=s.exactSearchVideoMeta({
+  items:[{
+   url:'/watch?v=k-72jTSvdwE',
+   duration:88,
+   uploaderName:'Báo Người Lao Động',
+   uploaderAvatar:'https://yt3.example/avatar.jpg',
+   thumbnail:'https://i.ytimg.com/vi/k-72jTSvdwE/hqdefault.jpg',
+   views:87
+  }]
+ },'k-72jTSvdwE');
+ assert.equal(meta.duration,88);
+ assert.equal(meta.sourceName,'Báo Người Lao Động');
+ assert.equal(meta.sourceThumbnailUrl,'https://yt3.example/avatar.jpg');
+ assert.equal(meta.views,87);
+ assert.equal(s.exactSearchVideoMeta({items:[]},'k-72jTSvdwE'),null);
+});
