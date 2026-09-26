@@ -2724,6 +2724,9 @@ function sourceRowHtml(row,{remote=false}={}){
       '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">'+
         (active?'Đã chọn':'Chọn')+
       '</button>'+
+      '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">'+
+        (blocked?'Đã chặn':'Chặn')+
+      '</button>'+
     '</div>';
 
   return '<div class="source-row'+(active?' active':'')+(blocked?' blocked':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
@@ -2973,12 +2976,10 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
       ...selectedRows.map(row=>sourceRowHtml(row)),
       ...selectedRemote.map(row=>sourceRowHtml(row,{remote:true}))
     ]));
-    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
-      parts.push(sourceStatusSection("Đã chặn",[
-        ...blockedRows.map(row=>sourceRowHtml(row)),
-        ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
-      ],{blocked:true}));
-    }
+    parts.push(sourceStatusSection("Đã chặn",[
+      ...blockedRows.map(row=>sourceRowHtml(row)),
+      ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
+    ],{blocked:true}));
 
     if(
       !unselectedHtml.length&&
@@ -5217,6 +5218,7 @@ function renderSourceLabelsPanel(){
 function setSourceAdminTab(tab="sources"){
   tab=["sources","labels","filters"].includes(tab)?tab:"sources";
   sourceAdminActiveTab=tab;
+  if(sourcesSheet)sourcesSheet.dataset.adminTab=tab;
 
   sourceAdminTabs?.querySelectorAll?.("[data-source-admin-tab]").forEach(button=>{
     const active=button.dataset.sourceAdminTab===tab;
