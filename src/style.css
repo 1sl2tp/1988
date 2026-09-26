@@ -4386,3 +4386,77 @@ body::-webkit-scrollbar-corner,
     border-color:transparent!important;
   }
 }
+
+
+/* Hybrid mobile PiP follow/pin v405.
+   Inline scroll can auto-detach/reattach; the explicit PiP button pins the
+   floating player so page scrolling stays independent until the user unpins. */
+.watch-pip-trigger{display:none}
+
+.float-mode-btn[data-float-mode="pin"] .float-mode-icon{
+  position:relative;
+  width:15px;
+  height:15px;
+  font-size:0;
+}
+.float-mode-btn[data-float-mode="pin"] .float-mode-icon::before{
+  content:"";
+  position:absolute;
+  left:3px;
+  top:1px;
+  width:9px;
+  height:7px;
+  border:1.7px solid currentColor;
+  border-radius:2px 2px 4px 4px;
+  transform:rotate(-8deg);
+}
+.float-mode-btn[data-float-mode="pin"] .float-mode-icon::after{
+  content:"";
+  position:absolute;
+  left:7px;
+  top:8px;
+  width:1.7px;
+  height:7px;
+  border-radius:2px;
+  background:currentColor;
+  transform:rotate(18deg);
+  transform-origin:top center;
+}
+.float-mode-btn[data-float-mode="pin"].active{
+  background:rgba(255,255,255,.92);
+  border-color:rgba(255,255,255,.96);
+  color:#111;
+}
+
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-pip-trigger{
+    position:absolute;
+    z-index:95;
+    top:8px;
+    right:8px;
+    display:grid;
+    place-items:center;
+    width:34px;
+    height:34px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.18);
+    border-radius:10px;
+    background:rgba(12,12,14,.60);
+    color:#fff;
+    box-shadow:0 5px 18px rgba(0,0,0,.24);
+    -webkit-backdrop-filter:blur(10px);
+    backdrop-filter:blur(10px);
+    touch-action:manipulation;
+  }
+  .watch-pip-trigger svg{
+    width:18px;
+    height:18px;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:1.7;
+  }
+  html.watch-minimized .watch-pip-trigger{
+    display:none!important;
+  }
+}
