@@ -1110,7 +1110,7 @@ qsa(".search-mode-btn").forEach(button=>{
   });
 });
 
-el.el.searchBack?.addEventListener("click",goBackInSearchPanel);
+el.searchBack?.addEventListener("click",goBackInSearchPanel);
 
 searchForm.addEventListener("submit",event=>{
   event.preventDefault();
