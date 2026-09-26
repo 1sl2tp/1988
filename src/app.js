@@ -6336,6 +6336,46 @@ function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false,ratio=0}=
   }
 }
 
+function syncFloatingPlayerViewport(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!frame.classList.contains("floating-iframe"))return;
+
+  const apply=()=>{
+    if(!frame.isConnected||!frame.classList.contains("floating-iframe"))return;
+
+    const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
+    const host=frame.querySelector("#yt-player");
+    const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
+      node&&list.indexOf(node)===index
+    );
+
+    for(const node of nodes){
+      node.style.setProperty("position","absolute","important");
+      node.style.setProperty("top","0px","important");
+      node.style.setProperty("right","0px","important");
+      node.style.setProperty("bottom","0px","important");
+      node.style.setProperty("left","0px","important");
+      node.style.setProperty("width","100%","important");
+      node.style.setProperty("height","100%","important");
+      node.style.setProperty("max-width","100%","important");
+      node.style.setProperty("max-height","100%","important");
+      node.style.setProperty("margin","0","important");
+      node.style.setProperty("transform","none","important");
+      node.style.setProperty("transform-origin","center center","important");
+      if(node===nativePlayer)node.style.setProperty("object-fit","contain","important");
+    }
+
+    if(iframe){
+      const width=Math.max(1,Math.round(frame.clientWidth||frame.getBoundingClientRect().width||1));
+      const height=Math.max(1,Math.round(frame.clientHeight||frame.getBoundingClientRect().height||1));
+      iframe.setAttribute("width",String(width));
+      iframe.setAttribute("height",String(height));
+    }
+  };
+
+  apply();
+  requestAnimationFrame(apply);
+}
+
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -7084,6 +7124,7 @@ function applyFloatingIframe(force){
 
   updateFloatingAmbient(frame);
   applyAutoFloatAspect(frame,{force:true});
+  syncFloatingPlayerViewport(frame);
   updateFloatControlState(frame);
   finishFloatEntry(frame);
 }
