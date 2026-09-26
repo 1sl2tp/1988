@@ -2921,7 +2921,7 @@ async function createHashtag({openManager=false}={}){
       state.feedRows=[];
       state.feedHasMore=false;
       renderTrendTopics();
-      setActiveChip(state.activeFeed);
+      setActiveChip(state.activeFeed,{behavior:"auto"});
       feedTitle.textContent=result.hashtag.label;
       feedStatus.textContent="";
       feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh cho tab này.</div>';
@@ -7624,7 +7624,7 @@ function renderParentCategories(){
     button.className="topic-chip topic-subject";
     button.type="button";
     button.dataset.aiParent=parent.key;
-    button.textContent=parent.label;
+    button.textContent=clean(parent.label).toLocaleLowerCase("vi-VN");
     const count=selectedSourcesForParent(parent).length;
     button.title=count+" nguồn đã chọn";
     topicChips.appendChild(button);
@@ -8320,6 +8320,7 @@ async function refreshAiTrendTopics(){
 trendTopics?.addEventListener("click",event=>{
   const button=event.target.closest("[data-trend]");
   if(!button)return;
+  hardResetDocumentTop();
   state.activeTrend="";
   state.trendTopics=[];
   renderTrendTopics();
@@ -11382,30 +11383,43 @@ async function doSearch(value){
 }
 function hardResetDocumentTop(){
   const root=document.documentElement;
-  const previousBehavior=root.style.scrollBehavior;
+  const body=document.body;
+  const previousRootBehavior=root.style.scrollBehavior;
+  const previousBodyBehavior=body?.style?.scrollBehavior||"";
+
   root.style.scrollBehavior="auto";
+  if(body)body.style.scrollBehavior="auto";
 
   const apply=()=>{
     const scroller=document.scrollingElement||document.documentElement;
-    if(scroller){
-      scroller.scrollTop=0;
-      scroller.scrollLeft=0;
+    try{
+      scroller?.scrollTo?.({top:0,left:0,behavior:"auto"});
+    }catch{
+      if(scroller){
+        scroller.scrollTop=0;
+        scroller.scrollLeft=0;
+      }
     }
     document.documentElement.scrollTop=0;
     document.documentElement.scrollLeft=0;
-    if(document.body){
-      document.body.scrollTop=0;
-      document.body.scrollLeft=0;
+    if(body){
+      body.scrollTop=0;
+      body.scrollLeft=0;
     }
-    try{window.scrollTo(0,0);}catch{}
+    try{window.scrollTo({top:0,left:0,behavior:"auto"});}catch{
+      try{window.scrollTo(0,0);}catch{}
+    }
   };
 
+  // Apply before the new list paints, then once more after layout settles.
+  // This is a jump, never a visible animated trip from the old scroll position.
   apply();
   requestAnimationFrame(apply);
   setTimeout(()=>{
     apply();
-    root.style.scrollBehavior=previousBehavior;
-  },80);
+    root.style.scrollBehavior=previousRootBehavior;
+    if(body)body.style.scrollBehavior=previousBodyBehavior;
+  },60);
 }
 
 function resetHomeViewportInstant({resetSource=false,resetTopics=true}={}){
@@ -13519,7 +13533,7 @@ topicChips.addEventListener("click",async e=>{
   state.trendTopics=[];
   queryInput.value="";
   clearSuggestions();
-  setActiveChip(button.dataset.feed||"latest");
+  setActiveChip(button.dataset.feed||"latest",{behavior:"auto"});
   void loadFeedPreset(button.dataset.feed||"latest");
 });
 
