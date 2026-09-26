@@ -1,0 +1,19 @@
+name: Test LIVE keyword persistence v318
+on:
+  push:
+    branches:
+      - fix/live-keyword-durable-save-v318
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node tests/integration-shape.test.cjs .
+      - run: node --check src/app.js
+      - run: node tests/media-core.test.cjs
+      - run: node tests/backend-media-proxy.test.cjs
