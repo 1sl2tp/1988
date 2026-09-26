@@ -3748,9 +3748,32 @@ html.source-manager-page .source-preview{
     grid-row:1!important;
   }
 
+  /* Full mobile Watch owns the touch surface too. This transparent layer sits
+     above both YouTube iframe and native <video>, so a first upward browse
+     gesture reaches our minimizer instead of being swallowed by the player. */
   html.watch-browse:not(.watch-search-open):not(.watch-search-results)
   .player-frame:not(.floating-iframe) .watch-swipe-zone{
-    display:none!important;
+    display:block!important;
+    position:absolute!important;
+    z-index:80!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    border:0!important;
+    border-radius:inherit!important;
+    background:transparent!important;
+    touch-action:pan-y!important;
+    -webkit-user-select:none!important;
+    user-select:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #nativePlayer,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #yt-player,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) iframe{
+    pointer-events:none!important;
   }
 
   html.watch-minimized .player-section{
@@ -3982,19 +4005,26 @@ html.source-manager-page .source-preview{
   }
 }
 
-/* Mobile native controls v381.
-   The app owns mobile Watch interaction. Hide browser-native video chrome in
-   BOTH full Watch and mini/PiP; desktop native playback keeps its controls. */
+/* Mobile native controls v382.
+   The app owns mobile Watch interaction. Hide every WebKit media-control entry
+   point in BOTH full Watch and mini/PiP; desktop native playback keeps controls. */
 @media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
   html.watch-browse #nativePlayer{
     -webkit-appearance:none!important;
+    pointer-events:none!important;
   }
 
   html.watch-browse #nativePlayer::-webkit-media-controls,
   html.watch-browse #nativePlayer::-webkit-media-controls-panel,
-  html.watch-browse #nativePlayer::-webkit-media-controls-enclosure{
+  html.watch-browse #nativePlayer::-webkit-media-controls-enclosure,
+  html.watch-browse #nativePlayer::-webkit-media-controls-overlay-play-button,
+  html.watch-browse #nativePlayer::-webkit-media-controls-start-playback-button,
+  html.watch-browse #nativePlayer::-webkit-media-controls-play-button,
+  html.watch-browse #nativePlayer::-webkit-media-controls-fullscreen-button{
     display:none!important;
     opacity:0!important;
+    pointer-events:none!important;
+    -webkit-appearance:none!important;
   }
 }
 
