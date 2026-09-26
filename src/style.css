@@ -3750,20 +3750,7 @@ html.source-manager-page .source-preview{
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results)
   .player-frame:not(.floating-iframe) .watch-swipe-zone{
-    display:block;
-    position:absolute;
-    z-index:45;
-    top:0;
-    left:0;
-    right:0;
-    width:100%;
-    height:32px;
-    margin:0;
-    padding:0;
-    background:transparent;
-    touch-action:none;
-    -webkit-user-select:none;
-    user-select:none;
+    display:none!important;
   }
 
   html.watch-minimized .player-section{
