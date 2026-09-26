@@ -10118,6 +10118,7 @@ function searchCardHtml(row={},options={}){
       '</div>'+
       '<div class="card-copy">'+
         '<span class="card-avatar" aria-hidden="true">'+
+          '<span class="card-avatar-fallback">'+esc((channel.charAt(0)||"?").toUpperCase())+'</span>'+
           (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
         '</span>'+
         '<div class="card-copy-main">'+
@@ -11108,7 +11109,9 @@ function paintCardChannelAvatar(card,image=""){
   img.width=36;
   img.height=36;
   img.decoding="async";
-  avatar.replaceChildren(img);
+  const fallback=avatar.querySelector(".card-avatar-fallback");
+  if(fallback)avatar.appendChild(img);
+  else avatar.replaceChildren(img);
   return true;
 }
 
@@ -11605,9 +11608,10 @@ function renderCards(rows=[],options={}){
           '<div class="thumb-wrap"><img class="thumb-fill" src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
+              '<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>'+
               (avatarUsable
                 ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
-                :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
+                :"")+
             '</span>'+
             '<div class="card-copy-main">'+
               '<div class="card-title-row">'+
@@ -12666,14 +12670,37 @@ async function playVideo(id,seedMeta={}){
   document.documentElement.classList.remove("watch-search-open","watch-search-results","watch-categories-open");
   hideContextBrief();
   const frame=playerSection?.querySelector(".player-frame");
+  const root=document.documentElement;
+  const activeWatchSession=
+    root.classList.contains("watch-browse") &&
+    !!state.currentId &&
+    !playerSection?.hidden;
+
   const keepMinimized=!!(
-    state.watchMinimized ||
-    document.documentElement.classList.contains("watch-minimized") ||
-    frame?.classList.contains("floating-iframe")
+    activeWatchSession &&
+    (
+      state.watchMinimized ||
+      root.classList.contains("watch-minimized") ||
+      frame?.classList.contains("floating-iframe")
+    )
   );
+
   if(keepMinimized){
     state.watchMinimized=true;
-    document.documentElement.classList.add("watch-minimized");
+    root.classList.add("watch-minimized");
+  }else{
+    state.watchMinimized=false;
+    state.watchPipPinned=false;
+    state.watchPipAway=false;
+    root.classList.remove("watch-minimized");
+    if(frame?.classList.contains("floating-iframe")){
+      frame.classList.remove(
+        "floating-iframe","float-tucked","dock-left","dock-right",
+        "float-view-square","float-view-portrait","float-entering",
+        "float-controls-open"
+      );
+      clearFloatBoxStyles();
+    }
   }
   const wasFloating=keepMinimized;
   const keepScrollY=window.scrollY;
@@ -12713,8 +12740,11 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.watchOpenedAt=Date.now();
   state.watchOpenSettlingUntil=window.innerWidth<=720&&!wasFloating
-    ?Date.now()+700
+    ?Date.now()+1100
     :0;
+  if(window.innerWidth<=720&&!wasFloating){
+    state.watchRestoreUntil=Date.now()+1100;
+  }
   state.currentId=id;
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
@@ -13796,6 +13826,14 @@ function primeDesktopCardHoverColors(){
     setTimeout(warm,120);
   }
 }
+
+feed?.addEventListener("error",event=>{
+  const img=event.target;
+  if(!(img instanceof HTMLImageElement)||!img.closest(".card-avatar"))return;
+  const card=img.closest(".card[data-video-id]");
+  img.remove();
+  if(card)queueHomeChannelAvatars();
+},true);
 
 feed?.addEventListener("pointerover",event=>{
   if(!desktopHoverAccentEnabled())return;
