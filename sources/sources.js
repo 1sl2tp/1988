@@ -55,7 +55,11 @@ const state={
   detailVideos:[],
   keywords:[],
   editingScope:"",
-  searchQuery:""
+  searchQuery:"",
+  navStack:[],
+  navSeq:0,
+  activeVideoId:"",
+  activeVideoRow:null
 };
 
 const el={
@@ -72,6 +76,7 @@ const el={
   searchInput:qs("#searchInput"),
   searchStatus:qs("#searchStatus"),
   searchList:qs("#searchList"),
+  searchBack:qs("#searchBack"),
   preview:qs("#preview"),
   searchColumn:qs('.search-column'),
   inlinePlayer:qs("#inlinePlayer"),
@@ -389,6 +394,87 @@ function renderVideoSearchGrid(){
   }).join("")||'<div class="empty">Không có video phù hợp.</div>';
 }
 
+function updateSearchBack(){
+  if(!el.searchBack)return;
+  el.searchBack.hidden=state.navStack.length===0;
+}
+
+function snapshotSearchView(){
+  return {
+    kind:"search",
+    searchMode:state.searchMode,
+    searchQuery:state.searchQuery,
+    searchRows:state.searchRows.slice(),
+    searchStatus:el.searchStatus?.textContent||"",
+    searchScroll:el.searchList?.scrollTop||0
+  };
+}
+
+function snapshotChannelView(){
+  return {
+    kind:"channel",
+    detail:state.detail?{...state.detail}:null,
+    detailVideos:state.detailVideos.slice(),
+    previewScroll:el.preview?.scrollTop||0
+  };
+}
+
+function pushNavSnapshot(snapshot){
+  if(!snapshot)return;
+  state.navStack.push(snapshot);
+  if(state.navStack.length>20)state.navStack.shift();
+  updateSearchBack();
+}
+
+function restoreNavSnapshot(snapshot){
+  if(!snapshot)return;
+  state.navSeq++;
+  closeInlineVideo();
+  state.activeVideoId="";
+  state.activeVideoRow=null;
+
+  if(snapshot.kind==="search"){
+    state.detail=null;
+    state.detailVideos=[];
+    state.searchMode=snapshot.searchMode||"channel";
+    state.searchQuery=clean(snapshot.searchQuery||"");
+    state.searchRows=Array.isArray(snapshot.searchRows)?snapshot.searchRows.slice():[];
+    if(el.searchInput)el.searchInput.value=state.searchQuery;
+    document.querySelectorAll("[data-search-mode]").forEach(button=>{
+      button.classList.toggle("active",button.dataset.searchMode===state.searchMode);
+    });
+    if(el.searchInput){
+      el.searchInput.placeholder=state.searchMode==="channel"
+        ?"Tìm kênh YouTube"
+        :"Tìm video YouTube";
+    }
+    renderPreview();
+    renderSearch();
+    if(el.searchStatus)el.searchStatus.textContent=snapshot.searchStatus||(
+      state.searchRows.length?state.searchRows.length+" kết quả":""
+    );
+    requestAnimationFrame(()=>{
+      if(el.searchList)el.searchList.scrollTop=Number(snapshot.searchScroll)||0;
+    });
+    return;
+  }
+
+  if(snapshot.kind==="channel"){
+    state.detail=snapshot.detail?{...snapshot.detail}:null;
+    state.detailVideos=Array.isArray(snapshot.detailVideos)?snapshot.detailVideos.slice():[];
+    renderPreview();
+    requestAnimationFrame(()=>{
+      if(el.preview)el.preview.scrollTop=Number(snapshot.previewScroll)||0;
+    });
+  }
+}
+
+function goBackInSearchPanel(){
+  const snapshot=state.navStack.pop();
+  updateSearchBack();
+  if(snapshot)restoreNavSnapshot(snapshot);
+}
+
 function renderSearch(){
   if(state.searchMode==="video"){
     renderVideoSearchGrid();
@@ -413,10 +499,17 @@ function closeInlineVideo(){
   el.inlinePlayer.hidden=true;
   el.inlineVideoFrame.src="about:blank";
   if(el.inlinePlayerTitle)el.inlinePlayerTitle.textContent="";
+  state.activeVideoId="";
+  state.activeVideoRow=null;
 }
 
-function playInlineVideo(id,row={}){
+function playInlineVideo(id,row={},options={}){
   if(!id||!el.inlinePlayer||!el.inlineVideoFrame)return;
+  if(options.pushHistory!==false&&state.detail){
+    pushNavSnapshot(snapshotChannelView());
+  }
+  state.activeVideoId=id;
+  state.activeVideoRow=row||null;
   const title=clean(row?._displayTitle||row?.title||"Video");
   if(el.inlinePlayerTitle)el.inlinePlayerTitle.textContent=title;
   el.inlinePlayer.hidden=false;
@@ -522,9 +615,13 @@ async function waitYT(){
   });
 }
 
-async function openChannel(row,seedVideo=null){
+async function openChannel(row,seedVideo=null,options={}){
   if(!row||!validId(row.id))return;
 
+  if(options.pushHistory!==false){
+    pushNavSnapshot(snapshotSearchView());
+  }
+  const navSeq=++state.navSeq;
   state.detail={...currentMeta(row.id),...row};
   state.detailVideos=seedVideo?[seedVideo]:[];
   renderPreview();
@@ -539,6 +636,7 @@ async function openChannel(row,seedVideo=null){
       yt.channelVideosPage("manager:"+row.id,row.id,true).catch(()=>[])
     ]);
 
+    if(navSeq!==state.navSeq)return;
     if(meta?.id)state.detail={...state.detail,...meta};
 
     const merged=[];
@@ -550,6 +648,7 @@ async function openChannel(row,seedVideo=null){
       seen.add(id);
       merged.push(v);
     }
+    if(navSeq!==state.navSeq)return;
     state.detailVideos=merged.slice(0,30);
     renderPreview();
   }catch(error){
@@ -557,8 +656,12 @@ async function openChannel(row,seedVideo=null){
   }
 }
 
-async function search(q){
+async function search(q,options={}){
   q=clean(q);
+  if(options.resetHistory!==false){
+    state.navStack=[];
+    updateSearchBack();
+  }
   state.searchQuery=q;
   if(el.searchInput&&el.searchInput.value!==q)el.searchInput.value=q;
   if(state.detail){
@@ -692,6 +795,7 @@ async function loadState(){
   renderColumns();
   renderSearch();
   renderKeywords();
+  updateSearchBack();
 }
 
 function renderSourceManagerList(query=""){
@@ -890,14 +994,16 @@ qsa(".search-mode-btn").forEach(button=>{
     state.searchRows=[];
     el.searchStatus.textContent="";
     renderSearch();
-    if(keptQuery)search(keptQuery);
+    if(keptQuery)search(keptQuery,{resetHistory:true});
     requestAnimationFrame(()=>el.searchInput.focus());
   });
 });
 
-el.searchForm.addEventListener("submit",event=>{
+el.el.searchBack?.addEventListener("click",goBackInSearchPanel);
+
+searchForm.addEventListener("submit",event=>{
   event.preventDefault();
-  search(el.searchInput.value);
+  search(el.searchInput.value,{resetHistory:true});
 });
 
 el.searchList.addEventListener("click",event=>{
@@ -969,16 +1075,26 @@ el.previewScopes.addEventListener("click",event=>{
 });
 
 el.inlinePlayerClose?.addEventListener("click",()=>{
+  if(state.navStack.length&&state.navStack[state.navStack.length-1]?.kind==="channel"){
+    goBackInSearchPanel();
+    return;
+  }
   closeInlineVideo();
 });
 
 el.previewClose.addEventListener("click",()=>{
+  if(state.navStack.length){
+    goBackInSearchPanel();
+    return;
+  }
+  state.navSeq++;
   state.detail=null;
   state.detailVideos=[];
   closeInlineVideo();
   renderPreview();
   el.searchList.hidden=false;
   el.searchStatus.hidden=false;
+  updateSearchBack();
 });
 
 el.videoGrid.addEventListener("click",event=>{
