@@ -336,6 +336,50 @@ async function searchSelectedSourceLiveCandidates(
     .slice(0,4);
 }
 
+async function discoverGlobalLiveCandidates(
+  supabaseUrl:string,
+  serviceKey:string,
+  blockedIds:Set<string>,
+  keywords:string[]
+){
+  const query="trực tiếp";
+  const deadline=Date.now()+10000;
+  const out:any[]=[];
+  let nextpage="";
+  let first=true;
+
+  do{
+    const action=first
+      ?"search&q="+encodeURIComponent(query)+"&filter=videos"
+      :"search_next&q="+encodeURIComponent(query)+
+        "&filter=videos&nextpage="+encodeURIComponent(nextpage);
+    const result=await fetchJson(
+      supabaseUrl+"/functions/v1/yt1988?action="+action,
+      {
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      },
+      4200
+    );
+    const raw=Array.isArray(result?.data?.items)?result.data.items:
+      Array.isArray(result?.data)?result.data:[];
+
+    for(const item of raw){
+      const row=normalizeRow(item,{});
+      if(!row||!strongFreshLiveSignal(row))continue;
+      const sid=channelId(row);
+      if(sid&&blockedIds.has(sid))continue;
+      if(liveKeywordBlocked(row,keywords))continue;
+      out.push(row);
+    }
+
+    nextpage=String(result?.data?.nextpage||"").trim();
+    first=false;
+  }while(nextpage&&Date.now()<deadline);
+
+  return dedupeRows(out);
+}
+
 async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
   const id=videoId(row);
   if(!id)return null;
@@ -370,7 +414,7 @@ async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string)
 }
 
 async function verifyLiveRows(rows:any[],supabaseUrl:string,serviceKey:string){
-  const verified=await mapLimit(rows.slice(0,60),4,async(row)=>{
+  const verified=await mapLimit(rows,8,async(row)=>{
     try{
       return await verifyLiveCandidate(row,supabaseUrl,serviceKey);
     }catch(error){
@@ -552,7 +596,43 @@ Deno.serve(async(req:Request)=>{
 
     let liveKeywords:string[]=[];
     let verifiedLiveRowsCache:any[]=[];
-    const selectedLiveSources=selectedByScope.get("live")||[];
+
+    const allBlockedLiveSourceIds=new Set<string>();
+    for(const scope of SCOPES){
+      for(const id of blockedByScope.get(scope)||[])allBlockedLiveSourceIds.add(id);
+    }
+
+    const explicitLiveSources=selectedByScope.get("live")||[];
+    const explicitLiveIds=new Set(explicitLiveSources.map((source:any)=>source.id));
+    const liveSourceById=new Map<string,any>();
+
+    for(const source of SCOPES.flatMap((scope)=>selectedByScope.get(scope)||[])){
+      if(!source?.id||allBlockedLiveSourceIds.has(source.id))continue;
+      const current=liveSourceById.get(source.id);
+      liveSourceById.set(source.id,{
+        ...current,
+        ...source,
+        name:clean(source?.name||current?.name||"",180),
+        thumbnailUrl:clean(source?.thumbnailUrl||current?.thumbnailUrl||"",1000)
+      });
+    }
+    for(const source of explicitLiveSources){
+      if(!source?.id||allBlockedLiveSourceIds.has(source.id))continue;
+      const current=liveSourceById.get(source.id)||{};
+      liveSourceById.set(source.id,{
+        ...current,
+        ...source,
+        name:clean(source?.name||current?.name||"",180),
+        thumbnailUrl:clean(source?.thumbnailUrl||current?.thumbnailUrl||"",1000)
+      });
+    }
+
+    const selectedLiveSources=[...liveSourceById.values()];
+    const inheritedLiveIds=new Set(
+      selectedLiveSources
+        .map((source:any)=>source.id)
+        .filter((id:string)=>!explicitLiveIds.has(id))
+    );
 
     if(scopes.includes("live")){
       try{
@@ -571,7 +651,6 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      const liveBlocked=blockedByScope.get("live")||new Set<string>();
       const selectedDiscoveryBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
         try{
           const direct=await searchSelectedSourceLiveCandidates(
@@ -591,37 +670,36 @@ Deno.serve(async(req:Request)=>{
 
       let globalCandidates:any[]=[];
       try{
-        const url=supabaseUrl+"/functions/v1/yt1988?action=search&q="+
-          encodeURIComponent("trực tiếp")+"&filter=videos";
-        const result=await fetchJson(url,{
-          "apikey":serviceKey,
-          "authorization":"Bearer "+serviceKey
-        },5200);
-        const raw=Array.isArray(result?.data?.items)?result.data.items:
-          Array.isArray(result?.data)?result.data:[];
-        globalCandidates=raw
-          .slice(0,24)
-          .map((row:any)=>normalizeRow(row,{}))
-          .filter((row:any)=>row&&strongFreshLiveSignal(row))
-          .slice(0,16);
+        globalCandidates=await discoverGlobalLiveCandidates(
+          supabaseUrl,
+          serviceKey,
+          allBlockedLiveSourceIds,
+          liveKeywords
+        );
       }catch(error){
         console.warn("global live discovery failed",String(error));
       }
 
-      const selectedIds=new Set(selectedLiveSources.map((source:any)=>source.id));
       const candidates=dedupeRows([
         ...selectedDiscoveryBatches.flat(),
         ...globalCandidates
       ])
         .filter((row:any)=>{
           const sid=channelId(row);
-          return !sid||!liveBlocked.has(sid);
+          return !sid||!allBlockedLiveSourceIds.has(sid);
         })
         .filter((row:any)=>!liveKeywordBlocked(row,liveKeywords))
-        .map((row:any)=>({
-          ...row,
-          _interestPriority:selectedIds.has(channelId(row))?1:0
-        }))
+        .map((row:any)=>{
+          const sid=channelId(row);
+          return {
+            ...row,
+            _interestPriority:explicitLiveIds.has(sid)
+              ?2
+              :inheritedLiveIds.has(sid)
+                ?1
+                :0
+          };
+        })
         .sort((a:any,b:any)=>
           (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
         );
@@ -868,7 +946,7 @@ Deno.serve(async(req:Request)=>{
         raw=verifiedLiveRowsCache
           .filter((row:any)=>{
             const sid=channelId(row);
-            return !sid||!blocked.has(sid);
+            return !sid||!allBlockedLiveSourceIds.has(sid);
           })
           .sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
@@ -892,8 +970,8 @@ Deno.serve(async(req:Request)=>{
 
       if(meta.kind!=="live")raw=sortRows(raw);
       raw=dedupeRows(raw)
-        .filter((r:any)=>meta.kind!=="content"||!strongAd(r))
-        .slice(0,90);
+        .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
+      if(meta.kind!=="live")raw=raw.slice(0,90);
 
       if(meta.profile==="review"){
         raw=raw.map((r:any)=>{
@@ -912,7 +990,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       let packaged=raw;
-      if(raw.length>=4){
+      if(meta.kind!=="live"&&raw.length>=4){
         try{
           const aiRes=await fetch(supabaseUrl+"/functions/v1/yt1988-topics",{
             method:"POST",
