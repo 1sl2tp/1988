@@ -399,6 +399,7 @@ const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt
 let stateSyncReady=false;
 let stateSyncApplying=false;
 let stateSyncDirty=false;
+let stateSyncRevision=0;
 let stateSyncTimer=0;
 let stateSyncPushPromise=null;
 let sourceWriteClock=Date.now();
@@ -420,6 +421,7 @@ const LIVE_SOURCE_SCOPE="live";
 const LATEST_SOURCE_SCOPE="latest";
 const WEEK_SOURCE_SCOPE="week";
 const LIVE_KEYWORDS_STATE_KEY="__live_keywords";
+const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
@@ -973,6 +975,63 @@ function cleanLiveKeywordList(values=[]){
   return out.slice(0,80);
 }
 
+function readPendingLiveKeywords(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(LIVE_KEYWORDS_PENDING_KEY)||"null");
+    if(!raw||typeof raw!=="object")return null;
+    const version=Number(raw.version)||0;
+    const keywords=cleanLiveKeywordList(raw.keywords);
+    if(!version)return null;
+    return {version,keywords};
+  }catch{
+    return null;
+  }
+}
+
+function persistPendingLiveKeywords(version=Date.now()){
+  const payload={
+    version:Number(version)||Date.now(),
+    keywords:cleanLiveKeywordList(liveBlockedKeywords)
+  };
+  try{
+    localStorage.setItem(LIVE_KEYWORDS_PENDING_KEY,JSON.stringify(payload));
+  }catch{}
+  return payload.version;
+}
+
+function clearPendingLiveKeywordsThrough(version=Infinity){
+  try{
+    const pending=readPendingLiveKeywords();
+    if(!pending||pending.version<=Number(version||0)){
+      localStorage.removeItem(LIVE_KEYWORDS_PENDING_KEY);
+    }
+  }catch{}
+}
+
+function recoverPendingLiveKeywords(serverVersion=0){
+  const pending=readPendingLiveKeywords();
+  if(!pending)return false;
+  if(pending.version<=Number(serverVersion||0)){
+    clearPendingLiveKeywordsThrough(pending.version);
+    return false;
+  }
+  liveBlockedKeywords=cleanLiveKeywordList(pending.keywords);
+  stateSyncRevision=Math.max(stateSyncRevision,pending.version);
+  stateSyncDirty=true;
+  renderLiveKeywordTools?.();
+  return true;
+}
+
+function queueLiveKeywordServerSave(){
+  stateSyncRevision=Math.max(Date.now(),stateSyncRevision+1);
+  stateSyncDirty=true;
+  persistPendingLiveKeywords(stateSyncRevision);
+  if(stateSyncReady&&!stateSyncApplying){
+    void pushServerStateNow();
+  }
+  return stateSyncRevision;
+}
+
 function serverSourceLabelsSnapshot(){
   const labels=Object.fromEntries(
     SOURCE_MANAGER_GROUPS
@@ -1020,7 +1079,7 @@ function addLiveKeywordFromInput(){
   if(!display||!norm)return false;
   if(!liveBlockedKeywords.some(item=>normalizeLiveKeywordClient(item)===norm)){
     liveBlockedKeywords=cleanLiveKeywordList([...liveBlockedKeywords,display]);
-    scheduleServerStatePush(40);
+    queueLiveKeywordServerSave();
   }
   if(liveKeywordInput)liveKeywordInput.value="";
   renderLiveKeywordTools();
@@ -1036,7 +1095,7 @@ function removeLiveKeyword(keyword=""){
   const next=liveBlockedKeywords.filter(item=>normalizeLiveKeywordClient(item)!==norm);
   if(next.length===liveBlockedKeywords.length)return false;
   liveBlockedKeywords=next;
-  scheduleServerStatePush(40);
+  queueLiveKeywordServerSave();
   renderLiveKeywordTools();
   if(state.activeFeed===LIVE_SOURCE_SCOPE&&!state.searchResultsActive){
     void loadFeedPreset(LIVE_SOURCE_SCOPE);
@@ -1277,19 +1336,55 @@ function flushPendingSourceWritesOnPageHide(){
 
 window.addEventListener("pagehide",flushPendingSourceWritesOnPageHide,{capture:true});
 
+function flushPendingServerStateOnPageHide(){
+  if(!stateSyncDirty)return;
+  try{
+    const version=Math.max(Date.now(),stateSyncRevision);
+    void fetch(STATE_SYNC_URL,{
+      method:"POST",
+      cache:"no-store",
+      keepalive:true,
+      headers:{
+        "content-type":"application/json",
+        "x-1988-pin":SETTINGS_PIN
+      },
+      body:JSON.stringify({state:serverStateSnapshot(),version})
+    });
+  }catch{}
+}
+
+window.addEventListener("pagehide",flushPendingServerStateOnPageHide,{capture:true});
+
 async function pushServerStateNow({force=false}={}){
   if((!stateSyncReady&&!force)||stateSyncApplying)return false;
-  if(stateSyncPushPromise)return stateSyncPushPromise;
+  if(stateSyncPushPromise){
+    const current=stateSyncPushPromise;
+    const ok=await current;
+    if(ok&&stateSyncDirty&&!stateSyncApplying){
+      return pushServerStateNow({force});
+    }
+    return ok;
+  }
 
   clearTimeout(stateSyncTimer);
   stateSyncTimer=0;
 
-  const payload={state:serverStateSnapshot(),version:Date.now()};
+  const pushedRevision=stateSyncRevision;
+  const payload={state:serverStateSnapshot(),version:Math.max(Date.now(),pushedRevision)};
+  let pushSucceeded=false;
+
   stateSyncPushPromise=stateSyncFetch("POST",payload,4200)
     .then(result=>{
       const ok=!!result?.ok;
-      stateSyncDirty=!ok;
-      if(ok)clearLegacyLocalSourceState();
+      pushSucceeded=ok;
+      if(ok){
+        const newerMutation=stateSyncRevision>pushedRevision;
+        stateSyncDirty=newerMutation;
+        clearPendingLiveKeywordsThrough(pushedRevision);
+        clearLegacyLocalSourceState();
+      }else{
+        stateSyncDirty=true;
+      }
       return ok;
     })
     .catch(error=>{
@@ -1297,19 +1392,27 @@ async function pushServerStateNow({force=false}={}){
       console.warn("1988 state push failed",error);
       return false;
     })
-    .finally(()=>{stateSyncPushPromise=null;});
+    .finally(()=>{
+      stateSyncPushPromise=null;
+      if(pushSucceeded&&stateSyncDirty&&stateSyncReady&&!stateSyncApplying){
+        clearTimeout(stateSyncTimer);
+        stateSyncTimer=setTimeout(()=>void pushServerStateNow(),40);
+      }
+    });
 
   return stateSyncPushPromise;
 }
 
 function scheduleServerStatePush(delay=140){
+  stateSyncRevision=Math.max(Date.now(),stateSyncRevision+1);
   stateSyncDirty=true;
-  if(!stateSyncReady||stateSyncApplying)return;
+  if(!stateSyncReady||stateSyncApplying)return stateSyncRevision;
   clearTimeout(stateSyncTimer);
   stateSyncTimer=setTimeout(
     ()=>void pushServerStateNow(),
     Math.max(80,Number(delay)||140)
   );
+  return stateSyncRevision;
 }
 
 async function hydrateServerState(){
@@ -1320,6 +1423,7 @@ async function hydrateServerState(){
       const result=await stateSyncFetch("GET",null,attempt===0?3200:4600);
       if(result?.ok&&result?.exists&&result.state){
         applyServerState(result.state);
+        recoverPendingLiveKeywords(Number(result?.version)||0);
         stateSyncReady=true;
         if(stateSyncDirty){
           await pushServerStateNow({force:true});
@@ -1396,6 +1500,7 @@ async function refreshServerStateOnResume(){
     const result=await stateSyncFetch("GET",null,3200);
     if(result?.ok&&result?.exists&&result.state){
       applyServerState(result.state);
+      recoverPendingLiveKeywords(Number(result?.version)||0);
       stateSyncReady=true;
       if(stateSyncDirty)await pushServerStateNow({force:true});
       if(sourcesBtn){
