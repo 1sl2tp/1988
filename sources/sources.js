@@ -56,6 +56,9 @@ const el={
   previewMeta:qs("#previewMeta"),
   previewSelect:qs("#previewSelect"),
   previewBlock:qs("#previewBlock"),
+  previewMoreBtn:qs("#previewMoreBtn"),
+  previewMore:qs("#previewMore"),
+  previewMoreClose:qs("#previewMoreClose"),
   previewClose:qs("#previewClose"),
   previewScopes:qs("#previewScopes"),
   videoGrid:qs("#videoGrid"),
@@ -215,12 +218,14 @@ function cardMarkup(row,kind){
   let actions="";
   if(kind==="suggested"){
     actions=
-      '<button class="tiny primary" data-card-action="selected" data-id="'+esc(row.id)+'">Chọn</button>'+
-      '<button class="tiny danger" data-card-action="blocked" data-id="'+esc(row.id)+'">Bỏ</button>';
+      '<button class="action-icon select" data-card-action="selected" data-id="'+esc(row.id)+'" title="Chọn" aria-label="Chọn">✓</button>'+
+      '<button class="action-icon block" data-card-action="blocked" data-id="'+esc(row.id)+'" title="Chặn" aria-label="Chặn">×</button>';
   }else if(kind==="selected"){
-    actions='<button class="tiny" data-card-action="normal" data-id="'+esc(row.id)+'">Bỏ</button>';
+    actions=
+      '<button class="action-icon remove" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ khỏi nguồn" aria-label="Bỏ khỏi nguồn">×</button>';
   }else{
-    actions='<button class="tiny danger" data-card-action="normal" data-id="'+esc(row.id)+'">Bỏ chặn</button>';
+    actions=
+      '<button class="action-icon restore" data-card-action="normal" data-id="'+esc(row.id)+'" title="Bỏ chặn" aria-label="Bỏ chặn">↺</button>';
   }
 
   return '<div class="channel-card" data-card-id="'+esc(row.id)+'">'+
@@ -287,9 +292,9 @@ function searchResultMarkup(row){
     media+
     copy+
     '<div class="card-actions">'+
-      '<button class="tiny primary" data-search-select="'+esc(row.id)+'">'+esc(currentAction)+'</button>'+
-      '<button class="tiny danger" data-search-block="'+esc(row.id)+'">'+esc(blockAction)+'</button>'+
-      '<button class="tiny" data-toggle-other="'+esc(row._resultKey||row.id)+'">+#</button>'+
+      '<button class="action-icon select" data-search-select="'+esc(row.id)+'" title="'+esc(currentAction)+'" aria-label="'+esc(currentAction)+'">✓</button>'+
+      '<button class="action-icon block" data-search-block="'+esc(row.id)+'" title="'+esc(blockAction)+'" aria-label="'+esc(blockAction)+'">×</button>'+
+      '<button class="action-icon more" data-toggle-other="'+esc(row._resultKey||row.id)+'" title="Nguồn khác" aria-label="Nguồn khác">…</button>'+
     '</div>'+
     '<div class="other-sources">'+otherScopes+'</div>'+
   '</div>';
@@ -338,6 +343,7 @@ function renderPreview(){
     el.searchList.hidden=false;
     el.searchStatus.hidden=false;
     closeInlineVideo();
+    if(el.previewMore)el.previewMore.hidden=true;
     return;
   }
 
@@ -353,10 +359,20 @@ function renderPreview(){
   ].filter(Boolean).join(" · ");
 
   const current=sourceStatus(row.id);
-  el.previewSelect.textContent=current==="selected"
+  const selectActive=current==="selected";
+  const blocked=current==="blocked";
+
+  el.previewSelect.textContent=selectActive?"×":"✓";
+  el.previewSelect.title=selectActive
     ?"Bỏ khỏi "+currentScopeLabel()
     :"Chọn vào "+currentScopeLabel();
-  el.previewBlock.textContent=current==="blocked"?"Bỏ chặn":"Chặn";
+  el.previewSelect.setAttribute("aria-label",el.previewSelect.title);
+  el.previewSelect.classList.toggle("active",selectActive);
+
+  el.previewBlock.textContent=blocked?"↺":"×";
+  el.previewBlock.title=blocked?"Bỏ chặn":"Chặn";
+  el.previewBlock.setAttribute("aria-label",el.previewBlock.title);
+  el.previewBlock.classList.toggle("active",blocked);
 
   el.previewScopes.innerHTML=state.scopes
     .filter(s=>s.key!==state.scope)
@@ -401,6 +417,7 @@ async function openChannel(row,seedVideo=null){
 
   state.detail={...currentMeta(row.id),...row};
   state.detailVideos=seedVideo?[seedVideo]:[];
+  if(el.previewMore)el.previewMore.hidden=true;
   renderPreview();
   requestAnimationFrame(()=>{
     if(el.preview)el.preview.scrollTop=0;
@@ -826,12 +843,21 @@ el.previewBlock.addEventListener("click",()=>{
   writeStatus(state.detail.id,st==="blocked"?"normal":"blocked");
 });
 
+el.previewMoreBtn?.addEventListener("click",()=>{
+  if(!el.previewMore)return;
+  el.previewMore.hidden=!el.previewMore.hidden;
+});
+el.previewMoreClose?.addEventListener("click",()=>{
+  if(el.previewMore)el.previewMore.hidden=true;
+});
+
 el.previewScopes.addEventListener("click",event=>{
   const button=event.target.closest("[data-preview-scope]");
   if(!button||!state.detail)return;
   const scope=button.dataset.previewScope;
   const st=sourceStatus(state.detail.id,scope);
   writeStatus(state.detail.id,st==="selected"?"normal":"selected",scope);
+  if(el.previewMore)el.previewMore.hidden=true;
 });
 
 el.inlinePlayerClose?.addEventListener("click",()=>{
