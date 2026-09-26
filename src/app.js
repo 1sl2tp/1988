@@ -5957,6 +5957,55 @@ function watchPageScrollY(){
   );
 }
 
+function watchMediaSlotRect(){
+  if(!playerSection||playerSection.hidden)return null;
+  const rect=playerSection.getBoundingClientRect?.();
+  if(!rect||!Number.isFinite(rect.top)||!Number.isFinite(rect.bottom))return null;
+  return rect;
+}
+
+function watchMediaSlotTopEdge(){
+  const safe=floatingSafeInsets();
+  return Math.max(0,Number(safe?.top)||0);
+}
+
+function freezeWatchMediaSlot(){
+  if(!playerSection)return;
+  const root=document.documentElement;
+  const rect=watchMediaSlotRect();
+  const height=Math.max(
+    1,
+    Number(rect?.height)||0,
+    parseFloat(getComputedStyle(playerSection).height)||0,
+    parseFloat(getComputedStyle(root).getPropertyValue("--watch-stage-h"))||0
+  );
+  root.style.setProperty("--watch-inline-slot-h",Math.round(height*100)/100+"px");
+
+  const art=clean(
+    state.currentMeta?.thumbnailUrl||
+    state.currentMeta?.thumbnail||
+    state.currentMeta?.poster||
+    (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"")
+  );
+  if(/^https?:\/\//i.test(art)){
+    const safeArt=art
+      .replace(/\\/g,"%5C")
+      .replace(/"/g,"%22")
+      .replace(/\n|\r/g,"");
+    root.style.setProperty("--watch-inline-slot-art",'url("'+safeArt+'")');
+  }else{
+    root.style.removeProperty("--watch-inline-slot-art");
+  }
+  playerSection.classList.add("watch-media-slot");
+}
+
+function releaseWatchMediaSlot(){
+  const root=document.documentElement;
+  playerSection?.classList.remove("watch-media-slot");
+  root.style.removeProperty("--watch-inline-slot-h");
+  root.style.removeProperty("--watch-inline-slot-art");
+}
+
 function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
   if(!state.watchMinimized||!frame?.classList.contains("floating-iframe"))return;
 
@@ -7300,7 +7349,7 @@ function syncWatchBrowseLayout(){
     watchBrowseViewportSupported() &&
     !!state.currentId &&
     !playerSection?.hidden &&
-    !state.watchMinimized;
+    (window.innerWidth<=720||!state.watchMinimized);
 
   if(target!==watchBrowseActive)setWatchBrowseLayout(target);
 }
@@ -7557,13 +7606,13 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     )return false;
 
     markPlaybackTransition();
+    freezeWatchMediaSlot();
     state.watchMinimized=true;
     state.watchPipPinned=!!pinned;
-    state.watchPipAway=watchPageScrollY()>10;
+    state.watchPipAway=true;
     state.watchPipEnteredAt=Date.now();
     root.classList.add("watch-minimized");
     syncNativeMobileControls();
-    setWatchBrowseLayout(false);
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
     requestAnimationFrame(()=>applyFloatingIframe(true));
@@ -7582,6 +7631,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   syncNativeMobileControls();
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
+  requestAnimationFrame(releaseWatchMediaSlot);
   if(!preserveScroll)hardResetDocumentTop();
   if(state.intentPlay){
     setTimeout(resumeVideoAfterReturn,80);
@@ -7762,10 +7812,7 @@ function setupWatchMinimizeGesture(){
   if(root.dataset.watchMinimizeGesture==="1")return;
   root.dataset.watchMinimizeGesture="1";
 
-  let gesture=null;
-  let lastTouchAt=0;
-
-  const eligible=()=>(
+  const eligibleInline=()=>(
     mobileMiniViewport() &&
     Date.now()>=Number(state.watchRestoreUntil||0) &&
     Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
@@ -7776,117 +7823,37 @@ function setupWatchMinimizeGesture(){
     !isPlayerFullscreen()
   );
 
-  const outsidePlayer=target=>{
-    if(!(target instanceof Element))return false;
-    return !playerSection?.contains(target);
-  };
+  let slotScrollRaf=0;
+  const syncPipToMediaSlot=()=>{
+    if(slotScrollRaf)return;
+    slotScrollRaf=requestAnimationFrame(()=>{
+      slotScrollRaf=0;
+      const rect=watchMediaSlotRect();
+      if(!rect)return;
 
-  document.addEventListener("touchstart",event=>{
-    if(
-      !eligible() ||
-      event.touches?.length!==1
-    ){
-      gesture=null;
-      return;
-    }
-
-    lastTouchAt=Date.now();
-    const touch=event.touches[0];
-    gesture={
-      x:touch.clientX,
-      y:touch.clientY,
-      lastX:touch.clientX,
-      lastY:touch.clientY
-    };
-  },{passive:true,capture:true});
-
-  document.addEventListener("touchmove",event=>{
-    if(!gesture||event.touches?.length!==1)return;
-
-    const touch=event.touches[0];
-    gesture.lastX=touch.clientX;
-    gesture.lastY=touch.clientY;
-
-    const dx=gesture.lastX-gesture.x;
-    const dy=gesture.lastY-gesture.y;
-
-    // Minimize as soon as the upward browsing gesture is clear. Do not wait
-    // for touchend; portrait Watch uses the page itself as the scroller, so
-    // waiting until the finger lifts makes PiP feel one gesture late.
-    if(
-      eligible() &&
-      dy<=-12 &&
-      Math.abs(dy)>Math.abs(dx)*1.05
-    ){
-      gesture=null;
-      setWatchMinimized(true,{pinned:false});
-    }
-  },{passive:true,capture:true});
-
-  const clearGesture=()=>{gesture=null;};
-  document.addEventListener("touchend",clearGesture,{passive:true,capture:true});
-  document.addEventListener("touchcancel",clearGesture,{passive:true,capture:true});
-
-  // Mobile Watch has two possible scrollers: portrait uses the page, while
-  // wide/square Watch can scroll inside .feed-section. Listen to BOTH and do
-  // not gate the fallback by video aspect. A real recent touch is still
-  // required so programmatic card alignment cannot unexpectedly enter mini.
-  const minimizeOnScroll=()=>{
-    if(
-      Date.now()<Number(state.watchRestoreUntil||0) ||
-      Date.now()-lastTouchAt>900 ||
-      Date.now()<Number(state.watchOpenSettlingUntil||0) ||
-      !eligible()
-    )return;
-
-    const pageY=Math.max(
-      0,
-      Number(document.scrollingElement?.scrollTop)||0,
-      Number(document.documentElement?.scrollTop)||0,
-      Number(document.body?.scrollTop)||0,
-      Number(window.scrollY)||0
-    );
-    const feedY=Math.max(0,Number(feedSection?.scrollTop)||0);
-    if(pageY<4&&feedY<4)return;
-
-    gesture=null;
-    setWatchMinimized(true,{pinned:false});
-  };
-
-  window.addEventListener("scroll",minimizeOnScroll,{passive:true});
-  document.body?.addEventListener("scroll",minimizeOnScroll,{passive:true});
-  feedSection?.addEventListener("scroll",minimizeOnScroll,{passive:true});
-
-  let restoreRaf=0;
-  const restoreInlineOnReturn=()=>{
-    if(restoreRaf)return;
-    restoreRaf=requestAnimationFrame(()=>{
-      restoreRaf=0;
-      if(!state.watchMinimized||state.watchPipPinned)return;
-
-      const y=watchPageScrollY();
-      if(y>20){
-        state.watchPipAway=true;
+      const topEdge=watchMediaSlotTopEdge();
+      if(!state.watchMinimized){
+        if(eligibleInline()&&rect.bottom<=topEdge+1){
+          setWatchMinimized(true,{pinned:false});
+        }
         return;
       }
 
-      // Do not bounce straight back during the same gesture that created PiP.
-      if(Date.now()-Number(state.watchPipEnteredAt||0)<260)return;
+      if(state.watchPipPinned)return;
+      if(Date.now()-Number(state.watchPipEnteredAt||0)<220)return;
 
-      if(state.watchPipAway&&y<=3){
-        gesture=null;
+      // The frozen media slot, not the portrait iframe's live dimensions,
+      // decides when the iframe returns inline.
+      if(rect.bottom>topEdge+12&&rect.top<window.innerHeight){
         setWatchMinimized(false,{preserveScroll:true});
       }
     });
   };
 
-  window.addEventListener("scroll",restoreInlineOnReturn,{passive:true});
-  document.body?.addEventListener("scroll",restoreInlineOnReturn,{passive:true});
-  document.addEventListener("scroll",event=>{
-    if(event.target===document||event.target===document.scrollingElement){
-      restoreInlineOnReturn();
-    }
-  },{passive:true});
+  window.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
 }
 
 function getFullscreenElement(){
@@ -12877,41 +12844,22 @@ async function playVideo(id,seedMeta={}){
     });
   }
 
-  const legacyCompactNonWide=
-    legacyCompactIphone() &&
-    immediateAspect>0 &&
-    immediateAspect<=1.20;
-
-  // A home-card click is a real user activation. If the YouTube iframe API is
-  // still loading, waiting for YT.onReady loses that activation on iOS and
-  // autoplay-with-audio becomes intermittent. Start native media immediately
-  // on mobile while the gesture is still active; fall back to iframe only if
-  // the media endpoint cannot serve this video.
-  const mobileIframeNotReady=
-    mobileMiniViewport() &&
-    (!state.playerReady||!state.player);
-
-  const nativeCompactStarted=(legacyCompactNonWide||mobileIframeNotReady)
-    ?fallbackIframeVideoToNative(id,mobileIframeNotReady?-8:-7,{
-        resumeAt:0,
-        returnToIframeOnFailure:true
-      })
-    :false;
-
-  if(!nativeCompactStarted){
-    if(state.playerReady&&state.player){
-      state.pendingVideoId="";
-      try{
-        state.player.unMute?.();
-        state.player.loadVideoById(id);
-        ensureIframePlaying();
-        statusText.textContent="Video YouTube đang phát";
-      }catch{
-        state.pendingVideoId=id;
-      }
-    }else{
-      initYouTubePlayer();
+  // One playback engine by default everywhere: YouTube iframe.
+  // Do not swap to native <video> during first paint; that engine hand-off was
+  // the main source of lost taps, audio restarts and geometry jumps on mobile.
+  showIframePlayer();
+  if(state.playerReady&&state.player){
+    state.pendingVideoId="";
+    try{
+      state.player.unMute?.();
+      state.player.loadVideoById(id);
+      ensureIframePlaying();
+      statusText.textContent="Video YouTube đang phát";
+    }catch{
+      state.pendingVideoId=id;
     }
+  }else{
+    initYouTubePlayer();
   }
 
   // Resolve the real video shape first. Full info/watch-next can be much
@@ -13061,13 +13009,13 @@ function initYouTubePlayer(){
     playerVars:{
       autoplay:1,
       playsinline:1,
-      // Mobile/PWA interaction is owned by the app overlay. Do not let the
-      // YouTube iframe draw its Pause/Fullscreen chrome underneath it.
-      controls:mobileMiniViewport()?0:1,
+      // Use the normal YouTube iframe interaction model on every device.
+      // The page no longer lays a transparent gesture surface over the player.
+      controls:1,
       cc_load_policy:0,
       rel:0,
-      fs:mobileMiniViewport()?0:1,
-      disablekb:mobileMiniViewport()?1:0,
+      fs:1,
+      disablekb:0,
       modestbranding:1,
       iv_load_policy:3,
       enablejsapi:1,
@@ -13183,7 +13131,6 @@ function initYouTubePlayer(){
           try{window.YTLocal?.markEmbedUnplayable?.(state.currentId,"iframe_error_"+errorCode)}catch{}
         }
 
-        if(fallbackIframeVideoToNative(state.currentId,errorCode))return;
         statusText.textContent="YouTube không phát được video này";
       }
     }
