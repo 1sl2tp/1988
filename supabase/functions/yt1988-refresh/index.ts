@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v19";
+const LIVE_PIPELINE_VERSION="live-v20";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -283,29 +283,49 @@ async function selectedSourceLiveNow(source:any){
   const id=clean(source?.id,180);
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
 
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),3800);
+  const endpoint=
+    "https://www.youtube.com/channel/"+encodeURIComponent(id)+"/live?hl=vi&gl=VN";
+  const headers={
+    "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
+    "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+  };
+
+  // One lightweight HEAD per selected channel. Only a channel whose /live URL
+  // currently resolves to a watch URL gets a body request.
+  const headController=new AbortController();
+  const headTimer=setTimeout(()=>headController.abort(),1900);
+  let finalUrl="";
   try{
-    const res=await fetch(
-      "https://www.youtube.com/channel/"+encodeURIComponent(id)+"/live?hl=vi&gl=VN",
-      {
-        signal:controller.signal,
-        cache:"no-store",
-        redirect:"follow",
-        headers:{
-          "accept":"text/html,application/xhtml+xml",
-          "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
-          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
-        }
+    const head=await fetch(endpoint,{
+      method:"HEAD",
+      signal:headController.signal,
+      cache:"no-store",
+      redirect:"follow",
+      headers
+    });
+    if(!head.ok)return null;
+    finalUrl=String(head.url||"");
+  }finally{
+    clearTimeout(headTimer);
+  }
+
+  const videoIdValue=
+    finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
+  if(!videoIdValue)return null;
+
+  const bodyController=new AbortController();
+  const bodyTimer=setTimeout(()=>bodyController.abort(),2600);
+  try{
+    const res=await fetch(finalUrl,{
+      signal:bodyController.signal,
+      cache:"no-store",
+      redirect:"follow",
+      headers:{
+        ...headers,
+        "accept":"text/html,application/xhtml+xml"
       }
-    );
+    });
     if(!res.ok)return null;
-
-    const finalUrl=String(res.url||"");
-    const videoIdValue=
-      finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
-    if(!videoIdValue)return null;
-
     const html=await res.text();
     const liveNow=/"videoViewCountRenderer"\s*:\s*\{[\s\S]{0,900}?"isLive"\s*:\s*true/.test(html);
     if(!liveNow)return null;
@@ -335,21 +355,23 @@ async function selectedSourceLiveNow(source:any){
       publishedText:"Đang trực tiếp"
     },source);
   }finally{
-    clearTimeout(timer);
+    clearTimeout(bodyTimer);
   }
 }
 
 async function discoverGlobalLiveCandidates(
   supabaseUrl:string,
   serviceKey:string,
-  excludedSourceIds:Set<string>,
+  blockedSourceIds:Set<string>,
+  selectedSourceIds:Set<string>,
   keywords:string[]
 ){
   const deadline=Date.now()+12000;
-  const out:any[]=[];
+  const external:any[]=[];
+  const selected:any[]=[];
 
-  // Source 1 is exactly one fresh page for each broad LIVE query. This keeps
-  // outside discovery independent without consuming quota needed by Source 2.
+  // STEP 1: one fresh page per broad LIVE query. Blocked channels disappear.
+  // Selected channels are removed from "outside" and handed to STEP 2 instead.
   await mapLimit(LIVE_SEARCH_QUERIES,4,async(query)=>{
     if(Date.now()>=deadline)return false;
     try{
@@ -369,9 +391,13 @@ async function discoverGlobalLiveCandidates(
         const row=normalizeRow(item,{});
         if(!row||!strongFreshLiveSignal(row))continue;
         const sid=channelId(row);
-        if(sid&&excludedSourceIds.has(sid))continue;
+        if(sid&&blockedSourceIds.has(sid))continue;
+        if(sid&&selectedSourceIds.has(sid)){
+          selected.push({...row,_liveOrigin:"source"});
+          continue;
+        }
         if(liveKeywordBlocked(row,keywords))continue;
-        out.push({...row,_liveOrigin:"search"});
+        external.push({...row,_liveOrigin:"search"});
       }
       return true;
     }catch(error){
@@ -380,7 +406,10 @@ async function discoverGlobalLiveCandidates(
     }
   });
 
-  return dedupeRows(out);
+  return {
+    external:dedupeRows(external),
+    selected:dedupeRows(selected)
+  };
 }
 
 async function claimLease(rest:string,headers:any){
@@ -617,29 +646,47 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      // STEP 1 — Source 1: discover LIVE outside the user's whole source library.
-      // Exclude every selected source (direct Live + selections inherited from
-      // other tabs) and every blocked source before fresh verification. Keywords
-      // apply only to this outside-discovery stream.
+      // STEP 1 — outside LIVE: keyword filter + all blocked sources; every
+      // selected channel is removed from outside and reserved for STEP 2.
       const allSelectedLiveSourceIds=new Set(
         selectedLiveSources.map((source:any)=>source.id).filter(Boolean)
       );
-      const externalExcludedSourceIds=new Set<string>(allBlockedLiveSourceIds);
-      for(const id of allSelectedLiveSourceIds)externalExcludedSourceIds.add(id);
-
-      const verifiedExternalRows=(await discoverGlobalLiveCandidates(
+      const discovery=await discoverGlobalLiveCandidates(
         supabaseUrl,
         serviceKey,
-        externalExcludedSourceIds,
+        allBlockedLiveSourceIds,
+        allSelectedLiveSourceIds,
         liveKeywords
       ).catch((error)=>{
         console.warn("global live discovery failed",String(error));
-        return [];
-      })).map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
+        return {external:[],selected:[]};
+      });
+      const verifiedExternalRows=(discovery.external||[])
+        .map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
 
-      // STEP 2 — Source 2: exactly one current-/live request per chosen channel.
-      // This avoids name-search + RSS + per-video verification fan-out.
-      const selectedLiveRows=(await mapLimit(selectedLiveSources,10,async(source)=>{
+      // STEP 2 — scan the selected library once. Fresh selected rows already
+      // found by STEP 1 are reused, so only the remaining selected channels need
+      // one lightweight /live HEAD check.
+      const selectedFromSearch=(discovery.selected||[]).map((row:any)=>{
+        const sid=channelId(row);
+        return {
+          ...row,
+          _liveOrigin:"source",
+          _interestPriority:explicitLiveIds.has(sid)
+            ?2
+            :inheritedLiveIds.has(sid)
+              ?1
+              :0
+        };
+      });
+      const selectedSeenIds=new Set(
+        selectedFromSearch.map((row:any)=>channelId(row)).filter(Boolean)
+      );
+      const selectedToCheck=selectedLiveSources.filter(
+        (source:any)=>!selectedSeenIds.has(source.id)
+      );
+
+      const selectedCheckedRows=(await mapLimit(selectedToCheck,6,async(source)=>{
         try{
           const row=await selectedSourceLiveNow(source);
           if(!row)return null;
@@ -660,7 +707,11 @@ Deno.serve(async(req:Request)=>{
         }
       })).filter(Boolean);
 
-      // STEP 3 — only now merge Source 2 with the already-filtered outside LIVE.
+      // STEP 3 — merge only after Source 1 and Source 2 have each been filtered.
+      const selectedLiveRows=dedupeRows([
+        ...selectedFromSearch,
+        ...selectedCheckedRows
+      ]);
       verifiedLiveRowsCache=dedupeRows([
         ...selectedLiveRows,
         ...verifiedExternalRows
