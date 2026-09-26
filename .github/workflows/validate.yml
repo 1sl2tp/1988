@@ -21,6 +21,7 @@ jobs:
 
       - name: Test source
         run: |
+          node --test tests/feed-refresh.test.cjs
           node tests/media-core.test.cjs
           node tests/integration-shape.test.cjs .
           node tests/backend-media-proxy.test.cjs
