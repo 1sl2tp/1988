@@ -5966,7 +5966,21 @@ function watchMediaSlotRect(){
 
 function watchMediaSlotTopEdge(){
   const safe=floatingSafeInsets();
-  return Math.max(0,Number(safe?.top)||0);
+  const safeTop=Math.max(0,Number(safe?.top)||0);
+
+  // Mobile Watch hides its header, so the real top edge is the viewport.
+  if(mobileMiniViewport())return safeTop;
+
+  // Narrow desktop/tablet remains one-column with a sticky app header. Treat
+  // the bottom of that header as the visible top edge so media never reopens
+  // hidden underneath it.
+  if(watchAutoPipViewport()){
+    const header=document.querySelector(".app-header");
+    const bottom=Number(header?.getBoundingClientRect?.().bottom)||0;
+    return Math.max(safeTop,bottom);
+  }
+
+  return safeTop;
 }
 
 function freezeWatchMediaSlot(){
@@ -6473,9 +6487,11 @@ function placeAutoFloatAtEdge(frame,size){
   let bottomGap=gap;
 
   if(compact){
-    // One-column Watch floats from the top-right. Mobile has no app header in
-    // Watch; narrow desktop keeps browser/app chrome outside the page viewport.
-    top=Math.max(0,safe.top);
+    // One-column Watch floats from the top-right. Mobile starts at the viewport
+    // top; narrow desktop sits just below its sticky app header.
+    top=mobile
+      ?Math.max(0,safe.top)
+      :Math.max(safe.top,watchMediaSlotTopEdge()+8);
     frame.style.top=top+"px";
     frame.style.bottom="auto";
   }else{
