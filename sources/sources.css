@@ -1033,3 +1033,122 @@ main{
   background:#f2f2f3;
   color:#111;
 }
+
+
+/* v10 readability pass + clean source bar + video search grid */
+.scope-chip-wrap{gap:0}
+.scope-edit{display:none!important}
+.scope-chip{
+  max-width:118px;
+  height:29px;
+  padding:0 9px;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  font-size:10.6px;
+}
+.scope-name{
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+}
+.scope-count{
+  flex:0 0 auto;
+  color:#808089;
+  font-size:9.2px;
+}
+.scope-chip.active .scope-count{color:#666}
+
+.column-head strong{font-size:11.5px}
+.column-head span{font-size:9.5px}
+
+.column[data-column="suggested"] .channel-copy strong,
+.column[data-column="selected"] .channel-copy strong,
+.column[data-column="blocked"] .channel-copy strong{
+  font-size:10.8px;
+}
+.channel-copy strong{font-size:11.2px}
+.search-column .search-box input{font-size:11.2px}
+.search-mode-btn{
+  font-size:9.8px;
+  height:24px;
+}
+.action-icon{
+  width:23px;
+  height:23px;
+  font-size:11px;
+}
+.column[data-column="suggested"] .action-icon,
+.column[data-column="selected"] .action-icon,
+.column[data-column="blocked"] .action-icon{
+  width:22px;
+  height:22px;
+  font-size:10.5px;
+}
+
+/* Video search results: visual grid instead of dense text rows. */
+.search-column .search-results.video-search-grid{
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:7px;
+  align-content:start;
+  padding:7px;
+  overflow-y:auto;
+}
+.video-search-card{
+  min-width:0;
+  border:1px solid #2d2d33;
+  border-radius:8px;
+  overflow:hidden;
+  background:#18181b;
+  cursor:pointer;
+  transition:border-color .12s ease,transform .12s ease;
+}
+.video-search-card:hover{
+  border-color:#494950;
+  transform:translateY(-1px);
+}
+.video-search-thumb-wrap{
+  width:100%;
+  aspect-ratio:16/9;
+  overflow:hidden;
+  background:#000;
+}
+.video-search-thumb{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.video-search-copy{
+  padding:6px 7px 7px;
+}
+.video-search-copy strong{
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  font-size:10.2px;
+  line-height:1.28;
+}
+.video-search-copy span{
+  display:block;
+  margin-top:3px;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  color:#808089;
+  font-size:9px;
+}
+
+@media(max-width:1250px){
+  .search-column .search-results.video-search-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr));
+  }
+}
+@media(max-width:900px){
+  .search-column .search-results.video-search-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
