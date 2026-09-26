@@ -140,7 +140,7 @@ assert.match(refresh,/!titleLooksEnglishOnly\(r\)/);
 assert.match(refresh,/duration>0&&duration<=60/);
 assert.match(refresh,/#shorts\?/);
 assert.match(refresh,/type===["']short["']\|\|type===["']shorts["']/);
-assert.match(refresh,/NON_LIVE_PIPELINE_VERSION=["']non-live-v5["']/);
+assert.match(refresh,/NON_LIVE_PIPELINE_VERSION=["']non-live-v6["']/);
 assert.match(refresh,/!isTooShortVideo\(r\)/);
 assert.match(app,/function isBlockedMusicTabVideo\(scope="",row=\{\}\)/);
 assert.match(app,/\\b\(\?:beat\|kara\|karaoke\)\\b/);
