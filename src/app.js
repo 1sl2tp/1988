@@ -10475,241 +10475,45 @@ function fallbackTopicCategory(){
   }
 }
 
-function classifySearchContext(query="",rows=[]){
-  const q=clean(query);
-  const qn=normalizeSearchText(q);
-  const sample=(Array.isArray(rows)?rows:[]).slice(0,30);
+function explicitSelectedVideoEntity(meta={},rawTitle="",rawChannel=""){
+  const description=clean(meta?.description||meta?.shortDescription||"");
+  const source=[rawTitle,rawChannel,description].filter(Boolean).join(" · ");
 
-  const score={music:0,film:0,news:0,sports:0,tech:0,other:0};
-  let queryInChannel=0;
-  let queryInTitle=0;
-  let longFilmLike=0;
-  let musicLike=0;
-  let newsLike=0;
+  const cleanName=value=>clean(value)
+    .replace(/^[\\s:|·\\-–—]+|[\\s:|·\\-–—]+$/g,"")
+    .replace(/\\s+/g," ")
+    .trim();
 
-  const musicRule=/\b(?:official music video|official audio|mv|lyrics?|lyric|karaoke|remix|cover|music|ca khuc|bai hat|nhac|ca si|liveshow|album)\b/;
-  const filmRule=/\b(?:phim|movie|film|drama|tap|episode|ep|trailer|dien vien|dao dien|full movie|tron bo)\b/;
-  const newsRule=/\b(?:tin tuc|thoi su|ban tin|news|phat bieu|quoc hoi|chinh phu|chu tich|bo truong|ngoai giao|chinh tri|kinh te|an ninh)\b/;
-  const sportsRule=/\b(?:bong da|football|soccer|the thao|tennis|boxing|mma|giai dau|tran dau|highlight)\b/;
-  const techRule=/\b(?:cong nghe|technology|iphone|android|apple|samsung|ai|chip|review dien thoai|laptop)\b/;
+  const patterns=[
+    {type:"public_official",role:"public_official",re:/(?:tổng bí thư|chủ tịch nước|thủ tướng|phó thủ tướng|bộ trưởng|tổng thống|president|prime minister|minister)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu},
+    {type:"artist",role:"performer",re:/(?:ca sĩ|nghệ sĩ|singer|vocalist)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu},
+    {type:"actor",role:"actor",re:/(?:diễn viên|actor|actress)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu}
+  ];
 
-  for(const row of sample){
-    const title=normalizeSearchText(row?._displayTitle||row?.title||"");
-    const channel=normalizeSearchText(searchChannelName(row));
-    const text=(title+" "+channel).trim();
-    const duration=Number(row?.duration)||0;
-
-    if(qn&&title.includes(qn))queryInTitle++;
-    if(qn&&channel.includes(qn))queryInChannel++;
-
-    if(musicRule.test(text)){
-      score.music+=3;
-      musicLike++;
+  for(const item of patterns){
+    const match=source.match(item.re);
+    const name=cleanName(match?.[1]||"");
+    if(name){
+      return {
+        name,
+        type:item.type,
+        role:item.role,
+        aliases:[],
+        summary:"",
+        confidence:.84,
+        evidence:"explicit_role"
+      };
     }
-    if(duration>=120&&duration<=900&&/\b(?:official|music|nhac|ca khuc|bai hat|live)\b/.test(text))score.music+=1;
-
-    if(filmRule.test(text)){
-      score.film+=3;
-      if(duration>=900)longFilmLike++;
-    }
-    if(duration>=1800){
-      score.film+=2;
-      longFilmLike++;
-    }
-
-    if(newsRule.test(text)){
-      score.news+=3;
-      newsLike++;
-    }
-    if(sportsRule.test(text))score.sports+=3;
-    if(techRule.test(text))score.tech+=3;
-  }
-
-  // Query wording is supporting evidence only; result-set evidence stays primary.
-  if(/\b(?:nhac|bai hat|ca khuc|karaoke|remix|cover)\b/.test(qn))score.music+=5;
-  if(/\b(?:phim|movie|drama|tap|episode)\b/.test(qn))score.film+=5;
-  if(/\b(?:tin tuc|thoi su|chinh tri|quoc hoi|chinh phu)\b/.test(qn))score.news+=5;
-  if(/\b(?:the thao|bong da|football|soccer|tennis)\b/.test(qn))score.sports+=5;
-  if(/\b(?:cong nghe|iphone|android|apple|samsung|laptop)\b/.test(qn))score.tech+=5;
-
-  const ranked=Object.entries(score).sort((a,b)=>b[1]-a[1]);
-  const best=ranked[0]||["other",0];
-  const second=ranked[1]||["other",0];
-  const confidence=best[1]<=0?.25:Math.max(.35,Math.min(.96,(best[1]-second[1]+6)/(best[1]+8)));
-
-  let kind="topic";
-  let category=best[0];
-  let entityType="topic";
-  let contentType="other";
-
-  if(best[0]==="music"){
-    kind="music";
-    const personLike=queryInChannel>=1||(
-      queryInTitle>=Math.max(3,Math.ceil(sample.length*.25))&&
-      musicLike>=3&&
-      !/\b(?:official|mv|lyrics?|karaoke|remix|cover)\b/.test(qn)
-    );
-    entityType=personLike?"person":"work";
-    contentType=personLike?"music_artist":"music_work";
-  }else if(best[0]==="film"){
-    kind="film";
-    const episodeLike=/\b(?:tap|episode|ep)\s*\d+/i.test(qn);
-    const personLike=!episodeLike&&queryInTitle>=Math.max(3,Math.ceil(sample.length*.22))&&longFilmLike>=2;
-    entityType=personLike?"person":"work";
-    contentType=personLike?"film_person":"film_work";
-  }else if(best[0]==="news"){
-    kind="topic";
-    entityType=queryInTitle>=3?"person_or_topic":"topic";
-    contentType="current_affairs";
-    category="current_affairs";
-  }else if(best[0]==="sports"){
-    kind="topic";
-    contentType="sports";
-  }else if(best[0]==="tech"){
-    kind="topic";
-    contentType="technology";
-  }else{
-    category="other";
-    contentType="other";
-  }
-
-  const sections=[];
-  if(contentType==="music_artist"){
-    sections.push(
-      {key:"artist_catalog",label:"Ca khúc · "+q,relation:"same_creator",queries:[q],sourceMode:"any",limit:12},
-      {key:"live_versions",label:"Live",relation:"alternatives",queries:[q+" live"],sourceMode:"any",limit:10},
-      {key:"cover",label:"Cover",relation:"cover",queries:[q+" cover"],sourceMode:"any",limit:10},
-      {key:"instrumental",label:"Không lời · Guitar · Piano",relation:"instrumental",queries:[q+" không lời guitar piano"],sourceMode:"any",limit:10},
-      {key:"latest",label:"Mới nhất về "+q,relation:"latest",queries:[q],sourceMode:"any",limit:10}
-    );
-  }else if(contentType==="music_work"){
-    sections.push(
-      {key:"same_song",label:"Cùng bài hát",relation:"same_work",queries:[q],sourceMode:"any",limit:12},
-      {key:"cover",label:"Cover",relation:"cover",queries:[q+" cover"],sourceMode:"any",limit:10},
-      {key:"instrumental",label:"Không lời · Guitar · Piano",relation:"instrumental",queries:[q+" không lời guitar piano"],sourceMode:"any",limit:10},
-      {key:"alternate_versions",label:"Live · Remix · Karaoke",relation:"alternatives",queries:[q+" live remix karaoke"],sourceMode:"any",limit:10}
-    );
-  }else if(contentType==="film_person"){
-    sections.push(
-      {key:"films",label:"Phim có "+q,relation:"same_person",queries:[q+" phim"],sourceMode:"any",limit:14},
-      {key:"versions",label:"Phiên bản · Tác phẩm liên quan",relation:"versions",queries:[q+" phim full"],sourceMode:"any",limit:10},
-      {key:"interview",label:"Phỏng vấn · Nhân vật",relation:"person",queries:[q+" phỏng vấn"],sourceMode:"any",limit:10},
-      {key:"latest_week",label:"Tuần này",relation:"latest",queries:[q+" mới nhất"],sourceMode:"any",limit:10},
-      {key:"latest_month",label:"Tháng này",relation:"latest",queries:[q+" mới"],sourceMode:"any",limit:10},
-      {key:"latest_year",label:"Năm nay",relation:"latest",queries:[q+" 2026"],sourceMode:"any",limit:10}
-    );
-  }else if(contentType==="film_work"){
-    sections.push(
-      {key:"same_work",label:"Đúng phim · Tập / phần",relation:"same_work",queries:[q],sourceMode:"any",limit:14},
-      {key:"versions",label:"Phiên bản khác",relation:"versions",queries:[q+" phiên bản"],sourceMode:"any",limit:10},
-      {key:"cast",label:"Diễn viên · Nhân vật",relation:"cast",queries:[q+" diễn viên"],sourceMode:"any",limit:10},
-      {key:"info",label:"Thông tin · Hậu trường",relation:"info",queries:[q+" hậu trường"],sourceMode:"any",limit:10}
-    );
-  }else if(contentType==="current_affairs"){
-    sections.push(
-      {key:"latest",label:"Mới nhất",relation:"latest",queries:[q+" mới nhất"],sourceMode:"any",limit:12},
-      {key:"week",label:"Tuần này",relation:"latest",queries:[q],sourceMode:"any",limit:10},
-      {key:"month",label:"Tháng này",relation:"latest",queries:[q],sourceMode:"any",limit:10},
-      {key:"year",label:"Năm nay",relation:"latest",queries:[q+" 2026"],sourceMode:"any",limit:10},
-      {key:"related",label:"Chủ đề liên quan",relation:"same_topic",queries:[q],sourceMode:"any",limit:12}
-    );
-  }else{
-    sections.push(
-      {key:"relevant",label:"Liên quan nhất",relation:"same_topic",queries:[q],sourceMode:"any",limit:12},
-      {key:"latest",label:"Mới nhất",relation:"latest",queries:[q],sourceMode:"any",limit:10}
-    );
-  }
-
-  const label={
-    music_artist:"Nhạc · Nghệ sĩ",
-    music_work:"Nhạc · Ca khúc",
-    film_person:"Phim · Diễn viên/nhân vật",
-    film_work:"Phim · Tác phẩm",
-    current_affairs:"Thời sự · Chủ đề",
-    sports:"Thể thao",
-    technology:"Công nghệ",
-    other:"Chủ đề"
-  }[contentType]||"Chủ đề";
-
-  return {
-    query:q,
-    entityType,
-    contentType,
-    kind,
-    category,
-    confidence,
-    label,
-    sections
-  };
-}
-
-function searchContextVideoContext(searchContext={},meta={}){
-  const base=fallbackVideoContext(meta,[]);
-  const q=clean(searchContext?.query||state.searchQuery||base.canonicalTitle||"");
-  if(!searchContext||searchContext.confidence<.4||!q)return base;
-
-  if(searchContext.kind==="music"){
-    const artist=searchContext.entityType==="person"?q:fallbackCreatorFromChannel(searchChannelName(meta));
-    return {
-      ...base,
-      kind:"music",
-      contentType:searchContext.contentType,
-      entityType:searchContext.entityType,
-      category:"music_video",
-      canonicalTitle:searchContext.entityType==="person"
-        ?musicCleanTitle(meta?._displayTitle||meta?.title||q)
-        :q,
-      creator:artist,
-      subject:q,
-      confidence:searchContext.confidence,
-      primaryEntity:{name:artist,type:"artist",role:"performer",aliases:[],summary:""},
-      sections:searchContext.sections,
-      queries:{
-        sameWork:[q],
-        creator:artist?[artist]:[],
-        series:[],
-        versions:[],
-        covers:[q+" cover"],
-        instrumental:[q+" không lời guitar piano"],
-        alternatives:[q+" live remix karaoke"],
-        topic:[q]
-      }
-    };
-  }
-
-  if(searchContext.kind==="film"){
-    return {
-      ...base,
-      kind:"film",
-      contentType:searchContext.contentType,
-      entityType:searchContext.entityType,
-      category:searchContext.contentType==="film_person"?"film_person":"film_movie",
-      canonicalTitle:q,
-      subject:q,
-      confidence:searchContext.confidence,
-      primaryEntity:searchContext.entityType==="person"
-        ?{name:q,type:"actor",role:"person",aliases:[],summary:""}
-        :base.primaryEntity,
-      work:{...base.work,title:q},
-      sections:searchContext.sections,
-      queries:{sameWork:[q],creator:[],series:[q+" tập"],versions:[q],covers:[],instrumental:[],alternatives:[],topic:[q]}
-    };
   }
 
   return {
-    ...base,
-    kind:"topic",
-    contentType:searchContext.contentType,
-    entityType:searchContext.entityType,
-    category:searchContext.category||"other",
-    canonicalTitle:q,
-    subject:q,
-    confidence:searchContext.confidence,
-    primaryEntity:searchContext.entityType!=="topic"
-      ?{name:q,type:"person",role:"subject",aliases:[],summary:""}
-      :base.primaryEntity,
-    sections:searchContext.sections,
-    queries:{sameWork:[],creator:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[q]}
+    name:"",
+    type:"",
+    role:"",
+    aliases:[],
+    summary:"",
+    confidence:0,
+    evidence:""
   };
 }
 
@@ -10725,8 +10529,8 @@ function fallbackVideoContext(meta={},related=[]){
     .join(" ");
 
   const duration=Number(meta?.duration)||0;
-  const search=normalizeSearchText(state.searchQuery||"");
-  const combined=[title,channel,description,relatedText,search].join(" ");
+  const combined=[title,channel,description,relatedText].join(" ");
+  const explicitEntity=explicitSelectedVideoEntity(meta,rawTitle,rawChannel);
 
   const musicSignals=[
     /\bofficial music video\b/,
@@ -10793,8 +10597,11 @@ function fallbackVideoContext(meta={},related=[]){
   };
 
   if(musicScore>=2&&musicScore>=filmScore){
-    const canonical=musicCleanTitle(rawTitle||state.searchQuery||"");
-    const creator=fallbackCreatorFromChannel(rawChannel);
+    const canonical=musicCleanTitle(rawTitle||"");
+    const creator=
+      explicitEntity.type==="artist"&&explicitEntity.name
+        ?explicitEntity.name
+        :fallbackCreatorFromChannel(rawChannel);
     const sections=[
       creator?{key:"artist_catalog",label:"Ca khúc khác của "+creator,relation:"same_creator",queries:[creator],sourceMode:"creator",limit:10}:null,
       {key:"same_song",label:"Ca sĩ khác · "+canonical,relation:"same_work",queries:[canonical],sourceMode:"any",limit:10},
@@ -10812,7 +10619,11 @@ function fallbackVideoContext(meta={},related=[]){
       subject:canonical,
       confidence:.62,
       brief:{...fallbackBriefFromMeta(meta),title:canonical},
-      primaryEntity:{name:creator,type:"artist",role:"performer",aliases:[],summary:""},
+      entityType:creator?"person":"work",
+      contentType:creator?"music_artist":"music_work",
+      primaryEntity:creator
+        ?{name:creator,type:"artist",role:"performer",aliases:[],summary:""}
+        :{name:"",type:"",role:"",aliases:[],summary:""},
       work:{...base.work,title:canonical},
       sections,
       queries:{
@@ -10839,11 +10650,16 @@ function fallbackVideoContext(meta={},related=[]){
       ...base,
       kind:"film",
       category:episode?"film_series":"film_movie",
+      entityType:explicitEntity.type==="actor"?"person":"work",
+      contentType:explicitEntity.type==="actor"?"film_person":"film_work",
       canonicalTitle:canonical,
       subject:canonical,
       isSeries:!!episode,
       confidence:.55,
       brief:{...fallbackBriefFromMeta(meta),title:canonical},
+      primaryEntity:explicitEntity.type==="actor"
+        ?explicitEntity
+        :base.primaryEntity,
       work:{...base.work,title:canonical,seriesTitle:episode?canonical:"",episodeNumber:episode,isSeries:!!episode},
       sections,
       queries:{
@@ -10854,7 +10670,8 @@ function fallbackVideoContext(meta={},related=[]){
   }
 
   const category=newsScore>=1?"news":"other";
-  const subject=clean(state.searchQuery||rawTitle);
+  const subject=rawTitle;
+  const entityIsPerson=!!explicitEntity.name;
   const sections=[
     {key:"same_topic",label:"Cùng chủ đề",relation:"same_topic",queries:[subject],sourceMode:"any",limit:12},
     rawChannel?{key:"same_channel",label:"Cùng nguồn · "+rawChannel,relation:"same_creator",queries:[subject],sourceMode:"same_channel",limit:10}:null
@@ -10864,9 +10681,12 @@ function fallbackVideoContext(meta={},related=[]){
     ...base,
     kind:"topic",
     category,
+    entityType:entityIsPerson?"person":"topic",
+    contentType:category==="news"?"current_affairs":"other",
     canonicalTitle:subject,
     subject,
-    confidence:.35,
+    confidence:entityIsPerson?.58:.35,
+    primaryEntity:entityIsPerson?explicitEntity:base.primaryEntity,
     sections,
     queries:{sameWork:[],creator:rawChannel?[rawChannel]:[],series:[],versions:[],covers:[],instrumental:[],alternatives:[],topic:[subject]}
   };
