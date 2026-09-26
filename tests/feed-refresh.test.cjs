@@ -76,3 +76,19 @@ test('youtube player metadata exposes exact duration and live state',()=>{
  assert.equal(tracked.duration,-1);
  assert.equal(tracked.isLive,true);
 });
+
+
+test('shorts page signal identifies canonical Shorts and rejects normal fallback',()=>{
+ assert.equal(
+  s.youtubeShortsPageSignal('<link rel="canonical" href="https://www.youtube.com/shorts/kUF9P2m9mrg">','kUF9P2m9mrg'),
+  true
+ );
+ assert.equal(
+  s.youtubeShortsPageSignal('<link rel="canonical" href="undefined"><a href="https://m.youtube.com/watch?v=YN7yfAnAxfs">','YN7yfAnAxfs'),
+  false
+ );
+ assert.equal(
+  s.youtubeShortsPageSignal('{"webPageType":"WEB_PAGE_TYPE_SHORTS","videoId":"abcdefghijk"}','abcdefghijk'),
+  true
+ );
+});
