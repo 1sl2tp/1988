@@ -1319,9 +1319,10 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(scope!=="live"){
-        // Unknown duration is not treated as long-form. It stays out until the
-        // server verifies it; only videos strictly longer than 60 seconds pass.
-        raw=raw.filter((r:any)=>!isTooShortVideo(r)&&durationSeconds(r)>60);
+        // Known <=60s videos and all Shorts signals are excluded immediately.
+        // Unknown duration stays eligible while the server verifier retries in
+        // the background; an upstream metadata outage must never empty a tab.
+        raw=raw.filter((r:any)=>!isTooShortVideo(r));
       }
       raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
@@ -1359,7 +1360,7 @@ Deno.serve(async(req:Request)=>{
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v11")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v12")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
