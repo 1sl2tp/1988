@@ -409,7 +409,7 @@ const pendingSourceWrites=new Map();
 const SOURCE_SCOPED_SELECTION_KEY="1988-source-scoped-selection-v1";
 const SOURCE_SCOPED_BLOCKED_KEY="1988-source-scoped-blocked-v1";
 const SOURCE_SCOPED_MIGRATION_KEY="1988-source-scoped-migrated-v1";
-const SOURCE_AI_SUGGESTIONS_KEY="1988-source-ai-suggestions-v1";
+const SOURCE_LEGACY_AI_SUGGESTIONS_KEY="1988-source-ai-suggestions-v1";
 const SOURCE_SCOPE_ISOLATION_KEY="1988-source-scope-isolated-v1";
 const SOURCE_SCOPE_ISOLATION_BACKUP_KEY="1988-source-scopes-before-isolation-v1";
 const SOURCE_FILM_SNAPSHOT_RECOVERY_KEY="1988-source-film-snapshot-recovered-v4";
@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="334";
+const LOCAL_DATA_SCHEMA_VERSION="336";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
@@ -494,7 +494,7 @@ let FIXED_CONTENT_CATEGORIES=[];
 let CONTENT_SOURCE_SCOPES=new Set();
 let FEED_SOURCE_SCOPES=new Set();
 let MANAGED_SOURCE_SCOPES=new Set();
-let AI_SOURCE_SCOPES=new Set();
+let SERVER_SUGGESTION_SCOPES=new Set();
 
 function normalizeHashtagDefinitions(rows=[]){
   return (Array.isArray(rows)?rows:[])
@@ -545,7 +545,7 @@ function rebuildSourceScopeRegistry(rows=hashtagDefinitions){
       .map(item=>item.key)
   );
   MANAGED_SOURCE_SCOPES=new Set(SOURCE_SCOPE_DEFINITIONS.map(item=>item.key));
-  AI_SOURCE_SCOPES=new Set(MANAGED_SOURCE_SCOPES);
+  SERVER_SUGGESTION_SCOPES=new Set(MANAGED_SOURCE_SCOPES);
 }
 
 rebuildSourceScopeRegistry([]);
@@ -664,20 +664,20 @@ function emptyScopedSourceState(){
 
 let scopedSelectedSourceIds=emptyScopedSourceState();
 let scopedBlockedSourceIds=emptyScopedSourceState();
-let aiSuggestedSourceIds=new Map(
-  [...AI_SOURCE_SCOPES].map(scope=>[scope,new Set()])
+let serverSuggestedSourceIds=new Map(
+  [...SERVER_SUGGESTION_SCOPES].map(scope=>[scope,new Set()])
 );
 const temporaryGeneralSourceIds=new Set();
 const temporaryLiveSourceIds=new Set();
-try{localStorage.removeItem(SOURCE_AI_SUGGESTIONS_KEY);}catch{}
+try{localStorage.removeItem(SOURCE_LEGACY_AI_SUGGESTIONS_KEY);}catch{}
 
 function syncDynamicScopeMaps(){
   for(const scope of MANAGED_SOURCE_SCOPES){
     if(!scopedSelectedSourceIds.has(scope))scopedSelectedSourceIds.set(scope,new Set());
     if(!scopedBlockedSourceIds.has(scope))scopedBlockedSourceIds.set(scope,new Set());
-    if(!aiSuggestedSourceIds.has(scope))aiSuggestedSourceIds.set(scope,new Set());
+    if(!serverSuggestedSourceIds.has(scope))serverSuggestedSourceIds.set(scope,new Set());
   }
-  for(const map of [scopedSelectedSourceIds,scopedBlockedSourceIds,aiSuggestedSourceIds]){
+  for(const map of [scopedSelectedSourceIds,scopedBlockedSourceIds,serverSuggestedSourceIds]){
     for(const key of [...map.keys()]){
       if(!MANAGED_SOURCE_SCOPES.has(key))map.delete(key);
     }
@@ -719,8 +719,8 @@ function libraryRow(id){
 }
 
 function persistSuggestedSourceState(){
-  // Discovery lists are temporary. Never persist AI suggestions.
-  try{localStorage.removeItem(SOURCE_AI_SUGGESTIONS_KEY);}catch{}
+  // Legacy browser suggestion state is never authoritative or persisted.
+  try{localStorage.removeItem(SOURCE_LEGACY_AI_SUGGESTIONS_KEY);}catch{}
 }
 
 function persistSourceLibrary(){
@@ -741,19 +741,9 @@ function persistScopedSourceState(){
 
 function suggestedSetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  if(!AI_SOURCE_SCOPES.has(scope))return new Set();
-  if(!aiSuggestedSourceIds.has(scope))aiSuggestedSourceIds.set(scope,new Set());
-  return aiSuggestedSourceIds.get(scope);
-}
-
-function assignSourceGroup(id,group){
-  id=String(id||"").trim();
-  group=String(group||"").trim();
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!AI_SOURCE_SCOPES.has(group))return false;
-  const suggested=suggestedSetForScope(group);
-  if(suggested.has(id))return false;
-  suggested.add(id);
-  return true;
+  if(!SERVER_SUGGESTION_SCOPES.has(scope))return new Set();
+  if(!serverSuggestedSourceIds.has(scope))serverSuggestedSourceIds.set(scope,new Set());
+  return serverSuggestedSourceIds.get(scope);
 }
 
 let selectedSourceIds=new Set();
@@ -1180,9 +1170,14 @@ function applyServerState(remote={}){
       remote.scopedBlocked&&typeof remote.scopedBlocked==="object"
         ?remote.scopedBlocked
         :{};
+    const remoteScopedSuggested=
+      remote.scopedSuggested&&typeof remote.scopedSuggested==="object"
+        ?remote.scopedSuggested
+        :{};
 
     const nextSelected=new Map();
     const nextBlocked=new Map();
+    const nextSuggested=new Map();
     for(const scope of MANAGED_SOURCE_SCOPES){
       const migrateLegacyFeed=
         scopeVersion<2 &&
@@ -1198,11 +1193,17 @@ function applyServerState(remote={}){
         migrateLegacyFeed?[...selectedSourceIds]:remoteScopedSelected?.[scope]
       ).filter(id=>!blockedSet.has(id));
 
-      nextSelected.set(scope,new Set(selectedIds));
+      const selectedSet=new Set(selectedIds);
+      const suggestedIds=cleanSourceIdList(remoteScopedSuggested?.[scope])
+        .filter(id=>!blockedSet.has(id)&&!selectedSet.has(id));
+
+      nextSelected.set(scope,selectedSet);
       nextBlocked.set(scope,blockedSet);
+      nextSuggested.set(scope,new Set(suggestedIds));
     }
     scopedSelectedSourceIds=nextSelected;
     scopedBlockedSourceIds=nextBlocked;
+    serverSuggestedSourceIds=nextSuggested;
 
     if(remote.avatars&&typeof remote.avatars==="object"&&!Array.isArray(remote.avatars)){
       sourceAvatarCache={...sourceAvatarCache,...remote.avatars};
@@ -1524,7 +1525,7 @@ document.addEventListener("visibilitychange",()=>{
 
 function temporarySetForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  if(AI_SOURCE_SCOPES.has(scope))return suggestedSetForScope(scope);
+  if(SERVER_SUGGESTION_SCOPES.has(scope))return suggestedSetForScope(scope);
   if(scope===GENERAL_SOURCE_SCOPE)return temporaryGeneralSourceIds;
   return new Set();
 }
@@ -1544,17 +1545,12 @@ function sourceDiscoveryParentForGroup(group=sourceManageGroup){
 
 function unselectedSourceIdsForScope(scope=sourceManageGroup){
   scope=sourceScope(scope);
-  // LIVE needs a broad bootstrap only until the first explicit choice.
-  // After that, "Chưa chọn" means learned suggestions just like every tab.
-  if(scope===LIVE_SOURCE_SCOPE&&!selectedSetForScope(scope).size){
-    return temporaryLiveSourceIds;
-  }
   return suggestedSetForScope(scope);
 }
 
 function allTemporarySourceIds(){
   const ids=new Set([...temporaryGeneralSourceIds,...temporaryLiveSourceIds]);
-  for(const scope of AI_SOURCE_SCOPES){
+  for(const scope of SERVER_SUGGESTION_SCOPES){
     for(const id of suggestedSetForScope(scope))ids.add(id);
   }
   return ids;
@@ -1698,7 +1694,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
 
   temporaryGeneralSourceIds.delete(id);
   if(scope!==LIVE_SOURCE_SCOPE)temporaryLiveSourceIds.delete(id);
-  if(AI_SOURCE_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
+  if(SERVER_SUGGESTION_SCOPES.has(scope))suggestedSetForScope(scope).delete(id);
 
   if(status==="blocked")hideBlockedSourceNow(id,scope);
 
@@ -1745,19 +1741,6 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   syncSourcePreviewHeader();
   syncSourceVideoPopupSource();
 
-  // Relearn the "Chưa chọn" suggestions immediately from the new Đã chọn
-  // state while the manager is open. The same path is used for every tab.
-  if(sourceManageMode&&!sourcesSheet?.hidden){
-    const parent=sourceDiscoveryParentForGroup(scope);
-    if(parent){
-      setTimeout(()=>{
-        if(sourcesSheet.hidden||sourceScope(sourceManageGroup)!==scope)return;
-        void localEngine(12000)
-          .then(local=>discoverSourcesForParent(parent,local))
-          .catch(()=>{});
-      },80);
-    }
-  }
 }
 
 function selectedSources(scope=GENERAL_SOURCE_SCOPE){
@@ -2711,7 +2694,7 @@ function updateSourceGroupArrows(){
 }
 
 function sourceIsSuggestedAnywhere(id){
-  for(const group of AI_SOURCE_SCOPES){
+  for(const group of SERVER_SUGGESTION_SCOPES){
     if(suggestedSetForScope(group).has(id))return true;
   }
   return false;
@@ -3276,43 +3259,12 @@ function sourceCandidateFromVideo(row={}){
   };
 }
 
-function rememberDiscoveredSources(rows=[],groupHint=""){
-  const hint=String(groupHint||"").trim();
-  let stateChanged=false;
-  let suggestionChanged=false;
-  const seen=new Set();
-
+function rememberDiscoveredSources(rows=[]){
   for(const row of Array.isArray(rows)?rows:[]){
     const candidate=sourceCandidateFromVideo(row);
-    if(!candidate||seen.has(candidate.id))continue;
-    seen.add(candidate.id);
+    if(!candidate)continue;
     sourceMetaCache.set(candidate.id,{...sourceMetaCache.get(candidate.id),...candidate});
-
-    // Durable Chọn/Chặn state is loaded before discovery.
-    const reconciled=reconcileSourceState(candidate,hint||sourceManageGroup);
-    if(reconciled.changed)stateChanged=true;
-    if(reconciled.status!=="normal")continue;
-
-    if(hint&&AI_SOURCE_SCOPES.has(hint)){
-      if(assignSourceGroup(candidate.id,hint))suggestionChanged=true;
-    }else if(hint===LIVE_SOURCE_SCOPE){
-      if(!temporaryLiveSourceIds.has(candidate.id)){
-        temporaryLiveSourceIds.add(candidate.id);
-        suggestionChanged=true;
-      }
-    }else if(hint===GENERAL_SOURCE_SCOPE){
-      if(!temporaryGeneralSourceIds.has(candidate.id)){
-        temporaryGeneralSourceIds.add(candidate.id);
-        suggestionChanged=true;
-      }
-    }else if(!temporaryGeneralSourceIds.has(candidate.id)){
-      temporaryGeneralSourceIds.add(candidate.id);
-      suggestionChanged=true;
-    }
   }
-
-  if(stateChanged)persistReconciledSourceState();
-  if(stateChanged||suggestionChanged)updateSourceSummary();
 }
 
 let liveSourceCandidateRefreshPromise=null;
@@ -3323,32 +3275,16 @@ let liveSourceCandidateRefreshPromise=null;
 // LIVE blocked state is manual/personal only. Discovery may read the exact
 // blocked channel IDs as exclusions, but code/AI never invents new blocked rows.
 
-function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
+function rememberLiveSourceCandidates(rows=[],_options={}){
   const liveRows=(Array.isArray(rows)?rows:[])
     .filter(row=>row?.isLive)
-    .filter(row=>!liveKeywordBlockedClient(row));
+    .filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE));
 
-  if(replace)temporaryLiveSourceIds.clear();
-
-  const accepted=[];
   for(const row of liveRows){
     const candidate=sourceCandidateFromVideo(row);
-    if(!candidate)continue;
-
-    sourceMetaCache.set(candidate.id,{
-      ...sourceMetaCache.get(candidate.id),
-      ...candidate
-    });
-
-    reconcileSourceState(candidate,LIVE_SOURCE_SCOPE);
-    if(isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))continue;
-
-    temporaryLiveSourceIds.add(candidate.id);
-    accepted.push(row);
+    if(candidate)sourceMetaCache.set(candidate.id,{...sourceMetaCache.get(candidate.id),...candidate});
   }
-
-  if(liveRows.length||replace)updateSourceSummary();
-  return accepted;
+  return liveRows;
 }
 
 function seedLiveSourceCandidatesFromCache(){
@@ -3435,20 +3371,6 @@ function addSource(row){
     thumbnailUrl:safeSourceThumb(meta.thumbnailUrl||row.thumbnailUrl||""),
     subscribers:clean(meta.subscribers||row.subscribers||"")
   });
-
-  const currentStatus=sourceStatus(id,sourceManageGroup);
-
-  // Mở/Lưu nguồn is temporary until the user explicitly chooses Chọn/Chặn.
-  // Only the clicked channel ID is added; all sibling search results stay ephemeral.
-  if(currentStatus==="normal"){
-    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
-      temporaryLiveSourceIds.add(id);
-    }else if(AI_SOURCE_SCOPES.has(sourceManageGroup)){
-      assignSourceGroup(id,sourceManageGroup);
-    }else{
-      temporaryGeneralSourceIds.add(id);
-    }
-  }
 
   state.sourceLibraryDirty=true;
   refreshSourceManager();
@@ -4716,6 +4638,20 @@ function pinSourceManagerTop(){
   setTimeout(reset,220);
 }
 
+async function refreshSourceManagerFromServer(){
+  try{
+    const result=await stateSyncFetch("GET",null,3600);
+    if(result?.ok&&result?.exists&&result.state){
+      applyServerState(result.state);
+      stateSyncReady=true;
+      refreshSourceManager();
+      pinSourceManagerTop();
+      return true;
+    }
+  }catch{}
+  return false;
+}
+
 function openSourceLibrary(){
   if(!sourcesSheet)return;
 
@@ -4740,27 +4676,13 @@ function openSourceLibrary(){
   if(sourceSearchStatus)sourceSearchStatus.textContent="";
 
   try{
-    seedLiveSourceCandidatesFromCache();
     refreshSourceManager();
     pinSourceManagerTop();
+    void refreshSourceManagerFromServer();
   }catch(error){
     console.error("open source manager failed",error);
     if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
   }
-
-  if(sourceManageGroup===LIVE_SOURCE_SCOPE){
-    void refreshLiveSourceCandidatesInBackground();
-  }
-
-  setTimeout(()=>{
-    if(sourcesSheet.hidden)return;
-    pinSourceManagerTop();
-    const parent=sourceDiscoveryParentForGroup(sourceManageGroup);
-    if(!parent)return;
-    void localEngine(12000)
-      .then(local=>discoverSourcesForParent(parent,local))
-      .catch(()=>{});
-  },120);
 
   setTimeout(()=>{
     pinSourceManagerTop();
@@ -4947,22 +4869,7 @@ function setupSourceLibrary(){
       }
     });
 
-    {
-      const groupAtClick=sourceManageGroup;
-      setTimeout(()=>{
-        if(sourcesSheet.hidden||sourceManageGroup!==groupAtClick)return;
-        if(groupAtClick===LIVE_SOURCE_SCOPE){
-          seedLiveSourceCandidatesFromCache();
-          refreshSourceManager();
-          void refreshLiveSourceCandidatesInBackground();
-        }
-        const parent=sourceDiscoveryParentForGroup(groupAtClick);
-        if(!parent)return;
-        void localEngine(12000)
-          .then(local=>discoverSourcesForParent(parent,local))
-          .catch(()=>{});
-      },120);
-    }
+    void refreshSourceManagerFromServer();
   });
 
   sourceGroupTabs?.addEventListener("scroll",updateSourceGroupArrows,{passive:true});
@@ -11253,7 +11160,6 @@ async function doSearch(value){
 
     state.feedRows=cleanRows;
     renderCards(cleanRows);
-    rememberDiscoveredSources(cleanRows,"");
     feedStatus.textContent=cleanRows.length+" video";
     void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
     return true;
@@ -11300,7 +11206,6 @@ async function doSearch(value){
       if(rows.length<=state.feedRows.length)return;
       state.feedRows=rows;
       renderCards(rows);
-      rememberDiscoveredSources(rows,"");
       feedStatus.textContent=rows.length+" video";
     });
     return;
