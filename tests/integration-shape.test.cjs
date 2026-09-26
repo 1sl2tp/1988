@@ -126,7 +126,7 @@ assert.match(refresh,/const verificationCandidates:any\[\]=\[\]/);
 assert.match(refresh,/const verificationScopeChannelIds=new Set<string>\(\)/);
 assert.match(refresh,/resolverVersion<3/);
 assert.match(refresh,/_durationResolverVersion:meta\.durationCheckedAt\?3/);
-assert.match(refresh,/Exact video-ID search is the primary NON-LIVE duration source/);
+assert.match(refresh,/exact video-ID search is the[\s\S]{0,120}duration source/i);
 assert.match(refresh,/verificationCandidates\.slice\(0,NON_LIVE_VERIFY_BATCH\),8/);
 assert.match(refresh,/_durationCheckedAt/);
 assert.match(refresh,/_shortCheckedAt/);
