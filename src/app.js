@@ -64,6 +64,14 @@ const sourceGroupPrev=$("#sourceGroupPrev");
 const sourceGroupRename=$("#sourceGroupRename");
 const sourceGroupAdd=$("#sourceGroupAdd");
 const sourceGroupNext=$("#sourceGroupNext");
+const sourceAdminTabs=$("#sourceAdminTabs");
+const sourceWorkspace=$("#sourceWorkspace");
+const sourceLabelsPanel=$("#sourceLabelsPanel");
+const sourceLabelsList=$("#sourceLabelsList");
+const sourceLabelsAdd=$("#sourceLabelsAdd");
+const sourceFiltersPanel=$("#sourceFiltersPanel");
+const sourceFiltersContent=$("#sourceFiltersContent");
+const sourcePreviewScopes=$("#sourcePreviewScopes");
 const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
 const sourceSummary=$("#sourceSummary");
@@ -91,6 +99,15 @@ const sourceVideoPopupSelect=$("#sourceVideoPopupSelect");
 const sourceVideoFrame=$("#sourceVideoFrame");
 const sourceVideoPopupTitle=$("#sourceVideoPopupTitle");
 const trendTopics=$("#trendTopics");
+
+const SOURCE_MANAGER_PARAMS=new URL(location.href).searchParams;
+const SOURCE_MANAGER_PAGE=SOURCE_MANAGER_PARAMS.get("manage")==="sources";
+const SOURCE_MANAGER_SCOPE_PARAM=String(SOURCE_MANAGER_PARAMS.get("scope")||"").trim();
+if(SOURCE_MANAGER_PAGE)document.documentElement.classList.add("source-manager-page");
+
+const sourceUiChannel=typeof BroadcastChannel==="function"
+  ?new BroadcastChannel("1988-source-ui-v1")
+  :null;
 
 const state={
   player:null,
@@ -1751,7 +1768,7 @@ function persistStateSourceMetadata(id){
   }
 }
 
-function setSourceStatus(id,status,scope=sourceManageGroup){
+function setSourceStatus(id,status,scope=sourceManageGroup,{remote=false}={}){
   const requestedScope=String(scope||"").trim();
   scope=sourceScope(scope);
   id=String(id||"").trim();
@@ -1827,7 +1844,18 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
     }
   }
 
-  void queueDirectSourceStateWrite(id,status,scope);
+  if(!remote){
+    void queueDirectSourceStateWrite(id,status,scope);
+    try{
+      sourceUiChannel?.postMessage({
+        type:"source-state",
+        id,
+        status:status==="selected"||status==="blocked"?status:"normal",
+        scope,
+        name:clean(stateMetadataCandidate(id)?.name||"")
+      });
+    }catch{}
+  }
   persistSourceLibrary();
   persistSourceSelection();
   state.sourceLibraryDirty=true;
@@ -1840,6 +1868,17 @@ function setSourceStatus(id,status,scope=sourceManageGroup){
   syncSourceVideoPopupSource();
 
 }
+
+sourceUiChannel?.addEventListener?.("message",event=>{
+  const data=event?.data||{};
+  if(data?.type!=="source-state")return;
+  const id=String(data.id||"").trim();
+  const scope=String(data.scope||"").trim();
+  const status=String(data.status||"normal");
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return;
+  if(!MANAGED_SOURCE_SCOPES.has(scope)&&scope!==GENERAL_SOURCE_SCOPE)return;
+  setSourceStatus(id,status,scope,{remote:true});
+});
 
 function selectedSources(scope=GENERAL_SOURCE_SCOPE){
   scope=sourceScope(scope);
