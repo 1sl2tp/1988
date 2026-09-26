@@ -6,7 +6,7 @@ const {stripTypeScriptTypes}=require('node:module');
 const app=fs.readFileSync('src/app.js','utf8');
 const server=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
 function fn(name){let start=app.indexOf('function '+name+'(');assert.ok(start>=0,name);if(app.slice(start-6,start)==='async ')start-=6;return app.slice(start,app.indexOf('\n}',start)+2);}
-function client(){const data=new Map();const c=vm.createContext({console,window:{},URL,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)},TAB_SNAPSHOT_PREFIX:'test:',clean:v=>String(v||'').trim()});vm.runInContext(['normalizeSearchText','fastHash','extractVideoId','itemVideoId','parseDurationValue','durationSeconds','isTooShortVideo','snapshotKey','snapshotRowsHash','readAtomicSnapshot','commitAtomicSnapshot'].map(fn).join('\n'),c);return c;}
+function client(){const data=new Map();const c=vm.createContext({console,window:{},URL,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)},TAB_SNAPSHOT_PREFIX:'test:',clean:v=>String(v||'').trim()});vm.runInContext(['normalizeSearchText','fastHash','extractVideoId','itemVideoId','parseDurationValue','durationSeconds','isTooShortVideo','snapshotKey','snapshotRowsHash','snapshotRowsHashV330','readAtomicSnapshot','commitAtomicSnapshot'].map(fn).join('\n'),c);return c;}
 const s=vm.createContext({console,URL,Date,setTimeout,clearTimeout});
 vm.runInContext(stripTypeScriptTypes(server.split('Deno.serve(')[0].replace(/^import .*;\n/,'')),s);
 const fixtures=[
@@ -91,4 +91,37 @@ test('shorts page signal identifies canonical Shorts and rejects normal fallback
   s.youtubeShortsPageSignal('{"webPageType":"WEB_PAGE_TYPE_SHORTS","videoId":"abcdefghijk"}','abcdefghijk'),
   true
  );
+});
+
+
+test('v330 reserve remains readable after v331 hash expansion',()=>{
+ const c=client();
+ const rows=[{id:'abcdefghijk',title:'Old reserve',duration:120,_sourceId:'UC123456789'}];
+ const legacyHash=c.snapshotRowsHashV330(rows,'sig');
+ c.localStorage.setItem('test:feed:latest:a',JSON.stringify({slot:'a',hash:legacyHash,sourceSignature:'sig',items:rows}));
+ c.localStorage.setItem('test:feed:latest:ptr',JSON.stringify({slot:'a',hash:legacyHash}));
+ const read=c.readAtomicSnapshot('feed:latest');
+ assert.equal(read.items.length,1);
+ assert.equal(read.legacyHash,legacyHash);
+ assert.equal(read.hash,c.snapshotRowsHash(rows,'sig'));
+});
+
+test('package hash changes when visible metadata changes',()=>{
+ const c=client();
+ const base={id:'abcdefghijk',title:'Tin mới',duration:120,_sourceId:'UC123456789',_sourceName:'Kênh A',thumbnailUrl:'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',views:10};
+ assert.notEqual(c.snapshotRowsHash([base]),c.snapshotRowsHash([{...base,_sourceName:'Kênh B'}]));
+ assert.notEqual(c.snapshotRowsHash([base]),c.snapshotRowsHash([{...base,views:11}]));
+ assert.notEqual(c.snapshotRowsHash([base]),c.snapshotRowsHash([{...base,thumbnailUrl:'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg'}]));
+});
+
+test('server normalization never exposes a channel id as channel name',()=>{
+ const row=s.normalizeRow(
+  {id:'abcdefghijk',title:'Tin mới',uploader:'UCaaaaaaaaaaaaaaaaaaaaaa',duration:120},
+  {id:'UCaaaaaaaaaaaaaaaaaaaaaa',name:'Kênh Chuẩn',thumbnailUrl:'https://yt3.example/avatar.jpg'}
+ );
+ assert.equal(row.uploader,'Kênh Chuẩn');
+ assert.equal(row.uploaderName,'Kênh Chuẩn');
+ assert.equal(row._sourceName,'Kênh Chuẩn');
+ assert.equal(row._sourceThumbnailUrl,'https://yt3.example/avatar.jpg');
+ assert.match(row.thumbnailUrl,/i\.ytimg\.com\/vi\/abcdefghijk\/hqdefault\.jpg/);
 });
