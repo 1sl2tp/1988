@@ -6228,6 +6228,15 @@ function updateFloatingAmbient(frame){
   frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
 }
 
+function legacyCompactIphone(){
+  const ua=String(navigator.userAgent||"");
+  if(!/iPhone/i.test(ua))return false;
+  const major=Number(ua.match(/OS\s+(\d+)[_\.]/i)?.[1])||0;
+  const shortSide=Math.min(window.innerWidth||0,window.innerHeight||0);
+  const longSide=Math.max(window.innerWidth||0,window.innerHeight||0);
+  return major>0&&major<=15&&shortSide<=375&&longSide<=700;
+}
+
 function explicitVideoAspect(meta={}){
   const width=Number(meta?.videoWidth)||0;
   const height=Number(meta?.videoHeight)||0;
@@ -6264,7 +6273,7 @@ function responsivePlayerAspect(meta=state.currentMeta||{}){
     16/9;
 }
 
-function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false}={}){
+function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false,ratio=0}={}){
   const frame=playerSection?.querySelector(".player-frame");
   if(
     !frame||
@@ -6294,7 +6303,17 @@ function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false}={}){
       node.style.setProperty("max-width","none","important");
       node.style.setProperty("max-height","none","important");
       node.style.setProperty("margin","0","important");
-      node.style.setProperty("transform","translateZ(0)","important");
+      const nativeOverscan=
+        node===nativePlayer &&
+        legacyCompactIphone() &&
+        Number(ratio)>0 &&
+        Number(ratio)<=1.20;
+      node.style.setProperty(
+        "transform",
+        nativeOverscan?"translateZ(0) scale(1.006)":"translateZ(0)",
+        "important"
+      );
+      node.style.setProperty("transform-origin","center center","important");
     }
 
     if(iframe){
@@ -6437,7 +6456,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
 
     syncMobileInlinePlayerViewport(width,height,{
-      settle:ratio<.80&&window.innerWidth<=375
+      settle:ratio<.80&&window.innerWidth<=375,
+      ratio
     });
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
     root.style.removeProperty("--watch-player-column-w");
@@ -7181,7 +7201,11 @@ function nativeFallbackUrl(id){
   return url.toString();
 }
 
-function fallbackIframeVideoToNative(id,errorCode=0){
+function fallbackIframeVideoToNative(
+  id,
+  errorCode=0,
+  {resumeAt=null,returnToIframeOnFailure=false}={}
+){
   id=String(id||"").trim();
   if(!id||id!==state.currentId)return false;
 
@@ -7191,7 +7215,9 @@ function fallbackIframeVideoToNative(id,errorCode=0){
   // Avoid duplicate retries from repeated iframe error callbacks.
   if(state.engine==="native"&&state.nativeSource===url)return true;
 
-  const resumeAt=getVideoTime();
+  const nativeResumeAt=Number.isFinite(Number(resumeAt))
+    ?Math.max(0,Number(resumeAt))
+    :getVideoTime();
 
   try{state.player?.pauseVideo?.();}catch{}
   state.nativeSource=url;
@@ -7211,8 +7237,8 @@ function fallbackIframeVideoToNative(id,errorCode=0){
 
   const onLoaded=()=>{
     if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
-    if(resumeAt>0){
-      try{nativePlayer.currentTime=resumeAt}catch{}
+    if(nativeResumeAt>0){
+      try{nativePlayer.currentTime=nativeResumeAt}catch{}
     }
     void nativePlayer.play().catch(()=>{});
     applyFloatingIframe();
@@ -7225,8 +7251,34 @@ function fallbackIframeVideoToNative(id,errorCode=0){
 
   const onFailure=()=>{
     if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
-    statusText.textContent="Video này hiện chưa lấy được nguồn phát";
     console.warn("1988 native video fallback failed",{id:targetId,errorCode});
+
+    if(returnToIframeOnFailure){
+      try{
+        nativePlayer.pause();
+        nativePlayer.removeAttribute("src");
+        nativePlayer.load();
+      }catch{}
+      state.nativeSource="";
+      showIframePlayer();
+      applyResponsivePlayerFrame(state.currentMeta||{});
+
+      if(state.playerReady&&state.player){
+        try{
+          state.player.unMute?.();
+          state.player.loadVideoById(targetId);
+          ensureIframePlaying();
+          statusText.textContent="Video YouTube đang phát";
+          return;
+        }catch{}
+      }
+      state.pendingVideoId=targetId;
+      initYouTubePlayer();
+      statusText.textContent="Đang mở YouTube…";
+      return;
+    }
+
+    statusText.textContent="Video này hiện chưa lấy được nguồn phát";
   };
 
   nativePlayer.addEventListener("loadedmetadata",onLoaded,{once:true});
@@ -7246,12 +7298,16 @@ function showNativePlayer(){
   state.engine="native";
   nativePlayer.hidden=false;
   ytPlayerHost.hidden=true;
+  const iframe=state.player?.getIframe?.();
+  if(iframe)iframe.hidden=true;
 }
 
 function showIframePlayer(){
   state.engine="iframe";
   nativePlayer.hidden=true;
   ytPlayerHost.hidden=false;
+  const iframe=state.player?.getIframe?.();
+  if(iframe)iframe.hidden=false;
 }
 
 let suggestionLayoutRaf=0;
@@ -11521,18 +11577,32 @@ async function playVideo(id,seedMeta={}){
     });
   }
 
-  if(state.playerReady&&state.player){
-    state.pendingVideoId="";
-    try{
-      state.player.unMute?.();
-      state.player.loadVideoById(id);
-      ensureIframePlaying();
-      statusText.textContent="Video YouTube đang phát";
-    }catch{
-      state.pendingVideoId=id;
+  const legacyCompactNonWide=
+    legacyCompactIphone() &&
+    immediateAspect>0 &&
+    immediateAspect<=1.20;
+
+  const nativeCompactStarted=legacyCompactNonWide
+    ?fallbackIframeVideoToNative(id,-7,{
+        resumeAt:0,
+        returnToIframeOnFailure:true
+      })
+    :false;
+
+  if(!nativeCompactStarted){
+    if(state.playerReady&&state.player){
+      state.pendingVideoId="";
+      try{
+        state.player.unMute?.();
+        state.player.loadVideoById(id);
+        ensureIframePlaying();
+        statusText.textContent="Video YouTube đang phát";
+      }catch{
+        state.pendingVideoId=id;
+      }
+    }else{
+      initYouTubePlayer();
     }
-  }else{
-    initYouTubePlayer();
   }
 
   // Resolve the real video shape first. Full info/watch-next can be much
@@ -12564,7 +12634,7 @@ nativePlayer.addEventListener("loadedmetadata",()=>{
     videoHeight:height,
     aspectRatio:width/height,
     _aspectVerified:true,
-    _aspectSource:"native"
+    _aspectSource:"native-video"
   };
   updateCurrentVideoAspect(state.currentMeta);
 });
