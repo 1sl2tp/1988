@@ -480,15 +480,32 @@ function renderPreview(){
 }
 
 function renderVideos(rows){
+  const fallbackChannel=clean(state.detail?.name||"Kênh YouTube");
+  const fallbackAvatar=clean(state.detail?.thumbnailUrl||"");
+
   el.videoGrid.innerHTML=(rows||[]).map(v=>{
     const id=v.videoId||v.id||"";
     const thumb=v.thumbnailUrl||v.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
     const title=clean(v._displayTitle||v.title||"Video");
+    const channel=clean(v.uploader||v._sourceName||v.channelName||fallbackChannel);
+    const avatar=clean(v.uploaderThumbnailUrl||v.channelThumbnailUrl||fallbackAvatar);
+    const views=compactViews(v.views,v.viewText);
+    const published=clean(v.publishedText||v.published||v.uploadDate||"");
+
     return '<article class="video-card" data-preview-video="'+esc(id)+'">'+
       '<img class="video-thumb" src="'+esc(thumb)+'" alt="">'+
       '<div class="video-copy">'+
         '<strong>'+esc(title)+'</strong>'+
-        '<span>'+esc(v.publishedText||v.published||v.uploadDate||"")+'</span>'+
+        '<div class="video-card-channel">'+
+          '<span class="video-card-avatar">'+
+            (avatar?'<img src="'+esc(avatar)+'" alt="">':esc(channel.charAt(0).toUpperCase()))+
+          '</span>'+
+          '<span class="video-card-channel-name">'+esc(channel)+'</span>'+
+        '</div>'+
+        '<div class="video-card-meta">'+
+          (views?'<span>'+esc(views)+' lượt xem</span>':'')+
+          (published?'<span>'+esc(published)+'</span>':'')+
+        '</div>'+
       '</div>'+
     '</article>';
   }).join("")||'<div class="empty">Chưa có video.</div>';
@@ -543,6 +560,7 @@ async function openChannel(row,seedVideo=null){
 async function search(q){
   q=clean(q);
   state.searchQuery=q;
+  if(el.searchInput&&el.searchInput.value!==q)el.searchInput.value=q;
   if(state.detail){
     state.detail=null;
     state.detailVideos=[];
@@ -867,11 +885,12 @@ qsa(".search-mode-btn").forEach(button=>{
     el.searchInput.placeholder=state.searchMode==="channel"
       ?"Tìm kênh YouTube"
       :"Tìm video YouTube";
+    const keptQuery=clean(el.searchInput.value||state.searchQuery||"");
+    state.searchQuery=keptQuery;
     state.searchRows=[];
-    state.searchQuery="";
-    el.searchInput.value="";
     el.searchStatus.textContent="";
     renderSearch();
+    if(keptQuery)search(keptQuery);
     requestAnimationFrame(()=>el.searchInput.focus());
   });
 });
