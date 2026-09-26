@@ -8229,13 +8229,14 @@ async function loadAiParentDiscovery(parent){
     state.trendTopics=[];
     renderTrendTopics();
 
-    if(reserve.length){
+    const storedBefore=readAtomicSnapshot("category:"+parent.key);
+    if(storedBefore&&Array.isArray(storedBefore.items)&&state.activeParent===parent.key){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
       state.feedRows=reserve.slice();
       state.feedHasMore=false;
       renderCards(reserve,{trustedPackage:true});
-      feedStatus.textContent=reserve.length+" video";
-      void prewarmRowSourceAvatars(reserve.slice(0,36),260);
+      feedStatus.textContent=reserve.length?reserve.length+" video":"";
+      if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     }
   }catch(error){
     console.warn("server category package sync deferred",parent?.label||parent?.key,error);
@@ -9875,6 +9876,8 @@ function renderCards(rows=[],options={}){
       if(node)fragment.appendChild(node);
     }
     feed.replaceChildren(fragment);
+  }else if(trustedPackage){
+    feed.replaceChildren();
   }else{
     feed.innerHTML='<div class="empty">Chưa có video.</div>';
   }
@@ -12446,17 +12449,7 @@ function sourceFeedRowsSignature(rows=[]){
 }
 
 function freshSnapshotRowsForFeed(name){
-  const preset=FEED_PRESETS[name];
-  if(!preset)return [];
-
-  const scoped=isSourceScopedFeed(name);
-  const scope=scoped
-    ?feedSourceScope(name)
-    :name===LIVE_SOURCE_SCOPE
-      ?LIVE_SOURCE_SCOPE
-      :GENERAL_SOURCE_SCOPE;
-
-  return sortPresetRows(readFeedCache(name),preset);
+  return readFeedCache(name);
 }
 
 function applyActiveFeedSnapshot(name,{force=false}={}){
@@ -13209,7 +13202,6 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
 
 async function loadFeedPreset(name="latest"){
   state.searchResultsActive=false;
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   const feedChanged=state.activeFeed!==name;
 
@@ -13219,37 +13211,30 @@ async function loadFeedPreset(name="latest"){
     state.trendTopics=[];
   }
 
-  const scoped=isSourceScopedFeed(name);
   state.feedLoading=true;
   state.feedHasMore=false;
-
   setActiveChip(name);
   feedTitle.textContent=sourceGroupLabel(name);
   renderTrendTopics();
 
-  // Browser/PWA is a package viewer only. Show the last complete local reserve
-  // immediately, then compare hashes and atomically replace it with a newer one.
-  let reserve=readFeedCache(name);
-  if(reserve.length){
-    const rows=sortPresetRows(reserve,preset);
-    state.feedRows=rows.slice();
-    renderCards(state.feedRows,{trustedPackage:true});
-    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-    state.feedLoading=false;
-    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
-  }
+  const paintReserve=()=>{
+    const snapshot=readAtomicSnapshot("feed:"+name);
+    if(!snapshot||!Array.isArray(snapshot.items))return false;
+    const reserve=snapshot.items.slice();
+    state.feedRows=reserve;
+    renderCards(reserve,{trustedPackage:true});
+    feedStatus.textContent=reserve.length?reserve.length+" video":"";
+    if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
+    return true;
+  };
+
+  // Paint first, check later.
+  paintReserve();
+  state.feedLoading=false;
 
   await hydrateServerPackages({force:true});
   if(seq!==state.feedSeq||state.activeFeed!==name)return;
-
-  reserve=readFeedCache(name);
-  if(reserve.length){
-    const rows=sortPresetRows(reserve,preset);
-    state.feedRows=rows.slice();
-    renderCards(state.feedRows,{trustedPackage:true});
-    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
-  }
+  paintReserve();
 
   state.feedLoading=false;
   state.feedHasMore=false;
@@ -13411,11 +13396,12 @@ topicChips.addEventListener("click",async e=>{
       feedStatus.textContent=visible.length?visible.length+" video":"";
       void prewarmRowSourceAvatars(visible,480);
     }else{
-      feed.innerHTML=
-        '<div class="feed-loading-grid" aria-label="Đang tải '+esc(parent.label)+'">'+
-          '<span></span><span></span><span></span><span></span>'+
-        '</div>';
-      feedStatus.textContent="";
+      const stored=readAtomicSnapshot("category:"+parent.key);
+      if(stored&&Array.isArray(stored.items)){
+        state.feedRows=[];
+        renderCards([],{trustedPackage:true});
+        feedStatus.textContent="";
+      }
     }
 
     void loadAiParentDiscovery(parent);
