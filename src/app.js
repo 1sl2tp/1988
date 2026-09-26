@@ -10821,10 +10821,151 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
     new Promise(resolve=>setTimeout(resolve,Math.max(160,Number(maxWait)||520)))
   ]);
 }
+function swapVisualImageWhenReady(img,url=""){
+  if(!(img instanceof HTMLImageElement))return;
+  url=String(url||"").trim();
+  if(!url)return;
+  const current=img.getAttribute("src")||"";
+  if(current===url){
+    delete img.dataset.pendingSrc;
+    return;
+  }
+  if(img.dataset.pendingSrc===url)return;
+
+  img.dataset.pendingSrc=url;
+  const probe=new Image();
+  probe.decoding="async";
+  const commit=async()=>{
+    try{await probe.decode?.();}catch{}
+    if(
+      img.isConnected &&
+      img.dataset.pendingSrc===url &&
+      probe.naturalWidth>0
+    ){
+      img.src=url;
+      delete img.dataset.pendingSrc;
+    }
+  };
+  probe.onload=()=>{void commit();};
+  probe.onerror=()=>{
+    if(img.dataset.pendingSrc===url)delete img.dataset.pendingSrc;
+  };
+  probe.src=url;
+  if(probe.complete&&probe.naturalWidth)void commit();
+}
+
+function syncStableCardNode(card,nextCard){
+  if(!card||!nextCard)return card;
+
+  // Keep the existing card DOM and decoded/composited images alive. Replacing
+  // an entire card during a 30s package refresh makes Safari flash thumbnails,
+  // avatars and badges even when the video id is unchanged.
+  for(const attr of [...nextCard.attributes]){
+    if(card.getAttribute(attr.name)!==attr.value)card.setAttribute(attr.name,attr.value);
+  }
+
+  const nextTitle=nextCard.querySelector(".card-title");
+  const currentTitle=card.querySelector(".card-title");
+  if(nextTitle&&currentTitle&&currentTitle.textContent!==nextTitle.textContent){
+    currentTitle.textContent=nextTitle.textContent||"";
+  }
+
+  const nextMeta=nextCard.querySelector(".card-meta-line");
+  const currentMeta=card.querySelector(".card-meta-line");
+  if(nextMeta&&currentMeta&&currentMeta.innerHTML!==nextMeta.innerHTML){
+    currentMeta.innerHTML=nextMeta.innerHTML;
+  }
+
+  const currentThumbWrap=card.querySelector(".thumb-wrap");
+  const nextThumbWrap=nextCard.querySelector(".thumb-wrap");
+  const currentThumb=currentThumbWrap?.querySelector("img");
+  const nextThumb=nextThumbWrap?.querySelector("img");
+  if(currentThumb&&nextThumb){
+    const nextSrc=nextThumb.getAttribute("src")||"";
+    if(nextSrc)swapVisualImageWhenReady(currentThumb,nextSrc);
+    currentThumb.loading=nextThumb.loading||currentThumb.loading;
+  }
+  if(currentThumbWrap&&nextThumbWrap){
+    currentThumbWrap.querySelectorAll(".duration,.live-badge").forEach(node=>node.remove());
+    nextThumbWrap.querySelectorAll(".duration,.live-badge").forEach(node=>{
+      currentThumbWrap.appendChild(node.cloneNode(true));
+    });
+  }
+
+  const currentAvatar=card.querySelector(".card-avatar");
+  const nextAvatar=nextCard.querySelector(".card-avatar");
+  if(currentAvatar&&nextAvatar){
+    const currentImg=currentAvatar.querySelector("img");
+    const nextImg=nextAvatar.querySelector("img");
+    if(currentImg&&nextImg){
+      const nextSrc=nextImg.getAttribute("src")||"";
+      if(nextSrc)swapVisualImageWhenReady(currentImg,nextSrc);
+    }else if(!currentImg&&nextImg){
+      const src=nextImg.getAttribute("src")||"";
+      if(src){
+        void warmAvatarImage(src).then(ok=>{
+          if(!ok||!card.isConnected||currentAvatar.querySelector("img"))return;
+          const img=document.createElement("img");
+          img.src=src;
+          img.alt="";
+          img.width=36;
+          img.height=36;
+          img.decoding="async";
+          currentAvatar.replaceChildren(img);
+        });
+      }
+    }else if(!currentImg&&!nextImg&&currentAvatar.textContent!==nextAvatar.textContent){
+      currentAvatar.replaceChildren(...[...nextAvatar.childNodes].map(node=>node.cloneNode(true)));
+    }
+    // Never downgrade an already decoded avatar back to a fallback letter.
+  }
+
+  return card;
+}
+
+function reconcileStableCards(items=[]){
+  const existing=new Map(
+    [...feed.querySelectorAll(":scope > .card[data-video-id]")]
+      .map(card=>[card.dataset.videoId,card])
+      .filter(([id])=>!!id)
+  );
+  const wanted=new Set();
+  const template=document.createElement("template");
+  let anchor=feed.firstElementChild;
+
+  for(const item of items){
+    wanted.add(item.id);
+    template.innerHTML=item.html.trim();
+    const fresh=template.content.firstElementChild;
+    let node=existing.get(item.id)||null;
+
+    if(node){
+      syncStableCardNode(node,fresh);
+      existing.delete(item.id);
+    }else{
+      node=fresh;
+    }
+    if(!node)continue;
+
+    if(node!==anchor){
+      feed.insertBefore(node,anchor||null);
+    }
+    anchor=node.nextElementSibling;
+  }
+
+  for(const child of [...feed.children]){
+    if(
+      child.matches?.(".card[data-video-id]") &&
+      !wanted.has(child.dataset.videoId||"")
+    )child.remove();
+    else if(!child.matches?.(".card[data-video-id]"))child.remove();
+  }
+}
+
 function renderCards(rows=[],options={}){
   const append=options.append===true;
   const trustedPackage=options.trustedPackage===true;
-  const refreshExisting=options.refreshExisting===true;
+  const refreshExisting=options.refreshExisting===true; // kept for caller compatibility
   if(!append)feed.classList.remove("search-grouped");
   if(!options.keepSearchRefinements&&searchRefinements){
     searchRefinements.hidden=true;
@@ -10894,27 +11035,10 @@ function renderCards(rows=[],options={}){
   if(append){
     if(cards.length)feed.insertAdjacentHTML("beforeend",cards.map(card=>card.html).join(""));
   }else if(cards.length){
-    const existing=refreshExisting
-      ?new Map()
-      :new Map(
-        [...feed.querySelectorAll(":scope > .card[data-video-id]")]
-          .map(card=>[card.dataset.videoId,card])
-          .filter(([id])=>!!id)
-      );
-    const template=document.createElement("template");
-    const fragment=document.createDocumentFragment();
-
-    for(const item of cards){
-      let node=existing.get(item.id)||null;
-      if(node){
-        existing.delete(item.id);
-      }else{
-        template.innerHTML=item.html.trim();
-        node=template.content.firstElementChild;
-      }
-      if(node)fragment.appendChild(node);
-    }
-    feed.replaceChildren(fragment);
+    // Keyed reconciliation keeps existing card/image nodes alive. Package
+    // refreshes may update metadata/order, but no longer blank and recreate
+    // thumbnails/avatars on mobile Safari.
+    reconcileStableCards(cards);
   }else if(trustedPackage){
     feed.replaceChildren();
   }else{
@@ -12104,8 +12228,17 @@ async function playVideo(id,seedMeta={}){
     immediateAspect>0 &&
     immediateAspect<=1.20;
 
-  const nativeCompactStarted=legacyCompactNonWide
-    ?fallbackIframeVideoToNative(id,-7,{
+  // A home-card click is a real user activation. If the YouTube iframe API is
+  // still loading, waiting for YT.onReady loses that activation on iOS and
+  // autoplay-with-audio becomes intermittent. Start native media immediately
+  // on mobile while the gesture is still active; fall back to iframe only if
+  // the media endpoint cannot serve this video.
+  const mobileIframeNotReady=
+    mobileMiniViewport() &&
+    (!state.playerReady||!state.player);
+
+  const nativeCompactStarted=(legacyCompactNonWide||mobileIframeNotReady)
+    ?fallbackIframeVideoToNative(id,mobileIframeNotReady?-8:-7,{
         resumeAt:0,
         returnToIframeOnFailure:true
       })
