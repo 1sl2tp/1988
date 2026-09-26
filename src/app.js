@@ -2507,7 +2507,7 @@ function updateSourceSummary(rows=managedChannelLibrary()){
         totalCount+" nguồn";
     }else if(sourceManageMode){
       sourceSummary.textContent=
-        selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn";
+        selectedCount+" chọn · "+totalCount+" nguồn";
     }else{
       sourceSummary.textContent=activeScope===LIVE_SOURCE_SCOPE
         ?activeSelectedCount+" nguồn dùng cho Live"
@@ -12066,6 +12066,18 @@ function snapshotRowsHash(rows=[],sourceSig=""){
   return fastHash(String(sourceSig||"")+"\n"+body);
 }
 
+function snapshotRowsHashV330(rows=[],sourceSig=""){
+  const body=(Array.isArray(rows)?rows:[]).map(row=>[
+    itemVideoId(row),
+    clean(row?._displayTitle||row?.title||""),
+    clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
+    String(row?._sourceId||row?.channelId||row?.uploaderId||""),
+    row?.isLive===true?"1":"0",
+    String(durationSeconds(row)||0)
+  ].join("|")).join("\n");
+  return fastHash(String(sourceSig||"")+"\n"+body);
+}
+
 function readAtomicSnapshot(name=""){
   try{
     const pointer=JSON.parse(localStorage.getItem(snapshotKey(name,"ptr"))||"null");
@@ -12077,9 +12089,11 @@ function readAtomicSnapshot(name=""){
       if(!raw)continue;
       const row=JSON.parse(raw);
       if(!row||!Array.isArray(row.items))continue;
-      const actual=snapshotRowsHash(row.items,row.sourceSignature||"");
-      if(!row.hash||row.hash!==actual)continue;
-      return row;
+      const sourceSig=row.sourceSignature||"";
+      const actual=snapshotRowsHash(row.items,sourceSig);
+      const legacy=snapshotRowsHashV330(row.items,sourceSig);
+      if(!row.hash||(row.hash!==actual&&row.hash!==legacy))continue;
+      return row.hash===actual?row:{...row,hash:actual,legacyHash:row.hash};
     }
   }catch{}
   return null;
@@ -13476,6 +13490,7 @@ async function bootstrap1988(){
     renderParentCategories();
     await warmManagedAvatarImages(900);
     void prewarmSelectedSourceAvatars();
+    void hydrateServerPackages({force:true});
   });
 }
 
