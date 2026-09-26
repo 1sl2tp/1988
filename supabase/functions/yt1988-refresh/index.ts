@@ -83,6 +83,21 @@ function channelId(row:any){
 function isLive(row:any){
   return row?.isLive===true||Number(row?.duration)<0||Number(row?.uploaded)===-1;
 }
+function normalizeLiveText(value:any){
+  return normalizeText(value);
+}
+function liveKeywordBlocked(row:any,keywords:string[]){
+  if(!Array.isArray(keywords)||!keywords.length)return false;
+  const haystack=normalizeLiveText([
+    row?._displayTitle||row?.title||"",
+    row?._sourceName||row?.uploaderName||row?.uploader||row?.channelName||""
+  ].join(" "));
+  if(!haystack)return false;
+  return keywords.some((keyword)=> {
+    const needle=normalizeLiveText(keyword);
+    return !!needle&&haystack.includes(needle);
+  });
+}
 function relativeAgeMs(value:any){
   const raw=normalizeText(value);
   if(!raw)return Number.MAX_SAFE_INTEGER;
@@ -232,6 +247,45 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   };
   await Promise.all(Array.from({length:Math.min(limit,items.length)},worker));
   return out;
+}
+
+async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
+  const id=videoId(row);
+  if(!id)return null;
+  const result=await fetchJson(
+    supabaseUrl+"/functions/v1/yt1988?action=video&id="+encodeURIComponent(id),
+    {
+      "apikey":serviceKey,
+      "authorization":"Bearer "+serviceKey
+    },
+    3600
+  );
+  const data=result?.data||{};
+  const active=
+    data?.livestream===true&&(
+      !!clean(data?.hls||"",1200)||
+      (Array.isArray(data?.hlsSources)&&data.hlsSources.some((item:any)=>!!clean(item?.url||"",1200)))||
+      Number(data?.duration)<0
+    );
+  if(!active)return null;
+  return {
+    ...row,
+    isLive:true,
+    duration:Number(data?.duration)<0?Number(data.duration):-1,
+    uploaded:-1
+  };
+}
+
+async function verifyLiveRows(rows:any[],supabaseUrl:string,serviceKey:string){
+  const verified=await mapLimit(rows.slice(0,60),4,async(row)=>{
+    try{
+      return await verifyLiveCandidate(row,supabaseUrl,serviceKey);
+    }catch(error){
+      console.warn("live verify failed",videoId(row),String(error));
+      return null;
+    }
+  });
+  return verified.filter(Boolean);
 }
 
 async function claimLease(rest:string,headers:any){
@@ -586,6 +640,25 @@ Deno.serve(async(req:Request)=>{
       if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());
     }
 
+    let liveKeywords:string[]=[];
+    if(scopes.includes("live")){
+      try{
+        const keywordsRes=await fetch(
+          rest+"/yt1988_live_keywords?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&select=keyword_display&order=keyword_display.asc",
+          {headers:authHeaders}
+        );
+        if(keywordsRes.ok){
+          const keywordRows=await keywordsRes.json();
+          liveKeywords=(Array.isArray(keywordRows)?keywordRows:[])
+            .map((row:any)=>clean(row?.keyword_display||"",120))
+            .filter(Boolean);
+        }
+      }catch(error){
+        console.warn("live keyword read failed",String(error));
+      }
+    }
+
     let globalLive:any[]=[];
     if(scopes.includes("live")){
       try{
@@ -648,13 +721,17 @@ Deno.serve(async(req:Request)=>{
           const sid=channelId(row);
           return !sid||!blocked.has(sid);
         });
-        raw=[
+        const candidates=dedupeRows([
           ...selectedLive.map((r:any)=>({...r,_interestPriority:selectedIds.has(channelId(r))?1:0})),
           ...global
-        ];
-        raw=dedupeRows(raw).sort((a:any,b:any)=>
-          (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
-        );
+        ])
+          .filter((row:any)=>!liveKeywordBlocked(row,liveKeywords))
+          .sort((a:any,b:any)=>
+            (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
+          );
+
+        // LIVE fails closed: stale flags never keep an ended stream visible.
+        raw=await verifyLiveRows(candidates,supabaseUrl,serviceKey);
       }else if(scope==="latest"){
         raw=raw.filter((r:any)=>{
           const age=ageMs(r);
