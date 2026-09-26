@@ -1605,24 +1605,8 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(scope!=="live"){
-        const relevantRows=raw.filter((r:any)=>{
-          const age=ageMs(r);
-          if(scope==="latest")return Number.isFinite(age)&&age>=0&&age<DAY_MS;
-          if(scope==="week")return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
-          return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
-        });
-        const unresolved=relevantRows.filter((r:any)=>
-          !isLive(r)&&
-          !isTooShortVideo(r)&&
-          (!Number(r?._shortCheckedAt)||durationSeconds(r)<=0)
-        );
-        if(unresolved.length){
-          // Unknown rows are simply excluded from this package. Do not requeue
-          // immediately: the normal server schedule will retry them, while the
-          // last good package remains available to browsers.
-          results.push({scope,verificationPending:unresolved.length});
-        }
-
+        // NON-LIVE packages contain only rows the server has already resolved.
+        // Unknown rows are omitted and retried by the normal server schedule.
         raw=raw.filter((r:any)=>
           !isLive(r)&&
           !isTooShortVideo(r)&&
