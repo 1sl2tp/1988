@@ -3409,3 +3409,8 @@ html.source-manager-page .source-preview{
     padding-top:5px;
   }
 }
+
+#sourcesSheet[data-admin-tab="labels"] .source-group-nav,
+#sourcesSheet[data-admin-tab="filters"] .source-group-nav{
+  display:none!important;
+}
