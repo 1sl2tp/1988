@@ -3456,3 +3456,52 @@ html.source-manager-page .source-preview{
   font-weight:600;
   line-height:1;
 }
+
+
+/* iOS mobile/PWA hardening v343
+   Portrait Watch must use the layout viewport, not the keyboard/visual viewport.
+   This keeps iPhone 7 Safari and standalone PWA centred edge-to-edge after Search. */
+@media(max-width:720px){
+  html.watch-browse.watch-video-portrait .player-section{
+    position:relative!important;
+    left:50%!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    margin-left:-50vw!important;
+    transform:none!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse.watch-video-portrait .player-card{
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    margin:0!important;
+  }
+
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe){
+    left:0!important;
+    right:auto!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    margin:0!important;
+    transform:none!important;
+    background:#000!important;
+  }
+
+  /* Search edit state must never leave an invisible/blank interaction layer. */
+  html.home-search-open .header-search,
+  html.watch-search-open .header-search{
+    position:relative;
+    z-index:190;
+    pointer-events:auto!important;
+  }
+  html.home-search-open #queryInput,
+  html.watch-search-open #queryInput,
+  html.search-suggestions-open .suggestions,
+  html.search-suggestions-open .suggestions button{
+    pointer-events:auto!important;
+  }
+}
