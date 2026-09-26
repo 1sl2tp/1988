@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="325";
+const LOCAL_DATA_SCHEMA_VERSION="326";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -12203,6 +12203,7 @@ function cleanupLegacyFeedCaches(name=""){
 
 let packageSyncApplying=false;
 let packageManifestLastAt=0;
+let packageHydrationPromise=null;
 let packageWriteClock=Date.now();
 const packageUploadChains=new Map();
 const pendingPackageUploads=new Map();
@@ -12296,8 +12297,10 @@ function applyServerPackage(scope,pkg={}){
 async function hydrateServerPackages({force=false}={}){
   if(!force&&Date.now()-packageManifestLastAt<SERVER_PACKAGE_MANIFEST_TTL)return true;
 
+  if(packageHydrationPromise)return packageHydrationPromise;
+  packageHydrationPromise=(async()=>{
   try{
-    const result=await packageSyncFetch("GET","",null,5200);
+    const result=await packageSyncFetch("GET","",null,15000);
     if(!result?.ok)throw new Error("package_manifest_failed");
     const manifest=result.manifest&&typeof result.manifest==="object"?result.manifest:{};
 
@@ -12318,7 +12321,7 @@ async function hydrateServerPackages({force=false}={}){
       }
       if(remote?.hash&&remote.hash!==local?.hash){
         downloads.push(
-          packageSyncFetch("GET",scope,null,7000)
+          packageSyncFetch("GET",scope,null,20000)
             .then(pkgResult=>{
               if(pkgResult?.ok&&pkgResult?.exists&&pkgResult.package){
                 applyServerPackage(scope,pkgResult.package);
@@ -12336,6 +12339,9 @@ async function hydrateServerPackages({force=false}={}){
     console.warn("package manifest sync failed",error);
     return false;
   }
+  })();
+  try{return await packageHydrationPromise;}
+  finally{packageHydrationPromise=null;}
 }
 
 const SEARCH_VISIBLE_TARGET=36;

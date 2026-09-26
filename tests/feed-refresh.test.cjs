@@ -5,7 +5,7 @@ const vm=require('node:vm');
 const {stripTypeScriptTypes}=require('node:module');
 const app=fs.readFileSync('src/app.js','utf8');
 const server=fs.readFileSync('supabase/functions/yt1988-refresh/index.ts','utf8');
-function fn(name){const start=app.indexOf('function '+name+'(');assert.ok(start>=0,name);return app.slice(start,app.indexOf('\n}',start)+2);}
+function fn(name){let start=app.indexOf('function '+name+'(');assert.ok(start>=0,name);if(app.slice(start-6,start)==='async ')start-=6;return app.slice(start,app.indexOf('\n}',start)+2);}
 function client(){const data=new Map();const c=vm.createContext({console,window:{},URL,localStorage:{getItem:k=>data.get(k)||null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)},TAB_SNAPSHOT_PREFIX:'test:',clean:v=>String(v||'').trim()});vm.runInContext(['normalizeSearchText','fastHash','extractVideoId','itemVideoId','parseDurationValue','durationSeconds','isTooShortVideo','snapshotKey','snapshotRowsHash','readAtomicSnapshot','commitAtomicSnapshot'].map(fn).join('\n'),c);return c;}
 const s=vm.createContext({console,URL,Date,setTimeout,clearTimeout});
 vm.runInContext(stripTypeScriptTypes(server.split('Deno.serve(')[0].replace(/^import .*;\n/,'')),s);
@@ -36,4 +36,11 @@ test('all stale channels are visited once over successive bounded batches',()=>{
  let ids=Array.from({length:49},(_,i)=>String(i));let times=Object.fromEntries(ids.map(id=>[id,0]));let visited=[];
  for(let tick=1;ids.length;tick++){const b=s.channelRefreshBatch(ids,id=>times[id],12);visited.push(...b.fetch);b.fetch.forEach(id=>times[id]=tick);ids=Array.from(b.deferred);}
  assert.equal(visited.length,49);assert.equal(new Set(visited).size,49);
+});
+
+test('concurrent package checks share one request and tolerate a slow connection',async()=>{
+ const c=client();let calls=0,release;Object.assign(c,{SOURCE_MANAGER_GROUPS:[],SERVER_PACKAGE_MANIFEST_TTL:15000,packageManifestLastAt:0,packageHydrationPromise:null,packageSyncFetch:(_method,_scope,_body,timeout)=>{calls++;assert.ok(timeout>=12000,'allow responses slower than 10 seconds');return new Promise(resolve=>release=resolve);}});
+ vm.runInContext(fn('hydrateServerPackages'),c);
+ const first=c.hydrateServerPackages({force:true});const second=c.hydrateServerPackages({force:true});
+ assert.equal(calls,1);release({ok:true,manifest:{}});assert.equal(await first,true);assert.equal(await second,true);
 });
