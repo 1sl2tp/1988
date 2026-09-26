@@ -12835,8 +12835,8 @@ function saveSourcePoolCache(rows=[],scope=LATEST_SOURCE_SCOPE){
 }
 
 function primeSourceFeedCache(){
-  // Source-pool cache is raw transport data only. Final feed snapshots are
-  // committed exclusively by packageRowsWithAi(), never by per-channel refresh.
+  // Source-pool cache is raw transport data only. Final feed snapshots come
+  // from the authoritative server package, never from per-channel refresh.
 }
 
 function replaceSourceInPoolCache(source,rows=[],scope=LATEST_SOURCE_SCOPE){
