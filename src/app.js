@@ -524,7 +524,7 @@ const SYSTEM_SOURCE_SCOPE_DEFINITIONS=[
   },
   {
     key:LATEST_SOURCE_SCOPE,
-    defaultLabel:"Ngày",
+    defaultLabel:"Mới nhất",
     kind:"time",
     profile:"day",
     timeMode:"under_24h",
@@ -532,7 +532,7 @@ const SYSTEM_SOURCE_SCOPE_DEFINITIONS=[
   },
   {
     key:WEEK_SOURCE_SCOPE,
-    defaultLabel:"Tuần",
+    defaultLabel:"Tuần này",
     kind:"time",
     profile:"week",
     timeMode:"day_1_to_7",
