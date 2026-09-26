@@ -753,6 +753,7 @@ function pruneLegacyTemporaryCustomSources(){
   for(const scope of MANAGED_SOURCE_SCOPES){
     for(const id of selectedSetForScope(scope))durable.add(id);
     for(const id of blockedSetForScope(scope))durable.add(id);
+    for(const id of suggestedSetForScope(scope))durable.add(id);
   }
   const before=customSources.length;
   customSources=customSources.filter(row=>row&&durable.has(String(row.id||"")));
@@ -3372,6 +3373,9 @@ function addSource(row){
     subscribers:clean(meta.subscribers||row.subscribers||"")
   });
 
+  // Manual search is not a suggestion generator. Clicking "+ Lưu" is an
+  // explicit user action, so save that exact channel as selected on the server.
+  setSourceStatus(id,"selected",sourceManageGroup);
   state.sourceLibraryDirty=true;
   refreshSourceManager();
 }
