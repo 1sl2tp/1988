@@ -11375,20 +11375,30 @@ async function playVideo(id,seedMeta={}){
   };
   const habitAspect=rememberedVideoAspect(playbackMeta);
 
-  // Per-video truth first:
-  // - exact cache for this video may size immediately and is trusted;
-  // - viewing habit is only a provisional shell while this video's real
-  //   dimensions are being resolved;
-  // - no portrait lock is ever inherited from the previous video.
-  const immediateAspect=cachedAspect||habitAspect||16/9;
+  // Search results already carry a strong portrait/Shorts hint from YouTube.
+  // Use that hint immediately instead of briefly opening the iPhone player as
+  // 16:9 (or with a previous search habit) and correcting it later. That
+  // transient wrong shell is especially visible on iPhone 7 / iOS 15 as a
+  // black gap and an off-centre vertical player.
+  const seedAspect=validPipAspect(explicitVideoAspect(playbackMeta));
+  const seedPortrait=
+    playbackMeta?.isShort===true ||
+    (seedAspect>0&&seedAspect<.80);
+  const immediateAspect=
+    cachedAspect||
+    (seedPortrait?(seedAspect||9/16):0)||
+    habitAspect||
+    16/9;
 
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
   state.videoAspectVerified=!!cachedAspect;
-  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
-  state.videoAspectSourceRank=cachedAspect?3:0;
+  state.videoAspectPortraitLocked=
+    (!!cachedAspect&&cachedAspect<.80) ||
+    (!cachedAspect&&seedPortrait);
+  state.videoAspectSourceRank=cachedAspect?3:(seedPortrait?1:0);
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
