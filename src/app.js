@@ -76,6 +76,10 @@ const sourcePreviewList=$("#sourcePreviewList");
 const sourceSettingsBtn=$("#sourceSettingsBtn");
 const sourceLocalTools=$("#sourceLocalTools");
 const sourceDataResetBtn=$("#sourceDataResetBtn");
+const liveKeywordTools=$("#liveKeywordTools");
+const liveKeywordInput=$("#liveKeywordInput");
+const liveKeywordAddBtn=$("#liveKeywordAddBtn");
+const liveKeywordChips=$("#liveKeywordChips");
 const sourceVideoPopup=$("#sourceVideoPopup");
 const closeSourceVideoPopup=$("#closeSourceVideoPopup");
 const sourceVideoPopupSourceOpen=$("#sourceVideoPopupSourceOpen");
@@ -415,6 +419,8 @@ const GENERAL_SOURCE_SCOPE="general"; // legacy/search-only scope
 const LIVE_SOURCE_SCOPE="live";
 const LATEST_SOURCE_SCOPE="latest";
 const WEEK_SOURCE_SCOPE="week";
+const LIVE_KEYWORDS_STATE_KEY="__live_keywords";
+let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
 const LOCAL_DATA_SCHEMA_VERSION="310";
@@ -895,6 +901,94 @@ function clearLegacyLocalSourceState(){
   }catch{}
 }
 
+function normalizeLiveKeywordClient(value=""){
+  return normalizeSearchText(value).slice(0,80);
+}
+
+function cleanLiveKeywordList(values=[]){
+  const out=[];
+  const seen=new Set();
+  for(const raw of Array.isArray(values)?values:[]){
+    const display=clean(raw||"").slice(0,120);
+    const norm=normalizeLiveKeywordClient(display);
+    if(!display||!norm||seen.has(norm))continue;
+    seen.add(norm);
+    out.push(display);
+  }
+  return out.slice(0,80);
+}
+
+function serverSourceLabelsSnapshot(){
+  const labels=Object.fromEntries(
+    SOURCE_MANAGER_GROUPS
+      .map(item=>[item.key,sourceGroupLabelOverrides[item.key]||""])
+      .filter(([,label])=>!!label)
+  );
+  if(liveBlockedKeywords.length){
+    labels[LIVE_KEYWORDS_STATE_KEY]=liveBlockedKeywords.join("\n");
+  }
+  return labels;
+}
+
+function liveKeywordBlockedClient(row={}){
+  if(!liveBlockedKeywords.length)return false;
+  const haystack=normalizeSearchText([
+    row?._displayTitle||row?.title||"",
+    row?._sourceName||row?.uploaderName||row?.uploader||row?.channelName||""
+  ].join(" "));
+  if(!haystack)return false;
+  return liveBlockedKeywords.some(keyword=>{
+    const needle=normalizeLiveKeywordClient(keyword);
+    return !!needle&&haystack.includes(needle);
+  });
+}
+
+function renderLiveKeywordTools(){
+  if(!liveKeywordTools)return;
+  const visible=sourceManageMode&&sourceManageGroup===LIVE_SOURCE_SCOPE;
+  liveKeywordTools.hidden=!visible;
+  if(!visible)return;
+  if(liveKeywordChips){
+    liveKeywordChips.innerHTML=liveBlockedKeywords.length
+      ?liveBlockedKeywords.map(keyword=>
+          '<button class="live-keyword-chip" type="button" data-live-keyword-remove="'+esc(keyword)+'">'+
+            '<span>'+esc(keyword)+'</span><b aria-hidden="true">×</b>'+
+          '</button>'
+        ).join("")
+      :'<span class="live-keyword-empty">Chưa có từ khóa chặn</span>';
+  }
+}
+
+function addLiveKeywordFromInput(){
+  const display=clean(liveKeywordInput?.value||"").slice(0,120);
+  const norm=normalizeLiveKeywordClient(display);
+  if(!display||!norm)return false;
+  if(!liveBlockedKeywords.some(item=>normalizeLiveKeywordClient(item)===norm)){
+    liveBlockedKeywords=cleanLiveKeywordList([...liveBlockedKeywords,display]);
+    scheduleServerStatePush(40);
+  }
+  if(liveKeywordInput)liveKeywordInput.value="";
+  renderLiveKeywordTools();
+  if(state.activeFeed===LIVE_SOURCE_SCOPE&&!state.searchResultsActive){
+    void loadFeedPreset(LIVE_SOURCE_SCOPE);
+  }
+  return true;
+}
+
+function removeLiveKeyword(keyword=""){
+  const norm=normalizeLiveKeywordClient(keyword);
+  if(!norm)return false;
+  const next=liveBlockedKeywords.filter(item=>normalizeLiveKeywordClient(item)!==norm);
+  if(next.length===liveBlockedKeywords.length)return false;
+  liveBlockedKeywords=next;
+  scheduleServerStatePush(40);
+  renderLiveKeywordTools();
+  if(state.activeFeed===LIVE_SOURCE_SCOPE&&!state.searchResultsActive){
+    void loadFeedPreset(LIVE_SOURCE_SCOPE);
+  }
+  return true;
+}
+
 function serverStateSnapshot(){
   const durableIds=allManagedStateIds();
   return {
@@ -912,11 +1006,7 @@ function serverStateSnapshot(){
       durableIds.has(row.id)
     ),
     sourceGroups:{},
-    sourceLabels:Object.fromEntries(
-      SOURCE_MANAGER_GROUPS
-        .map(item=>[item.key,sourceGroupLabelOverrides[item.key]||""])
-        .filter(([,label])=>!!label)
-    ),
+    sourceLabels:serverSourceLabelsSnapshot(),
     scopedSelected:scopedStateObject(scopedSelectedSourceIds),
     scopedBlocked:scopedStateObject(scopedBlockedSourceIds),
     avatars:{}
@@ -962,6 +1052,10 @@ function applyServerState(remote={}){
     }
 
     if(remote.sourceLabels&&typeof remote.sourceLabels==="object"&&!Array.isArray(remote.sourceLabels)){
+      liveBlockedKeywords=cleanLiveKeywordList(
+        clean(remote.sourceLabels[LIVE_KEYWORDS_STATE_KEY]||"")
+          .split(/\r?\n/)
+      );
       sourceGroupLabelOverrides=Object.fromEntries(
         Object.entries(remote.sourceLabels)
           .map(([key,label])=>[String(key||"").trim(),clean(label||"").slice(0,32)])
@@ -1016,6 +1110,7 @@ function applyServerState(remote={}){
 
     saveServerMetadataCachesLocally();
     applySourceGroupLabelsUi?.();
+    renderLiveKeywordTools();
     stateSyncDirty=(Number(remote.sourceScopeVersion)||0)<2;
     invalidateSourceStateNameIndex?.();
     return true;
@@ -2630,6 +2725,7 @@ function refreshSourceManager(){
   const rows=managedChannelLibrary();
   renderSourceLibrary(rows);
   updateSourceSummary(rows);
+  renderLiveKeywordTools();
 }
 
 function rememberSearchedSourceCandidates(rows=[]){
@@ -2960,7 +3056,8 @@ let liveSourceCandidateRefreshPromise=null;
 
 function rememberLiveSourceCandidates(rows=[],{replace=false}={}){
   const liveRows=(Array.isArray(rows)?rows:[])
-    .filter(row=>row?.isLive);
+    .filter(row=>row?.isLive)
+    .filter(row=>!liveKeywordBlockedClient(row));
 
   if(replace)temporaryLiveSourceIds.clear();
 
@@ -3113,6 +3210,7 @@ function setSourceManageMode(enabled,{render=true}={}){
   }
 
   if(sourceLocalTools)sourceLocalTools.hidden=!sourceManageMode;
+  renderLiveKeywordTools();
 
   if(render)refreshSourceManager();
 }
@@ -4535,6 +4633,17 @@ function setupSourceLibrary(){
   });
   sourceDataResetBtn?.addEventListener("click",()=>{
     requestSettingsAccess(()=>{ void clearLocalDataAndReload(); });
+  });
+  liveKeywordAddBtn?.addEventListener("click",()=>addLiveKeywordFromInput());
+  liveKeywordInput?.addEventListener("keydown",event=>{
+    if(event.key!=="Enter")return;
+    event.preventDefault();
+    addLiveKeywordFromInput();
+  });
+  liveKeywordChips?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-live-keyword-remove]");
+    if(!button)return;
+    removeLiveKeyword(button.dataset.liveKeywordRemove||"");
   });
 
   sourceGroupTabs?.addEventListener("click",event=>{
@@ -12561,6 +12670,7 @@ const FEED_PRESETS={
       const selected=selectedSetForScope(LIVE_SOURCE_SCOPE);
       return liveRows
         .filter(row=>!isBlockedSourceRow(row,LIVE_SOURCE_SCOPE))
+        .filter(row=>!liveKeywordBlockedClient(row))
         .map((row,index)=>({
           row,
           index,
@@ -12623,6 +12733,9 @@ function readFeedCache(name){
 
     const blocked=blockedSetForScope(scope);
     let items=row.items.filter(item=>!isBlockedSourceRow(item,scope));
+    if(scope===LIVE_SOURCE_SCOPE){
+      items=items.filter(item=>!liveKeywordBlockedClient(item));
+    }
 
     // A source-list change never discards the reserve package. Filter the old
     // package to the still-selected channels, then let background refresh
