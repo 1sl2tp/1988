@@ -3414,3 +3414,29 @@ html.source-manager-page .source-preview{
 #sourcesSheet[data-admin-tab="filters"] .source-group-nav{
   display:none!important;
 }
+
+
+/* contextual search classification */
+#searchRefinements{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  flex-wrap:wrap;
+  margin-top:6px;
+}
+#searchRefinements[hidden]{
+  display:none!important;
+}
+.search-context-chip{
+  display:inline-flex;
+  align-items:center;
+  min-height:24px;
+  padding:0 8px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:999px;
+  background:rgba(255,255,255,.055);
+  color:rgba(255,255,255,.82);
+  font-size:12px;
+  font-weight:600;
+  line-height:1;
+}
