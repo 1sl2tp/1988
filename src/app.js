@@ -4259,11 +4259,17 @@ function cardActionScope(){
 
 function cardActionIcon(name=""){
   const common='viewBox="0 0 24 24" aria-hidden="true"';
+  if(name==="open-source"){
+    return '<svg '+common+'><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 12h6m-2.4-2.4L15 12l-2.4 2.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
   if(name==="interested"){
     return '<svg '+common+'><path d="M12 20.4 4.2 13.1A5.2 5.2 0 0 1 11.5 5.7l.5.5.5-.5a5.2 5.2 0 0 1 7.3 7.4L12 20.4Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>';
   }
   if(name==="not-interested"){
     return '<svg '+common+'><circle cx="12" cy="12" r="8.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m6.2 6.2 11.6 11.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+  }
+  if(name==="unselect"){
+    return '<svg '+common+'><path d="M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
   }
   if(name==="share"){
     return '<svg '+common+'><circle cx="18" cy="5" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="6" cy="12" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="19" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m8 10.9 7.9-4.6M8 13.1l7.9 4.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
@@ -4290,14 +4296,20 @@ function showCardActionScopePicker(action){
 
   const menu=ensureCardActionMenu();
   const interested=action==="interested";
-  const title=interested?"Quan tâm ở nguồn nào?":"Không quan tâm ở nguồn nào?";
+  const unselect=action==="unselect";
+  const title=unselect
+    ?"Bỏ chọn ở nguồn nào?"
+    :interested
+      ?"Quan tâm ở nguồn nào?"
+      :"Không quan tâm ở nguồn nào?";
 
   const rows=SOURCE_MANAGER_GROUPS.map(group=>{
     const status=matchSourceState(source,group.key).status;
     const target=interested?"selected":"blocked";
-    const already=status===target;
+    const already=!unselect&&status===target;
+    const unavailable=unselect&&status!=="selected";
     const suffix=status==="selected"
-      ?"Đã quan tâm"
+      ?(unselect?"Đang chọn":"Đã quan tâm")
       :status==="blocked"
         ?"Đã chặn"
         :"";
@@ -4305,7 +4317,7 @@ function showCardActionScopePicker(action){
     return '<button type="button" class="card-action-scope'+
       (already?' active':'')+
       '" data-card-scope="'+esc(group.key)+'" data-card-scope-action="'+esc(action)+'"'+
-      (already?' disabled':'')+'>'+
+      ((already||unavailable)?' disabled':'')+'>'+
         '<span>'+esc(group.label)+'</span>'+
         (suffix?'<small>'+esc(suffix)+'</small>':'')+
       '</button>';
@@ -4341,6 +4353,12 @@ function applyCardSourceAction(action,scope){
     }else{
       setSourceStatus(source.id,"normal",scope);
     }
+    closeCardActionMenu();
+    return true;
+  }
+
+  if(action==="unselect"){
+    setSourceStatus(source.id,"normal",scope);
     closeCardActionMenu();
     return true;
   }
@@ -4381,6 +4399,40 @@ function cardActionStatus(card,scope=cardActionScope()){
   if(!row)return "normal";
   return matchSourceState(row,scope).status;
 }
+function cardActionSelectedScopes(card){
+  const row=cardActionSourceRow(card);
+  if(!row)return [];
+  return SOURCE_MANAGER_GROUPS
+    .filter(group=>matchSourceState(row,group.key).status==="selected")
+    .map(group=>group.key);
+}
+
+function openCardSource(card){
+  const source=cardActionSourceRow(card);
+  if(!source)return false;
+
+  sourceMetaCache.set(source.id,{...sourceMetaCache.get(source.id),...source});
+  const implicitScope=cardActionScope();
+  const selectedScopes=cardActionSelectedScopes(card);
+  const preferredScope=
+    (implicitScope&&MANAGED_SOURCE_SCOPES.has(implicitScope))
+      ?implicitScope
+      :(selectedScopes[0]||LATEST_SOURCE_SCOPE);
+
+  closeCardActionMenu();
+
+  requestSettingsAccess(()=>{
+    openSourceLibrary();
+    if(MANAGED_SOURCE_SCOPES.has(preferredScope)){
+      sourceManageGroup=preferredScope;
+      sourceBlockedExpanded=false;
+      refreshSourceManager();
+    }
+    void openSourcePreview(source.id,source);
+  });
+  return true;
+}
+
 
 function publicCardVideoUrl(card){
   const id=String(card?.dataset?.videoId||"").trim();
@@ -4490,27 +4542,51 @@ function openCardActionMenu(card,button){
   const status=source&&implicitScope
     ?cardActionStatus(card,implicitScope)
     :"normal";
+  const selectedScopes=source?cardActionSelectedScopes(card):[];
 
-  const actions=[];
+  const sourceActions=[];
   if(unlocked&&source){
-    actions.push(
+    sourceActions.push(cardActionItemHtml("open-source","Mở nguồn"));
+    sourceActions.push(
       cardActionItemHtml(
         "interested",
         status==="selected"&&implicitScope?"Đã quan tâm":"Quan tâm",
         {active:status==="selected"&&!!implicitScope,disabled:status==="selected"&&!!implicitScope}
       )
     );
-    actions.push(
+    sourceActions.push(
       cardActionItemHtml(
         "not-interested",
         status==="blocked"&&implicitScope?"Đã chặn":"Không quan tâm",
         {danger:true,active:status==="blocked"&&!!implicitScope,disabled:status==="blocked"&&!!implicitScope}
       )
     );
+    if((implicitScope&&status==="selected")||(!implicitScope&&selectedScopes.length)){
+      sourceActions.push(cardActionItemHtml("unselect","Bỏ chọn"));
+    }
   }
-  actions.push(cardActionItemHtml("share","Chia sẻ link"));
 
-  menu.innerHTML=actions.join("");
+  const videoActions=[
+    cardActionItemHtml("share","Chia sẻ link")
+  ];
+
+  const groups=[];
+  if(sourceActions.length){
+    groups.push(
+      '<div class="card-action-group" data-card-action-group="source">'+
+        '<div class="card-action-group-label">Nguồn</div>'+
+        sourceActions.join("")+
+      '</div>'
+    );
+  }
+  groups.push(
+    '<div class="card-action-group" data-card-action-group="video">'+
+      '<div class="card-action-group-label">Video</div>'+
+      videoActions.join("")+
+    '</div>'
+  );
+
+  menu.innerHTML=groups.join("");
   activeCardActionCard=card;
   activeCardActionButton=button;
   button.setAttribute("aria-expanded","true");
@@ -4527,11 +4603,17 @@ async function handleCardAction(action,button){
   }
 
   if(!settingsAccessSaved())return;
-  if(action!=="interested"&&action!=="not-interested")return;
+
+  if(action==="open-source"){
+    openCardSource(card);
+    return;
+  }
+
+  if(action!=="interested"&&action!=="not-interested"&&action!=="unselect")return;
 
   const implicitScope=cardActionScope();
 
-  // Inside LIVE/Mới nhất/Tuần này/Thời sự… the current source tab is already
+  // Inside LIVE/Ngày/Tuần/Thời sự… the current source tab is already
   // unambiguous, so apply immediately without asking.
   if(implicitScope){
     applyCardSourceAction(action,implicitScope);
