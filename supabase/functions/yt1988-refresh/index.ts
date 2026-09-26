@@ -213,7 +213,7 @@ function sourceSignature(rows:any[],scope:string){
     .join("|");
 }
 function snapshotRowsHash(rows:any[],sourceSig=""){
-  const body=rows.slice(0,90).map((row)=>[
+  const body=rows.map((row)=>[
     videoId(row),
     clean(row?._displayTitle||row?.title||"",300),
     publishedText(row),
