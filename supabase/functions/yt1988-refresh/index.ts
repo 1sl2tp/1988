@@ -439,41 +439,44 @@ function youtubePlayerMetaFromResponse(data:any){
 
 async function youtubePlayerMetadata(id:string){
   if(!/^[A-Za-z0-9_-]{11}$/.test(id))return {duration:0,isLive:false};
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),2600);
-  try{
-    const res=await fetch(
-      "https://www.youtube.com/youtubei/v1/player?key="+
-        encodeURIComponent(YT_WEB_PLAYER_API_KEY),
-      {
-        method:"POST",
-        signal:controller.signal,
-        cache:"no-store",
-        headers:{
-          "content-type":"application/json",
-          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
-        },
-        body:JSON.stringify({
-          context:{
-            client:{
-              clientName:"WEB",
-              clientVersion:YT_WEB_PLAYER_CLIENT_VERSION,
-              hl:"vi",
-              gl:"VN"
-            }
+  let fallback={duration:0,isLive:false};
+  for(const profile of YT_PLAYER_CLIENTS){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),2600);
+    try{
+      const client:any={
+        clientName:profile.clientName,
+        clientVersion:profile.clientVersion,
+        hl:"vi",
+        gl:"VN"
+      };
+      if(profile.androidSdkVersion)client.androidSdkVersion=profile.androidSdkVersion;
+      const res=await fetch(
+        "https://www.youtube.com/youtubei/v1/player?key="+
+          encodeURIComponent(YT_WEB_PLAYER_API_KEY),
+        {
+          method:"POST",
+          signal:controller.signal,
+          cache:"no-store",
+          headers:{
+            "content-type":"application/json",
+            "user-agent":profile.userAgent
           },
-          videoId:id
-        })
-      }
-    );
-    if(!res.ok)return {duration:0,isLive:false};
-    const data=await res.json().catch(()=>null);
-    return youtubePlayerMetaFromResponse(data);
-  }catch{
-    return {duration:0,isLive:false};
-  }finally{
-    clearTimeout(timer);
+          body:JSON.stringify({context:{client},videoId:id})
+        }
+      );
+      if(!res.ok)continue;
+      const data=await res.json().catch(()=>null);
+      const meta=youtubePlayerMetaFromResponse(data);
+      if(meta.isLive||meta.duration>0)return meta;
+      fallback=meta;
+    }catch{
+      // Try the next lightweight player profile.
+    }finally{
+      clearTimeout(timer);
+    }
   }
+  return fallback;
 }
 
 async function youtubePlayerIsLive(id:string){
@@ -1297,7 +1300,7 @@ Deno.serve(async(req:Request)=>{
     verificationCandidates.sort((a,b)=>a.age-b.age);
 
     const verificationMeta=new Map<string,any>();
-    await mapLimit(verificationCandidates.slice(0,120),8,async(candidate)=>{
+    await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
       const checkedAt=Date.now();
       const [playerMeta,isShort]=await Promise.all([
         candidate.needDuration
