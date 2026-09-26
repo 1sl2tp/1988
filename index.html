@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-387">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-388">
   <title>1988</title>
 </head>
 <body>
@@ -47,8 +47,8 @@
       <div class="header-nav-inner">
         <section id="topicChips" class="topic-chips" aria-label="Khám phá">
           <button class="topic-chip live-chip" type="button" data-feed="live" aria-label="LIVE"><svg class="live-chip-icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="live-chip-dot" cx="12" cy="12" r="2.55"></circle><path class="live-chip-wave" d="M8.35 8.25C6.35 10.3 6.35 13.7 8.35 15.75M15.65 8.25C17.65 10.3 17.65 13.7 15.65 15.75M5.45 5.45C1.95 9.05 1.95 14.95 5.45 18.55M18.55 5.45C22.05 9.05 22.05 14.95 18.55 18.55"></path></svg></button>
-          <button class="topic-chip topic-mode active" type="button" data-feed="latest">Mới nhất</button>
-          <button class="topic-chip topic-mode" type="button" data-feed="week">Tuần này</button>
+          <button class="topic-chip topic-mode active" type="button" data-feed="latest">Ngày</button>
+          <button class="topic-chip topic-mode" type="button" data-feed="week">Tuần</button>
           <span class="topic-divider" aria-hidden="true"></span>
         </section>
       </div>
@@ -286,7 +286,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=387',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=388',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -310,6 +310,6 @@
   <script src="./src/media-meta.js?v=1"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-387"></script>
+  <script defer src="./src/app.js?v=watch-browse-388"></script>
 </body>
 </html>
