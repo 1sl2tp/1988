@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="327";
+const LOCAL_DATA_SCHEMA_VERSION="328";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -12094,7 +12094,8 @@ function snapshotRowsHash(rows=[],sourceSig=""){
     clean(row?._displayTitle||row?.title||""),
     clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
     String(row?._sourceId||row?.channelId||row?.uploaderId||""),
-    row?.isLive===true?"1":"0"
+    row?.isLive===true?"1":"0",
+    String(durationSeconds(row)||0)
   ].join("|")).join("\n");
   return fastHash(String(sourceSig||"")+"\n"+body);
 }
