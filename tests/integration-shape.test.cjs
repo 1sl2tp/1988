@@ -107,6 +107,7 @@ assert.match(refresh,/"search_next&q="/);
 assert.match(refresh,/while\(nextpage&&Date\.now\(\)<deadline\)/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
+assert.doesNotMatch(refresh,/const body=rows\.slice\(0,90\)\.map/);
 assert.match(refresh,/meta\.kind!==["']live["']&&raw\.length>=4/);
 assert.match(refresh,/if\(!packaged\.length&&scope!==["']live["']\)/);
 assert.match(gateway,/async function pipedChannel\(/);
