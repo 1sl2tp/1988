@@ -117,6 +117,7 @@ const state={
   floatPreset:"auto",
   videoAspectVerified:false,
   videoAspectPortraitLocked:false,
+  videoAspectSourceRank:0,
   fullscreenScrollY:null,
   fullscreenActive:false,
   fullscreenExitCooldownUntil:0,
@@ -5561,8 +5562,12 @@ function rememberedVideoAspect(meta={}){
   const scoped=scope?validPipAspect(videoAspectHabits?.[scope]?.ratio):0;
   if(scoped)return scoped;
 
-  // A video opened from Search/direct link may not have a tab identity yet.
-  // Fall back to the last verified viewing shape instead of flashing 16:9.
+  // A named tab/source has its own viewing habit. Never borrow another tab's
+  // global portrait/square habit because that can distort the next landscape
+  // video before its real dimensions arrive.
+  if(scope)return 0;
+
+  // Neutral/direct-link viewing may use the last verified shape provisionally.
   return validPipAspect(videoAspectHabits?.global?.ratio);
 }
 
@@ -6093,28 +6098,54 @@ function queueResponsivePlayerFrame(){
   });
 }
 
+function aspectEvidenceRank(meta={}){
+  const source=String(meta?._aspectSource||"").trim();
+  if(source==="iframe-content-rect"||source==="videoAspect"||source==="native-video")return 4;
+  if(source==="aspect-prime")return 3;
+  if(source&&source!=="visual")return 2;
+  if(source==="visual")return 1;
+  if(Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0)return 3;
+  if(meta?._aspectVerified===true)return 2;
+  return 0;
+}
+
+function aspectOrientation(ratio){
+  ratio=validPipAspect(ratio);
+  if(!ratio)return "";
+  if(ratio<.80)return "portrait";
+  if(ratio<=1.20)return "square";
+  return "landscape";
+}
+
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   const next=explicitVideoAspect(meta);
   if(!next)return;
 
-  // width/height from the stream/native media or an explicit probe flag means
-  // this is measured media shape rather than a card/thumbnail guess.
-  const verified=
-    (Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0)||
-    meta?._aspectVerified===true;
+  const incomingRank=aspectEvidenceRank(meta);
+  const verified=incomingRank>0;
+  const current=validPipAspect(state.videoAspect);
+  const currentRank=Number(state.videoAspectSourceRank)||0;
 
-  // Once a real portrait stream has been found for the current video, never
-  // let a later generic 16:9 metadata response undo it.
+  // A lower-quality later guess must not overturn a stronger real measurement.
+  // Equal/stronger evidence is allowed to correct the current shape.
   if(
-    state.videoAspectPortraitLocked &&
-    state.videoAspect<.80 &&
-    next>=.80
+    state.videoAspectVerified &&
+    current &&
+    verified &&
+    incomingRank<currentRank &&
+    aspectOrientation(next)!==aspectOrientation(current)
   )return;
+
+  // Unverified card/metadata hints never override a verified real shape.
+  if(state.videoAspectVerified&&current&&!verified)return;
 
   state.videoAspect=next;
   if(verified){
     state.videoAspectVerified=true;
-    if(next<.80)state.videoAspectPortraitLocked=true;
+    state.videoAspectSourceRank=Math.max(currentRank,incomingRank);
+    // Portrait lock belongs to THIS video only. A verified landscape/square
+    // correction clears it instead of inheriting a previous video's shape.
+    state.videoAspectPortraitLocked=next<.80;
     rememberVideoAspectHabit(meta,next);
   }
 
@@ -10966,14 +10997,6 @@ async function playVideo(id,seedMeta={}){
   // Keep the currently displayed shape before switching videos. The next
   // item should open in the same shape immediately, then correct itself only
   // when exact per-video dimensions are known.
-  const previousPlaybackMeta=state.currentMeta||{};
-  const previousDisplayedAspect=validPipAspect(state.videoAspect);
-  const previousPlaybackScope=videoAspectHabitScope(previousPlaybackMeta);
-  const previousPortraitLocked=
-    state.videoAspectPortraitLocked===true&&
-    previousDisplayedAspect>0&&
-    previousDisplayedAspect<.80;
-
   // Preserve where the click came from before Search hands off to Watch.
   // This is needed for the remembered portrait/landscape habit on Search.
   const enteredFromSearch=state.searchResultsActive===true;
@@ -11003,33 +11026,22 @@ async function playVideo(id,seedMeta={}){
     ...seedMeta,
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
   };
-  const targetPlaybackScope=videoAspectHabitScope(playbackMeta);
-  const samePlaybackScope=
-    !!previousDisplayedAspect&&(
-      !previousPlaybackScope||
-      !targetPlaybackScope||
-      previousPlaybackScope===targetPlaybackScope
-    );
-  const carryPortraitLock=samePlaybackScope&&previousPortraitLocked;
+  const habitAspect=rememberedVideoAspect(playbackMeta);
 
-  // Keep this state machine intentionally simple:
-  // 1) auto/default = horizontal 16:9;
-  // 2) if the real video is verified portrait, lock portrait;
-  // 3) while continuing in the same viewing flow, keep portrait locked until
-  //    the user leaves that flow. Do not let card/thumbnail metadata re-enable
-  //    horizontal auto sizing.
-  const immediateAspect=carryPortraitLock
-    ?9/16
-    :(cachedAspect||16/9);
+  // Per-video truth first:
+  // - exact cache for this video may size immediately and is trusted;
+  // - viewing habit is only a provisional shell while this video's real
+  //   dimensions are being resolved;
+  // - no portrait lock is ever inherited from the previous video.
+  const immediateAspect=cachedAspect||habitAspect||16/9;
 
   state.keepFloating=wasFloating;
   state.currentId=id;
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
-  state.videoAspectVerified=!!cachedAspect||carryPortraitLock;
-  state.videoAspectPortraitLocked=
-    carryPortraitLock||
-    (!!cachedAspect&&cachedAspect<.80);
+  state.videoAspectVerified=!!cachedAspect;
+  state.videoAspectPortraitLocked=!!cachedAspect&&cachedAspect<.80;
+  state.videoAspectSourceRank=cachedAspect?3:0;
   state.floatPreset="auto";
   state.floatUserSized=false;
   state.floatTucked=false;
@@ -11164,16 +11176,6 @@ async function playVideo(id,seedMeta={}){
       if(state.currentId!==id)return;
       const detailMeta={...(detail?.meta||{})};
       const current={...(state.currentMeta||{})};
-
-      if(
-        state.videoAspectPortraitLocked &&
-        state.videoAspect<.80 &&
-        Number(detailMeta.aspectRatio)>=.80
-      ){
-        delete detailMeta.aspectRatio;
-        delete detailMeta.videoWidth;
-        delete detailMeta.videoHeight;
-      }
 
       const meta={...seedMeta,...current,...detailMeta};
       state.currentMeta=meta;
