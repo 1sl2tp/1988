@@ -156,6 +156,7 @@ const state={
   floatUserSized:false,
   videoAspect:16/9,
   keepFloating:false,
+  watchMinimized:false,
   floatDock:"right",
   floatScale:1,
   floatTucked:false,
@@ -6875,7 +6876,8 @@ function syncWatchBrowseLayout(){
   const target=
     watchBrowseViewportSupported() &&
     !!state.currentId &&
-    !playerSection?.hidden;
+    !playerSection?.hidden &&
+    !state.watchMinimized;
 
   if(target!==watchBrowseActive)setWatchBrowseLayout(target);
 }
@@ -7034,24 +7036,158 @@ function ensureWatchNavRail(){
   document.querySelectorAll("body > .watch-reco-info").forEach(el=>el.remove());
   return;
 }
-function applyFloatingIframe(){
-  // v236: playback has one canonical place only. Clean up any stale floating
-  // class left by an older cached bundle, then keep the real player inline.
+function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
+  if(isPlayerFullscreen())return;
 
-  if(frame.classList.contains("floating-iframe")){
-    frame.classList.remove(
-      "floating-iframe","float-tucked","dock-left","dock-right",
-      "float-view-square","float-view-portrait","float-entering"
-    );
+  const root=document.documentElement;
+  const floating=frame.classList.contains("floating-iframe");
+  const shouldFloat=
+    force===true ||
+    (force!==false&&state.watchMinimized===true);
+
+  if(
+    !shouldFloat ||
+    !["iframe","native"].includes(state.engine) ||
+    !state.currentId ||
+    playerSection.hidden
+  ){
+    if(floating){
+      frame.classList.remove(
+        "floating-iframe","float-tucked","dock-left","dock-right",
+        "float-view-square","float-view-portrait","float-entering"
+      );
+    }
+    state.floatTucked=false;
+    state.floatUserSized=false;
+    state.floatPreset="auto";
+    clearFloatBoxStyles();
+    playerSection.style.removeProperty("min-height");
+    if(!state.watchMinimized)root.classList.remove("watch-minimized");
+    queueResponsivePlayerFrame();
+    return;
   }
+
+  state.watchMinimized=true;
+  root.classList.add("watch-minimized");
   state.floatTucked=false;
   state.floatUserSized=false;
   state.floatPreset="auto";
-  clearFloatBoxStyles();
-  playerSection.style.removeProperty("min-height");
-  queueResponsivePlayerFrame();
+
+  if(!floating){
+    frame.classList.add("float-entering","floating-iframe");
+  }
+  frame.classList.toggle("dock-left",state.floatDock==="left");
+  frame.classList.toggle("dock-right",state.floatDock!=="left");
+  frame.classList.remove("float-tucked","float-view-square","float-view-portrait");
+
+  updateFloatingAmbient(frame);
+  applyAutoFloatAspect(frame,{force:true});
+  updateFloatControlState(frame);
+  finishFloatEntry(frame);
+}
+
+function setWatchMinimized(minimized){
+  const root=document.documentElement;
+  minimized=!!minimized;
+
+  if(minimized){
+    if(
+      window.innerWidth>720 ||
+      !state.currentId ||
+      playerSection?.hidden ||
+      isPlayerFullscreen()
+    )return false;
+
+    state.watchMinimized=true;
+    root.classList.add("watch-minimized");
+    setWatchBrowseLayout(false);
+    setHomeSearchOpen(false);
+    setHomeHeaderHidden(false);
+    requestAnimationFrame(()=>applyFloatingIframe(true));
+    return true;
+  }
+
+  if(!state.watchMinimized&&!root.classList.contains("watch-minimized"))return false;
+
+  state.watchMinimized=false;
+  root.classList.remove("watch-minimized");
+  applyFloatingIframe(false);
+  syncWatchBrowseLayout();
+  hardResetDocumentTop();
+  return true;
+}
+
+function setupWatchMinimizeGesture(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame||frame.querySelector(".watch-swipe-zone"))return;
+
+  const zone=document.createElement("div");
+  zone.className="watch-swipe-zone";
+  zone.setAttribute("aria-hidden","true");
+  frame.appendChild(zone);
+
+  let gesture=null;
+
+  zone.addEventListener("touchstart",event=>{
+    if(event.touches?.length!==1)return;
+    const touch=event.touches[0];
+    gesture={
+      x:touch.clientX,
+      y:touch.clientY,
+      lastX:touch.clientX,
+      lastY:touch.clientY,
+      startedMinimized:state.watchMinimized===true
+    };
+  },{passive:true});
+
+  zone.addEventListener("touchmove",event=>{
+    if(!gesture||event.touches?.length!==1)return;
+    const touch=event.touches[0];
+    gesture.lastX=touch.clientX;
+    gesture.lastY=touch.clientY;
+
+    if(gesture.startedMinimized)return;
+
+    const dy=touch.clientY-gesture.y;
+    const dx=touch.clientX-gesture.x;
+    if(
+      document.documentElement.classList.contains("watch-browse") &&
+      dy>10 &&
+      Math.abs(dy)>Math.abs(dx)*1.08
+    ){
+      event.preventDefault();
+    }
+  },{passive:false});
+
+  zone.addEventListener("touchend",()=>{
+    if(!gesture)return;
+
+    const current=gesture;
+    gesture=null;
+
+    const dy=current.lastY-current.y;
+    const dx=current.lastX-current.x;
+
+    if(current.startedMinimized){
+      if(Math.abs(dx)<18&&Math.abs(dy)<18)setWatchMinimized(false);
+      return;
+    }
+
+    if(
+      document.documentElement.classList.contains("watch-browse") &&
+      dy>=54 &&
+      Math.abs(dy)>Math.abs(dx)*1.12
+    ){
+      setWatchMinimized(true);
+    }
+  },{passive:true});
+
+  zone.addEventListener("touchcancel",()=>{gesture=null;},{passive:true});
+  zone.addEventListener("click",()=>{
+    if(state.watchMinimized)setWatchMinimized(false);
+  });
 }
 
 function getFullscreenElement(){
@@ -11436,6 +11572,11 @@ async function playVideo(id,seedMeta={}){
   document.documentElement.classList.remove("watch-search-open","watch-search-results","watch-categories-open");
   hideContextBrief();
   const frame=playerSection?.querySelector(".player-frame");
+  if(state.watchMinimized||document.documentElement.classList.contains("watch-minimized")){
+    state.watchMinimized=false;
+    document.documentElement.classList.remove("watch-minimized");
+    applyFloatingIframe(false);
+  }
   const wasFloating=!!frame?.classList.contains("floating-iframe");
   const keepScrollY=window.scrollY;
   const previousAspect=validPipAspect(state.videoAspect)||16/9;
@@ -14066,7 +14207,8 @@ async function bootstrap1988(){
   setupInstall();
   setupSourceLibrary();
   applySourceGroupLabelsUi();
-  applyFloatingIframe();
+  applyFloatingIframe(false);
+  setupWatchMinimizeGesture();
   setupWatchBrowseLayout();
   setupFullscreenReturn();
   ensureWatchNavRail();
