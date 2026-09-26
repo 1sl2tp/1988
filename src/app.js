@@ -545,18 +545,21 @@ function readStableHashtagConfig(){
     const row=JSON.parse(localStorage.getItem(HASHTAG_CONFIG_CACHE_KEY)||"null");
     if(row&&typeof row==="object"){
       return {
+        ready:true,
         rows:Array.isArray(row.rows)?row.rows:[],
         order:Array.isArray(row.order)?row.order.map(String).filter(Boolean):[]
       };
     }
   }catch{}
   return {
+    ready:false,
     rows:readStoredArray(HASHTAG_DEFINITIONS_CACHE_KEY),
     order:[]
   };
 }
 
 const stableHashtagConfig=readStableHashtagConfig();
+let stableHashtagConfigReady=stableHashtagConfig.ready===true;
 let hashtagDefinitions=normalizeHashtagDefinitions(stableHashtagConfig.rows);
 let SOURCE_SCOPE_DEFINITIONS=[];
 let SOURCE_SCOPE_BY_KEY=new Map();
@@ -600,6 +603,7 @@ function persistStableHashtagConfig(){
     };
     localStorage.setItem(HASHTAG_CONFIG_CACHE_KEY,JSON.stringify(payload));
     localStorage.setItem(HASHTAG_DEFINITIONS_CACHE_KEY,JSON.stringify(hashtagDefinitions));
+    stableHashtagConfigReady=true;
   }catch{}
 }
 
@@ -1306,6 +1310,7 @@ function applyServerState(remote={}){
       remoteHashtagOrder
     );
     const hashtagConfigChanged=
+      !stableHashtagConfigReady ||
       !hashtagDefinitions.length ||
       remoteHashtagSignature!==currentHashtagSignature;
 
@@ -10785,7 +10790,7 @@ function renderCards(rows=[],options={}){
     cards.push({
       id,
       html:
-        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-watch-scope="'+esc(clean(row?._watchScope||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
+        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-trusted-package="'+(trustedPackage?'1':'0')+'" data-watch-scope="'+esc(clean(row?._watchScope||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
           '<div class="thumb-wrap"><img src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
@@ -10866,6 +10871,7 @@ function renderCards(rows=[],options={}){
 
 function rowFromCard(card){
   return {
+    _trustedPackage:card.dataset.trustedPackage==="1",
     title:card.dataset.title||"",
     uploader:card.dataset.channel||"",
     _watchScope:card.dataset.watchScope||"",
@@ -11881,6 +11887,7 @@ async function playVideo(id,seedMeta={}){
     ...seedMeta,
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
   };
+  const stablePackageDisplay=seedMeta?._trustedPackage===true;
   const habitAspect=rememberedVideoAspect(playbackMeta);
 
   // Search results already carry a strong portrait/Shorts hint from YouTube.
@@ -12098,6 +12105,25 @@ async function playVideo(id,seedMeta={}){
       const current={...(state.currentMeta||{})};
 
       const meta={...seedMeta,...current,...detailMeta};
+
+      if(stablePackageDisplay){
+        // The server package already owns visible metadata. Enrichment may add
+        // playback geometry/context, but it must not make the UI repaint title,
+        // artwork, channel, views, time or duration after the user has seen it.
+        const stableFields=[
+          "title","uploader","uploaderName","channelName",
+          "views","viewText","duration",
+          "uploadDate","uploadedDate","publishedText",
+          "thumbnailUrl","thumbnail","poster",
+          "_sourceId","_sourceName","_displaySource"
+        ];
+        for(const key of stableFields){
+          if(seedMeta?.[key]!==undefined&&seedMeta?.[key]!==null&&seedMeta?.[key]!==""){
+            meta[key]=seedMeta[key];
+          }
+        }
+      }
+
       state.currentMeta=meta;
       updateCurrentVideoAspect(meta);
       updateNow(meta);
@@ -14513,9 +14539,11 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
-  // Hashtag tabs are fixed UI configuration. Paint the stable local config
-  // immediately; normal server hydration must not tear it down/rebuild it.
-  applySourceGroupLabelsUi({renderCategories:true});
+  // Hashtag tabs are fixed UI configuration. Once the canonical config has
+  // been cached, paint it immediately forever. During the one-time v2
+  // migration, wait for the server once instead of showing an unordered rail
+  // and then moving it.
+  applySourceGroupLabelsUi({renderCategories:stableHashtagConfigReady});
   applyFloatingIframe(false);
   setupWatchMinimizeGesture();
   setupWatchBrowseLayout();
