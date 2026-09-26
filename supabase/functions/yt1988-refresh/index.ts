@@ -23,6 +23,12 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
+const LIVE_SEARCH_QUERIES=[
+  "trực tiếp",
+  "live việt nam",
+  "đang phát trực tiếp",
+  "livestream việt nam"
+];
 const DEFAULT_SCOPE_INTERVAL_MINUTES:any={
   live:2,
   latest:2,
@@ -342,40 +348,43 @@ async function discoverGlobalLiveCandidates(
   blockedIds:Set<string>,
   keywords:string[]
 ){
-  const query="trực tiếp";
-  const deadline=Date.now()+10000;
+  const deadline=Date.now()+14000;
   const out:any[]=[];
-  let nextpage="";
-  let first=true;
 
-  do{
-    const action=first
-      ?"search&q="+encodeURIComponent(query)+"&filter=videos"
-      :"search_next&q="+encodeURIComponent(query)+
-        "&filter=videos&nextpage="+encodeURIComponent(nextpage);
-    const result=await fetchJson(
-      supabaseUrl+"/functions/v1/yt1988?action="+action,
-      {
-        "apikey":serviceKey,
-        "authorization":"Bearer "+serviceKey
-      },
-      4200
-    );
-    const raw=Array.isArray(result?.data?.items)?result.data.items:
-      Array.isArray(result?.data)?result.data:[];
+  for(const query of LIVE_SEARCH_QUERIES){
+    if(Date.now()>=deadline)break;
+    let nextpage="";
+    let first=true;
 
-    for(const item of raw){
-      const row=normalizeRow(item,{});
-      if(!row||!strongFreshLiveSignal(row))continue;
-      const sid=channelId(row);
-      if(sid&&blockedIds.has(sid))continue;
-      if(liveKeywordBlocked(row,keywords))continue;
-      out.push(row);
-    }
+    do{
+      const action=first
+        ?"search&q="+encodeURIComponent(query)+"&filter=videos"
+        :"search_next&q="+encodeURIComponent(query)+
+          "&filter=videos&nextpage="+encodeURIComponent(nextpage);
+      const result=await fetchJson(
+        supabaseUrl+"/functions/v1/yt1988?action="+action,
+        {
+          "apikey":serviceKey,
+          "authorization":"Bearer "+serviceKey
+        },
+        4200
+      );
+      const raw=Array.isArray(result?.data?.items)?result.data.items:
+        Array.isArray(result?.data)?result.data:[];
 
-    nextpage=String(result?.data?.nextpage||"").trim();
-    first=false;
-  }while(nextpage&&Date.now()<deadline);
+      for(const item of raw){
+        const row=normalizeRow(item,{});
+        if(!row||!strongFreshLiveSignal(row))continue;
+        const sid=channelId(row);
+        if(sid&&blockedIds.has(sid))continue;
+        if(liveKeywordBlocked(row,keywords))continue;
+        out.push({...row,_liveOrigin:"search"});
+      }
+
+      nextpage=String(result?.data?.nextpage||"").trim();
+      first=false;
+    }while(nextpage&&Date.now()<deadline);
+  }
 
   return dedupeRows(out);
 }
@@ -687,7 +696,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const candidates=dedupeRows([
-        ...selectedDiscoveryBatches.flat(),
+        ...selectedDiscoveryBatches.flat().map((row:any)=>({...row,_liveOrigin:"source"})),
         ...globalCandidates
       ])
         .filter((row:any)=>{
