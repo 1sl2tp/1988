@@ -144,3 +144,49 @@ test('exact search metadata supplies duration and canonical source identity',()=
  assert.equal(meta.views,87);
  assert.equal(s.exactSearchVideoMeta({items:[]},'k-72jTSvdwE'),null);
 });
+
+
+test('legacy server package is accepted once and remembered by remote hash',()=>{
+ const c=client();
+ Object.assign(c,{
+  packageSnapshotName:scope=>'feed:'+scope,
+  CONTENT_SOURCE_SCOPES:new Set(),
+  state:{aiCategoryRows:new Map()},
+  packageSyncApplying:false
+ });
+ vm.runInContext(fn('applyServerPackage'),c);
+ const rows=[{
+  id:'abcdefghijk',
+  title:'Legacy server row',
+  publishedText:'1 giờ trước',
+  duration:120,
+  _sourceId:'UC123456789',
+  _sourceName:'Kênh A'
+ }];
+ const serverHash=c.snapshotRowsHashV330(rows,'sig');
+ assert.equal(c.applyServerPackage('latest',{
+  items:rows,
+  hash:serverHash,
+  source_signature:'sig',
+  input_hash:'legacy-input'
+ }),true);
+ const local=c.readAtomicSnapshot('feed:latest');
+ assert.equal(local.items.length,1);
+ assert.equal(local.hash,c.snapshotRowsHash(rows,'sig'));
+ assert.equal(local.serverHash,serverHash);
+});
+
+test('current server hash is stored with atomic reserve',()=>{
+ const c=client();
+ Object.assign(c,{
+  packageSnapshotName:scope=>'feed:'+scope,
+  CONTENT_SOURCE_SCOPES:new Set(),
+  state:{aiCategoryRows:new Map()},
+  packageSyncApplying:false
+ });
+ vm.runInContext(fn('applyServerPackage'),c);
+ const rows=[{id:'abcdefghijk',title:'Current row',duration:180,_sourceId:'UC123456789'}];
+ const hash=c.snapshotRowsHash(rows,'sig');
+ assert.equal(c.applyServerPackage('latest',{items:rows,hash,source_signature:'sig'}),true);
+ assert.equal(c.readAtomicSnapshot('feed:latest').serverHash,hash);
+});
