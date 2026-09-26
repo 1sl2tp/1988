@@ -87,24 +87,60 @@ function channelId(row:any){
 function isLive(row:any){
   return row?.isLive===true||Number(row?.duration)<0||Number(row?.uploaded)===-1;
 }
+function parseDurationValue(value:any){
+  if(value==null||value==="")return 0;
+  if(typeof value==="number"&&Number.isFinite(value))return Math.max(0,value);
+
+  const raw=String(value).trim();
+  if(!raw)return 0;
+  if(/^\d+(?:\.\d+)?$/.test(raw))return Math.max(0,Number(raw)||0);
+
+  if(/^\d{1,3}:\d{1,2}(?::\d{1,2})?$/.test(raw)){
+    const parts=raw.split(":").map(Number);
+    if(parts.length===2)return Math.max(0,parts[0]*60+parts[1]);
+    if(parts.length===3)return Math.max(0,parts[0]*3600+parts[1]*60+parts[2]);
+  }
+
+  const iso=raw.match(/^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
+  if(iso)return Math.max(0,(Number(iso[1])||0)*3600+(Number(iso[2])||0)*60+(Number(iso[3])||0));
+
+  const human=raw.match(/^(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?\s*(?:(\d+)\s*s(?:ec(?:onds?)?)?)?$/i);
+  if(human&&(human[1]||human[2]||human[3])){
+    return Math.max(0,(Number(human[1])||0)*3600+(Number(human[2])||0)*60+(Number(human[3])||0));
+  }
+  return 0;
+}
+
+function durationSeconds(row:any={}){
+
+  const values=[
+    row?.duration,
+    row?.durationSeconds,
+    row?.lengthSeconds,
+    row?.length,
+    row?.videoDuration,
+    row?.durationText,
+    row?.contentDetails?.duration
+  ];
+  for(const value of values){
+    const seconds=parseDurationValue(value);
+    if(seconds>0)return seconds;
+  }
+  return 0;
+}
+
 function isTooShortVideo(row:any){
   if(isLive(row))return false;
 
   const shortFlag=String(row?.isShort??"").toLowerCase();
   if(row?.isShort===true||shortFlag==="true"||shortFlag==="1")return true;
 
-  const type=normalizeText(row?.type||row?.rendererType||row?.videoType||"");
-  if(type==="short"||type==="shorts"||type.includes("shortform"))return true;
+  const types=[row?.type,row?.rendererType,row?.videoType].map(value=>normalizeText(value||""));
+  if(types.some(type=>type==="short"||type==="shorts"||type.includes("shortform")||type.includes("shorts")))return true;
 
-  const url=clean(
-    row?.url||
-    row?.videoUrl||
-    row?.webpageUrl||
-    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url||
-    "",
-    700
-  ).toLowerCase();
-  if(url.includes("/shorts/"))return true;
+  const shortUrls=[row?.url,row?.videoUrl,row?.webpageUrl,
+    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url];
+  if(shortUrls.some(url=>String(url||"").toLowerCase().includes("/shorts/")))return true;
 
   const shortText=clean([
     row?._displayTitle||row?.title||"",
@@ -112,7 +148,7 @@ function isTooShortVideo(row:any){
   ].join(" "),1600).toLowerCase();
   if(/(^|\s)#shorts?(?=\s|$|[.,!?;:()[\]{}|/\\-])/i.test(shortText))return true;
 
-  const duration=Number(row?.duration);
+  const duration=durationSeconds(row);
   return Number.isFinite(duration)&&duration>0&&duration<=60;
 }
 
@@ -222,7 +258,7 @@ function normalizeRow(row:any,source:any={}){
     isLive:isLive(row),
     publishedText:publishedText(row),
     views:Number(row?.views)||0,
-    duration:Number(row?.duration)||0
+    duration:isLive(row)?-1:durationSeconds(row)
   };
 }
 function dedupeRows(rows:any[]){
@@ -300,6 +336,10 @@ async function fetchJson(url:string,headers:any={},timeout=7000){
     if(!res.ok||data?.ok===false)throw new Error(data?.error||("HTTP "+res.status));
     return data;
   }finally{clearTimeout(timer);}
+}
+function channelRefreshBatch(ids:string[],checkedTime:(id:string)=>number,limit:number){
+  const ordered=ids.slice().sort((a,b)=>checkedTime(a)-checkedTime(b)||a.localeCompare(b));
+  return {fetch:ordered.slice(0,limit),deferred:ordered.slice(limit)};
 }
 async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Promise<R>){
   const out=new Array<R>(items.length);
@@ -999,27 +1039,21 @@ Deno.serve(async(req:Request)=>{
       const fastest=minutes.length?Math.min(...minutes):10;
       return Math.max(60*1000,fastest*60*1000);
     };
-    const channelNeedsTitleRepair=(id:string)=>{
-      const rows=dedupeRows(Array.isArray(cacheById.get(id)?.items)?cacheById.get(id).items:[]);
-      return rows.some((row:any)=>titleLooksEnglishOnly(row));
-    };
-    const dueIds=neededIds
-      .filter((id)=>{
-        const cached=cacheById.get(id);
-        const retry=Date.parse(String(cached?.retry_after||""));
-        if(Number.isFinite(retry)&&retry>now)return false;
-        const checked=checkedTime(id);
-        return channelNeedsTitleRepair(id)||
-          !checked||
-          now-checked>=channelRecheckMs(id)||
-          !channelRows.get(id)?.length;
-      })
-      .sort((a,b)=>{
-        const repairDiff=Number(channelNeedsTitleRepair(b))-Number(channelNeedsTitleRepair(a));
-        if(repairDiff)return repairDiff;
-        return checkedTime(a)-checkedTime(b);
-      })
-      .slice(0,MAX_CHANNEL_FETCHES_PER_RUN);
+    const due=neededIds.filter((id)=>{
+      const cached=cacheById.get(id);
+      const retry=Date.parse(String(cached?.retry_after||""));
+      if(Number.isFinite(retry)&&retry>now)return false;
+      const checked=checkedTime(id);
+      return !checked||now-checked>=channelRecheckMs(id);
+    });
+    const batch=channelRefreshBatch(due,checkedTime,MAX_CHANNEL_FETCHES_PER_RUN);
+    const dueIds=batch.fetch;
+    const deferredIds=new Set(batch.deferred);
+    const unfinishedScopes=nonLiveScopes.filter(scope=>
+      (selectedByScope.get(scope)||[]).some((source:any)=>deferredIds.has(source.id))
+    );
+    // Continue large tabs on the next scheduler tick, not the next full interval.
+    await queuePendingRefresh(rest,authHeaders,unfinishedScopes);
 
     // Bound both request count and concurrency. Large tabs are refreshed in
     // rotation; uncached channels get priority on the next pass.
@@ -1212,10 +1246,9 @@ Deno.serve(async(req:Request)=>{
       if(meta.kind!=="live")raw=sortRows(raw);
       raw=dedupeRows(raw)
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
-      if(meta.kind!=="live")raw=raw.slice(0,90);
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v8")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v9")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
@@ -1237,7 +1270,7 @@ Deno.serve(async(req:Request)=>{
       // is enough to publish fresh data without rate-limit stalls.
       let packaged=raw;
 
-      packaged=dedupeRows(packaged).slice(0,90);
+      packaged=dedupeRows(packaged);
 
       // Coverage above already prevents partial upstream failures from replacing
       // healthy data. Always publish the fully filtered current result so stale

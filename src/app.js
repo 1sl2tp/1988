@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="324";
+const LOCAL_DATA_SCHEMA_VERSION="325";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -6854,17 +6854,12 @@ function isTooShortVideo(row={}){
   const shortFlag=String(row?.isShort??"").toLowerCase();
   if(row?.isShort===true||shortFlag==="true"||shortFlag==="1")return true;
 
-  const type=normalizeSearchText(row?.type||row?.rendererType||row?.videoType||"");
-  if(type==="short"||type==="shorts"||type.includes("shortform"))return true;
+  const types=[row?.type,row?.rendererType,row?.videoType].map(value=>normalizeSearchText(value||""));
+  if(types.some(type=>type==="short"||type==="shorts"||type.includes("shortform")||type.includes("shorts")))return true;
 
-  const url=clean(
-    row?.url||
-    row?.videoUrl||
-    row?.webpageUrl||
-    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url||
-    ""
-  ).toLowerCase();
-  if(url.includes("/shorts/"))return true;
+  const shortUrls=[row?.url,row?.videoUrl,row?.webpageUrl,
+    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url];
+  if(shortUrls.some(url=>String(url||"").toLowerCase().includes("/shorts/")))return true;
 
   const shortText=clean([
     row?._displayTitle||row?.title||"",
@@ -7523,7 +7518,7 @@ function patchRenderedAiMeta(){
 
 function categoryCacheRows(parentKey=""){
   const cached=state.aiCategoryRows.get(parentKey);
-  if(cached&&Array.isArray(cached.items)&&cached.items.length)return cached.items;
+  if(cached&&Array.isArray(cached.items))return cached.items;
 
   const stored=readAtomicSnapshot("category:"+parentKey);
   if(!stored||!Array.isArray(stored.items)||!stored.items.length)return [];
@@ -7550,15 +7545,14 @@ function instantCategoryRows(parent={}){
   const sourceIds=new Set(sources.map(source=>source.id));
   return dedupeHashedRows(newestFirst([
     ...categoryCacheRows(parent.key),
-    ...cachedRowsForSources(sources,group)
+    ...(readAtomicSnapshot("category:"+parent.key)?[]:cachedRowsForSources(sources,group))
   ]))
     .filter(uploadedWithinCategoryWindow)
     .filter(row=>{
       const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
       return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
     })
-    .map(row=>({...row,_selectedCategorySource:true}))
-    .slice(0,90);
+    .map(row=>({...row,_selectedCategorySource:true}));
 }
 
 function parentRows(rows=[]){
@@ -12087,7 +12081,7 @@ function snapshotKey(name="",suffix=""){
 }
 
 function snapshotRowsHash(rows=[],sourceSig=""){
-  const body=(Array.isArray(rows)?rows:[]).slice(0,90).map(row=>[
+  const body=(Array.isArray(rows)?rows:[]).map(row=>[
     itemVideoId(row),
     clean(row?._displayTitle||row?.title||""),
     clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
@@ -12107,7 +12101,7 @@ function readAtomicSnapshot(name=""){
       const raw=localStorage.getItem(snapshotKey(name,slot));
       if(!raw)continue;
       const row=JSON.parse(raw);
-      if(!row||!Array.isArray(row.items)||!row.items.length)continue;
+      if(!row||!Array.isArray(row.items))continue;
       const actual=snapshotRowsHash(row.items,row.sourceSignature||"");
       if(!row.hash||row.hash!==actual)continue;
       return row;
@@ -12117,8 +12111,7 @@ function readAtomicSnapshot(name=""){
 }
 
 function commitAtomicSnapshot(name="",rows=[],{sourceSignature:sourceSig="",inputHash=""}={}){
-  const items=(Array.isArray(rows)?rows:[]).slice(0,90);
-  if(!items.length)return {changed:false,hash:"",inputHash:"",items:[]};
+  const items=(Array.isArray(rows)?rows:[]);
 
   const hash=snapshotRowsHash(items,sourceSig);
   const current=readAtomicSnapshot(name);
@@ -12190,7 +12183,7 @@ function readNewestLegacyFeedCache(name=""){
       const key=localStorage.key(i)||"";
       if(!key.startsWith("1988-discovery-")||!key.endsWith(":"+name))continue;
       const row=JSON.parse(localStorage.getItem(key)||"null");
-      if(!row||!Array.isArray(row.items)||!row.items.length)continue;
+      if(!row||!Array.isArray(row.items))continue;
       if(!best||Number(row.at||0)>Number(best.at||0))best=row;
     }
   }catch{}
@@ -12277,7 +12270,7 @@ function applyServerPackage(scope,pkg={}){
   const items=Array.isArray(pkg?.items)?pkg.items:[];
   const sourceSig=clean(pkg?.source_signature||pkg?.sourceSignature||"");
   const expectedHash=clean(pkg?.hash||"");
-  if(!snapshotName||!items.length||!expectedHash)return false;
+  if(!snapshotName||!Array.isArray(pkg?.items)||!expectedHash)return false;
 
   const actualHash=snapshotRowsHash(items,sourceSig);
   if(actualHash!==expectedHash){
@@ -12319,6 +12312,10 @@ async function hydrateServerPackages({force=false}={}){
 
       // Client is download-only: a missing server package is never back-filled
       // from a browser/PWA cache, because that could reintroduce old logic.
+      if(!remote&&local){
+        commitAtomicSnapshot(snapshotName,[],{sourceSignature:"",inputHash:"removed"});
+        state.aiCategoryRows.delete(scope);
+      }
       if(remote?.hash&&remote.hash!==local?.hash){
         downloads.push(
           packageSyncFetch("GET",scope,null,7000)
@@ -12503,7 +12500,7 @@ function applyActiveFeedSnapshot(name,{force=false}={}){
   )return false;
 
   const fresh=freshSnapshotRowsForFeed(name);
-  if(!fresh.length)return false;
+  if(!fresh.length&&!readAtomicSnapshot("feed:"+name))return false;
 
   const currentSig=sourceFeedRowsSignature(state.feedRows);
   const freshSig=sourceFeedRowsSignature(fresh);
@@ -12520,7 +12517,7 @@ function applyActiveFeedSnapshot(name,{force=false}={}){
   }
 
   state.feedRows=mergeUniqueRows([],fresh);
-  state.feedHasMore=true;
+  state.feedHasMore=false;
   sourceFeedPendingRenderName="";
   renderCards(state.feedRows);
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
@@ -12538,7 +12535,7 @@ function applyActiveCategorySnapshot(parent,{force=false}={}){
   )return false;
 
   const fresh=instantCategoryRows(parent);
-  if(!fresh.length)return false;
+  if(!fresh.length&&!readAtomicSnapshot("category:"+parent.key))return false;
   const currentSig=sourceFeedRowsSignature(state.feedRows);
   const freshSig=sourceFeedRowsSignature(fresh);
   if(currentSig===freshSig)return false;
