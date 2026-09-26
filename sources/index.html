@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=7">
+  <link rel="stylesheet" href="./sources.css?v=8">
 </head>
 <body>
   <header class="topbar">
@@ -84,9 +84,10 @@
               </div>
             </div>
             <div class="preview-actions">
-              <button id="previewSelect" class="tiny primary"></button>
-              <button id="previewBlock" class="tiny danger"></button>
-              <button id="previewClose" class="tiny" aria-label="Đóng xem trước">×</button>
+              <button id="previewSelect" class="action-icon select" type="button" aria-label="Chọn" title="Chọn">✓</button>
+              <button id="previewBlock" class="action-icon block" type="button" aria-label="Chặn" title="Chặn">×</button>
+              <button id="previewMoreBtn" class="action-icon more" type="button" aria-label="Thêm thao tác" title="Thêm thao tác">…</button>
+              <button id="previewClose" class="action-icon close" type="button" aria-label="Đóng xem trước" title="Đóng">×</button>
             </div>
           </div>
 
@@ -100,8 +101,11 @@
             </div>
           </div>
 
-          <div class="preview-assign">
-            <span>Thêm vào nguồn khác</span>
+          <div id="previewMore" class="preview-more" hidden>
+            <div class="preview-more-head">
+              <strong>Thêm vào nguồn khác</strong>
+              <button id="previewMoreClose" class="tiny" type="button">×</button>
+            </div>
             <div id="previewScopes" class="scope-assign-row"></div>
           </div>
 
@@ -178,6 +182,6 @@
   </div>
 
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=7"></script>
+  <script src="./sources.js?v=8"></script>
 </body>
 </html>
