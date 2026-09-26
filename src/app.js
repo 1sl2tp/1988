@@ -4633,6 +4633,16 @@ async function openCardSource(card){
   const source=cardActionSourceRow(card);
   if(!source)return false;
 
+  // Preserve where this channel was opened from. "Mở nguồn" replaces the
+  // visible list, and the old implementation cleared the active parent before
+  // a video inside the channel was selected, so the per-source viewing habit
+  // (portrait/square/landscape) was lost.
+  const openedFromScope=
+    clean(card?.dataset?.watchScope||"")||
+    cardActionScope()||
+    activeSourceScope()||
+    "";
+
   sourceMetaCache.set(source.id,{...sourceMetaCache.get(source.id),...source});
   const seq=++cardSourceOpenSeq;
   closeCardActionMenu();
@@ -4734,6 +4744,7 @@ async function openCardSource(card){
         })
         .map(row=>({
           ...row,
+          _watchScope:clean(row?._watchScope||openedFromScope),
           _sourceId:source.id,
           channelId:source.id,
           _sourceName:canonicalName,
@@ -10156,7 +10167,7 @@ function renderCards(rows=[],options={}){
     cards.push({
       id,
       html:
-        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
+        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-watch-scope="'+esc(clean(row?._watchScope||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
           '<div class="thumb-wrap"><img src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
@@ -10235,6 +10246,7 @@ function rowFromCard(card){
   return {
     title:card.dataset.title||"",
     uploader:card.dataset.channel||"",
+    _watchScope:card.dataset.watchScope||"",
     _sourceId:card.dataset.sourceId||"",
     channelId:card.dataset.sourceId||"",
     views:Number(card.dataset.views)||0,
