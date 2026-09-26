@@ -62,6 +62,7 @@ const sourceGroupNav=$("#sourceGroupNav");
 const sourceGroupTabs=$("#sourceGroupTabs");
 const sourceGroupPrev=$("#sourceGroupPrev");
 const sourceGroupRename=$("#sourceGroupRename");
+const sourceGroupAdd=$("#sourceGroupAdd");
 const sourceGroupNext=$("#sourceGroupNext");
 const sourceBrowse=$("#sourceBrowse");
 const sourceList=$("#sourceList");
@@ -425,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="322";
+const LOCAL_DATA_SCHEMA_VERSION="323";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -1138,9 +1139,7 @@ function applyServerState(remote={}){
 
   stateSyncApplying=true;
   try{
-    if(Array.isArray(remote.hashtags)){
-      setHashtagDefinitions(remote.hashtags);
-    }
+    setHashtagDefinitions(Array.isArray(remote.hashtags)?remote.hashtags:[]);
 
     if(Array.isArray(remote.selected)){
       selectedSourceIds=new Set(cleanSourceIdList(remote.selected));
@@ -2902,16 +2901,71 @@ function applySourceGroupLabelsUi(){
   }
 }
 
-function renameSourceGroup(group=sourceManageGroup){
+async function createHashtag({openManager=false}={}){
+  const entered=window.prompt("Tên tab mới","");
+  if(entered===null)return null;
+  const label=clean(entered).slice(0,40);
+  if(!label)return null;
+
+  try{
+    const result=await stateSyncFetch(
+      "POST",
+      {op:"create_hashtag",label},
+      5200
+    );
+    if(!result?.ok||!result?.hashtag)throw new Error("hashtag_create_failed");
+
+    setHashtagDefinitions(result.hashtags||[]);
+    packageManifestLastAt=0;
+    applySourceGroupLabelsUi();
+    renderParentCategories();
+
+    if(openManager){
+      sourceManageGroup=result.hashtag.id;
+      sourceBlockedExpanded=false;
+      resetSourcePreviewPane();
+      refreshSourceManager();
+      requestAnimationFrame(()=>{
+        const active=sourceGroupTabs?.querySelector(".source-group-chip.active");
+        active?.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"center"});
+      });
+    }
+    return result.hashtag;
+  }catch(error){
+    console.warn("create hashtag failed",error);
+    return null;
+  }
+}
+
+async function renameSourceGroup(group=sourceManageGroup){
   group=sourceScope(group);
   if(!sourceManageMode||!MANAGED_SOURCE_SCOPES.has(group))return false;
 
   const current=sourceGroupLabel(group);
-  const entered=window.prompt("Đổi tên nguồn",current);
+  const entered=window.prompt("Đổi tên tab",current);
   if(entered===null)return false;
 
-  const next=clean(entered).slice(0,32);
+  const next=clean(entered).slice(0,40);
   if(!next||next===current)return false;
+
+  if(CONTENT_SOURCE_SCOPES.has(group)){
+    try{
+      const result=await stateSyncFetch(
+        "POST",
+        {op:"rename_hashtag",hashtag_id:group,label:next},
+        5200
+      );
+      if(!result?.ok)throw new Error("hashtag_rename_failed");
+      setHashtagDefinitions(result.hashtags||[]);
+      packageManifestLastAt=0;
+      applySourceGroupLabelsUi();
+      refreshSourceManager();
+      return true;
+    }catch(error){
+      console.warn("rename hashtag failed",group,error);
+      return false;
+    }
+  }
 
   sourceGroupLabelOverrides[group]=next;
   try{
@@ -4899,7 +4953,10 @@ function setupSourceLibrary(){
     sourceGroupTabs?.scrollBy({left:Math.max(180,(sourceGroupTabs?.clientWidth||240)*.72),behavior:"smooth"});
   });
   sourceGroupRename?.addEventListener("click",()=>{
-    renameSourceGroup(sourceManageGroup);
+    void renameSourceGroup(sourceManageGroup);
+  });
+  sourceGroupAdd?.addEventListener("click",()=>{
+    void createHashtag({openManager:true});
   });
   window.addEventListener("resize",()=>requestAnimationFrame(updateSourceGroupArrows),{passive:true});
 
@@ -7500,6 +7557,16 @@ function renderParentCategories(){
     button.title=count+" nguồn đã chọn";
     topicChips.appendChild(button);
   }
+
+  const addButton=document.createElement("button");
+  addButton.className="topic-chip topic-add";
+  addButton.type="button";
+  addButton.dataset.hashtagAdd="1";
+  addButton.setAttribute("aria-label","Thêm tab");
+  addButton.title="Thêm tab";
+  addButton.textContent="+";
+  topicChips.appendChild(addButton);
+
   setActiveChip(state.activeFeed);
 }
 
@@ -13365,7 +13432,7 @@ async function loadInitialFeed(){
 }
 
 topicChips.addEventListener("click",async e=>{
-  const clicked=e.target.closest("[data-feed],[data-ai-parent]");
+  const clicked=e.target.closest("[data-feed],[data-ai-parent],[data-hashtag-add]");
   if(clicked){
     state.searchResultsActive=false;
     document.documentElement.classList.remove("watch-search-open","watch-search-results");
@@ -13375,6 +13442,12 @@ topicChips.addEventListener("click",async e=>{
     // tab will then be revealed by the parent-level setActiveChip() logic.
     resetHomeViewportInstant({resetTopics:false});
     document.documentElement.classList.remove("home-header-hidden");
+  }
+
+  const hashtagAdd=e.target.closest("[data-hashtag-add]");
+  if(hashtagAdd){
+    await createHashtag({openManager:false});
+    return;
   }
 
   const parentButton=e.target.closest("[data-ai-parent]");
