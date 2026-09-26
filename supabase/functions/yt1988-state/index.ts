@@ -32,6 +32,18 @@ function cleanText(value: unknown, max = 600) {
   return String(value || "").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function normalizeLiveKeyword(value: unknown) {
+  return cleanText(value, 120)
+    .normalize("NFD")
+    .replace(/\p{M}+/gu, "")
+    .replace(/đ/gi, "d")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+}
+
 const MANAGED_SCOPES = [
   "live","latest","week","news","economy","law","film","music","tech","sports","entertainment"
 ];
@@ -157,11 +169,28 @@ Deno.serve(async (req) => {
     const legacyRows = await legacyRes.json();
     const legacy = Array.isArray(legacyRows) ? legacyRows[0] : null;
 
+    const liveKeywordsRes = await fetch(
+      rest + "/yt1988_live_keywords?profile_key=eq." + encodeURIComponent(PROFILE) +
+      "&select=keyword_display,keyword_norm&order=keyword_display.asc",
+      { headers: authHeaders }
+    );
+    if (!liveKeywordsRes.ok) {
+      return json({ ok: false, error: "live_keywords_read_failed", detail: await liveKeywordsRes.text() }, 502);
+    }
+    const liveKeywordRows = await liveKeywordsRes.json();
+    const liveKeywords = (Array.isArray(liveKeywordRows) ? liveKeywordRows : [])
+      .map((row: any) => cleanText(row?.keyword_display || row?.keyword_norm, 120))
+      .filter(Boolean);
+
     if (!allRows.length) {
+      const legacyState =
+        legacy?.state && typeof legacy.state === "object" && !Array.isArray(legacy.state)
+          ? legacy.state
+          : {};
       return json({
         ok: true,
-        exists: !!legacy,
-        state: legacy?.state || null,
+        exists: !!legacy || liveKeywords.length > 0,
+        state: { ...legacyState, liveKeywords },
         version: Number(legacy?.version || 0),
         updated_at: legacy?.updated_at || null
       });
@@ -183,7 +212,8 @@ Deno.serve(async (req) => {
       customSources: [],
       sourceGroups: {},
       sourceLabels: savedLabels,
-      avatars: {}
+      avatars: {},
+      liveKeywords
     };
     const customById = new Map<string, any>();
     let version = Number(legacy?.version || 0);
@@ -235,6 +265,54 @@ Deno.serve(async (req) => {
       body = await req.json();
     } catch {
       return json({ ok: false, error: "bad_json" }, 400);
+    }
+
+    if (body?.op === "add_live_keyword" || body?.op === "remove_live_keyword") {
+      const keywordDisplay = cleanText(body?.keyword, 120);
+      const keywordNorm = normalizeLiveKeyword(keywordDisplay);
+      if (!keywordNorm) return json({ ok: false, error: "empty_live_keyword" }, 400);
+
+      if (body.op === "add_live_keyword") {
+        const saveRes = await fetch(
+          rest + "/yt1988_live_keywords?on_conflict=profile_key,keyword_norm",
+          {
+            method: "POST",
+            headers: {
+              ...authHeaders,
+              "prefer": "resolution=merge-duplicates,return=minimal"
+            },
+            body: JSON.stringify({
+              profile_key: PROFILE,
+              keyword_norm: keywordNorm,
+              keyword_display: keywordDisplay,
+              updated_at: new Date().toISOString()
+            })
+          }
+        );
+        if (!saveRes.ok) {
+          return json({ ok: false, error: "live_keyword_write_failed", detail: await saveRes.text() }, 502);
+        }
+      } else {
+        const deleteRes = await fetch(
+          rest + "/yt1988_live_keywords?profile_key=eq." + encodeURIComponent(PROFILE) +
+          "&keyword_norm=eq." + encodeURIComponent(keywordNorm),
+          {
+            method: "DELETE",
+            headers: { ...authHeaders, "prefer": "return=minimal" }
+          }
+        );
+        if (!deleteRes.ok) {
+          return json({ ok: false, error: "live_keyword_delete_failed", detail: await deleteRes.text() }, 502);
+        }
+      }
+
+      triggerPackageRefresh(supabaseUrl, serviceKey, ["live"]);
+      return json({
+        ok: true,
+        keyword: keywordDisplay,
+        keyword_norm: keywordNorm,
+        removed: body.op === "remove_live_keyword"
+      });
     }
 
     if (body?.op === "set_source") {
