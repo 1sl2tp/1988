@@ -4016,3 +4016,28 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile mini player v372: real aspect + thin drag surface.
+   Leave the media itself interactive; only the top strip owns drag/restore. */
+@media(max-width:720px){
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
+    display:block!important;
+    position:absolute!important;
+    z-index:80!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    bottom:auto!important;
+    width:100%!important;
+    height:26px!important;
+    background:transparent!important;
+    cursor:grab;
+    touch-action:none!important;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
+    cursor:grabbing;
+  }
+}
+
