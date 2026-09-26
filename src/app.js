@@ -162,6 +162,7 @@ const state={
   floatPreset:"auto",
   videoAspectVerified:false,
   videoAspectPortraitLocked:false,
+  videoAspectHabitPrimed:false,
   videoAspectSourceRank:0,
   fullscreenScrollY:null,
   fullscreenActive:false,
@@ -6240,14 +6241,25 @@ function explicitVideoAspect(meta={}){
 let responsivePlayerRaf=0;
 
 function responsivePlayerAspect(meta=state.currentMeta||{}){
-  // Auto mode is horizontal by default. Once a verified portrait video turns
-  // the player vertical, keep that portrait lock authoritative for the rest of
-  // the same viewing flow instead of letting card/thumbnail metadata flip it
-  // back to 16:9.
+  // Opening geometry may come from the remembered habit of THIS channel.
+  // Card rows often only know a 16:9 thumbnail ratio; that is not real video
+  // evidence and must not flash the player back to landscape before the actual
+  // per-video probe finishes.
   const locked=validPipAspect(state.videoAspect);
+  const explicit=explicitVideoAspect(meta);
+  const explicitRank=aspectEvidenceRank(meta);
+
+  if(
+    state.videoAspectHabitPrimed &&
+    locked &&
+    explicitRank===0
+  )return locked;
+
+  // Once a verified portrait video turns the player vertical, keep that
+  // portrait lock authoritative against weaker later metadata.
   if(state.videoAspectPortraitLocked&&locked&&locked<.80)return locked;
 
-  return explicitVideoAspect(meta)||
+  return explicit||
     locked||
     16/9;
 }
@@ -6673,6 +6685,7 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
 
   state.videoAspect=next;
   if(verified){
+    state.videoAspectHabitPrimed=false;
     state.videoAspectVerified=true;
     state.videoAspectSourceRank=Math.max(currentRank,incomingRank);
     // Portrait lock belongs to THIS video only. A verified landscape/square
@@ -11407,6 +11420,10 @@ async function playVideo(id,seedMeta={}){
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
   state.videoAspectVerified=!!cachedAspect;
+  state.videoAspectHabitPrimed=
+    !cachedAspect &&
+    !seedPortrait &&
+    !!habitAspect;
   state.videoAspectPortraitLocked=
     (!!cachedAspect&&cachedAspect<.80) ||
     (!cachedAspect&&seedPortrait);
