@@ -7209,6 +7209,31 @@ function ensureWatchNavRail(){
   document.querySelectorAll("body > .watch-reco-info").forEach(el=>el.remove());
   return;
 }
+function mobileMiniViewport(){
+  const coarse=window.matchMedia?.("(pointer:coarse)")?.matches===true;
+  const shortSide=Math.min(
+    Number(window.innerWidth)||0,
+    Number(window.innerHeight)||0
+  );
+  return window.innerWidth<=720 || (coarse&&shortSide>0&&shortSide<=720);
+}
+
+function syncNativeMiniControls(){
+  if(!nativePlayer)return;
+
+  const hide=
+    state.engine==="native" &&
+    state.watchMinimized===true &&
+    mobileMiniViewport();
+
+  nativePlayer.controls=!hide;
+  if(hide){
+    nativePlayer.removeAttribute("controls");
+  }else{
+    nativePlayer.setAttribute("controls","");
+  }
+}
+
 function applyFloatingIframe(force){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
@@ -7226,7 +7251,7 @@ function applyFloatingIframe(force){
     !state.currentId ||
     playerSection.hidden
   ){
-    if(state.engine==="native")nativePlayer.controls=true;
+    syncNativeMiniControls();
     if(floating){
       frame.classList.remove(
         "floating-iframe","float-tucked","dock-left","dock-right",
@@ -7246,7 +7271,7 @@ function applyFloatingIframe(force){
 
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
-  if(state.engine==="native")nativePlayer.controls=false;
+  syncNativeMiniControls();
   state.floatTucked=false;
   state.floatPreset="auto";
 
@@ -7280,6 +7305,7 @@ function setWatchMinimized(minimized){
 
     state.watchMinimized=true;
     root.classList.add("watch-minimized");
+    syncNativeMiniControls();
     setWatchBrowseLayout(false);
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
@@ -7291,6 +7317,7 @@ function setWatchMinimized(minimized){
 
   state.watchMinimized=false;
   root.classList.remove("watch-minimized");
+  syncNativeMiniControls();
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
   hardResetDocumentTop();
@@ -7668,7 +7695,7 @@ function fallbackIframeVideoToNative(
   state.intentPlay=true;
 
   showNativePlayer();
-  nativePlayer.controls=!state.watchMinimized;
+  syncNativeMiniControls();
   nativePlayer.playsInline=true;
   nativePlayer.setAttribute("playsinline","");
   nativePlayer.setAttribute("webkit-playsinline","");
@@ -7743,6 +7770,7 @@ function showNativePlayer(){
   ytPlayerHost.hidden=true;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=true;
+  syncNativeMiniControls();
 }
 
 function showIframePlayer(){
@@ -7751,7 +7779,14 @@ function showIframePlayer(){
   ytPlayerHost.hidden=false;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=false;
+  syncNativeMiniControls();
 }
+
+window.addEventListener("resize",syncNativeMiniControls,{passive:true});
+window.visualViewport?.addEventListener?.("resize",syncNativeMiniControls,{passive:true});
+window.addEventListener("orientationchange",()=>{
+  requestAnimationFrame(syncNativeMiniControls);
+},{passive:true});
 
 let suggestionLayoutRaf=0;
 let normalSuggestionTimer=0;
