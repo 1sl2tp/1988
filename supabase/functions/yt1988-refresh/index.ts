@@ -1127,9 +1127,25 @@ Deno.serve(async(req:Request)=>{
         const raw=Array.isArray(data?.relatedStreams)
           ?data.relatedStreams
           :Array.isArray(data?.items)?data.items:[];
+        const previousByVideo=new Map(
+          previousRows.map((row:any)=>[videoId(row),row]).filter(([id])=>!!id)
+        );
         const fresh=dedupeRows(
           raw.map((row:any)=>normalizeRow(row,source)).filter(Boolean)
-        ).slice(0,30);
+        ).slice(0,30).map((row:any)=>{
+          const previousRow:any=previousByVideo.get(videoId(row));
+          if(!previousRow)return row;
+          const knownDuration=durationSeconds(row)>0
+            ?durationSeconds(row)
+            :durationSeconds(previousRow);
+          return {
+            ...row,
+            duration:isLive(row)?row.duration:(knownDuration||row.duration||0),
+            isShort:row?.isShort===true||previousRow?.isShort===true,
+            _durationCheckedAt:Number(previousRow?._durationCheckedAt)||0,
+            _shortCheckedAt:Number(previousRow?._shortCheckedAt)||0
+          };
+        });
 
         if(!fresh.length)throw new Error("empty_channel_payload");
 
@@ -1196,71 +1212,98 @@ Deno.serve(async(req:Request)=>{
       return true;
     });
 
-    // Channel RSS fallbacks often have duration=0. Resolve recent unknown
-    // durations once on the server before publishing any non-live feed. This
-    // makes <=60s filtering authoritative instead of relying on #shorts hints.
-    const durationCandidates:any[]=[];
-    const durationCandidateIds=new Set<string>();
-    for(const [channelId,items] of channelRows){
+    // Verify every recent non-live row on the server. Duration and YouTube's
+    // Shorts surface are independent signals: either <=60 seconds OR Shorts
+    // membership excludes a video from every non-live package.
+    const verificationCandidates:any[]=[];
+    const verificationCandidateIds=new Set<string>();
+    for(const [,items] of channelRows){
       for(const row of items){
         const id=videoId(row);
         const age=ageMs(row);
-        const checkedAt=Number(row?._durationCheckedAt)||0;
         if(
           !id||
-          durationCandidateIds.has(id)||
+          verificationCandidateIds.has(id)||
           isLive(row)||
           isTooShortVideo(row)||
-          durationSeconds(row)>0||
           !Number.isFinite(age)||
           age<0||
-          age>=7*DAY_MS||
-          (checkedAt&&now-checkedAt<15*60*1000)
+          age>=7*DAY_MS
         )continue;
-        durationCandidateIds.add(id);
-        durationCandidates.push({id,age});
+
+        const duration=durationSeconds(row);
+        const durationCheckedAt=Number(row?._durationCheckedAt)||0;
+        const shortCheckedAt=Number(row?._shortCheckedAt)||0;
+        const needDuration=duration<=0&&
+          (!durationCheckedAt||now-durationCheckedAt>=15*60*1000);
+        const needShort=!shortCheckedAt;
+        if(!needDuration&&!needShort)continue;
+
+        verificationCandidateIds.add(id);
+        verificationCandidates.push({
+          id,
+          age,
+          duration,
+          needDuration,
+          needShort
+        });
       }
     }
-    durationCandidates.sort((a,b)=>a.age-b.age);
+    verificationCandidates.sort((a,b)=>a.age-b.age);
 
-    const durationMeta=new Map<string,any>();
-    await mapLimit(durationCandidates.slice(0,80),8,async(candidate)=>{
-      const [meta,isShort]=await Promise.all([
-        youtubePlayerMetadata(candidate.id),
-        youtubeShortsMembership(candidate.id)
+    const verificationMeta=new Map<string,any>();
+    await mapLimit(verificationCandidates.slice(0,120),8,async(candidate)=>{
+      const checkedAt=Date.now();
+      const [playerMeta,isShort]=await Promise.all([
+        candidate.needDuration
+          ?youtubePlayerMetadata(candidate.id)
+          :Promise.resolve({duration:candidate.duration,isLive:false}),
+        candidate.needShort
+          ?youtubeShortsMembership(candidate.id)
+          :Promise.resolve(false)
       ]);
-      durationMeta.set(candidate.id,{...meta,isShort,checkedAt:Date.now()});
+      verificationMeta.set(candidate.id,{
+        ...playerMeta,
+        duration:Number(playerMeta?.duration)||candidate.duration||0,
+        isShort:isShort===true,
+        durationCheckedAt:candidate.needDuration?checkedAt:0,
+        shortCheckedAt:candidate.needShort?checkedAt:0
+      });
       return true;
     });
 
-    const durationChangedChannels=new Set<string>();
-    if(durationMeta.size){
+    const verificationChangedChannels=new Set<string>();
+    if(verificationMeta.size){
       for(const [channelId,items] of channelRows){
         let changed=false;
         const enriched=items.map((row:any)=>{
           const id=videoId(row);
-          const meta=durationMeta.get(id);
+          const meta=verificationMeta.get(id);
           if(!meta)return row;
           changed=true;
+          const live=meta.isLive===true||isLive(row);
+          const duration=live
+            ?-1
+            :(Number(meta.duration)>0?Number(meta.duration):durationSeconds(row));
           return {
             ...row,
-            duration:meta.isLive?-1:(Number(meta.duration)||0),
-            isLive:meta.isLive===true,
+            duration:duration||0,
+            isLive:live,
             isShort:meta.isShort===true||row?.isShort===true,
-            _durationCheckedAt:meta.checkedAt,
-            _shortCheckedAt:meta.checkedAt
+            _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
+            _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0
           };
         });
         if(changed){
           channelRows.set(channelId,enriched);
-          durationChangedChannels.add(channelId);
+          verificationChangedChannels.add(channelId);
         }
       }
     }
 
-    // Persist duration enrichment even for channels that were not otherwise due,
+    // Persist verification even for channels that were not otherwise due,
     // without changing their channel refresh cadence.
-    for(const id of durationChangedChannels){
+    for(const id of verificationChangedChannels){
       const items=channelRows.get(id)||[];
       const source=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
       const previous=cacheById.get(id)||{};
@@ -1270,7 +1313,11 @@ Deno.serve(async(req:Request)=>{
         .filter((row:any)=>row.id&&Number.isFinite(row.age)&&row.age>=0&&row.age<Number.MAX_SAFE_INTEGER)
         .sort((a:any,b:any)=>a.age-b.age)[0]||null;
       const cacheHash=fastHash(items.map((row:any)=>[
-        videoId(row),clean(row?.title,300),publishedText(row),String(durationSeconds(row)||0)
+        videoId(row),
+        clean(row?.title,300),
+        publishedText(row),
+        String(durationSeconds(row)||0),
+        row?.isShort===true?"1":"0"
       ].join("|")).join("\n"));
       const existing=index>=0?cacheWrites[index]:null;
       const write={
