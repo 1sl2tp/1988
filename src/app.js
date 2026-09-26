@@ -162,6 +162,7 @@ const state={
   watchPipAway:false,
   watchPipEnteredAt:0,
   watchRestoreUntil:0,
+  watchOpenSettlingUntil:0,
   floatDock:"right",
   floatScale:1,
   floatTucked:false,
@@ -7069,33 +7070,34 @@ function aspectOrientation(ratio){
 }
 
 function pinMobilePortraitWatchTop(){
-  if(window.innerWidth>720)return;
+  if(window.innerWidth>720||state.watchMinimized)return;
+  if(Date.now()>Number(state.watchOpenSettlingUntil||0))return;
+
   const root=document.documentElement;
   if(
     !root.classList.contains("watch-browse")||
     !root.classList.contains("watch-video-portrait")
   )return;
 
-  const reset=()=>{
-    const body=document.body;
-    const scroller=document.scrollingElement||document.documentElement;
-    if(scroller){
-      scroller.scrollTop=0;
-      scroller.scrollLeft=0;
-    }
-    document.documentElement.scrollTop=0;
-    document.documentElement.scrollLeft=0;
-    if(body){
-      body.scrollTop=0;
-      body.scrollLeft=0;
-    }
-    try{window.scrollTo(0,0);}catch{}
-  };
-
-  reset();
-  requestAnimationFrame(reset);
-  setTimeout(reset,80);
-  setTimeout(reset,220);
+  const scroller=document.scrollingElement||document.documentElement;
+  if(scroller){
+    scroller.scrollTop=0;
+    scroller.scrollLeft=0;
+  }
+  document.documentElement.scrollTop=0;
+  document.documentElement.scrollLeft=0;
+  if(document.body){
+    document.body.scrollTop=0;
+    document.body.scrollLeft=0;
+  }
+  if(feedSection){
+    feedSection.scrollTop=0;
+    feedSection.scrollLeft=0;
+  }
+  if(feed){
+    feed.scrollTop=0;
+    feed.scrollLeft=0;
+  }
 }
 
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
@@ -7766,6 +7768,7 @@ function setupWatchMinimizeGesture(){
   const eligible=()=>(
     mobileMiniViewport() &&
     Date.now()>=Number(state.watchRestoreUntil||0) &&
+    Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
     root.classList.contains("watch-browse") &&
     !state.watchMinimized &&
     !!state.currentId &&
@@ -7832,7 +7835,7 @@ function setupWatchMinimizeGesture(){
     if(
       Date.now()<Number(state.watchRestoreUntil||0) ||
       Date.now()-lastTouchAt>900 ||
-      Date.now()-(Number(state.watchOpenedAt)||0)<250 ||
+      Date.now()<Number(state.watchOpenSettlingUntil||0) ||
       !eligible()
     )return;
 
@@ -8081,6 +8084,11 @@ function fallbackIframeVideoToNative(
   nativePlayer.preload="auto";
   nativePlayer.src=url;
 
+  // Start while the card tap still counts as user activation. loadedmetadata
+  // retries below, but this first call is what avoids the "tap Play again" case
+  // on iOS when the media request takes a moment.
+  void nativePlayer.play().catch(()=>{});
+
   const targetId=id;
   const sourceUrl=url;
 
@@ -8095,6 +8103,9 @@ function fallbackIframeVideoToNative(
 
   const onPlaying=()=>{
     if(state.currentId!==targetId||state.nativeSource!==sourceUrl)return;
+    state.videoPlaying=true;
+    state.intentPlay=true;
+    state.watchOpenSettlingUntil=0;
     statusText.textContent="Video đang phát";
   };
 
@@ -12699,6 +12710,9 @@ async function playVideo(id,seedMeta={}){
 
   state.keepFloating=wasFloating;
   state.watchOpenedAt=Date.now();
+  state.watchOpenSettlingUntil=window.innerWidth<=720&&!wasFloating
+    ?Date.now()+700
+    :0;
   state.currentId=id;
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
@@ -12762,24 +12776,39 @@ async function playVideo(id,seedMeta={}){
   syncWatchBrowseLayout();
   if(!wasFloating)applyFloatingIframe(false);
 
-  // iPhone 7 / older Safari can preserve the Search/Home page scroll offset
-  // while the layout switches to a tall portrait Watch stage. The new player
-  // then starts halfway down the viewport even though its CSS row is correct.
-  // A newly opened mobile video should always start from the top of Watch.
+  // First mobile Watch entry always starts at the true top. Reset the document,
+  // feed pane and recommendation list together before the player paints. One RAF
+  // is enough to catch the grid-mode switch; repeated delayed resets caused the
+  // visible hitch and could be mistaken for a browse gesture that opened PiP.
   if(window.innerWidth<=720&&!wasFloating){
-    hardResetDocumentTop();
-    if(feedSection){
-      feedSection.scrollTop=0;
-      feedSection.scrollLeft=0;
-    }
-    requestAnimationFrame(()=>{
-      if(state.currentId!==id)return;
-      hardResetDocumentTop();
-    });
-    setTimeout(()=>{
-      if(state.currentId!==id)return;
-      hardResetDocumentTop();
-    },180);
+    state.watchOpenSettlingUntil=Date.now()+700;
+
+    const resetWatchTop=()=>{
+      if(state.currentId!==id||state.watchMinimized)return;
+      const scroller=document.scrollingElement||document.documentElement;
+      if(scroller){
+        scroller.scrollTop=0;
+        scroller.scrollLeft=0;
+      }
+      document.documentElement.scrollTop=0;
+      document.documentElement.scrollLeft=0;
+      if(document.body){
+        document.body.scrollTop=0;
+        document.body.scrollLeft=0;
+      }
+      if(feedSection){
+        feedSection.scrollTop=0;
+        feedSection.scrollLeft=0;
+      }
+      if(feed){
+        feed.scrollTop=0;
+        feed.scrollLeft=0;
+      }
+      try{window.scrollTo(0,0);}catch{}
+    };
+
+    resetWatchTop();
+    requestAnimationFrame(resetWatchTop);
   }
 
   backgroundPlayer.pause();
@@ -13045,6 +13074,7 @@ function initYouTubePlayer(){
           forceCaptionsOff();
           state.videoPlaying=true;
           state.intentPlay=true;
+          state.watchOpenSettlingUntil=0;
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           state.keepFloating=false;
@@ -13070,13 +13100,20 @@ function initYouTubePlayer(){
         }else if(event.data===YT.PlayerState.PAUSED){
           state.videoPlaying=false;
 
+          const openingPause=
+            state.intentPlay &&
+            Date.now()<Number(state.watchOpenSettlingUntil||0);
           const lifecyclePause=
             state.resumeOnReturn &&
             !state.fullscreenActive &&
             Date.now()>=state.fullscreenExitCooldownUntil &&
             Date.now()<state.transitionUntil;
 
-          if(lifecyclePause&&state.intentPlay){
+          if(openingPause){
+            if(document.visibilityState==="visible"){
+              setTimeout(ensureIframePlaying,70);
+            }
+          }else if(lifecyclePause&&state.intentPlay){
             if(document.visibilityState==="visible"){
               setTimeout(resumeVideoAfterReturn,90);
             }
