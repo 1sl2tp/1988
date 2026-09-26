@@ -4284,11 +4284,17 @@ body::-webkit-scrollbar-corner,
 }
 
 
-/* Desktop full-card colour hover v401.
+/* Desktop full-card colour hover v402.
    YouTube-like hover panel: colour belongs to the whole card, including the
    image + metadata area. The panel grows visually with a pseudo-element, so
    grid geometry never changes and neighboring cards never reflow. */
 @media (hover:hover) and (pointer:fine) and (min-width:760px){
+  .feed-section{
+    padding-left:12px!important;
+    padding-right:12px!important;
+    scrollbar-gutter:stable;
+  }
+
   .feed>.card{
     position:relative;
     isolation:isolate;
@@ -4302,7 +4308,7 @@ body::-webkit-scrollbar-corner,
     content:"";
     position:absolute;
     z-index:-1;
-    inset:-10px -10px -12px;
+    inset:-10px -9px -12px;
     border:1px solid transparent;
     border-radius:20px;
     background:transparent;
@@ -4326,9 +4332,10 @@ body::-webkit-scrollbar-corner,
     background:
       linear-gradient(
         180deg,
-        var(--desktop-card-accent-soft,rgba(38,38,40,.96)) 0%,
-        var(--desktop-card-accent-faint,rgba(28,28,30,.94)) 100%
-      );
+        rgba(255,255,255,.025) 0%,
+        rgba(0,0,0,.055) 100%
+      ),
+      var(--desktop-card-accent,rgb(38,38,40));
     box-shadow:
       0 0 0 1px rgba(255,255,255,.018) inset,
       0 16px 42px var(--desktop-card-accent-glow,rgba(0,0,0,.22));

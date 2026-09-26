@@ -13441,12 +13441,14 @@ function accentVarsFromColor(color=""){
   const rgb=parseChromeRgb(color);
   if(!rgb)return null;
   const [r,g,b]=rgb;
+  const boost=value=>Math.max(0,Math.min(255,Math.round(value*1.10+4)));
+  const br=boost(r),bg=boost(g),bb=boost(b);
   return {
-    solid:`rgb(${r},${g},${b})`,
-    soft:`rgba(${r},${g},${b},.72)`,
-    faint:`rgba(${r},${g},${b},.44)`,
-    glow:`rgba(${r},${g},${b},.30)`,
-    line:`rgba(${r},${g},${b},.58)`
+    solid:`rgb(${br},${bg},${bb})`,
+    soft:`rgba(${br},${bg},${bb},.92)`,
+    faint:`rgba(${br},${bg},${bb},.72)`,
+    glow:`rgba(${br},${bg},${bb},.34)`,
+    line:`rgba(${br},${bg},${bb},.62)`
   };
 }
 
