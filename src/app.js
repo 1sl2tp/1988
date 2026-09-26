@@ -135,6 +135,7 @@ const sourceUiChannel=typeof BroadcastChannel==="function"
   ?new BroadcastChannel("1988-source-ui-v1")
   :null;
 const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
+const LOCAL_RESET_EVENT_KEY="1988-local-reset-event-v1";
 
 const state={
   player:null,
@@ -556,9 +557,18 @@ function parseSourceScopeDisplayOrder(labels={}){
 }
 
 function orderSourceDefinitions(rows=[]){
-  if(!sourceScopeDisplayOrder.length)return rows;
+  const systemKeys=new Set(
+    SYSTEM_SOURCE_SCOPE_DEFINITIONS.map(item=>item.key)
+  );
+  const systemRows=SYSTEM_SOURCE_SCOPE_DEFINITIONS
+    .map(def=>rows.find(row=>row.key===def.key))
+    .filter(Boolean);
+  const customRows=rows.filter(row=>!systemKeys.has(row.key));
+
+  if(!sourceScopeDisplayOrder.length)return [...systemRows,...customRows];
+
   const rank=new Map(sourceScopeDisplayOrder.map((key,index)=>[key,index]));
-  return rows
+  const orderedCustom=customRows
     .map((row,index)=>({row,index}))
     .sort((a,b)=>{
       const ar=rank.has(a.row.key)?rank.get(a.row.key):Number.MAX_SAFE_INTEGER;
@@ -566,6 +576,8 @@ function orderSourceDefinitions(rows=[]){
       return ar-br||a.index-b.index;
     })
     .map(x=>x.row);
+
+  return [...systemRows,...orderedCustom];
 }
 
 function normalizeHashtagDefinitions(rows=[]){
@@ -1935,6 +1947,13 @@ function setSourceStatus(id,status,scope=sourceManageGroup,{remote=false}={}){
 }
 
 function applySourceUiEvent(data={}){
+  if(data?.type==="local-reset"){
+    // The source manager is a separate page but shares the same origin,
+    // localStorage and Cache Storage. Reload this open tab so in-memory
+    // snapshots cannot survive a cleanup performed in the other page.
+    location.reload();
+    return;
+  }
   if(data?.type!=="source-state")return;
   const id=String(data.id||"").trim();
   const scope=String(data.scope||"").trim();
@@ -1949,6 +1968,10 @@ sourceUiChannel?.addEventListener?.("message",event=>{
 });
 
 window.addEventListener("storage",event=>{
+  if(event.key===LOCAL_RESET_EVENT_KEY&&event.newValue){
+    location.reload();
+    return;
+  }
   if(event.key!==SOURCE_UI_EVENT_KEY||!event.newValue)return;
   try{applySourceUiEvent(JSON.parse(event.newValue));}catch{}
 });
@@ -5189,6 +5212,10 @@ async function clearLocalDataAndReload(){
     }
     for(const key of remove)localStorage.removeItem(key);
     localStorage.setItem(LOCAL_DATA_SCHEMA_KEY,LOCAL_DATA_SCHEMA_VERSION);
+
+    const resetEvent={type:"local-reset",at:Date.now()};
+    try{sourceUiChannel?.postMessage(resetEvent);}catch{}
+    try{localStorage.setItem(LOCAL_RESET_EVENT_KEY,String(resetEvent.at));}catch{}
 
     try{
       const removeSession=[];
@@ -13755,8 +13782,11 @@ document.addEventListener("visibilitychange",()=>{
 },{passive:true});
 
 async function loadInitialFeed(){
-  await prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
-  const result=await loadFeedPreset("latest");
+  // Paint the local package first. Avatar enrichment is auxiliary and must
+  // never delay the first visible cards, especially on older iPhones.
+  const resultPromise=loadFeedPreset("latest");
+  void prewarmRowSourceAvatars(selectedSources(LATEST_SOURCE_SCOPE),900);
+  const result=await resultPromise;
   setTimeout(()=>void refreshAllSourceSnapshotsInBackground({force:true}),500);
   return result;
 }
