@@ -3910,3 +3910,47 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile mini player v367: plain media surface + direct drag. */
+@media(max-width:720px){
+  html.watch-minimized .player-frame.floating-iframe{
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    background:#000!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe::before,
+  html.watch-minimized .player-frame.floating-iframe::after{
+    display:none!important;
+    content:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe #yt-player,
+  html.watch-minimized .player-frame.floating-iframe iframe,
+  html.watch-minimized .player-frame.floating-iframe video{
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    background:#000!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
+    display:block!important;
+    position:absolute;
+    z-index:80;
+    inset:0;
+    width:100%;
+    height:100%;
+    background:transparent;
+    cursor:grab;
+    touch-action:none!important;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
+    cursor:grabbing;
+  }
+}
+
