@@ -6111,7 +6111,7 @@ function rememberVideoAspectHabit(meta={},ratio=0){
 function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   const viewportW=Math.max(240,window.innerWidth);
   const viewportH=Math.max(180,window.innerHeight);
-  const mobile=viewportW<=640;
+  const mobile=mobileMiniViewport();
 
   ratio=Number(ratio)||16/9;
   ratio=Math.max(.34,Math.min(2.6,ratio));
@@ -6217,7 +6217,7 @@ function placeAutoFloatAtEdge(frame,size){
   if(!frame)return;
   const gap=floatEdgeGap();
   const safe=floatingSafeInsets();
-  const mobile=window.innerWidth<=640;
+  const mobile=mobileMiniViewport();
   const bottomGap=mobile
     ?Math.max(18,safe.bottom+14)
     :gap;
@@ -6265,7 +6265,7 @@ function floatingSafeInsets(){
 
 function placeFloatingAt(frame,{left=0,top=0,width=0,height=0}={}){
   if(!frame)return;
-  const gap=window.innerWidth<=640?10:4;
+  const gap=mobileMiniViewport()?10:4;
   const safe=floatingSafeInsets();
   width=Math.max(1,Math.min(Number(width)||frame.clientWidth||1,window.innerWidth-gap*2));
   height=Math.max(1,Math.min(Number(height)||frame.clientHeight||1,window.innerHeight-safe.top-safe.bottom-gap*2));
@@ -7297,7 +7297,7 @@ function setWatchMinimized(minimized){
 
   if(minimized){
     if(
-      window.innerWidth>720 ||
+      !mobileMiniViewport() ||
       !state.currentId ||
       playerSection?.hidden ||
       isPlayerFullscreen()
@@ -7448,7 +7448,7 @@ function setupWatchMinimizeGesture(){
   let lastTouchAt=0;
 
   const eligible=()=>(
-    window.innerWidth<=720 &&
+    mobileMiniViewport() &&
     root.classList.contains("watch-browse") &&
     !state.watchMinimized &&
     !!state.currentId &&
