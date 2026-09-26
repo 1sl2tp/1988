@@ -7218,12 +7218,14 @@ function mobileMiniViewport(){
   return window.innerWidth<=720 || (coarse&&shortSide>0&&shortSide<=720);
 }
 
-function syncNativeMiniControls(){
+function syncNativeMobileControls(){
   if(!nativePlayer)return;
 
+  // One rule for every phone: whenever the app is using the native <video>
+  // engine, Safari/Android native chrome stays hidden in BOTH full Watch and
+  // mini/PiP. Desktop keeps the browser controls.
   const hide=
     state.engine==="native" &&
-    state.watchMinimized===true &&
     mobileMiniViewport();
 
   nativePlayer.controls=!hide;
@@ -7251,7 +7253,7 @@ function applyFloatingIframe(force){
     !state.currentId ||
     playerSection.hidden
   ){
-    syncNativeMiniControls();
+    syncNativeMobileControls();
     if(floating){
       frame.classList.remove(
         "floating-iframe","float-tucked","dock-left","dock-right",
@@ -7271,7 +7273,7 @@ function applyFloatingIframe(force){
 
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
-  syncNativeMiniControls();
+  syncNativeMobileControls();
   state.floatTucked=false;
   state.floatPreset="auto";
 
@@ -7305,7 +7307,7 @@ function setWatchMinimized(minimized){
 
     state.watchMinimized=true;
     root.classList.add("watch-minimized");
-    syncNativeMiniControls();
+    syncNativeMobileControls();
     setWatchBrowseLayout(false);
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
@@ -7317,7 +7319,7 @@ function setWatchMinimized(minimized){
 
   state.watchMinimized=false;
   root.classList.remove("watch-minimized");
-  syncNativeMiniControls();
+  syncNativeMobileControls();
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
   hardResetDocumentTop();
@@ -7695,7 +7697,7 @@ function fallbackIframeVideoToNative(
   state.intentPlay=true;
 
   showNativePlayer();
-  syncNativeMiniControls();
+  syncNativeMobileControls();
   nativePlayer.playsInline=true;
   nativePlayer.setAttribute("playsinline","");
   nativePlayer.setAttribute("webkit-playsinline","");
@@ -7770,7 +7772,7 @@ function showNativePlayer(){
   ytPlayerHost.hidden=true;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=true;
-  syncNativeMiniControls();
+  syncNativeMobileControls();
 }
 
 function showIframePlayer(){
@@ -7779,13 +7781,13 @@ function showIframePlayer(){
   ytPlayerHost.hidden=false;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=false;
-  syncNativeMiniControls();
+  syncNativeMobileControls();
 }
 
-window.addEventListener("resize",syncNativeMiniControls,{passive:true});
-window.visualViewport?.addEventListener?.("resize",syncNativeMiniControls,{passive:true});
+window.addEventListener("resize",syncNativeMobileControls,{passive:true});
+window.visualViewport?.addEventListener?.("resize",syncNativeMobileControls,{passive:true});
 window.addEventListener("orientationchange",()=>{
-  requestAnimationFrame(syncNativeMiniControls);
+  requestAnimationFrame(syncNativeMobileControls);
 },{passive:true});
 
 let suggestionLayoutRaf=0;
