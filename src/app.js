@@ -7121,73 +7121,80 @@ function setWatchMinimized(minimized){
 
 function setupWatchMinimizeGesture(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.querySelector(".watch-swipe-zone"))return;
 
-  const zone=document.createElement("div");
-  zone.className="watch-swipe-zone";
-  zone.setAttribute("aria-hidden","true");
-  frame.appendChild(zone);
+  // The video itself may be a cross-origin YouTube iframe, so iOS Safari can
+  // consume its touch stream before the page receives a reliable swipe.
+  // Keep only tap-to-restore on the mini-player and use the recommendation
+  // list below the player as the canonical minimize gesture surface.
+  if(frame&&!frame.querySelector(".watch-swipe-zone")){
+    const zone=document.createElement("div");
+    zone.className="watch-swipe-zone";
+    zone.setAttribute("aria-hidden","true");
+    frame.appendChild(zone);
+
+    zone.addEventListener("click",()=>{
+      if(state.watchMinimized)setWatchMinimized(false);
+    });
+  }
+
+  if(!feedSection||feedSection.dataset.watchMinimizeGesture==="1")return;
+  feedSection.dataset.watchMinimizeGesture="1";
 
   let gesture=null;
 
-  zone.addEventListener("touchstart",event=>{
-    if(event.touches?.length!==1)return;
+  const eligible=()=>(
+    window.innerWidth<=720 &&
+    document.documentElement.classList.contains("watch-browse") &&
+    !state.watchMinimized &&
+    !!state.currentId &&
+    !playerSection?.hidden &&
+    !isPlayerFullscreen()
+  );
+
+  feedSection.addEventListener("touchstart",event=>{
+    if(!eligible()||event.touches?.length!==1){
+      gesture=null;
+      return;
+    }
     const touch=event.touches[0];
     gesture={
       x:touch.clientX,
       y:touch.clientY,
       lastX:touch.clientX,
-      lastY:touch.clientY,
-      startedMinimized:state.watchMinimized===true
+      lastY:touch.clientY
     };
   },{passive:true});
 
-  zone.addEventListener("touchmove",event=>{
+  feedSection.addEventListener("touchmove",event=>{
     if(!gesture||event.touches?.length!==1)return;
     const touch=event.touches[0];
     gesture.lastX=touch.clientX;
     gesture.lastY=touch.clientY;
+  },{passive:true});
 
-    if(gesture.startedMinimized)return;
-
-    const dy=touch.clientY-gesture.y;
-    const dx=touch.clientX-gesture.x;
-    if(
-      document.documentElement.classList.contains("watch-browse") &&
-      dy>10 &&
-      Math.abs(dy)>Math.abs(dx)*1.08
-    ){
-      event.preventDefault();
-    }
-  },{passive:false});
-
-  zone.addEventListener("touchend",()=>{
+  const finish=()=>{
     if(!gesture)return;
-
     const current=gesture;
     gesture=null;
 
-    const dy=current.lastY-current.y;
+    if(!eligible())return;
+
     const dx=current.lastX-current.x;
+    const dy=current.lastY-current.y;
 
-    if(current.startedMinimized){
-      if(Math.abs(dx)<18&&Math.abs(dy)<18)setWatchMinimized(false);
-      return;
-    }
-
+    // Finger moving upward = browse list moving upward, matching YouTube's
+    // "continue browsing" motion. Require a deliberate vertical swipe so card
+    // taps and horizontal source/category gestures remain untouched.
     if(
-      document.documentElement.classList.contains("watch-browse") &&
-      dy>=54 &&
-      Math.abs(dy)>Math.abs(dx)*1.12
+      dy<=-42 &&
+      Math.abs(dy)>Math.abs(dx)*1.18
     ){
       setWatchMinimized(true);
     }
-  },{passive:true});
+  };
 
-  zone.addEventListener("touchcancel",()=>{gesture=null;},{passive:true});
-  zone.addEventListener("click",()=>{
-    if(state.watchMinimized)setWatchMinimized(false);
-  });
+  feedSection.addEventListener("touchend",finish,{passive:true});
+  feedSection.addEventListener("touchcancel",()=>{gesture=null;},{passive:true});
 }
 
 function getFullscreenElement(){
