@@ -3451,7 +3451,7 @@ let liveSourceCandidateRefreshPromise=null;
 // Keep this conservative: only channel-name signals that repeatedly appeared
 // in Đã chặn (plus explicit Forex/Gold/Trading terms requested by the user).
 // LIVE blocked state is manual/personal only. Discovery may read the exact
-// blocked channel IDs as exclusions, but code/AI never invents new blocked rows.
+// blocked channel IDs as exclusions, but code never invents new blocked rows.
 
 function rememberLiveSourceCandidates(rows=[],_options={}){
   const liveRows=(Array.isArray(rows)?rows:[])
@@ -8030,15 +8030,7 @@ function saveAiTrendCache(cacheKey,parents=[],topics=[],videoMeta=new Map()){
   }catch{}
 }
 
-function aiDisplayRows(rows=[]){
-  // UI reads only the packaged snapshot produced by code. AI is never allowed
-  // to rewrite titles, source names, groups or visible ordering.
-  return Array.isArray(rows)?rows:[];
-}
 
-function patchRenderedAiMeta(){
-  // Intentionally disabled: AI may not patch an already-rendered UI.
-}
 
 function categoryCacheRows(parentKey=""){
   const cached=state.categoryRows.get(parentKey);
@@ -10262,36 +10254,7 @@ function returnToVideo(){
 }
 
 
-function selectedVideoAiRow(id,meta={}){
-  return {
-    id,
-    title:clean(meta?._displayTitle||meta?.title||""),
-    channel:clean(searchChannelName(meta)||meta?.uploader||""),
-    published:clean(meta?.publishedText||meta?.uploadDate||meta?.uploadedDate||publishedLabel(meta)||""),
-    views:Number(meta?.views)||0,
-    duration:Number(meta?.duration)||0,
-    isLive:meta?.isLive===true,
-    contentHash:contentHashForRow(meta),
-    description:clean(meta?.description||meta?.shortDescription||"").slice(0,1800)
-  };
-}
 
-function selectedRelatedAiRows(rows=[]){
-  return (Array.isArray(rows)?rows:[])
-    .slice(0,24)
-    .map(row=>({
-      id:itemVideoId(row),
-      title:clean(row?._displayTitle||row?.title||""),
-      channel:clean(searchChannelName(row)),
-      published:clean(row?.publishedText||row?.uploadDate||publishedLabel(row)||""),
-      views:Number(row?.views)||0,
-      duration:Number(row?.duration)||0,
-      isLive:row?.isLive===true,
-      contentHash:contentHashForRow(row),
-      description:clean(row?.description||"").slice(0,900)
-    }))
-    .filter(row=>row.id&&row.title);
-}
 
 
 function hideContextBrief(){
@@ -10887,7 +10850,7 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
 
   hideContextBrief();
 
-  // Invalidate any old AI/context request started by an earlier build.
+  // Invalidate any old context request started by an earlier build.
   state.videoContextSeq++;
   state.feedHasMore=false;
 
@@ -10919,7 +10882,7 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
     return true;
   }
 
-  // Last-resort non-AI fallback: a plain YouTube search using the current title.
+  // Last-resort fallback: a plain YouTube search using the current title.
   const q=clean(meta?._displayTitle||meta?.title||"");
   if(q&&local){
     try{
