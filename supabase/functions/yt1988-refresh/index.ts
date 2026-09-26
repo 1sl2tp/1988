@@ -323,7 +323,8 @@ function snapshotRowsHash(rows:any[],sourceSig=""){
     clean(row?._displayTitle||row?.title||"",300),
     publishedText(row),
     clean(row?._sourceId||row?.channelId||row?.uploaderId||"",180),
-    isLive(row)?"1":"0"
+    isLive(row)?"1":"0",
+    String(durationSeconds(row)||0)
   ].join("|")).join("\n");
   return fastHash(String(sourceSig||"")+"\n"+body);
 }
@@ -375,10 +376,26 @@ function decodeJsonString(value:any){
   }
 }
 
-async function youtubePlayerIsLive(id:string){
-  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
+function youtubePlayerMetaFromResponse(data:any){
+  let live=data?.videoDetails?.isLive===true||data?.videoDetails?.isLiveContent===true;
+  const tracking=Array.isArray(data?.responseContext?.serviceTrackingParams)
+    ?data.responseContext.serviceTrackingParams
+    :[];
+  for(const service of tracking){
+    for(const param of Array.isArray(service?.params)?service.params:[]){
+      if(param?.key==="is_viewed_live"&&String(param?.value||"").toLowerCase()==="true"){
+        live=true;
+      }
+    }
+  }
+  const duration=parseDurationValue(data?.videoDetails?.lengthSeconds);
+  return {duration:live?-1:duration,isLive:live};
+}
+
+async function youtubePlayerMetadata(id:string){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return {duration:0,isLive:false};
   const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),2200);
+  const timer=setTimeout(()=>controller.abort(),2600);
   try{
     const res=await fetch(
       "https://www.youtube.com/youtubei/v1/player?key="+
@@ -404,25 +421,18 @@ async function youtubePlayerIsLive(id:string){
         })
       }
     );
-    if(!res.ok)return false;
+    if(!res.ok)return {duration:0,isLive:false};
     const data=await res.json().catch(()=>null);
-    if(data?.videoDetails?.isLive===true)return true;
-    const tracking=Array.isArray(data?.responseContext?.serviceTrackingParams)
-      ?data.responseContext.serviceTrackingParams
-      :[];
-    for(const service of tracking){
-      for(const param of Array.isArray(service?.params)?service.params:[]){
-        if(param?.key==="is_viewed_live"){
-          return String(param?.value||"").toLowerCase()==="true";
-        }
-      }
-    }
-    return false;
+    return youtubePlayerMetaFromResponse(data);
   }catch{
-    return false;
+    return {duration:0,isLive:false};
   }finally{
     clearTimeout(timer);
   }
+}
+
+async function youtubePlayerIsLive(id:string){
+  return (await youtubePlayerMetadata(id)).isLive;
 }
 
 async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
@@ -1149,6 +1159,97 @@ Deno.serve(async(req:Request)=>{
       return true;
     });
 
+    // Channel RSS fallbacks often have duration=0. Resolve recent unknown
+    // durations once on the server before publishing any non-live feed. This
+    // makes <=60s filtering authoritative instead of relying on #shorts hints.
+    const durationCandidates:any[]=[];
+    const durationCandidateIds=new Set<string>();
+    for(const [channelId,items] of channelRows){
+      for(const row of items){
+        const id=videoId(row);
+        const age=ageMs(row);
+        const checkedAt=Number(row?._durationCheckedAt)||0;
+        if(
+          !id||
+          durationCandidateIds.has(id)||
+          isLive(row)||
+          isTooShortVideo(row)||
+          durationSeconds(row)>0||
+          !Number.isFinite(age)||
+          age<0||
+          age>=7*DAY_MS||
+          (checkedAt&&now-checkedAt<15*60*1000)
+        )continue;
+        durationCandidateIds.add(id);
+        durationCandidates.push({id,age});
+      }
+    }
+    durationCandidates.sort((a,b)=>a.age-b.age);
+
+    const durationMeta=new Map<string,any>();
+    await mapLimit(durationCandidates.slice(0,80),8,async(candidate)=>{
+      const meta=await youtubePlayerMetadata(candidate.id);
+      durationMeta.set(candidate.id,{...meta,checkedAt:Date.now()});
+      return true;
+    });
+
+    const durationChangedChannels=new Set<string>();
+    if(durationMeta.size){
+      for(const [channelId,items] of channelRows){
+        let changed=false;
+        const enriched=items.map((row:any)=>{
+          const id=videoId(row);
+          const meta=durationMeta.get(id);
+          if(!meta)return row;
+          changed=true;
+          return {
+            ...row,
+            duration:meta.isLive?-1:(Number(meta.duration)||0),
+            isLive:meta.isLive===true,
+            _durationCheckedAt:meta.checkedAt
+          };
+        });
+        if(changed){
+          channelRows.set(channelId,enriched);
+          durationChangedChannels.add(channelId);
+        }
+      }
+    }
+
+    // Persist duration enrichment even for channels that were not otherwise due,
+    // without changing their channel refresh cadence.
+    for(const id of durationChangedChannels){
+      const items=channelRows.get(id)||[];
+      const source=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
+      const previous=cacheById.get(id)||{};
+      const index=cacheWrites.findIndex((row:any)=>row.channel_id===id);
+      const newest=items
+        .map((row:any)=>({id:videoId(row),age:ageMs(row)}))
+        .filter((row:any)=>row.id&&Number.isFinite(row.age)&&row.age>=0&&row.age<Number.MAX_SAFE_INTEGER)
+        .sort((a:any,b:any)=>a.age-b.age)[0]||null;
+      const cacheHash=fastHash(items.map((row:any)=>[
+        videoId(row),clean(row?.title,300),publishedText(row),String(durationSeconds(row)||0)
+      ].join("|")).join("\n"));
+      const existing=index>=0?cacheWrites[index]:null;
+      const write={
+        profile_key:PROFILE,
+        channel_id:id,
+        items,
+        hash:cacheHash,
+        newest_video_id:newest?.id||clean(previous?.newest_video_id,64),
+        newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():(previous?.newest_uploaded_at||null),
+        source_name:clean(source?.name||previous?.source_name||"",180),
+        thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+        checked_at:existing?.checked_at||previous?.checked_at||new Date().toISOString(),
+        last_success_at:existing?.last_success_at||previous?.last_success_at||null,
+        last_error:existing?.last_error||previous?.last_error||"",
+        retry_after:existing?.retry_after??previous?.retry_after??null,
+        version:Date.now()*100+Math.max(0,index)
+      };
+      if(index>=0)cacheWrites[index]={...existing,...write};
+      else cacheWrites.push(write);
+    }
+
     for(let start=0;start<cacheWrites.length;start+=20){
       const chunk=cacheWrites.slice(start,start+20);
       if(!chunk.length)continue;
@@ -1218,7 +1319,9 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(scope!=="live"){
-        raw=raw.filter((r:any)=>!isTooShortVideo(r));
+        // Unknown duration is not treated as long-form. It stays out until the
+        // server verifies it; only videos strictly longer than 60 seconds pass.
+        raw=raw.filter((r:any)=>!isTooShortVideo(r)&&durationSeconds(r)>60);
       }
       raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
@@ -1256,7 +1359,7 @@ Deno.serve(async(req:Request)=>{
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v10")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v11")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
