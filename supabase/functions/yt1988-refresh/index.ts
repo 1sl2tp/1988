@@ -266,17 +266,6 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   return out;
 }
 
-function decodeXmlText(value:any){
-  return String(value||"")
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,"$1")
-    .replace(/&amp;/g,"&")
-    .replace(/&lt;/g,"<")
-    .replace(/&gt;/g,">")
-    .replace(/&quot;/g,'"')
-    .replace(/&#39;|&apos;/g,"'")
-    .trim();
-}
-
 function decodeJsonString(value:any){
   const raw=String(value||"");
   if(!raw)return "";
@@ -350,184 +339,48 @@ async function selectedSourceLiveNow(source:any){
   }
 }
 
-async function youtubeRssLiveCandidates(source:any){
-  const id=clean(source?.id,180);
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return [];
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),3200);
-  try{
-    const endpoint="https://www.youtube.com/feeds/videos.xml?channel_id="+encodeURIComponent(id);
-    const res=await fetch(endpoint,{
-      signal:controller.signal,
-      cache:"no-store",
-      headers:{accept:"application/atom+xml,application/xml,text/xml,*/*"}
-    });
-    if(!res.ok)throw new Error("youtube_rss_http_"+res.status);
-    const xml=await res.text();
-    const feedTitle=decodeXmlText(
-      xml.match(/<feed[\s\S]*?<title>([\s\S]*?)<\/title>/i)?.[1]||source?.name||""
-    );
-    const out:any[]=[];
-    for(const match of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)){
-      const entry=match[1]||"";
-      const idValue=String(entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1]||"").trim();
-      if(!/^[A-Za-z0-9_-]{11}$/.test(idValue))continue;
-      const published=String(entry.match(/<published>([^<]+)<\/published>/i)?.[1]||"").trim();
-      const uploaded=Date.parse(published);
-      const row=normalizeRow({
-        id:idValue,
-        videoId:idValue,
-        url:"/watch?v="+idValue,
-        title:decodeXmlText(entry.match(/<title>([\s\S]*?)<\/title>/i)?.[1]||""),
-        thumbnail:decodeXmlText(entry.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i)?.[1]||""),
-        uploaderName:feedTitle||clean(source?.name,180),
-        uploaderUrl:"/channel/"+id,
-        uploadedDate:published,
-        publishedText:published,
-        uploaded:Number.isFinite(uploaded)?uploaded:0,
-        duration:0,
-        views:Number(entry.match(/<media:statistics[^>]+views=["'](\d+)["']/i)?.[1]||0)||0,
-        isLive:false
-      },source);
-      if(row)out.push(row);
-      if(out.length>=4)break;
-    }
-    return out;
-  }finally{
-    clearTimeout(timer);
-  }
-}
-
-async function searchSelectedSourceLiveCandidates(
-  source:any,
-  supabaseUrl:string,
-  serviceKey:string
-){
-  const id=clean(source?.id,180);
-  const query=clean(source?.name,180);
-  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!query)return [];
-  const result=await fetchJson(
-    supabaseUrl+"/functions/v1/yt1988?action=search&q="+encodeURIComponent(query)+"&filter=videos",
-    {
-      "apikey":serviceKey,
-      "authorization":"Bearer "+serviceKey
-    },
-    4200
-  );
-  const raw=Array.isArray(result?.data?.items)?result.data.items:
-    Array.isArray(result?.data)?result.data:[];
-  return raw
-    .map((row:any)=>normalizeRow(row,source))
-    .filter((row:any)=>row&&channelId(row)===id&&strongFreshLiveSignal(row))
-    .slice(0,4);
-}
-
 async function discoverGlobalLiveCandidates(
   supabaseUrl:string,
   serviceKey:string,
   excludedSourceIds:Set<string>,
   keywords:string[]
 ){
-  const deadline=Date.now()+22000;
+  const deadline=Date.now()+12000;
   const out:any[]=[];
-  const searchStates=LIVE_SEARCH_QUERIES.map((query)=>({
-    query,
-    nextpage:"",
-    first:true,
-    done:false
-  }));
 
-  const consume=async(state:any)=>{
-    const action=state.first
-      ?"search&q="+encodeURIComponent(state.query)+"&filter=videos"
-      :"search_next&q="+encodeURIComponent(state.query)+
-        "&filter=videos&nextpage="+encodeURIComponent(state.nextpage);
-    const result=await fetchJson(
-      supabaseUrl+"/functions/v1/yt1988?action="+action,
-      {
-        "apikey":serviceKey,
-        "authorization":"Bearer "+serviceKey
-      },
-      4200
-    );
-    const raw=Array.isArray(result?.data?.items)?result.data.items:
-      Array.isArray(result?.data)?result.data:[];
-
-    for(const item of raw){
-      const row=normalizeRow(item,{});
-      if(!row||!strongFreshLiveSignal(row))continue;
-      const sid=channelId(row);
-      if(sid&&excludedSourceIds.has(sid))continue;
-      if(liveKeywordBlocked(row,keywords))continue;
-      out.push({...row,_liveOrigin:"search"});
-    }
-
-    state.nextpage=String(result?.data?.nextpage||"").trim();
-    state.first=false;
-    state.done=!state.nextpage;
-  };
-
-  // Source 1: broad external LIVE discovery. Run first pages concurrently so
-  // every Vietnamese LIVE query gets a chance before the deadline.
-  await mapLimit(searchStates,4,async(state)=>{
+  // Source 1 is exactly one fresh page for each broad LIVE query. This keeps
+  // outside discovery independent without consuming quota needed by Source 2.
+  await mapLimit(LIVE_SEARCH_QUERIES,4,async(query)=>{
     if(Date.now()>=deadline)return false;
     try{
-      await consume(state);
+      const result=await fetchJson(
+        supabaseUrl+"/functions/v1/yt1988?action=search&q="+
+          encodeURIComponent(query)+"&filter=videos",
+        {
+          "apikey":serviceKey,
+          "authorization":"Bearer "+serviceKey
+        },
+        4200
+      );
+      const raw=Array.isArray(result?.data?.items)?result.data.items:
+        Array.isArray(result?.data)?result.data:[];
+
+      for(const item of raw){
+        const row=normalizeRow(item,{});
+        if(!row||!strongFreshLiveSignal(row))continue;
+        const sid=channelId(row);
+        if(sid&&excludedSourceIds.has(sid))continue;
+        if(liveKeywordBlocked(row,keywords))continue;
+        out.push({...row,_liveOrigin:"search"});
+      }
       return true;
     }catch(error){
-      console.warn("global live search failed",state.query,String(error));
-      state.done=true;
+      console.warn("global live search failed",query,String(error));
       return false;
     }
   });
 
-  // One fresh first page per query is enough for outside discovery. Do not
-  // paginate here: Source 2 still needs its own single selected-channel pass,
-  // and pagination would consume the shared upstream quota before that step.
   return dedupeRows(out);
-}
-
-async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
-  const id=videoId(row);
-  if(!id)return null;
-
-  // Never trust a cached/search LIVE flag by itself. Every candidate from both
-  // Source 1 (external discovery) and Source 2 (selected channels) must pass a
-  // fresh stream check before it can enter the shared LIVE package.
-  const result=await fetchJson(
-    supabaseUrl+"/functions/v1/yt1988?action=video&id="+encodeURIComponent(id),
-    {
-      "apikey":serviceKey,
-      "authorization":"Bearer "+serviceKey
-    },
-    3600
-  );
-  const data=result?.data||{};
-  const active=
-    data?.livestream===true&&(
-      !!clean(data?.hls||"",1200)||
-      (Array.isArray(data?.hlsSources)&&data.hlsSources.some((item:any)=>!!clean(item?.url||"",1200)))||
-      Number(data?.duration)<0
-    );
-  if(!active)return null;
-  return {
-    ...row,
-    isLive:true,
-    duration:Number(data?.duration)<0?Number(data.duration):-1,
-    uploaded:-1
-  };
-}
-
-async function verifyLiveRows(rows:any[],supabaseUrl:string,serviceKey:string){
-  const verified=await mapLimit(rows,8,async(row)=>{
-    try{
-      return await verifyLiveCandidate(row,supabaseUrl,serviceKey);
-    }catch(error){
-      console.warn("live verify failed",videoId(row),String(error));
-      return null;
-    }
-  });
-  return verified.filter(Boolean);
 }
 
 async function claimLease(rest:string,headers:any){
