@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v5";
+const NON_LIVE_PIPELINE_VERSION="non-live-v6";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -410,6 +410,138 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   };
   await Promise.all(Array.from({length:Math.min(limit,items.length)},worker));
   return out;
+}
+
+function sourceSuggestionCandidate(row:any){
+  const id=channelId(row);
+  const name=[
+    row?._sourceName,
+    row?.uploaderName,
+    row?.uploader,
+    row?.channelName,
+    row?.name
+  ].map(validChannelDisplayName).find(Boolean)||"";
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)||!name)return null;
+  return {
+    id,
+    name,
+    thumbnailUrl:clean(
+      row?._sourceThumbnailUrl||
+      row?.uploaderThumbnailUrl||
+      row?.channelThumbnailUrl||
+      row?.uploaderAvatar||
+      row?.channelAvatar||
+      row?.thumbnailUrl||
+      row?.thumbnail||
+      "",
+      1000
+    )
+  };
+}
+
+async function storeServerSourceSuggestions(
+  rest:string,
+  authHeaders:any,
+  scope:string,
+  candidates:any[]
+){
+  if(!validScopeSyntax(scope))return 0;
+  const byId=new Map<string,any>();
+  for(const row of candidates){
+    const candidate=sourceSuggestionCandidate(row);
+    if(!candidate||byId.has(candidate.id))continue;
+    byId.set(candidate.id,candidate);
+    if(byId.size>=12)break;
+  }
+  if(!byId.size)return 0;
+
+  const nowIso=new Date().toISOString();
+  const payload=[...byId.values()].map((candidate,index)=>({
+    profile_key:PROFILE,
+    scope,
+    channel_id:candidate.id,
+    status:"normal",
+    name:candidate.name,
+    thumbnail_url:candidate.thumbnailUrl,
+    subscribers:"",
+    version:Date.now()*100+index,
+    updated_at:nowIso
+  }));
+
+  const writeRes=await fetch(
+    rest+"/yt1988_source_state?on_conflict=profile_key,scope,channel_id",
+    {
+      method:"POST",
+      headers:{...authHeaders,"prefer":"resolution=ignore-duplicates,return=minimal"},
+      body:JSON.stringify(payload)
+    }
+  );
+  if(!writeRes.ok){
+    console.warn("source suggestion write failed",scope,await writeRes.text());
+    return 0;
+  }
+
+  // Suggestions are a rolling server-owned list, not browser history.
+  const pruneRes=await fetch(
+    rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
+    "&scope=eq."+encodeURIComponent(scope)+
+    "&status=eq.normal&select=channel_id&order=updated_at.desc&offset=48",
+    {headers:authHeaders}
+  ).catch(()=>null);
+  if(pruneRes?.ok){
+    const stale=await pruneRes.json().catch(()=>[]);
+    const ids=(Array.isArray(stale)?stale:[])
+      .map((row:any)=>clean(row?.channel_id,180))
+      .filter((id:string)=>/^UC[A-Za-z0-9_-]+$/.test(id));
+    if(ids.length){
+      await fetch(
+        rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
+        "&scope=eq."+encodeURIComponent(scope)+
+        "&status=eq.normal&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")",
+        {method:"DELETE",headers:authHeaders}
+      ).catch(()=>{});
+    }
+  }
+  return payload.length;
+}
+
+async function discoverServerSourceSuggestions(
+  supabaseUrl:string,
+  serviceKey:string,
+  rest:string,
+  authHeaders:any,
+  scope:string,
+  seedRows:any[]
+){
+  const seeds=dedupeRows(seedRows)
+    .filter((row:any)=>!isLive(row))
+    .sort((a:any,b:any)=>ageMs(a)-ageMs(b))
+    .slice(0,2);
+  if(!seeds.length)return 0;
+
+  const discovered:any[]=[];
+  await mapLimit(seeds,2,async(seed:any)=>{
+    const query=clean(seed?._displayTitle||seed?.title||"",140);
+    if(!query)return false;
+    try{
+      const result=await fetchJson(
+        supabaseUrl+"/functions/v1/yt1988?action=search&q="+
+          encodeURIComponent(query)+"&filter=videos",
+        {
+          "apikey":serviceKey,
+          "authorization":"Bearer "+serviceKey
+        },
+        4500
+      );
+      for(const row of Array.isArray(result?.data?.items)?result.data.items:[]){
+        const candidate=sourceSuggestionCandidate(row);
+        if(candidate)discovered.push(row);
+        if(discovered.length>=18)break;
+      }
+    }catch{}
+    return true;
+  });
+  return await storeServerSourceSuggestions(rest,authHeaders,scope,discovered);
 }
 
 function decodeJsonString(value:any){
@@ -1029,6 +1161,15 @@ Deno.serve(async(req:Request)=>{
       const verifiedExternalRows=(discovery.external||[])
         .map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
 
+      // LIVE suggestions are also server-owned. External live discovery may
+      // surface new channels, but the browser never invents or persists them.
+      await storeServerSourceSuggestions(
+        rest,
+        authHeaders,
+        LIVE_SOURCE_SCOPE,
+        verifiedExternalRows
+      ).catch(()=>0);
+
       // STEP 2 — scan the selected library once. Fresh selected rows already
       // found by STEP 1 are reused, so only the remaining selected channels need
       // one lightweight /live HEAD check.
@@ -1111,6 +1252,7 @@ Deno.serve(async(req:Request)=>{
     )];
     const channelRows=new Map<string,any[]>();
     const channelFetchOk=new Set<string>();
+    const newlyDiscoveredRowsByChannel=new Map<string,any[]>();
     const cacheById=new Map<string,any>();
     const cacheWrites:any[]=[];
     const now=Date.now();
@@ -1249,6 +1391,17 @@ Deno.serve(async(req:Request)=>{
         });
 
         if(!fresh.length)throw new Error("empty_channel_payload");
+
+        const previousIds=new Set(
+          (Array.isArray(previous?.items)?previous.items:previousRows)
+            .map((row:any)=>videoId(row))
+            .filter(Boolean)
+        );
+        const newlyFound=fresh.filter((row:any)=>{
+          const id=videoId(row);
+          return !!id&&!previousIds.has(id);
+        });
+        if(newlyFound.length)newlyDiscoveredRowsByChannel.set(id,newlyFound);
 
         const sourceName=[
           source?.name,
@@ -1534,6 +1687,23 @@ Deno.serve(async(req:Request)=>{
       );
       if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());
     }
+
+    // Source suggestions are generated only by the server, and only after a
+    // selected channel actually yields a new video. The UI merely reads these
+    // normal rows from yt1988-state.
+    await mapLimit(nonLiveScopes,2,async(scope)=>{
+      const seedRows=(selectedByScope.get(scope)||[])
+        .flatMap((source:any)=>newlyDiscoveredRowsByChannel.get(source.id)||[]);
+      if(!seedRows.length)return 0;
+      return await discoverServerSourceSuggestions(
+        supabaseUrl,
+        serviceKey,
+        rest,
+        authHeaders,
+        scope,
+        seedRows
+      ).catch(()=>0);
+    });
 
     const results:any[]=[];
     const degradedNotes:string[]=[];
