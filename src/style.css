@@ -4181,3 +4181,104 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
 .player-frame.floating-iframe.float-geometry-commit{
   transition:none!important;
 }
+
+
+/* YouTube-like page surface + scrollbar v398.
+   One neutral page colour owns the main scrolling surfaces. Scrollbar track
+   uses the same colour so it disappears into the page; only the thumb remains. */
+:root{
+  --main-page-bg:#0f0f0f;
+  --main-scroll-thumb:#666;
+  --main-scroll-thumb-hover:#8a8a8a;
+}
+
+html,
+body{
+  background-color:var(--main-page-bg)!important;
+  scrollbar-width:thin;
+  scrollbar-color:var(--main-scroll-thumb) var(--main-page-bg);
+}
+
+.app-shell,
+.feed-section{
+  background-color:var(--main-page-bg)!important;
+}
+
+/* YouTube-style feed cards do not introduce a second grey panel below art. */
+html:not(.watch-browse) .feed>.card,
+html.watch-browse .feed>.card{
+  background:transparent!important;
+  border-color:transparent!important;
+}
+html:not(.watch-browse) .feed>.card .card-copy,
+html.watch-browse .feed>.card .card-copy{
+  background:var(--main-page-bg)!important;
+}
+html:not(.watch-browse) .feed>.card .thumb-wrap,
+html.watch-browse .feed>.card .thumb-wrap{
+  background:var(--main-page-bg)!important;
+}
+
+/* Chromium/WebKit scrollbar, visually matched to the neutral page surface. */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.feed-section::-webkit-scrollbar,
+.source-browse::-webkit-scrollbar,
+.source-preview::-webkit-scrollbar,
+.source-list::-webkit-scrollbar{
+  width:10px;
+  height:10px;
+  background:var(--main-page-bg);
+}
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+.feed-section::-webkit-scrollbar-track,
+.source-browse::-webkit-scrollbar-track,
+.source-preview::-webkit-scrollbar-track,
+.source-list::-webkit-scrollbar-track{
+  background:var(--main-page-bg);
+}
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+.feed-section::-webkit-scrollbar-thumb,
+.source-browse::-webkit-scrollbar-thumb,
+.source-preview::-webkit-scrollbar-thumb,
+.source-list::-webkit-scrollbar-thumb{
+  min-height:36px;
+  border:2px solid var(--main-page-bg);
+  border-radius:999px;
+  background:var(--main-scroll-thumb);
+  background-clip:padding-box;
+}
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+.feed-section::-webkit-scrollbar-thumb:hover,
+.source-browse::-webkit-scrollbar-thumb:hover,
+.source-preview::-webkit-scrollbar-thumb:hover,
+.source-list::-webkit-scrollbar-thumb:hover{
+  background:var(--main-scroll-thumb-hover);
+  background-clip:padding-box;
+}
+html::-webkit-scrollbar-corner,
+body::-webkit-scrollbar-corner,
+.feed-section::-webkit-scrollbar-corner{
+  background:var(--main-page-bg);
+}
+
+/* Keep deliberately hidden horizontal rails hidden. */
+.topic-chips,
+.trend-topics,
+.search-refinements,
+.search-source-scroll,
+.series-episodes,
+.context-brief-sources{
+  scrollbar-width:none;
+}
+.topic-chips::-webkit-scrollbar,
+.trend-topics::-webkit-scrollbar,
+.search-refinements::-webkit-scrollbar,
+.search-source-scroll::-webkit-scrollbar,
+.series-episodes::-webkit-scrollbar,
+.context-brief-sources::-webkit-scrollbar{
+  display:none!important;
+}

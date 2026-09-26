@@ -142,6 +142,9 @@ assert.doesNotMatch(app,/document\.addEventListener\("touchstart",event=>\{\s*la
 assert.match(app,/syncFloatingPlayerViewport\(frame,\{settle:true\}\)/);
 assert.match(app,/ratio:currentFloatingAspect\(\)/);
 assert.doesNotMatch(style,/transition:transform \.16s ease,width \.16s ease,height \.16s ease/);
+assert.match(style,/--main-page-bg:#0f0f0f/);
+assert.match(style,/scrollbar-color:var\(--main-scroll-thumb\) var\(--main-page-bg\)/);
+assert.match(style,/\.feed>\.card \.card-copy[\s\S]*background:var\(--main-page-bg\)!important/);
 assert.doesNotMatch(app,/currentThumbWrap\.querySelectorAll\("\\.duration,\\.live-badge"\)\.forEach\(node=>node\.remove\(\)\)/);
 assert.match(app,/menu\.style\.visibility="hidden"/);
 assert.match(app,/menu\.style\.visibility="visible"/);
