@@ -11372,7 +11372,14 @@ async function playVideo(id,seedMeta={}){
       backgroundPlayer.setMetadata(meta);
       const related=Array.isArray(detail?.related)?detail.related:[];
       const playlist=detail?.playlist||null;
-      if(!state.activeFeed&&!state.searchResultsActive){
+
+      // A video opened from Search is the exact point where context analysis
+      // should begin. activeFeed may still be "latest"/another home tab, so it
+      // must NOT block the selected-video recommendation pipeline.
+      if(
+        enteredFromSearch ||
+        (!state.activeFeed&&!state.searchResultsActive)
+      ){
         void buildSelectedVideoRecommendations(local,id,meta,related,playlist);
       }
     }).catch(()=>{});
