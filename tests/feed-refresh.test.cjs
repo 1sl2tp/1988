@@ -52,3 +52,27 @@ test('music tab blocks beat, kara and karaoke only in music scope',()=>{
  assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Nhạc'},{title:'Tình yêu Official MV'}),false);
  assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Phim'},{title:'Karaoke đêm'}),false);
 });
+
+
+test('package hashes change when verified duration changes',()=>{
+ const c=client();
+ const a={id:'abcdefghijk',title:'Song',publishedText:'now',duration:61};
+ const b={...a,duration:180};
+ assert.notEqual(c.snapshotRowsHash([a]),c.snapshotRowsHash([b]),'client duration hash');
+ assert.notEqual(s.snapshotRowsHash([a]),s.snapshotRowsHash([b]),'server duration hash');
+});
+
+test('youtube player metadata exposes exact duration and live state',()=>{
+ const normal=s.youtubePlayerMetaFromResponse({videoDetails:{lengthSeconds:'61',isLive:false}});
+ assert.equal(normal.duration,61);
+ assert.equal(normal.isLive,false);
+ const live=s.youtubePlayerMetaFromResponse({videoDetails:{lengthSeconds:'30',isLiveContent:true}});
+ assert.equal(live.duration,-1);
+ assert.equal(live.isLive,true);
+ const tracked=s.youtubePlayerMetaFromResponse({
+  videoDetails:{lengthSeconds:'180'},
+  responseContext:{serviceTrackingParams:[{params:[{key:'is_viewed_live',value:'true'}]}]}
+ });
+ assert.equal(tracked.duration,-1);
+ assert.equal(tracked.isLive,true);
+});
