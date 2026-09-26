@@ -264,7 +264,7 @@ Deno.serve(async (req) => {
       });
       if (!rpc.ok) return json({ ok: false, error: "write_failed", detail: await rpc.text() }, 502);
       const saved = await rpc.json();
-      triggerPackageRefresh(supabaseUrl, serviceKey, [scope]);
+      triggerPackageRefresh(supabaseUrl, serviceKey, [scope, "live"]);
       return json({ ok: true, source: saved, version });
     }
 
@@ -327,7 +327,8 @@ Deno.serve(async (req) => {
     }
 
     if (changedScopes.length) {
-      triggerPackageRefresh(supabaseUrl, serviceKey, changedScopes);
+      const refreshScopes = [...new Set([...changedScopes, "live"])];
+      triggerPackageRefresh(supabaseUrl, serviceKey, refreshScopes);
     }
     return json({ ok: true, state, version, updated_at: stateSavedAt, refreshed_scopes: changedScopes });
   }
