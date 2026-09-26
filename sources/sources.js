@@ -1,5 +1,32 @@
 'use strict';
 
+function disableNativeHoverHints(){
+  const strip=root=>{
+    if(!root)return;
+    if(root.nodeType===1&&root.hasAttribute?.("title"))root.removeAttribute("title");
+    root.querySelectorAll?.("[title]").forEach(el=>el.removeAttribute("title"));
+  };
+  strip(document.documentElement);
+  const observer=new MutationObserver(mutations=>{
+    for(const mutation of mutations){
+      if(mutation.type==="attributes"){
+        const target=mutation.target;
+        if(target?.hasAttribute?.("title"))target.removeAttribute("title");
+        continue;
+      }
+      for(const node of mutation.addedNodes)strip(node);
+    }
+  });
+  observer.observe(document.documentElement,{
+    subtree:true,
+    childList:true,
+    attributes:true,
+    attributeFilter:["title"]
+  });
+}
+disableNativeHoverHints();
+
+
 const STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 const PIN="8881";
 const AUTH_KEY="1988-settings-unlocked-v1";
