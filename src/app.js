@@ -9622,6 +9622,7 @@ function restoreDesktopAutoBackground(){
   }
 
   updateModeUi();
+  if(shouldPlay)statusText.textContent="Video đang phát";
   return true;
 }
 
@@ -11287,7 +11288,8 @@ function updateNow(meta={}){
 }
 
 function updateModeUi(){
-  const active=state.mode;
+  // Background/lock handoff is automatic. Keep transport modes internal and
+  // never expose manual Video/Nền/Khóa toggles in the watch UI.
   const rows=[
     [videoBtn,"video"],
     [backgroundBtn,"audio"],
@@ -11295,11 +11297,10 @@ function updateModeUi(){
   ];
   rows.forEach(([button,mode])=>{
     if(!button)return;
-    button.hidden=false;
-    button.classList.toggle("active",active===mode);
-    button.setAttribute("aria-pressed",active===mode?"true":"false");
+    button.hidden=true;
+    button.classList.toggle("active",state.mode===mode);
+    button.setAttribute("aria-pressed",state.mode===mode?"true":"false");
   });
-
 }
 
 function updateMediaSession(meta=state.currentMeta||{}){

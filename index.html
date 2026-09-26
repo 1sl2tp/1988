@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-393">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-394">
   <title>1988</title>
 </head>
 <body>
@@ -89,9 +89,9 @@
             <div id="videoMeta" class="video-meta"></div>
           </div>
           <div class="actions" aria-label="Chế độ phát">
-            <button id="videoBtn" class="mode-btn active" type="button" aria-pressed="true">Video</button>
-            <button id="backgroundBtn" class="mode-btn" type="button" aria-pressed="false">Nền</button>
-            <button id="lockBtn" class="mode-btn" type="button" aria-pressed="false">Khóa</button>
+            <button id="videoBtn" class="mode-btn active" type="button" aria-pressed="true" hidden>Video</button>
+            <button id="backgroundBtn" class="mode-btn" type="button" aria-pressed="false" hidden>Nền</button>
+            <button id="lockBtn" class="mode-btn" type="button" aria-pressed="false" hidden>Khóa</button>
             <button id="shareBtn" class="mode-btn" type="button">Chia sẻ</button>
           </div>
           <div id="statusText" class="status-text">Sẵn sàng phát video</div>
@@ -286,7 +286,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=393',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=394',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -310,6 +310,6 @@
   <script src="./src/media-meta.js?v=2"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-393"></script>
+  <script defer src="./src/app.js?v=watch-browse-394"></script>
 </body>
 </html>

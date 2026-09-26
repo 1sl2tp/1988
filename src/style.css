@@ -4138,3 +4138,12 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
     display:none!important;
   }
 }
+
+
+/* Automatic playback modes v394.
+   Video/audio/lock switching is internal; never surface manual mode buttons. */
+#videoBtn,
+#backgroundBtn,
+#lockBtn{
+  display:none!important;
+}
