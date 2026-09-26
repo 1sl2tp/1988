@@ -425,7 +425,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="319";
+const LOCAL_DATA_SCHEMA_VERSION="320";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -2504,9 +2504,25 @@ function updateSourceSummary(rows=managedChannelLibrary()){
     const activeSelectedCount=activeScope===LIVE_SOURCE_SCOPE
       ?liveEffectiveSelectedSet().size
       :selectedSources(activeScope).length;
-    sourceSummary.textContent=sourceManageMode
-      ?selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn"
-      :activeSelectedCount+" nguồn đã chọn";
+
+    if(sourceManageMode&&scope===LIVE_SOURCE_SCOPE){
+      const directBlocked=blockedSetForScope(LIVE_SOURCE_SCOPE);
+      const directSelected=selectedSetForScope(LIVE_SOURCE_SCOPE);
+      const directCount=[...directSelected].filter(id=>!blocked.has(id)&&!directBlocked.has(id)).length;
+      const inheritedCount=Math.max(0,selectedCount-directCount);
+      sourceSummary.textContent=
+        directCount+" chọn · "+
+        inheritedCount+" đã có · "+
+        blockedCount+" chặn · "+
+        totalCount+" nguồn";
+    }else if(sourceManageMode){
+      sourceSummary.textContent=
+        selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn";
+    }else{
+      sourceSummary.textContent=activeScope===LIVE_SOURCE_SCOPE
+        ?activeSelectedCount+" nguồn dùng cho Live"
+        :activeSelectedCount+" nguồn đã chọn";
+    }
   }
 }
 
