@@ -3815,3 +3815,52 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile Watch header removal v364.
+   When a video is open, hide the entire top header row (1988 logo + search/source
+   controls) and move the player/source/feed rows up by one slot. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-inner{
+    display:none!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-stage-h,56.25vw)
+      var(--watch-source-row-h)
+      minmax(0,1fr)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    grid-row:1!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav{
+    grid-row:2!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    grid-row:3!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body::before{
+    height:calc(
+      var(--watch-stage-h,56.25vw) +
+      var(--watch-source-row-h) +
+      40px
+    )!important;
+  }
+
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-stage-h,auto)
+      var(--watch-source-row-h)
+      auto!important;
+  }
+}
+
