@@ -425,7 +425,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="321";
+const LOCAL_DATA_SCHEMA_VERSION="322";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -6783,6 +6783,36 @@ function isTooShortVideo(row={}){
   return seconds>0&&seconds<=60;
 }
 
+const VI_TITLE_WORDS=new Set(
+  "va voi cua cho trong tren duoi tai tu den nay hom ngay moi nhat khong co la mot nhung nguoi viet nam tin tuc nhac phim hai the thao cong nghe kinh te giai tri truc tiep du bao thoi tiet sau truoc dang da se can gia thi truong xuat khau tong bi bat cong an doi tuyen giai vo dich ban ket chung ca si bai hat lien khuc tuyen chon dem chuyen tinh mua nang mien bac trung ha noi hcm tphcm pin dep may dien thoai xe nha dat hoc sinh giao vien benh vien bo me con tre nuoc dan".split(" ")
+);
+const EN_TITLE_WORDS=new Set(
+  "the and with from this that your you new best how what why when where who whose which for of to in on at after before official news weather forecast today full program woman man market world game match matches highlights could would should really over under into out now top first last released battery design buy buys buying comes come sell sells touring showroom roundup shocking due decline laziness goes goal goals replace candidates breaking morning night year years old young found fire killed dead injured reason using used use many sunny days storm rain president general military aid review music song video live versus vs is are was were be been being has have had do does did can will may might more most less only just all any every about around through during without within between against among than then them they their there here our we us it its he she his her him city country people police court company team player players coach final semi".split(" ")
+);
+
+function titleLooksEnglishOnly(row={}){
+  const raw=clean(row?._displayTitle||row?.title||"");
+  if(!raw)return false;
+  if(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(raw)){
+    return false;
+  }
+
+  const tokens=normalizeSearchText(raw).split(" ").filter(token=>token.length>1);
+  if(tokens.length<3)return false;
+  let vi=0,en=0;
+  for(const token of tokens){
+    if(VI_TITLE_WORDS.has(token))vi++;
+    if(EN_TITLE_WORDS.has(token))en++;
+  }
+  if(vi>=2)return false;
+  if(en>=3&&en>=vi+2)return true;
+  return vi===0&&en>=2&&tokens.length>=5;
+}
+
+function shouldHideVideo(row={}){
+  return isTooShortVideo(row)||titleLooksEnglishOnly(row);
+}
+
 
 const IDENTIFIED_NEWS_SOURCES=[
   {
@@ -8421,7 +8451,7 @@ function mergeUniqueRows(base=[],extra=[]){
   const seen=new Set();
   const out=[];
   for(const row of [...base,...extra]){
-    if(isTooShortVideo(row))continue;
+    if(shouldHideVideo(row))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -8774,7 +8804,7 @@ function dedupeMusicRows(rows=[]){
 
 function renderDirectSearchResults(rows=[],query="",scope=""){
   const ranked=(Array.isArray(rows)?rows:[])
-    .filter(row=>!isTooShortVideo(row))
+    .filter(row=>!shouldHideVideo(row))
     .filter(row=>!isBlockedSourceRow(row,scope))
     .map((row,index)=>({row,index,score:searchResultScore(row,query,scope)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index)
@@ -8789,7 +8819,7 @@ function renderDirectSearchResults(rows=[],query="",scope=""){
 
 function renderSearchGroups(rows=[],query="",scope="",extrasBySource=new Map()){
   const sourceRows=(Array.isArray(rows)?rows:[])
-    .filter(row=>!isTooShortVideo(row))
+    .filter(row=>!shouldHideVideo(row))
     .filter(row=>!isBlockedSourceRow(row,scope));
   const groups=new Map();
 
@@ -9234,7 +9264,7 @@ function filmSuggestionSection(title,rows=[],options={}){
     GENERAL_SOURCE_SCOPE
   );
   for(const row of rows){
-    if(isTooShortVideo(row))continue;
+    if(shouldHideVideo(row))continue;
     if(isBlockedSourceRow(row,scope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
@@ -9760,7 +9790,7 @@ function renderCards(rows=[],options={}){
   const avatarPaintJobs=[];
   const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
-    if(isTooShortVideo(row))continue;
+    if(shouldHideVideo(row))continue;
     if(isBlockedSourceRow(row,renderScope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
@@ -12960,7 +12990,7 @@ function readFeedCache(name){
 
     const blocked=blockedSetForScope(scope);
     let items=row.items
-      .filter(item=>!isTooShortVideo(item))
+      .filter(item=>!shouldHideVideo(item))
       .filter(item=>!isBlockedSourceRow(item,scope));
     if(scope===LIVE_SOURCE_SCOPE){
       items=items.filter(item=>!liveKeywordBlockedClient(item));
@@ -13012,7 +13042,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   }
 
   const context=packageContext(snapshotName,explicitScope,explicitLabel);
-  const rawRows=(Array.isArray(rows)?rows:[]).filter(row=>!isTooShortVideo(row));
+  const rawRows=(Array.isArray(rows)?rows:[]).filter(row=>!shouldHideVideo(row));
   const qualityRows=context.kind==="content"
     ?rawRows.filter(row=>!isStrongContentAd(row))
     :rawRows;
