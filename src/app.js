@@ -8004,7 +8004,7 @@ function scheduleNormalSuggestions(){
 }
 
 
-function revealTopicChip(button,{behavior="smooth"}={}){
+function revealTopicChip(button,{behavior="auto"}={}){
   if(!button||!topicChips)return;
 
   const rail=topicChips;
@@ -8030,7 +8030,7 @@ function revealTopicChip(button,{behavior="smooth"}={}){
   rail.scrollTo({left,behavior});
 }
 
-function setActiveChip(name,{behavior="smooth"}={}){
+function setActiveChip(name,{behavior="auto"}={}){
   state.activeFeed=name||"";
   let activeButton=null;
   topicChips?.querySelectorAll(".topic-chip").forEach(button=>{
@@ -8871,7 +8871,7 @@ function renderParentCategories(){
     .join("|");
 
   if(topicChips.dataset.parentCategorySignature===signature){
-    setActiveChip(state.activeFeed);
+    setActiveChip(state.activeFeed,{behavior:"auto"});
     return;
   }
 
@@ -8898,7 +8898,7 @@ function renderParentCategories(){
   topicChips.appendChild(addButton);
 
   topicChips.dataset.parentCategorySignature=signature;
-  setActiveChip(state.activeFeed);
+  setActiveChip(state.activeFeed,{behavior:"auto"});
 }
 
 function renderTrendTopics(){
@@ -11135,10 +11135,10 @@ function updateNow(meta={}){
   const currentCard=[...feed.querySelectorAll("[data-video-id]")]
     .find(card=>card.dataset.videoId===state.currentId);
   const art=clean(
+    currentCard?.dataset?.thumb||
     meta.thumbnailUrl||
     meta.thumbnail||
     meta.poster||
-    currentCard?.dataset?.thumb||
     ""
   );
   if(art)applyChromeTintFromArt(art,"watch",state.currentId);
@@ -13099,23 +13099,33 @@ function averageThumbTint(url){
   return task;
 }
 
-function applyPageChromeTint(color,scope="watch"){
-  const root=document.documentElement;
+function parseChromeRgb(color=""){
   const match=String(color||"").match(/\d+(?:\.\d+)?/g);
-  if(!match||match.length<3)return;
+  if(!match||match.length<3)return null;
+  return [
+    Math.max(0,Math.min(255,Math.round(Number(match[0])||0))),
+    Math.max(0,Math.min(255,Math.round(Number(match[1])||0))),
+    Math.max(0,Math.min(255,Math.round(Number(match[2])||0)))
+  ];
+}
 
-  const r=Math.max(0,Math.min(255,Math.round(Number(match[0])||0)));
-  const g=Math.max(0,Math.min(255,Math.round(Number(match[1])||0)));
-  const b=Math.max(0,Math.min(255,Math.round(Number(match[2])||0)));
+let visualChromeRgb=[11,11,12];
+let visualChromeAnim=0;
+let visualCommitSeq=0;
+let visualAppliedKey="";
+let homeChromeTintThumb="";
+let homeChromeTintRaf=0;
+let homeChromeTintTimer=0;
+
+function writePageChromeRgb(rgb,scope="watch"){
+  const root=document.documentElement;
+  const [r,g,b]=rgb.map(value=>Math.max(0,Math.min(255,Math.round(Number(value)||0))));
 
   root.style.setProperty("--page-chrome-tint",`rgb(${r},${g},${b})`);
   root.style.setProperty("--page-chrome-glow",`rgba(${r},${g},${b},.52)`);
   root.style.setProperty("--page-chrome-soft",`rgba(${r},${g},${b},.26)`);
   root.style.setProperty("--page-chrome-faint",`rgba(${r},${g},${b},.12)`);
 
-  // Mobile uses ONE shared dark surface for header -> source row -> feed.
-  // The sampled video colour only nudges that surface, so all rows change
-  // together without creating separate coloured bands.
   const mobileMix=.32;
   const base=[11,11,12];
   const sr=Math.round(base[0]*(1-mobileMix)+r*mobileMix);
@@ -13123,27 +13133,119 @@ function applyPageChromeTint(color,scope="watch"){
   const sb=Math.round(base[2]*(1-mobileMix)+b*mobileMix);
   root.style.setProperty("--mobile-chrome-surface",`rgb(${sr},${sg},${sb})`);
   root.style.setProperty("--mobile-chrome-tint",`rgba(${r},${g},${b},.18)`);
-
   root.dataset.chromeTintScope=scope;
 }
 
-let pageChromeTintSeq=0;
-let homeChromeTintThumb="";
-let homeChromeTintRaf=0;
+function applyPageChromeTint(color,scope="watch"){
+  const target=parseChromeRgb(color);
+  if(!target)return;
+
+  cancelAnimationFrame(visualChromeAnim);
+  visualChromeAnim=0;
+
+  const from=visualChromeRgb.slice();
+  const distance=Math.max(
+    Math.abs(target[0]-from[0]),
+    Math.abs(target[1]-from[1]),
+    Math.abs(target[2]-from[2])
+  );
+  if(distance<2){
+    visualChromeRgb=target;
+    writePageChromeRgb(target,scope);
+    return;
+  }
+
+  // One animation owns ALL chrome variables. No header/feed/tab can finish
+  // at a different time from the others.
+  const started=performance.now();
+  const duration=180;
+  const step=now=>{
+    const raw=Math.min(1,(now-started)/duration);
+    const t=1-Math.pow(1-raw,3);
+    const rgb=from.map((value,index)=>value+(target[index]-value)*t);
+    visualChromeRgb=rgb;
+    writePageChromeRgb(rgb,scope);
+    if(raw<1)visualChromeAnim=requestAnimationFrame(step);
+    else{
+      visualChromeRgb=target;
+      visualChromeAnim=0;
+      writePageChromeRgb(target,scope);
+    }
+  };
+  visualChromeAnim=requestAnimationFrame(step);
+}
 
 function watchPlaybackVisible(){
   return !!state.currentId&&!playerSection?.hidden;
 }
 
-function applyChromeTintFromArt(art,scope="watch",guardId=""){
+function visualArtElement(art="",scope="home",guardId=""){
+  art=String(art||"").trim();
+  if(!art)return null;
+
+  let card=null;
+  if(scope==="watch"&&guardId){
+    card=[...feed.querySelectorAll("[data-video-id]")]
+      .find(node=>(node.dataset.videoId||"")===guardId)||null;
+  }else{
+    card=[...feed.querySelectorAll("[data-video-id]")]
+      .find(node=>(node.dataset.thumb||"")===art)||null;
+  }
+  return card?.querySelector?.(".thumb-wrap img")||null;
+}
+
+async function waitVisualArtReady(art="",scope="home",guardId=""){
+  const visible=visualArtElement(art,scope,guardId);
+  if(visible instanceof HTMLImageElement){
+    if(visible.complete&&visible.naturalWidth>0){
+      try{await visible.decode?.();}catch{}
+      return true;
+    }
+    await new Promise(resolve=>{
+      let done=false;
+      const finish=()=>{if(done)return;done=true;resolve();};
+      visible.addEventListener("load",finish,{once:true});
+      visible.addEventListener("error",finish,{once:true});
+      setTimeout(finish,900);
+    });
+    try{await visible.decode?.();}catch{}
+    return visible.naturalWidth>0;
+  }
+
+  // Direct URLs can enter Watch without an existing card.
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.decoding="async";
+    let done=false;
+    const finish=value=>{if(done)return;done=true;resolve(value);};
+    img.onload=async()=>{
+      try{await img.decode?.();}catch{}
+      finish(img.naturalWidth>0);
+    };
+    img.onerror=()=>finish(false);
+    img.src=art;
+    if(img.complete&&img.naturalWidth){
+      Promise.resolve(img.decode?.()).catch(()=>{}).finally(()=>finish(true));
+    }
+    setTimeout(()=>finish(false),1100);
+  });
+}
+
+function applyChromeTintFromArt(art,scope="watch",guardId="",force=false){
   art=String(art||"").trim();
   if(!art)return;
 
-  const requestSeq=++pageChromeTintSeq;
   const expectedVideoId=String(guardId||"").trim();
+  const key=scope+"|"+expectedVideoId+"|"+art;
+  if(!force&&key===visualAppliedKey)return;
 
-  void averageThumbTint(art).then(color=>{
-    if(requestSeq!==pageChromeTintSeq||!color)return;
+  const seq=++visualCommitSeq;
+  void (async()=>{
+    await waitVisualArtReady(art,scope,expectedVideoId);
+    if(seq!==visualCommitSeq)return;
+
+    const color=await averageThumbTint(art);
+    if(seq!==visualCommitSeq||!color)return;
 
     if(scope==="home"&&watchPlaybackVisible())return;
     if(
@@ -13152,8 +13254,9 @@ function applyChromeTintFromArt(art,scope="watch",guardId=""){
       String(state.currentId||"")!==expectedVideoId
     )return;
 
+    visualAppliedKey=key;
     applyPageChromeTint(color,scope);
-  });
+  })();
 }
 
 function homeChromeCandidateCard(){
@@ -13164,8 +13267,6 @@ function homeChromeCandidateCard(){
     320,
     Number(window.visualViewport?.height)||window.innerHeight||0
   );
-  // Aim slightly above centre: this is where the user is usually reading the
-  // current card after the fixed mobile header has taken its space.
   const targetY=viewportHeight*.42;
   let best=null;
   let bestScore=Infinity;
@@ -13178,8 +13279,6 @@ function homeChromeCandidateCard(){
     const visibleBottom=Math.min(viewportHeight,rect.bottom);
     const visible=Math.max(0,visibleBottom-visibleTop);
     const centre=(visibleTop+visibleBottom)/2;
-    // Nearest visible card wins; a small visible-area bonus prevents rapid
-    // colour flipping when two cards straddle the focal line.
     const score=Math.abs(centre-targetY)-visible*.08;
     if(score<bestScore){
       best=card;
@@ -13199,7 +13298,7 @@ function syncHomeChromeTintFromFeed(force=false){
 
   if(!force&&art===homeChromeTintThumb)return;
   homeChromeTintThumb=art;
-  applyChromeTintFromArt(art,"home");
+  applyChromeTintFromArt(art,"home","",force);
 }
 
 function queueHomeChromeTintFromFeed(force=false){
@@ -13212,27 +13311,35 @@ function queueHomeChromeTintFromFeed(force=false){
   });
 }
 
-// Home tint follows the video nearest the current reading position. Watch mode
-// is guarded above, so scrolling recommendations beside an open player cannot
-// steal the colour from the video that is actually playing.
+// Scroll only selects a candidate. The actual visual commit waits until the
+// scroll has settled, then image + colour commit together exactly once.
 const queueHomeChromeTintOnScroll=()=>{
-  if(!watchPlaybackVisible())queueHomeChromeTintFromFeed();
+  if(watchPlaybackVisible())return;
+  clearTimeout(homeChromeTintTimer);
+  homeChromeTintTimer=setTimeout(()=>{
+    homeChromeTintTimer=0;
+    queueHomeChromeTintFromFeed();
+  },120);
 };
 window.addEventListener("scroll",queueHomeChromeTintOnScroll,{passive:true});
 feedSection?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
 window.visualViewport?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
 
 function normalizeThumbnailFit(img){
-  if(!img||!img.closest(".thumb-wrap"))return;
+  if(!(img instanceof HTMLImageElement)||!img.closest(".thumb-wrap"))return;
 
   const apply=()=>{
-    // v308: feed cards are always a 16:9 visual surface. RSS can return
-    // 4:3 hqdefault artwork, so never force contain here: it creates black
-    // side bars and makes the thumbnail look smaller than the card.
-    img.classList.remove("thumb-fit-contain");
+    const ratio=
+      img.naturalWidth>0&&img.naturalHeight>0
+        ?img.naturalWidth/img.naturalHeight
+        :0;
+    // Default CSS is contain, so illustrations/4:3/portrait artwork are never
+    // cropped on first paint. Only true ~16:9 assets switch to fill; contain
+    // and cover are visually identical for those assets.
+    img.classList.toggle("thumb-fill",ratio>=1.66&&ratio<=1.92);
   };
 
-  if(img.complete)apply();
+  if(img.complete&&img.naturalWidth)apply();
   else img.addEventListener("load",apply,{once:true});
 }
 
