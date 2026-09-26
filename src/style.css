@@ -4796,3 +4796,142 @@ body::-webkit-scrollbar-corner,
 .card-avatar > img{
   z-index:1;
 }
+
+
+/* Iframe-first mobile Watch + frozen media slot v411.
+   Home scrolls normally. Once a video opens, header/navigation disappear and
+   media + recommendations become one body scroll. The original inline media
+   slot stays in the document while the SAME YouTube iframe floats as PiP. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-inner,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav{
+    display:none!important;
+    width:0!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    pointer-events:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:
+      var(--watch-stage-h,56.25vw)
+      auto!important;
+    align-content:start!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    grid-row:1!important;
+    position:relative!important;
+    width:100%!important;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-height:var(--watch-stage-h,56.25vw)!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    align-self:start!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    grid-row:2!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin:0!important;
+    overflow:visible!important;
+  }
+
+  /* Inline media belongs to YouTube again. No transparent swipe layer may sit
+     above it, so taps/play/seek/fullscreen always reach the iframe itself. */
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-swipe-zone{
+    display:none!important;
+    pointer-events:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #yt-player,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) iframe{
+    pointer-events:auto!important;
+    touch-action:auto!important;
+  }
+
+  /* While PiP is active, freeze the original inline media slot. This is the
+     stable 'image card' anchor used to decide when PiP should rejoin inline;
+     floating portrait dimensions never affect the return threshold. */
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    display:grid!important;
+    grid-template-rows:
+      var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))
+      auto!important;
+    padding-top:0!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .player-section.watch-media-slot{
+    grid-row:1!important;
+    position:relative!important;
+    width:100%!important;
+    min-width:100%!important;
+    max-width:100%!important;
+    height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    min-height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    max-height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+    background:#09090a!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .player-section.watch-media-slot::before{
+    content:"";
+    position:absolute;
+    z-index:0;
+    inset:0;
+    display:block;
+    background-image:
+      linear-gradient(rgba(8,8,10,.18),rgba(8,8,10,.18)),
+      var(--watch-inline-slot-art,none);
+    background-position:center;
+    background-size:cover;
+    background-repeat:no-repeat;
+    pointer-events:none;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .player-section.watch-media-slot .player-card{
+    position:relative!important;
+    z-index:1!important;
+    width:100%!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .feed-section{
+    grid-row:2!important;
+    margin-top:0!important;
+    padding-top:0!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    top:0!important;
+    right:10px!important;
+    bottom:auto!important;
+  }
+}
