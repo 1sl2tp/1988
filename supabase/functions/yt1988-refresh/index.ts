@@ -23,12 +23,18 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v16";
+const LIVE_PIPELINE_VERSION="live-v17";
 const LIVE_SEARCH_QUERIES=[
-  "truc tiep",
-  "live viet nam",
-  "dang phat truc tiep",
-  "livestream viet nam"
+  "trực tiếp",
+  "đang phát trực tiếp",
+  "phát trực tiếp",
+  "trực tiếp hôm nay",
+  "trực tiếp tin tức",
+  "trực tiếp thể thao",
+  "trực tiếp âm nhạc",
+  "trực tiếp game",
+  "trực tiếp sự kiện",
+  "livestream việt nam"
 ];
 const DEFAULT_SCOPE_INTERVAL_MINUTES:any={
   live:2,
@@ -349,7 +355,7 @@ async function discoverGlobalLiveCandidates(
   blockedIds:Set<string>,
   keywords:string[]
 ){
-  const deadline=Date.now()+14000;
+  const deadline=Date.now()+22000;
   const out:any[]=[];
   const searchStates=LIVE_SEARCH_QUERIES.map((query)=>({
     query,
@@ -388,31 +394,38 @@ async function discoverGlobalLiveCandidates(
     state.done=!state.nextpage;
   };
 
-  // First page of every search query gets a fair chance before pagination.
-  for(const state of searchStates){
-    if(Date.now()>=deadline)break;
+  // Source 1: broad external LIVE discovery. Run first pages concurrently so
+  // every Vietnamese LIVE query gets a chance before the deadline.
+  await mapLimit(searchStates,4,async(state)=>{
+    if(Date.now()>=deadline)return false;
     try{
       await consume(state);
+      return true;
     }catch(error){
       console.warn("global live search failed",state.query,String(error));
       state.done=true;
+      return false;
     }
-  }
+  });
 
-  // Then continue each query one page at a time in round-robin order.
+  // Continue available searches in bounded parallel rounds. Keyword/channel
+  // blocks are applied while collecting, before any result reaches the package.
   while(Date.now()<deadline){
+    const pending=searchStates.filter((state)=>!state.done&&!state.first);
+    if(!pending.length)break;
     let progressed=false;
-    for(const state of searchStates){
-      if(Date.now()>=deadline)break;
-      if(state.done||state.first)continue;
+    await mapLimit(pending,4,async(state)=>{
+      if(Date.now()>=deadline)return false;
       progressed=true;
       try{
         await consume(state);
+        return true;
       }catch(error){
         console.warn("global live nextpage failed",state.query,String(error));
         state.done=true;
+        return false;
       }
-    }
+    });
     if(!progressed)break;
   }
 
@@ -422,12 +435,10 @@ async function discoverGlobalLiveCandidates(
 async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
   const id=videoId(row);
   if(!id)return null;
-  if(strongFreshLiveSignal(row))return {
-    ...row,
-    isLive:true,
-    duration:-1,
-    uploaded:-1
-  };
+
+  // Never trust a cached/search LIVE flag by itself. Every candidate from both
+  // Source 1 (external discovery) and Source 2 (selected channels) must pass a
+  // fresh stream check before it can enter the shared LIVE package.
   const result=await fetchJson(
     supabaseUrl+"/functions/v1/yt1988?action=video&id="+encodeURIComponent(id),
     {
@@ -642,6 +653,8 @@ Deno.serve(async(req:Request)=>{
     let liveKeywords:string[]=[];
     let verifiedLiveRowsCache:any[]=[];
 
+    // Shared block set is applied to both LIVE sources:
+    // Source 1 = external search; Source 2 = chosen channels from every tab.
     const allBlockedLiveSourceIds=new Set<string>(generalBlockedIds);
     for(const scope of SCOPES){
       for(const id of blockedByScope.get(scope)||[])allBlockedLiveSourceIds.add(id);
@@ -696,6 +709,8 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
+      // Source 2: direct Live choices + selected channels inherited from every
+      // other source tab. Only currently-live videos from those channels survive.
       const selectedDiscoveryPromise=mapLimit(selectedLiveSources,6,async(source)=>{
         try{
           const direct=await searchSelectedSourceLiveCandidates(
@@ -713,6 +728,7 @@ Deno.serve(async(req:Request)=>{
         }
       });
 
+      // Source 1: independent external LIVE discovery, then keyword + block filters.
       const globalDiscoveryPromise=discoverGlobalLiveCandidates(
         supabaseUrl,
         serviceKey,
