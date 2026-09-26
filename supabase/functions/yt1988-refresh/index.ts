@@ -517,7 +517,7 @@ Deno.serve(async(req:Request)=>{
   try{
     const stateRes=await fetch(
       rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
-      "&scope=in.("+SCOPES.map(encodeURIComponent).join(",")+")"+
+      "&scope=in.("+[...SCOPES,"general"].map(encodeURIComponent).join(",")+")"+
       "&select=scope,channel_id,status,name,thumbnail_url,subscribers",
       {headers:authHeaders}
     );
@@ -558,6 +558,7 @@ Deno.serve(async(req:Request)=>{
 
     const blockedByScope=new Map<string,Set<string>>();
     const selectedByScope=new Map<string,any[]>();
+    const generalBlockedIds=new Set<string>();
     const channelMeta=new Map<string,any>();
 
     for(const scope of SCOPES){
@@ -567,7 +568,12 @@ Deno.serve(async(req:Request)=>{
     for(const row of rows){
       const scope=clean(row?.scope,32);
       const id=clean(row?.channel_id,180);
-      if(!SCOPES.includes(scope)||!id)continue;
+      if(!id)continue;
+      if(scope==="general"){
+        if(row?.status==="blocked")generalBlockedIds.add(id);
+        continue;
+      }
+      if(!SCOPES.includes(scope))continue;
       if(row?.status==="blocked"){
         blockedByScope.get(scope)?.add(id);
       }else if(row?.status==="selected"){
@@ -597,7 +603,7 @@ Deno.serve(async(req:Request)=>{
     let liveKeywords:string[]=[];
     let verifiedLiveRowsCache:any[]=[];
 
-    const allBlockedLiveSourceIds=new Set<string>();
+    const allBlockedLiveSourceIds=new Set<string>(generalBlockedIds);
     for(const scope of SCOPES){
       for(const id of blockedByScope.get(scope)||[])allBlockedLiveSourceIds.add(id);
     }
