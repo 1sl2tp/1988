@@ -6048,22 +6048,31 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   ratio=Number(ratio)||16/9;
   ratio=Math.max(.34,Math.min(2.6,ratio));
 
-  // Portrait / Shorts: shrink the PiP width to the real content ratio so
-  // there are no huge black side bars.
+  // Mobile mini-player follows one compact YouTube-like shell: always 16:9.
+  // The real video aspect stays inside with object-fit:contain. A portrait
+  // video therefore remains small instead of turning the mini into a tall
+  // 9:16 column that covers the browsing list.
+  if(mobile){
+    const width=Math.min(
+      210,
+      Math.max(150,viewportW*.48)
+    );
+    return {width,height:width/(16/9)};
+  }
+
+  // Desktop keeps content-aware floating geometry.
   if(ratio<.80){
-    const maxHeight=Math.max(260,viewportH*(mobile?.60:.68));
-    let height=Math.min(maxHeight,mobile?520:620);
+    const maxHeight=Math.max(260,viewportH*.68);
+    let height=Math.min(maxHeight,620);
     let width=height*ratio;
-    const maxWidth=mobile
-      ?Math.min(220,viewportW*.46)
-      :Math.min(300,viewportW*.24);
+    const maxWidth=Math.min(300,viewportW*.24);
 
     if(width>maxWidth){
       width=maxWidth;
       height=width/ratio;
     }
 
-    const minWidth=mobile?118:140;
+    const minWidth=140;
     if(width<minWidth){
       width=minWidth;
       height=Math.min(maxHeight,width/ratio);
@@ -6071,19 +6080,13 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
     return {width,height};
   }
 
-  // Square-ish video: compact square-ish PiP.
   if(ratio<=1.20){
-    const width=mobile
-      ?Math.min(220,viewportW*.48)
-      :Math.min(300,viewportW*.25);
+    const width=Math.min(300,viewportW*.25);
     return {width,height:width/ratio};
   }
 
-  // Landscape video: keep the existing compact horizontal PiP.
-  let width=mobile
-    ?Math.min(256,viewportW*.58)
-    :Math.min(360,viewportW*.36);
-  const maxHeight=Math.max(180,viewportH*(mobile?.52:.42));
+  let width=Math.min(360,viewportW*.36);
+  const maxHeight=Math.max(180,viewportH*.42);
   let height=width/ratio;
 
   if(height>maxHeight){
@@ -6091,9 +6094,8 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
     width=height*ratio;
   }
 
-  const minWidth=mobile?150:170;
-  if(width<minWidth){
-    width=minWidth;
+  if(width<170){
+    width=170;
     height=Math.min(maxHeight,width/ratio);
   }
   return {width,height};
