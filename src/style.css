@@ -1474,6 +1474,22 @@ html.search-suggestions-open .suggestions{
   overflow:hidden;
 }
 .card-action-menu[hidden]{display:none}
+.card-action-group{
+  padding:2px 0;
+}
+.card-action-group+.card-action-group{
+  margin-top:5px;
+  padding-top:7px;
+  border-top:1px solid #303036;
+}
+.card-action-group-label{
+  padding:3px 11px 4px;
+  color:#7f7f88;
+  font-size:10px;
+  font-weight:720;
+  letter-spacing:.02em;
+  text-transform:uppercase;
+}
 .card-action-item{
   width:100%;
   min-height:42px;
