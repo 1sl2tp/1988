@@ -11538,6 +11538,25 @@ function resetHomeViewportInstant({resetSource=false,resetTopics=true}={}){
 
   hardResetDocumentTop();
 
+  // Watch mode owns a separate vertical scroller for the video list.
+  // Reset it synchronously as well, otherwise switching Live/Ngày/Tuần/
+  // hashtag tabs keeps the old list position even though the page itself is at 0.
+  const resetFeedScroll=()=>{
+    if(feedSection){
+      try{feedSection.scrollTo({top:0,left:0,behavior:"auto"});}
+      catch{
+        feedSection.scrollTop=0;
+        feedSection.scrollLeft=0;
+      }
+    }
+    if(feed){
+      feed.scrollTop=0;
+      feed.scrollLeft=0;
+    }
+  };
+  resetFeedScroll();
+  requestAnimationFrame(resetFeedScroll);
+
   if(resetTopics&&topicChips)topicChips.scrollLeft=0;
 
   if(resetSource){
