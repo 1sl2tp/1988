@@ -4128,3 +4128,13 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
   transition:none!important;
   animation:none!important;
 }
+
+
+/* Mobile feed header v391.
+   The compact mobile/PWA layout does not need the redundant "Ngày … N video"
+   row above the cards. Desktop keeps it for context. */
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
+  .feed-section > .section-head{
+    display:none!important;
+  }
+}
