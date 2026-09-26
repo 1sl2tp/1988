@@ -5940,6 +5940,31 @@ function videoAspectHabitScope(meta={}){
   return "";
 }
 
+function videoAspectHabitChannel(meta={}){
+  const channelId=String(
+    meta?._sourceId||
+    meta?.channelId||
+    meta?.uploaderId||
+    meta?.author?.id||
+    ""
+  ).trim();
+
+  if(/^UC[A-Za-z0-9_-]+$/.test(channelId))return channelId;
+
+  const channel=clean(
+    meta?._displaySource||
+    meta?._sourceName||
+    meta?.uploaderName||
+    meta?.uploader||
+    meta?.channelName||
+    ""
+  );
+  const canonical=canonicalSourceId(meta,channel);
+  return /^UC[A-Za-z0-9_-]+$/.test(String(canonical||""))
+    ?String(canonical)
+    :"";
+}
+
 function canonicalHabitAspect(ratio){
   ratio=validPipAspect(ratio);
   if(!ratio)return 0;
@@ -5949,6 +5974,12 @@ function canonicalHabitAspect(ratio){
 }
 
 function rememberedVideoAspect(meta={}){
+  const channelId=videoAspectHabitChannel(meta);
+  const channelHabit=channelId
+    ?validPipAspect(videoAspectHabits?.channels?.[channelId]?.ratio)
+    :0;
+  if(channelHabit)return channelHabit;
+
   const scope=videoAspectHabitScope(meta);
   const scoped=scope?validPipAspect(videoAspectHabits?.[scope]?.ratio):0;
   if(scoped)return scoped;
@@ -5964,6 +5995,7 @@ function rememberedVideoAspect(meta={}){
 
 function rememberVideoAspectHabit(meta={},ratio=0){
   const scope=videoAspectHabitScope(meta);
+  const channelId=videoAspectHabitChannel(meta);
   const canonical=canonicalHabitAspect(ratio);
   if(!canonical)return;
 
@@ -5978,6 +6010,25 @@ function rememberVideoAspectHabit(meta={},ratio=0){
   if(scope&&validPipAspect(videoAspectHabits?.[scope]?.ratio)!==canonical){
     videoAspectHabits[scope]=next;
     changed=true;
+  }
+
+  if(channelId){
+    if(!videoAspectHabits.channels||typeof videoAspectHabits.channels!=="object"){
+      videoAspectHabits.channels={};
+    }
+    if(validPipAspect(videoAspectHabits.channels?.[channelId]?.ratio)!==canonical){
+      videoAspectHabits.channels[channelId]=next;
+      changed=true;
+    }
+
+    // Bound the per-channel memory so long-term browsing cannot grow
+    // localStorage indefinitely. Keep the most recently verified channels.
+    const channelRows=Object.entries(videoAspectHabits.channels)
+      .sort((a,b)=>Number(b[1]?.at||0)-Number(a[1]?.at||0));
+    if(channelRows.length>120){
+      videoAspectHabits.channels=Object.fromEntries(channelRows.slice(0,120));
+      changed=true;
+    }
   }
 
   if(!changed)return;
