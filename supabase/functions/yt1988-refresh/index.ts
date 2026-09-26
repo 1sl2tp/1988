@@ -15,11 +15,13 @@ function validScopeSyntax(value:any){
 const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
-const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v22";
+const MAX_CHANNEL_FETCHES_PER_RUN=12;
+const MAX_SCOPES_PER_RUN=2;
+const LIVE_PIPELINE_VERSION="live-v23";
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
-const LIVE_SELECTED_CANDIDATES_PER_SOURCE=6;
+const LIVE_SELECTED_CANDIDATES_PER_SOURCE=4;
+const LIVE_SELECTED_SOURCES_PER_RUN=24;
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -494,7 +496,7 @@ async function discoverGlobalLiveCandidates(
 async function claimLease(rest:string,headers:any){
   const res=await fetch(rest+"/rpc/yt1988_try_refresh_lock",{
     method:"POST",headers,
-    body:JSON.stringify({p_profile_key:PROFILE,p_lease_seconds:110})
+    body:JSON.stringify({p_profile_key:PROFILE,p_lease_seconds:95})
   });
   if(!res.ok)return false;
   return (await res.json())===true;
@@ -603,12 +605,12 @@ Deno.serve(async(req:Request)=>{
     return json({ok:true,skipped:true,queued:true,reason:"refresh_already_running",scopes});
   }
 
-  // LIVE is latency-sensitive and must not wait behind channel snapshot work.
-  // Defer other due scopes to the existing pending-scope handoff.
-  if(scopes.includes("live")&&scopes.length>1){
-    const deferredScopes=scopes.filter((scope)=>scope!=="live");
+  // Keep each execution short enough for the Edge wall-clock limit. Extra
+  // scopes stay server-side and are picked up by the scheduler on the next tick.
+  if(scopes.length>MAX_SCOPES_PER_RUN){
+    const deferredScopes=scopes.slice(MAX_SCOPES_PER_RUN);
     await queuePendingRefresh(rest,authHeaders,deferredScopes);
-    scopes=["live"];
+    scopes=scopes.slice(0,MAX_SCOPES_PER_RUN);
   }
 
   let ok=false;
@@ -741,14 +743,17 @@ Deno.serve(async(req:Request)=>{
         .filter((id:string)=>!explicitLiveIds.has(id))
     );
 
+    const previousLiveItems=scopes.includes("live")&&Array.isArray(currentByScope.get("live")?.items)
+      ?currentByScope.get("live").items
+      :[];
+    const previousLiveSourceIds=new Set(
+      previousLiveItems.map((item:any)=>channelId(item)).filter(Boolean)
+    );
     const liveCandidateRowsById=new Map<string,any[]>();
     if(scopes.includes("live")&&selectedLiveSources.length){
       // Reuse the existing channel cache instead of re-downloading full YouTube
       // pages for every selected source. Existing LIVE package rows are placed
       // first so active streams remain cheap to re-verify every cycle.
-      const previousLiveItems=Array.isArray(currentByScope.get("live")?.items)
-        ?currentByScope.get("live").items
-        :[];
       for(const item of previousLiveItems){
         const sid=channelId(item);
         if(!sid||!liveSourceById.has(sid))continue;
@@ -836,9 +841,26 @@ Deno.serve(async(req:Request)=>{
       const selectedSeenIds=new Set(
         selectedFromSearch.map((row:any)=>channelId(row)).filter(Boolean)
       );
-      const selectedToCheck=selectedLiveSources.filter(
+      const remainingSelected=selectedLiveSources.filter(
         (source:any)=>!selectedSeenIds.has(source.id)
       );
+      const activeToRecheck=remainingSelected.filter(
+        (source:any)=>previousLiveSourceIds.has(source.id)
+      );
+      const rotationPool=remainingSelected
+        .filter((source:any)=>!previousLiveSourceIds.has(source.id))
+        .sort((a:any,b:any)=>String(a?.id||"").localeCompare(String(b?.id||"")));
+      const rotationStart=rotationPool.length
+        ?(Math.floor(Date.now()/(2*60*1000))*LIVE_SELECTED_SOURCES_PER_RUN)%rotationPool.length
+        :0;
+      const rotated=[
+        ...rotationPool.slice(rotationStart),
+        ...rotationPool.slice(0,rotationStart)
+      ].slice(0,LIVE_SELECTED_SOURCES_PER_RUN);
+      const selectedToCheck=[
+        ...activeToRecheck,
+        ...rotated
+      ];
 
       const selectedCheckedRows=(await mapLimit(selectedToCheck,6,async(source)=>{
         try{
@@ -1177,59 +1199,23 @@ Deno.serve(async(req:Request)=>{
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
-        results.push({scope,changed:false,reason:"same_input"});
+        await fetch(
+          rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&scope=eq."+encodeURIComponent(scope),
+          {
+            method:"PATCH",
+            headers:{...authHeaders,"prefer":"return=minimal"},
+            body:JSON.stringify({updated_at:new Date().toISOString()})
+          }
+        ).catch(()=>{});
+        results.push({scope,changed:false,checked:true,reason:"same_input"});
         continue;
       }
 
+      // Package refresh must remain deterministic and fast. AI/topic cleanup is
+      // intentionally kept out of this critical path; filtering/deduping above
+      // is enough to publish fresh data without rate-limit stalls.
       let packaged=raw;
-      if(meta.kind!=="live"&&raw.length>=4){
-        try{
-          const aiRes=await fetch(supabaseUrl+"/functions/v1/yt1988-topics",{
-            method:"POST",
-            headers:{
-              ...authHeaders,
-              "content-type":"application/json"
-            },
-            body:JSON.stringify({
-              mode:"dedupe",
-              scope,
-              parentLabel:meta.kind==="content"?"Hashtag":meta.label,
-              contentProfile:meta.kind==="content"?"hashtag":meta.profile,
-              reviewMode:false,
-              videos:raw.slice(0,120).map((r:any)=>({
-                id:videoId(r),
-                title:clean(r?.title,300),
-                channel:clean(r?.uploaderName||r?.uploader||r?._sourceName,180),
-                published:publishedText(r),
-                views:Number(r?.views)||0,
-                duration:Number(r?.duration)||0,
-                description:clean(r?.description||r?.shortDescription||"",1200),
-                contentHash:fastHash(normalizeText(r?._displayTitle||r?.title||""))
-              }))
-            })
-          });
-          const payload=await aiRes.json().catch(()=>null);
-          if(aiRes.ok&&payload?.ok!==false){
-            const allowed=new Set(raw.map(videoId));
-            const keep=new Set(
-              (Array.isArray(payload?.keepVideoIds)?payload.keepVideoIds:[])
-                .map((id:any)=>clean(id,32)).filter((id:string)=>allowed.has(id))
-            );
-            const cleanup=new Map(
-              (Array.isArray(payload?.cleanups)?payload.cleanups:[])
-                .map((x:any)=>[clean(x?.id,32),clean(x?.displayTitle,180)])
-                .filter(([id,title]:any)=>allowed.has(id)&&title.length>=8)
-            );
-            if(keep.size)packaged=raw.filter((r:any)=>keep.has(videoId(r)));
-            packaged=packaged.map((r:any)=>{
-              const title=cleanup.get(videoId(r));
-              return title?{...r,_displayTitle:title}:r;
-            });
-          }
-        }catch(error){
-          console.warn("ai package failed",scope,String(error));
-        }
-      }
 
       packaged=dedupeRows(packaged).slice(0,90);
       if(!packaged.length&&scope!=="live"){
@@ -1262,7 +1248,16 @@ Deno.serve(async(req:Request)=>{
 
       const hash=snapshotRowsHash(packaged,sig);
       if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
-        results.push({scope,changed:false,reason:"same_package"});
+        await fetch(
+          rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&scope=eq."+encodeURIComponent(scope),
+          {
+            method:"PATCH",
+            headers:{...authHeaders,"prefer":"return=minimal"},
+            body:JSON.stringify({updated_at:new Date().toISOString()})
+          }
+        ).catch(()=>{});
+        results.push({scope,changed:false,checked:true,reason:"same_package"});
         continue;
       }
 
@@ -1292,12 +1287,12 @@ Deno.serve(async(req:Request)=>{
       !degraded,
       degraded?degradedNotes.slice(0,12).join(";"):""
     );
-    triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    if(pending.length)await queuePendingRefresh(rest,authHeaders,pending);
     return json({ok:true,degraded,pending_scopes:pending,scopes:results});
   }catch(error){
     failure=String((error as any)?.message||error||"refresh_failed");
     const pending=await finishLease(rest,authHeaders,false,failure);
-    triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    if(pending.length)await queuePendingRefresh(rest,authHeaders,pending);
     return json({ok:false,error:failure,pending_scopes:pending},500);
   }
 });
