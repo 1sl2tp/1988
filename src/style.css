@@ -4733,3 +4733,66 @@ body::-webkit-scrollbar-corner,
     transform:none!important;
   }
 }
+
+
+/* Fresh mobile Watch true-top + avatar fallback v410.
+   A selected video replaces the hidden Home header immediately. Do not reserve
+   the old header/safe-area row in layout; the browser viewport already owns
+   its status-bar inset. When PiP is active, collapse the inline stage row too. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-stage-h,56.25vw)
+      var(--watch-source-row-h)
+      auto!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    align-self:start!important;
+    margin-top:0!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    display:block!important;
+    padding-top:0!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .player-section{
+    position:relative!important;
+    width:0!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    margin-top:0!important;
+    padding-top:0!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    top:0!important;
+    bottom:auto!important;
+  }
+}
+
+/* Card avatars always keep a real fallback under the remote channel image.
+   If that image fails, JS removes only the image and this fallback remains. */
+.card-avatar{
+  position:relative;
+}
+.card-avatar .card-avatar-fallback,
+.card-avatar > img{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+}
+.card-avatar .card-avatar-fallback{
+  z-index:0;
+}
+.card-avatar > img{
+  z-index:1;
+}
