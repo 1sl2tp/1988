@@ -396,7 +396,9 @@ async function openChannel(row,seedVideo=null){
   state.detail={...currentMeta(row.id),...row};
   state.detailVideos=seedVideo?[seedVideo]:[];
   renderPreview();
-  el.preview.scrollIntoView({behavior:"smooth",block:"start"});
+  requestAnimationFrame(()=>{
+    if(el.preview)el.preview.scrollTop=0;
+  });
 
   try{
     const yt=await waitYT();
