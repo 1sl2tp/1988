@@ -249,6 +249,65 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   return out;
 }
 
+function decodeXmlText(value:any){
+  return String(value||"")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,"$1")
+    .replace(/&amp;/g,"&")
+    .replace(/&lt;/g,"<")
+    .replace(/&gt;/g,">")
+    .replace(/&quot;/g,'"')
+    .replace(/&#39;|&apos;/g,"'")
+    .trim();
+}
+
+async function youtubeRssLiveCandidates(source:any){
+  const id=clean(source?.id,180);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return [];
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3200);
+  try{
+    const endpoint="https://www.youtube.com/feeds/videos.xml?channel_id="+encodeURIComponent(id);
+    const res=await fetch(endpoint,{
+      signal:controller.signal,
+      cache:"no-store",
+      headers:{accept:"application/atom+xml,application/xml,text/xml,*/*"}
+    });
+    if(!res.ok)throw new Error("youtube_rss_http_"+res.status);
+    const xml=await res.text();
+    const feedTitle=decodeXmlText(
+      xml.match(/<feed[\s\S]*?<title>([\s\S]*?)<\/title>/i)?.[1]||source?.name||""
+    );
+    const out:any[]=[];
+    for(const match of xml.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)){
+      const entry=match[1]||"";
+      const idValue=String(entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1]||"").trim();
+      if(!/^[A-Za-z0-9_-]{11}$/.test(idValue))continue;
+      const published=String(entry.match(/<published>([^<]+)<\/published>/i)?.[1]||"").trim();
+      const uploaded=Date.parse(published);
+      const row=normalizeRow({
+        id:idValue,
+        videoId:idValue,
+        url:"/watch?v="+idValue,
+        title:decodeXmlText(entry.match(/<title>([\s\S]*?)<\/title>/i)?.[1]||""),
+        thumbnail:decodeXmlText(entry.match(/<media:thumbnail[^>]+url=["']([^"']+)["']/i)?.[1]||""),
+        uploaderName:feedTitle||clean(source?.name,180),
+        uploaderUrl:"/channel/"+id,
+        uploadedDate:published,
+        publishedText:published,
+        uploaded:Number.isFinite(uploaded)?uploaded:0,
+        duration:0,
+        views:Number(entry.match(/<media:statistics[^>]+views=["'](\d+)["']/i)?.[1]||0)||0,
+        isLive:false
+      },source);
+      if(row)out.push(row);
+      if(out.length>=4)break;
+    }
+    return out;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function verifyLiveCandidate(row:any,supabaseUrl:string,serviceKey:string){
   const id=videoId(row);
   if(!id)return null;
@@ -360,11 +419,19 @@ Deno.serve(async(req:Request)=>{
       .map((s:any)=>clean(s,32))
       .filter((s:string)=>SCOPES.includes(s))
   );
-  const scopes=requested.size?[...requested]:SCOPES.slice();
+  let scopes=requested.size?[...requested]:SCOPES.slice();
 
   if(!await claimLease(rest,authHeaders)){
     await queuePendingRefresh(rest,authHeaders,scopes);
     return json({ok:true,skipped:true,queued:true,reason:"refresh_already_running",scopes});
+  }
+
+  // LIVE is latency-sensitive and must not wait behind channel snapshot work.
+  // Defer other due scopes to the existing pending-scope handoff.
+  if(scopes.includes("live")&&scopes.length>1){
+    const deferredScopes=scopes.filter((scope)=>scope!=="live");
+    await queuePendingRefresh(rest,authHeaders,deferredScopes);
+    scopes=["live"];
   }
 
   let ok=false;
@@ -449,8 +516,79 @@ Deno.serve(async(req:Request)=>{
       );
     }
 
+    let liveKeywords:string[]=[];
+    let verifiedLiveRowsCache:any[]=[];
+    const selectedLiveSources=selectedByScope.get("live")||[];
+
+    if(scopes.includes("live")){
+      try{
+        const keywordsRes=await fetch(
+          rest+"/yt1988_live_keywords?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&select=keyword_display&order=keyword_display.asc",
+          {headers:authHeaders}
+        );
+        if(keywordsRes.ok){
+          const keywordRows=await keywordsRes.json();
+          liveKeywords=(Array.isArray(keywordRows)?keywordRows:[])
+            .map((row:any)=>clean(row?.keyword_display||"",120))
+            .filter(Boolean);
+        }
+      }catch(error){
+        console.warn("live keyword read failed",String(error));
+      }
+
+      const liveBlocked=blockedByScope.get("live")||new Set<string>();
+      const rssBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
+        try{
+          return await youtubeRssLiveCandidates(source);
+        }catch(error){
+          console.warn("live rss failed",source?.id,String(error));
+          return [];
+        }
+      });
+
+      let globalCandidates:any[]=[];
+      try{
+        const url=supabaseUrl+"/functions/v1/yt1988?action=search&q="+
+          encodeURIComponent("trực tiếp")+"&filter=videos";
+        const result=await fetchJson(url,{
+          "apikey":serviceKey,
+          "authorization":"Bearer "+serviceKey
+        },5200);
+        const raw=Array.isArray(result?.data?.items)?result.data.items:
+          Array.isArray(result?.data)?result.data:[];
+        globalCandidates=raw
+          .slice(0,16)
+          .map((row:any)=>normalizeRow(row,{}))
+          .filter(Boolean);
+      }catch(error){
+        console.warn("global live discovery failed",String(error));
+      }
+
+      const selectedIds=new Set(selectedLiveSources.map((source:any)=>source.id));
+      const candidates=dedupeRows([
+        ...rssBatches.flat(),
+        ...globalCandidates
+      ])
+        .filter((row:any)=>{
+          const sid=channelId(row);
+          return !sid||!liveBlocked.has(sid);
+        })
+        .filter((row:any)=>!liveKeywordBlocked(row,liveKeywords))
+        .map((row:any)=>({
+          ...row,
+          _interestPriority:selectedIds.has(channelId(row))?1:0
+        }))
+        .sort((a:any,b:any)=>
+          (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
+        );
+
+      verifiedLiveRowsCache=await verifyLiveRows(candidates,supabaseUrl,serviceKey);
+    }
+
+    const nonLiveScopes=scopes.filter((scope)=>scope!=="live");
     const neededIds=[...new Set(
-      scopes.flatMap((scope)=>selectedByScope.get(scope)||[]).map((s:any)=>s.id)
+      nonLiveScopes.flatMap((scope)=>selectedByScope.get(scope)||[]).map((s:any)=>s.id)
     )];
     const channelRows=new Map<string,any[]>();
     const channelFetchOk=new Set<string>();
@@ -640,40 +778,6 @@ Deno.serve(async(req:Request)=>{
       if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());
     }
 
-    let liveKeywords:string[]=[];
-    if(scopes.includes("live")){
-      try{
-        const keywordsRes=await fetch(
-          rest+"/yt1988_live_keywords?profile_key=eq."+encodeURIComponent(PROFILE)+
-          "&select=keyword_display&order=keyword_display.asc",
-          {headers:authHeaders}
-        );
-        if(keywordsRes.ok){
-          const keywordRows=await keywordsRes.json();
-          liveKeywords=(Array.isArray(keywordRows)?keywordRows:[])
-            .map((row:any)=>clean(row?.keyword_display||"",120))
-            .filter(Boolean);
-        }
-      }catch(error){
-        console.warn("live keyword read failed",String(error));
-      }
-    }
-
-    let globalLive:any[]=[];
-    if(scopes.includes("live")){
-      try{
-        const url=supabaseUrl+"/functions/v1/yt1988?action=search&q="+
-          encodeURIComponent("trực tiếp")+"&filter=videos";
-        const result=await fetchJson(url,{
-          "apikey":serviceKey,
-          "authorization":"Bearer "+serviceKey
-        },7000);
-        const raw=Array.isArray(result?.data?.items)?result.data.items:
-          Array.isArray(result?.data)?result.data:[];
-        globalLive=raw.map((r:any)=>normalizeRow(r,{})).filter((r:any)=>r&&isLive(r));
-      }catch{}
-    }
-
     const results:any[]=[];
     const degradedNotes:string[]=[];
     for(let scopeIndex=0;scopeIndex<scopes.length;scopeIndex++){
@@ -689,7 +793,7 @@ Deno.serve(async(req:Request)=>{
       // reuses the previous good channel rows instead of deleting them.
       const usableChannels=selected.filter((s:any)=>(channelRows.get(s.id)||[]).length).length;
       const coverage=selected.length?usableChannels/selected.length:1;
-      if(selected.length&&coverage<.6){
+      if(scope!=="live"&&selected.length&&coverage<.6){
         const reason="insufficient_channel_snapshots:"+usableChannels+"/"+selected.length;
         degradedNotes.push(scope+":"+reason);
         results.push({
@@ -716,22 +820,16 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(scope==="live"){
-        const selectedLive=raw.filter(isLive);
-        const global=globalLive.filter((row:any)=>{
-          const sid=channelId(row);
-          return !sid||!blocked.has(sid);
-        });
-        const candidates=dedupeRows([
-          ...selectedLive.map((r:any)=>({...r,_interestPriority:selectedIds.has(channelId(r))?1:0})),
-          ...global
-        ])
-          .filter((row:any)=>!liveKeywordBlocked(row,liveKeywords))
+        // LIVE is built only from candidates that were freshly verified above.
+        // Never fall back to stale channel-cache live flags.
+        raw=verifiedLiveRowsCache
+          .filter((row:any)=>{
+            const sid=channelId(row);
+            return !sid||!blocked.has(sid);
+          })
           .sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
           );
-
-        // LIVE fails closed: stale flags never keep an ended stream visible.
-        raw=await verifyLiveRows(candidates,supabaseUrl,serviceKey);
       }else if(scope==="latest"){
         raw=raw.filter((r:any)=>{
           const age=ageMs(r);
