@@ -1596,15 +1596,49 @@ function activeSourceScope(){
   return "";
 }
 
-function hideBlockedSourceNow(id,scope=sourceManageGroup){
+function hideSourceFromVisibleUi(id,name=""){
   id=String(id||"").trim();
-  scope=sourceScope(scope);
-  if(!id||!feed||activeSourceScope()!==scope)return;
+  if(!id||!feed)return;
 
-  const source=libraryRow(id)||managedChannelLibrary().find(row=>row.id===id);
-  const blockedName=normalizeSearchText(sourceMetaFor(source||{}).name||source?.name||"");
+  const source=
+    sourceMetaCache.get(id)||
+    libraryRow(id)||
+    managedChannelLibrary().find(row=>row.id===id)||
+    {};
+  const blockedName=normalizeSearchText(
+    name||
+    sourceMetaFor(source).name||
+    source?.name||
+    ""
+  );
+
+  const sameSource=row=>{
+    const rowId=String(
+      row?._sourceId||
+      row?.channelId||
+      row?.uploaderId||
+      ""
+    ).trim();
+    if(rowId&&rowId===id)return true;
+    if(blockedName){
+      const rowName=normalizeSearchText(
+        row?._sourceName||
+        row?.uploaderName||
+        row?.uploader||
+        row?.channelName||
+        ""
+      );
+      if(rowName&&rowName===blockedName)return true;
+    }
+    return false;
+  };
+
+  // Clean the in-memory UI model first so later repaint cannot bring the
+  // blocked source back while the server write is still in flight.
+  state.feedRows=(Array.isArray(state.feedRows)?state.feedRows:[])
+    .filter(row=>!sameSource(row));
+
   let removed=0;
-
   for(const card of [...feed.querySelectorAll("[data-video-id]")]){
     const cardSourceId=String(card.dataset.sourceId||"").trim();
     const cardChannel=normalizeSearchText(card.dataset.channel||"");
@@ -1620,7 +1654,23 @@ function hideBlockedSourceNow(id,scope=sourceManageGroup){
   if(removed){
     const total=feed.querySelectorAll("[data-video-id]").length;
     feedStatus.textContent=total?total+" video":"";
+    if(!total){
+      feed.innerHTML='<div class="empty">Đã ẩn nguồn này.</div>';
+    }
   }
+}
+
+function hideBlockedSourceNow(id,scope=sourceManageGroup){
+  id=String(id||"").trim();
+  scope=sourceScope(scope);
+  if(!id||!feed)return;
+
+  const source=libraryRow(id)||managedChannelLibrary().find(row=>row.id===id);
+  const name=sourceMetaFor(source||{}).name||source?.name||"";
+
+  // Optimistic UI: if this source is visible now, remove it immediately.
+  // Do not wait for the server round-trip or for a package refresh.
+  hideSourceFromVisibleUi(id,name);
 }
 
 function stateMetadataCandidate(id){
@@ -4348,12 +4398,10 @@ function applyCardSourceAction(action,scope){
   }
 
   if(action==="not-interested"){
-    if(scope===LIVE_SOURCE_SCOPE){
-      setSourceStatus(source.id,"blocked",scope);
-      if(activeSourceScope()===scope)removeBlockedSourceFromVisibleFeed(card,scope);
-    }else{
-      setSourceStatus(source.id,"normal",scope);
-    }
+    // "Không quan tâm" is a real block in every scope. The UI hides the
+    // channel immediately; server persistence happens asynchronously later.
+    setSourceStatus(source.id,"blocked",scope);
+    hideSourceFromVisibleUi(source.id,source.name);
     closeCardActionMenu();
     return true;
   }
