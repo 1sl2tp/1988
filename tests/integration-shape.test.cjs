@@ -146,7 +146,7 @@ assert.match(style,/--main-page-bg:#0f0f0f/);
 assert.match(app,/function desktopHoverAccentEnabled\(/);
 assert.match(app,/feed\?\.addEventListener\("pointerover"/);
 assert.match(app,/primeDesktopCardHoverColors\(\)/);
-assert.match(style,/Desktop full-card colour hover v400/);
+assert.match(style,/Desktop full-card colour hover v401/);
 assert.match(style,/@media \(hover:hover\) and \(pointer:fine\) and \(min-width:760px\)/);
 assert.match(style,/\.feed>\.card\.desktop-accent-hover::before/);
 assert.match(style,/inset:-10px -10px -12px/);

@@ -4284,7 +4284,7 @@ body::-webkit-scrollbar-corner,
 }
 
 
-/* Desktop full-card colour hover v400.
+/* Desktop full-card colour hover v401.
    YouTube-like hover panel: colour belongs to the whole card, including the
    image + metadata area. The panel grows visually with a pseudo-element, so
    grid geometry never changes and neighboring cards never reflow. */
@@ -4365,5 +4365,4 @@ body::-webkit-scrollbar-corner,
     box-shadow:none!important;
     border-color:transparent!important;
   }
-}
 }
