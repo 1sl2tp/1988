@@ -1757,3 +1757,33 @@ main{
     grid-template-columns:repeat(2,minmax(0,1fr))!important;
   }
 }
+
+
+/* v17 local back navigation for search/view panel */
+.search-head-title{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+.search-back{
+  width:26px;
+  height:26px;
+  display:grid;
+  place-items:center;
+  flex:0 0 auto;
+  padding:0;
+  border:1px solid #35353b;
+  border-radius:6px;
+  background:#202024;
+  color:#d8d8dd;
+  font-size:15px;
+  line-height:1;
+}
+.search-back[hidden]{
+  display:none!important;
+}
+.search-back:hover{
+  background:#29292e;
+  border-color:#46464d;
+}
