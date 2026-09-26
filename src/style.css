@@ -4041,3 +4041,38 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile mini player v373: whole-frame drag + seam guard. */
+@media(max-width:720px){
+  html.watch-minimized .player-frame.floating-iframe{
+    background:transparent!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe #yt-player,
+  html.watch-minimized .player-frame.floating-iframe iframe,
+  html.watch-minimized .player-frame.floating-iframe video{
+    left:-1px!important;
+    right:-1px!important;
+    width:calc(100% + 2px)!important;
+    max-width:none!important;
+    background:transparent!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
+    display:block!important;
+    position:absolute!important;
+    z-index:80!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    background:transparent!important;
+    cursor:grab;
+    touch-action:none!important;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
+    cursor:grabbing;
+  }
+}
+
