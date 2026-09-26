@@ -6474,6 +6474,36 @@ function aspectOrientation(ratio){
   return "landscape";
 }
 
+function pinMobilePortraitWatchTop(){
+  if(window.innerWidth>720)return;
+  const root=document.documentElement;
+  if(
+    !root.classList.contains("watch-browse")||
+    !root.classList.contains("watch-video-portrait")
+  )return;
+
+  const reset=()=>{
+    const body=document.body;
+    const scroller=document.scrollingElement||document.documentElement;
+    if(scroller){
+      scroller.scrollTop=0;
+      scroller.scrollLeft=0;
+    }
+    document.documentElement.scrollTop=0;
+    document.documentElement.scrollLeft=0;
+    if(body){
+      body.scrollTop=0;
+      body.scrollLeft=0;
+    }
+    try{window.scrollTo(0,0);}catch{}
+  };
+
+  reset();
+  requestAnimationFrame(reset);
+  setTimeout(reset,80);
+  setTimeout(reset,220);
+}
+
 function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   const next=explicitVideoAspect(meta);
   if(!next)return;
@@ -6510,6 +6540,14 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   state.floatUserSized=false;
 
   applyResponsivePlayerFrame(meta);
+
+  if(
+    next<.80 &&
+    window.innerWidth<=720 &&
+    Date.now()-Number(state.watchOpenedAt||0)<3200
+  ){
+    pinMobilePortraitWatchTop();
+  }
 
   const frame=playerSection?.querySelector(".player-frame");
   if(frame?.classList.contains("floating-iframe")){
@@ -11218,6 +11256,7 @@ async function playVideo(id,seedMeta={}){
     16/9;
 
   state.keepFloating=wasFloating;
+  state.watchOpenedAt=Date.now();
   state.currentId=id;
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
@@ -11297,6 +11336,7 @@ async function playVideo(id,seedMeta={}){
   updateNow(seedMeta);
   showIframePlayer();
   applyResponsivePlayerFrame(state.currentMeta);
+  if(state.videoAspect<.80&&window.innerWidth<=720)pinMobilePortraitWatchTop();
   requestAnimationFrame(()=>applyResponsivePlayerFrame(state.currentMeta));
   setTimeout(()=>{
     if(state.currentId===id)applyResponsivePlayerFrame(state.currentMeta);
