@@ -60,7 +60,7 @@ assert.match(app,/watchPlaybackVisible\(\)\|\|\s*state\.activeFeed!==name/);
 assert.match(app,/function syncServerPackagesOnResume\(\)/);
 assert.match(app,/window\.addEventListener\("pageshow",syncServerPackagesOnResume/);
 assert.match(app,/window\.addEventListener\("focus",syncServerPackagesOnResume/);
-assert.match(app,/LOCAL_DATA_SCHEMA_VERSION="334"/);
+assert.match(app,/LOCAL_DATA_SCHEMA_VERSION="336"/);
 assert.match(app,/function clearVolatileLocalData\(\)/);
 assert.doesNotMatch(app,/Chưa có video phù hợp trong tab này/);
 assert.doesNotMatch(app,/Chưa có video phù hợp trong mục này/);
