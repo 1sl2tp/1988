@@ -821,7 +821,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       packaged=dedupeRows(packaged).slice(0,90);
-      if(!packaged.length){
+      if(!packaged.length&&scope!=="live"){
         results.push({scope,changed:false,reason:"empty_after_filter"});
         continue;
       }
