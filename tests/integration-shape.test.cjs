@@ -100,5 +100,8 @@ assert.match(allMigrations,/yt1988_sync_live_keywords_from_state/);
 assert.match(allMigrations,/after insert or update of state on public\.yt1988_user_state/);
 assert.match(allMigrations,/v_keyword_norm text/);
 assert.match(allMigrations,/left\(v_keyword_norm,80\)/);
+assert.match(allMigrations,/old_live_keywords/);
+assert.match(allMigrations,/old_live_keywords is distinct from raw_keywords/);
+assert.match(allMigrations,/jsonb_build_object\('scopes',jsonb_build_array\('live'\)\)/);
 
 console.log('integration-shape: source/player assertions passed');
