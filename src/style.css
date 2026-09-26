@@ -4644,3 +4644,39 @@ body::-webkit-scrollbar-corner,
     transition:none!important;
   }
 }
+
+
+/* Mobile watch/PiP true-top ownership v408.
+   Once a video is selected, the Home header no longer reserves or paints any
+   space. Inline Watch and minimized PiP both begin at the mobile top edge,
+   with only the device safe-area inset preserved. */
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
+  html.watch-minimized .app-header{
+    display:none!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-minimized .header-inner,
+  html.watch-minimized .header-nav{
+    display:none!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    top:var(--safe-top)!important;
+    bottom:auto!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    margin-top:0!important;
+  }
+}
