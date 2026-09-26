@@ -4226,6 +4226,7 @@ function cardMoreButtonHtml(){
 
 let activeCardActionCard=null;
 let activeCardActionButton=null;
+let cardSourceOpenSeq=0;
 
 function ensureCardActionMenu(){
   let menu=document.getElementById("cardActionMenu");
@@ -4407,32 +4408,89 @@ function cardActionSelectedScopes(card){
     .map(group=>group.key);
 }
 
-function openCardSource(card){
+async function openCardSource(card){
   const source=cardActionSourceRow(card);
   if(!source)return false;
 
   sourceMetaCache.set(source.id,{...sourceMetaCache.get(source.id),...source});
-  const implicitScope=cardActionScope();
-  const selectedScopes=cardActionSelectedScopes(card);
-  const preferredScope=
-    (implicitScope&&MANAGED_SOURCE_SCOPES.has(implicitScope))
-      ?implicitScope
-      :(selectedScopes[0]||LATEST_SOURCE_SCOPE);
-
+  const seq=++cardSourceOpenSeq;
   closeCardActionMenu();
 
-  requestSettingsAccess(()=>{
-    openSourceLibrary();
-    if(MANAGED_SOURCE_SCOPES.has(preferredScope)){
-      sourceManageGroup=preferredScope;
-      sourceBlockedExpanded=false;
-      refreshSourceManager();
-    }
-    void openSourcePreview(source.id,source);
-  });
-  return true;
-}
+  // "Mở nguồn" is normal browsing, not source administration:
+  // stay on the current page/player and replace only the video list below.
+  state.searchResultsActive=false;
+  state.feedHasMore=false;
+  state.feedRows=[];
+  clearSuggestions();
+  clearSeriesContext();
 
+  feedTitle.textContent=source.name||"Nguồn";
+  feedStatus.textContent="";
+  feed.classList.remove("search-grouped");
+  feed.innerHTML='<div class="loading">Đang tải video mới nhất…</div>';
+
+  try{
+    const local=await localEngine(12000);
+    let rows=[];
+
+    try{
+      rows=await local.channelVideosPage(
+        "browse-source:"+source.id,
+        source.id,
+        true
+      );
+    }catch(error){
+      console.warn("open source channel videos failed",source.id,error);
+    }
+
+    if(seq!==cardSourceOpenSeq)return false;
+
+    // Fallback only when the direct channel page is unavailable. Keep only
+    // results belonging to this exact channel/source.
+    if(!Array.isArray(rows)||!rows.length){
+      try{
+        const fallback=await local.search(source.name,{sort_by:"upload_date"});
+        if(seq!==cardSourceOpenSeq)return false;
+        rows=(Array.isArray(fallback)?fallback:[]).filter(row=>{
+          const id=searchSourceId(row);
+          if(id)return id===source.id;
+          return normalizeSearchText(searchChannelName(row))===normalizeSearchText(source.name);
+        });
+      }catch(error){
+        console.warn("open source search fallback failed",source.id,error);
+      }
+    }
+
+    if(seq!==cardSourceOpenSeq)return false;
+
+    const ordered=newestFirst(
+      mergeUniqueRows([],Array.isArray(rows)?rows:[])
+        .filter(row=>itemVideoId(row))
+        .filter(row=>{
+          const id=searchSourceId(row);
+          return !id||id===source.id;
+        })
+    );
+
+    state.feedRows=ordered;
+    renderCards(ordered);
+
+    const visibleCount=feed.querySelectorAll("[data-video-id]").length;
+    feedStatus.textContent=visibleCount?visibleCount+" video · mới nhất trước":"";
+    if(!visibleCount){
+      feed.innerHTML='<div class="empty">Chưa có video phù hợp từ nguồn này.</div>';
+    }else{
+      void prewarmRowSourceAvatars(ordered.slice(0,24),420).catch(()=>{});
+    }
+    return true;
+  }catch(error){
+    if(seq!==cardSourceOpenSeq)return false;
+    console.warn("open source failed",source.id,error);
+    feed.innerHTML='<div class="empty">Chưa tải được video của nguồn này.</div>';
+    feedStatus.textContent="";
+    return false;
+  }
+}
 
 function publicCardVideoUrl(card){
   const id=String(card?.dataset?.videoId||"").trim();
@@ -4545,8 +4603,10 @@ function openCardActionMenu(card,button){
   const selectedScopes=source?cardActionSelectedScopes(card):[];
 
   const sourceActions=[];
-  if(unlocked&&source){
+  if(source){
     sourceActions.push(cardActionItemHtml("open-source","Mở nguồn"));
+  }
+  if(unlocked&&source){
     sourceActions.push(
       cardActionItemHtml(
         "interested",
@@ -4602,12 +4662,12 @@ async function handleCardAction(action,button){
     return;
   }
 
-  if(!settingsAccessSaved())return;
-
   if(action==="open-source"){
-    openCardSource(card);
+    void openCardSource(card);
     return;
   }
+
+  if(!settingsAccessSaved())return;
 
   if(action!=="interested"&&action!=="not-interested"&&action!=="unselect")return;
 
