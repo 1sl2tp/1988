@@ -435,6 +435,43 @@ async function youtubePlayerIsLive(id:string){
   return (await youtubePlayerMetadata(id)).isLive;
 }
 
+
+function youtubeShortsPageSignal(html:string,id:string){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id)||!html)return false;
+  const canonical='href="https://www.youtube.com/shorts/'+id+'"';
+  return html.includes(canonical)||
+    html.includes('"webPageType":"WEB_PAGE_TYPE_SHORTS"')||
+    html.includes('"reelWatchEndpoint"')&&html.includes('"videoId":"'+id+'"');
+}
+
+async function youtubeShortsMembership(id:string){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),2600);
+  try{
+    const res=await fetch(
+      "https://www.youtube.com/shorts/"+encodeURIComponent(id)+"?hl=vi&gl=VN",
+      {
+        method:"GET",
+        signal:controller.signal,
+        cache:"no-store",
+        headers:{
+          "accept":"text/html,application/xhtml+xml",
+          "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
+          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+        }
+      }
+    );
+    if(!res.ok)return false;
+    const html=await res.text();
+    return youtubeShortsPageSignal(html,id);
+  }catch{
+    return false;
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
   const id=clean(source?.id,180);
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
@@ -1188,8 +1225,11 @@ Deno.serve(async(req:Request)=>{
 
     const durationMeta=new Map<string,any>();
     await mapLimit(durationCandidates.slice(0,80),8,async(candidate)=>{
-      const meta=await youtubePlayerMetadata(candidate.id);
-      durationMeta.set(candidate.id,{...meta,checkedAt:Date.now()});
+      const [meta,isShort]=await Promise.all([
+        youtubePlayerMetadata(candidate.id),
+        youtubeShortsMembership(candidate.id)
+      ]);
+      durationMeta.set(candidate.id,{...meta,isShort,checkedAt:Date.now()});
       return true;
     });
 
@@ -1206,7 +1246,9 @@ Deno.serve(async(req:Request)=>{
             ...row,
             duration:meta.isLive?-1:(Number(meta.duration)||0),
             isLive:meta.isLive===true,
-            _durationCheckedAt:meta.checkedAt
+            isShort:meta.isShort===true||row?.isShort===true,
+            _durationCheckedAt:meta.checkedAt,
+            _shortCheckedAt:meta.checkedAt
           };
         });
         if(changed){
@@ -1359,8 +1401,14 @@ Deno.serve(async(req:Request)=>{
       raw=dedupeRows(raw)
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
+      if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
+        degradedNotes.push(scope+":empty_candidate_kept_previous");
+        results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:current.items.length});
+        continue;
+      }
+
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v12")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v13")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
