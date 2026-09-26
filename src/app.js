@@ -7222,6 +7222,9 @@ function setupWatchMinimizeGesture(){
     zone.addEventListener("pointerdown",event=>{
       if(!state.watchMinimized||event.isPrimary===false)return;
       const rect=frame.getBoundingClientRect();
+      const safe=floatingSafeInsets();
+      const gap=4;
+
       miniDrag={
         pointerId:event.pointerId,
         startX:event.clientX,
@@ -7230,9 +7233,18 @@ function setupWatchMinimizeGesture(){
         top:rect.top,
         width:rect.width,
         height:rect.height,
-        moved:false
+        dx:0,
+        dy:0,
+        moved:false,
+        raf:0,
+        minDx:gap-rect.left,
+        maxDx:window.innerWidth-gap-rect.width-rect.left,
+        minDy:safe.top+gap-rect.top,
+        maxDy:window.innerHeight-safe.bottom-gap-rect.height-rect.top
       };
+
       zone.classList.add("is-dragging");
+      frame.classList.add("mini-dragging");
       try{zone.setPointerCapture?.(event.pointerId)}catch{}
       event.preventDefault();
     });
@@ -7240,37 +7252,72 @@ function setupWatchMinimizeGesture(){
     zone.addEventListener("pointermove",event=>{
       if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
 
-      const dx=event.clientX-miniDrag.startX;
-      const dy=event.clientY-miniDrag.startY;
+      let dx=event.clientX-miniDrag.startX;
+      let dy=event.clientY-miniDrag.startY;
       if(!miniDrag.moved&&Math.hypot(dx,dy)<5)return;
 
       miniDrag.moved=true;
       state.floatUserMoved=true;
-      placeFloatingAt(frame,{
-        left:miniDrag.left+dx,
-        top:miniDrag.top+dy,
-        width:miniDrag.width,
-        height:miniDrag.height
-      });
+      dx=Math.max(miniDrag.minDx,Math.min(miniDrag.maxDx,dx));
+      dy=Math.max(miniDrag.minDy,Math.min(miniDrag.maxDy,dy));
+      miniDrag.dx=dx;
+      miniDrag.dy=dy;
+
+      if(!miniDrag.raf){
+        const drag=miniDrag;
+        drag.raf=requestAnimationFrame(()=>{
+          if(miniDrag!==drag)return;
+          drag.raf=0;
+          frame.style.setProperty(
+            "transform",
+            "translate3d("+drag.dx+"px,"+drag.dy+"px,0)",
+            "important"
+          );
+        });
+      }
+
       event.preventDefault();
     });
 
+    const clearMiniDragVisual=drag=>{
+      if(drag?.raf)cancelAnimationFrame(drag.raf);
+      frame.style.removeProperty("transform");
+      frame.classList.remove("mini-dragging");
+      zone.classList.remove("is-dragging");
+    };
+
     const finishMiniDrag=event=>{
       if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
-      const moved=miniDrag.moved;
+
+      const drag=miniDrag;
+      const moved=drag.moved;
       miniDrag=null;
-      zone.classList.remove("is-dragging");
+
+      clearMiniDragVisual(drag);
       try{zone.releasePointerCapture?.(event.pointerId)}catch{}
 
-      if(!moved&&state.watchMinimized)setWatchMinimized(false);
+      if(moved){
+        // Commit layout once, after the gesture. During the drag only the
+        // compositor transform moved, avoiding Safari layout/repaint churn.
+        placeFloatingAt(frame,{
+          left:drag.left+drag.dx,
+          top:drag.top+drag.dy,
+          width:drag.width,
+          height:drag.height
+        });
+      }else if(state.watchMinimized){
+        setWatchMinimized(false);
+      }
+
       event.preventDefault();
     };
 
     zone.addEventListener("pointerup",finishMiniDrag);
     zone.addEventListener("pointercancel",event=>{
       if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
+      const drag=miniDrag;
       miniDrag=null;
-      zone.classList.remove("is-dragging");
+      clearMiniDragVisual(drag);
     });
   }
 
