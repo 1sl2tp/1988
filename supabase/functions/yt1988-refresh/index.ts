@@ -96,6 +96,14 @@ function channelId(row:any){
 function isLive(row:any){
   return row?.isLive===true||Number(row?.duration)<0||Number(row?.uploaded)===-1;
 }
+function isTooShortVideo(row:any){
+  if(isLive(row))return false;
+  if(row?.isShort===true)return true;
+  const url=clean(row?.url||row?.videoUrl||row?.webpageUrl||"",500).toLowerCase();
+  if(url.includes("/shorts/"))return true;
+  const duration=Number(row?.duration);
+  return Number.isFinite(duration)&&duration>0&&duration<=60;
+}
 function normalizeLiveText(value:any){
   return normalizeText(value);
 }
@@ -953,6 +961,10 @@ Deno.serve(async(req:Request)=>{
         }
       }
 
+      if(scope!=="live"){
+        raw=raw.filter((r:any)=>!isTooShortVideo(r));
+      }
+
       if(scope==="live"){
         // LIVE is built only from candidates that were freshly verified above.
         // Never fall back to stale channel-cache live flags.
@@ -994,7 +1006,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v4")+":"+meta.profile;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v5")+":"+meta.profile;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
