@@ -3986,7 +3986,7 @@ html.source-manager-page .source-preview{
    Safari may briefly retain its native chrome while a new vertical video is
    loading. In mini mode the outer app owns tap/drag, so hide native controls
    visually as well as disabling the controls property in JS. */
-@media(max-width:720px){
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
   html.watch-minimized #nativePlayer{
     -webkit-appearance:none!important;
   }
