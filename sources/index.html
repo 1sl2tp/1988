@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=9">
+  <link rel="stylesheet" href="./sources.css?v=10">
 </head>
 <body>
   <header class="topbar">
@@ -35,6 +35,13 @@
     </section>
 
     <section id="workspace" class="workspace">
+      <div class="column" data-column="blocked">
+        <div class="column-head">
+          <div><strong>Đã chặn</strong><span id="blockedCount">0</span></div>
+        </div>
+        <div id="blockedList" class="channel-list"></div>
+      </div>
+
       <div class="column" data-column="suggested">
         <div class="column-head">
           <div><strong>Gợi ý</strong><span id="suggestedCount">0</span></div>
@@ -47,13 +54,6 @@
           <div><strong>Đã chọn</strong><span id="selectedCount">0</span></div>
         </div>
         <div id="selectedList" class="channel-list"></div>
-      </div>
-
-      <div class="column" data-column="blocked">
-        <div class="column-head">
-          <div><strong>Đã chặn</strong><span id="blockedCount">0</span></div>
-        </div>
-        <div id="blockedList" class="channel-list"></div>
       </div>
 
       <div class="column search-column" data-column="search">
@@ -86,7 +86,6 @@
             <div class="preview-actions">
               <button id="previewSelect" class="action-icon select" type="button" aria-label="Chọn" title="Chọn">✓</button>
               <button id="previewBlock" class="action-icon block" type="button" aria-label="Chặn" title="Chặn">×</button>
-              <button id="previewMoreBtn" class="action-icon more" type="button" aria-label="Thêm thao tác" title="Thêm thao tác">…</button>
               <button id="previewClose" class="action-icon close" type="button" aria-label="Đóng xem trước" title="Đóng">×</button>
             </div>
           </div>
@@ -101,10 +100,9 @@
             </div>
           </div>
 
-          <div id="previewMore" class="preview-more" hidden>
+          <div id="previewMore" class="preview-more">
             <div class="preview-more-head">
               <strong>Thêm vào nguồn khác</strong>
-              <button id="previewMoreClose" class="tiny" type="button">×</button>
             </div>
             <div id="previewScopes" class="scope-assign-row"></div>
           </div>
@@ -182,6 +180,6 @@
   </div>
 
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=9"></script>
+  <script src="./sources.js?v=10"></script>
 </body>
 </html>
