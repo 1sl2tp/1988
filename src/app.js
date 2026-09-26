@@ -6800,22 +6800,15 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   // A stale v235 fake-PiP class must never own geometry again.
   if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
 
-  let ratio=responsivePlayerAspect(meta);
-  if(!Number.isFinite(ratio)||ratio<=0)ratio=16/9;
+  const sourceRatio=responsivePlayerAspect(meta);
+  const ratio=16/9;
 
   frame.classList.remove(
     "watch-aspect-wide",
     "watch-aspect-square",
     "watch-aspect-portrait"
   );
-
-  const aspectClass=
-    ratio>=1.2
-      ?"watch-aspect-wide"
-      :ratio>=.8
-        ?"watch-aspect-square"
-        :"watch-aspect-portrait";
-  frame.classList.add(aspectClass);
+  frame.classList.add("watch-aspect-wide");
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
   // Keep the current artwork available to the inline stage as well as PiP.
@@ -6831,13 +6824,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   if(root.classList.contains("watch-browse")){
-    root.classList.add(
-      aspectClass==="watch-aspect-wide"
-        ?"watch-video-wide"
-        :aspectClass==="watch-aspect-square"
-          ?"watch-video-square"
-          :"watch-video-portrait"
-    );
+    root.classList.add("watch-video-wide");
   }
 
   const clearWatchGeometry=()=>{
@@ -6885,30 +6872,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const sourceRow=parseFloat(styles.getPropertyValue("--watch-source-row-h"))||48;
     const maxWidth=viewportWidth;
 
-    let width=maxWidth;
-    let height=width/ratio;
-
-    if(ratio>=.8){
-      const feedPeek=Math.max(44,Math.min(72,viewportHeight*.08));
-      const maxHeight=Math.max(
-        140,
-        viewportHeight-topRow-sourceRow-feedPeek
-      );
-      width=Math.min(maxWidth,maxHeight*ratio);
-      height=width/ratio;
-      if(height>maxHeight){
-        height=maxHeight;
-        width=height*ratio;
-      }
-      width=Math.max(1,Math.min(maxWidth,width));
-      height=Math.max(1,Math.min(maxHeight,height));
-    }else{
-      // Portrait/long video keeps its natural full-width height. The browser
-      // page owns vertical scrolling, so one upward swipe continues directly
-      // to Sources and the next cards.
-      width=Math.max(1,maxWidth);
-      height=Math.max(1,width/ratio);
-    }
+    const width=Math.max(1,maxWidth);
+    const height=Math.max(1,width/(16/9));
 
     frame.style.setProperty("--watch-player-width",Math.round(width)+"px");
     frame.style.setProperty("--watch-player-height",Math.round(height)+"px");
@@ -6916,8 +6881,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     root.style.setProperty("--watch-stage-h",Math.round(height)+"px");
 
     syncMobileInlinePlayerViewport(width,height,{
-      settle:ratio<.80&&window.innerWidth<=375,
-      ratio
+      settle:false,
+      ratio:16/9
     });
     root.style.setProperty("--watch-side-gap",Math.max(0,Math.round(viewportWidth-width))+"px");
     root.style.removeProperty("--watch-player-column-w");
@@ -6957,8 +6922,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const feedPadLeft=10;
     const feedPadRight=22;
     const feedChrome=feedPadLeft+feedPadRight+scrollGutter;
-    const portrait=ratio<.8;
-    const wide=ratio>=1.2;
+    const portrait=false;
+    const wide=true;
 
     const sectionRect=playerSection?.getBoundingClientRect?.();
     const feedSectionRect=feedSection?.getBoundingClientRect?.();
@@ -7854,6 +7819,28 @@ function setupWatchMinimizeGesture(){
   document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+
+  if("IntersectionObserver" in window&&playerSection){
+    const slotObserver=new IntersectionObserver(entries=>{
+      const entry=entries.find(item=>item.target===playerSection);
+      if(!entry||!state.currentId||playerSection.hidden)return;
+
+      if(!entry.isIntersecting&&eligibleInline()){
+        setWatchMinimized(true,{pinned:false});
+        return;
+      }
+
+      if(
+        entry.isIntersecting &&
+        state.watchMinimized &&
+        !state.watchPipPinned &&
+        Date.now()-Number(state.watchPipEnteredAt||0)>=220
+      ){
+        setWatchMinimized(false,{preserveScroll:true});
+      }
+    },{root:null,threshold:[0,.01]});
+    slotObserver.observe(playerSection);
+  }
 }
 
 function getFullscreenElement(){
@@ -9780,10 +9767,6 @@ async function backgroundSources(id){
   }];
 }
 
-let desktopAutoBackground=false;
-let desktopAutoBackgroundSeq=0;
-let desktopAutoBackgroundTime=0;
-
 const backgroundPlayer=new HTML5BackgroundPlayer({
   audio:bgAudio,
   sourcesFor:backgroundSources,
@@ -9829,108 +9812,6 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     }
   }
 });
-
-function primeDesktopBackgroundAudio(id,metadata={}){
-  if(mobileMiniViewport()||!id)return false;
-
-  // Keep one silent HTML5 media element alive from the user's video click.
-  // Real audio resolves in parallel but is NOT activated while the tab is
-  // visible, so the iframe remains the foreground master.
-  backgroundPlayer.arm(id,{metadata});
-  void backgroundPlayer.prepare(id);
-  return true;
-}
-
-async function startDesktopAutoBackground(){
-  if(
-    mobileMiniViewport() ||
-    document.visibilityState==="visible" ||
-    state.mode!=="video" ||
-    !state.currentId ||
-    !state.intentPlay ||
-    state.fullscreenActive
-  )return false;
-
-  const id=state.currentId;
-  const time=getVideoTime();
-  const seq=++desktopAutoBackgroundSeq;
-
-  desktopAutoBackground=true;
-  desktopAutoBackgroundTime=time;
-  state.mode="audio";
-
-  backgroundPlayer.select(id,{metadata:state.currentMeta||{}});
-
-  try{
-    await backgroundPlayer.activate(id,{
-      time,
-      metadata:state.currentMeta||{}
-    });
-
-    if(
-      seq!==desktopAutoBackgroundSeq ||
-      state.currentId!==id ||
-      !desktopAutoBackground
-    ){
-      backgroundPlayer.pause();
-      return false;
-    }
-
-    // If the tab returned while source activation was finishing, restore the
-    // foreground immediately instead of allowing a late source event to pause it.
-    if(document.visibilityState==="visible"){
-      restoreDesktopAutoBackground();
-      return true;
-    }
-
-    return true;
-  }catch{
-    if(seq===desktopAutoBackgroundSeq&&state.currentId===id){
-      desktopAutoBackground=false;
-      state.audioMaster=false;
-      state.mode="video";
-      // markPlaybackTransition() already preserved intentPlay, so the normal
-      // visible-page resume path can recover the iframe when the user returns.
-    }
-    return false;
-  }
-}
-
-function restoreDesktopAutoBackground(){
-  if(!desktopAutoBackground)return false;
-
-  const id=state.currentId;
-  const shouldPlay=!!state.intentPlay;
-  const time=
-    state.audioMaster&&backgroundPlayer.currentId===id
-      ?backgroundPlayer.time
-      :Math.max(desktopAutoBackgroundTime,getVideoTime());
-
-  desktopAutoBackground=false;
-  ++desktopAutoBackgroundSeq;
-  desktopAutoBackgroundTime=0;
-
-  backgroundPlayer.pause();
-  state.audioMaster=false;
-  state.mode="video";
-  state.resumeOnReturn=false;
-  state.transitionUntil=0;
-
-  if(id){
-    seekVideo(time);
-    if(shouldPlay){
-      state.intentPlay=true;
-      playVideoEngine();
-    }else{
-      pauseVideoEngine();
-    }
-  }
-
-  updateModeUi();
-  if(shouldPlay)statusText.textContent="Video đang phát";
-  return true;
-}
-
 
 function searchSourceId(row={}){
   return String(row?._sourceId||row?.channelId||row?.uploaderId||"").trim();
@@ -11787,9 +11668,6 @@ function restoreVideoAfterAudioFailure(message){
 
 function startBackgroundMode(mode){
   if(!state.currentId)return;
-  desktopAutoBackground=false;
-  ++desktopAutoBackgroundSeq;
-  desktopAutoBackgroundTime=0;
   const targetMode=mode==="lock"?"lock":"audio";
   const id=state.currentId;
 
@@ -11838,9 +11716,6 @@ function startBackgroundMode(mode){
 
 function returnToVideo(){
   if(!state.currentId)return;
-  desktopAutoBackground=false;
-  ++desktopAutoBackgroundSeq;
-  desktopAutoBackgroundTime=0;
   const time=state.audioMaster?backgroundPlayer.time:getVideoTime();
   backgroundPlayer.pause();
   state.audioMaster=false;
@@ -12810,11 +12685,9 @@ async function playVideo(id,seedMeta={}){
     requestAnimationFrame(resetWatchTop);
   }
 
-  backgroundPlayer.pause();
-  backgroundPlayer.select(id,{metadata:seedMeta});
-  if(!mobileMiniViewport()){
-    primeDesktopBackgroundAudio(id,seedMeta);
-  }
+  // YouTube iframe is the only automatic playback master.
+  backgroundPlayer.stop();
+  state.audioMaster=false;
 
   try{nativePlayer.pause();}catch{}
   nativePlayer.removeAttribute("src");
@@ -12822,7 +12695,6 @@ async function playVideo(id,seedMeta={}){
   updateNow(seedMeta);
   showIframePlayer();
   applyResponsivePlayerFrame(state.currentMeta);
-  if(state.videoAspect<.80&&window.innerWidth<=720)pinMobilePortraitWatchTop();
   requestAnimationFrame(()=>applyResponsivePlayerFrame(state.currentMeta));
   setTimeout(()=>{
     if(state.currentId===id)applyResponsivePlayerFrame(state.currentMeta);
@@ -14218,13 +14090,8 @@ document.addEventListener("visibilitychange",()=>{
     state.visibilityScrollY=window.scrollY;
 
     if(state.mode==="video"&&state.currentId){
+      // Keep the same YouTube iframe session; do not start another audio stream.
       markPlaybackTransition();
-
-      // Desktop regains the older continuous-background behavior: switch to
-      // the already-primed HTML5 audio master while the tab is hidden.
-      if(!mobileMiniViewport()&&state.intentPlay){
-        void startDesktopAutoBackground();
-      }
     }
     return;
   }
@@ -14245,11 +14112,6 @@ document.addEventListener("visibilitychange",()=>{
   // When the app becomes visible again, refresh complete snapshots for all
   // tabs in the background. The currently visible list is never reordered.
   void refreshAllSourceSnapshotsInBackground();
-
-  if(desktopAutoBackground){
-    restoreDesktopAutoBackground();
-    return;
-  }
 
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
