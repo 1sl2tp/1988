@@ -184,6 +184,19 @@
             </div>
             <button id="sourceDataResetBtn" class="source-data-reset-btn" type="button">Dọn dữ liệu &amp; cập nhật</button>
           </div>
+          <div id="liveKeywordTools" class="live-keyword-tools" hidden>
+            <div class="live-keyword-head">
+              <div>
+                <strong>Từ khóa chặn</strong>
+                <span>Live có tiêu đề hoặc tên kênh chứa từ này sẽ bị ẩn. Ví dụ: xổ số, cây cảnh.</span>
+              </div>
+            </div>
+            <div class="live-keyword-entry">
+              <input id="liveKeywordInput" type="text" enterkeyhint="done" autocomplete="off" maxlength="120" placeholder="Nhập một từ hoặc cụm từ">
+              <button id="liveKeywordAddBtn" type="button">Thêm</button>
+            </div>
+            <div id="liveKeywordChips" class="live-keyword-chips"></div>
+          </div>
           <div id="sourceSearchStatus" class="source-search-status"></div>
           <div id="sourceList" class="source-list"></div>
         </div>
