@@ -5157,12 +5157,10 @@ async function clearLocalDataAndReload(){
 let sourceAdminActiveTab="sources";
 
 function sourceManagerOpenUrl(scope=activeSourceScope()||sourceManageGroup||LIVE_SOURCE_SCOPE){
-  const url=new URL(location.href);
-  url.search="";
-  url.hash="";
-  url.searchParams.set("manage","sources");
-  if(MANAGED_SOURCE_SCOPES.has(sourceScope(scope))){
-    url.searchParams.set("scope",sourceScope(scope));
+  const url=new URL("./sources/",location.href);
+  const normalized=sourceScope(scope);
+  if(MANAGED_SOURCE_SCOPES.has(normalized)){
+    url.searchParams.set("scope",normalized);
   }
   return url.href;
 }
