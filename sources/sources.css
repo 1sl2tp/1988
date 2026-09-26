@@ -1514,3 +1514,182 @@ body{
   border-color:#3d3d44;
   color:#bbb;
 }
+
+
+/* v14 compact header + slightly larger UI + calmer video spacing */
+html,body{
+  height:100%;
+}
+body{
+  display:block;
+  font-size:15px;
+}
+.topbar{
+  display:none!important;
+}
+main{
+  height:100vh;
+  grid-template-rows:auto minmax(0,1fr);
+}
+.source-manager-head{
+  border-bottom:1px solid var(--line);
+}
+.source-manager-title{
+  min-height:46px;
+  padding:7px 10px 5px;
+}
+.source-title-main{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  min-width:0;
+}
+.brand-inline{
+  flex:0 0 auto;
+  gap:7px;
+}
+.brand-inline .brand-mark{
+  width:26px;
+  height:19px;
+}
+.brand-inline strong{
+  font-size:15px;
+}
+.source-title-divider{
+  flex:0 0 1px;
+  width:1px;
+  height:22px;
+  background:#313137;
+}
+.source-title-copy{
+  min-width:0;
+}
+.source-title-copy>strong{
+  display:block;
+  font-size:15px;
+  line-height:1.15;
+}
+.source-title-copy>span{
+  display:block;
+  margin-top:2px;
+  color:#85858e;
+  font-size:11.5px;
+}
+.source-head-actions{
+  gap:6px;
+}
+.source-head-actions .secondary,
+.source-head-actions .primary,
+.source-head-actions .ghost,
+.source-head-actions .icon-btn{
+  height:31px;
+  font-size:11px;
+}
+.source-head-actions .icon-btn{
+  width:31px;
+}
+.scope-row{
+  padding:2px 10px 7px;
+}
+.scope-chip{
+  height:30px;
+  font-size:12.5px;
+}
+.scope-count{
+  font-size:10.5px;
+}
+
+/* Make the whole manager easier to read without bloating the 3 narrow columns. */
+.column-head{
+  height:36px;
+  min-height:36px;
+}
+.column-head strong{
+  font-size:14.5px!important;
+}
+.column[data-column="blocked"] .channel-card,
+.column[data-column="suggested"] .channel-card,
+.column[data-column="selected"] .channel-card{
+  height:44px;
+  min-height:44px;
+}
+.column[data-column="blocked"] .channel-copy strong,
+.column[data-column="suggested"] .channel-copy strong,
+.column[data-column="selected"] .channel-copy strong{
+  font-size:13.2px!important;
+}
+.search-mode-btn{
+  font-size:12.2px;
+}
+.search-column .search-box input{
+  font-size:14.2px!important;
+}
+.search-column .search-box button{
+  font-size:13px;
+}
+
+/* Give video cards enough breathing room. */
+.column-video-grid{
+  grid-template-columns:repeat(4,minmax(0,1fr))!important;
+  gap:10px!important;
+  padding:0 10px 12px!important;
+}
+.video-card,
+.video-search-card{
+  border-radius:10px;
+}
+.video-card{
+  border-color:#323238;
+}
+.video-card:hover,
+.video-search-card:hover{
+  border-color:#55555d;
+}
+.column-video-grid .video-copy{
+  padding:7px 8px 8px;
+}
+.column-video-grid .video-copy strong{
+  font-size:12.3px!important;
+  line-height:1.32;
+}
+.column-video-grid .video-copy span{
+  font-size:10.5px!important;
+}
+.preview-toolbar{
+  padding-left:10px!important;
+  padding-right:10px!important;
+}
+.preview-more{
+  padding-left:10px;
+  padding-right:10px;
+}
+.preview-head{
+  padding-left:10px!important;
+  padding-right:10px!important;
+}
+
+/* Search video cards also need separation and readable metadata. */
+.search-column .search-results.video-search-grid{
+  gap:10px;
+  padding:9px 10px 12px;
+}
+.video-search-copy{
+  padding:8px 9px 9px;
+}
+.video-search-copy>strong{
+  font-size:12.6px!important;
+}
+.video-search-channel-name{
+  font-size:11.3px;
+}
+.video-search-meta{
+  font-size:10.5px;
+}
+
+/* On slightly narrower screens, 3 columns avoids crushed cards. */
+@media(max-width:1280px){
+  .column-video-grid,
+  .search-column .search-results.video-search-grid{
+    grid-template-columns:repeat(3,minmax(0,1fr))!important;
+  }
+}
