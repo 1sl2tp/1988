@@ -201,7 +201,7 @@ assert.match(refresh,/SCOPES\.flatMap\(\(scope\)=>selectedByScope\.get\(scope\)\
 assert.match(refresh,/async function discoverGlobalLiveCandidates\(/);
 assert.match(refresh,/blockedSourceIds:Set<string>/);
 assert.match(refresh,/selectedSourceIds:Set<string>/);
-assert.match(refresh,/selected:dedupeRows\(selected\)/);
+assert.match(refresh,/selected:await verifyFresh\(selected,56\)/);
 assert.match(refresh,/const LIVE_SEARCH_QUERIES=\[/);
 assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v24["']/);
 assert.match(refresh,/meta\.kind===["']live["']\?LIVE_PIPELINE_VERSION/);
