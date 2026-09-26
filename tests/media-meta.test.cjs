@@ -44,4 +44,39 @@ assert.equal(video.viewsLabel,'13K');
 assert.equal(video.durationLabel,'1:35');
 assert.equal(video.sourceName,'Test source');
 
+assert.equal(
+  M.thumbnail({
+    videoId:'abcdefghijk',
+    thumbnail:'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg'
+  }),
+  'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',
+  '4:3 hqdefault must normalize to stable 16:9 mqdefault'
+);
+
+assert.equal(
+  M.thumbnail({
+    videoId:'abcdefghijk',
+    thumbnails:[
+      {url:'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',width:320,height:180},
+      {url:'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',width:1280,height:720}
+    ]
+  }),
+  'https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg',
+  'largest measured 16:9 thumbnail should win'
+);
+
+assert.equal(
+  M.thumbnail({
+    videoId:'abcdefghijk',
+    snippet:{
+      thumbnails:{
+        high:{url:'https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg',width:480,height:360},
+        medium:{url:'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',width:320,height:180}
+      }
+    }
+  }),
+  'https://i.ytimg.com/vi/abcdefghijk/mqdefault.jpg',
+  'YouTube API thumbnail sets should select the 16:9 candidate'
+);
+
 console.log('media-meta tests passed');

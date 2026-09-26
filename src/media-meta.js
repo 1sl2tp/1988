@@ -112,16 +112,114 @@
     return row?.isLive===true?cleanLiveTitle(raw):raw;
   }
 
+  function normalizeImageUrl(value=''){
+    const url=clean(value);
+    return url.startsWith('//')?'https:'+url:url;
+  }
+
+  function thumbnailCandidate(value,width=0,height=0){
+    if(!value)return null;
+    if(typeof value==='string'){
+      const url=normalizeImageUrl(value);
+      return url?{url,width:Number(width)||0,height:Number(height)||0}:null;
+    }
+    if(typeof value==='object'){
+      const url=normalizeImageUrl(value.url||value.src||value.thumbnailUrl||'');
+      if(!url)return null;
+      return {
+        url,
+        width:Number(value.width||value.w||width)||0,
+        height:Number(value.height||value.h||height)||0
+      };
+    }
+    return null;
+  }
+
+  function thumbnailCandidates(row={}){
+    const out=[];
+    const seen=new Set();
+    const add=(value,width=0,height=0)=>{
+      const candidate=thumbnailCandidate(value,width,height);
+      if(!candidate?.url||seen.has(candidate.url))return;
+      seen.add(candidate.url);
+      out.push(candidate);
+    };
+
+    add(row?.thumbnail,row?.thumbnailWidth,row?.thumbnailHeight);
+    add(row?.thumbnailUrl,row?.thumbnailWidth,row?.thumbnailHeight);
+
+    for(const value of Array.isArray(row?.thumbnails)?row.thumbnails:[])add(value);
+    for(const value of Array.isArray(row?.content_image?.image)?row.content_image.image:[])add(value);
+
+    const snippetThumbs=row?.snippet?.thumbnails;
+    if(snippetThumbs&&typeof snippetThumbs==='object'){
+      for(const value of Object.values(snippetThumbs))add(value);
+    }
+
+    const details=row?.thumbnailDetails?.thumbnails;
+    if(Array.isArray(details)){
+      for(const value of details)add(value);
+    }
+
+    return out;
+  }
+
+  function isSixteenNine(width,height){
+    width=Number(width)||0;
+    height=Number(height)||0;
+    if(width<=0||height<=0)return false;
+    const ratio=width/height;
+    return ratio>=1.70&&ratio<=1.86;
+  }
+
+  function knownYoutubeWideThumb(url='',video=''){
+    if(!url||!video)return false;
+    try{
+      const parsed=new URL(url,'https://i.ytimg.com');
+      const host=parsed.hostname.replace(/^www\./,'').toLowerCase();
+      if(![
+        'i.ytimg.com',
+        'img.youtube.com',
+        'i1.ytimg.com',
+        'i2.ytimg.com',
+        'i3.ytimg.com',
+        'i4.ytimg.com'
+      ].includes(host))return false;
+      const path=parsed.pathname;
+      if(!path.includes('/'+video+'/'))return false;
+      return /\/(?:mqdefault|maxresdefault)\.(?:jpg|jpeg|webp)$/i.test(path);
+    }catch{
+      return false;
+    }
+  }
+
+  function youtubeWideFallback(video=''){
+    return VIDEO_ID_RE.test(video)
+      ?'https://i.ytimg.com/vi/'+video+'/mqdefault.jpg'
+      :'';
+  }
+
   function thumbnail(row={},id=''){
     const video=extractVideoId(id)||videoId(row);
-    const value=pick(
-      row?.thumbnail,
-      row?.thumbnailUrl,
-      row?.thumbnails?.[0]?.url,
-      row?.content_image?.image?.[0]?.url
-    );
-    if(value)return value.startsWith('//')?'https:'+value:value;
-    return video?'https://i.ytimg.com/vi/'+video+'/hqdefault.jpg':'';
+    const candidates=thumbnailCandidates(row);
+
+    if(video){
+      // Data/media contract: every YouTube card receives a 16:9 thumbnail.
+      // Prefer the largest explicitly-sized 16:9 asset from the source data.
+      // If upstream only supplies hqdefault/default (4:3 canvas), normalize
+      // to mqdefault, YouTube's stable 320x180 thumbnail.
+      const measured=candidates
+        .filter(item=>isSixteenNine(item.width,item.height))
+        .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
+      if(measured?.url)return measured.url;
+
+      const knownWide=candidates.find(item=>knownYoutubeWideThumb(item.url,video));
+      if(knownWide?.url)return knownWide.url;
+
+      return youtubeWideFallback(video);
+    }
+
+    return candidates[0]?.url||'';
   }
 
   function parseDuration(value){

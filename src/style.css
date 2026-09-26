@@ -4108,3 +4108,23 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
     --mobile-chrome-tint:rgba(15,15,16,0)!important;
   }
 }
+
+
+/* Canonical YouTube thumbnails v390.
+   MediaMeta supplies a 16:9 asset, so every video card is full-bleed from the
+   first paint. No contain/ratio probing and no thumbnail scaling. */
+.thumb-wrap img,
+.thumb-wrap img.thumb-fill,
+html:not(.watch-browse) .feed>.card .thumb-wrap img,
+html.watch-browse .feed>.card .thumb-wrap img,
+html:not(.watch-browse) .feed>.card .thumb-wrap img.thumb-fill,
+html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+  object-position:center!important;
+  transform:none!important;
+  background:#0b0b0c!important;
+  transition:none!important;
+  animation:none!important;
+}

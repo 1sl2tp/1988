@@ -9631,7 +9631,7 @@ function searchCardHtml(row={},options={}){
     '" data-search-match="'+(options.match===false?'0':'1')+
     '" data-series-key="'+esc(seriesKey)+
     '" data-episode="'+esc(String(episode||""))+'">'+
-      '<div class="thumb-wrap"><img src="'+esc(media.thumbnail)+'" alt="" loading="lazy">'+
+      '<div class="thumb-wrap"><img class="thumb-fill" src="'+esc(media.thumbnail)+'" alt="" loading="lazy" decoding="async">'+
         (isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+
         (episode?'<span class="episode-badge">Tập '+esc(String(episode))+'</span>':'')+
       '</div>'+
@@ -11035,7 +11035,7 @@ function renderCards(rows=[],options={}){
       id,
       html:
         '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-trusted-package="'+(trustedPackage?'1':'0')+'" data-watch-scope="'+esc(clean(row?._watchScope||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
-          '<div class="thumb-wrap"><img src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
+          '<div class="thumb-wrap"><img class="thumb-fill" src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
               (avatarUsable
@@ -13331,20 +13331,9 @@ window.visualViewport?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{
 
 function normalizeThumbnailFit(img){
   if(!(img instanceof HTMLImageElement)||!img.closest(".thumb-wrap"))return;
-
-  const apply=()=>{
-    const ratio=
-      img.naturalWidth>0&&img.naturalHeight>0
-        ?img.naturalWidth/img.naturalHeight
-        :0;
-    // Default CSS is contain, so illustrations/4:3/portrait artwork are never
-    // cropped on first paint. Only true ~16:9 assets switch to fill; contain
-    // and cover are visually identical for those assets.
-    img.classList.toggle("thumb-fill",ratio>=1.66&&ratio<=1.92);
-  };
-
-  if(img.complete&&img.naturalWidth)apply();
-  else img.addEventListener("load",apply,{once:true});
+  // MediaMeta now guarantees 16:9 YouTube artwork before render.
+  // UI has one stable rule: fill the card, no per-image ratio guessing.
+  img.classList.add("thumb-fill");
 }
 
 function normalizeRenderedThumbnails(){
