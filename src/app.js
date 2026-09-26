@@ -7308,6 +7308,7 @@ function setWatchMinimized(minimized){
       isPlayerFullscreen()
     )return false;
 
+    markPlaybackTransition();
     state.watchMinimized=true;
     root.classList.add("watch-minimized");
     syncNativeMobileControls();
@@ -7320,12 +7321,16 @@ function setWatchMinimized(minimized){
 
   if(!state.watchMinimized&&!root.classList.contains("watch-minimized"))return false;
 
+  markPlaybackTransition();
   state.watchMinimized=false;
   root.classList.remove("watch-minimized");
   syncNativeMobileControls();
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
   hardResetDocumentTop();
+  if(state.intentPlay){
+    setTimeout(resumeVideoAfterReturn,80);
+  }
   return true;
 }
 
@@ -7578,21 +7583,25 @@ function setupFloatingIframe(){
 }
 
 function markPlaybackTransition(){
-  // Safari is deliberately user-controlled here. Auto-resume after a page/
-  // fullscreen lifecycle transition can cancel timeline seeking.
-  const ua=navigator.userAgent||"";
-  const safari=/Safari/i.test(ua)&&!/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|Android/i.test(ua);
-  if(safari)return;
   if(state.mode!=="video"||!state.currentId)return;
+
   let playing=state.videoPlaying;
-  try{
-    const ps=state.player?.getPlayerState?.();
-    playing=playing||ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING;
-  }catch{}
+  if(state.engine==="native"){
+    playing=playing||(!nativePlayer.paused&&!nativePlayer.ended);
+  }else{
+    try{
+      const ps=state.player?.getPlayerState?.();
+      playing=playing||ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING;
+    }catch{}
+  }
+
+  // Preserve only an active/desired playback session. A real user pause has
+  // already cleared intentPlay and must remain paused.
   if(!playing&&!state.intentPlay)return;
+
   state.intentPlay=true;
   state.resumeOnReturn=true;
-  state.transitionUntil=Date.now()+5000;
+  state.transitionUntil=Date.now()+6000;
 }
 
 function resumeVideoAfterReturn(){
@@ -7606,7 +7615,7 @@ function resumeVideoAfterReturn(){
   )return;
 
   state.resumeOnReturn=false;
-  state.transitionUntil=Date.now()+1400;
+  state.transitionUntil=Date.now()+1800;
   clearTimeout(state.resumeTimer);
 
   const attempt=()=>{
@@ -7617,9 +7626,24 @@ function resumeVideoAfterReturn(){
       !state.currentId ||
       !state.intentPlay
     )return;
+
+    if(state.engine==="native"){
+      if(!nativePlayer.paused&&!nativePlayer.ended){
+        state.videoPlaying=true;
+        applyFloatingIframe();
+        return;
+      }
+      void nativePlayer.play().then(()=>{
+        if(state.engine!=="native"||!state.intentPlay)return;
+        state.videoPlaying=true;
+        applyFloatingIframe();
+      }).catch(()=>{});
+      return;
+    }
+
     try{
       const ps=state.player?.getPlayerState?.();
-      if(ps===YT.PlayerState.PLAYING){
+      if(ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING){
         state.videoPlaying=true;
         applyFloatingIframe();
         return;
@@ -7629,8 +7653,8 @@ function resumeVideoAfterReturn(){
   };
 
   attempt();
-  state.resumeTimer=setTimeout(attempt,220);
-  setTimeout(attempt,650);
+  state.resumeTimer=setTimeout(attempt,180);
+  setTimeout(attempt,520);
 }
 
 function setupFullscreenReturn(){
@@ -12503,14 +12527,15 @@ function initYouTubePlayer(){
           state.videoPlaying=false;
 
           const lifecyclePause=
-            document.visibilityState!=="visible" &&
             state.resumeOnReturn &&
             !state.fullscreenActive &&
             Date.now()>=state.fullscreenExitCooldownUntil &&
             Date.now()<state.transitionUntil;
 
           if(lifecyclePause&&state.intentPlay){
-            setTimeout(resumeVideoAfterReturn,90);
+            if(document.visibilityState==="visible"){
+              setTimeout(resumeVideoAfterReturn,90);
+            }
           }else{
             // Parent page is visible and stable: this came from the user's
             // YouTube controls, so keep PAUSE exactly as requested.
@@ -13462,16 +13487,41 @@ nativePlayer.addEventListener("resize",()=>{
 nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;
   state.videoPlaying=true;
+  state.intentPlay=true;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
   if(state.mode==="video")statusText.textContent="Video đang phát";
   applyFloatingIframe();
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
 });
 nativePlayer.addEventListener("pause",()=>{
   if(state.engine!=="native"||state.mode!=="video")return;
+  state.videoPlaying=false;
+
+  const lifecyclePause=
+    state.resumeOnReturn &&
+    !state.fullscreenActive &&
+    Date.now()>=state.fullscreenExitCooldownUntil &&
+    Date.now()<state.transitionUntil;
+
+  if(lifecyclePause&&state.intentPlay){
+    if(document.visibilityState==="visible"){
+      setTimeout(resumeVideoAfterReturn,90);
+    }
+  }else{
+    state.intentPlay=false;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+  }
+
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
 });
 nativePlayer.addEventListener("ended",()=>{
   if(state.engine!=="native"||state.mode!=="video")return;
+  state.videoPlaying=false;
+  state.intentPlay=false;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
   if(advanceSeriesEpisode())return;
   statusText.textContent="Đã phát xong";
 });
