@@ -6228,10 +6228,14 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     return;
   }
 
-  const viewportWidth=Math.max(
+  const layoutViewportWidth=Math.max(
     280,
-    Number(window.visualViewport?.width)||window.innerWidth||0
+    document.documentElement?.clientWidth||0,
+    window.innerWidth||0
   );
+  const viewportWidth=window.innerWidth<=720
+    ?layoutViewportWidth
+    :Math.max(280,Number(window.visualViewport?.width)||layoutViewportWidth);
   const viewportHeight=Math.max(
     320,
     Number(window.visualViewport?.height)||window.innerHeight||0
@@ -11451,6 +11455,13 @@ async function playVideo(id,seedMeta={}){
   updateNow(seedMeta);
   showIframePlayer();
   applyResponsivePlayerFrame(state.currentMeta);
+  requestAnimationFrame(()=>applyResponsivePlayerFrame(state.currentMeta));
+  setTimeout(()=>{
+    if(state.currentId===id)applyResponsivePlayerFrame(state.currentMeta);
+  },90);
+  setTimeout(()=>{
+    if(state.currentId===id)applyResponsivePlayerFrame(state.currentMeta);
+  },260);
   ensureWatchNavRail();
   syncWatchCurrentCard({scroll:true});
   updateModeUi();
@@ -12108,6 +12119,13 @@ function commitSearch(value){
   const fromWatch=root.classList.contains("watch-browse");
 
   clearSuggestions();
+  clearSearchSuggestionPanel();
+  root.classList.remove("search-suggestions-open");
+  root.style.removeProperty("--search-suggestions-top");
+  root.style.removeProperty("--search-suggestions-left");
+  root.style.removeProperty("--search-suggestions-width");
+  root.style.removeProperty("--search-suggestions-max-h");
+  root.style.removeProperty("--search-suggestions-h");
   queryInput?.blur?.();
 
   // Search editing is finished as soon as the user commits. The back arrow
@@ -12131,6 +12149,25 @@ searchForm?.addEventListener("submit",event=>{
   event.preventDefault();
   const q=normalizeCommittedSearchQuery(queryInput?.value||"");
   if(!q)return;
+  queryInput.value=q;
+  commitSearch(q);
+});
+
+queryInput?.addEventListener("keydown",event=>{
+  if(event.key!=="Enter"||event.isComposing)return;
+  event.preventDefault();
+  const q=normalizeCommittedSearchQuery(queryInput.value||"");
+  if(!q)return;
+  queryInput.value=q;
+  commitSearch(q);
+});
+
+queryInput?.addEventListener("search",()=>{
+  const q=normalizeCommittedSearchQuery(queryInput.value||"");
+  if(!q){
+    clearSearchSuggestionPanel();
+    return;
+  }
   queryInput.value=q;
   commitSearch(q);
 });
