@@ -3113,7 +3113,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
   requestAnimationFrame(observeSourceRows);
 }
 
-function applySourceGroupLabelsUi(){
+function applySourceGroupLabelsUi({renderCategories=true}={}){
   const latestButton=topicChips?.querySelector('[data-feed="'+LATEST_SOURCE_SCOPE+'"]');
   const weekButton=topicChips?.querySelector('[data-feed="'+WEEK_SOURCE_SCOPE+'"]');
   const liveButton=topicChips?.querySelector('[data-feed="'+LIVE_SOURCE_SCOPE+'"]');
@@ -3125,7 +3125,7 @@ function applySourceGroupLabelsUi(){
     liveButton.setAttribute("title",sourceGroupLabel(LIVE_SOURCE_SCOPE));
   }
 
-  renderParentCategories();
+  if(renderCategories)renderParentCategories();
 
   if(!state.searchResultsActive){
     if(state.activeParent){
@@ -14454,7 +14454,9 @@ async function bootstrap1988(){
   setupMediaSession();
   setupInstall();
   setupSourceLibrary();
-  applySourceGroupLabelsUi();
+  // Do not paint cached hashtag tabs before the authoritative server state.
+  // This prevents the visible cache -> server second jump during startup.
+  applySourceGroupLabelsUi({renderCategories:false});
   applyFloatingIframe(false);
   setupWatchMinimizeGesture();
   setupWatchBrowseLayout();
@@ -14480,8 +14482,10 @@ async function bootstrap1988(){
     requestSettingsAccess(openDedicatedManager);
 
     void sourceStatePromise.then(async ok=>{
-      if(!ok)return;
-      applySourceGroupLabelsUi();
+      if(!ok){
+        applySourceGroupLabelsUi();
+        return;
+      }
       if(sourcesSheet&&!sourcesSheet.hidden){
         sourceManageGroup=MANAGED_SOURCE_SCOPES.has(sourceScope(SOURCE_MANAGER_SCOPE_PARAM))
           ?sourceScope(SOURCE_MANAGER_SCOPE_PARAM)
@@ -14503,8 +14507,9 @@ async function bootstrap1988(){
     });
     void sourceStatePromise.then(ok=>{
       if(ok){
-        applySourceGroupLabelsUi();
         if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
+      }else{
+        applySourceGroupLabelsUi();
       }
     });
     void hydrateServerPackages({force:true});
@@ -14522,8 +14527,10 @@ async function bootstrap1988(){
   await loadInitialFeed();
 
   void sourceStatePromise.then(async ok=>{
-    if(!ok)return;
-    applySourceGroupLabelsUi();
+    if(!ok){
+      applySourceGroupLabelsUi();
+      return;
+    }
     if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
     await warmManagedAvatarImages(900);
     void prewarmSelectedSourceAvatars();
