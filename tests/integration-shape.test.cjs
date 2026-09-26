@@ -103,6 +103,14 @@ assert.match(refresh,/function youtubeShortsPageSignal\(html:string,id:string\)/
 assert.match(refresh,/async function youtubeShortsMembership\(id:string\)/);
 assert.match(refresh,/const needShort=!shortCheckedAt/);
 assert.match(refresh,/youtubeShortsMembership\(candidate\.id\)/);
+assert.match(refresh,/const NON_LIVE_VERIFY_BATCH=48/);
+assert.match(refresh,/const currentPackageVideoIds=new Set<string>\(\)/);
+assert.match(refresh,/inCurrentPackage:currentPackageVideoIds\.has\(id\)/);
+assert.match(refresh,/Number\(b\.inCurrentPackage\)-Number\(a\.inCurrentPackage\)/);
+assert.match(refresh,/const canonicalSource=channelMeta\.get\(source\.id\)\|\|source/);
+assert.match(refresh,/!!validChannelDisplayName\(r\?\._sourceName\|\|r\?\.uploaderName\|\|r\?\.uploader\|\|""\)/);
+assert.doesNotMatch(refresh,/candidate\.needDuration&&Number\(searchMeta\?\.duration\)<=0[\s\S]{0,120}youtubePlayerMetadata\(candidate\.id\)/);
+
 assert.match(refresh,/isShort:meta\.isShort===true\|\|row\?\.isShort===true/);
 assert.match(refresh,/empty_candidate_kept_previous/);
 assert.doesNotMatch(app,/LOCAL_VOLATILE_PREFIXES=\[[\s\S]{0,600}"1988-tab-snapshot-"/);
@@ -125,14 +133,14 @@ assert.match(refresh,/_shortCheckedAt/);
 assert.match(app,/String\(durationSeconds\(row\)\|\|0\)/);
 assert.match(refresh,/String\(durationSeconds\(row\)\|\|0\)/);
 assert.match(refresh,/function titleLooksEnglishOnly\(row:any\)/);
-assert.match(refresh,/non_live_verification_pending/);
+assert.doesNotMatch(refresh,/non_live_verification_pending/);
 assert.match(refresh,/durationSeconds\(r\)>60/);
 assert.match(refresh,/!titleLooksEnglishOnly\(r\)/);
 
 assert.match(refresh,/duration>0&&duration<=60/);
 assert.match(refresh,/#shorts\?/);
 assert.match(refresh,/type===["']short["']\|\|type===["']shorts["']/);
-assert.match(refresh,/NON_LIVE_PIPELINE_VERSION=["']non-live-v4["']/);
+assert.match(refresh,/NON_LIVE_PIPELINE_VERSION=["']non-live-v5["']/);
 assert.match(refresh,/!isTooShortVideo\(r\)/);
 assert.match(app,/function isBlockedMusicTabVideo\(scope="",row=\{\}\)/);
 assert.match(app,/\\b\(\?:beat\|kara\|karaoke\)\\b/);
