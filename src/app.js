@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="326";
+const LOCAL_DATA_SCHEMA_VERSION="327";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -6878,6 +6878,13 @@ const EN_TITLE_WORDS=new Set(
   "the and with from this that your you new best how what why when where who whose which for of to in on at after before official news weather forecast today full program woman man market world game match matches highlights could would should really over under into out now top first last released battery design buy buys buying comes come sell sells touring showroom roundup shocking due decline laziness goes goal goals replace candidates breaking morning night year years old young found fire killed dead injured reason using used use many sunny days storm rain president general military aid review music song video live versus vs is are was were be been being has have had do does did can will may might more most less only just all any every about around through during without within between against among than then them they their there here our we us it its he she his her him city country people police court company team player players coach final semi".split(" ")
 );
 
+function isBlockedMusicTabVideo(scope="",row={}){
+  const label=normalizeSearchText(sourceGroupLabel(scope));
+  if(label!=="nhac"&&label!=="music")return false;
+  const title=normalizeSearchText(row?._displayTitle||row?.title||"");
+  return /\b(?:beat|kara|karaoke)\b/.test(title);
+}
+
 function titleLooksEnglishOnly(row={}){
   const raw=clean(row?._displayTitle||row?.title||"");
   if(!raw)return false;
@@ -7528,6 +7535,7 @@ function categoryCacheRows(parentKey=""){
   const selectedIds=new Set(selectedSources(group).map(source=>source.id));
   const blocked=blockedSetForScope(group);
   const items=stored.items.filter(row=>{
+    if(isBlockedMusicTabVideo(group,row))return false;
     const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
     if(sourceId&&!selectedIds.has(sourceId))return false;
     return !blocked.has(sourceId)&&!isBlockedSourceRow(row,group);
@@ -7550,7 +7558,7 @@ function instantCategoryRows(parent={}){
     .filter(uploadedWithinCategoryWindow)
     .filter(row=>{
       const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-      return sourceIds.has(id)&&!isBlockedSourceRow(row,group);
+      return sourceIds.has(id)&&!isBlockedSourceRow(row,group)&&!isBlockedMusicTabVideo(group,row);
     })
     .map(row=>({...row,_selectedCategorySource:true}));
 }
