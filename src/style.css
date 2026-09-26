@@ -3886,98 +3886,6 @@ html.source-manager-page .source-preview{
       auto!important;
   }
 
-  html.watch-minimized .player-frame.floating-iframe{
-    overflow:hidden!important;
-    background:#000!important;
-    border-radius:11px!important;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe #yt-player,
-  html.watch-minimized .player-frame.floating-iframe iframe,
-  html.watch-minimized .player-frame.floating-iframe video{
-    position:absolute!important;
-    inset:0!important;
-    width:100%!important;
-    height:100%!important;
-    max-width:100%!important;
-    max-height:100%!important;
-    margin:0!important;
-    border:0!important;
-    border-radius:inherit!important;
-    transform:none!important;
-    object-fit:contain!important;
-    background:#000!important;
-  }
-}
-
-/* Mobile mini player v367: plain media surface + direct drag. */
-@media(max-width:720px){
-  html.watch-minimized .player-frame.floating-iframe{
-    border:0!important;
-    border-radius:0!important;
-    box-shadow:none!important;
-    background:#000!important;
-    overflow:hidden!important;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe::before,
-  html.watch-minimized .player-frame.floating-iframe::after{
-    display:none!important;
-    content:none!important;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe #yt-player,
-  html.watch-minimized .player-frame.floating-iframe iframe,
-  html.watch-minimized .player-frame.floating-iframe video{
-    border:0!important;
-    border-radius:0!important;
-    box-shadow:none!important;
-    background:#000!important;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
-    display:block!important;
-    position:absolute;
-    z-index:80;
-    inset:0;
-    width:100%;
-    height:100%;
-    background:transparent;
-    cursor:grab;
-    touch-action:none!important;
-    -webkit-user-select:none;
-    user-select:none;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
-    cursor:grabbing;
-  }
-}
-
-/* Mobile mini drag v368: compositor-only motion while finger is down. */
-@media(max-width:720px){
-  html.watch-minimized .player-frame.floating-iframe.mini-dragging{
-    transition:none!important;
-    will-change:transform;
-  }
-}
-
-/* Mobile mini player v369: YouTube-like light corner radius, no border/shadow. */
-@media(max-width:720px){
-  html.watch-minimized .player-frame.floating-iframe{
-    border:0!important;
-    border-radius:8px!important;
-    box-shadow:none!important;
-    overflow:hidden!important;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe #yt-player,
-  html.watch-minimized .player-frame.floating-iframe iframe,
-  html.watch-minimized .player-frame.floating-iframe video{
-    border:0!important;
-    border-radius:inherit!important;
-    box-shadow:none!important;
-  }
 }
 
 /* Mobile Watch ambient v370.
@@ -4016,44 +3924,35 @@ html.source-manager-page .source-preview{
   }
 }
 
-/* Mobile mini player v372: real aspect + thin drag surface.
-   Leave the media itself interactive; only the top strip owns drag/restore. */
-@media(max-width:720px){
-  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
-    display:block!important;
-    position:absolute!important;
-    z-index:80!important;
-    top:0!important;
-    left:0!important;
-    right:0!important;
-    bottom:auto!important;
-    width:100%!important;
-    height:26px!important;
-    background:transparent!important;
-    cursor:grab;
-    touch-action:none!important;
-    -webkit-user-select:none;
-    user-select:none;
-  }
-
-  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
-    cursor:grabbing;
-  }
-}
-
-/* Mobile mini player v373: whole-frame drag + seam guard. */
+/* Mobile mini player canonical v375.
+   One owner for mini visuals/gesture. JS owns media geometry and 1px seam
+   overscan; CSS only owns clipping, radius and the drag hit surface. */
 @media(max-width:720px){
   html.watch-minimized .player-frame.floating-iframe{
+    z-index:120!important;
+    isolation:isolate!important;
+    border:0!important;
+    border-radius:8px!important;
+    box-shadow:none!important;
     background:transparent!important;
+    overflow:hidden!important;
+    clip-path:inset(0 round 8px);
+    -webkit-clip-path:inset(0 round 8px);
+  }
+
+  html.watch-minimized .player-frame.floating-iframe::before,
+  html.watch-minimized .player-frame.floating-iframe::after{
+    display:none!important;
+    content:none!important;
   }
 
   html.watch-minimized .player-frame.floating-iframe #yt-player,
   html.watch-minimized .player-frame.floating-iframe iframe,
   html.watch-minimized .player-frame.floating-iframe video{
-    left:-1px!important;
-    right:-1px!important;
-    width:calc(100% + 2px)!important;
-    max-width:none!important;
+    z-index:1!important;
+    border:0!important;
+    border-radius:0!important;
+    box-shadow:none!important;
     background:transparent!important;
   }
 
@@ -4064,6 +3963,8 @@ html.source-manager-page .source-preview{
     inset:0!important;
     width:100%!important;
     height:100%!important;
+    border:0!important;
+    border-radius:inherit!important;
     background:transparent!important;
     cursor:grab;
     touch-action:none!important;
@@ -4073,6 +3974,11 @@ html.source-manager-page .source-preview{
 
   html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone.is-dragging{
     cursor:grabbing;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe.mini-dragging{
+    transition:none!important;
+    will-change:transform;
   }
 }
 
