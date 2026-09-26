@@ -89,9 +89,29 @@ function isLive(row:any){
 }
 function isTooShortVideo(row:any){
   if(isLive(row))return false;
-  if(row?.isShort===true)return true;
-  const url=clean(row?.url||row?.videoUrl||row?.webpageUrl||"",500).toLowerCase();
+
+  const shortFlag=String(row?.isShort??"").toLowerCase();
+  if(row?.isShort===true||shortFlag==="true"||shortFlag==="1")return true;
+
+  const type=normalizeText(row?.type||row?.rendererType||row?.videoType||"");
+  if(type==="short"||type==="shorts"||type.includes("shortform"))return true;
+
+  const url=clean(
+    row?.url||
+    row?.videoUrl||
+    row?.webpageUrl||
+    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url||
+    "",
+    700
+  ).toLowerCase();
   if(url.includes("/shorts/"))return true;
+
+  const shortText=clean([
+    row?._displayTitle||row?.title||"",
+    row?.description||row?.shortDescription||""
+  ].join(" "),1600).toLowerCase();
+  if(/(^|\s)#shorts?(?=\s|$|[.,!?;:()[\]{}|/\\-])/i.test(shortText))return true;
+
   const duration=Number(row?.duration);
   return Number.isFinite(duration)&&duration>0&&duration<=60;
 }
@@ -1195,7 +1215,7 @@ Deno.serve(async(req:Request)=>{
       if(meta.kind!=="live")raw=raw.slice(0,90);
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v7")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v8")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
@@ -1218,33 +1238,10 @@ Deno.serve(async(req:Request)=>{
       let packaged=raw;
 
       packaged=dedupeRows(packaged).slice(0,90);
-      if(!packaged.length&&scope!=="live"){
-        results.push({scope,changed:false,reason:"empty_after_filter"});
-        continue;
-      }
 
-      // Content tabs should never collapse from a recently healthy package to
-      // a tiny partial package in a single refresh. Time feeds and LIVE are
-      // intentionally excluded because their membership naturally changes fast.
-      const currentItems=Array.isArray(current?.items)?current.items:[];
-      const sameSelection=current?.source_signature===sig;
-      const currentAt=Date.parse(String(current?.updated_at||""));
-      const currentRecent=Number.isFinite(currentAt)&&Date.now()-currentAt<6*60*60*1000;
-      if(meta.kind==="content"&&sameSelection&&currentRecent&&currentItems.length>=8){
-        const currentSources=new Set(currentItems.map(channelId).filter(Boolean)).size;
-        const nextSources=new Set(packaged.map(channelId).filter(Boolean)).size;
-        const itemCollapse=packaged.length<Math.max(3,Math.floor(currentItems.length*.35));
-        const sourceCollapse=currentSources>=4&&nextSources<Math.max(1,Math.floor(currentSources*.4));
-        if(itemCollapse||sourceCollapse){
-          const reason="catastrophic_package_shrink:"+currentItems.length+"->"+packaged.length+
-            ",sources="+currentSources+"->"+nextSources;
-          degradedNotes.push(scope+":"+reason);
-          results.push({scope,changed:false,reason:"catastrophic_package_shrink",
-            previousItems:currentItems.length,nextItems:packaged.length,
-            previousSources:currentSources,nextSources});
-          continue;
-        }
-      }
+      // Coverage above already prevents partial upstream failures from replacing
+      // healthy data. Always publish the fully filtered current result so stale
+      // Shorts/blocked/expired rows cannot survive indefinitely.
 
       const hash=snapshotRowsHash(packaged,sig);
       if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
