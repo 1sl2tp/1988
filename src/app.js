@@ -425,7 +425,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="320";
+const LOCAL_DATA_SCHEMA_VERSION="321";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -6766,6 +6766,23 @@ function durationSeconds(row={}){
   return 0;
 }
 
+function isTooShortVideo(row={}){
+  const rawDuration=Number(row?.duration);
+  const live=
+    row?.isLive===true ||
+    rawDuration<0 ||
+    Number(row?.uploaded)===-1;
+  if(live)return false;
+
+  if(row?.isShort===true)return true;
+
+  const url=clean(row?.url||row?.videoUrl||row?.webpageUrl||"").toLowerCase();
+  if(url.includes("/shorts/"))return true;
+
+  const seconds=durationSeconds(row);
+  return seconds>0&&seconds<=60;
+}
+
 
 const IDENTIFIED_NEWS_SOURCES=[
   {
@@ -8404,6 +8421,7 @@ function mergeUniqueRows(base=[],extra=[]){
   const seen=new Set();
   const out=[];
   for(const row of [...base,...extra]){
+    if(isTooShortVideo(row))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -8756,6 +8774,7 @@ function dedupeMusicRows(rows=[]){
 
 function renderDirectSearchResults(rows=[],query="",scope=""){
   const ranked=(Array.isArray(rows)?rows:[])
+    .filter(row=>!isTooShortVideo(row))
     .filter(row=>!isBlockedSourceRow(row,scope))
     .map((row,index)=>({row,index,score:searchResultScore(row,query,scope)}))
     .sort((a,b)=>b.score-a.score||a.index-b.index)
@@ -8769,7 +8788,9 @@ function renderDirectSearchResults(rows=[],query="",scope=""){
 }
 
 function renderSearchGroups(rows=[],query="",scope="",extrasBySource=new Map()){
-  const sourceRows=(Array.isArray(rows)?rows:[]).filter(row=>!isBlockedSourceRow(row,scope));
+  const sourceRows=(Array.isArray(rows)?rows:[])
+    .filter(row=>!isTooShortVideo(row))
+    .filter(row=>!isBlockedSourceRow(row,scope));
   const groups=new Map();
 
   for(const row of sourceRows){
@@ -9213,6 +9234,7 @@ function filmSuggestionSection(title,rows=[],options={}){
     GENERAL_SOURCE_SCOPE
   );
   for(const row of rows){
+    if(isTooShortVideo(row))continue;
     if(isBlockedSourceRow(row,scope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
@@ -9738,6 +9760,7 @@ function renderCards(rows=[],options={}){
   const avatarPaintJobs=[];
   const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
+    if(isTooShortVideo(row))continue;
     if(isBlockedSourceRow(row,renderScope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
@@ -12936,7 +12959,9 @@ function readFeedCache(name){
     if(!row||!Array.isArray(row.items)||!row.items.length)return [];
 
     const blocked=blockedSetForScope(scope);
-    let items=row.items.filter(item=>!isBlockedSourceRow(item,scope));
+    let items=row.items
+      .filter(item=>!isTooShortVideo(item))
+      .filter(item=>!isBlockedSourceRow(item,scope));
     if(scope===LIVE_SOURCE_SCOPE){
       items=items.filter(item=>!liveKeywordBlockedClient(item));
     }
@@ -12987,7 +13012,7 @@ async function packageRowsWithAi(snapshotName,rows=[],{
   }
 
   const context=packageContext(snapshotName,explicitScope,explicitLabel);
-  const rawRows=Array.isArray(rows)?rows:[];
+  const rawRows=(Array.isArray(rows)?rows:[]).filter(row=>!isTooShortVideo(row));
   const qualityRows=context.kind==="content"
     ?rawRows.filter(row=>!isStrongContentAd(row))
     :rawRows;
