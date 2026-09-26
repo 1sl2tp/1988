@@ -10870,10 +10870,15 @@ function fallbackVideoContext(meta={},related=[]){
 
 async function resolveSelectedVideoContext(id,meta={},related=[]){
   const seq=++state.videoContextSeq;
-  const context=state.searchContext
-    ?searchContextVideoContext(state.searchContext,meta)
-    :fallbackVideoContext(meta,related);
+
+  // Search text is only a way to reach YouTube results. It is NOT reliable
+  // enough to classify the content. Classification starts only after the user
+  // explicitly selects a video, using that video's own metadata + watch-next
+  // context as evidence.
+  const context=fallbackVideoContext(meta,related);
+
   if(seq!==state.videoContextSeq||state.currentId!==id)return null;
+  state.searchContext=context;
   return context;
 }
 
@@ -11745,9 +11750,12 @@ async function doSearch(value){
     return;
   }
 
-  feedTitle.textContent="Kết quả tìm kiếm";
+  // Stage 1: search means exactly "show YouTube's result list".
+  // No content classification, no keyword interpretation, no synthetic
+  // autoplay queue, and no re-ranking before the user picks a video.
+  feedTitle.textContent=q;
   feed.classList.remove("search-grouped");
-  feed.innerHTML='<div class="loading">Đang tìm…</div>';
+  feed.innerHTML='<div class="loading">Đang tìm trên YouTube…</div>';
   feedStatus.textContent="";
   if(searchRefinements){
     searchRefinements.hidden=true;
@@ -11761,71 +11769,54 @@ async function doSearch(value){
       .filter(row=>!isBlockedSourceRow(row,GENERAL_SOURCE_SCOPE))
   ).slice(0,60);
 
-  const paintRows=rows=>{
+  const paintYoutubeRows=rows=>{
     if(seq!==state.searchSeq||state.searchQuery!==q)return false;
     const cleanRows=usableRows(rows);
     if(!cleanRows.length)return false;
 
-    const context=classifySearchContext(q,cleanRows);
-    const ranked=setSearchContextQueue(context,cleanRows);
-    state.feedRows=ranked.length?ranked:cleanRows;
-    renderCards(state.feedRows,{keepSearchRefinements:true});
-    renderSearchContextLabel(context,state.feedRows.length);
-    void prewarmRowSourceAvatars(state.feedRows.slice(0,24),420).catch(()=>{});
+    // Preserve YouTube order exactly. Analysis starts only after a click.
+    state.feedRows=cleanRows;
+    state.searchContext=null;
+    clearSeriesContext();
+    renderCards(cleanRows,{keepSearchRefinements:true,updateStatus:false});
+    feedTitle.textContent=q;
+    feedStatus.textContent=cleanRows.length+" kết quả YouTube";
+    if(searchRefinements){
+      searchRefinements.hidden=true;
+      searchRefinements.innerHTML="";
+    }
+    void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
     return true;
   };
 
-  const requireRows=(rows,label)=>{
-    const cleanRows=usableRows(rows);
-    if(!cleanRows.length)throw new Error("empty_"+label);
-    return cleanRows;
-  };
-
-  // Match the working Kira proof exactly: direct Innertube /search is the
-  // primary path. Backend search runs in parallel only as a fallback, and an
-  // empty backend response can never beat a valid direct YouTube result.
-  const kiraTask=localEngine(1800)
-    .then(local=>Promise.race([
+  let directRows=[];
+  try{
+    const local=await localEngine(1800);
+    directRows=await Promise.race([
       (typeof local.searchDirect==="function"
         ?local.searchDirect(q)
         :local.search(q,{type:"video"})),
-      new Promise((_,reject)=>setTimeout(()=>reject(new Error("kira_search_timeout")),3200))
-    ]))
-    .then(rows=>requireRows(rows,"kira"));
-
-  const backendTask=api("search",{
-    q,
-    filter:"videos",
-    _fresh:Date.now()
-  },4200).then(response=>requireRows(response?.data?.items,"backend"));
-
-  let first=[];
-  try{
-    first=await Promise.any([kiraTask,backendTask]);
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error("youtube_search_timeout")),3600))
+    ]);
   }catch{}
 
   if(seq!==state.searchSeq)return;
-  if(paintRows(first)){
-    void Promise.allSettled([kiraTask,backendTask]).then(results=>{
-      if(seq!==state.searchSeq||state.searchQuery!==q)return;
-      const merged=[...state.feedRows];
-      for(const result of results){
-        if(result.status==="fulfilled")merged.push(...result.value);
-      }
-      const rows=usableRows(merged);
-      if(rows.length<=state.feedRows.length)return;
-      const context=classifySearchContext(q,rows);
-      const ranked=setSearchContextQueue(context,rows);
-      state.feedRows=ranked.length?ranked:rows;
-      renderCards(state.feedRows,{keepSearchRefinements:true});
-      renderSearchContextLabel(context,state.feedRows.length);
-    });
-    return;
-  }
+  if(paintYoutubeRows(directRows))return;
+
+  // Backend is only a transport fallback when direct YouTube search fails.
+  // It must never race ahead of or replace a valid direct YouTube ordering.
+  try{
+    const response=await api("search",{
+      q,
+      filter:"videos",
+      _fresh:Date.now()
+    },4200);
+    if(seq!==state.searchSeq)return;
+    if(paintYoutubeRows(response?.data?.items))return;
+  }catch{}
 
   if(seq!==state.searchSeq)return;
 
-  // Mixed backend search is only a secondary fallback.
   try{
     const response=await api("search",{
       q,
@@ -11833,11 +11824,11 @@ async function doSearch(value){
       _fresh:Date.now()
     },3600);
     if(seq!==state.searchSeq)return;
-    if(paintRows(response?.data?.items))return;
+    if(paintYoutubeRows(response?.data?.items))return;
   }catch{}
 
   if(seq!==state.searchSeq)return;
-  feed.innerHTML='<div class="empty">Chưa thấy kết quả phù hợp.</div>';
+  feed.innerHTML='<div class="empty">Chưa thấy kết quả trên YouTube.</div>';
   feedStatus.textContent="";
 }
 function hardResetDocumentTop(){
