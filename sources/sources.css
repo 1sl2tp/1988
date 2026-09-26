@@ -1693,3 +1693,56 @@ main{
     grid-template-columns:repeat(3,minmax(0,1fr))!important;
   }
 }
+
+
+/* v15 unified metadata for preview video cards */
+.video-card-channel{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+  margin-top:6px;
+}
+.video-card-avatar{
+  flex:0 0 auto;
+  width:21px;
+  height:21px;
+  display:grid;
+  place-items:center;
+  overflow:hidden;
+  border-radius:50%;
+  background:#2a2a2f;
+  color:#aaa;
+  font-size:9px;
+  font-weight:700;
+}
+.video-card-avatar img{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.video-card-channel-name{
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  color:#d8d8dd;
+  font-size:11px;
+  font-weight:600;
+}
+.video-card-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px 8px;
+  margin-top:5px;
+  color:#85858e;
+  font-size:10px;
+}
+.video-card-meta span+span::before{
+  content:"·";
+  margin-right:8px;
+  color:#55555d;
+}
+.column-video-grid .video-copy{
+  padding-bottom:9px;
+}
