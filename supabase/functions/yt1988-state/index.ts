@@ -229,12 +229,13 @@ Deno.serve(async (req) => {
         : {};
 
     const state: any = {
-      sourceScopeVersion: 4,
+      sourceScopeVersion: 5,
       hashtags,
       selected: [],
       blocked: [],
       scopedSelected: {},
       scopedBlocked: {},
+      scopedSuggested: {},
       customSources: [],
       sourceGroups: {},
       sourceLabels: savedLabels,
@@ -248,13 +249,18 @@ Deno.serve(async (req) => {
       version = Math.max(version, Number(row?.version || 0));
       if (!updated_at || String(row?.updated_at || "") > updated_at) updated_at = String(row?.updated_at || "");
       const status = String(row?.status || "");
-      if (status !== "selected" && status !== "blocked") continue;
+      if (!["selected", "blocked", "normal"].includes(status)) continue;
 
       const scope = cleanText(row?.scope, 32) || "general";
       const id = cleanId(row?.channel_id);
       if (!id) continue;
 
-      if (scope === "general") {
+      if (status === "normal") {
+        if (scope !== "general") {
+          if (!Array.isArray(state.scopedSuggested[scope])) state.scopedSuggested[scope] = [];
+          state.scopedSuggested[scope].push(id);
+        }
+      } else if (scope === "general") {
         if (status === "selected") state.selected.push(id);
       } else if (status === "selected") {
         if (!Array.isArray(state.scopedSelected[scope])) state.scopedSelected[scope] = [];
