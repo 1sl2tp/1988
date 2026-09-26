@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v18";
+const LIVE_PIPELINE_VERSION="live-v19";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -277,6 +277,79 @@ function decodeXmlText(value:any){
     .trim();
 }
 
+function decodeJsonString(value:any){
+  const raw=String(value||"");
+  if(!raw)return "";
+  try{return JSON.parse('"'+raw.replace(/"/g,'\\"')+'"');}catch{
+    return raw
+      .replace(/\\u0026/g,"&")
+      .replace(/\\n/g," ")
+      .replace(/\\t/g," ")
+      .replace(/\\\"/g,'"')
+      .replace(/\\\\/g,"\\");
+  }
+}
+
+async function selectedSourceLiveNow(source:any){
+  const id=clean(source?.id,180);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3800);
+  try{
+    const res=await fetch(
+      "https://www.youtube.com/channel/"+encodeURIComponent(id)+"/live?hl=vi&gl=VN",
+      {
+        signal:controller.signal,
+        cache:"no-store",
+        redirect:"follow",
+        headers:{
+          "accept":"text/html,application/xhtml+xml",
+          "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
+          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+        }
+      }
+    );
+    if(!res.ok)return null;
+
+    const finalUrl=String(res.url||"");
+    const videoIdValue=
+      finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
+    if(!videoIdValue)return null;
+
+    const html=await res.text();
+    const liveNow=/"videoViewCountRenderer"\s*:\s*\{[\s\S]{0,900}?"isLive"\s*:\s*true/.test(html);
+    if(!liveNow)return null;
+
+    const titleMatch=html.match(
+      /"videoPrimaryInfoRenderer"\s*:\s*\{[\s\S]{0,800}?"title"\s*:\s*\{"runs"\s*:\s*\[\{"text"\s*:\s*"((?:\\.|[^"\\])*)"/
+    );
+    const title=clean(decodeJsonString(titleMatch?.[1]||""),300)||
+      clean(source?.name||"Đang trực tiếp",300);
+    const views=Number(
+      html.match(/"videoViewCountRenderer"\s*:\s*\{[\s\S]{0,900}?"originalViewCount"\s*:\s*"([0-9]+)"/)?.[1]||0
+    )||0;
+
+    return normalizeRow({
+      id:videoIdValue,
+      videoId:videoIdValue,
+      url:"/watch?v="+videoIdValue,
+      title,
+      thumbnail:"https://i.ytimg.com/vi/"+videoIdValue+"/hqdefault.jpg",
+      uploaderName:clean(source?.name||"",180),
+      uploaderUrl:"/channel/"+id,
+      channelId:id,
+      uploaded:-1,
+      duration:-1,
+      views,
+      isLive:true,
+      publishedText:"Đang trực tiếp"
+    },source);
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function youtubeRssLiveCandidates(source:any){
   const id=clean(source?.id,180);
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return [];
@@ -408,27 +481,9 @@ async function discoverGlobalLiveCandidates(
     }
   });
 
-  // Continue available searches in bounded parallel rounds. Keyword/channel
-  // blocks are applied while collecting, before any result reaches the package.
-  while(Date.now()<deadline){
-    const pending=searchStates.filter((state)=>!state.done&&!state.first);
-    if(!pending.length)break;
-    let progressed=false;
-    await mapLimit(pending,4,async(state)=>{
-      if(Date.now()>=deadline)return false;
-      progressed=true;
-      try{
-        await consume(state);
-        return true;
-      }catch(error){
-        console.warn("global live nextpage failed",state.query,String(error));
-        state.done=true;
-        return false;
-      }
-    });
-    if(!progressed)break;
-  }
-
+  // One fresh first page per query is enough for outside discovery. Do not
+  // paginate here: Source 2 still needs its own single selected-channel pass,
+  // and pagination would consume the shared upstream quota before that step.
   return dedupeRows(out);
 }
 
@@ -719,7 +774,7 @@ Deno.serve(async(req:Request)=>{
       const externalExcludedSourceIds=new Set<string>(allBlockedLiveSourceIds);
       for(const id of allSelectedLiveSourceIds)externalExcludedSourceIds.add(id);
 
-      const globalCandidates=await discoverGlobalLiveCandidates(
+      const verifiedExternalRows=(await discoverGlobalLiveCandidates(
         supabaseUrl,
         serviceKey,
         externalExcludedSourceIds,
@@ -727,60 +782,34 @@ Deno.serve(async(req:Request)=>{
       ).catch((error)=>{
         console.warn("global live discovery failed",String(error));
         return [];
-      });
-      const verifiedExternalRows=await verifyLiveRows(
-        globalCandidates,
-        supabaseUrl,
-        serviceKey
-      );
+      })).map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
 
-      // STEP 2 — Source 2: scan the chosen library exactly once as one logical
-      // pass: direct Live selections + selections inherited from all other tabs.
-      // Keyword blocks do not remove explicitly/inherited selected sources.
-      const selectedDiscoveryBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
+      // STEP 2 — Source 2: exactly one current-/live request per chosen channel.
+      // This avoids name-search + RSS + per-video verification fan-out.
+      const selectedLiveRows=(await mapLimit(selectedLiveSources,10,async(source)=>{
         try{
-          const direct=await searchSelectedSourceLiveCandidates(
-            source,supabaseUrl,serviceKey
-          );
-          if(direct.length)return direct;
-        }catch(error){
-          console.warn("selected live search failed",source?.id,String(error));
-        }
-        try{
-          return await youtubeRssLiveCandidates(source);
-        }catch(error){
-          console.warn("live rss failed",source?.id,String(error));
-          return [];
-        }
-      });
-
-      const selectedCandidates=dedupeRows(
-        selectedDiscoveryBatches.flat().map((row:any)=>({...row,_liveOrigin:"source"}))
-      )
-        .filter((row:any)=>{
+          const row=await selectedSourceLiveNow(source);
+          if(!row)return null;
           const sid=channelId(row);
-          return !sid||!allBlockedLiveSourceIds.has(sid);
-        })
-        .map((row:any)=>{
-          const sid=channelId(row);
+          if(sid&&allBlockedLiveSourceIds.has(sid))return null;
           return {
             ...row,
+            _liveOrigin:"source",
             _interestPriority:explicitLiveIds.has(sid)
               ?2
               :inheritedLiveIds.has(sid)
                 ?1
                 :0
           };
-        });
-      const verifiedSelectedRows=await verifyLiveRows(
-        selectedCandidates,
-        supabaseUrl,
-        serviceKey
-      );
+        }catch(error){
+          console.warn("selected live check failed",source?.id,String(error));
+          return null;
+        }
+      })).filter(Boolean);
 
-      // STEP 3 — only now merge the two already-filtered, freshly-verified sets.
+      // STEP 3 — only now merge Source 2 with the already-filtered outside LIVE.
       verifiedLiveRowsCache=dedupeRows([
-        ...verifiedSelectedRows,
+        ...selectedLiveRows,
         ...verifiedExternalRows
       ]).sort((a:any,b:any)=>
         (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
