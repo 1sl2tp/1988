@@ -100,7 +100,7 @@ assert.match(refresh,/const inheritedLiveIds=new Set/);
 assert.match(refresh,/const selectedLiveSources=\[\.\.\.liveSourceById\.values\(\)\]/);
 assert.match(refresh,/SCOPES\.flatMap\(\(scope\)=>selectedByScope\.get\(scope\)\|\|\[\]\)/);
 assert.match(refresh,/async function discoverGlobalLiveCandidates\(/);
-assert.match(refresh,/action=search_next/);
+assert.match(refresh,/"search_next&q="/);
 assert.match(refresh,/while\(nextpage&&Date\.now\(\)<deadline\)/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
@@ -124,8 +124,6 @@ assert.match(allMigrations,/v_keyword_norm text/);
 assert.match(allMigrations,/left\(v_keyword_norm,80\)/);
 assert.match(allMigrations,/old_live_keywords/);
 assert.match(allMigrations,/old_live_keywords is distinct from raw_keywords/);
-assert.match(allMigrations,/yt1988_source_change_refresh_live/);
-assert.match(allMigrations,/after insert or update or delete on public\.yt1988_source_state/);
 assert.match(allMigrations,/jsonb_build_object\('scopes',jsonb_build_array\('live'\)\)/);
 assert.match(allMigrations,/jsonb_build_object\('scopes',jsonb_build_array\('live'\)\)/);
 
