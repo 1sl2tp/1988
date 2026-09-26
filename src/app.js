@@ -1060,7 +1060,9 @@ function liveKeywordBlockedClient(row={}){
 
 function renderLiveKeywordTools(){
   if(!liveKeywordTools)return;
-  const visible=sourceManageMode&&sourceManageGroup===LIVE_SOURCE_SCOPE;
+  const visible=
+    (SOURCE_MANAGER_PAGE&&sourceAdminActiveTab==="filters")||
+    (sourceManageMode&&sourceManageGroup===LIVE_SOURCE_SCOPE);
   liveKeywordTools.hidden=!visible;
   if(!visible)return;
   if(liveKeywordChips){
@@ -1866,6 +1868,7 @@ function setSourceStatus(id,status,scope=sourceManageGroup,{remote=false}={}){
   refreshSourceManager();
   syncSourcePreviewHeader();
   syncSourceVideoPopupSource();
+  if(sourceAdminActiveTab==="labels")renderSourceLabelsPanel();
 
 }
 
@@ -5304,6 +5307,11 @@ function setupSourceLibrary(){
     const open=event.target.closest("[data-source-label-open]");
     if(open){
       sourceManageGroup=open.dataset.sourceLabelOpen||LIVE_SOURCE_SCOPE;
+      if(SOURCE_MANAGER_PAGE&&MANAGED_SOURCE_SCOPES.has(sourceManageGroup)){
+        const url=new URL(location.href);
+        url.searchParams.set("scope",sourceManageGroup);
+        history.replaceState(null,"",url.href);
+      }
       sourceBlockedExpanded=false;
       setSourceAdminTab("sources");
       resetSourcePreviewPane();
@@ -5386,6 +5394,11 @@ function setupSourceLibrary(){
     if(sourcePreviewList)sourcePreviewList.scrollTop=0;
 
     sourceManageGroup=button.dataset.sourceGroup||GENERAL_SOURCE_SCOPE;
+    if(SOURCE_MANAGER_PAGE&&MANAGED_SOURCE_SCOPES.has(sourceManageGroup)){
+      const url=new URL(location.href);
+      url.searchParams.set("scope",sourceManageGroup);
+      history.replaceState(null,"",url.href);
+    }
     sourceBlockedExpanded=false;
     resetSourcePreviewPane();
     refreshSourceManager();
