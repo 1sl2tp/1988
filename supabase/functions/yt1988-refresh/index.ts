@@ -433,6 +433,29 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   return out;
 }
 
+function titleLooksForeignScript(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",500);
+  if(!raw)return false;
+  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u.test(raw);
+}
+
+function nonLiveSuggestionAgeAllowed(scope:string,row:any){
+  const age=ageMs(row);
+  if(!Number.isFinite(age)||age<0||age===Number.MAX_SAFE_INTEGER)return false;
+  if(scope==="latest")return age<DAY_MS;
+  if(scope==="week")return age>=DAY_MS&&age<7*DAY_MS;
+  return age<7*DAY_MS;
+}
+
+function nonLiveSuggestionBaseAllowed(scope:string,meta:any,row:any){
+  if(!row||isLive(row)||isTooShortVideo(row))return false;
+  if(!nonLiveSuggestionAgeAllowed(scope,row))return false;
+  if(titleLooksEnglishOnly(row)||titleLooksForeignScript(row))return false;
+  if(strongAd(row))return false;
+  if(isBlockedMusicTabVideo(meta,row))return false;
+  return true;
+}
+
 function sourceSuggestionCandidate(row:any){
   const id=channelId(row);
   const name=[
@@ -467,13 +490,28 @@ async function storeServerSourceSuggestions(
   candidates:any[]
 ){
   if(!validScopeSyntax(scope))return 0;
+
   const byId=new Map<string,any>();
   for(const row of candidates){
     const candidate=sourceSuggestionCandidate(row);
     if(!candidate||byId.has(candidate.id))continue;
     byId.set(candidate.id,candidate);
-    if(byId.size>=12)break;
+    if(byId.size>=16)break;
   }
+
+  // Suggestions are now a server-owned snapshot, not rolling browser/server
+  // history. Manual selected/blocked rows are untouched.
+  const clearRes=await fetch(
+    rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
+    "&scope=eq."+encodeURIComponent(scope)+
+    "&status=eq.normal",
+    {method:"DELETE",headers:authHeaders}
+  ).catch(()=>null);
+  if(clearRes&&!clearRes.ok){
+    console.warn("source suggestion clear failed",scope,await clearRes.text());
+    return 0;
+  }
+
   if(!byId.size)return 0;
 
   const nowIso=new Date().toISOString();
@@ -501,28 +539,6 @@ async function storeServerSourceSuggestions(
     console.warn("source suggestion write failed",scope,await writeRes.text());
     return 0;
   }
-
-  // Suggestions are a rolling server-owned list, not browser history.
-  const pruneRes=await fetch(
-    rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
-    "&scope=eq."+encodeURIComponent(scope)+
-    "&status=eq.normal&select=channel_id&order=updated_at.desc&offset=48",
-    {headers:authHeaders}
-  ).catch(()=>null);
-  if(pruneRes?.ok){
-    const stale=await pruneRes.json().catch(()=>[]);
-    const ids=(Array.isArray(stale)?stale:[])
-      .map((row:any)=>clean(row?.channel_id,180))
-      .filter((id:string)=>/^UC[A-Za-z0-9_-]+$/.test(id));
-    if(ids.length){
-      await fetch(
-        rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
-        "&scope=eq."+encodeURIComponent(scope)+
-        "&status=eq.normal&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")",
-        {method:"DELETE",headers:authHeaders}
-      ).catch(()=>{});
-    }
-  }
   return payload.length;
 }
 
@@ -532,18 +548,23 @@ async function discoverServerSourceSuggestions(
   rest:string,
   authHeaders:any,
   scope:string,
-  seedRows:any[]
+  meta:any,
+  seedRows:any[],
+  excludedSourceIds:Set<string>
 ){
   const seeds=dedupeRows(seedRows)
-    .filter((row:any)=>!isLive(row))
+    .filter((row:any)=>nonLiveSuggestionBaseAllowed(scope,meta,row))
     .sort((a:any,b:any)=>ageMs(a)-ageMs(b))
-    .slice(0,2);
+    .slice(0,3);
+
+  // No valid seed means there is no new trustworthy suggestion snapshot.
   if(!seeds.length)return 0;
 
-  const discovered:any[]=[];
-  await mapLimit(seeds,2,async(seed:any)=>{
+  const rawCandidates:any[]=[];
+  await mapLimit(seeds,3,async(seed:any)=>{
     const query=clean(seed?._displayTitle||seed?.title||"",140);
     if(!query)return false;
+
     try{
       const result=await fetchJson(
         supabaseUrl+"/functions/v1/yt1988?action=search&q="+
@@ -552,17 +573,83 @@ async function discoverServerSourceSuggestions(
           "apikey":serviceKey,
           "authorization":"Bearer "+serviceKey
         },
-        4500
+        5000
       );
-      for(const row of Array.isArray(result?.data?.items)?result.data.items:[]){
+
+      for(const item of Array.isArray(result?.data?.items)?result.data.items:[]){
+        const row=normalizeRow(item,{});
+        if(!row||!nonLiveSuggestionBaseAllowed(scope,meta,row))continue;
+
         const candidate=sourceSuggestionCandidate(row);
-        if(candidate)discovered.push(row);
-        if(discovered.length>=18)break;
+        if(!candidate||excludedSourceIds.has(candidate.id))continue;
+
+        rawCandidates.push(row);
+        if(rawCandidates.length>=24)break;
       }
-    }catch{}
+    }catch(error){
+      console.warn("source suggestion search failed",scope,String(error));
+    }
     return true;
   });
-  return await storeServerSourceSuggestions(rest,authHeaders,scope,discovered);
+
+  const deduped=dedupeRows(rawCandidates).slice(0,18);
+  const verified:any[]=[];
+
+  // Search rows can omit duration / Shorts metadata. Verify every candidate
+  // video before its channel is allowed into a non-live suggestion snapshot.
+  await mapLimit(deduped,5,async(row:any)=>{
+    const id=videoId(row);
+    if(!id)return false;
+
+    let duration=durationSeconds(row);
+    let live=isLive(row);
+
+    if(duration<=0){
+      const player=await youtubePlayerMetadata(id).catch(()=>({duration:0,isLive:false}));
+      duration=Number(player?.duration)||0;
+      live=player?.isLive===true;
+    }
+    if(live||duration<=60)return false;
+
+    const short=await youtubeShortsMembership(id).catch(()=>false);
+    if(short)return false;
+
+    const checked={
+      ...row,
+      duration,
+      isLive:false,
+      isShort:false
+    };
+    if(!nonLiveSuggestionBaseAllowed(scope,meta,checked))return false;
+
+    const candidate=sourceSuggestionCandidate(checked);
+    if(!candidate||excludedSourceIds.has(candidate.id))return false;
+
+    verified.push(checked);
+    return true;
+  });
+
+  // Prefer newest videos, then higher-viewed evidence, and only one row/channel.
+  verified.sort((a,b)=>{
+    const aa=ageMs(a),bb=ageMs(b);
+    if(aa!==bb)return aa-bb;
+    return (Number(b?.views)||0)-(Number(a?.views)||0);
+  });
+
+  const channelSeen=new Set<string>();
+  const finalRows=verified.filter((row:any)=>{
+    const sid=channelId(row);
+    if(!sid||channelSeen.has(sid))return false;
+    channelSeen.add(sid);
+    return true;
+  }).slice(0,16);
+
+  return await storeServerSourceSuggestions(
+    rest,
+    authHeaders,
+    scope,
+    finalRows
+  );
 }
 
 function decodeJsonString(value:any){
@@ -1055,8 +1142,9 @@ Deno.serve(async(req:Request)=>{
       });
     }
 
-    // Only LIVE owns a blacklist. Non-live scopes are simple selected
-    // channel lists; a channel is either selected in that scope or it is not.
+    // LIVE has special blacklist behavior in its discovery pipeline.
+    // Non-live blocked rows are still authoritative for source suggestions
+    // and are excluded from every non-live suggestion snapshot.
     const liveBlockedIds=blockedByScope.get("live")||new Set<string>();
     selectedByScope.set(
       "live",
@@ -1716,14 +1804,25 @@ Deno.serve(async(req:Request)=>{
       const seedRows=(selectedByScope.get(scope)||[])
         .flatMap((source:any)=>newlyDiscoveredRowsByChannel.get(source.id)||[]);
       if(!seedRows.length)return 0;
+
+      const excludedSourceIds=new Set<string>([
+        ...(selectedByScope.get(scope)||[]).map((source:any)=>source.id),
+        ...(blockedByScope.get(scope)||new Set<string>())
+      ]);
+
       return await discoverServerSourceSuggestions(
         supabaseUrl,
         serviceKey,
         rest,
         authHeaders,
         scope,
-        seedRows
-      ).catch(()=>0);
+        SCOPE_META[scope]||{},
+        seedRows,
+        excludedSourceIds
+      ).catch((error)=>{
+        console.warn("source suggestion refresh failed",scope,String(error));
+        return 0;
+      });
     });
 
     const results:any[]=[];
