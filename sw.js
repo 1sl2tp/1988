@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-main-watch-browse-v351';
+const CACHE='1988-main-watch-browse-v352';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
@@ -57,7 +57,7 @@ const SHELL=[
   './sources/',
   './sources/index.html',
   './sources/sources.css?v=17',
-  './sources/sources.js?v=17',
+  './sources/sources.js?v=18',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
