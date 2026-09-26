@@ -3047,16 +3047,24 @@ html.watch-browse .topic-chip.topic-subject{
 }
 
 
-/* iOS 15 / iPhone 7 Watch layout compatibility.
-   Older WebKit can leave a phantom gap when app-header/app-shell are
-   display:contents children of the body grid. Use explicit positioned rows
-   with no implicit grid track between the top controls and the player. */
+/* iOS 15 / iPhone 7 Watch geometry compatibility.
+   Keep the canonical four explicit Watch rows. Older WebKit is less reliable
+   when flex + display:contents flatten header/main children. */
 @media(max-width:720px){
   html.watch-browse body{
-    display:flex;
-    flex-direction:column;
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:
+      calc(var(--watch-top-row-h) + var(--safe-top))
+      var(--watch-stage-h,56.25vw)
+      var(--watch-source-row-h)
+      minmax(0,1fr);
+    width:100%;
     height:100vh;
     min-height:0;
+    margin:0;
+    padding:0;
+    overflow:hidden;
   }
 
   @supports(height:100dvh){
@@ -3065,43 +3073,81 @@ html.watch-browse .topic-chip.topic-subject{
     }
   }
 
-  html.watch-browse .app-header,
-  html.watch-browse .app-shell{
-    display:contents;
-  }
-
   html.watch-browse .header-inner{
-    flex:0 0 calc(var(--watch-top-row-h) + var(--safe-top));
-    height:calc(var(--watch-top-row-h) + var(--safe-top));
-    min-height:calc(var(--watch-top-row-h) + var(--safe-top));
+    grid-row:1;
+    margin:0!important;
   }
 
   html.watch-browse .player-section{
-    flex:0 0 var(--watch-stage-h,56.25vw);
-    height:var(--watch-stage-h,56.25vw);
-    min-height:var(--watch-stage-h,56.25vw);
-    max-height:var(--watch-stage-h,56.25vw);
+    grid-row:2;
+    width:100%;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-height:var(--watch-stage-h,56.25vw)!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden;
+  }
+
+  html.watch-browse .player-card{
+    width:100%;
+    height:100%;
+    min-height:0;
     margin:0!important;
     padding:0!important;
   }
 
+  html.watch-browse .player-frame:not(.floating-iframe){
+    top:0;
+    width:var(--watch-player-width,100vw)!important;
+    height:var(--watch-player-height,var(--watch-stage-h,56.25vw))!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin:0 auto!important;
+    border:0!important;
+    border-radius:0!important;
+    overflow:hidden!important;
+    box-sizing:border-box;
+  }
+
+  /* Old WebKit can leave a fractional one-pixel seam on absolute media.
+     Extend the media paint box by 1px at the bottom only; the frame clips it. */
+  html.watch-browse .player-frame:not(.floating-iframe) iframe,
+  html.watch-browse .player-frame:not(.floating-iframe) video,
+  html.watch-browse .player-frame:not(.floating-iframe) #yt-player{
+    top:0!important;
+    right:0!important;
+    bottom:-1px!important;
+    left:0!important;
+    width:100%!important;
+    height:calc(100% + 1px)!important;
+    max-width:none!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    transform:translateZ(0);
+  }
+
   html.watch-browse .header-nav{
-    flex:0 0 var(--watch-source-row-h);
-    height:var(--watch-source-row-h);
-    min-height:var(--watch-source-row-h);
+    grid-row:3;
     margin:0!important;
   }
 
   html.watch-browse .feed-section{
-    flex:1 1 auto;
+    grid-row:4;
     min-height:0;
   }
 
   html.watch-browse.watch-video-portrait body{
-    display:flex;
-    flex-direction:column;
     height:auto;
     min-height:100vh;
+    overflow-y:visible;
+    grid-template-rows:
+      calc(var(--watch-top-row-h) + var(--safe-top))
+      var(--watch-stage-h,auto)
+      var(--watch-source-row-h)
+      auto;
   }
 
   @supports(height:100dvh){
@@ -3111,10 +3157,8 @@ html.watch-browse .topic-chip.topic-subject{
   }
 
   html.watch-browse.watch-video-portrait .player-section{
-    flex:0 0 var(--watch-stage-h,auto);
-  }
-
-  html.watch-browse.watch-video-portrait .feed-section{
-    flex:0 0 auto;
+    height:var(--watch-stage-h,auto)!important;
+    min-height:var(--watch-stage-h,auto)!important;
   }
 }
+
