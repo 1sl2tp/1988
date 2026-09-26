@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-330">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-331">
   <title>1988</title>
 </head>
 <body>
@@ -108,9 +108,7 @@
         <span id="feedStatus"></span>
       </div>
       <div id="searchRefinements" class="search-refinements" hidden></div>
-      <div id="feed" class="feed">
-        <div class="loading">Đang tải…</div>
-      </div>
+      <div id="feed" class="feed"></div>
     </section>
   </main>
 
@@ -181,7 +179,7 @@
           <div id="sourceLocalTools" class="source-local-tools" hidden>
             <div class="source-local-tools-copy">
               <strong>Dữ liệu trên máy này</strong>
-              <span>Xóa cache/snapshot cũ rồi tải lại từ máy chủ. Nguồn đã chọn và đã chặn không bị mất.</span>
+              <span>Xóa cache/snapshot cũ rồi tải lại từ máy chủ. Nguồn đã chọn và danh sách chặn Live không bị mất.</span>
             </div>
             <button id="sourceDataResetBtn" class="source-data-reset-btn" type="button">Dọn dữ liệu &amp; cập nhật</button>
           </div>
@@ -260,7 +258,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=330',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=331',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -284,6 +282,6 @@
   <script src="./src/media-meta.js?v=1"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-330"></script>
+  <script defer src="./src/app.js?v=watch-browse-331"></script>
 </body>
 </html>

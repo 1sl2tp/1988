@@ -17,9 +17,24 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v23";
+const LIVE_PIPELINE_VERSION="live-v24";
+const NON_LIVE_PIPELINE_VERSION="non-live-v1";
+const NON_LIVE_VERIFY_BATCH=120;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
+const YT_PLAYER_CLIENTS:any[]=[
+  {
+    clientName:"WEB",
+    clientVersion:YT_WEB_PLAYER_CLIENT_VERSION,
+    userAgent:"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+  },
+  {
+    clientName:"ANDROID",
+    clientVersion:"20.10.38",
+    androidSdkVersion:35,
+    userAgent:"com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip"
+  }
+];
 const LIVE_SELECTED_CANDIDATES_PER_SOURCE=4;
 const LIVE_SELECTED_SOURCES_PER_RUN=24;
 const LIVE_SEARCH_QUERIES=[
@@ -245,29 +260,60 @@ function ageMs(row:any){
 function publishedText(row:any){
   return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"",120);
 }
+function validChannelDisplayName(value:any){
+  const name=clean(value,180);
+  if(!name||/^UC[A-Za-z0-9_-]+$/.test(name))return "";
+  return name;
+}
 function normalizeRow(row:any,source:any={}){
   const id=videoId(row);
   if(!id)return null;
   const sid=clean(source?.id||channelId(row),180);
-  const sname=clean(source?.name||row?.uploaderName||row?.uploader||row?.channelName||"",180);
+  const sname=[
+    source?.name,
+    row?._sourceName,
+    row?.uploaderName,
+    row?.uploader,
+    row?.channelName
+  ].map(validChannelDisplayName).find(Boolean)||"";
+  const thumb=clean(
+    row?.thumbnail||
+    row?.thumbnailUrl||
+    row?.thumbnail_url||
+    ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
+    1000
+  );
+  const sourceThumb=clean(
+    source?.thumbnailUrl||
+    row?._sourceThumbnailUrl||
+    row?.uploaderThumbnailUrl||
+    row?.channelThumbnailUrl||
+    row?.uploaderAvatar||
+    row?.channelAvatar||
+    "",
+    1000
+  );
+  const live=isLive(row);
   return {
     ...row,
     id,
     videoId:id,
-    title:clean(row?.title||"",300),
-    thumbnail:clean(row?.thumbnail||row?.thumbnailUrl||row?.thumbnail_url||"",1000),
-    thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||row?.thumbnail_url||"",1000),
-    uploader:clean(row?.uploader||row?.uploaderName||sname,180),
-    uploaderName:clean(row?.uploaderName||row?.uploader||sname,180),
+    title:clean(row?._displayTitle||row?.title||"",300),
+    thumbnail:thumb,
+    thumbnailUrl:thumb,
+    uploader:sname,
+    uploaderName:sname,
     channelId:sid||clean(row?.channelId||row?.uploaderId||"",180),
     _sourceId:sid,
     _sourceName:sname,
-    isLive:isLive(row),
+    _sourceThumbnailUrl:sourceThumb,
+    isLive:live,
     publishedText:publishedText(row),
-    views:Number(row?.views)||0,
-    duration:isLive(row)?-1:durationSeconds(row)
+    views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0),
+    duration:live?-1:durationSeconds(row)
   };
 }
+
 function dedupeRows(rows:any[]){
   const ids=new Set<string>();
   const titleHashes=new Set<string>();
@@ -313,7 +359,6 @@ function sourceSignature(rows:any[],scope:string){
     .filter((r)=>r.scope===scope&&r.status==="selected")
     .map((r)=>clean(r.channel_id,180))
     .filter(Boolean)
-    .filter((id)=>!rows.some((b)=>b.scope===scope&&b.channel_id===id&&b.status==="blocked"))
     .sort()
     .join("|");
 }
@@ -323,6 +368,10 @@ function snapshotRowsHash(rows:any[],sourceSig=""){
     clean(row?._displayTitle||row?.title||"",300),
     publishedText(row),
     clean(row?._sourceId||row?.channelId||row?.uploaderId||"",180),
+    clean(row?._sourceName||row?.uploaderName||row?.uploader||"",180),
+    clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
+    clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",1000),
+    String(Math.max(0,Number(row?.views)||0)),
     isLive(row)?"1":"0",
     String(durationSeconds(row)||0)
   ].join("|")).join("\n");
@@ -394,41 +443,44 @@ function youtubePlayerMetaFromResponse(data:any){
 
 async function youtubePlayerMetadata(id:string){
   if(!/^[A-Za-z0-9_-]{11}$/.test(id))return {duration:0,isLive:false};
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),2600);
-  try{
-    const res=await fetch(
-      "https://www.youtube.com/youtubei/v1/player?key="+
-        encodeURIComponent(YT_WEB_PLAYER_API_KEY),
-      {
-        method:"POST",
-        signal:controller.signal,
-        cache:"no-store",
-        headers:{
-          "content-type":"application/json",
-          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
-        },
-        body:JSON.stringify({
-          context:{
-            client:{
-              clientName:"WEB",
-              clientVersion:YT_WEB_PLAYER_CLIENT_VERSION,
-              hl:"vi",
-              gl:"VN"
-            }
+  let fallback={duration:0,isLive:false};
+  for(const profile of YT_PLAYER_CLIENTS){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),2600);
+    try{
+      const client:any={
+        clientName:profile.clientName,
+        clientVersion:profile.clientVersion,
+        hl:"vi",
+        gl:"VN"
+      };
+      if(profile.androidSdkVersion)client.androidSdkVersion=profile.androidSdkVersion;
+      const res=await fetch(
+        "https://www.youtube.com/youtubei/v1/player?key="+
+          encodeURIComponent(YT_WEB_PLAYER_API_KEY),
+        {
+          method:"POST",
+          signal:controller.signal,
+          cache:"no-store",
+          headers:{
+            "content-type":"application/json",
+            "user-agent":profile.userAgent
           },
-          videoId:id
-        })
-      }
-    );
-    if(!res.ok)return {duration:0,isLive:false};
-    const data=await res.json().catch(()=>null);
-    return youtubePlayerMetaFromResponse(data);
-  }catch{
-    return {duration:0,isLive:false};
-  }finally{
-    clearTimeout(timer);
+          body:JSON.stringify({context:{client},videoId:id})
+        }
+      );
+      if(!res.ok)continue;
+      const data=await res.json().catch(()=>null);
+      const meta=youtubePlayerMetaFromResponse(data);
+      if(meta.isLive||meta.duration>0)return meta;
+      fallback=meta;
+    }catch{
+      // Try the next lightweight player profile.
+    }finally{
+      clearTimeout(timer);
+    }
   }
+  return fallback;
 }
 
 async function youtubePlayerIsLive(id:string){
@@ -798,32 +850,30 @@ Deno.serve(async(req:Request)=>{
           thumbnailUrl:clean(row?.thumbnail_url,1000)
         });
       }
-      if(!channelMeta.has(id)){
-        channelMeta.set(id,{
-          id,
-          name:clean(row?.name,180),
-          thumbnailUrl:clean(row?.thumbnail_url,1000)
-        });
-      }
+      const previousMeta=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
+      channelMeta.set(id,{
+        id,
+        name:validChannelDisplayName(previousMeta.name)||
+          validChannelDisplayName(row?.name)||
+          "",
+        thumbnailUrl:clean(previousMeta.thumbnailUrl||row?.thumbnail_url||"",1000)
+      });
     }
 
-    for(const scope of SCOPES){
-      const blocked=blockedByScope.get(scope)||new Set();
-      selectedByScope.set(
-        scope,
-        (selectedByScope.get(scope)||[]).filter((s:any)=>!blocked.has(s.id))
-      );
-    }
+    // Only LIVE owns a blacklist. Non-live scopes are simple selected
+    // channel lists; a channel is either selected in that scope or it is not.
+    const liveBlockedIds=blockedByScope.get("live")||new Set<string>();
+    selectedByScope.set(
+      "live",
+      (selectedByScope.get("live")||[]).filter((s:any)=>!liveBlockedIds.has(s.id))
+    );
 
     let liveKeywords:string[]=[];
     let verifiedLiveRowsCache:any[]=[];
 
-    // Shared block set is applied to both LIVE sources:
-    // Source 1 = external search; Source 2 = chosen channels from every tab.
-    const allBlockedLiveSourceIds=new Set<string>(generalBlockedIds);
-    for(const scope of SCOPES){
-      for(const id of blockedByScope.get(scope)||[])allBlockedLiveSourceIds.add(id);
-    }
+    // The LIVE blacklist applies to both LIVE sources:
+    // Source 1 = external search; Source 2 = selected channels.
+    const allBlockedLiveSourceIds=new Set<string>(liveBlockedIds);
 
     const explicitLiveSources=selectedByScope.get("live")||[];
     const explicitLiveIds=new Set(explicitLiveSources.map((source:any)=>source.id));
@@ -1127,21 +1177,35 @@ Deno.serve(async(req:Request)=>{
         const raw=Array.isArray(data?.relatedStreams)
           ?data.relatedStreams
           :Array.isArray(data?.items)?data.items:[];
+        const previousByVideo=new Map(
+          previousRows.map((row:any)=>[videoId(row),row]).filter(([id])=>!!id)
+        );
         const fresh=dedupeRows(
           raw.map((row:any)=>normalizeRow(row,source)).filter(Boolean)
-        ).slice(0,30);
+        ).slice(0,30).map((row:any)=>{
+          const previousRow:any=previousByVideo.get(videoId(row));
+          if(!previousRow)return row;
+          const knownDuration=durationSeconds(row)>0
+            ?durationSeconds(row)
+            :durationSeconds(previousRow);
+          return {
+            ...row,
+            duration:isLive(row)?row.duration:(knownDuration||row.duration||0),
+            isShort:row?.isShort===true||previousRow?.isShort===true,
+            _durationCheckedAt:Number(previousRow?._durationCheckedAt)||0,
+            _shortCheckedAt:Number(previousRow?._shortCheckedAt)||0
+          };
+        });
 
         if(!fresh.length)throw new Error("empty_channel_payload");
 
-        const sourceName=clean(
-          source?.name||
-          fresh[0]?.uploaderName||
-          fresh[0]?.uploader||
-          fresh[0]?._sourceName||
-          previous?.source_name||
-          "",
-          180
-        );
+        const sourceName=[
+          source?.name,
+          fresh[0]?._sourceName,
+          fresh[0]?.uploaderName,
+          fresh[0]?.uploader,
+          previous?.source_name
+        ].map(validChannelDisplayName).find(Boolean)||"";
         if(sourceName&&!source.name){
           source.name=sourceName;
           channelMeta.set(id,source);
@@ -1196,71 +1260,98 @@ Deno.serve(async(req:Request)=>{
       return true;
     });
 
-    // Channel RSS fallbacks often have duration=0. Resolve recent unknown
-    // durations once on the server before publishing any non-live feed. This
-    // makes <=60s filtering authoritative instead of relying on #shorts hints.
-    const durationCandidates:any[]=[];
-    const durationCandidateIds=new Set<string>();
-    for(const [channelId,items] of channelRows){
+    // Verify every recent non-live row on the server. Duration and YouTube's
+    // Shorts surface are independent signals: either <=60 seconds OR Shorts
+    // membership excludes a video from every non-live package.
+    const verificationCandidates:any[]=[];
+    const verificationCandidateIds=new Set<string>();
+    for(const [,items] of channelRows){
       for(const row of items){
         const id=videoId(row);
         const age=ageMs(row);
-        const checkedAt=Number(row?._durationCheckedAt)||0;
         if(
           !id||
-          durationCandidateIds.has(id)||
+          verificationCandidateIds.has(id)||
           isLive(row)||
           isTooShortVideo(row)||
-          durationSeconds(row)>0||
           !Number.isFinite(age)||
           age<0||
-          age>=7*DAY_MS||
-          (checkedAt&&now-checkedAt<15*60*1000)
+          age>=7*DAY_MS
         )continue;
-        durationCandidateIds.add(id);
-        durationCandidates.push({id,age});
+
+        const duration=durationSeconds(row);
+        const durationCheckedAt=Number(row?._durationCheckedAt)||0;
+        const shortCheckedAt=Number(row?._shortCheckedAt)||0;
+        const needDuration=duration<=0&&
+          (!durationCheckedAt||now-durationCheckedAt>=15*60*1000);
+        const needShort=!shortCheckedAt;
+        if(!needDuration&&!needShort)continue;
+
+        verificationCandidateIds.add(id);
+        verificationCandidates.push({
+          id,
+          age,
+          duration,
+          needDuration,
+          needShort
+        });
       }
     }
-    durationCandidates.sort((a,b)=>a.age-b.age);
+    verificationCandidates.sort((a,b)=>a.age-b.age);
 
-    const durationMeta=new Map<string,any>();
-    await mapLimit(durationCandidates.slice(0,80),8,async(candidate)=>{
-      const [meta,isShort]=await Promise.all([
-        youtubePlayerMetadata(candidate.id),
-        youtubeShortsMembership(candidate.id)
+    const verificationMeta=new Map<string,any>();
+    await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
+      const checkedAt=Date.now();
+      const [playerMeta,isShort]=await Promise.all([
+        candidate.needDuration
+          ?youtubePlayerMetadata(candidate.id)
+          :Promise.resolve({duration:candidate.duration,isLive:false}),
+        candidate.needShort
+          ?youtubeShortsMembership(candidate.id)
+          :Promise.resolve(false)
       ]);
-      durationMeta.set(candidate.id,{...meta,isShort,checkedAt:Date.now()});
+      verificationMeta.set(candidate.id,{
+        ...playerMeta,
+        duration:Number(playerMeta?.duration)||candidate.duration||0,
+        isShort:isShort===true,
+        durationCheckedAt:candidate.needDuration?checkedAt:0,
+        shortCheckedAt:candidate.needShort?checkedAt:0
+      });
       return true;
     });
 
-    const durationChangedChannels=new Set<string>();
-    if(durationMeta.size){
+    const verificationChangedChannels=new Set<string>();
+    if(verificationMeta.size){
       for(const [channelId,items] of channelRows){
         let changed=false;
         const enriched=items.map((row:any)=>{
           const id=videoId(row);
-          const meta=durationMeta.get(id);
+          const meta=verificationMeta.get(id);
           if(!meta)return row;
           changed=true;
+          const live=meta.isLive===true||isLive(row);
+          const duration=live
+            ?-1
+            :(Number(meta.duration)>0?Number(meta.duration):durationSeconds(row));
           return {
             ...row,
-            duration:meta.isLive?-1:(Number(meta.duration)||0),
-            isLive:meta.isLive===true,
+            duration:duration||0,
+            isLive:live,
             isShort:meta.isShort===true||row?.isShort===true,
-            _durationCheckedAt:meta.checkedAt,
-            _shortCheckedAt:meta.checkedAt
+            _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
+            _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0
           };
         });
         if(changed){
           channelRows.set(channelId,enriched);
-          durationChangedChannels.add(channelId);
+          verificationChangedChannels.add(channelId);
         }
       }
     }
 
-    // Persist duration enrichment even for channels that were not otherwise due,
+    // Persist verification even for channels that were not otherwise due,
     // without changing their channel refresh cadence.
-    for(const id of durationChangedChannels){
+    for(const id of verificationChangedChannels){
       const items=channelRows.get(id)||[];
       const source=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
       const previous=cacheById.get(id)||{};
@@ -1270,7 +1361,11 @@ Deno.serve(async(req:Request)=>{
         .filter((row:any)=>row.id&&Number.isFinite(row.age)&&row.age>=0&&row.age<Number.MAX_SAFE_INTEGER)
         .sort((a:any,b:any)=>a.age-b.age)[0]||null;
       const cacheHash=fastHash(items.map((row:any)=>[
-        videoId(row),clean(row?.title,300),publishedText(row),String(durationSeconds(row)||0)
+        videoId(row),
+        clean(row?.title,300),
+        publishedText(row),
+        String(durationSeconds(row)||0),
+        row?.isShort===true?"1":"0"
       ].join("|")).join("\n"));
       const existing=index>=0?cacheWrites[index]:null;
       const write={
@@ -1312,20 +1407,34 @@ Deno.serve(async(req:Request)=>{
       const scope=scopes[scopeIndex];
       const meta=SCOPE_META[scope]||{profile:"general",label:scope,kind:"content"};
       const selected=selectedByScope.get(scope)||[];
-      const blocked=blockedByScope.get(scope)||new Set<string>();
       const selectedIds=new Set(selected.map((s:any)=>s.id));
       const current=currentByScope.get(scope);
 
       if(meta.kind==="content"&&!selected.length){
-        if(current){
-          const clearRes=await fetch(
-            rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
-            "&scope=eq."+encodeURIComponent(scope),
-            {method:"DELETE",headers:authHeaders}
-          );
-          if(!clearRes.ok)throw new Error("empty_hashtag_package_clear_failed:"+scope+":"+await clearRes.text());
+        const sig="";
+        const packaged:any[]=[];
+        const hash=snapshotRowsHash(packaged,sig);
+        const inputHash=fastHash(hash+"|"+NON_LIVE_PIPELINE_VERSION+":"+meta.kind+":no_sources");
+        if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
+          results.push({scope,changed:false,reason:"no_selected_sources"});
+          continue;
         }
-        results.push({scope,changed:!!current,reason:"no_selected_sources"});
+        const version=Date.now()*100+scopeIndex;
+        const rpc=await fetch(rest+"/rpc/yt1988_set_package",{
+          method:"POST",
+          headers:authHeaders,
+          body:JSON.stringify({
+            p_profile_key:PROFILE,
+            p_scope:scope,
+            p_hash:hash,
+            p_input_hash:inputHash,
+            p_source_signature:sig,
+            p_items:packaged,
+            p_version:version
+          })
+        });
+        if(!rpc.ok)throw new Error("empty_package_write_failed:"+scope+":"+await rpc.text());
+        results.push({scope,changed:true,items:0,reason:"no_selected_sources"});
         continue;
       }
 
@@ -1354,19 +1463,43 @@ Deno.serve(async(req:Request)=>{
       let raw:any[]=[];
 
       for(const source of selected){
-        for(const row of channelRows.get(source.id)||[]){
-          if(blocked.has(source.id))continue;
-          raw.push(row);
-        }
+        for(const row of channelRows.get(source.id)||[])raw.push(row);
       }
 
       if(scope!=="live"){
-        // Known <=60s videos and all Shorts signals are excluded immediately.
-        // Unknown duration stays eligible while the server verifier retries in
-        // the background; an upstream metadata outage must never empty a tab.
-        raw=raw.filter((r:any)=>!isTooShortVideo(r));
+        const relevantRows=raw.filter((r:any)=>{
+          const age=ageMs(r);
+          if(scope==="latest")return Number.isFinite(age)&&age>=0&&age<DAY_MS;
+          if(scope==="week")return Number.isFinite(age)&&age>=DAY_MS&&age<7*DAY_MS;
+          return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+        });
+        const unresolved=relevantRows.filter((r:any)=>
+          !isLive(r)&&
+          !isTooShortVideo(r)&&
+          (!Number(r?._shortCheckedAt)||durationSeconds(r)<=0)
+        );
+        if(unresolved.length){
+          degradedNotes.push(scope+":waiting_non_live_verification="+unresolved.length);
+          await queuePendingRefresh(rest,authHeaders,[scope]);
+          results.push({
+            scope,
+            changed:false,
+            reason:"waiting_non_live_verification",
+            unresolved:unresolved.length,
+            keptItems:Array.isArray(current?.items)?current.items.length:0
+          });
+          continue;
+        }
+
+        raw=raw.filter((r:any)=>
+          !isLive(r)&&
+          !isTooShortVideo(r)&&
+          durationSeconds(r)>60&&
+          !titleLooksEnglishOnly(r)
+        );
+      }else{
+        raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       }
-      raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
 
       if(scope==="live"){
@@ -1408,7 +1541,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v13")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){

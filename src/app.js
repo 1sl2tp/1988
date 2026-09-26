@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="330";
+const LOCAL_DATA_SCHEMA_VERSION="331";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-discovery-",
   "1988-source-channel-",
@@ -817,11 +817,7 @@ function blockedSetForScope(scope=sourceManageGroup){
 }
 
 function liveEffectiveBlockedSet(){
-  const blocked=new Set(blockedSourceIds);
-  for(const scope of MANAGED_SOURCE_SCOPES){
-    for(const id of blockedSetForScope(scope))blocked.add(id);
-  }
-  return blocked;
+  return new Set(blockedSetForScope(LIVE_SOURCE_SCOPE));
 }
 
 function liveEffectiveSelectedSet(){
@@ -2459,10 +2455,7 @@ function matchSourceState(row={},scope=sourceManageGroup){
     return {...liveSourceManagerState(id),canonicalId:id};
   }
 
-  const blocked=blockedSetForScope(scope);
   const selected=selectedSetForScope(scope);
-
-  if(blocked.has(id))return {status:"blocked",canonicalId:id};
   if(selected.has(id))return {status:"selected",canonicalId:id};
   return {status:"normal",canonicalId:id};
 }
@@ -2485,13 +2478,13 @@ function isBlockedSourceRow(row={},scope=GENERAL_SOURCE_SCOPE){
 function updateSourceSummary(rows=managedChannelLibrary()){
   const scope=sourceScope(sourceManageGroup);
   const selected=scope===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(scope);
-  const blocked=scope===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(scope);
+  const blocked=scope===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():new Set();
   const totalIds=new Set([
     ...unselectedSourceIdsForScope(scope),
     ...selected,
     ...blocked
   ]);
-  const selectedCount=[...selected].filter(id=>!blocked.has(id)).length;
+  const selectedCount=selected.size;
   const blockedCount=blocked.size;
   const totalCount=totalIds.size;
 
@@ -2514,7 +2507,7 @@ function updateSourceSummary(rows=managedChannelLibrary()){
         totalCount+" nguồn";
     }else if(sourceManageMode){
       sourceSummary.textContent=
-        selectedCount+" chọn · "+blockedCount+" chặn · "+totalCount+" nguồn";
+        selectedCount+" chọn · "+totalCount+" nguồn";
     }else{
       sourceSummary.textContent=activeScope===LIVE_SOURCE_SCOPE
         ?activeSelectedCount+" nguồn dùng cho Live"
@@ -2578,19 +2571,25 @@ function sourceRowHtml(row,{remote=false}={}){
       'aria-label="'+(active?'Bỏ chọn nguồn':blocked?'Bỏ chặn và chọn nguồn':'Chọn nguồn')+'" '+
       'aria-pressed="'+(active?'true':'false')+'">'+(blocked?'×':'✓')+'</button>';
 
-  const manageControls=inheritedSelected
-    ?'<div class="source-state-actions">'+
-      '<button class="source-state-btn select active inherited" type="button" disabled>Đã có</button>'+
-      '<button class="source-state-btn block" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
-    '</div>'
-    :inheritedBlocked
+  const manageControls=sourceManageGroup===LIVE_SOURCE_SCOPE
+    ?(inheritedSelected
       ?'<div class="source-state-actions">'+
-        '<button class="source-state-btn block active inherited" type="button" disabled>Đã chặn</button>'+
+        '<button class="source-state-btn select active inherited" type="button" disabled>Đã có</button>'+
+        '<button class="source-state-btn block" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
       '</div>'
-      :'<div class="source-state-actions">'+
-        '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
-        '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
-      '</div>';
+      :inheritedBlocked
+        ?'<div class="source-state-actions">'+
+          '<button class="source-state-btn block active inherited" type="button" disabled>Đã chặn</button>'+
+        '</div>'
+        :'<div class="source-state-actions">'+
+          '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">Chọn</button>'+
+          '<button class="source-state-btn block'+(blocked?' active':'')+'" type="button" data-source-state="blocked" data-source-id="'+esc(row.id)+'">Chặn</button>'+
+        '</div>')
+    :'<div class="source-state-actions">'+
+      '<button class="source-state-btn select'+(active?' active':'')+'" type="button" data-source-state="selected" data-source-id="'+esc(row.id)+'">'+
+        (active?'Đã chọn':'Chọn')+
+      '</button>'+
+    '</div>';
 
   return '<div class="source-row'+(active?' active':'')+(blocked?' blocked':'')+(sourceManageMode?' manage':'')+'" data-source-id="'+esc(row.id)+'">'+
     '<button class="source-main" type="button" data-source-preview="'+esc(row.id)+'">'+
@@ -2743,7 +2742,7 @@ function renderSourceGroupTabs(rows=managedChannelLibrary()){
 
   sourceGroupTabs.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
     const selected=group.key===LIVE_SOURCE_SCOPE?liveEffectiveSelectedSet():selectedSetForScope(group.key);
-    const blocked=group.key===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():blockedSetForScope(group.key);
+    const blocked=group.key===LIVE_SOURCE_SCOPE?liveEffectiveBlockedSet():new Set();
     const ids=new Set([
       ...unselectedSourceIdsForScope(group.key),
       ...selected,
@@ -2783,7 +2782,7 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
     :selectedSetForScope(sourceManageGroup);
   const managerBlocked=sourceManageGroup===LIVE_SOURCE_SCOPE
     ?liveEffectiveBlockedSet()
-    :blockedSetForScope(sourceManageGroup);
+    :new Set();
   const scopedStateIds=new Set([
     ...managerSelected,
     ...managerBlocked
@@ -2839,10 +2838,12 @@ function renderSourceLibrary(rows=managedChannelLibrary()){
       ...selectedRows.map(row=>sourceRowHtml(row)),
       ...selectedRemote.map(row=>sourceRowHtml(row,{remote:true}))
     ]));
-    parts.push(sourceStatusSection("Đã chặn",[
-      ...blockedRows.map(row=>sourceRowHtml(row)),
-      ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
-    ],{blocked:true}));
+    if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+      parts.push(sourceStatusSection("Đã chặn",[
+        ...blockedRows.map(row=>sourceRowHtml(row)),
+        ...blockedRemote.map(row=>sourceRowHtml(row,{remote:true}))
+      ],{blocked:true}));
+    }
 
     if(
       !unselectedHtml.length&&
@@ -4408,12 +4409,11 @@ function applyCardSourceAction(action,scope){
   }
 
   if(action==="not-interested"){
-    setSourceStatus(source.id,"blocked",scope);
-
-    // Remove immediately only when the card is being viewed inside the same
-    // source tab. Search/neutral views stay intact after a scoped preference.
-    if(activeSourceScope()===scope){
-      removeBlockedSourceFromVisibleFeed(card,scope);
+    if(scope===LIVE_SOURCE_SCOPE){
+      setSourceStatus(source.id,"blocked",scope);
+      if(activeSourceScope()===scope)removeBlockedSourceFromVisibleFeed(card,scope);
+    }else{
+      setSourceStatus(source.id,"normal",scope);
     }
     closeCardActionMenu();
     return true;
@@ -8229,13 +8229,14 @@ async function loadAiParentDiscovery(parent){
     state.trendTopics=[];
     renderTrendTopics();
 
-    if(reserve.length){
+    const storedBefore=readAtomicSnapshot("category:"+parent.key);
+    if(storedBefore&&Array.isArray(storedBefore.items)&&state.activeParent===parent.key){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
       state.feedRows=reserve.slice();
       state.feedHasMore=false;
       renderCards(reserve,{trustedPackage:true});
-      feedStatus.textContent=reserve.length+" video";
-      void prewarmRowSourceAvatars(reserve.slice(0,36),260);
+      feedStatus.textContent=reserve.length?reserve.length+" video":"";
+      if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     }
   }catch(error){
     console.warn("server category package sync deferred",parent?.label||parent?.key,error);
@@ -9875,6 +9876,8 @@ function renderCards(rows=[],options={}){
       if(node)fragment.appendChild(node);
     }
     feed.replaceChildren(fragment);
+  }else if(trustedPackage){
+    feed.replaceChildren();
   }else{
     feed.innerHTML='<div class="empty">Chưa có video.</div>';
   }
@@ -12053,6 +12056,22 @@ function snapshotRowsHash(rows=[],sourceSig=""){
     clean(row?._displayTitle||row?.title||""),
     clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
     String(row?._sourceId||row?.channelId||row?.uploaderId||""),
+    clean(row?._sourceName||row?.uploaderName||row?.uploader||""),
+    clean(row?.thumbnailUrl||row?.thumbnail||""),
+    clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||""),
+    String(Math.max(0,Number(row?.views)||0)),
+    row?.isLive===true?"1":"0",
+    String(durationSeconds(row)||0)
+  ].join("|")).join("\n");
+  return fastHash(String(sourceSig||"")+"\n"+body);
+}
+
+function snapshotRowsHashV330(rows=[],sourceSig=""){
+  const body=(Array.isArray(rows)?rows:[]).map(row=>[
+    itemVideoId(row),
+    clean(row?._displayTitle||row?.title||""),
+    clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||""),
+    String(row?._sourceId||row?.channelId||row?.uploaderId||""),
     row?.isLive===true?"1":"0",
     String(durationSeconds(row)||0)
   ].join("|")).join("\n");
@@ -12070,9 +12089,11 @@ function readAtomicSnapshot(name=""){
       if(!raw)continue;
       const row=JSON.parse(raw);
       if(!row||!Array.isArray(row.items))continue;
-      const actual=snapshotRowsHash(row.items,row.sourceSignature||"");
-      if(!row.hash||row.hash!==actual)continue;
-      return row;
+      const sourceSig=row.sourceSignature||"";
+      const actual=snapshotRowsHash(row.items,sourceSig);
+      const legacy=snapshotRowsHashV330(row.items,sourceSig);
+      if(!row.hash||(row.hash!==actual&&row.hash!==legacy))continue;
+      return row.hash===actual?row:{...row,hash:actual,legacyHash:row.hash};
     }
   }catch{}
   return null;
@@ -12446,17 +12467,7 @@ function sourceFeedRowsSignature(rows=[]){
 }
 
 function freshSnapshotRowsForFeed(name){
-  const preset=FEED_PRESETS[name];
-  if(!preset)return [];
-
-  const scoped=isSourceScopedFeed(name);
-  const scope=scoped
-    ?feedSourceScope(name)
-    :name===LIVE_SOURCE_SCOPE
-      ?LIVE_SOURCE_SCOPE
-      :GENERAL_SOURCE_SCOPE;
-
-  return sortPresetRows(readFeedCache(name),preset);
+  return readFeedCache(name);
 }
 
 function applyActiveFeedSnapshot(name,{force=false}={}){
@@ -13209,7 +13220,6 @@ async function refreshAllSourceSnapshotsInBackground({force=false}={}){
 
 async function loadFeedPreset(name="latest"){
   state.searchResultsActive=false;
-  const preset=FEED_PRESETS[name]||FEED_PRESETS.latest;
   const seq=++state.feedSeq;
   const feedChanged=state.activeFeed!==name;
 
@@ -13219,37 +13229,30 @@ async function loadFeedPreset(name="latest"){
     state.trendTopics=[];
   }
 
-  const scoped=isSourceScopedFeed(name);
   state.feedLoading=true;
   state.feedHasMore=false;
-
   setActiveChip(name);
   feedTitle.textContent=sourceGroupLabel(name);
   renderTrendTopics();
 
-  // Browser/PWA is a package viewer only. Show the last complete local reserve
-  // immediately, then compare hashes and atomically replace it with a newer one.
-  let reserve=readFeedCache(name);
-  if(reserve.length){
-    const rows=sortPresetRows(reserve,preset);
-    state.feedRows=rows.slice();
-    renderCards(state.feedRows,{trustedPackage:true});
-    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-    state.feedLoading=false;
-    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
-  }
+  const paintReserve=()=>{
+    const snapshot=readAtomicSnapshot("feed:"+name);
+    if(!snapshot||!Array.isArray(snapshot.items))return false;
+    const reserve=snapshot.items.slice();
+    state.feedRows=reserve;
+    renderCards(reserve,{trustedPackage:true});
+    feedStatus.textContent=reserve.length?reserve.length+" video":"";
+    if(reserve.length)void prewarmRowSourceAvatars(reserve.slice(0,36),260);
+    return true;
+  };
+
+  // Paint first, check later.
+  paintReserve();
+  state.feedLoading=false;
 
   await hydrateServerPackages({force:true});
   if(seq!==state.feedSeq||state.activeFeed!==name)return;
-
-  reserve=readFeedCache(name);
-  if(reserve.length){
-    const rows=sortPresetRows(reserve,preset);
-    state.feedRows=rows.slice();
-    renderCards(state.feedRows,{trustedPackage:true});
-    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
-    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
-  }
+  paintReserve();
 
   state.feedLoading=false;
   state.feedHasMore=false;
@@ -13411,11 +13414,12 @@ topicChips.addEventListener("click",async e=>{
       feedStatus.textContent=visible.length?visible.length+" video":"";
       void prewarmRowSourceAvatars(visible,480);
     }else{
-      feed.innerHTML=
-        '<div class="feed-loading-grid" aria-label="Đang tải '+esc(parent.label)+'">'+
-          '<span></span><span></span><span></span><span></span>'+
-        '</div>';
-      feedStatus.textContent="";
+      const stored=readAtomicSnapshot("category:"+parent.key);
+      if(stored&&Array.isArray(stored.items)){
+        state.feedRows=[];
+        renderCards([],{trustedPackage:true});
+        feedStatus.textContent="";
+      }
     }
 
     void loadAiParentDiscovery(parent);
@@ -13434,7 +13438,9 @@ topicChips.addEventListener("click",async e=>{
 });
 
 async function bootstrap1988(){
-  const sourceStateLoaded=await hydrateServerState();
+  // Package viewing is independent from source-management availability.
+  // Source state refreshes in parallel and never blocks or clears the feed.
+  const sourceStatePromise=hydrateServerState().catch(()=>false);
 
   setupMediaSession();
   setupInstall();
@@ -13447,29 +13453,10 @@ async function bootstrap1988(){
   updateModeUi();
   renderParentCategories();
 
-  if(!sourceStateLoaded){
-    if(sourcesBtn){
-      sourcesBtn.disabled=true;
-      sourcesBtn.title="Chưa tải được dữ liệu nguồn từ máy chủ";
-    }
-    setActiveChip("latest");
-    feedTitle.textContent="Mới nhất";
-    feedStatus.textContent="";
-    feed.innerHTML='<div class="error">Không tải được dữ liệu nguồn từ máy chủ. Hãy thử tải lại trang.</div>';
-    return;
-  }
-
   if(sourcesBtn){
     sourcesBtn.disabled=false;
     sourcesBtn.removeAttribute("title");
   }
-
-  // New browsers first hydrate the shared package manifest. This lets them use
-  // ready-made tab packages instead of rebuilding all 11 tabs locally.
-  await hydrateServerPackages({force:true});
-
-  await warmManagedAvatarImages(900);
-  void prewarmSelectedSourceAvatars();
 
   const initialVideoId=extractVideoId(new URL(location.href).searchParams.get("v")||"");
   if(initialVideoId){
@@ -13477,6 +13464,13 @@ async function bootstrap1988(){
       title:"Đang tải thông tin…",
       thumbnailUrl:"https://i.ytimg.com/vi/"+initialVideoId+"/hqdefault.jpg"
     });
+    void sourceStatePromise.then(ok=>{
+      if(ok){
+        applySourceGroupLabelsUi();
+        renderParentCategories();
+      }
+    });
+    void hydrateServerPackages({force:true});
     return;
   }
 
@@ -13486,7 +13480,18 @@ async function bootstrap1988(){
       resetHomeViewportInstant();
     }
   },{passive:true});
+
+  // Local reserve paints immediately. Network work runs after paint.
   await loadInitialFeed();
+
+  void sourceStatePromise.then(async ok=>{
+    if(!ok)return;
+    applySourceGroupLabelsUi();
+    renderParentCategories();
+    await warmManagedAvatarImages(900);
+    void prewarmSelectedSourceAvatars();
+    void hydrateServerPackages({force:true});
+  });
 }
 
 void bootstrap1988();
