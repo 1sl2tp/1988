@@ -11401,6 +11401,7 @@ function renderCards(rows=[],options={}){
   ensureWatchNavRail();
   syncWatchCurrentCard();
   normalizeRenderedThumbnails();
+  primeDesktopCardHoverColors();
 
   // Home chrome follows the top video once per stable feed/category paint.
   // No scroll/pointer sampling is reintroduced.
@@ -13427,6 +13428,134 @@ function averageThumbTint(url){
   desktopCardColorCache.set(url,task);
   return task;
 }
+
+let desktopHoverAccentSeq=0;
+let desktopHoverAccentCard=null;
+
+function desktopHoverAccentEnabled(){
+  return !mobileMiniViewport() &&
+    window.matchMedia?.("(hover:hover) and (pointer:fine)")?.matches===true;
+}
+
+function accentVarsFromColor(color=""){
+  const rgb=parseChromeRgb(color);
+  if(!rgb)return null;
+  const [r,g,b]=rgb;
+  return {
+    solid:`rgb(${r},${g},${b})`,
+    soft:`rgba(${r},${g},${b},.34)`,
+    faint:`rgba(${r},${g},${b},.18)`,
+    glow:`rgba(${r},${g},${b},.22)`,
+    line:`rgba(${r},${g},${b},.52)`
+  };
+}
+
+function clearDesktopHoverAccent(card=desktopHoverAccentCard){
+  ++desktopHoverAccentSeq;
+  const root=document.documentElement;
+
+  if(card){
+    card.classList.remove("desktop-accent-hover");
+    for(const name of [
+      "--desktop-card-accent",
+      "--desktop-card-accent-soft",
+      "--desktop-card-accent-faint",
+      "--desktop-card-accent-glow",
+      "--desktop-card-accent-line"
+    ])card.style.removeProperty(name);
+  }
+
+  if(desktopHoverAccentCard===card)desktopHoverAccentCard=null;
+  root.classList.remove("desktop-hover-accent");
+  for(const name of [
+    "--desktop-hover-accent",
+    "--desktop-hover-accent-soft",
+    "--desktop-hover-accent-glow",
+    "--desktop-hover-accent-line"
+  ])root.style.removeProperty(name);
+}
+
+async function applyDesktopHoverAccent(card){
+  if(!desktopHoverAccentEnabled()||!card?.isConnected)return;
+
+  const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
+  if(!art)return;
+
+  if(desktopHoverAccentCard&&desktopHoverAccentCard!==card){
+    clearDesktopHoverAccent(desktopHoverAccentCard);
+  }
+
+  desktopHoverAccentCard=card;
+  const seq=++desktopHoverAccentSeq;
+  const color=await averageThumbTint(art);
+
+  if(
+    seq!==desktopHoverAccentSeq ||
+    desktopHoverAccentCard!==card ||
+    !card.isConnected ||
+    !color
+  )return;
+
+  const vars=accentVarsFromColor(color);
+  if(!vars)return;
+
+  card.style.setProperty("--desktop-card-accent",vars.solid);
+  card.style.setProperty("--desktop-card-accent-soft",vars.soft);
+  card.style.setProperty("--desktop-card-accent-faint",vars.faint);
+  card.style.setProperty("--desktop-card-accent-glow",vars.glow);
+  card.style.setProperty("--desktop-card-accent-line",vars.line);
+  card.classList.add("desktop-accent-hover");
+
+  const root=document.documentElement;
+  root.style.setProperty("--desktop-hover-accent",vars.solid);
+  root.style.setProperty("--desktop-hover-accent-soft",vars.soft);
+  root.style.setProperty("--desktop-hover-accent-glow",vars.glow);
+  root.style.setProperty("--desktop-hover-accent-line",vars.line);
+  root.classList.add("desktop-hover-accent");
+}
+
+function primeDesktopCardHoverColors(){
+  if(!desktopHoverAccentEnabled())return;
+
+  const warm=()=>{
+    const cards=[...feed.querySelectorAll(":scope > .card[data-video-id]")].slice(0,32);
+    for(const card of cards){
+      const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
+      if(art&&!desktopCardColorCache.has(art))void averageThumbTint(art);
+    }
+  };
+
+  if("requestIdleCallback" in window){
+    requestIdleCallback(warm,{timeout:900});
+  }else{
+    setTimeout(warm,120);
+  }
+}
+
+feed?.addEventListener("pointerover",event=>{
+  if(!desktopHoverAccentEnabled())return;
+  const thumb=event.target instanceof Element?event.target.closest(".thumb-wrap"):null;
+  if(!thumb||!feed.contains(thumb))return;
+
+  const from=event.relatedTarget;
+  if(from instanceof Node&&thumb.contains(from))return;
+
+  const card=thumb.closest(".card[data-video-id]");
+  if(card)void applyDesktopHoverAccent(card);
+});
+
+feed?.addEventListener("pointerout",event=>{
+  const thumb=event.target instanceof Element?event.target.closest(".thumb-wrap"):null;
+  if(!thumb||!feed.contains(thumb))return;
+
+  const to=event.relatedTarget;
+  if(to instanceof Node&&thumb.contains(to))return;
+
+  const card=thumb.closest(".card[data-video-id]");
+  if(card&&desktopHoverAccentCard===card)clearDesktopHoverAccent(card);
+});
+
+window.addEventListener("blur",()=>clearDesktopHoverAccent(),{passive:true});
 
 function parseChromeRgb(color=""){
   const match=String(color||"").match(/\d+(?:\.\d+)?/g);
