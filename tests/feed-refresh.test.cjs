@@ -44,3 +44,11 @@ test('concurrent package checks share one request and tolerate a slow connection
  const first=c.hydrateServerPackages({force:true});const second=c.hydrateServerPackages({force:true});
  assert.equal(calls,1);release({ok:true,manifest:{}});assert.equal(await first,true);assert.equal(await second,true);
 });
+
+test('music tab blocks beat, kara and karaoke only in music scope',()=>{
+ assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Nhạc'},{title:'Tình yêu Karaoke'}),true);
+ assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Nhạc'},{title:'Tình yêu beat'}),true);
+ assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Nhạc'},{title:'Tình yêu KARA'}),true);
+ assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Nhạc'},{title:'Tình yêu Official MV'}),false);
+ assert.equal(s.isBlockedMusicTabVideo({kind:'content',label:'Phim'},{title:'Karaoke đêm'}),false);
+});

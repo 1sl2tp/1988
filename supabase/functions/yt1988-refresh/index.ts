@@ -159,6 +159,13 @@ const EN_TITLE_WORDS=new Set(
   "the and with from this that your you new best how what why when where who whose which for of to in on at after before official news weather forecast today full program woman man market world game match matches highlights could would should really over under into out now top first last released battery design buy buys buying comes come sell sells touring showroom roundup shocking due decline laziness goes goal goals replace candidates breaking morning night year years old young found fire killed dead injured reason using used use many sunny days storm rain president general military aid review music song video live versus vs is are was were be been being has have had do does did can will may might more most less only just all any every about around through during without within between against among than then them they their there here our we us it its he she his her him city country people police court company team player players coach final semi final".split(" ")
 );
 
+function isBlockedMusicTabVideo(meta:any={},row:any={}){
+  const label=normalizeText(meta?.label||"");
+  if(label!=="nhac"&&label!=="music")return false;
+  const title=normalizeText(row?._displayTitle||row?.title||"");
+  return /\b(?:beat|kara|karaoke)\b/.test(title);
+}
+
 function titleLooksEnglishOnly(row:any){
   const raw=clean(row?._displayTitle||row?.title||"",500);
   if(!raw)return false;
@@ -1214,6 +1221,7 @@ Deno.serve(async(req:Request)=>{
         raw=raw.filter((r:any)=>!isTooShortVideo(r));
       }
       raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
+      if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
 
       if(scope==="live"){
         // LIVE is built only from candidates that were freshly verified above.
@@ -1248,7 +1256,7 @@ Deno.serve(async(req:Request)=>{
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       const sig=sourceSignature(rows,scope);
-      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v9")+":"+meta.kind;
+      const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:"server-scope-policy-v10")+":"+meta.kind;
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
