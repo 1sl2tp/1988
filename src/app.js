@@ -1121,6 +1121,37 @@ function saveServerMetadataCachesLocally(){
   clearLegacyLocalSourceState();
 }
 
+function applyPendingSourceWritesOverlay(selectedMap,blockedMap){
+  for(const pending of pendingSourceWrites.values()){
+    const scope=sourceScope(pending?.scope);
+    const id=String(pending?.channel_id||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+
+    const selected=scope===GENERAL_SOURCE_SCOPE
+      ?selectedSourceIds
+      :(selectedMap.get(scope)||new Set());
+    const blocked=scope===GENERAL_SOURCE_SCOPE
+      ?blockedSourceIds
+      :(blockedMap.get(scope)||new Set());
+
+    if(scope!==GENERAL_SOURCE_SCOPE){
+      if(!selectedMap.has(scope))selectedMap.set(scope,selected);
+      if(!blockedMap.has(scope))blockedMap.set(scope,blocked);
+    }
+
+    if(pending.status==="selected"){
+      blocked.delete(id);
+      selected.add(id);
+    }else if(pending.status==="blocked"){
+      selected.delete(id);
+      blocked.add(id);
+    }else{
+      selected.delete(id);
+      blocked.delete(id);
+    }
+  }
+}
+
 function applyServerState(remote={}){
   if(!remote||typeof remote!=="object"||Array.isArray(remote))return false;
 
@@ -1203,6 +1234,21 @@ function applyServerState(remote={}){
       nextBlocked.set(scope,blockedSet);
       nextSuggested.set(scope,new Set(suggestedIds));
     }
+    // Server suggestions are replaceable snapshots, but manual UI actions are
+    // optimistic and must never be rolled back by an older GET racing with
+    // their direct POST. Overlay pending local writes before publishing state.
+    applyPendingSourceWritesOverlay(nextSelected,nextBlocked);
+
+    // Pending writes in a managed scope also determine whether a suggested
+    // source is still eligible for the "Gợi ý nguồn" section immediately.
+    for(const [scope,suggested] of nextSuggested){
+      const selected=nextSelected.get(scope)||new Set();
+      const blocked=nextBlocked.get(scope)||new Set();
+      for(const id of [...suggested]){
+        if(selected.has(id)||blocked.has(id))suggested.delete(id);
+      }
+    }
+
     scopedSelectedSourceIds=nextSelected;
     scopedBlockedSourceIds=nextBlocked;
     serverSuggestedSourceIds=nextSuggested;
@@ -13699,6 +13745,7 @@ async function bootstrap1988(){
       if(ok){
         applySourceGroupLabelsUi();
         renderParentCategories();
+        if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
       }
     });
     void hydrateServerPackages({force:true});
@@ -13719,6 +13766,7 @@ async function bootstrap1988(){
     if(!ok)return;
     applySourceGroupLabelsUi();
     renderParentCategories();
+    if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
     await warmManagedAvatarImages(900);
     void prewarmSelectedSourceAvatars();
     void hydrateServerPackages({force:true});
