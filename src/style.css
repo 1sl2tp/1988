@@ -3927,7 +3927,7 @@ html.source-manager-page .source-preview{
 /* Mobile mini player canonical v375.
    One owner for mini visuals/gesture. JS owns media geometry and 1px seam
    overscan; CSS only owns clipping, radius and the drag hit surface. */
-@media(max-width:720px){
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
   html.watch-minimized .player-frame.floating-iframe{
     z-index:120!important;
     isolation:isolate!important;
