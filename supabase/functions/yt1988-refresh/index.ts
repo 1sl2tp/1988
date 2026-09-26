@@ -384,6 +384,43 @@ function sortRows(rows:any[]){
     return (Number(b?.views)||0)-(Number(a?.views)||0);
   });
 }
+
+
+function nonLiveScopeTimeMatch(scope:string,row:any){
+  const age=ageMs(row);
+  if(isLive(row)||!Number.isFinite(age)||age<0)return false;
+  if(scope==="latest")return age<DAY_MS;
+  if(scope==="week")return age>=DAY_MS&&age<7*DAY_MS;
+  return age<7*DAY_MS;
+}
+
+function buildNonLivePackageRows(scope:string,meta:any,rows:any[]){
+  return dedupeRows(
+    sortRows(
+      rows
+        .filter((row:any)=>nonLiveScopeTimeMatch(scope,row))
+        .filter((row:any)=>!isTooShortVideo(row))
+        .filter((row:any)=>!titleLooksEnglishOnly(row))
+        .filter((row:any)=>!isBlockedMusicTabVideo(meta,row))
+        .filter((row:any)=>meta?.kind!=="content"||!strongAd(row))
+    )
+  );
+}
+
+function buildLivePackageRows(rows:any[],blockedSourceIds:Set<string>,blockedKeywords:string[]){
+  return dedupeRows(
+    rows
+      .filter((row:any)=>isLive(row))
+      .filter((row:any)=>{
+        const sid=channelId(row);
+        return !sid||!blockedSourceIds.has(sid);
+      })
+      .filter((row:any)=>!liveKeywordBlocked(row,blockedKeywords))
+      .sort((a:any,b:any)=>
+        (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
+      )
+  );
+}
 async function fetchJson(url:string,headers:any={},timeout=7000){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),timeout);
@@ -715,8 +752,11 @@ Deno.serve(async(req:Request)=>{
   const serviceKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"";
   if(!supabaseUrl||!serviceKey)return json({ok:false,error:"server_config"},500);
 
-  // This endpoint only rebuilds server-owned read packages from authoritative
-  // source state. A DB lease limits execution frequency and prevents overlap.
+  // Two pipelines only:
+  //   LIVE     = live discovery/selected sources -> blacklist/keywords -> verify live.
+  //   NON-LIVE = selected channel cache -> normalize/filter -> package.
+  // Browsers never build or repair these packages.
+  // A DB lease limits execution frequency and prevents overlap.
   const rest=supabaseUrl+"/rest/v1";
   const authHeaders={
     "apikey":serviceKey,
