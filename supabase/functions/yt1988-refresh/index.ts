@@ -265,6 +265,24 @@ function validChannelDisplayName(value:any){
   if(!name||/^UC[A-Za-z0-9_-]+$/.test(name))return "";
   return name;
 }
+
+function cleanLiveTitle(value:any){
+  const original=clean(value,300);
+  if(!original)return "";
+
+  let title=original;
+  // Strip only a leading LIVE/TRỰC TIẾP marker plus its surrounding decoration.
+  // Do not remove emoji/symbols elsewhere in the actual title.
+  const marker=/^(?:[^A-Za-zÀ-ỹ0-9]*)(?:(?:trực\s*tiếp)|(?:live\s*stream)|livestream|live)\b(?:[^A-Za-zÀ-ỹ0-9]*)/iu;
+  for(let i=0;i<3;i++){
+    const next=title.replace(marker,"").trim();
+    if(!next||next===title)break;
+    title=next;
+  }
+
+  return title||original;
+}
+
 function normalizeRow(row:any,source:any={}){
   const id=videoId(row);
   if(!id)return null;
@@ -294,11 +312,14 @@ function normalizeRow(row:any,source:any={}){
     1000
   );
   const live=isLive(row);
+  const rawTitle=clean(row?._displayTitle||row?.title||"",300);
+  const normalizedTitle=live?cleanLiveTitle(rawTitle):rawTitle;
   return {
     ...row,
     id,
     videoId:id,
-    title:clean(row?._displayTitle||row?.title||"",300),
+    title:normalizedTitle,
+    ...(live?{_displayTitle:normalizedTitle}:{}),
     thumbnail:thumb,
     thumbnailUrl:thumb,
     uploader:sname,
