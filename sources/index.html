@@ -179,6 +179,14 @@
     </form>
   </div>
 
+  <script>
+  (function(){
+    if(!('serviceWorker' in navigator))return;
+    navigator.serviceWorker.getRegistration('../').then(function(reg){
+      if(reg)reg.update().catch(function(){});
+    }).catch(function(){});
+  })();
+  </script>
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
   <script src="./sources.js?v=16"></script>
 </body>
