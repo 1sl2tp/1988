@@ -2779,7 +2779,7 @@ html.search-suggestions-open .suggestions{
   border:0!important;
   background:transparent!important;
   color:#fff!important;
-  font-weight:760;
+  font-weight:400;
 }
 .topic-chip.topic-subject.active::before{
   color:#bfc0c6;
@@ -3033,3 +3033,15 @@ html.search-suggestions-open .suggestions{
 }
 .topic-chip.topic-add:hover{color:#fff;background:rgba(255,255,255,.06)!important}
 #backSourcePreview{width:auto;min-width:78px;padding:0 9px;font-size:11px;white-space:nowrap}
+
+
+/* Hashtag labels are metadata-style navigation, never bold button labels. */
+.topic-chip.topic-subject,
+html:not(.watch-browse) .topic-chip.topic-subject,
+html.watch-browse .topic-chip.topic-subject{
+  font-weight:400!important;
+  text-transform:lowercase;
+}
+.topic-chip.topic-subject::before{
+  font-weight:400!important;
+}
