@@ -426,9 +426,8 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="329";
+const LOCAL_DATA_SCHEMA_VERSION="330";
 const LOCAL_VOLATILE_PREFIXES=[
-  "1988-tab-snapshot-",
   "1988-discovery-",
   "1988-source-channel-",
   "1988-source-pool-",
@@ -7525,42 +7524,17 @@ function patchRenderedAiMeta(){
 
 function categoryCacheRows(parentKey=""){
   const cached=state.aiCategoryRows.get(parentKey);
-  if(cached&&Array.isArray(cached.items))return cached.items;
+  if(cached&&Array.isArray(cached.items))return cached.items.slice();
 
   const stored=readAtomicSnapshot("category:"+parentKey);
-  if(!stored||!Array.isArray(stored.items)||!stored.items.length)return [];
-
-  const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===parentKey);
-  const group=parentSourceGroup(parent||{key:parentKey,group:parentKey});
-  const selectedIds=new Set(selectedSources(group).map(source=>source.id));
-  const blocked=blockedSetForScope(group);
-  const items=stored.items.filter(row=>{
-    if(isBlockedMusicTabVideo(group,row))return false;
-    const sourceId=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-    if(sourceId&&!selectedIds.has(sourceId))return false;
-    return !blocked.has(sourceId)&&!isBlockedSourceRow(row,group);
-  });
-
-  if(items.length)state.aiCategoryRows.set(parentKey,{at:Number(stored.at)||Date.now(),items});
+  if(!stored||!Array.isArray(stored.items))return [];
+  const items=stored.items.slice();
+  state.aiCategoryRows.set(parentKey,{at:Number(stored.at)||Date.now(),items});
   return items;
 }
 
 function instantCategoryRows(parent={}){
-  const group=parentSourceGroup(parent);
-  const sources=selectedSourcesForParent(parent);
-  if(!sources.length)return [];
-
-  const sourceIds=new Set(sources.map(source=>source.id));
-  return dedupeHashedRows(newestFirst([
-    ...categoryCacheRows(parent.key),
-    ...(readAtomicSnapshot("category:"+parent.key)?[]:cachedRowsForSources(sources,group))
-  ]))
-    .filter(uploadedWithinCategoryWindow)
-    .filter(row=>{
-      const id=String(row?._sourceId||row?.channelId||row?.uploaderId||"");
-      return sourceIds.has(id)&&!isBlockedSourceRow(row,group)&&!isBlockedMusicTabVideo(group,row);
-    })
-    .map(row=>({...row,_selectedCategorySource:true}));
+  return categoryCacheRows(parent.key);
 }
 
 function parentRows(rows=[]){
@@ -8237,53 +8211,34 @@ async function loadAiParentDiscovery(parent){
   const seq=state.feedSeq;
 
   try{
-    const sources=selectedSourcesForParent(parent);
-    if(!sources.length){
-      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:[]});
-      state.aiCategoryTopics.set(parent.key,[]);
-      state.trendTopics=[];
-      renderTrendTopics();
-
-      if(state.activeParent===parent.key){
-        feed.innerHTML='<div class="empty">Chưa chọn nguồn '+esc(parent.label)+'. Mở “Nguồn” để chọn kênh.</div>';
-        feedStatus.textContent="";
-      }
-      return;
-    }
-
     let reserve=instantCategoryRows(parent);
-    if(!reserve.length){
-      await hydrateServerPackages({force:true});
-      reserve=instantCategoryRows(parent);
+    if(reserve.length&&state.activeParent===parent.key){
+      state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
+      state.feedRows=reserve.slice();
+      state.feedHasMore=false;
+      renderCards(reserve,{trustedPackage:true});
+      feedStatus.textContent=reserve.length+" video";
+      void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     }
+
+    await hydrateServerPackages({force:true});
     if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
 
+    reserve=instantCategoryRows(parent);
     state.aiCategoryTopics.set(parent.key,[]);
     state.trendTopics=[];
     renderTrendTopics();
 
     if(reserve.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:reserve});
-      state.feedRows=mergeUniqueRows([],reserve);
+      state.feedRows=reserve.slice();
       state.feedHasMore=false;
-      await prewarmRowSourceAvatars(reserve.slice(0,36),260);
-      if(seq!==state.feedSeq||state.activeParent!==parent.key)return;
-      renderCards(reserve);
-      feedStatus.textContent=reserve.length?reserve.length+" video":"";
-      void refreshSelectedCategoryInBackground(parent);
-    }else{
-      const packageRow=readAtomicSnapshot("category:"+parent.key);
-      feed.innerHTML=packageRow&&Array.isArray(packageRow.items)
-        ?'<div class="empty">Chưa có video phù hợp trong tab này.</div>'
-        :'<div class="empty">Máy chủ chưa có gói dữ liệu cho tab này.</div>';
-      feedStatus.textContent="";
+      renderCards(reserve,{trustedPackage:true});
+      feedStatus.textContent=reserve.length+" video";
+      void prewarmRowSourceAvatars(reserve.slice(0,36),260);
     }
   }catch(error){
-    console.warn("server category package failed",parent?.label||parent?.key,error);
-    if(state.activeParent===parent?.key&&!instantCategoryRows(parent).length){
-      feed.innerHTML='<div class="empty">Chưa tải được gói dữ liệu từ máy chủ.</div>';
-      feedStatus.textContent="";
-    }
+    console.warn("server category package sync deferred",parent?.label||parent?.key,error);
   }finally{
     state.aiCategoryLoading.delete(parent.key);
   }
@@ -8294,7 +8249,7 @@ function renderCurrentTrendFeed(){
   state.activeTrend="";
   state.trendTopics=[];
   renderTrendTopics();
-  renderCards(state.feedRows);
+  renderCards(state.feedRows,{trustedPackage:true});
 }
 
 async function refreshAiTrendTopics(){
@@ -9832,6 +9787,7 @@ async function prewarmRowSourceAvatars(rows=[],maxWait=520){
 }
 function renderCards(rows=[],options={}){
   const append=options.append===true;
+  const trustedPackage=options.trustedPackage===true;
   if(!append)feed.classList.remove("search-grouped");
   if(!options.keepSearchRefinements&&searchRefinements){
     searchRefinements.hidden=true;
@@ -9846,8 +9802,8 @@ function renderCards(rows=[],options={}){
   const avatarPaintJobs=[];
   const renderScope=activeSourceScope()||GENERAL_SOURCE_SCOPE;
   for(const row of rows){
-    if(shouldHideVideo(row))continue;
-    if(isBlockedSourceRow(row,renderScope))continue;
+    if(!trustedPackage&&shouldHideVideo(row))continue;
+    if(!trustedPackage&&isBlockedSourceRow(row,renderScope))continue;
     const id=itemVideoId(row);
     if(!id||seen.has(id))continue;
     seen.add(id);
@@ -12325,12 +12281,8 @@ async function hydrateServerPackages({force=false}={}){
       const local=readAtomicSnapshot(snapshotName);
       const remote=manifest[scope];
 
-      // Client is download-only: a missing server package is never back-filled
-      // from a browser/PWA cache, because that could reintroduce old logic.
-      if(!remote&&local){
-        commitAtomicSnapshot(snapshotName,[],{sourceSignature:"",inputHash:"removed"});
-        state.aiCategoryRows.delete(scope);
-      }
+      // Keep the last complete local reserve if the server manifest is missing
+      // or temporarily unavailable. The browser never deletes packaged data.
       if(remote?.hash&&remote.hash!==local?.hash){
         downloads.push(
           packageSyncFetch("GET",scope,null,20000)
@@ -12504,8 +12456,7 @@ function freshSnapshotRowsForFeed(name){
       ?LIVE_SOURCE_SCOPE
       :GENERAL_SOURCE_SCOPE;
 
-  return sortPresetRows(readFeedCache(name),preset)
-    .filter(row=>!MANAGED_SOURCE_SCOPES.has(scope)||!isBlockedSourceRow(row,scope));
+  return sortPresetRows(readFeedCache(name),preset);
 }
 
 function applyActiveFeedSnapshot(name,{force=false}={}){
@@ -12534,10 +12485,10 @@ function applyActiveFeedSnapshot(name,{force=false}={}){
     return false;
   }
 
-  state.feedRows=mergeUniqueRows([],fresh);
+  state.feedRows=fresh.slice();
   state.feedHasMore=false;
   sourceFeedPendingRenderName="";
-  renderCards(state.feedRows);
+  renderCards(state.feedRows,{trustedPackage:true});
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
   void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
   return true;
@@ -12560,9 +12511,9 @@ function applyActiveCategorySnapshot(parent,{force=false}={}){
 
   if(!force&&window.scrollY>=120)return false;
 
-  state.feedRows=mergeUniqueRows([],fresh);
+  state.feedRows=fresh.slice();
   state.feedHasMore=false;
-  renderCards(state.feedRows);
+  renderCards(state.feedRows,{trustedPackage:true});
   feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
   void prewarmRowSourceAvatars(state.feedRows.slice(0,24),320).catch(()=>{});
   return true;
@@ -13031,49 +12982,19 @@ const FEED_PRESETS={
 
 function readFeedCache(name){
   try{
-    const scope=isSourceScopedFeed(name)
-      ?feedSourceScope(name)
-      :name===LIVE_SOURCE_SCOPE
-        ?LIVE_SOURCE_SCOPE
-        :GENERAL_SOURCE_SCOPE;
-    const currentSignature=MANAGED_SOURCE_SCOPES.has(scope)?sourceSignature(scope):"";
-
     let row=readAtomicSnapshot("feed:"+name);
-
     if(!row){
       const legacy=
         JSON.parse(localStorage.getItem(FEED_CACHE_PREFIX+name)||"null")||
         readNewestLegacyFeedCache(name);
       if(legacy&&Array.isArray(legacy.items)&&legacy.items.length){
         commitAtomicSnapshot("feed:"+name,legacy.items,{
-          sourceSignature:legacy.sourceSignature||currentSignature
+          sourceSignature:legacy.sourceSignature||""
         });
         row=readAtomicSnapshot("feed:"+name)||legacy;
       }
     }
-
-    if(!row||!Array.isArray(row.items)||!row.items.length)return [];
-
-    const blocked=blockedSetForScope(scope);
-    let items=row.items
-      .filter(item=>!shouldHideVideo(item))
-      .filter(item=>!isBlockedSourceRow(item,scope));
-    if(scope===LIVE_SOURCE_SCOPE){
-      items=items.filter(item=>!liveKeywordBlockedClient(item));
-    }
-
-    // A source-list change never discards the reserve package. Filter the old
-    // package to the still-selected channels, then let background refresh
-    // atomically replace it with the new version.
-    if(isSourceScopedFeed(name)&&row.sourceSignature!==currentSignature){
-      const selectedIds=new Set(selectedSources(scope).map(source=>source.id));
-      items=items.filter(item=>{
-        const sourceId=String(item?._sourceId||item?.channelId||item?.uploaderId||"");
-        return sourceId?selectedIds.has(sourceId)&&!blocked.has(sourceId):true;
-      });
-    }
-
-    return items;
+    return row&&Array.isArray(row.items)?row.items.slice():[];
   }catch{
     return [];
   }
@@ -13299,74 +13220,39 @@ async function loadFeedPreset(name="latest"){
   }
 
   const scoped=isSourceScopedFeed(name);
-  const activeFeedScope=scoped?feedSourceScope(name):"";
-
-  if(scoped&&!selectedSetForScope(activeFeedScope).size){
-    state.feedLoading=false;
-    state.feedHasMore=false;
-    state.feedRows=[];
-    state.activeParent="";
-    state.activeTrend="";
-    state.trendTopics=[];
-    setActiveChip(name);
-    renderTrendTopics();
-    feedTitle.textContent=sourceGroupLabel(name);
-    feedStatus.textContent="";
-    feed.innerHTML='<div class="empty">Chưa chọn nguồn. Mở “Nguồn” để thêm kênh.</div>';
-    return;
-  }
-
   state.feedLoading=true;
   state.feedHasMore=false;
-  state.feedRows=[];
-  if(!scoped){
-    state.activeParent="";
-    state.activeTrend="";
-    state.trendTopics=[];
-  }
 
   setActiveChip(name);
   feedTitle.textContent=sourceGroupLabel(name);
-
-  // Read last complete server package immediately. If this browser has never
-  // seen it, perform one manifest comparison/download; never crawl YouTube here.
-  let reserve=readFeedCache(name);
-  if(!reserve.length){
-    await hydrateServerPackages({force:true});
-    reserve=readFeedCache(name);
-  }
-
-  if(seq!==state.feedSeq||state.activeFeed!==name)return;
-
-  state.activeTrend="";
-  state.trendTopics=[];
   renderTrendTopics();
 
-  if(!reserve.length){
-    const packageRow=readAtomicSnapshot(packageSnapshotName(name));
-    feed.innerHTML=packageRow&&Array.isArray(packageRow.items)
-      ?'<div class="empty">Chưa có video phù hợp trong mục này.</div>'
-      :'<div class="empty">Máy chủ chưa có gói dữ liệu cho mục này.</div>';
-    feedStatus.textContent="";
+  // Browser/PWA is a package viewer only. Show the last complete local reserve
+  // immediately, then compare hashes and atomically replace it with a newer one.
+  let reserve=readFeedCache(name);
+  if(reserve.length){
+    const rows=sortPresetRows(reserve,preset);
+    state.feedRows=rows.slice();
+    renderCards(state.feedRows,{trustedPackage:true});
+    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
     state.feedLoading=false;
-    return;
+    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
   }
 
-  const rows=sortPresetRows(reserve,preset)
-    .filter(row=>!scoped||!isBlockedSourceRow(row,activeFeedScope));
-
-  state.feedRows=mergeUniqueRows([],rows);
-  const visible=state.feedRows;
-  await prewarmRowSourceAvatars(visible.slice(0,36),260);
+  await hydrateServerPackages({force:true});
   if(seq!==state.feedSeq||state.activeFeed!==name)return;
 
-  renderCards(visible);
-  feedStatus.textContent=visible.length?visible.length+" video":"";
+  reserve=readFeedCache(name);
+  if(reserve.length){
+    const rows=sortPresetRows(reserve,preset);
+    state.feedRows=rows.slice();
+    renderCards(state.feedRows,{trustedPackage:true});
+    feedStatus.textContent=state.feedRows.length?state.feedRows.length+" video":"";
+    void prewarmRowSourceAvatars(state.feedRows.slice(0,36),260);
+  }
+
   state.feedLoading=false;
   state.feedHasMore=false;
-
-  // A cheap manifest check may replace the local package later; no feed crawl.
-  void refreshCachedSourceFeedInBackground(name,preset,seq);
 }
 
 async function loadMoreFeed(){
@@ -13521,7 +13407,7 @@ topicChips.addEventListener("click",async e=>{
     if(instant.length){
       state.aiCategoryRows.set(parent.key,{at:Date.now(),items:instant});
       const visible=instant;
-      renderCards(visible);
+      renderCards(visible,{trustedPackage:true});
       feedStatus.textContent=visible.length?visible.length+" video":"";
       void prewarmRowSourceAvatars(visible,480);
     }else{
