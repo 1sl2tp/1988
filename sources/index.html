@@ -5,30 +5,27 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=12">
+  <link rel="stylesheet" href="./sources.css?v=13">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="../" aria-label="Về 1988"><span class="brand-mark">▶</span><strong>1988</strong></a>
-    <div class="title-wrap"><strong>Quản lý nguồn</strong><span id="scopeSummary"></span></div>
-    <div class="top-actions">
-      <button id="filtersToggle" class="icon-btn" type="button" aria-label="Bộ lọc">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7v5.2L10.2 19v-7z"></path></svg>
-      </button>
-      <button id="closePage" class="ghost">Đóng</button>
-    </div>
-  </header>
-
   <main>
     <section class="source-manager-head">
       <div class="source-manager-title">
-        <div>
-          <strong>Nguồn</strong>
-          <span>Chọn một nguồn để quản lý ngay các kênh gợi ý, đã chọn, đã chặn và tìm mới.</span>
+        <div class="source-title-main">
+          <a class="brand brand-inline" href="../" aria-label="Về 1988"><span class="brand-mark">▶</span><strong>1988</strong></a>
+          <span class="source-title-divider"></span>
+          <div class="source-title-copy">
+            <strong>Quản lý nguồn</strong>
+            <span id="scopeSummary"></span>
+          </div>
         </div>
         <div class="source-head-actions">
           <button id="manageSources" class="secondary">Quản lý</button>
           <button id="addSource" class="primary">+ Thêm nguồn</button>
+          <button id="filtersToggle" class="icon-btn" type="button" aria-label="Bộ lọc">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6.2 7v5.2L10.2 19v-7z"></path></svg>
+          </button>
+          <button id="closePage" class="ghost">Đóng</button>
         </div>
       </div>
       <div id="scopeRow" class="scope-row"></div>
