@@ -230,7 +230,7 @@ assert.match(stateApi,/create_hashtag/);
 assert.match(stateApi,/rename_hashtag/);
 assert.match(stateApi,/reorder_hashtags/);
 assert.match(stateApi,/set_hashtag_enabled/);
-assert.match(stateApi,/sourceScopeVersion: 4/);
+assert.match(stateApi,/sourceScopeVersion: 5/);
 assert.match(stateApi,/Full profile saves are presentation-only/);
 assert.match(packageApi,/HASHTAG_ID_RE/);
 assert.match(packageApi,/yt1988_hashtags/);
