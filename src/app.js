@@ -9475,6 +9475,10 @@ async function backgroundSources(id){
   }];
 }
 
+let desktopAutoBackground=false;
+let desktopAutoBackgroundSeq=0;
+let desktopAutoBackgroundTime=0;
+
 const backgroundPlayer=new HTML5BackgroundPlayer({
   audio:bgAudio,
   sourcesFor:backgroundSources,
@@ -9482,10 +9486,21 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
     if(event.id&&event.id!==state.currentId)return;
 
     if(event.type==="armed"){
-      statusText.textContent="Đang chuẩn bị âm thanh nền…";
+      // Desktop video mode primes a silent HTML5 element from the original
+      // click so a later hidden-tab handoff is still browser-authorized.
+      if(MediaCore.modeUsesAudio(state.mode)){
+        statusText.textContent="Đang chuẩn bị âm thanh nền…";
+      }
     }
 
     if(event.type==="source"){
+      // A source can finish resolving after the page already returned to
+      // foreground. Never let that stale completion pause the visible video.
+      if(!MediaCore.modeUsesAudio(state.mode)){
+        backgroundPlayer.pause();
+        state.audioMaster=false;
+        return;
+      }
       state.audioMaster=true;
       pauseVideoEngine();
       statusText.textContent=state.mode==="lock"
@@ -9496,16 +9511,119 @@ const backgroundPlayer=new HTML5BackgroundPlayer({
 
     if(event.type==="ready"&&!event.count){
       state.audioMaster=false;
-      statusText.textContent="Chưa lấy được luồng âm thanh nền";
+      if(MediaCore.modeUsesAudio(state.mode)){
+        statusText.textContent="Chưa lấy được luồng âm thanh nền";
+      }
     }
 
     if(event.type==="ended"){
       state.audioMaster=false;
+      state.intentPlay=false;
       statusText.textContent="Đã phát xong";
       updateModeUi();
     }
   }
 });
+
+function primeDesktopBackgroundAudio(id,metadata={}){
+  if(mobileMiniViewport()||!id)return false;
+
+  // Keep one silent HTML5 media element alive from the user's video click.
+  // Real audio resolves in parallel but is NOT activated while the tab is
+  // visible, so the iframe remains the foreground master.
+  backgroundPlayer.arm(id,{metadata});
+  void backgroundPlayer.prepare(id);
+  return true;
+}
+
+async function startDesktopAutoBackground(){
+  if(
+    mobileMiniViewport() ||
+    document.visibilityState==="visible" ||
+    state.mode!=="video" ||
+    !state.currentId ||
+    !state.intentPlay ||
+    state.fullscreenActive
+  )return false;
+
+  const id=state.currentId;
+  const time=getVideoTime();
+  const seq=++desktopAutoBackgroundSeq;
+
+  desktopAutoBackground=true;
+  desktopAutoBackgroundTime=time;
+  state.mode="audio";
+
+  backgroundPlayer.select(id,{metadata:state.currentMeta||{}});
+
+  try{
+    await backgroundPlayer.activate(id,{
+      time,
+      metadata:state.currentMeta||{}
+    });
+
+    if(
+      seq!==desktopAutoBackgroundSeq ||
+      state.currentId!==id ||
+      !desktopAutoBackground
+    ){
+      backgroundPlayer.pause();
+      return false;
+    }
+
+    // If the tab returned while source activation was finishing, restore the
+    // foreground immediately instead of allowing a late source event to pause it.
+    if(document.visibilityState==="visible"){
+      restoreDesktopAutoBackground();
+      return true;
+    }
+
+    return true;
+  }catch{
+    if(seq===desktopAutoBackgroundSeq&&state.currentId===id){
+      desktopAutoBackground=false;
+      state.audioMaster=false;
+      state.mode="video";
+      // markPlaybackTransition() already preserved intentPlay, so the normal
+      // visible-page resume path can recover the iframe when the user returns.
+    }
+    return false;
+  }
+}
+
+function restoreDesktopAutoBackground(){
+  if(!desktopAutoBackground)return false;
+
+  const id=state.currentId;
+  const shouldPlay=!!state.intentPlay;
+  const time=
+    state.audioMaster&&backgroundPlayer.currentId===id
+      ?backgroundPlayer.time
+      :Math.max(desktopAutoBackgroundTime,getVideoTime());
+
+  desktopAutoBackground=false;
+  ++desktopAutoBackgroundSeq;
+  desktopAutoBackgroundTime=0;
+
+  backgroundPlayer.pause();
+  state.audioMaster=false;
+  state.mode="video";
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
+
+  if(id){
+    seekVideo(time);
+    if(shouldPlay){
+      state.intentPlay=true;
+      playVideoEngine();
+    }else{
+      pauseVideoEngine();
+    }
+  }
+
+  updateModeUi();
+  return true;
+}
 
 
 function searchSourceId(row={}){
@@ -11225,15 +11343,19 @@ function setupMediaSession(){
   const safe=(name,handler)=>{try{navigator.mediaSession.setActionHandler(name,handler);}catch{}};
   const usingAudio=()=>MediaCore.modeUsesAudio(state.mode);
   safe("play",()=>{
-    if(usingAudio())void backgroundPlayer.play();
-    else{
+    if(usingAudio()){
+      state.intentPlay=true;
+      void backgroundPlayer.play();
+    }else{
       state.intentPlay=true;
       playVideoEngine();
     }
   });
   safe("pause",()=>{
-    if(usingAudio())backgroundPlayer.pause();
-    else{
+    if(usingAudio()){
+      state.intentPlay=false;
+      backgroundPlayer.pause();
+    }else{
       state.intentPlay=false;
       state.resumeOnReturn=false;
       state.transitionUntil=0;
@@ -11268,6 +11390,9 @@ function restoreVideoAfterAudioFailure(message){
 
 function startBackgroundMode(mode){
   if(!state.currentId)return;
+  desktopAutoBackground=false;
+  ++desktopAutoBackgroundSeq;
+  desktopAutoBackgroundTime=0;
   const targetMode=mode==="lock"?"lock":"audio";
   const id=state.currentId;
 
@@ -11316,6 +11441,9 @@ function startBackgroundMode(mode){
 
 function returnToVideo(){
   if(!state.currentId)return;
+  desktopAutoBackground=false;
+  ++desktopAutoBackgroundSeq;
+  desktopAutoBackgroundTime=0;
   const time=state.audioMaster?backgroundPlayer.time:getVideoTime();
   backgroundPlayer.pause();
   state.audioMaster=false;
@@ -12243,6 +12371,9 @@ async function playVideo(id,seedMeta={}){
 
   backgroundPlayer.pause();
   backgroundPlayer.select(id,{metadata:seedMeta});
+  if(!mobileMiniViewport()){
+    primeDesktopBackgroundAudio(id,seedMeta);
+  }
 
   try{nativePlayer.pause();}catch{}
   nativePlayer.removeAttribute("src");
@@ -13533,7 +13664,16 @@ document.addEventListener("visibilitychange",()=>{
     // jump back toward the main player.
     state.visibilityScrollX=window.scrollX||0;
     state.visibilityScrollY=window.scrollY;
-    markPlaybackTransition();
+
+    if(state.mode==="video"&&state.currentId){
+      markPlaybackTransition();
+
+      // Desktop regains the older continuous-background behavior: switch to
+      // the already-primed HTML5 audio master while the tab is hidden.
+      if(!mobileMiniViewport()&&state.intentPlay){
+        void startDesktopAutoBackground();
+      }
+    }
     return;
   }
 
@@ -13553,6 +13693,11 @@ document.addEventListener("visibilitychange",()=>{
   // When the app becomes visible again, refresh complete snapshots for all
   // tabs in the background. The currently visible list is never reordered.
   void refreshAllSourceSnapshotsInBackground();
+
+  if(desktopAutoBackground){
+    restoreDesktopAutoBackground();
+    return;
+  }
 
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
