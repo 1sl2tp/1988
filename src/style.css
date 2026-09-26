@@ -3982,18 +3982,17 @@ html.source-manager-page .source-preview{
   }
 }
 
-/* Mobile mini native controls v379.
-   Safari may briefly retain its native chrome while a new vertical video is
-   loading. In mini mode the outer app owns tap/drag, so hide native controls
-   visually as well as disabling the controls property in JS. */
+/* Mobile native controls v381.
+   The app owns mobile Watch interaction. Hide browser-native video chrome in
+   BOTH full Watch and mini/PiP; desktop native playback keeps its controls. */
 @media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
-  html.watch-minimized #nativePlayer{
+  html.watch-browse #nativePlayer{
     -webkit-appearance:none!important;
   }
 
-  html.watch-minimized #nativePlayer::-webkit-media-controls,
-  html.watch-minimized #nativePlayer::-webkit-media-controls-panel,
-  html.watch-minimized #nativePlayer::-webkit-media-controls-enclosure{
+  html.watch-browse #nativePlayer::-webkit-media-controls,
+  html.watch-browse #nativePlayer::-webkit-media-controls-panel,
+  html.watch-browse #nativePlayer::-webkit-media-controls-enclosure{
     display:none!important;
     opacity:0!important;
   }
