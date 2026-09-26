@@ -158,6 +158,7 @@ const state={
   videoAspect:16/9,
   keepFloating:false,
   watchMinimized:false,
+  watchRestoreUntil:0,
   floatDock:"right",
   floatScale:1,
   floatTucked:false,
@@ -7391,6 +7392,7 @@ function setWatchMinimized(minimized){
 
   markPlaybackTransition();
   state.watchMinimized=false;
+  state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
   syncNativeMobileControls();
   applyFloatingIframe(false);
@@ -7415,6 +7417,7 @@ function setupWatchMinimizeGesture(){
     frame.appendChild(zone);
 
     let miniDrag=null;
+    let suppressMiniClickUntil=0;
 
     zone.addEventListener("pointerdown",event=>{
       if(!state.watchMinimized||event.isPrimary===false)return;
@@ -7443,7 +7446,6 @@ function setupWatchMinimizeGesture(){
       zone.classList.add("is-dragging");
       frame.classList.add("mini-dragging");
       try{zone.setPointerCapture?.(event.pointerId)}catch{}
-      event.preventDefault();
     });
 
     zone.addEventListener("pointermove",event=>{
@@ -7494,6 +7496,7 @@ function setupWatchMinimizeGesture(){
       try{zone.releasePointerCapture?.(event.pointerId)}catch{}
 
       if(moved){
+        suppressMiniClickUntil=Date.now()+420;
         // Commit once after the gesture, then snap to the nearest side and
         // make that side the single source of truth. This prevents floatBox
         // coordinates from disagreeing with floatDock after a drag.
@@ -7520,11 +7523,22 @@ function setupWatchMinimizeGesture(){
       }else if(state.watchMinimized){
         setWatchMinimized(false);
       }
-
-      event.preventDefault();
     };
 
     zone.addEventListener("pointerup",finishMiniDrag);
+
+    // Safari/WebKit can cancel the first pointer sequence immediately after
+    // the floating layer is created. Keep an ordinary click as a no-gesture
+    // fallback so the very first tap always restores Watch.
+    zone.addEventListener("click",event=>{
+      if(
+        !state.watchMinimized ||
+        Date.now()<suppressMiniClickUntil
+      )return;
+      event.preventDefault();
+      event.stopPropagation();
+      setWatchMinimized(false);
+    });
     zone.addEventListener("pointercancel",event=>{
       if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
       const drag=miniDrag;
@@ -7542,6 +7556,7 @@ function setupWatchMinimizeGesture(){
 
   const eligible=()=>(
     mobileMiniViewport() &&
+    Date.now()>=Number(state.watchRestoreUntil||0) &&
     root.classList.contains("watch-browse") &&
     !state.watchMinimized &&
     !!state.currentId &&
@@ -7555,7 +7570,6 @@ function setupWatchMinimizeGesture(){
   };
 
   document.addEventListener("touchstart",event=>{
-    lastTouchAt=Date.now();
     if(
       !eligible() ||
       event.touches?.length!==1
@@ -7564,6 +7578,7 @@ function setupWatchMinimizeGesture(){
       return;
     }
 
+    lastTouchAt=Date.now();
     const touch=event.touches[0];
     gesture={
       x:touch.clientX,
@@ -7606,6 +7621,7 @@ function setupWatchMinimizeGesture(){
   // required so programmatic card alignment cannot unexpectedly enter mini.
   const minimizeOnScroll=()=>{
     if(
+      Date.now()<Number(state.watchRestoreUntil||0) ||
       Date.now()-lastTouchAt>900 ||
       Date.now()-(Number(state.watchOpenedAt)||0)<250 ||
       !eligible()
