@@ -52,7 +52,7 @@ assert.match(app,/state\.activeFeed===LIVE_SOURCE_SCOPE\)return LIVE_SOURCE_SCOP
 assert.doesNotMatch(app,/\{key:"general",label:"Mới nhất\/Tuần này"\}/);
 assert.match(app,/const SOURCE_FEED_AUTO_REFRESH_MS=30\*1000/);
 assert.match(app,/function queuePackageUpload\(_snapshotName=""\)\{[\s\S]*return Promise\.resolve\(false\)/);
-assert.match(app,/Browser\/PWA is a package viewer only/);
+assert.match(app,/Package viewing is independent from source-management availability/);
 assert.match(app,/Keep the last complete local reserve[\s\S]*browser never deletes packaged data/);
 assert.match(app,/async function buildSourceFeedSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*readFeedCache/);
 assert.match(app,/async function buildCategorySourceSnapshot\([\s\S]*hydrateServerPackages\(\{force:true\}\)[\s\S]*instantCategoryRows/);
