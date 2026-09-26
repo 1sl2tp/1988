@@ -6329,16 +6329,20 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   const viewportW=Math.max(240,window.innerWidth);
   const viewportH=Math.max(180,window.innerHeight);
   const mobile=mobileMiniViewport();
+  const compact=watchAutoPipViewport();
 
   ratio=Number(ratio)||16/9;
   ratio=Math.max(.34,Math.min(2.6,ratio));
 
-  // Mobile mini-player keeps the REAL video aspect, but fits it into one
-  // small bounding box. Portrait stays portrait and shrinks by height instead
-  // of becoming a tall column that covers the browsing list.
-  if(mobile){
-    const maxWidth=Math.min(232,viewportW*.54);
-    const maxHeight=Math.min(250,viewportH*.38);
+  // One-column Watch uses a bounded PiP box for every source shape. Portrait
+  // remains portrait, but it can never grow into the full-height player zone.
+  if(compact){
+    const maxWidth=mobile
+      ?Math.min(232,viewportW*.54)
+      :Math.min(320,viewportW*.40);
+    const maxHeight=mobile
+      ?Math.min(250,viewportH*.38)
+      :Math.min(300,viewportH*.42);
 
     let width=maxWidth;
     let height=width/ratio;
@@ -6456,9 +6460,10 @@ function placeAutoFloatAtEdge(frame,size){
   const gap=floatEdgeGap();
   const safe=floatingSafeInsets();
   const mobile=mobileMiniViewport();
-  const sideGap=mobile?10:gap;
-  if(mobile)state.floatDock="right";
-  const dockLeft=!mobile&&state.floatDock==="left";
+  const compact=watchAutoPipViewport();
+  const sideGap=compact?10:gap;
+  if(compact)state.floatDock="right";
+  const dockLeft=!compact&&state.floatDock==="left";
 
   frame.style.width=size.width+"px";
   frame.style.height=size.height+"px";
@@ -6467,10 +6472,9 @@ function placeAutoFloatAtEdge(frame,size){
   let top=0;
   let bottomGap=gap;
 
-  if(mobile){
-    // A selected video owns the mobile top edge. The Home header is hidden for
-    // the whole watch/PiP session, so never reserve --header-stack-h here.
-    // Only respect the device safe area/notch.
+  if(compact){
+    // One-column Watch floats from the top-right. Mobile has no app header in
+    // Watch; narrow desktop keeps browser/app chrome outside the page viewport.
     top=Math.max(0,safe.top);
     frame.style.top=top+"px";
     frame.style.bottom="auto";
@@ -6499,7 +6503,7 @@ function placeAutoFloatAtEdge(frame,size){
   state.floatBox={
     left,
     top,
-    bottom:mobile?null:bottomGap,
+    bottom:compact?null:bottomGap,
     width:size.width,
     height:size.height
   };
@@ -7450,6 +7454,23 @@ function mobileMiniViewport(){
   return window.innerWidth<=720 || (coarse&&shortSide>0&&shortSide<=720);
 }
 
+function watchAutoPipViewport(){
+  const width=Math.max(
+    0,
+    Number(window.innerWidth)||0,
+    Number(document.documentElement?.clientWidth)||0
+  );
+  const coarse=window.matchMedia?.("(pointer:coarse)")?.matches===true;
+  const shortSide=Math.min(
+    Number(window.innerWidth)||0,
+    Number(window.innerHeight)||0
+  );
+
+  // Mobile/tablet and the narrow 721-959 desktop layout are one-column Watch.
+  // The >=960 desktop layout already keeps the player visible beside the feed.
+  return width<960 || (coarse&&shortSide>0&&shortSide<=720);
+}
+
 function syncNativeMobileControls(){
   if(!nativePlayer)return;
 
@@ -7532,7 +7553,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
 
   if(minimized){
     if(
-      !mobileMiniViewport() ||
+      !watchAutoPipViewport() ||
       !state.currentId ||
       playerSection?.hidden ||
       isPlayerFullscreen()
@@ -7727,7 +7748,7 @@ function setupWatchMinimizeGesture(){
       )return;
       event.preventDefault();
       event.stopPropagation();
-      if(mobileMiniViewport()){
+      if(watchAutoPipViewport()){
         showFloatOverlayControls(frame);
         return;
       }
@@ -7746,15 +7767,46 @@ function setupWatchMinimizeGesture(){
   root.dataset.watchMinimizeGesture="1";
 
   const eligibleInline=()=>(
-    mobileMiniViewport() &&
+    watchAutoPipViewport() &&
     Date.now()>=Number(state.watchRestoreUntil||0) &&
     Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
-    root.classList.contains("watch-browse") &&
+    !root.classList.contains("watch-search-open") &&
+    !root.classList.contains("watch-search-results") &&
     !state.watchMinimized &&
     !!state.currentId &&
     !playerSection?.hidden &&
     !isPlayerFullscreen()
   );
+
+  const alignMediaSlotToTop=()=>{
+    const rect=watchMediaSlotRect();
+    if(!rect)return;
+    const topEdge=watchMediaSlotTopEdge();
+    const delta=rect.top-topEdge;
+
+    // Only compensate when the slot is clipped above the viewport.
+    if(delta>=-1)return;
+
+    const candidates=[
+      document.body,
+      document.scrollingElement,
+      document.documentElement
+    ].filter((node,index,list)=>node&&list.indexOf(node)===index);
+    const owner=candidates.sort(
+      (a,b)=>(Number(b.scrollTop)||0)-(Number(a.scrollTop)||0)
+    )[0];
+
+    if(owner&&(Number(owner.scrollTop)||0)>0){
+      owner.scrollTop=Math.max(0,(Number(owner.scrollTop)||0)+delta);
+    }else{
+      try{window.scrollBy(0,delta);}catch{}
+    }
+  };
+
+  const restoreInlineFromSlot=()=>{
+    alignMediaSlotToTop();
+    setWatchMinimized(false,{preserveScroll:true});
+  };
 
   let slotScrollRaf=0;
   const syncPipToMediaSlot=()=>{
@@ -7778,7 +7830,7 @@ function setupWatchMinimizeGesture(){
       // The frozen media slot, not the portrait iframe's live dimensions,
       // decides when the iframe returns inline.
       if(rect.bottom>topEdge+12&&rect.top<window.innerHeight){
-        setWatchMinimized(false,{preserveScroll:true});
+        restoreInlineFromSlot();
       }
     });
   };
@@ -7804,7 +7856,7 @@ function setupWatchMinimizeGesture(){
         !state.watchPipPinned &&
         Date.now()-Number(state.watchPipEnteredAt||0)>=220
       ){
-        setWatchMinimized(false,{preserveScroll:true});
+        restoreInlineFromSlot();
       }
     },{root:null,threshold:[0,.01]});
     slotObserver.observe(playerSection);
@@ -12549,10 +12601,10 @@ async function playVideo(id,seedMeta={}){
 
   state.keepFloating=wasFloating;
   state.watchOpenedAt=Date.now();
-  state.watchOpenSettlingUntil=window.innerWidth<=720&&!wasFloating
+  state.watchOpenSettlingUntil=watchAutoPipViewport()&&!wasFloating
     ?Date.now()+1100
     :0;
-  if(window.innerWidth<=720&&!wasFloating){
+  if(watchAutoPipViewport()&&!wasFloating){
     state.watchRestoreUntil=Date.now()+1100;
   }
   state.currentId=id;
@@ -12622,7 +12674,7 @@ async function playVideo(id,seedMeta={}){
   // feed pane and recommendation list together before the player paints. One RAF
   // is enough to catch the grid-mode switch; repeated delayed resets caused the
   // visible hitch and could be mistaken for a browse gesture that opened PiP.
-  if(window.innerWidth<=720&&!wasFloating){
+  if(watchAutoPipViewport()&&!wasFloating){
     state.watchOpenSettlingUntil=Date.now()+700;
 
     const resetWatchTop=()=>{
