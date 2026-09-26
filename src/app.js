@@ -4726,7 +4726,14 @@ function openSourceLibrary(){
   pinSourceManagerTop();
   sourcePreviewSeq++;
   closeSourceVideo();
-  sourceManageGroup=LIVE_SOURCE_SCOPE;
+
+  // Open the manager on the tab the user is currently viewing. This is
+  // especially important just after creating a new hashtag: "Nguồn" must open
+  // that hashtag, not jump back to Live.
+  const currentScope=activeSourceScope();
+  sourceManageGroup=MANAGED_SOURCE_SCOPES.has(currentScope)
+    ?currentScope
+    :LIVE_SOURCE_SCOPE;
 
   setSourceManageMode(true,{render:false});
   resetSourcePreviewPane();
@@ -4742,7 +4749,9 @@ function openSourceLibrary(){
     if(sourceSearchStatus)sourceSearchStatus.textContent="Không tải được danh sách nguồn";
   }
 
-  void refreshLiveSourceCandidatesInBackground();
+  if(sourceManageGroup===LIVE_SOURCE_SCOPE){
+    void refreshLiveSourceCandidatesInBackground();
+  }
 
   setTimeout(()=>{
     if(sourcesSheet.hidden)return;
