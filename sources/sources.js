@@ -324,6 +324,30 @@ function searchResultMarkup(row){
   '</div>';
 }
 
+function compactViews(value=0,text=""){
+  const n=Math.max(0,Number(value)||0);
+  if(n>=1e9)return (Math.round(n/1e8)/10).toString().replace(".0","")+"B";
+  if(n>=1e6)return (Math.round(n/1e5)/10).toString().replace(".0","")+"M";
+  if(n>=1e3)return (Math.round(n/1e2)/10).toString().replace(".0","")+"K";
+  if(n>0)return String(Math.round(n));
+  const raw=clean(text);
+  return raw.replace(/\s*(?:lượt xem|views?)\s*/giu," ").trim();
+}
+
+function sourceBadgesForChannel(id){
+  const badges=[];
+  for(const scope of state.scopes){
+    const status=sourceStatus(id,scope.key);
+    if(status==="normal")continue;
+    badges.push({
+      label:scope.label,
+      status
+    });
+    if(badges.length>=3)break;
+  }
+  return badges;
+}
+
 function renderVideoSearchGrid(){
   const rows=state.searchRows.filter(row=>row._video);
   el.searchCount.textContent=rows.length?String(rows.length):"";
@@ -333,15 +357,33 @@ function renderVideoSearchGrid(){
     const id=video.videoId||video.id||"";
     const thumb=video.thumbnailUrl||video.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
     const title=clean(video._displayTitle||video.title||"Video");
-    const channel=clean(row.name||"Kênh YouTube");
+    const channel=clean(row.name||video.uploader||"Kênh YouTube");
+    const avatar=clean(row.thumbnailUrl||video.uploaderThumbnailUrl||"");
+    const views=compactViews(video.views,video.viewText);
+    const published=clean(video.publishedText||video.published||video.uploadDate||"");
     const key=row._resultKey||row.id;
+    const badges=sourceBadgesForChannel(row.id);
+    const badgeHtml=badges.map(item=>
+      '<span class="video-source-badge '+esc(item.status)+'">'+esc(item.label)+'</span>'
+    ).join("");
+
     return '<article class="video-search-card" data-video-search-open="'+esc(key)+'">'+
       '<div class="video-search-thumb-wrap">'+
         '<img class="video-search-thumb" src="'+esc(thumb)+'" alt="">'+
       '</div>'+
       '<div class="video-search-copy">'+
-        '<strong title="'+esc(title)+'">'+esc(title)+'</strong>'+
-        '<span title="'+esc(channel)+'">'+esc(channel)+'</span>'+
+        '<strong>'+esc(title)+'</strong>'+
+        '<div class="video-search-channel">'+
+          '<span class="video-search-avatar">'+
+            (avatar?'<img src="'+esc(avatar)+'" alt="">':esc(channel.charAt(0).toUpperCase()))+
+          '</span>'+
+          '<span class="video-search-channel-name">'+esc(channel)+'</span>'+
+        '</div>'+
+        '<div class="video-search-meta">'+
+          (views?'<span>'+esc(views)+' lượt xem</span>':'')+
+          (published?'<span>'+esc(published)+'</span>':'')+
+        '</div>'+
+        (badgeHtml?'<div class="video-source-badges">'+badgeHtml+'</div>':'')+
       '</div>'+
     '</article>';
   }).join("")||'<div class="empty">Không có video phù hợp.</div>';
