@@ -6,6 +6,7 @@ const app=fs.readFileSync(root+'/src/app.js','utf8');
 const sw=fs.readFileSync(root+'/sw.js','utf8');
 const refresh=fs.readFileSync(root+'/supabase/functions/yt1988-refresh/index.ts','utf8');
 const gateway=fs.readFileSync(root+'/supabase/functions/yt1988/index.ts','utf8');
+const stateGateway=fs.readFileSync(root+'/supabase/functions/yt1988-state/index.ts','utf8');
 const cacheMigration=fs.readFileSync(root+'/supabase/migrations/20260926050000_channel_snapshot_cache.sql','utf8');
 const refreshConfigMigration=fs.readFileSync(root+'/supabase/migrations/20260926061000_configurable_feed_refresh.sql','utf8');
 const allMigrations=fs.readdirSync(root+'/supabase/migrations')
@@ -106,6 +107,9 @@ assert.match(refresh,/while\(nextpage&&Date\.now\(\)<deadline\)/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
 assert.match(refresh,/meta\.kind!==["']live["']&&raw\.length>=4/);
+assert.match(stateGateway,/triggerPackageRefresh\(supabaseUrl, serviceKey, \[scope, "live"\]\)/);
+assert.match(stateGateway,/const refreshScopes = \[\.\.\.new Set\(\[\.\.\.changedScopes, "live"\]\)\]/);
+assert.match(stateGateway,/triggerPackageRefresh\(supabaseUrl, serviceKey, refreshScopes\)/);
 assert.match(refresh,/if\(!packaged\.length&&scope!==["']live["']\)/);
 assert.match(gateway,/async function pipedChannel\(/);
 assert.match(gateway,/if \(!channelRows\(data\)\.length\) continue/);
