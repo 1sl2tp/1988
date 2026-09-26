@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#111114">
   <title>Quản lý nguồn · 1988</title>
-  <link rel="stylesheet" href="./sources.css?v=3">
+  <link rel="stylesheet" href="./sources.css?v=4">
 </head>
 <body>
   <header class="topbar">
@@ -55,50 +55,63 @@
 
       <div class="column search-column" data-column="search">
         <div class="column-head search-head">
-          <div><strong>Tìm mới</strong><span id="searchCount"></span></div>
+          <div><strong>Tìm / xem</strong><span id="searchCount"></span></div>
           <div class="search-mode">
             <button class="search-mode-btn active" data-search-mode="channel">Kênh</button>
             <button class="search-mode-btn" data-search-mode="video">Video</button>
           </div>
         </div>
+
         <form id="searchForm" class="search-box">
           <input id="searchInput" type="search" inputmode="search" enterkeyhint="search"
             autocomplete="off" placeholder="Tìm kênh YouTube">
           <button type="submit">Tìm</button>
         </form>
+
         <div id="searchStatus" class="status"></div>
         <div id="searchList" class="channel-list search-results"></div>
-      </div>
-    </section>
 
-    <section id="preview" class="preview" hidden>
-      <div class="preview-head">
-        <div class="preview-identity">
-          <div id="previewAvatar" class="preview-avatar"></div>
-          <div>
-            <strong id="previewName"></strong>
-            <span id="previewMeta"></span>
+        <section id="preview" class="column-preview" hidden>
+          <div class="preview-head">
+            <div class="preview-identity">
+              <div id="previewAvatar" class="preview-avatar"></div>
+              <div>
+                <strong id="previewName"></strong>
+                <span id="previewMeta"></span>
+              </div>
+            </div>
+            <div class="preview-actions">
+              <button id="previewSelect" class="tiny primary"></button>
+              <button id="previewBlock" class="tiny danger"></button>
+              <button id="previewClose" class="tiny" aria-label="Đóng xem trước">×</button>
+            </div>
           </div>
-        </div>
-        <div class="preview-actions">
-          <button id="previewSelect" class="primary"></button>
-          <button id="previewBlock" class="danger"></button>
-          <button id="previewClose" class="icon-btn" aria-label="Đóng xem trước">×</button>
-        </div>
-      </div>
 
-      <div class="preview-assign">
-        <span>Thêm vào nguồn khác</span>
-        <div id="previewScopes" class="scope-assign-row"></div>
-      </div>
+          <div id="inlinePlayer" class="inline-player" hidden>
+            <div class="inline-player-head">
+              <strong id="inlinePlayerTitle"></strong>
+              <button id="inlinePlayerClose" class="tiny" type="button">×</button>
+            </div>
+            <div class="inline-player-frame">
+              <iframe id="inlineVideoFrame" title="Xem video" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+            </div>
+          </div>
 
-      <div class="preview-toolbar">
-        <strong>Video mới nhất</strong>
-        <form id="previewSearchForm">
-          <input id="previewSearchInput" type="search" inputmode="search" enterkeyhint="search" placeholder="Tìm video trong kênh">
-        </form>
+          <div class="preview-assign">
+            <span>Thêm vào nguồn khác</span>
+            <div id="previewScopes" class="scope-assign-row"></div>
+          </div>
+
+          <div class="preview-toolbar">
+            <strong>Video mới nhất</strong>
+            <form id="previewSearchForm">
+              <input id="previewSearchInput" type="search" inputmode="search" enterkeyhint="search" placeholder="Tìm video trong kênh">
+            </form>
+          </div>
+
+          <div id="videoGrid" class="video-grid column-video-grid"></div>
+        </section>
       </div>
-      <div id="videoGrid" class="video-grid"></div>
     </section>
 
     <section id="filtersPanel" class="filters-panel" hidden>
@@ -145,6 +158,6 @@
   </div>
 
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=3"></script>
+  <script src="./sources.js?v=4"></script>
 </body>
 </html>
