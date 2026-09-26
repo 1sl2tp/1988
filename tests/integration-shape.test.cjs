@@ -73,7 +73,7 @@ assert.match(app,/function flushPendingServerStateOnPageHide\(/);
 assert.match(app,/stateSyncRevision>pushedRevision/);
 assert.match(app,/clearPendingLiveKeywordsThrough\(pushedRevision\)/);
 assert.match(app,/window\.addEventListener\("pagehide",flushPendingServerStateOnPageHide/);
-assert.match(app,/function renderLiveKeywordTools\(/);\nassert.match(app,/directCount\+\" chọn · \"/);\nassert.match(app,/inheritedCount\+\" đã có · \"/);\nassert.match(app,/nguồn dùng cho Live/);
+assert.match(app,/function renderLiveKeywordTools\(/);\nassert.match(app,/directCount\+" chọn · "/);\nassert.match(app,/inheritedCount\+" đã có · "/);\nassert.match(app,/nguồn dùng cho Live/);
 assert.match(app,/function liveKeywordBlockedClient\(/);
 assert.match(app,/function liveEffectiveBlockedSet\(/);
 assert.match(app,/function liveEffectiveSelectedSet\(/);
