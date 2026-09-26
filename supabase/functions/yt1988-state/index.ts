@@ -137,7 +137,6 @@ function stateRows(state: any) {
     const scope = cleanText(scopeRaw, 32);
     const channel_id = cleanId(idRaw);
     if (!scope || !channel_id) return;
-    if (status === "blocked" && scope !== "live") return;
     const key = scope + "|" + channel_id;
     const existing = rows.get(key);
     if (existing?.status === "blocked" && status === "selected") return;
@@ -265,9 +264,9 @@ Deno.serve(async (req) => {
       } else if (status === "selected") {
         if (!Array.isArray(state.scopedSelected[scope])) state.scopedSelected[scope] = [];
         state.scopedSelected[scope].push(id);
-      } else if (scope === "live") {
-        if (!Array.isArray(state.scopedBlocked.live)) state.scopedBlocked.live = [];
-        state.scopedBlocked.live.push(id);
+      } else if (status === "blocked") {
+        if (!Array.isArray(state.scopedBlocked[scope])) state.scopedBlocked[scope] = [];
+        state.scopedBlocked[scope].push(id);
       }
 
       const name = cleanText(row?.name, 180);
@@ -435,7 +434,6 @@ Deno.serve(async (req) => {
       const channelId = cleanId(body?.channel_id);
       let status = String(body?.status || "");
       const version = Math.max(1, Number(body?.version || Date.now()));
-      if (status === "blocked" && scope !== "live") status = "normal";
 
       if (
         !scope ||
