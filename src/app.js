@@ -7467,8 +7467,7 @@ function setupWatchMinimizeGesture(){
     lastTouchAt=Date.now();
     if(
       !eligible() ||
-      event.touches?.length!==1 ||
-      !outsidePlayer(event.target)
+      event.touches?.length!==1
     ){
       gesture=null;
       return;
@@ -7498,8 +7497,8 @@ function setupWatchMinimizeGesture(){
     // waiting until the finger lifts makes PiP feel one gesture late.
     if(
       eligible() &&
-      dy<=-28 &&
-      Math.abs(dy)>Math.abs(dx)*1.10
+      dy<=-12 &&
+      Math.abs(dy)>Math.abs(dx)*1.05
     ){
       gesture=null;
       setWatchMinimized(true);
@@ -7510,20 +7509,33 @@ function setupWatchMinimizeGesture(){
   document.addEventListener("touchend",clearGesture,{passive:true,capture:true});
   document.addEventListener("touchcancel",clearGesture,{passive:true,capture:true});
 
-  // iOS can occasionally hand a portrait page-scroll directly to the browser
-  // without enough touchmove samples. While a real touch is active/recent,
-  // the first vertical page movement is also allowed to trigger PiP.
-  window.addEventListener("scroll",()=>{
+  // Mobile Watch has two possible scrollers: portrait uses the page, while
+  // wide/square Watch can scroll inside .feed-section. Listen to BOTH and do
+  // not gate the fallback by video aspect. A real recent touch is still
+  // required so programmatic card alignment cannot unexpectedly enter mini.
+  const minimizeOnScroll=()=>{
     if(
-      Date.now()-lastTouchAt>700 ||
-      !eligible() ||
-      !root.classList.contains("watch-video-portrait") ||
-      window.scrollY<12
+      Date.now()-lastTouchAt>900 ||
+      Date.now()-(Number(state.watchOpenedAt)||0)<250 ||
+      !eligible()
     )return;
+
+    const pageY=Math.max(
+      0,
+      Number(document.scrollingElement?.scrollTop)||0,
+      Number(document.documentElement?.scrollTop)||0,
+      Number(document.body?.scrollTop)||0,
+      Number(window.scrollY)||0
+    );
+    const feedY=Math.max(0,Number(feedSection?.scrollTop)||0);
+    if(pageY<4&&feedY<4)return;
 
     gesture=null;
     setWatchMinimized(true);
-  },{passive:true});
+  };
+
+  window.addEventListener("scroll",minimizeOnScroll,{passive:true});
+  feedSection?.addEventListener("scroll",minimizeOnScroll,{passive:true});
 }
 
 function getFullscreenElement(){
@@ -12262,10 +12274,13 @@ function initYouTubePlayer(){
     playerVars:{
       autoplay:1,
       playsinline:1,
-      controls:1,
+      // Mobile/PWA interaction is owned by the app overlay. Do not let the
+      // YouTube iframe draw its Pause/Fullscreen chrome underneath it.
+      controls:mobileMiniViewport()?0:1,
       cc_load_policy:0,
       rel:0,
-      fs:1,
+      fs:mobileMiniViewport()?0:1,
+      disablekb:mobileMiniViewport()?1:0,
       modestbranding:1,
       iv_load_policy:3,
       enablejsapi:1,
