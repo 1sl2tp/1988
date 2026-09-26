@@ -3569,6 +3569,10 @@ function syncSourcePreviewHeader(){
     if(sourcePreviewTitle)sourcePreviewTitle.textContent="Xem nguồn";
     if(sourcePreviewStatus)sourcePreviewStatus.textContent="Tìm kênh/video hoặc chọn một kênh bên trái để xem.";
     if(sourcePreviewSelect)sourcePreviewSelect.hidden=true;
+    if(sourcePreviewScopes){
+      sourcePreviewScopes.hidden=true;
+      sourcePreviewScopes.innerHTML="";
+    }
     return;
   }
 
@@ -3591,6 +3595,7 @@ function syncSourcePreviewHeader(){
     sourcePreviewSelect.classList.toggle("active",status==="selected");
     sourcePreviewSelect.textContent=status==="selected"?"Đã chọn":"Chọn nguồn";
   }
+  renderSourcePreviewScopes();
 }
 
 function sourceRowFromVideo(video={}){
@@ -5130,24 +5135,200 @@ async function clearLocalDataAndReload(){
   }
 }
 
+let sourceAdminActiveTab="sources";
+
+function sourceManagerOpenUrl(scope=activeSourceScope()||sourceManageGroup||LIVE_SOURCE_SCOPE){
+  const url=new URL(location.href);
+  url.search="";
+  url.hash="";
+  url.searchParams.set("manage","sources");
+  if(MANAGED_SOURCE_SCOPES.has(sourceScope(scope))){
+    url.searchParams.set("scope",sourceScope(scope));
+  }
+  return url.href;
+}
+
+function renderSourcePreviewScopes(){
+  if(!sourcePreviewScopes)return;
+  const id=sourcePreviewSourceId;
+  if(!id||!sourcePreviewSourceRow){
+    sourcePreviewScopes.hidden=true;
+    sourcePreviewScopes.innerHTML="";
+    return;
+  }
+
+  sourcePreviewScopes.hidden=false;
+  sourcePreviewScopes.innerHTML=
+    '<span class="source-preview-scopes-label">Thêm vào nguồn</span>'+
+    SOURCE_MANAGER_GROUPS.map(group=>{
+      const status=sourceStatus(id,group.key);
+      const active=status==="selected";
+      const blocked=status==="blocked";
+      return '<button type="button" class="source-preview-scope-chip'+
+        (active?' active':'')+
+        (blocked?' blocked':'')+
+        '" data-preview-scope="'+esc(group.key)+'" aria-pressed="'+(active?'true':'false')+'">'+
+        esc(sourceGroupLabel(group.key))+
+        (active?' ✓':blocked?' ×':' +')+
+      '</button>';
+    }).join("");
+}
+
+function renderSourceLabelsPanel(){
+  if(!sourceLabelsList)return;
+  sourceLabelsList.innerHTML=SOURCE_MANAGER_GROUPS.map(group=>{
+    const selected=selectedSetForScope(group.key).size;
+    const blocked=blockedSetForScope(group.key).size;
+    const suggested=suggestedSetForScope(group.key).size;
+    const bits=[
+      selected+" đã chọn",
+      suggested? suggested+" gợi ý":"",
+      blocked? blocked+" chặn":""
+    ].filter(Boolean).join(" · ");
+
+    return '<div class="source-label-row">'+
+      '<button class="source-label-main" type="button" data-source-label-open="'+esc(group.key)+'">'+
+        '<strong>'+esc(sourceGroupLabel(group.key))+'</strong>'+
+        '<span>'+esc(bits||"Chưa có nguồn")+'</span>'+
+      '</button>'+
+      '<button class="source-label-rename" type="button" data-source-label-rename="'+esc(group.key)+'">Đổi tên</button>'+
+    '</div>';
+  }).join("");
+}
+
+function setSourceAdminTab(tab="sources"){
+  tab=["sources","labels","filters"].includes(tab)?tab:"sources";
+  sourceAdminActiveTab=tab;
+
+  sourceAdminTabs?.querySelectorAll?.("[data-source-admin-tab]").forEach(button=>{
+    const active=button.dataset.sourceAdminTab===tab;
+    button.classList.toggle("active",active);
+    button.setAttribute("aria-pressed",active?"true":"false");
+  });
+
+  if(sourceWorkspace)sourceWorkspace.hidden=tab!=="sources";
+  if(sourceGroupNav)sourceGroupNav.hidden=tab!=="sources"||!sourceManageMode;
+  if(sourceLabelsPanel)sourceLabelsPanel.hidden=tab!=="labels";
+  if(sourceFiltersPanel)sourceFiltersPanel.hidden=tab!=="filters";
+
+  if(tab==="labels")renderSourceLabelsPanel();
+  if(tab==="filters"){
+    if(sourceLocalTools)sourceLocalTools.hidden=false;
+    if(liveKeywordTools){
+      liveKeywordTools.hidden=false;
+      if(liveKeywordChips){
+        liveKeywordChips.innerHTML=liveBlockedKeywords.length
+          ?liveBlockedKeywords.map(keyword=>
+              '<button class="live-keyword-chip" type="button" data-live-keyword-remove="'+esc(keyword)+'">'+
+                '<span>'+esc(keyword)+'</span><b aria-hidden="true">×</b>'+
+              '</button>'
+            ).join("")
+          :'<span class="live-keyword-empty">Chưa có từ khóa chặn</span>';
+      }
+    }
+  }
+}
+
+function initSourceAdminShell(){
+  if(sourceFiltersContent){
+    if(liveKeywordTools&&!sourceFiltersContent.contains(liveKeywordTools)){
+      sourceFiltersContent.appendChild(liveKeywordTools);
+    }
+    if(sourceLocalTools&&!sourceFiltersContent.contains(sourceLocalTools)){
+      sourceFiltersContent.appendChild(sourceLocalTools);
+    }
+  }
+
+  if(SOURCE_MANAGER_PAGE){
+    sourceManageMode=true;
+    if(MANAGED_SOURCE_SCOPES.has(sourceScope(SOURCE_MANAGER_SCOPE_PARAM))){
+      sourceManageGroup=sourceScope(SOURCE_MANAGER_SCOPE_PARAM);
+    }
+  }
+
+  setSourceAdminTab("sources");
+}
+
 function setupSourceLibrary(){
   // Bind the open action before doing any source-state calculations.
   // Even if old local data is malformed, the manager must still open.
   sourcesBtn?.addEventListener("click",()=>{
-    resetHomeViewportInstant({resetSource:true});
-    document.documentElement.classList.remove("home-header-hidden");
-    requestSettingsAccess(()=>{
-      resetHomeViewportInstant({resetSource:true});
-      openSourceLibrary();
-    });
+    const target=sourceManagerOpenUrl(activeSourceScope()||sourceManageGroup);
+    const opened=window.open(target,"1988-source-manager");
+    if(opened){
+      try{opened.focus();}catch{}
+      return;
+    }
+    location.href=target;
   });
-  closeSourcesSheet?.addEventListener("click",closeSourceLibrary);
+  closeSourcesSheet?.addEventListener("click",()=>{
+    if(SOURCE_MANAGER_PAGE){
+      try{
+        window.close();
+        setTimeout(()=>{ if(!window.closed)location.href="./"; },80);
+      }catch{
+        location.href="./";
+      }
+      return;
+    }
+    closeSourceLibrary();
+  });
 
   try{
     updateSourceSummary();
   }catch(error){
     console.error("source manager init failed",error);
   }
+  initSourceAdminShell();
+
+  sourceAdminTabs?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-source-admin-tab]");
+    if(!button)return;
+    setSourceAdminTab(button.dataset.sourceAdminTab||"sources");
+  });
+
+  sourceLabelsList?.addEventListener("click",event=>{
+    const rename=event.target.closest("[data-source-label-rename]");
+    if(rename){
+      sourceManageGroup=rename.dataset.sourceLabelRename||LIVE_SOURCE_SCOPE;
+      void renameSourceGroup(sourceManageGroup).then(()=>{
+        renderSourceLabelsPanel();
+        refreshSourceManager();
+      });
+      return;
+    }
+
+    const open=event.target.closest("[data-source-label-open]");
+    if(open){
+      sourceManageGroup=open.dataset.sourceLabelOpen||LIVE_SOURCE_SCOPE;
+      sourceBlockedExpanded=false;
+      setSourceAdminTab("sources");
+      resetSourcePreviewPane();
+      refreshSourceManager();
+    }
+  });
+
+  sourceLabelsAdd?.addEventListener("click",()=>{
+    void createHashtag({openManager:false}).then(()=>{
+      renderSourceLabelsPanel();
+      refreshSourceManager();
+    });
+  });
+
+  sourcePreviewScopes?.addEventListener("click",event=>{
+    const button=event.target.closest("[data-preview-scope]");
+    if(!button||!sourcePreviewSourceId)return;
+    const scope=button.dataset.previewScope||sourceManageGroup;
+    const current=sourceStatus(sourcePreviewSourceId,scope);
+    setSourceStatus(
+      sourcePreviewSourceId,
+      current==="selected"?"normal":"selected",
+      scope
+    );
+    renderSourcePreviewScopes();
+    renderSourceLabelsPanel();
+  });
+
   backSourcePreview?.addEventListener("click",closeSourcePreview);
   closeSourceVideoPopup?.addEventListener("click",closeSourceVideo);
   sourceVideoPopupSelect?.addEventListener("click",()=>{
@@ -5170,6 +5351,7 @@ function setupSourceLibrary(){
     sourcePreviewSearch.blur();
   });
   sourceSettingsBtn?.addEventListener("click",()=>{
+    if(SOURCE_MANAGER_PAGE)return;
     if(sourceManageMode){
       setSourceManageMode(false);
       return;
