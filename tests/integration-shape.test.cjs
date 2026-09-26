@@ -116,7 +116,7 @@ assert.match(refresh,/_liveOrigin:"search"/);
 assert.match(refresh,/_liveOrigin:"source"/);
 assert.match(refresh,/const selectedDiscoveryPromise=mapLimit/);
 assert.match(refresh,/const globalDiscoveryPromise=discoverGlobalLiveCandidates/);
-assert.match(refresh,/Promise\.all\(\[selectedDiscoveryPromise,globalDiscoveryPromise\]\)/);
+assert.match(refresh,/Promise\.all\(\[\s*selectedDiscoveryPromise,globalDiscoveryPromise\s*\]\)/);
 assert.match(refresh,/"search_next&q="/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
