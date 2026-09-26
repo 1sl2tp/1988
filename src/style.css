@@ -3851,3 +3851,62 @@ html.source-manager-page .source-preview{
   }
 }
 
+/* Mobile Watch safe-area + mini viewport v366.
+   Header stays hidden while watching, but the player begins below the iPhone
+   status/notch area. Mini-player clips only its own rounded frame and the
+   media fills that frame without inheriting the large inline watch size. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      calc(var(--safe-top) + var(--watch-stage-h,56.25vw))
+      var(--watch-source-row-h)
+      minmax(0,1fr)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    align-self:end!important;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-height:var(--watch-stage-h,56.25vw)!important;
+    max-height:var(--watch-stage-h,56.25vw)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body::before{
+    height:calc(
+      var(--safe-top) +
+      var(--watch-stage-h,56.25vw) +
+      var(--watch-source-row-h) +
+      40px
+    )!important;
+  }
+
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      calc(var(--safe-top) + var(--watch-stage-h,auto))
+      var(--watch-source-row-h)
+      auto!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    overflow:hidden!important;
+    background:#000!important;
+    border-radius:11px!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe #yt-player,
+  html.watch-minimized .player-frame.floating-iframe iframe,
+  html.watch-minimized .player-frame.floating-iframe video{
+    position:absolute!important;
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:inherit!important;
+    transform:none!important;
+    object-fit:contain!important;
+    background:#000!important;
+  }
+}
+
