@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v24";
-const NON_LIVE_PIPELINE_VERSION="non-live-v2";
+const NON_LIVE_PIPELINE_VERSION="non-live-v3";
 const NON_LIVE_VERIFY_BATCH=120;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -1314,9 +1314,16 @@ Deno.serve(async(req:Request)=>{
     // Verify every recent non-live row on the server. Duration and YouTube's
     // Shorts surface are independent signals: either <=60 seconds OR Shorts
     // membership excludes a video from every non-live package.
+    const verificationScopeChannelIds=new Set<string>();
+    for(const scope of scopes){
+      if(scope==="live")continue;
+      for(const source of selectedByScope.get(scope)||[])verificationScopeChannelIds.add(source.id);
+    }
+
     const verificationCandidates:any[]=[];
     const verificationCandidateIds=new Set<string>();
-    for(const [,items] of channelRows){
+    for(const [candidateChannelId,items] of channelRows){
+      if(verificationScopeChannelIds.size&&!verificationScopeChannelIds.has(candidateChannelId))continue;
       for(const row of items){
         const id=videoId(row);
         const age=ageMs(row);
@@ -1333,8 +1340,12 @@ Deno.serve(async(req:Request)=>{
         const duration=durationSeconds(row);
         const durationCheckedAt=Number(row?._durationCheckedAt)||0;
         const shortCheckedAt=Number(row?._shortCheckedAt)||0;
-        const needDuration=duration<=0&&
-          (!durationCheckedAt||now-durationCheckedAt>=15*60*1000);
+        const resolverVersion=Number(row?._durationResolverVersion)||0;
+        const needDuration=duration<=0&&(
+          resolverVersion<3||
+          !durationCheckedAt||
+          now-durationCheckedAt>=15*60*1000
+        );
         const needShort=!shortCheckedAt;
         if(!needDuration&&!needShort)continue;
 
@@ -1353,26 +1364,25 @@ Deno.serve(async(req:Request)=>{
     const verificationMeta=new Map<string,any>();
     await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
       const checkedAt=Date.now();
-      const [playerMeta,isShort]=await Promise.all([
+      const [searchMeta,isShort]=await Promise.all([
         candidate.needDuration
-          ?youtubePlayerMetadata(candidate.id)
-          :Promise.resolve({duration:candidate.duration,isLive:false}),
+          ?youtubeSearchVideoMetadata(supabaseUrl,serviceKey,candidate.id)
+          :Promise.resolve(null),
         candidate.needShort
           ?youtubeShortsMembership(candidate.id)
           :Promise.resolve(false)
       ]);
 
-      // The channel feed intentionally stays cheap and often has duration=0.
-      // If YouTube's player endpoint is bot-gated, use the existing server
-      // video-search path as the metadata fallback. It returns exact duration,
-      // canonical channel name/avatar and views for the requested video ID.
-      const searchMeta=candidate.needDuration&&Number(playerMeta?.duration)<=0
-        ?await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,candidate.id)
-        :null;
-      const duration=Number(playerMeta?.duration)>0
-        ?Number(playerMeta.duration)
-        :Number(searchMeta?.duration)>0
-          ?Number(searchMeta.duration)
+      // Exact video-ID search is the primary NON-LIVE duration source because
+      // it is fast and already returns duration/channel metadata. Player
+      // metadata is only the fallback when exact search cannot resolve it.
+      const playerMeta=candidate.needDuration&&Number(searchMeta?.duration)<=0
+        ?await youtubePlayerMetadata(candidate.id)
+        :{duration:candidate.duration,isLive:false};
+      const duration=Number(searchMeta?.duration)>0
+        ?Number(searchMeta.duration)
+        :Number(playerMeta?.duration)>0
+          ?Number(playerMeta.duration)
           :candidate.duration||0;
 
       verificationMeta.set(candidate.id,{
@@ -1428,6 +1438,7 @@ Deno.serve(async(req:Request)=>{
             thumbnail:clean(meta?.thumbnailUrl||row?.thumbnail||row?.thumbnailUrl||"",1000),
             views:Math.max(Number(row?.views)||0,Number(meta?.views)||0),
             _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
+            _durationResolverVersion:meta.durationCheckedAt?3:(Number(row?._durationResolverVersion)||0),
             _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0
           };
         });
@@ -1454,6 +1465,7 @@ Deno.serve(async(req:Request)=>{
         clean(row?.title,300),
         publishedText(row),
         String(durationSeconds(row)||0),
+        String(Number(row?._durationResolverVersion)||0),
         row?.isShort===true?"1":"0"
       ].join("|")).join("\n"));
       const existing=index>=0?cacheWrites[index]:null;
