@@ -104,7 +104,7 @@ assert.match(refresh,/const selectedLiveSources=\[\.\.\.liveSourceById\.values\(
 assert.match(refresh,/SCOPES\.flatMap\(\(scope\)=>selectedByScope\.get\(scope\)\|\|\[\]\)/);
 assert.match(refresh,/async function discoverGlobalLiveCandidates\(/);
 assert.match(refresh,/const LIVE_SEARCH_QUERIES=\[/);
-assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v14["']/);
+assert.match(refresh,/const LIVE_PIPELINE_VERSION=["']live-v15["']/);
 assert.match(refresh,/meta\.kind===["']live["']\?LIVE_PIPELINE_VERSION/);
 assert.match(refresh,/"trực tiếp"/);
 assert.match(refresh,/"live việt nam"/);
@@ -114,6 +114,9 @@ assert.match(refresh,/let progressed=false/);
 assert.match(refresh,/while\(Date\.now\(\)<deadline\)/);
 assert.match(refresh,/_liveOrigin:"search"/);
 assert.match(refresh,/_liveOrigin:"source"/);
+assert.match(refresh,/const selectedDiscoveryPromise=mapLimit/);
+assert.match(refresh,/const globalDiscoveryPromise=discoverGlobalLiveCandidates/);
+assert.match(refresh,/Promise\.all\(\[selectedDiscoveryPromise,globalDiscoveryPromise\]\)/);
 assert.match(refresh,/"search_next&q="/);
 assert.doesNotMatch(refresh,/globalCandidates=raw\s*\.slice\(0,24\)/);
 assert.doesNotMatch(refresh,/verifyLiveRows\(rows\.slice\(0,60\)/);
