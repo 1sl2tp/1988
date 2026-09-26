@@ -4513,3 +4513,134 @@ body::-webkit-scrollbar-corner,
     white-space:nowrap;
   }
 }
+
+
+/* Sample-inspired PiP presentation v407.
+   Mobile PiP lives at the upper-right and stays visually quiet until hover/tap.
+   Controls use a frosted overlay so the picture remains readable underneath. */
+.player-frame.floating-iframe .float-player-overlay{
+  position:absolute;
+  z-index:95;
+  inset:0;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  padding:8px;
+  border-radius:inherit;
+  background:rgba(8,10,18,.34);
+  -webkit-backdrop-filter:blur(2px) saturate(1.05);
+  backdrop-filter:blur(2px) saturate(1.05);
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .16s ease;
+}
+.player-frame.floating-iframe:hover .float-player-overlay,
+.player-frame.floating-iframe:focus-within .float-player-overlay,
+.player-frame.floating-iframe.float-controls-open .float-player-overlay{
+  opacity:1;
+}
+.float-player-overlay button{
+  pointer-events:auto;
+  border:1px solid rgba(255,255,255,.16);
+  background:rgba(9,10,14,.68);
+  color:#fff;
+  -webkit-backdrop-filter:blur(10px);
+  backdrop-filter:blur(10px);
+  box-shadow:0 3px 12px rgba(0,0,0,.28);
+}
+.float-overlay-top,
+.float-overlay-bottom{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:6px;
+}
+.float-overlay-pin,
+.float-overlay-close,
+.float-overlay-scale{
+  display:grid;
+  place-items:center;
+  width:28px;
+  height:28px;
+  padding:0;
+  border-radius:50%;
+  font-size:14px;
+  line-height:1;
+}
+.float-overlay-pin.active{
+  background:rgba(255,255,255,.94);
+  color:#111;
+  border-color:#fff;
+}
+.float-overlay-close{
+  font-size:20px;
+  font-weight:400;
+}
+.float-overlay-play{
+  align-self:center;
+  display:grid;
+  place-items:center;
+  width:44px;
+  height:44px;
+  padding:0;
+  border-radius:50%;
+  background:rgba(37,99,235,.90)!important;
+  border-color:rgba(96,165,250,.65)!important;
+  font-size:18px;
+  font-weight:800;
+  line-height:1;
+}
+.float-overlay-expand{
+  min-height:28px;
+  padding:0 9px;
+  border-radius:9px;
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  font-size:10px;
+  font-weight:700;
+}
+.float-overlay-scale{
+  width:30px;
+  height:28px;
+  border-radius:9px;
+  font-size:10px;
+  font-weight:800;
+}
+
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
+  html.watch-minimized .player-frame.floating-iframe{
+    border-radius:11px!important;
+    box-shadow:
+      0 14px 36px rgba(0,0,0,.46),
+      0 0 0 1px rgba(255,255,255,.12)!important;
+  }
+
+  /* Mobile PiP is intentionally fixed at the upper-right; side rails/docking
+     controls are redundant and can collide with the screen edge. */
+  html.watch-minimized .player-frame.floating-iframe .float-mode-rail,
+  html.watch-minimized .player-frame.floating-iframe .float-edge-tab{
+    display:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .watch-swipe-zone{
+    cursor:pointer!important;
+    touch-action:manipulation!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+    padding:7px;
+    border-radius:10px;
+  }
+
+  .float-overlay-play{
+    width:42px;
+    height:42px;
+  }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .player-frame.floating-iframe .float-player-overlay{
+    transition:none!important;
+  }
+}
