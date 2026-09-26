@@ -9252,7 +9252,9 @@ function renderSeriesPanel(){
 
   seriesEpisodes.innerHTML=queue.map((item,index)=>
     '<button type="button" data-series-index="'+index+'" class="'+(index===state.seriesIndex?'active':'')+'">'+
-      (state.seriesMode==="playlist"?esc(String(item.label||index+1)):'Tập '+esc(String(item.episode)))+
+      (state.seriesMode==="playlist"||state.seriesMode==="search"
+        ?esc(String(item.label||index+1))
+        :'Tập '+esc(String(item.episode)))+
     '</button>'
   ).join("");
 }
@@ -10618,6 +10620,8 @@ function searchContextVideoContext(searchContext={},meta={}){
     return {
       ...base,
       kind:"music",
+      contentType:searchContext.contentType,
+      entityType:searchContext.entityType,
       category:"music_video",
       canonicalTitle:searchContext.entityType==="person"
         ?musicCleanTitle(meta?._displayTitle||meta?.title||q)
@@ -10644,6 +10648,8 @@ function searchContextVideoContext(searchContext={},meta={}){
     return {
       ...base,
       kind:"film",
+      contentType:searchContext.contentType,
+      entityType:searchContext.entityType,
       category:searchContext.contentType==="film_person"?"film_person":"film_movie",
       canonicalTitle:q,
       subject:q,
@@ -10660,6 +10666,8 @@ function searchContextVideoContext(searchContext={},meta={}){
   return {
     ...base,
     kind:"topic",
+    contentType:searchContext.contentType,
+    entityType:searchContext.entityType,
     category:searchContext.category||"other",
     canonicalTitle:q,
     subject:q,
@@ -10971,7 +10979,17 @@ async function contextSectionRows(local,section={},meta={},related=[],context={}
   }
 
   const query=queries[0]||context?.canonicalTitle||context?.subject||"";
-  return mergeUniqueRows(rows,related)
+  const sectionKey=normalizeSearchText(section?.key||"");
+  const timeFiltered=mergeUniqueRows(rows,related).filter(row=>{
+    const age=publishedAgeMs(row);
+    if(sectionKey.includes("week"))return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+    if(sectionKey.includes("month"))return Number.isFinite(age)&&age>=0&&age<31*DAY_MS;
+    if(sectionKey.includes("year"))return Number.isFinite(age)&&age>=0&&age<366*DAY_MS;
+    if(sectionKey==="latest")return Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
+    return true;
+  });
+
+  return timeFiltered
     .filter(row=>itemVideoId(row)!==currentId)
     .filter(row=>!isBlockedSourceRow(row,scope))
     .filter(row=>mode==="same_channel"||contextRowRelevant(row,query,context))
@@ -11223,18 +11241,23 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
   }
 
   if(context?.kind==="film"){
-    let shown=false;
-    if(context?.contentType!=="film_person"&&shouldProbeFilmSeries(meta,related)){
-      const discovery=await discoverFilmSeriesForPlayback(local,currentId,meta,related,context).catch(()=>false);
-      shown=!!discovery;
+    if(context?.contentType==="film_person"){
+      const generic=await discoverGenericContextSections(local,currentId,meta,related,context).catch(()=>false);
+      if(generic&&recommendationStillCurrent())return true;
+    }else{
+      let shown=false;
+      if(shouldProbeFilmSeries(meta,related)){
+        const discovery=await discoverFilmSeriesForPlayback(local,currentId,meta,related,context).catch(()=>false);
+        shown=!!discovery;
+      }
+      if(recommendationStillCurrent()){
+        const knowledge=await appendFilmKnowledgeSections(local,currentId,meta,context).catch(()=>false);
+        shown=shown||!!knowledge;
+      }
+      if(shown&&recommendationStillCurrent())return true;
+      const generic=await discoverGenericContextSections(local,currentId,meta,related,context).catch(()=>false);
+      if(generic&&recommendationStillCurrent())return true;
     }
-    if(recommendationStillCurrent()){
-      const knowledge=await appendFilmKnowledgeSections(local,currentId,meta,context).catch(()=>false);
-      shown=shown||!!knowledge;
-    }
-    if(shown&&recommendationStillCurrent())return true;
-    const generic=await discoverGenericContextSections(local,currentId,meta,related,context).catch(()=>false);
-    if(generic&&recommendationStillCurrent())return true;
   }
 
   if(context?.kind==="topic"){
