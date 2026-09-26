@@ -174,7 +174,7 @@ assert.match(refresh,/function relativeAgeMs\(/);
 assert.match(refresh,/yt1988_queue_refresh/);
 assert.match(refresh,/MAX_CHANNEL_FETCHES_PER_RUN=12/);
 assert.match(refresh,/MAX_SCOPES_PER_RUN=2/);
-assert.match(refresh,/LIVE_SELECTED_SOURCES_PER_RUN=24/);
+assert.match(refresh,/LIVE_SELECTED_SOURCES_PER_RUN=32/);
 assert.match(refresh,/function normalizeLiveText\(/);
 assert.match(refresh,/function liveKeywordBlocked\(/);
 assert.match(refresh,/yt1988_live_keywords/);
