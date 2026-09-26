@@ -162,10 +162,13 @@ function setLocalStatus(id,status,scope){
   if(status==="blocked")ensureArray(state.remote.scopedBlocked,scope).push(id);
 }
 
-function stateFetch(method="GET",body){
+function stateFetch(method="GET",body,{timeout=9000}={}){
+  const controller=typeof AbortController==="function"?new AbortController():null;
+  const timer=setTimeout(()=>controller?.abort(),timeout);
   return fetch(STATE_URL,{
     method,
     cache:"no-store",
+    signal:controller?.signal,
     headers:{
       "content-type":"application/json",
       ...(method==="POST"?{"x-1988-pin":PIN}:{})
@@ -174,7 +177,7 @@ function stateFetch(method="GET",body){
   }).then(async r=>{
     if(!r.ok)throw new Error("state_"+r.status);
     return r.json();
-  });
+  }).finally(()=>clearTimeout(timer));
 }
 
 function sourceOrderFromLabels(labels={}){
@@ -801,7 +804,22 @@ async function savePresentationState(){
 }
 
 async function loadState(){
-  const result=await stateFetch();
+  // Paint the shell immediately so the page never looks frozen while the
+  // network state is loading. GET is read-only/public; writes still use the
+  // admin PIN header in stateFetch().
+  state.remote=state.remote||{};
+  state.scopes=scopeList(state.remote);
+  state.scope=state.scopes.some(s=>s.key===state.scope)
+    ?state.scope
+    :(state.scopes[0]?.key||"latest");
+  renderScopes();
+  renderColumns();
+  renderSearch();
+  renderKeywords();
+  updateSearchBack();
+  if(el.searchStatus)el.searchStatus.textContent="Đang tải dữ liệu nguồn…";
+
+  const result=await stateFetch("GET",null,{timeout:9000});
   state.remote=result.state||{};
   state.scopes=scopeList(state.remote);
   state.keywords=clean(state.remote?.sourceLabels?.__live_keywords||"")
@@ -819,6 +837,7 @@ async function loadState(){
   renderSearch();
   renderKeywords();
   updateSearchBack();
+  if(el.searchStatus&&!state.searchQuery)el.searchStatus.textContent="";
 }
 
 function renderSourceManagerList(query=""){
@@ -1315,9 +1334,26 @@ window.addEventListener("storage",event=>{
 });
 
 (async()=>{
-  await requireAuth();
+  // Do not block the whole source manager behind a modal before GET finishes.
+  // This page is already the admin workspace and POST mutations carry the
+  // server PIN themselves. A stale/empty local auth flag must never leave the
+  // UI covered by an invisible layer.
+  if(el.auth)el.auth.hidden=true;
   await loadState();
 })().catch(error=>{
   console.error(error);
-  el.searchStatus.textContent="Không tải được dữ liệu nguồn";
+  if(el.auth)el.auth.hidden=true;
+  if(el.searchStatus){
+    el.searchStatus.hidden=false;
+    el.searchStatus.textContent="Không tải được dữ liệu nguồn · bấm để thử lại";
+    el.searchStatus.style.cursor="pointer";
+    el.searchStatus.onclick=()=>{
+      el.searchStatus.onclick=null;
+      el.searchStatus.style.cursor="";
+      void loadState().catch(err=>{
+        console.error(err);
+        el.searchStatus.textContent="Không tải được dữ liệu nguồn · bấm để thử lại";
+      });
+    };
+  }
 });
