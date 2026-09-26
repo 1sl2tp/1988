@@ -443,6 +443,7 @@ const SOURCE_BLOCKED_KEY="1988-source-blocked-v1";
 const SOURCE_GROUPS_KEY="1988-source-groups-v1";
 const SOURCE_GROUP_LABELS_KEY="1988-source-group-labels-v1";
 const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
+const HASHTAG_DEFINITIONS_CACHE_KEY="1988-hashtag-definitions-cache-v1";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
@@ -538,7 +539,9 @@ const SYSTEM_SOURCE_SCOPE_DEFINITIONS=[
   }
 ];
 
-let hashtagDefinitions=[];
+let hashtagDefinitions=normalizeHashtagDefinitions(
+  readStoredArray(HASHTAG_DEFINITIONS_CACHE_KEY)
+);
 let SOURCE_SCOPE_DEFINITIONS=[];
 let SOURCE_SCOPE_BY_KEY=new Map();
 let SOURCE_MANAGER_GROUPS=[];
@@ -635,7 +638,7 @@ function rebuildSourceScopeRegistry(rows=hashtagDefinitions){
   SERVER_SUGGESTION_SCOPES=new Set(MANAGED_SOURCE_SCOPES);
 }
 
-rebuildSourceScopeRegistry([]);
+rebuildSourceScopeRegistry(hashtagDefinitions);
 
 function sourceScopeDefinition(key=""){
   return SOURCE_SCOPE_BY_KEY.get(String(key||"").trim())||null;
@@ -772,9 +775,21 @@ function syncDynamicScopeMaps(){
 }
 
 function setHashtagDefinitions(rows=[]){
+  const before=JSON.stringify(hashtagDefinitions);
   rebuildSourceScopeRegistry(rows);
   syncDynamicScopeMaps();
   state.parentCategories=sourceCategoryRows();
+
+  const after=JSON.stringify(hashtagDefinitions);
+  if(after!==before){
+    try{
+      localStorage.setItem(
+        HASHTAG_DEFINITIONS_CACHE_KEY,
+        JSON.stringify(hashtagDefinitions)
+      );
+    }catch{}
+  }
+
   return hashtagDefinitions;
 }
 
@@ -3138,7 +3153,6 @@ async function createHashtag({openManager=false}={}){
     setHashtagDefinitions(result.hashtags||[]);
     packageManifestLastAt=0;
     applySourceGroupLabelsUi();
-    renderParentCategories();
 
     if(openManager){
       sourceManageGroup=result.hashtag.id;
@@ -6411,24 +6425,27 @@ function syncFloatingPlayerViewport(frame=playerSection?.querySelector(".player-
     );
 
     for(const node of nodes){
+      const mediaNode=node===iframe||node===nativePlayer;
       node.style.setProperty("position","absolute","important");
-      node.style.setProperty("top","0px","important");
-      node.style.setProperty("right","0px","important");
-      node.style.setProperty("bottom","0px","important");
-      node.style.setProperty("left","0px","important");
-      node.style.setProperty("width","100%","important");
-      node.style.setProperty("height","100%","important");
-      node.style.setProperty("max-width","100%","important");
-      node.style.setProperty("max-height","100%","important");
+      node.style.setProperty("top",mediaNode?"-1px":"0px","important");
+      node.style.setProperty("right",mediaNode?"-1px":"0px","important");
+      node.style.setProperty("bottom",mediaNode?"-1px":"0px","important");
+      node.style.setProperty("left",mediaNode?"-1px":"0px","important");
+      node.style.setProperty("width",mediaNode?"calc(100% + 2px)":"100%","important");
+      node.style.setProperty("height",mediaNode?"calc(100% + 2px)":"100%","important");
+      node.style.setProperty("max-width","none","important");
+      node.style.setProperty("max-height","none","important");
       node.style.setProperty("margin","0","important");
+      node.style.setProperty("border","0","important");
+      node.style.setProperty("background","transparent","important");
       node.style.setProperty("transform","none","important");
       node.style.setProperty("transform-origin","center center","important");
       if(node===nativePlayer)node.style.setProperty("object-fit","contain","important");
     }
 
     if(iframe){
-      const width=Math.max(1,Math.round(frame.clientWidth||frame.getBoundingClientRect().width||1));
-      const height=Math.max(1,Math.round(frame.clientHeight||frame.getBoundingClientRect().height||1));
+      const width=Math.max(1,Math.round(frame.clientWidth||frame.getBoundingClientRect().width||1)+2);
+      const height=Math.max(1,Math.round(frame.clientHeight||frame.getBoundingClientRect().height||1)+2);
       iframe.setAttribute("width",String(width));
       iframe.setAttribute("height",String(height));
     }
@@ -8694,13 +8711,23 @@ function trendRows(rows=[]){
 
 function renderParentCategories(){
   if(!topicChips)return;
-  topicChips.querySelectorAll("[data-parent-category],[data-hashtag-add]").forEach(button=>button.remove());
 
   state.parentCategories=sourceCategoryRows();
 
   if(state.activeParent&&!state.parentCategories.some(parent=>parent.key===state.activeParent)){
     state.activeParent="";
   }
+
+  const signature=state.parentCategories
+    .map(parent=>parent.key+":"+clean(parent.label))
+    .join("|");
+
+  if(topicChips.dataset.parentCategorySignature===signature){
+    setActiveChip(state.activeFeed);
+    return;
+  }
+
+  topicChips.querySelectorAll("[data-parent-category],[data-hashtag-add]").forEach(button=>button.remove());
 
   for(const parent of state.parentCategories){
     const button=document.createElement("button");
@@ -8722,6 +8749,7 @@ function renderParentCategories(){
   addButton.textContent="+";
   topicChips.appendChild(addButton);
 
+  topicChips.dataset.parentCategorySignature=signature;
   setActiveChip(state.activeFeed);
 }
 
@@ -14433,7 +14461,6 @@ async function bootstrap1988(){
   setupFullscreenReturn();
   ensureWatchNavRail();
   updateModeUi();
-  renderParentCategories();
 
   if(sourcesBtn){
     sourcesBtn.disabled=false;
@@ -14455,7 +14482,6 @@ async function bootstrap1988(){
     void sourceStatePromise.then(async ok=>{
       if(!ok)return;
       applySourceGroupLabelsUi();
-      renderParentCategories();
       if(sourcesSheet&&!sourcesSheet.hidden){
         sourceManageGroup=MANAGED_SOURCE_SCOPES.has(sourceScope(SOURCE_MANAGER_SCOPE_PARAM))
           ?sourceScope(SOURCE_MANAGER_SCOPE_PARAM)
@@ -14478,7 +14504,6 @@ async function bootstrap1988(){
     void sourceStatePromise.then(ok=>{
       if(ok){
         applySourceGroupLabelsUi();
-        renderParentCategories();
         if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
       }
     });
@@ -14499,7 +14524,6 @@ async function bootstrap1988(){
   void sourceStatePromise.then(async ok=>{
     if(!ok)return;
     applySourceGroupLabelsUi();
-    renderParentCategories();
     if(sourcesSheet&&!sourcesSheet.hidden)refreshSourceManager();
     await warmManagedAvatarImages(900);
     void prewarmSelectedSourceAvatars();
