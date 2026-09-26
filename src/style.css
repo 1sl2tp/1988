@@ -4093,3 +4093,18 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
   min-width:72px!important;
   text-align:center;
 }
+
+
+/* Mobile chrome v389: fixed dark surface.
+   Dynamic thumbnail/video tint is desktop-only. Keep every mobile header/nav/feed
+   surface on one stable colour so scrolling and image decode cannot repaint it. */
+@media (max-width:720px), (hover:none) and (pointer:coarse) and (max-height:720px){
+  :root{
+    --page-chrome-tint:rgb(15,15,16)!important;
+    --page-chrome-glow:rgba(15,15,16,.52)!important;
+    --page-chrome-soft:rgba(15,15,16,.26)!important;
+    --page-chrome-faint:rgba(15,15,16,.12)!important;
+    --mobile-chrome-surface:rgb(11,11,12)!important;
+    --mobile-chrome-tint:rgba(15,15,16,0)!important;
+  }
+}
