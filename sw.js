@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-main-watch-browse-v341';
+const CACHE='1988-main-watch-browse-v345';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
@@ -47,13 +47,17 @@ const SHELL=[
   './index.html',
   './manifest.webmanifest',
   './silent.wav',
-  './src/style.css?v=watch-browse-341',
-  './src/app.js?v=watch-browse-341',
+  './src/style.css?v=watch-browse-343',
+  './src/app.js?v=watch-browse-345',
   './src/media-core.js?v=2',
   './src/html5-background.js?v=9',
   './src/channel-library.js?v=sources-88',
   './src/media-meta.js?v=1',
   './src/yt-local.js?v=search-fast-286',
+  './sources/',
+  './sources/index.html',
+  './sources/sources.css?v=17',
+  './sources/sources.js?v=16',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
@@ -101,13 +105,26 @@ self.addEventListener('fetch',event=>{
 
   event.respondWith((async()=>{
     const cache=await caches.open(CACHE);
+    const isSources=url.pathname==='/sources'||url.pathname.startsWith('/sources/');
+
     try{
       const fresh=await fetch(new Request(req,{cache:'no-store'}));
       if(fresh&&fresh.ok)void cache.put(req,fresh.clone()).catch(()=>{});
       return fresh;
     }catch(err){
-      const cached=await cache.match(req);
+      const cached=await cache.match(req,{ignoreSearch:isSources});
       if(cached)return cached;
+
+      // Never answer /sources/ with the main app shell. Doing that leaves the
+      // address at /sources/?scope=... while the DOM is actually the player,
+      // which looks blank and none of the source-manager controls work.
+      if(isSources&&req.mode==='navigate'){
+        const sourcesShell=
+          await cache.match('./sources/index.html')||
+          await cache.match('./sources/');
+        if(sourcesShell)return sourcesShell;
+      }
+
       if(req.mode==='navigate'){
         const shell=await cache.match('./');
         if(shell)return shell;
