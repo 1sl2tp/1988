@@ -6048,16 +6048,24 @@ function autoFloatSize(frame,ratio=state.videoAspect||16/9){
   ratio=Number(ratio)||16/9;
   ratio=Math.max(.34,Math.min(2.6,ratio));
 
-  // Mobile mini-player follows one compact YouTube-like shell: always 16:9.
-  // The real video aspect stays inside with object-fit:contain. A portrait
-  // video therefore remains small instead of turning the mini into a tall
-  // 9:16 column that covers the browsing list.
+  // Mobile mini-player keeps the REAL video aspect, but fits it into one
+  // small bounding box. Portrait stays portrait and shrinks by height instead
+  // of becoming a tall column that covers the browsing list.
   if(mobile){
-    const width=Math.min(
-      210,
-      Math.max(150,viewportW*.48)
-    );
-    return {width,height:width/(16/9)};
+    const maxWidth=Math.min(210,viewportW*.48);
+    const maxHeight=Math.min(220,viewportH*.33);
+
+    let width=maxWidth;
+    let height=width/ratio;
+
+    if(height>maxHeight){
+      height=maxHeight;
+      width=height*ratio;
+    }
+
+    width=Math.max(1,Math.min(maxWidth,width));
+    height=Math.max(1,Math.min(maxHeight,height));
+    return {width,height};
   }
 
   // Desktop keeps content-aware floating geometry.
