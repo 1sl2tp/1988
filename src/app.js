@@ -5901,6 +5901,7 @@ function applyFloatPreset(frame=playerSection?.querySelector(".player-frame")){
 
   const size=scaledAutoFloatSize(frame,ratio);
   placeAutoFloatAtEdge(frame,size);
+  syncFloatingPlayerViewport(frame,{settle:true});
 }
 function setFloatPreset(mode){
   const frame=playerSection?.querySelector(".player-frame");
@@ -6195,20 +6196,31 @@ function floatScaleValue(value=state.floatScale){
   return [1,1.5,2].includes(Number(value))?Number(value):1;
 }
 
-function scaledAutoFloatSize(frame,ratio=state.videoAspect||16/9){
+function currentFloatingAspect(){
+  return validPipAspect(state.videoAspect)||
+    validPipAspect(responsivePlayerAspect(state.currentMeta||{}))||
+    16/9;
+}
+
+function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
+  ratio=validPipAspect(ratio)||16/9;
   const base=autoFloatSize(frame,ratio);
   const scale=floatScaleValue();
-  if(scale===1)return base;
 
   const gap=floatEdgeGap();
+  const safe=floatingSafeInsets();
   const maxWidth=Math.max(120,window.innerWidth-gap*2);
-  const maxHeight=Math.max(120,window.innerHeight-gap*2);
+  const maxHeight=Math.max(
+    120,
+    window.innerHeight-safe.top-safe.bottom-gap*2
+  );
+
   let width=base.width*scale;
-  let height=base.height*scale;
+  let height=width/ratio;
   const fit=Math.min(1,maxWidth/width,maxHeight/height);
 
   width*=fit;
-  height*=fit;
+  height=width/ratio;
   return {width,height};
 }
 
@@ -6217,10 +6229,20 @@ function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
   const steps=[1,1.5,2];
   const current=floatScaleValue();
   const index=steps.indexOf(current);
+
   state.floatScale=steps[(index+1)%steps.length];
   state.floatUserSized=false;
+
+  // One geometry commit: real aspect -> frame size -> iframe/native viewport.
+  // Do not let CSS animate width/height through intermediate wrong rectangles.
+  frame.classList.add("float-geometry-commit");
   applyAutoFloatAspect(frame,{force:true});
+  syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
+
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>frame.classList.remove("float-geometry-commit"));
+  });
 }
 
 function placeAutoFloatAtEdge(frame,size){
@@ -6273,14 +6295,37 @@ function floatingSafeInsets(){
   };
 }
 
-function placeFloatingAt(frame,{left=0,top=0,width=0,height=0}={}){
+function placeFloatingAt(frame,{left=0,top=0,width=0,height=0,ratio=0}={}){
   if(!frame)return;
   const gap=mobileMiniViewport()?10:4;
   const safe=floatingSafeInsets();
-  width=Math.max(1,Math.min(Number(width)||frame.clientWidth||1,window.innerWidth-gap*2));
-  height=Math.max(1,Math.min(Number(height)||frame.clientHeight||1,window.innerHeight-safe.top-safe.bottom-gap*2));
+  const maxWidth=Math.max(1,window.innerWidth-gap*2);
+  const maxHeight=Math.max(
+    1,
+    window.innerHeight-safe.top-safe.bottom-gap*2
+  );
+
+  width=Math.max(1,Number(width)||frame.clientWidth||1);
+  height=Math.max(1,Number(height)||frame.clientHeight||1);
+
+  ratio=validPipAspect(ratio);
+  if(ratio){
+    // Keep one canonical ratio. Fit BOTH axes with the same scale factor;
+    // never clamp width and height independently.
+    height=width/ratio;
+    const fit=Math.min(1,maxWidth/width,maxHeight/height);
+    width*=fit;
+    height=width/ratio;
+  }else{
+    width=Math.min(width,maxWidth);
+    height=Math.min(height,maxHeight);
+  }
+
   left=Math.max(gap,Math.min(window.innerWidth-width-gap,Number(left)||gap));
-  top=Math.max(safe.top+gap,Math.min(window.innerHeight-safe.bottom-height-gap,Number(top)||safe.top+gap));
+  top=Math.max(
+    safe.top+gap,
+    Math.min(window.innerHeight-safe.bottom-height-gap,Number(top)||safe.top+gap)
+  );
 
   frame.style.width=width+"px";
   frame.style.height=height+"px";
@@ -6297,7 +6342,7 @@ function applyAutoFloatAspect(frame,{force=false}={}){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
   if(state.floatUserSized&&!force)return;
 
-  const ratio=state.videoAspect||16/9;
+  const ratio=currentFloatingAspect();
   const size=scaledAutoFloatSize(frame,ratio);
 
   if(state.floatUserMoved&&state.floatBox){
@@ -6311,7 +6356,8 @@ function applyAutoFloatAspect(frame,{force=false}={}){
       left,
       top:centerY-size.height/2,
       width:size.width,
-      height:size.height
+      height:size.height,
+      ratio
     });
     return;
   }
@@ -6479,7 +6525,10 @@ function syncMobileInlinePlayerViewport(width=0,height=0,{settle=false,ratio=0}=
   }
 }
 
-function syncFloatingPlayerViewport(frame=playerSection?.querySelector(".player-frame")){
+function syncFloatingPlayerViewport(
+  frame=playerSection?.querySelector(".player-frame"),
+  {settle=false}={}
+){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
 
   const apply=()=>{
@@ -6520,6 +6569,10 @@ function syncFloatingPlayerViewport(frame=playerSection?.querySelector(".player-
 
   apply();
   requestAnimationFrame(apply);
+  if(settle){
+    setTimeout(apply,60);
+    setTimeout(apply,180);
+  }
 }
 
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
@@ -6917,8 +6970,13 @@ function updateCurrentVideoAspect(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(frame?.classList.contains("floating-iframe")){
     state.floatBox={top:frame.getBoundingClientRect().top};
+    frame.classList.add("float-geometry-commit");
     applyAutoFloatAspect(frame,{force:true});
+    syncFloatingPlayerViewport(frame,{settle:true});
     updateFloatControlState(frame);
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>frame.classList.remove("float-geometry-commit"));
+    });
   }
 }
 
@@ -7452,8 +7510,10 @@ function setupWatchMinimizeGesture(){
           left:snappedLeft,
           top:movedTop,
           width:drag.width,
-          height:drag.height
+          height:drag.height,
+          ratio:currentFloatingAspect()
         });
+        syncFloatingPlayerViewport(frame,{settle:true});
         frame.classList.toggle("dock-left",state.floatDock==="left");
         frame.classList.toggle("dock-right",state.floatDock!=="left");
         updateFloatControlState(frame);

@@ -464,7 +464,7 @@ html.search-suggestions-open .suggestions{
   overflow:visible;
   background:transparent;
   box-shadow:none;
-  transition:transform .16s ease,width .16s ease,height .16s ease;
+  transition:transform .16s ease;
 }
 .player-frame.floating-iframe::before{
   content:"";
@@ -4171,5 +4171,13 @@ html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
 .card-action-item,
 .card-action-scope,
 .card-more-btn{
+  transition:none!important;
+}
+
+
+/* PiP geometry commit v396.
+   Scale changes are atomic: the outer frame and media viewport change in the
+   same layout turn, so Safari never displays an intermediate wrong aspect. */
+.player-frame.floating-iframe.float-geometry-commit{
   transition:none!important;
 }
