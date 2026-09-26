@@ -260,29 +260,60 @@ function ageMs(row:any){
 function publishedText(row:any){
   return clean(row?.publishedText||row?.uploadDate||row?.uploadedDate||"",120);
 }
+function validChannelDisplayName(value:any){
+  const name=clean(value,180);
+  if(!name||/^UC[A-Za-z0-9_-]+$/.test(name))return "";
+  return name;
+}
 function normalizeRow(row:any,source:any={}){
   const id=videoId(row);
   if(!id)return null;
   const sid=clean(source?.id||channelId(row),180);
-  const sname=clean(source?.name||row?.uploaderName||row?.uploader||row?.channelName||"",180);
+  const sname=[
+    source?.name,
+    row?._sourceName,
+    row?.uploaderName,
+    row?.uploader,
+    row?.channelName
+  ].map(validChannelDisplayName).find(Boolean)||"";
+  const thumb=clean(
+    row?.thumbnail||
+    row?.thumbnailUrl||
+    row?.thumbnail_url||
+    ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
+    1000
+  );
+  const sourceThumb=clean(
+    source?.thumbnailUrl||
+    row?._sourceThumbnailUrl||
+    row?.uploaderThumbnailUrl||
+    row?.channelThumbnailUrl||
+    row?.uploaderAvatar||
+    row?.channelAvatar||
+    "",
+    1000
+  );
+  const live=isLive(row);
   return {
     ...row,
     id,
     videoId:id,
-    title:clean(row?.title||"",300),
-    thumbnail:clean(row?.thumbnail||row?.thumbnailUrl||row?.thumbnail_url||"",1000),
-    thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||row?.thumbnail_url||"",1000),
-    uploader:clean(row?.uploader||row?.uploaderName||sname,180),
-    uploaderName:clean(row?.uploaderName||row?.uploader||sname,180),
+    title:clean(row?._displayTitle||row?.title||"",300),
+    thumbnail:thumb,
+    thumbnailUrl:thumb,
+    uploader:sname,
+    uploaderName:sname,
     channelId:sid||clean(row?.channelId||row?.uploaderId||"",180),
     _sourceId:sid,
     _sourceName:sname,
-    isLive:isLive(row),
+    _sourceThumbnailUrl:sourceThumb,
+    isLive:live,
     publishedText:publishedText(row),
-    views:Number(row?.views)||0,
-    duration:isLive(row)?-1:durationSeconds(row)
+    views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0),
+    duration:live?-1:durationSeconds(row)
   };
 }
+
 function dedupeRows(rows:any[]){
   const ids=new Set<string>();
   const titleHashes=new Set<string>();
@@ -328,7 +359,6 @@ function sourceSignature(rows:any[],scope:string){
     .filter((r)=>r.scope===scope&&r.status==="selected")
     .map((r)=>clean(r.channel_id,180))
     .filter(Boolean)
-    .filter((id)=>!rows.some((b)=>b.scope===scope&&b.channel_id===id&&b.status==="blocked"))
     .sort()
     .join("|");
 }
