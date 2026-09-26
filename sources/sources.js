@@ -56,9 +56,7 @@ const el={
   previewMeta:qs("#previewMeta"),
   previewSelect:qs("#previewSelect"),
   previewBlock:qs("#previewBlock"),
-  previewMoreBtn:qs("#previewMoreBtn"),
   previewMore:qs("#previewMore"),
-  previewMoreClose:qs("#previewMoreClose"),
   previewClose:qs("#previewClose"),
   previewScopes:qs("#previewScopes"),
   videoGrid:qs("#videoGrid"),
@@ -370,7 +368,6 @@ function renderPreview(){
     el.searchList.hidden=false;
     el.searchStatus.hidden=false;
     closeInlineVideo();
-    if(el.previewMore)el.previewMore.hidden=true;
     return;
   }
 
@@ -444,7 +441,6 @@ async function openChannel(row,seedVideo=null){
 
   state.detail={...currentMeta(row.id),...row};
   state.detailVideos=seedVideo?[seedVideo]:[];
-  if(el.previewMore)el.previewMore.hidden=true;
   renderPreview();
   requestAnimationFrame(()=>{
     if(el.preview)el.preview.scrollTop=0;
@@ -876,21 +872,12 @@ el.previewBlock.addEventListener("click",()=>{
   writeStatus(state.detail.id,st==="blocked"?"normal":"blocked");
 });
 
-el.previewMoreBtn?.addEventListener("click",()=>{
-  if(!el.previewMore)return;
-  el.previewMore.hidden=!el.previewMore.hidden;
-});
-el.previewMoreClose?.addEventListener("click",()=>{
-  if(el.previewMore)el.previewMore.hidden=true;
-});
-
 el.previewScopes.addEventListener("click",event=>{
   const button=event.target.closest("[data-preview-scope]");
   if(!button||!state.detail)return;
   const scope=button.dataset.previewScope;
   const st=sourceStatus(state.detail.id,scope);
   writeStatus(state.detail.id,st==="selected"?"normal":"selected",scope);
-  if(el.previewMore)el.previewMore.hidden=true;
 });
 
 el.inlinePlayerClose?.addEventListener("click",()=>{
