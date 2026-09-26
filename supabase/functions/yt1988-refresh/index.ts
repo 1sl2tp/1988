@@ -846,13 +846,14 @@ Deno.serve(async(req:Request)=>{
           thumbnailUrl:clean(row?.thumbnail_url,1000)
         });
       }
-      if(!channelMeta.has(id)){
-        channelMeta.set(id,{
-          id,
-          name:clean(row?.name,180),
-          thumbnailUrl:clean(row?.thumbnail_url,1000)
-        });
-      }
+      const previousMeta=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
+      channelMeta.set(id,{
+        id,
+        name:validChannelDisplayName(previousMeta.name)||
+          validChannelDisplayName(row?.name)||
+          "",
+        thumbnailUrl:clean(previousMeta.thumbnailUrl||row?.thumbnail_url||"",1000)
+      });
     }
 
     // Only LIVE owns a blacklist. Non-live scopes are simple selected
@@ -1194,15 +1195,13 @@ Deno.serve(async(req:Request)=>{
 
         if(!fresh.length)throw new Error("empty_channel_payload");
 
-        const sourceName=clean(
-          source?.name||
-          fresh[0]?.uploaderName||
-          fresh[0]?.uploader||
-          fresh[0]?._sourceName||
-          previous?.source_name||
-          "",
-          180
-        );
+        const sourceName=[
+          source?.name,
+          fresh[0]?._sourceName,
+          fresh[0]?.uploaderName,
+          fresh[0]?.uploader,
+          previous?.source_name
+        ].map(validChannelDisplayName).find(Boolean)||"";
         if(sourceName&&!source.name){
           source.name=sourceName;
           channelMeta.set(id,source);
@@ -1408,15 +1407,30 @@ Deno.serve(async(req:Request)=>{
       const current=currentByScope.get(scope);
 
       if(meta.kind==="content"&&!selected.length){
-        if(current){
-          const clearRes=await fetch(
-            rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
-            "&scope=eq."+encodeURIComponent(scope),
-            {method:"DELETE",headers:authHeaders}
-          );
-          if(!clearRes.ok)throw new Error("empty_hashtag_package_clear_failed:"+scope+":"+await clearRes.text());
+        const sig="";
+        const packaged:any[]=[];
+        const hash=snapshotRowsHash(packaged,sig);
+        const inputHash=fastHash(hash+"|"+NON_LIVE_PIPELINE_VERSION+":"+meta.kind+":no_sources");
+        if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
+          results.push({scope,changed:false,reason:"no_selected_sources"});
+          continue;
         }
-        results.push({scope,changed:!!current,reason:"no_selected_sources"});
+        const version=Date.now()*100+scopeIndex;
+        const rpc=await fetch(rest+"/rpc/yt1988_set_package",{
+          method:"POST",
+          headers:authHeaders,
+          body:JSON.stringify({
+            p_profile_key:PROFILE,
+            p_scope:scope,
+            p_hash:hash,
+            p_input_hash:inputHash,
+            p_source_signature:sig,
+            p_items:packaged,
+            p_version:version
+          })
+        });
+        if(!rpc.ok)throw new Error("empty_package_write_failed:"+scope+":"+await rpc.text());
+        results.push({scope,changed:true,items:0,reason:"no_selected_sources"});
         continue;
       }
 
