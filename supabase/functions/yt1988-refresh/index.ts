@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v17";
+const LIVE_PIPELINE_VERSION="live-v18";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "đang phát trực tiếp",
@@ -352,7 +352,7 @@ async function searchSelectedSourceLiveCandidates(
 async function discoverGlobalLiveCandidates(
   supabaseUrl:string,
   serviceKey:string,
-  blockedIds:Set<string>,
+  excludedSourceIds:Set<string>,
   keywords:string[]
 ){
   const deadline=Date.now()+22000;
@@ -384,7 +384,7 @@ async function discoverGlobalLiveCandidates(
       const row=normalizeRow(item,{});
       if(!row||!strongFreshLiveSignal(row))continue;
       const sid=channelId(row);
-      if(sid&&blockedIds.has(sid))continue;
+      if(sid&&excludedSourceIds.has(sid))continue;
       if(liveKeywordBlocked(row,keywords))continue;
       out.push({...row,_liveOrigin:"search"});
     }
@@ -709,9 +709,35 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      // Source 2: direct Live choices + selected channels inherited from every
-      // other source tab. Only currently-live videos from those channels survive.
-      const selectedDiscoveryPromise=mapLimit(selectedLiveSources,6,async(source)=>{
+      // STEP 1 — Source 1: discover LIVE outside the user's whole source library.
+      // Exclude every selected source (direct Live + selections inherited from
+      // other tabs) and every blocked source before fresh verification. Keywords
+      // apply only to this outside-discovery stream.
+      const allSelectedLiveSourceIds=new Set(
+        selectedLiveSources.map((source:any)=>source.id).filter(Boolean)
+      );
+      const externalExcludedSourceIds=new Set<string>(allBlockedLiveSourceIds);
+      for(const id of allSelectedLiveSourceIds)externalExcludedSourceIds.add(id);
+
+      const globalCandidates=await discoverGlobalLiveCandidates(
+        supabaseUrl,
+        serviceKey,
+        externalExcludedSourceIds,
+        liveKeywords
+      ).catch((error)=>{
+        console.warn("global live discovery failed",String(error));
+        return [];
+      });
+      const verifiedExternalRows=await verifyLiveRows(
+        globalCandidates,
+        supabaseUrl,
+        serviceKey
+      );
+
+      // STEP 2 — Source 2: scan the chosen library exactly once as one logical
+      // pass: direct Live selections + selections inherited from all other tabs.
+      // Keyword blocks do not remove explicitly/inherited selected sources.
+      const selectedDiscoveryBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
         try{
           const direct=await searchSelectedSourceLiveCandidates(
             source,supabaseUrl,serviceKey
@@ -728,30 +754,13 @@ Deno.serve(async(req:Request)=>{
         }
       });
 
-      // Source 1: independent external LIVE discovery, then keyword + block filters.
-      const globalDiscoveryPromise=discoverGlobalLiveCandidates(
-        supabaseUrl,
-        serviceKey,
-        allBlockedLiveSourceIds,
-        liveKeywords
-      ).catch((error)=>{
-        console.warn("global live discovery failed",String(error));
-        return [];
-      });
-
-      const [selectedDiscoveryBatches,globalCandidates]=await Promise.all([
-        selectedDiscoveryPromise,globalDiscoveryPromise
-      ]);
-
-      const candidates=dedupeRows([
-        ...selectedDiscoveryBatches.flat().map((row:any)=>({...row,_liveOrigin:"source"})),
-        ...globalCandidates
-      ])
+      const selectedCandidates=dedupeRows(
+        selectedDiscoveryBatches.flat().map((row:any)=>({...row,_liveOrigin:"source"}))
+      )
         .filter((row:any)=>{
           const sid=channelId(row);
           return !sid||!allBlockedLiveSourceIds.has(sid);
         })
-        .filter((row:any)=>!liveKeywordBlocked(row,liveKeywords))
         .map((row:any)=>{
           const sid=channelId(row);
           return {
@@ -762,12 +771,20 @@ Deno.serve(async(req:Request)=>{
                 ?1
                 :0
           };
-        })
-        .sort((a:any,b:any)=>
-          (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
-        );
+        });
+      const verifiedSelectedRows=await verifyLiveRows(
+        selectedCandidates,
+        supabaseUrl,
+        serviceKey
+      );
 
-      verifiedLiveRowsCache=await verifyLiveRows(candidates,supabaseUrl,serviceKey);
+      // STEP 3 — only now merge the two already-filtered, freshly-verified sets.
+      verifiedLiveRowsCache=dedupeRows([
+        ...verifiedSelectedRows,
+        ...verifiedExternalRows
+      ]).sort((a:any,b:any)=>
+        (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
+      );
     }
 
     const nonLiveScopes=scopes.filter((scope)=>scope!=="live");
