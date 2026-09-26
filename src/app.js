@@ -4421,8 +4421,14 @@ async function openCardSource(card){
   state.searchResultsActive=false;
   state.feedHasMore=false;
   state.feedRows=[];
+  state.activeParent="";
+  state.activeTrend="";
+  state.trendTopics=[];
+  renderTrendTopics();
+  setActiveChip("");
   clearSuggestions();
   clearSeriesContext();
+  hardResetDocumentTop();
 
   feedTitle.textContent=source.name||"Nguồn";
   feedStatus.textContent="";
