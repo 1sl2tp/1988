@@ -425,7 +425,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="311";
+const LOCAL_DATA_SCHEMA_VERSION="319";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -433,7 +433,8 @@ const LOCAL_VOLATILE_PREFIXES=[
   "1988-source-pool-",
   "1988-ai-trends-",
   "1988-ai-catalog-",
-  "1988-source-learning-"
+  "1988-source-learning-",
+  "1988-live-keywords-pending-"
 ];
 
 function clearVolatileLocalData(){
@@ -1167,7 +1168,7 @@ function applyServerState(remote={}){
 
     if(remote.sourceLabels&&typeof remote.sourceLabels==="object"&&!Array.isArray(remote.sourceLabels)){
       liveBlockedKeywords=cleanLiveKeywordList(
-        clean(remote.sourceLabels[LIVE_KEYWORDS_STATE_KEY]||"")
+        String(remote.sourceLabels[LIVE_KEYWORDS_STATE_KEY]||"")
           .split(/\r?\n/)
       );
       sourceGroupLabelOverrides=Object.fromEntries(
