@@ -10480,14 +10480,14 @@ function explicitSelectedVideoEntity(meta={},rawTitle="",rawChannel=""){
   const source=[rawTitle,rawChannel,description].filter(Boolean).join(" · ");
 
   const cleanName=value=>clean(value)
-    .replace(/^[\\s:|·\\-–—]+|[\\s:|·\\-–—]+$/g,"")
-    .replace(/\\s+/g," ")
+    .replace(/^[\s:|·\-–—]+|[\s:|·\-–—]+$/g,"")
+    .replace(/\s+/g," ")
     .trim();
 
   const patterns=[
-    {type:"public_official",role:"public_official",re:/(?:tổng bí thư|chủ tịch nước|thủ tướng|phó thủ tướng|bộ trưởng|tổng thống|president|prime minister|minister)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu},
-    {type:"artist",role:"performer",re:/(?:ca sĩ|nghệ sĩ|singer|vocalist)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu},
-    {type:"actor",role:"actor",re:/(?:diễn viên|actor|actress)\\s+([^|·,:;()\\[\\]!?]{2,60})/iu}
+    {type:"public_official",role:"public_official",re:/(?:tổng bí thư|chủ tịch nước|thủ tướng|phó thủ tướng|bộ trưởng|tổng thống|president|prime minister|minister)\s+([^|·,:;()\[\]!?]{2,60})/iu},
+    {type:"artist",role:"performer",re:/(?:ca sĩ|nghệ sĩ|singer|vocalist)\s+([^|·,:;()\[\]!?]{2,60})/iu},
+    {type:"actor",role:"actor",re:/(?:diễn viên|actor|actress)\s+([^|·,:;()\[\]!?]{2,60})/iu}
   ];
 
   for(const item of patterns){
