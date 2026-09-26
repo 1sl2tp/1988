@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v13";
+const LIVE_PIPELINE_VERSION="live-v14";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "live việt nam",
@@ -351,40 +351,69 @@ async function discoverGlobalLiveCandidates(
 ){
   const deadline=Date.now()+14000;
   const out:any[]=[];
+  const searchStates=LIVE_SEARCH_QUERIES.map((query)=>({
+    query,
+    nextpage:"",
+    first:true,
+    done:false
+  }));
 
-  for(const query of LIVE_SEARCH_QUERIES){
+  const consume=async(state:any)=>{
+    const action=state.first
+      ?"search&q="+encodeURIComponent(state.query)+"&filter=videos"
+      :"search_next&q="+encodeURIComponent(state.query)+
+        "&filter=videos&nextpage="+encodeURIComponent(state.nextpage);
+    const result=await fetchJson(
+      supabaseUrl+"/functions/v1/yt1988?action="+action,
+      {
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      },
+      4200
+    );
+    const raw=Array.isArray(result?.data?.items)?result.data.items:
+      Array.isArray(result?.data)?result.data:[];
+
+    for(const item of raw){
+      const row=normalizeRow(item,{});
+      if(!row||!strongFreshLiveSignal(row))continue;
+      const sid=channelId(row);
+      if(sid&&blockedIds.has(sid))continue;
+      if(liveKeywordBlocked(row,keywords))continue;
+      out.push({...row,_liveOrigin:"search"});
+    }
+
+    state.nextpage=String(result?.data?.nextpage||"").trim();
+    state.first=false;
+    state.done=!state.nextpage;
+  };
+
+  // First page of every search query gets a fair chance before pagination.
+  for(const state of searchStates){
     if(Date.now()>=deadline)break;
-    let nextpage="";
-    let first=true;
+    try{
+      await consume(state);
+    }catch(error){
+      console.warn("global live search failed",state.query,String(error));
+      state.done=true;
+    }
+  }
 
-    do{
-      const action=first
-        ?"search&q="+encodeURIComponent(query)+"&filter=videos"
-        :"search_next&q="+encodeURIComponent(query)+
-          "&filter=videos&nextpage="+encodeURIComponent(nextpage);
-      const result=await fetchJson(
-        supabaseUrl+"/functions/v1/yt1988?action="+action,
-        {
-          "apikey":serviceKey,
-          "authorization":"Bearer "+serviceKey
-        },
-        4200
-      );
-      const raw=Array.isArray(result?.data?.items)?result.data.items:
-        Array.isArray(result?.data)?result.data:[];
-
-      for(const item of raw){
-        const row=normalizeRow(item,{});
-        if(!row||!strongFreshLiveSignal(row))continue;
-        const sid=channelId(row);
-        if(sid&&blockedIds.has(sid))continue;
-        if(liveKeywordBlocked(row,keywords))continue;
-        out.push({...row,_liveOrigin:"search"});
+  // Then continue each query one page at a time in round-robin order.
+  while(Date.now()<deadline){
+    let progressed=false;
+    for(const state of searchStates){
+      if(Date.now()>=deadline)break;
+      if(state.done||state.first)continue;
+      progressed=true;
+      try{
+        await consume(state);
+      }catch(error){
+        console.warn("global live nextpage failed",state.query,String(error));
+        state.done=true;
       }
-
-      nextpage=String(result?.data?.nextpage||"").trim();
-      first=false;
-    }while(nextpage&&Date.now()<deadline);
+    }
+    if(!progressed)break;
   }
 
   return dedupeRows(out);
