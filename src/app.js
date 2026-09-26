@@ -426,7 +426,7 @@ const LIVE_KEYWORDS_PENDING_KEY="1988-live-keywords-pending-v1";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="323";
+const LOCAL_DATA_SCHEMA_VERSION="324";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
@@ -6851,10 +6851,26 @@ function isTooShortVideo(row={}){
     Number(row?.uploaded)===-1;
   if(live)return false;
 
-  if(row?.isShort===true)return true;
+  const shortFlag=String(row?.isShort??"").toLowerCase();
+  if(row?.isShort===true||shortFlag==="true"||shortFlag==="1")return true;
 
-  const url=clean(row?.url||row?.videoUrl||row?.webpageUrl||"").toLowerCase();
+  const type=normalizeSearchText(row?.type||row?.rendererType||row?.videoType||"");
+  if(type==="short"||type==="shorts"||type.includes("shortform"))return true;
+
+  const url=clean(
+    row?.url||
+    row?.videoUrl||
+    row?.webpageUrl||
+    row?.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url||
+    ""
+  ).toLowerCase();
   if(url.includes("/shorts/"))return true;
+
+  const shortText=clean([
+    row?._displayTitle||row?.title||"",
+    row?.description||row?.shortDescription||""
+  ].join(" ")).toLowerCase();
+  if(/(^|\s)#shorts?(?=\s|$|[.,!?;:()[\]{}|/\\-])/i.test(shortText))return true;
 
   const seconds=durationSeconds(row);
   return seconds>0&&seconds<=60;
