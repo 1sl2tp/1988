@@ -4028,3 +4028,54 @@ html.source-manager-page .source-preview{
   }
 }
 
+
+
+/* Stable visual pipeline v386.
+   Images never begin cropped; only genuine 16:9 art fills the frame.
+   Topic rail geometry is invariant between active/inactive states.
+   JS owns chrome colour interpolation, so CSS must not run a second animation. */
+.thumb-wrap img{
+  object-fit:contain!important;
+  object-position:center!important;
+  transform:none!important;
+  background:#111114!important;
+  transition:none!important;
+  animation:none!important;
+}
+.thumb-wrap img.thumb-fill{
+  object-fit:cover!important;
+}
+html:not(.watch-browse) .feed>.card .thumb-wrap img,
+html.watch-browse .feed>.card .thumb-wrap img{
+  object-fit:contain!important;
+  object-position:center!important;
+  transform:none!important;
+}
+html:not(.watch-browse) .feed>.card .thumb-wrap img.thumb-fill,
+html.watch-browse .feed>.card .thumb-wrap img.thumb-fill{
+  object-fit:cover!important;
+}
+
+.topic-chips{
+  scroll-behavior:auto!important;
+}
+.topic-chip[data-feed]:not(.live-chip),
+.topic-chip[data-feed]:not(.live-chip).active{
+  font-weight:650!important;
+}
+.topic-chip,
+.live-chip-icon,
+.topic-divider{
+  transition:none!important;
+  animation:none!important;
+}
+
+.app-header,
+.header-nav,
+.header-inner,
+.header-nav-inner,
+.app-shell,
+.feed-section,
+.section-head{
+  transition:none!important;
+}
