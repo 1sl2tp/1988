@@ -6168,12 +6168,54 @@ function placeAutoFloatAtEdge(frame,size){
   };
 }
 
+function floatingSafeInsets(){
+  const styles=getComputedStyle(document.documentElement);
+  return {
+    top:Math.max(0,parseFloat(styles.getPropertyValue("--safe-top"))||0),
+    bottom:Math.max(0,parseFloat(styles.getPropertyValue("--safe-bottom"))||0)
+  };
+}
+
+function placeFloatingAt(frame,{left=0,top=0,width=0,height=0}={}){
+  if(!frame)return;
+  const gap=4;
+  const safe=floatingSafeInsets();
+  width=Math.max(1,Math.min(Number(width)||frame.clientWidth||1,window.innerWidth-gap*2));
+  height=Math.max(1,Math.min(Number(height)||frame.clientHeight||1,window.innerHeight-safe.top-safe.bottom-gap*2));
+  left=Math.max(gap,Math.min(window.innerWidth-width-gap,Number(left)||gap));
+  top=Math.max(safe.top+gap,Math.min(window.innerHeight-safe.bottom-height-gap,Number(top)||safe.top+gap));
+
+  frame.style.width=width+"px";
+  frame.style.height=height+"px";
+  frame.style.aspectRatio="auto";
+  frame.style.left=left+"px";
+  frame.style.top=top+"px";
+  frame.style.right="auto";
+  frame.style.bottom="auto";
+
+  state.floatBox={left,top,width,height};
+}
+
 function applyAutoFloatAspect(frame,{force=false}={}){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
   if(state.floatUserSized&&!force)return;
 
   const ratio=state.videoAspect||16/9;
   const size=scaledAutoFloatSize(frame,ratio);
+
+  if(state.floatUserMoved&&state.floatBox){
+    const old=state.floatBox;
+    const centerX=(Number(old.left)||0)+(Number(old.width)||size.width)/2;
+    const centerY=(Number(old.top)||0)+(Number(old.height)||size.height)/2;
+    placeFloatingAt(frame,{
+      left:centerX-size.width/2,
+      top:centerY-size.height/2,
+      width:size.width,
+      height:size.height
+    });
+    return;
+  }
+
   placeAutoFloatAtEdge(frame,size);
 }
 
@@ -7102,6 +7144,7 @@ function applyFloatingIframe(force){
     }
     state.floatTucked=false;
     state.floatUserSized=false;
+    state.floatUserMoved=false;
     state.floatPreset="auto";
     clearFloatBoxStyles();
     playerSection.style.removeProperty("min-height");
@@ -7113,10 +7156,11 @@ function applyFloatingIframe(force){
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
   state.floatTucked=false;
-  state.floatUserSized=false;
   state.floatPreset="auto";
 
   if(!floating){
+    state.floatUserSized=false;
+    state.floatUserMoved=false;
     frame.classList.add("float-entering","floating-iframe");
   }
   frame.classList.toggle("dock-left",state.floatDock==="left");
@@ -7164,18 +7208,69 @@ function setWatchMinimized(minimized){
 function setupWatchMinimizeGesture(){
   const frame=playerSection?.querySelector(".player-frame");
 
-  // The video itself may be a cross-origin YouTube iframe, so iOS Safari can
-  // consume its touch stream before the page receives a reliable swipe.
-  // Keep only tap-to-restore on the mini-player and use the recommendation
-  // list below the player as the canonical minimize gesture surface.
+  // YouTube's iframe owns its own touch stream, so the full-size player is not
+  // used as the minimize gesture surface. The transparent overlay is active
+  // only after the player becomes mini: tap restores, drag moves the mini.
   if(frame&&!frame.querySelector(".watch-swipe-zone")){
     const zone=document.createElement("div");
     zone.className="watch-swipe-zone";
     zone.setAttribute("aria-hidden","true");
     frame.appendChild(zone);
 
-    zone.addEventListener("click",()=>{
-      if(state.watchMinimized)setWatchMinimized(false);
+    let miniDrag=null;
+
+    zone.addEventListener("pointerdown",event=>{
+      if(!state.watchMinimized||event.isPrimary===false)return;
+      const rect=frame.getBoundingClientRect();
+      miniDrag={
+        pointerId:event.pointerId,
+        startX:event.clientX,
+        startY:event.clientY,
+        left:rect.left,
+        top:rect.top,
+        width:rect.width,
+        height:rect.height,
+        moved:false
+      };
+      zone.classList.add("is-dragging");
+      try{zone.setPointerCapture?.(event.pointerId)}catch{}
+      event.preventDefault();
+    });
+
+    zone.addEventListener("pointermove",event=>{
+      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
+
+      const dx=event.clientX-miniDrag.startX;
+      const dy=event.clientY-miniDrag.startY;
+      if(!miniDrag.moved&&Math.hypot(dx,dy)<5)return;
+
+      miniDrag.moved=true;
+      state.floatUserMoved=true;
+      placeFloatingAt(frame,{
+        left:miniDrag.left+dx,
+        top:miniDrag.top+dy,
+        width:miniDrag.width,
+        height:miniDrag.height
+      });
+      event.preventDefault();
+    });
+
+    const finishMiniDrag=event=>{
+      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
+      const moved=miniDrag.moved;
+      miniDrag=null;
+      zone.classList.remove("is-dragging");
+      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
+
+      if(!moved&&state.watchMinimized)setWatchMinimized(false);
+      event.preventDefault();
+    };
+
+    zone.addEventListener("pointerup",finishMiniDrag);
+    zone.addEventListener("pointercancel",event=>{
+      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
+      miniDrag=null;
+      zone.classList.remove("is-dragging");
     });
   }
 
@@ -7224,9 +7319,6 @@ function setupWatchMinimizeGesture(){
     const dx=current.lastX-current.x;
     const dy=current.lastY-current.y;
 
-    // Finger moving upward = browse list moving upward, matching YouTube's
-    // "continue browsing" motion. Require a deliberate vertical swipe so card
-    // taps and horizontal source/category gestures remain untouched.
     if(
       dy<=-42 &&
       Math.abs(dy)>Math.abs(dx)*1.18
