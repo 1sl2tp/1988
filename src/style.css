@@ -3129,6 +3129,22 @@ html.watch-browse .topic-chip.topic-subject{
     transform:translateZ(0);
   }
 
+  /* iPhone 7 / older WebKit rounds a 9:16 stage (e.g. 375 / .5625)
+     differently between the grid row, iframe and compositor. Overscan only
+     portrait media by one physical CSS pixel on every edge, then clip at the
+     frame. This removes the black seam and keeps the video geometrically
+     centred without changing landscape playback. */
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe) iframe,
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe) video,
+  html.watch-browse.watch-video-portrait .player-frame:not(.floating-iframe) #yt-player{
+    top:-1px!important;
+    right:-1px!important;
+    bottom:-1px!important;
+    left:-1px!important;
+    width:calc(100% + 2px)!important;
+    height:calc(100% + 2px)!important;
+  }
+
   html.watch-browse .header-nav{
     grid-row:3;
     margin:0!important;
