@@ -7539,7 +7539,7 @@ function trendRows(rows=[]){
 
 function renderParentCategories(){
   if(!topicChips)return;
-  topicChips.querySelectorAll("[data-ai-parent]").forEach(button=>button.remove());
+  topicChips.querySelectorAll("[data-ai-parent],[data-hashtag-add]").forEach(button=>button.remove());
 
   state.parentCategories=sourceCategoryRows();
 
