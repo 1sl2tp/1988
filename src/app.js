@@ -10589,6 +10589,15 @@ function paintCardChannelAvatar(card,image=""){
   const avatar=card.querySelector(".card-avatar");
   if(!avatar)return false;
 
+  const current=avatar.querySelector("img");
+  if(current){
+    if((current.getAttribute("src")||"")===image)return true;
+    // Keep the decoded avatar currently on screen until the replacement is
+    // fully loaded. Never blank/recreate the same channel icon.
+    swapVisualImageWhenReady(current,image);
+    return true;
+  }
+
   if(!avatarImageReady(image)){
     void warmAvatarImage(image).then(ok=>{
       if(ok&&card.isConnected)paintCardChannelAvatar(card,image);
