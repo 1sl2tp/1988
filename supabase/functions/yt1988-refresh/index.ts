@@ -23,7 +23,7 @@ const DAY_MS=24*60*60*1000;
 const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=30;
-const LIVE_PIPELINE_VERSION="live-v14";
+const LIVE_PIPELINE_VERSION="live-v15";
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp",
   "live việt nam",
@@ -696,7 +696,7 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      const selectedDiscoveryBatches=await mapLimit(selectedLiveSources,6,async(source)=>{
+      const selectedDiscoveryPromise=mapLimit(selectedLiveSources,6,async(source)=>{
         try{
           const direct=await searchSelectedSourceLiveCandidates(
             source,supabaseUrl,serviceKey
@@ -713,17 +713,19 @@ Deno.serve(async(req:Request)=>{
         }
       });
 
-      let globalCandidates:any[]=[];
-      try{
-        globalCandidates=await discoverGlobalLiveCandidates(
-          supabaseUrl,
-          serviceKey,
-          allBlockedLiveSourceIds,
-          liveKeywords
-        );
-      }catch(error){
+      const globalDiscoveryPromise=discoverGlobalLiveCandidates(
+        supabaseUrl,
+        serviceKey,
+        allBlockedLiveSourceIds,
+        liveKeywords
+      ).catch((error)=>{
         console.warn("global live discovery failed",String(error));
-      }
+        return [];
+      });
+
+      const [selectedDiscoveryBatches,globalCandidates]=await Promise.all([
+        selectedDiscoveryPromise,globalDiscoveryPromise
+      ]);
 
       const candidates=dedupeRows([
         ...selectedDiscoveryBatches.flat().map((row:any)=>({...row,_liveOrigin:"source"})),
