@@ -423,7 +423,7 @@ const LIVE_KEYWORDS_STATE_KEY="__live_keywords";
 let liveBlockedKeywords=[];
 
 const LOCAL_DATA_SCHEMA_KEY="1988-local-data-schema-version";
-const LOCAL_DATA_SCHEMA_VERSION="310";
+const LOCAL_DATA_SCHEMA_VERSION="311";
 const LOCAL_VOLATILE_PREFIXES=[
   "1988-tab-snapshot-",
   "1988-discovery-",
