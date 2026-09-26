@@ -11209,7 +11209,8 @@ async function buildSelectedVideoRecommendations(local,currentId,meta={},related
   state.feedHasMore=false;
 
   // A real YouTube playlist remains authoritative.
-  const hasPlaylist=setPlaylistContext(playlist,currentId);
+  const hasSearchQueue=state.seriesMode==="search"&&state.seriesQueue.length>1;
+  const hasPlaylist=hasSearchQueue?false:setPlaylistContext(playlist,currentId);
   if(hasPlaylist){
     const playlistHtml=playlistSuggestionHtml(playlist,currentId);
     if(playlistHtml){
