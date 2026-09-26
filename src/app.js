@@ -13443,16 +13443,15 @@ function accentVarsFromColor(color=""){
   const [r,g,b]=rgb;
   return {
     solid:`rgb(${r},${g},${b})`,
-    soft:`rgba(${r},${g},${b},.34)`,
-    faint:`rgba(${r},${g},${b},.18)`,
-    glow:`rgba(${r},${g},${b},.22)`,
-    line:`rgba(${r},${g},${b},.52)`
+    soft:`rgba(${r},${g},${b},.72)`,
+    faint:`rgba(${r},${g},${b},.44)`,
+    glow:`rgba(${r},${g},${b},.30)`,
+    line:`rgba(${r},${g},${b},.58)`
   };
 }
 
 function clearDesktopHoverAccent(card=desktopHoverAccentCard){
   ++desktopHoverAccentSeq;
-  const root=document.documentElement;
 
   if(card){
     card.classList.remove("desktop-accent-hover");
@@ -13466,13 +13465,6 @@ function clearDesktopHoverAccent(card=desktopHoverAccentCard){
   }
 
   if(desktopHoverAccentCard===card)desktopHoverAccentCard=null;
-  root.classList.remove("desktop-hover-accent");
-  for(const name of [
-    "--desktop-hover-accent",
-    "--desktop-hover-accent-soft",
-    "--desktop-hover-accent-glow",
-    "--desktop-hover-accent-line"
-  ])root.style.removeProperty(name);
 }
 
 async function applyDesktopHoverAccent(card){
@@ -13505,13 +13497,6 @@ async function applyDesktopHoverAccent(card){
   card.style.setProperty("--desktop-card-accent-glow",vars.glow);
   card.style.setProperty("--desktop-card-accent-line",vars.line);
   card.classList.add("desktop-accent-hover");
-
-  const root=document.documentElement;
-  root.style.setProperty("--desktop-hover-accent",vars.solid);
-  root.style.setProperty("--desktop-hover-accent-soft",vars.soft);
-  root.style.setProperty("--desktop-hover-accent-glow",vars.glow);
-  root.style.setProperty("--desktop-hover-accent-line",vars.line);
-  root.classList.add("desktop-hover-accent");
 }
 
 function primeDesktopCardHoverColors(){

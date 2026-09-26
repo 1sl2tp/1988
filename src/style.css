@@ -4284,73 +4284,86 @@ body::-webkit-scrollbar-corner,
 }
 
 
-/* Desktop thumbnail colour hover v399.
-   The thumbnail is the only hover trigger. Geometry/images never change;
-   only background/border/glow are composited. Mobile/PWA remains static. */
+/* Desktop full-card colour hover v400.
+   YouTube-like hover panel: colour belongs to the whole card, including the
+   image + metadata area. The panel grows visually with a pseudo-element, so
+   grid geometry never changes and neighboring cards never reflow. */
 @media (hover:hover) and (pointer:fine) and (min-width:760px){
   .feed>.card{
     position:relative;
-    transition:
-      background-color .18s ease,
-      box-shadow .18s ease,
-      border-color .18s ease;
+    isolation:isolate;
+    overflow:visible!important;
+    background:transparent!important;
+    border-color:transparent!important;
+    transition:none!important;
   }
 
-  .feed>.card .card-copy{
-    transition:background-color .18s ease;
+  .feed>.card::before{
+    content:"";
+    position:absolute;
+    z-index:-1;
+    inset:-10px -10px -12px;
+    border:1px solid transparent;
+    border-radius:20px;
+    background:transparent;
+    box-shadow:none;
+    opacity:0;
+    pointer-events:none;
+    transition:
+      opacity .16s ease,
+      background-color .16s ease,
+      border-color .16s ease,
+      box-shadow .16s ease;
   }
 
   .feed>.card.desktop-accent-hover{
+    z-index:8;
+  }
+
+  .feed>.card.desktop-accent-hover::before{
+    opacity:1;
+    border-color:var(--desktop-card-accent-line,rgba(255,255,255,.10));
     background:
       linear-gradient(
         180deg,
-        var(--desktop-card-accent-faint,rgba(255,255,255,.03)) 0%,
-        var(--desktop-card-accent-soft,rgba(255,255,255,.06)) 100%
-      )!important;
-    border-color:var(--desktop-card-accent-line,rgba(255,255,255,.10))!important;
+        var(--desktop-card-accent-soft,rgba(38,38,40,.96)) 0%,
+        var(--desktop-card-accent-faint,rgba(28,28,30,.94)) 100%
+      );
     box-shadow:
-      0 0 0 1px var(--desktop-card-accent-line,rgba(255,255,255,.08)),
-      0 14px 34px var(--desktop-card-accent-glow,rgba(0,0,0,.20));
+      0 0 0 1px rgba(255,255,255,.018) inset,
+      0 16px 42px var(--desktop-card-accent-glow,rgba(0,0,0,.22));
   }
 
   html:not(.watch-browse) .feed>.card.desktop-accent-hover .card-copy,
   html.watch-browse .feed>.card.desktop-accent-hover .card-copy{
-    background:
-      linear-gradient(
-        180deg,
-        var(--desktop-card-accent-soft,rgba(255,255,255,.05)),
-        var(--desktop-card-accent-faint,rgba(255,255,255,.03))
-      )!important;
+    background:transparent!important;
   }
 
   .feed>.card.desktop-accent-hover .thumb-wrap{
+    border-radius:13px!important;
     box-shadow:
-      inset 0 0 0 1px var(--desktop-card-accent-line,rgba(255,255,255,.10));
+      0 0 0 1px var(--desktop-card-accent-line,rgba(255,255,255,.08));
   }
 
-  html.desktop-hover-accent.watch-browse .player-card{
-    box-shadow:
-      0 0 0 1px var(--desktop-hover-accent-line,rgba(255,255,255,.08)),
-      0 18px 54px var(--desktop-hover-accent-glow,rgba(0,0,0,.18))!important;
-    background:
-      radial-gradient(
-        130% 150% at 50% 50%,
-        var(--desktop-hover-accent-soft,rgba(255,255,255,.04)) 0%,
-        rgba(15,15,15,.02) 58%,
-        transparent 100%
-      )!important;
-    transition:
-      background .18s ease,
-      box-shadow .18s ease;
+  .feed>.card.desktop-accent-hover .thumb-wrap img{
+    border-radius:13px!important;
+  }
+
+  .feed>.card.desktop-accent-hover .card-copy{
+    position:relative;
+    z-index:1;
   }
 }
 
-/* Explicitly keep touch/mobile chrome static even if a hybrid browser reports hover. */
+/* Touch/mobile/PWA never receives the desktop hover panel. */
 @media (max-width:759px), (hover:none), (pointer:coarse){
-  .feed>.card.desktop-accent-hover,
-  html.desktop-hover-accent.watch-browse .player-card{
-    background:var(--main-page-bg,#0f0f0f)!important;
+  .feed>.card.desktop-accent-hover::before{
+    display:none!important;
+  }
+  .feed>.card.desktop-accent-hover{
+    background:transparent!important;
     box-shadow:none!important;
     border-color:transparent!important;
   }
+}
 }
