@@ -502,19 +502,25 @@ main{
    MAIN 1-col = square + no outer black
    PiP = rounded + no outer black
    2-col = rounded panel; landscape may letterbox inside, portrait has no black */
-html.one-col .stage,
-html.one-col .player,
-html.one-col .player iframe{
+/* MAIN 1 cột:
+   ngang chạm mép = vuông;
+   dọc là một media card độc lập = bo thống nhất với PiP / 2 cột. */
+html.one-col.landscape .stage,
+html.one-col.landscape .player,
+html.one-col.landscape .player iframe{
   border-radius:0;
+  background:transparent;
 }
 
 html.one-col.portrait .stage,
 html.one-col.portrait .player,
-html.one-col.portrait .player iframe,
-html.one-col.landscape .stage,
-html.one-col.landscape .player,
-html.one-col.landscape .player iframe{
+html.one-col.portrait .player iframe{
+  border-radius:var(--floating-radius);
   background:transparent;
+}
+html.one-col.portrait .stage,
+html.one-col.portrait .player{
+  overflow:hidden;
 }
 
 html.one-col .player.pip,
