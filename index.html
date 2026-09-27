@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-475">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-476">
   <title>1988</title>
 </head>
 <body>
@@ -63,6 +63,18 @@
         <div class="player-frame">
           <video id="nativePlayer" controls playsinline webkit-playsinline preload="auto" hidden></video>
           <div id="yt-player" hidden></div>
+        </div>
+        <div id="watchMediaBar" class="watch-media-bar" aria-label="Điều khiển media">
+          <button type="button" class="watch-media-btn" data-watch-media="play" aria-label="Tạm dừng"></button>
+          <div class="watch-media-progress" role="slider" aria-label="Thanh tua video">
+            <div class="watch-media-progress-track"></div>
+            <div class="watch-media-progress-buffered"></div>
+            <div class="watch-media-progress-fill"></div>
+            <div class="watch-media-progress-thumb"></div>
+          </div>
+          <span class="watch-media-time" aria-live="off">0:00 / 0:00</span>
+          <button type="button" class="watch-media-btn" data-watch-media="mute" aria-label="Tắt âm"></button>
+          <button type="button" class="watch-media-btn" data-watch-media="fullscreen" aria-label="Toàn màn hình"></button>
         </div>
         <div id="seriesPanel" class="series-panel" hidden>
           <div class="series-panel-head">
@@ -306,7 +318,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=475',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=476',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -330,6 +342,6 @@
   <script src="./src/media-meta.js?v=2"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" defer></script>
-  <script defer src="./src/app.js?v=watch-browse-475"></script>
+  <script defer src="./src/app.js?v=watch-browse-476"></script>
 </body>
 </html>

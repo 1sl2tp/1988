@@ -205,7 +205,7 @@ assert.match(app,/return ["']main["']/);
 assert.doesNotMatch(app,/return watchAutoPipViewport\(\)\?["']minimal["']:["']full["']/);
 assert.doesNotMatch(app,/function rebuildYoutubeIframeForControls\(/);
 assert.doesNotMatch(app,/class=["']float-overlay-play["']/);
-assert.match(style,/UNIFIED CLEAN MEDIA CHROME v474/);
+assert.match(style,/THIN SEPARATE MEDIA BAR v476/);
 assert.match(style,/\.watch-media-progress/);
 assert.match(style,/\[data-player-ui-mode=["']pip["']\][\s\S]{0,800}\.watch-media-center/);
 assert.match(app,/let ytPlayerHost=\$\("#yt-player"\)/);

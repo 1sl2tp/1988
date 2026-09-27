@@ -12298,14 +12298,38 @@ function mainPlaybackActive(){
   return state.mode==="video"&&!!state.currentId&&!!state.intentPlay;
 }
 
+function mainPlayerMuted(){
+  if(state.engine==="native")return !!nativePlayer.muted;
+  try{return !!state.player?.isMuted?.();}catch{return false;}
+}
+
 function unifiedMediaSvg(name){
   const paths={
     play:'<path d="M9 7.1v9.8l8.2-4.9z" fill="currentColor" stroke="none"/>',
-    pause:'<path d="M8.5 7h2.6v10H8.5zM13.9 7h2.6v10h-2.6z" fill="currentColor" stroke="none"/>'
+    pause:'<path d="M8.5 7h2.6v10H8.5zM13.9 7h2.6v10h-2.6z" fill="currentColor" stroke="none"/>',
+    volume:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9c1 .8 1.5 1.8 1.5 3S17 14.2 16 15"/><path d="M18.5 6.8c1.8 1.4 2.7 3.1 2.7 5.2s-.9 3.8-2.7 5.2"/>',
+    mute:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9l4 6M20 9l-4 6"/>',
+    fullscreen:'<path d="M9.5 6H6v3.5M14.5 6H18v3.5M6 14.5V18h3.5M18 14.5V18h-3.5"/>',
+    compress:'<path d="M10.5 10.5H6V6M13.5 10.5H18V6M10.5 13.5H6V18M13.5 13.5H18V18"/>'
   };
   return '<svg class="watch-media-control-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+
     (paths[name]||paths.play)+
     '</svg>';
+}
+
+function formatUnifiedMediaTime(value=0){
+  const total=Math.max(0,Math.floor(Number(value)||0));
+  const hours=Math.floor(total/3600);
+  const minutes=Math.floor((total%3600)/60);
+  const seconds=total%60;
+  if(hours>0){
+    return hours+":"+String(minutes).padStart(2,"0")+":"+String(seconds).padStart(2,"0");
+  }
+  return minutes+":"+String(seconds).padStart(2,"0");
+}
+
+function unifiedMediaBar(){
+  return playerSection?.querySelector("#watchMediaBar")||null;
 }
 
 function unifiedMediaDuration(){
@@ -12315,11 +12339,25 @@ function unifiedMediaDuration(){
   try{return Math.max(0,Number(state.player?.getDuration?.())||0);}catch{return 0;}
 }
 
+function unifiedMediaBufferedFraction(duration=unifiedMediaDuration()){
+  if(duration<=0)return 0;
+  if(state.engine==="native"){
+    try{
+      const ranges=nativePlayer.buffered;
+      if(!ranges?.length)return 0;
+      return Math.max(0,Math.min(1,Number(ranges.end(ranges.length-1)||0)/duration));
+    }catch{return 0;}
+  }
+  try{return Math.max(0,Math.min(1,Number(state.player?.getVideoLoadedFraction?.())||0));}catch{return 0;}
+}
+
 function syncUnifiedMediaProgress(
   frame=playerSection?.querySelector(".player-frame"),
   ratioOverride=null
 ){
   if(!frame)return;
+  const bar=unifiedMediaBar();
+  if(!bar)return;
 
   const duration=unifiedMediaDuration()||durationSeconds(state.currentMeta||{});
   const settlingRatio=
@@ -12336,10 +12374,14 @@ function syncUnifiedMediaProgress(
     ?Math.max(0,Math.min(1,effectiveRatio===null?current/duration:Number(effectiveRatio)||0))
     :0;
 
-  const fill=frame.querySelector(".watch-media-progress-fill");
-  const thumb=frame.querySelector(".watch-media-progress-thumb");
+  const fill=bar.querySelector(".watch-media-progress-fill");
+  const buffered=bar.querySelector(".watch-media-progress-buffered");
+  const thumb=bar.querySelector(".watch-media-progress-thumb");
+  const time=bar.querySelector(".watch-media-time");
   if(fill)fill.style.width=(ratio*100)+"%";
+  if(buffered)buffered.style.width=(unifiedMediaBufferedFraction(duration)*100)+"%";
   if(thumb)thumb.style.left=(ratio*100)+"%";
+  if(time)time.textContent=formatUnifiedMediaTime(current)+" / "+formatUnifiedMediaTime(duration);
 }
 
 function stopUnifiedMediaProgress(){
@@ -12350,12 +12392,13 @@ function stopUnifiedMediaProgress(){
 }
 
 function startUnifiedMediaProgress(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||watchMediaProgressRaf)return;
+  if(!frame||watchMediaProgressRaf||currentPlayerUiMode()!=="main")return;
   const tick=()=>{
     watchMediaProgressRaf=0;
     if(
       !frame.isConnected ||
-      !frame.classList.contains("watch-media-chrome-visible")
+      !state.currentId ||
+      currentPlayerUiMode()!=="main"
     )return;
     if(!watchMediaDragging)syncUnifiedMediaProgress(frame);
     watchMediaProgressRaf=requestAnimationFrame(tick);
@@ -12366,47 +12409,47 @@ function startUnifiedMediaProgress(frame=playerSection?.querySelector(".player-f
 
 function hideUnifiedMediaChrome(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
-  clearTimeout(watchMediaChromeTimer);
-  watchMediaChromeTimer=0;
-  frame.classList.remove("watch-media-chrome-visible");
-  stopUnifiedMediaProgress();
+  if(currentPlayerUiMode()==="pip")stopUnifiedMediaProgress();
+  else syncUnifiedMediaState(frame);
 }
 
 function showUnifiedMediaChrome(
   frame=playerSection?.querySelector(".player-frame"),
-  delay=3800
+  delay=0
 ){
+  void delay;
   if(!frame||playerSection?.hidden||!state.currentId)return;
-  clearTimeout(watchMediaChromeTimer);
-  frame.classList.add("watch-media-chrome-visible");
   syncUnifiedMediaState(frame);
-  startUnifiedMediaProgress(frame);
-
-  if(delay>0){
-    watchMediaChromeTimer=setTimeout(()=>{
-      watchMediaChromeTimer=0;
-      if(!state.intentPlay||watchMediaDragging)return;
-      hideUnifiedMediaChrome(frame);
-    },delay);
-  }
+  if(currentPlayerUiMode()==="main")startUnifiedMediaProgress(frame);
+  else stopUnifiedMediaProgress();
 }
 
-function pulseUnifiedMediaControl(frame=playerSection?.querySelector(".player-frame")){
-  const button=frame?.querySelector(".watch-media-center");
-  if(!button)return;
-  button.classList.remove("watch-media-pulse");
-  void button.offsetWidth;
-  button.classList.add("watch-media-pulse");
+function pulseUnifiedMediaControl(){
+  // MAIN has no overlay button. The separate bar stays visually quiet.
 }
 
 function syncUnifiedMediaState(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
+  const bar=unifiedMediaBar();
+  if(!bar)return;
+
   const active=mainPlaybackActive();
-  const button=frame.querySelector(".watch-media-center");
-  if(button){
-    button.innerHTML=unifiedMediaSvg(active?"pause":"play");
-    button.setAttribute("aria-label",active?"Tạm dừng":"Phát");
-    button.dataset.state=active?"pause":"play";
+  const muted=mainPlayerMuted();
+  const play=bar.querySelector('[data-watch-media="play"]');
+  const mute=bar.querySelector('[data-watch-media="mute"]');
+  const full=bar.querySelector('[data-watch-media="fullscreen"]');
+  if(play){
+    play.innerHTML=unifiedMediaSvg(active?"pause":"play");
+    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
+  }
+  if(mute){
+    mute.innerHTML=unifiedMediaSvg(muted?"mute":"volume");
+    mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
+  }
+  if(full){
+    const expanded=!!(document.fullscreenElement||document.webkitFullscreenElement);
+    full.innerHTML=unifiedMediaSvg(expanded?"compress":"fullscreen");
+    full.setAttribute("aria-label",expanded?"Thoát toàn màn hình":"Toàn màn hình");
   }
   syncUnifiedMediaProgress(frame);
 }
@@ -12420,30 +12463,63 @@ function toggleUnifiedMediaPlayback(frame=playerSection?.querySelector(".player-
     state.resumeOnReturn=false;
     state.transitionUntil=0;
     pauseVideoEngine();
-    syncUnifiedMediaState(frame);
-    showUnifiedMediaChrome(frame,0);
   }else{
     state.intentPlay=true;
     playVideoEngine();
-    syncUnifiedMediaState(frame);
-    showUnifiedMediaChrome(frame,currentPlayerUiMode()==="pip"?2400:3200);
   }
-  pulseUnifiedMediaControl(frame);
+  syncUnifiedMediaState(frame);
+}
+
+function toggleUnifiedMediaMute(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  if(state.engine==="native"){
+    nativePlayer.muted=!nativePlayer.muted;
+  }else{
+    try{
+      if(state.player?.isMuted?.())state.player.unMute?.();
+      else state.player?.mute?.();
+    }catch{}
+  }
+  syncUnifiedMediaState(frame);
+}
+
+async function toggleUnifiedMediaFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  const card=frame.closest(".player-card")||frame;
+  const fullscreenElement=document.fullscreenElement||document.webkitFullscreenElement;
+  if(fullscreenElement){
+    try{
+      if(document.exitFullscreen)await document.exitFullscreen();
+      else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
+    }catch{}
+    syncUnifiedMediaState(frame);
+    return;
+  }
+
+  const request=card.requestFullscreen||card.webkitRequestFullscreen;
+  if(typeof request==="function"){
+    try{
+      await request.call(card);
+      syncUnifiedMediaState(frame);
+      return;
+    }catch{}
+  }
+
+  if(state.engine==="native"&&typeof nativePlayer.webkitEnterFullscreen==="function"){
+    try{nativePlayer.webkitEnterFullscreen();}catch{}
+  }
 }
 
 function seekUnifiedMediaFromClientX(
   clientX,
   frame=playerSection?.querySelector(".player-frame")
 ){
-  const bar=frame?.querySelector(".watch-media-progress");
+  const bar=unifiedMediaBar()?.querySelector(".watch-media-progress");
   if(!bar)return null;
   const rect=watchMediaScrubRect||bar.getBoundingClientRect();
   if(!rect.width)return null;
 
   const ratio=Math.max(0,Math.min(1,(Number(clientX)-rect.left)/rect.width));
-  // Dragging is preview-only. Calling YouTube seekTo() for every pointermove
-  // creates competing BUFFERING/PAUSED events and makes the final position
-  // intermittent, especially on Safari/iOS.
   watchMediaSeekTarget=ratio;
   syncUnifiedMediaProgress(frame,ratio);
   return ratio;
@@ -12479,9 +12555,6 @@ function commitUnifiedMediaSeek(
   const shouldResume=!!watchMediaSeekResume;
   const target=Math.max(0,Math.min(duration,duration*ratio));
 
-  // YouTube can emit PAUSED immediately after seekTo even though the viewer
-  // never asked to pause. Keep a short settlement window so that event cannot
-  // overwrite the playback intent captured at pointerdown.
   clearTimeout(watchMediaSeekCleanupTimer);
   watchMediaSeekSettlingUntil=Date.now()+1800;
   watchMediaSeekCleanupTimer=setTimeout(()=>{
@@ -12517,12 +12590,9 @@ function bindUnifiedMediaSeek(frame,bar){
     if(!watchMediaDragging)return;
     watchMediaDragging=false;
     try{bar.releasePointerCapture?.(event.pointerId);}catch{}
-
-    // Commit exactly once on release, then resume immediately if the video was
-    // playing before the drag started.
     commitUnifiedMediaSeek(frame);
     watchMediaScrubRect=null;
-    showUnifiedMediaChrome(frame,currentPlayerUiMode()==="pip"?2200:3000);
+    syncUnifiedMediaState(frame);
   };
 
   bar.addEventListener("pointerdown",event=>{
@@ -12537,7 +12607,6 @@ function bindUnifiedMediaSeek(frame,bar){
     watchMediaScrubRect=bar.getBoundingClientRect();
     try{bar.setPointerCapture?.(event.pointerId);}catch{}
     seekUnifiedMediaFromClientX(event.clientX,frame);
-    showUnifiedMediaChrome(frame,5000);
   });
 
   bar.addEventListener("pointermove",event=>{
@@ -12556,50 +12625,39 @@ function bindUnifiedMediaSeek(frame,bar){
 
 function ensureUnifiedMediaChrome(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame)return;
+  const bar=unifiedMediaBar();
+  if(!frame||!bar)return;
 
-  if(frame.dataset.unifiedChromeReady==="1"){
+  if(bar.dataset.unifiedChromeReady==="1"){
     syncUnifiedMediaState(frame);
     return;
   }
-  frame.dataset.unifiedChromeReady="1";
+  bar.dataset.unifiedChromeReady="1";
 
-  const tap=document.createElement("button");
-  tap.type="button";
-  tap.className="watch-media-tap-surface";
-  tap.setAttribute("aria-label","Phát hoặc tạm dừng video");
-
-  const chrome=document.createElement("div");
-  chrome.className="watch-media-chrome";
-  chrome.setAttribute("aria-hidden","true");
-  chrome.innerHTML=
-    '<div class="watch-media-top-mask"></div>'+
-    '<button type="button" class="watch-media-center" aria-label="Tạm dừng">'+unifiedMediaSvg("pause")+'</button>'+
-    '<div class="watch-media-bottom-mask">'+
-      '<div class="watch-media-progress" role="slider" aria-label="Thanh tua video">'+
-        '<div class="watch-media-progress-track"></div>'+
-        '<div class="watch-media-progress-fill"></div>'+
-        '<div class="watch-media-progress-thumb"></div>'+
-      '</div>'+
-    '</div>';
-
-  tap.addEventListener("click",event=>{
+  bar.querySelector('[data-watch-media="play"]')?.addEventListener("click",event=>{
     event.preventDefault();
-    event.stopPropagation();
     toggleUnifiedMediaPlayback(frame);
   });
-
-  chrome.querySelector(".watch-media-center")?.addEventListener("click",event=>{
+  bar.querySelector('[data-watch-media="mute"]')?.addEventListener("click",event=>{
     event.preventDefault();
-    event.stopPropagation();
-    toggleUnifiedMediaPlayback(frame);
+    toggleUnifiedMediaMute(frame);
+  });
+  bar.querySelector('[data-watch-media="fullscreen"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    void toggleUnifiedMediaFullscreen(frame);
   });
 
-  const bar=chrome.querySelector(".watch-media-progress");
-  bindUnifiedMediaSeek(frame,bar);
+  const seek=bar.querySelector(".watch-media-progress");
+  bindUnifiedMediaSeek(frame,seek);
 
-  frame.append(tap,chrome);
+  if(!bar.dataset.fullscreenReady){
+    bar.dataset.fullscreenReady="1";
+    document.addEventListener("fullscreenchange",()=>syncUnifiedMediaState(frame));
+    document.addEventListener("webkitfullscreenchange",()=>syncUnifiedMediaState(frame));
+  }
+
   syncUnifiedMediaState(frame);
+  if(currentPlayerUiMode()==="main")startUnifiedMediaProgress(frame);
 }
 
 function syncPlayerUiMode(){
@@ -12664,8 +12722,8 @@ function toggleMainMinimalPlayback(frame=playerSection?.querySelector(".player-f
   toggleUnifiedMediaPlayback(frame);
 }
 
-function toggleMainMinimalMute(){
-  // Clean chrome intentionally exposes only play/pause and seek.
+function toggleMainMinimalMute(frame=playerSection?.querySelector(".player-frame")){
+  toggleUnifiedMediaMute(frame);
 }
 
 function setMainPseudoFullscreen(value){
@@ -12688,9 +12746,8 @@ function setMainPseudoFullscreen(value){
   syncUnifiedMediaState(frame);
 }
 
-async function toggleMainMinimalFullscreen(){
-  // Fullscreen is no longer part of the clean transport. Keep this compatibility
-  // hook so cached call sites cannot fail while the app updates.
+async function toggleMainMinimalFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  await toggleUnifiedMediaFullscreen(frame);
 }
 
 function getVideoTime(){
