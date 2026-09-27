@@ -11346,6 +11346,27 @@ function paintCardChannelAvatar(card,image=""){
   return true;
 }
 
+function paintVisibleRowSourceAvatars(rows=[]){
+  for(const row of Array.isArray(rows)?rows:[]){
+    const id=itemVideoId(row);
+    if(!id)continue;
+    const channel=clean(
+      row?._displaySource||
+      row?.uploaderName||
+      row?.uploader||
+      row?.channelName||
+      row?._sourceName||
+      ""
+    );
+    const sourceId=canonicalSourceId(row,channel);
+    if(!sourceId)continue;
+    const image=sourceAvatarForRow(row,sourceId,channel)||sourceAvatarCached(sourceId);
+    if(!image||!avatarImageReady(image))continue;
+    const card=feed.querySelector('.card[data-video-id="'+CSS.escape(id)+'"]');
+    if(card)paintCardChannelAvatar(card,image);
+  }
+}
+
 function paintHomeChannelAvatar(sourceId,meta={}){
   const image=rememberSourceAvatar(sourceId,meta?.thumbnailUrl||"");
   if(!image)return false;
@@ -13644,7 +13665,12 @@ async function doSearch(value){
       searchRefinements.hidden=true;
       searchRefinements.innerHTML="";
     }
-    void prewarmRowSourceAvatars(cleanRows.slice(0,24),420).catch(()=>{});
+    void prewarmRowSourceAvatars(cleanRows.slice(0,24),420)
+      .then(()=>{
+        if(seq!==state.searchSeq||state.searchQuery!==q)return;
+        paintVisibleRowSourceAvatars(cleanRows.slice(0,24));
+      })
+      .catch(()=>{});
     return true;
   };
 
@@ -14195,7 +14221,32 @@ function primeDesktopCardHoverColors(){
 
 feed?.addEventListener("error",event=>{
   const img=event.target;
-  if(!(img instanceof HTMLImageElement)||!img.closest(".card-avatar"))return;
+  if(!(img instanceof HTMLImageElement))return;
+
+  const thumbWrap=img.closest(".thumb-wrap");
+  if(thumbWrap){
+    const card=img.closest(".card[data-video-id]");
+    const id=String(card?.dataset?.videoId||"").trim();
+    if(
+      /^[A-Za-z0-9_-]{11}$/.test(id)&&
+      img.dataset.thumbFallback!=="1"
+    ){
+      const fallback="https://i.ytimg.com/vi/"+id+"/mqdefault.jpg";
+      img.dataset.thumbFallback="1";
+      img.src=fallback;
+      if(card){
+        card.dataset.thumb=fallback;
+        const row=state.feedRows.find(item=>itemVideoId(item)===id);
+        if(row){
+          row.thumbnail=fallback;
+          row.thumbnailUrl=fallback;
+        }
+      }
+    }
+    return;
+  }
+
+  if(!img.closest(".card-avatar"))return;
   const card=img.closest(".card[data-video-id]");
   img.remove();
   if(card)queueHomeChannelAvatars();
