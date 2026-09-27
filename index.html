@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
   <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-421">
+  <link rel="stylesheet" href="./src/style.css?v=watch-browse-422">
   <title>1988</title>
 </head>
 <body>
@@ -114,17 +114,9 @@
         </div>
       </div>
 
-      <div id="selectedSourceCard" class="selected-source-card">
-        <span class="selected-source-avatar" aria-hidden="true">
-          <span id="selectedSourceAvatarFallback" class="selected-source-avatar-fallback">?</span>
-          <img id="selectedSourceAvatar" alt="" width="40" height="40" decoding="async" hidden>
-        </span>
-        <div class="selected-source-copy">
-          <span class="selected-source-label">Nguồn chủ đề</span>
-          <strong id="selectedSourceName"></strong>
-          <span id="selectedSourceMeta"></span>
-        </div>
-      </div>
+      <nav id="selectedTopicRail" class="selected-topic-rail" aria-label="Nguồn và chủ đề">
+        <div id="selectedTopicChips" class="topic-chips selected-topic-chips"></div>
+      </nav>
     </section>
 
     <section class="feed-section">
@@ -314,7 +306,7 @@
 
     window.addEventListener('load',async()=>{
       try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=408',{
+        const reg=await navigator.serviceWorker.register('./sw.js?v=409',{
           scope:'./',
           updateViaCache:'none'
         });
@@ -338,6 +330,6 @@
   <script src="./src/media-meta.js?v=2"></script>
   <script type="module" src="./src/yt-local.js?v=search-fast-286"></script>
   <script src="https://www.youtube.com/iframe_api" async></script>
-  <script defer src="./src/app.js?v=watch-browse-421"></script>
+  <script defer src="./src/app.js?v=watch-browse-422"></script>
 </body>
 </html>
