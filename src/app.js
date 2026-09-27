@@ -8917,7 +8917,7 @@ function titleLooksEnglishOnly(row={}){
 }
 
 function shouldHideVideo(row={}){
-  return isTooShortVideo(row)||titleLooksEnglishOnly(row);
+  return isTooShortVideo(row);
 }
 
 
