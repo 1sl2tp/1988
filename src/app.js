@@ -170,6 +170,7 @@ const state={
   watchMinimized:false,
   watchPipPinned:false,
   watchPipAway:false,
+  watchPipFromFeed:false,
   watchPipEnteredAt:0,
   watchRestoreUntil:0,
   watchOpenSettlingUntil:0,
@@ -6799,14 +6800,25 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
 
   const sourceRatio=responsivePlayerAspect(meta);
-  const ratio=16/9;
+  // Desktop >=960 has a dedicated side player, so its inline frame can and
+  // should follow the real media shape. One-column mobile/tablet keeps the
+  // deliberate 16:9 inline slot; its compact PiP still follows videoAspect.
+  const desktopResponsive=window.innerWidth>=960;
+  const ratio=desktopResponsive ? sourceRatio : 16/9;
+  const orientation=desktopResponsive ? aspectOrientation(ratio) : "landscape";
 
   frame.classList.remove(
     "watch-aspect-wide",
     "watch-aspect-square",
     "watch-aspect-portrait"
   );
-  frame.classList.add("watch-aspect-wide");
+  frame.classList.add(
+    orientation==="portrait"
+      ?"watch-aspect-portrait"
+      :orientation==="square"
+        ?"watch-aspect-square"
+        :"watch-aspect-wide"
+  );
   frame.style.setProperty("--watch-video-aspect",String(ratio));
 
   // Keep the current artwork available to the inline stage as well as PiP.
@@ -6822,7 +6834,13 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   if(root.classList.contains("watch-browse")){
-    root.classList.add("watch-video-wide");
+    root.classList.add(
+      orientation==="portrait"
+        ?"watch-video-portrait"
+        :orientation==="square"
+          ?"watch-video-square"
+          :"watch-video-wide"
+    );
   }
 
   const clearWatchGeometry=()=>{
@@ -6920,8 +6938,9 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     const feedPadLeft=10;
     const feedPadRight=22;
     const feedChrome=feedPadLeft+feedPadRight+scrollGutter;
-    const portrait=false;
-    const wide=true;
+    const desktopOrientation=aspectOrientation(ratio);
+    const portrait=desktopOrientation==="portrait";
+    const wide=desktopOrientation==="landscape";
 
     const sectionRect=playerSection?.getBoundingClientRect?.();
     const feedSectionRect=feedSection?.getBoundingClientRect?.();
@@ -7573,7 +7592,7 @@ function applyFloatingIframe(force){
   finishFloatEntry(frame);
 }
 
-function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
+function setWatchMinimized(minimized,{pinned=false,preserveScroll=false,fromFeed=false}={}){
   const root=document.documentElement;
   minimized=!!minimized;
 
@@ -7590,6 +7609,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     state.watchMinimized=true;
     state.watchPipPinned=!!pinned;
     state.watchPipAway=true;
+    state.watchPipFromFeed=!!fromFeed;
     state.watchPipEnteredAt=Date.now();
     root.classList.add("watch-minimized");
     syncNativeMobileControls();
@@ -7605,6 +7625,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   state.watchMinimized=false;
   state.watchPipPinned=false;
   state.watchPipAway=false;
+  state.watchPipFromFeed=false;
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
@@ -7842,15 +7863,31 @@ function setupWatchMinimizeGesture(){
       if(!rect)return;
 
       const topEdge=watchMediaSlotTopEdge();
+      const feedScrollTop=Math.max(0,Number(feedSection?.scrollTop)||0);
+      const compactFeedAway=
+        window.innerWidth<=720 &&
+        root.classList.contains("watch-browse") &&
+        feedScrollTop>18;
+
       if(!state.watchMinimized){
-        if(eligibleInline()&&rect.bottom<=topEdge+1){
-          setWatchMinimized(true,{pinned:false});
+        if(eligibleInline()&&(rect.bottom<=topEdge+1||compactFeedAway)){
+          setWatchMinimized(true,{pinned:false,fromFeed:compactFeedAway});
         }
         return;
       }
 
       if(state.watchPipPinned)return;
       if(Date.now()-Number(state.watchPipEnteredAt||0)<220)return;
+
+      // Some compact Watch layouts scroll the recommendation pane instead of
+      // moving the media slot itself. Keep PiP detached while that pane is away
+      // from its top, then rejoin when the user returns.
+      if(state.watchPipFromFeed){
+        if(feedScrollTop>3)return;
+        state.watchPipFromFeed=false;
+        restoreInlineFromSlot();
+        return;
+      }
 
       // The frozen media slot, not the portrait iframe's live dimensions,
       // decides when the iframe returns inline.
@@ -7880,6 +7917,7 @@ function setupWatchMinimizeGesture(){
         entry.isIntersecting &&
         state.watchMinimized &&
         !state.watchPipPinned &&
+        !state.watchPipFromFeed &&
         Date.now()-Number(state.watchPipEnteredAt||0)>=220
       ){
         restoreInlineFromSlot();
