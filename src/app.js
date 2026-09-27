@@ -6042,6 +6042,8 @@ function releaseWatchMediaSlot(){
   const root=document.documentElement;
   const anchor=watchPipAnchor();
 
+  teardownFloatHandles();
+
   playerSection?.classList.remove("watch-pip-floating-section");
   playerSection?.style.removeProperty("position");
   playerSection?.style.removeProperty("z-index");
@@ -6469,6 +6471,26 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
   document.addEventListener("pointercancel",finish,{passive:false,capture:true});
 }
 
+
+function teardownFloatHandles(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  clearTimeout(floatOverlayTimer);
+  floatOverlayTimer=0;
+
+  frame.classList.remove(
+    "float-controls-open",
+    "float-moving",
+    "float-geometry-commit"
+  );
+
+  frame.querySelectorAll(
+    ".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay"
+  ).forEach(node=>node.remove());
+
+  delete frame.dataset.floatControlsReady;
+}
 
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
@@ -7918,6 +7940,11 @@ function applyFloatingIframe(force){
     playerSection.hidden
   ){
     syncNativeMobileControls();
+
+    // MAIN and PiP are two UI states. The shared media element may return to
+    // MAIN, but PiP-only controls must not travel back with it.
+    teardownFloatHandles();
+
     if(floating){
       frame.classList.remove(
         "floating-iframe","float-tucked","dock-left","dock-right",
