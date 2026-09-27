@@ -11601,6 +11601,7 @@ function renderSelectedVideoInfo(meta={}){
   if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
 
   const bits=[];
+  if(channel)bits.push(channel);
   if(media.viewsLabel)bits.push(media.viewsLabel);
   if(media.published)bits.push(media.published);
   if(media.duration)bits.push(fmtDuration(media.duration));
