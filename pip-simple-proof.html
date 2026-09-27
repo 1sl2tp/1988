@@ -250,9 +250,7 @@
       // Viewing area fills the horizontal width. The 16:9 video stays centered.
       const w=twoColumn()?desktopMaxW:oneColW;
       const videoH=w/current.ratio;
-      const stageH=twoColumn()
-        ?Math.max(videoH,Math.min(availableH,videoH*1.45))
-        :videoH;
+      const stageH=availableH;
 
       stage.style.width="100%";
       stage.style.height=Math.round(stageH)+"px";
@@ -335,12 +333,12 @@
       return;
     }
 
-    const mediaRect = stage.getBoundingClientRect();
+    const mediaRect = player.getBoundingClientRect();
     const headerBottom = top.getBoundingClientRect().bottom;
 
-    // Use the REAL height of the current media.
-    // Landscape has a short bottom edge -> PiP starts sooner.
-    // Portrait is full-height -> PiP starts only after that taller media passes.
+    // PiP follows the ACTUAL video box, never the surrounding black viewing area.
+    // Landscape: short 16:9 box centered in a tall black stage.
+    // Portrait: the player itself is the full-height 9:16 media.
     const shouldPip =
       window.scrollY > 0 &&
       mediaRect.bottom <= headerBottom + 1;
