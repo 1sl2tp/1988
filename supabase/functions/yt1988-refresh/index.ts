@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v30";
-const NON_LIVE_PIPELINE_VERSION="non-live-v8";
+const LIVE_PIPELINE_VERSION="live-v31";
+const NON_LIVE_PIPELINE_VERSION="non-live-v9";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -277,6 +277,74 @@ function validChannelDisplayName(value:any){
   return name;
 }
 
+
+function compactTitleIdentity(value:any){
+  return normalizeText(value||"").replace(/\s+/g,"");
+}
+
+function sourceTitleAliases(value:any){
+  const raw=clean(value,180);
+  const aliases=new Set<string>();
+  if(!raw)return aliases;
+
+  const add=(candidate:any)=>{
+    const id=compactTitleIdentity(candidate);
+    if(id.length>=2)aliases.add(id);
+  };
+
+  add(raw);
+  const dashHead=raw.split(/\s+[-–—]\s+/u)[0]||"";
+  if(dashHead&&dashHead!==raw)add(dashHead);
+
+  const firstToken=raw.split(/\s+/u)[0]||"";
+  if(/^[A-Z0-9]{3,12}$/.test(firstToken))add(firstToken);
+
+  return aliases;
+}
+
+function sourceTitleSegmentMatches(segment:any,sourceName:any){
+  const rawSegment=clean(segment,120);
+  const id=compactTitleIdentity(rawSegment);
+  if(!id)return false;
+
+  const aliases=sourceTitleAliases(sourceName);
+  if(aliases.has(id))return true;
+
+  const firstToken=clean(sourceName,180).split(/\s+/u)[0]||"";
+  const brand=compactTitleIdentity(firstToken);
+  const compactRaw=rawSegment.replace(/[^A-Za-z0-9]/g,"");
+  return !!brand&&brand.length>=3&&id.startsWith(brand)&&id.length<=20&&
+    /^[A-Z0-9]{3,20}$/.test(compactRaw);
+}
+
+function cleanSourceTitle(value:any,sourceName:any){
+  const original=clean(value,300);
+  if(!original)return "";
+
+  let title=original
+    .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
+    .trim();
+
+  if(sourceTitleSegmentMatches(title,sourceName))return "";
+
+  for(let i=0;i<3;i++){
+    const suffix=title.match(/^(.*?)(?:\s*[|•·]\s*|\s+[-–—]\s+)([^|•·]{1,120})$/u);
+    if(!suffix||!sourceTitleSegmentMatches(suffix[2],sourceName))break;
+    title=clean(suffix[1],300)
+      .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
+      .trim();
+  }
+
+  const prefix=title.match(/^([^|:;–—]{2,120})\s*(?:\||:|[-–—])\s*(.+)$/u);
+  if(prefix&&sourceTitleSegmentMatches(prefix[1],sourceName)){
+    title=clean(prefix[2],300)
+      .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
+      .trim();
+  }
+
+  return sourceTitleSegmentMatches(title,sourceName)?"":title;
+}
+
 function cleanLiveTitle(value:any){
   const original=clean(value,300);
   if(!original)return "";
@@ -324,13 +392,14 @@ function normalizeRow(row:any,source:any={}){
   );
   const live=isLive(row);
   const rawTitle=clean(row?._displayTitle||row?.title||"",300);
-  const normalizedTitle=live?cleanLiveTitle(rawTitle):rawTitle;
+  const sourceCleanTitle=cleanSourceTitle(rawTitle,sname);
+  const normalizedTitle=live?cleanLiveTitle(sourceCleanTitle):sourceCleanTitle;
   return {
     ...row,
     id,
     videoId:id,
     title:normalizedTitle,
-    ...(live?{_displayTitle:normalizedTitle}:{}),
+    _displayTitle:normalizedTitle,
     thumbnail:thumb,
     thumbnailUrl:thumb,
     uploader:sname,
