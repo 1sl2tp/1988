@@ -8048,3 +8048,72 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
 html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
   background:var(--video-progress-accent,#8b8cff)!important;
 }
+
+
+/* ============================================================
+   PIP FULL VISUAL COVER v483
+   Full means the exact visible browser viewport. Media cover-crops from centre;
+   resize sits top-left and close top-right.
+   ============================================================ */
+html.watch-minimized .player-section.watch-pip-floating-section:has(.float-size-full){
+  overflow:hidden!important;
+  background:transparent!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full{
+  overflow:hidden!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full::before,
+html.watch-minimized .player-frame.floating-iframe.float-size-full::after{
+  display:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full #yt-player,
+html.watch-minimized .player-frame.floating-iframe.float-size-full iframe,
+html.watch-minimized .player-frame.floating-iframe.float-size-full video{
+  max-width:none!important;
+  max-height:none!important;
+  border-radius:0!important;
+  background:transparent!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full .float-player-overlay{
+  inset:0!important;
+  padding:0!important;
+  border:0!important;
+  border-radius:0!important;
+  background:transparent!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-scale,
+html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-close{
+  position:absolute!important;
+  z-index:170!important;
+  top:max(8px,env(safe-area-inset-top))!important;
+  bottom:auto!important;
+  margin:0!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-scale{
+  left:max(8px,env(safe-area-inset-left))!important;
+  right:auto!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-close{
+  left:auto!important;
+  right:max(8px,env(safe-area-inset-right))!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-size-full > .float-media-progress{
+  left:0!important;
+  right:0!important;
+  bottom:0!important;
+  width:100%!important;
+}
