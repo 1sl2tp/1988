@@ -7742,3 +7742,30 @@ html.watch-minimized .watch-media-bar,
     font-size:8.5px;
   }
 }
+
+
+/* ============================================================
+   WATCH SOURCE RAIL CLEANUP v477
+   Home/Search keep LIVE / Ngày / Tuần / hashtags.
+   Normal Watch owns only video + thin media bar, so collapse the old
+   source-navigation row completely instead of leaving a colored strip.
+   ============================================================ */
+html.watch-browse:not(.watch-search-open):not(.watch-search-results){
+  --watch-source-row-h:0px!important;
+}
+
+html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav{
+  display:none!important;
+  width:0!important;
+  height:0!important;
+  min-height:0!important;
+  max-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  overflow:hidden!important;
+  background:transparent!important;
+  box-shadow:none!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+}
