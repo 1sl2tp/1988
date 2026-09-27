@@ -3404,33 +3404,6 @@ html.source-manager-page .source-preview{
     grid-row:1!important;
   }
 
-  /* Full mobile Watch owns the touch surface too. This transparent layer sits
-     above both YouTube iframe and native <video>, so a first upward browse
-     gesture reaches our minimizer instead of being swallowed by the player. */
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) .watch-swipe-zone{
-    display:block!important;
-    position:absolute!important;
-    z-index:80!important;
-    inset:0!important;
-    width:100%!important;
-    height:100%!important;
-    border:0!important;
-    border-radius:inherit!important;
-    background:transparent!important;
-    touch-action:pan-y!important;
-    -webkit-user-select:none!important;
-    user-select:none!important;
-  }
-
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) #nativePlayer,
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) #yt-player,
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) iframe{
-    pointer-events:none!important;
-  }
 
   html.watch-minimized .player-section{
     position:relative!important;
