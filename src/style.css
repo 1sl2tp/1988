@@ -8137,3 +8137,37 @@ html.watch-minimized .player-frame.floating-iframe video{
     overflow:hidden!important;
   }
 }
+
+
+/* ============================================================
+   UNIFIED VIDEO ACCENT — CARD / SEEK / PIP
+   One sampled accent owns the seek fill, PiP border and PiP utility buttons.
+   Card backgrounds use the same accent mixed into the dark YouTube surface.
+   ============================================================ */
+html.watch-minimized .player-frame.floating-iframe{
+  border:1px solid var(--pip-accent,var(--video-progress-accent,#8b8cff))!important;
+  box-shadow:
+    0 0 0 1px var(--pip-accent-soft,rgba(139,140,255,.42)),
+    0 14px 36px rgba(0,0,0,.46)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn,
+html.watch-minimized .player-frame.floating-iframe .float-edge-tab{
+  background:var(--pip-button-bg,var(--video-progress-accent,#8b8cff))!important;
+  border-color:var(--pip-accent,var(--video-progress-accent,#8b8cff))!important;
+  color:var(--pip-button-fg,#fff)!important;
+  box-shadow:
+    0 0 0 1px var(--pip-accent-soft,rgba(139,140,255,.42)),
+    0 4px 14px rgba(0,0,0,.30)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button svg,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn svg{
+  color:inherit!important;
+  stroke:currentColor!important;
+}
+
+.feed>.card .card-copy{
+  background:var(--card-cinematic-surface,#0f0f0f)!important;
+}
