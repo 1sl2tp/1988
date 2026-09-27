@@ -7246,3 +7246,94 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     z-index:1!important;
   }
 }
+
+
+/* ============================================================
+   SOURCE RAIL MASK + WATCH FOOTER FIX v470
+   - Do not mask the whole rail parent: it covered LIVE / Ngày / Tuần.
+   - The sticky divider itself paints an opaque sheet to its left, below the
+     fixed controls but above scrolling hashtags.
+   - Inline Watch player + info footer are one square-edged full-width block.
+   ============================================================ */
+@media(max-width:720px){
+  /* Disable the v468 parent masks that could sit above the fixed controls. */
+  html:not(.watch-browse) .header-nav-inner::before{
+    content:none!important;
+    display:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail::before{
+    content:none!important;
+    display:none!important;
+  }
+
+  /* Fixed controls remain visually above the moving hashtag layer. */
+  html:not(.watch-browse) .topic-chip[data-feed="live"],
+  html:not(.watch-browse) .topic-chip[data-feed="latest"],
+  html:not(.watch-browse) .topic-chip[data-feed="week"]{
+    z-index:12!important;
+  }
+
+  html:not(.watch-browse) .topic-divider{
+    z-index:11!important;
+    background:rgba(255,255,255,.10)!important;
+    /* Opaque sheet extends across the entire fixed cluster and hides any
+       hashtag text that geometrically scrolls behind it. */
+    box-shadow:
+      -150px 0 0 150px var(--mobile-chrome-surface,#0b0b0c),
+      7px 0 9px rgba(11,11,12,.72)!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject,
+  html:not(.watch-browse) .topic-chip.topic-add{
+    z-index:1!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="live"],
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"],
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"]{
+    z-index:12!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-divider{
+    z-index:11!important;
+    background:rgba(255,255,255,.10)!important;
+    box-shadow:
+      -150px 0 0 150px #0b0b0c,
+      7px 0 9px rgba(11,11,12,.72)!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject,
+  html.watch-browse .selected-topic-chips .topic-chip.topic-add{
+    z-index:1!important;
+  }
+
+  /* Player is full-bleed and square-edged; its information footer should be
+     the same physical block, not a rounded card floating underneath it. */
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-row{
+    width:100%!important;
+    margin:0!important;
+    padding:8px 12px 9px 10px!important;
+    border-left:0!important;
+    border-right:0!important;
+    border-top:0!important;
+    border-bottom:1px solid rgba(255,255,255,.075)!important;
+    border-radius:0!important;
+    background:#151518!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info:not([hidden]){
+    padding-bottom:0!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail{
+    margin:0!important;
+    padding:5px var(--layout-edge-mobile-right) 6px var(--layout-edge-mobile-left)!important;
+    border-top:0!important;
+  }
+}
