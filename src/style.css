@@ -8311,3 +8311,41 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
     box-shadow:none!important;
   }
 }
+
+
+/* ============================================================
+   STABLE MAIN PIP GEOMETRY HANDOFF
+   Keep the inline media slot in flow while the same player floats.
+   Main <-> PiP motion is compositor-only; feed geometry does not animate.
+   ============================================================ */
+@media(max-width:959px){
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))
+      auto
+      auto!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .watch-pip-anchor:not([hidden]){
+    display:block!important;
+    height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    min-height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    max-height:var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))!important;
+    background:none!important;
+  }
+}
+
+.player-section.watch-pip-flip{
+  will-change:transform;
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+  transform-style:preserve-3d;
+}
+
+@media(prefers-reduced-motion:reduce){
+  .player-section.watch-pip-flip{
+    transition:none!important;
+    transform:none!important;
+  }
+}
