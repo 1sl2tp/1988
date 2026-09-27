@@ -985,10 +985,21 @@ html.one-col .player.pip iframe{border-radius:inherit}
     id=String(id||"").trim();
     if(!id)return 0;
 
-    const verified=cachedMediaAspect(id,{verifiedOnly:true});
-    if(verified)return verified;
+    const cachedRow=mediaAspectCache.get(id)||null;
+    const cached=validMediaAspect(cachedRow?.value);
+    const cachedSource=String(cachedRow?.source||"");
 
-    const provisional=cachedMediaAspect(id);
+    // A previously detected real content box (pillarbox/frame content) is final.
+    if(
+      cached &&
+      cachedRow?.verified===true &&
+      /visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
+      cached<.84
+    ){
+      return cached;
+    }
+
+    const provisional=cached;
     const hint=explicitMediaAspect(meta||{});
     if(hint){
       rememberMediaAspect(
@@ -999,41 +1010,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
       );
     }
 
-    const verifiedAfterHint=cachedMediaAspect(id,{verifiedOnly:true});
-    if(verifiedAfterHint)return verifiedAfterHint;
     if(mediaAspectPending.has(id))return mediaAspectPending.get(id);
 
     const task=(async()=>{
       const local=await localAspectEngine();
-      let ratio=0;
 
-      if(typeof local?.videoAspect==="function"){
-        try{
-          const dimensions=await local.videoAspect(id);
-          ratio=validMediaAspect(
-            Number(dimensions?.aspectRatio)||
-            (
-              Number(dimensions?.width)>0&&Number(dimensions?.height)>0
-                ?Number(dimensions.width)/Number(dimensions.height)
-                :0
-            )
-          );
-          if(ratio){
-            rememberMediaAspect(
-              id,
-              ratio,
-              dimensions?.source||"videoAspect",
-              true
-            );
-            if(String(current?.id||"")===id){
-              commitCurrentAspect(id,ratio,{relayout:true});
-            }
-          }
-        }catch{}
-      }
-
-      // Some uploads are stored in a wide stream but the visible frame is
-      // portrait pillarboxed. The main app already has this exact refinement.
+      // 1) FIRST: inspect the visible content itself.
+      // If a wide stream contains a portrait picture with black pillarbox
+      // bars on both sides, this is the layout signal we want.
       if(typeof local?.visualContentAspect==="function"){
         try{
           const visual=await local.visualContentAspect(id);
@@ -1045,22 +1029,54 @@ html.one-col .player.pip iframe{border-radius:inherit}
                 :0
             )
           );
+
           if(visualRatio>0&&visualRatio<.84){
-            ratio=rememberMediaAspect(
+            const ratio=rememberMediaAspect(
               id,
               visualRatio,
               visual?.source||"visualContentAspect",
               true
             );
+
             if(String(current?.id||"")===id){
               commitCurrentAspect(id,ratio,{relayout:true});
             }
+            return ratio;
+          }
+        }catch{}
+      }
+
+      // 2) FALLBACK: only when no portrait content box was detected,
+      // use the real stream/storyboard aspect.
+      if(typeof local?.videoAspect==="function"){
+        try{
+          const dimensions=await local.videoAspect(id);
+          const ratio=validMediaAspect(
+            Number(dimensions?.aspectRatio)||
+            (
+              Number(dimensions?.width)>0&&Number(dimensions?.height)>0
+                ?Number(dimensions.width)/Number(dimensions.height)
+                :0
+            )
+          );
+
+          if(ratio){
+            rememberMediaAspect(
+              id,
+              ratio,
+              dimensions?.source||"videoAspect",
+              true
+            );
+
+            if(String(current?.id||"")===id){
+              commitCurrentAspect(id,ratio,{relayout:true});
+            }
+            return ratio;
           }
         }catch{}
       }
 
       return (
-        ratio||
         cachedMediaAspect(id,{verifiedOnly:true})||
         provisional||
         hint||
