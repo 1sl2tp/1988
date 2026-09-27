@@ -5473,3 +5473,25 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     font-size:10px!important;
   }
 }
+
+
+/* Desktop portrait/square geometry + explicit compact PiP v419.
+   >=960px uses the real measured media ratio instead of the old global 16:9
+   ownership rule. On phones, keep YouTube taps unobstructed but allow the
+   dedicated PiP button itself to remain clickable. */
+@media(min-width:960px){
+  html.watch-browse.watch-video-portrait:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe),
+  html.watch-browse.watch-video-square:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe){
+    aspect-ratio:var(--watch-video-aspect,9/16)!important;
+  }
+}
+
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-pip-trigger{
+    display:grid!important;
+    pointer-events:auto!important;
+  }
+}
