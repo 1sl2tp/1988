@@ -34,6 +34,53 @@ test('server exact dedupe also removes short repeated labels',()=>{
  ];
  assert.equal(s.dedupeRows(rows).length,1);
 });
+
+test('server strips repeated source labels without damaging headline punctuation',()=>{
+ assert.equal(
+  s.cleanSourceTitle('"Quái xế" tăng ga bỏ chạy | ANTV','ANTV - Truyền hình Công an Nhân dân'),
+  '"Quái xế" tăng ga bỏ chạy'
+ );
+ assert.equal(
+  s.cleanSourceTitle('Hà Nội thử nghiệm robot giao thông | VTV24','VTV24'),
+  'Hà Nội thử nghiệm robot giao thông'
+ );
+ assert.equal(
+  s.cleanSourceTitle('Bên trong nhà máy robot | VTVIndex','VTV Index'),
+  'Bên trong nhà máy robot'
+ );
+ assert.equal(
+  s.cleanSourceTitle('RFI Tiếng Việt : Phát thanh ngày 26/09/2026','RFI Tiếng Việt'),
+  'Phát thanh ngày 26/09/2026'
+ );
+ assert.equal(
+  s.cleanSourceTitle('Dự báo thời tiết | VTVWDB','VTV Thời Tiết'),
+  'Dự báo thời tiết'
+ );
+ assert.equal(s.cleanSourceTitle('| ANTV','ANTV - Truyền hình Công an Nhân dân'),'');
+});
+
+test('server semantic core ignores bulletin dates but preserves explicit parts',()=>{
+ const daily=[
+  {id:'aaaaaaaaaaa',title:'Bản tin Thời sự Phát thanh Trưa ngày 26/9/2026',channelId:'UCaaaaaaaaa'},
+  {id:'bbbbbbbbbbb',title:'Bản tin Thời sự Phát thanh Trưa ngày 27/9/2026',channelId:'UCaaaaaaaaa'}
+ ];
+ assert.equal(s.dedupePackageRows(daily).length,1);
+
+ const parts=[
+  {id:'ccccccccccc',title:'Góc nhìn đầu tư sau nâng hạng | PHẦN 1 | VTVIndex',channelId:'UCbbbbbbbbb'},
+  {id:'ddddddddddd',title:'Góc nhìn đầu tư sau nâng hạng | PHẦN 2 | VTVIndex',channelId:'UCbbbbbbbbb'}
+ ];
+ assert.equal(s.dedupePackageRows(parts).length,2);
+});
+
+test('news scope filter is conservative and only removes obvious non-news formats',()=>{
+ assert.equal(s.obviousNonNewsForNewsScope({title:'Karaoke Tình yêu mùa thu'}),true);
+ assert.equal(s.obviousNonNewsForNewsScope({title:'Món ngon nhờ thời gian | Mỹ vị Việt Nam'}),true);
+ assert.equal(s.obviousNonNewsForNewsScope({title:'TRỰC TIẾP đại nhạc hội mùa thu'}),true);
+ assert.equal(s.obviousNonNewsForNewsScope({title:'2 game thủ Việt bị cấm PUBG vĩnh viễn'}),false);
+ assert.equal(s.obviousNonNewsForNewsScope({title:'Xuân Son trở lại sau chấn thương bóng đá'}),false);
+ assert.equal(s.obviousNonNewsForNewsScope({title:'Có gì trong đại nhạc hội HCMC Youth Concert 2026?'}),false);
+});
 test('server package semantic dedupe removes near copies but preserves episodes',()=>{
  const duplicatePair=[
   {id:'aaaaaaaaaaa',title:'Inside China Dark Factories where Robots Build Robots | VTV24'},
