@@ -19,7 +19,6 @@ body{min-height:100vh}
 html.one-col,
 html.one-col body{
   max-width:100%;
-  overflow-x:hidden;
 }
 html.one-col body{min-height:220vh}
 .top{
@@ -88,11 +87,11 @@ html.one-col.portrait .player{
 
 /* PIP keeps the real media ratio and has no extra black gutter. */
 html.one-col .player.pip{
-  position:fixed;
-  z-index:100;
-  inset:auto;
-  right:10px;
-  top:calc(var(--top-boundary) + 8px);
+  position:fixed !important;
+  z-index:1000;
+  inset:auto !important;
+  right:10px !important;
+  top:calc(var(--top-boundary) + 8px) !important;
   border-radius:10px;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
@@ -257,6 +256,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return columnsMq.matches;
   }
 
+  function pageScrollY(){
+    return Math.max(
+      0,
+      Number(document.scrollingElement?.scrollTop) || Number(window.scrollY) || 0
+    );
+  }
+
   function syncBoundaries(){
     // Measure the CURRENT usable viewport, not svh/vw estimates.
     const topBoundary=Math.max(0,Math.round(top.getBoundingClientRect().bottom));
@@ -332,7 +338,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
        When its real bottom passes the header -> PiP.
        Because stage never becomes fixed, this remains stable after PiP opens. */
     const shouldPip=
-      window.scrollY>0 &&
+      pageScrollY()>0 &&
       stage.getBoundingClientRect().bottom<=top.getBoundingClientRect().bottom+1;
 
     if(shouldPip===pip)return;
