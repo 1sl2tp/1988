@@ -6393,6 +6393,7 @@ function showFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
   clearTimeout(floatOverlayTimer);
   frame.classList.remove("float-controls-suppressed");
   syncFloatOverlayControls(frame);
+  showUnifiedMediaChrome(frame,delay);
   frame.classList.add("float-controls-open");
   floatOverlayTimer=setTimeout(()=>{
     frame.classList.remove("float-controls-open");
@@ -6661,7 +6662,6 @@ function ensureFloatHandles(){
   overlay.className="float-player-overlay";
   overlay.innerHTML=
     '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng">'+floatOverlaySvg("close")+'</button>'+
-    '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">'+floatOverlaySvg("pause")+'</button>'+
     '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">'+floatOverlaySvg("expand")+'</button>';
 
   overlay.addEventListener("pointerdown",event=>{
@@ -6678,12 +6678,6 @@ function ensureFloatHandles(){
     event.preventDefault();
     event.stopPropagation();
     closeFloatingPipAndExitPlayback();
-  });
-  overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    event.currentTarget?.blur?.();
-    toggleFloatPlayback(frame);
   });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -8010,19 +8004,13 @@ function currentPlayerUiMode(){
     state.watchMinimized ||
     root.classList.contains("watch-minimized")
   )return "pip";
-  return watchAutoPipViewport()?"minimal":"full";
+  return "main";
 }
 
-function syncNativePlayerControls(uiMode=currentPlayerUiMode()){
+function syncNativePlayerControls(){
   if(!nativePlayer)return;
-
-  const showNativeChrome=state.engine==="native" && uiMode==="full";
-  nativePlayer.controls=showNativeChrome;
-  if(showNativeChrome){
-    nativePlayer.setAttribute("controls","");
-  }else{
-    nativePlayer.removeAttribute("controls");
-  }
+  nativePlayer.controls=false;
+  nativePlayer.removeAttribute("controls");
 }
 
 function applyFloatingIframe(force){
@@ -12260,11 +12248,8 @@ function updateMediaSession(meta=state.currentMeta||{}){
 }
 
 
-let youtubeIframeControlsMode=null;
-let youtubeIframeControlsRestore=null;
-
-function desiredYoutubeIframeControlsMode(uiMode=currentPlayerUiMode()){
-  return uiMode==="full"?1:0;
+function desiredYoutubeIframeControlsMode(){
+  return 0;
 }
 
 function ensureYoutubePlayerHost(){
@@ -12290,42 +12275,246 @@ function ensureYoutubePlayerHost(){
   return host;
 }
 
-function rebuildYoutubeIframeForControls(nextMode){
-  if(
-    state.engine!=="iframe" ||
-    !state.player ||
-    !state.currentId ||
-    !window.YT ||
-    typeof YT.Player!=="function"
-  )return false;
-
-  const id=state.currentId;
-  let time=0;
-  let muted=false;
-  try{time=Math.max(0,Number(state.player.getCurrentTime?.())||0);}catch{}
-  try{muted=!!state.player.isMuted?.();}catch{}
-
-  youtubeIframeControlsRestore={
-    id,
-    time,
-    intentPlay:!!state.intentPlay,
-    muted
-  };
-  youtubeIframeControlsMode=Number(nextMode)===0?0:1;
-
-  try{state.player.destroy?.();}catch{}
-  state.player=null;
-  state.playerReady=false;
-  state.pendingVideoId=id;
-
-  if(!ensureYoutubePlayerHost())return false;
-  return initYouTubePlayer();
+function syncYoutubeIframeControlsForUiMode(){
+  // YouTube chrome is intentionally disabled in every layout. MAIN and PiP
+  // share the app-owned clean media chrome below, so resizing never rebuilds
+  // the iframe merely to change controls.
+  return false;
 }
 
-function syncYoutubeIframeControlsForUiMode(uiMode=currentPlayerUiMode()){
-  const desired=desiredYoutubeIframeControlsMode(uiMode);
-  if(youtubeIframeControlsMode===null||desired===youtubeIframeControlsMode)return false;
-  return rebuildYoutubeIframeForControls(desired);
+let watchMainUiLocked=false;
+let watchMainPseudoFullscreen=false;
+let watchMediaChromeTimer=0;
+let watchMediaProgressRaf=0;
+let watchMediaDragging=false;
+let watchMediaScrubRect=null;
+let lastPlayerUiMode="";
+
+function mainPlaybackActive(){
+  return state.mode==="video"&&!!state.currentId&&!!state.intentPlay;
+}
+
+function unifiedMediaSvg(name){
+  const paths={
+    play:'<path d="M9 7.1v9.8l8.2-4.9z" fill="currentColor" stroke="none"/>',
+    pause:'<path d="M8.5 7h2.6v10H8.5zM13.9 7h2.6v10h-2.6z" fill="currentColor" stroke="none"/>'
+  };
+  return '<svg class="watch-media-control-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+
+    (paths[name]||paths.play)+
+    '</svg>';
+}
+
+function unifiedMediaDuration(){
+  if(state.engine==="native"){
+    return Math.max(0,Number(nativePlayer.duration)||0);
+  }
+  try{return Math.max(0,Number(state.player?.getDuration?.())||0);}catch{return 0;}
+}
+
+function syncUnifiedMediaProgress(
+  frame=playerSection?.querySelector(".player-frame"),
+  ratioOverride=null
+){
+  if(!frame)return;
+
+  const duration=unifiedMediaDuration();
+  const current=ratioOverride===null
+    ?getVideoTime()
+    :duration*Math.max(0,Math.min(1,Number(ratioOverride)||0));
+  const ratio=duration>0
+    ?Math.max(0,Math.min(1,ratioOverride===null?current/duration:Number(ratioOverride)||0))
+    :0;
+
+  const fill=frame.querySelector(".watch-media-progress-fill");
+  const thumb=frame.querySelector(".watch-media-progress-thumb");
+  if(fill)fill.style.width=(ratio*100)+"%";
+  if(thumb)thumb.style.left=(ratio*100)+"%";
+}
+
+function stopUnifiedMediaProgress(){
+  if(watchMediaProgressRaf){
+    cancelAnimationFrame(watchMediaProgressRaf);
+    watchMediaProgressRaf=0;
+  }
+}
+
+function startUnifiedMediaProgress(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||watchMediaProgressRaf)return;
+  const tick=()=>{
+    watchMediaProgressRaf=0;
+    if(
+      !frame.isConnected ||
+      !frame.classList.contains("watch-media-chrome-visible")
+    )return;
+    if(!watchMediaDragging)syncUnifiedMediaProgress(frame);
+    watchMediaProgressRaf=requestAnimationFrame(tick);
+  };
+  syncUnifiedMediaProgress(frame);
+  watchMediaProgressRaf=requestAnimationFrame(tick);
+}
+
+function hideUnifiedMediaChrome(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  clearTimeout(watchMediaChromeTimer);
+  watchMediaChromeTimer=0;
+  frame.classList.remove("watch-media-chrome-visible");
+  stopUnifiedMediaProgress();
+}
+
+function showUnifiedMediaChrome(
+  frame=playerSection?.querySelector(".player-frame"),
+  delay=3800
+){
+  if(!frame||playerSection?.hidden||!state.currentId)return;
+  clearTimeout(watchMediaChromeTimer);
+  frame.classList.add("watch-media-chrome-visible");
+  syncUnifiedMediaState(frame);
+  startUnifiedMediaProgress(frame);
+
+  if(delay>0){
+    watchMediaChromeTimer=setTimeout(()=>{
+      watchMediaChromeTimer=0;
+      if(!state.intentPlay||watchMediaDragging)return;
+      hideUnifiedMediaChrome(frame);
+    },delay);
+  }
+}
+
+function pulseUnifiedMediaControl(frame=playerSection?.querySelector(".player-frame")){
+  const button=frame?.querySelector(".watch-media-center");
+  if(!button)return;
+  button.classList.remove("watch-media-pulse");
+  void button.offsetWidth;
+  button.classList.add("watch-media-pulse");
+}
+
+function syncUnifiedMediaState(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  const active=mainPlaybackActive();
+  const button=frame.querySelector(".watch-media-center");
+  if(button){
+    button.innerHTML=unifiedMediaSvg(active?"pause":"play");
+    button.setAttribute("aria-label",active?"Tạm dừng":"Phát");
+    button.dataset.state=active?"pause":"play";
+  }
+  syncUnifiedMediaProgress(frame);
+}
+
+function toggleUnifiedMediaPlayback(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  if(mainPlaybackActive()){
+    state.intentPlay=false;
+    state.videoPlaying=false;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+    pauseVideoEngine();
+    syncUnifiedMediaState(frame);
+    showUnifiedMediaChrome(frame,0);
+  }else{
+    state.intentPlay=true;
+    playVideoEngine();
+    syncUnifiedMediaState(frame);
+    showUnifiedMediaChrome(frame,currentPlayerUiMode()==="pip"?2400:3200);
+  }
+  pulseUnifiedMediaControl(frame);
+}
+
+function seekUnifiedMediaFromClientX(
+  clientX,
+  frame=playerSection?.querySelector(".player-frame")
+){
+  const bar=frame?.querySelector(".watch-media-progress");
+  if(!bar)return;
+  const rect=watchMediaScrubRect||bar.getBoundingClientRect();
+  if(!rect.width)return;
+  const ratio=Math.max(0,Math.min(1,(Number(clientX)-rect.left)/rect.width));
+  const duration=unifiedMediaDuration();
+  if(duration>0)seekVideo(duration*ratio);
+  syncUnifiedMediaProgress(frame,ratio);
+}
+
+function bindUnifiedMediaSeek(frame,bar){
+  if(!frame||!bar||bar.dataset.watchSeekReady==="1")return;
+  bar.dataset.watchSeekReady="1";
+
+  const finish=event=>{
+    if(!watchMediaDragging)return;
+    watchMediaDragging=false;
+    watchMediaScrubRect=null;
+    try{bar.releasePointerCapture?.(event.pointerId);}catch{}
+    showUnifiedMediaChrome(frame,currentPlayerUiMode()==="pip"?2200:3000);
+  };
+
+  bar.addEventListener("pointerdown",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    watchMediaDragging=true;
+    watchMediaScrubRect=bar.getBoundingClientRect();
+    try{bar.setPointerCapture?.(event.pointerId);}catch{}
+    seekUnifiedMediaFromClientX(event.clientX,frame);
+    showUnifiedMediaChrome(frame,5000);
+  });
+
+  bar.addEventListener("pointermove",event=>{
+    if(!watchMediaDragging)return;
+    event.preventDefault();
+    event.stopPropagation();
+    seekUnifiedMediaFromClientX(event.clientX,frame);
+  });
+
+  bar.addEventListener("pointerup",finish);
+  bar.addEventListener("pointercancel",finish);
+  bar.addEventListener("lostpointercapture",event=>{
+    if(watchMediaDragging)finish(event);
+  });
+}
+
+function ensureUnifiedMediaChrome(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  if(frame.dataset.unifiedChromeReady==="1"){
+    syncUnifiedMediaState(frame);
+    return;
+  }
+  frame.dataset.unifiedChromeReady="1";
+
+  const tap=document.createElement("button");
+  tap.type="button";
+  tap.className="watch-media-tap-surface";
+  tap.setAttribute("aria-label","Phát hoặc tạm dừng video");
+
+  const chrome=document.createElement("div");
+  chrome.className="watch-media-chrome";
+  chrome.setAttribute("aria-hidden","true");
+  chrome.innerHTML=
+    '<div class="watch-media-top-mask"></div>'+
+    '<button type="button" class="watch-media-center" aria-label="Tạm dừng">'+unifiedMediaSvg("pause")+'</button>'+
+    '<div class="watch-media-bottom-mask">'+
+      '<div class="watch-media-progress" role="slider" aria-label="Thanh tua video">'+
+        '<div class="watch-media-progress-track"></div>'+
+        '<div class="watch-media-progress-fill"></div>'+
+        '<div class="watch-media-progress-thumb"></div>'+
+      '</div>'+
+    '</div>';
+
+  tap.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleUnifiedMediaPlayback(frame);
+  });
+
+  chrome.querySelector(".watch-media-center")?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleUnifiedMediaPlayback(frame);
+  });
+
+  const bar=chrome.querySelector(".watch-media-progress");
+  bindUnifiedMediaSeek(frame,bar);
+
+  frame.append(tap,chrome);
+  syncUnifiedMediaState(frame);
 }
 
 function syncPlayerUiMode(){
@@ -12345,146 +12534,53 @@ function syncPlayerUiMode(){
   root.dataset.playerUiMode=uiMode;
   if(frame)frame.dataset.playerUiMode=uiMode;
 
-  syncNativePlayerControls(uiMode);
+  syncNativePlayerControls();
   syncYoutubeIframeControlsForUiMode(uiMode);
-  ensureMainMinimalControls();
-  syncMainMinimalControls(frame,uiMode);
-  if(uiMode==="pip")hideMainMinimalControls(frame);
+  ensureUnifiedMediaChrome();
+  syncUnifiedMediaState(frame);
 
+  if(uiMode!==lastPlayerUiMode&&state.currentId){
+    showUnifiedMediaChrome(frame,uiMode==="pip"?2600:4200);
+  }
+  lastPlayerUiMode=uiMode;
   return uiMode;
 }
 
-let watchMainControlsTimer=0;
-let watchMainUiLocked=false;
-let watchMainPseudoFullscreen=false;
-
-function mainMinimalControlsEnabled(uiMode=currentPlayerUiMode()){
-  const root=document.documentElement;
-  return (
-    uiMode==="minimal" &&
-    root.classList.contains("watch-browse") &&
-    !playerSection?.hidden &&
-    !!state.currentId
-  );
+// Compatibility names kept for existing lifecycle call sites. They now all
+// target the single clean media chrome instead of creating a second UI.
+function mainMinimalControlsEnabled(){
+  return !!state.currentId&&!playerSection?.hidden;
 }
 
-function mainControlSvg(name){
-  const paths={
-    rewind:'<path d="M9 8H5V4M5.6 8.2A8 8 0 1 1 5 15"/><path d="M10 10.2h1.6v5.6M14.4 11.5c.4-.9 1.2-1.5 2.2-1.5 1.4 0 2.4 1 2.4 2.3 0 1.7-1.8 2.5-4.5 3.5h4.7"/>',
-    forward:'<path d="M15 8h4V4M18.4 8.2A8 8 0 1 0 19 15"/><path d="M5.8 10.2h1.6v5.6M10.2 11.5c.4-.9 1.2-1.5 2.2-1.5 1.4 0 2.4 1 2.4 2.3 0 1.7-1.8 2.5-4.5 3.5H15"/>',
-    play:'<path d="M9 7.2v9.6l8-4.8z" fill="currentColor" stroke="none"/>',
-    pause:'<path d="M9 7v10M15 7v10"/>',
-    mute:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9l4 6M20 9l-4 6"/>',
-    volume:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9c1 .8 1.5 1.8 1.5 3S17 14.2 16 15"/><path d="M18.5 6.8c1.8 1.4 2.7 3.1 2.7 5.2s-.9 3.8-2.7 5.2"/>',
-    fullscreen:'<path d="M9.5 6H6v3.5M14.5 6H18v3.5M6 14.5V18h3.5M18 14.5V18h-3.5"/>',
-    compress:'<path d="M10.5 10.5H6V6M13.5 10.5H18V6M10.5 13.5H6V18M13.5 13.5H18V18"/>',
-    lock:'<rect x="6.5" y="10" width="11" height="9" rx="2"/><path d="M9 10V7.8a3 3 0 0 1 6 0V10"/>',
-    unlock:'<rect x="6.5" y="10" width="11" height="9" rx="2"/><path d="M15 10V7.8a3 3 0 0 0-5.5-1.6"/>'
-  };
-  return '<svg class="watch-main-control-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+
-    (paths[name]||paths.play)+
-    '</svg>';
+function ensureMainMinimalControls(){
+  ensureUnifiedMediaChrome();
 }
 
-function mainPlaybackActive(){
-  return state.mode==="video"&&!!state.currentId&&!!state.intentPlay;
-}
-
-function mainPlayerMuted(){
-  if(state.engine==="native")return !!nativePlayer.muted;
-  try{return !!state.player?.isMuted?.();}catch{return false;}
-}
-
-function syncMainMinimalControls(frame=playerSection?.querySelector(".player-frame"),uiMode=currentPlayerUiMode()){
-  if(!frame)return;
-
-  const enabled=mainMinimalControlsEnabled(uiMode);
-  frame.classList.toggle("watch-main-minimal",enabled);
-  frame.classList.toggle("watch-main-locked",enabled&&watchMainUiLocked);
-  frame.classList.toggle("watch-main-pseudo-fullscreen",enabled&&watchMainPseudoFullscreen);
-
-  const controls=frame.querySelector(".watch-main-controls");
-  const unlock=frame.querySelector(".watch-main-unlock");
-  if(controls){
-    controls.hidden=!enabled||watchMainUiLocked;
-    controls.querySelector('[data-watch-main="play"]')?.replaceChildren();
-    const play=controls.querySelector('[data-watch-main="play"]');
-    if(play){
-      const active=mainPlaybackActive();
-      play.innerHTML=mainControlSvg(active?"pause":"play");
-      play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
-    }
-    const mute=controls.querySelector('[data-watch-main="mute"]');
-    if(mute){
-      const muted=mainPlayerMuted();
-      mute.innerHTML=mainControlSvg(muted?"mute":"volume");
-      mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
-    }
-    const full=controls.querySelector('[data-watch-main="full"]');
-    if(full){
-      full.innerHTML=mainControlSvg(watchMainPseudoFullscreen?"compress":"fullscreen");
-      full.setAttribute("aria-label",watchMainPseudoFullscreen?"Thu màn hình":"Toàn màn hình");
-    }
-  }
-  if(unlock){
-    unlock.hidden=!enabled||!watchMainUiLocked;
-    unlock.innerHTML=mainControlSvg("unlock");
-  }
-
-  if(!enabled){
-    clearTimeout(watchMainControlsTimer);
-    watchMainControlsTimer=0;
-    frame.classList.remove("watch-main-controls-open","watch-main-locked","watch-main-pseudo-fullscreen");
-  }
+function syncMainMinimalControls(
+  frame=playerSection?.querySelector(".player-frame"),
+  uiMode=currentPlayerUiMode()
+){
+  void uiMode;
+  syncUnifiedMediaState(frame);
 }
 
 function hideMainMinimalControls(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame)return;
-  clearTimeout(watchMainControlsTimer);
-  watchMainControlsTimer=0;
-  frame.classList.remove("watch-main-controls-open");
+  hideUnifiedMediaChrome(frame);
 }
 
 function showMainMinimalControls(
   frame=playerSection?.querySelector(".player-frame"),
-  delay=2300
+  delay=3200
 ){
-  if(!frame||!mainMinimalControlsEnabled()||watchMainUiLocked)return;
-  clearTimeout(watchMainControlsTimer);
-  syncMainMinimalControls(frame);
-  frame.classList.add("watch-main-controls-open");
-  watchMainControlsTimer=setTimeout(()=>{
-    frame.classList.remove("watch-main-controls-open");
-  },delay);
+  showUnifiedMediaChrome(frame,delay);
 }
 
 function toggleMainMinimalPlayback(frame=playerSection?.querySelector(".player-frame")){
-  if(mainPlaybackActive()){
-    state.intentPlay=false;
-    state.videoPlaying=false;
-    state.resumeOnReturn=false;
-    state.transitionUntil=0;
-    pauseVideoEngine();
-    showMainMinimalControls(frame,2600);
-  }else{
-    state.intentPlay=true;
-    playVideoEngine();
-    showMainMinimalControls(frame,1900);
-  }
-  syncMainMinimalControls(frame);
+  toggleUnifiedMediaPlayback(frame);
 }
 
-function toggleMainMinimalMute(frame=playerSection?.querySelector(".player-frame")){
-  if(state.engine==="native"){
-    nativePlayer.muted=!nativePlayer.muted;
-  }else{
-    try{
-      if(state.player?.isMuted?.())state.player.unMute?.();
-      else state.player?.mute?.();
-    }catch{}
-  }
-  syncMainMinimalControls(frame);
-  showMainMinimalControls(frame,2200);
+function toggleMainMinimalMute(){
+  // Clean chrome intentionally exposes only play/pause and seek.
 }
 
 function setMainPseudoFullscreen(value){
@@ -12504,128 +12600,12 @@ function setMainPseudoFullscreen(value){
       if(Number.isFinite(Number(y)))window.scrollTo(0,Math.max(0,Number(y)));
     });
   }
-  syncMainMinimalControls(frame);
+  syncUnifiedMediaState(frame);
 }
 
-async function toggleMainMinimalFullscreen(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame)return;
-
-  if(watchMainPseudoFullscreen){
-    setMainPseudoFullscreen(false);
-    showMainMinimalControls(frame,1800);
-    return;
-  }
-
-  // Prefer real fullscreen where it is actually available. Old iOS Safari
-  // cannot fullscreen an arbitrary YouTube iframe from the parent page, so
-  // fall back to a viewport-owned fullscreen shell instead of a dead button.
-  const iframe=state.player?.getIframe?.();
-  const target=state.engine==="iframe"?(iframe||frame):frame;
-  const request=
-    target?.requestFullscreen||
-    target?.webkitRequestFullscreen||
-    frame.requestFullscreen||
-    frame.webkitRequestFullscreen;
-
-  if(typeof request==="function"){
-    try{
-      await request.call(
-        target?.requestFullscreen||target?.webkitRequestFullscreen ? target : frame
-      );
-      hideMainMinimalControls(frame);
-      return;
-    }catch{}
-  }
-
-  if(state.engine==="native"&&typeof nativePlayer.webkitEnterFullscreen==="function"){
-    try{
-      nativePlayer.webkitEnterFullscreen();
-      hideMainMinimalControls(frame);
-      return;
-    }catch{}
-  }
-
-  setMainPseudoFullscreen(true);
-  showMainMinimalControls(frame,1800);
-}
-
-function ensureMainMinimalControls(){
-  const frame=playerSection?.querySelector(".player-frame");
-  if(!frame)return;
-
-  if(frame.dataset.watchMainControlsReady==="1"){
-    syncMainMinimalControls(frame);
-    return;
-  }
-  frame.dataset.watchMainControlsReady="1";
-
-  const tap=document.createElement("div");
-  tap.className="watch-main-tap-surface";
-  tap.setAttribute("aria-hidden","true");
-
-  const controls=document.createElement("div");
-  controls.className="watch-main-controls";
-  controls.hidden=true;
-  controls.innerHTML=
-    '<div class="watch-main-center">'+
-      '<button type="button" data-watch-main="rewind" aria-label="Lùi 10 giây">'+mainControlSvg("rewind")+'</button>'+
-      '<button type="button" class="watch-main-play" data-watch-main="play" aria-label="Tạm dừng">'+mainControlSvg("pause")+'</button>'+
-      '<button type="button" data-watch-main="forward" aria-label="Tiến 10 giây">'+mainControlSvg("forward")+'</button>'+
-    '</div>'+
-    '<div class="watch-main-side">'+
-      '<button type="button" data-watch-main="mute" aria-label="Tắt âm">'+mainControlSvg("volume")+'</button>'+
-      '<button type="button" data-watch-main="lock" aria-label="Khóa điều khiển">'+mainControlSvg("lock")+'</button>'+
-      '<button type="button" data-watch-main="full" aria-label="Toàn màn hình">'+mainControlSvg("fullscreen")+'</button>'+
-    '</div>';
-
-  const unlock=document.createElement("button");
-  unlock.type="button";
-  unlock.className="watch-main-unlock";
-  unlock.setAttribute("aria-label","Mở khóa điều khiển");
-  unlock.hidden=true;
-  unlock.innerHTML=mainControlSvg("unlock");
-
-  tap.addEventListener("click",()=>{
-    if(!mainMinimalControlsEnabled()||watchMainUiLocked)return;
-    if(frame.classList.contains("watch-main-controls-open"))hideMainMinimalControls(frame);
-    else showMainMinimalControls(frame);
-  });
-
-  controls.addEventListener("click",event=>{
-    const button=event.target.closest?.("[data-watch-main]");
-    if(!button)return;
-    event.preventDefault();
-    event.stopPropagation();
-    const action=button.dataset.watchMain||"";
-    if(action==="rewind"){
-      seekVideo(getVideoTime()-10);
-      showMainMinimalControls(frame,1900);
-    }else if(action==="forward"){
-      seekVideo(getVideoTime()+10);
-      showMainMinimalControls(frame,1900);
-    }else if(action==="play"){
-      toggleMainMinimalPlayback(frame);
-    }else if(action==="mute"){
-      toggleMainMinimalMute(frame);
-    }else if(action==="lock"){
-      watchMainUiLocked=true;
-      hideMainMinimalControls(frame);
-      syncMainMinimalControls(frame);
-    }else if(action==="full"){
-      void toggleMainMinimalFullscreen(frame);
-    }
-  });
-
-  unlock.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    watchMainUiLocked=false;
-    syncMainMinimalControls(frame);
-    showMainMinimalControls(frame,1800);
-  });
-
-  frame.append(tap,controls,unlock);
-  syncMainMinimalControls(frame);
+async function toggleMainMinimalFullscreen(){
+  // Fullscreen is no longer part of the clean transport. Keep this compatibility
+  // hook so cached call sites cannot fail while the app updates.
 }
 
 function getVideoTime(){
@@ -13694,6 +13674,8 @@ async function playVideo(id,seedMeta={}){
     document.documentElement.classList.remove("watch-main-fullscreen");
   }
   ensureMainMinimalControls();
+  // Mask YouTube's initial title/branding while the app-owned transport is shown.
+  showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),4500);
   // Activate the final watch+browse layout immediately when a video opens.
   syncWatchBrowseLayout();
   syncPlayerUiMode();
@@ -13924,9 +13906,6 @@ function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
   if(!ensureYoutubePlayerHost())return false;
 
-  const controlsMode=desiredYoutubeIframeControlsMode();
-  youtubeIframeControlsMode=controlsMode;
-
   state.player=new YT.Player("yt-player",{
     host:"https://www.youtube-nocookie.com",
     height:"100%",
@@ -13934,9 +13913,8 @@ function initYouTubePlayer(){
     playerVars:{
       autoplay:1,
       playsinline:1,
-      // Use the normal YouTube iframe interaction model on every device.
-      // The page no longer lays a transparent gesture surface over the player.
-      controls:controlsMode,
+      // App-owned clean chrome: YouTube transport is hidden in every layout.
+      controls:0,
       cc_load_policy:0,
       rel:0,
       fs:1,
@@ -13966,35 +13944,11 @@ function initYouTubePlayer(){
         forceCaptionsOff();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
-        const restore=
-          youtubeIframeControlsRestore?.id===id
-            ?youtubeIframeControlsRestore
-            :null;
-        youtubeIframeControlsRestore=null;
         if(id){
           try{
-            const resumeAt=Math.max(0,Number(restore?.time)||0);
-            if(restore?.muted)state.player.mute?.();
-            else state.player.unMute?.();
-
-            if(restore&&restore.intentPlay===false){
-              state.intentPlay=false;
-              state.player.cueVideoById({
-                videoId:id,
-                startSeconds:resumeAt
-              });
-            }else{
-              if(restore)state.intentPlay=true;
-              if(resumeAt>0){
-                state.player.loadVideoById({
-                  videoId:id,
-                  startSeconds:resumeAt
-                });
-              }else{
-                state.player.loadVideoById(id);
-              }
-              ensureIframePlaying();
-            }
+            state.player.unMute?.();
+            state.player.loadVideoById(id);
+            ensureIframePlaying();
           }catch{}
         }
       },
@@ -14008,6 +13962,10 @@ function initYouTubePlayer(){
           state.transitionUntil=0;
           state.keepFloating=false;
           syncMainMinimalControls();
+          showUnifiedMediaChrome(
+            playerSection?.querySelector(".player-frame"),
+            currentPlayerUiMode()==="pip"?2400:3200
+          );
 
           // Use YouTube's own calculated video content rectangle. This is the
           // key distinction between the inline 16:9 player box and the actual
@@ -14050,10 +14008,11 @@ function initYouTubePlayer(){
             }
           }else{
             // Parent page is visible and stable: this came from the user's
-            // YouTube controls, so keep PAUSE exactly as requested.
+            // app-owned media control, so keep PAUSE exactly as requested.
             state.intentPlay=false;
             state.resumeOnReturn=false;
             state.transitionUntil=0;
+            showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
           }
 
           // Do not change floating/inline layout on PAUSE; that caused the
@@ -14066,6 +14025,7 @@ function initYouTubePlayer(){
           state.intentPlay=false;
           state.resumeOnReturn=false;
           state.transitionUntil=0;
+          showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
           applyFloatingIframe();
           if(advanceSeriesEpisode())return;
           if(state.mode==="video")statusText.textContent="Đã phát xong";
@@ -15168,6 +15128,10 @@ nativePlayer.addEventListener("playing",()=>{
   state.transitionUntil=0;
   if(state.mode==="video")statusText.textContent="Video đang phát";
   syncMainMinimalControls();
+  showUnifiedMediaChrome(
+    playerSection?.querySelector(".player-frame"),
+    currentPlayerUiMode()==="pip"?2400:3200
+  );
   applyFloatingIframe();
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
 });
@@ -15190,6 +15154,7 @@ nativePlayer.addEventListener("pause",()=>{
     state.intentPlay=false;
     state.resumeOnReturn=false;
     state.transitionUntil=0;
+    showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
   }
 
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="paused";}catch{}
@@ -15200,6 +15165,7 @@ nativePlayer.addEventListener("ended",()=>{
   state.intentPlay=false;
   state.resumeOnReturn=false;
   state.transitionUntil=0;
+  showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
   if(advanceSeriesEpisode())return;
   statusText.textContent="Đã phát xong";
 });
