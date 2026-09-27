@@ -26,6 +26,7 @@
   --yt-hover:rgba(255,255,255,.10);
   --yt-press:rgba(255,255,255,.18);
   --header-rgb:15,15,15;
+  --header-accent-rgb:82,108,168;
   --header-alpha:.94;
   --header-blur:16px;
   --safe-top:env(safe-area-inset-top,0px);
@@ -102,6 +103,40 @@ html.one-col body{min-height:220vh}
     transform .20s cubic-bezier(.4,0,.2,1),
     background-color .18s cubic-bezier(.2,0,0,1);
   will-change:transform;
+}
+.top::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  opacity:.48;
+  background:
+    radial-gradient(
+      62% 120% at 18% 50%,
+      rgba(var(--header-accent-rgb),.10) 0,
+      rgba(var(--header-accent-rgb),.045) 38%,
+      rgba(var(--header-accent-rgb),0) 72%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(var(--header-accent-rgb),.035),
+      transparent 45%,
+      rgba(var(--header-accent-rgb),.025)
+    );
+  transition:opacity .22s cubic-bezier(.2,0,0,1);
+}
+.top.search-open::after{
+  opacity:.92;
+  animation:search-chrome-wash .36s cubic-bezier(.2,0,0,1) both;
+}
+.top > *{
+  position:relative;
+  z-index:1;
+}
+@keyframes search-chrome-wash{
+  from{opacity:.28;filter:saturate(.82)}
+  to{opacity:.92;filter:saturate(1.12)}
 }
 .top.chrome-scrolled{
   --header-alpha:.78;
@@ -265,8 +300,17 @@ html.one-col body{min-height:220vh}
 .source-chip:hover{background:rgba(255,255,255,.20)}
 .source-chip:active{background:rgba(255,255,255,.15)}
 .source-chip.active{
-  background:#f1f1f1;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(var(--header-accent-rgb),.16),
+      rgba(var(--header-accent-rgb),.05)
+    ),
+    #f1f1f1;
   color:#0f0f0f;
+  box-shadow:
+    0 0 0 1px rgba(var(--header-accent-rgb),.10),
+    0 3px 12px rgba(var(--header-accent-rgb),.08);
 }
 .source-arrow{
   position:absolute;
@@ -396,16 +440,30 @@ html.one-col body{min-height:220vh}
   line-height:22px;
 }
 .top.search-open .search-input:focus{
-  border-color:#1c62b9;
-  box-shadow:inset 0 1px 2px rgba(0,0,0,.3);
+  border-color:rgba(var(--header-accent-rgb),.78);
+  box-shadow:
+    inset 0 1px 2px rgba(0,0,0,.3),
+    0 0 0 1px rgba(var(--header-accent-rgb),.10);
 }
 .top.search-open .search-button{
   flex:0 0 44px;
   width:44px;
   height:40px;
-  border:1px solid hsl(0 0% 18.82%);
+  border:1px solid rgba(var(--header-accent-rgb),.24);
   border-radius:0 20px 20px 0;
-  background:hsla(0 0% 100%/.08);
+  background:
+    linear-gradient(
+      135deg,
+      rgba(var(--header-accent-rgb),.16),
+      rgba(var(--header-accent-rgb),.07)
+    ),
+    hsla(0 0% 100%/.05);
+  transition:
+    background-color .16s ease,
+    transform .12s ease;
+}
+.top.search-open .search-button:active{
+  transform:scale(.94);
 }
 
 @media(max-width:656px){
@@ -1317,6 +1375,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
         base[index]*(1-mix)+value*mix
       ));
       root.style.setProperty("--header-rgb",r+","+g+","+b);
+      root.style.setProperty(
+        "--header-accent-rgb",
+        palette.accent.join(",")
+      );
 
       // Do NOT paint browser/PWA status chrome with the media color.
       // Keeping this neutral avoids a persistent colored notch strip while
@@ -2514,9 +2576,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
     top.classList.remove("search-roomy");
     top.classList.add("search-open");
     syncHeaderScrollState();
+
+    // Keep focus inside the original tap/click gesture so iOS Safari/PWA
+    // opens the keyboard immediately instead of requiring a second tap.
+    try{
+      searchInput.focus({preventScroll:true});
+    }catch{
+      searchInput.focus();
+    }
+
     requestAnimationFrame(()=>{
       syncBoundaries();
-      searchInput.focus();
+      if(document.activeElement!==searchInput){
+        try{searchInput.focus({preventScroll:true})}catch{searchInput.focus()}
+      }
     });
   }
 
