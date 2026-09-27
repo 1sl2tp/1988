@@ -42,21 +42,54 @@ main{width:min(680px,100%);margin:0 auto}
   background:#000;
 }
 
-/* 1 COLUMN MAIN: stage == actual media box. No outside black gutter. */
-html.one-col .stage{background:transparent}
-html.one-col .player{inset:0;width:100%;height:100%}
+/* 1 COLUMN MAIN
+   Landscape follows WIDTH.
+   Portrait follows HEIGHT. */
+html.one-col.landscape .stage{
+  width:min(100vw,680px);
+  aspect-ratio:16/9;
+  height:auto;
+  background:transparent;
+}
+html.one-col.landscape .player{
+  inset:0;
+  width:100%;
+  height:100%;
+}
 
-/* PIP: exact media ratio, no black gutter. */
+html.one-col.portrait .stage{
+  height:calc(100svh - 70px);
+  max-height:calc(100svh - 70px);
+  aspect-ratio:9/16;
+  width:auto;
+  max-width:100vw;
+  background:transparent;
+}
+html.one-col.portrait .player{
+  inset:0;
+  width:100%;
+  height:100%;
+}
+
+/* PIP keeps the real media ratio and has no extra black gutter. */
 html.one-col .player.pip{
   position:fixed;
   z-index:100;
   inset:auto;
   right:10px;
   top:66px;
-  width:var(--pip-w);
-  height:var(--pip-h);
   border-radius:10px;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
+}
+html.one-col.landscape .player.pip{
+  width:min(46vw,280px);
+  height:auto;
+  aspect-ratio:16/9;
+}
+html.one-col.portrait .player.pip{
+  height:min(50svh,420px);
+  width:auto;
+  aspect-ratio:9/16;
 }
 html.one-col .player.pip iframe{border-radius:inherit}
 
@@ -65,7 +98,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   main{
     width:min(1220px,100%);
     display:grid;
-    grid-template-columns:minmax(0,1fr) var(--media-col-w,48vw);
+    grid-template-columns:minmax(0,1fr) auto;
     grid-template-areas:"feed media";
     gap:14px;
     align-items:start;
@@ -76,30 +109,39 @@ html.one-col .player.pip iframe{border-radius:inherit}
     grid-area:media;
     position:sticky;
     top:68px;
-    width:var(--media-col-w,48vw);
     justify-self:end;
+    min-width:0;
   }
 
-  /* 2-col landscape: tall black viewing area, 16:9 video centered.
-     Black can exist only above and below the actual video. */
+  /* 2-col landscape:
+     WIDTH owns the size. The iframe fills a tall viewing area, so YouTube
+     itself letterboxes the 16:9 video and puts chrome in the black top/bottom. */
+  html.two-col.landscape .media-col{
+    width:min(48vw,620px);
+  }
   html.two-col.landscape .stage{
     width:100%;
-    height:var(--desktop-view-h);
+    height:calc(100svh - 82px);
     background:#000;
   }
   html.two-col.landscape .player{
-    left:0;
-    top:50%;
+    inset:0;
     width:100%;
-    height:auto;
-    aspect-ratio:16/9;
-    transform:translateY(-50%);
+    height:100%;
+    transform:none;
   }
 
-  /* 2-col portrait: stage == actual 9:16 media. No black gutter. */
+  /* 2-col portrait:
+     HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
+  html.two-col.portrait .media-col{
+    height:calc(100svh - 82px);
+    aspect-ratio:9/16;
+    width:auto;
+  }
   html.two-col.portrait .stage{
-    width:100%;
-    height:var(--desktop-view-h);
+    height:100%;
+    aspect-ratio:9/16;
+    width:auto;
     background:transparent;
   }
   html.two-col.portrait .player{
@@ -118,7 +160,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     box-shadow:none;
   }
 }
-
 .info{padding:12px;border-bottom:1px solid #292929}
 .info b{display:block;font-size:15px;margin-bottom:4px}
 .info span{color:#999;font-size:12px}
@@ -195,11 +236,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return matchMedia("(min-width:960px)").matches;
   }
 
-  function availableHeight(){
-    const headerH=top.offsetHeight||56;
-    return Math.max(220,(innerHeight||document.documentElement.clientHeight||700)-headerH-14);
-  }
-
   function layout(){
     const two=isTwoColumn();
     const portrait=current.ratio<1;
@@ -209,76 +245,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     root.classList.toggle("portrait",portrait);
     root.classList.toggle("landscape",!portrait);
 
-    if(!two){
-      root.style.removeProperty("--media-col-w");
-      root.style.removeProperty("--desktop-view-h");
-      mediaCol.style.width="";
-      mediaCol.style.marginInline="";
+    /* Geometry is CSS-owned:
+       landscape follows width, portrait follows height. */
+    mediaCol.style.width="";
+    mediaCol.style.height="";
+    mediaCol.style.marginInline="";
+    stage.style.width="";
+    stage.style.height="";
+    stage.style.aspectRatio="";
 
-      if(portrait){
-        /* MAIN portrait: full height, exact 9:16, no black. */
-        let h=availableHeight();
-        let w=h*current.ratio;
-        const maxW=Math.max(1,Math.min(680,innerWidth||680));
-        if(w>maxW){
-          w=maxW;
-          h=w/current.ratio;
-        }
-        stage.style.width=Math.round(w)+"px";
-        stage.style.height=Math.round(h)+"px";
-        mediaCol.style.width=Math.round(w)+"px";
-        mediaCol.style.marginInline="auto";
-      }else{
-        /* MAIN landscape: full width, exact 16:9, no black. */
-        const w=Math.max(1,Math.min(680,innerWidth||680));
-        const h=w/current.ratio;
-        stage.style.width=Math.round(w)+"px";
-        stage.style.height=Math.round(h)+"px";
-      }
-    }else{
+    if(two){
       pip=false;
       player.classList.remove("pip");
-
-      const h=availableHeight();
-
-      if(portrait){
-        /* 2-col portrait: full height, exact 9:16, no black. */
-        const w=h*current.ratio;
-        root.style.setProperty("--media-col-w",Math.round(w)+"px");
-        root.style.setProperty("--desktop-view-h",Math.round(h)+"px");
-        stage.style.width="100%";
-        stage.style.height=Math.round(h)+"px";
-      }else{
-        /* 2-col landscape: wide column + tall black viewing area.
-           Actual 16:9 video remains centered with black top/bottom only. */
-        const w=Math.max(360,Math.min((innerWidth||1200)*.48,620));
-        root.style.setProperty("--media-col-w",Math.round(w)+"px");
-        root.style.setProperty("--desktop-view-h",Math.round(h)+"px");
-        stage.style.width="100%";
-        stage.style.height=Math.round(h)+"px";
-      }
     }
 
-    fitPip();
     paintText();
   }
-
-  function fitPip(){
-    if(current.ratio<1){
-      let h=Math.min(420,Math.max(240,(innerHeight||700)*.50));
-      let w=h*current.ratio;
-      const maxW=Math.max(120,(innerWidth||500)*.46);
-      if(w>maxW){w=maxW;h=w/current.ratio}
-      root.style.setProperty("--pip-w",Math.round(w)+"px");
-      root.style.setProperty("--pip-h",Math.round(h)+"px");
-    }else{
-      let w=Math.min(280,Math.max(170,(innerWidth||500)*.46));
-      let h=w/current.ratio;
-      root.style.setProperty("--pip-w",Math.round(w)+"px");
-      root.style.setProperty("--pip-h",Math.round(h)+"px");
-    }
-  }
-
   function paintText(){
     titleEl.textContent=current.label;
     if(isTwoColumn()){
@@ -342,8 +324,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   portraitBtn.addEventListener("click",()=>select("portrait"));
   addEventListener("scroll",schedulePip,{passive:true});
   addEventListener("resize",()=>{
+    /* CSS owns geometry. JS only refreshes column mode and PiP state. */
     const w=Math.max(1,innerWidth||1);
-    /* Ignore Chrome mobile height-only browser-bar resize. */
     if(Math.abs(w-lastWidth)>2){
       lastWidth=w;
       layout();
