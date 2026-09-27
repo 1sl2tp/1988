@@ -5608,3 +5608,87 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     }
   }
 }
+
+
+/* One-column Watch unification v424.
+   "One column" is a layout mode, not a phone-only mode: every viewport below
+   960px (narrow PC web, Safari, mobile web and PWA) uses the same scrolling
+   media slot and the same automatic floating player. */
+@media(min-width:721px) and (max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results){
+    width:100%!important;
+    min-height:100%!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    background:#09090a!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-rows:
+      var(--watch-stage-h,56.25vw)
+      auto
+      auto!important;
+    align-content:start!important;
+    width:100%!important;
+    min-height:100vh!important;
+    height:auto!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    background:#09090a!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-header{
+    display:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
+    grid-row:1!important;
+    width:100%!important;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-height:var(--watch-stage-h,56.25vw)!important;
+    max-height:none!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe){
+    width:100%!important;
+    height:var(--watch-stage-h,56.25vw)!important;
+    min-height:var(--watch-stage-h,56.25vw)!important;
+    max-height:var(--watch-stage-h,56.25vw)!important;
+    margin:0!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-video-info{
+    grid-row:2!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    grid-row:3!important;
+    width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    margin:0!important;
+    overflow:visible!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    position:fixed!important;
+    z-index:9999!important;
+    top:8px!important;
+    right:10px!important;
+    bottom:auto!important;
+    left:auto!important;
+    visibility:visible!important;
+    opacity:1!important;
+    pointer-events:auto!important;
+    max-width:calc(100vw - 20px)!important;
+    max-height:42vh!important;
+  }
+}
