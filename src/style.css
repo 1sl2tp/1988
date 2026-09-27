@@ -16,7 +16,7 @@ select,
 
 :root{
   --bg:#0b0b0c;--panel:#151517;--panel2:#1d1d20;--line:#2a2a2f;
-  --text:#f7f7f8;--muted:#9b9ba3;--chip:#202024;--safe-top:env(safe-area-inset-top);--safe-bottom:env(safe-area-inset-bottom);
+  --text:#f7f7f8;--muted:#9b9ba3;--chip:#202024;--safe-top:env(safe-area-inset-top);--safe-bottom:env(safe-area-inset-bottom);--safe-left:env(safe-area-inset-left);--safe-right:env(safe-area-inset-right);
   --header-row-h:58px;--nav-row-h:50px;--header-stack-h:108px;
 
   /* Canonical media identity / icon geometry */
@@ -2653,6 +2653,17 @@ html.search-suggestions-open .suggestions{
       min-height:100vh;
     }
 
+    /* PWA "full screen" means the app surface reaches the physical bottom.
+       Do not spend the bottom safe-area as body padding; keep it inside the
+       scrollable content instead. */
+    html:not(.watch-browse) body{
+      padding-bottom:0!important;
+      background:var(--mobile-chrome-surface,#0b0b0c);
+    }
+    html:not(.watch-browse) .app-shell{
+      padding-bottom:max(22px,var(--safe-bottom))!important;
+    }
+
     html.watch-browse,
     html.watch-browse body{
       height:100vh;
@@ -2671,6 +2682,31 @@ html.search-suggestions-open .suggestions{
     html:not(.watch-browse) .app-header,
     html.watch-browse .header-inner{
       padding-top:var(--safe-top);
+    }
+
+    /* Browsing feed stays full-bleed. The opened MAIN video is a separate
+       surface: keep a true square rectangle and respect any physical side
+       safe-area (notch/rounded landscape edge) without rounding the video. */
+    html:not(.watch-browse) .feed-section,
+    html:not(.watch-browse) .feed,
+    html:not(.watch-browse) .feed>.card,
+    html:not(.watch-browse) .feed>.card .thumb-wrap{
+      margin-left:0!important;
+      margin-right:0!important;
+      padding-left:0;
+      padding-right:0;
+      max-width:none;
+    }
+
+    html.watch-browse:not(.watch-minimized) .player-section{
+      padding-left:var(--safe-left);
+      padding-right:var(--safe-right);
+    }
+    html.watch-browse:not(.watch-minimized) .player-frame:not(.floating-iframe){
+      width:calc(100vw - var(--safe-left) - var(--safe-right))!important;
+      max-width:calc(100vw - var(--safe-left) - var(--safe-right))!important;
+      border-radius:0!important;
+      clip-path:none!important;
     }
   }
 }
