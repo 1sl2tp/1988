@@ -6000,36 +6000,17 @@ function freezeWatchMediaSlot(){
   if(!playerSection)return;
 
   const root=document.documentElement;
-  const rect=playerSection.getBoundingClientRect?.();
-  const height=Math.max(
-    1,
-    Number(rect?.height)||0,
-    parseFloat(getComputedStyle(playerSection).height)||0,
-    parseFloat(getComputedStyle(root).getPropertyValue("--watch-stage-h"))||0
-  );
 
-  root.style.setProperty("--watch-inline-slot-h",Math.round(height*100)/100+"px");
-
-  const art=clean(
-    state.currentMeta?.thumbnailUrl||
-    state.currentMeta?.thumbnail||
-    state.currentMeta?.poster||
-    (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"")
-  );
-
-  if(/^https?:\/\//i.test(art)){
-    const safeArt=art
-      .replace(/\\/g,"%5C")
-      .replace(/"/g,"%22")
-      .replace(/\n|\r/g,"");
-    root.style.setProperty("--watch-inline-slot-art",'url("'+safeArt+'")');
-  }else{
-    root.style.removeProperty("--watch-inline-slot-art");
-  }
+  // PiP owns the actual media surface. Keep only a 1px geometry anchor in the
+  // document so the return-to-MAIN threshold still works without leaving the
+  // old video/thumbnail area visible underneath.
+  root.style.setProperty("--watch-inline-slot-h","1px");
+  root.style.removeProperty("--watch-inline-slot-art");
 
   const anchor=watchPipAnchor();
   if(anchor){
-    anchor.style.height=Math.round(height*100)/100+"px";
+    anchor.style.height="1px";
+    anchor.style.removeProperty("background-image");
     anchor.hidden=false;
   }
 
