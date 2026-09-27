@@ -801,6 +801,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     portrait:{id:"kUF9P2m9mrg",ratio:9/16,label:"Video dọc · 9:16"}
   };
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
+  const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
 
   const root=document.documentElement;
   const top=document.getElementById("top");
@@ -832,7 +833,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let feedMetas=[];
   let relatedMetas=[];
   let feedRequest=0;
-  let feedMode="related";
+  let feedMode="package";
+  let activePackageScope="live";
+  let packageManifest={};
+  const packageCache=new Map();
+  const packagePending=new Map();
   const columnsMq=matchMedia("(min-width:1000px)");
   const mobileHeaderMq=matchMedia("(max-width:656px)");
   let mobileHeaderLastY=0;
@@ -1100,6 +1105,95 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return out;
   }
 
+  function packageMetas(items=[]){
+    const out=[];
+    const seen=new Set();
+    for(const row of Array.isArray(items)?items:[]){
+      const meta=cardMetaFromRow(row);
+      if(!meta?.id||!meta?.title||seen.has(meta.id))continue;
+      seen.add(meta.id);
+      out.push(meta);
+    }
+    return out;
+  }
+
+  async function loadPackageManifest(){
+    try{
+      const response=await fetch(PACKAGE_SYNC_URL,{cache:"no-store"});
+      if(!response.ok)throw new Error("package_manifest_"+response.status);
+      const payload=await response.json();
+      packageManifest=
+        payload?.manifest && typeof payload.manifest==="object"
+          ? payload.manifest
+          : {};
+      return packageManifest;
+    }catch(_){
+      packageManifest={};
+      return packageManifest;
+    }
+  }
+
+  async function getPackage(scope,{force=false}={}){
+    scope=String(scope||"").trim();
+    if(!scope)return [];
+
+    if(!force&&packageCache.has(scope))return packageCache.get(scope);
+    if(packagePending.has(scope))return packagePending.get(scope);
+
+    const task=(async()=>{
+      try{
+        const response=await fetch(
+          PACKAGE_SYNC_URL+"?scope="+encodeURIComponent(scope),
+          {cache:"no-store"}
+        );
+        if(!response.ok)throw new Error("package_"+scope+"_"+response.status);
+        const payload=await response.json();
+        const pkg=payload?.package;
+        const items=payload?.ok&&payload?.exists&&Array.isArray(pkg?.items)
+          ? pkg.items
+          : [];
+        const metas=packageMetas(items);
+        packageCache.set(scope,metas);
+        return metas;
+      }catch(_){
+        return packageCache.get(scope)||[];
+      }finally{
+        packagePending.delete(scope);
+      }
+    })();
+
+    packagePending.set(scope,task);
+    return task;
+  }
+
+  async function showPackageScope(scope,{force=false}={}){
+    scope=String(scope||"").trim()||"live";
+    activePackageScope=scope;
+    feedMode="package";
+    const request=++feedRequest;
+
+    const cached=packageCache.get(scope);
+    if(cached?.length){
+      feedMetas=cached;
+      renderSampleContent();
+    }
+
+    const metas=await getPackage(scope,{force});
+    if(request!==feedRequest||activePackageScope!==scope||feedMode!=="package")return;
+    feedMetas=metas;
+    renderSampleContent();
+  }
+
+  function prefetchPackages(scopes=[]){
+    const unique=[...new Set((Array.isArray(scopes)?scopes:[]).map(String).filter(Boolean))];
+    setTimeout(()=>{
+      for(const scope of unique){
+        if(scope===activePackageScope||packageCache.has(scope))continue;
+        void getPackage(scope);
+      }
+    },0);
+  }
+
   function avatarMarkup(meta){
     const avatar=meta.sourceAvatar || "";
     if(avatar){
@@ -1231,26 +1325,37 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   async function loadExistingSourceNames(){
     sourceNameChips.innerHTML="";
+    let rows=[];
 
     try{
       const response=await fetch(SOURCE_STATE_URL,{cache:"no-store"});
       if(!response.ok)throw new Error("source_state_"+response.status);
       const payload=await response.json();
       const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
-      const rows=existingSourceTabNames(remote);
-      if(rows.length){
-        renderExistingSourceNames(rows);
-        return;
-      }
+      rows=existingSourceTabNames(remote);
     }catch(_){}
 
-    // Network-only fallback: never invent "Tất cả"; preserve the canonical
-    // source order from Live onward.
-    renderExistingSourceNames([
-      {key:"live",label:"Live"},
-      {key:"latest",label:"Ngày"},
-      {key:"week",label:"Tuần"}
-    ]);
+    if(!rows.length){
+      // Network-only fallback: never invent "Tất cả"; preserve source order.
+      rows=[
+        {key:"live",label:"Live"},
+        {key:"latest",label:"Ngày"},
+        {key:"week",label:"Tuần"}
+      ];
+    }
+
+    renderExistingSourceNames(rows);
+
+    // Same read-only package flow as the real app:
+    // manifest -> active package -> warm the remaining packages.
+    await loadPackageManifest();
+    const scopes=rows
+      .map(row=>row.key)
+      .filter(scope=>!Object.keys(packageManifest).length||packageManifest[scope]);
+    const first=scopes[0]||rows[0]?.key||"live";
+    await showPackageScope(first,{force:true});
+    prefetchPackages(scopes.slice(1));
+    return rows;
   }
 
   function renderSampleContent(){
@@ -1275,9 +1380,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   async function runSearch(){
     const q=(searchInput?.value||"").trim();
     if(!q){
-      feedMode=relatedMetas.length?"related":"home";
-      if(relatedMetas.length)feedMetas=relatedMetas;
-      renderSampleContent();
+      void showPackageScope(activePackageScope);
       return;
     }
 
@@ -1300,24 +1403,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   async function loadFeedData(){
-    const request=++feedRequest;
-    try{
-      if(!window.YT1988_API?.home || !window.MediaMeta?.video)return;
-      const payload=await window.YT1988_API.home();
-      if(request!==feedRequest)return;
-
-      const next=collectVideoRows(payload)
-        .filter(meta=>meta.id && meta.title)
-        .slice(0,18);
-
-      if(next.length && !feedMetas.length){
-        feedMode="home";
-        feedMetas=next;
-        renderSampleContent();
-      }
-    }catch(_){
-      // Current-video card remains as a truthful fallback.
-    }
+    await loadPackageManifest();
+    return showPackageScope(activePackageScope,{force:true});
   }
 
   async function loadCurrentVideoMeta(){
@@ -1342,7 +1429,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
         .slice(0,18);
       if(related.length){
         relatedMetas=related;
-        if(feedMode!=="search"){
+        if(feedMode!=="search"&&feedMode!=="package"){
           feedMode="related";
           feedMetas=relatedMetas;
         }
@@ -1540,6 +1627,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     chip.classList.add("active");
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
+    void showPackageScope(chip.dataset.sourceTab||"live");
   });
 
   document.getElementById("rows").addEventListener("click",event=>{
@@ -1603,7 +1691,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   select("landscape");
   loadExistingSourceNames();
   requestAnimationFrame(updateSourceRailArrows);
-  loadFeedData();
 })();
 </script>
 </body>
