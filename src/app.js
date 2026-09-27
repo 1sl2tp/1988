@@ -7851,31 +7851,17 @@ function setupWatchMinimizeGesture(){
     setWatchMinimized(false,{preserveScroll:true});
   };
 
-  // Restore the original automatic PiP behaviour: on one-column Watch,
-  // the first real upward browse scroll makes the SAME player float immediately.
-  // Do not wait until the whole media slot has disappeared from the viewport.
-  let autoPipRaf=0;
-  const syncAutoPipFromScroll=()=>{
-    if(autoPipRaf)return;
-    autoPipRaf=requestAnimationFrame(()=>{
-      autoPipRaf=0;
+  let slotScrollRaf=0;
+  const syncPipToMediaSlot=()=>{
+    if(slotScrollRaf)return;
+    slotScrollRaf=requestAnimationFrame(()=>{
+      slotScrollRaf=0;
+      const rect=watchMediaSlotRect();
+      if(!rect)return;
 
-      const pageY=Math.max(
-        0,
-        Number(document.scrollingElement?.scrollTop)||0,
-        Number(document.documentElement?.scrollTop)||0,
-        Number(document.body?.scrollTop)||0,
-        Number(window.scrollY)||0
-      );
-      const feedY=Math.max(0,Number(feedSection?.scrollTop)||0);
-      const away=pageY>4||feedY>4;
-
+      const topEdge=watchMediaSlotTopEdge();
       if(!state.watchMinimized){
-        if(
-          eligibleInline() &&
-          Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
-          away
-        ){
+        if(eligibleInline()&&rect.bottom<=topEdge+1){
           setWatchMinimized(true,{pinned:false});
         }
         return;
@@ -7884,22 +7870,19 @@ function setupWatchMinimizeGesture(){
       if(state.watchPipPinned)return;
       if(Date.now()-Number(state.watchPipEnteredAt||0)<220)return;
 
-      // Scrolling back to the beginning restores the same player inline.
-      // alignMediaSlotToTop() also compensates the long-video case where the
-      // original slot may otherwise reopen partly hidden above the viewport.
-      if(pageY<=3&&feedY<=3){
+      // The frozen media slot, not the portrait iframe's live dimensions,
+      // decides when the iframe returns inline.
+      if(rect.bottom>topEdge+12&&rect.top<window.innerHeight){
         restoreInlineFromSlot();
       }
     });
   };
 
-  // Mobile body-scroll, mobile feed-scroll and 721-959px one-column desktop
-  // all feed this same automatic PiP path.
-  window.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
-  document.body?.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
-  feedSection?.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
-  document.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
-  setTimeout(syncAutoPipFromScroll,220);
+  window.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  setTimeout(syncPipToMediaSlot,220);
 
   if("IntersectionObserver" in window&&playerSection){
     const slotObserver=new IntersectionObserver(entries=>{
