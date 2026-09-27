@@ -1726,6 +1726,15 @@ html.one-col .player.pip iframe{border-radius:inherit}
       Number(document.scrollingElement?.scrollTop) || Number(window.scrollY) || 0
     );
   }
+  function scrollPageToTop(){
+    const scroller=document.scrollingElement||document.documentElement;
+    if(scroller)scroller.scrollTop=0;
+    window.scrollTo({top:0,left:0,behavior:"auto"});
+    setMobileHeaderHidden(false);
+    syncHeaderScrollState();
+    syncMobileHeaderVisibility(true);
+  }
+
 
   function wrappedTextLines(text,maxWidth,font){
     const canvas=wrappedTextLines.canvas||(wrappedTextLines.canvas=document.createElement("canvas"));
@@ -2589,6 +2598,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const raw=(searchInput?.value||"").trim();
     const key=normalizedSearchQuery(raw);
 
+    if(key)scrollPageToTop();
+
     if(!key){
       void showPackageScope(activePackageScope);
       return;
@@ -2830,6 +2841,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   searchInput.addEventListener("input",()=>{
     const key=normalizedSearchQuery(searchInput.value);
+    if(key)scrollPageToTop();
     if(key&&recentSearches.includes(key)){
       showCachedSearchIfAvailable(key);
     }
@@ -2863,16 +2875,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
 
-    // A source is a new top-level feed. Always open it from the top instead
-    // of carrying the previous source's scroll position into the new feed.
-    const scroller=document.scrollingElement||document.documentElement;
-    if(scroller){
-      scroller.scrollTop=0;
-    }
-    window.scrollTo({top:0,left:0,behavior:"auto"});
-    setMobileHeaderHidden(false);
-    syncHeaderScrollState();
-    syncMobileHeaderVisibility(true);
+    // A source is a new top-level feed. Always open it from the top.
+    scrollPageToTop();
 
     // Source selection is independent from search state. Invalidate any
     // in-flight global search so it cannot overwrite this source afterward.
