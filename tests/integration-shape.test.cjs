@@ -171,10 +171,10 @@ assert.match(app,/controls:0/);
 assert.doesNotMatch(app,/controls:controlsMode/);
 assert.match(app,/function ensureUnifiedMediaChrome\(\)/);
 assert.match(html,/id=["\']watchMediaBar["\'][^>]*class=["\']watch-media-bar["\']/);
-assert.match(html,/data-watch-media=["\']play["\']/);
-assert.match(html,/data-watch-media=["\']mute["\']/);
-assert.match(html,/data-watch-media=["\']fullscreen["\']/);
-assert.match(html,/class=["\']watch-media-time["\']/);
+assert.doesNotMatch(html,/data-watch-media=["\']play["\']/);
+assert.doesNotMatch(html,/data-watch-media=["\']mute["\']/);
+assert.doesNotMatch(html,/data-watch-media=["\']fullscreen["\']/);
+assert.doesNotMatch(html,/class=["\']watch-media-time["\']/);
 assert.doesNotMatch(app,/className=["\']watch-media-chrome["\']/);
 assert.doesNotMatch(app,/className=["\']watch-media-tap-surface["\']/);
 assert.doesNotMatch(style,/watch-media-top-mask/);
@@ -431,9 +431,9 @@ assert.match(app,/function pipSizeKey\(/);
 assert.match(app,/return "full"/);
 assert.match(app,/function pipMediaControlsEnabled\(/);
 assert.match(app,/return pipSizeKey\(\)!==["']small["']/);
-assert.match(app,/class=["']float-media-controls["']/);
-assert.match(app,/data-float-overlay=["']play["']/);
-assert.match(app,/data-float-overlay=["']mute["']/);
+assert.doesNotMatch(app,/class=["']float-media-controls["']/);
+assert.doesNotMatch(app,/data-float-overlay=["']play["']/);
+assert.doesNotMatch(app,/data-float-overlay=["']mute["']/);
 assert.match(app,/class=["']float-media-progress["']/);
 assert.match(app,/function syncFloatMediaControls\(/);
 assert.match(app,/function bindFloatMediaSeek\(/);
@@ -445,10 +445,20 @@ assert.match(app,/float-size-large/);
 assert.match(app,/float-size-full/);
 assert.match(app,/fullCover[\s\S]{0,500}currentFloatingAspect\(\)/);
 assert.match(app,/object-fit["'],fullCover\?["']cover["']:["']contain["']/);
-assert.match(style,/PIP FIVE SIZES \+ MEDIA v481/);
-assert.match(style,/\.float-size-small \.float-media-controls[\s\S]{0,80}display:none!important/);
-assert.match(style,/\.float-size-medium \.float-media-controls[\s\S]{0,320}display:grid!important/);
+assert.doesNotMatch(style,/PIP FIVE SIZES \+ MEDIA v481/);
+
+
 assert.match(style,/\.float-size-full[\s\S]{0,500}border-radius:0!important/);
 
-assert.match(app,/event\.target\.closest\(["']button,\.float-media-controls["']\)/);
+
 assert.match(app,/const previousKey=pipSizeKey\(\)[\s\S]{0,120}previousKey===["']full["']\?null:currentCompactPipAnchor\(\)/);
+
+assert.match(style,/SIMPLE VIDEO PROGRESS v482/);
+assert.match(style,/--watch-media-bar-h:6px/);
+assert.match(style,/background:var\(--video-progress-accent,#8b8cff\)!important/);
+assert.match(app,/--video-progress-accent/);
+assert.match(app,/className=["']float-media-progress["']/);
+assert.doesNotMatch(app,/float-media-play/);
+assert.doesNotMatch(app,/float-media-mute/);
+assert.match(app,/frame\.append\(zone,overlay,progress\)/);
+assert.match(style,/\.float-media-progress[\s\S]{0,500}bottom:0!important/);
