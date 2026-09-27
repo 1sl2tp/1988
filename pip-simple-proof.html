@@ -1640,8 +1640,21 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return null;
   }
 
+  function canMeasureCurrentMediaShapeFromPlayer(){
+    // MAIN is the only place where the player's rendered rectangle may be used
+    // as media-shape evidence. PiP and 2-column are PRESENTATIONS of the already
+    // selected media shape; measuring them would create a feedback loop:
+    // layout -> resize player -> read resized rect -> change layout again.
+    if(pip||isTwoColumn())return false;
+    if(player.classList.contains("pip"))return false;
+
+    const rect=stage.getBoundingClientRect();
+    return rect.width>0&&rect.height>0;
+  }
+
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
     if(!player||!current?.id)return false;
+    if(!canMeasureCurrentMediaShapeFromPlayer())return false;
 
     let loadedId="";
     try{
@@ -1671,6 +1684,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     const attempt=()=>{
       if(String(current?.id||"")!==id)return;
+      if(!canMeasureCurrentMediaShapeFromPlayer())return;
       syncCurrentKindFromYoutubePlayer(player);
     };
 
@@ -2713,6 +2727,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(shouldPip===pip)return;
 
     pip=shouldPip;
+
+    // Presentation-only transition. Keep current.kind/current.ratio untouched:
+    // the same media shape selected in MAIN is carried into PiP.
     player.classList.toggle("pip",pip);
     stage.classList.toggle("pip-host",pip);
     paintText();
