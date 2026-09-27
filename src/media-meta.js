@@ -110,9 +110,41 @@
     return out||original;
   }
 
-  function title(row={}){
+  function escapeRegex(value=''){
+    return String(value).replace(/[.*+?^$(){}|[\\]\\\\]/g,'\\  function title(row={}){
     const raw=pick(row?._displayTitle,row?.title,row?.name)||'Video';
     return row?.isLive===true?cleanLiveTitle(raw):raw;
+  }');
+  }
+
+  function stripSourcePrefix(value='',source=''){
+    const original=clean(value);
+    const channel=clean(source);
+    if(!original||!channel)return original;
+
+    const words=channel.split(/\s+/).filter(Boolean);
+    if(!words.length)return original;
+
+    const pattern=words.map(escapeRegex).join('\\s+');
+    const re=new RegExp(
+      '^\\s*'+pattern+'(?=\\s|[-–—:|•·]|$)',
+      'iu'
+    );
+
+    if(!re.test(original))return original;
+
+    const stripped=original
+      .replace(re,'')
+      .replace(/^\s*[-–—:|•·]+\s*/u,'')
+      .trim();
+
+    return stripped||original;
+  }
+
+  function title(row={}){
+    const raw=pick(row?._displayTitle,row?.title,row?.name)||'Video';
+    const liveClean=row?.isLive===true?cleanLiveTitle(raw):raw;
+    return stripSourcePrefix(liveClean,sourceName(row));
   }
 
   function normalizeImageUrl(value=''){
@@ -486,6 +518,7 @@
     sourceName,
     sourceAvatar,
     cleanLiveTitle,
+    stripSourcePrefix,
     title,
     thumbnail,
     parseDuration,
