@@ -11586,16 +11586,44 @@ function renderSelectedVideoInfo(meta={}){
 
   const media=videoUiMeta(meta);
   const channel=media.channel||"Nguồn YouTube";
-  const sourceId=media.sourceId||canonicalSourceId(meta,channel)||"";
-  const sourceRow=sourceId?sourceMetaFor(libraryRow(sourceId)||{id:sourceId,name:channel}):null;
-  const sourceName=clean(sourceRow?.name||channel)||"Nguồn YouTube";
-  const sourceAvatar=safeSourceThumb(
+  const channelSourceId=media.sourceId||canonicalSourceId(meta,channel)||"";
+  const channelSourceRow=channelSourceId
+    ?sourceMetaFor(libraryRow(channelSourceId)||{id:channelSourceId,name:channel})
+    :null;
+  const channelAvatar=safeSourceThumb(
     media.sourceAvatar||
-    sourceRow?.thumbnailUrl||
-    sourceAvatarCached(sourceId)||
+    channelSourceRow?.thumbnailUrl||
+    sourceAvatarCached(channelSourceId)||
     ""
   );
-  const fallback=(sourceName.charAt(0)||"?").toUpperCase();
+  const channelFallback=(channel.charAt(0)||"?").toUpperCase();
+
+  // "Nguồn" here means the content source/topic that the user entered from,
+  // not the YouTube channel currently playing.
+  let topicScope=clean(
+    meta?._watchScope||
+    state.currentMeta?._watchScope||
+    activeSourceScope()||
+    state.activeParent||
+    state.activeFeed||
+    ""
+  );
+  if(!topicScope)topicScope=LATEST_SOURCE_SCOPE;
+
+  const topicLabel=clean(sourceGroupLabel(topicScope)||topicScope)||"Nguồn";
+  const topicIsHashtag=
+    topicScope===LIVE_SOURCE_SCOPE||
+    CONTENT_SOURCE_SCOPES.has(topicScope);
+  const topicName=topicIsHashtag
+    ?"#"+topicLabel.toLocaleLowerCase("vi-VN").replace(/^#+/,"")
+    :topicLabel;
+  const topicMeta=topicIsHashtag
+    ?"Chủ đề"
+    :(topicScope===LATEST_SOURCE_SCOPE
+      ?"Nguồn theo ngày"
+      :topicScope===WEEK_SOURCE_SCOPE
+        ?"Nguồn theo tuần"
+        :"Nguồn chủ đề");
 
   selectedVideoInfo.hidden=false;
   if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
@@ -11607,31 +11635,27 @@ function renderSelectedVideoInfo(meta={}){
   if(media.duration)bits.push(fmtDuration(media.duration));
   if(selectedVideoMeta)selectedVideoMeta.textContent=bits.join(" · ");
 
-  if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.textContent=fallback;
-  if(selectedSourceAvatarFallback)selectedSourceAvatarFallback.textContent=fallback;
-
-  const paintAvatar=img=>{
-    if(!img)return;
-    if(!sourceAvatar){
-      img.hidden=true;
-      img.removeAttribute("src");
-      return;
+  if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.textContent=channelFallback;
+  if(selectedVideoAvatar){
+    if(channelAvatar){
+      selectedVideoAvatar.hidden=false;
+      selectedVideoAvatar.src=channelAvatar;
+    }else{
+      selectedVideoAvatar.hidden=true;
+      selectedVideoAvatar.removeAttribute("src");
     }
-    img.hidden=false;
-    img.src=sourceAvatar;
-  };
-  paintAvatar(selectedVideoAvatar);
-  paintAvatar(selectedSourceAvatar);
+  }
 
-  if(selectedSourceName)selectedSourceName.textContent=sourceName;
-
-  const sourceBits=[];
-  const subscribers=clean(sourceRow?.subscribers||"");
-  if(subscribers)sourceBits.push(subscribers);
-  const groups=sourceGroupLabels(sourceRow||meta);
-  if(groups.length)sourceBits.push(groups.join(" · "));
-  if(!sourceBits.length)sourceBits.push("Kênh YouTube");
-  if(selectedSourceMeta)selectedSourceMeta.textContent=sourceBits.join(" · ");
+  // Topic source uses a stable # badge, never the current channel avatar.
+  if(selectedSourceAvatar){
+    selectedSourceAvatar.hidden=true;
+    selectedSourceAvatar.removeAttribute("src");
+  }
+  if(selectedSourceAvatarFallback){
+    selectedSourceAvatarFallback.textContent=topicIsHashtag?"#":"•";
+  }
+  if(selectedSourceName)selectedSourceName.textContent=topicName;
+  if(selectedSourceMeta)selectedSourceMeta.textContent=topicMeta;
 }
 
 [selectedVideoAvatar,selectedSourceAvatar].forEach(img=>{
