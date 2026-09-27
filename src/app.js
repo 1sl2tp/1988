@@ -8697,31 +8697,66 @@ function scheduleNormalSuggestions(){
 }
 
 
+function updateTopicRailEdges(){
+  if(!topicChips)return;
+  const rail=topicChips;
+  const maxScroll=Math.max(0,rail.scrollWidth-rail.clientWidth);
+  const navInner=rail.closest(".header-nav-inner");
+  if(!navInner)return;
+  navInner.classList.toggle("topic-more-left",maxScroll>4&&rail.scrollLeft>4);
+  navInner.classList.toggle("topic-more-right",maxScroll>4&&rail.scrollLeft<maxScroll-4);
+}
+
+let topicRailEdgeRaf=0;
+function queueTopicRailEdges(){
+  if(topicRailEdgeRaf)return;
+  topicRailEdgeRaf=requestAnimationFrame(()=>{
+    topicRailEdgeRaf=0;
+    updateTopicRailEdges();
+  });
+}
+
 function revealTopicChip(button,{behavior="auto"}={}){
   if(!button||!topicChips)return;
 
   const rail=topicChips;
   const maxScroll=Math.max(0,rail.scrollWidth-rail.clientWidth);
-  if(maxScroll<=1)return;
-
-  const safeEdge=10;
-  const railRect=rail.getBoundingClientRect();
-  const buttonRect=button.getBoundingClientRect();
-  const safeLeft=railRect.left+safeEdge;
-  const safeRight=railRect.right-safeEdge;
-
-  let delta=0;
-  if(buttonRect.left<safeLeft){
-    delta=buttonRect.left-safeLeft;
-  }else if(buttonRect.right>safeRight){
-    delta=buttonRect.right-safeRight;
+  if(maxScroll<=1){
+    updateTopicRailEdges();
+    return;
   }
 
-  if(Math.abs(delta)<1)return;
+  const railRect=rail.getBoundingClientRect();
+  const buttonRect=button.getBoundingClientRect();
+  const lookAhead=Math.max(38,Math.min(72,rail.clientWidth*.20));
+  const safeLeft=railRect.left+lookAhead;
+  const safeRight=railRect.right-lookAhead;
 
-  const left=Math.max(0,Math.min(maxScroll,rail.scrollLeft+delta));
-  rail.scrollTo({left,behavior});
+  let delta=0;
+
+  // Near either edge, reveal a little more than strictly necessary so the
+  // next/previous hashtag becomes visible. This makes the rail feel directional
+  // instead of constantly recentering or stopping with a clipped last chip.
+  if(buttonRect.left<safeLeft&&rail.scrollLeft>0){
+    delta=buttonRect.left-safeLeft;
+  }else if(buttonRect.right>safeRight&&rail.scrollLeft<maxScroll){
+    delta=buttonRect.right-safeRight;
+  }else if(buttonRect.left<railRect.left+8){
+    delta=buttonRect.left-(railRect.left+8);
+  }else if(buttonRect.right>railRect.right-8){
+    delta=buttonRect.right-(railRect.right-8);
+  }
+
+  if(Math.abs(delta)>=1){
+    const left=Math.max(0,Math.min(maxScroll,rail.scrollLeft+delta));
+    rail.scrollTo({left,behavior});
+  }
+
+  requestAnimationFrame(updateTopicRailEdges);
 }
+
+topicChips?.addEventListener("scroll",queueTopicRailEdges,{passive:true});
+window.addEventListener("resize",queueTopicRailEdges,{passive:true});
 
 function setActiveChip(name,{behavior="auto"}={}){
   state.activeFeed=name||"";
@@ -8741,6 +8776,7 @@ function setActiveChip(name,{behavior="auto"}={}){
       // the strip or reset it to the first item; that was the cause of the
       // clipped/jumping tab seen on mobile.
       revealTopicChip(activeButton,{behavior});
+      updateTopicRailEdges();
       syncWatchUtilityState();
     });
   }
@@ -13842,8 +13878,8 @@ function updateHomeHeaderOnScroll(){
     return;
   }
 
-  // One deterministic rule on mobile and desktop:
-  // once the page leaves the top, hide Search + Source together.
+  // Once the page leaves the top, collapse the brand/search row.
+  // CSS keeps the source/topic rail pinned so navigation remains reachable.
   setHomeHeaderHidden(y>32);
 }
 
@@ -16052,7 +16088,7 @@ topicChips.addEventListener("click",async e=>{
     state.activeParent=key;
     state.activeTrend="";
     state.trendTopics=state.categoryTopics.get(key)||[];
-    setActiveChip(state.activeFeed);
+    setActiveChip(state.activeFeed,{behavior:"smooth"});
     feedTitle.textContent=parent.label;
     renderTrendTopics();
 
@@ -16082,7 +16118,7 @@ topicChips.addEventListener("click",async e=>{
   state.trendTopics=[];
   queryInput.value="";
   clearSuggestions();
-  setActiveChip(button.dataset.feed||"latest",{behavior:"auto"});
+  setActiveChip(button.dataset.feed||"latest",{behavior:"smooth"});
   void loadFeedPreset(button.dataset.feed||"latest");
 });
 
