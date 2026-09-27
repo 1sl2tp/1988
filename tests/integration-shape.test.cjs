@@ -503,7 +503,10 @@ assert.match(app,/base\*\(1-YOUTUBE_CINEMATIC_OPACITY\)\+accent\[i\]\*YOUTUBE_CI
 assert.doesNotMatch(app,/const color=await averageThumbTint\(art\)/);
 assert.match(style,/UNIFIED VIDEO ACCENT/);
 assert.match(style,/--pip-button-bg/);
-assert.match(app,/\(!wasFloating\?habitAspect:0\)/);
+assert.doesNotMatch(app,/habitAspect/);
+assert.match(app,/state\.videoAspectHabitPrimed=false/);
+assert.match(app,/function cleanupFloatingForBrowse\([\s\S]{0,900}releaseWatchMediaSlot\(\)/);
+assert.match(app,/if\(active&&!state\.watchMinimized\)cleanupFloatingForBrowse\(\)/);
 assert.match(app,/loadedId&&loadedId!==expectedId/);
 assert.match(app,/\[90,260,700,1400,2600,4500\]\.forEach/);
 assert.match(style,/YOUTUBE CINEMATIC COLOR v483/);
