@@ -72,8 +72,10 @@
       row?.uploaderName,
       row?.uploader,
       row?.channelName,
+      row?.channelTitle,
+      row?.snippet?.channelTitle,
       row?.author?.name,
-      row?.name
+      row?.ownerName
     );
   }
 
