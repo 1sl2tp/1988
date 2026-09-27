@@ -5353,37 +5353,84 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
 }
 
 
-/* One-column player scroll bridge v427.
-   Cross-origin video frames do not hand vertical gestures to the parent page
-   consistently across engines. In every one-column layout (<960px), keep one
-   transparent app-owned pan surface above the picture, while leaving the
-   native YouTube control strip at the bottom fully interactive. */
+/* Stable-anchor PiP v429.
+   The inline anchor stays in the scroll flow; the outer player-section itself
+   becomes the floating viewport. The nested iframe never has to be a fixed
+   descendant of a contained/clipped player-card. */
 @media(max-width:959px){
   html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) .watch-swipe-zone{
+  .watch-pip-anchor:not([hidden]){
     display:block!important;
-    position:absolute!important;
-    z-index:80!important;
-    top:0!important;
-    left:0!important;
-    right:0!important;
-    bottom:50px!important;
-    width:auto!important;
-    height:auto!important;
-    border:0!important;
-    border-radius:0!important;
-    background:transparent!important;
-    pointer-events:auto!important;
-    cursor:pointer!important;
-    touch-action:pan-y pinch-zoom!important;
-    -webkit-user-select:none!important;
-    user-select:none!important;
+    grid-row:1!important;
+    grid-column:1!important;
+    width:100%!important;
+    min-width:100%!important;
+    max-width:100%!important;
+    height:var(--watch-inline-slot-h,56.25vw)!important;
+    min-height:var(--watch-inline-slot-h,56.25vw)!important;
+    max-height:var(--watch-inline-slot-h,56.25vw)!important;
+    margin:0!important;
+    padding:0!important;
+    background:
+      linear-gradient(rgba(8,8,10,.18),rgba(8,8,10,.18)),
+      var(--watch-inline-slot-art,none);
+    background-position:center!important;
+    background-size:cover!important;
+    background-repeat:no-repeat!important;
   }
 
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) iframe,
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) #yt-player{
-    touch-action:pan-y pinch-zoom!important;
+  html.watch-minimized .player-section.watch-pip-floating-section{
+    position:fixed!important;
+    z-index:9999!important;
+    display:block!important;
+    min-width:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    contain:none!important;
+    isolation:isolate!important;
+    background:transparent!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-floating-section .player-card{
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    min-width:0!important;
+    min-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:visible!important;
+    contain:none!important;
+    background:transparent!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-floating-section
+  .player-frame.floating-iframe{
+    position:relative!important;
+    inset:auto!important;
+    top:0!important;
+    left:0!important;
+    right:auto!important;
+    bottom:auto!important;
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    min-width:0!important;
+    min-height:0!important;
+    max-width:100%!important;
+    max-height:100%!important;
+    margin:0!important;
+    visibility:visible!important;
+    opacity:1!important;
+    pointer-events:auto!important;
+    contain:none!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-floating-section .series-panel,
+  html.watch-minimized .player-section.watch-pip-floating-section .context-brief,
+  html.watch-minimized .player-section.watch-pip-floating-section .now{
+    display:none!important;
   }
 }
