@@ -6796,10 +6796,11 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
 
   const sourceRatio=responsivePlayerAspect(meta);
-  // Desktop >=960 has a dedicated side player, so its inline frame can and
-  // should follow the real media shape. One-column mobile/tablet keeps the
-  // deliberate 16:9 inline slot; its compact PiP still follows videoAspect.
-  const desktopResponsive=window.innerWidth>=960;
+  // One-column Watch is one rule everywhere below 960px: narrow desktop web,
+  // mobile web and installed PWA all use the same 16:9 inline slot + auto PiP.
+  // >=960px is the two-column desktop player and follows the real media shape.
+  const compactOneColumn=window.innerWidth<960;
+  const desktopResponsive=!compactOneColumn;
   const ratio=desktopResponsive ? sourceRatio : 16/9;
   const orientation=desktopResponsive ? aspectOrientation(ratio) : "landscape";
 
@@ -6876,9 +6877,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   const mobile=window.innerWidth<=720;
+  const compactOneColumn=window.innerWidth<960;
   const desktop=window.innerWidth>=960;
 
-  if(mobile){
+  if(compactOneColumn){
     const styles=getComputedStyle(root);
     const topRow=parseFloat(styles.getPropertyValue("--watch-top-row-h"))||52;
     const sourceRow=parseFloat(styles.getPropertyValue("--watch-source-row-h"))||48;
@@ -7056,17 +7058,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     return;
   }
 
-  // 721–959px keeps the normal inline layout, but never PiP.
-  frame.style.removeProperty("--watch-player-width");
-  frame.style.removeProperty("--watch-player-height");
-  root.style.removeProperty("--watch-player-column-w");
-  root.style.removeProperty("--watch-feed-column-w");
-  root.style.removeProperty("--watch-feed-content-w");
-  root.style.removeProperty("--watch-scroll-gutter");
-  root.style.removeProperty("--watch-grid-gap");
-  root.style.removeProperty("--watch-feed-cols");
-  root.style.removeProperty("--watch-player-top-offset");
-  root.style.removeProperty("--watch-card-unit");
 }
 
 function queueResponsivePlayerFrame(){
@@ -7257,7 +7248,7 @@ let watchBrowseMutating=false;
 
 function watchBrowseViewportSupported(){
   const width=Math.max(0,window.innerWidth||document.documentElement.clientWidth||0);
-  return width<=720||width>=960;
+  return width>0;
 }
 
 function cleanupFloatingForBrowse(){
@@ -7327,7 +7318,7 @@ function syncWatchBrowseLayout(){
     watchBrowseViewportSupported() &&
     !!state.currentId &&
     !playerSection?.hidden &&
-    (window.innerWidth<=720||!state.watchMinimized);
+    (watchAutoPipViewport()||!state.watchMinimized);
 
   if(target!==watchBrowseActive)setWatchBrowseLayout(target);
 }
@@ -7843,7 +7834,7 @@ function setupWatchMinimizeGesture(){
   let compactSwipe=null;
   document.addEventListener("touchstart",event=>{
     if(
-      !mobileMiniViewport() ||
+      !watchAutoPipViewport() ||
       !eligibleInline() ||
       event.touches?.length!==1
     ){
@@ -7908,8 +7899,29 @@ function setupWatchMinimizeGesture(){
       if(!rect)return;
 
       const topEdge=watchMediaSlotTopEdge();
+      const compactScrollTop=Math.max(
+        0,
+        Number(document.body?.scrollTop)||0,
+        Number(document.scrollingElement?.scrollTop)||0,
+        Number(document.documentElement?.scrollTop)||0,
+        Number(window.scrollY)||0,
+        Number(feedSection?.scrollTop)||0
+      );
+      const slotHeight=Math.max(
+        1,
+        Number(playerSection?.offsetHeight)||0,
+        Number(rect.height)||0,
+        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--watch-stage-h"))||0
+      );
+      const compactPassedSlot=
+        watchAutoPipViewport() &&
+        compactScrollTop>=Math.max(8,slotHeight-topEdge-1);
+
       if(!state.watchMinimized){
-        if(eligibleInline()&&rect.bottom<=topEdge+1){
+        // Chromium follows rect.bottom reliably. Safari/PWA can keep the body
+        // as the scroll owner while returning a stale child rect, so also use
+        // the compact scroll distance as the same "slot has left" condition.
+        if(eligibleInline()&&(rect.bottom<=topEdge+1||compactPassedSlot)){
           setWatchMinimized(true,{pinned:false});
         }
         return;
@@ -7931,6 +7943,7 @@ function setupWatchMinimizeGesture(){
   feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   window.visualViewport?.addEventListener?.("scroll",syncPipToMediaSlot,{passive:true});
+  window.addEventListener("wheel",syncPipToMediaSlot,{passive:true});
   setTimeout(syncPipToMediaSlot,220);
 
   if("IntersectionObserver" in window&&playerSection){
