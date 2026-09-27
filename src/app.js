@@ -8728,8 +8728,19 @@ function revealTopicChip(button,{behavior="auto"}={}){
 
   const railRect=rail.getBoundingClientRect();
   const buttonRect=button.getBoundingClientRect();
-  const lookAhead=Math.max(38,Math.min(72,rail.clientWidth*.20));
-  const safeLeft=railRect.left+lookAhead;
+  const lookAhead=Math.max(30,Math.min(56,rail.clientWidth*.16));
+
+  // LIVE / Ngày / Tuần are sticky on the left. Hashtag scrolling must treat
+  // their visual right edge as the real left boundary, otherwise an active
+  // hashtag could be revealed underneath the pinned controls.
+  const fixedWeek=rail.querySelector('[data-feed="week"]');
+  const divider=rail.querySelector(".topic-divider");
+  const pinnedRect=(divider||fixedWeek)?.getBoundingClientRect?.();
+  const pinnedRight=Math.max(
+    railRect.left,
+    Math.min(railRect.right-24,Number(pinnedRect?.right)||railRect.left)
+  );
+  const safeLeft=pinnedRight+lookAhead;
   const safeRight=railRect.right-lookAhead;
 
   let delta=0;
