@@ -442,14 +442,45 @@ function packageEpisodeKey(value:any){
   return match?String(Number(match[1])):"";
 }
 
-function packageSemanticTokens(row:any){
-  const raw=clean(row?._displayTitle||row?.title||"",500)
-    .replace(/\s*\|\s*[^|]{1,40}$/u," ")
+function packageMetadataSegment(value:any){
+  const norm=normalizeText(value||"");
+  if(!norm)return true;
+  return /^(?:ban tin|tin tuc|tin quoc te|cum tin|an ninh toan canh|cu dan mang|hanh trinh pha an|tieu diem|cap nhat nong|net zero|sao 24h)(?:\b|$)/.test(norm)||
+    /^(?:phan|tap|ep|episode|part)\s*\d{1,4}\b/.test(norm);
+}
+
+function packageCoreTitle(row:any){
+  let raw=clean(row?._displayTitle||row?.title||"",500)
     .replace(/(?:#[\p{L}\p{N}_-]+\s*)+$/gu," ");
-  const tokens=normalizeText(raw)
+
+  const parts=raw
+    .split(/\s*[|•▪►▶◆◇]\s*/u)
+    .map((part)=>clean(part,300))
+    .filter(Boolean);
+
+  if(parts.length>1){
+    const kept=parts.filter((part,index)=>index===0||!packageMetadataSegment(part));
+    if(kept.length)raw=kept.join(" ");
+  }
+
+  raw=raw
+    .replace(/\b(?:ngày\s+)?\d{1,2}\s*[-–—]\s*\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/giu," ")
+    .replace(/\b(?:ngày|sáng|trưa|chiều|tối)?\s*\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?\b/giu," ")
+    .replace(/\b(?:hôm nay|ngày mai|sáng nay|trưa nay|chiều nay|tối nay)\b/giu," ")
+    .replace(/[“”"…]+/gu," ");
+
+  return normalizeText(raw);
+}
+
+function packageSemanticTokens(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",500);
+  const core=packageCoreTitle(row);
+  const tokens=core
     .split(" ")
     .filter((token)=>token.length>=2&&!PACKAGE_DEDUPE_STOPWORDS.has(token));
   return {
+    core,
+    source:channelId(row),
     episode:packageEpisodeKey(raw),
     tokens:[...new Set(tokens)]
   };
@@ -481,6 +512,16 @@ function dedupePackageRows(rows:any[]){
         if(sig.episode&&prior.episode&&sig.episode!==prior.episode)continue;
         if((sig.episode&&!prior.episode)||(!sig.episode&&prior.episode))continue;
 
+        const sameSource=!!sig.source&&sig.source===prior.source;
+        if(
+          sig.core&&
+          sig.core===prior.core&&
+          (sig.tokens.length>=3||sameSource)
+        ){
+          duplicate=true;
+          break;
+        }
+
         const overlap=packageTokenOverlap(sig.tokens,prior.tokens);
         if(
           overlap.common>=5&&
@@ -499,6 +540,18 @@ function dedupePackageRows(rows:any[]){
   }
   return out;
 }
+function obviousNonNewsForNewsScope(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",400);
+  const norm=normalizeText(raw);
+  if(!norm)return true;
+
+  if(/\b(?:karaoke|kara|beat|official audio|lyric video|music video|mv official|trailer|teaser|full phim|review phim|tom tat phim|gameplay)\b/.test(norm))return true;
+  if(/\b(?:mon ngon|my vi viet nam)\b/.test(norm))return true;
+
+  return /\b(?:truc tiep|live|livestream)\b/.test(norm)&&
+    /\b(?:concert|dai nhac hoi|ca nhac|bai ca|liveshow)\b/.test(norm);
+}
+
 function strongAd(row:any){
   const title=clean(row?._displayTitle||row?.title||"",260);
   const norm=normalizeText(title);
@@ -2071,7 +2124,8 @@ Deno.serve(async(req:Request)=>{
           !isTooShortVideo(r)&&
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
-          !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")
+          !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")&&
+          !!clean(r?._displayTitle||r?.title||"",300)
         );
       }else{
         raw=raw.filter((r:any)=>!!r);
@@ -2104,6 +2158,10 @@ Deno.serve(async(req:Request)=>{
           const age=ageMs(r);
           return !isLive(r)&&Number.isFinite(age)&&age>=0&&age<7*DAY_MS;
         });
+      }
+
+      if(scope==="latest"||scope==="week"){
+        raw=raw.filter((r:any)=>!obviousNonNewsForNewsScope(r));
       }
 
       if(meta.kind!=="live")raw=sortRows(raw);
