@@ -421,3 +421,7 @@ assert.match(style,/\.header-nav\{[\s\S]{0,120}display:none!important/);
 assert.match(style,/REMOVE WATCH AMBIENT v479/);
 assert.match(style,/html\.watch-browse body::before\{[\s\S]{0,240}display:none!important/);
 assert.match(style,/html\.watch-browse body::before\{[\s\S]{0,420}background:none!important/);
+
+assert.match(style,/COLLAPSE HOME HIDDEN HEADER GAP v480/);
+assert.match(style,/home-header-hidden \.app-header\{[\s\S]{0,220}height:calc\(var\(--nav-row-h\) \+ var\(--safe-top\)\)!important/);
+assert.match(style,/home-header-hidden \.app-shell\{[\s\S]{0,160}padding-top:calc\(var\(--nav-row-h\) \+ var\(--safe-top\) \+ 6px\)!important/);
