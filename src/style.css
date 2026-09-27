@@ -5853,3 +5853,9 @@ html.watch-minimized .player-frame.floating-iframe.float-controls-suppressed .fl
     user-select:none!important;
   }
 }
+
+
+/* v448: avatar fallback is mutually exclusive with the loaded logo. */
+.selected-video-avatar-fallback[hidden]{
+  display:none!important;
+}

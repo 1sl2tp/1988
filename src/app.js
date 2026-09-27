@@ -6432,6 +6432,7 @@ function closeFloatingPipAndExitPlayback(){
   applyFloatingIframe(false);
   releaseWatchMediaSlot();
   if(playerSection)playerSection.hidden=true;
+  if(selectedVideoInfo)selectedVideoInfo.hidden=true;
 
   clearSeriesContext();
   hideWatchRecoInfo();
@@ -10244,8 +10245,9 @@ function searchCardHtml(row={},options={}){
       '</div>'+
       '<div class="card-copy">'+
         '<span class="card-avatar" aria-hidden="true">'+
-          '<span class="card-avatar-fallback">'+esc((channel.charAt(0)||"?").toUpperCase())+'</span>'+
-          (sourceAvatar?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">':'')+
+          (sourceAvatar
+            ?'<img src="'+esc(sourceAvatar)+'" alt="" loading="eager">'
+            :'<span class="card-avatar-fallback">'+esc((channel.charAt(0)||"?").toUpperCase())+'</span>')+
         '</span>'+
         '<div class="card-copy-main">'+
           '<div class="card-title-row">'+
@@ -11235,9 +11237,7 @@ function paintCardChannelAvatar(card,image=""){
   img.width=36;
   img.height=36;
   img.decoding="async";
-  const fallback=avatar.querySelector(".card-avatar-fallback");
-  if(fallback)avatar.appendChild(img);
-  else avatar.replaceChildren(img);
+  avatar.replaceChildren(img);
   return true;
 }
 
@@ -11743,10 +11743,9 @@ function renderCards(rows=[],options={}){
           '<div class="thumb-wrap"><img class="thumb-fill" src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
-              '<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>'+
               (avatarUsable
                 ?'<img src="'+esc(sourceAvatar)+'" alt="" width="36" height="36" decoding="async">'
-                :"")+
+                :'<span class="card-avatar-fallback">'+esc(avatarFallback)+'</span>')+
             '</span>'+
             '<div class="card-copy-main">'+
               '<div class="card-title-row">'+
@@ -11952,7 +11951,10 @@ function renderSelectedVideoInfo(meta={}){
   if(media.duration)bits.push(fmtDuration(media.duration));
   if(selectedVideoMeta)selectedVideoMeta.textContent=bits.join(" · ");
 
-  if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.textContent=channelFallback;
+  if(selectedVideoAvatarFallback){
+    selectedVideoAvatarFallback.textContent=channelFallback;
+    selectedVideoAvatarFallback.hidden=!!channelAvatar;
+  }
   if(selectedVideoAvatar){
     if(channelAvatar){
       selectedVideoAvatar.hidden=false;
@@ -11968,6 +11970,7 @@ function renderSelectedVideoInfo(meta={}){
 selectedVideoAvatar?.addEventListener("error",()=>{
   selectedVideoAvatar.hidden=true;
   selectedVideoAvatar.removeAttribute("src");
+  if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.hidden=false;
 });
 
 function updateNow(meta={}){
