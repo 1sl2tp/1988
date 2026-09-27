@@ -970,13 +970,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let pendingVideoId="";
   let youtubeApiPromise=null;
 
-  // Shape detection belongs to the MEDIA ID, not to MAIN/PiP/2-column.
-  // A new media may start directly inside PiP or 2-column; it still gets one
-  // detection pass. Once YouTube confirms it, later layout resizes cannot
-  // redefine that media's shape.
-  let shapeProbeMediaId="";
-  let shapeLockedMediaId="";
-  let pendingAutoplayMediaId="";
+  // Same media-aspect flow as src/app.js:
+  // pre-prime by video id, then let YouTube videoContentRect confirm/correct.
+  const aspectPrimeCache=new Map();
+  let aspectEnginePromise=null;
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -994,41 +991,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return delta<=.05?nearest:ratio;
   }
 
-  function explicitMediaAspect(meta={}){
-    if(!meta||typeof meta!=="object")return 0;
 
-    if(meta.isShort===true)return 9/16;
-
-    const direct=validMediaAspect(
-      meta.aspectRatio||
-      meta.videoAspectRatio||
-      meta.contentAspectRatio||
-      0
-    );
-    if(direct)return direct;
-
-    const pairs=[
-      [meta.videoWidth,meta.videoHeight],
-      [meta.width,meta.height],
-      [meta.contentWidth,meta.contentHeight]
-    ];
-    for(const [width,height] of pairs){
-      const w=Number(width)||0;
-      const h=Number(height)||0;
-      if(w>0&&h>0){
-        const ratio=validMediaAspect(w/h);
-        if(ratio)return ratio;
-      }
-    }
-    return 0;
-  }
-
-  function aspectHintVerified(meta={}){
-    if(!meta||typeof meta!=="object")return false;
-    if(meta._aspectVerified===true||meta.aspectVerified===true)return true;
-    if(meta.isShort===true)return true;
-    return Number(meta.videoWidth)>0&&Number(meta.videoHeight)>0;
-  }
 
   function cachedMediaAspect(id,{verifiedOnly=false}={}){
     const row=mediaAspectCache.get(String(id||"").trim());
@@ -1056,10 +1019,80 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return ratio;
   }
 
-  function primeMediaAspects(){
-    // Intentionally empty: media kind is owned only by the current YT.Player.
+  function cachedPrimedAspect(id){
+    const entry=aspectPrimeCache.get(String(id||"").trim());
+    return validMediaAspect(entry?.value);
   }
 
+  function aspectEngine(){
+    if(window.YTLocal)return Promise.resolve(window.YTLocal);
+    if(aspectEnginePromise)return aspectEnginePromise;
+
+    aspectEnginePromise=import("./src/yt-local.js")
+      .then(module=>window.YTLocal||module?.default||null)
+      .catch(()=>null);
+    return aspectEnginePromise;
+  }
+
+  function primeMediaAspect(id){
+    id=String(id||"").trim();
+    if(!id)return Promise.resolve(0);
+
+    const cached=aspectPrimeCache.get(id);
+    if(cached){
+      if(cached.value)return Promise.resolve(cached.value);
+      if(cached.promise)return cached.promise;
+    }
+
+    const task=aspectEngine()
+      .then(local=>{
+        if(typeof local?.videoAspect!=="function")return 0;
+        return local.videoAspect(id);
+      })
+      .then(dimensions=>{
+        const ratio=validMediaAspect(
+          Number(dimensions?.aspectRatio)||
+          (
+            Number(dimensions?.width)>0&&Number(dimensions?.height)>0
+              ?Number(dimensions.width)/Number(dimensions.height)
+              :0
+          )
+        );
+
+        if(ratio){
+          aspectPrimeCache.set(id,{value:ratio,at:Date.now()});
+          return ratio;
+        }
+
+        aspectPrimeCache.delete(id);
+        return 0;
+      })
+      .catch(()=>{
+        aspectPrimeCache.delete(id);
+        return 0;
+      });
+
+    aspectPrimeCache.set(id,{promise:task,at:Date.now()});
+    return task;
+  }
+
+  function primeMediaAspects(metas=[],limit=12){
+    const list=(Array.isArray(metas)?metas:[])
+      .filter(meta=>meta?.id)
+      .slice(0,Math.max(0,limit));
+
+    const run=()=>{
+      for(const meta of list){
+        void primeMediaAspect(meta.id);
+      }
+    };
+
+    if("requestIdleCallback" in window){
+      requestIdleCallback(run,{timeout:500});
+    }else{
+      setTimeout(run,0);
+    }
+  }
 
   function mediaLayoutKindFromRatio(ratio){
     ratio=validMediaAspect(ratio)||16/9;
@@ -1255,67 +1288,46 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return null;
   }
 
-  function canMeasureCurrentMediaShapeFromPlayer(){
-    const id=String(current?.id||"").trim();
-    if(!id)return false;
-
-    // Detection is allowed wherever the NEW media is currently playing:
-    // MAIN, PiP or 2-column. What matters is the media id, not presentation.
-    if(shapeLockedMediaId===id)return false;
-    if(shapeProbeMediaId&&shapeProbeMediaId!==id)return false;
-    return true;
-  }
-
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
     if(!player||!current?.id)return false;
-    if(!canMeasureCurrentMediaShapeFromPlayer())return false;
 
+    const expectedId=String(current.id||"").trim();
     let loadedId="";
     try{
       const data=player.getVideoData?.()||{};
       loadedId=String(data.video_id||data.videoId||"").trim();
     }catch{}
 
-    // Never apply the previous video's rectangle while loadVideoById() settles.
-    if(loadedId&&loadedId!==String(current.id||""))return false;
+    // During loadVideoById() YouTube can briefly expose the previous video's rect.
+    if(loadedId&&loadedId!==expectedId)return false;
 
     const rect=youtubeContentRect(player);
     if(!rect)return false;
 
-    const mediaId=String(current.id||"");
     const ratio=rememberMediaAspect(
-      mediaId,
+      expectedId,
       rect.aspectRatio,
       "iframe-content-rect",
       true
     );
-    commitCurrentAspect(mediaId,ratio,{relayout:true});
+    if(!ratio)return false;
 
-    // Lock only AFTER the currently loaded media itself produced a rect.
-    // From here, PiP/2-column resize is presentation-only.
-    shapeProbeMediaId=mediaId;
-    shapeLockedMediaId=mediaId;
-
-    if(pendingAutoplayMediaId===mediaId){
-      pendingAutoplayMediaId="";
-      try{player.playVideo?.()}catch{}
-    }
+    commitCurrentAspect(expectedId,ratio,{relayout:true});
+    aspectPrimeCache.set(expectedId,{value:ratio,at:Date.now()});
     return true;
   }
 
   function scheduleCurrentPlayerKind(player=ytPlayer){
-    const id=String(current?.id||"");
+    const id=String(current?.id||"").trim();
     if(!id)return;
 
     const attempt=()=>{
-      if(String(current?.id||"")!==id)return;
-      if(shapeLockedMediaId===id)return;
-      if(!canMeasureCurrentMediaShapeFromPlayer())return;
+      if(String(current?.id||"").trim()!==id)return;
       syncCurrentKindFromYoutubePlayer(player);
     };
 
     attempt();
-    [70,180,420,800,1400,2400,4200].forEach(delay=>setTimeout(attempt,delay));
+    [90,260,700,1400,2600,4500].forEach(delay=>setTimeout(attempt,delay));
   }
 
   function configurePlayerIframe(player=ytPlayer){
@@ -1400,37 +1412,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
           pendingVideoId="";
           if(!id)return;
 
-          const confirmed=mediaAspectCache.get(id)?.source==="iframe-content-rect";
           try{
-            if(confirmed){
-              event.target.loadVideoById(id);
-              event.target.playVideo?.();
-            }else{
-              pendingAutoplayMediaId=id;
-              event.target.cueVideoById(id);
-              scheduleCurrentPlayerKind(event.target);
-            }
+            event.target.loadVideoById(id);
+            event.target.playVideo?.();
           }catch{}
         },
         onStateChange(event){
-          if(
-            event.data===YTApi.PlayerState.CUED ||
-            event.data===YTApi.PlayerState.BUFFERING ||
-            event.data===YTApi.PlayerState.PLAYING
-          ){
-            const resolved=syncCurrentKindFromYoutubePlayer(event.target);
-            if(!resolved) scheduleCurrentPlayerKind(event.target);
-
-            const id=String(current?.id||"");
-            if(
-              resolved &&
-              pendingAutoplayMediaId===id &&
-              shapeLockedMediaId===id
-            ){
-              pendingAutoplayMediaId="";
-              try{event.target.playVideo?.()}catch{}
-            }
+          if(event.data===YTApi.PlayerState.PLAYING){
+            scheduleCurrentPlayerKind(event.target);
           }
+        }
         }
       }
     });
@@ -1442,16 +1433,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     id=String(id||"").trim();
     if(!id)return;
 
-    const previousKind=current?.kind==="portrait"?"portrait":"landscape";
-    const cachedRow=mediaAspectCache.get(id)||null;
     const confirmedRatio=
-      cachedRow?.source==="iframe-content-rect"
-        ?validMediaAspect(cachedRow.value)
+      mediaAspectCache.get(id)?.source==="iframe-content-rect"
+        ?cachedMediaAspect(id,{verifiedOnly:true})
         :0;
-
-    shapeProbeMediaId=id;
-    shapeLockedMediaId=confirmedRatio?id:"";
-    pendingAutoplayMediaId=confirmedRatio?"":id;
+    const primedRatio=cachedPrimedAspect(id);
+    const immediateAspect=confirmedRatio||primedRatio||16/9;
+    const kind=mediaLayoutKindFromRatio(immediateAspect);
 
     if(meta?.id===id){
       currentMeta=meta;
@@ -1460,25 +1448,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
       currentMeta=null;
     }
 
-    // For an unseen media, do NOT invent 16:9/9:16 and do NOT use thumbnail.
-    // Keep the current presentation shell only until YT.Player reports the
-    // new media's real videoContentRect. Then kind changes once, before play.
-    const initialKind=confirmedRatio
-      ?mediaLayoutKindFromRatio(confirmedRatio)
-      :previousKind;
-
+    // Kind belongs to THIS media id. MAIN / PiP / 2-column only consume it.
     current={
       id,
-      kind:initialKind,
-      ratio:initialKind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
-      detectedRatio:confirmedRatio||0,
+      kind,
+      ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
+      detectedRatio:immediateAspect,
       label:meta?.title||"Video"
     };
+    applyMediaLayoutSelection(kind,{relayout:true});
 
-    if(confirmedRatio){
-      applyMediaLayoutSelection(initialKind,{relayout:true});
-    }
-
+    // Playback never waits for shape probing, so the media region never vanishes.
     pendingVideoId=id;
     void ensureYoutubePlayer().then(playerApi=>{
       if(!playerApi||String(current?.id||"")!==id)return;
@@ -1486,15 +1466,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
       pendingVideoId="";
       try{
-        if(confirmedRatio){
-          playerApi.loadVideoById(id);
-          playerApi.playVideo?.();
-        }else{
-          // Standard YouTube path: cue -> read videoContentRect -> set kind -> play.
-          playerApi.cueVideoById(id);
-          scheduleCurrentPlayerKind(playerApi);
-        }
+        playerApi.loadVideoById(id);
+        playerApi.playVideo?.();
       }catch{}
+    });
+
+    // Same standard prime used by the main app. No thumbnail inference.
+    void primeMediaAspect(id).then(ratio=>{
+      if(!ratio||String(current?.id||"")!==id)return;
+
+      // YouTube's own content rect, once available, remains the final correction.
+      const row=mediaAspectCache.get(id);
+      if(String(row?.source||"")!=="iframe-content-rect"){
+        commitCurrentAspect(id,ratio,{relayout:true});
+      }
     });
   }
   function isTwoColumn(){
@@ -2485,7 +2470,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(item=>item?.id===id)||
       null;
 
-    // No thumbnail or card-shape inference. YT.Player owns media kind.
+    // Same as src/app.js: warm the exact video's real aspect before click.
+    void primeMediaAspect(id);
   },{passive:true});
 
   document.getElementById("rows").addEventListener("click",event=>{
