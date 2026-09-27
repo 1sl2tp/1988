@@ -46,7 +46,7 @@ assert.match(app,/selectedVideoAvatarFallback\.hidden=!!channelAvatar/);
 assert.match(style,/grid-template-rows:\s*var\(--watch-stage-h,56\.25vw\)\s*auto\s*auto!important/);
 assert.match(style,/\.selected-video-info\{\s*grid-row:2!important/);
 assert.match(style,/\.feed-section\{\s*grid-row:3!important/);
-assert.match(app,/hideFloatOverlayControls\(frame,\{suppressHover:true\}\)[\s\S]{0,260}active\.blur/);
+assert.match(app,/state\.intentPlay=true;[\s\S]{0,140}showFloatOverlayControls\(frame,2600\)/);
 assert.match(style,/float-controls-suppressed[\s\S]{0,180}visibility:hidden!important[\s\S]{0,120}transition:none!important/);
 assert.match(app,/float-controls-suppressed/);
 assert.doesNotMatch(app,/data-float-overlay="fullscreen"/);
