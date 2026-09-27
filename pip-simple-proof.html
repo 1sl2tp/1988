@@ -6,136 +6,132 @@
 <meta name="color-scheme" content="dark">
 <title>PiP Simple Proof</title>
 <style>
-  *{box-sizing:border-box}
-  html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-  body{min-height:220vh}
-  .top{
-    position:sticky;top:0;z-index:20;height:56px;
-    display:flex;align-items:center;gap:8px;padding:0 10px;
-    background:rgba(15,15,15,.94);backdrop-filter:blur(14px);
-    border-bottom:1px solid rgba(255,255,255,.08)
-  }
-  .top strong{margin-right:auto;font-size:14px}
-  button{
-    height:34px;padding:0 12px;border:1px solid #333;border-radius:9px;
-    background:#202020;color:#fff;font:inherit
-  }
-  button.active{background:#fff;color:#111;border-color:#fff}
+*{box-sizing:border-box}
+html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{min-height:220vh}
+.top{
+  position:sticky;top:0;z-index:50;height:56px;
+  display:flex;align-items:center;gap:8px;padding:0 10px;
+  background:#0f0f0f;border-bottom:1px solid #262626
+}
+.top strong{margin-right:auto;font-size:14px}
+button{
+  height:34px;padding:0 12px;border:1px solid #343434;border-radius:9px;
+  background:#202020;color:#fff;font:inherit
+}
+button.active{background:#fff;color:#111;border-color:#fff}
+
+main{width:min(680px,100%);margin:0 auto}
+.media-col{min-width:0}
+.stage{
+  position:relative;
+  margin:0 auto;
+  background:#000;
+  overflow:hidden;
+}
+.player{
+  position:absolute;
+  overflow:hidden;
+  background:#000;
+}
+.player iframe{
+  display:block;
+  width:100%;
+  height:100%;
+  border:0;
+  background:#000;
+}
+
+/* 1 COLUMN MAIN: stage == actual media box. No outside black gutter. */
+html.one-col .stage{background:transparent}
+html.one-col .player{inset:0;width:100%;height:100%}
+
+/* PIP: exact media ratio, no black gutter. */
+html.one-col .player.pip{
+  position:fixed;
+  z-index:100;
+  inset:auto;
+  right:10px;
+  top:66px;
+  width:var(--pip-w);
+  height:var(--pip-h);
+  border-radius:10px;
+  box-shadow:0 12px 34px rgba(0,0,0,.55);
+}
+html.one-col .player.pip iframe{border-radius:inherit}
+
+/* 2 COLUMNS */
+@media(min-width:960px){
   main{
-    width:min(680px,100%);
-    margin:0 auto;
+    width:min(1220px,100%);
+    display:grid;
+    grid-template-columns:minmax(0,1fr) var(--media-col-w,48vw);
+    grid-template-areas:"feed media";
+    gap:14px;
+    align-items:start;
+    padding:12px 14px 30px;
   }
-  .media-col{min-width:0}
-  .stage{
-    position:relative;
-    margin-inline:auto;
-    background:#000;
-    overflow:hidden;
-  }
-
-  /* Portrait: the stage IS the media box. No internal black edge. */
-  .stage.portrait{
-    width:var(--portrait-w,auto);
-    height:var(--portrait-h,auto);
-    background:transparent;
-  }
-  .stage.portrait .player{
-    position:absolute;
-    inset:0;
-    width:100%;
-    height:100%;
-    background:transparent;
+  .rows{grid-area:feed;padding:0;min-width:0}
+  .media-col{
+    grid-area:media;
+    position:sticky;
+    top:68px;
+    width:var(--media-col-w,48vw);
+    justify-self:end;
   }
 
-  /* Landscape: the stage is the full-width viewing area.
-     The 16:9 video is centered vertically, so only top/bottom can be black. */
-  .stage.landscape{
+  /* 2-col landscape: tall black viewing area, 16:9 video centered.
+     Black can exist only above and below the actual video. */
+  html.two-col.landscape .stage{
     width:100%;
-    height:var(--landscape-stage-h,auto);
+    height:var(--desktop-view-h);
     background:#000;
   }
-  .stage.landscape .player{
-    position:absolute;
+  html.two-col.landscape .player{
     left:0;
     top:50%;
     width:100%;
     height:auto;
     aspect-ratio:16/9;
     transform:translateY(-50%);
-    background:#000;
   }
 
-  .player{
-    overflow:hidden;
+  /* 2-col portrait: stage == actual 9:16 media. No black gutter. */
+  html.two-col.portrait .stage{
+    width:100%;
+    height:var(--desktop-view-h);
+    background:transparent;
   }
-  .player iframe{
-    display:block;
+  html.two-col.portrait .player{
+    inset:0;
     width:100%;
     height:100%;
-    border:0;
-    background:#000;
+    transform:none;
   }
-  .player.pip{
-    position:fixed;
-    inset:auto;
-    z-index:100;
-    width:var(--pip-w,240px);
-    height:var(--pip-h,135px);
-    right:10px;
-    top:calc(66px + env(safe-area-inset-top));
-    border-radius:10px;
-    box-shadow:0 12px 34px rgba(0,0,0,.55);
+
+  html.two-col .player.pip{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    border-radius:0;
+    box-shadow:none;
   }
-  .player.pip iframe{border-radius:inherit}
-  .info{padding:12px;border-bottom:1px solid #292929}
-  .info b{display:block;font-size:15px;margin-bottom:4px}
-  .info span{color:#999;font-size:12px}
-  .rows{padding:10px}
-  .row{
-    height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
-    display:flex;align-items:center;padding:0 14px;color:#aaa
-  }
-  .state{
-    position:fixed;left:8px;bottom:8px;z-index:150;
-    padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.72);
-    font-size:11px;color:#ddd
-  }
-  @media(min-width:960px){
-    main{
-      width:min(1220px,100%);
-      display:grid;
-      grid-template-columns:minmax(0,1fr) var(--media-col-w,48vw);
-      grid-template-areas:"feed media";
-      gap:14px;
-      align-items:start;
-      padding:12px 14px 30px;
-    }
-    .rows{
-      grid-area:feed;
-      padding:0;
-      min-width:0;
-    }
-    .media-col{
-      grid-area:media;
-      position:sticky;
-      top:68px;
-      min-width:0;
-      width:var(--media-col-w,100%);
-      justify-self:end;
-    }
-    .stage{
-      max-width:100%;
-      max-height:calc(100dvh - 82px);
-    }
-    .player.pip{
-      position:absolute;
-      inset:0;
-      width:100%;
-      height:100%;
-      border-radius:0;
-      box-shadow:none;
-    }
-  }
+}
+
+.info{padding:12px;border-bottom:1px solid #292929}
+.info b{display:block;font-size:15px;margin-bottom:4px}
+.info span{color:#999;font-size:12px}
+.rows{padding:10px}
+.row{
+  height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
+  display:flex;align-items:center;padding:0 14px;color:#aaa
+}
+.state{
+  position:fixed;left:8px;bottom:8px;z-index:150;
+  padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.74);
+  font-size:11px;color:#ddd
+}
 </style>
 </head>
 <body>
@@ -146,295 +142,217 @@
 </header>
 
 <main>
-  <div class="media-col">
+  <div class="media-col" id="mediaCol">
     <section class="stage" id="stage">
       <div class="player" id="player">
-        <iframe
-          id="videoFrame"
+        <iframe id="videoFrame"
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           allowfullscreen
-          referrerpolicy="strict-origin-when-cross-origin">
-        </iframe>
+          referrerpolicy="strict-origin-when-cross-origin"></iframe>
       </div>
     </section>
-
     <div class="info">
       <b id="videoTitle">Video ngang · 16:9</b>
-      <span id="layoutHint">1 cột: cuộn khỏi media thì PiP.</span>
+      <span id="layoutHint"></span>
     </div>
   </div>
 
   <div class="rows" id="rows"></div>
 </main>
 
-<div class="state" id="state">MAIN · 16:9</div>
+<div class="state" id="state"></div>
 
 <script>
 (() => {
-  const VIDEOS = {
-    landscape: {
-      id: "ypLlRC_2EFc",
-      ratio: 16/9,
-      label: "Video ngang · 16:9"
-    },
-    portrait: {
-      id: "kUF9P2m9mrg",
-      ratio: 9/16,
-      label: "Video dọc · 9:16"
-    }
+  const VIDEOS={
+    landscape:{id:"ypLlRC_2EFc",ratio:16/9,label:"Video ngang · 16:9"},
+    portrait:{id:"kUF9P2m9mrg",ratio:9/16,label:"Video dọc · 9:16"}
   };
 
-  const top = document.getElementById("top");
-  const stage = document.getElementById("stage");
-  const player = document.getElementById("player");
-  const frame = document.getElementById("videoFrame");
-  const stateEl = document.getElementById("state");
-  const titleEl = document.getElementById("videoTitle");
-  const layoutHint = document.getElementById("layoutHint");
-  const landscapeBtn = document.getElementById("landscapeBtn");
-  const portraitBtn = document.getElementById("portraitBtn");
+  const root=document.documentElement;
+  const top=document.getElementById("top");
+  const mediaCol=document.getElementById("mediaCol");
+  const stage=document.getElementById("stage");
+  const player=document.getElementById("player");
+  const frame=document.getElementById("videoFrame");
+  const stateEl=document.getElementById("state");
+  const titleEl=document.getElementById("videoTitle");
+  const layoutHint=document.getElementById("layoutHint");
+  const landscapeBtn=document.getElementById("landscapeBtn");
+  const portraitBtn=document.getElementById("portraitBtn");
 
-  let current = VIDEOS.landscape;
-  let pip = false;
-  let raf = 0;
-  let stableMainViewportW = Math.max(1, innerWidth || 1);
-  let stableMainViewportH = Math.max(1, innerHeight || document.documentElement.clientHeight || 1);
-  let pipTriggerY = Infinity;
+  let current=VIDEOS.landscape;
+  let pip=false;
+  let raf=0;
+  let lastWidth=Math.max(1,innerWidth||1);
 
   function embedUrl(id){
-    return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) +
+    return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
       "?autoplay=1&playsinline=1&rel=0&modestbranding=1";
   }
 
-  function viewportHeight(){
-    return Math.max(1, Number(visualViewport?.height) || innerHeight || 1);
-  }
-
-  function refreshStableMainViewport(force=false){
-    const nextW=Math.max(1,innerWidth||1);
-    const widthChanged=Math.abs(nextW-stableMainViewportW)>2;
-    if(force||widthChanged){
-      stableMainViewportW=nextW;
-      stableMainViewportH=Math.max(
-        1,
-        innerHeight||document.documentElement.clientHeight||1
-      );
-      return true;
-    }
-    return false;
-  }
-
-  function measureMain(){
-    const headerBottom=Math.max(0,top.getBoundingClientRect().bottom);
-    const availableH=Math.max(220,stableMainViewportH-headerBottom-(twoColumn()?14:0));
-    const viewportW=Math.max(1,innerWidth||1);
-    const oneColW=Math.max(1,Math.min(680,viewportW));
-    const desktopMaxW=Math.max(360,Math.min(viewportW*.48,620));
-
-    stage.classList.toggle("portrait",current.ratio<1);
-    stage.classList.toggle("landscape",current.ratio>=1);
-
-    if(current.ratio<1){
-      // PORTRAIT:
-      // Height fills the viewing height. Width comes only from 9:16.
-      let h=availableH;
-      let w=h*current.ratio;
-
-      const hardMaxW=twoColumn()?Math.min(viewportW*.42,520):oneColW;
-      if(w>hardMaxW){
-        w=hardMaxW;
-        h=w/current.ratio;
-      }
-
-      stage.style.width=Math.round(w)+"px";
-      stage.style.height=Math.round(h)+"px";
-      stage.style.setProperty("--portrait-w",Math.round(w)+"px");
-      stage.style.setProperty("--portrait-h",Math.round(h)+"px");
-      stage.style.removeProperty("--landscape-stage-h");
-
-      if(twoColumn()){
-        document.documentElement.style.setProperty("--media-col-w",Math.round(w)+"px");
-      }else{
-        document.documentElement.style.removeProperty("--media-col-w");
-        const mediaCol=stage.closest(".media-col");
-        if(mediaCol){
-          mediaCol.style.width=Math.round(w)+"px";
-          mediaCol.style.marginInline="auto";
-        }
-      }
-    }else{
-      // LANDSCAPE:
-      // Viewing area fills the horizontal width. The 16:9 video stays centered.
-      const w=twoColumn()?desktopMaxW:oneColW;
-      const videoH=w/current.ratio;
-      const stageH=availableH;
-
-      stage.style.width="100%";
-      stage.style.height=Math.round(stageH)+"px";
-      stage.style.setProperty("--landscape-stage-h",Math.round(stageH)+"px");
-      stage.style.removeProperty("--portrait-w");
-      stage.style.removeProperty("--portrait-h");
-
-      const mediaCol=stage.closest(".media-col");
-      if(mediaCol){
-        mediaCol.style.width="";
-        mediaCol.style.marginInline="";
-      }
-
-      if(twoColumn()){
-        document.documentElement.style.setProperty("--media-col-w",Math.round(w)+"px");
-      }else{
-        document.documentElement.style.removeProperty("--media-col-w");
-      }
-    }
-  }
-  function refreshPipTrigger(){
-    if(twoColumn() || pip) return pipTriggerY;
-
-    const mediaRect = player.getBoundingClientRect();
-    const headerBottom = top.getBoundingClientRect().bottom;
-    if(!Number.isFinite(mediaRect.bottom)) return pipTriggerY;
-
-    // Capture the scroll position at which the REAL media bottom reaches header.
-    // Portrait and landscape naturally get different thresholds because their
-    // actual media heights are different.
-    pipTriggerY = Math.max(
-      0,
-      window.scrollY + mediaRect.bottom - headerBottom
-    );
-    return pipTriggerY;
-  }
-
-
-  function fitPip(ratio){
-    let w;
-    let h;
-
-    if(ratio < 1){
-      // PiP dọc cũng đo theo chiều cao.
-      h = Math.min(420, Math.max(240, viewportHeight() * .50));
-      w = h * ratio;
-      const maxW = Math.max(120, innerWidth * .46);
-      if(w > maxW){
-        w = maxW;
-        h = w / ratio;
-      }
-    }else{
-      // PiP ngang đo theo chiều rộng.
-      w = Math.min(280, Math.max(170, innerWidth * .46));
-      h = w / ratio;
-      const maxH = Math.max(100, viewportHeight() * .36);
-      if(h > maxH){
-        h = maxH;
-        w = h * ratio;
-      }
-    }
-
-    document.documentElement.style.setProperty("--pip-w", Math.round(w) + "px");
-    document.documentElement.style.setProperty("--pip-h", Math.round(h) + "px");
-  }
-
-  function twoColumn(){
+  function isTwoColumn(){
     return matchMedia("(min-width:960px)").matches;
   }
 
-  function paint({measure=true}={}){
-    document.documentElement.style.setProperty("--ratio", String(current.ratio));
+  function availableHeight(){
+    const headerH=top.offsetHeight||56;
+    return Math.max(220,(innerHeight||document.documentElement.clientHeight||700)-headerH-14);
+  }
 
-    if(measure){
-      measureMain();
-      fitPip(current.ratio);
-      requestAnimationFrame(refreshPipTrigger);
+  function layout(){
+    const two=isTwoColumn();
+    const portrait=current.ratio<1;
+
+    root.classList.toggle("one-col",!two);
+    root.classList.toggle("two-col",two);
+    root.classList.toggle("portrait",portrait);
+    root.classList.toggle("landscape",!portrait);
+
+    if(!two){
+      root.style.removeProperty("--media-col-w");
+      root.style.removeProperty("--desktop-view-h");
+      mediaCol.style.width="";
+      mediaCol.style.marginInline="";
+
+      if(portrait){
+        /* MAIN portrait: full height, exact 9:16, no black. */
+        let h=availableHeight();
+        let w=h*current.ratio;
+        const maxW=Math.max(1,Math.min(680,innerWidth||680));
+        if(w>maxW){
+          w=maxW;
+          h=w/current.ratio;
+        }
+        stage.style.width=Math.round(w)+"px";
+        stage.style.height=Math.round(h)+"px";
+        mediaCol.style.width=Math.round(w)+"px";
+        mediaCol.style.marginInline="auto";
+      }else{
+        /* MAIN landscape: full width, exact 16:9, no black. */
+        const w=Math.max(1,Math.min(680,innerWidth||680));
+        const h=w/current.ratio;
+        stage.style.width=Math.round(w)+"px";
+        stage.style.height=Math.round(h)+"px";
+      }
+    }else{
+      pip=false;
+      player.classList.remove("pip");
+
+      const h=availableHeight();
+
+      if(portrait){
+        /* 2-col portrait: full height, exact 9:16, no black. */
+        const w=h*current.ratio;
+        root.style.setProperty("--media-col-w",Math.round(w)+"px");
+        root.style.setProperty("--desktop-view-h",Math.round(h)+"px");
+        stage.style.width="100%";
+        stage.style.height=Math.round(h)+"px";
+      }else{
+        /* 2-col landscape: wide column + tall black viewing area.
+           Actual 16:9 video remains centered with black top/bottom only. */
+        const w=Math.max(360,Math.min((innerWidth||1200)*.48,620));
+        root.style.setProperty("--media-col-w",Math.round(w)+"px");
+        root.style.setProperty("--desktop-view-h",Math.round(h)+"px");
+        stage.style.width="100%";
+        stage.style.height=Math.round(h)+"px";
+      }
     }
 
-    titleEl.textContent = current.label;
+    fitPip();
+    paintText();
+  }
 
-    if(twoColumn()){
-      layoutHint.textContent = current.ratio < 1
-        ? "2 cột · dọc full chiều cao, khung co đúng 9:16."
-        : "2 cột · ngang full bề rộng, video giữa, đen chỉ trên/dưới.";
-      stateEl.textContent = "2 CỘT · MAIN · " + (current.ratio > 1 ? "16:9" : "9:16");
+  function fitPip(){
+    if(current.ratio<1){
+      let h=Math.min(420,Math.max(240,(innerHeight||700)*.50));
+      let w=h*current.ratio;
+      const maxW=Math.max(120,(innerWidth||500)*.46);
+      if(w>maxW){w=maxW;h=w/current.ratio}
+      root.style.setProperty("--pip-w",Math.round(w)+"px");
+      root.style.setProperty("--pip-h",Math.round(h)+"px");
     }else{
-      layoutHint.textContent = current.ratio < 1
-        ? "1 cột · dọc full chiều cao, không viền đen trong media."
-        : "1 cột · ngang full bề ngang.";
-      stateEl.textContent = "1 CỘT · " + (pip ? "PIP" : "MAIN") + " · " +
-        (current.ratio > 1 ? "16:9" : "9:16");
+      let w=Math.min(280,Math.max(170,(innerWidth||500)*.46));
+      let h=w/current.ratio;
+      root.style.setProperty("--pip-w",Math.round(w)+"px");
+      root.style.setProperty("--pip-h",Math.round(h)+"px");
+    }
+  }
+
+  function paintText(){
+    titleEl.textContent=current.label;
+    if(isTwoColumn()){
+      layoutHint.textContent=current.ratio<1
+        ?"2 cột · dọc full, không đen."
+        :"2 cột · ngang giữa, đen trên/dưới.";
+      stateEl.textContent="2 CỘT · MAIN · "+(current.ratio<1?"9:16":"16:9");
+    }else{
+      layoutHint.textContent=current.ratio<1
+        ?"1 cột · MAIN dọc full, không đen."
+        :"1 cột · MAIN ngang full, không đen.";
+      stateEl.textContent="1 CỘT · "+(pip?"PIP":"MAIN")+" · "+(current.ratio<1?"9:16":"16:9");
     }
   }
 
   function syncPip(){
-    if(twoColumn()){
+    if(isTwoColumn()){
       if(pip){
-        pip = false;
+        pip=false;
         player.classList.remove("pip");
+        paintText();
       }
-      paint({measure:false});
       return;
     }
 
-    if(!Number.isFinite(pipTriggerY)) refreshPipTrigger();
+    /* Simple rule:
+       stage is always the original MAIN media box and stays in document flow.
+       When its real bottom passes the header -> PiP.
+       Because stage never becomes fixed, this remains stable after PiP opens. */
+    const shouldPip=
+      window.scrollY>0 &&
+      stage.getBoundingClientRect().bottom<=top.getBoundingClientRect().bottom+1;
 
-    // Scroll never measures the floating player.
-    // It only compares against the threshold captured from MAIN media geometry.
-    const shouldPip =
-      window.scrollY > 0 &&
-      window.scrollY >= pipTriggerY - 1;
+    if(shouldPip===pip)return;
 
-    if(shouldPip !== pip){
-      pip = shouldPip;
-      player.classList.toggle("pip", pip);
-    }
-    paint({measure:false});
+    pip=shouldPip;
+    player.classList.toggle("pip",pip);
+    paintText();
   }
 
-  function scheduleSync(){
-    if(raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
+  function schedulePip(){
+    if(raf)return;
+    raf=requestAnimationFrame(()=>{
+      raf=0;
       syncPip();
     });
   }
 
   function select(kind){
-    current = VIDEOS[kind];
-    pipTriggerY = Infinity;
-    landscapeBtn.classList.toggle("active", kind === "landscape");
-    portraitBtn.classList.toggle("active", kind === "portrait");
-    frame.src = embedUrl(current.id);
-    refreshStableMainViewport(true);
-    paint({measure:true});
-    scheduleSync();
+    current=VIDEOS[kind];
+    pip=false;
+    player.classList.remove("pip");
+    landscapeBtn.classList.toggle("active",kind==="landscape");
+    portraitBtn.classList.toggle("active",kind==="portrait");
+    frame.src=embedUrl(current.id);
+    layout();
+    schedulePip();
   }
 
-  landscapeBtn.addEventListener("click", () => select("landscape"));
-  portraitBtn.addEventListener("click", () => select("portrait"));
-
-  addEventListener("scroll", scheduleSync, {passive:true});
-
-  addEventListener("resize", () => {
-    // Chrome mobile fires height-only resize while its URL bar expands/collapses.
-    // Ignore that for MAIN geometry; width/breakpoint changes are real layout changes.
-    const mainChanged=refreshStableMainViewport(false);
-    if(mainChanged){
-      pipTriggerY = Infinity;
-      paint({measure:true});
-    }else if(pip){
-      fitPip(current.ratio);
+  landscapeBtn.addEventListener("click",()=>select("landscape"));
+  portraitBtn.addEventListener("click",()=>select("portrait"));
+  addEventListener("scroll",schedulePip,{passive:true});
+  addEventListener("resize",()=>{
+    const w=Math.max(1,innerWidth||1);
+    /* Ignore Chrome mobile height-only browser-bar resize. */
+    if(Math.abs(w-lastWidth)>2){
+      lastWidth=w;
+      layout();
     }
-    scheduleSync();
-  }, {passive:true});
+    schedulePip();
+  },{passive:true});
 
-  visualViewport?.addEventListener?.("resize", () => {
-    // Visual viewport can breathe during scroll. Only PiP may follow it.
-    if(pip)fitPip(current.ratio);
-    scheduleSync();
-  }, {passive:true});
-
-  const rows = document.getElementById("rows");
-  rows.innerHTML = Array.from({length:14}, (_,i) =>
-    '<div class="row">Nội dung cuộn ' + (i+1) + '</div>'
-  ).join("");
+  document.getElementById("rows").innerHTML=
+    Array.from({length:14},(_,i)=>'<div class="row">Nội dung cuộn '+(i+1)+'</div>').join("");
 
   select("landscape");
 })();
