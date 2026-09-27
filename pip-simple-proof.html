@@ -21,10 +21,10 @@
   --yt-hover:rgba(255,255,255,.10);
   --yt-press:rgba(255,255,255,.18);
   --header-rgb:15,15,15;
-  --header-alpha:.96;
-  --header-blur:18px;
+  --header-alpha:.94;
+  --header-blur:16px;
   --safe-top:env(safe-area-inset-top,0px);
-  --top-boundary:56px;
+  --top-boundary:calc(112px + var(--safe-top));
   --bottom-gap:8px;
   --current-full-h:600px;
   --pip-landscape-w:240px;
@@ -84,7 +84,7 @@ html.one-col body{min-height:220vh}
   top:0;
   z-index:50;
   padding-top:var(--safe-top);
-  --header-alpha:.96;
+  --header-alpha:.94;
   background:rgba(var(--header-rgb),var(--header-alpha));
   -webkit-backdrop-filter:saturate(145%) blur(var(--header-blur));
   backdrop-filter:saturate(145%) blur(var(--header-blur));
@@ -96,10 +96,10 @@ html.one-col body{min-height:220vh}
   will-change:transform;
 }
 .top.chrome-scrolled{
-  --header-alpha:.72;
+  --header-alpha:.78;
 }
 .top.search-open{
-  --header-alpha:.88;
+  --header-alpha:.90;
 }
 .masthead{
   height:56px;
@@ -326,6 +326,13 @@ html.one-col body{min-height:220vh}
 }
 
 @media(max-width:656px){
+  .top{
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    width:100%;
+  }
   .masthead{
     height:56px;
     padding:0 12px;
@@ -352,7 +359,7 @@ html.one-col body{min-height:220vh}
   .sourcebar{height:56px}
 
   .top.mobile-scroll-hidden:not(.search-open){
-    transform:translateY(-100%);
+    transform:translate3d(0,calc(-100% - 2px),0);
     pointer-events:none;
   }
 
@@ -386,6 +393,11 @@ main{
   max-width:100%;
   margin:0;
   padding-top:var(--content-top-gap);
+}
+@media(max-width:656px){
+  main{
+    padding-top:calc(var(--top-boundary) + var(--content-top-gap));
+  }
 }
 .media-col{min-width:0;max-width:100%}
 .stage{
@@ -1205,10 +1217,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const seq=++headerTintSeq;
     void youtubeCinematicPalette(art).then(palette=>{
       if(seq!==headerTintSeq||!palette)return;
-      const [r,g,b]=palette.surface;
+
+      // Same composition as the main app:
+      // palette.surface already contains 40% accent, then chrome keeps 32%
+      // of that surface over #0f0f0f -> ~12.8% effective video tint.
+      const base=[15,15,15];
+      const mix=.32;
+      const [r,g,b]=palette.surface.map((value,index)=>Math.round(
+        base[index]*(1-mix)+value*mix
+      ));
       root.style.setProperty("--header-rgb",r+","+g+","+b);
+
+      // Do NOT paint browser/PWA status chrome with the media color.
+      // Keeping this neutral avoids a persistent colored notch strip while
+      // the in-page header itself scrolls away underneath black-translucent.
       if(themeColorMeta){
-        themeColorMeta.setAttribute("content","rgba("+r+","+g+","+b+",.92)");
+        themeColorMeta.setAttribute("content","rgba(33,33,33,.98)");
       }
     });
   }
@@ -2213,6 +2237,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
     syncBoundaries();
     schedulePip();
   }).observe(top);
+
+  window.visualViewport?.addEventListener?.("resize",()=>{
+    syncBoundaries();
+    syncMobileHeaderVisibility(true);
+    schedulePip();
+  },{passive:true});
 
   mobileHeaderLastY=pageScrollY();
   syncHeaderScrollState();
