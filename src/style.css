@@ -5351,3 +5351,39 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     max-height:42vh!important;
   }
 }
+
+
+/* One-column player scroll bridge v427.
+   Cross-origin video frames do not hand vertical gestures to the parent page
+   consistently across engines. In every one-column layout (<960px), keep one
+   transparent app-owned pan surface above the picture, while leaving the
+   native YouTube control strip at the bottom fully interactive. */
+@media(max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) .watch-swipe-zone{
+    display:block!important;
+    position:absolute!important;
+    z-index:80!important;
+    top:0!important;
+    left:0!important;
+    right:0!important;
+    bottom:50px!important;
+    width:auto!important;
+    height:auto!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    pointer-events:auto!important;
+    cursor:pointer!important;
+    touch-action:pan-y pinch-zoom!important;
+    -webkit-user-select:none!important;
+    user-select:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) iframe,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-frame:not(.floating-iframe) #yt-player{
+    touch-action:pan-y pinch-zoom!important;
+  }
+}
