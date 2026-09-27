@@ -236,7 +236,7 @@ assert.match(app,/Date\.now\(\)>=Number\(state\.watchRestoreUntil\|\|0\)/);
 assert.match(app,/zone\.addEventListener\("pointerdown"[\s\S]{0,120}startFloatMove\(event,frame\)/);
 assert.doesNotMatch(app,/document\.addEventListener\("touchstart",event=>\{\s*lastTouchAt=Date\.now\(\)/);
 assert.match(app,/syncFloatingPlayerViewport\(frame,\{settle:true\}\)/);
-assert.match(app,/ratio:currentFloatingAspect\(\)/);
+assert.match(app,/state\.floatBox=\{[\s\S]{0,220}ratio\s*\n?\s*\};/);
 assert.doesNotMatch(style,/transition:transform \.16s ease,width \.16s ease,height \.16s ease/);
 assert.match(style,/--main-page-bg:#0f0f0f/);
 assert.match(app,/function desktopHoverAccentEnabled\(/);
