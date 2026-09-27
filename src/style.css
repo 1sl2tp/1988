@@ -6928,3 +6928,240 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     scroll-padding-left:146px!important;
   }
 }
+
+
+/* ============================================================
+   WATCH INFO + SOURCE TABS v467
+   Match the compact mobile card rhythm and the v466 source navigation without
+   changing media/PiP geometry. The inline player stays full-bleed; information
+   and navigation below it become one compact, consistent stack.
+   ============================================================ */
+@media(max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info:not([hidden]){
+    padding:0 0 7px!important;
+    background:#0b0b0c!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-row{
+    grid-template-columns:34px minmax(0,1fr)!important;
+    gap:9px!important;
+    margin:0 8px!important;
+    padding:8px 9px 9px!important;
+    border:1px solid rgba(255,255,255,.075)!important;
+    border-radius:0 0 12px 12px!important;
+    background:#151518!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-avatar{
+    width:34px!important;
+    height:34px!important;
+    margin-top:1px!important;
+    border:1px solid rgba(255,255,255,.075)!important;
+    background:#202024!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-title-line{
+    grid-template-columns:minmax(0,1fr) 24px!important;
+    gap:5px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-title-line>strong{
+    font-size:13.5px!important;
+    line-height:1.32!important;
+    font-weight:680!important;
+    letter-spacing:-.08px!important;
+    -webkit-line-clamp:2!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-more{
+    width:24px!important;
+    height:24px!important;
+    font-size:20px!important;
+    line-height:22px!important;
+    transform:none!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-meta{
+    margin-top:3px!important;
+    color:#85858e!important;
+    font-size:10.2px!important;
+    line-height:1.28!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail:not([hidden]){
+    display:block!important;
+    width:100%!important;
+    margin:0!important;
+    padding:5px 8px 6px!important;
+    border-top:0!important;
+    background:#0b0b0c!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:31px!important;
+    min-height:31px!important;
+    gap:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+    scroll-padding-left:146px!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="live"]{
+    position:sticky!important;
+    left:0!important;
+    z-index:8!important;
+    flex:0 0 31px!important;
+    width:31px!important;
+    min-width:31px!important;
+    height:31px!important;
+    min-height:31px!important;
+    margin-right:5px!important;
+    padding:0!important;
+    border:1px solid rgba(242,13,58,.30)!important;
+    border-radius:7px!important;
+    background:#0b0b0c!important;
+    color:var(--media-red)!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"],
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"]{
+    position:sticky!important;
+    z-index:8!important;
+    flex:0 0 auto!important;
+    width:auto!important;
+    min-width:0!important;
+    height:31px!important;
+    min-height:31px!important;
+    padding:0 10px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:#0b0b0c!important;
+    color:#b7b7bd!important;
+    font-size:11.5px!important;
+    font-weight:560!important;
+    line-height:31px!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"]{
+    left:36px!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"]{
+    left:87px!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"]::after,
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"]::after{
+    content:"";
+    position:absolute;
+    left:9px;
+    right:9px;
+    bottom:0;
+    height:2px;
+    border-radius:999px;
+    background:transparent;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"].active,
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"].active{
+    color:#fff!important;
+    font-weight:650!important;
+    background:#0b0b0c!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"].active::after,
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"].active::after{
+    background:#f1f1f2!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-divider{
+    position:sticky!important;
+    left:137px!important;
+    z-index:8!important;
+    flex:0 0 1px!important;
+    width:1px!important;
+    height:18px!important;
+    margin:0 5px 0 4px!important;
+    background:rgba(255,255,255,.10)!important;
+    box-shadow:5px 0 8px rgba(11,11,12,.82)!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject{
+    flex:0 0 auto!important;
+    height:31px!important;
+    min-height:31px!important;
+    padding:0 7px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    color:#aaaab1!important;
+    font-size:11px!important;
+    font-weight:450!important;
+    line-height:31px!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject.active{
+    color:#fff!important;
+    font-weight:540!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject::after{
+    left:7px!important;
+    right:7px!important;
+    bottom:0!important;
+    height:2px!important;
+    background:transparent!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject.active::after{
+    background:#f1f1f2!important;
+  }
+
+  html.watch-browse .selected-topic-chips .live-chip-icon{
+    width:16px!important;
+    height:16px!important;
+    transform:none!important;
+    overflow:visible!important;
+  }
+}
+
+/* On the phone, keep the selected info aligned with the same asymmetric page
+   edge used by cards: 8px left, 12px right. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-row{
+    margin-left:var(--layout-edge-mobile-left)!important;
+    margin-right:var(--layout-edge-mobile-right)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail{
+    padding-left:var(--layout-edge-mobile-left)!important;
+    padding-right:var(--layout-edge-mobile-right)!important;
+  }
+}
