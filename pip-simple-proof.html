@@ -14,6 +14,9 @@
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
   --two-col-media-w:420px;
+  --landscape-player-h:420px;
+  --landscape-top-safe:56px;
+  --landscape-bottom-safe:64px;
   --layout-gap:13px;
   --feed-cols:2;
   --card-target-w:200px;
@@ -197,7 +200,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
   html.two-col.landscape .stage{
     width:100%;
-    height:100%;
+    height:var(--landscape-player-h);
     border-radius:var(--floating-radius);
     background:#000;
     overflow:hidden;
@@ -363,6 +366,59 @@ html.one-col .player.pip iframe{border-radius:inherit}
     );
   }
 
+  function wrappedTextLines(text,maxWidth,font){
+    const canvas=wrappedTextLines.canvas||(wrappedTextLines.canvas=document.createElement("canvas"));
+    const ctx=canvas.getContext("2d");
+    if(!ctx)return 1;
+    ctx.font=font;
+
+    const words=String(text||"").trim().split(/\s+/).filter(Boolean);
+    if(!words.length)return 1;
+
+    let lines=1;
+    let line="";
+    for(const word of words){
+      const next=line?line+" "+word:word;
+      if(line && ctx.measureText(next).width>maxWidth){
+        lines+=1;
+        line=word;
+        if(lines>=2)return 2;
+      }else{
+        line=next;
+      }
+    }
+    return lines;
+  }
+
+  function measureLandscapeChrome(mediaW){
+    const title=currentMeta?.title || current.label || "";
+    const source=currentMeta?.sourceName || "";
+
+    // Approximate YouTube's own top overlay from the real title length and
+    // the CURRENT player width. Cross-origin iframe DOM itself cannot be read.
+    const titleFont=mediaW<560?14:(mediaW<900?16:18);
+    const titleLineH=Math.round(titleFont*1.22);
+    const reservedRight=mediaW<560?104:148; // sound / CC / settings
+    const reservedLeft=mediaW<560?48:58;    // avatar + left padding
+    const titleWidth=Math.max(120,mediaW-reservedLeft-reservedRight);
+    const titleLines=wrappedTextLines(
+      title,
+      titleWidth,
+      "700 "+titleFont+"px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"
+    );
+
+    const avatar=mediaW<560?32:40;
+    const sourceH=source?Math.round(titleFont*.82):0;
+    const titleBlock=titleLines*titleLineH+sourceH;
+    const topSafe=Math.ceil(10+Math.max(avatar,titleBlock)+8);
+
+    // Bottom chrome: time label + seek bar + action row. It changes much less
+    // than title, so scale gently with CURRENT width.
+    const bottomSafe=Math.round(Math.max(54,Math.min(74,52+mediaW*.025)));
+
+    return {topSafe,bottomSafe,titleLines};
+  }
+
   function syncBoundaries(){
     // Measure the CURRENT usable viewport, not svh/vw estimates.
     const topBoundary=Math.max(0,Math.round(top.getBoundingClientRect().bottom));
@@ -411,20 +467,51 @@ html.one-col .player.pip iframe{border-radius:inherit}
       root.style.setProperty("--feed-cols",String(cols));
     }else{
       const contentW=Math.max(1,pageW-(gap*2));
-      const naturalMediaW=Math.max(1,Math.round(fullH*current.ratio));
 
       // Photography balance: media should not dominate beyond the golden section.
       const goldenMediaCap=Math.max(1,Math.round(contentW/PHI));
 
       // Preserve exactly one REAL card unit in the feed.
-      // No second hard-coded minimum is allowed to fight this calculation.
       const feedMinW=cardTargetW;
       const maxMediaByCard=Math.max(1,contentW-gap-feedMinW);
-      const mediaW=Math.max(1,Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard));
+
+      let mediaW;
+      let landscapeChrome=null;
+
+      if(current.ratio>1){
+        // LANDSCAPE:
+        // Start from the width allowed by layout, then measure the REAL title.
+        // Because YouTube letterboxes symmetrically, both black bars must be
+        // at least the larger of top-title and bottom-controls requirements.
+        const widthCap=Math.max(1,Math.min(goldenMediaCap,maxMediaByCard));
+        landscapeChrome=measureLandscapeChrome(widthCap);
+        const safeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
+
+        // Maximum width that still fits: safe top + 16:9 video + safe bottom.
+        const heightDrivenW=Math.max(
+          1,
+          Math.round(Math.max(1,fullH-(safeBar*2))*current.ratio)
+        );
+        mediaW=Math.max(1,Math.min(widthCap,heightDrivenW));
+
+        // Re-measure after final width because title wrapping can change.
+        landscapeChrome=measureLandscapeChrome(mediaW);
+        const finalSafeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
+        const videoH=mediaW/current.ratio;
+        const playerH=Math.min(fullH,Math.ceil(videoH+(finalSafeBar*2)));
+
+        root.style.setProperty("--landscape-player-h",playerH+"px");
+        root.style.setProperty("--landscape-top-safe",landscapeChrome.topSafe+"px");
+        root.style.setProperty("--landscape-bottom-safe",landscapeChrome.bottomSafe+"px");
+      }else{
+        // PORTRAIT stays height-driven and full-height.
+        const naturalMediaW=Math.max(1,Math.round(fullH*current.ratio));
+        mediaW=Math.max(1,Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard));
+      }
+
       const feedW=Math.max(feedMinW,contentW-gap-mediaW);
 
-      // Ultra-wide: feed starts at the left edge and keeps adding cards
-      // for as long as the actual remaining width can hold them.
+      // Ultra-wide: feed starts at the left edge and keeps adding cards.
       const cols=Math.max(1,Math.floor((feedW+gap)/(cardTargetW+gap)));
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
       root.style.setProperty("--feed-cols",String(cols));
@@ -494,6 +581,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
       titleEl.textContent=currentMeta.title || current.label;
       renderSampleContent();
+      syncBoundaries();
     }catch(_){
       if(request!==metaRequest)return;
       currentMeta=null;
@@ -528,7 +616,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(isTwoColumn()){
       layoutHint.textContent=current.ratio<1
         ?"2 cột · dọc full, không đen."
-        :"2 cột · ngang giữa, đen trên/dưới.";
+        :"2 cột · ngang: đen tối thiểu theo title / tua.";
       stateEl.textContent="2 CỘT · MAIN · "+(current.ratio<1?"9:16":"16:9");
     }else{
       layoutHint.textContent=current.ratio<1
