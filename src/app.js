@@ -5903,6 +5903,12 @@ function updateFloatControlState(frame=playerSection?.querySelector(".player-fra
   frame.classList.toggle("float-scale-15",scaleValue===1.5);
   frame.classList.toggle("float-scale-2",scaleValue===2);
 
+  const sizeKey=pipSizeKey(scaleValue);
+  frame.dataset.pipSize=sizeKey;
+  for(const key of PIP_SIZE_KEYS){
+    frame.classList.toggle("float-size-"+key,sizeKey===key);
+  }
+
   syncFloatOverlayControls(frame);
 
   const edgeTab=frame.querySelector(".float-edge-tab");
@@ -6308,6 +6314,163 @@ function floatOverlaySvg(name){
     '</svg>';
 }
 
+let floatMediaProgressRaf=0;
+
+function floatMediaDuration(){
+  if(state.engine==="native")return Math.max(0,Number(nativePlayer.duration)||0);
+  try{return Math.max(0,Number(state.player?.getDuration?.())||0);}catch{return 0;}
+}
+
+function floatMediaMuted(){
+  if(state.engine==="native")return !!nativePlayer.muted;
+  try{return !!state.player?.isMuted?.();}catch{return false;}
+}
+
+function syncFloatMediaProgress(
+  frame=playerSection?.querySelector(".player-frame"),
+  ratioOverride=null
+){
+  if(!frame)return;
+  const bar=frame.querySelector(".float-media-progress");
+  if(!bar)return;
+
+  const duration=floatMediaDuration()||durationSeconds(state.currentMeta||{});
+  const settlingRatio=
+    ratioOverride===null &&
+    Date.now()<watchMediaSeekSettlingUntil &&
+    Number.isFinite(Number(watchMediaSeekTarget))
+      ?Number(watchMediaSeekTarget)
+      :null;
+  const effectiveRatio=ratioOverride===null?settlingRatio:ratioOverride;
+  const current=effectiveRatio===null
+    ?getVideoTime()
+    :duration*Math.max(0,Math.min(1,Number(effectiveRatio)||0));
+  const ratio=duration>0
+    ?Math.max(0,Math.min(1,effectiveRatio===null?current/duration:Number(effectiveRatio)||0))
+    :0;
+
+  const fill=bar.querySelector(".float-media-progress-fill");
+  const thumb=bar.querySelector(".float-media-progress-thumb");
+  if(fill)fill.style.width=(ratio*100)+"%";
+  if(thumb)thumb.style.left=(ratio*100)+"%";
+}
+
+function stopFloatMediaProgress(){
+  if(floatMediaProgressRaf){
+    cancelAnimationFrame(floatMediaProgressRaf);
+    floatMediaProgressRaf=0;
+  }
+}
+
+function startFloatMediaProgress(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||floatMediaProgressRaf||!pipMediaControlsEnabled())return;
+  const tick=()=>{
+    floatMediaProgressRaf=0;
+    if(
+      !frame.isConnected ||
+      !frame.classList.contains("floating-iframe") ||
+      !frame.classList.contains("float-controls-open") ||
+      !pipMediaControlsEnabled()
+    )return;
+    if(!watchMediaDragging)syncFloatMediaProgress(frame);
+    floatMediaProgressRaf=requestAnimationFrame(tick);
+  };
+  syncFloatMediaProgress(frame);
+  floatMediaProgressRaf=requestAnimationFrame(tick);
+}
+
+function syncFloatMediaControls(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  const controls=frame.querySelector(".float-media-controls");
+  if(!controls)return;
+
+  const enabled=pipMediaControlsEnabled();
+  controls.hidden=!enabled;
+  frame.classList.toggle("float-media-enabled",enabled);
+
+  const play=controls.querySelector('[data-float-overlay="play"]');
+  if(play){
+    const active=floatPlaybackActive();
+    play.innerHTML=floatOverlaySvg(active?"pause":"play");
+    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
+  }
+
+  const mute=controls.querySelector('[data-float-overlay="mute"]');
+  if(mute){
+    const muted=floatMediaMuted();
+    mute.innerHTML=unifiedMediaSvg(muted?"mute":"volume");
+    mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
+  }
+
+  if(enabled)syncFloatMediaProgress(frame);
+  else stopFloatMediaProgress();
+}
+
+function toggleFloatMute(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!pipMediaControlsEnabled())return;
+  if(state.engine==="native"){
+    nativePlayer.muted=!nativePlayer.muted;
+  }else{
+    try{
+      if(state.player?.isMuted?.())state.player.unMute?.();
+      else state.player?.mute?.();
+    }catch{}
+  }
+  syncFloatMediaControls(frame);
+  showFloatOverlayControls(frame,2600);
+}
+
+function bindFloatMediaSeek(frame,bar){
+  if(!frame||!bar||bar.dataset.floatSeekReady==="1")return;
+  bar.dataset.floatSeekReady="1";
+
+  let rect=null;
+  const preview=clientX=>{
+    const bounds=rect||bar.getBoundingClientRect();
+    if(!bounds.width)return;
+    const ratio=Math.max(0,Math.min(1,(Number(clientX)-bounds.left)/bounds.width));
+    watchMediaSeekTarget=ratio;
+    syncFloatMediaProgress(frame,ratio);
+  };
+
+  const finish=event=>{
+    if(!watchMediaDragging)return;
+    watchMediaDragging=false;
+    try{bar.releasePointerCapture?.(event.pointerId);}catch{}
+    commitUnifiedMediaSeek(frame);
+    rect=null;
+    syncFloatMediaControls(frame);
+    showFloatOverlayControls(frame,2800);
+  };
+
+  bar.addEventListener("pointerdown",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    watchMediaDragging=true;
+    clearTimeout(watchMediaSeekCleanupTimer);
+    watchMediaSeekCleanupTimer=0;
+    watchMediaSeekResume=!!(state.intentPlay||state.videoPlaying);
+    watchMediaSeekTarget=null;
+    watchMediaSeekSettlingUntil=0;
+    rect=bar.getBoundingClientRect();
+    try{bar.setPointerCapture?.(event.pointerId);}catch{}
+    preview(event.clientX);
+  });
+
+  bar.addEventListener("pointermove",event=>{
+    if(!watchMediaDragging)return;
+    event.preventDefault();
+    event.stopPropagation();
+    preview(event.clientX);
+  });
+
+  bar.addEventListener("pointerup",finish);
+  bar.addEventListener("pointercancel",finish);
+  bar.addEventListener("lostpointercapture",event=>{
+    if(watchMediaDragging)finish(event);
+  });
+}
+
 function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
   const play=frame.querySelector('[data-float-overlay="play"]');
@@ -6323,22 +6486,23 @@ function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
     const value=floatScaleValue();
     const compact=watchAutoPipViewport();
     if(compact){
-      const large=value>=1.99;
-      scale.innerHTML=floatOverlaySvg(large?"shrink":"expand");
-      scale.dataset.scaleStep=value===1?"small":value===1.35?"medium":"large";
+      const key=pipSizeKey(value);
+      const nextKey=pipSizeKey(nextPipScale(value));
+      const labels={small:"nhỏ",medium:"vừa",mid:"nhỡ",large:"lớn",full:"full"};
+      scale.innerHTML=floatOverlaySvg(key==="full"?"shrink":"expand");
+      scale.dataset.scaleStep=key;
       scale.setAttribute(
         "aria-label",
-        value===1
-          ?"Tăng PiP lên cỡ vừa"
-          :value===1.35
-            ?"Tăng PiP lên cỡ lớn"
-            :"Thu PiP về cỡ nhỏ"
+        "Đổi PiP từ "+labels[key]+" sang "+labels[nextKey]
       );
     }else{
-      scale.textContent=value===1.5?"1.5×":value+"×";
+      const key=pipSizeKey(value);
+      scale.textContent=key==="full"?"FULL":value+"×";
       scale.setAttribute("aria-label","Kích thước PiP "+scale.textContent);
     }
   }
+
+  syncFloatMediaControls(frame);
 }
 
 function hideFloatOverlayControls(
@@ -6349,6 +6513,7 @@ function hideFloatOverlayControls(
   clearTimeout(floatOverlayTimer);
   floatOverlayTimer=0;
   frame.classList.remove("float-controls-open");
+  stopFloatMediaProgress();
   frame.classList.toggle("float-controls-suppressed",!!suppressHover);
   if(suppressHover){
     let released=false;
@@ -6374,10 +6539,11 @@ function showFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
   clearTimeout(floatOverlayTimer);
   frame.classList.remove("float-controls-suppressed");
   syncFloatOverlayControls(frame);
-  showUnifiedMediaChrome(frame,delay);
   frame.classList.add("float-controls-open");
+  if(pipMediaControlsEnabled())startFloatMediaProgress(frame);
   floatOverlayTimer=setTimeout(()=>{
     frame.classList.remove("float-controls-open");
+    stopFloatMediaProgress();
   },delay);
 }
 
@@ -6396,18 +6562,10 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
     return;
   }
 
-  // Play again: return to the clean/original PiP surface in THIS click.
-  // Hide/blur first so :focus-within or a stale hover can never keep the
-  // transport layer visible while playback restarts asynchronously.
   state.intentPlay=true;
-  hideFloatOverlayControls(frame,{suppressHover:true});
-  try{
-    const active=document.activeElement;
-    if(active&&frame?.contains(active))active.blur?.();
-    frame?.querySelectorAll?.(".float-player-overlay button").forEach(button=>button.blur?.());
-  }catch{}
-  syncFloatOverlayControls(frame);
   playVideoEngine();
+  syncFloatOverlayControls(frame);
+  showFloatOverlayControls(frame,2600);
 }
 
 function closeFloatingPipAndExitPlayback(){
@@ -6493,6 +6651,10 @@ function floatGestureTouch(event,identifier=null){
 
 function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!playerSection||!state.watchMinimized)return;
+  if(pipSizeKey()==="full"){
+    showFloatOverlayControls(frame,2600);
+    return;
+  }
 
   const touchMode=String(event?.type||"").startsWith("touch");
   if(!touchMode&&event.isPrimary===false)return;
@@ -6643,17 +6805,38 @@ function ensureFloatHandles(){
   overlay.className="float-player-overlay";
   overlay.innerHTML=
     '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng">'+floatOverlaySvg("close")+'</button>'+
-    '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">'+floatOverlaySvg("expand")+'</button>';
+    '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">'+floatOverlaySvg("expand")+'</button>'+
+    '<div class="float-media-controls" hidden>'+
+      '<button type="button" class="float-media-btn float-media-play" data-float-overlay="play" aria-label="Tạm dừng">'+floatOverlaySvg("pause")+'</button>'+
+      '<div class="float-media-progress" role="slider" aria-label="Thanh tua PiP">'+
+        '<div class="float-media-progress-track"></div>'+
+        '<div class="float-media-progress-fill"></div>'+
+        '<div class="float-media-progress-thumb"></div>'+
+      '</div>'+
+      '<button type="button" class="float-media-btn float-media-mute" data-float-overlay="mute" aria-label="Tắt âm">'+unifiedMediaSvg("volume")+'</button>'+
+    '</div>';
 
   overlay.addEventListener("pointerdown",event=>{
-    if(event.target.closest("button"))return;
+    if(event.target.closest("button,.float-media-controls"))return;
     if(event.pointerType==="touch"&&("ontouchstart" in window))return;
     startFloatMove(event,frame);
   },{passive:false});
   overlay.addEventListener("touchstart",event=>{
-    if(event.target.closest("button"))return;
+    if(event.target.closest("button,.float-media-controls"))return;
     startFloatMove(event,frame);
   },{passive:false});
+
+  overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFloatPlayback(frame);
+  });
+  overlay.querySelector('[data-float-overlay="mute"]')?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleFloatMute(frame);
+  });
+  bindFloatMediaSeek(frame,overlay.querySelector(".float-media-progress"));
 
   overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -6879,31 +7062,56 @@ function floatEdgeGap(){
   return window.innerWidth<=640?12:12;
 }
 
+const PIP_SIZE_STEPS=[1,1.25,1.5,1.8,3];
+const PIP_SIZE_KEYS=["small","medium","mid","large","full"];
+
 function floatScaleValue(value=state.floatScale){
-  return [1,1.35,1.5,2].includes(Number(value))?Number(value):1;
+  const number=Number(value);
+  return [1,1.25,1.35,1.5,1.8,2,3].includes(number)?number:1;
+}
+
+function pipSizeKey(value=state.floatScale){
+  const scale=floatScaleValue(value);
+  if(scale>=2.5)return "full";
+  if(scale>=1.7)return "large";
+  if(scale>=1.45)return "mid";
+  if(scale>=1.2)return "medium";
+  return "small";
+}
+
+function pipMediaControlsEnabled(){
+  return pipSizeKey()!=="small";
+}
+
+function nextPipScale(value=state.floatScale){
+  const key=pipSizeKey(value);
+  const index=PIP_SIZE_KEYS.indexOf(key);
+  return PIP_SIZE_STEPS[(Math.max(0,index)+1)%PIP_SIZE_STEPS.length];
 }
 
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
 
-  const anchor=currentCompactPipAnchor();
-  // Three compact PiP steps. Every step keeps the exact same media aspect:
-  // small -> medium -> large -> small.
-  const steps=[1,1.35,2];
-  const current=floatScaleValue();
-  const index=steps.indexOf(current);
-  state.floatScale=steps[(index<0?0:index+1)%steps.length];
+  const previousKey=pipSizeKey();
+  const anchor=previousKey==="full"?null:currentCompactPipAnchor();
+  state.floatScale=nextPipScale();
+  const full=pipSizeKey()==="full";
   state.floatUserSized=false;
-  state.floatUserMoved=true;
-  placeCompactWatchPip(frame,{anchor,preservePosition:false});
+  state.floatUserMoved=!full;
+
+  placeCompactWatchPip(frame,{
+    anchor:full?null:anchor,
+    preservePosition:false
+  });
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
 
-  // Resize is a one-tap action: return to the clean PiP surface immediately.
   try{
     frame.querySelectorAll(".float-player-overlay button").forEach(button=>button.blur?.());
   }catch{}
-  hideFloatOverlayControls(frame);
+
+  if(pipMediaControlsEnabled())showFloatOverlayControls(frame,3000);
+  else hideFloatOverlayControls(frame);
 }
 
 function currentFloatingAspect(){
@@ -6927,6 +7135,10 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
     window.innerHeight-safe.top-safe.bottom
   );
 
+  if(pipSizeKey(scale)==="full"){
+    return {width:maxWidth,height:maxHeight};
+  }
+
   let width=base.width*scale;
   let height=width/ratio;
   const fit=Math.min(1,maxWidth/width,maxHeight/height);
@@ -6938,11 +7150,7 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
 
 function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
-  const steps=[1,1.5,2];
-  const current=floatScaleValue();
-  const index=steps.indexOf(current);
-
-  state.floatScale=steps[(index+1)%steps.length];
+  state.floatScale=nextPipScale();
   state.floatUserSized=false;
 
   // One geometry commit: real aspect -> PiP box -> media viewport.
@@ -7229,16 +7437,38 @@ function syncFloatingPlayerViewport(
     const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
       node&&list.indexOf(node)===index
     );
+    const fullCover=pipSizeKey()==="full";
+    const frameWidth=Math.max(1,frame.clientWidth||frame.getBoundingClientRect().width||1);
+    const frameHeight=Math.max(1,frame.clientHeight||frame.getBoundingClientRect().height||1);
+    const ratio=currentFloatingAspect();
+
+    let mediaWidth=frameWidth+2;
+    let mediaHeight=frameHeight+2;
+    let mediaLeft=-1;
+    let mediaTop=-1;
+
+    if(fullCover){
+      const viewportRatio=frameWidth/frameHeight;
+      if(viewportRatio>ratio){
+        mediaWidth=frameWidth;
+        mediaHeight=frameWidth/ratio;
+      }else{
+        mediaHeight=frameHeight;
+        mediaWidth=frameHeight*ratio;
+      }
+      mediaLeft=(frameWidth-mediaWidth)/2;
+      mediaTop=(frameHeight-mediaHeight)/2;
+    }
 
     for(const node of nodes){
       const mediaNode=node===iframe||node===nativePlayer;
       node.style.setProperty("position","absolute","important");
-      node.style.setProperty("top",mediaNode?"-1px":"0px","important");
-      node.style.setProperty("right",mediaNode?"-1px":"0px","important");
-      node.style.setProperty("bottom",mediaNode?"-1px":"0px","important");
-      node.style.setProperty("left",mediaNode?"-1px":"0px","important");
-      node.style.setProperty("width",mediaNode?"calc(100% + 2px)":"100%","important");
-      node.style.setProperty("height",mediaNode?"calc(100% + 2px)":"100%","important");
+      node.style.setProperty("top",mediaNode?mediaTop+"px":"0px","important");
+      node.style.setProperty("right","auto","important");
+      node.style.setProperty("bottom","auto","important");
+      node.style.setProperty("left",mediaNode?mediaLeft+"px":"0px","important");
+      node.style.setProperty("width",mediaNode?mediaWidth+"px":"100%","important");
+      node.style.setProperty("height",mediaNode?mediaHeight+"px":"100%","important");
       node.style.setProperty("max-width","none","important");
       node.style.setProperty("max-height","none","important");
       node.style.setProperty("margin","0","important");
@@ -7246,14 +7476,14 @@ function syncFloatingPlayerViewport(
       node.style.setProperty("background","transparent","important");
       node.style.setProperty("transform","none","important");
       node.style.setProperty("transform-origin","center center","important");
-      if(node===nativePlayer)node.style.setProperty("object-fit","contain","important");
+      if(node===nativePlayer){
+        node.style.setProperty("object-fit",fullCover?"cover":"contain","important");
+      }
     }
 
     if(iframe){
-      const width=Math.max(1,Math.round(frame.clientWidth||frame.getBoundingClientRect().width||1)+2);
-      const height=Math.max(1,Math.round(frame.clientHeight||frame.getBoundingClientRect().height||1)+2);
-      iframe.setAttribute("width",String(width));
-      iframe.setAttribute("height",String(height));
+      iframe.setAttribute("width",String(Math.max(1,Math.round(mediaWidth))));
+      iframe.setAttribute("height",String(Math.max(1,Math.round(mediaHeight))));
     }
   };
 
@@ -8020,8 +8250,11 @@ function applyFloatingIframe(force){
     if(floating){
       frame.classList.remove(
         "floating-iframe","float-tucked","dock-left","dock-right",
-        "float-view-square","float-view-portrait","float-entering"
+        "float-view-square","float-view-portrait","float-entering",
+        "float-size-small","float-size-medium","float-size-mid",
+        "float-size-large","float-size-full","float-media-enabled"
       );
+      frame.removeAttribute("data-pip-size");
     }
     state.floatTucked=false;
     state.floatUserSized=false;
@@ -8087,6 +8320,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     state.floatUserMoved=false;
     state.floatTucked=false;
     state.floatDock="right";
+    state.floatScale=1;
     state.floatBox=null;
     freezeWatchMediaSlot();
     state.watchMinimized=true;
