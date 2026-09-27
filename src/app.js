@@ -42,7 +42,7 @@ const homeSearchToggle=$("#homeSearchToggle");
 const playerSection=$("#playerSection");
 const videoTitle=$("#videoTitle");
 const videoMeta=$("#videoMeta");
-const ytPlayerHost=$("#yt-player");
+let ytPlayerHost=$("#yt-player");
 const nativePlayer=$("#nativePlayer");
 const suggestions=$("#suggestions");
 const topicChips=$("#topicChips");
@@ -8516,17 +8516,26 @@ function showIframePlayer(){
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=false;
   syncNativeMobileControls();
+  syncYoutubeIframeControlsForViewport();
   ensureMainMinimalControls();
   syncMainMinimalControls();
 }
 
 window.addEventListener("resize",()=>{
   syncNativeMobileControls();
+  syncYoutubeIframeControlsForViewport();
   syncMainMinimalControls();
 },{passive:true});
-window.visualViewport?.addEventListener?.("resize",syncNativeMobileControls,{passive:true});
+window.visualViewport?.addEventListener?.("resize",()=>{
+  syncNativeMobileControls();
+  syncYoutubeIframeControlsForViewport();
+},{passive:true});
 window.addEventListener("orientationchange",()=>{
-  requestAnimationFrame(syncNativeMobileControls);
+  requestAnimationFrame(()=>{
+    syncNativeMobileControls();
+    syncYoutubeIframeControlsForViewport();
+    syncMainMinimalControls();
+  });
 },{passive:true});
 
 let suggestionLayoutRaf=0;
@@ -12263,6 +12272,74 @@ function updateMediaSession(meta=state.currentMeta||{}){
 }
 
 
+let youtubeIframeControlsMode=null;
+let youtubeIframeControlsRestore=null;
+
+function desiredYoutubeIframeControlsMode(){
+  return watchAutoPipViewport()?0:1;
+}
+
+function ensureYoutubePlayerHost(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return null;
+
+  let host=frame.querySelector("#yt-player");
+  if(host&&host.tagName!=="IFRAME"){
+    ytPlayerHost=host;
+    return host;
+  }
+  if(host?.tagName==="IFRAME")host.remove();
+
+  host=document.createElement("div");
+  host.id="yt-player";
+  host.hidden=state.engine!=="iframe";
+  if(nativePlayer?.parentNode===frame){
+    nativePlayer.insertAdjacentElement("afterend",host);
+  }else{
+    frame.prepend(host);
+  }
+  ytPlayerHost=host;
+  return host;
+}
+
+function rebuildYoutubeIframeForControls(nextMode){
+  if(
+    state.engine!=="iframe" ||
+    !state.player ||
+    !state.currentId ||
+    !window.YT ||
+    typeof YT.Player!=="function"
+  )return false;
+
+  const id=state.currentId;
+  let time=0;
+  let muted=false;
+  try{time=Math.max(0,Number(state.player.getCurrentTime?.())||0);}catch{}
+  try{muted=!!state.player.isMuted?.();}catch{}
+
+  youtubeIframeControlsRestore={
+    id,
+    time,
+    intentPlay:!!state.intentPlay,
+    muted
+  };
+  youtubeIframeControlsMode=Number(nextMode)===0?0:1;
+
+  try{state.player.destroy?.();}catch{}
+  state.player=null;
+  state.playerReady=false;
+  state.pendingVideoId=id;
+
+  if(!ensureYoutubePlayerHost())return false;
+  return initYouTubePlayer();
+}
+
+function syncYoutubeIframeControlsForViewport(){
+  const desired=desiredYoutubeIframeControlsMode();
+  if(youtubeIframeControlsMode===null||desired===youtubeIframeControlsMode)return;
+  rebuildYoutubeIframeForControls(desired);
+}
+
 let watchMainControlsTimer=0;
 let watchMainUiLocked=false;
 let watchMainPseudoFullscreen=false;
@@ -13833,6 +13910,10 @@ function ensureIframePlaying(){
 
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
+  if(!ensureYoutubePlayerHost())return false;
+
+  const controlsMode=desiredYoutubeIframeControlsMode();
+  youtubeIframeControlsMode=controlsMode;
 
   state.player=new YT.Player("yt-player",{
     host:"https://www.youtube-nocookie.com",
@@ -13843,7 +13924,7 @@ function initYouTubePlayer(){
       playsinline:1,
       // Use the normal YouTube iframe interaction model on every device.
       // The page no longer lays a transparent gesture surface over the player.
-      controls:watchAutoPipViewport()?0:1,
+      controls:controlsMode,
       cc_load_policy:0,
       rel:0,
       fs:1,
@@ -13873,11 +13954,35 @@ function initYouTubePlayer(){
         forceCaptionsOff();
         const id=state.pendingVideoId||state.currentId;
         state.pendingVideoId="";
+        const restore=
+          youtubeIframeControlsRestore?.id===id
+            ?youtubeIframeControlsRestore
+            :null;
+        youtubeIframeControlsRestore=null;
         if(id){
           try{
-            state.player.unMute?.();
-            state.player.loadVideoById(id);
-            ensureIframePlaying();
+            const resumeAt=Math.max(0,Number(restore?.time)||0);
+            if(restore?.muted)state.player.mute?.();
+            else state.player.unMute?.();
+
+            if(restore&&restore.intentPlay===false){
+              state.intentPlay=false;
+              state.player.cueVideoById({
+                videoId:id,
+                startSeconds:resumeAt
+              });
+            }else{
+              if(restore)state.intentPlay=true;
+              if(resumeAt>0){
+                state.player.loadVideoById({
+                  videoId:id,
+                  startSeconds:resumeAt
+                });
+              }else{
+                state.player.loadVideoById(id);
+              }
+              ensureIframePlaying();
+            }
           }catch{}
         }
       },
