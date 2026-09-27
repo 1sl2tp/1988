@@ -87,6 +87,7 @@
       row?._sourceThumbnailUrl,
       row?.uploaderAvatar,
       row?.channelAvatar,
+      row?.avatarUrl,
       row?.authorAvatar,
       row?.ownerAvatar,
       row?.avatar,
