@@ -1708,7 +1708,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return ytPlayer;
   }
 
-  function playVideoId(id,meta=null){
+  function playVideoId(id,meta=null,{history="push"}={}){
     id=String(id||"").trim();
     if(!id)return false;
 
@@ -1750,7 +1750,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
       label:meta?.title||"Video"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
-    syncVideoDocumentIdentity({push:true});
+    if(history==="push"){
+      syncVideoDocumentIdentity({push:true});
+    }else if(history==="replace"){
+      syncVideoDocumentIdentity({push:false});
+    }else{
+      syncVideoDocumentIdentity({push:false,write:false});
+    }
     if(!currentMeta?.sourceAvatar){
       void hydrateCurrentSourceIdentity(id);
     }
@@ -2038,13 +2044,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return "#/watch/"+(slug?slug+"-":"")+id;
   }
 
-  function syncVideoDocumentIdentity({push=false}={}){
+  function syncVideoDocumentIdentity({push=false,write=true}={}){
     const id=String(current?.id||"").trim();
     if(!id)return;
 
     const title=String(currentMeta?.title||current?.label||"").trim();
     const meaningfulTitle=title&&title.toLowerCase()!=="video"?title:"";
     document.title=meaningfulTitle?meaningfulTitle+" · 1988":"1988";
+    if(!write)return;
 
     const existingId=routeVideoId();
     const currentHash=String(location.hash||"");
@@ -2063,7 +2070,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const nextUrl="/"+nextHash;
     const shouldPush=
       push &&
-      !!existingId &&
       existingId!==id;
 
     if(shouldPush){
@@ -2092,7 +2098,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(!id||id===String(current?.id||""))return false;
 
     const meta=metaForVideoId(id);
-    if(!playVideoId(id,meta))return false;
+    // Browser Back/Forward owns the current history entry. Never push or
+    // replace a route while replaying it.
+    if(!playVideoId(id,meta,{history:"none"}))return false;
     renderCurrentInfo();
     loadCurrentVideoMeta();
     schedulePip();
@@ -2150,7 +2158,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
       return value!==undefined&&value!==null&&value!=="";
     };
 
-    const merged={...supplemental,...base};
+    // Supplemental data fills gaps; only meaningful selected-card fields
+    // are protected below. Empty strings from the old card must not erase
+    // sourceId/avatar/channel metadata returned by the video lookup.
+    const merged={...base,...supplemental};
 
     // The selected package/search card is the visible contract.
     // Direct video lookup may fill gaps, but must not rename/relabel it.
@@ -2378,7 +2389,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     renderSampleContent();
 
     if(!String(current?.id||"")&&metas[0]?.id){
-      if(playVideoId(metas[0].id,metas[0])){
+      if(playVideoId(metas[0].id,metas[0],{history:"replace"})){
         renderCurrentInfo();
         loadCurrentVideoMeta();
       }
