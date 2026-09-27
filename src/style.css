@@ -5559,3 +5559,52 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     border-radius:8px;
   }
 }
+
+
+/* Mobile Safari/PWA PiP viewport ownership v423.
+   The compact player must belong to the visual viewport, not to the scrolled
+   grid/paint containment of its original media slot. */
+@media(max-width:720px){
+  html.watch-minimized .player-section.watch-media-slot{
+    z-index:900!important;
+    overflow:visible!important;
+    clip-path:none!important;
+    contain:none!important;
+    isolation:auto!important;
+  }
+
+  html.watch-minimized .player-section.watch-media-slot .player-card{
+    overflow:visible!important;
+    clip-path:none!important;
+    contain:none!important;
+    isolation:auto!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    position:fixed!important;
+    z-index:9999!important;
+    top:calc(var(--safe-top) + 6px)!important;
+    right:8px!important;
+    bottom:auto!important;
+    left:auto!important;
+    display:block!important;
+    visibility:visible!important;
+    opacity:1!important;
+    pointer-events:auto!important;
+    max-width:calc(100vw - 16px)!important;
+    max-height:42dvh!important;
+    overflow:visible!important;
+    clip-path:none!important;
+    contain:none!important;
+    -webkit-transform:translate3d(0,0,0)!important;
+    transform:translate3d(0,0,0)!important;
+    -webkit-backface-visibility:hidden!important;
+    backface-visibility:hidden!important;
+  }
+
+  @supports not (height:1dvh){
+    html.watch-minimized .player-frame.floating-iframe{
+      max-height:42vh!important;
+    }
+  }
+}
