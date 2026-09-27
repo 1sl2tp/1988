@@ -6548,3 +6548,105 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     line-height:1.2!important;
   }
 }
+
+
+/* ============================================================
+   PINNED SOURCE RAIL + DIRECTIONAL HASHTAGS v464
+   Mobile Home collapses only the brand/search row. LIVE / Ngày / Tuần /
+   hashtags stay pinned. Active subjects get a subtle surface, and edge fades
+   communicate that more subjects are available off-screen.
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse).home-header-hidden .app-header{
+    transform:none!important;
+    pointer-events:none!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-inner{
+    transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
+    opacity:0!important;
+    visibility:hidden!important;
+    pointer-events:none!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .header-nav{
+    transform:translate3d(0,calc(-1 * var(--header-row-h)),0)!important;
+    pointer-events:auto!important;
+  }
+
+  html:not(.watch-browse) .header-inner,
+  html:not(.watch-browse) .header-nav{
+    transition:
+      transform .16s cubic-bezier(.2,.7,.2,1),
+      opacity .13s ease!important;
+  }
+
+  html:not(.watch-browse) .header-nav-inner{
+    position:relative!important;
+    isolation:isolate;
+  }
+
+  html:not(.watch-browse) .header-nav-inner::before,
+  html:not(.watch-browse) .header-nav-inner::after{
+    content:"";
+    position:absolute;
+    z-index:6;
+    top:0;
+    bottom:0;
+    width:20px;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .14s ease;
+  }
+
+  html:not(.watch-browse) .header-nav-inner::before{
+    left:0;
+    background:linear-gradient(90deg,var(--mobile-chrome-surface,#0b0b0c) 20%,rgba(11,11,12,0) 100%);
+  }
+
+  html:not(.watch-browse) .header-nav-inner::after{
+    right:0;
+    background:linear-gradient(270deg,var(--mobile-chrome-surface,#0b0b0c) 20%,rgba(11,11,12,0) 100%);
+  }
+
+  html:not(.watch-browse) .header-nav-inner.topic-more-left::before,
+  html:not(.watch-browse) .header-nav-inner.topic-more-right::after{
+    opacity:1;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject{
+    border-radius:8px!important;
+    transition:
+      background-color .14s ease,
+      color .14s ease,
+      box-shadow .14s ease!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject.active{
+    background:rgba(255,255,255,.065)!important;
+    box-shadow:0 0 0 1px rgba(255,255,255,.055) inset!important;
+    color:#f4f4f5!important;
+  }
+
+  /* Search keeps the same row height, but its shape now matches the rounded
+     card language instead of looking like a separate oversized pill. */
+  html:not(.watch-browse).home-search-open .header-search{
+    width:100%!important;
+    height:40px!important;
+    border:1px solid rgba(255,255,255,.12)!important;
+    border-radius:12px!important;
+    background:#151518!important;
+    box-shadow:0 1px 0 rgba(255,255,255,.025) inset!important;
+  }
+
+  html:not(.watch-browse).home-search-open #queryInput{
+    height:38px!important;
+    padding:0 8px!important;
+    font-size:13.5px!important;
+  }
+
+  html:not(.watch-browse).home-search-open .source-header-btn{
+    border-left:1px solid rgba(255,255,255,.10)!important;
+    border-radius:0 12px 12px 0!important;
+  }
+}
