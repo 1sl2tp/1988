@@ -8062,3 +8062,33 @@ html.watch-minimized .player-frame.floating-iframe.float-size-full > .float-medi
   bottom:0!important;
   width:100%!important;
 }
+
+/* ============================================================
+   CANONICAL PIP MEDIA SURFACE v486
+   The wrapper owns aspect/size. Iframe/native media always fills the wrapper
+   exactly; no +/- pixel bleed is used to hide borders.
+   ============================================================ */
+html.watch-minimized .player-frame.floating-iframe{
+  overflow:hidden!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe #yt-player,
+html.watch-minimized .player-frame.floating-iframe iframe,
+html.watch-minimized .player-frame.floating-iframe video{
+  position:absolute!important;
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+  margin:0!important;
+  padding:0!important;
+  border:0!important;
+  transform:none!important;
+  transform-origin:center center!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe video{
+  object-fit:contain!important;
+}
+
