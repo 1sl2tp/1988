@@ -14,6 +14,9 @@
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
   --two-col-media-w:420px;
+  --layout-gap:13px;
+  --feed-cols:2;
+  --card-target-w:200px;
   --floating-radius:10px;
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -36,7 +39,6 @@ button{
 button.active{background:#fff;color:#111;border-color:#fff}
 
 main{width:min(680px,100%);max-width:100%;margin:0 auto}
-html.one-col main{container-type:inline-size}
 .media-col{min-width:0;max-width:100%}
 .stage{
   position:relative;
@@ -160,17 +162,18 @@ html.one-col .player.pip iframe{border-radius:inherit}
     display:grid;
     grid-template-columns:minmax(320px,1fr) var(--two-col-media-w);
     grid-template-areas:"feed media";
-    gap:14px;
+    gap:var(--layout-gap);
     align-items:start;
     margin:0 auto;
-    padding:0 14px;
+    padding:0 var(--layout-gap);
   }
 
   html.two-col .rows{
     grid-area:feed;
     min-width:0;
     padding:0;
-    grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--card-min-w,300px)),1fr));
+    grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
+    gap:var(--layout-gap);
   }
 
   html.two-col .media-col{
@@ -233,27 +236,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .info b{display:block;font-size:15px;margin-bottom:4px}
 .info span{color:#999;font-size:12px}
 .rows{
-  padding:10px;
+  padding:var(--layout-gap);
   display:grid;
-  gap:12px;
-}
-
-/* 1-column PAGE = media above + feed below.
-   Feed cards scale independently: 1 -> 2 -> 3 columns by available width. */
-html.one-col .rows{
-  grid-template-columns:repeat(2,minmax(0,1fr));
-}
-
-@container (max-width:339px){
-  html.one-col .rows{
-    grid-template-columns:1fr;
-  }
-}
-
-@container (min-width:600px){
-  html.one-col .rows{
-    grid-template-columns:repeat(3,minmax(0,1fr));
-  }
+  grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
+  gap:var(--layout-gap);
 }
 .row{
   margin:0;
@@ -398,21 +384,44 @@ html.one-col .rows{
     root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
 
-    // 2-column split has ONE rule:
-    // ideal media width = current full height × current aspect ratio.
-    // Keep a minimum useful feed width; otherwise never force 60/40 or 50/50.
+    // PHOTO / GOLDEN-RATIO GEOMETRY
+    // 1) Real media aspect ratio is always the primary geometry.
+    // 2) Golden ratio only caps how much horizontal space media may consume.
+    // 3) Cards are near-square blocks (16:9 image + copy), then 1/2/3 columns
+    //    are chosen from the REAL leftover feed width.
+    const PHI=1.61803398875;
     const pageW=Math.min(1600,viewportW);
-    const gap=14;
-    const sidePadding=28;
-    // One feed column must always be able to hold one proper card block.
-    // Card width follows the same visual unit as the sample card, not an arbitrary row width.
-    const cardMinW=Math.max(280,Math.min(360,Math.round(fullH*0.42)));
-    const maxMediaW=Math.max(1,pageW-sidePadding-gap-cardMinW);
-    root.style.setProperty("--card-min-w",cardMinW+"px");
-    const idealMediaW=Math.max(1,Math.round(fullH*current.ratio));
-    const mediaW=Math.min(idealMediaW,maxMediaW);
 
-    root.style.setProperty("--two-col-media-w",mediaW+"px");
+    // Fibonacci spacing: 8 / 13 / 21.
+    const gap=viewportW<480?8:(viewportW<960?13:21);
+    root.style.setProperty("--layout-gap",gap+"px");
+
+    // Card visual unit from current height. PHI^3 keeps a card compact enough
+    // for thumb + title/meta to feel close to a square block.
+    const cardTargetW=Math.max(168,Math.min(240,Math.round(fullH/(PHI*PHI*PHI))));
+    root.style.setProperty("--card-target-w",cardTargetW+"px");
+
+    // ONE-COLUMN feed: media is above; feed can still be 1/2/3 cards.
+    if(!isTwoColumn()){
+      const feedW=Math.max(1,Math.min(680,viewportW)-(gap*2));
+      const cols=Math.max(1,Math.min(3,Math.floor((feedW+gap)/(cardTargetW+gap))));
+      root.style.setProperty("--feed-cols",String(cols));
+    }else{
+      const contentW=Math.max(1,pageW-(gap*2));
+      const naturalMediaW=Math.max(1,Math.round(fullH*current.ratio));
+
+      // Photography balance: media should not dominate beyond the golden section.
+      const goldenMediaCap=Math.max(1,Math.round(contentW/PHI));
+
+      // Always preserve enough space for at least one real card.
+      const maxMediaByCard=Math.max(1,contentW-gap-cardTargetW);
+      const mediaW=Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard);
+      const feedW=Math.max(1,contentW-gap-mediaW);
+
+      const cols=Math.max(1,Math.min(3,Math.floor((feedW+gap)/(cardTargetW+gap))));
+      root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
+      root.style.setProperty("--feed-cols",String(cols));
+    }
   }
 
   function dataRow(payload){
@@ -443,7 +452,7 @@ html.one-col .rows{
       meta.publishedLabel
     ].filter(Boolean).join(" · ");
 
-    rows.innerHTML=
+    const card=
       '<article class="row">'+
         '<div class="row-thumb"><img src="'+thumb+'" alt=""></div>'+
         '<div class="row-copy">'+
@@ -451,14 +460,9 @@ html.one-col .rows{
           '<div class="row-meta">'+source+'</div>'+
           '<div class="row-meta">'+(facts || (ratio+' · '+current.id))+'</div>'+
         '</div>'+
-      '</article>'+
-      '<article class="row">'+
-        '<div class="row-thumb"><img src="'+thumb+'" alt=""></div>'+
-        '<div class="row-copy">'+
-          '<div class="row-title">'+title+'</div>'+
-          '<div class="row-meta">'+source+' · '+ratio+'</div>'+
-        '</div>'+
       '</article>';
+
+    rows.innerHTML=card.repeat(6);
   }
 
   async function loadCurrentVideoMeta(){
