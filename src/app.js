@@ -12495,8 +12495,8 @@ function applyWatchProgressAccent(art="",guardId=state.currentId){
   const frame=playerSection?.querySelector(".player-frame");
   const bar=unifiedMediaBar();
 
+  frame?.style.removeProperty("--video-progress-accent");
   for(const name of [
-    "--video-progress-accent",
     "--pip-accent",
     "--pip-accent-soft",
     "--pip-button-bg",
@@ -12509,20 +12509,7 @@ function applyWatchProgressAccent(art="",guardId=state.currentId){
   void youtubeCinematicPalette(art).then(palette=>{
     if(!palette)return;
     if(expectedId&&String(state.currentId||"")!==expectedId)return;
-
-    const rgb=parseChromeRgb(palette.accent)||[139,140,255];
-    const [r,g,b]=rgb;
-    const luminance=.2126*r+.7152*g+.0722*b;
-    const foreground=luminance>165?"#111":"#fff";
-    const soft=`rgba(${r},${g},${b},.42)`;
-
-    if(frame?.isConnected){
-      frame.style.setProperty("--video-progress-accent",palette.accent);
-      frame.style.setProperty("--pip-accent",palette.accent);
-      frame.style.setProperty("--pip-accent-soft",soft);
-      frame.style.setProperty("--pip-button-bg",palette.accent);
-      frame.style.setProperty("--pip-button-fg",foreground);
-    }
+    if(frame?.isConnected)frame.style.setProperty("--video-progress-accent",palette.accent);
     bar?.style.setProperty("--video-progress-accent",palette.accent);
   });
 }
@@ -15211,13 +15198,11 @@ function youtubeCinematicPalette(url){
 
 async function paintCardCinematicColor(card){
   if(!card?.isConnected)return;
-  const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
-  if(!art)return;
-  const palette=await youtubeCinematicPalette(art);
-  if(!palette||!card.isConnected||String(card.dataset.thumb||"").trim()!==art)return;
-  card.style.setProperty("--card-cinematic-surface",palette.surface);
-  card.style.setProperty("--card-cinematic-accent",palette.accent);
-  card.classList.add("card-cinematic-ready");
+  // Home/recommendation metadata stays neutral like YouTube. Sampled colour
+  // is reserved for media progress/page chrome, not painted behind each card.
+  card.style.removeProperty("--card-cinematic-surface");
+  card.style.removeProperty("--card-cinematic-accent");
+  card.classList.remove("card-cinematic-ready");
 }
 
 function primeCardCinematicColors(){
@@ -15329,54 +15314,17 @@ function clearDesktopHoverAccent(card=desktopHoverAccentCard){
 async function applyDesktopHoverAccent(card){
   if(!desktopHoverAccentEnabled()||!card?.isConnected)return;
 
-  const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
-  if(!art)return;
-
   if(desktopHoverAccentCard&&desktopHoverAccentCard!==card){
     clearDesktopHoverAccent(desktopHoverAccentCard);
   }
 
   desktopHoverAccentCard=card;
-  const seq=++desktopHoverAccentSeq;
-  const palette=await youtubeCinematicPalette(art);
-
-  if(
-    seq!==desktopHoverAccentSeq ||
-    desktopHoverAccentCard!==card ||
-    !card.isConnected ||
-    !palette
-  )return;
-
-  const rgb=parseChromeRgb(palette.accent);
-  if(!rgb)return;
-  const [r,g,b]=rgb;
-
-  // Hover uses the same canonical palette as seek/PiP:
-  // dark surface for the panel, accent for line/glow.
-  card.style.setProperty("--desktop-card-accent",palette.surface);
-  card.style.setProperty("--desktop-card-accent-soft",`rgba(${r},${g},${b},.42)`);
-  card.style.setProperty("--desktop-card-accent-faint",`rgba(${r},${g},${b},.24)`);
-  card.style.setProperty("--desktop-card-accent-glow",`rgba(${r},${g},${b},.34)`);
-  card.style.setProperty("--desktop-card-accent-line",`rgba(${r},${g},${b},.72)`);
+  ++desktopHoverAccentSeq;
   card.classList.add("desktop-accent-hover");
 }
 
 function primeDesktopCardHoverColors(){
-  if(!desktopHoverAccentEnabled())return;
-
-  const warm=()=>{
-    const cards=[...feed.querySelectorAll(":scope > .card[data-video-id]")].slice(0,32);
-    for(const card of cards){
-      const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
-      if(art&&!youtubeCinematicColorCache.has(art))void youtubeCinematicPalette(art);
-    }
-  };
-
-  if("requestIdleCallback" in window){
-    requestIdleCallback(warm,{timeout:900});
-  }else{
-    setTimeout(warm,120);
-  }
+  // YouTube-style card hover is neutral; no sampled-colour warmup is needed.
 }
 
 feed?.addEventListener("error",event=>{

@@ -8171,3 +8171,102 @@ html.watch-minimized .player-frame.floating-iframe .float-mode-btn svg{
 .feed>.card .card-copy{
   background:var(--card-cinematic-surface,#0f0f0f)!important;
 }
+
+
+/* ============================================================
+   YOUTUBE-STYLE NEUTRAL CARDS + MINIPLAYER v490-safe
+   Saved YouTube reference:
+   - 16:9 thumbnail and separate neutral metadata area
+   - miniplayer scrim is dark; close/expand are white utility buttons
+   - sampled colour is reserved for progress, not a neon card/PiP shell
+   ============================================================ */
+.feed>.card,
+.feed>.card .card-copy,
+html:not(.watch-browse) .feed>.card .card-copy,
+html.watch-browse .feed>.card .card-copy{
+  background:#0f0f0f!important;
+}
+
+@media (hover:hover) and (pointer:fine) and (min-width:760px){
+  .feed>.card.desktop-accent-hover::before{
+    opacity:1!important;
+    border-color:transparent!important;
+    background:rgba(255,255,255,.055)!important;
+    box-shadow:0 10px 28px rgba(0,0,0,.24)!important;
+    transition:
+      opacity .20s cubic-bezier(.4,0,.2,1),
+      background-color .20s cubic-bezier(.4,0,.2,1),
+      box-shadow .20s cubic-bezier(.4,0,.2,1)!important;
+  }
+
+  .feed>.card.desktop-accent-hover .thumb-wrap{
+    box-shadow:none!important;
+  }
+}
+
+html.watch-minimized .player-frame.floating-iframe{
+  border:1px solid rgba(255,255,255,.14)!important;
+  box-shadow:0 14px 36px rgba(0,0,0,.46)!important;
+  background:#000!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+  background:rgba(0,0,0,.50)!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+  opacity:0;
+  transition:opacity .20s cubic-bezier(.4,0,.2,1)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe:hover .float-player-overlay,
+html.watch-minimized .player-frame.floating-iframe:focus-within .float-player-overlay,
+html.watch-minimized .player-frame.floating-iframe.float-controls-open .float-player-overlay{
+  opacity:1;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn,
+html.watch-minimized .player-frame.floating-iframe .float-edge-tab{
+  width:40px!important;
+  height:40px!important;
+  min-width:40px!important;
+  min-height:40px!important;
+  padding:8px!important;
+  border:0!important;
+  border-radius:50%!important;
+  background:transparent!important;
+  color:#fff!important;
+  box-shadow:none!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+  transition:
+    background-color .20s cubic-bezier(.4,0,.2,1),
+    opacity .20s cubic-bezier(.4,0,.2,1)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button:hover,
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button:focus-visible,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn:hover,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn:focus-visible{
+  background:rgba(255,255,255,.10)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button:active,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn:active{
+  background:rgba(255,255,255,.20)!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button svg,
+html.watch-minimized .player-frame.floating-iframe .float-mode-btn svg{
+  width:24px!important;
+  height:24px!important;
+  color:#fff!important;
+  fill:none;
+  stroke:currentColor!important;
+}
+
+/* Progress is the one strong sampled-colour cue. */
+.watch-media-progress-fill,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
+  background:var(--video-progress-accent,#8b8cff)!important;
+}
