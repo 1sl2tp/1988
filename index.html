@@ -424,33 +424,42 @@ html.one-col body{min-height:220vh}
   height:40px;
   margin:0;
   overflow:hidden;
-  border:0;
+  border:1px solid hsl(0 0% 18.82%);
   border-radius:20px;
-  background:transparent;
+  background:hsl(0 0% 7%);
+  transition:
+    border-color .16s ease,
+    box-shadow .16s ease,
+    background-color .16s ease;
+}
+.top.search-open .searchbox:focus-within{
+  border-color:rgba(var(--header-accent-rgb),.78);
+  box-shadow:
+    0 0 0 1px rgba(var(--header-accent-rgb),.10),
+    0 3px 16px rgba(var(--header-accent-rgb),.07);
 }
 .top.search-open .search-input{
   min-width:0;
-  height:40px;
+  height:38px;
   padding:0 14px;
-  border:1px solid hsl(0 0% 18.82%);
-  border-right:0;
-  border-radius:20px 0 0 20px;
-  background:hsl(0 0% 7%);
+  border:0;
+  border-radius:19px 0 0 19px;
+  background:transparent;
   font-size:16px;
   line-height:22px;
+  box-shadow:none;
 }
 .top.search-open .search-input:focus{
-  border-color:rgba(var(--header-accent-rgb),.78);
-  box-shadow:
-    inset 0 1px 2px rgba(0,0,0,.3),
-    0 0 0 1px rgba(var(--header-accent-rgb),.10);
+  border:0;
+  box-shadow:none;
 }
 .top.search-open .search-button{
   flex:0 0 44px;
   width:44px;
-  height:40px;
-  border:1px solid rgba(var(--header-accent-rgb),.24);
-  border-radius:0 20px 20px 0;
+  height:38px;
+  border:0;
+  border-left:1px solid rgba(var(--header-accent-rgb),.18);
+  border-radius:0 19px 19px 0;
   background:
     linear-gradient(
       135deg,
