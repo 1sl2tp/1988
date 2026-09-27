@@ -8092,3 +8092,29 @@ html.watch-minimized .player-frame.floating-iframe video{
   object-fit:contain!important;
 }
 
+/* ============================================================
+   PIP CLEAN BLACK SURFACE v487
+   Small YouTube PiP must not inherit blurred thumbnail glow.
+   Keep the visible video surface optically neutral.
+   ============================================================ */
+html.watch-minimized .player-frame.floating-iframe{
+  background:#000!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe::before{
+  display:none!important;
+  content:none!important;
+  background:none!important;
+  filter:none!important;
+  opacity:0!important;
+  transform:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe #yt-player,
+html.watch-minimized .player-frame.floating-iframe iframe,
+html.watch-minimized .player-frame.floating-iframe video{
+  background:#000!important;
+  filter:none!important;
+  opacity:1!important;
+}
+
