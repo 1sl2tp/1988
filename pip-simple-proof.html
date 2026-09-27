@@ -21,7 +21,11 @@
     background:#202020;color:#fff;font:inherit
   }
   button.active{background:#fff;color:#111;border-color:#fff}
-  main{width:min(680px,100%);margin:0 auto}
+  main{
+    width:min(680px,100%);
+    margin:0 auto;
+  }
+  .media-col{min-width:0}
   .stage{
     position:relative;
     width:100%;
@@ -63,8 +67,38 @@
     font-size:11px;color:#ddd
   }
   @media(min-width:960px){
-    main{width:min(920px,100%)}
-    .player.pip{right:18px;top:74px}
+    main{
+      width:min(1220px,100%);
+      display:grid;
+      grid-template-columns:minmax(0,1fr) minmax(360px,48vw);
+      grid-template-areas:"feed media";
+      gap:14px;
+      align-items:start;
+      padding:12px 14px 30px;
+    }
+    .rows{
+      grid-area:feed;
+      padding:0;
+      min-width:0;
+    }
+    .media-col{
+      grid-area:media;
+      position:sticky;
+      top:68px;
+      min-width:0;
+    }
+    .stage{
+      width:100%;
+      max-height:calc(100dvh - 82px);
+    }
+    .player.pip{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      border-radius:0;
+      box-shadow:none;
+    }
   }
 </style>
 </head>
@@ -76,20 +110,22 @@
 </header>
 
 <main>
-  <section class="stage" id="stage">
-    <div class="player" id="player">
-      <iframe
-        id="videoFrame"
-        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-        allowfullscreen
-        referrerpolicy="strict-origin-when-cross-origin">
-      </iframe>
-    </div>
-  </section>
+  <div class="media-col">
+    <section class="stage" id="stage">
+      <div class="player" id="player">
+        <iframe
+          id="videoFrame"
+          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+          allowfullscreen
+          referrerpolicy="strict-origin-when-cross-origin">
+        </iframe>
+      </div>
+    </section>
 
-  <div class="info">
-    <b id="videoTitle">Video ngang · 16:9</b>
-    <span>Cuộn xuống: cùng player nổi PiP. Cuộn lên: tự trả về vị trí cũ.</span>
+    <div class="info">
+      <b id="videoTitle">Video ngang · 16:9</b>
+      <span id="layoutHint">1 cột: cuộn khỏi media thì PiP.</span>
+    </div>
   </div>
 
   <div class="rows" id="rows"></div>
@@ -118,6 +154,7 @@
   const frame = document.getElementById("videoFrame");
   const stateEl = document.getElementById("state");
   const titleEl = document.getElementById("videoTitle");
+  const layoutHint = document.getElementById("layoutHint");
   const landscapeBtn = document.getElementById("landscapeBtn");
   const portraitBtn = document.getElementById("portraitBtn");
 
@@ -143,25 +180,43 @@
     document.documentElement.style.setProperty("--pip-h", Math.round(h) + "px");
   }
 
+  function twoColumn(){
+    return matchMedia("(min-width:960px)").matches;
+  }
+
   function paint(){
     document.documentElement.style.setProperty("--ratio", String(current.ratio));
     fitPip(current.ratio);
     titleEl.textContent = current.label;
-    stateEl.textContent = (pip ? "PIP" : "MAIN") + " · " +
-      (current.ratio > 1 ? "16:9" : "9:16");
+
+    if(twoColumn()){
+      layoutHint.textContent = "2 cột: danh sách trái · media phải, không PiP.";
+      stateEl.textContent = "2 CỘT · MAIN · " + (current.ratio > 1 ? "16:9" : "9:16");
+    }else{
+      layoutHint.textContent = "1 cột: cuộn khỏi media thì PiP.";
+      stateEl.textContent = "1 CỘT · " + (pip ? "PIP" : "MAIN") + " · " +
+        (current.ratio > 1 ? "16:9" : "9:16");
+    }
   }
 
   function syncPip(){
+    if(twoColumn()){
+      if(pip){
+        pip = false;
+        player.classList.remove("pip");
+      }
+      paint();
+      return;
+    }
+
     const stageTop = stage.getBoundingClientRect().top;
     const headerBottom = top.getBoundingClientRect().bottom;
-
-    // Initial/open state is always MAIN.
-    // PiP starts only after the media has actually moved behind the header.
     const shouldPip = window.scrollY > 0 && stageTop < headerBottom - 2;
 
-    if(shouldPip === pip) return;
-    pip = shouldPip;
-    player.classList.toggle("pip", pip);
+    if(shouldPip !== pip){
+      pip = shouldPip;
+      player.classList.toggle("pip", pip);
+    }
     paint();
   }
 
