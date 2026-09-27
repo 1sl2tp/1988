@@ -172,7 +172,7 @@ assert.match(app,/function ensureMainMinimalControls\(\)/);
 assert.match(app,/function toggleMainMinimalPlayback\(/);
 assert.match(app,/function toggleMainMinimalMute\(/);
 assert.match(app,/function toggleMainMinimalFullscreen\(/);
-assert.match(app,/state\.engine===["']native["']&&\s*watchAutoPipViewport\(\)/);
+assert.match(app,/state\.engine===["']native["']\s*&&\s*watchAutoPipViewport\(\)/);
 assert.match(app,/preserveExistingOrder:refreshExisting/);
 assert.match(app,/function currentFloatingAspect\(/);
 assert.match(app,/watchRestoreUntil:0/);
