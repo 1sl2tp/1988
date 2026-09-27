@@ -434,7 +434,7 @@ assert.match(app,/return "full"/);
 assert.doesNotMatch(app,/class=["']float-media-controls["']/);
 assert.doesNotMatch(app,/data-float-overlay=["']play["']/);
 assert.doesNotMatch(app,/data-float-overlay=["']mute["']/);
-assert.match(app,/class=["']float-media-progress["']/);
+assert.doesNotMatch(app,/class=["']float-media-progress["']/);
 assert.match(app,/function syncFloatMediaControls\(/);
 assert.match(app,/function bindFloatMediaSeek\(/);
 
