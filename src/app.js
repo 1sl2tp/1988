@@ -5859,13 +5859,11 @@ function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
   frame.style.setProperty("--pip-art",'url("'+safe+'")');
 
   const guardId=id;
-  void averageThumbTint(raw).then(color=>{
-    if(!color||!frame.isConnected)return;
+  void youtubeCinematicPalette(raw).then(palette=>{
+    if(!palette||!frame.isConnected)return;
     if(guardId&&String(state.currentId||"")!==guardId)return;
-    const vars=accentVarsFromColor(color);
-    const accent=vars?.solid||color;
-    frame.style.setProperty("--video-progress-accent",accent);
-    unifiedMediaBar()?.style.setProperty("--video-progress-accent",accent);
+    frame.style.setProperty("--video-progress-accent",palette.accent);
+    unifiedMediaBar()?.style.setProperty("--video-progress-accent",palette.accent);
   });
 }
 
@@ -12130,6 +12128,7 @@ function renderCards(rows=[],options={}){
   ensureWatchNavRail();
   syncWatchCurrentCard();
   normalizeRenderedThumbnails();
+  primeCardCinematicColors();
   primeDesktopCardHoverColors();
 
   // Home chrome follows the top video once per stable feed/category paint.
@@ -14817,6 +14816,128 @@ queryInput.addEventListener("blur",()=>{
 });
 
 const desktopCardColorCache=new Map();
+const youtubeCinematicColorCache=new Map();
+const YOUTUBE_CINEMATIC_OPACITY=.4;
+const YOUTUBE_CINEMATIC_BASE=[15,15,15];
+
+function rgbToHsl(r,g,b){
+  r/=255;g/=255;b/=255;
+  const max=Math.max(r,g,b),min=Math.min(r,g,b);
+  let h=0,s=0;
+  const l=(max+min)/2;
+  const d=max-min;
+  if(d){
+    s=d/(1-Math.abs(2*l-1));
+    if(max===r)h=((g-b)/d)%6;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h*=60;
+    if(h<0)h+=360;
+  }
+  return [h,s,l];
+}
+
+function hslToRgb(h,s,l){
+  const c=(1-Math.abs(2*l-1))*s;
+  const x=c*(1-Math.abs((h/60)%2-1));
+  const m=l-c/2;
+  let rr=0,gg=0,bb=0;
+  if(h<60){rr=c;gg=x}
+  else if(h<120){rr=x;gg=c}
+  else if(h<180){gg=c;bb=x}
+  else if(h<240){gg=x;bb=c}
+  else if(h<300){rr=x;bb=c}
+  else{rr=c;bb=x}
+  return [rr,gg,bb].map(v=>Math.round((v+m)*255));
+}
+
+function youtubeCinematicPalette(url){
+  url=String(url||"").trim();
+  if(!url)return Promise.resolve(null);
+  const cached=youtubeCinematicColorCache.get(url);
+  if(cached)return cached;
+
+  const task=new Promise(resolve=>{
+    const img=new Image();
+    img.crossOrigin="anonymous";
+    img.decoding="async";
+    img.onload=()=>{
+      try{
+        const w=24,h=14;
+        const canvas=document.createElement("canvas");
+        canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext("2d",{willReadFrequently:true});
+        if(!ctx){resolve(null);return;}
+        ctx.drawImage(img,0,0,w,h);
+        const data=ctx.getImageData(0,0,w,h).data;
+        const buckets=new Map();
+
+        for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+          const i=(y*w+x)*4;
+          if(data[i+3]<128)continue;
+          const r=data[i],g=data[i+1],b=data[i+2];
+          const lum=.2126*r+.7152*g+.0722*b;
+          if(lum<24||lum>238)continue;
+          const max=Math.max(r,g,b),min=Math.min(r,g,b);
+          const sat=max?((max-min)/max):0;
+          const nx=(x-(w-1)/2)/(w/2),ny=(y-(h-1)/2)/(h/2);
+          const center=1+Math.max(0,1-Math.sqrt(nx*nx+ny*ny))*.55;
+          const weight=center*(.45+sat*1.65);
+          const key=((r>>5)<<6)|((g>>5)<<3)|(b>>5);
+          const row=buckets.get(key)||{r:0,g:0,b:0,w:0};
+          row.r+=r*weight;row.g+=g*weight;row.b+=b*weight;row.w+=weight;
+          buckets.set(key,row);
+        }
+
+        let winner=null;
+        for(const row of buckets.values()){
+          if(!winner||row.w>winner.w)winner=row;
+        }
+        if(!winner||winner.w<=0){resolve(null);return;}
+
+        const source=[winner.r/winner.w,winner.g/winner.w,winner.b/winner.w].map(Math.round);
+        let hsl=rgbToHsl(source[0],source[1],source[2]);
+        hsl[1]=Math.max(.42,Math.min(.88,hsl[1]*1.08));
+        hsl[2]=Math.max(.48,Math.min(.68,hsl[2]));
+        const accent=hslToRgb(hsl[0],hsl[1],hsl[2]);
+        const surface=YOUTUBE_CINEMATIC_BASE.map((base,i)=>Math.round(base*(1-YOUTUBE_CINEMATIC_OPACITY)+source[i]*YOUTUBE_CINEMATIC_OPACITY));
+
+        resolve({
+          source:"rgb("+source.join(",")+")",
+          accent:"rgb("+accent.join(",")+")",
+          surface:"rgb("+surface.join(",")+")"
+        });
+      }catch{
+        resolve(null);
+      }
+    };
+    img.onerror=()=>resolve(null);
+    img.src=url;
+  });
+
+  youtubeCinematicColorCache.set(url,task);
+  return task;
+}
+
+async function paintCardCinematicColor(card){
+  if(!card?.isConnected)return;
+  const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
+  if(!art)return;
+  const palette=await youtubeCinematicPalette(art);
+  if(!palette||!card.isConnected||String(card.dataset.thumb||"").trim()!==art)return;
+  card.style.setProperty("--card-cinematic-surface",palette.surface);
+  card.style.setProperty("--card-cinematic-accent",palette.accent);
+  card.classList.add("card-cinematic-ready");
+}
+
+function primeCardCinematicColors(){
+  const paint=()=>{
+    const cards=[...feed.querySelectorAll(":scope > .card[data-video-id]")].slice(0,60);
+    for(const card of cards)void paintCardCinematicColor(card);
+  };
+  if("requestIdleCallback" in window)requestIdleCallback(paint,{timeout:700});
+  else setTimeout(paint,60);
+}
 
 function averageThumbTint(url){
   url=String(url||"").trim();
@@ -14993,6 +15114,7 @@ feed?.addEventListener("error",event=>{
             row.thumbnail=fallback;
             row.thumbnailUrl=fallback;
           }
+          void paintCardCinematicColor(card);
         }
       }
     }

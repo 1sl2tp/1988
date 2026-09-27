@@ -8024,3 +8024,27 @@ html.watch-minimized .player-frame.floating-iframe.float-size-full .float-player
 html.watch-minimized .player-frame.floating-iframe.float-size-full .watch-swipe-zone{
   cursor:default!important;
 }
+
+
+/* ============================================================
+   YOUTUBE CINEMATIC COLOR v483
+   Dynamic single-color adaptation: #0f0f0f base + 0.4 sampled-color mix.
+   Seek keeps the same sampled hue at readable luminance.
+   ============================================================ */
+.feed>.card .card-copy{
+  background:var(--card-cinematic-surface,#0f0f0f)!important;
+  transition:background-color .22s ease!important;
+}
+
+.watch-media-progress-track,
+.watch-media-progress-buffered,
+.watch-media-progress-fill,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-track,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
+  height:3px!important;
+}
+
+.watch-media-progress-fill,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
+  background:var(--video-progress-accent,#8b8cff)!important;
+}
