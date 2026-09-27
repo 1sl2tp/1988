@@ -930,16 +930,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return 0;
   }
 
-  function cachedMediaAspect(id){
+  function aspectHintVerified(meta={}){
+    if(!meta||typeof meta!=="object")return false;
+    if(meta._aspectVerified===true||meta.aspectVerified===true)return true;
+    if(meta.isShort===true)return true;
+    return Number(meta.videoWidth)>0&&Number(meta.videoHeight)>0;
+  }
+
+  function cachedMediaAspect(id,{verifiedOnly=false}={}){
     const row=mediaAspectCache.get(String(id||"").trim());
+    if(verifiedOnly&&row?.verified!==true)return 0;
     return validMediaAspect(row?.value);
   }
 
-  function rememberMediaAspect(id,ratio,source=""){
+  function rememberMediaAspect(id,ratio,source="",verified=false){
     id=String(id||"").trim();
     ratio=validMediaAspect(ratio);
     if(!id||!ratio)return 0;
-    mediaAspectCache.set(id,{value:ratio,source:String(source||""),at:Date.now()});
+
+    const previous=mediaAspectCache.get(id);
+    if(previous?.verified===true&&!verified)return previous.value;
+
+    mediaAspectCache.set(id,{
+      value:ratio,
+      source:String(source||""),
+      verified:verified===true,
+      at:Date.now()
+    });
     return ratio;
   }
 
@@ -957,12 +974,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     id=String(id||"").trim();
     if(!id)return 0;
 
-    const cached=cachedMediaAspect(id);
-    if(cached)return cached;
+    const verified=cachedMediaAspect(id,{verifiedOnly:true});
+    if(verified)return verified;
 
+    const provisional=cachedMediaAspect(id);
     const hint=explicitMediaAspect(meta||{});
-    if(hint)rememberMediaAspect(id,hint,meta?.isShort?"short":"input");
+    if(hint){
+      rememberMediaAspect(
+        id,
+        hint,
+        meta?.isShort?"short":"input",
+        aspectHintVerified(meta)
+      );
+    }
 
+    const verifiedAfterHint=cachedMediaAspect(id,{verifiedOnly:true});
+    if(verifiedAfterHint)return verifiedAfterHint;
     if(mediaAspectPending.has(id))return mediaAspectPending.get(id);
 
     const task=(async()=>{
@@ -980,12 +1007,19 @@ html.one-col .player.pip iframe{border-radius:inherit}
                 :0
             )
           );
-          if(ratio)rememberMediaAspect(id,ratio,dimensions?.source||"videoAspect");
+          if(ratio){
+            rememberMediaAspect(
+              id,
+              ratio,
+              dimensions?.source||"videoAspect",
+              true
+            );
+          }
         }catch{}
       }
 
-      // A wide stream can still contain real portrait content with pillarbox.
-      // Use the same visual probe already present in the main app as refinement.
+      // Some uploads are stored in a wide stream but the visible frame is
+      // portrait pillarboxed. The main app already has this exact refinement.
       if(typeof local?.visualContentAspect==="function"){
         try{
           const visual=await local.visualContentAspect(id);
@@ -998,35 +1032,46 @@ html.one-col .player.pip iframe{border-radius:inherit}
             )
           );
           if(visualRatio>0&&visualRatio<.84){
-            ratio=rememberMediaAspect(id,visualRatio,visual?.source||"visualContentAspect");
+            ratio=rememberMediaAspect(
+              id,
+              visualRatio,
+              visual?.source||"visualContentAspect",
+              true
+            );
           }
         }catch{}
       }
 
-      return ratio||cachedMediaAspect(id)||hint||0;
+      return (
+        ratio||
+        cachedMediaAspect(id,{verifiedOnly:true})||
+        provisional||
+        hint||
+        0
+      );
     })().finally(()=>mediaAspectPending.delete(id));
 
     mediaAspectPending.set(id,task);
     return task;
   }
 
-  function primeMediaAspects(metas=[],limit=10){
+  function primeMediaAspects(metas=[],limit=12){
+    // Cheap first paint only: remember input hints, but do NOT fan out network
+    // aspect probes for every card. The real app primes on pointerdown.
     const list=(Array.isArray(metas)?metas:[]).slice(0,Math.max(0,limit));
-    const run=()=>{
-      for(const meta of list){
-        const id=String(meta?.id||"").trim();
-        if(!id)continue;
+    for(const meta of list){
+      const id=String(meta?.id||"").trim();
+      if(!id)continue;
 
-        const hint=explicitMediaAspect(meta);
-        if(hint)rememberMediaAspect(id,hint,meta?.isShort?"short":"input");
-        if(!cachedMediaAspect(id))void resolveMediaAspect(id,meta);
-      }
-    };
+      const hint=explicitMediaAspect(meta);
+      if(!hint)continue;
 
-    if("requestIdleCallback" in window){
-      requestIdleCallback(run,{timeout:700});
-    }else{
-      setTimeout(run,30);
+      rememberMediaAspect(
+        id,
+        hint,
+        meta?.isShort?"short":"input",
+        aspectHintVerified(meta)
+      );
     }
   }
 
@@ -1192,6 +1237,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     const previousId=String(current?.id||"");
     const hint=
+      cachedMediaAspect(id,{verifiedOnly:true})||
       cachedMediaAspect(id)||
       explicitMediaAspect(meta||{})||
       16/9;
@@ -1998,7 +2044,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       aspectRatio:sample.ratio,
       _aspectVerified:true
     };
-    rememberMediaAspect(sample.id,sample.ratio,"proof");
+    rememberMediaAspect(sample.id,sample.ratio,"proof",true);
     playVideoId(sample.id,sampleMeta);
     loadCurrentVideoMeta();
     schedulePip();
@@ -2050,6 +2096,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     requestAnimationFrame(updateSourceRailArrows);
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
+
+  document.getElementById("rows").addEventListener("pointerdown",event=>{
+    const card=event.target.closest(".row[data-video-id]");
+    if(!card||event.target.closest(".row-menu"))return;
+
+    const id=String(card.dataset.videoId||"").trim();
+    if(!id)return;
+
+    const meta=
+      feedMetas.find(item=>item?.id===id)||
+      relatedMetas.find(item=>item?.id===id)||
+      null;
+
+    // Prime the exact media on press-down, before click swaps the player.
+    void resolveMediaAspect(id,meta);
+  },{passive:true});
 
   document.getElementById("rows").addEventListener("click",event=>{
     const menu=event.target.closest(".row-menu");
