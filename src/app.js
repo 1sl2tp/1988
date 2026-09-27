@@ -14227,19 +14227,26 @@ feed?.addEventListener("error",event=>{
   if(thumbWrap){
     const card=img.closest(".card[data-video-id]");
     const id=String(card?.dataset?.videoId||"").trim();
-    if(
-      /^[A-Za-z0-9_-]{11}$/.test(id)&&
-      img.dataset.thumbFallback!=="1"
-    ){
-      const fallback="https://i.ytimg.com/vi/"+id+"/mqdefault.jpg";
-      img.dataset.thumbFallback="1";
-      img.src=fallback;
-      if(card){
-        card.dataset.thumb=fallback;
-        const row=state.feedRows.find(item=>itemVideoId(item)===id);
-        if(row){
-          row.thumbnail=fallback;
-          row.thumbnailUrl=fallback;
+    if(/^[A-Za-z0-9_-]{11}$/.test(id)){
+      const current=String(img.currentSrc||img.src||"");
+      const stage=Number(img.dataset.thumbFallback||0);
+      let fallback="";
+      if(stage===0&&!/\/hqdefault\.jpg(?:[?#]|$)/i.test(current)){
+        fallback="https://i.ytimg.com/vi/"+id+"/hqdefault.jpg";
+        img.dataset.thumbFallback="1";
+      }else if(stage<=1&&!/\/mqdefault\.jpg(?:[?#]|$)/i.test(current)){
+        fallback="https://i.ytimg.com/vi/"+id+"/mqdefault.jpg";
+        img.dataset.thumbFallback="2";
+      }
+      if(fallback&&fallback!==current){
+        img.src=fallback;
+        if(card){
+          card.dataset.thumb=fallback;
+          const row=state.feedRows.find(item=>itemVideoId(item)===id);
+          if(row){
+            row.thumbnail=fallback;
+            row.thumbnailUrl=fallback;
+          }
         }
       }
     }
