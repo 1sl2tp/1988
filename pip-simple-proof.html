@@ -13,6 +13,7 @@
   --current-full-h:600px;
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
+  --two-col-media-w:420px;
   --floating-radius:10px;
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
@@ -153,9 +154,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   html.two-col main{
-    width:min(1220px,100%);
+    width:100%;
+    max-width:1600px;
     display:grid;
-    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-columns:minmax(320px,1fr) var(--two-col-media-w);
     grid-template-areas:"feed media";
     gap:14px;
     align-items:start;
@@ -181,10 +183,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   /* 2-col landscape:
-     CURRENT WIDTH owns the size. The iframe fills the current-height viewing area, so YouTube
+     Column width is derived from CURRENT HEIGHT × 16/9 (capped only to preserve the feed). The iframe fills the current-height viewing area, so YouTube
      itself letterboxes the 16:9 video and puts chrome in the black top/bottom. */
   html.two-col.landscape .media-col{
-    width:min(48vw,620px);
+    width:var(--two-col-media-w);
   }
   html.two-col.landscape .stage{
     width:100%;
@@ -203,9 +205,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   /* 2-col portrait:
-     CURRENT HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
+     Column width is derived from CURRENT HEIGHT × 9/16, so there is no wasted side space. */
   html.two-col.portrait .media-col{
-    width:calc(var(--current-full-h) * 0.5625);
+    width:var(--two-col-media-w);
     height:var(--current-full-h);
   }
   html.two-col.portrait .stage{
@@ -344,6 +346,19 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
+
+    // 2-column split has ONE rule:
+    // ideal media width = current full height × current aspect ratio.
+    // Keep a minimum useful feed width; otherwise never force 60/40 or 50/50.
+    const pageW=Math.min(1600,viewportW);
+    const gap=14;
+    const sidePadding=28;
+    const minFeedW=320;
+    const maxMediaW=Math.max(1,pageW-sidePadding-gap-minFeedW);
+    const idealMediaW=Math.max(1,Math.round(fullH*current.ratio));
+    const mediaW=Math.min(idealMediaW,maxMediaW);
+
+    root.style.setProperty("--two-col-media-w",mediaW+"px");
   }
 
   function dataRow(payload){
