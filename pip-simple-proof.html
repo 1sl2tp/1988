@@ -986,6 +986,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let pendingVideoId="";
   let youtubeApiPromise=null;
 
+  // Shape detection belongs to the MEDIA ID, not to MAIN/PiP/2-column.
+  // A new media may start directly inside PiP or 2-column; it still gets one
+  // detection pass. Once YouTube confirms it, later layout resizes cannot
+  // redefine that media's shape.
+  let shapeProbeMediaId="";
+  let shapeLockedMediaId="";
+
   function validMediaAspect(value){
     const ratio=Number(value)||0;
     if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
@@ -1641,15 +1648,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function canMeasureCurrentMediaShapeFromPlayer(){
-    // MAIN is the only place where the player's rendered rectangle may be used
-    // as media-shape evidence. PiP and 2-column are PRESENTATIONS of the already
-    // selected media shape; measuring them would create a feedback loop:
-    // layout -> resize player -> read resized rect -> change layout again.
-    if(pip||isTwoColumn())return false;
-    if(player.classList.contains("pip"))return false;
+    const id=String(current?.id||"").trim();
+    if(!id)return false;
 
-    const rect=stage.getBoundingClientRect();
-    return rect.width>0&&rect.height>0;
+    // Detection is allowed wherever the NEW media is currently playing:
+    // MAIN, PiP or 2-column. What matters is the media id, not presentation.
+    if(shapeLockedMediaId===id)return false;
+    if(shapeProbeMediaId&&shapeProbeMediaId!==id)return false;
+    return true;
   }
 
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
@@ -1668,13 +1674,19 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const rect=youtubeContentRect(player);
     if(!rect)return false;
 
+    const mediaId=String(current.id||"");
     const ratio=rememberMediaAspect(
-      current.id,
+      mediaId,
       rect.aspectRatio,
       "iframe-content-rect",
       true
     );
-    commitCurrentAspect(current.id,ratio,{relayout:true});
+    commitCurrentAspect(mediaId,ratio,{relayout:true});
+
+    // Lock only AFTER the currently loaded media itself produced a rect.
+    // From here, PiP/2-column resize is presentation-only.
+    shapeProbeMediaId=mediaId;
+    shapeLockedMediaId=mediaId;
     return true;
   }
 
@@ -1684,6 +1696,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     const attempt=()=>{
       if(String(current?.id||"")!==id)return;
+      if(shapeLockedMediaId===id)return;
       if(!canMeasureCurrentMediaShapeFromPlayer())return;
       syncCurrentKindFromYoutubePlayer(player);
     };
@@ -1805,6 +1818,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(!id)return;
 
     const previousId=String(current?.id||"");
+    const cachedShapeRow=mediaAspectCache.get(id)||null;
+
+    shapeProbeMediaId=id;
+    shapeLockedMediaId=
+      cachedShapeRow?.source==="iframe-content-rect"
+        ? id
+        : "";
     const hint=
       cachedMediaAspect(id,{verifiedOnly:true})||
       cachedMediaAspect(id)||
@@ -1849,16 +1869,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
         }catch{}
       }
 
-      scheduleCurrentPlayerKind(playerApi);
+      if(shapeLockedMediaId!==id){
+        scheduleCurrentPlayerKind(playerApi);
+      }
     });
 
     // Local probe is only a fallback while YouTube's own content rectangle
     // is not available yet. A later iframe-content-rect always corrects it.
     void resolveMediaAspect(id,meta).then(ratio=>{
       if(!ratio||String(current?.id||"")!==id)return;
+      if(shapeLockedMediaId===id)return;
 
       const row=mediaAspectCache.get(id);
       if(String(row?.source||"")!=="iframe-content-rect"){
+        // This works even when the media was opened directly inside PiP/2-col.
         commitCurrentAspect(id,ratio,{relayout:true});
       }
     });
@@ -2729,7 +2753,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     pip=shouldPip;
 
     // Presentation-only transition. Keep current.kind/current.ratio untouched:
-    // the same media shape selected in MAIN is carried into PiP.
+    // PiP consumes the shape of the CURRENT media, wherever that media was opened.
     player.classList.toggle("pip",pip);
     stage.classList.toggle("pip-host",pip);
     paintText();
