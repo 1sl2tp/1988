@@ -8180,7 +8180,9 @@ html.watch-minimized .player-frame.floating-iframe .float-mode-btn svg{
    - miniplayer scrim is dark; close/expand are white utility buttons
    - sampled colour is reserved for progress, not a neon card/PiP shell
    ============================================================ */
-.feed>.card,
+.feed>.card{
+  background:transparent!important;
+}
 .feed>.card .card-copy,
 html:not(.watch-browse) .feed>.card .card-copy,
 html.watch-browse .feed>.card .card-copy{
@@ -8295,5 +8297,17 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
 
   .feed>.card.desktop-accent-hover .card-copy{
     background:transparent!important;
+  }
+}
+
+
+/* CARD HOVER SINGLE SURFACE GUARD
+   The rounded ::before panel is the only full-card hover surface.
+   The card box itself must stay transparent so no square dark layer shows. */
+@media (hover:hover) and (pointer:fine) and (min-width:760px){
+  .feed>.card,
+  .feed>.card.desktop-accent-hover{
+    background:transparent!important;
+    box-shadow:none!important;
   }
 }
