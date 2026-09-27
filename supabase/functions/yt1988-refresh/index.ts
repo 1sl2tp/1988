@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v31";
-const NON_LIVE_PIPELINE_VERSION="non-live-v9";
+const LIVE_PIPELINE_VERSION="live-v32";
+const NON_LIVE_PIPELINE_VERSION="non-live-v10";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -206,10 +206,56 @@ function titleLooksEnglishOnly(row:any){
   }
 
   if(vi>=2&&vi>=en)return false;
-  if(en>=2&&en>=vi+1)return true;
-  if(vi===0&&tokens.length>=3)return true;
-  if(vi===0&&tokens.length===2&&en>=1)return true;
-  return false;
+
+  // Be conservative with unaccented Vietnamese. Only reject when the title
+  // contains multiple explicit English function/content words.
+  return en>=2&&en>=vi+1&&(en/Math.max(1,tokens.length))>=.25;
+}
+
+function titleLooksBroken(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",500);
+  if(!raw)return true;
+  const identity=normalizeText(raw).replace(/\s+/g,"");
+  if(!identity||identity.length<3)return true;
+  return /^\d+$/.test(identity);
+}
+
+const LEGACY_BLOCKED_KEYWORDS=[
+  "xo so","gia vang","thoi tiet","hoa lan","forex",
+  "phat giao","su phu","sdt","lien he","zalo","ngoai te"
+];
+
+function expandBlockedKeywordRows(values:any[]){
+  const out=new Map<string,string>();
+  const add=(value:any)=>{
+    const display=clean(value,120);
+    const norm=normalizeText(display);
+    if(!norm)return;
+    if(!out.has(norm))out.set(norm,display);
+  };
+
+  for(const raw of Array.isArray(values)?values:[]){
+    const display=clean(raw,600);
+    if(!display)continue;
+    const norm=normalizeText(display);
+
+    // Legacy UI once saved a whole space-separated blacklist as one row.
+    if(
+      norm.includes("xo so gia vang thoi tiet hoa lan forex")&&
+      norm.includes("sdt lien he zalo")
+    ){
+      for(const keyword of LEGACY_BLOCKED_KEYWORDS)add(keyword);
+      continue;
+    }
+
+    const parts=display.split(/[,;|\n\r]+/u).map((v)=>clean(v,120)).filter(Boolean);
+    if(parts.length>1){
+      for(const part of parts)add(part);
+    }else{
+      add(display);
+    }
+  }
+  return [...out.values()];
 }
 function normalizeLiveText(value:any){
   return normalizeText(value);
@@ -274,6 +320,8 @@ function publishedText(row:any){
 function validChannelDisplayName(value:any){
   const name=clean(value,180);
   if(!name||/^UC[A-Za-z0-9_-]+$/.test(name))return "";
+  const identity=normalizeText(name).replace(/\s+/g,"");
+  if(!identity||identity.length<2||/^\d+$/.test(identity))return "";
   return name;
 }
 
@@ -326,6 +374,19 @@ function cleanSourceTitle(value:any,sourceName:any){
     .trim();
 
   if(sourceTitleSegmentMatches(title,sourceName))return "";
+
+  const sourceNorm=normalizeText(sourceName);
+  const titleNorm=normalizeText(title);
+  if(sourceNorm&&titleNorm.startsWith(sourceNorm+" ")){
+    const sourceWordCount=clean(sourceName,180).split(/\s+/u).filter(Boolean).length;
+    const titleWords=title.split(/\s+/u);
+    if(sourceWordCount>0&&titleWords.length>sourceWordCount){
+      const candidate=clean(titleWords.slice(sourceWordCount).join(" "),300)
+        .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
+        .trim();
+      if(candidate.length>=3)title=candidate;
+    }
+  }
 
   for(let i=0;i<3;i++){
     const suffix=title.match(/^(.*?)(?:\s*[|•·]\s*|\s+[-–—]\s+)([^|•·]{1,120})$/u);
@@ -507,29 +568,41 @@ function dedupePackageRows(rows:any[]){
     const sig=packageSemanticTokens(row);
     let duplicate=false;
 
-    if(sig.tokens.length>=5){
+    if(sig.tokens.length>=2){
       for(const prior of signatures){
         if(sig.episode&&prior.episode&&sig.episode!==prior.episode)continue;
         if((sig.episode&&!prior.episode)||(!sig.episode&&prior.episode))continue;
 
         const sameSource=!!sig.source&&sig.source===prior.source;
-        if(
-          sig.core&&
-          sig.core===prior.core&&
-          (sig.tokens.length>=3||sameSource)
-        ){
-          duplicate=true;
-          break;
+        if(sig.core&&sig.core===prior.core){
+          if(
+            (sameSource&&sig.tokens.length>=2&&prior.tokens.length>=2)||
+            (sig.tokens.length>=4&&prior.tokens.length>=4)
+          ){
+            duplicate=true;
+            break;
+          }
         }
 
-        const overlap=packageTokenOverlap(sig.tokens,prior.tokens);
-        if(
-          overlap.common>=5&&
-          overlap.maxRatio>=.78&&
-          overlap.minRatio>=.86
-        ){
-          duplicate=true;
-          break;
+        if(sig.tokens.length>=4&&prior.tokens.length>=4){
+          const overlap=packageTokenOverlap(sig.tokens,prior.tokens);
+          if(
+            sameSource&&
+            overlap.common>=3&&
+            overlap.maxRatio>=.72&&
+            overlap.minRatio>=.82
+          ){
+            duplicate=true;
+            break;
+          }
+          if(
+            overlap.common>=5&&
+            overlap.maxRatio>=.78&&
+            overlap.minRatio>=.86
+          ){
+            duplicate=true;
+            break;
+          }
         }
       }
     }
@@ -1124,11 +1197,11 @@ async function discoverGlobalLiveCandidates(
         if(!row||!strongFreshLiveSignal(row))continue;
         const sid=channelId(row);
         if(sid&&blockedSourceIds.has(sid))continue;
+        if(liveKeywordBlocked(row,keywords))continue;
         if(sid&&selectedSourceIds.has(sid)){
           selected.push({...row,_liveOrigin:"source"});
           continue;
         }
-        if(liveKeywordBlocked(row,keywords))continue;
         external.push({...row,_liveOrigin:"search"});
       }
       return true;
@@ -1359,7 +1432,10 @@ Deno.serve(async(req:Request)=>{
 
     // The LIVE blacklist applies to both LIVE sources:
     // Source 1 = external search; Source 2 = selected channels.
-    const allBlockedLiveSourceIds=new Set<string>(liveBlockedIds);
+    const allBlockedLiveSourceIds=new Set<string>([
+      ...generalBlockedIds,
+      ...liveBlockedIds
+    ]);
 
     const explicitLiveSources=selectedByScope.get("live")||[];
     const explicitLiveIds=new Set(explicitLiveSources.map((source:any)=>source.id));
@@ -1455,9 +1531,10 @@ Deno.serve(async(req:Request)=>{
         );
         if(keywordsRes.ok){
           const keywordRows=await keywordsRes.json();
-          liveKeywords=(Array.isArray(keywordRows)?keywordRows:[])
-            .map((row:any)=>clean(row?.keyword_display||"",120))
-            .filter(Boolean);
+          liveKeywords=expandBlockedKeywordRows(
+            (Array.isArray(keywordRows)?keywordRows:[])
+              .map((row:any)=>row?.keyword_display||"")
+          );
         }
       }catch(error){
         console.warn("live keyword read failed",String(error));
@@ -1549,6 +1626,7 @@ Deno.serve(async(req:Request)=>{
           if(!row)return null;
           const sid=channelId(row);
           if(sid&&allBlockedLiveSourceIds.has(sid))return null;
+          if(liveKeywordBlocked(row,liveKeywords))return null;
           return {
             ...row,
             _liveOrigin:"source",
@@ -2052,7 +2130,10 @@ Deno.serve(async(req:Request)=>{
     for(let scopeIndex=0;scopeIndex<scopes.length;scopeIndex++){
       const scope=scopes[scopeIndex];
       const meta=SCOPE_META[scope]||{profile:"general",label:scope,kind:"content"};
-      const selected=selectedByScope.get(scope)||[];
+      const scopeBlocked=blockedByScope.get(scope)||new Set<string>();
+      const selected=(selectedByScope.get(scope)||[]).filter(
+        (source:any)=>source?.id&&!generalBlockedIds.has(source.id)&&!scopeBlocked.has(source.id)
+      );
       const selectedIds=new Set(selected.map((s:any)=>s.id));
       const current=currentByScope.get(scope);
 
@@ -2163,6 +2244,16 @@ Deno.serve(async(req:Request)=>{
       if(scope==="latest"||scope==="week"){
         raw=raw.filter((r:any)=>!obviousNonNewsForNewsScope(r));
       }
+
+      // Final deterministic package policy shared by every source.
+      raw=raw.filter((r:any)=>{
+        const sid=channelId(r);
+        if(sid&&(generalBlockedIds.has(sid)||scopeBlocked.has(sid)))return false;
+        if(titleLooksBroken(r))return false;
+        if(scope==="live"&&liveKeywordBlocked(r,liveKeywords))return false;
+        if(SYSTEM_SCOPES.includes(scope)&&titleLooksEnglishOnly(r))return false;
+        return true;
+      });
 
       if(meta.kind!=="live")raw=sortRows(raw);
       raw=(meta.kind==="live"?dedupeRows(raw):dedupePackageRows(raw))
