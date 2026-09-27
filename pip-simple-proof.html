@@ -844,8 +844,52 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let mobileHeaderHidden=false;
 
   function embedUrl(id){
+    const origin=encodeURIComponent(location.origin);
     return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
-      "?autoplay=1&playsinline=1&rel=0&modestbranding=1";
+      "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin="+origin;
+  }
+
+  function frameCommand(func,args=[]){
+    try{
+      frame.contentWindow?.postMessage(
+        JSON.stringify({event:"command",func,args}),
+        "https://www.youtube-nocookie.com"
+      );
+    }catch{}
+  }
+
+  function forceFramePlay(){
+    frameCommand("playVideo");
+  }
+
+  function playVideoId(id,meta=null){
+    id=String(id||"").trim();
+    if(!id)return;
+
+    if(meta?.id===id){
+      currentMeta=meta;
+    }
+    current={
+      ...current,
+      id,
+      label:meta?.title||currentMeta?.title||current.label
+    };
+
+    titleEl.textContent=currentMeta?.title||current.label;
+    frame.referrerPolicy="strict-origin-when-cross-origin";
+    frame.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
+
+    frame.onload=()=>{
+      forceFramePlay();
+      setTimeout(forceFramePlay,120);
+      setTimeout(forceFramePlay,450);
+    };
+
+    // Assign src while the card click is still a user activation.
+    frame.src=embedUrl(id);
+
+    // Keep the first play command as close to the user gesture as possible.
+    setTimeout(forceFramePlay,0);
   }
 
   function isTwoColumn(){
@@ -1579,7 +1623,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     stage.classList.remove("pip-host");
     landscapeBtn.classList.toggle("active",kind==="landscape");
     portraitBtn.classList.toggle("active",kind==="portrait");
-    frame.src=embedUrl(current.id);
+    playVideoId(current.id,currentMeta);
     layout();
     loadCurrentVideoMeta();
     schedulePip();
@@ -1646,7 +1690,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     document.querySelectorAll(".row.selected").forEach(x=>x.classList.remove("selected"));
     card.classList.add("selected");
-    frame.src=embedUrl(card.dataset.videoId || current.id);
+
+    const id=String(card.dataset.videoId||"").trim()||current.id;
+    const selectedMeta=
+      feedMetas.find(meta=>meta?.id===id)||
+      relatedMetas.find(meta=>meta?.id===id)||
+      null;
+
+    playVideoId(id,selectedMeta);
+    layout();
+    schedulePip();
     window.scrollTo({top:0,behavior:"smooth"});
   });
   addEventListener("scroll",()=>{
