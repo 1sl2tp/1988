@@ -153,6 +153,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 @media(min-width:960px){
   html.two-col,
   html.two-col body{
+    overflow-x:clip;
     overscroll-behavior-y:none;
   }
 
@@ -160,7 +161,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     width:100%;
     max-width:1600px;
     display:grid;
-    grid-template-columns:minmax(320px,1fr) var(--two-col-media-w);
+    grid-template-columns:minmax(0,1fr) var(--two-col-media-w);
     grid-template-areas:"feed media";
     gap:var(--layout-gap);
     align-items:start;
@@ -413,10 +414,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
       // Photography balance: media should not dominate beyond the golden section.
       const goldenMediaCap=Math.max(1,Math.round(contentW/PHI));
 
-      // Always preserve enough space for at least one real card.
-      const maxMediaByCard=Math.max(1,contentW-gap-cardTargetW);
-      const mediaW=Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard);
-      const feedW=Math.max(1,contentW-gap-mediaW);
+      // Preserve exactly one REAL card unit in the feed.
+      // No second hard-coded minimum is allowed to fight this calculation.
+      const feedMinW=cardTargetW;
+      const maxMediaByCard=Math.max(1,contentW-gap-feedMinW);
+      const mediaW=Math.max(1,Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard));
+      const feedW=Math.max(feedMinW,contentW-gap-mediaW);
 
       const cols=Math.max(1,Math.min(3,Math.floor((feedW+gap)/(cardTargetW+gap))));
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
@@ -588,9 +591,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
     schedulePip();
   });
 
-  /* Resize refreshes the CURRENT dimensions for all 3 media modes. */
+  /* Resize refreshes geometry, but never enter a scrollbar feedback loop. */
+  let lastViewportW=document.documentElement.clientWidth||innerWidth||0;
   addEventListener("resize",()=>{
-    syncBoundaries();
+    const nextW=document.documentElement.clientWidth||innerWidth||0;
+    const widthChanged=Math.abs(nextW-lastViewportW)>1;
+    lastViewportW=nextW;
+
+    if(widthChanged || document.documentElement.scrollWidth<=nextW+1){
+      syncBoundaries();
+    }
     schedulePip();
   },{passive:true});
 
