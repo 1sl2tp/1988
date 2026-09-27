@@ -5850,3 +5850,21 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
   border-radius:0!important;
   background:#000!important;
 }
+
+
+/* MAIN vs PiP ownership v437.
+   Main player never renders custom PiP controls. Those controls belong only to
+   an active floating player and are also physically removed in JS on exit. */
+html:not(.watch-minimized) .player-frame .float-player-overlay,
+html:not(.watch-minimized) .player-frame .float-mode-rail,
+html:not(.watch-minimized) .player-frame .float-edge-tab{
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+
+html:not(.watch-minimized) .player-frame .watch-swipe-zone{
+  display:none!important;
+  pointer-events:none!important;
+}
