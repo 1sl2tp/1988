@@ -51,6 +51,16 @@ const backgroundBtn=$("#backgroundBtn");
 const lockBtn=$("#lockBtn");
 const shareBtn=$("#shareBtn");
 const statusText=$("#statusText");
+const selectedVideoInfo=$("#selectedVideoInfo");
+const selectedVideoAvatar=$("#selectedVideoAvatar");
+const selectedVideoAvatarFallback=$("#selectedVideoAvatarFallback");
+const selectedVideoTitle=$("#selectedVideoTitle");
+const selectedVideoMeta=$("#selectedVideoMeta");
+const selectedSourceCard=$("#selectedSourceCard");
+const selectedSourceAvatar=$("#selectedSourceAvatar");
+const selectedSourceAvatarFallback=$("#selectedSourceAvatarFallback");
+const selectedSourceName=$("#selectedSourceName");
+const selectedSourceMeta=$("#selectedSourceMeta");
 const feed=$("#feed");
 const feedSection=document.querySelector(".feed-section");
 const appShell=document.querySelector(".app-shell");
@@ -11571,6 +11581,65 @@ function rowFromCard(card){
   };
 }
 
+function renderSelectedVideoInfo(meta={}){
+  if(!selectedVideoInfo)return;
+
+  const media=videoUiMeta(meta);
+  const channel=media.channel||"Nguồn YouTube";
+  const sourceId=media.sourceId||canonicalSourceId(meta,channel)||"";
+  const sourceRow=sourceId?sourceMetaFor(libraryRow(sourceId)||{id:sourceId,name:channel}):null;
+  const sourceName=clean(sourceRow?.name||channel)||"Nguồn YouTube";
+  const sourceAvatar=safeSourceThumb(
+    media.sourceAvatar||
+    sourceRow?.thumbnailUrl||
+    sourceAvatarCached(sourceId)||
+    ""
+  );
+  const fallback=(sourceName.charAt(0)||"?").toUpperCase();
+
+  selectedVideoInfo.hidden=false;
+  if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
+
+  const bits=[];
+  if(media.viewsLabel)bits.push(media.viewsLabel);
+  if(media.published)bits.push(media.published);
+  if(media.duration)bits.push(fmtDuration(media.duration));
+  if(selectedVideoMeta)selectedVideoMeta.textContent=bits.join(" · ");
+
+  if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.textContent=fallback;
+  if(selectedSourceAvatarFallback)selectedSourceAvatarFallback.textContent=fallback;
+
+  const paintAvatar=img=>{
+    if(!img)return;
+    if(!sourceAvatar){
+      img.hidden=true;
+      img.removeAttribute("src");
+      return;
+    }
+    img.hidden=false;
+    img.src=sourceAvatar;
+  };
+  paintAvatar(selectedVideoAvatar);
+  paintAvatar(selectedSourceAvatar);
+
+  if(selectedSourceName)selectedSourceName.textContent=sourceName;
+
+  const sourceBits=[];
+  const subscribers=clean(sourceRow?.subscribers||"");
+  if(subscribers)sourceBits.push(subscribers);
+  const groups=sourceGroupLabels(sourceRow||meta);
+  if(groups.length)sourceBits.push(groups.join(" · "));
+  if(!sourceBits.length)sourceBits.push("Kênh YouTube");
+  if(selectedSourceMeta)selectedSourceMeta.textContent=sourceBits.join(" · ");
+}
+
+[selectedVideoAvatar,selectedSourceAvatar].forEach(img=>{
+  img?.addEventListener("error",()=>{
+    img.hidden=true;
+    img.removeAttribute("src");
+  });
+});
+
 function updateNow(meta={}){
   const title=clean(meta.title)||"Video";
   const channel=clean(meta.uploader||meta.uploaderName||"");
@@ -11585,6 +11654,7 @@ function updateNow(meta={}){
   if(published)bits.push(published);
   if(duration)bits.push(fmtDuration(duration));
   videoMeta.textContent=bits.join(" · ");
+  renderSelectedVideoInfo(meta);
   document.title=title+" · 1988";
   updateMediaSession(meta);
 
