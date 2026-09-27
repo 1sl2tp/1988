@@ -1146,6 +1146,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const aspectPrimeCache=new Map();
   const aspectPrimePending=new Map();
   const aspectCorrectionSent=new Map();
+  const sourceIdentityCache=new Map();
+  const sourceIdentityPending=new Map();
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -1735,6 +1737,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     };
     applyMediaLayoutSelection(kind,{relayout:true});
     syncVideoDocumentIdentity({push:true});
+    if(!currentMeta?.sourceAvatar){
+      void hydrateCurrentSourceIdentity(id);
+    }
 
     // PLAY IMMEDIATELY. No await, no cue, no pre-click wait.
     pendingVideoId=id;
@@ -2145,6 +2150,94 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }
 
     return merged;
+  }
+
+  function applySourceIdentityToVideo(id,identity={}){
+    id=String(id||"").trim();
+    const avatar=String(identity?.sourceAvatar||"").trim();
+    const name=String(identity?.sourceName||"").trim();
+    if(!id||(!avatar&&!name))return false;
+
+    const patchMeta=(meta)=>{
+      if(!meta||String(meta.id||"").trim()!==id)return;
+      if(avatar&&!meta.sourceAvatar)meta.sourceAvatar=avatar;
+      if(name&&!meta.sourceName)meta.sourceName=name;
+    };
+
+    patchMeta(currentMeta);
+    for(const meta of feedMetas)patchMeta(meta);
+    for(const meta of relatedMetas)patchMeta(meta);
+    for(const metas of packageCache.values()){
+      for(const meta of metas)patchMeta(meta);
+    }
+    for(const metas of searchCache.values()){
+      for(const meta of metas)patchMeta(meta);
+    }
+
+    if(String(current?.id||"")===id){
+      renderCurrentInfo();
+      applyHeaderTint(currentMeta);
+    }
+
+    if(avatar){
+      document.querySelectorAll(".row[data-video-id]").forEach(row=>{
+        if(String(row.dataset.videoId||"")!==id)return;
+        const oldAvatar=row.querySelector(".row-avatar");
+        if(!oldAvatar)return;
+        oldAvatar.outerHTML=
+          '<img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="">';
+      });
+    }
+    return true;
+  }
+
+  async function hydrateCurrentSourceIdentity(id=String(current?.id||"")){
+    id=String(id||"").trim();
+    if(!id||String(current?.id||"")!==id)return false;
+
+    const meta=currentMeta||{};
+    if(meta.sourceAvatar)return true;
+
+    const sourceId=String(meta.sourceId||"").trim();
+    if(!/^UC[A-Za-z0-9_-]{20,}$/.test(sourceId))return false;
+
+    const cached=sourceIdentityCache.get(sourceId);
+    if(cached){
+      return applySourceIdentityToVideo(id,cached);
+    }
+
+    if(sourceIdentityPending.has(sourceId)){
+      const identity=await sourceIdentityPending.get(sourceId);
+      if(String(current?.id||"")!==id)return false;
+      return applySourceIdentityToVideo(id,identity);
+    }
+
+    if(!window.YT1988_API?.channel||!window.MediaMeta?.source)return false;
+
+    const task=(async()=>{
+      try{
+        const payload=await window.YT1988_API.channel(sourceId);
+        const row=dataRow(payload);
+        const source=window.MediaMeta.source(row);
+        const identity={
+          sourceName:String(source?.name||"").trim(),
+          sourceAvatar:String(source?.avatar||"").trim()
+        };
+        if(identity.sourceAvatar||identity.sourceName){
+          sourceIdentityCache.set(sourceId,identity);
+        }
+        return identity;
+      }catch{
+        return {};
+      }finally{
+        sourceIdentityPending.delete(sourceId);
+      }
+    })();
+
+    sourceIdentityPending.set(sourceId,task);
+    const identity=await task;
+    if(String(current?.id||"")!==id)return false;
+    return applySourceIdentityToVideo(id,identity);
   }
 
   function collectVideoRows(payload){
@@ -2769,6 +2862,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
       renderCurrentInfo();
       applyHeaderTint(currentMeta);
+      if(!currentMeta?.sourceAvatar){
+        void hydrateCurrentSourceIdentity(requestedId);
+      }
 
       // Only rebuild rows when the actual feed changed. Package/search card
       // lists remain untouched while the selected video metadata refreshes.
