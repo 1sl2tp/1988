@@ -5487,3 +5487,75 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     aspect-ratio:var(--watch-video-aspect,9/16)!important;
   }
 }
+
+
+/* Selected source/topic rail v422.
+   Replaces the old "Nguồn chủ đề" card with the same compact horizontal
+   navigation language used by the main LIVE / Ngày / Tuần / #hashtag rail. */
+.selected-topic-rail{
+  display:none;
+}
+.selected-topic-rail[hidden]{
+  display:none!important;
+}
+
+@media(max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail:not([hidden]){
+    display:block;
+    width:100%;
+    min-width:0;
+    margin:0;
+    padding:7px 10px 9px;
+    border-top:1px solid #202024;
+    background:#0b0b0c;
+    overflow:hidden;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-chips{
+    display:flex!important;
+    align-items:center!important;
+    width:100%!important;
+    height:36px!important;
+    min-height:36px!important;
+    gap:8px!important;
+    margin:0!important;
+    padding:0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+    background:transparent!important;
+  }
+
+  .selected-topic-chips::-webkit-scrollbar{
+    display:none!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-divider{
+    flex:0 0 1px;
+    height:22px;
+    margin:0 2px;
+    background:#2d2d33;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip:not(.live-chip){
+    flex:0 0 auto;
+    height:34px;
+    min-height:34px;
+    padding:0 12px;
+    border-radius:8px;
+    line-height:34px;
+    white-space:nowrap;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.live-chip{
+    flex:0 0 34px;
+    width:34px;
+    min-width:34px;
+    height:34px;
+    min-height:34px;
+    border-radius:8px;
+  }
+}
