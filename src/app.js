@@ -6025,7 +6025,12 @@ function watchMediaSlotRect(){
 }
 
 function watchMediaSlotTopEdge(){
-  return Math.max(0,Number(window.visualViewport?.offsetTop)||0);
+  // The header/search/source surface is the only floating chrome.
+  // PiP starts when the inline media has moved behind that surface, not only
+  // after it has disappeared past the physical top of the viewport.
+  const viewportTop=Math.max(0,Number(window.visualViewport?.offsetTop)||0);
+  const headerBottom=Number(document.querySelector(".app-header")?.getBoundingClientRect?.().bottom)||0;
+  return Math.max(viewportTop,headerBottom);
 }
 
 let watchPipFlipTimer=0;
@@ -6282,11 +6287,12 @@ function compactPipBounds(width,height){
   const safe=floatingSafeInsets();
   const viewport=floatingViewportRect();
 
-  // Active media and PiP share ONE safe rectangle:
-  // top = notch/Dynamic Island edge, bottom = Home Indicator edge,
-  // left/right = the device side safe edges when present.
+  // PiP shares the visual viewport but never covers the persistent header.
   const minX=viewport.left+Math.max(0,safe.left);
-  const minY=viewport.top+Math.max(0,safe.top);
+  const minY=Math.max(
+    viewport.top+Math.max(0,safe.top),
+    watchMediaSlotTopEdge()+8
+  );
   const maxX=Math.max(minX,viewport.left+viewport.width-safe.right-width);
   const maxY=Math.max(minY,viewport.top+viewport.height-safe.bottom-height);
 
@@ -8382,19 +8388,17 @@ function mobileBrowserViewport(){
 }
 
 function watchSideMediaLayout(){
-  // Position 2: desktop media lives in the dedicated right-side pane.
-  // Real mobile/touch never enters this desktop placement, even in landscape.
-  return !mobileBrowserViewport() &&
-    window.matchMedia?.("(min-width:960px)")?.matches===true;
+  // Layout is geometry-only: wide viewport = two columns, narrow viewport = one.
+  // Do not branch on iPhone/Safari/touch; the same media element owns both modes.
+  return window.matchMedia?.("(min-width:960px)")?.matches===true;
 }
 
 function watchInlineMediaLayout(){
-  // Position 1: media owns the inline/top slot above the recommendation flow.
   return !watchSideMediaLayout();
 }
 
 function mobileMiniViewport(){
-  return mobileBrowserViewport() || watchInlineMediaLayout();
+  return watchInlineMediaLayout();
 }
 
 function watchAutoPipViewport(){
@@ -8460,6 +8464,9 @@ function syncWatchMediaPlacement(){
   const root=document.documentElement;
 
   root.dataset.watchMediaPlacement=target;
+
+  // Scroll does not resize/reflow anything while placement is unchanged.
+  if(target===current)return false;
 
   if(target===WATCH_MEDIA_PIP){
     if(current!==WATCH_MEDIA_PIP){
@@ -8676,15 +8683,13 @@ function setupWatchMinimizeGesture(){
   if(root.dataset.watchMinimizeGesture==="1")return;
   root.dataset.watchMinimizeGesture="1";
 
-  // Scroll/viewport events only schedule ONE placement solve for the next
-  // animation frame. No perpetual geometry loop competes with resize/layout.
+  // Single-scroll-owner model: the document scroll drives Main <-> PiP.
+  // visualViewport/resize only re-solve geometry when browser chrome changes.
   const wake=()=>queueWatchMediaPlacement();
   window.addEventListener("scroll",wake,{passive:true});
-  document.addEventListener("scroll",wake,{passive:true,capture:true});
-  document.body?.addEventListener("scroll",wake,{passive:true});
-  feedSection?.addEventListener("scroll",wake,{passive:true});
+  window.addEventListener("resize",wake,{passive:true});
   window.visualViewport?.addEventListener?.("scroll",wake,{passive:true});
-  window.addEventListener("wheel",wake,{passive:true});
+  window.visualViewport?.addEventListener?.("resize",wake,{passive:true});
 
   setTimeout(wake,220);
 }
