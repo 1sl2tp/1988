@@ -2195,11 +2195,24 @@ html.one-col .player.pip iframe{border-radius:inherit}
     });
   }
 
+  function naturalSourceChipsWidth(){
+    if(!sourceNameChips)return 0;
+
+    let total=0;
+    const chips=sourceNameChips.querySelectorAll(".source-chip[data-source-tab]");
+    chips.forEach(chip=>{
+      const style=getComputedStyle(chip);
+      total+=chip.getBoundingClientRect().width;
+      total+=parseFloat(style.marginLeft)||0;
+      total+=parseFloat(style.marginRight)||0;
+    });
+    return Math.ceil(total);
+  }
+
   function updateHeaderSearchRoom(){
     if(!top||!sourceChips)return;
 
-    // Auto-expand only beyond the mobile range. The source tabs always win:
-    // search expands only when ALL Live→end chips still fit with breathing room.
+    // Mobile keeps the compact icon; explicit search always owns the row.
     if(mobileHeaderMq.matches||top.classList.contains("search-open")){
       headerRoomy=false;
       top.classList.remove("search-roomy");
@@ -2207,15 +2220,29 @@ html.one-col .player.pip iframe{border-radius:inherit}
       return;
     }
 
-    const headerW=Math.max(0,top.clientWidth||document.documentElement.clientWidth||0);
-    const chipsW=Math.max(0,sourceChips.scrollWidth||0);
+    const headerW=Math.max(
+      0,
+      top.clientWidth||
+      document.documentElement.clientWidth||
+      window.innerWidth||
+      0
+    );
 
-    // 24px = compact outer breathing room around the search/chip boundary.
-    // 280px is the minimum width at which a full search box is more useful
-    // than the compact icon.
-    const surplus=headerW-chipsW-24;
-    const roomy=surplus>=280;
-    const searchW=roomy?Math.min(520,Math.max(280,Math.floor(surplus))):0;
+    // IMPORTANT: do not use sourceChips.scrollWidth here.
+    // The flex/block rail expands to its parent, so scrollWidth can look almost
+    // as wide as the whole header even when the actual chips occupy much less.
+    const chipsW=naturalSourceChipsWidth();
+
+    // Reserve compact outer spacing + a little breathing room after the last chip.
+    const chromeReserve=24;
+    const surplus=Math.max(0,headerW-chipsW-chromeReserve);
+
+    // Full search is useful from 280px upward; let it grow with the real spare
+    // space but cap it near YouTube's desktop search width.
+    const roomy=chipsW>0&&surplus>=280;
+    const searchW=roomy
+      ?Math.min(640,Math.max(280,Math.floor(surplus)))
+      :0;
 
     headerRoomy=roomy;
     top.classList.toggle("search-roomy",roomy);
@@ -2629,6 +2656,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   syncMobileHeaderVisibility(true);
   loadExistingSourceNames();
   requestAnimationFrame(()=>{
+    updateHeaderSearchRoom();
+    updateSourceRailArrows();
+  });
+  document.fonts?.ready?.then?.(()=>{
     updateHeaderSearchRoom();
     updateSourceRailArrows();
   });
