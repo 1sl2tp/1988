@@ -7337,3 +7337,200 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     border-top:0!important;
   }
 }
+
+
+/* ============================================================
+   ONE-COLUMN MINIMAL PLAYER CONTROLS v471
+   MAIN (<960px): built-in player chrome stays hidden. A tap reveals only
+   -10 / Play-Pause / +10 / Mute / Lock / Full. Lock leaves only Unlock.
+   PiP keeps its existing 3-button overlay and never carries MAIN controls.
+   ============================================================ */
+@media(max-width:959px){
+  html.watch-browse:not(.watch-minimized) .player-frame.watch-main-minimal #yt-player,
+  html.watch-browse:not(.watch-minimized) .player-frame.watch-main-minimal iframe,
+  html.watch-browse:not(.watch-minimized) .player-frame.watch-main-minimal #nativePlayer{
+    pointer-events:none!important;
+  }
+
+  .watch-main-tap-surface{
+    display:none;
+  }
+
+  html.watch-browse:not(.watch-minimized)
+  .player-frame.watch-main-minimal .watch-main-tap-surface{
+    display:block;
+    position:absolute;
+    z-index:60;
+    inset:0;
+    background:transparent;
+    touch-action:pan-y pinch-zoom;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+
+  .watch-main-controls{
+    position:absolute;
+    z-index:70;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    opacity:0;
+    visibility:hidden;
+    pointer-events:none;
+    background:linear-gradient(
+      180deg,
+      rgba(0,0,0,.10) 0%,
+      rgba(0,0,0,.03) 32%,
+      rgba(0,0,0,.03) 68%,
+      rgba(0,0,0,.16) 100%
+    );
+    transition:opacity .14s ease,visibility .14s ease;
+  }
+
+  .watch-main-controls[hidden]{
+    display:none!important;
+  }
+
+  html.watch-browse:not(.watch-minimized)
+  .player-frame.watch-main-minimal.watch-main-controls-open .watch-main-controls{
+    opacity:1;
+    visibility:visible;
+    pointer-events:auto;
+  }
+
+  .watch-main-center{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:22px;
+  }
+
+  .watch-main-side{
+    position:absolute;
+    z-index:2;
+    right:9px;
+    bottom:9px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .watch-main-controls button,
+  .watch-main-unlock{
+    display:grid;
+    place-items:center;
+    width:34px;
+    min-width:34px;
+    height:34px;
+    padding:0;
+    border:1px solid rgba(255,255,255,.16);
+    border-radius:999px;
+    background:rgba(13,13,15,.62);
+    color:#fff;
+    box-shadow:0 2px 8px rgba(0,0,0,.22);
+    backdrop-filter:blur(7px);
+    -webkit-backdrop-filter:blur(7px);
+  }
+
+  .watch-main-controls .watch-main-play{
+    width:44px;
+    min-width:44px;
+    height:44px;
+    background:rgba(13,13,15,.70);
+  }
+
+  .watch-main-control-svg{
+    display:block;
+    width:18px;
+    height:18px;
+    fill:none;
+    stroke:currentColor;
+    stroke-width:1.9;
+    stroke-linecap:round;
+    stroke-linejoin:round;
+    pointer-events:none;
+  }
+
+  .watch-main-play .watch-main-control-svg{
+    width:21px;
+    height:21px;
+  }
+
+  .watch-main-unlock{
+    display:none;
+    position:absolute;
+    z-index:85;
+    top:8px;
+    right:8px;
+    width:30px;
+    min-width:30px;
+    height:30px;
+    opacity:.68;
+  }
+
+  html.watch-browse:not(.watch-minimized)
+  .player-frame.watch-main-minimal.watch-main-locked .watch-main-unlock:not([hidden]){
+    display:grid!important;
+  }
+
+  html.watch-browse:not(.watch-minimized)
+  .player-frame.watch-main-minimal.watch-main-locked .watch-main-controls{
+    display:none!important;
+  }
+
+  /* MAIN control DOM must never leak into floating PiP. */
+  html.watch-minimized .watch-main-tap-surface,
+  html.watch-minimized .watch-main-controls,
+  html.watch-minimized .watch-main-unlock{
+    display:none!important;
+    pointer-events:none!important;
+  }
+
+  /* Old iOS fallback: app-owned fullscreen when Fullscreen API is unavailable. */
+  html.watch-main-fullscreen,
+  html.watch-main-fullscreen body{
+    overflow:hidden!important;
+    overscroll-behavior:none!important;
+  }
+
+  html.watch-main-fullscreen
+  .player-frame.watch-main-minimal.watch-main-pseudo-fullscreen{
+    position:fixed!important;
+    z-index:20000!important;
+    inset:0!important;
+    left:0!important;
+    top:0!important;
+    right:0!important;
+    bottom:0!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    height:100vh!important;
+    min-height:100vh!important;
+    max-height:100vh!important;
+    margin:0!important;
+    border-radius:0!important;
+    background:#000!important;
+  }
+
+  @supports(height:100dvh){
+    html.watch-main-fullscreen
+    .player-frame.watch-main-minimal.watch-main-pseudo-fullscreen{
+      height:100dvh!important;
+      min-height:100dvh!important;
+      max-height:100dvh!important;
+    }
+  }
+
+  html.watch-main-fullscreen
+  .player-frame.watch-main-minimal.watch-main-pseudo-fullscreen iframe,
+  html.watch-main-fullscreen
+  .player-frame.watch-main-minimal.watch-main-pseudo-fullscreen #yt-player,
+  html.watch-main-fullscreen
+  .player-frame.watch-main-minimal.watch-main-pseudo-fullscreen #nativePlayer{
+    width:100%!important;
+    height:100%!important;
+    object-fit:contain!important;
+  }
+}
