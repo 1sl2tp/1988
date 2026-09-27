@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-main-watch-browse-v490-surface2';
+const CACHE='1988-simple-media-v1';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
@@ -45,23 +45,14 @@ async function cacheAvatarUrls(urls=[]){
 const SHELL=[
   './',
   './index.html',
+  './pip-simple-proof.html',
   './manifest.webmanifest',
-  './silent.wav',
-  './src/style.css?v=watch-browse-490-surface2',
-  './src/app.js?v=watch-browse-490-surface2',
-  './src/media-core.js?v=2',
-  './src/html5-background.js?v=9',
-  './src/channel-library.js?v=sources-88',
-  './src/media-meta.js?v=5',
-  './src/yt-local.js?v=search-fast-287',
-  './sources/',
-  './sources/index.html',
-  './sources/sources.css?v=17',
-  './sources/sources.js?v=19',
+  './src/api.js',
+  './src/media-meta.js',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png'
-];
+]
 
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
