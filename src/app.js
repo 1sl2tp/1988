@@ -12068,9 +12068,47 @@ function selectedTopicProxySelector(button){
   return "";
 }
 
+function revealSelectedTopicChip(button,{behavior="auto"}={}){
+  if(!button||!selectedTopicChips)return;
+
+  const rail=selectedTopicChips;
+  const maxScroll=Math.max(0,rail.scrollWidth-rail.clientWidth);
+  if(maxScroll<=1)return;
+
+  const railRect=rail.getBoundingClientRect();
+  const buttonRect=button.getBoundingClientRect();
+  const divider=rail.querySelector(".topic-divider");
+  const fixedWeek=rail.querySelector('[data-feed="week"]');
+  const pinnedRect=(divider||fixedWeek)?.getBoundingClientRect?.();
+  const pinnedRight=Math.max(
+    railRect.left,
+    Math.min(railRect.right-24,Number(pinnedRect?.right)||railRect.left)
+  );
+  const lookAhead=Math.max(30,Math.min(56,rail.clientWidth*.16));
+  const safeLeft=pinnedRight+lookAhead;
+  const safeRight=railRect.right-lookAhead;
+
+  let delta=0;
+  if(buttonRect.left<safeLeft&&rail.scrollLeft>0){
+    delta=buttonRect.left-safeLeft;
+  }else if(buttonRect.right>safeRight&&rail.scrollLeft<maxScroll){
+    delta=buttonRect.right-safeRight;
+  }else if(buttonRect.left<railRect.left+8){
+    delta=buttonRect.left-(railRect.left+8);
+  }else if(buttonRect.right>railRect.right-8){
+    delta=buttonRect.right-(railRect.right-8);
+  }
+
+  if(Math.abs(delta)<1)return;
+
+  const left=Math.max(0,Math.min(maxScroll,rail.scrollLeft+delta));
+  rail.scrollTo({left,behavior});
+}
+
 function syncSelectedTopicRail(){
   if(!selectedTopicChips||!topicChips)return;
 
+  const previousScroll=Math.max(0,selectedTopicChips.scrollLeft||0);
   const fragment=document.createDocumentFragment();
   for(const node of topicChips.childNodes){
     const clone=node.cloneNode(true);
@@ -12086,11 +12124,21 @@ function syncSelectedTopicRail(){
   // not a second navigation state. Active/disabled/title state always comes
   // from #topicChips.
   if(selectedTopicRail)selectedTopicRail.hidden=!selectedTopicChips.children.length;
+
+  // replaceChildren() resets horizontal position. Restore the browsing position,
+  // then reveal the active hashtag against the real boundary after the fixed
+  // LIVE / Ngày / Tuần cluster.
+  selectedTopicChips.scrollLeft=previousScroll;
+  requestAnimationFrame(()=>{
+    const active=selectedTopicChips.querySelector(".topic-chip.active");
+    if(active)revealSelectedTopicChip(active,{behavior:"smooth"});
+  });
 }
 
 selectedTopicChips?.addEventListener("click",event=>{
   const button=event.target.closest?.("[data-feed],[data-parent-category],[data-hashtag-add]");
   if(!button||!topicChips)return;
+  revealSelectedTopicChip(button,{behavior:"smooth"});
   const selector=selectedTopicProxySelector(button);
   if(!selector)return;
   const original=topicChips.querySelector(selector);
