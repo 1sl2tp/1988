@@ -234,8 +234,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .rows{
   padding:10px;
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--card-min-w,300px)),1fr));
   gap:12px;
+}
+
+/* 1-column PAGE can still show 2 CARDS per row.
+   "1 column" only means media above + feed below. */
+html.one-col .rows{
+  grid-template-columns:repeat(2,minmax(0,1fr));
+}
+
+/* Extremely narrow screens fall back to one card. */
+@media(max-width:339px){
+  html.one-col .rows{
+    grid-template-columns:1fr;
+  }
 }
 .row{
   margin:0;
@@ -264,7 +276,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .row-title{
   color:#fff;
-  font-size:14px;
+  font-size:clamp(12px,2.7vw,14px);
   font-weight:600;
   line-height:1.35;
   display:-webkit-box;
@@ -275,7 +287,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .row-meta{
   margin-top:6px;
   color:#888;
-  font-size:12px;
+  font-size:clamp(10px,2.3vw,12px);
   line-height:1.35
 }
 .state{
