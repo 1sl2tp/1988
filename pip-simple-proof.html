@@ -969,7 +969,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let ytPlayerReady=false;
   let pendingVideoId="";
   let youtubeApiPromise=null;
-  let mediaSwitchSeq=0;
 
   // Same media-aspect flow as src/app.js:
   // pre-prime by video id, then let YouTube videoContentRect confirm/correct.
@@ -998,6 +997,23 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const row=mediaAspectCache.get(String(id||"").trim());
     if(verifiedOnly&&row?.verified!==true)return 0;
     return validMediaAspect(row?.value);
+  }
+
+  function mediaAspectFromMeta(meta={}){
+    if(!meta||typeof meta!=="object")return 0;
+    if(meta.isShort===true)return 9/16;
+
+    const direct=validMediaAspect(
+      Number(meta.aspectRatio)||
+      Number(meta.videoAspectRatio)||
+      Number(meta.contentAspectRatio)||
+      0
+    );
+    if(direct)return direct;
+
+    const w=Number(meta.videoWidth||meta.width)||0;
+    const h=Number(meta.videoHeight||meta.height)||0;
+    return w>0&&h>0?validMediaAspect(w/h):0;
   }
 
   function rememberMediaAspect(id,ratio,source="",verified=false){
@@ -1077,19 +1093,29 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return task;
   }
 
-  function primeMediaAspects(metas=[],limit=12){
+  function primeMediaAspects(metas=[],limit=18){
     const list=(Array.isArray(metas)?metas:[])
       .filter(meta=>meta?.id)
       .slice(0,Math.max(0,limit));
 
+    // First pass is synchronous: use real dimensions already carried by media data.
+    for(const meta of list){
+      const ratio=mediaAspectFromMeta(meta);
+      if(ratio){
+        aspectPrimeCache.set(String(meta.id),{value:ratio,at:Date.now()});
+      }
+    }
+
+    // Second pass warms only media that still has no known aspect.
     const run=()=>{
       for(const meta of list){
+        if(cachedPrimedAspect(meta.id))continue;
         void primeMediaAspect(meta.id);
       }
     };
 
     if("requestIdleCallback" in window){
-      requestIdleCallback(run,{timeout:500});
+      requestIdleCallback(run,{timeout:250});
     }else{
       setTimeout(run,0);
     }
@@ -1430,31 +1456,30 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return ytPlayer;
   }
 
-  async function playVideoId(id,meta=null){
+  function playVideoId(id,meta=null){
     id=String(id||"").trim();
     if(!id)return false;
-
-    const switchSeq=++mediaSwitchSeq;
 
     const confirmedRatio=
       mediaAspectCache.get(id)?.source==="iframe-content-rect"
         ?cachedMediaAspect(id,{verifiedOnly:true})
         :0;
+    const metaRatio=mediaAspectFromMeta(meta||{});
+    const primedRatio=cachedPrimedAspect(id);
 
-    let resolvedAspect=confirmedRatio||cachedPrimedAspect(id);
+    // Never delay the click. The list should already have primed this media.
+    // If data is still missing, preserve the current shell instead of forcing
+    // a new temporary 16:9 state.
+    const fallbackRatio=
+      validMediaAspect(current?.detectedRatio)||
+      (current?.kind==="portrait"?9/16:16/9);
 
-    // If this exact media has never been measured, wait for the STANDARD
-    // videoAspect(id) prime BEFORE changing current.id/current.kind.
-    // The old MAIN/PiP/2-col media remains visible during this short wait.
-    if(!resolvedAspect){
-      resolvedAspect=validMediaAspect(await primeMediaAspect(id));
-    }
+    const resolvedAspect=
+      confirmedRatio||
+      metaRatio||
+      primedRatio||
+      fallbackRatio;
 
-    if(switchSeq!==mediaSwitchSeq)return false;
-
-    // videoAspect is the standard pre-play signal. 16:9 is only a true
-    // failure fallback, never a temporary shell painted for the new media.
-    resolvedAspect=resolvedAspect||16/9;
     const kind=mediaLayoutKindFromRatio(resolvedAspect);
 
     if(meta?.id===id){
@@ -1464,8 +1489,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       currentMeta=null;
     }
 
-    // Atomic ownership hand-off:
-    // media -> kind first; presentation (MAIN/PiP/2-col) consumes that kind.
+    // media -> kind; MAIN / PiP / 2-column only consume it.
     current={
       id,
       kind,
@@ -1475,20 +1499,26 @@ html.one-col .player.pip iframe{border-radius:inherit}
     };
     applyMediaLayoutSelection(kind,{relayout:true});
 
+    // PLAY IMMEDIATELY. No await, no cue, no pre-click wait.
     pendingVideoId=id;
-    const playerApi=await ensureYoutubePlayer();
-    if(
-      switchSeq!==mediaSwitchSeq||
-      !playerApi||
-      String(current?.id||"")!==id
-    )return false;
+    void ensureYoutubePlayer().then(playerApi=>{
+      if(!playerApi||String(current?.id||"")!==id)return;
+      if(!ytPlayerReady)return;
 
-    if(ytPlayerReady){
       pendingVideoId="";
       try{
         playerApi.loadVideoById(id);
         playerApi.playVideo?.();
       }catch{}
+    });
+
+    // Only fill a missing cache in parallel. Never block the click.
+    if(!confirmedRatio&&!metaRatio&&!primedRatio){
+      void primeMediaAspect(id).then(ratio=>{
+        if(!ratio||String(current?.id||"")!==id)return;
+        if(mediaAspectCache.get(id)?.source==="iframe-content-rect")return;
+        commitCurrentAspect(id,ratio,{relayout:true});
+      });
     }
 
     return true;
@@ -1791,7 +1821,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       seen.add(meta.id);
       out.push(meta);
     }
-    primeMediaAspects(out,12);
+    primeMediaAspects(out,18);
     return out;
   }
 
@@ -1862,9 +1892,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     renderSampleContent();
 
     if(!String(current?.id||"")&&metas[0]?.id){
-      void playVideoId(metas[0].id,metas[0]).then(opened=>{
-        if(opened)loadCurrentVideoMeta();
-      });
+      if(playVideoId(metas[0].id,metas[0]))loadCurrentVideoMeta();
     }
   }
 
@@ -2188,7 +2216,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     feedMode="search";
     feedMetas=next;
-    primeMediaAspects(next,12);
+    primeMediaAspects(next,18);
     renderSampleContent();
     rememberRecentSearch(query,next);
     return true;
@@ -2509,11 +2537,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(meta=>meta?.id===id)||
       null;
 
-    void playVideoId(id,selectedMeta).then(opened=>{
-      if(!opened)return;
+    if(playVideoId(id,selectedMeta)){
       loadCurrentVideoMeta();
       schedulePip();
-    });
+    }
   });
   addEventListener("scroll",()=>{
     syncHeaderScrollState();
