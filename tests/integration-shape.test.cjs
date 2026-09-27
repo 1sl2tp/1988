@@ -462,3 +462,15 @@ assert.doesNotMatch(app,/float-media-play/);
 assert.doesNotMatch(app,/float-media-mute/);
 assert.match(app,/frame\.append\(zone,overlay,progress\)/);
 assert.match(style,/\.float-media-progress[\s\S]{0,500}bottom:0!important/);
+
+assert.match(app,/function youtubeCinematicPalette\(/);
+assert.match(app,/const YOUTUBE_CINEMATIC_OPACITY=\.4/);
+assert.match(app,/const YOUTUBE_CINEMATIC_BASE=\[15,15,15\]/);
+assert.match(app,/function paintCardCinematicColor\(/);
+assert.match(app,/--card-cinematic-surface/);
+assert.match(app,/--card-cinematic-accent/);
+assert.match(app,/youtubeCinematicPalette\(raw\)/);
+assert.match(style,/YOUTUBE CINEMATIC COLOR v483/);
+assert.match(style,/\.card-copy[\s\S]{0,220}--card-cinematic-surface/);
+assert.match(style,/height:3px!important/);
+assert.match(style,/--video-progress-accent/);
