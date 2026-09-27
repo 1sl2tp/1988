@@ -5844,6 +5844,9 @@ function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
     (id?"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg":"")
   );
 
+  frame.style.removeProperty("--video-progress-accent");
+  unifiedMediaBar()?.style.removeProperty("--video-progress-accent");
+
   if(!/^https?:\/\//i.test(raw)){
     frame.style.removeProperty("--pip-art");
     return;
@@ -5854,6 +5857,16 @@ function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
     .replace(/"/g,"%22")
     .replace(/\n|\r/g,"");
   frame.style.setProperty("--pip-art",'url("'+safe+'")');
+
+  const guardId=id;
+  void averageThumbTint(raw).then(color=>{
+    if(!color||!frame.isConnected)return;
+    if(guardId&&String(state.currentId||"")!==guardId)return;
+    const vars=accentVarsFromColor(color);
+    const accent=vars?.solid||color;
+    frame.style.setProperty("--video-progress-accent",accent);
+    unifiedMediaBar()?.style.setProperty("--video-progress-accent",accent);
+  });
 }
 
 function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
@@ -6363,14 +6376,12 @@ function stopFloatMediaProgress(){
 }
 
 function startFloatMediaProgress(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||floatMediaProgressRaf||!pipMediaControlsEnabled())return;
+  if(!frame||floatMediaProgressRaf)return;
   const tick=()=>{
     floatMediaProgressRaf=0;
     if(
       !frame.isConnected ||
-      !frame.classList.contains("floating-iframe") ||
-      !frame.classList.contains("float-controls-open") ||
-      !pipMediaControlsEnabled()
+      !frame.classList.contains("floating-iframe")
     )return;
     if(!watchMediaDragging)syncFloatMediaProgress(frame);
     floatMediaProgressRaf=requestAnimationFrame(tick);
@@ -6381,43 +6392,7 @@ function startFloatMediaProgress(frame=playerSection?.querySelector(".player-fra
 
 function syncFloatMediaControls(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
-  const controls=frame.querySelector(".float-media-controls");
-  if(!controls)return;
-
-  const enabled=pipMediaControlsEnabled();
-  controls.hidden=!enabled;
-  frame.classList.toggle("float-media-enabled",enabled);
-
-  const play=controls.querySelector('[data-float-overlay="play"]');
-  if(play){
-    const active=floatPlaybackActive();
-    play.innerHTML=floatOverlaySvg(active?"pause":"play");
-    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
-  }
-
-  const mute=controls.querySelector('[data-float-overlay="mute"]');
-  if(mute){
-    const muted=floatMediaMuted();
-    mute.innerHTML=unifiedMediaSvg(muted?"mute":"volume");
-    mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
-  }
-
-  if(enabled)syncFloatMediaProgress(frame);
-  else stopFloatMediaProgress();
-}
-
-function toggleFloatMute(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!pipMediaControlsEnabled())return;
-  if(state.engine==="native"){
-    nativePlayer.muted=!nativePlayer.muted;
-  }else{
-    try{
-      if(state.player?.isMuted?.())state.player.unMute?.();
-      else state.player?.mute?.();
-    }catch{}
-  }
-  syncFloatMediaControls(frame);
-  showFloatOverlayControls(frame,2600);
+  syncFloatMediaProgress(frame);
 }
 
 function bindFloatMediaSeek(frame,bar){
@@ -6473,14 +6448,6 @@ function bindFloatMediaSeek(frame,bar){
 
 function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
-  const play=frame.querySelector('[data-float-overlay="play"]');
-  if(play){
-    const active=floatPlaybackActive();
-    play.innerHTML=floatOverlaySvg(active?"pause":"play");
-    play.dataset.state=active?"pause":"play";
-    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
-  }
-
   const scale=frame.querySelector('[data-float-overlay="scale"]');
   if(scale){
     const value=floatScaleValue();
@@ -6513,7 +6480,6 @@ function hideFloatOverlayControls(
   clearTimeout(floatOverlayTimer);
   floatOverlayTimer=0;
   frame.classList.remove("float-controls-open");
-  stopFloatMediaProgress();
   frame.classList.toggle("float-controls-suppressed",!!suppressHover);
   if(suppressHover){
     let released=false;
@@ -6540,10 +6506,8 @@ function showFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
   frame.classList.remove("float-controls-suppressed");
   syncFloatOverlayControls(frame);
   frame.classList.add("float-controls-open");
-  if(pipMediaControlsEnabled())startFloatMediaProgress(frame);
   floatOverlayTimer=setTimeout(()=>{
     frame.classList.remove("float-controls-open");
-    stopFloatMediaProgress();
   },delay);
 }
 
@@ -6794,49 +6758,26 @@ function createFloatingSwipeZone(frame){
 
 function ensureFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(!frame||frame.dataset.floatControlsReady==="2")return;
+  if(!frame||frame.dataset.floatControlsReady==="3")return;
 
-  // Remove the old invisible move/resize hit zones. They could overlap the
-  // YouTube seek bar on Safari and made the player harder to control.
-  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay,.watch-swipe-zone,.watch-pip-trigger").forEach(node=>node.remove());
-  frame.dataset.floatControlsReady="2";
+  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay,.float-media-progress,.watch-swipe-zone,.watch-pip-trigger").forEach(node=>node.remove());
+  frame.dataset.floatControlsReady="3";
 
   const overlay=document.createElement("div");
   overlay.className="float-player-overlay";
   overlay.innerHTML=
     '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng">'+floatOverlaySvg("close")+'</button>'+
-    '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">'+floatOverlaySvg("expand")+'</button>'+
-    '<div class="float-media-controls" hidden>'+
-      '<button type="button" class="float-media-btn float-media-play" data-float-overlay="play" aria-label="Tạm dừng">'+floatOverlaySvg("pause")+'</button>'+
-      '<div class="float-media-progress" role="slider" aria-label="Thanh tua PiP">'+
-        '<div class="float-media-progress-track"></div>'+
-        '<div class="float-media-progress-fill"></div>'+
-        '<div class="float-media-progress-thumb"></div>'+
-      '</div>'+
-      '<button type="button" class="float-media-btn float-media-mute" data-float-overlay="mute" aria-label="Tắt âm">'+unifiedMediaSvg("volume")+'</button>'+
-    '</div>';
+    '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">'+floatOverlaySvg("expand")+'</button>';
 
   overlay.addEventListener("pointerdown",event=>{
-    if(event.target.closest("button,.float-media-controls"))return;
+    if(event.target.closest("button"))return;
     if(event.pointerType==="touch"&&("ontouchstart" in window))return;
     startFloatMove(event,frame);
   },{passive:false});
   overlay.addEventListener("touchstart",event=>{
-    if(event.target.closest("button,.float-media-controls"))return;
+    if(event.target.closest("button"))return;
     startFloatMove(event,frame);
   },{passive:false});
-
-  overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    toggleFloatPlayback(frame);
-  });
-  overlay.querySelector('[data-float-overlay="mute"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    toggleFloatMute(frame);
-  });
-  bindFloatMediaSeek(frame,overlay.querySelector(".float-media-progress"));
 
   overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -6847,14 +6788,25 @@ function ensureFloatHandles(){
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget?.blur?.();
-    if(watchAutoPipViewport()) toggleCompactPipSize(frame);
+    if(watchAutoPipViewport())toggleCompactPipSize(frame);
     else cycleFloatScale(frame);
   });
 
+  const progress=document.createElement("div");
+  progress.className="float-media-progress";
+  progress.setAttribute("role","slider");
+  progress.setAttribute("aria-label","Thanh tua PiP");
+  progress.innerHTML=
+    '<div class="float-media-progress-track"></div>'+
+    '<div class="float-media-progress-fill"></div>';
+
+  bindFloatMediaSeek(frame,progress);
+
   const zone=createFloatingSwipeZone(frame);
-  frame.append(zone,overlay);
+  frame.append(zone,overlay,progress);
   updateFloatControlState(frame);
   syncFloatOverlayControls(frame);
+  startFloatMediaProgress(frame);
 }
 
 function normalizedVideoAspect(meta=state.currentMeta||{}){
@@ -7079,10 +7031,6 @@ function pipSizeKey(value=state.floatScale){
   return "small";
 }
 
-function pipMediaControlsEnabled(){
-  return pipSizeKey()!=="small";
-}
-
 function nextPipScale(value=state.floatScale){
   const key=pipSizeKey(value);
   const index=PIP_SIZE_KEYS.indexOf(key);
@@ -7110,8 +7058,7 @@ function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame"
     frame.querySelectorAll(".float-player-overlay button").forEach(button=>button.blur?.());
   }catch{}
 
-  if(pipMediaControlsEnabled())showFloatOverlayControls(frame,3000);
-  else hideFloatOverlayControls(frame);
+  showFloatOverlayControls(frame,2200);
 }
 
 function currentFloatingAspect(){
@@ -12592,11 +12539,9 @@ function syncUnifiedMediaProgress(
   const fill=bar.querySelector(".watch-media-progress-fill");
   const buffered=bar.querySelector(".watch-media-progress-buffered");
   const thumb=bar.querySelector(".watch-media-progress-thumb");
-  const time=bar.querySelector(".watch-media-time");
   if(fill)fill.style.width=(ratio*100)+"%";
   if(buffered)buffered.style.width=(unifiedMediaBufferedFraction(duration)*100)+"%";
   if(thumb)thumb.style.left=(ratio*100)+"%";
-  if(time)time.textContent=formatUnifiedMediaTime(current)+" / "+formatUnifiedMediaTime(duration);
 }
 
 function stopUnifiedMediaProgress(){
@@ -12645,27 +12590,7 @@ function pulseUnifiedMediaControl(){
 
 function syncUnifiedMediaState(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
-  const bar=unifiedMediaBar();
-  if(!bar)return;
-
-  const active=mainPlaybackActive();
-  const muted=mainPlayerMuted();
-  const play=bar.querySelector('[data-watch-media="play"]');
-  const mute=bar.querySelector('[data-watch-media="mute"]');
-  const full=bar.querySelector('[data-watch-media="fullscreen"]');
-  if(play){
-    play.innerHTML=unifiedMediaSvg(active?"pause":"play");
-    play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
-  }
-  if(mute){
-    mute.innerHTML=unifiedMediaSvg(muted?"mute":"volume");
-    mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
-  }
-  if(full){
-    const expanded=!!(document.fullscreenElement||document.webkitFullscreenElement);
-    full.innerHTML=unifiedMediaSvg(expanded?"compress":"fullscreen");
-    full.setAttribute("aria-label",expanded?"Thoát toàn màn hình":"Toàn màn hình");
-  }
+  if(!unifiedMediaBar())return;
   syncUnifiedMediaProgress(frame);
 }
 
@@ -12848,29 +12773,7 @@ function ensureUnifiedMediaChrome(){
     return;
   }
   bar.dataset.unifiedChromeReady="1";
-
-  bar.querySelector('[data-watch-media="play"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    toggleUnifiedMediaPlayback(frame);
-  });
-  bar.querySelector('[data-watch-media="mute"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    toggleUnifiedMediaMute(frame);
-  });
-  bar.querySelector('[data-watch-media="fullscreen"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    void toggleUnifiedMediaFullscreen(frame);
-  });
-
-  const seek=bar.querySelector(".watch-media-progress");
-  bindUnifiedMediaSeek(frame,seek);
-
-  if(!bar.dataset.fullscreenReady){
-    bar.dataset.fullscreenReady="1";
-    document.addEventListener("fullscreenchange",()=>syncUnifiedMediaState(frame));
-    document.addEventListener("webkitfullscreenchange",()=>syncUnifiedMediaState(frame));
-  }
-
+  bindUnifiedMediaSeek(frame,bar.querySelector(".watch-media-progress"));
   syncUnifiedMediaState(frame);
   if(currentPlayerUiMode()==="main")startUnifiedMediaProgress(frame);
 }
