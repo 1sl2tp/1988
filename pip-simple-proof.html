@@ -152,7 +152,13 @@
   }
 
   function syncPip(){
-    const shouldPip = stage.getBoundingClientRect().top <= top.getBoundingClientRect().bottom;
+    const stageTop = stage.getBoundingClientRect().top;
+    const headerBottom = top.getBoundingClientRect().bottom;
+
+    // Initial/open state is always MAIN.
+    // PiP starts only after the media has actually moved behind the header.
+    const shouldPip = window.scrollY > 0 && stageTop < headerBottom - 2;
+
     if(shouldPip === pip) return;
     pip = shouldPip;
     player.classList.toggle("pip", pip);
