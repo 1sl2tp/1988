@@ -472,7 +472,7 @@ assert.match(app,/--card-cinematic-accent/);
 assert.match(app,/youtubeCinematicPalette\(raw\)/);
 assert.match(style,/YOUTUBE CINEMATIC COLOR v483/);
 assert.match(style,/\.card-copy[\s\S]{0,220}--card-cinematic-surface/);
-assert.match(style,/height:3px!important/);
+assert.match(style,/height:4px!important/);
 assert.match(style,/--video-progress-accent/);
 
 assert.match(app,/function pipFullViewportRect\(/);
