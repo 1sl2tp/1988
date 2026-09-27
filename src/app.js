@@ -7432,6 +7432,34 @@ function syncMobileInlinePlayerViewport(){
     iframe.removeAttribute("height");
   }
 }
+function youtubeFloatingRenderBox(frame){
+  const rect=frame?.getBoundingClientRect?.();
+  const visualWidth=Math.max(1,Number(rect?.width)||Number(frame?.clientWidth)||1);
+  const visualHeight=Math.max(1,Number(rect?.height)||Number(frame?.clientHeight)||1);
+
+  // YouTube requires an embedded-player viewport of at least 200 x 200 CSS px.
+  // A small 16:9 PiP can be visually ~230 x 130, so keep the iframe's internal
+  // layout viewport large enough and scale only its final surface down.
+  // This avoids asking YouTube to render into an unsupported tiny viewport,
+  // which can trigger lower-quality adaptive playback and ugly dark-scene
+  // macroblocking/haloing.
+  const minEmbedSide=200;
+  const layoutScale=Math.max(
+    1,
+    minEmbedSide/visualWidth,
+    minEmbedSide/visualHeight
+  );
+
+  return {
+    visualWidth,
+    visualHeight,
+    layoutScale,
+    layoutWidth:visualWidth*layoutScale,
+    layoutHeight:visualHeight*layoutScale,
+    surfaceScale:1/layoutScale
+  };
+}
+
 function syncFloatingPlayerViewport(
   frame=playerSection?.querySelector(".player-frame"),
   {settle=false}={}
@@ -7447,37 +7475,58 @@ function syncFloatingPlayerViewport(
     const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
       node&&list.indexOf(node)===index
     );
+    const renderBox=youtubeFloatingRenderBox(frame);
 
-    // Wrapper owns the geometry. Media never grows past it and never uses
-    // pixel compensation. This mirrors the robust Plyr pattern: one aspect
-    // ratio on the wrapper, media at 100% x 100%.
+    // Wrapper owns the visible geometry. Native video fills it directly.
+    // The YouTube iframe keeps a >=200x200 internal layout viewport and is
+    // composited down only when the visible PiP is smaller than that.
     frame.style.setProperty("aspect-ratio",String(ratio),"important");
     frame.style.setProperty("overflow","hidden","important");
+    frame.style.setProperty("background","#000","important");
 
     for(const node of nodes){
+      const isYoutubeIframe=node===iframe;
       node.style.setProperty("position","absolute","important");
       node.style.setProperty("top","0","important");
-      node.style.setProperty("right","0","important");
-      node.style.setProperty("bottom","0","important");
+      node.style.setProperty("right","auto","important");
+      node.style.setProperty("bottom","auto","important");
       node.style.setProperty("left","0","important");
-      node.style.setProperty("width","100%","important");
-      node.style.setProperty("height","100%","important");
+      node.style.setProperty(
+        "width",
+        isYoutubeIframe?renderBox.layoutWidth+"px":"100%",
+        "important"
+      );
+      node.style.setProperty(
+        "height",
+        isYoutubeIframe?renderBox.layoutHeight+"px":"100%",
+        "important"
+      );
       node.style.setProperty("max-width","none","important");
       node.style.setProperty("max-height","none","important");
       node.style.setProperty("margin","0","important");
       node.style.setProperty("padding","0","important");
       node.style.setProperty("border","0","important");
-      node.style.setProperty("background","transparent","important");
-      node.style.setProperty("transform","none","important");
-      node.style.setProperty("transform-origin","center center","important");
+      node.style.setProperty("background","#000","important");
+      node.style.setProperty(
+        "transform",
+        isYoutubeIframe&&renderBox.layoutScale>1
+          ?"scale("+renderBox.surfaceScale+")"
+          :"none",
+        "important"
+      );
+      node.style.setProperty(
+        "transform-origin",
+        isYoutubeIframe?"0 0":"center center",
+        "important"
+      );
       if(node===nativePlayer){
         node.style.setProperty("object-fit","contain","important");
       }
     }
 
     if(iframe){
-      iframe.removeAttribute("width");
-      iframe.removeAttribute("height");
+      iframe.setAttribute("width",String(Math.ceil(renderBox.layoutWidth)));
+      iframe.setAttribute("height",String(Math.ceil(renderBox.layoutHeight)));
     }
   };
 
@@ -14369,6 +14418,14 @@ function initYouTubePlayer(){
       },
       onApiChange(){
         forceCaptionsOff();
+      },
+      onPlaybackQualityChange(event){
+        const quality=String(event?.data||"").trim();
+        const frame=playerSection?.querySelector(".player-frame");
+        if(frame){
+          if(quality)frame.dataset.youtubeQuality=quality;
+          else delete frame.dataset.youtubeQuality;
+        }
       },
       onError(event){
         const errorCode=Number(event?.data)||0;
