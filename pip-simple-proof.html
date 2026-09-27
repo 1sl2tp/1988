@@ -30,16 +30,138 @@ html.one-col body{
 }
 html.one-col body{min-height:220vh}
 .top{
-  position:sticky;top:0;z-index:50;height:56px;
-  display:flex;align-items:center;gap:8px;padding:0 10px;
-  background:#0f0f0f;border-bottom:1px solid #262626
+  position:sticky;
+  top:0;
+  z-index:50;
+  background:#0f0f0f;
+  border-bottom:1px solid #262626;
 }
-.top strong{margin-right:auto;font-size:14px}
-button{
-  height:34px;padding:0 12px;border:1px solid #343434;border-radius:9px;
-  background:#202020;color:#fff;font:inherit
+.masthead{
+  height:56px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  padding:0 16px;
 }
-button.active{background:#fff;color:#111;border-color:#fff}
+.brand{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  color:#fff;
+  text-decoration:none;
+  user-select:none;
+}
+.brand-mark{
+  width:30px;
+  height:20px;
+  border-radius:6px;
+  display:grid;
+  place-items:center;
+  background:#ff0033;
+}
+.brand-mark svg{width:13px;height:13px;display:block;fill:#fff}
+.brand-name{
+  font:700 20px/1 Roboto,Arial,sans-serif;
+  letter-spacing:-.7px;
+}
+.searchbox{
+  width:min(640px,52vw);
+  height:40px;
+  margin-left:auto;
+  display:flex;
+  min-width:0;
+}
+.search-input{
+  min-width:0;
+  flex:1 1 auto;
+  height:40px;
+  padding:0 16px;
+  border:1px solid #303030;
+  border-right:0;
+  border-radius:20px 0 0 20px;
+  outline:0;
+  background:#121212;
+  color:#f1f1f1;
+  font:400 16px/20px Roboto,Arial,sans-serif;
+}
+.search-input:focus{
+  border-color:#1c62b9;
+  box-shadow:inset 1px 0 0 #1c62b9;
+}
+.search-button,
+.icon-button{
+  width:40px;
+  height:40px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:50%;
+  color:#f1f1f1;
+  background:transparent;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.search-button{
+  width:64px;
+  border:1px solid #303030;
+  border-radius:0 20px 20px 0;
+  background:#222;
+}
+.search-button svg,
+.icon-button svg{
+  width:24px;
+  height:24px;
+  fill:currentColor;
+}
+.icon-button:hover{background:rgba(255,255,255,.10)}
+.icon-button:active{background:rgba(255,255,255,.18)}
+.sourcebar{
+  min-height:48px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:6px 16px 8px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+}
+.sourcebar::-webkit-scrollbar{display:none}
+.source-chip{
+  flex:0 0 auto;
+  height:32px;
+  max-width:220px;
+  display:flex;
+  align-items:center;
+  gap:7px;
+  padding:0 12px;
+  border:0;
+  border-radius:8px;
+  background:#272727;
+  color:#f1f1f1;
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  white-space:nowrap;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.source-chip:hover{background:#3a3a3a}
+.source-chip:active{transform:scale(.97)}
+.source-chip.active{background:#f1f1f1;color:#0f0f0f}
+.source-chip img{
+  width:22px;
+  height:22px;
+  border-radius:50%;
+  object-fit:cover;
+}
+@media(max-width:600px){
+  .masthead{padding:0 8px;gap:8px}
+  .brand-name{font-size:18px}
+  .searchbox{width:auto;flex:1 1 auto;margin-left:0}
+  .search-input{padding:0 12px;font-size:15px}
+  .search-button{width:48px}
+  .sourcebar{padding-left:8px;padding-right:8px}
+}
 
 main{width:100%;max-width:100%;margin:0}
 .media-col{min-width:0;max-width:100%}
@@ -247,12 +369,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
   gap:var(--layout-gap);
 }
 .row{
+  position:relative;
   margin:0;
   min-width:0;
   background:transparent;
-  overflow:hidden;
+  overflow:visible;
   color:#aaa;
+  cursor:pointer;
+  border-radius:12px;
+  -webkit-tap-highlight-color:transparent;
 }
+.row::before{
+  content:"";
+  position:absolute;
+  inset:-8px;
+  z-index:-1;
+  border-radius:16px;
+  background:transparent;
+  transition:background-color .12s cubic-bezier(.4,0,1,1),transform .12s ease;
+}
+@media(hover:hover){
+  .row:hover::before{background:rgba(255,255,255,.08)}
+}
+.row:active::before{
+  background:rgba(255,255,255,.14);
+  transform:scale(.985);
+}
+.row.selected::before{background:rgba(255,255,255,.10)}
 .row-thumb{
   position:relative;
   width:100%;
@@ -266,27 +409,80 @@ html.one-col .player.pip iframe{border-radius:inherit}
   width:100%;
   height:100%;
   object-fit:cover;
+  transition:transform .18s cubic-bezier(.2,0,0,1);
 }
-.row-copy{
-  min-width:0;
-  padding:10px 0 4px;
+@media(hover:hover){
+  .row:hover .row-thumb img{transform:scale(1.015)}
 }
-.row-title{
+.duration-badge{
+  position:absolute;
+  right:6px;
+  bottom:6px;
+  min-height:20px;
+  display:flex;
+  align-items:center;
+  padding:2px 5px;
+  border-radius:4px;
+  background:rgba(0,0,0,.78);
   color:#fff;
-  font-size:clamp(12px,2.7vw,14px);
-  font-weight:600;
-  line-height:1.35;
+  font:600 12px/16px Roboto,Arial,sans-serif;
+  letter-spacing:.1px;
+}
+.row-details{
+  display:grid;
+  grid-template-columns:36px minmax(0,1fr) 40px;
+  gap:12px;
+  align-items:start;
+  padding:12px 0 4px;
+}
+.row-avatar{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  object-fit:cover;
+  background:#272727;
+}
+.row-copy{min-width:0;padding:0}
+.row-title{
+  color:#f1f1f1;
+  font:500 14px/20px Roboto,Arial,sans-serif;
   display:-webkit-box;
   -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
-  overflow:hidden
+  overflow:hidden;
 }
 .row-meta{
-  margin-top:6px;
-  color:#888;
-  font-size:clamp(10px,2.3vw,12px);
-  line-height:1.35
+  margin-top:3px;
+  color:#aaa;
+  font:400 12px/18px Roboto,Arial,sans-serif;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
 }
+.row-menu{
+  width:40px;
+  height:40px;
+  margin-top:-8px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#f1f1f1;
+  opacity:0;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.row-menu svg{width:24px;height:24px;fill:currentColor}
+.row-menu:hover{background:rgba(255,255,255,.10)}
+.row-menu:active{background:rgba(255,255,255,.18)}
+.row:hover .row-menu,
+.row:focus-within .row-menu{opacity:1}
+@media(hover:none){
+  .row-menu{opacity:1}
+}
+
 .state{
   position:fixed;left:8px;bottom:8px;z-index:150;
   padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.74);
@@ -296,9 +492,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
 </head>
 <body>
 <header class="top" id="top">
-  <strong>PiP proof · 1 player</strong>
-  <button id="landscapeBtn" class="active">Ngang</button>
-  <button id="portraitBtn">Dọc</button>
+  <div class="masthead">
+    <a class="brand" href="#" aria-label="1988">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M8 5.5v13L18 12 8 5.5Z"></path></svg>
+      </span>
+      <span class="brand-name">1988</span>
+    </a>
+
+    <div class="searchbox" role="search">
+      <input id="searchInput" class="search-input" type="search" placeholder="Tìm kiếm"
+        autocomplete="off" autocorrect="off" spellcheck="false">
+      <button id="searchButton" class="search-button" aria-label="Tìm kiếm" title="Tìm kiếm">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
+      </button>
+    </div>
+
+    <button class="icon-button" aria-label="Thêm" title="Thêm">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5a1 1 0 112 0v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H5a1 1 0 110-2h6V5Z"></path></svg>
+    </button>
+  </div>
+
+  <div class="sourcebar" id="sourcebar">
+    <button class="source-chip active" data-filter="all">Tất cả</button>
+    <button class="source-chip" id="currentSourceChip" data-filter="source">Nguồn</button>
+    <button id="landscapeBtn" class="source-chip active">Ngang</button>
+    <button id="portraitBtn" class="source-chip">Dọc</button>
+  </div>
 </header>
 
 <main>
@@ -342,6 +562,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const layoutHint=document.getElementById("layoutHint");
   const landscapeBtn=document.getElementById("landscapeBtn");
   const portraitBtn=document.getElementById("portraitBtn");
+  const searchInput=document.getElementById("searchInput");
+  const searchButton=document.getElementById("searchButton");
+  const sourcebar=document.getElementById("sourcebar");
+  const currentSourceChip=document.getElementById("currentSourceChip");
 
   let current=VIDEOS.landscape;
   let pip=false;
@@ -538,31 +762,58 @@ html.one-col .player.pip iframe{border-radius:inherit}
     );
   }
 
+  function escapeHtml(value=""){
+    return String(value)
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
     const meta=currentMeta || {};
     const title=meta.title || current.label;
-    const source=meta.sourceName || "YouTube";
+    const source=meta.sourceName || "1988";
     const thumb=meta.thumbnail ||
       ("https://i.ytimg.com/vi/"+encodeURIComponent(current.id)+"/mqdefault.jpg");
-    const ratio=current.ratio<1?"9:16":"16:9";
-    const facts=[
-      meta.durationLabel,
-      meta.viewsLabel,
-      meta.publishedLabel
-    ].filter(Boolean).join(" · ");
+    const avatar=meta.sourceAvatar || thumb;
+    const duration=meta.durationLabel || "";
+    const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" · ");
+
+    currentSourceChip.innerHTML=
+      (avatar?'<img src="'+escapeHtml(avatar)+'" alt="">':"")+
+      '<span>'+escapeHtml(source)+'</span>';
 
     const card=
-      '<article class="row">'+
-        '<div class="row-thumb"><img src="'+thumb+'" alt=""></div>'+
-        '<div class="row-copy">'+
-          '<div class="row-title">'+title+'</div>'+
-          '<div class="row-meta">'+source+'</div>'+
-          '<div class="row-meta">'+(facts || (ratio+' · '+current.id))+'</div>'+
+      '<article class="row" tabindex="0" data-video-id="'+escapeHtml(current.id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+        '<div class="row-thumb">'+
+          '<img src="'+escapeHtml(thumb)+'" alt="">'+
+          (duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"")+
+        '</div>'+
+        '<div class="row-details">'+
+          '<img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="">'+
+          '<div class="row-copy">'+
+            '<div class="row-title">'+escapeHtml(title)+'</div>'+
+            '<div class="row-meta">'+escapeHtml(source)+'</div>'+
+            '<div class="row-meta">'+escapeHtml(facts || "Video hiện tại")+'</div>'+
+          '</div>'+
+          '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>'+
+          '</button>'+
         '</div>'+
       '</article>';
 
     rows.innerHTML=card.repeat(6);
+    applySearchFilter();
+  }
+
+  function applySearchFilter(){
+    const q=(searchInput?.value||"").trim().toLowerCase();
+    document.querySelectorAll(".row").forEach(card=>{
+      const hay=(card.dataset.title||"")+" "+(card.dataset.source||"");
+      card.hidden=!!q && !hay.includes(q);
+    });
   }
 
   async function loadCurrentVideoMeta(){
@@ -681,6 +932,39 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   landscapeBtn.addEventListener("click",()=>select("landscape"));
   portraitBtn.addEventListener("click",()=>select("portrait"));
+
+  searchInput.addEventListener("input",applySearchFilter);
+  searchButton.addEventListener("click",()=>{
+    applySearchFilter();
+    searchInput.focus();
+  });
+
+  sourcebar.addEventListener("click",event=>{
+    const chip=event.target.closest(".source-chip");
+    if(!chip || chip===landscapeBtn || chip===portraitBtn)return;
+    sourcebar.querySelectorAll(".source-chip[data-filter]").forEach(x=>x.classList.remove("active"));
+    chip.classList.add("active");
+  });
+
+  document.getElementById("rows").addEventListener("click",event=>{
+    const menu=event.target.closest(".row-menu");
+    const card=event.target.closest(".row");
+    if(!card)return;
+
+    if(menu){
+      event.stopPropagation();
+      menu.animate(
+        [{transform:"scale(.88)"},{transform:"scale(1)"}],
+        {duration:140,easing:"cubic-bezier(.2,0,0,1)"}
+      );
+      return;
+    }
+
+    document.querySelectorAll(".row.selected").forEach(x=>x.classList.remove("selected"));
+    card.classList.add("selected");
+    frame.src=embedUrl(card.dataset.videoId || current.id);
+    window.scrollTo({top:0,behavior:"smooth"});
+  });
   addEventListener("scroll",schedulePip,{passive:true});
 
   /* Breakpoint has exactly one owner: the same media query used by CSS. */
