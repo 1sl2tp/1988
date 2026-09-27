@@ -6400,3 +6400,151 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     padding:7px var(--layout-edge-mobile-right) 9px var(--layout-edge-mobile-left)!important;
   }
 }
+
+
+/* ============================================================
+   MOBILE CARD RHYTHM v463
+   One-column cards use the same rounded language as multi-column cards:
+   rounded artwork on top, rounded metadata surface below, balanced avatar /
+   title / channel / published time / views geometry.
+   ============================================================ */
+@media(max-width:720px){
+  :root{
+    --mobile-card-radius:13px;
+    --mobile-card-inner-x:10px;
+    --mobile-card-avatar:34px;
+  }
+
+  html:not(.watch-browse) .feed>.card,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card{
+    margin-bottom:16px!important;
+    border:0!important;
+    border-radius:var(--mobile-card-radius)!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    overflow:visible!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .thumb-wrap,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap{
+    border:1px solid rgba(255,255,255,.075)!important;
+    border-bottom:0!important;
+    border-radius:var(--mobile-card-radius) var(--mobile-card-radius) 0 0!important;
+    overflow:hidden!important;
+    background:#111113!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .thumb-wrap img,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap img,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap img{
+    border-radius:calc(var(--mobile-card-radius) - 1px) calc(var(--mobile-card-radius) - 1px) 0 0!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-copy,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy{
+    display:grid!important;
+    grid-template-columns:var(--mobile-card-avatar) minmax(0,1fr)!important;
+    column-gap:9px!important;
+    align-items:start!important;
+    padding:9px var(--mobile-card-inner-x) 10px!important;
+    border:1px solid rgba(255,255,255,.075)!important;
+    border-top:0!important;
+    border-radius:0 0 var(--mobile-card-radius) var(--mobile-card-radius)!important;
+    background:#151518!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-avatar,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-avatar{
+    width:var(--mobile-card-avatar)!important;
+    min-width:var(--mobile-card-avatar)!important;
+    height:var(--mobile-card-avatar)!important;
+    min-height:var(--mobile-card-avatar)!important;
+    margin-top:1px!important;
+    border:1px solid rgba(255,255,255,.075)!important;
+    background:#202024!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-title-row,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-title-row{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) 24px!important;
+    gap:5px!important;
+    align-items:start!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-title,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-title{
+    min-height:0!important;
+    margin:0!important;
+    color:#f2f2f4!important;
+    font-size:13.5px!important;
+    line-height:1.32!important;
+    font-weight:680!important;
+    letter-spacing:-.08px!important;
+    -webkit-line-clamp:2!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-more-btn,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-more-btn{
+    width:24px!important;
+    min-width:24px!important;
+    height:28px!important;
+    margin:-2px -3px 0 0!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-meta-line,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-meta-line{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:2px!important;
+    margin-top:4px!important;
+    font-size:10.5px!important;
+    line-height:1.28!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-channel,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-channel{
+    color:#a2a2aa!important;
+    font-size:10.8px!important;
+    line-height:1.28!important;
+    font-weight:560!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .card-stats,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-stats{
+    margin-top:0!important;
+    color:#7f7f88!important;
+    font-size:10.2px!important;
+    line-height:1.28!important;
+    font-weight:480!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .duration,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .duration{
+    right:7px!important;
+    bottom:7px!important;
+    padding:2px 5px!important;
+    border-radius:5px!important;
+    background:rgba(0,0,0,.82)!important;
+    color:#fff!important;
+    font-size:10px!important;
+    line-height:1.2!important;
+    font-weight:720!important;
+    letter-spacing:.05px!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .live-badge,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .live-badge{
+    left:7px!important;
+    bottom:7px!important;
+    padding:2px 5px!important;
+    border-radius:5px!important;
+    font-size:9.5px!important;
+    line-height:1.2!important;
+  }
+}
