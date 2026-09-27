@@ -26,6 +26,7 @@ const embedPlaybackCache=new Map();
 const embedPlaybackPending=new Map();
 const EMBED_PLAYBACK_TTL=6*60*60*1000;
 const EMBED_PLAYBACK_UNKNOWN_TTL=10*60*1000;
+const EMBED_PLAYBACK_LIVE_OFFLINE_TTL=60*1000;
 
 function text(value){
   if(value===undefined||value===null)return '';
@@ -597,10 +598,16 @@ function classifyEmbedPlayback(info){
   return {playable:null,definitive:false,status,reason};
 }
 
+function embedPlaybackTtl(result={}){
+  const status=String(result?.status||'').trim().toUpperCase();
+  if(status==='LIVE_STREAM_OFFLINE')return EMBED_PLAYBACK_LIVE_OFFLINE_TTL;
+  return result?.definitive?EMBED_PLAYBACK_TTL:EMBED_PLAYBACK_UNKNOWN_TTL;
+}
+
 function rememberEmbedPlayback(id,result){
   id=String(id||'').trim();
   if(!VIDEO_ID_RE.test(id))return result;
-  const ttl=result?.definitive?EMBED_PLAYBACK_TTL:EMBED_PLAYBACK_UNKNOWN_TTL;
+  const ttl=embedPlaybackTtl(result);
   embedPlaybackCache.set(id,{at:Date.now(),ttl,result});
   return result;
 }
