@@ -1013,6 +1013,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
               dimensions?.source||"videoAspect",
               true
             );
+            if(String(current?.id||"")===id){
+              commitCurrentAspect(id,ratio,{relayout:true});
+            }
           }
         }catch{}
       }
@@ -1037,6 +1040,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
               visual?.source||"visualContentAspect",
               true
             );
+            if(String(current?.id||"")===id){
+              commitCurrentAspect(id,ratio,{relayout:true});
+            }
           }
         }catch{}
       }
