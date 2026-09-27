@@ -170,7 +170,6 @@ const state={
   watchMinimized:false,
   watchPipPinned:false,
   watchPipAway:false,
-  watchPipFromFeed:false,
   watchPipEnteredAt:0,
   watchRestoreUntil:0,
   watchOpenSettlingUntil:0,
@@ -7592,7 +7591,7 @@ function applyFloatingIframe(force){
   finishFloatEntry(frame);
 }
 
-function setWatchMinimized(minimized,{pinned=false,preserveScroll=false,fromFeed=false}={}){
+function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   const root=document.documentElement;
   minimized=!!minimized;
 
@@ -7609,7 +7608,6 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false,fromFeed
     state.watchMinimized=true;
     state.watchPipPinned=!!pinned;
     state.watchPipAway=true;
-    state.watchPipFromFeed=!!fromFeed;
     state.watchPipEnteredAt=Date.now();
     root.classList.add("watch-minimized");
     syncNativeMobileControls();
@@ -7625,7 +7623,6 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false,fromFeed
   state.watchMinimized=false;
   state.watchPipPinned=false;
   state.watchPipAway=false;
-  state.watchPipFromFeed=false;
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
@@ -7854,24 +7851,32 @@ function setupWatchMinimizeGesture(){
     setWatchMinimized(false,{preserveScroll:true});
   };
 
-  let slotScrollRaf=0;
-  const syncPipToMediaSlot=()=>{
-    if(slotScrollRaf)return;
-    slotScrollRaf=requestAnimationFrame(()=>{
-      slotScrollRaf=0;
-      const rect=watchMediaSlotRect();
-      if(!rect)return;
+  // Restore the original automatic PiP behaviour: on one-column Watch,
+  // the first real upward browse scroll makes the SAME player float immediately.
+  // Do not wait until the whole media slot has disappeared from the viewport.
+  let autoPipRaf=0;
+  const syncAutoPipFromScroll=()=>{
+    if(autoPipRaf)return;
+    autoPipRaf=requestAnimationFrame(()=>{
+      autoPipRaf=0;
 
-      const topEdge=watchMediaSlotTopEdge();
-      const feedScrollTop=Math.max(0,Number(feedSection?.scrollTop)||0);
-      const compactFeedAway=
-        window.innerWidth<=720 &&
-        root.classList.contains("watch-browse") &&
-        feedScrollTop>18;
+      const pageY=Math.max(
+        0,
+        Number(document.scrollingElement?.scrollTop)||0,
+        Number(document.documentElement?.scrollTop)||0,
+        Number(document.body?.scrollTop)||0,
+        Number(window.scrollY)||0
+      );
+      const feedY=Math.max(0,Number(feedSection?.scrollTop)||0);
+      const away=pageY>4||feedY>4;
 
       if(!state.watchMinimized){
-        if(eligibleInline()&&(rect.bottom<=topEdge+1||compactFeedAway)){
-          setWatchMinimized(true,{pinned:false,fromFeed:compactFeedAway});
+        if(
+          eligibleInline() &&
+          Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
+          away
+        ){
+          setWatchMinimized(true,{pinned:false});
         }
         return;
       }
@@ -7879,29 +7884,22 @@ function setupWatchMinimizeGesture(){
       if(state.watchPipPinned)return;
       if(Date.now()-Number(state.watchPipEnteredAt||0)<220)return;
 
-      // Some compact Watch layouts scroll the recommendation pane instead of
-      // moving the media slot itself. Keep PiP detached while that pane is away
-      // from its top, then rejoin when the user returns.
-      if(state.watchPipFromFeed){
-        if(feedScrollTop>3)return;
-        state.watchPipFromFeed=false;
-        restoreInlineFromSlot();
-        return;
-      }
-
-      // The frozen media slot, not the portrait iframe's live dimensions,
-      // decides when the iframe returns inline.
-      if(rect.bottom>topEdge+12&&rect.top<window.innerHeight){
+      // Scrolling back to the beginning restores the same player inline.
+      // alignMediaSlotToTop() also compensates the long-video case where the
+      // original slot may otherwise reopen partly hidden above the viewport.
+      if(pageY<=3&&feedY<=3){
         restoreInlineFromSlot();
       }
     });
   };
 
-  window.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  setTimeout(syncPipToMediaSlot,220);
+  // Mobile body-scroll, mobile feed-scroll and 721-959px one-column desktop
+  // all feed this same automatic PiP path.
+  window.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
+  document.body?.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
+  feedSection?.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
+  document.addEventListener("scroll",syncAutoPipFromScroll,{passive:true});
+  setTimeout(syncAutoPipFromScroll,220);
 
   if("IntersectionObserver" in window&&playerSection){
     const slotObserver=new IntersectionObserver(entries=>{
@@ -7917,7 +7915,6 @@ function setupWatchMinimizeGesture(){
         entry.isIntersecting &&
         state.watchMinimized &&
         !state.watchPipPinned &&
-        !state.watchPipFromFeed &&
         Date.now()-Number(state.watchPipEnteredAt||0)>=220
       ){
         restoreInlineFromSlot();
