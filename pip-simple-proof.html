@@ -14,6 +14,11 @@
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh}
+html.one-col,
+html.one-col body{
+  max-width:100%;
+  overflow-x:hidden;
+}
 html.one-col body{min-height:220vh}
 .top{
   position:sticky;top:0;z-index:50;height:56px;
@@ -27,8 +32,8 @@ button{
 }
 button.active{background:#fff;color:#111;border-color:#fff}
 
-main{width:min(680px,100%);margin:0 auto}
-.media-col{min-width:0}
+main{width:min(680px,100%);max-width:100%;margin:0 auto;overflow-x:clip}
+.media-col{min-width:0;max-width:100%}
 .stage{
   position:relative;
   margin:0 auto;
@@ -52,7 +57,8 @@ main{width:min(680px,100%);margin:0 auto}
    Landscape follows WIDTH.
    Portrait follows HEIGHT. */
 html.one-col.landscape .stage{
-  width:min(100vw,680px);
+  width:100%;
+  max-width:680px;
   aspect-ratio:16/9;
   height:auto;
   background:transparent;
@@ -65,7 +71,7 @@ html.one-col.landscape .player{
 
 html.one-col.portrait .stage{
   height:var(--full-h);
-  width:min(100vw,calc(var(--full-h) * 0.5625));
+  width:min(100%,calc(var(--full-h) * 0.5625));
   aspect-ratio:9/16;
   background:transparent;
 }
