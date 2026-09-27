@@ -7873,3 +7873,27 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav
     background:none!important;
   }
 }
+
+
+/* ============================================================
+   REMOVE WATCH AMBIENT v479
+   Watch must stay visually clean: no video-derived glow / blur band behind
+   the player, source rail, PiP anchor or feed.
+   ============================================================ */
+html.watch-browse body::before{
+  display:none!important;
+  content:none!important;
+  width:0!important;
+  height:0!important;
+  min-height:0!important;
+  max-height:0!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  background:none!important;
+  background-image:none!important;
+  filter:none!important;
+  -webkit-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+  box-shadow:none!important;
+}

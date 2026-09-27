@@ -417,3 +417,7 @@ assert.match(style,/@media\(max-width:720px\)[\s\S]{0,1200}grid-template-rows:[\
 assert.match(style,/\.selected-video-info\{[\s\S]{0,120}grid-row:2!important/);
 assert.match(style,/\.feed-section\{[\s\S]{0,120}grid-row:3!important/);
 assert.match(style,/\.header-nav\{[\s\S]{0,120}display:none!important/);
+
+assert.match(style,/REMOVE WATCH AMBIENT v479/);
+assert.match(style,/html\.watch-browse body::before\{[\s\S]{0,240}display:none!important/);
+assert.match(style,/html\.watch-browse body::before\{[\s\S]{0,420}background:none!important/);
