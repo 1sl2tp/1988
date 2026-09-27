@@ -2863,6 +2863,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
 
+    // A source is a new top-level feed. Always open it from the top instead
+    // of carrying the previous source's scroll position into the new feed.
+    const scroller=document.scrollingElement||document.documentElement;
+    if(scroller){
+      scroller.scrollTop=0;
+    }
+    window.scrollTo({top:0,left:0,behavior:"auto"});
+    setMobileHeaderHidden(false);
+    syncHeaderScrollState();
+    syncMobileHeaderVisibility(true);
+
     // Source selection is independent from search state. Invalidate any
     // in-flight global search so it cannot overwrite this source afterward.
     feedRequest++;
