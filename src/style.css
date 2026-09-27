@@ -8041,7 +8041,7 @@ html.watch-minimized .player-frame.floating-iframe.float-size-full .watch-swipe-
 .watch-media-progress-fill,
 html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-track,
 html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
-  height:3px!important;
+  height:4px!important;
 }
 
 .watch-media-progress-fill,
