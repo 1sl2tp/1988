@@ -339,6 +339,9 @@ html.one-col body{min-height:220vh}
     width:100%;
     display:flex;
     align-items:center;
+    border:0;
+    outline:0;
+    box-shadow:none;
   }
 
   /* One compact row: Search · Settings · source chips. */
@@ -466,7 +469,8 @@ main{
 }
 @media(max-width:656px){
   main{
-    padding-top:var(--top-boundary);
+    /* 1px overlap removes the compositor seam between frosted header and video. */
+    padding-top:calc(var(--top-boundary) - 1px);
   }
 }
 .media-col{min-width:0;max-width:100%}
