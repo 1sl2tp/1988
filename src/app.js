@@ -7592,11 +7592,9 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
 
-    // iOS Safari / standalone PWA can defer requestAnimationFrame while a
-    // momentum scroll is active. Enter floating mode synchronously on compact
-    // touch layouts, then settle the exact iframe viewport again on the next
-    // frames. Desktop keeps the normal RAF path.
-    if(mobileMiniViewport()){
+    // One-column Watch uses one synchronous transition on every browser.
+    // This avoids relying on a browser-specific scroll/animation scheduling path.
+    if(watchAutoPipViewport()){
       applyFloatingIframe(true);
       const frame=playerSection?.querySelector(".player-frame");
       if(frame){
@@ -7780,10 +7778,21 @@ function setupWatchMinimizeGesture(){
     // A pointer sequence can be cancelled immediately after the floating
     // layer is created. Keep an ordinary click fallback for the first tap.
     zone.addEventListener("click",event=>{
-      if(
-        !state.watchMinimized ||
-        Date.now()<suppressMiniClickUntil
-      )return;
+      if(Date.now()<suppressMiniClickUntil)return;
+
+      // In one-column inline Watch this layer is the browser-neutral scroll
+      // bridge above the cross-origin player. A simple tap keeps normal video
+      // behaviour by toggling playback; the bottom YouTube control strip stays
+      // uncovered and remains native.
+      if(!state.watchMinimized){
+        if(!watchAutoPipViewport())return;
+        event.preventDefault();
+        event.stopPropagation();
+        if(floatPlaybackActive())pauseVideoEngine();
+        else playVideoEngine();
+        return;
+      }
+
       event.preventDefault();
       event.stopPropagation();
       if(watchAutoPipViewport()){
