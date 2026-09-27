@@ -58,11 +58,9 @@ html.one-col.landscape .player{
 }
 
 html.one-col.portrait .stage{
-  height:calc(100svh - 70px);
-  max-height:calc(100svh - 70px);
+  width:min(100vw,calc((100svh - 70px) * 0.5625));
   aspect-ratio:9/16;
-  width:auto;
-  max-width:100vw;
+  height:auto;
   background:transparent;
 }
 html.one-col.portrait .player{
@@ -88,7 +86,7 @@ html.one-col.landscape .player.pip{
 }
 html.one-col.portrait .player.pip{
   height:min(50svh,420px);
-  width:auto;
+  width:min(28.125svh,236.25px);
   aspect-ratio:9/16;
 }
 html.one-col .player.pip iframe{border-radius:inherit}
@@ -134,14 +132,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
   /* 2-col portrait:
      HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
   html.two-col.portrait .media-col{
+    width:calc((100svh - 82px) * 0.5625);
     height:calc(100svh - 82px);
-    aspect-ratio:9/16;
-    width:auto;
   }
   html.two-col.portrait .stage{
+    width:100%;
     height:100%;
     aspect-ratio:9/16;
-    width:auto;
     background:transparent;
   }
   html.two-col.portrait .player{
@@ -149,15 +146,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     width:100%;
     height:100%;
     transform:none;
-  }
-
-  html.two-col .player.pip{
-    position:absolute;
-    inset:0;
-    width:100%;
-    height:100%;
-    border-radius:0;
-    box-shadow:none;
   }
 }
 .info{padding:12px;border-bottom:1px solid #292929}
@@ -225,7 +213,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let current=VIDEOS.landscape;
   let pip=false;
   let raf=0;
-  let lastWidth=Math.max(1,innerWidth||1);
+  const columnsMq=matchMedia("(min-width:960px)");
 
   function embedUrl(id){
     return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
@@ -233,7 +221,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function isTwoColumn(){
-    return matchMedia("(min-width:960px)").matches;
+    return columnsMq.matches;
   }
 
   function layout(){
@@ -245,14 +233,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     root.classList.toggle("portrait",portrait);
     root.classList.toggle("landscape",!portrait);
 
-    /* Geometry is CSS-owned:
+    /* CSS owns all geometry:
        landscape follows width, portrait follows height. */
-    mediaCol.style.width="";
-    mediaCol.style.height="";
-    mediaCol.style.marginInline="";
-    stage.style.width="";
-    stage.style.height="";
-    stage.style.aspectRatio="";
 
     if(two){
       pip=false;
@@ -323,15 +305,15 @@ html.one-col .player.pip iframe{border-radius:inherit}
   landscapeBtn.addEventListener("click",()=>select("landscape"));
   portraitBtn.addEventListener("click",()=>select("portrait"));
   addEventListener("scroll",schedulePip,{passive:true});
-  addEventListener("resize",()=>{
-    /* CSS owns geometry. JS only refreshes column mode and PiP state. */
-    const w=Math.max(1,innerWidth||1);
-    if(Math.abs(w-lastWidth)>2){
-      lastWidth=w;
-      layout();
-    }
+
+  /* Breakpoint has exactly one owner: the same media query used by CSS. */
+  columnsMq.addEventListener?.("change",()=>{
+    layout();
     schedulePip();
-  },{passive:true});
+  });
+
+  /* Geometry is CSS-owned; resize only re-checks whether PiP should be visible. */
+  addEventListener("resize",schedulePip,{passive:true});
 
   document.getElementById("rows").innerHTML=
     Array.from({length:14},(_,i)=>'<div class="row">Nội dung cuộn '+(i+1)+'</div>').join("");
