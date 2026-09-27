@@ -9,8 +9,10 @@
 *{box-sizing:border-box}
 :root{
   --top-boundary:56px;
-  --bottom-gap:max(8px,env(safe-area-inset-bottom));
-  --full-h:calc(100svh - var(--top-boundary) - var(--bottom-gap));
+  --bottom-gap:8px;
+  --current-full-h:600px;
+  --pip-landscape-w:240px;
+  --pip-portrait-h:360px;
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh}
@@ -54,8 +56,8 @@ main{width:min(680px,100%);max-width:100%;margin:0 auto;overflow-x:clip}
 }
 
 /* 1 COLUMN MAIN
-   Landscape follows WIDTH.
-   Portrait follows HEIGHT. */
+   Landscape follows CURRENT WIDTH.
+   Portrait follows CURRENT HEIGHT. */
 html.one-col.landscape .stage{
   width:100%;
   max-width:680px;
@@ -70,8 +72,8 @@ html.one-col.landscape .player{
 }
 
 html.one-col.portrait .stage{
-  height:var(--full-h);
-  width:min(100%,calc(var(--full-h) * 0.5625));
+  height:var(--current-full-h);
+  width:min(100%,calc(var(--current-full-h) * 0.5625));
   aspect-ratio:9/16;
   background:transparent;
 }
@@ -92,12 +94,12 @@ html.one-col .player.pip{
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
 html.one-col.landscape .player.pip{
-  width:min(46vw,280px);
+  width:var(--pip-landscape-w);
   height:auto;
   aspect-ratio:16/9;
 }
 html.one-col.portrait .player.pip{
-  height:min(50svh,420px,calc(var(--full-h) - 16px));
+  height:var(--pip-portrait-h);
   width:auto;
   aspect-ratio:9/16;
 }
@@ -132,14 +134,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
     position:sticky;
     top:var(--top-boundary);
     align-self:start;
-    height:var(--full-h);
+    height:var(--current-full-h);
     justify-self:end;
     min-width:0;
     overflow:hidden;
   }
 
   /* 2-col landscape:
-     WIDTH owns the size. The iframe fills a tall viewing area, so YouTube
+     CURRENT WIDTH owns the size. The iframe fills the current-height viewing area, so YouTube
      itself letterboxes the 16:9 video and puts chrome in the black top/bottom. */
   html.two-col.landscape .media-col{
     width:min(48vw,620px);
@@ -157,9 +159,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   /* 2-col portrait:
-     HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
+     CURRENT HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
   html.two-col.portrait .media-col{
-    width:calc(var(--full-h) * 0.5625);
+    width:calc(var(--current-full-h) * 0.5625);
     height:100%;
   }
   html.two-col.portrait .stage{
@@ -253,10 +255,27 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function syncBoundaries(){
-    // One TOP for title/search/source chrome; one BOTTOM for every media mode.
-    // TOP is the actual bottom edge of the sticky chrome.
+    // Measure the CURRENT usable viewport, not svh/vw estimates.
     const topBoundary=Math.max(0,Math.round(top.getBoundingClientRect().bottom));
+    const viewportH=Math.max(
+      topBoundary+1,
+      Math.round(document.documentElement.clientHeight || innerHeight || 1)
+    );
+    const bottomGap=8;
+    const fullH=Math.max(1,viewportH-topBoundary-bottomGap);
+
     root.style.setProperty("--top-boundary",topBoundary+"px");
+    root.style.setProperty("--bottom-gap",bottomGap+"px");
+    root.style.setProperty("--current-full-h",fullH+"px");
+
+    // PiP also follows its CURRENT available size:
+    // landscape owns width, portrait owns height.
+    const viewportW=Math.max(1,Math.round(document.documentElement.clientWidth || innerWidth || 1));
+    const pipLandscapeW=Math.max(170,Math.min(280,Math.round(viewportW*.46)));
+    const pipPortraitH=Math.max(240,Math.min(420,Math.round(fullH*.50)));
+
+    root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
+    root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
   }
 
   function layout(){
@@ -348,7 +367,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     schedulePip();
   });
 
-  /* Geometry is CSS-owned. Resize only refreshes the shared TOP boundary and PiP. */
+  /* Resize refreshes the CURRENT dimensions for all 3 media modes. */
   addEventListener("resize",()=>{
     syncBoundaries();
     schedulePip();
