@@ -969,6 +969,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let ytPlayerReady=false;
   let pendingVideoId="";
   let youtubeApiPromise=null;
+  let mediaSwitchSeq=0;
 
   // Same media-aspect flow as src/app.js:
   // pre-prime by video id, then let YouTube videoContentRect confirm/correct.
@@ -1299,7 +1300,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }catch{}
 
     // During loadVideoById() YouTube can briefly expose the previous video's rect.
-    if(loadedId&&loadedId!==expectedId)return false;
+    // Accept geometry only after YouTube explicitly reports THIS media id.
+    if(!loadedId||loadedId!==expectedId)return false;
 
     const rect=youtubeContentRect(player);
     if(!rect)return false;
@@ -1428,17 +1430,32 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return ytPlayer;
   }
 
-  function playVideoId(id,meta=null){
+  async function playVideoId(id,meta=null){
     id=String(id||"").trim();
-    if(!id)return;
+    if(!id)return false;
+
+    const switchSeq=++mediaSwitchSeq;
 
     const confirmedRatio=
       mediaAspectCache.get(id)?.source==="iframe-content-rect"
         ?cachedMediaAspect(id,{verifiedOnly:true})
         :0;
-    const primedRatio=cachedPrimedAspect(id);
-    const immediateAspect=confirmedRatio||primedRatio||16/9;
-    const kind=mediaLayoutKindFromRatio(immediateAspect);
+
+    let resolvedAspect=confirmedRatio||cachedPrimedAspect(id);
+
+    // If this exact media has never been measured, wait for the STANDARD
+    // videoAspect(id) prime BEFORE changing current.id/current.kind.
+    // The old MAIN/PiP/2-col media remains visible during this short wait.
+    if(!resolvedAspect){
+      resolvedAspect=validMediaAspect(await primeMediaAspect(id));
+    }
+
+    if(switchSeq!==mediaSwitchSeq)return false;
+
+    // videoAspect is the standard pre-play signal. 16:9 is only a true
+    // failure fallback, never a temporary shell painted for the new media.
+    resolvedAspect=resolvedAspect||16/9;
+    const kind=mediaLayoutKindFromRatio(resolvedAspect);
 
     if(meta?.id===id){
       currentMeta=meta;
@@ -1447,39 +1464,34 @@ html.one-col .player.pip iframe{border-radius:inherit}
       currentMeta=null;
     }
 
-    // Kind belongs to THIS media id. MAIN / PiP / 2-column only consume it.
+    // Atomic ownership hand-off:
+    // media -> kind first; presentation (MAIN/PiP/2-col) consumes that kind.
     current={
       id,
       kind,
       ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
-      detectedRatio:immediateAspect,
+      detectedRatio:resolvedAspect,
       label:meta?.title||"Video"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
 
-    // Playback never waits for shape probing, so the media region never vanishes.
     pendingVideoId=id;
-    void ensureYoutubePlayer().then(playerApi=>{
-      if(!playerApi||String(current?.id||"")!==id)return;
-      if(!ytPlayerReady)return;
+    const playerApi=await ensureYoutubePlayer();
+    if(
+      switchSeq!==mediaSwitchSeq||
+      !playerApi||
+      String(current?.id||"")!==id
+    )return false;
 
+    if(ytPlayerReady){
       pendingVideoId="";
       try{
         playerApi.loadVideoById(id);
         playerApi.playVideo?.();
       }catch{}
-    });
+    }
 
-    // Same standard prime used by the main app. No thumbnail inference.
-    void primeMediaAspect(id).then(ratio=>{
-      if(!ratio||String(current?.id||"")!==id)return;
-
-      // YouTube's own content rect, once available, remains the final correction.
-      const row=mediaAspectCache.get(id);
-      if(String(row?.source||"")!=="iframe-content-rect"){
-        commitCurrentAspect(id,ratio,{relayout:true});
-      }
-    });
+    return true;
   }
   function isTwoColumn(){
     return columnsMq.matches;
@@ -1850,8 +1862,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     renderSampleContent();
 
     if(!String(current?.id||"")&&metas[0]?.id){
-      playVideoId(metas[0].id,metas[0]);
-      loadCurrentVideoMeta();
+      void playVideoId(metas[0].id,metas[0]).then(opened=>{
+        if(opened)loadCurrentVideoMeta();
+      });
     }
   }
 
@@ -2496,9 +2509,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(meta=>meta?.id===id)||
       null;
 
-    playVideoId(id,selectedMeta);
-    loadCurrentVideoMeta();
-    schedulePip();
+    void playVideoId(id,selectedMeta).then(opened=>{
+      if(!opened)return;
+      loadCurrentVideoMeta();
+      schedulePip();
+    });
   });
   addEventListener("scroll",()=>{
     syncHeaderScrollState();
