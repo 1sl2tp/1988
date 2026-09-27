@@ -567,6 +567,7 @@ html.search-suggestions-open .suggestions{
 
 /* All PiP sizes use one stable middle-edge control position. */
 .player-frame.floating-iframe.float-scale-1 .float-mode-rail,
+.player-frame.floating-iframe.float-scale-135 .float-mode-rail,
 .player-frame.floating-iframe.float-scale-15 .float-mode-rail,
 .player-frame.floating-iframe.float-scale-2 .float-mode-rail{
   top:50%;
@@ -5783,7 +5784,7 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
 @media(display-mode:standalone) and (max-width:959px){
   html.watch-browse body{
     padding-bottom:0!important;
-    min-height:100dvh!important;
+    min-height:100vh!important;
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
@@ -5825,6 +5826,40 @@ html.watch-minimized .player-frame.floating-iframe.float-controls-suppressed .fl
   visibility:hidden!important;
   pointer-events:none!important;
   transition:none!important;
+}
+
+.player-frame.floating-iframe .float-overlay-svg{
+  display:block!important;
+  width:18px!important;
+  height:18px!important;
+  margin:0!important;
+  overflow:visible!important;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+  pointer-events:none!important;
+}
+.player-frame.floating-iframe .float-overlay-close .float-overlay-svg{
+  width:17px!important;
+  height:17px!important;
+}
+.player-frame.floating-iframe .float-overlay-play .float-overlay-svg{
+  width:20px!important;
+  height:20px!important;
+}
+.player-frame.floating-iframe .float-overlay-scale .float-overlay-svg{
+  width:18px!important;
+  height:18px!important;
+}
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+  touch-action:none!important;
+  -webkit-user-select:none!important;
+  user-select:none!important;
+}
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
+  touch-action:manipulation!important;
 }
 
 
