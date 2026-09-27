@@ -105,6 +105,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
 /* 2 COLUMNS */
 @media(min-width:960px){
+  html.two-col,
+  html.two-col body{
+    overscroll-behavior-y:none;
+  }
+
   html.two-col main{
     width:min(1220px,100%);
     display:grid;
@@ -113,7 +118,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     gap:14px;
     align-items:start;
     margin:0 auto;
-    padding:0 14px 30px;
+    padding:0 14px;
   }
 
   html.two-col .rows{
@@ -126,6 +131,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     grid-area:media;
     position:sticky;
     top:var(--top-boundary);
+    align-self:start;
     height:var(--full-h);
     justify-self:end;
     min-width:0;
@@ -177,6 +183,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
   display:flex;align-items:center;padding:0 14px;color:#aaa
 }
+.row:last-child{margin-bottom:0}
 .state{
   position:fixed;left:8px;bottom:8px;z-index:150;
   padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.74);
