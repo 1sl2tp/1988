@@ -42,3 +42,13 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Không quay lại kiến trúc UI cũ trong `src/app.js` trừ khi có yêu cầu rõ ràng.
 - Không tạo lại nhánh đo Ngang/Dọc riêng ở client nếu server đã có metadata.
 - Nếu thử nghiệm lớn, làm trên proof/branch riêng trước; chỉ nhập vào MAIN khi đã kiểm tra.
+
+
+## 2026-09-28 — Đóng các luồng GitHub cũ
+
+- GitHub chỉ còn workflow production `.github/workflows/pages.yml`, trigger trên `main`.
+- Không có cron/lịch lấy dữ liệu trên GitHub.
+- Đã đóng toàn bộ PR cũ còn mở (#140, #122, #32, #24, #16, #2).
+- Các branch thử nghiệm cũ chỉ còn là lịch sử ref, không chạy workflow và không tham gia runtime.
+- Dữ liệu tự động tiếp tục do Supabase đảm nhiệm: cron `yt1988-refresh-every-minute` → `yt1988-refresh` → `yt1988_packages`.
+- Kiểm tra sau khi dọn: package `live/latest/week` vẫn cập nhật bình thường; workflow production run #2083 SUCCESS.
