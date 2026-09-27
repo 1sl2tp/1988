@@ -8111,6 +8111,15 @@ function setupWatchMinimizeGesture(){
       showFloatOverlayControls(frame);
     });
 
+    // Keep an ordinary click path as the simplest tap fallback and as a
+    // compatibility contract for the existing media-core smoke test.
+    zone.addEventListener("click",event=>{
+      if(!state.watchMinimized)return;
+      event.preventDefault();
+      event.stopPropagation();
+      showFloatOverlayControls(frame);
+    });
+
     zone.addEventListener("pointercancel",event=>{
       if(!press||press.pointerId!==event.pointerId)return;
       press=null;
