@@ -13,7 +13,8 @@
   --full-h:calc(100svh - var(--top-boundary) - var(--bottom-gap));
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-body{min-height:220vh}
+body{min-height:100vh}
+html.one-col body{min-height:220vh}
 .top{
   position:sticky;top:0;z-index:50;height:56px;
   display:flex;align-items:center;gap:8px;padding:0 10px;
@@ -98,22 +99,44 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
 /* 2 COLUMNS */
 @media(min-width:960px){
-  main{
+  html.two-col,
+  html.two-col body{
+    height:100%;
+    overflow:hidden;
+  }
+
+  html.two-col main{
     width:min(1220px,100%);
+    height:var(--full-h);
     display:grid;
     grid-template-columns:minmax(0,1fr) auto;
     grid-template-areas:"feed media";
     gap:14px;
     align-items:start;
-    padding:0 14px 30px;
+    margin:0 auto;
+    padding:0 14px;
+    overflow:hidden;
   }
-  .rows{grid-area:feed;padding:0;min-width:0}
-  .media-col{
+
+  html.two-col .rows{
+    grid-area:feed;
+    height:var(--full-h);
+    min-width:0;
+    padding:0 0 var(--bottom-gap);
+    overflow-y:auto;
+    overflow-x:hidden;
+    overscroll-behavior:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  html.two-col .media-col{
     grid-area:media;
-    position:sticky;
-    top:var(--top-boundary);
+    position:relative;
+    top:auto;
+    height:var(--full-h);
     justify-self:end;
     min-width:0;
+    overflow:hidden;
   }
 
   /* 2-col landscape:
@@ -124,7 +147,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
   html.two-col.landscape .stage{
     width:100%;
-    height:var(--full-h);
+    height:100%;
     background:#000;
   }
   html.two-col.landscape .player{
@@ -138,7 +161,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
      HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
   html.two-col.portrait .media-col{
     width:calc(var(--full-h) * 0.5625);
-    height:var(--full-h);
+    height:100%;
   }
   html.two-col.portrait .stage{
     width:100%;
@@ -157,6 +180,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .info b{display:block;font-size:15px;margin-bottom:4px}
 .info span{color:#999;font-size:12px}
 .rows{padding:10px}
+@media(min-width:960px){
+  html.two-col .rows{
+    padding:0 0 var(--bottom-gap);
+  }
+}
 .row{
   height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
   display:flex;align-items:center;padding:0 14px;color:#aaa
@@ -252,6 +280,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(two){
       pip=false;
       player.classList.remove("pip");
+      window.scrollTo(0,0);
     }
 
     paintText();
