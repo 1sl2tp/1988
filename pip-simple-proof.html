@@ -28,28 +28,52 @@
   .media-col{min-width:0}
   .stage{
     position:relative;
-    width:100%;
-    height:auto;
     margin-inline:auto;
-    background:#000;
-  }
-  .player{
-    position:absolute;inset:0;
-    width:100%;height:100%;
     background:#000;
     overflow:hidden;
   }
-  .player iframe{
-    display:block;width:100%;height:100%;border:0;background:#000;
+
+  /* Portrait: the stage IS the media box. No internal black edge. */
+  .stage.portrait{
+    width:var(--portrait-w,auto);
+    height:var(--portrait-h,auto);
+    background:transparent;
   }
-  .player.gutter-test{
-    background:#000;
-    padding:var(--gutter-y,0px) var(--gutter-x,0px);
-  }
-  .player.gutter-test iframe{
+  .stage.portrait .player{
+    position:absolute;
+    inset:0;
     width:100%;
     height:100%;
-    border-radius:0;
+    background:transparent;
+  }
+
+  /* Landscape: the stage is the full-width viewing area.
+     The 16:9 video is centered vertically, so only top/bottom can be black. */
+  .stage.landscape{
+    width:100%;
+    height:var(--landscape-stage-h,auto);
+    background:#000;
+  }
+  .stage.landscape .player{
+    position:absolute;
+    left:0;
+    top:50%;
+    width:100%;
+    height:auto;
+    aspect-ratio:16/9;
+    transform:translateY(-50%);
+    background:#000;
+  }
+
+  .player{
+    overflow:hidden;
+  }
+  .player iframe{
+    display:block;
+    width:100%;
+    height:100%;
+    border:0;
+    background:#000;
   }
   .player.pip{
     position:fixed;
@@ -80,7 +104,7 @@
     main{
       width:min(1220px,100%);
       display:grid;
-      grid-template-columns:minmax(0,1fr) minmax(0,var(--media-col-w,48vw));
+      grid-template-columns:minmax(0,1fr) var(--media-col-w,48vw);
       grid-template-areas:"feed media";
       gap:14px;
       align-items:start;
@@ -118,7 +142,6 @@
 <header class="top" id="top">
   <strong>PiP proof · 1 player</strong>
   <button id="landscapeBtn" class="active">Ngang</button>
-  <button id="landscapeBlackBtn">Ngang đen</button>
   <button id="portraitBtn">Dọc</button>
 </header>
 
@@ -152,20 +175,12 @@
     landscape: {
       id: "ypLlRC_2EFc",
       ratio: 16/9,
-      label: "Video ngang · 16:9",
-      gutter:false
-    },
-    landscapeBlack: {
-      id: "ypLlRC_2EFc",
-      ratio: 16/9,
-      label: "Video ngang · kiểm tra viền đen",
-      gutter:true
+      label: "Video ngang · 16:9"
     },
     portrait: {
       id: "kUF9P2m9mrg",
       ratio: 9/16,
-      label: "Video dọc · 9:16",
-      gutter:false
+      label: "Video dọc · 9:16"
     }
   };
 
@@ -177,7 +192,6 @@
   const titleEl = document.getElementById("videoTitle");
   const layoutHint = document.getElementById("layoutHint");
   const landscapeBtn = document.getElementById("landscapeBtn");
-  const landscapeBlackBtn = document.getElementById("landscapeBlackBtn");
   const portraitBtn = document.getElementById("portraitBtn");
 
   let current = VIDEOS.landscape;
@@ -194,63 +208,71 @@
   }
 
   function measureMain(){
-    const headerBottom = Math.max(0, top.getBoundingClientRect().bottom);
-    const availableH = Math.max(
-      220,
-      viewportHeight() - headerBottom - (twoColumn() ? 14 : 0)
-    );
+    const headerBottom=Math.max(0,top.getBoundingClientRect().bottom);
+    const availableH=Math.max(220,viewportHeight()-headerBottom-(twoColumn()?14:0));
+    const viewportW=Math.max(1,innerWidth||1);
+    const oneColW=Math.max(1,Math.min(680,viewportW));
+    const desktopMaxW=Math.max(360,Math.min(viewportW*.48,620));
 
-    const viewportW = Math.max(1, innerWidth || 1);
-    const oneColumnMaxW = Math.max(1, Math.min(680, viewportW));
-    const desktopLandscapeW = Math.max(360, Math.min(viewportW * .48, 620));
-    const maxW = twoColumn() ? desktopLandscapeW : oneColumnMaxW;
+    stage.classList.toggle("portrait",current.ratio<1);
+    stage.classList.toggle("landscape",current.ratio>=1);
 
-    let w;
-    let h;
+    if(current.ratio<1){
+      // PORTRAIT:
+      // Height fills the viewing height. Width comes only from 9:16.
+      let h=availableH;
+      let w=h*current.ratio;
 
-    if(current.ratio < 1){
-      // PORTRAIT STANDARD:
-      // height is authoritative, width follows the real media ratio.
-      h = availableH;
-      w = h * current.ratio;
-
-      // Never let the portrait media exceed the actual available column/page width.
-      const hardMaxW = twoColumn()
-        ? Math.min(viewportW * .42, 520)
-        : oneColumnMaxW;
-      if(w > hardMaxW){
-        w = hardMaxW;
-        h = w / current.ratio;
+      const hardMaxW=twoColumn()?Math.min(viewportW*.42,520):oneColW;
+      if(w>hardMaxW){
+        w=hardMaxW;
+        h=w/current.ratio;
       }
 
-      // The desktop media COLUMN itself becomes exactly the portrait media width.
+      stage.style.width=Math.round(w)+"px";
+      stage.style.height=Math.round(h)+"px";
+      stage.style.setProperty("--portrait-w",Math.round(w)+"px");
+      stage.style.setProperty("--portrait-h",Math.round(h)+"px");
+      stage.style.removeProperty("--landscape-stage-h");
+
       if(twoColumn()){
-        document.documentElement.style.setProperty("--media-col-w", Math.round(w) + "px");
+        document.documentElement.style.setProperty("--media-col-w",Math.round(w)+"px");
+      }else{
+        document.documentElement.style.removeProperty("--media-col-w");
+        const mediaCol=stage.closest(".media-col");
+        if(mediaCol){
+          mediaCol.style.width=Math.round(w)+"px";
+          mediaCol.style.marginInline="auto";
+        }
       }
     }else{
-      // LANDSCAPE STANDARD:
-      // width is authoritative, height follows the real media ratio.
-      w = maxW;
-      h = w / current.ratio;
-      if(twoColumn() && h > availableH){
-        h = availableH;
-        w = h * current.ratio;
+      // LANDSCAPE:
+      // Viewing area fills the horizontal width. The 16:9 video stays centered.
+      const w=twoColumn()?desktopMaxW:oneColW;
+      const videoH=w/current.ratio;
+      const stageH=twoColumn()
+        ?Math.max(videoH,Math.min(availableH,videoH*1.45))
+        :videoH;
+
+      stage.style.width="100%";
+      stage.style.height=Math.round(stageH)+"px";
+      stage.style.setProperty("--landscape-stage-h",Math.round(stageH)+"px");
+      stage.style.removeProperty("--portrait-w");
+      stage.style.removeProperty("--portrait-h");
+
+      const mediaCol=stage.closest(".media-col");
+      if(mediaCol){
+        mediaCol.style.width="";
+        mediaCol.style.marginInline="";
       }
 
       if(twoColumn()){
-        document.documentElement.style.setProperty("--media-col-w", Math.round(w) + "px");
+        document.documentElement.style.setProperty("--media-col-w",Math.round(w)+"px");
+      }else{
+        document.documentElement.style.removeProperty("--media-col-w");
       }
     }
-
-    if(!twoColumn()){
-      document.documentElement.style.removeProperty("--media-col-w");
-    }
-
-    stage.style.width = Math.round(w) + "px";
-    stage.style.height = Math.round(h) + "px";
-    stage.style.aspectRatio = "auto";
   }
-
   function fitPip(ratio){
     let w;
     let h;
@@ -288,29 +310,16 @@
     measureMain();
     fitPip(current.ratio);
     titleEl.textContent = current.label;
-    player.classList.toggle("gutter-test", current.gutter === true);
-
-    // "Ngang đen" is only a controlled content-gutter test:
-    // the outer media geometry stays 16:9; black is inside the player on purpose.
-    if(current.gutter === true){
-      player.style.setProperty("--gutter-x","7%");
-      player.style.setProperty("--gutter-y","0px");
-    }else{
-      player.style.removeProperty("--gutter-x");
-      player.style.removeProperty("--gutter-y");
-    }
 
     if(twoColumn()){
       layoutHint.textContent = current.ratio < 1
-        ? "2 cột · dọc: cao quyết định rộng, cột phải co đúng media."
-        : current.gutter
-          ? "2 cột · ngang: viền đen là nội dung kiểm thử, không phải khoảng thừa của layout."
-          : "2 cột · ngang: rộng quyết định cao, cột phải theo đúng media.";
+        ? "2 cột · dọc full chiều cao, khung co đúng 9:16."
+        : "2 cột · ngang full bề rộng, video giữa, đen chỉ trên/dưới.";
       stateEl.textContent = "2 CỘT · MAIN · " + (current.ratio > 1 ? "16:9" : "9:16");
     }else{
       layoutHint.textContent = current.ratio < 1
-        ? "1 cột · dọc full theo chiều cao vùng xem."
-        : "1 cột · ngang full theo chiều rộng.";
+        ? "1 cột · dọc full chiều cao, không viền đen trong media."
+        : "1 cột · ngang full bề ngang.";
       stateEl.textContent = "1 CỘT · " + (pip ? "PIP" : "MAIN") + " · " +
         (current.ratio > 1 ? "16:9" : "9:16");
     }
@@ -354,7 +363,6 @@
   function select(kind){
     current = VIDEOS[kind];
     landscapeBtn.classList.toggle("active", kind === "landscape");
-    landscapeBlackBtn.classList.toggle("active", kind === "landscapeBlack");
     portraitBtn.classList.toggle("active", kind === "portrait");
     frame.src = embedUrl(current.id);
     paint();
@@ -362,7 +370,6 @@
   }
 
   landscapeBtn.addEventListener("click", () => select("landscape"));
-  landscapeBlackBtn.addEventListener("click", () => select("landscapeBlack"));
   portraitBtn.addEventListener("click", () => select("portrait"));
 
   addEventListener("scroll", scheduleSync, {passive:true});
