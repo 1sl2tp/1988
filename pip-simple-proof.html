@@ -34,13 +34,16 @@ button{
 }
 button.active{background:#fff;color:#111;border-color:#fff}
 
-main{width:min(680px,100%);max-width:100%;margin:0 auto;overflow-x:clip}
+main{width:min(680px,100%);max-width:100%;margin:0 auto}
 .media-col{min-width:0;max-width:100%}
 .stage{
   position:relative;
   margin:0 auto;
   background:#000;
   overflow:hidden;
+}
+.stage.pip-host{
+  overflow:visible;
 }
 .player{
   position:absolute;
@@ -162,7 +165,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
      CURRENT HEIGHT owns the size. Width is derived from 9:16, so there is no side black. */
   html.two-col.portrait .media-col{
     width:calc(var(--current-full-h) * 0.5625);
-    height:100%;
+    height:var(--current-full-h);
   }
   html.two-col.portrait .stage{
     width:100%;
@@ -294,6 +297,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(two){
       pip=false;
       player.classList.remove("pip");
+      stage.classList.remove("pip-host");
     }
 
     paintText();
@@ -335,6 +339,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     pip=shouldPip;
     player.classList.toggle("pip",pip);
+    stage.classList.toggle("pip-host",pip);
     paintText();
   }
 
@@ -350,6 +355,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     current=VIDEOS[kind];
     pip=false;
     player.classList.remove("pip");
+    stage.classList.remove("pip-host");
     landscapeBtn.classList.toggle("active",kind==="landscape");
     portraitBtn.classList.toggle("active",kind==="portrait");
     frame.src=embedUrl(current.id);
