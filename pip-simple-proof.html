@@ -821,11 +821,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   .row-menu{opacity:1}
 }
 
-.state{
-  position:fixed;left:8px;bottom:8px;z-index:150;
-  padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.74);
-  font-size:11px;color:#ddd
-}
+.state{display:none}
 </style>
 </head>
 <body>
@@ -871,8 +867,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     <div class="source-scroll" id="sourceScroll">
       <div class="source-chips" id="sourceChips">
         <span class="source-name-chips" id="sourceNameChips"></span>
-        <button id="landscapeBtn" class="source-chip proof-mode-switch active" hidden>Ngang</button>
-        <button id="portraitBtn" class="source-chip proof-mode-switch" hidden>Dọc</button>
       </div>
     </div>
     <div class="source-arrow right" id="sourceNext" hidden>
@@ -894,8 +888,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
       </div>
     </section>
     <div class="info">
-      <b id="videoTitle">Video ngang · 16:9</b>
-      <span id="layoutHint"></span>
+      <b id="videoTitle"></b>
+      <span id="layoutHint" hidden></span>
     </div>
   </div>
 
@@ -924,8 +918,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const stateEl=document.getElementById("state");
   const titleEl=document.getElementById("videoTitle");
   const layoutHint=document.getElementById("layoutHint");
-  const landscapeBtn=document.getElementById("landscapeBtn");
-  const portraitBtn=document.getElementById("portraitBtn");
   const searchInput=document.getElementById("searchInput");
   const searchButton=document.getElementById("searchButton");
   const searchToggle=document.getElementById("searchToggle");
@@ -938,7 +930,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const sourceNameChips=document.getElementById("sourceNameChips");
   const themeColorMeta=document.getElementById("themeColorMeta");
 
-  let current={...VIDEOS.landscape,kind:"landscape"};
+  let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:""};
   let pip=false;
   let raf=0;
   let metaRequest=0;
@@ -1055,6 +1047,88 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return localAspectEnginePromise;
   }
 
+  function detectPillarboxFromImage(img){
+    const naturalW=Number(img?.naturalWidth)||0;
+    const naturalH=Number(img?.naturalHeight)||0;
+    if(naturalW<=0||naturalH<=0)return 0;
+
+    const sourceAspect=naturalW/naturalH;
+    if(sourceAspect<1.20)return 0;
+
+    const width=192;
+    const height=Math.max(72,Math.min(128,Math.round(width/sourceAspect)));
+    const canvas=document.createElement("canvas");
+    canvas.width=width;
+    canvas.height=height;
+    const ctx=canvas.getContext("2d",{willReadFrequently:true});
+    if(!ctx)return 0;
+
+    try{
+      ctx.drawImage(img,0,0,width,height);
+      const data=ctx.getImageData(0,0,width,height).data;
+      const means=new Array(width).fill(0);
+      const active=new Array(width).fill(0);
+
+      for(let x=0;x<width;x++){
+        let sum=0,bright=0;
+        for(let y=0;y<height;y++){
+          const i=(y*width+x)*4;
+          const r=data[i],g=data[i+1],b=data[i+2];
+          const l=.2126*r+.7152*g+.0722*b;
+          sum+=l;
+          if(l>28)bright++;
+        }
+        means[x]=sum/height;
+        active[x]=bright/height;
+      }
+
+      const centerStart=Math.floor(width*.40);
+      const centerEnd=Math.ceil(width*.60);
+      let centerMean=0;
+      for(let x=centerStart;x<centerEnd;x++)centerMean+=means[x];
+      centerMean/=Math.max(1,centerEnd-centerStart);
+      if(centerMean<18)return 0;
+
+      const darkThreshold=Math.max(10,Math.min(30,centerMean*.26));
+      const isBar=x=>means[x]<darkThreshold&&active[x]<.13;
+
+      let left=0;
+      while(left<width*.45&&isBar(left))left++;
+
+      let right=width-1;
+      while(right>width*.55&&isBar(right))right--;
+
+      const leftCut=left/width;
+      const rightCut=(width-1-right)/width;
+      if(leftCut<.16||rightCut<.16)return 0;
+
+      const contentFraction=(right-left+1)/width;
+      const contentAspect=sourceAspect*contentFraction;
+      return contentAspect>=.34&&contentAspect<.84?contentAspect:0;
+    }catch{
+      return 0;
+    }
+  }
+
+  async function thumbnailContentAspect(meta={}){
+    const url=String(
+      meta?.thumbnail||
+      meta?.thumbnailUrl||
+      meta?.poster||
+      ""
+    ).trim();
+    if(!/^https?:\/\//i.test(url))return 0;
+
+    return await new Promise(resolve=>{
+      const img=new Image();
+      img.crossOrigin="anonymous";
+      img.decoding="async";
+      img.onload=()=>resolve(detectPillarboxFromImage(img));
+      img.onerror=()=>resolve(0);
+      img.src=url;
+    });
+  }
+
   async function resolveMediaAspect(id,meta=null){
     id=String(id||"").trim();
     if(!id)return 0;
@@ -1067,7 +1141,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(
       cached &&
       cachedRow?.verified===true &&
-      /visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
+      /thumbnail-pillarbox|visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
       cached<.84
     ){
       return cached;
@@ -1087,9 +1161,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(mediaAspectPending.has(id))return mediaAspectPending.get(id);
 
     const task=(async()=>{
+      // 1) FASTEST: inspect the actual visible thumbnail/frame for black
+      // pillarbox bars. This is the same semantic decision as pressing Dọc.
+      try{
+        const thumbRatio=validMediaAspect(await thumbnailContentAspect(meta||{}));
+        if(thumbRatio>0&&thumbRatio<.84){
+          const ratio=rememberMediaAspect(id,thumbRatio,"thumbnail-pillarbox",true);
+          if(String(current?.id||"")===id){
+            commitCurrentAspect(id,ratio,{relayout:true});
+          }
+          return ratio;
+        }
+      }catch{}
+
       const local=await localAspectEngine();
 
-      // 1) FIRST: inspect the visible content itself.
+      // 2) Inspect the visible decoded content itself.
       // If a wide stream contains a portrait picture with black pillarbox
       // bars on both sides, this is the layout signal we want.
       if(typeof local?.visualContentAspect==="function"){
@@ -1120,7 +1207,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
         }catch{}
       }
 
-      // 2) FALLBACK: only when no portrait content box was detected,
+      // 3) FALLBACK: only when no portrait content box was detected,
       // use the real stream/storyboard aspect.
       if(typeof local?.videoAspect==="function"){
         try{
@@ -1197,10 +1284,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       ratio:canonical
     };
 
-    // This is intentionally the SAME state the old Ngang / Dọc proof buttons
-    // selected. Real media now selects it automatically.
-    landscapeBtn.classList.toggle("active",kind==="landscape");
-    portraitBtn.classList.toggle("active",kind==="portrait");
+    // Current media owns this binary layout state directly.
     root.dataset.mediaShape=kind;
     root.style.setProperty("--media-ratio",String(canonical));
 
@@ -1795,6 +1879,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(request!==feedRequest||activePackageScope!==scope||feedMode!=="package")return;
     feedMetas=metas;
     renderSampleContent();
+
+    if(!String(current?.id||"")&&metas[0]?.id){
+      playVideoId(metas[0].id,metas[0]);
+      loadCurrentVideoMeta();
+    }
   }
 
   function prefetchPackages(scopes=[]){
@@ -2093,18 +2182,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     paintText();
   }
   function paintText(){
-    titleEl.textContent=currentMeta?.title || current.label;
-    const portrait=current?.kind==="portrait";
-    const label=portrait?"9:16":"16:9";
-    const shape=portrait?"dọc":"ngang";
-
-    if(isTwoColumn()){
-      layoutHint.textContent="2 cột · "+shape+" · theo media hiện tại.";
-      stateEl.textContent="2 CỘT · MAIN · "+label;
-    }else{
-      layoutHint.textContent="1 cột · "+shape+" · theo media hiện tại.";
-      stateEl.textContent="1 CỘT · "+(pip?"PIP":"MAIN")+" · "+label;
-    }
+    titleEl.textContent=currentMeta?.title||current.label||"";
   }
   function syncPip(){
     if(isTwoColumn()){
@@ -2187,33 +2265,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
       syncPip();
     });
   }
-
-  function select(kind){
-    kind=kind==="portrait"?"portrait":"landscape";
-    const sample=VIDEOS[kind];
-    if(feedMode!=="search"&&feedMode!=="package"){
-      relatedMetas=[];
-      feedMetas=[];
-      feedMode="related";
-    }
-    pip=false;
-    player.classList.remove("pip");
-    stage.classList.remove("pip-host");
-
-    const sampleMeta={
-      id:sample.id,
-      title:sample.label,
-      aspectRatio:sample.ratio,
-      _aspectVerified:true
-    };
-    rememberMediaAspect(sample.id,sample.ratio,"proof",true);
-    playVideoId(sample.id,sampleMeta);
-    loadCurrentVideoMeta();
-    schedulePip();
-  }
-
-  landscapeBtn.addEventListener("click",()=>select("landscape"));
-  portraitBtn.addEventListener("click",()=>select("portrait"));
 
   function openNarrowSearch(){
     setMobileHeaderHidden(false);
@@ -2350,7 +2401,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   mobileHeaderLastY=pageScrollY();
   syncHeaderScrollState();
   syncMobileHeaderVisibility(true);
-  select("landscape");
   loadExistingSourceNames();
   requestAnimationFrame(updateSourceRailArrows);
 })();
