@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>PiP Simple Proof</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  body{min-height:220vh}
+  .top{
+    position:sticky;top:0;z-index:20;height:56px;
+    display:flex;align-items:center;gap:8px;padding:0 10px;
+    background:rgba(15,15,15,.94);backdrop-filter:blur(14px);
+    border-bottom:1px solid rgba(255,255,255,.08)
+  }
+  .top strong{margin-right:auto;font-size:14px}
+  button{
+    height:34px;padding:0 12px;border:1px solid #333;border-radius:9px;
+    background:#202020;color:#fff;font:inherit
+  }
+  button.active{background:#fff;color:#111;border-color:#fff}
+  main{width:min(680px,100%);margin:0 auto}
+  .stage{
+    position:relative;
+    width:100%;
+    aspect-ratio:var(--ratio,16/9);
+    background:#000;
+  }
+  .player{
+    position:absolute;inset:0;
+    width:100%;height:100%;
+    background:#000;
+    overflow:hidden;
+  }
+  .player iframe{
+    display:block;width:100%;height:100%;border:0;background:#000;
+  }
+  .player.pip{
+    position:fixed;
+    inset:auto;
+    z-index:100;
+    width:var(--pip-w,240px);
+    height:var(--pip-h,135px);
+    right:10px;
+    top:calc(66px + env(safe-area-inset-top));
+    border-radius:10px;
+    box-shadow:0 12px 34px rgba(0,0,0,.55);
+  }
+  .player.pip iframe{border-radius:inherit}
+  .info{padding:12px;border-bottom:1px solid #292929}
+  .info b{display:block;font-size:15px;margin-bottom:4px}
+  .info span{color:#999;font-size:12px}
+  .rows{padding:10px}
+  .row{
+    height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
+    display:flex;align-items:center;padding:0 14px;color:#aaa
+  }
+  .state{
+    position:fixed;left:8px;bottom:8px;z-index:150;
+    padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.72);
+    font-size:11px;color:#ddd
+  }
+  @media(min-width:960px){
+    main{width:min(920px,100%)}
+    .player.pip{right:18px;top:74px}
+  }
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <strong>PiP proof · 1 player</strong>
+  <button id="landscapeBtn" class="active">Ngang</button>
+  <button id="portraitBtn">Dọc</button>
+</header>
+
+<main>
+  <section class="stage" id="stage">
+    <div class="player" id="player">
+      <iframe
+        id="videoFrame"
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin">
+      </iframe>
+    </div>
+  </section>
+
+  <div class="info">
+    <b id="videoTitle">Video ngang · 16:9</b>
+    <span>Cuộn xuống: cùng player nổi PiP. Cuộn lên: tự trả về vị trí cũ.</span>
+  </div>
+
+  <div class="rows" id="rows"></div>
+</main>
+
+<div class="state" id="state">MAIN · 16:9</div>
+
+<script>
+(() => {
+  const VIDEOS = {
+    landscape: {
+      id: "ypLlRC_2EFc",
+      ratio: 16/9,
+      label: "Video ngang · 16:9"
+    },
+    portrait: {
+      id: "kUF9P2m9mrg",
+      ratio: 9/16,
+      label: "Video dọc · 9:16"
+    }
+  };
+
+  const top = document.getElementById("top");
+  const stage = document.getElementById("stage");
+  const player = document.getElementById("player");
+  const frame = document.getElementById("videoFrame");
+  const stateEl = document.getElementById("state");
+  const titleEl = document.getElementById("videoTitle");
+  const landscapeBtn = document.getElementById("landscapeBtn");
+  const portraitBtn = document.getElementById("portraitBtn");
+
+  let current = VIDEOS.landscape;
+  let pip = false;
+  let raf = 0;
+
+  function embedUrl(id){
+    return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) +
+      "?autoplay=1&playsinline=1&rel=0&modestbranding=1";
+  }
+
+  function fitPip(ratio){
+    const maxW = Math.min(260, Math.max(150, innerWidth * .44));
+    const maxH = Math.min(360, Math.max(180, innerHeight * .48));
+    let w = maxW;
+    let h = w / ratio;
+    if(h > maxH){
+      h = maxH;
+      w = h * ratio;
+    }
+    document.documentElement.style.setProperty("--pip-w", Math.round(w) + "px");
+    document.documentElement.style.setProperty("--pip-h", Math.round(h) + "px");
+  }
+
+  function paint(){
+    document.documentElement.style.setProperty("--ratio", String(current.ratio));
+    fitPip(current.ratio);
+    titleEl.textContent = current.label;
+    stateEl.textContent = (pip ? "PIP" : "MAIN") + " · " +
+      (current.ratio > 1 ? "16:9" : "9:16");
+  }
+
+  function syncPip(){
+    const shouldPip = stage.getBoundingClientRect().top <= top.getBoundingClientRect().bottom;
+    if(shouldPip === pip) return;
+    pip = shouldPip;
+    player.classList.toggle("pip", pip);
+    paint();
+  }
+
+  function scheduleSync(){
+    if(raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      syncPip();
+    });
+  }
+
+  function select(kind){
+    current = VIDEOS[kind];
+    landscapeBtn.classList.toggle("active", kind === "landscape");
+    portraitBtn.classList.toggle("active", kind === "portrait");
+    frame.src = embedUrl(current.id);
+    paint();
+    scheduleSync();
+  }
+
+  landscapeBtn.addEventListener("click", () => select("landscape"));
+  portraitBtn.addEventListener("click", () => select("portrait"));
+
+  addEventListener("scroll", scheduleSync, {passive:true});
+  addEventListener("resize", () => {
+    fitPip(current.ratio);
+    scheduleSync();
+  }, {passive:true});
+  visualViewport?.addEventListener?.("resize", () => {
+    fitPip(current.ratio);
+    scheduleSync();
+  }, {passive:true});
+
+  const rows = document.getElementById("rows");
+  rows.innerHTML = Array.from({length:14}, (_,i) =>
+    '<div class="row">Nội dung cuộn ' + (i+1) + '</div>'
+  ).join("");
+
+  select("landscape");
+})();
+</script>
+</body>
+</html>
