@@ -7962,6 +7962,16 @@ function youtubeContentRect(player=state.player){
 function syncAspectFromYoutubePlayer(player=state.player){
   if(!player||!state.currentId)return false;
 
+  const expectedId=String(state.currentId||"").trim();
+  let loadedId="";
+  try{
+    const data=player?.getVideoData?.()||{};
+    loadedId=String(data.video_id||data.videoId||"").trim();
+  }catch{}
+  // During loadVideoById() YouTube may briefly keep the previous video's
+  // videoContentRect. Never cache that old shape under the new video id.
+  if(loadedId&&loadedId!==expectedId)return false;
+
   const rect=youtubeContentRect(player);
   if(!rect)return false;
 
@@ -7989,11 +7999,11 @@ function scheduleYoutubeContentAspect(player=state.player){
     syncAspectFromYoutubePlayer(player);
   };
 
-  // videoContentRect is populated by YouTube after playback begins.
+  // videoContentRect is populated asynchronously after playback begins.
+  // Safari and a just-swapped PiP can keep the previous rectangle for longer,
+  // so re-check long enough for the new video's real content box to settle.
   attempt();
-  setTimeout(attempt,90);
-  setTimeout(attempt,260);
-  setTimeout(attempt,700);
+  [90,260,700,1400,2600,4500].forEach(delay=>setTimeout(attempt,delay));
 }
 
 function finishFloatEntry(frame){
@@ -13998,7 +14008,7 @@ async function playVideo(id,seedMeta={}){
   const immediateAspect=
     cachedAspect||
     (seedPortrait?(seedAspect||9/16):0)||
-    habitAspect||
+    (!wasFloating?habitAspect:0)||
     16/9;
 
   state.keepFloating=wasFloating;
@@ -14014,6 +14024,7 @@ async function playVideo(id,seedMeta={}){
   state.videoAspect=immediateAspect;
   state.videoAspectVerified=!!cachedAspect;
   state.videoAspectHabitPrimed=
+    !wasFloating &&
     !cachedAspect &&
     !seedPortrait &&
     !!habitAspect;
