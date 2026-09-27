@@ -7916,79 +7916,47 @@ html.watch-browse body::before{
   }
 }
 
-
 /* ============================================================
-   PIP FIVE SIZES + MEDIA v481
-   Small: X + resize only.
-   Medium / Mid / Large / Full: PiP-owned play/pause, seek and mute.
-   Full fills the safe viewport and cover-crops the media.
+   SIMPLE VIDEO PROGRESS v482
+   MAIN + PiP: one thin seek line only. No media panel, no text, no transport
+   buttons. Played color follows the current video's sampled accent.
    ============================================================ */
-html.watch-minimized .player-frame.floating-iframe .float-media-controls{
-  position:absolute!important;
-  z-index:4!important;
-  left:7px!important;
-  right:7px!important;
-  bottom:7px!important;
-  height:28px!important;
-  min-height:28px!important;
-  display:grid!important;
-  grid-template-columns:24px minmax(36px,1fr) 24px!important;
-  align-items:center!important;
-  gap:6px!important;
-  padding:0 6px!important;
-  border:1px solid rgba(255,255,255,.12)!important;
-  border-radius:9px!important;
-  background:rgba(8,8,10,.64)!important;
-  -webkit-backdrop-filter:blur(8px)!important;
-  backdrop-filter:blur(8px)!important;
-  box-sizing:border-box!important;
+:root{
+  --watch-media-bar-h:6px;
 }
 
-html.watch-minimized .player-frame.floating-iframe.float-size-small .float-media-controls{
-  display:none!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-medium .float-media-controls,
-html.watch-minimized .player-frame.floating-iframe.float-size-mid .float-media-controls,
-html.watch-minimized .player-frame.floating-iframe.float-size-large .float-media-controls,
-html.watch-minimized .player-frame.floating-iframe.float-size-full .float-media-controls{
-  display:grid!important;
-}
-
-html.watch-minimized .float-media-btn{
-  width:24px!important;
-  min-width:24px!important;
-  height:24px!important;
-  min-height:24px!important;
+.watch-media-bar{
+  width:100%!important;
+  height:6px!important;
+  min-height:6px!important;
+  display:block!important;
   padding:0!important;
+  margin:0!important;
   border:0!important;
-  border-radius:6px!important;
-  display:grid!important;
-  place-items:center!important;
   background:transparent!important;
-  color:#fff!important;
-  box-shadow:none!important;
-  -webkit-backdrop-filter:none!important;
-  backdrop-filter:none!important;
+  overflow:visible!important;
 }
 
-html.watch-minimized .float-media-btn .float-overlay-svg,
-html.watch-minimized .float-media-btn .watch-media-control-svg{
-  width:14px!important;
-  height:14px!important;
-}
-
-html.watch-minimized .float-media-progress{
+.watch-media-progress,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress{
   position:relative!important;
   width:100%!important;
-  height:18px!important;
-  min-width:0!important;
+  height:6px!important;
+  min-height:6px!important;
+  display:block!important;
+  padding:0!important;
+  margin:0!important;
+  border:0!important;
+  background:transparent!important;
   cursor:pointer!important;
   touch-action:none!important;
 }
 
-html.watch-minimized .float-media-progress-track,
-html.watch-minimized .float-media-progress-fill{
+.watch-media-progress-track,
+.watch-media-progress-buffered,
+.watch-media-progress-fill,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-track,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
   position:absolute!important;
   left:0!important;
   top:50%!important;
@@ -7998,28 +7966,50 @@ html.watch-minimized .float-media-progress-fill{
   pointer-events:none!important;
 }
 
-html.watch-minimized .float-media-progress-track{
+.watch-media-progress-track,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-track{
   right:0!important;
-  background:rgba(255,255,255,.28)!important;
+  background:rgba(255,255,255,.20)!important;
 }
 
-html.watch-minimized .float-media-progress-fill{
+.watch-media-progress-buffered{
   width:0;
-  background:#898aff!important;
+  background:rgba(255,255,255,.34)!important;
 }
 
-html.watch-minimized .float-media-progress-thumb{
+.watch-media-progress-fill,
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
+  width:0;
+  background:var(--video-progress-accent,#8b8cff)!important;
+}
+
+.watch-media-progress-thumb,
+html.watch-minimized .float-media-progress-thumb,
+.watch-media-bar .watch-media-btn,
+.watch-media-bar .watch-media-time,
+html.watch-minimized .float-media-controls,
+html.watch-minimized .float-media-btn{
+  display:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe > .float-media-progress{
   position:absolute!important;
-  left:0;
-  top:50%!important;
-  width:8px!important;
-  height:8px!important;
-  border-radius:50%!important;
-  transform:translate(-50%,-50%)!important;
-  background:#9697ff!important;
-  pointer-events:none!important;
+  z-index:160!important;
+  left:0!important;
+  right:0!important;
+  bottom:0!important;
+  top:auto!important;
+  pointer-events:auto!important;
 }
 
+/* PiP stays visually clean even while X / resize are revealed. */
+html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+  background:transparent!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+}
+
+/* Full remains the fifth size but still uses exactly the same seek line. */
 html.watch-minimized .player-frame.floating-iframe.float-size-full{
   border-radius:0!important;
   box-shadow:none!important;
@@ -8029,12 +8019,6 @@ html.watch-minimized .player-frame.floating-iframe.float-size-full{
 
 html.watch-minimized .player-frame.floating-iframe.float-size-full .float-player-overlay{
   border-radius:0!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full .float-media-controls{
-  left:max(8px,env(safe-area-inset-left))!important;
-  right:max(8px,env(safe-area-inset-right))!important;
-  bottom:max(8px,env(safe-area-inset-bottom))!important;
 }
 
 html.watch-minimized .player-frame.floating-iframe.float-size-full .watch-swipe-zone{
