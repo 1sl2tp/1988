@@ -8004,21 +8004,24 @@ function watchAutoPipViewport(){
   return width<960 || (coarse&&shortSide>0&&shortSide<=720);
 }
 
-function syncNativeMobileControls(){
+function currentPlayerUiMode(){
+  const root=document.documentElement;
+  if(
+    state.watchMinimized ||
+    root.classList.contains("watch-minimized")
+  )return "pip";
+  return watchAutoPipViewport()?"minimal":"full";
+}
+
+function syncNativePlayerControls(uiMode=currentPlayerUiMode()){
   if(!nativePlayer)return;
 
-  // One-column Watch owns its own minimal transport in BOTH MAIN and PiP.
-  // Native browser chrome must therefore stay out of the picture all the way
-  // through 959px, not only on <=720px phones.
-  const hide=
-    state.engine==="native" &&
-    watchAutoPipViewport();
-
-  nativePlayer.controls=!hide;
-  if(hide){
-    nativePlayer.removeAttribute("controls");
-  }else{
+  const showNativeChrome=state.engine==="native" && uiMode==="full";
+  nativePlayer.controls=showNativeChrome;
+  if(showNativeChrome){
     nativePlayer.setAttribute("controls","");
+  }else{
+    nativePlayer.removeAttribute("controls");
   }
 }
 
@@ -8039,7 +8042,7 @@ function applyFloatingIframe(force){
     !state.currentId ||
     playerSection.hidden
   ){
-    syncNativeMobileControls();
+    syncPlayerUiMode();
 
     // MAIN and PiP are two UI states. The shared media element may return to
     // MAIN, but PiP-only controls must not travel back with it.
@@ -8067,9 +8070,7 @@ function applyFloatingIframe(force){
 
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
-  hideMainMinimalControls();
-  syncMainMinimalControls();
-  syncNativeMobileControls();
+  syncPlayerUiMode();
   state.floatTucked=false;
   state.floatPreset="auto";
 
@@ -8124,7 +8125,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     state.watchPipAway=true;
     state.watchPipEnteredAt=Date.now();
     root.classList.add("watch-minimized");
-    syncNativeMobileControls();
+    syncPlayerUiMode();
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
 
@@ -8155,10 +8156,7 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
-  syncNativeMobileControls();
   applyFloatingIframe(false);
-  ensureMainMinimalControls();
-  syncMainMinimalControls();
   syncWatchBrowseLayout();
   requestAnimationFrame(releaseWatchMediaSlot);
   if(!preserveScroll)hardResetDocumentTop();
@@ -8360,6 +8358,7 @@ function setupFullscreenReturn(){
     requestAnimationFrame(()=>{
       if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
       syncWatchBrowseLayout();
+      syncPlayerUiMode();
       queueResponsivePlayerFrame();
     });
   };
@@ -8421,7 +8420,6 @@ function fallbackIframeVideoToNative(
   state.intentPlay=true;
 
   showNativePlayer();
-  syncNativeMobileControls();
   nativePlayer.playsInline=true;
   nativePlayer.setAttribute("playsinline","");
   nativePlayer.setAttribute("webkit-playsinline","");
@@ -8504,9 +8502,7 @@ function showNativePlayer(){
   ytPlayerHost.hidden=true;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=true;
-  syncNativeMobileControls();
-  ensureMainMinimalControls();
-  syncMainMinimalControls();
+  syncPlayerUiMode();
 }
 
 function showIframePlayer(){
@@ -8515,26 +8511,18 @@ function showIframePlayer(){
   ytPlayerHost.hidden=false;
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=false;
-  syncNativeMobileControls();
-  syncYoutubeIframeControlsForViewport();
-  ensureMainMinimalControls();
-  syncMainMinimalControls();
+  syncPlayerUiMode();
 }
 
 window.addEventListener("resize",()=>{
-  syncNativeMobileControls();
-  syncYoutubeIframeControlsForViewport();
-  syncMainMinimalControls();
+  syncPlayerUiMode();
 },{passive:true});
 window.visualViewport?.addEventListener?.("resize",()=>{
-  syncNativeMobileControls();
-  syncYoutubeIframeControlsForViewport();
+  syncPlayerUiMode();
 },{passive:true});
 window.addEventListener("orientationchange",()=>{
   requestAnimationFrame(()=>{
-    syncNativeMobileControls();
-    syncYoutubeIframeControlsForViewport();
-    syncMainMinimalControls();
+    syncPlayerUiMode();
   });
 },{passive:true});
 
@@ -12275,8 +12263,8 @@ function updateMediaSession(meta=state.currentMeta||{}){
 let youtubeIframeControlsMode=null;
 let youtubeIframeControlsRestore=null;
 
-function desiredYoutubeIframeControlsMode(){
-  return watchAutoPipViewport()?0:1;
+function desiredYoutubeIframeControlsMode(uiMode=currentPlayerUiMode()){
+  return uiMode==="full"?1:0;
 }
 
 function ensureYoutubePlayerHost(){
@@ -12334,23 +12322,47 @@ function rebuildYoutubeIframeForControls(nextMode){
   return initYouTubePlayer();
 }
 
-function syncYoutubeIframeControlsForViewport(){
-  const desired=desiredYoutubeIframeControlsMode();
-  if(youtubeIframeControlsMode===null||desired===youtubeIframeControlsMode)return;
-  rebuildYoutubeIframeForControls(desired);
+function syncYoutubeIframeControlsForUiMode(uiMode=currentPlayerUiMode()){
+  const desired=desiredYoutubeIframeControlsMode(uiMode);
+  if(youtubeIframeControlsMode===null||desired===youtubeIframeControlsMode)return false;
+  return rebuildYoutubeIframeForControls(desired);
+}
+
+function syncPlayerUiMode(){
+  if(
+    state.watchMinimized &&
+    !watchAutoPipViewport() &&
+    !isPlayerFullscreen()
+  ){
+    setWatchMinimized(false,{preserveScroll:true});
+    return currentPlayerUiMode();
+  }
+
+  const uiMode=currentPlayerUiMode();
+  const root=document.documentElement;
+  const frame=playerSection?.querySelector(".player-frame");
+
+  root.dataset.playerUiMode=uiMode;
+  if(frame)frame.dataset.playerUiMode=uiMode;
+
+  syncNativePlayerControls(uiMode);
+  syncYoutubeIframeControlsForUiMode(uiMode);
+  ensureMainMinimalControls();
+  syncMainMinimalControls(frame,uiMode);
+  if(uiMode==="pip")hideMainMinimalControls(frame);
+
+  return uiMode;
 }
 
 let watchMainControlsTimer=0;
 let watchMainUiLocked=false;
 let watchMainPseudoFullscreen=false;
 
-function mainMinimalControlsEnabled(){
+function mainMinimalControlsEnabled(uiMode=currentPlayerUiMode()){
   const root=document.documentElement;
   return (
-    watchAutoPipViewport() &&
+    uiMode==="minimal" &&
     root.classList.contains("watch-browse") &&
-    !root.classList.contains("watch-minimized") &&
-    !state.watchMinimized &&
     !playerSection?.hidden &&
     !!state.currentId
   );
@@ -12383,10 +12395,10 @@ function mainPlayerMuted(){
   try{return !!state.player?.isMuted?.();}catch{return false;}
 }
 
-function syncMainMinimalControls(frame=playerSection?.querySelector(".player-frame")){
+function syncMainMinimalControls(frame=playerSection?.querySelector(".player-frame"),uiMode=currentPlayerUiMode()){
   if(!frame)return;
 
-  const enabled=mainMinimalControlsEnabled();
+  const enabled=mainMinimalControlsEnabled(uiMode);
   frame.classList.toggle("watch-main-minimal",enabled);
   frame.classList.toggle("watch-main-locked",enabled&&watchMainUiLocked);
   frame.classList.toggle("watch-main-pseudo-fullscreen",enabled&&watchMainPseudoFullscreen);
@@ -13684,7 +13696,7 @@ async function playVideo(id,seedMeta={}){
   ensureMainMinimalControls();
   // Activate the final watch+browse layout immediately when a video opens.
   syncWatchBrowseLayout();
-  syncMainMinimalControls();
+  syncPlayerUiMode();
   if(!wasFloating)applyFloatingIframe(false);
 
   // First mobile Watch entry always starts at the true top. Reset the document,
