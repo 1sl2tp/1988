@@ -52,3 +52,16 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Các branch thử nghiệm cũ chỉ còn là lịch sử ref, không chạy workflow và không tham gia runtime.
 - Dữ liệu tự động tiếp tục do Supabase đảm nhiệm: cron `yt1988-refresh-every-minute` → `yt1988-refresh` → `yt1988_packages`.
 - Kiểm tra sau khi dọn: package `live/latest/week` vẫn cập nhật bình thường; workflow production run #2083 SUCCESS.
+
+
+## 2026-09-28 — Chuẩn hóa policy đóng gói server
+
+- Rà toàn bộ package hiện tại: không còn title/source chỉ là số, không còn exact duplicate sau chuẩn hóa, không còn title bắt đầu lặp đúng tên kênh.
+- Tăng semantic dedupe cho title ngắn/cùng nguồn và giữ bảo vệ tập/episode khác nhau.
+- Dọn tên kênh khỏi đầu title ngay ở server, kể cả trường hợp không có dấu `-/:|`.
+- Bổ sung chặn title/source rác hoặc chỉ số trước khi ghi package.
+- English-only chỉ lọc ở các feed hệ thống `live/latest/week`; các nguồn nội dung được chọn như Nhạc/Phim/Review không bị xóa mù quáng.
+- Chuẩn hóa blacklist LIVE thành từng keyword/phrase riêng và áp dụng cho cả LIVE tìm ngoài lẫn LIVE từ kênh đã chọn.
+- `general` blocked channel được áp dụng toàn bộ scope; blocked theo scope vẫn được giữ riêng.
+- Mọi package bắt buộc có channel display name hợp lệ trước khi publish.
+- Pipeline versions: `live-v34`, `non-live-v12`.
