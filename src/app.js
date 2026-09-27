@@ -7373,22 +7373,11 @@ function explicitVideoAspect(meta={}){
 let responsivePlayerRaf=0;
 
 function responsivePlayerAspect(meta=state.currentMeta||{}){
-  // Opening geometry may come from the remembered habit of THIS channel.
-  // Card rows often only know a 16:9 thumbnail ratio; that is not real video
-  // evidence and must not flash the player back to landscape before the actual
-  // per-video probe finishes.
   const locked=validPipAspect(state.videoAspect);
   const explicit=explicitVideoAspect(meta);
-  const explicitRank=aspectEvidenceRank(meta);
 
-  if(
-    state.videoAspectHabitPrimed &&
-    locked &&
-    explicitRank===0
-  )return locked;
-
-  // Once a verified portrait video turns the player vertical, keep that
-  // portrait lock authoritative against weaker later metadata.
+  // Once this exact video has been verified as portrait, keep that lock
+  // authoritative against weaker metadata. No channel/tab habit participates.
   if(state.videoAspectPortraitLocked&&locked&&locked<.80)return locked;
 
   return explicit||
@@ -8025,6 +8014,11 @@ function watchBrowseViewportSupported(){
 function cleanupFloatingForBrowse(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
+
+  const staleOuterFloat=
+    playerSection?.classList.contains("watch-pip-floating-section")||
+    playerSection?.style.position==="fixed";
+
   if(frame.classList.contains("floating-iframe")){
     frame.classList.remove(
       "floating-iframe","float-tucked","dock-left","dock-right",
@@ -8032,6 +8026,15 @@ function cleanupFloatingForBrowse(){
     );
     state.floatTucked=false;
     clearFloatBoxStyles();
+  }
+
+  // PiP geometry lives on playerSection, not only on .player-frame.
+  // Always release those fixed width/height/top/left styles before MAIN owns
+  // the player again, otherwise they can stick to either desktop two-column
+  // Watch or the narrow one-column layout.
+  if(!state.watchMinimized&&staleOuterFloat){
+    releaseWatchMediaSlot();
+  }else{
     playerSection.style.removeProperty("min-height");
   }
 }
@@ -8043,8 +8046,8 @@ function setWatchBrowseLayout(active){
   watchBrowseMutating=true;
 
   // Switching browsing layout must never move the document scroll position.
-  // First normalize any legacy floating-player state, then only toggle CSS.
-  if(active)cleanupFloatingForBrowse();
+  // Normalize stale PiP geometry only when MAIN is the intended state.
+  if(active&&!state.watchMinimized)cleanupFloatingForBrowse();
 
   watchBrowseActive=active;
   document.documentElement.classList.toggle("watch-browse",active);
@@ -14015,7 +14018,6 @@ async function playVideo(id,seedMeta={}){
     _watchScope:clean(seedMeta?._watchScope||currentPlaybackScope)
   };
   const stablePackageDisplay=seedMeta?._trustedPackage===true;
-  const habitAspect=rememberedVideoAspect(playbackMeta);
 
   // Search results can already carry a strong portrait/Shorts hint.
   // Use that hint immediately so every viewport starts from the best known
@@ -14027,7 +14029,6 @@ async function playVideo(id,seedMeta={}){
   const immediateAspect=
     cachedAspect||
     (seedPortrait?(seedAspect||9/16):0)||
-    (!wasFloating?habitAspect:0)||
     16/9;
 
   state.keepFloating=wasFloating;
@@ -14042,11 +14043,9 @@ async function playVideo(id,seedMeta={}){
   state.currentMeta=playbackMeta;
   state.videoAspect=immediateAspect;
   state.videoAspectVerified=!!cachedAspect;
-  state.videoAspectHabitPrimed=
-    !wasFloating &&
-    !cachedAspect &&
-    !seedPortrait &&
-    !!habitAspect;
+  // A new video never inherits geometry from the previous channel/tab.
+  // Until this exact video's real aspect is known, use the neutral 16:9 shell.
+  state.videoAspectHabitPrimed=false;
   state.videoAspectPortraitLocked=
     (!!cachedAspect&&cachedAspect<.80) ||
     (!cachedAspect&&seedPortrait);
