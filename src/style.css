@@ -6047,19 +6047,20 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     pointer-events:none!important;
   }
 
-  /* Inline media: one scrollable top row = device safe-top + actual video.
-     The video itself aligns to the bottom of this row, therefore starts exactly
-     below the notch/Dynamic Island without stealing height from the page foot. */
+  /* Inline media has NO hidden-header row. The document itself contributes
+     exactly one safe-top inset, and row 1 is only the real video height.
+     This prevents the old watch-top-row/header height from being counted again. */
   html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) body{
+    padding-top:var(--safe-top)!important;
     grid-template-rows:
-      calc(var(--safe-top) + var(--watch-stage-h,56.25vw))
+      var(--watch-stage-h,56.25vw)
       auto
       auto!important;
   }
 
   html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) .player-section{
     grid-row:1!important;
-    align-self:end!important;
+    align-self:start!important;
     position:relative!important;
     top:auto!important;
     width:100%!important;
@@ -6096,12 +6097,12 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     grid-row:3!important;
   }
 
-  /* Once PiP owns the media, preserve the original inline row including the
-     safe-top. It remains ordinary document content and simply scrolls away;
-     the visible feed can then occupy the full physical viewport. */
+  /* Once PiP owns the media, the page becomes full-bleed again. PiP itself
+     owns safe-area placement, so the document must not reserve safe-top/header. */
   html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    padding-top:0!important;
     grid-template-rows:
-      calc(var(--safe-top) + var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw)))
+      var(--watch-inline-slot-h,var(--watch-stage-h,56.25vw))
       auto
       auto!important;
   }
@@ -6109,8 +6110,8 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
   html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
   .watch-pip-anchor:not([hidden]){
     grid-row:1!important;
-    align-self:end!important;
-    margin-top:var(--safe-top)!important;
+    align-self:start!important;
+    margin-top:0!important;
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
