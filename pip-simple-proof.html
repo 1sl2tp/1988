@@ -223,7 +223,7 @@ html.one-col body{min-height:220vh}
   -webkit-tap-highlight-color:transparent;
   transition:background-color .15s cubic-bezier(.05,0,0,1);
 }
-.source-chip:first-child{margin-left:24px}
+.source-name-chips .source-chip:first-child{margin-left:24px}
 .source-chip:last-of-type{margin-right:0}
 .source-name-chips .source-chip:last-child{margin-right:0}
 .source-chip:hover{background:rgba(255,255,255,.20)}
@@ -758,7 +758,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     </div>
     <div class="source-scroll" id="sourceScroll">
       <div class="source-chips" id="sourceChips">
-        <button class="source-chip active" data-filter="all">Tất cả</button>
         <span class="source-name-chips" id="sourceNameChips"></span>
         <button id="landscapeBtn" class="source-chip proof-mode-switch active" hidden>Ngang</button>
         <button id="portraitBtn" class="source-chip proof-mode-switch" hidden>Dọc</button>
@@ -1202,11 +1201,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function renderExistingSourceNames(rows=[]){
     if(!sourceNameChips)return;
-    sourceNameChips.innerHTML=(Array.isArray(rows)?rows:[]).map(row=>
-      '<button class="source-chip" data-source-tab="'+escapeHtml(row.key)+'">'+
+    const list=Array.isArray(rows)?rows.filter(row=>row?.key&&row?.label):[];
+    sourceNameChips.innerHTML=list.map((row,index)=>
+      '<button class="source-chip'+(index===0?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
         escapeHtml(row.label)+
       '</button>'
     ).join("");
+    sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
     requestAnimationFrame(updateSourceRailArrows);
   }
 
@@ -1229,13 +1230,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   sourceScroll?.addEventListener("scroll",updateSourceRailArrows,{passive:true});
 
   async function loadExistingSourceNames(){
-    // Start with the three canonical tabs immediately, then replace with the
-    // real saved labels/hashtags from the same server state used by the app.
-    renderExistingSourceNames([
-      {key:"live",label:"Live"},
-      {key:"latest",label:"Ngày"},
-      {key:"week",label:"Tuần"}
-    ]);
+    sourceNameChips.innerHTML="";
 
     try{
       const response=await fetch(SOURCE_STATE_URL,{cache:"no-store"});
@@ -1243,10 +1238,19 @@ html.one-col .player.pip iframe{border-radius:inherit}
       const payload=await response.json();
       const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
       const rows=existingSourceTabNames(remote);
-      if(rows.length)renderExistingSourceNames(rows);
-    }catch(_){
-      // Keep the canonical names already rendered.
-    }
+      if(rows.length){
+        renderExistingSourceNames(rows);
+        return;
+      }
+    }catch(_){}
+
+    // Network-only fallback: never invent "Tất cả"; preserve the canonical
+    // source order from Live onward.
+    renderExistingSourceNames([
+      {key:"live",label:"Live"},
+      {key:"latest",label:"Ngày"},
+      {key:"week",label:"Tuần"}
+    ]);
   }
 
   function renderSampleContent(){
@@ -1530,9 +1534,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   });
 
   sourcebar.addEventListener("click",event=>{
-    const chip=event.target.closest(".source-chip");
-    if(!chip || chip===landscapeBtn || chip===portraitBtn)return;
-    sourcebar.querySelectorAll(".source-chip:not(.proof-mode-switch)").forEach(x=>x.classList.remove("active"));
+    const chip=event.target.closest(".source-chip[data-source-tab]");
+    if(!chip)return;
+    sourceNameChips.querySelectorAll(".source-chip[data-source-tab]").forEach(x=>x.classList.remove("active"));
     chip.classList.add("active");
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
