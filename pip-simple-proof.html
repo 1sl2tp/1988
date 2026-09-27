@@ -768,11 +768,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
   margin-top:2px;
   color:var(--yt-text-secondary);
   font:400 14px/20px Roboto,"Arial",sans-serif;
+}
+.info-meta-line{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+.info-source{
+  min-width:0;
+  flex:1 1 auto;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-.info-meta:empty{display:none}
+.info-facts{
+  flex:0 0 auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.info-meta-sep{
+  flex:0 0 auto;
+  opacity:.9;
+}
+.info-meta-line:empty{display:none}
 .info-menu{
   width:40px;
   height:40px;
@@ -897,11 +919,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
   margin-top:2px;
   color:var(--yt-text-secondary);
   font:400 14px/20px Roboto,"Arial",sans-serif;
+}
+.row-meta-line{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  overflow:hidden;
+  white-space:nowrap;
+}
+.row-source{
+  min-width:0;
+  flex:1 1 auto;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-.row-meta:empty{display:none}
+.row-facts{
+  flex:0 0 auto;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.row-meta-sep{
+  flex:0 0 auto;
+  opacity:.9;
+}
+.row-meta-line:empty{display:none}
 .row-menu{
   width:40px;
   height:40px;
@@ -994,8 +1038,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
         <span id="videoAvatarSlot"></span>
         <div class="info-copy">
           <div class="info-title" id="videoTitle"></div>
-          <div class="info-meta" id="videoSource"></div>
-          <div class="info-meta" id="videoFacts"></div>
+          <div class="info-meta info-meta-line" id="videoMetaLine">
+            <span class="info-source" id="videoSource"></span>
+            <span class="info-meta-sep" id="videoMetaSep">·</span>
+            <span class="info-facts" id="videoFacts"></span>
+          </div>
         </div>
         <button class="info-menu" id="videoMenu" aria-label="Thao tác khác" title="Thao tác khác">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>
@@ -1032,6 +1079,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const videoAvatarSlot=document.getElementById("videoAvatarSlot");
   const videoSourceEl=document.getElementById("videoSource");
   const videoFactsEl=document.getElementById("videoFacts");
+  const videoMetaSep=document.getElementById("videoMetaSep");
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
   const searchInput=document.getElementById("searchInput");
@@ -2251,6 +2299,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     titleEl.textContent=title;
     videoSourceEl.textContent=source+(meta.verified?" ✓":"");
     videoFactsEl.textContent=facts;
+    if(videoMetaSep)videoMetaSep.hidden=!(source&&facts);
     syncVideoDocumentIdentity({push:false});
 
     const avatar=String(meta.sourceAvatar||"").trim();
@@ -2297,8 +2346,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
           avatarMarkup(meta)+
           '<div class="row-copy">'+
             '<div class="row-title">'+escapeHtml(title)+'</div>'+
-            '<div class="row-meta">'+escapeHtml(source)+verified+'</div>'+
-            '<div class="row-meta">'+escapeHtml(facts)+'</div>'+
+            '<div class="row-meta row-meta-line">'+
+              '<span class="row-source">'+escapeHtml(source)+verified+'</span>'+
+              ((source&&facts)?'<span class="row-meta-sep">·</span>':"")+
+              (facts?'<span class="row-facts">'+escapeHtml(facts)+'</span>':"")+
+            '</div>'+
           '</div>'+
           '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>'+
