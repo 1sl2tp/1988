@@ -734,6 +734,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .info{
   padding:12px 16px 16px;
   border-bottom:1px solid #292929;
+  container-type:inline-size;
+  container-name:media-card;
 }
 .info-details{
   display:grid;
@@ -771,27 +773,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .info-meta-line{
   min-width:0;
-  display:flex;
-  align-items:center;
-  gap:3px;
-  overflow:hidden;
-  white-space:nowrap;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:0;
+  overflow:visible;
 }
-.info-source{
-  min-width:0;
-  flex:1 1 auto;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
+.info-source,
 .info-facts{
-  flex:0 0 auto;
+  min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 .info-meta-sep{
-  flex:0 0 auto;
+  display:none;
   opacity:.9;
 }
 .info-meta-line:empty{display:none}
@@ -825,6 +820,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   position:relative;
   margin:0;
   padding-bottom:24px;
+  container-type:inline-size;
+  container-name:media-card;
   min-width:0;
   background:transparent;
   overflow:visible;
@@ -922,28 +919,20 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .row-meta-line{
   min-width:0;
-  display:flex;
-  align-items:center;
-  gap:3px;
-  overflow:hidden;
-  white-space:nowrap;
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:0;
+  overflow:visible;
 }
-.row-source{
-  min-width:0;
-  flex:1 1 auto;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
+.row-source,
 .row-facts{
-  min-width:max-content;
-  flex:0 0 auto;
+  min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 .row-meta-sep{
-  flex:0 0 auto;
+  display:none;
   opacity:.9;
 }
 .row-meta-line:empty{display:none}
@@ -969,6 +958,31 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .row:focus-within .row-menu{opacity:1}
 @media(hover:none){
   .row-menu{opacity:1}
+}
+
+
+@container media-card (min-width:360px){
+  .row-meta-line,
+  .info-meta-line{
+    display:flex;
+    align-items:center;
+    gap:3px;
+    overflow:hidden;
+    white-space:nowrap;
+  }
+  .row-source,
+  .info-source{
+    flex:1 1 auto;
+  }
+  .row-facts,
+  .info-facts{
+    flex:0 0 auto;
+  }
+  .row-meta-sep,
+  .info-meta-sep{
+    display:inline;
+    flex:0 0 auto;
+  }
 }
 
 .state{display:none}
