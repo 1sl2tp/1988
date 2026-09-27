@@ -197,6 +197,8 @@
   let current = VIDEOS.landscape;
   let pip = false;
   let raf = 0;
+  let stableMainViewportW = Math.max(1, innerWidth || 1);
+  let stableMainViewportH = Math.max(1, innerHeight || document.documentElement.clientHeight || 1);
 
   function embedUrl(id){
     return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) +
@@ -207,9 +209,23 @@
     return Math.max(1, Number(visualViewport?.height) || innerHeight || 1);
   }
 
+  function refreshStableMainViewport(force=false){
+    const nextW=Math.max(1,innerWidth||1);
+    const widthChanged=Math.abs(nextW-stableMainViewportW)>2;
+    if(force||widthChanged){
+      stableMainViewportW=nextW;
+      stableMainViewportH=Math.max(
+        1,
+        innerHeight||document.documentElement.clientHeight||1
+      );
+      return true;
+    }
+    return false;
+  }
+
   function measureMain(){
     const headerBottom=Math.max(0,top.getBoundingClientRect().bottom);
-    const availableH=Math.max(220,viewportHeight()-headerBottom-(twoColumn()?14:0));
+    const availableH=Math.max(220,stableMainViewportH-headerBottom-(twoColumn()?14:0));
     const viewportW=Math.max(1,innerWidth||1);
     const oneColW=Math.max(1,Math.min(680,viewportW));
     const desktopMaxW=Math.max(360,Math.min(viewportW*.48,620));
@@ -303,10 +319,14 @@
     return matchMedia("(min-width:960px)").matches;
   }
 
-  function paint(){
+  function paint({measure=true}={}){
     document.documentElement.style.setProperty("--ratio", String(current.ratio));
-    measureMain();
-    fitPip(current.ratio);
+
+    if(measure){
+      measureMain();
+      fitPip(current.ratio);
+    }
+
     titleEl.textContent = current.label;
 
     if(twoColumn()){
@@ -329,7 +349,7 @@
         pip = false;
         player.classList.remove("pip");
       }
-      paint();
+      paint({measure:false});
       return;
     }
 
@@ -347,7 +367,7 @@
       pip = shouldPip;
       player.classList.toggle("pip", pip);
     }
-    paint();
+    paint({measure:false});
   }
 
   function scheduleSync(){
@@ -363,7 +383,8 @@
     landscapeBtn.classList.toggle("active", kind === "landscape");
     portraitBtn.classList.toggle("active", kind === "portrait");
     frame.src = embedUrl(current.id);
-    paint();
+    refreshStableMainViewport(true);
+    paint({measure:true});
     scheduleSync();
   }
 
@@ -371,12 +392,22 @@
   portraitBtn.addEventListener("click", () => select("portrait"));
 
   addEventListener("scroll", scheduleSync, {passive:true});
+
   addEventListener("resize", () => {
-    fitPip(current.ratio);
+    // Chrome mobile fires height-only resize while its URL bar expands/collapses.
+    // Ignore that for MAIN geometry; width/breakpoint changes are real layout changes.
+    const mainChanged=refreshStableMainViewport(false);
+    if(mainChanged){
+      paint({measure:true});
+    }else if(pip){
+      fitPip(current.ratio);
+    }
     scheduleSync();
   }, {passive:true});
+
   visualViewport?.addEventListener?.("resize", () => {
-    fitPip(current.ratio);
+    // Visual viewport can breathe during scroll. Only PiP may follow it.
+    if(pip)fitPip(current.ratio);
     scheduleSync();
   }, {passive:true});
 
