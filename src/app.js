@@ -5784,10 +5784,31 @@ async function localEngine(timeoutMs=15000){
 }
 
 const pipAspectPrimeCache=new Map();
+const PIP_STANDARD_ASPECTS=[
+  1,
+  4/3,3/4,
+  5/4,4/5,
+  3/2,2/3,
+  16/10,10/16,
+  16/9,9/16,
+  21/9,9/21
+];
+const PIP_ASPECT_SNAP_TOLERANCE=.05;
 
 function validPipAspect(value){
   const ratio=Number(value)||0;
-  return Number.isFinite(ratio)&&ratio>=.34&&ratio<=2.6?ratio:0;
+  if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
+
+  let nearest=ratio;
+  let nearestDelta=Infinity;
+  for(const standard of PIP_STANDARD_ASPECTS){
+    const delta=Math.abs(standard-ratio);
+    if(delta<nearestDelta){
+      nearest=standard;
+      nearestDelta=delta;
+    }
+  }
+  return nearestDelta<=PIP_ASPECT_SNAP_TOLERANCE?nearest:ratio;
 }
 
 function cachedPipAspect(id){
@@ -6059,6 +6080,7 @@ function releaseWatchMediaSlot(){
   playerSection?.style.removeProperty("margin");
   playerSection?.style.removeProperty("padding");
   playerSection?.style.removeProperty("overflow");
+  playerSection?.style.removeProperty("aspect-ratio");
 
   if(anchor){
     anchor.hidden=true;
@@ -6266,6 +6288,7 @@ function placeCompactWatchPip(
   playerSection.style.setProperty("left",left+"px","important");
   playerSection.style.setProperty("width",size.width+"px","important");
   playerSection.style.setProperty("height",size.height+"px","important");
+  playerSection.style.setProperty("aspect-ratio",String(ratio),"important");
   playerSection.style.setProperty("min-width","0","important");
   playerSection.style.setProperty("min-height","0","important");
   // scaledAutoFloatSize() already fits BOTH axes with one scale factor.
@@ -6285,6 +6308,7 @@ function placeCompactWatchPip(
   frame.style.setProperty("left","0","important");
   frame.style.setProperty("width","100%","important");
   frame.style.setProperty("height","100%","important");
+  frame.style.setProperty("aspect-ratio",String(ratio),"important");
   frame.style.setProperty("max-width","100%","important");
   frame.style.setProperty("max-height","100%","important");
   frame.style.setProperty("margin","0","important");
@@ -6295,7 +6319,7 @@ function placeCompactWatchPip(
     top,
     width:size.width,
     height:size.height,
-    ratio:currentFloatingAspect()
+    ratio
   };
 }
 
@@ -6953,14 +6977,13 @@ function rememberVideoAspectHabit(meta={},ratio=0){
   }catch{}
 }
 
-function autoFloatSize(frame,ratio=state.videoAspect||16/9){
+function autoFloatSize(frame,ratio=currentFloatingAspect()){
   const viewportW=Math.max(240,window.innerWidth);
   const viewportH=Math.max(180,window.innerHeight);
   const mobile=mobileMiniViewport();
   const compact=watchAutoPipViewport();
 
-  ratio=Number(ratio)||16/9;
-  ratio=Math.max(.34,Math.min(2.6,ratio));
+  ratio=validPipAspect(ratio)||16/9;
 
   // One-column Watch uses a bounded PiP box for every source shape. Portrait
   // remains portrait, but it can never grow into the full-height player zone.
@@ -7299,7 +7322,7 @@ function restoreFloatBox(){
   frame.classList.toggle("float-tucked",state.floatTucked);
 
   if(!state.floatUserSized){
-    const ratio=state.videoAspect||16/9;
+    const ratio=currentFloatingAspect();
     const size=scaledAutoFloatSize(frame,ratio);
     placeAutoFloatAtEdge(frame,size);
     return;
@@ -7312,8 +7335,9 @@ function restoreFloatBox(){
     return;
   }
 
+  const ratio=currentFloatingAspect();
   const width=Math.max(150,Math.min(Number(box.width)||240,window.innerWidth-16));
-  const height=Math.max(112,Math.min(Number(box.height)||width/(state.videoAspect||16/9),window.innerHeight-16));
+  const height=Math.max(112,Math.min(Number(box.height)||width/ratio,window.innerHeight-16));
   const left=Math.max(8,Math.min(window.innerWidth-width-8,box.left));
   const top=Math.max(8,Math.min(window.innerHeight-height-8,box.top));
   frame.style.width=width+"px";
@@ -7349,8 +7373,7 @@ function explicitVideoAspect(meta={}){
   let ratio=Number(meta?.aspectRatio)||0;
 
   if(width>0&&height>0)ratio=width/height;
-  if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
-  return ratio;
+  return validPipAspect(ratio);
 }
 
 let responsivePlayerRaf=0;
@@ -7418,34 +7441,33 @@ function syncFloatingPlayerViewport(
   const apply=()=>{
     if(!frame.isConnected||!frame.classList.contains("floating-iframe"))return;
 
+    const ratio=currentFloatingAspect();
     const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
     const host=frame.querySelector("#yt-player");
     const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
       node&&list.indexOf(node)===index
     );
-    const frameWidth=Math.max(1,frame.clientWidth||frame.getBoundingClientRect().width||1);
-    const frameHeight=Math.max(1,frame.clientHeight||frame.getBoundingClientRect().height||1);
 
-    const mediaWidth=frameWidth+2;
-    const mediaHeight=frameHeight+2;
-    const mediaLeft=-1;
-    const mediaTop=-1;
+    // Wrapper owns the geometry. Media never grows past it and never uses
+    // pixel compensation. This mirrors the robust Plyr pattern: one aspect
+    // ratio on the wrapper, media at 100% x 100%.
+    frame.style.setProperty("aspect-ratio",String(ratio),"important");
+    frame.style.setProperty("overflow","hidden","important");
 
     for(const node of nodes){
-      const mediaNode=node===iframe||node===nativePlayer;
       node.style.setProperty("position","absolute","important");
-      node.style.setProperty("top",mediaNode?mediaTop+"px":"0px","important");
-      node.style.setProperty("right","auto","important");
-      node.style.setProperty("bottom","auto","important");
-      node.style.setProperty("left",mediaNode?mediaLeft+"px":"0px","important");
-      node.style.setProperty("width",mediaNode?mediaWidth+"px":"100%","important");
-      node.style.setProperty("height",mediaNode?mediaHeight+"px":"100%","important");
+      node.style.setProperty("top","0","important");
+      node.style.setProperty("right","0","important");
+      node.style.setProperty("bottom","0","important");
+      node.style.setProperty("left","0","important");
+      node.style.setProperty("width","100%","important");
+      node.style.setProperty("height","100%","important");
       node.style.setProperty("max-width","none","important");
       node.style.setProperty("max-height","none","important");
       node.style.setProperty("margin","0","important");
+      node.style.setProperty("padding","0","important");
       node.style.setProperty("border","0","important");
       node.style.setProperty("background","transparent","important");
-      node.style.setProperty("overflow","visible","important");
       node.style.setProperty("transform","none","important");
       node.style.setProperty("transform-origin","center center","important");
       if(node===nativePlayer){
@@ -7454,8 +7476,8 @@ function syncFloatingPlayerViewport(
     }
 
     if(iframe){
-      iframe.setAttribute("width",String(Math.max(1,Math.round(mediaWidth))));
-      iframe.setAttribute("height",String(Math.max(1,Math.round(mediaHeight))));
+      iframe.removeAttribute("width");
+      iframe.removeAttribute("height");
     }
   };
 
