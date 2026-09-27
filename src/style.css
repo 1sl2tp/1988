@@ -8358,8 +8358,7 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
    Media = one live element: inline on narrow layouts, sticky right on wide,
    and the very same element becomes PiP only after the inline slot scrolls out.
    ============================================================ */
-html.watch-browse,
-html.watch-browse body{
+html.watch-browse{
   height:auto!important;
   min-height:100%!important;
   max-height:none!important;
@@ -8370,7 +8369,12 @@ html.watch-browse body{
 
 html.watch-browse body{
   display:block!important;
+  height:auto!important;
   min-height:100dvh!important;
+  max-height:none!important;
+  overflow-x:hidden!important;
+  overflow-y:visible!important;
+  overscroll-behavior-y:auto!important;
   padding-bottom:var(--safe-bottom)!important;
   background:var(--bg)!important;
 }
