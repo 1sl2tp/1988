@@ -479,7 +479,7 @@ assert.match(app,/function pipFullViewportRect\(/);
 assert.match(app,/visualViewport/);
 assert.match(app,/function fullCoverVideoAspect\(/);
 assert.match(app,/state\.videoAspectVerified/);
-assert.match(app,/pipSizeKey\(\)==="full"\?fullCoverVideoAspect\(\):currentFloatingAspect\(\)/);
+assert.match(app,/const ratio=fullCover\?fullCoverVideoAspect\(\):currentFloatingAspect\(\)/);
 assert.match(app,/pipSizeKey\(\)==="full"\?["']hidden["']:["']visible["']/);
 assert.match(style,/PIP FULL VISUAL COVER v483/);
 assert.match(style,/\.float-size-full \.float-overlay-scale[\s\S]{0,260}top:max\(8px,env\(safe-area-inset-top\)\)!important/);
