@@ -4449,6 +4449,7 @@ body::-webkit-scrollbar-corner,
     grid-template-columns:minmax(0,1fr)!important;
     grid-template-rows:
       var(--watch-stage-h,56.25vw)
+      auto
       auto!important;
     align-content:start!important;
     overflow-y:auto!important;
@@ -4469,7 +4470,7 @@ body::-webkit-scrollbar-corner,
   }
 
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
-    grid-row:2!important;
+    grid-row:3!important;
     height:auto!important;
     min-height:0!important;
     max-height:none!important;
