@@ -8349,3 +8349,240 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
     transform:none!important;
   }
 }
+
+
+/* ============================================================
+   SINGLE SURFACE WORKSPACE v490
+   Header/search/sources = one floating chrome surface.
+   Document = the only vertical scroller.
+   Media = one live element: inline on narrow layouts, sticky right on wide,
+   and the very same element becomes PiP only after the inline slot scrolls out.
+   ============================================================ */
+html.watch-browse,
+html.watch-browse body{
+  height:auto!important;
+  min-height:100%!important;
+  max-height:none!important;
+  overflow-x:hidden!important;
+  overflow-y:auto!important;
+  overscroll-behavior-y:auto!important;
+}
+
+html.watch-browse body{
+  display:block!important;
+  min-height:100dvh!important;
+  padding-bottom:var(--safe-bottom)!important;
+  background:var(--bg)!important;
+}
+
+/* One floating chrome parent: children never become independent fixed strips. */
+html.watch-browse .app-header{
+  display:block!important;
+  position:sticky!important;
+  top:0!important;
+  left:auto!important;
+  right:auto!important;
+  z-index:120!important;
+  width:100%!important;
+  height:auto!important;
+  margin:0!important;
+  transform:none!important;
+  pointer-events:auto!important;
+  background:rgba(11,11,12,.88)!important;
+  border-bottom:1px solid rgba(255,255,255,.075)!important;
+  box-shadow:0 10px 28px rgba(0,0,0,.18)!important;
+  backdrop-filter:blur(18px) saturate(118%)!important;
+  -webkit-backdrop-filter:blur(18px) saturate(118%)!important;
+}
+
+html.watch-browse .header-inner,
+html.watch-browse .header-nav{
+  position:relative!important;
+  inset:auto!important;
+  transform:none!important;
+}
+
+html.watch-browse .app-shell{
+  display:block!important;
+  width:min(1260px,100%)!important;
+  max-width:1260px!important;
+  height:auto!important;
+  min-height:0!important;
+  margin:0 auto!important;
+  padding:10px 14px calc(24px + var(--safe-bottom))!important;
+  overflow:visible!important;
+}
+
+/* MAIN owns an ordinary slot. No nested scrolling and no fixed geometry here. */
+html.watch-browse .player-section:not(.watch-pip-floating-section){
+  position:relative!important;
+  inset:auto!important;
+  display:block!important;
+  width:100%!important;
+  max-width:100%!important;
+  height:auto!important;
+  min-height:0!important;
+  max-height:none!important;
+  margin:0 0 8px!important;
+  padding:0!important;
+  overflow:visible!important;
+  isolation:isolate!important;
+  background:transparent!important;
+}
+
+html.watch-browse .player-section:not(.watch-pip-floating-section) .player-card{
+  width:100%!important;
+  height:auto!important;
+  min-height:0!important;
+  margin:0!important;
+  padding:0!important;
+  overflow:visible!important;
+  background:transparent!important;
+}
+
+html.watch-browse .player-section:not(.watch-pip-floating-section)
+.player-frame:not(.floating-iframe){
+  position:relative!important;
+  inset:auto!important;
+  width:var(--watch-player-width,100%)!important;
+  max-width:100%!important;
+  height:var(--watch-player-height,auto)!important;
+  max-height:none!important;
+  margin:0 auto!important;
+  aspect-ratio:var(--watch-video-aspect,16/9)!important;
+  overflow:hidden!important;
+  background:#000!important;
+}
+
+html.watch-browse .feed-section{
+  position:relative!important;
+  inset:auto!important;
+  width:100%!important;
+  max-width:none!important;
+  height:auto!important;
+  min-height:0!important;
+  margin:0!important;
+  overflow:visible!important;
+  overscroll-behavior-y:auto!important;
+  scrollbar-gutter:auto!important;
+  -webkit-overflow-scrolling:auto!important;
+}
+
+html.watch-browse .feed{
+  width:100%!important;
+  max-width:none!important;
+}
+
+/* The anchor only preserves the original MAIN slot while the same player floats. */
+html.watch-browse .watch-pip-anchor:not([hidden]){
+  display:block!important;
+  width:100%!important;
+  min-width:0!important;
+  margin:0!important;
+  padding:0!important;
+  pointer-events:none!important;
+  background:transparent!important;
+}
+
+/* Narrow viewport = one column. */
+@media(max-width:959px){
+  html.watch-browse .app-shell{
+    width:100%!important;
+    max-width:none!important;
+    padding:8px 0 calc(20px + var(--safe-bottom))!important;
+  }
+
+  html.watch-browse .trend-topics{
+    margin-inline:10px!important;
+  }
+
+  html.watch-browse .player-section:not(.watch-pip-floating-section){
+    width:100%!important;
+    margin:0!important;
+  }
+
+  html.watch-browse .player-section:not(.watch-pip-floating-section)
+  .player-frame:not(.floating-iframe){
+    max-width:100vw!important;
+    border-radius:0!important;
+  }
+
+  html.watch-browse .selected-video-info{
+    margin-inline:10px!important;
+  }
+
+  html.watch-browse .feed-section{
+    padding:0 10px!important;
+  }
+
+  html.watch-browse.watch-video-portrait,
+  html.watch-browse.watch-video-portrait body,
+  html.watch-browse.watch-video-portrait .feed-section{
+    height:auto!important;
+    min-height:0!important;
+    overflow:visible!important;
+  }
+}
+
+/* Wide viewport = two columns. Media stays visible in the right column, so no PiP. */
+@media(min-width:960px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) minmax(360px,var(--watch-player-column-w,48vw))!important;
+    grid-template-rows:auto auto 1fr!important;
+    grid-template-areas:
+      "trend trend"
+      "feed player"
+      "feed selected"!important;
+    column-gap:14px!important;
+    row-gap:8px!important;
+    align-items:start!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .trend-topics{
+    grid-area:trend!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    grid-area:feed!important;
+    width:100%!important;
+    max-width:none!important;
+    padding:0 0 18px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section:not(.watch-pip-floating-section){
+    grid-area:player!important;
+    position:sticky!important;
+    top:calc(var(--header-stack-h) + var(--safe-top) + 10px)!important;
+    align-self:start!important;
+    justify-self:stretch!important;
+    width:100%!important;
+    max-width:100%!important;
+    padding:0!important;
+    margin:0!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-video-info{
+    grid-area:selected!important;
+    align-self:start!important;
+    width:100%!important;
+    max-width:100%!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .player-section:not(.watch-pip-floating-section)
+  .player-frame:not(.floating-iframe){
+    width:var(--watch-player-width,100%)!important;
+    max-width:100%!important;
+    margin-inline:auto!important;
+  }
+
+  html.watch-browse .watch-pip-anchor{
+    display:none!important;
+  }
+
+  html.watch-browse.watch-search-open .app-shell,
+  html.watch-browse.watch-search-results .app-shell{
+    display:block!important;
+  }
+}
