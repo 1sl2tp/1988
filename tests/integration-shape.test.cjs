@@ -492,11 +492,20 @@ assert.match(app,/return nearestDelta<=PIP_ASPECT_SNAP_TOLERANCE\?nearest:ratio/
 assert.match(app,/function explicitVideoAspect\([\s\S]{0,260}return validPipAspect\(ratio\)/);
 assert.match(app,/playerSection\.style\.setProperty\("aspect-ratio",String\(ratio\),"important"\)/);
 assert.match(app,/frame\.style\.setProperty\("aspect-ratio",String\(ratio\),"important"\)/);
-assert.match(app,/iframe\.removeAttribute\("width"\)[\s\S]{0,80}iframe\.removeAttribute\("height"\)/);
+assert.match(app,/function youtubeFloatingRenderBox\(/);
+assert.match(app,/const minEmbedSide=200/);
+assert.match(app,/minEmbedSide\/visualWidth/);
+assert.match(app,/minEmbedSide\/visualHeight/);
+assert.match(app,/iframe\.setAttribute\("width",String\(Math\.ceil\(renderBox\.layoutWidth\)\)\)/);
+assert.match(app,/iframe\.setAttribute\("height",String\(Math\.ceil\(renderBox\.layoutHeight\)\)\)/);
+assert.match(app,/onPlaybackQualityChange\(event\)/);
 assert.doesNotMatch(app,/frameWidth\+2/);
 assert.doesNotMatch(app,/frameHeight\+2/);
 assert.doesNotMatch(app,/mediaLeft=-1/);
 assert.doesNotMatch(app,/mediaTop=-1/);
 assert.match(style,/CANONICAL PIP MEDIA SURFACE v486/);
+assert.match(style,/PIP CLEAN BLACK SURFACE v487/);
+assert.match(style,/\.floating-iframe::before\{[\s\S]{0,220}display:none!important[\s\S]{0,220}filter:none!important/);
+
 assert.match(style,/\.floating-iframe iframe,[\s\S]{0,260}width:100%!important[\s\S]{0,120}height:100%!important/);
 
