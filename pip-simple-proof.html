@@ -1022,17 +1022,38 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return validMediaAspect(row?.value);
   }
 
+  function mediaAspectSourceRank(source=""){
+    source=String(source||"");
+    if(source==="iframe-content-rect")return 100;
+    if(/frame-pillarbox|visualContentAspect/.test(source))return 90;
+    if(source==="thumbnail-pillarbox")return 80;
+    if(/video-metadata|resolved-stream/.test(source))return 70;
+    if(source==="videoAspect")return 60;
+    if(source==="short")return 50;
+    if(source==="input")return 20;
+    return 10;
+  }
+
   function rememberMediaAspect(id,ratio,source="",verified=false){
     id=String(id||"").trim();
     ratio=validMediaAspect(ratio);
+    source=String(source||"");
     if(!id||!ratio)return 0;
 
     const previous=mediaAspectCache.get(id);
-    if(previous?.verified===true&&!verified)return previous.value;
+    if(previous){
+      const previousRank=mediaAspectSourceRank(previous.source);
+      const nextRank=mediaAspectSourceRank(source);
+
+      // The actual rectangle reported by the current YouTube player is final
+      // for this media id. Lower probes may never flip it afterward.
+      if(previousRank>nextRank)return previous.value;
+      if(previous?.verified===true&&!verified)return previous.value;
+    }
 
     mediaAspectCache.set(id,{
       value:ratio,
-      source:String(source||""),
+      source,
       verified:verified===true,
       at:Date.now()
     });
@@ -1139,11 +1160,21 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const cached=validMediaAspect(cachedRow?.value);
     const cachedSource=String(cachedRow?.source||"");
 
-    // A previously detected real content box (pillarbox/frame content) is final.
+    // YouTube's own current content rectangle is the final source of truth.
     if(
       cached &&
       cachedRow?.verified===true &&
-      /iframe-content-rect|thumbnail-pillarbox|visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
+      cachedSource==="iframe-content-rect"
+    ){
+      return cached;
+    }
+
+    // Before the player rect exists, a detected portrait content box is a
+    // strong provisional answer.
+    if(
+      cached &&
+      cachedRow?.verified===true &&
+      /thumbnail-pillarbox|visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
       cached<.84
     ){
       return cached;
@@ -1194,6 +1225,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
           );
 
           if(visualRatio>0&&visualRatio<.84){
+            const playerRow=mediaAspectCache.get(id);
+            if(playerRow?.source==="iframe-content-rect")return playerRow.value;
             const ratio=rememberMediaAspect(
               id,
               visualRatio,
@@ -1224,17 +1257,23 @@ html.one-col .player.pip iframe{border-radius:inherit}
           );
 
           if(ratio){
-            rememberMediaAspect(
+            const playerRow=mediaAspectCache.get(id);
+            if(playerRow?.source==="iframe-content-rect")return playerRow.value;
+
+            const kept=rememberMediaAspect(
               id,
               ratio,
               dimensions?.source||"videoAspect",
               true
             );
 
-            if(String(current?.id||"")===id){
-              commitCurrentAspect(id,ratio,{relayout:true});
+            if(
+              String(current?.id||"")===id &&
+              mediaAspectCache.get(id)?.source!=="iframe-content-rect"
+            ){
+              commitCurrentAspect(id,kept,{relayout:true});
             }
-            return ratio;
+            return kept;
           }
         }catch{}
       }
@@ -1480,13 +1519,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const rect=youtubeContentRect(player);
     if(!rect)return false;
 
-    rememberMediaAspect(
+    const ratio=rememberMediaAspect(
       current.id,
       rect.aspectRatio,
       "iframe-content-rect",
       true
     );
-    commitCurrentAspect(current.id,rect.aspectRatio,{relayout:true});
+    commitCurrentAspect(current.id,ratio,{relayout:true});
     return true;
   }
 
