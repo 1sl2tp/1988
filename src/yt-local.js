@@ -82,7 +82,10 @@ function thumbnailInfo(node,id){
     [];
   const list=Array.isArray(rows)?rows:[rows];
   const usable=list.filter(Boolean);
-  const best=usable.find(item=>Number(item?.width)>0&&Number(item?.height)>0)||usable[0]||null;
+  const measured=usable
+    .filter(item=>Number(item?.width)>0&&Number(item?.height)>0)
+    .sort((a,b)=>(Number(b.width)*Number(b.height))-(Number(a.width)*Number(a.height)));
+  const best=measured[0]||usable[0]||null;
   const url=best?.url||node?.thumbnailUrl||node?.thumbnail_url||('https://i.ytimg.com/vi/'+id+'/hqdefault.jpg');
   const width=Number(best?.width)||0;
   const height=Number(best?.height)||0;
