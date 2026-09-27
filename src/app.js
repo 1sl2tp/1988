@@ -7434,7 +7434,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     );
     const gridGap=14;
     const scrollGutter=10;
-    const feedPadLeft=10;
+    const feedPadLeft=12;
     const feedPadRight=22;
     const feedChrome=feedPadLeft+feedPadRight+scrollGutter;
     const desktopOrientation=aspectOrientation(ratio);
