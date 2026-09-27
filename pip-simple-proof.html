@@ -13,7 +13,7 @@
   --current-full-h:600px;
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
-  --portrait-radius:10px;
+  --floating-radius:10px;
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh}
@@ -59,15 +59,35 @@ main{width:min(680px,100%);max-width:100%;margin:0 auto}
 }
 
 
-/* PORTRAIT SHARED: same rounding, no outer black in MAIN / PiP / 2-col. */
-html.portrait .stage{
-  border-radius:var(--portrait-radius);
+/* VISUAL RULES BY MODE
+   MAIN 1-col = square + no outer black
+   PiP = rounded + no outer black
+   2-col = rounded panel; landscape may letterbox inside, portrait has no black */
+html.one-col .stage,
+html.one-col .player,
+html.one-col .player iframe{
+  border-radius:0;
+}
+
+html.one-col.portrait .stage,
+html.one-col.portrait .player,
+html.one-col.portrait .player iframe,
+html.one-col.landscape .stage,
+html.one-col.landscape .player,
+html.one-col.landscape .player iframe{
   background:transparent;
 }
-html.portrait .player,
-html.portrait .player iframe{
-  border-radius:var(--portrait-radius);
+
+html.one-col .player.pip,
+html.one-col .player.pip iframe{
+  border-radius:var(--floating-radius);
   background:transparent;
+}
+
+html.two-col .stage,
+html.two-col .player,
+html.two-col .player iframe{
+  border-radius:var(--floating-radius);
 }
 
 /* 1 COLUMN MAIN
@@ -109,7 +129,8 @@ html.one-col .player.pip{
   inset:auto !important;
   right:10px !important;
   top:calc(var(--top-boundary) + 8px) !important;
-  border-radius:var(--portrait-radius);
+  border-radius:var(--floating-radius);
+  background:transparent;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
 html.one-col.landscape .player.pip{
@@ -168,13 +189,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
   html.two-col.landscape .stage{
     width:100%;
     height:100%;
+    border-radius:var(--floating-radius);
     background:#000;
+    overflow:hidden;
   }
-  html.two-col.landscape .player{
+  html.two-col.landscape .player,
+  html.two-col.landscape .player iframe{
     inset:0;
     width:100%;
     height:100%;
     transform:none;
+    background:#000;
   }
 
   /* 2-col portrait:
@@ -187,15 +212,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
     width:100%;
     height:100%;
     aspect-ratio:9/16;
-    border-radius:var(--portrait-radius);
+    border-radius:var(--floating-radius);
     background:transparent;
     overflow:hidden;
   }
-  html.two-col.portrait .player{
+  html.two-col.portrait .player,
+  html.two-col.portrait .player iframe{
     inset:0;
     width:100%;
     height:100%;
     transform:none;
+    background:transparent;
   }
 }
 .info{padding:12px;border-bottom:1px solid #292929}
