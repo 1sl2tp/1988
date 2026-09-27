@@ -7947,6 +7947,10 @@ function applyFloatingIframe(force){
   frame.classList.toggle("dock-right",state.floatDock!=="left");
   frame.classList.remove("float-tucked","float-view-square","float-view-portrait");
 
+  // Build the PiP interaction layer before any state sync.
+  // Previously ensureFloatHandles() existed but was never called, so the
+  // overlay/buttons/drag surface were absent in the live DOM.
+  ensureFloatHandles();
   updateFloatingAmbient(frame);
   if(watchAutoPipViewport()){
     if(state.floatTucked) dockCompactPipToEdge(state.floatDock,{instant:true});
@@ -8052,171 +8056,65 @@ function setupWatchMinimizeGesture(){
     zone.setAttribute("aria-hidden","true");
     frame.appendChild(zone);
 
-    let miniDrag=null;
-    let suppressMiniClickUntil=0;
+    let press=null;
+    let lastTapAt=0;
 
     zone.addEventListener("pointerdown",event=>{
       if(!state.watchMinimized||event.isPrimary===false)return;
-      // Mobile PiP has one stable home: top-right. Tapping reveals controls;
-      // dragging is deliberately disabled so page scrolling never fights PiP.
-      if(mobileMiniViewport())return;
-      const rect=frame.getBoundingClientRect();
-      const safe=floatingSafeInsets();
-      const gap=4;
-
-      miniDrag={
+      press={
         pointerId:event.pointerId,
-        startX:event.clientX,
-        startY:event.clientY,
-        left:rect.left,
-        top:rect.top,
-        width:rect.width,
-        height:rect.height,
-        dx:0,
-        dy:0,
-        moved:false,
-        raf:0,
-        minDx:gap-rect.left,
-        maxDx:window.innerWidth-gap-rect.width-rect.left,
-        minDy:safe.top+gap-rect.top,
-        maxDy:window.innerHeight-safe.bottom-gap-rect.height-rect.top
+        x:event.clientX,
+        y:event.clientY,
+        moved:false
       };
-
-      zone.classList.add("is-dragging");
-      frame.classList.add("mini-dragging");
       try{zone.setPointerCapture?.(event.pointerId)}catch{}
     });
 
     zone.addEventListener("pointermove",event=>{
-      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
+      if(!press||press.pointerId!==event.pointerId)return;
+      const dx=event.clientX-press.x;
+      const dy=event.clientY-press.y;
+      if(!press.moved&&Math.hypot(dx,dy)<5)return;
 
-      let dx=event.clientX-miniDrag.startX;
-      let dy=event.clientY-miniDrag.startY;
-      if(!miniDrag.moved&&Math.hypot(dx,dy)<5)return;
+      // Same model as the supplied sample: once movement is intentional,
+      // the PiP surface itself owns the drag and later snaps/docks/closes.
+      press.moved=true;
+      const startEvent={
+        pointerId:event.pointerId,
+        clientX:press.x,
+        clientY:press.y,
+        preventDefault:()=>event.preventDefault(),
+        stopPropagation:()=>event.stopPropagation()
+      };
+      press=null;
+      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
+      startFloatMove(startEvent,frame);
+    },{passive:false});
 
-      miniDrag.moved=true;
-      state.floatUserMoved=true;
-      dx=Math.max(miniDrag.minDx,Math.min(miniDrag.maxDx,dx));
-      dy=Math.max(miniDrag.minDy,Math.min(miniDrag.maxDy,dy));
-      miniDrag.dx=dx;
-      miniDrag.dy=dy;
-
-      if(!miniDrag.raf){
-        const drag=miniDrag;
-        drag.raf=requestAnimationFrame(()=>{
-          if(miniDrag!==drag)return;
-          drag.raf=0;
-          frame.style.setProperty(
-            "transform",
-            "translate3d("+drag.dx+"px,"+drag.dy+"px,0)",
-            "important"
-          );
-        });
-      }
-
-      event.preventDefault();
-    });
-
-    const clearMiniDragVisual=drag=>{
-      if(drag?.raf)cancelAnimationFrame(drag.raf);
-      frame.style.removeProperty("transform");
-      frame.classList.remove("mini-dragging");
-      zone.classList.remove("is-dragging");
-    };
-
-    const finishMiniDrag=event=>{
-      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
-
-      const drag=miniDrag;
-      const moved=drag.moved;
-      miniDrag=null;
-
-      clearMiniDragVisual(drag);
+    zone.addEventListener("pointerup",event=>{
+      if(!press||press.pointerId!==event.pointerId)return;
+      const tap=press;
+      press=null;
       try{zone.releasePointerCapture?.(event.pointerId)}catch{}
 
-      if(moved){
-        suppressMiniClickUntil=Date.now()+420;
-        // Commit once after the gesture, then snap to the nearest side and
-        // make that side the single source of truth. This prevents floatBox
-        // coordinates from disagreeing with floatDock after a drag.
-        const movedLeft=drag.left+drag.dx;
-        const movedTop=drag.top+drag.dy;
-        const centerX=movedLeft+drag.width/2;
-        const gap=mobileMiniViewport()?10:4;
-        state.floatDock=centerX<window.innerWidth/2?"left":"right";
-        const snappedLeft=state.floatDock==="left"
-          ?gap
-          :window.innerWidth-drag.width-gap;
-
-        placeFloatingAt(frame,{
-          left:snappedLeft,
-          top:movedTop,
-          width:drag.width,
-          height:drag.height,
-          ratio:currentFloatingAspect()
-        });
-        syncFloatingPlayerViewport(frame,{settle:true});
-        frame.classList.toggle("dock-left",state.floatDock==="left");
-        frame.classList.toggle("dock-right",state.floatDock!=="left");
-        updateFloatControlState(frame);
-      }else if(state.watchMinimized){
-        setWatchMinimized(false);
-      }
-    };
-
-    zone.addEventListener("pointerup",finishMiniDrag);
-
-    // A pointer sequence can be cancelled immediately after the floating
-    // layer is created. Keep an ordinary click fallback for the first tap.
-    zone.addEventListener("click",event=>{
-      if(Date.now()<suppressMiniClickUntil)return;
-
-      // In one-column inline Watch this layer is the browser-neutral scroll
-      // bridge above the cross-origin player. A simple tap keeps normal video
-      // behaviour by toggling playback; the bottom YouTube control strip stays
-      // uncovered and remains native.
-      if(!state.watchMinimized){
-        if(!watchAutoPipViewport())return;
-        event.preventDefault();
-        event.stopPropagation();
-        if(floatPlaybackActive())pauseVideoEngine();
-        else playVideoEngine();
-        return;
-      }
-
+      if(tap.moved)return;
       event.preventDefault();
       event.stopPropagation();
-      if(watchAutoPipViewport()){
-        showFloatOverlayControls(frame);
-        return;
-      }
-      setWatchMinimized(false);
-    });
-    let lastMiniTapAt=0;
-    zone.addEventListener("dblclick",event=>{
-      if(!state.watchMinimized||!watchAutoPipViewport())return;
-      event.preventDefault();
-      event.stopPropagation();
-      toggleCompactPipSize(frame);
-    });
-    zone.addEventListener("touchend",event=>{
-      if(!state.watchMinimized||!watchAutoPipViewport())return;
+
       const now=Date.now();
-      if(now-lastMiniTapAt<280){
-        event.preventDefault();
-        event.stopPropagation();
-        lastMiniTapAt=0;
+      if(now-lastTapAt<280){
+        lastTapAt=0;
         toggleCompactPipSize(frame);
         return;
       }
-      lastMiniTapAt=now;
-    },{passive:false});
+      lastTapAt=now;
+      showFloatOverlayControls(frame);
+    });
 
     zone.addEventListener("pointercancel",event=>{
-      if(!miniDrag||miniDrag.pointerId!==event.pointerId)return;
-      const drag=miniDrag;
-      miniDrag=null;
-      clearMiniDragVisual(drag);
+      if(!press||press.pointerId!==event.pointerId)return;
+      press=null;
+      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
     });
   }
 
