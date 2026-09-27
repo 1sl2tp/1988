@@ -2374,12 +2374,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
       ? feedMetas
       : [meta.id?meta:{...meta,id:current.id,title:current.label}];
 
+    // A feed render is authoritative. Never re-apply stale search text here;
+    // otherwise clicking a source can load correctly but all new cards stay hidden.
     rows.innerHTML=cards.slice(0,18).map(cardMarkup).join("");
-    applySearchFilter();
   }
 
   function applySearchFilter(){
     const q=(searchInput?.value||"").trim().toLowerCase();
+
+    // Local typing filter only affects what is currently on screen.
+    // Switching source replaces the DOM and therefore exits this local filter.
     document.querySelectorAll(".row").forEach(card=>{
       const hay=(card.dataset.title||"")+" "+(card.dataset.source||"");
       card.hidden=!!q && !hay.includes(q);
@@ -2617,10 +2621,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
   sourcebar.addEventListener("click",event=>{
     const chip=event.target.closest(".source-chip[data-source-tab]");
     if(!chip)return;
+
     sourceNameChips.querySelectorAll(".source-chip[data-source-tab]").forEach(x=>x.classList.remove("active"));
     chip.classList.add("active");
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
+
+    // Source selection is independent from search state.
+    feedMode="package";
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
 
