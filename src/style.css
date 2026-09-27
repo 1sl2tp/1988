@@ -8270,3 +8270,30 @@ html.watch-minimized .player-frame.floating-iframe .float-mode-btn svg{
 html.watch-minimized .player-frame.floating-iframe > .float-media-progress .float-media-progress-fill{
   background:var(--video-progress-accent,#8b8cff)!important;
 }
+
+
+/* ============================================================
+   YOUTUBE-LIKE SAMPLED CARD HOVER
+   Same hue as media progress, mixed softly into #0f0f0f.
+   No coloured outline or glow.
+   ============================================================ */
+@media (hover:hover) and (pointer:fine) and (min-width:760px){
+  .feed>.card.desktop-accent-hover::before{
+    opacity:1!important;
+    border:0!important;
+    border-color:transparent!important;
+    background:var(--desktop-card-accent,#171717)!important;
+    box-shadow:none!important;
+    transition:
+      opacity .20s cubic-bezier(.4,0,.2,1),
+      background-color .20s cubic-bezier(.4,0,.2,1)!important;
+  }
+
+  .feed>.card.desktop-accent-hover .thumb-wrap{
+    box-shadow:none!important;
+  }
+
+  .feed>.card.desktop-accent-hover .card-copy{
+    background:transparent!important;
+  }
+}
