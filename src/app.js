@@ -14379,7 +14379,7 @@ function handleYoutubeAutoplayBlocked(){
   state.transitionUntil=0;
   syncMainMinimalControls();
   showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
-  statusText.textContent="Chạm nút phát để bắt đầu video";
+  statusText.textContent="Chạm vào video để bắt đầu phát";
 }
 
 function initYouTubePlayer(){
