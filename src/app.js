@@ -7643,9 +7643,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   if(!frame.classList.contains("floating-iframe"))syncMobileInlinePlayerViewport();
 
   const sourceRatio=responsivePlayerAspect(meta);
-  // One-column Watch is one rule everywhere below 960px: narrow desktop web,
-  // mobile web and installed PWA all use the same 16:9 inline slot + auto PiP.
-  // >=960px is the two-column desktop player and follows the real media shape.
+  // Desktop one-card Watch is <=640px; real mobile remains mobile by input mode.
+  // Wider desktop layouts keep MAIN visible and follow the real media shape.
   const compactOneColumn=desktopWatchOneColumn();
   const desktopResponsive=!compactOneColumn;
   const ratio=desktopResponsive ? sourceRatio : 16/9;
@@ -8361,7 +8360,9 @@ function mobileBrowserViewport(){
 }
 
 function desktopWatchOneColumn(){
-  return window.matchMedia?.("(max-width:959px)")?.matches===true;
+  // Keep this identical to the actual desktop card-grid breakpoint:
+  // >640px still has at least two recommendation cards per row.
+  return window.matchMedia?.("(max-width:640px)")?.matches===true;
 }
 
 function mobileMiniViewport(){
@@ -8369,15 +8370,12 @@ function mobileMiniViewport(){
 }
 
 function watchAutoPipViewport(){
+  // Real mobile/touch keeps the mobile PiP behaviour regardless of orientation
+  // or reported CSS width.
   if(mobileBrowserViewport())return true;
 
-  // Desktop web enters auto-PiP only in the real one-column layout (<=959px).
-  // Once PiP is already open, keep it alive through the 960px boundary and
-  // rejoin MAIN only after 1000px. This hysteresis prevents close/reopen churn
-  // while the user drags the browser width across the breakpoint.
-  if(state.watchMinimized){
-    return window.matchMedia?.("(max-width:999px)")?.matches===true;
-  }
+  // Desktop web only auto-floats when the recommendation grid itself has
+  // collapsed to one card per row. At two cards or more, MAIN owns the player.
   return desktopWatchOneColumn();
 }
 
