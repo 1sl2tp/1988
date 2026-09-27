@@ -2155,6 +2155,32 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return out;
   }
 
+  function hydrateCurrentMetaFromPackage(metas=[]){
+    const id=String(current?.id||"").trim();
+    if(!id)return false;
+
+    const packageMeta=(Array.isArray(metas)?metas:[])
+      .find(meta=>String(meta?.id||"").trim()===id);
+    if(!packageMeta)return false;
+
+    // Package/server metadata is the canonical list record. A direct video
+    // lookup may have filled extra fields, but it must not leave avatar/name
+    // blank when the package already knows them.
+    currentMeta=mergeSelectedMeta(
+      packageMeta,
+      currentMeta||{}
+    );
+
+    if(currentMeta?.title){
+      current.label=currentMeta.title;
+    }
+
+    renderCurrentInfo();
+    applyHeaderTint(currentMeta);
+    syncVideoDocumentIdentity({push:false});
+    return true;
+  }
+
   async function loadPackageManifest(){
     try{
       const response=await fetch(PACKAGE_SYNC_URL,{cache:"no-store"});
@@ -2175,7 +2201,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
     scope=String(scope||"").trim();
     if(!scope)return [];
 
-    if(!force&&packageCache.has(scope))return packageCache.get(scope);
+    if(!force&&packageCache.has(scope)){
+      const cached=packageCache.get(scope);
+      hydrateCurrentMetaFromPackage(cached);
+      return cached;
+    }
     if(packagePending.has(scope))return packagePending.get(scope);
 
     const task=(async()=>{
@@ -2192,6 +2222,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
           : [];
         const metas=packageMetas(items);
         packageCache.set(scope,metas);
+
+        // Important for deep links: the video may have started from
+        // YT1988_API.video(id) before its source package finished loading.
+        // As soon as any package containing this id arrives, hydrate the
+        // canonical channel avatar/name/title from that package.
+        hydrateCurrentMetaFromPackage(metas);
+
         return metas;
       }catch(_){
         return packageCache.get(scope)||[];
