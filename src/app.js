@@ -8788,6 +8788,7 @@ function setActiveChip(name,{behavior="auto"}={}){
       // clipped/jumping tab seen on mobile.
       revealTopicChip(activeButton,{behavior});
       updateTopicRailEdges();
+      if(selectedVideoInfo&&!selectedVideoInfo.hidden)syncSelectedTopicRail();
       syncWatchUtilityState();
     });
   }
@@ -12119,9 +12120,8 @@ function renderSelectedVideoInfo(meta={}){
 
   const bits=[];
   if(channel)bits.push(channel);
-  if(media.viewsLabel)bits.push(media.viewsLabel);
   if(media.published)bits.push(media.published);
-  if(media.duration)bits.push(fmtDuration(media.duration));
+  if(media.viewsLabel)bits.push(media.viewsLabel);
   if(selectedVideoMeta)selectedVideoMeta.textContent=bits.join(" · ");
 
   if(selectedVideoAvatarFallback){
