@@ -6776,3 +6776,155 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     box-shadow:none!important;
   }
 }
+
+
+/* ============================================================
+   TAB-STYLE SOURCE NAV v466
+   GitHub-like hierarchy: fixed primary modes, then lightweight text tabs.
+   Selection is underline + text emphasis, not filled chips.
+   ============================================================ */
+@media(max-width:720px){
+  :root{
+    --topic-control-h:31px;
+    --topic-live-w:31px;
+    --topic-live-icon-size:16px;
+    --topic-tab-underline:#f1f1f2;
+  }
+
+  html:not(.watch-browse) .topic-chips{
+    gap:0!important;
+    padding:5px 0!important;
+    align-items:center!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="live"]{
+    left:0!important;
+    width:31px!important;
+    min-width:31px!important;
+    height:31px!important;
+    min-height:31px!important;
+    margin-right:5px!important;
+    border:1px solid rgba(242,13,58,.30)!important;
+    border-radius:7px!important;
+    background:rgba(242,13,58,.025)!important;
+    color:var(--media-red)!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="live"].active{
+    border-color:rgba(242,13,58,.45)!important;
+    background:rgba(242,13,58,.055)!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"],
+  html:not(.watch-browse) .topic-chip[data-feed="week"]{
+    position:sticky!important;
+    z-index:8!important;
+    width:auto!important;
+    min-width:0!important;
+    height:31px!important;
+    min-height:31px!important;
+    padding:0 10px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:var(--mobile-chrome-surface,#0b0b0c)!important;
+    color:#b7b7bd!important;
+    font-size:11.5px!important;
+    font-weight:560!important;
+    line-height:31px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"]{
+    left:36px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="week"]{
+    left:87px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"]::after,
+  html:not(.watch-browse) .topic-chip[data-feed="week"]::after{
+    content:"";
+    position:absolute;
+    left:9px;
+    right:9px;
+    bottom:0;
+    height:2px;
+    border-radius:999px;
+    background:transparent;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"].active,
+  html:not(.watch-browse) .topic-chip[data-feed="week"].active{
+    color:#fff!important;
+    font-weight:650!important;
+    background:var(--mobile-chrome-surface,#0b0b0c)!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"].active::after,
+  html:not(.watch-browse) .topic-chip[data-feed="week"].active::after{
+    background:var(--topic-tab-underline)!important;
+  }
+
+  html:not(.watch-browse) .topic-divider{
+    left:137px!important;
+    width:1px!important;
+    height:18px!important;
+    margin:0 5px 0 4px!important;
+    background:rgba(255,255,255,.10)!important;
+    box-shadow:5px 0 8px rgba(11,11,12,.82)!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject{
+    height:31px!important;
+    min-height:31px!important;
+    padding:0 7px!important;
+    margin:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    color:#aaaab1!important;
+    font-size:11px!important;
+    font-weight:450!important;
+    line-height:31px!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject.active{
+    color:#fff!important;
+    font-weight:540!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject::after{
+    left:7px!important;
+    right:7px!important;
+    bottom:0!important;
+    height:2px!important;
+    border-radius:999px!important;
+    background:transparent!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject.active::after{
+    background:var(--topic-tab-underline)!important;
+  }
+
+  html:not(.watch-browse) .live-chip-icon{
+    width:16px!important;
+    height:16px!important;
+    transform:none!important;
+  }
+
+  html:not(.watch-browse) .topic-divider + .topic-chip.topic-subject{
+    margin-left:0!important;
+  }
+
+  /* The fixed cluster now ends at ~143px, so horizontal reveal starts after it. */
+  html:not(.watch-browse) .topic-chips{
+    scroll-padding-left:146px!important;
+  }
+}
