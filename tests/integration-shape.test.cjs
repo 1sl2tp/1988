@@ -197,9 +197,9 @@ assert.match(app,/return watchAutoPipViewport\(\)\?["']minimal["']:["']full["']/
 assert.match(app,/function syncPlayerUiMode\(/);
 assert.match(app,/state\.watchMinimized\s*&&\s*!watchAutoPipViewport\(\)[\s\S]{0,180}setWatchMinimized\(false,\{preserveScroll:true\}\)/);
 assert.match(app,/const uiMode=currentPlayerUiMode\(\)/);
-assert.match(app,/syncNativePlayerControls\(uiMode\)/);
+assert.match(app,/syncNativePlayerControls\(\)/);
 assert.match(app,/syncYoutubeIframeControlsForUiMode\(uiMode\)/);
-assert.match(app,/syncMainMinimalControls\([^\n]*uiMode/);
+assert.match(app,/function syncMainMinimalControls\([\s\S]{0,120}uiMode/);
 assert.match(app,/window\.addEventListener\("resize",\(\)=>\{\s*syncPlayerUiMode\(\)/);
 assert.match(app,/visualViewport\?\.addEventListener\?\.\("resize",\(\)=>\{\s*syncPlayerUiMode\(\)/);
 assert.match(app,/orientationchange[\s\S]{0,140}syncPlayerUiMode\(\)/);
