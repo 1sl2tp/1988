@@ -5964,42 +5964,49 @@ function watchPageScrollY(){
   );
 }
 
+function watchPipAnchor(){
+  let anchor=document.getElementById("watchPipAnchor");
+  if(anchor||!playerSection?.parentNode)return anchor;
+
+  anchor=document.createElement("div");
+  anchor.id="watchPipAnchor";
+  anchor.className="watch-pip-anchor";
+  anchor.hidden=true;
+  playerSection.parentNode.insertBefore(anchor,playerSection);
+  return anchor;
+}
+
 function watchMediaSlotRect(){
-  if(!playerSection||playerSection.hidden)return null;
-  const rect=playerSection.getBoundingClientRect?.();
+  const anchor=watchPipAnchor();
+  const target=
+    state.watchMinimized &&
+    anchor &&
+    !anchor.hidden
+      ?anchor
+      :playerSection;
+
+  if(!target||target.hidden)return null;
+  const rect=target.getBoundingClientRect?.();
   if(!rect||!Number.isFinite(rect.top)||!Number.isFinite(rect.bottom))return null;
   return rect;
 }
 
 function watchMediaSlotTopEdge(){
-  const safe=floatingSafeInsets();
-  const safeTop=Math.max(0,Number(safe?.top)||0);
-
-  // Mobile Watch hides its header, so the real top edge is the viewport.
-  if(mobileMiniViewport())return safeTop;
-
-  // Narrow desktop/tablet remains one-column with a sticky app header. Treat
-  // the bottom of that header as the visible top edge so media never reopens
-  // hidden underneath it.
-  if(watchAutoPipViewport()){
-    const header=document.querySelector(".app-header");
-    const bottom=Number(header?.getBoundingClientRect?.().bottom)||0;
-    return Math.max(safeTop,bottom);
-  }
-
-  return safeTop;
+  return Math.max(0,Number(window.visualViewport?.offsetTop)||0);
 }
 
 function freezeWatchMediaSlot(){
   if(!playerSection)return;
+
   const root=document.documentElement;
-  const rect=watchMediaSlotRect();
+  const rect=playerSection.getBoundingClientRect?.();
   const height=Math.max(
     1,
     Number(rect?.height)||0,
     parseFloat(getComputedStyle(playerSection).height)||0,
     parseFloat(getComputedStyle(root).getPropertyValue("--watch-stage-h"))||0
   );
+
   root.style.setProperty("--watch-inline-slot-h",Math.round(height*100)/100+"px");
 
   const art=clean(
@@ -6008,6 +6015,7 @@ function freezeWatchMediaSlot(){
     state.currentMeta?.poster||
     (state.currentId?"https://i.ytimg.com/vi/"+state.currentId+"/hqdefault.jpg":"")
   );
+
   if(/^https?:\/\//i.test(art)){
     const safeArt=art
       .replace(/\\/g,"%5C")
@@ -6017,15 +6025,95 @@ function freezeWatchMediaSlot(){
   }else{
     root.style.removeProperty("--watch-inline-slot-art");
   }
-  playerSection.classList.add("watch-media-slot");
+
+  const anchor=watchPipAnchor();
+  if(anchor){
+    anchor.style.height=Math.round(height*100)/100+"px";
+    anchor.hidden=false;
+  }
+
+  // The OUTER player section floats. The iframe/frame stays ordinary inside it.
+  // This avoids fixed-position descendants being trapped by paint/layout
+  // containment in some browser engines.
+  playerSection.classList.add("watch-pip-floating-section");
 }
 
 function releaseWatchMediaSlot(){
   const root=document.documentElement;
-  playerSection?.classList.remove("watch-media-slot");
+  const anchor=watchPipAnchor();
+
+  playerSection?.classList.remove("watch-pip-floating-section");
+  playerSection?.style.removeProperty("position");
+  playerSection?.style.removeProperty("z-index");
+  playerSection?.style.removeProperty("top");
+  playerSection?.style.removeProperty("right");
+  playerSection?.style.removeProperty("bottom");
+  playerSection?.style.removeProperty("left");
+  playerSection?.style.removeProperty("width");
+  playerSection?.style.removeProperty("height");
+  playerSection?.style.removeProperty("min-width");
+  playerSection?.style.removeProperty("min-height");
+  playerSection?.style.removeProperty("max-width");
+  playerSection?.style.removeProperty("max-height");
+  playerSection?.style.removeProperty("margin");
+  playerSection?.style.removeProperty("padding");
+  playerSection?.style.removeProperty("overflow");
+
+  if(anchor){
+    anchor.hidden=true;
+    anchor.style.removeProperty("height");
+  }
+
   root.style.removeProperty("--watch-inline-slot-h");
   root.style.removeProperty("--watch-inline-slot-art");
 }
+
+function placeCompactWatchPip(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection)return;
+
+  const ratio=currentFloatingAspect();
+  const size=scaledAutoFloatSize(frame,ratio);
+  const safe=floatingSafeInsets();
+  const gap=10;
+  const top=Math.max(6,safe.top+6);
+
+  playerSection.style.setProperty("position","fixed","important");
+  playerSection.style.setProperty("z-index","9999","important");
+  playerSection.style.setProperty("top",top+"px","important");
+  playerSection.style.setProperty("right",gap+"px","important");
+  playerSection.style.setProperty("bottom","auto","important");
+  playerSection.style.setProperty("left","auto","important");
+  playerSection.style.setProperty("width",size.width+"px","important");
+  playerSection.style.setProperty("height",size.height+"px","important");
+  playerSection.style.setProperty("min-width","0","important");
+  playerSection.style.setProperty("min-height","0","important");
+  playerSection.style.setProperty("max-width","calc(100vw - 20px)","important");
+  playerSection.style.setProperty("max-height","42vh","important");
+  playerSection.style.setProperty("margin","0","important");
+  playerSection.style.setProperty("padding","0","important");
+  playerSection.style.setProperty("overflow","visible","important");
+
+  frame.style.setProperty("position","relative","important");
+  frame.style.setProperty("inset","auto","important");
+  frame.style.setProperty("top","0","important");
+  frame.style.setProperty("right","auto","important");
+  frame.style.setProperty("bottom","auto","important");
+  frame.style.setProperty("left","0","important");
+  frame.style.setProperty("width","100%","important");
+  frame.style.setProperty("height","100%","important");
+  frame.style.setProperty("max-width","100%","important");
+  frame.style.setProperty("max-height","100%","important");
+  frame.style.setProperty("margin","0","important");
+
+  state.floatDock="right";
+  state.floatBox={
+    left:Math.max(gap,window.innerWidth-size.width-gap),
+    top,
+    width:size.width,
+    height:size.height
+  };
+}
+
 
 function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
   if(!state.watchMinimized||!frame?.classList.contains("floating-iframe"))return;
@@ -7540,8 +7628,11 @@ function applyFloatingIframe(force){
     state.floatUserMoved=false;
     state.floatPreset="auto";
     clearFloatBoxStyles();
+    if(!state.watchMinimized){
+      releaseWatchMediaSlot();
+      root.classList.remove("watch-minimized");
+    }
     playerSection.style.removeProperty("min-height");
-    if(!state.watchMinimized)root.classList.remove("watch-minimized");
     queueResponsivePlayerFrame();
     return;
   }
@@ -7562,7 +7653,11 @@ function applyFloatingIframe(force){
   frame.classList.remove("float-tucked","float-view-square","float-view-portrait");
 
   updateFloatingAmbient(frame);
-  applyAutoFloatAspect(frame,{force:true});
+  if(watchAutoPipViewport()){
+    placeCompactWatchPip(frame);
+  }else{
+    applyAutoFloatAspect(frame,{force:true});
+  }
   syncFloatingPlayerViewport(frame);
   updateFloatControlState(frame);
   syncFloatOverlayControls(frame);
@@ -7824,19 +7919,15 @@ function setupWatchMinimizeGesture(){
     !isPlayerFullscreen()
   );
 
-  // Auto PiP has one trigger only:
-  // current video #1 floats when its BOTTOM edge has scrolled past the
-  // TOP edge of the currently visible viewport. No percentages / 45% rules.
-  const currentViewportTop=()=>Math.max(
-    0,
-    Number(window.visualViewport?.offsetTop)||0
-  );
-
+  // One condition only:
+  // video #1 bottom edge passes the visible viewport top => float.
   const syncPipToFirstVideo=()=>{
+    if(!state.currentId||!watchAutoPipViewport())return;
+
     const rect=watchMediaSlotRect();
     if(!rect)return;
 
-    const topEdge=currentViewportTop();
+    const topEdge=watchMediaSlotTopEdge();
 
     if(!state.watchMinimized){
       if(eligibleInline()&&rect.bottom<=topEdge){
@@ -7848,15 +7939,14 @@ function setupWatchMinimizeGesture(){
     if(state.watchPipPinned)return;
     if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return;
 
-    // As soon as the original video slot comes back below the viewport top,
-    // put the same player back inline.
     if(rect.bottom>topEdge){
       setWatchMinimized(false,{preserveScroll:true});
     }
   };
 
-  // Listen only to actual scroll owners. The condition above decides whether
-  // PiP floats; the amount scrolled is irrelevant.
+  // Scroll events are only wake-ups. A lightweight geometry loop is the final
+  // source of truth, so browser differences in scroll event routing cannot
+  // prevent the same condition from firing.
   window.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
   document.addEventListener("scroll",syncPipToFirstVideo,{passive:true,capture:true});
   document.body?.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
@@ -7864,7 +7954,16 @@ function setupWatchMinimizeGesture(){
   window.visualViewport?.addEventListener?.("scroll",syncPipToFirstVideo,{passive:true});
   window.addEventListener("wheel",syncPipToFirstVideo,{passive:true});
 
+  let pipGeometryRaf=0;
+  const watchGeometry=()=>{
+    pipGeometryRaf=requestAnimationFrame(watchGeometry);
+    if(!state.currentId||!watchAutoPipViewport())return;
+    syncPipToFirstVideo();
+  };
+  if(!pipGeometryRaf)pipGeometryRaf=requestAnimationFrame(watchGeometry);
+
   setTimeout(syncPipToFirstVideo,220);
+
 }
 
 function getFullscreenElement(){
