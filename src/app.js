@@ -6663,15 +6663,6 @@ function updateFloatingAmbient(frame){
   frame.style.setProperty("--float-ambient-image",'url("'+safeAmbient+'")');
 }
 
-function legacyCompactIphone(){
-  const ua=String(navigator.userAgent||"");
-  if(!/iPhone/i.test(ua))return false;
-  const major=Number(ua.match(/OS\s+(\d+)[_\.]/i)?.[1])||0;
-  const shortSide=Math.min(window.innerWidth||0,window.innerHeight||0);
-  const longSide=Math.max(window.innerWidth||0,window.innerHeight||0);
-  return major>0&&major<=15&&shortSide<=375&&longSide<=700;
-}
-
 function explicitVideoAspect(meta={}){
   const width=Number(meta?.videoWidth)||0;
   const height=Number(meta?.videoHeight)||0;
@@ -7786,9 +7777,8 @@ function setupWatchMinimizeGesture(){
 
     zone.addEventListener("pointerup",finishMiniDrag);
 
-    // Safari/WebKit can cancel the first pointer sequence immediately after
-    // the floating layer is created. Keep an ordinary click as a no-gesture
-    // fallback so the very first tap always restores Watch.
+    // A pointer sequence can be cancelled immediately after the floating
+    // layer is created. Keep an ordinary click fallback for the first tap.
     zone.addEventListener("click",event=>{
       if(
         !state.watchMinimized ||
@@ -7825,11 +7815,8 @@ function setupWatchMinimizeGesture(){
     !isPlayerFullscreen()
   );
 
-  // WebKit fallback: Safari/PWA can delay body scroll and IntersectionObserver
-  // notifications during the finger gesture. Detect the user's real upward
-  // browse swipe outside the cross-origin iframe and detach immediately. This
-  // does not preventDefault, so native page scrolling and YouTube controls keep
-  // their normal behaviour.
+  // Touch fallback shared by every compact one-column viewport. Detect a real
+  // upward browse swipe without preventing default scrolling or player input.
   let compactSwipe=null;
   document.addEventListener("touchstart",event=>{
     if(
@@ -12849,11 +12836,9 @@ async function playVideo(id,seedMeta={}){
   const stablePackageDisplay=seedMeta?._trustedPackage===true;
   const habitAspect=rememberedVideoAspect(playbackMeta);
 
-  // Search results already carry a strong portrait/Shorts hint from YouTube.
-  // Use that hint immediately instead of briefly opening the iPhone player as
-  // 16:9 (or with a previous search habit) and correcting it later. That
-  // transient wrong shell is especially visible on iPhone 7 / iOS 15 as a
-  // black gap and an off-centre vertical player.
+  // Search results can already carry a strong portrait/Shorts hint.
+  // Use that hint immediately so every viewport starts from the best known
+  // aspect and then corrects only when stronger per-video evidence arrives.
   const seedAspect=validPipAspect(explicitVideoAspect(playbackMeta));
   const seedPortrait=
     playbackMeta?.isShort===true ||
