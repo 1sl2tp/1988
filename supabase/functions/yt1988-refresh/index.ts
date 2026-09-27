@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v32";
-const NON_LIVE_PIPELINE_VERSION="non-live-v10";
+const LIVE_PIPELINE_VERSION="live-v33";
+const NON_LIVE_PIPELINE_VERSION="non-live-v11";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -207,9 +207,10 @@ function titleLooksEnglishOnly(row:any){
 
   if(vi>=2&&vi>=en)return false;
 
-  // Be conservative with unaccented Vietnamese. Only reject when the title
-  // contains multiple explicit English function/content words.
-  return en>=2&&en>=vi+1&&(en/Math.max(1,tokens.length))>=.25;
+  // Be conservative with unaccented Vietnamese, but reject an obvious English
+  // sentence in system feeds even when names/proper nouns dilute the ratio.
+  if(en>=3&&en>=vi+1)return true;
+  return tokens.length<=8&&en>=2&&en>=vi+1;
 }
 
 function titleLooksBroken(row:any){
