@@ -56,11 +56,8 @@ const selectedVideoAvatar=$("#selectedVideoAvatar");
 const selectedVideoAvatarFallback=$("#selectedVideoAvatarFallback");
 const selectedVideoTitle=$("#selectedVideoTitle");
 const selectedVideoMeta=$("#selectedVideoMeta");
-const selectedSourceCard=$("#selectedSourceCard");
-const selectedSourceAvatar=$("#selectedSourceAvatar");
-const selectedSourceAvatarFallback=$("#selectedSourceAvatarFallback");
-const selectedSourceName=$("#selectedSourceName");
-const selectedSourceMeta=$("#selectedSourceMeta");
+const selectedTopicRail=$("#selectedTopicRail");
+const selectedTopicChips=$("#selectedTopicChips");
 const feed=$("#feed");
 const feedSection=document.querySelector(".feed-section");
 const appShell=document.querySelector(".app-shell");
@@ -9252,6 +9249,7 @@ function renderParentCategories(){
 
   if(topicChips.dataset.parentCategorySignature===signature){
     setActiveChip(state.activeFeed,{behavior:"auto"});
+    syncSelectedTopicRail();
     return;
   }
 
@@ -9279,6 +9277,7 @@ function renderParentCategories(){
 
   topicChips.dataset.parentCategorySignature=signature;
   setActiveChip(state.activeFeed,{behavior:"auto"});
+  syncSelectedTopicRail();
 }
 
 function renderTrendTopics(){
@@ -11673,6 +11672,43 @@ function topicHashtagLabel(scope=""){
   return "#"+(label||"khác");
 }
 
+function selectedTopicProxySelector(button){
+  if(!button)return "";
+  if(button.dataset.feed)return '[data-feed="'+CSS.escape(button.dataset.feed)+'"]';
+  if(button.dataset.parentCategory)return '[data-parent-category="'+CSS.escape(button.dataset.parentCategory)+'"]';
+  if(button.dataset.hashtagAdd)return '[data-hashtag-add]';
+  return "";
+}
+
+function syncSelectedTopicRail(){
+  if(!selectedTopicChips||!topicChips)return;
+
+  const fragment=document.createDocumentFragment();
+  for(const node of topicChips.childNodes){
+    const clone=node.cloneNode(true);
+    if(clone.nodeType===Node.ELEMENT_NODE){
+      clone.removeAttribute?.("id");
+      clone.querySelectorAll?.("[id]").forEach(el=>el.removeAttribute("id"));
+    }
+    fragment.appendChild(clone);
+  }
+  selectedTopicChips.replaceChildren(fragment);
+
+  // The selected-video rail is a mirror of the canonical source/topic rail,
+  // not a second navigation state. Active/disabled/title state always comes
+  // from #topicChips.
+  if(selectedTopicRail)selectedTopicRail.hidden=!selectedTopicChips.children.length;
+}
+
+selectedTopicChips?.addEventListener("click",event=>{
+  const button=event.target.closest?.("[data-feed],[data-parent-category],[data-hashtag-add]");
+  if(!button||!topicChips)return;
+  const selector=selectedTopicProxySelector(button);
+  if(!selector)return;
+  const original=topicChips.querySelector(selector);
+  if(original instanceof HTMLElement)original.click();
+});
+
 function renderSelectedVideoInfo(meta={}){
   if(!selectedVideoInfo)return;
 
@@ -11690,16 +11726,8 @@ function renderSelectedVideoInfo(meta={}){
   );
   const channelFallback=(channel.charAt(0)||"?").toUpperCase();
 
-  const topicScopes=selectedVideoTopicScopes(meta);
-  const topicNames=topicScopes.map(topicHashtagLabel);
-  const topicName=topicNames[0]||"#khác";
-  const topicMeta=topicNames.length>1
-    ?"Hashtag chủ đề · "+topicNames.slice(1).join(" ")
-    :topicNames.length
-      ?"Hashtag chủ đề"
-      :"Chưa phân loại chủ đề";
-
   selectedVideoInfo.hidden=false;
+  syncSelectedTopicRail();
   if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
 
   const bits=[];
@@ -11720,23 +11748,11 @@ function renderSelectedVideoInfo(meta={}){
     }
   }
 
-  // Topic source uses a stable # badge, never the current channel avatar.
-  if(selectedSourceAvatar){
-    selectedSourceAvatar.hidden=true;
-    selectedSourceAvatar.removeAttribute("src");
-  }
-  if(selectedSourceAvatarFallback){
-    selectedSourceAvatarFallback.textContent="#";
-  }
-  if(selectedSourceName)selectedSourceName.textContent=topicName;
-  if(selectedSourceMeta)selectedSourceMeta.textContent=topicMeta;
 }
 
-[selectedVideoAvatar,selectedSourceAvatar].forEach(img=>{
-  img?.addEventListener("error",()=>{
-    img.hidden=true;
-    img.removeAttribute("src");
-  });
+selectedVideoAvatar?.addEventListener("error",()=>{
+  selectedVideoAvatar.hidden=true;
+  selectedVideoAvatar.removeAttribute("src");
 });
 
 function updateNow(meta={}){
