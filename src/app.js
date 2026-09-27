@@ -181,8 +181,6 @@ const state={
   fullscreenScrollY:null,
   fullscreenActive:false,
   fullscreenExitCooldownUntil:0,
-  pipFullscreenPending:false,
-  pipFullscreenRestore:null,
   intentPlay:false,
   resumeOnReturn:false,
   transitionUntil:0,
@@ -6182,9 +6180,38 @@ function compactPipBounds(width,height){
   };
 }
 
+function compactPipAnchorFromBox(box){
+  if(!box)return null;
+  const viewportW=Math.max(1,window.innerWidth||document.documentElement.clientWidth||1);
+  const viewportH=Math.max(1,window.innerHeight||document.documentElement.clientHeight||1);
+  const left=Number(box.left)||0;
+  const top=Number(box.top)||0;
+  const width=Math.max(1,Number(box.width)||1);
+  const height=Math.max(1,Number(box.height)||1);
+  const x=left+width/2<viewportW/2?"left":"right";
+  const y=top+height/2<viewportH/2?"top":"bottom";
+  return {
+    x,
+    y,
+    xValue:x==="left"?left:left+width,
+    yValue:y==="top"?top:top+height
+  };
+}
+
+function currentCompactPipAnchor(){
+  const rect=playerSection?.getBoundingClientRect?.();
+  if(!rect||rect.width<=0||rect.height<=0)return null;
+  return compactPipAnchorFromBox({
+    left:rect.left,
+    top:rect.top,
+    width:rect.width,
+    height:rect.height
+  });
+}
+
 function placeCompactWatchPip(
   frame=playerSection?.querySelector(".player-frame"),
-  {preservePosition=true,corner=null}={}
+  {anchor=null,preservePosition=true}={}
 ){
   if(!frame||!playerSection)return;
 
@@ -6192,23 +6219,22 @@ function placeCompactWatchPip(
   const size=scaledAutoFloatSize(frame,ratio);
   const bounds=compactPipBounds(size.width,size.height);
 
-  // Supplied sample starts Bottom Right, then offsets another 12px / 60px
-  // inward from maxX / maxY.
-  let left=Math.max(bounds.minX,bounds.maxX-12);
-  let top=Math.max(bounds.minY,bounds.maxY-60);
+  if(!anchor&&preservePosition&&state.floatUserMoved&&state.floatBox){
+    anchor=compactPipAnchorFromBox(state.floatBox);
+  }
 
-  if(corner){
-    left=corner.x==="left"?bounds.minX:bounds.maxX;
-    top=corner.y==="top"?bounds.minY:bounds.maxY;
-  }else if(preservePosition&&state.floatUserMoved&&state.floatBox){
-    left=Math.max(
-      bounds.minX,
-      Math.min(bounds.maxX,Number(state.floatBox.left)||bounds.minX)
-    );
-    top=Math.max(
-      bounds.minY,
-      Math.min(bounds.maxY,Number(state.floatBox.top)||bounds.minY)
-    );
+  let left=bounds.maxX;
+  let top=bounds.minY;
+
+  if(anchor){
+    left=anchor.x==="left"
+      ?Number(anchor.xValue)
+      :Number(anchor.xValue)-size.width;
+    top=anchor.y==="top"
+      ?Number(anchor.yValue)
+      :Number(anchor.yValue)-size.height;
+    left=Math.max(bounds.minX,Math.min(bounds.maxX,left));
+    top=Math.max(bounds.minY,Math.min(bounds.maxY,top));
   }
 
   playerSection.style.setProperty("position","fixed","important");
@@ -6354,11 +6380,6 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
   hideFloatOverlayControls(frame,{suppressHover:true});
 }
 
-function releaseFloatingPipInPlace(){
-  if(!state.watchMinimized)return;
-  setWatchMinimized(false,{preserveScroll:true});
-}
-
 function closeFloatingPipAndExitPlayback(){
   if(!state.watchMinimized)return false;
 
@@ -6394,8 +6415,6 @@ function closeFloatingPipAndExitPlayback(){
   state.watchPipAway=false;
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=0;
-  state.pipFullscreenPending=false;
-  state.pipFullscreenRestore=null;
   state.floatTucked=false;
   state.floatUserSized=false;
   state.floatUserMoved=false;
@@ -6429,174 +6448,13 @@ function closeFloatingPipAndExitPlayback(){
   return true;
 }
 
-function ensureFullscreenExitControl(){
-  if(!playerSection)return null;
-  let button=playerSection.querySelector(".watch-fullscreen-exit");
-  if(button)return button;
-
-  button=document.createElement("button");
-  button.type="button";
-  button.className="watch-fullscreen-exit";
-  button.setAttribute("aria-label","Thoát toàn màn hình");
-  button.textContent="×";
-  button.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    exitPlayerFullscreen();
-  });
-  playerSection.appendChild(button);
-  return button;
-}
-
-function hideFullscreenExitControl(){
-  playerSection?.querySelector(".watch-fullscreen-exit")?.remove();
-}
-
-function exitPlayerFullscreen(){
-  if(state.engine==="native"){
-    try{
-      if(typeof nativePlayer.webkitExitFullscreen==="function"){
-        nativePlayer.webkitExitFullscreen();
-        return true;
-      }
-    }catch{}
-  }
-
-  const exit=document.exitFullscreen||document.webkitExitFullscreen;
-  if(typeof exit!=="function")return false;
-  try{
-    const result=exit.call(document);
-    if(result?.catch)result.catch(()=>{});
-    return true;
-  }catch{}
-  return false;
-}
-
-function suspendFloatingPipForFullscreen(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection||!state.watchMinimized)return false;
-
-  const rect=playerSection.getBoundingClientRect();
-  state.pipFullscreenRestore={
-    pinned:!!state.watchPipPinned,
-    dock:state.floatDock==="left"?"left":"right",
-    scale:floatScaleValue(),
-    left:rect.left,
-    top:rect.top,
-    width:rect.width,
-    height:rect.height
-  };
-  state.pipFullscreenPending=true;
-
-  // Fullscreen must never coexist with the floating owner. Keep the SAME
-  // playback session, but synchronously remove PiP geometry and hit surfaces
-  // before asking the browser to enter fullscreen.
-  state.watchMinimized=false;
-  state.watchPipPinned=false;
-  state.watchPipAway=false;
-  state.watchPipEnteredAt=0;
-  document.documentElement.classList.remove("watch-minimized");
-  hideFloatOverlayControls(frame);
-  syncNativeMobileControls();
-  applyFloatingIframe(false);
-  releaseWatchMediaSlot();
-  return true;
-}
-
-function restoreFloatingPipAfterFullscreenFailure(){
-  const snapshot=state.pipFullscreenRestore;
-  state.pipFullscreenPending=false;
-
-  if(
-    !snapshot ||
-    !state.currentId ||
-    playerSection?.hidden ||
-    !watchAutoPipViewport()
-  ){
-    state.pipFullscreenRestore=null;
-    return false;
-  }
-
-  if(!setWatchMinimized(true,{pinned:!!snapshot.pinned})){
-    state.pipFullscreenRestore=null;
-    return false;
-  }
-
-  state.floatScale=[1,1.5,2].includes(Number(snapshot.scale))
-    ?Number(snapshot.scale)
-    :1;
-  state.floatDock=snapshot.dock==="left"?"left":"right";
-  state.floatUserMoved=true;
-  state.floatBox={
-    left:Number(snapshot.left)||0,
-    top:Number(snapshot.top)||0,
-    width:Number(snapshot.width)||0,
-    height:Number(snapshot.height)||0
-  };
-  state.pipFullscreenRestore=null;
-
-  const frame=playerSection?.querySelector(".player-frame");
-  if(frame){
-    applyFloatingIframe(true);
-    syncFloatingPlayerViewport(frame,{settle:true});
-    updateFloatControlState(frame);
-  }
-  return true;
-}
-
-function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection||!state.watchMinimized)return;
-  if(!suspendFloatingPipForFullscreen(frame))return;
-
-  const restoreOnFailure=()=>{
-    state.fullscreenActive=false;
-    hideFullscreenExitControl();
-    restoreFloatingPipAfterFullscreenFailure();
-  };
-
-  // Keep one explicit exit control inside our fullscreen root. YouTube's own
-  // fullscreen icon cannot reliably exit when the PARENT playerSection owns
-  // Fullscreen API, so the app must provide the matching exit action.
-  ensureFullscreenExitControl();
-
-  // Native iOS fullscreen uses the media element, but PiP ownership has already
-  // been suspended above so WebKit has only one fullscreen owner.
-  if(state.engine==="native"&&!nativePlayer.hidden){
-    try{
-      if(typeof nativePlayer.webkitEnterFullscreen==="function"){
-        nativePlayer.webkitEnterFullscreen();
-        return;
-      }
-    }catch{
-      restoreOnFailure();
-      return;
-    }
-  }
-
-  // Iframe playback uses the app-owned player section as the fullscreen root.
-  const request=
-    playerSection.requestFullscreen||
-    playerSection.webkitRequestFullscreen;
-
-  if(typeof request!=="function"){
-    restoreOnFailure();
-    return;
-  }
-
-  try{
-    const result=request.call(playerSection);
-    if(result?.catch)result.catch(restoreOnFailure);
-  }catch{
-    restoreOnFailure();
-  }
-}
-
 function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection||!state.watchMinimized)return;
+  if(!frame||!playerSection||!state.watchMinimized||event.isPrimary===false)return;
+
   event.preventDefault();
   event.stopPropagation();
 
   const rect=playerSection.getBoundingClientRect();
-  const safe=floatingSafeInsets();
   const pointerId=event.pointerId;
   const startX=event.clientX;
   const startY=event.clientY;
@@ -6604,33 +6462,29 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
   const startTop=rect.top;
   const width=rect.width;
   const height=rect.height;
-  const gap=10;
+  const captureTarget=event.currentTarget||event.target;
+  let moved=false;
+
+  try{captureTarget?.setPointerCapture?.(pointerId)}catch{}
 
   hideCompactPipDockHandle();
   state.floatTucked=false;
-  state.floatUserMoved=true;
-  frame.classList.add("float-moving","float-controls-open");
   playerSection.classList.remove("pip-docked");
 
   const move=moveEvent=>{
     if(moveEvent.pointerId!==pointerId)return;
+    const dx=moveEvent.clientX-startX;
+    const dy=moveEvent.clientY-startY;
+    if(!moved&&Math.hypot(dx,dy)<4)return;
+
+    moved=true;
     moveEvent.preventDefault();
+    state.floatUserMoved=true;
+    frame.classList.add("float-moving","float-controls-open");
 
-    // Like the sample, allow a controlled overshoot so release can detect
-    // side docking or a downward-close gesture.
-    const minLeft=-width*.72;
-    const maxLeft=window.innerWidth-width*.28;
-    const minTop=Math.max(0,safe.top);
-    const maxTop=window.innerHeight-12;
-
-    const left=Math.max(
-      minLeft,
-      Math.min(maxLeft,startLeft+(moveEvent.clientX-startX))
-    );
-    const top=Math.max(
-      minTop,
-      Math.min(maxTop,startTop+(moveEvent.clientY-startY))
-    );
+    const bounds=compactPipBounds(width,height);
+    const left=Math.max(bounds.minX,Math.min(bounds.maxX,startLeft+dx));
+    const top=Math.max(bounds.minY,Math.min(bounds.maxY,startTop+dy));
 
     playerSection.style.setProperty("left",left+"px","important");
     playerSection.style.setProperty("right","auto","important");
@@ -6644,31 +6498,19 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
     document.removeEventListener("pointermove",move,true);
     document.removeEventListener("pointerup",finish,true);
     document.removeEventListener("pointercancel",finish,true);
+    try{captureTarget?.releasePointerCapture?.(pointerId)}catch{}
 
     frame.classList.remove("float-moving");
+
+    if(!moved){
+      showFloatOverlayControls(frame);
+      return;
+    }
+
     const box=state.floatBox||{left:startLeft,top:startTop,width,height};
-    const left=Number(box.left)||0;
-    const top=Number(box.top)||0;
-
-    // Sample behavior: drag beyond a side => tuck into that edge.
-    if(left<-30){
-      dockCompactPipToEdge("left");
-      return;
-    }
-    if(left>window.innerWidth-width+30){
-      dockCompactPipToEdge("right");
-      return;
-    }
-
-    // Dragging beyond the bottom is the same explicit close as the X button:
-    // stop playback and leave the floating session instead of restoring MAIN.
-    if(top>window.innerHeight-30){
-      closeFloatingPipAndExitPlayback();
-      return;
-    }
-
-    // Otherwise snap to the nearest sample corner.
     const bounds=compactPipBounds(width,height);
+    const left=Number(box.left)||bounds.minX;
+    const top=Number(box.top)||bounds.minY;
     const midX=(bounds.minX+bounds.maxX)/2;
     const midY=(bounds.minY+bounds.maxY)/2;
     const snapLeft=left<midX?bounds.minX:bounds.maxX;
@@ -6677,7 +6519,7 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
     playerSection.style.setProperty("left",snapLeft+"px","important");
     playerSection.style.setProperty("right","auto","important");
     playerSection.style.setProperty("top",snapTop+"px","important");
-    state.floatDock=snapLeft===gap?"left":"right";
+    state.floatDock=snapLeft===bounds.minX?"left":"right";
     state.floatBox={left:snapLeft,top:snapTop,width,height};
     showFloatOverlayControls(frame);
   };
@@ -6686,7 +6528,6 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
   document.addEventListener("pointerup",finish,{passive:false,capture:true});
   document.addEventListener("pointercancel",finish,{passive:false,capture:true});
 }
-
 
 function teardownFloatHandles(){
   const frame=playerSection?.querySelector(".player-frame");
@@ -6713,72 +6554,9 @@ function createFloatingSwipeZone(frame){
   const zone=document.createElement("div");
   zone.className="watch-swipe-zone";
   zone.setAttribute("aria-hidden","true");
-
-  let press=null;
-  let lastTapAt=0;
-
   zone.addEventListener("pointerdown",event=>{
-    if(!state.watchMinimized||event.isPrimary===false)return;
-    press={
-      pointerId:event.pointerId,
-      x:event.clientX,
-      y:event.clientY,
-      moved:false
-    };
-    try{zone.setPointerCapture?.(event.pointerId)}catch{}
-  });
-
-  zone.addEventListener("pointermove",event=>{
-    if(!press||press.pointerId!==event.pointerId)return;
-    const dx=event.clientX-press.x;
-    const dy=event.clientY-press.y;
-    if(!press.moved&&Math.hypot(dx,dy)<5)return;
-
-    press.moved=true;
-    const startEvent={
-      pointerId:event.pointerId,
-      clientX:press.x,
-      clientY:press.y,
-      preventDefault:()=>event.preventDefault(),
-      stopPropagation:()=>event.stopPropagation()
-    };
-    press=null;
-    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-    startFloatMove(startEvent,frame);
+    startFloatMove(event,frame);
   },{passive:false});
-
-  zone.addEventListener("pointerup",event=>{
-    if(!press||press.pointerId!==event.pointerId)return;
-    const tap=press;
-    press=null;
-    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-    if(tap.moved)return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    const now=Date.now();
-    if(now-lastTapAt<280){
-      lastTapAt=0;
-      toggleCompactPipSize(frame);
-      return;
-    }
-    lastTapAt=now;
-    showFloatOverlayControls(frame);
-  });
-
-  zone.addEventListener("click",event=>{
-    if(!state.watchMinimized)return;
-    event.preventDefault();
-    event.stopPropagation();
-    showFloatOverlayControls(frame);
-  });
-
-  zone.addEventListener("pointercancel",event=>{
-    if(!press||press.pointerId!==event.pointerId)return;
-    press=null;
-    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-  });
-
   return zone;
 }
 
@@ -6791,63 +6569,12 @@ function ensureFloatHandles(){
   frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay,.watch-swipe-zone,.watch-pip-trigger").forEach(node=>node.remove());
   frame.dataset.floatControlsReady="2";
 
-  const rail=document.createElement("div");
-  rail.className="float-mode-rail";
-  rail.setAttribute("role","toolbar");
-  rail.setAttribute("aria-label","Kích thước video");
-
-  const makeButton=(mode,icon,label)=>{
-    const button=document.createElement("button");
-    button.type="button";
-    button.className="float-mode-btn";
-    button.dataset.floatMode=mode;
-    button.setAttribute("aria-label",label);
-    button.setAttribute("aria-pressed","false");
-
-    const iconEl=document.createElement("span");
-    iconEl.className="float-mode-icon";
-    iconEl.setAttribute("aria-hidden","true");
-    iconEl.textContent=icon;
-
-    const labelEl=document.createElement("span");
-    labelEl.className="float-mode-label";
-    labelEl.textContent=label;
-
-    button.append(iconEl,labelEl);
-    button.addEventListener("click",event=>{
-      event.preventDefault();
-      event.stopPropagation();
-      if(mode==="pin"){
-        toggleWatchPipPin(frame);
-        return;
-      }
-      if(mode==="scale"){
-        cycleFloatScale(frame);
-        return;
-      }
-      setFloatPreset(mode);
-    });
-    return button;
-  };
-
-  rail.append(
-    makeButton("pin","","Ghim PiP để luôn nổi khi cuộn"),
-    makeButton("scale","1×","Kích thước PiP 1×"),
-    makeButton("tuck",state.floatDock==="left"?"‹":"›","Thu vào mép")
-  );
-
   const overlay=document.createElement("div");
   overlay.className="float-player-overlay";
   overlay.innerHTML=
-    '<div class="float-overlay-top">'+
-      '<span class="float-overlay-badge">PiP</span>'+
-      '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng PiP">×</button>'+
-    '</div>'+
+    '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng">×</button>'+
     '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">Ⅱ</button>'+
-    '<div class="float-overlay-bottom">'+
-      '<button type="button" class="float-overlay-fullscreen" data-float-overlay="fullscreen" aria-label="Toàn màn hình">⛶ <span>Toàn màn</span></button>'+
-      '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Tăng kích thước PiP">↗</button>'+
-    '</div>';
+    '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">↗</button>';
 
   overlay.addEventListener("pointerdown",event=>{
     if(event.target.closest("button"))return;
@@ -6864,11 +6591,6 @@ function ensureFloatHandles(){
     event.stopPropagation();
     toggleFloatPlayback(frame);
   });
-  overlay.querySelector('[data-float-overlay="fullscreen"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    fullscreenFloatingPlayer(frame);
-  });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
@@ -6876,19 +6598,8 @@ function ensureFloatHandles(){
     else cycleFloatScale(frame);
   });
 
-  const edgeTab=document.createElement("button");
-  edgeTab.type="button";
-  edgeTab.className="float-edge-tab";
-  edgeTab.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    state.floatTucked=false;
-    applyFloatPreset(frame);
-    updateFloatControlState(frame);
-  });
-
   const zone=createFloatingSwipeZone(frame);
-  frame.append(rail,edgeTab,zone,overlay);
+  frame.append(zone,overlay);
   updateFloatControlState(frame);
   syncFloatOverlayControls(frame);
 }
@@ -7102,25 +6813,14 @@ function floatScaleValue(value=state.floatScale){
   return [1,1.35,1.5,2].includes(Number(value))?Number(value):1;
 }
 
-function currentCompactPipCorner(){
-  const rect=playerSection?.getBoundingClientRect?.();
-  if(!rect)return {x:"right",y:"bottom"};
-  return {
-    x:rect.left+rect.width/2<(window.innerWidth||0)/2?"left":"right",
-    y:rect.top+rect.height/2<(window.innerHeight||0)/2?"top":"bottom"
-  };
-}
-
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
 
-  // The sample resizes first, then snapToNearestCorner().
-  // Result: a PiP already at bottom-right grows inward while keeping the
-  // right/bottom edge; the other three corners behave the same way.
-  const corner=currentCompactPipCorner();
+  const anchor=currentCompactPipAnchor();
   state.floatScale=Math.abs(floatScaleValue()-1)<.01?1.35:1;
   state.floatUserSized=false;
-  placeCompactWatchPip(frame,{preservePosition:false,corner});
+  state.floatUserMoved=true;
+  placeCompactWatchPip(frame,{anchor,preservePosition:false});
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
   showFloatOverlayControls(frame);
@@ -8363,7 +8063,6 @@ function watchInlineEligibleForAutoPip(){
     !root.classList.contains("watch-search-open") &&
     !root.classList.contains("watch-search-results") &&
     !state.watchMinimized &&
-    !state.pipFullscreenPending &&
     !state.fullscreenActive &&
     !!state.currentId &&
     !playerSection?.hidden &&
@@ -8391,26 +8090,6 @@ function syncWatchPipToFirstVideo(){
   if(rect.bottom>topEdge){
     setWatchMinimized(false,{preserveScroll:true});
   }
-}
-
-function resumeAutoPipAfterFullscreen(){
-  state.watchRestoreUntil=0;
-  state.pipFullscreenPending=false;
-  state.pipFullscreenRestore=null;
-  syncWatchBrowseLayout();
-  queueResponsivePlayerFrame();
-
-  // fullscreenchange can fire before the browser restores the original window
-  // dimensions. Retry through the viewport settle so <960px auto-PiP becomes
-  // eligible again instead of being permanently discarded at fullscreen width.
-  [0,90,260,520].forEach(delay=>{
-    setTimeout(()=>{
-      if(state.fullscreenActive||isPlayerFullscreen())return;
-      syncWatchBrowseLayout();
-      queueResponsivePlayerFrame();
-      syncWatchPipToFirstVideo();
-    },delay);
-  });
 }
 
 function setupWatchMinimizeGesture(){
@@ -8542,48 +8221,27 @@ function setupFullscreenReturn(){
 
   const remember=()=>{
     state.fullscreenActive=true;
-    state.pipFullscreenPending=false;
     state.fullscreenScrollY=window.scrollY;
     state.resumeOnReturn=false;
     state.transitionUntil=0;
     clearTimeout(state.resumeTimer);
     frame()?.classList.add("fullscreen-active");
-    ensureFullscreenExitControl();
-  };
-
-  const restoreVisual=({resumeAutoPip=false}={})=>{
-    const y=state.fullscreenScrollY;
-    requestAnimationFrame(()=>{
-      if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
-      applyFloatingIframe(false);
-      syncWatchBrowseLayout();
-      queueResponsivePlayerFrame();
-      if(resumeAutoPip)resumeAutoPipAfterFullscreen();
-    });
   };
 
   const restoreFullscreen=()=>{
-    const cameFromPip=!!state.pipFullscreenRestore;
     state.fullscreenActive=false;
-    state.pipFullscreenPending=false;
-    state.pipFullscreenRestore=null;
-    state.watchMinimized=false;
-    state.watchPipPinned=false;
-    state.watchPipAway=false;
-    state.watchPipEnteredAt=0;
-    state.watchRestoreUntil=0;
-    document.documentElement.classList.remove("watch-minimized");
-
-    // Give Safari time to finish handing the media controls back to the page.
-    // Do not call playVideo/playVideoById here: it can cancel a seek gesture.
     state.fullscreenExitCooldownUntil=Date.now()+1800;
     state.resumeOnReturn=false;
     state.transitionUntil=0;
     clearTimeout(state.resumeTimer);
     frame()?.classList.remove("fullscreen-active");
-    hideFullscreenExitControl();
-    releaseWatchMediaSlot();
-    restoreVisual({resumeAutoPip:cameFromPip});
+
+    const y=state.fullscreenScrollY;
+    requestAnimationFrame(()=>{
+      if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
+      syncWatchBrowseLayout();
+      queueResponsivePlayerFrame();
+    });
   };
 
   const syncFullscreenState=()=>{
@@ -8593,7 +8251,6 @@ function setupFullscreenReturn(){
 
   document.addEventListener("fullscreenchange",syncFullscreenState);
   document.addEventListener("webkitfullscreenchange",syncFullscreenState);
-
   nativePlayer?.addEventListener?.("webkitbeginfullscreen",remember);
   nativePlayer?.addEventListener?.("webkitendfullscreen",restoreFullscreen);
 
@@ -8603,9 +8260,6 @@ function setupFullscreenReturn(){
   },{passive:true});
 
   window.addEventListener("pageshow",()=>{
-    if(!isPlayerFullscreen())hideFullscreenExitControl();
-    restoreVisual();
-    // Only lifecycle-resume outside the Safari fullscreen cooldown.
     if(
       state.resumeOnReturn &&
       !state.fullscreenActive &&
