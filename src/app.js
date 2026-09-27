@@ -6123,7 +6123,13 @@ function dockCompactPipToEdge(side=state.floatDock,{instant=false}={}){
   handle.classList.toggle("dock-left",side==="left");
   handle.classList.toggle("dock-right",side!=="left");
   handle.innerHTML=side==="left"?"›":"‹";
-  handle.style.top=Math.max(56,Math.min(window.innerHeight-86,top+height/2-32))+"px";
+  const safe=floatingSafeInsets();
+  const handleMinTop=Math.max(0,safe.top);
+  const handleMaxTop=Math.max(handleMinTop,window.innerHeight-safe.bottom-64);
+  handle.style.top=Math.max(
+    handleMinTop,
+    Math.min(handleMaxTop,top+height/2-32)
+  )+"px";
 
   const show=()=>{
     if(state.watchMinimized&&state.floatTucked)handle.hidden=false;
@@ -6168,17 +6174,15 @@ function compactPipBounds(width,height){
   const viewportW=Math.max(1,window.innerWidth||document.documentElement.clientWidth||1);
   const viewportH=Math.max(1,window.innerHeight||document.documentElement.clientHeight||1);
 
-  // Same geometry as the supplied sample:
-  // 10px side bounds, 50px top bound, 55px bottom reserve.
-  return {
-    minX:10,
-    maxX:Math.max(10,viewportW-width-10),
-    minY:Math.max(50,safe.top+10),
-    maxY:Math.max(
-      Math.max(50,safe.top+10),
-      viewportH-safe.bottom-height-55
-    )
-  };
+  // Active media and PiP share ONE safe rectangle:
+  // top = notch/Dynamic Island edge, bottom = Home Indicator edge,
+  // left/right = the device side safe edges when present.
+  const minX=Math.max(0,safe.left);
+  const minY=Math.max(0,safe.top);
+  const maxX=Math.max(minX,viewportW-safe.right-width);
+  const maxY=Math.max(minY,viewportH-safe.bottom-height);
+
+  return {minX,maxX,minY,maxY};
 }
 
 function compactPipAnchorFromBox(box){
@@ -6938,12 +6942,14 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
   const base=autoFloatSize(frame,ratio);
   const scale=floatScaleValue();
 
-  const gap=floatEdgeGap();
   const safe=floatingSafeInsets();
-  const maxWidth=Math.max(120,window.innerWidth-gap*2);
+  const maxWidth=Math.max(
+    120,
+    window.innerWidth-safe.left-safe.right
+  );
   const maxHeight=Math.max(
     120,
-    window.innerHeight-safe.top-safe.bottom-gap*2
+    window.innerHeight-safe.top-safe.bottom
   );
 
   let width=base.width*scale;
@@ -7001,7 +7007,7 @@ function placeAutoFloatAtEdge(frame,size){
     // top; narrow desktop sits just below its sticky app header.
     top=mobile
       ?Math.max(0,safe.top)
-      :Math.max(safe.top,watchMediaSlotTopEdge()+8);
+      :Math.max(safe.top,watchMediaSlotTopEdge());
     frame.style.top=top+"px";
     frame.style.bottom="auto";
   }else{
@@ -7039,7 +7045,9 @@ function floatingSafeInsets(){
   const styles=getComputedStyle(document.documentElement);
   return {
     top:Math.max(0,parseFloat(styles.getPropertyValue("--safe-top"))||0),
-    bottom:Math.max(0,parseFloat(styles.getPropertyValue("--safe-bottom"))||0)
+    right:Math.max(0,parseFloat(styles.getPropertyValue("--safe-right"))||0),
+    bottom:Math.max(0,parseFloat(styles.getPropertyValue("--safe-bottom"))||0),
+    left:Math.max(0,parseFloat(styles.getPropertyValue("--safe-left"))||0)
   };
 }
 
