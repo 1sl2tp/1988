@@ -76,7 +76,10 @@ html.one-col body{min-height:220vh}
   top:0;
   z-index:50;
   background:var(--yt-bg);
-  border-bottom:1px solid var(--yt-divider);
+  border-bottom:0;
+  transform:translateY(0);
+  transition:transform .20s cubic-bezier(.4,0,.2,1);
+  will-change:transform;
 }
 .masthead{
   height:56px;
@@ -171,11 +174,14 @@ html.one-col body{min-height:220vh}
   height:56px;
   display:flex;
   align-items:center;
-  gap:12px;
+  gap:8px;
   padding:12px 16px;
   overflow-x:auto;
   overflow-y:hidden;
   scrollbar-width:none;
+  scroll-padding-inline:16px;
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
 }
 .sourcebar::-webkit-scrollbar{display:none}
 .source-chip{
@@ -210,17 +216,45 @@ html.one-col body{min-height:220vh}
 }
 
 @media(max-width:656px){
-  .masthead{padding:0 8px;gap:8px}
-  .brand{width:auto;flex:0 0 auto}
+  .masthead{
+    height:56px;
+    padding:0 12px;
+    gap:8px;
+  }
+  .brand{
+    width:auto;
+    height:40px;
+    flex:0 0 auto;
+  }
   .brand-name{font-size:18px}
 
-  /* Source has #search-button-narrow: only the icon is visible until opened. */
+  /* Source-like narrow masthead: compact icon first; search expands only when opened. */
   .searchbox{display:none}
-  .search-toggle{display:grid;margin-left:auto}
+  .search-toggle{
+    display:grid;
+    width:40px;
+    height:40px;
+    margin-left:auto;
+  }
   .search-back{display:none}
-  .search-input{padding:0 12px;font-size:15px}
+  .search-input{padding:0 12px;font-size:16px;line-height:24px}
   .search-button{width:48px}
-  .sourcebar{padding-left:8px;padding-right:8px}
+  .sourcebar{
+    height:56px;
+    gap:8px;
+    padding:12px;
+    scroll-padding-inline:12px;
+  }
+  .source-chip{
+    height:32px;
+    padding:0 12px;
+    border-radius:8px;
+  }
+
+  .top.mobile-scroll-hidden:not(.search-open){
+    transform:translateY(-100%);
+    pointer-events:none;
+  }
 
   .top.search-open .brand,
   .top.search-open .search-toggle,
@@ -240,6 +274,10 @@ html.one-col body{min-height:220vh}
 }
 
 @media(min-width:657px){
+  .top{
+    transform:none!important;
+    pointer-events:auto!important;
+  }
   .searchbox{display:flex}
 }
 
@@ -342,7 +380,7 @@ html.one-col .player.pip{
   transform:none !important;
   inset:auto !important;
   right:10px !important;
-  top:calc(var(--top-boundary) + 8px) !important;
+  top:calc(var(--visible-top-boundary,var(--top-boundary)) + 8px) !important;
   border-radius:var(--floating-radius);
   background:transparent;
   box-shadow:0 12px 34px rgba(0,0,0,.55);
@@ -706,6 +744,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let feedRequest=0;
   let feedMode="related";
   const columnsMq=matchMedia("(min-width:1000px)");
+  const mobileHeaderMq=matchMedia("(max-width:656px)");
+  let mobileHeaderLastY=0;
+  let mobileHeaderHidden=false;
 
   function embedUrl(id){
     return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
@@ -794,7 +835,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function syncBoundaries(){
     // Measure the CURRENT usable viewport, not svh/vw estimates.
-    const topBoundary=Math.max(0,Math.round(top.getBoundingClientRect().bottom));
+    const topBoundary=Math.max(
+      0,
+      Math.round(top.offsetHeight || top.getBoundingClientRect().height || 0)
+    );
     const viewportH=Math.max(
       topBoundary+1,
       Math.round(document.documentElement.clientHeight || innerHeight || 1)
@@ -804,6 +848,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const fullH=Math.max(1,viewportH-topBoundary-contentTopGap-bottomGap);
 
     root.style.setProperty("--top-boundary",topBoundary+"px");
+    if(!root.style.getPropertyValue("--visible-top-boundary")){
+      root.style.setProperty("--visible-top-boundary",topBoundary+"px");
+    }
     root.style.setProperty("--bottom-gap",bottomGap+"px");
     root.style.setProperty("--current-full-h",fullH+"px");
 
@@ -1185,6 +1232,54 @@ html.one-col .player.pip iframe{border-radius:inherit}
     paintText();
   }
 
+  function setMobileHeaderHidden(hidden){
+    hidden=!!hidden && mobileHeaderMq.matches && !top.classList.contains("search-open");
+    if(hidden===mobileHeaderHidden)return;
+
+    mobileHeaderHidden=hidden;
+    top.classList.toggle("mobile-scroll-hidden",hidden);
+    root.style.setProperty(
+      "--visible-top-boundary",
+      hidden ? "0px" : Math.max(0,Math.round(top.offsetHeight||0))+"px"
+    );
+  }
+
+  function syncMobileHeaderVisibility(reset=false){
+    const y=pageScrollY();
+
+    if(!mobileHeaderMq.matches){
+      mobileHeaderLastY=y;
+      setMobileHeaderHidden(false);
+      return;
+    }
+
+    if(reset){
+      mobileHeaderLastY=y;
+      if(y<=4)setMobileHeaderHidden(false);
+      return;
+    }
+
+    if(top.classList.contains("search-open")){
+      mobileHeaderLastY=y;
+      setMobileHeaderHidden(false);
+      return;
+    }
+
+    const delta=y-mobileHeaderLastY;
+
+    // Finger/content moves upward -> page scrollY increases -> hide.
+    // Reverse direction -> reveal immediately. Always reveal at page top.
+    if(y<=4){
+      setMobileHeaderHidden(false);
+    }else if(delta>6 && y>24){
+      setMobileHeaderHidden(true);
+    }else if(delta<-4){
+      setMobileHeaderHidden(false);
+    }
+
+    mobileHeaderLastY=y;
+  }
+
   function schedulePip(){
     if(raf)return;
     raf=requestAnimationFrame(()=>{
@@ -1215,6 +1310,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   portraitBtn.addEventListener("click",()=>select("portrait"));
 
   function openNarrowSearch(){
+    setMobileHeaderHidden(false);
     top.classList.add("search-open");
     requestAnimationFrame(()=>{
       syncBoundaries();
@@ -1224,6 +1320,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function closeNarrowSearch(){
     top.classList.remove("search-open");
+    syncMobileHeaderVisibility(true);
     syncBoundaries();
   }
 
@@ -1270,7 +1367,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
     frame.src=embedUrl(card.dataset.videoId || current.id);
     window.scrollTo({top:0,behavior:"smooth"});
   });
-  addEventListener("scroll",schedulePip,{passive:true});
+  addEventListener("scroll",()=>{
+    schedulePip();
+    syncMobileHeaderVisibility();
+  },{passive:true});
 
   /* Breakpoint has exactly one owner: the same media query used by CSS. */
   columnsMq.addEventListener?.("change",()=>{
@@ -1278,6 +1378,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       top.classList.remove("search-open");
     }
     layout();
+    syncMobileHeaderVisibility(true);
     schedulePip();
   });
 
@@ -1291,6 +1392,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(widthChanged || document.documentElement.scrollWidth<=nextW+1){
       syncBoundaries();
     }
+    syncMobileHeaderVisibility(true);
     schedulePip();
   },{passive:true});
 
@@ -1301,6 +1403,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     schedulePip();
   }).observe(top);
 
+  mobileHeaderLastY=pageScrollY();
+  syncMobileHeaderVisibility(true);
   select("landscape");
   loadFeedData();
 })();
