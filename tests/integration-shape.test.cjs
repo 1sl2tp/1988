@@ -497,7 +497,7 @@ assert.match(app,/const YOUTUBE_CINEMATIC_BASE=\[15,15,15\]/);
 assert.match(app,/function paintCardCinematicColor\(/);
 assert.match(app,/--card-cinematic-surface/);
 assert.match(app,/--card-cinematic-accent/);
-assert.match(app,/youtubeCinematicPalette\(raw\)/);
+assert.match(app,/function applyWatchProgressAccent\([\s\S]{0,900}youtubeCinematicPalette\(art\)/);
 assert.match(style,/YOUTUBE CINEMATIC COLOR v483/);
 assert.match(style,/\.card-copy[\s\S]{0,220}--card-cinematic-surface/);
 assert.match(style,/height:4px!important/);
