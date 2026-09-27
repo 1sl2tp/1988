@@ -199,6 +199,7 @@
   let raf = 0;
   let stableMainViewportW = Math.max(1, innerWidth || 1);
   let stableMainViewportH = Math.max(1, innerHeight || document.documentElement.clientHeight || 1);
+  let pipTriggerY = Infinity;
 
   function embedUrl(id){
     return "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(id) +
@@ -287,6 +288,24 @@
       }
     }
   }
+  function refreshPipTrigger(){
+    if(twoColumn() || pip) return pipTriggerY;
+
+    const mediaRect = player.getBoundingClientRect();
+    const headerBottom = top.getBoundingClientRect().bottom;
+    if(!Number.isFinite(mediaRect.bottom)) return pipTriggerY;
+
+    // Capture the scroll position at which the REAL media bottom reaches header.
+    // Portrait and landscape naturally get different thresholds because their
+    // actual media heights are different.
+    pipTriggerY = Math.max(
+      0,
+      window.scrollY + mediaRect.bottom - headerBottom
+    );
+    return pipTriggerY;
+  }
+
+
   function fitPip(ratio){
     let w;
     let h;
@@ -325,6 +344,7 @@
     if(measure){
       measureMain();
       fitPip(current.ratio);
+      requestAnimationFrame(refreshPipTrigger);
     }
 
     titleEl.textContent = current.label;
@@ -353,15 +373,13 @@
       return;
     }
 
-    const mediaRect = player.getBoundingClientRect();
-    const headerBottom = top.getBoundingClientRect().bottom;
+    if(!Number.isFinite(pipTriggerY)) refreshPipTrigger();
 
-    // PiP follows the ACTUAL video box, never the surrounding black viewing area.
-    // Landscape: short 16:9 box centered in a tall black stage.
-    // Portrait: the player itself is the full-height 9:16 media.
+    // Scroll never measures the floating player.
+    // It only compares against the threshold captured from MAIN media geometry.
     const shouldPip =
       window.scrollY > 0 &&
-      mediaRect.bottom <= headerBottom + 1;
+      window.scrollY >= pipTriggerY - 1;
 
     if(shouldPip !== pip){
       pip = shouldPip;
@@ -380,6 +398,7 @@
 
   function select(kind){
     current = VIDEOS[kind];
+    pipTriggerY = Infinity;
     landscapeBtn.classList.toggle("active", kind === "landscape");
     portraitBtn.classList.toggle("active", kind === "portrait");
     frame.src = embedUrl(current.id);
@@ -398,6 +417,7 @@
     // Ignore that for MAIN geometry; width/breakpoint changes are real layout changes.
     const mainChanged=refreshStableMainViewport(false);
     if(mainChanged){
+      pipTriggerY = Infinity;
       paint({measure:true});
     }else if(pip){
       fitPip(current.ratio);
