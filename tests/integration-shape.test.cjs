@@ -165,7 +165,7 @@ assert.match(refresh,/_shortCheckedAt/);
 assert.match(app,/String\(durationSeconds\(row\)\|\|0\)/);
 assert.match(app,/function syncStableCardBadge\(/);
 assert.match(mediaMeta,/maxresdefault\.jpg/);
-assert.match(app,/data\.thumbFallback!==["']1["']/);
+assert.match(app,/dataset\.thumbFallback!==["']1["']/);
 assert.match(app,/function paintVisibleRowSourceAvatars\(rows=\[\]\)/);
 assert.match(app,/preserveExistingOrder:refreshExisting/);
 assert.match(app,/function currentFloatingAspect\(/);
