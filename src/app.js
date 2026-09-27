@@ -6248,8 +6248,11 @@ function placeCompactWatchPip(
   playerSection.style.setProperty("height",size.height+"px","important");
   playerSection.style.setProperty("min-width","0","important");
   playerSection.style.setProperty("min-height","0","important");
-  playerSection.style.setProperty("max-width","calc(100vw - 20px)","important");
-  playerSection.style.setProperty("max-height","42vh","important");
+  // scaledAutoFloatSize() already fits BOTH axes with one scale factor.
+  // Never clamp the outer PiP independently: that would change its aspect and
+  // create black letterbox bands at the medium/large steps.
+  playerSection.style.setProperty("max-width","none","important");
+  playerSection.style.setProperty("max-height","none","important");
   playerSection.style.setProperty("margin","0","important");
   playerSection.style.setProperty("padding","0","important");
   playerSection.style.setProperty("overflow","visible","important");
@@ -6363,9 +6366,21 @@ function hideFloatOverlayControls(
   frame.classList.remove("float-controls-open");
   frame.classList.toggle("float-controls-suppressed",!!suppressHover);
   if(suppressHover){
-    frame.addEventListener("pointerleave",()=>{
+    let released=false;
+    const release=()=>{
+      if(released)return;
+      released=true;
       frame.classList.remove("float-controls-suppressed");
-    },{once:true});
+      frame.removeEventListener("pointerleave",release);
+    };
+    frame.addEventListener("pointerleave",release,{once:true});
+
+    // Re-arm without asking the user to move outside the PiP first.
+    // Two paint frames are enough to clear the Play button's focus/hover click
+    // while keeping mobile tap and desktop hover immediately usable again.
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(release);
+    });
   }
 }
 
@@ -6893,6 +6908,8 @@ function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame"
   if(!frame||!state.watchMinimized)return;
 
   const anchor=currentCompactPipAnchor();
+  // Three compact PiP steps. Every step keeps the exact same media aspect:
+  // small -> medium -> large -> small.
   const steps=[1,1.35,2];
   const current=floatScaleValue();
   const index=steps.indexOf(current);
