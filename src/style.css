@@ -5487,11 +5487,3 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     aspect-ratio:var(--watch-video-aspect,9/16)!important;
   }
 }
-
-@media(max-width:720px){
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
-  .player-frame:not(.floating-iframe) .watch-pip-trigger{
-    display:grid!important;
-    pointer-events:auto!important;
-  }
-}
