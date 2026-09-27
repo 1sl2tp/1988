@@ -6068,21 +6068,37 @@ function releaseWatchMediaSlot(){
   root.style.removeProperty("--watch-inline-slot-art");
 }
 
-function placeCompactWatchPip(frame=playerSection?.querySelector(".player-frame")){
+function placeCompactWatchPip(
+  frame=playerSection?.querySelector(".player-frame"),
+  {preservePosition=true}={}
+){
   if(!frame||!playerSection)return;
 
   const ratio=currentFloatingAspect();
   const size=scaledAutoFloatSize(frame,ratio);
   const safe=floatingSafeInsets();
   const gap=10;
-  const top=Math.max(6,safe.top+6);
+  const defaultTop=Math.max(6,safe.top+6);
+  const maxLeft=Math.max(gap,window.innerWidth-size.width-gap);
+  const maxTop=Math.max(
+    defaultTop,
+    window.innerHeight-safe.bottom-size.height-gap
+  );
+
+  let left=maxLeft;
+  let top=defaultTop;
+
+  if(preservePosition&&state.floatUserMoved&&state.floatBox){
+    left=Math.max(gap,Math.min(maxLeft,Number(state.floatBox.left)||gap));
+    top=Math.max(defaultTop,Math.min(maxTop,Number(state.floatBox.top)||defaultTop));
+  }
 
   playerSection.style.setProperty("position","fixed","important");
   playerSection.style.setProperty("z-index","9999","important");
   playerSection.style.setProperty("top",top+"px","important");
-  playerSection.style.setProperty("right",gap+"px","important");
+  playerSection.style.setProperty("right","auto","important");
   playerSection.style.setProperty("bottom","auto","important");
-  playerSection.style.setProperty("left","auto","important");
+  playerSection.style.setProperty("left",left+"px","important");
   playerSection.style.setProperty("width",size.width+"px","important");
   playerSection.style.setProperty("height",size.height+"px","important");
   playerSection.style.setProperty("min-width","0","important");
@@ -6105,13 +6121,8 @@ function placeCompactWatchPip(frame=playerSection?.querySelector(".player-frame"
   frame.style.setProperty("max-height","100%","important");
   frame.style.setProperty("margin","0","important");
 
-  state.floatDock="right";
-  state.floatBox={
-    left:Math.max(gap,window.innerWidth-size.width-gap),
-    top,
-    width:size.width,
-    height:size.height
-  };
+  state.floatDock=left+size.width/2<window.innerWidth/2?"left":"right";
+  state.floatBox={left,top,width:size.width,height:size.height};
 }
 
 
@@ -6159,13 +6170,11 @@ function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
     play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
   }
 
-  const pin=frame.querySelector('[data-float-overlay="pin"]');
-  if(pin){
-    pin.classList.toggle("active",!!state.watchPipPinned);
-    pin.setAttribute(
-      "aria-label",
-      state.watchPipPinned?"Bỏ ghim PiP":"Ghim PiP"
-    );
+  const scale=frame.querySelector('[data-float-overlay="scale"]');
+  if(scale){
+    const value=floatScaleValue();
+    scale.textContent=value===1.5?"1.5×":value+"×";
+    scale.setAttribute("aria-label","Kích thước PiP "+scale.textContent+". Bấm để tăng");
   }
 }
 
@@ -6191,6 +6200,147 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
     playVideoEngine();
   }
   showFloatOverlayControls(frame);
+}
+
+function enterFloatAppFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection)return;
+  playerSection.classList.add("watch-pip-app-fullscreen");
+  playerSection.style.setProperty("position","fixed","important");
+  playerSection.style.setProperty("z-index","10050","important");
+  playerSection.style.setProperty("inset","0","important");
+  playerSection.style.setProperty("top","0","important");
+  playerSection.style.setProperty("right","0","important");
+  playerSection.style.setProperty("bottom","0","important");
+  playerSection.style.setProperty("left","0","important");
+  playerSection.style.setProperty("width","100vw","important");
+  playerSection.style.setProperty("height","100dvh","important");
+  playerSection.style.setProperty("max-width","none","important");
+  playerSection.style.setProperty("max-height","none","important");
+  frame.classList.add("float-controls-open");
+}
+
+function exitFloatAppFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection)return;
+  playerSection.classList.remove("watch-pip-app-fullscreen");
+  playerSection.style.removeProperty("inset");
+  placeCompactWatchPip(frame,{preservePosition:true});
+  showFloatOverlayControls(frame);
+}
+
+function toggleFloatFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection)return;
+
+  const nativeFs=getFullscreenElement();
+  if(nativeFs){
+    try{
+      const exit=document.exitFullscreen||document.webkitExitFullscreen;
+      if(exit){
+        const result=exit.call(document);
+        if(result?.catch)result.catch(()=>{});
+        return;
+      }
+    }catch{}
+  }
+
+  if(playerSection.classList.contains("watch-pip-app-fullscreen")){
+    exitFloatAppFullscreen(frame);
+    return;
+  }
+
+  // Prefer the browser's real fullscreen API from this user gesture.
+  const target=
+    state.engine==="native" && !nativePlayer.hidden
+      ?nativePlayer
+      :playerSection;
+
+  try{
+    if(state.engine==="native"&&typeof nativePlayer.webkitEnterFullscreen==="function"){
+      nativePlayer.webkitEnterFullscreen();
+      return;
+    }
+    const request=target?.requestFullscreen||target?.webkitRequestFullscreen;
+    if(request){
+      const result=request.call(target);
+      if(result?.catch){
+        result.catch(()=>enterFloatAppFullscreen(frame));
+      }
+      return;
+    }
+  }catch{}
+
+  // Fallback for browsers/PWA modes that do not expose element fullscreen.
+  enterFloatAppFullscreen(frame);
+}
+
+function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection||!state.watchMinimized)return;
+  if(playerSection.classList.contains("watch-pip-app-fullscreen"))return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const rect=playerSection.getBoundingClientRect();
+  const safe=floatingSafeInsets();
+  const pointerId=event.pointerId;
+  const startX=event.clientX;
+  const startY=event.clientY;
+  const startLeft=rect.left;
+  const startTop=rect.top;
+  const width=rect.width;
+  const height=rect.height;
+  const gap=10;
+
+  state.floatUserMoved=true;
+  frame.classList.add("float-moving","float-controls-open");
+
+  const move=moveEvent=>{
+    if(moveEvent.pointerId!==pointerId)return;
+    moveEvent.preventDefault();
+
+    const maxLeft=Math.max(gap,window.innerWidth-width-gap);
+    const minTop=Math.max(6,safe.top+6);
+    const maxTop=Math.max(minTop,window.innerHeight-safe.bottom-height-gap);
+    const left=Math.max(gap,Math.min(maxLeft,startLeft+(moveEvent.clientX-startX)));
+    const top=Math.max(minTop,Math.min(maxTop,startTop+(moveEvent.clientY-startY)));
+
+    playerSection.style.setProperty("left",left+"px","important");
+    playerSection.style.setProperty("right","auto","important");
+    playerSection.style.setProperty("top",top+"px","important");
+    playerSection.style.setProperty("bottom","auto","important");
+    state.floatBox={left,top,width,height};
+  };
+
+  const finish=endEvent=>{
+    if(endEvent.pointerId!==pointerId)return;
+    document.removeEventListener("pointermove",move,true);
+    document.removeEventListener("pointerup",finish,true);
+    document.removeEventListener("pointercancel",finish,true);
+
+    const box=state.floatBox||{left:startLeft,top:startTop,width,height};
+    const minTop=Math.max(6,safe.top+6);
+    const bottomTop=Math.max(minTop,window.innerHeight-safe.bottom-height-gap);
+    const leftCorner=gap;
+    const rightCorner=Math.max(gap,window.innerWidth-width-gap);
+    const snapLeft=(Number(box.left)||0)+width/2<window.innerWidth/2
+      ?leftCorner
+      :rightCorner;
+    const snapTop=(Number(box.top)||0)+height/2<window.innerHeight/2
+      ?minTop
+      :bottomTop;
+
+    playerSection.style.setProperty("left",snapLeft+"px","important");
+    playerSection.style.setProperty("right","auto","important");
+    playerSection.style.setProperty("top",snapTop+"px","important");
+    state.floatDock=snapLeft===leftCorner?"left":"right";
+    state.floatBox={left:snapLeft,top:snapTop,width,height};
+
+    frame.classList.remove("float-moving");
+    showFloatOverlayControls(frame);
+  };
+
+  document.addEventListener("pointermove",move,{passive:false,capture:true});
+  document.addEventListener("pointerup",finish,{passive:false,capture:true});
+  document.addEventListener("pointercancel",finish,{passive:false,capture:true});
 }
 
 function ensureFloatHandles(){
@@ -6251,35 +6401,27 @@ function ensureFloatHandles(){
   overlay.className="float-player-overlay";
   overlay.innerHTML=
     '<div class="float-overlay-top">'+
-      '<button type="button" class="float-overlay-pin" data-float-overlay="pin" aria-label="Ghim PiP">⌖</button>'+
+      '<button type="button" class="float-overlay-move" data-float-overlay="move" aria-label="Giữ và kéo để di chuyển PiP">✥</button>'+
       '<button type="button" class="float-overlay-close" data-float-overlay="close" aria-label="Đóng PiP">×</button>'+
     '</div>'+
-    '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">Ⅱ</button>'+
+    '<button type="button" class="float-overlay-fullscreen" data-float-overlay="fullscreen" aria-label="Toàn màn hình">⛶</button>'+
     '<div class="float-overlay-bottom">'+
-      '<button type="button" class="float-overlay-expand" data-float-overlay="expand" aria-label="Mở rộng">↗ <span>Mở rộng</span></button>'+
-      '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Đổi kích thước">1×</button>'+
+      '<span class="float-overlay-hint">Giữ ✥ để di chuyển</span>'+
+      '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Tăng kích thước PiP">1×</button>'+
     '</div>';
 
-  overlay.querySelector('[data-float-overlay="pin"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    toggleWatchPipPin(frame);
-    showFloatOverlayControls(frame);
+  overlay.querySelector('[data-float-overlay="move"]')?.addEventListener("pointerdown",event=>{
+    startFloatMove(event,frame);
   });
   overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
     setWatchMinimized(false);
   });
-  overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
+  overlay.querySelector('[data-float-overlay="fullscreen"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-    toggleFloatPlayback(frame);
-  });
-  overlay.querySelector('[data-float-overlay="expand"]')?.addEventListener("click",event=>{
-    event.preventDefault();
-    event.stopPropagation();
-    setWatchMinimized(false);
+    toggleFloatFullscreen(frame);
   });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -6552,10 +6694,13 @@ function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
   state.floatScale=steps[(index+1)%steps.length];
   state.floatUserSized=false;
 
-  // One geometry commit: real aspect -> frame size -> iframe/native viewport.
-  // Do not let CSS animate width/height through intermediate wrong rectangles.
+  // One geometry commit: real aspect -> PiP box -> media viewport.
   frame.classList.add("float-geometry-commit");
-  applyAutoFloatAspect(frame,{force:true});
+  if(state.watchMinimized&&watchAutoPipViewport()){
+    placeCompactWatchPip(frame,{preservePosition:true});
+  }else{
+    applyAutoFloatAspect(frame,{force:true});
+  }
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
 
