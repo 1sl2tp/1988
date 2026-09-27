@@ -10325,8 +10325,8 @@ function searchCardHtml(row={},options={}){
   const isLive=media.isLive;
   const published=media.published;
   const statBits=[];
-  if(viewText)statBits.push(viewText);
   if(published)statBits.push(published);
+  if(viewText)statBits.push(viewText);
   const episode=Number(options.episode)||0;
   const seriesKey=clean(options.seriesKey||"");
 
@@ -11849,8 +11849,8 @@ function renderCards(rows=[],options={}){
     const isLive=media.isLive;
     const published=media.published;
     const statBits=[];
-    if(viewText)statBits.push(viewText);
     if(published)statBits.push(published);
+    if(viewText)statBits.push(viewText);
     const thumbUrl=media.thumbnail;
     const eager=cards.length<12;
     const inheritedWatchScope=clean(row?._watchScope||"");
