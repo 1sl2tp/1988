@@ -189,7 +189,7 @@ assert.match(app,/function syncStableCardBadge\(/);
 assert.match(mediaMeta,/hqdefault\.jpg/);
 assert.match(app,/dataset\.thumbFallback="2"/);
 assert.match(app,/function paintVisibleRowSourceAvatars\(rows=\[\]\)/);
-assert.match(app,/controls:0/);
+assert.match(app,/controls:1/);
 assert.doesNotMatch(app,/controls:controlsMode/);
 assert.match(app,/function ensureUnifiedMediaChrome\(\)/);
 assert.match(html,/id=["\']watchMediaBar["\'][^>]*class=["\']watch-media-bar["\']/);

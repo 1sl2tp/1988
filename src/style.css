@@ -8118,3 +8118,22 @@ html.watch-minimized .player-frame.floating-iframe video{
   opacity:1!important;
 }
 
+
+
+/* ============================================================
+   DEFAULT EMBED + NARROW SUPPLEMENTAL SEEK
+   Wide watch uses the player's own controls. Under 960px the app adds only
+   the thin seek line below the player; it does not replace iframe controls.
+   ============================================================ */
+@media(min-width:960px){
+  :root{--watch-media-bar-h:0px;}
+  html.watch-browse:not(.watch-minimized) .watch-media-bar{
+    display:none!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+}

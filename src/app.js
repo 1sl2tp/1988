@@ -8283,8 +8283,8 @@ function currentPlayerUiMode(){
 
 function syncNativePlayerControls(){
   if(!nativePlayer)return;
-  nativePlayer.controls=false;
-  nativePlayer.removeAttribute("controls");
+  nativePlayer.controls=true;
+  nativePlayer.setAttribute("controls","");
 }
 
 function applyFloatingIframe(force){
@@ -12148,6 +12148,7 @@ function reconcileStableCards(items=[],{preserveExistingOrder=false}={}){
 
 function renderCards(rows=[],options={}){
   const append=options.append===true;
+  if(!append)youtubeThumbnailUpgradeCount=0;
   const trustedPackage=options.trustedPackage===true;
   const refreshExisting=options.refreshExisting===true; // kept for caller compatibility
   if(!append)feed.classList.remove("search-grouped");
@@ -12536,7 +12537,7 @@ function updateMediaSession(meta=state.currentMeta||{}){
 
 
 function desiredYoutubeIframeControlsMode(){
-  return 0;
+  return 1;
 }
 
 function ensureYoutubePlayerHost(){
@@ -12563,10 +12564,9 @@ function ensureYoutubePlayerHost(){
 }
 
 function syncYoutubeIframeControlsForUiMode(){
-  // YouTube chrome is intentionally disabled in every layout. MAIN and PiP
-  // share the app-owned clean media chrome below, so resizing never rebuilds
-  // the iframe merely to change controls.
-  return false;
+  // Keep the iframe itself on YouTube's normal controls. Do not rebuild,
+  // mask, or replace the embed UI when the responsive layout changes.
+  return true;
 }
 
 let watchMainUiLocked=false;
@@ -12613,6 +12613,10 @@ function formatUnifiedMediaTime(value=0){
     return hours+":"+String(minutes).padStart(2,"0")+":"+String(seconds).padStart(2,"0");
   }
   return minutes+":"+String(seconds).padStart(2,"0");
+}
+
+function supplementalSeekEnabled(){
+  return currentPlayerUiMode()==="main"&&watchAutoPipViewport();
 }
 
 function unifiedMediaBar(){
@@ -12677,13 +12681,13 @@ function stopUnifiedMediaProgress(){
 }
 
 function startUnifiedMediaProgress(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||watchMediaProgressRaf||currentPlayerUiMode()!=="main")return;
+  if(!frame||watchMediaProgressRaf||!supplementalSeekEnabled())return;
   const tick=()=>{
     watchMediaProgressRaf=0;
     if(
       !frame.isConnected ||
       !state.currentId ||
-      currentPlayerUiMode()!=="main"
+      !supplementalSeekEnabled()
     )return;
     if(!watchMediaDragging)syncUnifiedMediaProgress(frame);
     watchMediaProgressRaf=requestAnimationFrame(tick);
@@ -12705,7 +12709,7 @@ function showUnifiedMediaChrome(
   void delay;
   if(!frame||playerSection?.hidden||!state.currentId)return;
   syncUnifiedMediaState(frame);
-  if(currentPlayerUiMode()==="main")startUnifiedMediaProgress(frame);
+  if(supplementalSeekEnabled())startUnifiedMediaProgress(frame);
   else stopUnifiedMediaProgress();
 }
 
@@ -12900,7 +12904,7 @@ function ensureUnifiedMediaChrome(){
   bar.dataset.unifiedChromeReady="1";
   bindUnifiedMediaSeek(frame,bar.querySelector(".watch-media-progress"));
   syncUnifiedMediaState(frame);
-  if(currentPlayerUiMode()==="main")startUnifiedMediaProgress(frame);
+  if(supplementalSeekEnabled())startUnifiedMediaProgress(frame);
 }
 
 function syncPlayerUiMode(){
@@ -14393,8 +14397,9 @@ function initYouTubePlayer(){
     playerVars:{
       autoplay:1,
       playsinline:1,
-      // App-owned clean chrome: YouTube transport is hidden in every layout.
-      controls:0,
+      // Keep YouTube's normal embedded transport. Narrow one-column layouts
+      // receive only the separate supplemental seek line below the iframe.
+      controls:1,
       cc_load_policy:0,
       rel:0,
       fs:1,
@@ -15339,11 +15344,11 @@ feed?.addEventListener("error",event=>{
       const current=String(img.currentSrc||img.src||"");
       const stage=Number(img.dataset.thumbFallback||0);
       let fallback="";
-      if(stage===0&&!/\/hqdefault\.jpg(?:[?#]|$)/i.test(current)){
-        fallback="https://i.ytimg.com/vi/"+id+"/hqdefault.jpg";
-        img.dataset.thumbFallback="1";
-      }else if(stage<=1&&!/\/mqdefault\.jpg(?:[?#]|$)/i.test(current)){
+      if(stage===0&&!/\/mqdefault\.jpg(?:[?#]|$)/i.test(current)){
         fallback="https://i.ytimg.com/vi/"+id+"/mqdefault.jpg";
+        img.dataset.thumbFallback="1";
+      }else if(stage<=1&&!/\/hqdefault\.jpg(?:[?#]|$)/i.test(current)){
+        fallback="https://i.ytimg.com/vi/"+id+"/hqdefault.jpg";
         img.dataset.thumbFallback="2";
       }
       if(fallback&&fallback!==current){
@@ -15623,11 +15628,140 @@ window.addEventListener("scroll",queueHomeChromeTintOnScroll,{passive:true});
 feedSection?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
 window.visualViewport?.addEventListener?.("scroll",queueHomeChromeTintOnScroll,{passive:true});
 
+const youtubeThumbnailQualityCache=new Map();
+const YOUTUBE_THUMBNAIL_UPGRADE_LIMIT=12;
+let youtubeThumbnailUpgradeCount=0;
+let youtubeThumbnailQualityObserver=null;
+
+function youtubeThumbnailUrl(id,name){
+  return /^[A-Za-z0-9_-]{11}$/.test(String(id||""))
+    ?"https://i.ytimg.com/vi/"+id+"/"+name
+    :"";
+}
+
+function youtubeThumbnailBelongsToVideo(url,id){
+  if(!url||!id)return false;
+  try{
+    const parsed=new URL(url,location.href);
+    const host=parsed.hostname.replace(/^www\./,"").toLowerCase();
+    if(![
+      "i.ytimg.com","img.youtube.com","i1.ytimg.com",
+      "i2.ytimg.com","i3.ytimg.com","i4.ytimg.com"
+    ].includes(host))return false;
+    return parsed.pathname.includes("/"+id+"/");
+  }catch{
+    return false;
+  }
+}
+
+function probeYoutubeThumbnail(url){
+  return new Promise(resolve=>{
+    if(!url){resolve(null);return;}
+    const img=new Image();
+    img.decoding="async";
+    try{img.fetchPriority="low";}catch{}
+    let settled=false;
+    const finish=value=>{
+      if(settled)return;
+      settled=true;
+      resolve(value);
+    };
+    img.onload=async()=>{
+      try{await img.decode?.();}catch{}
+      const width=Number(img.naturalWidth)||0;
+      const height=Number(img.naturalHeight)||0;
+      const ratio=height>0?width/height:0;
+      finish(width>120&&height>90&&ratio>=1.70&&ratio<=1.86?{url,width,height}:null);
+    };
+    img.onerror=()=>finish(null);
+    img.src=url;
+    if(img.complete&&img.naturalWidth)queueMicrotask(()=>img.onload?.());
+    setTimeout(()=>finish(null),1800);
+  });
+}
+
+function resolveYoutubeCardThumbnail(id,current=""){
+  id=String(id||"").trim();
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id))return Promise.resolve(current||"");
+  const cached=youtubeThumbnailQualityCache.get(id);
+  if(cached)return cached;
+
+  const task=(async()=>{
+    const candidates=[];
+    const add=url=>{
+      url=String(url||"").trim();
+      if(url&&!candidates.includes(url))candidates.push(url);
+    };
+    add(youtubeThumbnailUrl(id,"maxresdefault.jpg"));
+    if(youtubeThumbnailBelongsToVideo(current,id))add(current);
+    add(youtubeThumbnailUrl(id,"mqdefault.jpg"));
+    for(const url of candidates){
+      const result=await probeYoutubeThumbnail(url);
+      if(result)return result.url;
+    }
+    return current||youtubeThumbnailUrl(id,"mqdefault.jpg");
+  })().catch(()=>current||youtubeThumbnailUrl(id,"mqdefault.jpg"));
+
+  youtubeThumbnailQualityCache.set(id,task);
+  return task;
+}
+
+function upgradeYoutubeCardThumbnail(img){
+  if(!(img instanceof HTMLImageElement)||img.dataset.thumbQualityDone==="1")return;
+  const card=img.closest(".card[data-video-id]");
+  const id=String(card?.dataset?.videoId||"").trim();
+  const current=String(img.currentSrc||img.getAttribute("src")||"").trim();
+  if(!id||!youtubeThumbnailBelongsToVideo(current,id)){
+    img.dataset.thumbQualityDone="1";
+    return;
+  }
+  if(/\/maxresdefault\.(?:jpg|jpeg|webp)(?:$|\?)/i.test(current)){
+    img.dataset.thumbQualityDone="1";
+    return;
+  }
+  if(youtubeThumbnailUpgradeCount>=YOUTUBE_THUMBNAIL_UPGRADE_LIMIT){
+    img.dataset.thumbQualityDone="1";
+    return;
+  }
+  youtubeThumbnailUpgradeCount++;
+  img.dataset.thumbQualityDone="1";
+  void resolveYoutubeCardThumbnail(id,current).then(best=>{
+    if(!best||!img.isConnected||card?.dataset?.videoId!==id||best===img.getAttribute("src"))return;
+    img.src=best;
+    if(card)card.dataset.thumb=best;
+  });
+}
+
+function ensureYoutubeThumbnailQualityObserver(){
+  if(youtubeThumbnailQualityObserver||!("IntersectionObserver" in window))return youtubeThumbnailQualityObserver;
+  youtubeThumbnailQualityObserver=new IntersectionObserver(entries=>{
+    for(const entry of entries){
+      if(!entry.isIntersecting)continue;
+      youtubeThumbnailQualityObserver?.unobserve?.(entry.target);
+      upgradeYoutubeCardThumbnail(entry.target);
+    }
+  },{rootMargin:"320px 0px"});
+  return youtubeThumbnailQualityObserver;
+}
+
+function observeYoutubeThumbnailQuality(img){
+  if(!(img instanceof HTMLImageElement)||img.dataset.thumbQualityDone==="1")return;
+  const card=img.closest(".card[data-video-id]");
+  if(!card)return;
+  const current=String(img.currentSrc||img.getAttribute("src")||"").trim();
+  if(!youtubeThumbnailBelongsToVideo(current,card.dataset.videoId||"")){
+    img.dataset.thumbQualityDone="1";
+    return;
+  }
+  const observer=ensureYoutubeThumbnailQualityObserver();
+  if(observer)observer.observe(img);
+  else upgradeYoutubeCardThumbnail(img);
+}
+
 function normalizeThumbnailFit(img){
   if(!(img instanceof HTMLImageElement)||!img.closest(".thumb-wrap"))return;
-  // MediaMeta now guarantees 16:9 YouTube artwork before render.
-  // UI has one stable rule: fill the card, no per-image ratio guessing.
   img.classList.add("thumb-fill");
+  observeYoutubeThumbnailQuality(img);
 }
 
 function normalizeRenderedThumbnails(){

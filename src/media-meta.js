@@ -193,9 +193,29 @@
     }
   }
 
+  function knownYoutubePaddedThumb(url='',video=''){
+    if(!url||!video)return false;
+    try{
+      const parsed=new URL(url,'https://i.ytimg.com');
+      const host=parsed.hostname.replace(/^www\./,'').toLowerCase();
+      if(![
+        'i.ytimg.com',
+        'img.youtube.com',
+        'i1.ytimg.com',
+        'i2.ytimg.com',
+        'i3.ytimg.com',
+        'i4.ytimg.com'
+      ].includes(host))return false;
+      if(!parsed.pathname.includes('/'+video+'/'))return false;
+      return /\/(?:default|hqdefault|sddefault)\.(?:jpg|jpeg|webp)$/i.test(parsed.pathname);
+    }catch{
+      return false;
+    }
+  }
+
   function youtubeWideFallback(video=''){
     return VIDEO_ID_RE.test(video)
-      ?'https://i.ytimg.com/vi/'+video+'/hqdefault.jpg'
+      ?'https://i.ytimg.com/vi/'+video+'/mqdefault.jpg'
       :'';
   }
 
@@ -220,7 +240,7 @@
       // width/height metadata. Old videos and oEmbed often expose only
       // hqdefault; blindly replacing it with maxres can create a broken image.
       const upstream=candidates.find(item=>item?.url);
-      if(upstream?.url)return upstream.url;
+      if(upstream?.url&&!knownYoutubePaddedThumb(upstream.url,video))return upstream.url;
 
       return youtubeWideFallback(video);
     }
