@@ -29,7 +29,8 @@
   .stage{
     position:relative;
     width:100%;
-    aspect-ratio:var(--ratio,16/9);
+    height:auto;
+    margin-inline:auto;
     background:#000;
   }
   .player{
@@ -88,7 +89,7 @@
       min-width:0;
     }
     .stage{
-      width:100%;
+      max-width:100%;
       max-height:calc(100dvh - 82px);
     }
     .player.pip{
@@ -167,15 +168,64 @@
       "?autoplay=1&playsinline=1&rel=0&modestbranding=1";
   }
 
-  function fitPip(ratio){
-    const maxW = Math.min(260, Math.max(150, innerWidth * .44));
-    const maxH = Math.min(360, Math.max(180, innerHeight * .48));
-    let w = maxW;
-    let h = w / ratio;
-    if(h > maxH){
-      h = maxH;
-      w = h * ratio;
+  function viewportHeight(){
+    return Math.max(1, Number(visualViewport?.height) || innerHeight || 1);
+  }
+
+  function measureMain(){
+    const maxW = Math.max(1, stage.parentElement?.clientWidth || innerWidth || 1);
+    const headerBottom = Math.max(0, top.getBoundingClientRect().bottom);
+    const availableH = Math.max(
+      220,
+      viewportHeight() - headerBottom - (twoColumn() ? 14 : 0)
+    );
+
+    let w;
+    let h;
+
+    if(current.ratio < 1){
+      // Dọc: chiều CAO là chuẩn. Chỉ giảm khi chạm giới hạn chiều rộng.
+      h = Math.min(availableH, maxW / current.ratio);
+      w = h * current.ratio;
+    }else{
+      // Ngang: chiều RỘNG là chuẩn. Chỉ giảm ở 2 cột nếu vượt chiều cao màn hình.
+      w = maxW;
+      h = w / current.ratio;
+      if(twoColumn() && h > availableH){
+        h = availableH;
+        w = h * current.ratio;
+      }
     }
+
+    stage.style.width = Math.round(w) + "px";
+    stage.style.height = Math.round(h) + "px";
+    stage.style.aspectRatio = "auto";
+  }
+
+  function fitPip(ratio){
+    let w;
+    let h;
+
+    if(ratio < 1){
+      // PiP dọc cũng đo theo chiều cao.
+      h = Math.min(420, Math.max(240, viewportHeight() * .50));
+      w = h * ratio;
+      const maxW = Math.max(120, innerWidth * .46);
+      if(w > maxW){
+        w = maxW;
+        h = w / ratio;
+      }
+    }else{
+      // PiP ngang đo theo chiều rộng.
+      w = Math.min(280, Math.max(170, innerWidth * .46));
+      h = w / ratio;
+      const maxH = Math.max(100, viewportHeight() * .36);
+      if(h > maxH){
+        h = maxH;
+        w = h * ratio;
+      }
+    }
+
     document.documentElement.style.setProperty("--pip-w", Math.round(w) + "px");
     document.documentElement.style.setProperty("--pip-h", Math.round(h) + "px");
   }
@@ -186,14 +236,19 @@
 
   function paint(){
     document.documentElement.style.setProperty("--ratio", String(current.ratio));
+    measureMain();
     fitPip(current.ratio);
     titleEl.textContent = current.label;
 
     if(twoColumn()){
-      layoutHint.textContent = "2 cột: danh sách trái · media phải, không PiP.";
+      layoutHint.textContent = current.ratio < 1
+        ? "2 cột · dọc đo theo chiều cao vùng xem."
+        : "2 cột · ngang đo theo chiều rộng cột media.";
       stateEl.textContent = "2 CỘT · MAIN · " + (current.ratio > 1 ? "16:9" : "9:16");
     }else{
-      layoutHint.textContent = "1 cột: cuộn khỏi media thì PiP.";
+      layoutHint.textContent = current.ratio < 1
+        ? "1 cột · dọc full theo chiều cao vùng xem."
+        : "1 cột · ngang full theo chiều rộng.";
       stateEl.textContent = "1 CỘT · " + (pip ? "PIP" : "MAIN") + " · " +
         (current.ratio > 1 ? "16:9" : "9:16");
     }
