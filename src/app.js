@@ -11495,10 +11495,19 @@ function renderCards(rows=[],options={}){
     if(published)statBits.push(published);
     const thumbUrl=media.thumbnail;
     const eager=cards.length<12;
+    const inheritedWatchScope=clean(row?._watchScope||"");
+    const cardTopicScope=
+      inheritedWatchScope===LIVE_SOURCE_SCOPE||CONTENT_SOURCE_SCOPES.has(inheritedWatchScope)
+        ?inheritedWatchScope
+        :state.activeFeed===LIVE_SOURCE_SCOPE
+          ?LIVE_SOURCE_SCOPE
+          :state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent)
+            ?state.activeParent
+            :"";
     cards.push({
       id,
       html:
-        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-trusted-package="'+(trustedPackage?'1':'0')+'" data-watch-scope="'+esc(clean(row?._watchScope||""))+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
+        '<article class="card" data-video-id="'+esc(id)+'" data-source-id="'+esc(sourceId)+'" data-trusted-package="'+(trustedPackage?'1':'0')+'" data-watch-scope="'+esc(cardTopicScope)+'" data-title="'+esc(title)+'" data-channel="'+esc(channel)+'" data-views="'+esc(String(views))+'" data-view-text="'+esc(viewText)+'" data-duration="'+esc(String(duration))+'" data-live="'+(isLive?'1':'0')+'" data-published="'+esc(published)+'" data-thumb="'+esc(thumbUrl)+'" data-aspect="'+esc(String(rowAspectRatio(row)||""))+'">'+
           '<div class="thumb-wrap"><img class="thumb-fill" src="'+esc(thumbUrl)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+(isLive?'<span class="live-badge">LIVE</span>':duration?'<span class="duration">'+esc(fmtDuration(duration))+'</span>':'')+'</div>'+
           '<div class="card-copy">'+
             '<span class="card-avatar" aria-hidden="true">'+
@@ -11581,6 +11590,71 @@ function rowFromCard(card){
   };
 }
 
+function selectedVideoTopicScopes(meta={}){
+  const id=String(itemVideoId(meta)||state.currentId||"").trim();
+  const out=[];
+  const seen=new Set();
+
+  const add=scope=>{
+    scope=String(scope||"").trim();
+    if(
+      !scope||
+      seen.has(scope)||
+      (scope!==LIVE_SOURCE_SCOPE&&!CONTENT_SOURCE_SCOPES.has(scope))
+    )return;
+    seen.add(scope);
+    out.push(scope);
+  };
+
+  // Explicit scope from the clicked card wins.
+  add(meta?._watchScope);
+  add(state.currentMeta?._watchScope);
+
+  // Then preserve the visible source the user was browsing.
+  if(state.activeFeed===LIVE_SOURCE_SCOPE)add(LIVE_SOURCE_SCOPE);
+  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))add(state.activeParent);
+
+  // Day/Week are time feeds, not topics. For videos opened there, resolve the
+  // real hashtag source by finding the same video in packaged topic snapshots.
+  if(id){
+    const ordered=[
+      ...sourceScopeDisplayOrder,
+      ...state.parentCategories.map(row=>row?.key),
+      ...CONTENT_SOURCE_SCOPES
+    ].map(String).filter(Boolean);
+
+    for(const scope of ordered){
+      if(out.length>=3)break;
+      if(!CONTENT_SOURCE_SCOPES.has(scope)||seen.has(scope))continue;
+      const rows=categoryCacheRows(scope);
+      if(rows.some(row=>itemVideoId(row)===id))add(scope);
+    }
+
+    // A live item opened from Ngày/Tuần still belongs to #live.
+    if(!seen.has(LIVE_SOURCE_SCOPE)){
+      const liveRows=readFeedCache(LIVE_SOURCE_SCOPE);
+      if(
+        mediaIsLive(meta)||
+        liveRows.some(row=>itemVideoId(row)===id)
+      )add(LIVE_SOURCE_SCOPE);
+    }
+  }
+
+  return out.slice(0,3);
+}
+
+function mediaIsLive(meta={}){
+  return meta?.isLive===true||meta?.live===true||videoUiMeta(meta).isLive===true;
+}
+
+function topicHashtagLabel(scope=""){
+  const label=clean(sourceGroupLabel(scope)||scope)
+    .replace(/^#+/,"")
+    .replace(/\s+/g,"-")
+    .toLocaleLowerCase("vi-VN");
+  return "#"+(label||"khác");
+}
+
 function renderSelectedVideoInfo(meta={}){
   if(!selectedVideoInfo)return;
 
@@ -11598,32 +11672,14 @@ function renderSelectedVideoInfo(meta={}){
   );
   const channelFallback=(channel.charAt(0)||"?").toUpperCase();
 
-  // "Nguồn" here means the content source/topic that the user entered from,
-  // not the YouTube channel currently playing.
-  let topicScope=clean(
-    meta?._watchScope||
-    state.currentMeta?._watchScope||
-    activeSourceScope()||
-    state.activeParent||
-    state.activeFeed||
-    ""
-  );
-  if(!topicScope)topicScope=LATEST_SOURCE_SCOPE;
-
-  const topicLabel=clean(sourceGroupLabel(topicScope)||topicScope)||"Nguồn";
-  const topicIsHashtag=
-    topicScope===LIVE_SOURCE_SCOPE||
-    CONTENT_SOURCE_SCOPES.has(topicScope);
-  const topicName=topicIsHashtag
-    ?"#"+topicLabel.toLocaleLowerCase("vi-VN").replace(/^#+/,"")
-    :topicLabel;
-  const topicMeta=topicIsHashtag
-    ?"Chủ đề"
-    :(topicScope===LATEST_SOURCE_SCOPE
-      ?"Nguồn theo ngày"
-      :topicScope===WEEK_SOURCE_SCOPE
-        ?"Nguồn theo tuần"
-        :"Nguồn chủ đề");
+  const topicScopes=selectedVideoTopicScopes(meta);
+  const topicNames=topicScopes.map(topicHashtagLabel);
+  const topicName=topicNames.length
+    ?topicNames.join(" ")
+    :"#khác";
+  const topicMeta=topicNames.length
+    ?"Hashtag chủ đề"
+    :"Chưa phân loại chủ đề";
 
   selectedVideoInfo.hidden=false;
   if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
@@ -11652,7 +11708,7 @@ function renderSelectedVideoInfo(meta={}){
     selectedSourceAvatar.removeAttribute("src");
   }
   if(selectedSourceAvatarFallback){
-    selectedSourceAvatarFallback.textContent=topicIsHashtag?"#":"•";
+    selectedSourceAvatarFallback.textContent="#";
   }
   if(selectedSourceName)selectedSourceName.textContent=topicName;
   if(selectedSourceMeta)selectedSourceMeta.textContent=topicMeta;
