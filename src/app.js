@@ -6167,32 +6167,50 @@ function undockCompactPip(){
   showFloatOverlayControls(frame);
 }
 
+function floatingViewportRect(){
+  const vv=window.visualViewport;
+  const width=Math.max(
+    1,
+    Number(vv?.width)||window.innerWidth||document.documentElement.clientWidth||1
+  );
+  const height=Math.max(
+    1,
+    Number(vv?.height)||window.innerHeight||document.documentElement.clientHeight||1
+  );
+  return {
+    left:Math.max(0,Number(vv?.offsetLeft)||0),
+    top:Math.max(0,Number(vv?.offsetTop)||0),
+    width,
+    height
+  };
+}
+
 function compactPipBounds(width,height){
   const safe=floatingSafeInsets();
-  const viewportW=Math.max(1,window.innerWidth||document.documentElement.clientWidth||1);
-  const viewportH=Math.max(1,window.innerHeight||document.documentElement.clientHeight||1);
+  const viewport=floatingViewportRect();
 
   // Active media and PiP share ONE safe rectangle:
   // top = notch/Dynamic Island edge, bottom = Home Indicator edge,
   // left/right = the device side safe edges when present.
-  const minX=Math.max(0,safe.left);
-  const minY=Math.max(0,safe.top);
-  const maxX=Math.max(minX,viewportW-safe.right-width);
-  const maxY=Math.max(minY,viewportH-safe.bottom-height);
+  const minX=viewport.left+Math.max(0,safe.left);
+  const minY=viewport.top+Math.max(0,safe.top);
+  const maxX=Math.max(minX,viewport.left+viewport.width-safe.right-width);
+  const maxY=Math.max(minY,viewport.top+viewport.height-safe.bottom-height);
 
   return {minX,maxX,minY,maxY};
 }
 
 function compactPipAnchorFromBox(box){
   if(!box)return null;
-  const viewportW=Math.max(1,window.innerWidth||document.documentElement.clientWidth||1);
-  const viewportH=Math.max(1,window.innerHeight||document.documentElement.clientHeight||1);
+  const viewport=floatingViewportRect();
+  const centerX=viewport.left+viewport.width/2;
+  const centerY=viewport.top+viewport.height/2;
   const left=Number(box.left)||0;
   const top=Number(box.top)||0;
   const width=Math.max(1,Number(box.width)||1);
   const height=Math.max(1,Number(box.height)||1);
-  const x=left+width/2<viewportW/2?"left":"right";
-  const y=top+height/2<viewportH/2?"top":"bottom";
+  const x=left+width/2<centerX?"left":"right";
+  const y=top+height/2<centerY?"top":"bottom";
   return {
     x,
     y,
@@ -6220,18 +6238,16 @@ function placeCompactWatchPip(
 
   const ratio=currentFloatingAspect();
   const size=scaledAutoFloatSize(frame,ratio);
-  const full=pipSizeKey()==="full";
-  const viewport=full?pipFullViewportRect():null;
-  const bounds=full?null:compactPipBounds(size.width,size.height);
+  const bounds=compactPipBounds(size.width,size.height);
 
-  if(!full&&!anchor&&preservePosition&&state.floatUserMoved&&state.floatBox){
+  if(!anchor&&preservePosition&&state.floatUserMoved&&state.floatBox){
     anchor=compactPipAnchorFromBox(state.floatBox);
   }
 
-  let left=full?viewport.left:bounds.maxX;
-  let top=full?viewport.top:bounds.minY;
+  let left=bounds.maxX;
+  let top=bounds.minY;
 
-  if(!full&&anchor){
+  if(anchor){
     left=anchor.x==="left"
       ?Number(anchor.xValue)
       :Number(anchor.xValue)-size.width;
@@ -6259,11 +6275,7 @@ function placeCompactWatchPip(
   playerSection.style.setProperty("max-height","none","important");
   playerSection.style.setProperty("margin","0","important");
   playerSection.style.setProperty("padding","0","important");
-  playerSection.style.setProperty(
-    "overflow",
-    pipSizeKey()==="full"?"hidden":"visible",
-    "important"
-  );
+  playerSection.style.setProperty("overflow","visible","important");
 
   frame.style.setProperty("position","relative","important");
   frame.style.setProperty("inset","auto","important");
@@ -7044,15 +7056,13 @@ function nextPipScale(value=state.floatScale){
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
 
-  const previousKey=pipSizeKey();
-  const anchor=previousKey==="full"?null:currentCompactPipAnchor();
+  const anchor=currentCompactPipAnchor();
   state.floatScale=nextPipScale();
-  const full=pipSizeKey()==="full";
   state.floatUserSized=false;
-  state.floatUserMoved=!full;
+  state.floatUserMoved=true;
 
   placeCompactWatchPip(frame,{
-    anchor:full?null:anchor,
+    anchor,
     preservePosition:false
   });
   syncFloatingPlayerViewport(frame,{settle:true});
@@ -7066,30 +7076,6 @@ function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame"
 }
 
 function currentFloatingAspect(){
-  return validPipAspect(state.videoAspect)||
-    validPipAspect(responsivePlayerAspect(state.currentMeta||{}))||
-    16/9;
-}
-
-function pipFullViewportRect(){
-  const vv=window.visualViewport;
-  const width=Math.max(
-    1,
-    Number(vv?.width)||window.innerWidth||document.documentElement.clientWidth||1
-  );
-  const height=Math.max(
-    1,
-    Number(vv?.height)||window.innerHeight||document.documentElement.clientHeight||1
-  );
-  return {
-    left:Math.max(0,Number(vv?.offsetLeft)||0),
-    top:Math.max(0,Number(vv?.offsetTop)||0),
-    width,
-    height
-  };
-}
-
-function fullCoverVideoAspect(){
   if(
     state.engine==="native" &&
     Number(nativePlayer?.videoWidth)>0 &&
@@ -7107,8 +7093,9 @@ function fullCoverVideoAspect(){
     if(verified)return verified;
   }
 
-  return validPipAspect(explicit)||
-    validPipAspect(state.videoAspect)||
+  return validPipAspect(state.videoAspect)||
+    validPipAspect(explicit)||
+    validPipAspect(responsivePlayerAspect(meta))||
     16/9;
 }
 
@@ -7118,18 +7105,24 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
   const scale=floatScaleValue();
 
   const safe=floatingSafeInsets();
+  const viewport=floatingViewportRect();
   const maxWidth=Math.max(
     120,
-    window.innerWidth-safe.left-safe.right
+    viewport.width-safe.left-safe.right
   );
   const maxHeight=Math.max(
     120,
-    window.innerHeight-safe.top-safe.bottom
+    viewport.height-safe.top-safe.bottom
   );
 
   if(pipSizeKey(scale)==="full"){
-    const viewport=pipFullViewportRect();
-    return {width:viewport.width,height:viewport.height};
+    let width=maxWidth;
+    let height=width/ratio;
+    if(height>maxHeight){
+      height=maxHeight;
+      width=height*ratio;
+    }
+    return {width,height};
   }
 
   let width=base.width*scale;
@@ -7430,28 +7423,13 @@ function syncFloatingPlayerViewport(
     const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
       node&&list.indexOf(node)===index
     );
-    const fullCover=pipSizeKey()==="full";
     const frameWidth=Math.max(1,frame.clientWidth||frame.getBoundingClientRect().width||1);
     const frameHeight=Math.max(1,frame.clientHeight||frame.getBoundingClientRect().height||1);
-    const ratio=fullCover?fullCoverVideoAspect():currentFloatingAspect();
 
-    let mediaWidth=frameWidth+2;
-    let mediaHeight=frameHeight+2;
-    let mediaLeft=-1;
-    let mediaTop=-1;
-
-    if(fullCover){
-      const viewportRatio=frameWidth/frameHeight;
-      if(viewportRatio>ratio){
-        mediaWidth=frameWidth;
-        mediaHeight=frameWidth/ratio;
-      }else{
-        mediaHeight=frameHeight;
-        mediaWidth=frameHeight*ratio;
-      }
-      mediaLeft=(frameWidth-mediaWidth)/2;
-      mediaTop=(frameHeight-mediaHeight)/2;
-    }
+    const mediaWidth=frameWidth+2;
+    const mediaHeight=frameHeight+2;
+    const mediaLeft=-1;
+    const mediaTop=-1;
 
     for(const node of nodes){
       const mediaNode=node===iframe||node===nativePlayer;
@@ -7467,15 +7445,11 @@ function syncFloatingPlayerViewport(
       node.style.setProperty("margin","0","important");
       node.style.setProperty("border","0","important");
       node.style.setProperty("background","transparent","important");
-      node.style.setProperty(
-        "overflow",
-        fullCover?"hidden":"visible",
-        "important"
-      );
+      node.style.setProperty("overflow","visible","important");
       node.style.setProperty("transform","none","important");
       node.style.setProperty("transform-origin","center center","important");
       if(node===nativePlayer){
-        node.style.setProperty("object-fit",fullCover?"cover":"contain","important");
+        node.style.setProperty("object-fit","contain","important");
       }
     }
 
@@ -7493,23 +7467,23 @@ function syncFloatingPlayerViewport(
   }
 }
 
-let pipFullViewportRaf=0;
-function syncFullPipToVisualViewport(){
+let pipViewportFitRaf=0;
+function syncMaxPipToVisualViewport(){
   if(
     !state.watchMinimized ||
     pipSizeKey()!=="full"
   )return;
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame?.classList.contains("floating-iframe"))return;
-  if(pipFullViewportRaf)return;
-  pipFullViewportRaf=requestAnimationFrame(()=>{
-    pipFullViewportRaf=0;
-    placeCompactWatchPip(frame,{anchor:null,preservePosition:false});
+  if(pipViewportFitRaf)return;
+  pipViewportFitRaf=requestAnimationFrame(()=>{
+    pipViewportFitRaf=0;
+    placeCompactWatchPip(frame,{preservePosition:true});
     syncFloatingPlayerViewport(frame,{settle:true});
   });
 }
-window.visualViewport?.addEventListener?.("resize",syncFullPipToVisualViewport,{passive:true});
-window.visualViewport?.addEventListener?.("scroll",syncFullPipToVisualViewport,{passive:true});
+window.visualViewport?.addEventListener?.("resize",syncMaxPipToVisualViewport,{passive:true});
+window.visualViewport?.addEventListener?.("scroll",syncMaxPipToVisualViewport,{passive:true});
 
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
