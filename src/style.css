@@ -6650,3 +6650,129 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     border-radius:0 12px 12px 0!important;
   }
 }
+
+
+/* ============================================================
+   COMPACT FIXED SOURCE MODES v465
+   LIVE / Ngày / Tuần stay fixed at the left edge. Only hashtags travel
+   horizontally. The system controls are intentionally compact so the rail
+   reads as one navigation strip rather than three oversized chips.
+   ============================================================ */
+@media(max-width:720px){
+  :root{
+    --topic-control-h:32px;
+    --topic-live-w:32px;
+    --topic-live-icon-size:17px;
+    --topic-fixed-gap:5px;
+  }
+
+  html:not(.watch-browse) .topic-chips{
+    gap:5px!important;
+    padding:6px 0!important;
+    scroll-padding-left:170px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="live"],
+  html:not(.watch-browse) .topic-chip[data-feed="latest"],
+  html:not(.watch-browse) .topic-chip[data-feed="week"],
+  html:not(.watch-browse) .topic-divider{
+    position:sticky!important;
+    z-index:8!important;
+    flex-shrink:0!important;
+    background:var(--mobile-chrome-surface,#0b0b0c)!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="live"]{
+    left:0!important;
+    width:32px!important;
+    min-width:32px!important;
+    height:32px!important;
+    min-height:32px!important;
+    border-radius:8px!important;
+    overflow:visible!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="latest"]{
+    left:37px!important;
+    width:58px!important;
+    min-width:58px!important;
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 9px!important;
+    border-radius:8px!important;
+    font-size:11.5px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="week"]{
+    left:100px!important;
+    width:58px!important;
+    min-width:58px!important;
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 9px!important;
+    border-radius:8px!important;
+    font-size:11.5px!important;
+  }
+
+  html:not(.watch-browse) .topic-divider{
+    left:163px!important;
+    width:1px!important;
+    height:18px!important;
+    margin:0 2px 0 1px!important;
+    align-self:center!important;
+    box-shadow:4px 0 8px rgba(11,11,12,.80);
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject{
+    height:32px!important;
+    min-height:32px!important;
+    padding:0 3px!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    font-size:11.25px!important;
+    line-height:32px!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject.active{
+    border:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    color:#f4f4f5!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject::after{
+    left:3px!important;
+    right:3px!important;
+    bottom:0!important;
+    height:2px!important;
+    border-radius:999px!important;
+  }
+
+  /* Keep a little breathing room between the fixed cluster and first hashtag,
+     but remove the oversized whitespace seen in v464. */
+  html:not(.watch-browse) .topic-divider + .topic-chip.topic-subject{
+    margin-left:1px!important;
+  }
+
+  html:not(.watch-browse) .live-chip-icon{
+    width:17px!important;
+    height:17px!important;
+    overflow:visible!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.live-chip{
+    padding-bottom:0!important;
+    line-height:1!important;
+    align-items:center!important;
+    justify-items:center!important;
+  }
+
+  /* v464 added a raised active surface for hashtags; underline alone is the
+     selected state now. */
+  html:not(.watch-browse) .topic-chip.topic-subject.active{
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+}
