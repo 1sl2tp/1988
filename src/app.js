@@ -6331,9 +6331,77 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
   showFloatOverlayControls(frame);
 }
 
-function closeFloatingPipInPlace(){
+function releaseFloatingPipInPlace(){
   if(!state.watchMinimized)return;
   setWatchMinimized(false,{preserveScroll:true});
+}
+
+function closeFloatingPipAndExitPlayback(){
+  if(!state.watchMinimized)return false;
+
+  const root=document.documentElement;
+  clearTimeout(state.resumeTimer);
+  state.intentPlay=false;
+  state.videoPlaying=false;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
+  state.watchOpenSettlingUntil=0;
+
+  try{backgroundPlayer.stop();}catch{}
+  try{state.player?.stopVideo?.();}catch{
+    try{state.player?.pauseVideo?.();}catch{}
+  }
+  try{nativePlayer.pause();}catch{}
+  try{
+    nativePlayer.removeAttribute("src");
+    nativePlayer.load?.();
+  }catch{}
+
+  state.audioMaster=false;
+  state.mode="video";
+  state.engine="iframe";
+  state.nativeSource="";
+  state.pendingVideoId="";
+  state.keepFloating=false;
+  state.currentId="";
+  state.currentMeta=null;
+
+  state.watchMinimized=false;
+  state.watchPipPinned=false;
+  state.watchPipAway=false;
+  state.watchPipEnteredAt=0;
+  state.watchRestoreUntil=0;
+  state.floatTucked=false;
+  state.floatUserSized=false;
+  state.floatUserMoved=false;
+  state.floatPreset="auto";
+  state.floatBox=null;
+
+  root.classList.remove("watch-minimized");
+  applyFloatingIframe(false);
+  releaseWatchMediaSlot();
+  if(playerSection)playerSection.hidden=true;
+
+  clearSeriesContext();
+  hideWatchRecoInfo();
+  hideContextBrief();
+  if(watchBrowseActive)setWatchBrowseLayout(false);
+  else root.classList.remove("watch-browse","watch-search-open","watch-search-results","watch-categories-open");
+  setHomeSearchOpen(false);
+  setHomeHeaderHidden(false);
+  syncWatchCurrentCard();
+  updateModeUi();
+  if(statusText)statusText.textContent="";
+
+  try{
+    const url=new URL(location.href);
+    if(url.searchParams.has("v")){
+      url.searchParams.delete("v");
+      history.replaceState(history.state,"",url.pathname+url.search+url.hash);
+    }
+  }catch{}
+
+  return true;
 }
 
 function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-frame")){
@@ -6342,7 +6410,7 @@ function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-fr
   const finish=()=>{
     // Fullscreen and Close both finish the floating state only.
     // The page keeps its current scroll position; no jump back to the media slot.
-    closeFloatingPipInPlace();
+    releaseFloatingPipInPlace();
   };
 
   // Native media can use its browser-native fullscreen entry.
@@ -6445,9 +6513,10 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
       return;
     }
 
-    // Sample behavior: drag down beyond the bottom => close PiP.
+    // Dragging beyond the bottom is the same explicit close as the X button:
+    // stop playback and leave the floating session instead of restoring MAIN.
     if(top>window.innerHeight-30){
-      setWatchMinimized(false);
+      closeFloatingPipAndExitPlayback();
       return;
     }
 
@@ -6486,10 +6555,83 @@ function teardownFloatHandles(){
   );
 
   frame.querySelectorAll(
-    ".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay"
+    ".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay,.watch-swipe-zone,.watch-pip-trigger"
   ).forEach(node=>node.remove());
 
   delete frame.dataset.floatControlsReady;
+}
+
+function createFloatingSwipeZone(frame){
+  const zone=document.createElement("div");
+  zone.className="watch-swipe-zone";
+  zone.setAttribute("aria-hidden","true");
+
+  let press=null;
+  let lastTapAt=0;
+
+  zone.addEventListener("pointerdown",event=>{
+    if(!state.watchMinimized||event.isPrimary===false)return;
+    press={
+      pointerId:event.pointerId,
+      x:event.clientX,
+      y:event.clientY,
+      moved:false
+    };
+    try{zone.setPointerCapture?.(event.pointerId)}catch{}
+  });
+
+  zone.addEventListener("pointermove",event=>{
+    if(!press||press.pointerId!==event.pointerId)return;
+    const dx=event.clientX-press.x;
+    const dy=event.clientY-press.y;
+    if(!press.moved&&Math.hypot(dx,dy)<5)return;
+
+    press.moved=true;
+    const startEvent={
+      pointerId:event.pointerId,
+      clientX:press.x,
+      clientY:press.y,
+      preventDefault:()=>event.preventDefault(),
+      stopPropagation:()=>event.stopPropagation()
+    };
+    press=null;
+    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
+    startFloatMove(startEvent,frame);
+  },{passive:false});
+
+  zone.addEventListener("pointerup",event=>{
+    if(!press||press.pointerId!==event.pointerId)return;
+    const tap=press;
+    press=null;
+    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
+    if(tap.moved)return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const now=Date.now();
+    if(now-lastTapAt<280){
+      lastTapAt=0;
+      toggleCompactPipSize(frame);
+      return;
+    }
+    lastTapAt=now;
+    showFloatOverlayControls(frame);
+  });
+
+  zone.addEventListener("click",event=>{
+    if(!state.watchMinimized)return;
+    event.preventDefault();
+    event.stopPropagation();
+    showFloatOverlayControls(frame);
+  });
+
+  zone.addEventListener("pointercancel",event=>{
+    if(!press||press.pointerId!==event.pointerId)return;
+    press=null;
+    try{zone.releasePointerCapture?.(event.pointerId)}catch{}
+  });
+
+  return zone;
 }
 
 function ensureFloatHandles(){
@@ -6498,7 +6640,7 @@ function ensureFloatHandles(){
 
   // Remove the old invisible move/resize hit zones. They could overlap the
   // YouTube seek bar on Safari and made the player harder to control.
-  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay").forEach(node=>node.remove());
+  frame.querySelectorAll(".float-dock-edge,.float-resize-zone,.float-mode-rail,.float-edge-tab,.float-player-overlay,.watch-swipe-zone,.watch-pip-trigger").forEach(node=>node.remove());
   frame.dataset.floatControlsReady="2";
 
   const rail=document.createElement("div");
@@ -6567,7 +6709,7 @@ function ensureFloatHandles(){
   overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-    closeFloatingPipInPlace();
+    closeFloatingPipAndExitPlayback();
   });
   overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -6597,7 +6739,8 @@ function ensureFloatHandles(){
     updateFloatControlState(frame);
   });
 
-  frame.append(rail,edgeTab,overlay);
+  const zone=createFloatingSwipeZone(frame);
+  frame.append(rail,edgeTab,zone,overlay);
   updateFloatControlState(frame);
   syncFloatOverlayControls(frame);
 }
@@ -8063,107 +8206,6 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
 }
 
 function setupWatchMinimizeGesture(){
-  const frame=playerSection?.querySelector(".player-frame");
-
-  if(frame&&!frame.querySelector(".watch-pip-trigger")){
-    const pipButton=document.createElement("button");
-    pipButton.type="button";
-    pipButton.className="watch-pip-trigger";
-    pipButton.setAttribute("aria-label","Ghim video ở chế độ PiP");
-    pipButton.innerHTML=
-      '<svg viewBox="0 0 24 24" aria-hidden="true">'+
-        '<rect x="3.5" y="5" width="17" height="13" rx="2"></rect>'+
-        '<rect x="12.5" y="11" width="6" height="4.5" rx="1"></rect>'+
-      '</svg>';
-    pipButton.addEventListener("pointerdown",event=>event.stopPropagation());
-    pipButton.addEventListener("click",event=>{
-      event.preventDefault();
-      event.stopPropagation();
-      setWatchMinimized(true,{pinned:true});
-    });
-    frame.appendChild(pipButton);
-  }
-
-  // YouTube's iframe owns its own touch stream, so the full-size player is not
-  // used as the minimize gesture surface. The transparent overlay is active
-  // only after the player becomes mini: tap restores, drag moves the mini.
-  if(frame&&!frame.querySelector(".watch-swipe-zone")){
-    const zone=document.createElement("div");
-    zone.className="watch-swipe-zone";
-    zone.setAttribute("aria-hidden","true");
-    frame.appendChild(zone);
-
-    let press=null;
-    let lastTapAt=0;
-
-    zone.addEventListener("pointerdown",event=>{
-      if(!state.watchMinimized||event.isPrimary===false)return;
-      press={
-        pointerId:event.pointerId,
-        x:event.clientX,
-        y:event.clientY,
-        moved:false
-      };
-      try{zone.setPointerCapture?.(event.pointerId)}catch{}
-    });
-
-    zone.addEventListener("pointermove",event=>{
-      if(!press||press.pointerId!==event.pointerId)return;
-      const dx=event.clientX-press.x;
-      const dy=event.clientY-press.y;
-      if(!press.moved&&Math.hypot(dx,dy)<5)return;
-
-      // Same model as the supplied sample: once movement is intentional,
-      // the PiP surface itself owns the drag and later snaps/docks/closes.
-      press.moved=true;
-      const startEvent={
-        pointerId:event.pointerId,
-        clientX:press.x,
-        clientY:press.y,
-        preventDefault:()=>event.preventDefault(),
-        stopPropagation:()=>event.stopPropagation()
-      };
-      press=null;
-      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-      startFloatMove(startEvent,frame);
-    },{passive:false});
-
-    zone.addEventListener("pointerup",event=>{
-      if(!press||press.pointerId!==event.pointerId)return;
-      const tap=press;
-      press=null;
-      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-
-      if(tap.moved)return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      const now=Date.now();
-      if(now-lastTapAt<280){
-        lastTapAt=0;
-        toggleCompactPipSize(frame);
-        return;
-      }
-      lastTapAt=now;
-      showFloatOverlayControls(frame);
-    });
-
-    // Keep an ordinary click path as the simplest tap fallback and as a
-    // compatibility contract for the existing media-core smoke test.
-    zone.addEventListener("click",event=>{
-      if(!state.watchMinimized)return;
-      event.preventDefault();
-      event.stopPropagation();
-      showFloatOverlayControls(frame);
-    });
-
-    zone.addEventListener("pointercancel",event=>{
-      if(!press||press.pointerId!==event.pointerId)return;
-      press=null;
-      try{zone.releasePointerCapture?.(event.pointerId)}catch{}
-    });
-  }
-
   const root=document.documentElement;
   if(root.dataset.watchMinimizeGesture==="1")return;
   root.dataset.watchMinimizeGesture="1";
@@ -13555,7 +13597,12 @@ window.onYouTubeIframeAPIReady=()=>{
   if(state.engine==="iframe")initYouTubePlayer();
 };
 
-if(!(window.YT&&typeof YT.Player==="function")){
+if(window.YT&&typeof YT.Player==="function"){
+  // Cached iframe API may finish before app.js defines onYouTubeIframeAPIReady.
+  // Pre-create the iframe now so the first card tap can load/play inside the
+  // original user gesture instead of waiting for a later onReady callback.
+  if(state.engine==="iframe")initYouTubePlayer();
+}else{
   let ytWait=0;
   const ytTimer=setInterval(()=>{
     ytWait++;
