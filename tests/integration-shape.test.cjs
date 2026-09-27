@@ -484,3 +484,19 @@ assert.match(style,/PIP MAX ASPECT FIT v485/);
 assert.doesNotMatch(style,/PIP FULL VISUAL COVER/);
 assert.match(style,/\.float-size-full \.float-overlay-scale[\s\S]{0,220}top:8px!important/);
 assert.match(style,/\.float-size-full \.float-overlay-close[\s\S]{0,220}top:8px!important/);
+
+assert.match(app,/const PIP_STANDARD_ASPECTS=\[/);
+assert.match(app,/16\/9,9\/16/);
+assert.match(app,/const PIP_ASPECT_SNAP_TOLERANCE=\.05/);
+assert.match(app,/return nearestDelta<=PIP_ASPECT_SNAP_TOLERANCE\?nearest:ratio/);
+assert.match(app,/function explicitVideoAspect\([\s\S]{0,260}return validPipAspect\(ratio\)/);
+assert.match(app,/playerSection\.style\.setProperty\("aspect-ratio",String\(ratio\),"important"\)/);
+assert.match(app,/frame\.style\.setProperty\("aspect-ratio",String\(ratio\),"important"\)/);
+assert.match(app,/iframe\.removeAttribute\("width"\)[\s\S]{0,80}iframe\.removeAttribute\("height"\)/);
+assert.doesNotMatch(app,/frameWidth\+2/);
+assert.doesNotMatch(app,/frameHeight\+2/);
+assert.doesNotMatch(app,/mediaLeft=-1/);
+assert.doesNotMatch(app,/mediaTop=-1/);
+assert.match(style,/CANONICAL PIP MEDIA SURFACE v486/);
+assert.match(style,/\.floating-iframe iframe,[\s\S]{0,260}width:100%!important[\s\S]{0,120}height:100%!important/);
+
