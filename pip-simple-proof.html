@@ -264,9 +264,15 @@
       return;
     }
 
-    const stageTop = stage.getBoundingClientRect().top;
+    const mediaRect = stage.getBoundingClientRect();
     const headerBottom = top.getBoundingClientRect().bottom;
-    const shouldPip = window.scrollY > 0 && stageTop < headerBottom - 2;
+
+    // Use the REAL height of the current media.
+    // Landscape has a short bottom edge -> PiP starts sooner.
+    // Portrait is full-height -> PiP starts only after that taller media passes.
+    const shouldPip =
+      window.scrollY > 0 &&
+      mediaRect.bottom <= headerBottom + 1;
 
     if(shouldPip !== pip){
       pip = shouldPip;
