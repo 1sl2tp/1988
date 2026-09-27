@@ -1047,6 +1047,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   function mediaAspectSourceRank(source=""){
     source=String(source||"");
     if(source==="iframe-content-rect")return 100;
+    if(source==="card-visible-portrait")return 96;
     if(/frame-pillarbox|visualContentAspect/.test(source))return 90;
     if(source==="thumbnail-pillarbox")return 80;
     if(/video-metadata|resolved-stream/.test(source))return 70;
@@ -1152,6 +1153,96 @@ html.one-col .player.pip iframe{border-radius:inherit}
       return contentAspect>=.34&&contentAspect<.84?contentAspect:0;
     }catch{
       return 0;
+    }
+  }
+
+  function visibleCardPortraitAspect(card,meta=null){
+    const direct=explicitMediaAspect(meta||{});
+    if(direct>0&&direct<.84)return direct;
+
+    const img=card?.querySelector?.(".row-thumb img");
+    if(!img)return 0;
+
+    const naturalW=Number(img.naturalWidth)||0;
+    const naturalH=Number(img.naturalHeight)||0;
+    if(naturalW>0&&naturalH>0){
+      const naturalRatio=validMediaAspect(naturalW/naturalH);
+      if(naturalRatio>0&&naturalRatio<.84)return naturalRatio;
+    }
+
+    // For YouTube thumbnails that are 16:9 but contain a real portrait frame
+    // with black pillarbox bars, inspect the ALREADY-DISPLAYED image synchronously.
+    const pillarbox=validMediaAspect(detectPillarboxFromImage(img));
+    return pillarbox>0&&pillarbox<.84?pillarbox:0;
+  }
+
+  function primeCardPortraitNow(card,meta=null){
+    const id=String(card?.dataset?.videoId||meta?.id||"").trim();
+    if(!id)return 0;
+
+    const ratio=visibleCardPortraitAspect(card,meta);
+    if(!ratio)return 0;
+
+    return rememberMediaAspect(
+      id,
+      ratio,
+      "card-visible-portrait",
+      true
+    );
+  }
+
+  let cardAspectObserver=null;
+  function primeRenderedCardAspects(cards=[]){
+    const rows=document.getElementById("rows");
+    if(!rows)return;
+
+    const byId=new Map(
+      (Array.isArray(cards)?cards:[])
+        .filter(meta=>meta?.id)
+        .map(meta=>[String(meta.id),meta])
+    );
+
+    const inspectCard=card=>{
+      const id=String(card?.dataset?.videoId||"").trim();
+      if(!id)return;
+
+      const meta=byId.get(id)||null;
+      const img=card.querySelector(".row-thumb img");
+
+      const inspect=()=>{
+        const ratio=primeCardPortraitNow(card,meta);
+        if(ratio)return;
+
+        // If the visible image itself cannot be sampled (for example CORS),
+        // warm the same thumbnail probe in the background BEFORE the user clicks.
+        void thumbnailContentAspect(meta||{}).then(next=>{
+          next=validMediaAspect(next);
+          if(next>0&&next<.84){
+            rememberMediaAspect(id,next,"thumbnail-pillarbox",true);
+          }
+        });
+      };
+
+      if(img?.complete&&img.naturalWidth>0)inspect();
+      else img?.addEventListener?.("load",inspect,{once:true});
+    };
+
+    if("IntersectionObserver" in window){
+      cardAspectObserver?.disconnect?.();
+      cardAspectObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          const card=entry.target;
+          inspectCard(card);
+          cardAspectObserver.unobserve(card);
+        }
+      },{rootMargin:"220px 0px",threshold:.01});
+
+      rows.querySelectorAll(".row[data-video-id]").forEach(card=>{
+        cardAspectObserver.observe(card);
+      });
+    }else{
+      rows.querySelectorAll(".row[data-video-id]").forEach(inspectCard);
     }
   }
 
@@ -2168,7 +2259,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return (
       '<article class="row" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
-          '<img src="'+escapeHtml(thumb)+'" alt="">'+
+          '<img src="'+escapeHtml(thumb)+'" alt=""'+
+            (/^https:\/\/i\.ytimg\.com\//i.test(thumb)?' crossorigin="anonymous"':"")+
+          '>'+
           (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
         '</div>'+
         '<div class="row-details">'+
@@ -2386,7 +2479,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
-    rows.innerHTML=cards.slice(0,18).map(cardMarkup).join("");
+    const rendered=cards.slice(0,18);
+    rows.innerHTML=rendered.map(cardMarkup).join("");
+    primeRenderedCardAspects(rendered);
   }
 
   function normalizedSearchQuery(value){
@@ -2748,7 +2843,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(item=>item?.id===id)||
       null;
 
-    // Prime the exact media on press-down, before click swaps the player.
+    // Synchronous first: if the card already visibly proves portrait,
+    // cache it BEFORE click/playVideoId can paint the new player shell.
+    primeCardPortraitNow(card,meta);
+
+    // Async refinement can continue in parallel.
     void resolveMediaAspect(id,meta);
   },{passive:true});
 
@@ -2775,6 +2874,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(meta=>meta?.id===id)||
       null;
 
+    primeCardPortraitNow(card,selectedMeta);
     playVideoId(id,selectedMeta);
     loadCurrentVideoMeta();
     schedulePip();
