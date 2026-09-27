@@ -6877,7 +6877,6 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   const mobile=window.innerWidth<=720;
-  const compactOneColumn=window.innerWidth<960;
   const desktop=window.innerWidth>=960;
 
   if(compactOneColumn){
