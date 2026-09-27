@@ -20,6 +20,41 @@ const allMigrations=fs.readdirSync(root+'/supabase/migrations')
   .map(name=>fs.readFileSync(root+'/supabase/migrations/'+name,'utf8'))
   .join('\n');
 
+const simpleProduction=
+  /id=["']videoFrame["']/.test(html) &&
+  /yt1988-video-meta/.test(html) &&
+  /new YTApi\.Player\(["']videoFrame["']/.test(html);
+
+if(simpleProduction){
+  // Production v2: one YT.Player surface. MAIN / PiP / 2-column are only
+  // presentation modes; media aspect/kind is owned by the current video id.
+  assert.match(html,/id=["']videoFrame["']/);
+  assert.match(html,/new YTApi\.Player\(["']videoFrame["']/);
+  assert.match(html,/youtube-nocookie\.com/);
+  assert.match(html,/function syncCurrentKindFromYoutubePlayer\(/);
+  assert.match(html,/loadedId\|\|loadedId!==expectedId/);
+  assert.match(html,/videoContentRect/);
+  assert.match(html,/const VIDEO_META_URL=.*yt1988-video-meta/);
+  assert.match(html,/function fetchServerAspects\(/);
+  assert.match(html,/function primeMediaAspects\(/);
+  assert.match(html,/function reportVerifiedAspect\(/);
+  assert.match(html,/method:["']POST["']/);
+  assert.match(html,/function playVideoId\(/);
+  assert.match(html,/playerApi\.loadVideoById\(id\)/);
+  assert.doesNotMatch(html,/cueVideoById/);
+  assert.doesNotMatch(html,/thumbnailContentAspect|detectPillarboxFromImage|primeCardPortraitNow/);
+  assert.match(html,/const PACKAGE_SYNC_URL=.*yt1988-packages/);
+  assert.match(html,/YT1988_API\.search\(raw,["']videos["']\)/);
+  assert.match(html,/player\.classList\.toggle\(["']pip["'],pip\)/);
+  assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
+  assert.match(html,/current\?\.kind===["']portrait["']/);
+  assert.match(html,/navigator\.serviceWorker/);
+  assert.match(sw,/1988-simple-media-v1/);
+  assert.match(sw,/\.\/index\.html/);
+  console.log('integration-shape: simple production media contract passed');
+  process.exit(0);
+}
+
 assert.match(html,/id="yt-player"/);
 assert.match(html,/id="nativePlayer"/);
 assert.match(html,/id="topicChips"/);
