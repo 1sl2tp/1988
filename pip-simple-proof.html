@@ -38,6 +38,7 @@
   --feed-cols:2;
   --card-target-w:310px;
   --floating-radius:10px;
+  --media-ratio:1.7777778;
 }
 html,body{
   margin:0;
@@ -447,8 +448,8 @@ html.two-col .player iframe{
 html.one-col.landscape .stage{
   width:100%;
   max-width:none;
-  aspect-ratio:16/9;
   height:auto;
+  aspect-ratio:var(--media-ratio);
   background:transparent;
 }
 html.one-col.landscape .player{
@@ -458,18 +459,16 @@ html.one-col.landscape .player{
 }
 
 html.one-col.portrait .stage{
-  height:var(--current-full-h);
-  width:min(100%,calc(var(--current-full-h) * 0.5625));
-  aspect-ratio:9/16;
+  width:min(100%,calc(var(--current-full-h) * var(--media-ratio)));
+  height:auto;
+  aspect-ratio:var(--media-ratio);
   background:transparent;
 }
 html.one-col.portrait .player{
-  top:0;
-  bottom:0;
-  left:50%;
-  width:calc(var(--current-full-h) * 0.5625);
+  inset:0;
+  width:100%;
   height:100%;
-  transform:translateX(-50%);
+  transform:none;
 }
 
 /* PIP keeps the real media ratio and has no extra black gutter. */
@@ -487,12 +486,12 @@ html.one-col .player.pip{
 html.one-col.landscape .player.pip{
   width:var(--pip-landscape-w);
   height:auto;
-  aspect-ratio:16/9;
+  aspect-ratio:var(--media-ratio);
 }
 html.one-col.portrait .player.pip{
   height:var(--pip-portrait-h);
   width:auto;
-  aspect-ratio:9/16;
+  aspect-ratio:var(--media-ratio);
 }
 html.one-col .player.pip iframe{border-radius:inherit}
 
@@ -566,8 +565,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
   html.two-col.portrait .stage{
     width:100%;
-    height:100%;
-    aspect-ratio:9/16;
+    height:auto;
+    aspect-ratio:var(--media-ratio);
     border-radius:var(--floating-radius);
     background:transparent;
     overflow:hidden;
@@ -1361,6 +1360,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function syncBoundaries(){
+    const mediaRatio=validMediaAspect(current?.ratio)||16/9;
+    root.style.setProperty("--media-ratio",String(mediaRatio));
+
     // Measure the CURRENT usable viewport, not svh/vw estimates.
     const topBoundary=Math.max(
       0,
@@ -1487,9 +1489,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function cardMetaFromRow(row={}){
     const meta=window.MediaMeta?.video ? window.MediaMeta.video(row) : {};
-    const videoWidth=Number(row?.videoWidth||row?.width)||0;
-    const videoHeight=Number(row?.videoHeight||row?.height)||0;
+    const videoWidth=Number(row?.videoWidth)||0;
+    const videoHeight=Number(row?.videoHeight)||0;
+    const genericWidth=Number(row?.width)||0;
+    const genericHeight=Number(row?.height)||0;
+    const isShort=row?.isShort===true||row?.is_short===true;
     const aspectRatio=validMediaAspect(
+      (isShort?9/16:0)||
       Number(row?.aspectRatio)||
       Number(row?.videoAspectRatio)||
       (
@@ -1497,15 +1503,24 @@ html.one-col .player.pip iframe{border-radius:inherit}
           ?videoWidth/videoHeight
           :0
       )||
-      (row?.isShort===true||row?.is_short===true?9/16:0)
+      (
+        genericWidth>0&&genericHeight>0
+          ?genericWidth/genericHeight
+          :0
+      )
     );
     return {
       ...meta,
       verified:cardVerified(row),
-      isShort:row?.isShort===true||row?.is_short===true,
+      isShort,
       videoWidth,
       videoHeight,
-      aspectRatio
+      aspectRatio,
+      _aspectVerified:
+        row?._aspectVerified===true||
+        (videoWidth>0&&videoHeight>0)||
+        isShort,
+      _aspectSource:String(row?._aspectSource||"")
     };
   }
 
@@ -1910,7 +1925,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   function layout(){
     syncBoundaries();
     const two=isTwoColumn();
-    const portrait=current.ratio<1;
+    const portrait=current.ratio<=1;
 
     root.classList.toggle("one-col",!two);
     root.classList.toggle("two-col",two);
@@ -1928,21 +1943,35 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     paintText();
   }
-  function paintText(){
-    titleEl.textContent=currentMeta?.title || current.label;
-    if(isTwoColumn()){
-      layoutHint.textContent=current.ratio<1
-        ?"2 cột · dọc full, không đen."
-        :"2 cột · ngang: đen tối thiểu theo title / tua.";
-      stateEl.textContent="2 CỘT · MAIN · "+(current.ratio<1?"9:16":"16:9");
-    }else{
-      layoutHint.textContent=current.ratio<1
-        ?"1 cột · MAIN dọc full, không đen."
-        :"1 cột · MAIN ngang full, không đen.";
-      stateEl.textContent="1 CỘT · "+(pip?"PIP":"MAIN")+" · "+(current.ratio<1?"9:16":"16:9");
+  function aspectLabel(ratio=current.ratio){
+    ratio=validMediaAspect(ratio)||16/9;
+    const standards=[
+      [21/9,"21:9"],[16/9,"16:9"],[16/10,"16:10"],[3/2,"3:2"],
+      [4/3,"4:3"],[5/4,"5:4"],[1,"1:1"],[4/5,"4:5"],
+      [3/4,"3:4"],[2/3,"2:3"],[10/16,"10:16"],[9/16,"9:16"],[9/21,"9:21"]
+    ];
+    let best=standards[0];
+    let delta=Infinity;
+    for(const row of standards){
+      const next=Math.abs(row[0]-ratio);
+      if(next<delta){best=row;delta=next;}
     }
+    return delta<=.05?best[1]:ratio.toFixed(2);
   }
 
+  function paintText(){
+    titleEl.textContent=currentMeta?.title || current.label;
+    const label=aspectLabel(current.ratio);
+    const shape=current.ratio<1?"dọc":(current.ratio===1?"vuông":"ngang");
+
+    if(isTwoColumn()){
+      layoutHint.textContent="2 cột · "+shape+" · tự theo khung media.";
+      stateEl.textContent="2 CỘT · MAIN · "+label;
+    }else{
+      layoutHint.textContent="1 cột · "+shape+" · tự theo khung media.";
+      stateEl.textContent="1 CỘT · "+(pip?"PIP":"MAIN")+" · "+label;
+    }
+  }
   function syncPip(){
     if(isTwoColumn()){
       if(pip){
