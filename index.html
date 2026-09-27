@@ -99,6 +99,34 @@
       </div>
     </section>
 
+    <section id="selectedVideoInfo" class="selected-video-info" hidden aria-live="polite">
+      <div class="selected-video-row">
+        <span class="selected-video-avatar" aria-hidden="true">
+          <span id="selectedVideoAvatarFallback" class="selected-video-avatar-fallback">?</span>
+          <img id="selectedVideoAvatar" alt="" width="36" height="36" decoding="async" hidden>
+        </span>
+        <div class="selected-video-copy">
+          <div class="selected-video-title-line">
+            <strong id="selectedVideoTitle"></strong>
+            <span class="selected-video-more" aria-hidden="true">⋮</span>
+          </div>
+          <div id="selectedVideoMeta" class="selected-video-meta"></div>
+        </div>
+      </div>
+
+      <div id="selectedSourceCard" class="selected-source-card">
+        <span class="selected-source-avatar" aria-hidden="true">
+          <span id="selectedSourceAvatarFallback" class="selected-source-avatar-fallback">?</span>
+          <img id="selectedSourceAvatar" alt="" width="40" height="40" decoding="async" hidden>
+        </span>
+        <div class="selected-source-copy">
+          <span class="selected-source-label">Nguồn</span>
+          <strong id="selectedSourceName"></strong>
+          <span id="selectedSourceMeta"></span>
+        </div>
+      </div>
+    </section>
+
     <section class="feed-section">
       <div class="section-head">
         <div>
