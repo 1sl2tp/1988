@@ -5516,24 +5516,6 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     transition:none!important;
   }
 
-  html.watch-minimized .player-section.watch-pip-app-fullscreen{
-    border-radius:0!important;
-    background:#000!important;
-  }
-
-  html.watch-minimized .player-section.watch-pip-app-fullscreen .player-card,
-  html.watch-minimized .player-section.watch-pip-app-fullscreen .player-frame{
-    width:100%!important;
-    height:100%!important;
-    max-width:none!important;
-    max-height:none!important;
-    border-radius:0!important;
-    background:#000!important;
-  }
-
-  html.watch-minimized .player-section.watch-pip-app-fullscreen .float-player-overlay{
-    border-radius:0!important;
-  }
 }
 
 
@@ -5839,5 +5821,20 @@ html:not(.watch-minimized) .player-frame .float-edge-tab{
 
 html:not(.watch-minimized) .player-frame .watch-swipe-zone{
   display:none!important;
+  pointer-events:none!important;
+}
+
+
+/* PiP interaction ownership v439.
+   The media engine keeps rendering/playing, but every direct pointer action is
+   locked while floating. Only the app-owned PiP surface can receive input. */
+html.watch-minimized .player-frame.floating-iframe #yt-player,
+html.watch-minimized .player-frame.floating-iframe iframe,
+html.watch-minimized .player-frame.floating-iframe #nativePlayer{
+  pointer-events:none!important;
+}
+
+html.watch-minimized .player-frame.floating-iframe.float-controls-suppressed .float-player-overlay{
+  opacity:0!important;
   pointer-events:none!important;
 }

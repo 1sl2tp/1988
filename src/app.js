@@ -181,6 +181,8 @@ const state={
   fullscreenScrollY:null,
   fullscreenActive:false,
   fullscreenExitCooldownUntil:0,
+  pipFullscreenPending:false,
+  pipFullscreenRestore:null,
   intentPlay:false,
   resumeOnReturn:false,
   transitionUntil:0,
@@ -6272,14 +6274,10 @@ function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
 let floatOverlayTimer=0;
 
 function floatPlaybackActive(){
-  if(state.engine==="native"){
-    return !nativePlayer.paused&&!nativePlayer.ended;
-  }
-  try{
-    const ps=state.player?.getPlayerState?.();
-    return ps===YT.PlayerState.PLAYING||ps===YT.PlayerState.BUFFERING;
-  }catch{}
-  return !!(state.videoPlaying&&state.intentPlay);
+  // The PiP transport reflects the user's requested state. YouTube's
+  // getPlayerState() can lag a tap by one event tick, which made Pause/Play
+  // visually flip late even though playback intent had already changed.
+  return state.mode==="video"&&!!state.currentId&&!!state.intentPlay;
 }
 
 function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-frame")){
@@ -6307,9 +6305,26 @@ function syncFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
   }
 }
 
+function hideFloatOverlayControls(
+  frame=playerSection?.querySelector(".player-frame"),
+  {suppressHover=false}={}
+){
+  if(!frame)return;
+  clearTimeout(floatOverlayTimer);
+  floatOverlayTimer=0;
+  frame.classList.remove("float-controls-open");
+  frame.classList.toggle("float-controls-suppressed",!!suppressHover);
+  if(suppressHover){
+    frame.addEventListener("pointerleave",()=>{
+      frame.classList.remove("float-controls-suppressed");
+    },{once:true});
+  }
+}
+
 function showFloatOverlayControls(frame=playerSection?.querySelector(".player-frame"),delay=2600){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
   clearTimeout(floatOverlayTimer);
+  frame.classList.remove("float-controls-suppressed");
   syncFloatOverlayControls(frame);
   frame.classList.add("float-controls-open");
   floatOverlayTimer=setTimeout(()=>{
@@ -6319,16 +6334,24 @@ function showFloatOverlayControls(frame=playerSection?.querySelector(".player-fr
 
 function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")){
   if(floatPlaybackActive()){
+    // While playback is active, opening PiP controls must always show Pause.
+    // After this explicit tap the desired state becomes PAUSED immediately,
+    // so the same button becomes Play without waiting for iframe callbacks.
     state.intentPlay=false;
     state.videoPlaying=false;
     state.resumeOnReturn=false;
     state.transitionUntil=0;
     pauseVideoEngine();
-  }else{
-    state.intentPlay=true;
-    playVideoEngine();
+    showFloatOverlayControls(frame);
+    syncFloatOverlayControls(frame);
+    return;
   }
-  showFloatOverlayControls(frame);
+
+  // Play again, then return to the clean/original PiP surface immediately.
+  state.intentPlay=true;
+  playVideoEngine();
+  syncFloatOverlayControls(frame);
+  hideFloatOverlayControls(frame,{suppressHover:true});
 }
 
 function releaseFloatingPipInPlace(){
@@ -6371,6 +6394,8 @@ function closeFloatingPipAndExitPlayback(){
   state.watchPipAway=false;
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=0;
+  state.pipFullscreenPending=false;
+  state.pipFullscreenRestore=null;
   state.floatTucked=false;
   state.floatUserSized=false;
   state.floatUserMoved=false;
@@ -6404,47 +6429,114 @@ function closeFloatingPipAndExitPlayback(){
   return true;
 }
 
-function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection||!state.watchMinimized)return;
+function suspendFloatingPipForFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection||!state.watchMinimized)return false;
 
-  const finish=()=>{
-    // Fullscreen and Close both finish the floating state only.
-    // The page keeps its current scroll position; no jump back to the media slot.
-    releaseFloatingPipInPlace();
+  const rect=playerSection.getBoundingClientRect();
+  state.pipFullscreenRestore={
+    pinned:!!state.watchPipPinned,
+    dock:state.floatDock==="left"?"left":"right",
+    scale:floatScaleValue(),
+    left:rect.left,
+    top:rect.top,
+    width:rect.width,
+    height:rect.height
+  };
+  state.pipFullscreenPending=true;
+
+  // Fullscreen must never coexist with the floating owner. Keep the SAME
+  // playback session, but synchronously remove PiP geometry and hit surfaces
+  // before asking the browser to enter fullscreen.
+  state.watchMinimized=false;
+  state.watchPipPinned=false;
+  state.watchPipAway=false;
+  state.watchPipEnteredAt=0;
+  document.documentElement.classList.remove("watch-minimized");
+  hideFloatOverlayControls(frame);
+  syncNativeMobileControls();
+  applyFloatingIframe(false);
+  releaseWatchMediaSlot();
+  return true;
+}
+
+function restoreFloatingPipAfterFullscreen(){
+  const snapshot=state.pipFullscreenRestore;
+  state.pipFullscreenRestore=null;
+  state.pipFullscreenPending=false;
+
+  if(
+    !snapshot ||
+    !state.currentId ||
+    playerSection?.hidden ||
+    !watchAutoPipViewport()
+  )return false;
+
+  if(!setWatchMinimized(true,{pinned:!!snapshot.pinned}))return false;
+
+  state.floatScale=[1,1.5,2].includes(Number(snapshot.scale))
+    ?Number(snapshot.scale)
+    :1;
+  state.floatDock=snapshot.dock==="left"?"left":"right";
+  state.floatUserMoved=true;
+  state.floatBox={
+    left:Number(snapshot.left)||0,
+    top:Number(snapshot.top)||0,
+    width:Number(snapshot.width)||0,
+    height:Number(snapshot.height)||0
   };
 
-  // Native media can use its browser-native fullscreen entry.
+  const frame=playerSection?.querySelector(".player-frame");
+  if(frame){
+    applyFloatingIframe(true);
+    syncFloatingPlayerViewport(frame,{settle:true});
+    updateFloatControlState(frame);
+  }
+  return true;
+}
+
+function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection||!state.watchMinimized)return;
+  if(!suspendFloatingPipForFullscreen(frame))return;
+
+  const restoreOnFailure=()=>{
+    state.fullscreenActive=false;
+    restoreFloatingPipAfterFullscreen();
+  };
+
+  // Native iOS fullscreen uses the media element, but PiP ownership has already
+  // been suspended above so WebKit has only one fullscreen owner.
   if(state.engine==="native"&&!nativePlayer.hidden){
     try{
       if(typeof nativePlayer.webkitEnterFullscreen==="function"){
         nativePlayer.webkitEnterFullscreen();
-        setTimeout(finish,0);
         return;
       }
-    }catch{}
+    }catch{
+      restoreOnFailure();
+      return;
+    }
   }
 
-  // For iframe playback, fullscreen the app-owned player container.
+  // Iframe playback uses the app-owned player section as the fullscreen root.
   const request=
     playerSection.requestFullscreen||
     playerSection.webkitRequestFullscreen;
 
-  if(typeof request==="function"){
-    try{
-      const result=request.call(playerSection);
-      if(result?.then){
-        result.then(finish).catch(()=>{});
-      }else{
-        setTimeout(finish,0);
-      }
-    }catch{}
+  if(typeof request!=="function"){
+    restoreOnFailure();
+    return;
+  }
+
+  try{
+    const result=request.call(playerSection);
+    if(result?.catch)result.catch(restoreOnFailure);
+  }catch{
+    restoreOnFailure();
   }
 }
 
 function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!playerSection||!state.watchMinimized)return;
-  if(playerSection.classList.contains("watch-pip-app-fullscreen"))return;
-
   event.preventDefault();
   event.stopPropagation();
 
@@ -6550,6 +6642,7 @@ function teardownFloatHandles(){
 
   frame.classList.remove(
     "float-controls-open",
+    "float-controls-suppressed",
     "float-moving",
     "float-geometry-commit"
   );
@@ -8127,6 +8220,8 @@ function applyFloatingIframe(force){
   // Previously ensureFloatHandles() existed but was never called, so the
   // overlay/buttons/drag surface were absent in the live DOM.
   ensureFloatHandles();
+  try{state.player?.getIframe?.()?.blur?.();}catch{}
+  try{nativePlayer?.blur?.();}catch{}
   updateFloatingAmbient(frame);
   if(watchAutoPipViewport()){
     if(state.floatTucked) dockCompactPipToEdge(state.floatDock,{instant:true});
@@ -8216,6 +8311,8 @@ function setupWatchMinimizeGesture(){
     !root.classList.contains("watch-search-open") &&
     !root.classList.contains("watch-search-results") &&
     !state.watchMinimized &&
+    !state.pipFullscreenPending &&
+    !state.fullscreenActive &&
     !!state.currentId &&
     !playerSection?.hidden &&
     !isPlayerFullscreen()
@@ -8371,6 +8468,7 @@ function setupFullscreenReturn(){
 
   const remember=()=>{
     state.fullscreenActive=true;
+    state.pipFullscreenPending=false;
     state.fullscreenScrollY=window.scrollY;
     state.resumeOnReturn=false;
     state.transitionUntil=0;
@@ -8378,15 +8476,19 @@ function setupFullscreenReturn(){
     frame()?.classList.add("fullscreen-active");
   };
 
-  const restoreVisual=()=>{
+  const restoreVisual=({restorePip=false}={})=>{
     const y=state.fullscreenScrollY;
     requestAnimationFrame(()=>{
       if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
+      if(restorePip&&restoreFloatingPipAfterFullscreen())return;
+      state.pipFullscreenPending=false;
+      state.pipFullscreenRestore=null;
       applyFloatingIframe();
     });
   };
 
   const restoreFullscreen=()=>{
+    const restorePip=!!state.pipFullscreenRestore;
     state.fullscreenActive=false;
     // Give Safari time to finish handing the media controls back to the page.
     // Do not call playVideo/playVideoById here: it can cancel a seek gesture.
@@ -8395,7 +8497,7 @@ function setupFullscreenReturn(){
     state.transitionUntil=0;
     clearTimeout(state.resumeTimer);
     frame()?.classList.remove("fullscreen-active");
-    restoreVisual();
+    restoreVisual({restorePip});
   };
 
   const syncFullscreenState=()=>{
