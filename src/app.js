@@ -7824,144 +7824,47 @@ function setupWatchMinimizeGesture(){
     !isPlayerFullscreen()
   );
 
-  // Touch fallback shared by every compact one-column viewport. Detect a real
-  // upward browse swipe without preventing default scrolling or player input.
-  let compactSwipe=null;
-  document.addEventListener("touchstart",event=>{
-    if(
-      !watchAutoPipViewport() ||
-      !eligibleInline() ||
-      event.touches?.length!==1
-    ){
-      compactSwipe=null;
-      return;
-    }
-    const touch=event.touches[0];
-    compactSwipe={x:touch.clientX,y:touch.clientY};
-  },{passive:true,capture:true});
+  // Auto PiP has one trigger only:
+  // current video #1 floats when its BOTTOM edge has scrolled past the
+  // TOP edge of the currently visible viewport. No percentages / 45% rules.
+  const currentViewportTop=()=>Math.max(
+    0,
+    Number(window.visualViewport?.offsetTop)||0
+  );
 
-  document.addEventListener("touchmove",event=>{
-    if(!compactSwipe||event.touches?.length!==1||!eligibleInline())return;
-    const touch=event.touches[0];
-    const dx=touch.clientX-compactSwipe.x;
-    const dy=touch.clientY-compactSwipe.y;
-    if(dy<=-14&&Math.abs(dy)>Math.abs(dx)*1.08){
-      compactSwipe=null;
-      setWatchMinimized(true,{pinned:false});
-    }
-  },{passive:true,capture:true});
-
-  const clearCompactSwipe=()=>{compactSwipe=null;};
-  document.addEventListener("touchend",clearCompactSwipe,{passive:true,capture:true});
-  document.addEventListener("touchcancel",clearCompactSwipe,{passive:true,capture:true});
-
-  const alignMediaSlotToTop=()=>{
+  const syncPipToFirstVideo=()=>{
     const rect=watchMediaSlotRect();
     if(!rect)return;
-    const topEdge=watchMediaSlotTopEdge();
-    const delta=rect.top-topEdge;
 
-    // Only compensate when the slot is clipped above the viewport.
-    if(delta>=-1)return;
+    const topEdge=currentViewportTop();
 
-    const candidates=[
-      document.body,
-      document.scrollingElement,
-      document.documentElement
-    ].filter((node,index,list)=>node&&list.indexOf(node)===index);
-    const owner=candidates.sort(
-      (a,b)=>(Number(b.scrollTop)||0)-(Number(a.scrollTop)||0)
-    )[0];
+    if(!state.watchMinimized){
+      if(eligibleInline()&&rect.bottom<=topEdge){
+        setWatchMinimized(true,{pinned:false});
+      }
+      return;
+    }
 
-    if(owner&&(Number(owner.scrollTop)||0)>0){
-      owner.scrollTop=Math.max(0,(Number(owner.scrollTop)||0)+delta);
-    }else{
-      try{window.scrollBy(0,delta);}catch{}
+    if(state.watchPipPinned)return;
+    if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return;
+
+    // As soon as the original video slot comes back below the viewport top,
+    // put the same player back inline.
+    if(rect.bottom>topEdge){
+      setWatchMinimized(false,{preserveScroll:true});
     }
   };
 
-  const restoreInlineFromSlot=()=>{
-    alignMediaSlotToTop();
-    setWatchMinimized(false,{preserveScroll:true});
-  };
+  // Listen only to actual scroll owners. The condition above decides whether
+  // PiP floats; the amount scrolled is irrelevant.
+  window.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
+  document.addEventListener("scroll",syncPipToFirstVideo,{passive:true,capture:true});
+  document.body?.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
+  feedSection?.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
+  window.visualViewport?.addEventListener?.("scroll",syncPipToFirstVideo,{passive:true});
+  window.addEventListener("wheel",syncPipToFirstVideo,{passive:true});
 
-  let slotScrollRaf=0;
-  const syncPipToMediaSlot=()=>{
-    if(slotScrollRaf)return;
-    slotScrollRaf=requestAnimationFrame(()=>{
-      slotScrollRaf=0;
-      const rect=watchMediaSlotRect();
-      if(!rect)return;
-
-      const topEdge=watchMediaSlotTopEdge();
-      const compactScrollTop=Math.max(
-        0,
-        Number(document.body?.scrollTop)||0,
-        Number(document.scrollingElement?.scrollTop)||0,
-        Number(document.documentElement?.scrollTop)||0,
-        Number(window.scrollY)||0,
-        Number(feedSection?.scrollTop)||0
-      );
-      const slotHeight=Math.max(
-        1,
-        Number(playerSection?.offsetHeight)||0,
-        Number(rect.height)||0,
-        parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--watch-stage-h"))||0
-      );
-      const compactPassedSlot=
-        watchAutoPipViewport() &&
-        compactScrollTop>=Math.max(8,slotHeight-topEdge-1);
-
-      if(!state.watchMinimized){
-        // Chromium follows rect.bottom reliably. Safari/PWA can keep the body
-        // as the scroll owner while returning a stale child rect, so also use
-        // the compact scroll distance as the same "slot has left" condition.
-        if(eligibleInline()&&(rect.bottom<=topEdge+1||compactPassedSlot)){
-          setWatchMinimized(true,{pinned:false});
-        }
-        return;
-      }
-
-      if(state.watchPipPinned)return;
-      if(Date.now()-Number(state.watchPipEnteredAt||0)<220)return;
-
-      // The frozen media slot, not the portrait iframe's live dimensions,
-      // decides when the iframe returns inline.
-      if(rect.bottom>topEdge+12&&rect.top<window.innerHeight){
-        restoreInlineFromSlot();
-      }
-    });
-  };
-
-  window.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
-  window.visualViewport?.addEventListener?.("scroll",syncPipToMediaSlot,{passive:true});
-  window.addEventListener("wheel",syncPipToMediaSlot,{passive:true});
-  setTimeout(syncPipToMediaSlot,220);
-
-  if("IntersectionObserver" in window&&playerSection){
-    const slotObserver=new IntersectionObserver(entries=>{
-      const entry=entries.find(item=>item.target===playerSection);
-      if(!entry||!state.currentId||playerSection.hidden)return;
-
-      if(!entry.isIntersecting&&eligibleInline()){
-        setWatchMinimized(true,{pinned:false});
-        return;
-      }
-
-      if(
-        entry.isIntersecting &&
-        state.watchMinimized &&
-        !state.watchPipPinned &&
-        Date.now()-Number(state.watchPipEnteredAt||0)>=220
-      ){
-        restoreInlineFromSlot();
-      }
-    },{root:null,threshold:[0,.01]});
-    slotObserver.observe(playerSection);
-  }
+  setTimeout(syncPipToFirstVideo,220);
 }
 
 function getFullscreenElement(){
