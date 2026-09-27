@@ -5089,3 +5089,27 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     max-height:42vh!important;
   }
 }
+
+
+/* Auto-PiP visibility fix v414.
+   The frozen media slot is only a scroll anchor/background. It must not clip
+   the fixed iframe that has been moved out as PiP. */
+@media(max-width:959px){
+  html.watch-minimized .player-section.watch-media-slot{
+    overflow:visible!important;
+    clip-path:none!important;
+    contain:none!important;
+  }
+
+  html.watch-minimized .player-section.watch-media-slot .player-card{
+    overflow:visible!important;
+    clip-path:none!important;
+    contain:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    visibility:visible!important;
+    opacity:1!important;
+    pointer-events:auto!important;
+  }
+}
