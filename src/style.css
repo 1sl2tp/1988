@@ -7897,3 +7897,21 @@ html.watch-browse body::before{
   backdrop-filter:none!important;
   box-shadow:none!important;
 }
+
+
+/* ============================================================
+   COLLAPSE HOME HIDDEN HEADER GAP v480
+   When Home hides the logo/search row, the source rail moves to the top.
+   Reserve only the rail height so no 52px orphan strip remains underneath.
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse).home-header-hidden .app-header{
+    height:calc(var(--nav-row-h) + var(--safe-top))!important;
+    min-height:calc(var(--nav-row-h) + var(--safe-top))!important;
+    max-height:calc(var(--nav-row-h) + var(--safe-top))!important;
+  }
+
+  html:not(.watch-browse).home-header-hidden .app-shell{
+    padding-top:calc(var(--nav-row-h) + var(--safe-top) + 6px)!important;
+  }
+}
