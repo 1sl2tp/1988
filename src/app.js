@@ -8007,12 +8007,12 @@ function watchAutoPipViewport(){
 function syncNativeMobileControls(){
   if(!nativePlayer)return;
 
-  // One rule for every phone: whenever the app is using the native <video>
-  // engine, Safari/Android native chrome stays hidden in BOTH full Watch and
-  // mini/PiP. Desktop keeps the browser controls.
+  // One-column Watch owns its own minimal transport in BOTH MAIN and PiP.
+  // Native browser chrome must therefore stay out of the picture all the way
+  // through 959px, not only on <=720px phones.
   const hide=
     state.engine==="native" &&
-    mobileMiniViewport();
+    watchAutoPipViewport();
 
   nativePlayer.controls=!hide;
   if(hide){
@@ -8067,6 +8067,8 @@ function applyFloatingIframe(force){
 
   state.watchMinimized=true;
   root.classList.add("watch-minimized");
+  hideMainMinimalControls();
+  syncMainMinimalControls();
   syncNativeMobileControls();
   state.floatTucked=false;
   state.floatPreset="auto";
@@ -8155,6 +8157,8 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   root.classList.remove("watch-minimized");
   syncNativeMobileControls();
   applyFloatingIframe(false);
+  ensureMainMinimalControls();
+  syncMainMinimalControls();
   syncWatchBrowseLayout();
   requestAnimationFrame(releaseWatchMediaSlot);
   if(!preserveScroll)hardResetDocumentTop();
@@ -8325,6 +8329,13 @@ function resumeVideoAfterReturn(){
   setTimeout(attempt,520);
 }
 
+
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape"&&watchMainPseudoFullscreen){
+    setMainPseudoFullscreen(false);
+  }
+});
+
 function setupFullscreenReturn(){
   const frame=()=>playerSection?.querySelector(".player-frame");
 
@@ -8494,6 +8505,8 @@ function showNativePlayer(){
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=true;
   syncNativeMobileControls();
+  ensureMainMinimalControls();
+  syncMainMinimalControls();
 }
 
 function showIframePlayer(){
@@ -8503,9 +8516,14 @@ function showIframePlayer(){
   const iframe=state.player?.getIframe?.();
   if(iframe)iframe.hidden=false;
   syncNativeMobileControls();
+  ensureMainMinimalControls();
+  syncMainMinimalControls();
 }
 
-window.addEventListener("resize",syncNativeMobileControls,{passive:true});
+window.addEventListener("resize",()=>{
+  syncNativeMobileControls();
+  syncMainMinimalControls();
+},{passive:true});
 window.visualViewport?.addEventListener?.("resize",syncNativeMobileControls,{passive:true});
 window.addEventListener("orientationchange",()=>{
   requestAnimationFrame(syncNativeMobileControls);
@@ -12244,6 +12262,283 @@ function updateMediaSession(meta=state.currentMeta||{}){
   backgroundPlayer.setMetadata(meta);
 }
 
+
+let watchMainControlsTimer=0;
+let watchMainUiLocked=false;
+let watchMainPseudoFullscreen=false;
+
+function mainMinimalControlsEnabled(){
+  const root=document.documentElement;
+  return (
+    watchAutoPipViewport() &&
+    root.classList.contains("watch-browse") &&
+    !root.classList.contains("watch-minimized") &&
+    !state.watchMinimized &&
+    !playerSection?.hidden &&
+    !!state.currentId
+  );
+}
+
+function mainControlSvg(name){
+  const paths={
+    rewind:'<path d="M9 8H5V4M5.6 8.2A8 8 0 1 1 5 15"/><path d="M10 10.2h1.6v5.6M14.4 11.5c.4-.9 1.2-1.5 2.2-1.5 1.4 0 2.4 1 2.4 2.3 0 1.7-1.8 2.5-4.5 3.5h4.7"/>',
+    forward:'<path d="M15 8h4V4M18.4 8.2A8 8 0 1 0 19 15"/><path d="M5.8 10.2h1.6v5.6M10.2 11.5c.4-.9 1.2-1.5 2.2-1.5 1.4 0 2.4 1 2.4 2.3 0 1.7-1.8 2.5-4.5 3.5H15"/>',
+    play:'<path d="M9 7.2v9.6l8-4.8z" fill="currentColor" stroke="none"/>',
+    pause:'<path d="M9 7v10M15 7v10"/>',
+    mute:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9l4 6M20 9l-4 6"/>',
+    volume:'<path d="M5 10h3l4-3v10l-4-3H5z"/><path d="M16 9c1 .8 1.5 1.8 1.5 3S17 14.2 16 15"/><path d="M18.5 6.8c1.8 1.4 2.7 3.1 2.7 5.2s-.9 3.8-2.7 5.2"/>',
+    fullscreen:'<path d="M9.5 6H6v3.5M14.5 6H18v3.5M6 14.5V18h3.5M18 14.5V18h-3.5"/>',
+    compress:'<path d="M10.5 10.5H6V6M13.5 10.5H18V6M10.5 13.5H6V18M13.5 13.5H18V18"/>',
+    lock:'<rect x="6.5" y="10" width="11" height="9" rx="2"/><path d="M9 10V7.8a3 3 0 0 1 6 0V10"/>',
+    unlock:'<rect x="6.5" y="10" width="11" height="9" rx="2"/><path d="M15 10V7.8a3 3 0 0 0-5.5-1.6"/>'
+  };
+  return '<svg class="watch-main-control-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'+
+    (paths[name]||paths.play)+
+    '</svg>';
+}
+
+function mainPlaybackActive(){
+  return state.mode==="video"&&!!state.currentId&&!!state.intentPlay;
+}
+
+function mainPlayerMuted(){
+  if(state.engine==="native")return !!nativePlayer.muted;
+  try{return !!state.player?.isMuted?.();}catch{return false;}
+}
+
+function syncMainMinimalControls(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+
+  const enabled=mainMinimalControlsEnabled();
+  frame.classList.toggle("watch-main-minimal",enabled);
+  frame.classList.toggle("watch-main-locked",enabled&&watchMainUiLocked);
+  frame.classList.toggle("watch-main-pseudo-fullscreen",enabled&&watchMainPseudoFullscreen);
+
+  const controls=frame.querySelector(".watch-main-controls");
+  const unlock=frame.querySelector(".watch-main-unlock");
+  if(controls){
+    controls.hidden=!enabled||watchMainUiLocked;
+    controls.querySelector('[data-watch-main="play"]')?.replaceChildren();
+    const play=controls.querySelector('[data-watch-main="play"]');
+    if(play){
+      const active=mainPlaybackActive();
+      play.innerHTML=mainControlSvg(active?"pause":"play");
+      play.setAttribute("aria-label",active?"Tạm dừng":"Phát");
+    }
+    const mute=controls.querySelector('[data-watch-main="mute"]');
+    if(mute){
+      const muted=mainPlayerMuted();
+      mute.innerHTML=mainControlSvg(muted?"mute":"volume");
+      mute.setAttribute("aria-label",muted?"Bật âm":"Tắt âm");
+    }
+    const full=controls.querySelector('[data-watch-main="full"]');
+    if(full){
+      full.innerHTML=mainControlSvg(watchMainPseudoFullscreen?"compress":"fullscreen");
+      full.setAttribute("aria-label",watchMainPseudoFullscreen?"Thu màn hình":"Toàn màn hình");
+    }
+  }
+  if(unlock){
+    unlock.hidden=!enabled||!watchMainUiLocked;
+    unlock.innerHTML=mainControlSvg("unlock");
+  }
+
+  if(!enabled){
+    clearTimeout(watchMainControlsTimer);
+    watchMainControlsTimer=0;
+    frame.classList.remove("watch-main-controls-open","watch-main-locked","watch-main-pseudo-fullscreen");
+  }
+}
+
+function hideMainMinimalControls(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+  clearTimeout(watchMainControlsTimer);
+  watchMainControlsTimer=0;
+  frame.classList.remove("watch-main-controls-open");
+}
+
+function showMainMinimalControls(
+  frame=playerSection?.querySelector(".player-frame"),
+  delay=2300
+){
+  if(!frame||!mainMinimalControlsEnabled()||watchMainUiLocked)return;
+  clearTimeout(watchMainControlsTimer);
+  syncMainMinimalControls(frame);
+  frame.classList.add("watch-main-controls-open");
+  watchMainControlsTimer=setTimeout(()=>{
+    frame.classList.remove("watch-main-controls-open");
+  },delay);
+}
+
+function toggleMainMinimalPlayback(frame=playerSection?.querySelector(".player-frame")){
+  if(mainPlaybackActive()){
+    state.intentPlay=false;
+    state.videoPlaying=false;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+    pauseVideoEngine();
+    showMainMinimalControls(frame,2600);
+  }else{
+    state.intentPlay=true;
+    playVideoEngine();
+    showMainMinimalControls(frame,1900);
+  }
+  syncMainMinimalControls(frame);
+}
+
+function toggleMainMinimalMute(frame=playerSection?.querySelector(".player-frame")){
+  if(state.engine==="native"){
+    nativePlayer.muted=!nativePlayer.muted;
+  }else{
+    try{
+      if(state.player?.isMuted?.())state.player.unMute?.();
+      else state.player?.mute?.();
+    }catch{}
+  }
+  syncMainMinimalControls(frame);
+  showMainMinimalControls(frame,2200);
+}
+
+function setMainPseudoFullscreen(value){
+  const frame=playerSection?.querySelector(".player-frame");
+  watchMainPseudoFullscreen=!!value;
+  const root=document.documentElement;
+  root.classList.toggle("watch-main-fullscreen",watchMainPseudoFullscreen);
+  if(watchMainPseudoFullscreen){
+    state.fullscreenScrollY=window.scrollY;
+    state.fullscreenActive=true;
+  }else{
+    state.fullscreenActive=false;
+    const y=state.fullscreenScrollY;
+    state.fullscreenScrollY=null;
+    requestAnimationFrame(()=>{
+      queueResponsivePlayerFrame();
+      if(Number.isFinite(Number(y)))window.scrollTo(0,Math.max(0,Number(y)));
+    });
+  }
+  syncMainMinimalControls(frame);
+}
+
+async function toggleMainMinimalFullscreen(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame)return;
+
+  if(watchMainPseudoFullscreen){
+    setMainPseudoFullscreen(false);
+    showMainMinimalControls(frame,1800);
+    return;
+  }
+
+  // Prefer real fullscreen where it is actually available. Old iOS Safari
+  // cannot fullscreen an arbitrary YouTube iframe from the parent page, so
+  // fall back to a viewport-owned fullscreen shell instead of a dead button.
+  const iframe=state.player?.getIframe?.();
+  const target=state.engine==="iframe"?(iframe||frame):frame;
+  const request=
+    target?.requestFullscreen||
+    target?.webkitRequestFullscreen||
+    frame.requestFullscreen||
+    frame.webkitRequestFullscreen;
+
+  if(typeof request==="function"){
+    try{
+      await request.call(
+        target?.requestFullscreen||target?.webkitRequestFullscreen ? target : frame
+      );
+      hideMainMinimalControls(frame);
+      return;
+    }catch{}
+  }
+
+  if(state.engine==="native"&&typeof nativePlayer.webkitEnterFullscreen==="function"){
+    try{
+      nativePlayer.webkitEnterFullscreen();
+      hideMainMinimalControls(frame);
+      return;
+    }catch{}
+  }
+
+  setMainPseudoFullscreen(true);
+  showMainMinimalControls(frame,1800);
+}
+
+function ensureMainMinimalControls(){
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame)return;
+
+  if(frame.dataset.watchMainControlsReady==="1"){
+    syncMainMinimalControls(frame);
+    return;
+  }
+  frame.dataset.watchMainControlsReady="1";
+
+  const tap=document.createElement("div");
+  tap.className="watch-main-tap-surface";
+  tap.setAttribute("aria-hidden","true");
+
+  const controls=document.createElement("div");
+  controls.className="watch-main-controls";
+  controls.hidden=true;
+  controls.innerHTML=
+    '<div class="watch-main-center">'+
+      '<button type="button" data-watch-main="rewind" aria-label="Lùi 10 giây">'+mainControlSvg("rewind")+'</button>'+
+      '<button type="button" class="watch-main-play" data-watch-main="play" aria-label="Tạm dừng">'+mainControlSvg("pause")+'</button>'+
+      '<button type="button" data-watch-main="forward" aria-label="Tiến 10 giây">'+mainControlSvg("forward")+'</button>'+
+    '</div>'+
+    '<div class="watch-main-side">'+
+      '<button type="button" data-watch-main="mute" aria-label="Tắt âm">'+mainControlSvg("volume")+'</button>'+
+      '<button type="button" data-watch-main="lock" aria-label="Khóa điều khiển">'+mainControlSvg("lock")+'</button>'+
+      '<button type="button" data-watch-main="full" aria-label="Toàn màn hình">'+mainControlSvg("fullscreen")+'</button>'+
+    '</div>';
+
+  const unlock=document.createElement("button");
+  unlock.type="button";
+  unlock.className="watch-main-unlock";
+  unlock.setAttribute("aria-label","Mở khóa điều khiển");
+  unlock.hidden=true;
+  unlock.innerHTML=mainControlSvg("unlock");
+
+  tap.addEventListener("click",()=>{
+    if(!mainMinimalControlsEnabled()||watchMainUiLocked)return;
+    if(frame.classList.contains("watch-main-controls-open"))hideMainMinimalControls(frame);
+    else showMainMinimalControls(frame);
+  });
+
+  controls.addEventListener("click",event=>{
+    const button=event.target.closest?.("[data-watch-main]");
+    if(!button)return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action=button.dataset.watchMain||"";
+    if(action==="rewind"){
+      seekVideo(getVideoTime()-10);
+      showMainMinimalControls(frame,1900);
+    }else if(action==="forward"){
+      seekVideo(getVideoTime()+10);
+      showMainMinimalControls(frame,1900);
+    }else if(action==="play"){
+      toggleMainMinimalPlayback(frame);
+    }else if(action==="mute"){
+      toggleMainMinimalMute(frame);
+    }else if(action==="lock"){
+      watchMainUiLocked=true;
+      hideMainMinimalControls(frame);
+      syncMainMinimalControls(frame);
+    }else if(action==="full"){
+      void toggleMainMinimalFullscreen(frame);
+    }
+  });
+
+  unlock.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    watchMainUiLocked=false;
+    syncMainMinimalControls(frame);
+    showMainMinimalControls(frame,1800);
+  });
+
+  frame.append(tap,controls,unlock);
+  syncMainMinimalControls(frame);
+}
+
 function getVideoTime(){
   if(state.engine==="native"){
     return Math.max(0,Number(nativePlayer.currentTime)||0);
@@ -13304,8 +13599,15 @@ async function playVideo(id,seedMeta={}){
   state.pendingVideoId=id;
   state.videoPlaying=wasFloating;
   playerSection.hidden=false;
+  if(!keepMinimized){
+    watchMainUiLocked=false;
+    watchMainPseudoFullscreen=false;
+    document.documentElement.classList.remove("watch-main-fullscreen");
+  }
+  ensureMainMinimalControls();
   // Activate the final watch+browse layout immediately when a video opens.
   syncWatchBrowseLayout();
+  syncMainMinimalControls();
   if(!wasFloating)applyFloatingIframe(false);
 
   // First mobile Watch entry always starts at the true top. Reset the document,
@@ -13541,7 +13843,7 @@ function initYouTubePlayer(){
       playsinline:1,
       // Use the normal YouTube iframe interaction model on every device.
       // The page no longer lays a transparent gesture surface over the player.
-      controls:1,
+      controls:watchAutoPipViewport()?0:1,
       cc_load_policy:0,
       rel:0,
       fs:1,
@@ -13588,6 +13890,7 @@ function initYouTubePlayer(){
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           state.keepFloating=false;
+          syncMainMinimalControls();
 
           // Use YouTube's own calculated video content rectangle. This is the
           // key distinction between the inline 16:9 player box and the actual
@@ -13609,6 +13912,7 @@ function initYouTubePlayer(){
           if(state.intentPlay)ensureIframePlaying();
         }else if(event.data===YT.PlayerState.PAUSED){
           state.videoPlaying=false;
+          syncMainMinimalControls();
 
           const openingPause=
             state.intentPlay &&
@@ -14746,12 +15050,14 @@ nativePlayer.addEventListener("playing",()=>{
   state.resumeOnReturn=false;
   state.transitionUntil=0;
   if(state.mode==="video")statusText.textContent="Video đang phát";
+  syncMainMinimalControls();
   applyFloatingIframe();
   try{if("mediaSession" in navigator)navigator.mediaSession.playbackState="playing";}catch{}
 });
 nativePlayer.addEventListener("pause",()=>{
   if(state.engine!=="native"||state.mode!=="video")return;
   state.videoPlaying=false;
+  syncMainMinimalControls();
 
   const lifecyclePause=
     state.resumeOnReturn &&
