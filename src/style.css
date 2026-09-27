@@ -5811,3 +5811,42 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     padding-bottom:max(8px,var(--safe-bottom))!important;
   }
 }
+
+
+/* PiP -> real fullscreen v436.
+   Once the browser accepts fullscreen, floating state is closed without
+   changing scroll position. The fullscreen element itself owns the viewport. */
+#playerSection:fullscreen,
+#playerSection:-webkit-full-screen{
+  width:100vw!important;
+  height:100vh!important;
+  min-width:100vw!important;
+  min-height:100vh!important;
+  max-width:none!important;
+  max-height:none!important;
+  margin:0!important;
+  padding:0!important;
+  background:#000!important;
+  overflow:hidden!important;
+}
+
+#playerSection:fullscreen .player-card,
+#playerSection:fullscreen .player-frame,
+#playerSection:fullscreen #yt-player,
+#playerSection:fullscreen iframe,
+#playerSection:fullscreen video,
+#playerSection:-webkit-full-screen .player-card,
+#playerSection:-webkit-full-screen .player-frame,
+#playerSection:-webkit-full-screen #yt-player,
+#playerSection:-webkit-full-screen iframe,
+#playerSection:-webkit-full-screen video{
+  width:100%!important;
+  height:100%!important;
+  min-width:100%!important;
+  min-height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+  margin:0!important;
+  border-radius:0!important;
+  background:#000!important;
+}
