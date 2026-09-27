@@ -5798,7 +5798,9 @@ html.watch-minimized .player-frame.floating-iframe #nativePlayer{
 
 html.watch-minimized .player-frame.floating-iframe.float-controls-suppressed .float-player-overlay{
   opacity:0!important;
+  visibility:hidden!important;
   pointer-events:none!important;
+  transition:none!important;
 }
 
 

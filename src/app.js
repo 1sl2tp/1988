@@ -6373,11 +6373,18 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
     return;
   }
 
-  // Play again, then return to the clean/original PiP surface immediately.
+  // Play again: return to the clean/original PiP surface in THIS click.
+  // Hide/blur first so :focus-within or a stale hover can never keep the
+  // transport layer visible while playback restarts asynchronously.
   state.intentPlay=true;
-  playVideoEngine();
-  syncFloatOverlayControls(frame);
   hideFloatOverlayControls(frame,{suppressHover:true});
+  try{
+    const active=document.activeElement;
+    if(active&&frame?.contains(active))active.blur?.();
+    frame?.querySelectorAll?.(".float-player-overlay button").forEach(button=>button.blur?.());
+  }catch{}
+  syncFloatOverlayControls(frame);
+  playVideoEngine();
 }
 
 function closeFloatingPipAndExitPlayback(){
@@ -6589,6 +6596,7 @@ function ensureFloatHandles(){
   overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget?.blur?.();
     toggleFloatPlayback(frame);
   });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{

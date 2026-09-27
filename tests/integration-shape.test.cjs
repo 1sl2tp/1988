@@ -37,6 +37,8 @@ assert.match(app,/closeFloatingPipAndExitPlayback\(\)/);
 assert.doesNotMatch(app,/frame&&!frame\.querySelector\("\.watch-swipe-zone"\)/);
 assert.doesNotMatch(style,/Full mobile Watch owns the touch surface too/);
 assert.match(app,/function hideFloatOverlayControls\(/);
+assert.match(app,/hideFloatOverlayControls\(frame,\{suppressHover:true\}\)[\s\S]{0,260}active\.blur/);
+assert.match(style,/float-controls-suppressed[\s\S]{0,180}visibility:hidden!important[\s\S]{0,120}transition:none!important/);
 assert.match(app,/float-controls-suppressed/);
 assert.doesNotMatch(app,/data-float-overlay="fullscreen"/);
 assert.doesNotMatch(app,/function fullscreenFloatingPlayer\(/);
