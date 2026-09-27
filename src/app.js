@@ -15314,12 +15314,32 @@ function clearDesktopHoverAccent(card=desktopHoverAccentCard){
 async function applyDesktopHoverAccent(card){
   if(!desktopHoverAccentEnabled()||!card?.isConnected)return;
 
+  const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
+  if(!art)return;
+
   if(desktopHoverAccentCard&&desktopHoverAccentCard!==card){
     clearDesktopHoverAccent(desktopHoverAccentCard);
   }
 
   desktopHoverAccentCard=card;
-  ++desktopHoverAccentSeq;
+  const seq=++desktopHoverAccentSeq;
+  const palette=await youtubeCinematicPalette(art);
+
+  if(
+    seq!==desktopHoverAccentSeq ||
+    desktopHoverAccentCard!==card ||
+    !card.isConnected ||
+    !palette
+  )return;
+
+  const rgb=parseChromeRgb(palette.accent);
+  if(!rgb)return;
+  const mix=.18;
+  const base=[15,15,15];
+  const surface=rgb.map((value,i)=>Math.round(base[i]*(1-mix)+value*mix));
+
+  // Same sampled hue as the seek bar; only the intensity is reduced.
+  card.style.setProperty("--desktop-card-accent",`rgb(${surface.join(",")})`);
   card.classList.add("desktop-accent-hover");
 }
 
