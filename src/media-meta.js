@@ -195,7 +195,7 @@
 
   function youtubeWideFallback(video=''){
     return VIDEO_ID_RE.test(video)
-      ?'https://i.ytimg.com/vi/'+video+'/mqdefault.jpg'
+      ?'https://i.ytimg.com/vi/'+video+'/maxresdefault.jpg'
       :'';
   }
 
@@ -211,10 +211,17 @@
       const measured=candidates
         .filter(item=>isSixteenNine(item.width,item.height))
         .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
-      if(measured?.url)return measured.url;
 
-      const knownWide=candidates.find(item=>knownYoutubeWideThumb(item.url,video));
-      if(knownWide?.url)return knownWide.url;
+      // A 320x180 mqdefault looks acceptable at CSS size but becomes visibly
+      // soft on Retina/HiDPI screens. Keep a genuinely large 16:9 upstream
+      // image; otherwise ask YouTube for maxres and let the UI fall back only
+      // when that particular video has no maxres asset.
+      if(measured?.url&&measured.width>=640)return measured.url;
+
+      const knownHigh=candidates.find(item=>
+        knownYoutubeWideThumb(item.url,video)&&/\/maxresdefault\.(?:jpg|jpeg|webp)$/i.test(item.url)
+      );
+      if(knownHigh?.url)return knownHigh.url;
 
       return youtubeWideFallback(video);
     }
