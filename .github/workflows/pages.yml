@@ -3,7 +3,6 @@ name: Deploy 1988 Player
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,7 +10,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages-player-v4
+  group: pages-main-production
   cancel-in-progress: true
 
 jobs:
@@ -25,88 +24,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Apply 1988 UX patch
-        run: python3 scripts/apply-ux-patch.py
-
-      - name: Apply immersive reel UX
-        run: python3 scripts/apply-reel-v2.py
-
-      - name: Apply polish v3
-        run: python3 scripts/apply-polish-v3.py
-
-      - name: Apply source feed v4
-        run: python3 scripts/apply-feed-v4.py
-
-      - name: Apply UI v5
-        run: python3 scripts/apply-ui-v5.py
-
-      - name: Rewrite YouTube shell v7
-        run: python3 scripts/apply-youtube-shell-v7.py
-
-      - name: Rewrite YouTube pages v7
-        run: python3 scripts/apply-youtube-pages-v7.py
-
-      - name: Apply persistent mini v8
-        run: python3 scripts/apply-mini-v8.py
-
-      - name: Apply unavailable filter v9
-        run: python3 scripts/apply-unavailable-v9.py
-
-      - name: Apply mini transport v10
-        run: python3 scripts/apply-mini-v10.py
-
-      - name: Apply watch refinement v11
-        run: python3 scripts/apply-watch-v11.py
-
-      - name: Apply unified cards v12
-        run: python3 scripts/apply-card-unify-v12.py
-
-      - name: Apply freshness v13
-        run: python3 scripts/apply-freshness-v13.py
-
-      - name: Apply publisher sources v14
-        run: python3 scripts/apply-sources-v14.py
-
-      - name: Apply TikTok swipe v15
-        run: python3 scripts/apply-tiktok-v15.py
-
-      - name: Apply dynamic sources v16
-        run: python3 scripts/apply-dynamic-sources-v16.py
-
-      - name: Apply card navigation v17
-        run: python3 scripts/apply-card-navigation-v17.py
-
-      - name: Apply feed modes v18
-        run: python3 scripts/apply-feed-modes-v18.py
-
-      - name: Apply TikTok modes v19
-        run: python3 scripts/apply-tiktok-v19.py
-
-      - name: Apply channel directory v20
-        run: python3 scripts/apply-channel-directory-v20.py
-
-      - name: Apply TikTok direct feeds v21
-        run: python3 scripts/apply-tiktok-direct-v21.py
-
-      - name: Smoke TikTok browser feed
-        continue-on-error: true
-        run: |
-          node - <<'NODE'
-          const url = 'https://one988-tiktok-browser.onrender.com/feed?mode=recommend&limit=5';
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 70000);
-          try {
-            const res = await fetch(url, { signal: controller.signal });
-            const body = await res.json();
-            const count = Array.isArray(body?.data?.items) ? body.data.items.length : 0;
-            console.log('TikTok smoke:', { status: res.status, ok: body?.ok, count, error: body?.error });
-            if (!res.ok || !body?.ok || count === 0) process.exitCode = 1;
-          } finally {
-            clearTimeout(timer);
-          }
-          NODE
-
 
       - name: Test media core
         run: |
