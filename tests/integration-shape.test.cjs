@@ -244,10 +244,11 @@ assert.doesNotMatch(app,/return watchAutoPipViewport\(\)\?["']minimal["']:["']fu
 assert.match(app,/function syncPlayerUiMode\(/);
 assert.match(app,/state\.watchMinimized\s*&&\s*!watchAutoPipViewport\(\)[\s\S]{0,180}setWatchMinimized\(false,\{preserveScroll:true\}\)/);
 assert.match(app,/function mobileBrowserViewport\(/);
-assert.match(app,/function desktopWatchOneColumn\(/);
-assert.match(app,/max-width:959px/);
-assert.match(app,/max-width:999px/);
-assert.match(app,/if\(mobileBrowserViewport\(\)\)return true/);
+assert.match(app,/function watchSideMediaLayout\(/);
+assert.match(app,/function watchInlineMediaLayout\(/);
+assert.match(app,/min-width:960px/);
+assert.match(app,/return watchInlineMediaLayout\(\)/);
+assert.match(app,/state\.watchMinimized[\s\S]{0,180}watchSideMediaLayout\(\)[\s\S]{0,220}setWatchMinimized\(false,\{preserveScroll:true\}\)/);
 assert.match(app,/const uiMode=currentPlayerUiMode\(\)/);
 assert.match(app,/syncNativePlayerControls\(\)/);
 assert.match(app,/syncYoutubeIframeControlsForUiMode\(uiMode\)/);
