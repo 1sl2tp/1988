@@ -462,3 +462,16 @@ assert.doesNotMatch(app,/float-media-play/);
 assert.doesNotMatch(app,/float-media-mute/);
 assert.match(app,/frame\.append\(zone,overlay,progress\)/);
 assert.match(style,/\.float-media-progress[\s\S]{0,500}bottom:0!important/);
+
+assert.match(app,/function youtubeThumbSwatch\(/);
+assert.match(app,/const YOUTUBE_SWATCH_LIGHTNESS=\.53/);
+assert.match(app,/const YOUTUBE_SWATCH_SATURATION_LEVELS=\[\.55,\.65,\.71,\.75\]/);
+assert.match(app,/function normalizeYoutubeSwatchSaturation\(/);
+assert.match(app,/function youtubeCardAccentVars\(/);
+assert.match(app,/cardDark:.*\.17/);
+assert.match(app,/cardLight:.*\.13/);
+assert.match(app,/const color=await youtubeThumbSwatch\(art\)/);
+assert.match(app,/youtubeThumbSwatch\(raw\)\.then/);
+assert.match(style,/YOUTUBE SWATCH COLORS v483/);
+assert.match(style,/--desktop-card-accent-bg/);
+assert.match(style,/height:3px!important/);
