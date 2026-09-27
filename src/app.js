@@ -6220,16 +6220,18 @@ function placeCompactWatchPip(
 
   const ratio=currentFloatingAspect();
   const size=scaledAutoFloatSize(frame,ratio);
-  const bounds=compactPipBounds(size.width,size.height);
+  const full=pipSizeKey()==="full";
+  const viewport=full?pipFullViewportRect():null;
+  const bounds=full?null:compactPipBounds(size.width,size.height);
 
-  if(!anchor&&preservePosition&&state.floatUserMoved&&state.floatBox){
+  if(!full&&!anchor&&preservePosition&&state.floatUserMoved&&state.floatBox){
     anchor=compactPipAnchorFromBox(state.floatBox);
   }
 
-  let left=bounds.maxX;
-  let top=bounds.minY;
+  let left=full?viewport.left:bounds.maxX;
+  let top=full?viewport.top:bounds.minY;
 
-  if(anchor){
+  if(!full&&anchor){
     left=anchor.x==="left"
       ?Number(anchor.xValue)
       :Number(anchor.xValue)-size.width;
@@ -6257,7 +6259,11 @@ function placeCompactWatchPip(
   playerSection.style.setProperty("max-height","none","important");
   playerSection.style.setProperty("margin","0","important");
   playerSection.style.setProperty("padding","0","important");
-  playerSection.style.setProperty("overflow","visible","important");
+  playerSection.style.setProperty(
+    "overflow",
+    pipSizeKey()==="full"?"hidden":"visible",
+    "important"
+  );
 
   frame.style.setProperty("position","relative","important");
   frame.style.setProperty("inset","auto","important");
@@ -7065,6 +7071,47 @@ function currentFloatingAspect(){
     16/9;
 }
 
+function pipFullViewportRect(){
+  const vv=window.visualViewport;
+  const width=Math.max(
+    1,
+    Number(vv?.width)||window.innerWidth||document.documentElement.clientWidth||1
+  );
+  const height=Math.max(
+    1,
+    Number(vv?.height)||window.innerHeight||document.documentElement.clientHeight||1
+  );
+  return {
+    left:Math.max(0,Number(vv?.offsetLeft)||0),
+    top:Math.max(0,Number(vv?.offsetTop)||0),
+    width,
+    height
+  };
+}
+
+function fullCoverVideoAspect(){
+  if(
+    state.engine==="native" &&
+    Number(nativePlayer?.videoWidth)>0 &&
+    Number(nativePlayer?.videoHeight)>0
+  ){
+    return validPipAspect(nativePlayer.videoWidth/nativePlayer.videoHeight)||16/9;
+  }
+
+  const meta=state.currentMeta||{};
+  const explicit=explicitVideoAspect(meta);
+  if(explicit&&aspectEvidenceRank(meta)>0)return explicit;
+
+  if(state.videoAspectVerified){
+    const verified=validPipAspect(state.videoAspect);
+    if(verified)return verified;
+  }
+
+  return validPipAspect(explicit)||
+    validPipAspect(state.videoAspect)||
+    16/9;
+}
+
 function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
   ratio=validPipAspect(ratio)||16/9;
   const base=autoFloatSize(frame,ratio);
@@ -7081,7 +7128,8 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
   );
 
   if(pipSizeKey(scale)==="full"){
-    return {width:maxWidth,height:maxHeight};
+    const viewport=pipFullViewportRect();
+    return {width:viewport.width,height:viewport.height};
   }
 
   let width=base.width*scale;
@@ -7385,7 +7433,7 @@ function syncFloatingPlayerViewport(
     const fullCover=pipSizeKey()==="full";
     const frameWidth=Math.max(1,frame.clientWidth||frame.getBoundingClientRect().width||1);
     const frameHeight=Math.max(1,frame.clientHeight||frame.getBoundingClientRect().height||1);
-    const ratio=currentFloatingAspect();
+    const ratio=fullCover?fullCoverVideoAspect():currentFloatingAspect();
 
     let mediaWidth=frameWidth+2;
     let mediaHeight=frameHeight+2;
@@ -7419,6 +7467,11 @@ function syncFloatingPlayerViewport(
       node.style.setProperty("margin","0","important");
       node.style.setProperty("border","0","important");
       node.style.setProperty("background","transparent","important");
+      node.style.setProperty(
+        "overflow",
+        fullCover?"hidden":"visible",
+        "important"
+      );
       node.style.setProperty("transform","none","important");
       node.style.setProperty("transform-origin","center center","important");
       if(node===nativePlayer){
@@ -7439,6 +7492,24 @@ function syncFloatingPlayerViewport(
     setTimeout(apply,180);
   }
 }
+
+let pipFullViewportRaf=0;
+function syncFullPipToVisualViewport(){
+  if(
+    !state.watchMinimized ||
+    pipSizeKey()!=="full"
+  )return;
+  const frame=playerSection?.querySelector(".player-frame");
+  if(!frame?.classList.contains("floating-iframe"))return;
+  if(pipFullViewportRaf)return;
+  pipFullViewportRaf=requestAnimationFrame(()=>{
+    pipFullViewportRaf=0;
+    placeCompactWatchPip(frame,{anchor:null,preservePosition:false});
+    syncFloatingPlayerViewport(frame,{settle:true});
+  });
+}
+window.visualViewport?.addEventListener?.("resize",syncFullPipToVisualViewport,{passive:true});
+window.visualViewport?.addEventListener?.("scroll",syncFullPipToVisualViewport,{passive:true});
 
 function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
