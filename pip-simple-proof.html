@@ -159,13 +159,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   html.two-col main{
     width:100%;
-    max-width:1600px;
+    max-width:none;
     display:grid;
     grid-template-columns:minmax(0,1fr) var(--two-col-media-w);
     grid-template-areas:"feed media";
     gap:var(--layout-gap);
     align-items:start;
-    margin:0 auto;
+    margin:0;
     padding:0 var(--layout-gap);
   }
 
@@ -185,6 +185,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     height:var(--current-full-h);
     justify-self:end;
     min-width:0;
+    margin-right:0;
     overflow:hidden;
   }
 
@@ -388,10 +389,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
     // PHOTO / GOLDEN-RATIO GEOMETRY
     // 1) Real media aspect ratio is always the primary geometry.
     // 2) Golden ratio only caps how much horizontal space media may consume.
-    // 3) Cards are near-square blocks (16:9 image + copy), then 1/2/3 columns
-    //    are chosen from the REAL leftover feed width.
+    // 3) Cards are near-square blocks (16:9 image + copy).
+    //    The feed starts at the LEFT edge and adds as many columns as the
+    //    REAL leftover width can hold.
     const PHI=1.61803398875;
-    const pageW=Math.min(1600,viewportW);
+    const pageW=viewportW;
 
     // Fibonacci spacing: 8 / 13 / 21.
     const gap=viewportW<480?8:(viewportW<960?13:21);
@@ -421,7 +423,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
       const mediaW=Math.max(1,Math.min(naturalMediaW,goldenMediaCap,maxMediaByCard));
       const feedW=Math.max(feedMinW,contentW-gap-mediaW);
 
-      const cols=Math.max(1,Math.min(3,Math.floor((feedW+gap)/(cardTargetW+gap))));
+      // Ultra-wide: feed starts at the left edge and keeps adding cards
+      // for as long as the actual remaining width can hold them.
+      const cols=Math.max(1,Math.floor((feedW+gap)/(cardTargetW+gap)));
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
       root.style.setProperty("--feed-cols",String(cols));
     }
