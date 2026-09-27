@@ -903,6 +903,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   };
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
+  const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
 
   const root=document.documentElement;
   const top=document.getElementById("top");
@@ -970,10 +971,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let pendingVideoId="";
   let youtubeApiPromise=null;
 
-  // Same media-aspect flow as src/app.js:
-  // pre-prime by video id, then let YouTube videoContentRect confirm/correct.
+  // Server owns media aspect by video id; YouTube videoContentRect only
+  // confirms/corrects the server cache after playback.
   const aspectPrimeCache=new Map();
-  let aspectEnginePromise=null;
+  const aspectPrimePending=new Map();
+  const aspectCorrectionSent=new Map();
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -1041,55 +1043,69 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return validMediaAspect(entry?.value);
   }
 
-  function aspectEngine(){
-    if(window.YTLocal)return Promise.resolve(window.YTLocal);
-    if(aspectEnginePromise)return aspectEnginePromise;
+  function applyServerAspectRow(id,row){
+    id=String(id||"").trim();
+    const ratio=validMediaAspect(row?.aspectRatio);
+    if(!id||!ratio)return 0;
 
-    aspectEnginePromise=import("./src/yt-local.js")
-      .then(module=>window.YTLocal||module?.default||null)
-      .catch(()=>null);
-    return aspectEnginePromise;
+    aspectPrimeCache.set(id,{
+      value:ratio,
+      source:String(row?.aspectSource||"server"),
+      verified:row?.aspectVerified===true,
+      at:Date.now()
+    });
+
+    if(row?.aspectVerified===true){
+      mediaAspectCache.set(id,{
+        value:ratio,
+        source:String(row?.aspectSource||"server"),
+        verified:true,
+        at:Date.now()
+      });
+    }
+    return ratio;
+  }
+
+  function fetchServerAspects(ids=[],resolve=true){
+    const unique=[...new Set(
+      (Array.isArray(ids)?ids:[])
+        .map(value=>String(value||"").trim())
+        .filter(Boolean)
+    )].slice(0,24);
+    if(!unique.length)return Promise.resolve({});
+
+    const url=VIDEO_META_URL+
+      "?ids="+encodeURIComponent(unique.join(","))+
+      (resolve?"&resolve=1":"");
+
+    return fetch(url,{cache:"no-store"})
+      .then(response=>{
+        if(!response.ok)throw new Error("aspect_http_"+response.status);
+        return response.json();
+      })
+      .then(payload=>{
+        const data=payload?.data&&typeof payload.data==="object"?payload.data:{};
+        for(const id of unique){
+          if(data[id])applyServerAspectRow(id,data[id]);
+        }
+        return data;
+      })
+      .catch(()=>({}));
   }
 
   function primeMediaAspect(id){
     id=String(id||"").trim();
     if(!id)return Promise.resolve(0);
 
-    const cached=aspectPrimeCache.get(id);
-    if(cached){
-      if(cached.value)return Promise.resolve(cached.value);
-      if(cached.promise)return cached.promise;
-    }
+    const cached=cachedPrimedAspect(id);
+    if(cached)return Promise.resolve(cached);
+    if(aspectPrimePending.has(id))return aspectPrimePending.get(id);
 
-    const task=aspectEngine()
-      .then(local=>{
-        if(typeof local?.videoAspect!=="function")return 0;
-        return local.videoAspect(id);
-      })
-      .then(dimensions=>{
-        const ratio=validMediaAspect(
-          Number(dimensions?.aspectRatio)||
-          (
-            Number(dimensions?.width)>0&&Number(dimensions?.height)>0
-              ?Number(dimensions.width)/Number(dimensions.height)
-              :0
-          )
-        );
+    const task=fetchServerAspects([id],true)
+      .then(data=>validMediaAspect(data?.[id]?.aspectRatio)||cachedPrimedAspect(id)||0)
+      .finally(()=>aspectPrimePending.delete(id));
 
-        if(ratio){
-          aspectPrimeCache.set(id,{value:ratio,at:Date.now()});
-          return ratio;
-        }
-
-        aspectPrimeCache.delete(id);
-        return 0;
-      })
-      .catch(()=>{
-        aspectPrimeCache.delete(id);
-        return 0;
-      });
-
-    aspectPrimeCache.set(id,{promise:task,at:Date.now()});
+    aspectPrimePending.set(id,task);
     return task;
   }
 
@@ -1098,24 +1114,38 @@ html.one-col .player.pip iframe{border-radius:inherit}
       .filter(meta=>meta?.id)
       .slice(0,Math.max(0,limit));
 
-    // First pass is synchronous: use real dimensions already carried by media data.
+    // Package/search metadata from the server is authoritative for first paint.
     for(const meta of list){
       const ratio=mediaAspectFromMeta(meta);
       if(ratio){
-        aspectPrimeCache.set(String(meta.id),{value:ratio,at:Date.now()});
+        const id=String(meta.id);
+        aspectPrimeCache.set(id,{
+          value:ratio,
+          source:String(meta?._aspectSource||"server-package"),
+          verified:meta?._aspectVerified===true,
+          at:Date.now()
+        });
+        if(meta?._aspectVerified===true){
+          mediaAspectCache.set(id,{
+            value:ratio,
+            source:String(meta?._aspectSource||"server-package"),
+            verified:true,
+            at:Date.now()
+          });
+        }
       }
     }
 
-    // Second pass warms only media that still has no known aspect.
-    const run=()=>{
-      for(const meta of list){
-        if(cachedPrimedAspect(meta.id))continue;
-        void primeMediaAspect(meta.id);
-      }
-    };
+    const missing=list
+      .map(meta=>String(meta.id||""))
+      .filter(id=>id&&!cachedPrimedAspect(id));
 
+    if(!missing.length)return;
+
+    // One background batch for the whole visible list. Click never waits on it.
+    const run=()=>{ void fetchServerAspects(missing,true); };
     if("requestIdleCallback" in window){
-      requestIdleCallback(run,{timeout:250});
+      requestIdleCallback(run,{timeout:180});
     }else{
       setTimeout(run,0);
     }
@@ -1315,6 +1345,32 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return null;
   }
 
+  function reportVerifiedAspect(id,rect){
+    id=String(id||"").trim();
+    const ratio=validMediaAspect(rect?.aspectRatio);
+    if(!id||!ratio)return;
+
+    const signature=[
+      ratio.toFixed(5),
+      Math.round(Number(rect?.width)||0),
+      Math.round(Number(rect?.height)||0)
+    ].join(":");
+    if(aspectCorrectionSent.get(id)===signature)return;
+    aspectCorrectionSent.set(id,signature);
+
+    void fetch(VIDEO_META_URL,{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({
+        videoId:id,
+        aspectRatio:ratio,
+        width:Math.round(Number(rect?.width)||0),
+        height:Math.round(Number(rect?.height)||0)
+      }),
+      keepalive:true
+    }).catch(()=>{});
+  }
+
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
     if(!player||!current?.id)return false;
 
@@ -1341,7 +1397,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(!ratio)return false;
 
     commitCurrentAspect(expectedId,ratio,{relayout:true});
-    aspectPrimeCache.set(expectedId,{value:ratio,at:Date.now()});
+    aspectPrimeCache.set(expectedId,{
+      value:ratio,
+      source:"iframe-content-rect",
+      verified:true,
+      at:Date.now()
+    });
+    reportVerifiedAspect(expectedId,rect);
     return true;
   }
 
@@ -1760,11 +1822,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
       videoWidth,
       videoHeight,
       aspectRatio,
+      mediaKind:String(row?.mediaKind||""),
       _aspectVerified:
         row?._aspectVerified===true||
         (videoWidth>0&&videoHeight>0)||
         isShort,
-      _aspectSource:String(row?._aspectSource||"")
+      _aspectSource:String(row?.aspectSource||row?._aspectSource||"")
     };
   }
 
@@ -2510,7 +2573,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(item=>item?.id===id)||
       null;
 
-    // Same as src/app.js: warm the exact video's real aspect before click.
+    // Usually already warm from the server batch; this is a non-blocking fallback.
     void primeMediaAspect(id);
   },{passive:true});
 
