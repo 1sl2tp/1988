@@ -449,3 +449,6 @@ assert.match(style,/PIP FIVE SIZES \+ MEDIA v481/);
 assert.match(style,/\.float-size-small \.float-media-controls[\s\S]{0,80}display:none!important/);
 assert.match(style,/\.float-size-medium \.float-media-controls[\s\S]{0,320}display:grid!important/);
 assert.match(style,/\.float-size-full[\s\S]{0,500}border-radius:0!important/);
+
+assert.match(app,/event\.target\.closest\(["']button,\.float-media-controls["']\)/);
+assert.match(app,/const previousKey=pipSizeKey\(\)[\s\S]{0,120}previousKey===["']full["']\?null:currentCompactPipAnchor\(\)/);
