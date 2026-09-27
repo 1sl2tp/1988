@@ -7486,24 +7486,38 @@ function syncMobileInlinePlayerViewport(){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // MAIN always owns a normal responsive player surface, at every width.
-  // PiP temporarily gives the iframe an enlarged internal viewport + scale;
-  // those inline styles must never survive a return to 721-959px or >=960px.
   const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
   const host=frame.querySelector("#yt-player");
   const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
     node&&list.indexOf(node)===index
   );
 
+  // MAIN has one invariant at every size: the media surface fills the solved
+  // outer frame from the same origin. PiP-only enlarged viewport/scale is
+  // removed synchronously, so no intermediate black top/left strip can paint.
+  frame.style.setProperty("position","relative");
+  frame.style.setProperty("overflow","hidden");
+
   for(const node of nodes){
-    for(const prop of [
-      "position","top","right","bottom","left",
-      "width","height","max-width","max-height",
-      "margin","padding","transform","transform-origin",
-      "filter","opacity"
-    ])node.style.removeProperty(prop);
+    node.style.setProperty("position","absolute","important");
+    node.style.setProperty("top","0","important");
+    node.style.setProperty("right","0","important");
+    node.style.setProperty("bottom","0","important");
+    node.style.setProperty("left","0","important");
+    node.style.setProperty("width","100%","important");
+    node.style.setProperty("height","100%","important");
+    node.style.setProperty("max-width","100%","important");
+    node.style.setProperty("max-height","100%","important");
+    node.style.setProperty("margin","0","important");
+    node.style.setProperty("padding","0","important");
+    node.style.setProperty("border","0","important");
+    node.style.setProperty("transform","none","important");
+    node.style.setProperty("transform-origin","center center","important");
+    node.style.removeProperty("filter");
+    node.style.removeProperty("opacity");
   }
 
+  if(nativePlayer)nativePlayer.style.setProperty("object-fit","contain","important");
   if(iframe){
     iframe.removeAttribute("width");
     iframe.removeAttribute("height");
@@ -7637,8 +7651,12 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
 
-  // A stale/floating PiP surface must never leak its internal iframe sizing
-  // into MAIN while the viewport crosses 960px in either direction.
+  // State invariant: MAIN_SIDE never coexists with PiP.
+  if(state.watchMinimized&&watchSideMediaLayout()&&!isPlayerFullscreen()){
+    setWatchMinimized(false,{preserveScroll:true});
+    return;
+  }
+
   if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
   if(!frame.classList.contains("floating-iframe"))syncMobileInlinePlayerViewport();
 
@@ -8209,18 +8227,8 @@ function setupWatchBrowseLayout(){
     viewportResizeRaf=requestAnimationFrame(()=>{
       viewportResizeRaf=0;
 
-      // If the viewport changes from Position 1/PiP into Position 2,
-      // resolve PiP immediately to the right-side MAIN slot. Do not let a
-      // floating box coexist with the desktop side player.
-      if(
-        state.watchMinimized &&
-        watchSideMediaLayout() &&
-        !isPlayerFullscreen()
-      ){
-        setWatchMinimized(false,{preserveScroll:true});
-        return;
-      }
-
+      // One resolver owns MAIN_TOP / MAIN_SIDE / PiP.
+      syncWatchMediaPlacement();
       queueWatchBrowseLayout();
       queueResponsivePlayerFrame();
     });
@@ -8395,6 +8403,91 @@ function watchAutoPipViewport(){
   return watchInlineMediaLayout();
 }
 
+const WATCH_MEDIA_MAIN_TOP="main-top";
+const WATCH_MEDIA_MAIN_SIDE="main-side";
+const WATCH_MEDIA_PIP="pip";
+let watchMediaPlacementRaf=0;
+
+function currentWatchMediaPlacement(){
+  if(state.watchMinimized||document.documentElement.classList.contains("watch-minimized")){
+    return WATCH_MEDIA_PIP;
+  }
+  return watchSideMediaLayout()?WATCH_MEDIA_MAIN_SIDE:WATCH_MEDIA_MAIN_TOP;
+}
+
+function desiredWatchMediaPlacement(){
+  if(
+    !state.currentId||
+    playerSection?.hidden||
+    isPlayerFullscreen()||
+    state.fullscreenActive
+  ){
+    return watchSideMediaLayout()?WATCH_MEDIA_MAIN_SIDE:WATCH_MEDIA_MAIN_TOP;
+  }
+
+  // Position 2 always wins on desktop. PiP cannot coexist with it.
+  if(watchSideMediaLayout())return WATCH_MEDIA_MAIN_SIDE;
+
+  const root=document.documentElement;
+  if(
+    root.classList.contains("watch-search-open")||
+    root.classList.contains("watch-search-results")
+  )return WATCH_MEDIA_MAIN_TOP;
+
+  const rect=watchMediaSlotRect();
+  const topEdge=watchMediaSlotTopEdge();
+
+  if(state.watchMinimized){
+    if(state.watchPipPinned)return WATCH_MEDIA_PIP;
+    if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return WATCH_MEDIA_PIP;
+    return rect&&rect.bottom>topEdge
+      ?WATCH_MEDIA_MAIN_TOP
+      :WATCH_MEDIA_PIP;
+  }
+
+  if(
+    Date.now()>=Number(state.watchRestoreUntil||0)&&
+    rect&&
+    rect.bottom<=topEdge
+  )return WATCH_MEDIA_PIP;
+
+  return WATCH_MEDIA_MAIN_TOP;
+}
+
+function syncWatchMediaPlacement(){
+  const target=desiredWatchMediaPlacement();
+  const current=currentWatchMediaPlacement();
+  const root=document.documentElement;
+
+  root.dataset.watchMediaPlacement=target;
+
+  if(target===WATCH_MEDIA_PIP){
+    if(current!==WATCH_MEDIA_PIP){
+      setWatchMinimized(true,{pinned:false});
+      return true;
+    }
+    return false;
+  }
+
+  if(current===WATCH_MEDIA_PIP){
+    setWatchMinimized(false,{preserveScroll:true});
+    return true;
+  }
+
+  // MAIN_TOP <-> MAIN_SIDE is a workspace layout transition, never a PiP one.
+  queueWatchBrowseLayout();
+  queueResponsivePlayerFrame();
+  return false;
+}
+
+function queueWatchMediaPlacement(){
+  if(watchMediaPlacementRaf)return;
+  watchMediaPlacementRaf=requestAnimationFrame(()=>{
+    watchMediaPlacementRaf=0;
+    syncWatchMediaPlacement();
+  });
+}
+
 function currentPlayerUiMode(){
   const root=document.documentElement;
   if(
@@ -8448,6 +8541,8 @@ function applyFloatingIframe(force){
     state.floatPreset="auto";
     clearFloatBoxStyles();
     if(!state.watchMinimized){
+      // Reset the old PiP iframe viewport in this same task, before MAIN paints.
+      syncMobileInlinePlayerViewport();
       releaseWatchMediaSlot();
       root.classList.remove("watch-minimized");
     }
@@ -8573,25 +8668,7 @@ function watchInlineEligibleForAutoPip(){
 }
 
 function syncWatchPipToFirstVideo(){
-  if(!state.currentId||!watchAutoPipViewport())return;
-
-  const rect=watchMediaSlotRect();
-  if(!rect)return;
-  const topEdge=watchMediaSlotTopEdge();
-
-  if(!state.watchMinimized){
-    if(watchInlineEligibleForAutoPip()&&rect.bottom<=topEdge){
-      setWatchMinimized(true,{pinned:false});
-    }
-    return;
-  }
-
-  if(state.watchPipPinned)return;
-  if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return;
-
-  if(rect.bottom>topEdge){
-    setWatchMinimized(false,{preserveScroll:true});
-  }
+  syncWatchMediaPlacement();
 }
 
 function setupWatchMinimizeGesture(){
@@ -8599,25 +8676,17 @@ function setupWatchMinimizeGesture(){
   if(root.dataset.watchMinimizeGesture==="1")return;
   root.dataset.watchMinimizeGesture="1";
 
-  // Scroll events are only wake-ups. A lightweight geometry loop is the final
-  // source of truth, so browser differences in scroll event routing cannot
-  // prevent the same condition from firing.
-  window.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
-  document.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true,capture:true});
-  document.body?.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
-  feedSection?.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
-  window.visualViewport?.addEventListener?.("scroll",syncWatchPipToFirstVideo,{passive:true});
-  window.addEventListener("wheel",syncWatchPipToFirstVideo,{passive:true});
+  // Scroll/viewport events only schedule ONE placement solve for the next
+  // animation frame. No perpetual geometry loop competes with resize/layout.
+  const wake=()=>queueWatchMediaPlacement();
+  window.addEventListener("scroll",wake,{passive:true});
+  document.addEventListener("scroll",wake,{passive:true,capture:true});
+  document.body?.addEventListener("scroll",wake,{passive:true});
+  feedSection?.addEventListener("scroll",wake,{passive:true});
+  window.visualViewport?.addEventListener?.("scroll",wake,{passive:true});
+  window.addEventListener("wheel",wake,{passive:true});
 
-  let pipGeometryRaf=0;
-  const watchGeometry=()=>{
-    pipGeometryRaf=requestAnimationFrame(watchGeometry);
-    if(!state.currentId||!watchAutoPipViewport())return;
-    syncWatchPipToFirstVideo();
-  };
-  if(!pipGeometryRaf)pipGeometryRaf=requestAnimationFrame(watchGeometry);
-
-  setTimeout(syncWatchPipToFirstVideo,220);
+  setTimeout(wake,220);
 }
 
 function getFullscreenElement(){
@@ -14082,6 +14151,7 @@ async function playVideo(id,seedMeta={}){
     !playerSection?.hidden;
 
   const keepMinimized=!!(
+    watchInlineMediaLayout() &&
     activeWatchSession &&
     (
       state.watchMinimized ||
