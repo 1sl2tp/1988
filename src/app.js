@@ -7646,7 +7646,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   // One-column Watch is one rule everywhere below 960px: narrow desktop web,
   // mobile web and installed PWA all use the same 16:9 inline slot + auto PiP.
   // >=960px is the two-column desktop player and follows the real media shape.
-  const compactOneColumn=window.innerWidth<960;
+  const compactOneColumn=desktopWatchOneColumn();
   const desktopResponsive=!compactOneColumn;
   const ratio=desktopResponsive ? sourceRatio : 16/9;
   const orientation=desktopResponsive ? aspectOrientation(ratio) : "landscape";
@@ -7723,8 +7723,8 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
     Number(window.visualViewport?.height)||window.innerHeight||0
   );
 
-  const mobile=window.innerWidth<=720;
-  const desktop=window.innerWidth>=960;
+  const mobile=mobileBrowserViewport();
+  const desktop=!compactOneColumn;
 
   if(compactOneColumn){
     const styles=getComputedStyle(root);
@@ -8348,30 +8348,37 @@ function ensureWatchNavRail(){
   document.querySelectorAll("body > .watch-reco-info").forEach(el=>el.remove());
   return;
 }
-function mobileMiniViewport(){
+function mobileBrowserViewport(){
+  const uaMobile=
+    navigator.userAgentData?.mobile===true ||
+    /Android|iPhone|iPod|Mobile/i.test(String(navigator.userAgent||""));
   const coarse=window.matchMedia?.("(pointer:coarse)")?.matches===true;
-  const shortSide=Math.min(
-    Number(window.innerWidth)||0,
-    Number(window.innerHeight)||0
-  );
-  return window.innerWidth<=720 || (coarse&&shortSide>0&&shortSide<=720);
+  const noHover=window.matchMedia?.("(hover:none)")?.matches===true;
+
+  // Mobile is a device/input mode, not a CSS width. This also covers iPad-like
+  // browsers that report a desktop-ish UA but still have coarse touch/no hover.
+  return uaMobile || (coarse&&noHover);
+}
+
+function desktopWatchOneColumn(){
+  return window.matchMedia?.("(max-width:959px)")?.matches===true;
+}
+
+function mobileMiniViewport(){
+  return mobileBrowserViewport() || desktopWatchOneColumn();
 }
 
 function watchAutoPipViewport(){
-  const width=Math.max(
-    0,
-    Number(window.innerWidth)||0,
-    Number(document.documentElement?.clientWidth)||0
-  );
-  const coarse=window.matchMedia?.("(pointer:coarse)")?.matches===true;
-  const shortSide=Math.min(
-    Number(window.innerWidth)||0,
-    Number(window.innerHeight)||0
-  );
+  if(mobileBrowserViewport())return true;
 
-  // Mobile/tablet and the narrow 721-959 desktop layout are one-column Watch.
-  // The >=960 desktop layout already keeps the player visible beside the feed.
-  return width<960 || (coarse&&shortSide>0&&shortSide<=720);
+  // Desktop web enters auto-PiP only in the real one-column layout (<=959px).
+  // Once PiP is already open, keep it alive through the 960px boundary and
+  // rejoin MAIN only after 1000px. This hysteresis prevents close/reopen churn
+  // while the user drags the browser width across the breakpoint.
+  if(state.watchMinimized){
+    return window.matchMedia?.("(max-width:999px)")?.matches===true;
+  }
+  return desktopWatchOneColumn();
 }
 
 function currentPlayerUiMode(){
