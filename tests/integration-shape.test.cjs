@@ -425,3 +425,27 @@ assert.match(style,/html\.watch-browse body::before\{[\s\S]{0,420}background:non
 assert.match(style,/COLLAPSE HOME HIDDEN HEADER GAP v480/);
 assert.match(style,/home-header-hidden \.app-header\{[\s\S]{0,220}height:calc\(var\(--nav-row-h\) \+ var\(--safe-top\)\)!important/);
 assert.match(style,/home-header-hidden \.app-shell\{[\s\S]{0,160}padding-top:calc\(var\(--nav-row-h\) \+ var\(--safe-top\) \+ 6px\)!important/);
+
+assert.match(app,/const PIP_SIZE_STEPS=\[1,1\.25,1\.5,1\.8,3\]/);
+assert.match(app,/function pipSizeKey\(/);
+assert.match(app,/return "full"/);
+assert.match(app,/function pipMediaControlsEnabled\(/);
+assert.match(app,/return pipSizeKey\(\)!==["']small["']/);
+assert.match(app,/class=["']float-media-controls["']/);
+assert.match(app,/data-float-overlay=["']play["']/);
+assert.match(app,/data-float-overlay=["']mute["']/);
+assert.match(app,/class=["']float-media-progress["']/);
+assert.match(app,/function syncFloatMediaControls\(/);
+assert.match(app,/function bindFloatMediaSeek\(/);
+assert.match(app,/function toggleFloatMute\(/);
+assert.match(app,/float-size-small/);
+assert.match(app,/float-size-medium/);
+assert.match(app,/float-size-mid/);
+assert.match(app,/float-size-large/);
+assert.match(app,/float-size-full/);
+assert.match(app,/fullCover[\s\S]{0,500}currentFloatingAspect\(\)/);
+assert.match(app,/object-fit["'],fullCover\?["']cover["']:["']contain["']/);
+assert.match(style,/PIP FIVE SIZES \+ MEDIA v481/);
+assert.match(style,/\.float-size-small \.float-media-controls[\s\S]{0,80}display:none!important/);
+assert.match(style,/\.float-size-medium \.float-media-controls[\s\S]{0,320}display:grid!important/);
+assert.match(style,/\.float-size-full[\s\S]{0,500}border-radius:0!important/);
