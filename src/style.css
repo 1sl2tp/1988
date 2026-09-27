@@ -5415,3 +5415,61 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
   font-weight:850!important;
   color:#f2f2f4!important;
 }
+
+
+/* Selected topic card polish v418.
+   Keep the topic card visually separate from the video row with a slightly
+   lighter neutral surface, rounded border and breathing room on all sides. */
+@media(max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info:not([hidden]){
+    padding-bottom:10px!important;
+    background:#0b0b0c!important;
+  }
+
+  .selected-video-row{
+    border-bottom:0!important;
+    background:#101012!important;
+  }
+
+  .selected-source-card{
+    margin:8px 8px 0!important;
+    padding:10px 11px!important;
+    min-height:60px!important;
+    gap:10px!important;
+    border:1px solid rgba(255,255,255,.10)!important;
+    border-radius:14px!important;
+    background:#17171a!important;
+    box-shadow:
+      0 0 0 1px rgba(0,0,0,.10) inset,
+      0 1px 0 rgba(255,255,255,.025)!important;
+  }
+
+  .selected-source-avatar{
+    width:38px!important;
+    height:38px!important;
+    background:#202024!important;
+    border:1px solid rgba(255,255,255,.07)!important;
+  }
+
+  .selected-source-copy{
+    gap:2px!important;
+  }
+
+  .selected-source-label{
+    color:#85858d!important;
+    font-size:8.5px!important;
+    letter-spacing:.055em!important;
+  }
+
+  .selected-source-copy>strong{
+    color:#f4f4f5!important;
+    font-size:12.5px!important;
+    line-height:1.28!important;
+  }
+
+  .selected-source-copy>span:last-child{
+    color:#8f8f97!important;
+    font-size:10px!important;
+  }
+}
