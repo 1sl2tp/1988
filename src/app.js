@@ -6143,18 +6143,14 @@ function undockCompactPip(){
   const rect=playerSection.getBoundingClientRect();
   const width=Math.max(1,rect.width||Number(state.floatBox?.width)||1);
   const height=Math.max(1,rect.height||Number(state.floatBox?.height)||1);
-  const safe=floatingSafeInsets();
-  const gap=10;
+  const bounds=compactPipBounds(width,height);
   const top=Math.max(
-    safe.top+gap,
-    Math.min(
-      window.innerHeight-safe.bottom-height-gap,
-      Number(state.floatBox?.top)||safe.top+gap
-    )
+    bounds.minY,
+    Math.min(bounds.maxY,Number(state.floatBox?.top)||bounds.minY)
   );
   const left=state.floatDock==="left"
-    ?gap
-    :Math.max(gap,window.innerWidth-width-gap);
+    ?bounds.minX
+    :bounds.maxX;
 
   playerSection.classList.remove("pip-docked");
   playerSection.style.setProperty("left",left+"px","important");
@@ -6162,6 +6158,24 @@ function undockCompactPip(){
   playerSection.style.setProperty("top",top+"px","important");
   state.floatBox={left,top,width,height};
   showFloatOverlayControls(frame);
+}
+
+function compactPipBounds(width,height){
+  const safe=floatingSafeInsets();
+  const viewportW=Math.max(1,window.innerWidth||document.documentElement.clientWidth||1);
+  const viewportH=Math.max(1,window.innerHeight||document.documentElement.clientHeight||1);
+
+  // Same geometry as the supplied sample:
+  // 10px side bounds, 50px top bound, 55px bottom reserve.
+  return {
+    minX:10,
+    maxX:Math.max(10,viewportW-width-10),
+    minY:Math.max(50,safe.top+10),
+    maxY:Math.max(
+      Math.max(50,safe.top+10),
+      viewportH-safe.bottom-height-55
+    )
+  };
 }
 
 function placeCompactWatchPip(
@@ -6172,21 +6186,22 @@ function placeCompactWatchPip(
 
   const ratio=currentFloatingAspect();
   const size=scaledAutoFloatSize(frame,ratio);
-  const safe=floatingSafeInsets();
-  const gap=10;
-  const defaultTop=Math.max(6,safe.top+6);
-  const maxLeft=Math.max(gap,window.innerWidth-size.width-gap);
-  const maxTop=Math.max(
-    defaultTop,
-    window.innerHeight-safe.bottom-size.height-gap
-  );
+  const bounds=compactPipBounds(size.width,size.height);
 
-  let left=maxLeft;
-  let top=defaultTop;
+  // Supplied sample starts Bottom Right, then offsets another 12px / 60px
+  // inward from maxX / maxY.
+  let left=Math.max(bounds.minX,bounds.maxX-12);
+  let top=Math.max(bounds.minY,bounds.maxY-60);
 
   if(preservePosition&&state.floatUserMoved&&state.floatBox){
-    left=Math.max(gap,Math.min(maxLeft,Number(state.floatBox.left)||gap));
-    top=Math.max(defaultTop,Math.min(maxTop,Number(state.floatBox.top)||defaultTop));
+    left=Math.max(
+      bounds.minX,
+      Math.min(bounds.maxX,Number(state.floatBox.left)||bounds.minX)
+    );
+    top=Math.max(
+      bounds.minY,
+      Math.min(bounds.maxY,Number(state.floatBox.top)||bounds.minY)
+    );
   }
 
   playerSection.style.setProperty("position","fixed","important");
@@ -6217,7 +6232,7 @@ function placeCompactWatchPip(
   frame.style.setProperty("max-height","100%","important");
   frame.style.setProperty("margin","0","important");
 
-  state.floatDock=left+size.width/2<window.innerWidth/2?"left":"right";
+  state.floatDock=left+size.width/2<(window.innerWidth||0)/2?"left":"right";
   state.floatBox={
     left,
     top,
@@ -6226,7 +6241,6 @@ function placeCompactWatchPip(
     ratio:currentFloatingAspect()
   };
 }
-
 
 function toggleWatchPipPin(frame=playerSection?.querySelector(".player-frame")){
   if(!state.watchMinimized||!frame?.classList.contains("floating-iframe"))return;
@@ -6312,76 +6326,6 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
   showFloatOverlayControls(frame);
 }
 
-function enterFloatAppFullscreen(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection)return;
-  playerSection.classList.add("watch-pip-app-fullscreen");
-  playerSection.style.setProperty("position","fixed","important");
-  playerSection.style.setProperty("z-index","10050","important");
-  playerSection.style.setProperty("inset","0","important");
-  playerSection.style.setProperty("top","0","important");
-  playerSection.style.setProperty("right","0","important");
-  playerSection.style.setProperty("bottom","0","important");
-  playerSection.style.setProperty("left","0","important");
-  playerSection.style.setProperty("width","100vw","important");
-  playerSection.style.setProperty("height","100dvh","important");
-  playerSection.style.setProperty("max-width","none","important");
-  playerSection.style.setProperty("max-height","none","important");
-  frame.classList.add("float-controls-open");
-}
-
-function exitFloatAppFullscreen(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection)return;
-  playerSection.classList.remove("watch-pip-app-fullscreen");
-  playerSection.style.removeProperty("inset");
-  placeCompactWatchPip(frame,{preservePosition:true});
-  showFloatOverlayControls(frame);
-}
-
-function toggleFloatFullscreen(frame=playerSection?.querySelector(".player-frame")){
-  if(!frame||!playerSection)return;
-
-  const nativeFs=getFullscreenElement();
-  if(nativeFs){
-    try{
-      const exit=document.exitFullscreen||document.webkitExitFullscreen;
-      if(exit){
-        const result=exit.call(document);
-        if(result?.catch)result.catch(()=>{});
-        return;
-      }
-    }catch{}
-  }
-
-  if(playerSection.classList.contains("watch-pip-app-fullscreen")){
-    exitFloatAppFullscreen(frame);
-    return;
-  }
-
-  // Prefer the browser's real fullscreen API from this user gesture.
-  const target=
-    state.engine==="native" && !nativePlayer.hidden
-      ?nativePlayer
-      :playerSection;
-
-  try{
-    if(state.engine==="native"&&typeof nativePlayer.webkitEnterFullscreen==="function"){
-      nativePlayer.webkitEnterFullscreen();
-      return;
-    }
-    const request=target?.requestFullscreen||target?.webkitRequestFullscreen;
-    if(request){
-      const result=request.call(target);
-      if(result?.catch){
-        result.catch(()=>enterFloatAppFullscreen(frame));
-      }
-      return;
-    }
-  }catch{}
-
-  // Fallback for browsers/PWA modes that do not expose element fullscreen.
-  enterFloatAppFullscreen(frame);
-}
-
 function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!playerSection||!state.watchMinimized)return;
   if(playerSection.classList.contains("watch-pip-app-fullscreen"))return;
@@ -6460,15 +6404,12 @@ function startFloatMove(event,frame=playerSection?.querySelector(".player-frame"
       return;
     }
 
-    // Otherwise snap to the nearest corner.
-    const minTop=Math.max(6,safe.top+6);
-    const maxTop=Math.max(minTop,window.innerHeight-safe.bottom-height-gap);
-    const snapLeft=left+width/2<window.innerWidth/2
-      ?gap
-      :Math.max(gap,window.innerWidth-width-gap);
-    const snapTop=top+height/2<window.innerHeight/2
-      ?minTop
-      :maxTop;
+    // Otherwise snap to the nearest sample corner.
+    const bounds=compactPipBounds(width,height);
+    const midX=(bounds.minX+bounds.maxX)/2;
+    const midY=(bounds.minY+bounds.maxY)/2;
+    const snapLeft=left<midX?bounds.minX:bounds.maxX;
+    const snapTop=top<midY?bounds.minY:bounds.maxY;
 
     playerSection.style.setProperty("left",snapLeft+"px","important");
     playerSection.style.setProperty("right","auto","important");
@@ -6547,7 +6488,7 @@ function ensureFloatHandles(){
     '</div>'+
     '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">Ⅱ</button>'+
     '<div class="float-overlay-bottom">'+
-      '<button type="button" class="float-overlay-fullscreen" data-float-overlay="fullscreen" aria-label="Toàn màn hình">⛶ <span>Toàn màn</span></button>'+
+      '<button type="button" class="float-overlay-fullscreen" data-float-overlay="expand" aria-label="Mở rộng về trình phát chính">⛶ <span>Mở rộng</span></button>'+
       '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Tăng kích thước PiP">↗</button>'+
     '</div>';
 
@@ -6566,10 +6507,11 @@ function ensureFloatHandles(){
     event.stopPropagation();
     toggleFloatPlayback(frame);
   });
-  overlay.querySelector('[data-float-overlay="fullscreen"]')?.addEventListener("click",event=>{
+  overlay.querySelector('[data-float-overlay="expand"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-    toggleFloatFullscreen(frame);
+    // Match the supplied sample: leave PiP and return to the main player.
+    setWatchMinimized(false);
   });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
     event.preventDefault();
