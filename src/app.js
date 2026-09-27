@@ -12492,7 +12492,13 @@ function applyWatchProgressAccent(art="",guardId=state.currentId){
   const frame=playerSection?.querySelector(".player-frame");
   const bar=unifiedMediaBar();
 
-  frame?.style.removeProperty("--video-progress-accent");
+  for(const name of [
+    "--video-progress-accent",
+    "--pip-accent",
+    "--pip-accent-soft",
+    "--pip-button-bg",
+    "--pip-button-fg"
+  ])frame?.style.removeProperty(name);
   bar?.style.removeProperty("--video-progress-accent");
   if(!/^https?:\/\//i.test(art))return;
 
@@ -12500,7 +12506,20 @@ function applyWatchProgressAccent(art="",guardId=state.currentId){
   void youtubeCinematicPalette(art).then(palette=>{
     if(!palette)return;
     if(expectedId&&String(state.currentId||"")!==expectedId)return;
-    if(frame?.isConnected)frame.style.setProperty("--video-progress-accent",palette.accent);
+
+    const rgb=parseChromeRgb(palette.accent)||[139,140,255];
+    const [r,g,b]=rgb;
+    const luminance=.2126*r+.7152*g+.0722*b;
+    const foreground=luminance>165?"#111":"#fff";
+    const soft=`rgba(${r},${g},${b},.42)`;
+
+    if(frame?.isConnected){
+      frame.style.setProperty("--video-progress-accent",palette.accent);
+      frame.style.setProperty("--pip-accent",palette.accent);
+      frame.style.setProperty("--pip-accent-soft",soft);
+      frame.style.setProperty("--pip-button-bg",palette.accent);
+      frame.style.setProperty("--pip-button-fg",foreground);
+    }
     bar?.style.setProperty("--video-progress-accent",palette.accent);
   });
 }
@@ -15168,7 +15187,11 @@ function youtubeCinematicPalette(url){
         hsl[1]=Math.max(.42,Math.min(.88,hsl[1]*1.08));
         hsl[2]=Math.max(.48,Math.min(.68,hsl[2]));
         const accent=hslToRgb(hsl[0],hsl[1],hsl[2]);
-        const surface=YOUTUBE_CINEMATIC_BASE.map((base,i)=>Math.round(base*(1-YOUTUBE_CINEMATIC_OPACITY)+source[i]*YOUTUBE_CINEMATIC_OPACITY));
+        // One canonical colour: seek/PiP use accent directly; cards use the
+        // same accent mixed into the dark YouTube surface.
+        const surface=YOUTUBE_CINEMATIC_BASE.map((base,i)=>Math.round(
+          base*(1-YOUTUBE_CINEMATIC_OPACITY)+accent[i]*YOUTUBE_CINEMATIC_OPACITY
+        ));
 
         resolve({
           source:"rgb("+source.join(",")+")",
@@ -15316,23 +15339,26 @@ async function applyDesktopHoverAccent(card){
 
   desktopHoverAccentCard=card;
   const seq=++desktopHoverAccentSeq;
-  const color=await averageThumbTint(art);
+  const palette=await youtubeCinematicPalette(art);
 
   if(
     seq!==desktopHoverAccentSeq ||
     desktopHoverAccentCard!==card ||
     !card.isConnected ||
-    !color
+    !palette
   )return;
 
-  const vars=accentVarsFromColor(color);
-  if(!vars)return;
+  const rgb=parseChromeRgb(palette.accent);
+  if(!rgb)return;
+  const [r,g,b]=rgb;
 
-  card.style.setProperty("--desktop-card-accent",vars.solid);
-  card.style.setProperty("--desktop-card-accent-soft",vars.soft);
-  card.style.setProperty("--desktop-card-accent-faint",vars.faint);
-  card.style.setProperty("--desktop-card-accent-glow",vars.glow);
-  card.style.setProperty("--desktop-card-accent-line",vars.line);
+  // Hover uses the same canonical palette as seek/PiP:
+  // dark surface for the panel, accent for line/glow.
+  card.style.setProperty("--desktop-card-accent",palette.surface);
+  card.style.setProperty("--desktop-card-accent-soft",`rgba(${r},${g},${b},.42)`);
+  card.style.setProperty("--desktop-card-accent-faint",`rgba(${r},${g},${b},.24)`);
+  card.style.setProperty("--desktop-card-accent-glow",`rgba(${r},${g},${b},.34)`);
+  card.style.setProperty("--desktop-card-accent-line",`rgba(${r},${g},${b},.72)`);
   card.classList.add("desktop-accent-hover");
 }
 
@@ -15343,7 +15369,7 @@ function primeDesktopCardHoverColors(){
     const cards=[...feed.querySelectorAll(":scope > .card[data-video-id]")].slice(0,32);
     for(const card of cards){
       const art=String(card.dataset.thumb||card.querySelector(".thumb-wrap img")?.src||"").trim();
-      if(art&&!desktopCardColorCache.has(art))void averageThumbTint(art);
+      if(art&&!youtubeCinematicColorCache.has(art))void youtubeCinematicPalette(art);
     }
   };
 
