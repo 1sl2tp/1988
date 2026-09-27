@@ -4417,6 +4417,8 @@ function openSourceVideo(id,row){
   sourceVideoPopup.hidden=false;
 
   const origin=encodeURIComponent(location.origin);
+  sourceVideoFrame.referrerPolicy="strict-origin-when-cross-origin";
+  sourceVideoFrame.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
   sourceVideoFrame.onload=()=>{
     forceSourceVideoPlay();
     setTimeout(forceSourceVideoPlay,120);
@@ -8663,7 +8665,12 @@ function nativeFallbackUrl(id){
 function fallbackIframeVideoToNative(
   id,
   errorCode=0,
-  {resumeAt=null,returnToIframeOnFailure=false}={}
+  {
+    resumeAt=null,
+    returnToIframeOnFailure=false,
+    advanceOnFailure=false,
+    failureMessage=""
+  }={}
 ){
   id=String(id||"").trim();
   if(!id||id!==state.currentId)return false;
@@ -8744,7 +8751,10 @@ function fallbackIframeVideoToNative(
       return;
     }
 
-    statusText.textContent="Video này hiện chưa lấy được nguồn phát";
+    state.videoPlaying=false;
+    if(advanceOnFailure&&advanceSeriesEpisode())return;
+    state.intentPlay=false;
+    statusText.textContent=failureMessage||"Video này hiện chưa lấy được nguồn phát";
   };
 
   nativePlayer.addEventListener("loadedmetadata",onLoaded,{once:true});
@@ -14277,6 +14287,101 @@ function ensureIframePlaying(){
   setTimeout(attempt,520);
 }
 
+const YOUTUBE_IFRAME_ERROR_INFO={
+  2:{
+    message:"Mã video YouTube không hợp lệ",
+    definitive:true,
+    nativeFallback:false
+  },
+  5:{
+    message:"YouTube gặp lỗi phát HTML5",
+    definitive:false,
+    nativeFallback:true
+  },
+  100:{
+    message:"Video đã bị xóa hoặc chuyển sang riêng tư",
+    definitive:true,
+    nativeFallback:false
+  },
+  101:{
+    message:"Chủ video không cho phát trên trình nhúng",
+    definitive:true,
+    nativeFallback:true
+  },
+  150:{
+    message:"Chủ video không cho phát trên trình nhúng",
+    definitive:true,
+    nativeFallback:true
+  },
+  153:{
+    message:"YouTube từ chối phiên nhúng này",
+    definitive:false,
+    nativeFallback:true
+  }
+};
+let lastYoutubeIframeErrorKey="";
+let lastYoutubeIframeErrorAt=0;
+
+function youtubeIframeErrorInfo(code){
+  return YOUTUBE_IFRAME_ERROR_INFO[Number(code)]||{
+    message:"YouTube không phát được video này",
+    definitive:false,
+    nativeFallback:false
+  };
+}
+
+function handleYoutubeIframeError(event){
+  const errorCode=Number(event?.data)||0;
+  const id=String(state.currentId||"").trim();
+  if(!id)return;
+
+  const now=Date.now();
+  const key=id+":"+errorCode;
+  if(key===lastYoutubeIframeErrorKey&&now-lastYoutubeIframeErrorAt<1800)return;
+  lastYoutubeIframeErrorKey=key;
+  lastYoutubeIframeErrorAt=now;
+
+  const info=youtubeIframeErrorInfo(errorCode);
+  console.warn("1988 YouTube iframe error",{id,errorCode,message:info.message});
+
+  state.videoPlaying=false;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
+  syncMainMinimalControls();
+
+  if(info.definitive){
+    try{
+      window.YTLocal?.markEmbedUnplayable?.(id,"iframe_error_"+errorCode);
+    }catch{}
+  }
+
+  statusText.textContent=info.message;
+
+  if(info.nativeFallback){
+    const recovered=fallbackIframeVideoToNative(id,errorCode,{
+      resumeAt:getVideoTime(),
+      advanceOnFailure:true,
+      failureMessage:info.message
+    });
+    if(recovered)return;
+  }
+
+  if(advanceSeriesEpisode())return;
+  state.intentPlay=false;
+  showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
+}
+
+function handleYoutubeAutoplayBlocked(){
+  if(!state.currentId||state.mode!=="video")return;
+  state.videoPlaying=false;
+  state.intentPlay=false;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
+  syncMainMinimalControls();
+  showUnifiedMediaChrome(playerSection?.querySelector(".player-frame"),0);
+  statusText.textContent="Chạm nút phát để bắt đầu video";
+}
+
 function initYouTubePlayer(){
   if(state.player||!window.YT||typeof YT.Player!=="function")return false;
   if(!ensureYoutubePlayerHost())return false;
@@ -14297,7 +14402,8 @@ function initYouTubePlayer(){
       modestbranding:1,
       iv_load_policy:3,
       enablejsapi:1,
-      origin:location.origin
+      origin:location.origin,
+      widget_referrer:location.href
     },
     events:{
       onReady(){
@@ -14309,6 +14415,8 @@ function initYouTubePlayer(){
           const allow=new Set((iframe.getAttribute("allow")||"").split(";").map(value=>value.trim()).filter(Boolean));
           ["autoplay","encrypted-media","picture-in-picture","fullscreen"].forEach(value=>allow.add(value));
           iframe.setAttribute("allow",Array.from(allow).join("; "));
+          iframe.referrerPolicy="strict-origin-when-cross-origin";
+          iframe.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
         }
         // YT.Player replaces #yt-player with a real iframe only now.
         // Re-apply the solved portrait geometry so old iOS does not keep the
@@ -14427,15 +14535,11 @@ function initYouTubePlayer(){
           else delete frame.dataset.youtubeQuality;
         }
       },
+      onAutoplayBlocked(){
+        handleYoutubeAutoplayBlocked();
+      },
       onError(event){
-        const errorCode=Number(event?.data)||0;
-        console.warn("1988 YouTube iframe error",{id:state.currentId,errorCode});
-
-        if(errorCode===101||errorCode===150){
-          try{window.YTLocal?.markEmbedUnplayable?.(state.currentId,"iframe_error_"+errorCode)}catch{}
-        }
-
-        statusText.textContent="YouTube không phát được video này";
+        handleYoutubeIframeError(event);
       }
     }
   });
@@ -14460,6 +14564,19 @@ if(window.YT&&typeof YT.Player==="function"){
       if(state.engine==="iframe")initYouTubePlayer();
     }else if(ytWait>100){
       clearInterval(ytTimer);
+      const id=String(state.currentId||"").trim();
+      if(!id||state.engine!=="iframe")return;
+      console.warn("1988 YouTube iframe API timeout",{id});
+      const recovered=fallbackIframeVideoToNative(id,0,{
+        resumeAt:getVideoTime(),
+        advanceOnFailure:true,
+        failureMessage:"Không tải được trình phát YouTube"
+      });
+      if(!recovered){
+        if(advanceSeriesEpisode())return;
+        state.intentPlay=false;
+        statusText.textContent="Không tải được trình phát YouTube";
+      }
     }
   },100);
 }
