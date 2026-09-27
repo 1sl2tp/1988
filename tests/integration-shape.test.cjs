@@ -246,6 +246,14 @@ assert.match(app,/state\.watchMinimized\s*&&\s*!watchAutoPipViewport\(\)[\s\S]{0
 assert.match(app,/function mobileBrowserViewport\(/);
 assert.match(app,/function watchSideMediaLayout\(/);
 assert.match(app,/function watchInlineMediaLayout\(/);
+assert.match(app,/const WATCH_MEDIA_MAIN_TOP=["']main-top["']/);
+assert.match(app,/const WATCH_MEDIA_MAIN_SIDE=["']main-side["']/);
+assert.match(app,/const WATCH_MEDIA_PIP=["']pip["']/);
+assert.match(app,/function desiredWatchMediaPlacement\(/);
+assert.match(app,/function syncWatchMediaPlacement\(/);
+assert.match(app,/function queueWatchMediaPlacement\(/);
+assert.doesNotMatch(app,/let pipGeometryRaf=0/);
+assert.match(app,/syncMobileInlinePlayerViewport\(\);[\s\S]{0,120}releaseWatchMediaSlot\(\)/);
 assert.match(app,/min-width:960px/);
 assert.match(app,/return watchInlineMediaLayout\(\)/);
 assert.match(app,/state\.watchMinimized[\s\S]{0,180}watchSideMediaLayout\(\)[\s\S]{0,220}setWatchMinimized\(false,\{preserveScroll:true\}\)/);
