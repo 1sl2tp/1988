@@ -7150,7 +7150,17 @@ function nextPipScale(value=state.floatScale){
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
 
+  const fromRect=watchPlayerRect();
   const anchor=currentCompactPipAnchor();
+
+  // If a previous size animation is still running, keep its CURRENT visual
+  // rectangle as the new start, then commit the next real box once.
+  clearTimeout(watchPipFlipTimer);
+  playerSection.classList.remove("watch-pip-flip");
+  playerSection.style.removeProperty("transform");
+  playerSection.style.removeProperty("transform-origin");
+  playerSection.style.removeProperty("transition");
+
   state.floatScale=nextPipScale();
   state.floatUserSized=false;
   state.floatUserMoved=true;
@@ -7161,6 +7171,7 @@ function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame"
   });
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
+  animateWatchPlayerFlip(fromRect,watchPlayerRect(),{duration:220});
 
   try{
     frame.querySelectorAll(".float-player-overlay button").forEach(button=>button.blur?.());
@@ -7230,10 +7241,18 @@ function scaledAutoFloatSize(frame,ratio=currentFloatingAspect()){
 
 function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!frame.classList.contains("floating-iframe"))return;
+
+  const fromRect=watchPlayerRect();
+  clearTimeout(watchPipFlipTimer);
+  playerSection.classList.remove("watch-pip-flip");
+  playerSection.style.removeProperty("transform");
+  playerSection.style.removeProperty("transform-origin");
+  playerSection.style.removeProperty("transition");
+
   state.floatScale=nextPipScale();
   state.floatUserSized=false;
 
-  // One geometry commit: real aspect -> PiP box -> media viewport.
+  // One geometry commit, then compositor-only animation in either direction.
   frame.classList.add("float-geometry-commit");
   if(state.watchMinimized&&watchAutoPipViewport()){
     placeCompactWatchPip(frame,{preservePosition:true});
@@ -7242,6 +7261,7 @@ function cycleFloatScale(frame=playerSection?.querySelector(".player-frame")){
   }
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
+  animateWatchPlayerFlip(fromRect,watchPlayerRect(),{duration:220});
 
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>frame.classList.remove("float-geometry-commit"));
@@ -7464,18 +7484,14 @@ function responsivePlayerAspect(meta=state.currentMeta||{}){
 
 function syncMobileInlinePlayerViewport(){
   const frame=playerSection?.querySelector(".player-frame");
-  if(
-    !frame||
-    frame.classList.contains("floating-iframe")||
-    window.innerWidth>720
-  )return;
+  if(!frame||frame.classList.contains("floating-iframe"))return;
 
-  // Default iframe mode: CSS owns the 16:9 box and YouTube owns the content
-  // inside it. Remove old per-video pixel sizing/compositor transforms so
-  // portrait videos cannot become offset or softly rasterized after a resize.
+  // MAIN always owns a normal responsive player surface, at every width.
+  // PiP temporarily gives the iframe an enlarged internal viewport + scale;
+  // those inline styles must never survive a return to 721-959px or >=960px.
   const iframe=state.player?.getIframe?.()||frame.querySelector("iframe");
   const host=frame.querySelector("#yt-player");
-  const nodes=[host,iframe].filter((node,index,list)=>
+  const nodes=[host,iframe,nativePlayer].filter((node,index,list)=>
     node&&list.indexOf(node)===index
   );
 
@@ -7483,7 +7499,8 @@ function syncMobileInlinePlayerViewport(){
     for(const prop of [
       "position","top","right","bottom","left",
       "width","height","max-width","max-height",
-      "margin","padding","transform","transform-origin","filter","opacity"
+      "margin","padding","transform","transform-origin",
+      "filter","opacity"
     ])node.style.removeProperty(prop);
   }
 
@@ -7620,8 +7637,10 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   const frame=playerSection?.querySelector(".player-frame");
   if(!frame)return;
 
-  // A stale v235 fake-PiP class must never own geometry again.
+  // A stale/floating PiP surface must never leak its internal iframe sizing
+  // into MAIN while the viewport crosses 960px in either direction.
   if(frame.classList.contains("floating-iframe"))applyFloatingIframe();
+  if(!frame.classList.contains("floating-iframe"))syncMobileInlinePlayerViewport();
 
   const sourceRatio=responsivePlayerAspect(meta);
   // One-column Watch is one rule everywhere below 960px: narrow desktop web,
@@ -8183,25 +8202,26 @@ function queueWatchBrowseLayout(){
 }
 
 function setupWatchBrowseLayout(){
-  let viewportResizeTimer=0;
+  let viewportResizeRaf=0;
 
   const syncViewportLayout=()=>{
-    clearTimeout(viewportResizeTimer);
-    viewportResizeTimer=setTimeout(()=>{
+    if(viewportResizeRaf)return;
+    viewportResizeRaf=requestAnimationFrame(()=>{
+      viewportResizeRaf=0;
       queueWatchBrowseLayout();
       queueResponsivePlayerFrame();
-    },160);
+    });
   };
 
+  // Browser/window drag should track the pointer instead of waiting 160ms and
+  // then snapping the list/player columns to their new geometry.
   window.addEventListener("resize",syncViewportLayout,{passive:true});
-  window.addEventListener("orientationchange",()=>{
-    clearTimeout(viewportResizeTimer);
-    viewportResizeTimer=setTimeout(()=>{
-      queueWatchBrowseLayout();
-      queueResponsivePlayerFrame();
-    },80);
-  },{passive:true});
   window.visualViewport?.addEventListener?.("resize",syncViewportLayout,{passive:true});
+  window.addEventListener("orientationchange",()=>{
+    syncViewportLayout();
+    setTimeout(syncViewportLayout,120);
+  },{passive:true});
+
   queueWatchBrowseLayout();
   queueResponsivePlayerFrame();
 }
