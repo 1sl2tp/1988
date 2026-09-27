@@ -13,6 +13,7 @@
   --current-full-h:600px;
   --pip-landscape-w:240px;
   --pip-portrait-h:360px;
+  --portrait-radius:10px;
 }
 html,body{margin:0;background:#0f0f0f;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{min-height:100vh}
@@ -57,6 +58,18 @@ main{width:min(680px,100%);max-width:100%;margin:0 auto}
   background:#000;
 }
 
+
+/* PORTRAIT SHARED: same rounding, no outer black in MAIN / PiP / 2-col. */
+html.portrait .stage{
+  border-radius:var(--portrait-radius);
+  background:transparent;
+}
+html.portrait .player,
+html.portrait .player iframe{
+  border-radius:var(--portrait-radius);
+  background:transparent;
+}
+
 /* 1 COLUMN MAIN
    Landscape follows CURRENT WIDTH.
    Portrait follows CURRENT HEIGHT. */
@@ -80,19 +93,23 @@ html.one-col.portrait .stage{
   background:transparent;
 }
 html.one-col.portrait .player{
-  inset:0;
-  width:100%;
+  top:0;
+  bottom:0;
+  left:50%;
+  width:calc(var(--current-full-h) * 0.5625);
   height:100%;
+  transform:translateX(-50%);
 }
 
 /* PIP keeps the real media ratio and has no extra black gutter. */
 html.one-col .player.pip{
   position:fixed !important;
   z-index:1000;
+  transform:none !important;
   inset:auto !important;
   right:10px !important;
   top:calc(var(--top-boundary) + 8px) !important;
-  border-radius:10px;
+  border-radius:var(--portrait-radius);
   box-shadow:0 12px 34px rgba(0,0,0,.55);
 }
 html.one-col.landscape .player.pip{
@@ -170,7 +187,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     width:100%;
     height:100%;
     aspect-ratio:9/16;
+    border-radius:var(--portrait-radius);
     background:transparent;
+    overflow:hidden;
   }
   html.two-col.portrait .player{
     inset:0;
