@@ -6429,6 +6429,49 @@ function closeFloatingPipAndExitPlayback(){
   return true;
 }
 
+function ensureFullscreenExitControl(){
+  if(!playerSection)return null;
+  let button=playerSection.querySelector(".watch-fullscreen-exit");
+  if(button)return button;
+
+  button=document.createElement("button");
+  button.type="button";
+  button.className="watch-fullscreen-exit";
+  button.setAttribute("aria-label","Thoát toàn màn hình");
+  button.textContent="×";
+  button.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    exitPlayerFullscreen();
+  });
+  playerSection.appendChild(button);
+  return button;
+}
+
+function hideFullscreenExitControl(){
+  playerSection?.querySelector(".watch-fullscreen-exit")?.remove();
+}
+
+function exitPlayerFullscreen(){
+  if(state.engine==="native"){
+    try{
+      if(typeof nativePlayer.webkitExitFullscreen==="function"){
+        nativePlayer.webkitExitFullscreen();
+        return true;
+      }
+    }catch{}
+  }
+
+  const exit=document.exitFullscreen||document.webkitExitFullscreen;
+  if(typeof exit!=="function")return false;
+  try{
+    const result=exit.call(document);
+    if(result?.catch)result.catch(()=>{});
+    return true;
+  }catch{}
+  return false;
+}
+
 function suspendFloatingPipForFullscreen(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!playerSection||!state.watchMinimized)return false;
 
@@ -6459,9 +6502,8 @@ function suspendFloatingPipForFullscreen(frame=playerSection?.querySelector(".pl
   return true;
 }
 
-function restoreFloatingPipAfterFullscreen(){
+function restoreFloatingPipAfterFullscreenFailure(){
   const snapshot=state.pipFullscreenRestore;
-  state.pipFullscreenRestore=null;
   state.pipFullscreenPending=false;
 
   if(
@@ -6469,9 +6511,15 @@ function restoreFloatingPipAfterFullscreen(){
     !state.currentId ||
     playerSection?.hidden ||
     !watchAutoPipViewport()
-  )return false;
+  ){
+    state.pipFullscreenRestore=null;
+    return false;
+  }
 
-  if(!setWatchMinimized(true,{pinned:!!snapshot.pinned}))return false;
+  if(!setWatchMinimized(true,{pinned:!!snapshot.pinned})){
+    state.pipFullscreenRestore=null;
+    return false;
+  }
 
   state.floatScale=[1,1.5,2].includes(Number(snapshot.scale))
     ?Number(snapshot.scale)
@@ -6484,6 +6532,7 @@ function restoreFloatingPipAfterFullscreen(){
     width:Number(snapshot.width)||0,
     height:Number(snapshot.height)||0
   };
+  state.pipFullscreenRestore=null;
 
   const frame=playerSection?.querySelector(".player-frame");
   if(frame){
@@ -6500,8 +6549,14 @@ function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-fr
 
   const restoreOnFailure=()=>{
     state.fullscreenActive=false;
-    restoreFloatingPipAfterFullscreen();
+    hideFullscreenExitControl();
+    restoreFloatingPipAfterFullscreenFailure();
   };
+
+  // Keep one explicit exit control inside our fullscreen root. YouTube's own
+  // fullscreen icon cannot reliably exit when the PARENT playerSection owns
+  // Fullscreen API, so the app must provide the matching exit action.
+  ensureFullscreenExitControl();
 
   // Native iOS fullscreen uses the media element, but PiP ownership has already
   // been suspended above so WebKit has only one fullscreen owner.
@@ -8300,12 +8355,9 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   return true;
 }
 
-function setupWatchMinimizeGesture(){
+function watchInlineEligibleForAutoPip(){
   const root=document.documentElement;
-  if(root.dataset.watchMinimizeGesture==="1")return;
-  root.dataset.watchMinimizeGesture="1";
-
-  const eligibleInline=()=>(
+  return (
     watchAutoPipViewport() &&
     Date.now()>=Number(state.watchRestoreUntil||0) &&
     !root.classList.contains("watch-search-open") &&
@@ -8317,52 +8369,74 @@ function setupWatchMinimizeGesture(){
     !playerSection?.hidden &&
     !isPlayerFullscreen()
   );
+}
 
-  // One condition only:
-  // video #1 bottom edge passes the visible viewport top => float.
-  const syncPipToFirstVideo=()=>{
-    if(!state.currentId||!watchAutoPipViewport())return;
+function syncWatchPipToFirstVideo(){
+  if(!state.currentId||!watchAutoPipViewport())return;
 
-    const rect=watchMediaSlotRect();
-    if(!rect)return;
+  const rect=watchMediaSlotRect();
+  if(!rect)return;
+  const topEdge=watchMediaSlotTopEdge();
 
-    const topEdge=watchMediaSlotTopEdge();
-
-    if(!state.watchMinimized){
-      if(eligibleInline()&&rect.bottom<=topEdge){
-        setWatchMinimized(true,{pinned:false});
-      }
-      return;
+  if(!state.watchMinimized){
+    if(watchInlineEligibleForAutoPip()&&rect.bottom<=topEdge){
+      setWatchMinimized(true,{pinned:false});
     }
+    return;
+  }
 
-    if(state.watchPipPinned)return;
-    if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return;
+  if(state.watchPipPinned)return;
+  if(Date.now()-Number(state.watchPipEnteredAt||0)<180)return;
 
-    if(rect.bottom>topEdge){
-      setWatchMinimized(false,{preserveScroll:true});
-    }
-  };
+  if(rect.bottom>topEdge){
+    setWatchMinimized(false,{preserveScroll:true});
+  }
+}
+
+function resumeAutoPipAfterFullscreen(){
+  state.watchRestoreUntil=0;
+  state.pipFullscreenPending=false;
+  state.pipFullscreenRestore=null;
+  syncWatchBrowseLayout();
+  queueResponsivePlayerFrame();
+
+  // fullscreenchange can fire before the browser restores the original window
+  // dimensions. Retry through the viewport settle so <960px auto-PiP becomes
+  // eligible again instead of being permanently discarded at fullscreen width.
+  [0,90,260,520].forEach(delay=>{
+    setTimeout(()=>{
+      if(state.fullscreenActive||isPlayerFullscreen())return;
+      syncWatchBrowseLayout();
+      queueResponsivePlayerFrame();
+      syncWatchPipToFirstVideo();
+    },delay);
+  });
+}
+
+function setupWatchMinimizeGesture(){
+  const root=document.documentElement;
+  if(root.dataset.watchMinimizeGesture==="1")return;
+  root.dataset.watchMinimizeGesture="1";
 
   // Scroll events are only wake-ups. A lightweight geometry loop is the final
   // source of truth, so browser differences in scroll event routing cannot
   // prevent the same condition from firing.
-  window.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
-  document.addEventListener("scroll",syncPipToFirstVideo,{passive:true,capture:true});
-  document.body?.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
-  feedSection?.addEventListener("scroll",syncPipToFirstVideo,{passive:true});
-  window.visualViewport?.addEventListener?.("scroll",syncPipToFirstVideo,{passive:true});
-  window.addEventListener("wheel",syncPipToFirstVideo,{passive:true});
+  window.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
+  document.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true,capture:true});
+  document.body?.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
+  feedSection?.addEventListener("scroll",syncWatchPipToFirstVideo,{passive:true});
+  window.visualViewport?.addEventListener?.("scroll",syncWatchPipToFirstVideo,{passive:true});
+  window.addEventListener("wheel",syncWatchPipToFirstVideo,{passive:true});
 
   let pipGeometryRaf=0;
   const watchGeometry=()=>{
     pipGeometryRaf=requestAnimationFrame(watchGeometry);
     if(!state.currentId||!watchAutoPipViewport())return;
-    syncPipToFirstVideo();
+    syncWatchPipToFirstVideo();
   };
   if(!pipGeometryRaf)pipGeometryRaf=requestAnimationFrame(watchGeometry);
 
-  setTimeout(syncPipToFirstVideo,220);
-
+  setTimeout(syncWatchPipToFirstVideo,220);
 }
 
 function getFullscreenElement(){
@@ -8474,22 +8548,32 @@ function setupFullscreenReturn(){
     state.transitionUntil=0;
     clearTimeout(state.resumeTimer);
     frame()?.classList.add("fullscreen-active");
+    ensureFullscreenExitControl();
   };
 
-  const restoreVisual=({restorePip=false}={})=>{
+  const restoreVisual=({resumeAutoPip=false}={})=>{
     const y=state.fullscreenScrollY;
     requestAnimationFrame(()=>{
       if(y!==null&&y!==undefined)window.scrollTo({top:y,left:0,behavior:"instant"});
-      if(restorePip&&restoreFloatingPipAfterFullscreen())return;
-      state.pipFullscreenPending=false;
-      state.pipFullscreenRestore=null;
-      applyFloatingIframe();
+      applyFloatingIframe(false);
+      syncWatchBrowseLayout();
+      queueResponsivePlayerFrame();
+      if(resumeAutoPip)resumeAutoPipAfterFullscreen();
     });
   };
 
   const restoreFullscreen=()=>{
-    const restorePip=!!state.pipFullscreenRestore;
+    const cameFromPip=!!state.pipFullscreenRestore;
     state.fullscreenActive=false;
+    state.pipFullscreenPending=false;
+    state.pipFullscreenRestore=null;
+    state.watchMinimized=false;
+    state.watchPipPinned=false;
+    state.watchPipAway=false;
+    state.watchPipEnteredAt=0;
+    state.watchRestoreUntil=0;
+    document.documentElement.classList.remove("watch-minimized");
+
     // Give Safari time to finish handing the media controls back to the page.
     // Do not call playVideo/playVideoById here: it can cancel a seek gesture.
     state.fullscreenExitCooldownUntil=Date.now()+1800;
@@ -8497,7 +8581,9 @@ function setupFullscreenReturn(){
     state.transitionUntil=0;
     clearTimeout(state.resumeTimer);
     frame()?.classList.remove("fullscreen-active");
-    restoreVisual({restorePip});
+    hideFullscreenExitControl();
+    releaseWatchMediaSlot();
+    restoreVisual({resumeAutoPip:cameFromPip});
   };
 
   const syncFullscreenState=()=>{
@@ -8517,6 +8603,7 @@ function setupFullscreenReturn(){
   },{passive:true});
 
   window.addEventListener("pageshow",()=>{
+    if(!isPlayerFullscreen())hideFullscreenExitControl();
     restoreVisual();
     // Only lifecycle-resume outside the Safari fullscreen cooldown.
     if(

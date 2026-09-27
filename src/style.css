@@ -5838,3 +5838,34 @@ html.watch-minimized .player-frame.floating-iframe.float-controls-suppressed .fl
   opacity:0!important;
   pointer-events:none!important;
 }
+
+
+/* Fullscreen exit ownership v440.
+   playerSection owns browser fullscreen, so a real exit affordance must live
+   inside that fullscreen root instead of relying on YouTube's nested icon. */
+.watch-fullscreen-exit{
+  position:fixed!important;
+  z-index:2147483646!important;
+  top:max(12px,env(safe-area-inset-top))!important;
+  right:max(12px,env(safe-area-inset-right))!important;
+  display:grid!important;
+  place-items:center!important;
+  width:42px!important;
+  height:42px!important;
+  margin:0!important;
+  padding:0!important;
+  border:1px solid rgba(255,255,255,.34)!important;
+  border-radius:999px!important;
+  background:rgba(0,0,0,.62)!important;
+  color:#fff!important;
+  font:400 30px/1 system-ui,-apple-system,sans-serif!important;
+  box-shadow:0 8px 24px rgba(0,0,0,.28)!important;
+  cursor:pointer!important;
+  pointer-events:auto!important;
+  -webkit-backdrop-filter:blur(10px)!important;
+  backdrop-filter:blur(10px)!important;
+}
+
+#playerSection:not(:fullscreen):not(:-webkit-full-screen) > .watch-fullscreen-exit{
+  display:none!important;
+}
