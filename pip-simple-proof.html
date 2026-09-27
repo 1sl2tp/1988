@@ -184,6 +184,7 @@ html.one-col body{min-height:220vh}
   -webkit-overflow-scrolling:touch;
 }
 .sourcebar::-webkit-scrollbar{display:none}
+.source-name-chips{display:contents}
 .source-chip{
   flex:0 0 auto;
   height:32px;
@@ -204,12 +205,6 @@ html.one-col body{min-height:220vh}
 .source-chip:hover{background:#3a3a3a}
 .source-chip:active{transform:scale(.97)}
 .source-chip.active{background:#f1f1f1;color:#0f0f0f}
-.source-chip img{
-  width:24px;
-  height:24px;
-  border-radius:50%;
-  object-fit:cover;
-}
 .search-toggle,
 .search-back{
   display:none;
@@ -680,9 +675,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   <div class="sourcebar" id="sourcebar">
     <button class="source-chip active" data-filter="all">Tất cả</button>
-    <button class="source-chip" id="currentSourceChip" data-filter="source">Nguồn</button>
-    <button id="landscapeBtn" class="source-chip active">Ngang</button>
-    <button id="portraitBtn" class="source-chip">Dọc</button>
+    <span class="source-name-chips" id="sourceNameChips"></span>
+    <button id="landscapeBtn" class="source-chip proof-mode-switch active" hidden>Ngang</button>
+    <button id="portraitBtn" class="source-chip proof-mode-switch" hidden>Dọc</button>
   </div>
 </header>
 
@@ -715,6 +710,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     landscape:{id:"ypLlRC_2EFc",ratio:16/9,label:"Video ngang · 16:9"},
     portrait:{id:"kUF9P2m9mrg",ratio:9/16,label:"Video dọc · 9:16"}
   };
+  const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 
   const root=document.documentElement;
   const top=document.getElementById("top");
@@ -732,7 +728,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const searchToggle=document.getElementById("searchToggle");
   const searchBack=document.getElementById("searchBack");
   const sourcebar=document.getElementById("sourcebar");
-  const currentSourceChip=document.getElementById("currentSourceChip");
+  const sourceNameChips=document.getElementById("sourceNameChips");
 
   let current=VIDEOS.landscape;
   let pip=false;
@@ -1054,16 +1050,94 @@ html.one-col .player.pip iframe{border-radius:inherit}
     );
   }
 
+  function parseSourceOrder(labels={}){
+    try{
+      const raw=labels?.__source_order;
+      const parsed=Array.isArray(raw)?raw:JSON.parse(String(raw||"[]"));
+      return Array.isArray(parsed)?parsed.map(String).filter(Boolean):[];
+    }catch{
+      return [];
+    }
+  }
+
+  function existingSourceTabNames(remote={}){
+    const labels=
+      remote?.sourceLabels && typeof remote.sourceLabels==="object" && !Array.isArray(remote.sourceLabels)
+        ? remote.sourceLabels
+        : {};
+
+    const system=[
+      {key:"live",label:String(labels.live||"Live").trim()||"Live"},
+      {key:"latest",label:String(labels.latest||"Ngày").trim()||"Ngày"},
+      {key:"week",label:String(labels.week||"Tuần").trim()||"Tuần"}
+    ];
+
+    const custom=(Array.isArray(remote?.hashtags)?remote.hashtags:[])
+      .filter(row=>row?.enabled!==false)
+      .map((row,index)=>({
+        key:String(row?.id||row?.hashtag_id||"").trim(),
+        label:String(row?.label||"").replace(/\s+/g," ").trim(),
+        position:Number(row?.position)||0,
+        index
+      }))
+      .filter(row=>row.key&&row.label);
+
+    const order=parseSourceOrder(labels);
+    if(order.length){
+      const rank=new Map(order.map((key,index)=>[key,index]));
+      custom.sort((a,b)=>{
+        const ar=rank.has(a.key)?rank.get(a.key):Number.MAX_SAFE_INTEGER;
+        const br=rank.has(b.key)?rank.get(b.key):Number.MAX_SAFE_INTEGER;
+        return ar-br||a.position-b.position||a.index-b.index;
+      });
+    }else{
+      custom.sort((a,b)=>a.position-b.position||a.index-b.index);
+    }
+
+    const seen=new Set();
+    return [...system,...custom]
+      .map(row=>({key:row.key,label:row.label}))
+      .filter(row=>{
+        const key=row.label.toLocaleLowerCase("vi-VN");
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function renderExistingSourceNames(rows=[]){
+    if(!sourceNameChips)return;
+    sourceNameChips.innerHTML=(Array.isArray(rows)?rows:[]).map(row=>
+      '<button class="source-chip" data-source-tab="'+escapeHtml(row.key)+'">'+
+        escapeHtml(row.label)+
+      '</button>'
+    ).join("");
+  }
+
+  async function loadExistingSourceNames(){
+    // Start with the three canonical tabs immediately, then replace with the
+    // real saved labels/hashtags from the same server state used by the app.
+    renderExistingSourceNames([
+      {key:"live",label:"Live"},
+      {key:"latest",label:"Ngày"},
+      {key:"week",label:"Tuần"}
+    ]);
+
+    try{
+      const response=await fetch(SOURCE_STATE_URL,{cache:"no-store"});
+      if(!response.ok)throw new Error("source_state_"+response.status);
+      const payload=await response.json();
+      const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+      const rows=existingSourceTabNames(remote);
+      if(rows.length)renderExistingSourceNames(rows);
+    }catch(_){
+      // Keep the canonical names already rendered.
+    }
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
     const meta=currentMeta || {};
-    const source=meta.sourceName || "1988";
-    const avatar=meta.sourceAvatar || "";
-
-    currentSourceChip.innerHTML=
-      (avatar?'<img src="'+escapeHtml(avatar)+'" alt="">':"")+
-      '<span>'+escapeHtml(source)+'</span>';
-
     const cards=feedMetas.length
       ? feedMetas
       : [meta.id?meta:{...meta,id:current.id,title:current.label}];
@@ -1344,7 +1418,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   sourcebar.addEventListener("click",event=>{
     const chip=event.target.closest(".source-chip");
     if(!chip || chip===landscapeBtn || chip===portraitBtn)return;
-    sourcebar.querySelectorAll(".source-chip[data-filter]").forEach(x=>x.classList.remove("active"));
+    sourcebar.querySelectorAll(".source-chip:not(.proof-mode-switch)").forEach(x=>x.classList.remove("active"));
     chip.classList.add("active");
   });
 
@@ -1406,6 +1480,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   mobileHeaderLastY=pageScrollY();
   syncMobileHeaderVisibility(true);
   select("landscape");
+  loadExistingSourceNames();
   loadFeedData();
 })();
 </script>
