@@ -6218,7 +6218,13 @@ function placeCompactWatchPip(
   frame.style.setProperty("margin","0","important");
 
   state.floatDock=left+size.width/2<window.innerWidth/2?"left":"right";
-  state.floatBox={left,top,width:size.width,height:size.height};
+  state.floatBox={
+    left,
+    top,
+    width:size.width,
+    height:size.height,
+    ratio:currentFloatingAspect()
+  };
 }
 
 
