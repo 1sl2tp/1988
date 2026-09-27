@@ -46,6 +46,7 @@ html.one-col body{min-height:220vh}
 }
 .brand{
   flex:0 0 auto;
+  width:129px;
   height:20px;
   display:flex;
   align-items:center;
@@ -87,7 +88,7 @@ html.one-col body{min-height:220vh}
   outline:0;
   background:#121212;
   color:#f1f1f1;
-  font:400 16px/20px Roboto,Arial,sans-serif;
+  font:400 16px/24px Roboto,Noto,Arial,sans-serif;
 }
 .search-input:focus{
   border-color:#1c62b9;
@@ -158,8 +159,9 @@ html.one-col body{min-height:220vh}
   border-radius:50%;
   object-fit:cover;
 }
-@media(max-width:600px){
+@media(max-width:656px){
   .masthead{padding:0 8px;gap:8px}
+  .brand{width:auto;flex:0 0 auto}
   .brand-name{font-size:18px}
   .searchbox{width:auto;flex:1 1 auto;margin-left:0}
   .search-input{padding:0 12px;font-size:15px}
@@ -368,9 +370,26 @@ html.one-col .player.pip iframe{border-radius:inherit}
     background:transparent;
   }
 }
-.info{padding:12px;border-bottom:1px solid #292929}
-.info b{display:block;font-size:15px;margin-bottom:4px}
-.info span{color:#999;font-size:12px}
+.info{
+  padding:12px 16px 16px;
+  border-bottom:1px solid #292929;
+}
+.info b{
+  display:block;
+  color:#f1f1f1;
+  font:600 18px/24px Roboto,Noto,Arial,sans-serif;
+  margin:0;
+}
+.info span{
+  display:block;
+  margin-top:4px;
+  color:#aaa;
+  font:400 12px/18px Roboto,Noto,Arial,sans-serif;
+}
+@media(max-width:656px){
+  .info{padding:12px 12px 16px}
+  .info b{font-size:16px;line-height:22px}
+}
 .rows{
   padding:0 var(--layout-gap);
   display:grid;
@@ -479,6 +498,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   text-overflow:ellipsis;
   white-space:nowrap;
 }
+.row-meta:empty{display:none}
 .row-menu{
   width:40px;
   height:40px;
@@ -596,7 +616,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let metaRequest=0;
   let currentMeta=null;
   let feedMetas=[];
+  let relatedMetas=[];
   let feedRequest=0;
+  let feedMode="related";
   const columnsMq=matchMedia("(min-width:1000px)");
 
   function embedUrl(id){
@@ -889,7 +911,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
           '<div class="row-copy">'+
             '<div class="row-title">'+escapeHtml(title)+'</div>'+
             '<div class="row-meta">'+escapeHtml(source)+verified+'</div>'+
-            '<div class="row-meta">'+escapeHtml(facts || "Đang cập nhật thông tin")+'</div>'+
+            '<div class="row-meta">'+escapeHtml(facts)+'</div>'+
           '</div>'+
           '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>'+
@@ -925,6 +947,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
     });
   }
 
+  async function runSearch(){
+    const q=(searchInput?.value||"").trim();
+    if(!q){
+      feedMode=relatedMetas.length?"related":"home";
+      if(relatedMetas.length)feedMetas=relatedMetas;
+      renderSampleContent();
+      return;
+    }
+
+    const request=++feedRequest;
+    try{
+      if(!window.YT1988_API?.search)return;
+      const payload=await window.YT1988_API.search(q,"videos");
+      if(request!==feedRequest)return;
+
+      const next=collectVideoRows(payload)
+        .filter(meta=>meta.id && meta.title)
+        .slice(0,18);
+
+      if(next.length){
+        feedMode="search";
+        feedMetas=next;
+        renderSampleContent();
+      }
+    }catch(_){}
+  }
+
   async function loadFeedData(){
     const request=++feedRequest;
     try{
@@ -936,7 +985,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
         .filter(meta=>meta.id && meta.title)
         .slice(0,18);
 
-      if(next.length){
+      if(next.length && !feedMetas.length){
+        feedMode="home";
         feedMetas=next;
         renderSampleContent();
       }
@@ -961,6 +1011,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
       const row=dataRow(payload);
       currentMeta=cardMetaFromRow(row);
+
+      const related=collectVideoRows(payload)
+        .filter(meta=>meta.id && meta.id!==current.id)
+        .slice(0,18);
+      if(related.length){
+        relatedMetas=related;
+        if(feedMode!=="search"){
+          feedMode="related";
+          feedMetas=relatedMetas;
+        }
+      }
 
       // Preserve the requested/current ID even if an upstream row is sparse.
       if(!currentMeta.id)currentMeta={...currentMeta,id:current.id};
@@ -1048,6 +1109,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function select(kind){
     current=VIDEOS[kind];
+    if(feedMode!=="search"){
+      relatedMetas=[];
+      feedMetas=[];
+      feedMode="related";
+    }
     pip=false;
     player.classList.remove("pip");
     stage.classList.remove("pip-host");
@@ -1063,8 +1129,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
   portraitBtn.addEventListener("click",()=>select("portrait"));
 
   searchInput.addEventListener("input",applySearchFilter);
+  searchInput.addEventListener("keydown",event=>{
+    if(event.key==="Enter"){
+      event.preventDefault();
+      runSearch();
+    }
+  });
   searchButton.addEventListener("click",()=>{
-    applySearchFilter();
+    runSearch();
     searchInput.focus();
   });
 
