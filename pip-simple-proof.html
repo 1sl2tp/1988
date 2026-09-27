@@ -1816,13 +1816,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
         // Re-measure after final width because title wrapping can change.
         landscapeChrome=measureLandscapeChrome(mediaW);
-        const finalSafeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
+        const extraLandscapeBlack=8;
+        const finalSafeBar=
+          Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe)+
+          extraLandscapeBlack;
         const videoH=mediaW/current.ratio;
         const playerH=Math.min(fullH,Math.ceil(videoH+(finalSafeBar*2)));
 
         root.style.setProperty("--landscape-player-h",playerH+"px");
-        root.style.setProperty("--landscape-top-safe",landscapeChrome.topSafe+"px");
-        root.style.setProperty("--landscape-bottom-safe",landscapeChrome.bottomSafe+"px");
+        root.style.setProperty(
+          "--landscape-top-safe",
+          (landscapeChrome.topSafe+extraLandscapeBlack)+"px"
+        );
+        root.style.setProperty(
+          "--landscape-bottom-safe",
+          (landscapeChrome.bottomSafe+extraLandscapeBlack)+"px"
+        );
       }else{
         // PORTRAIT stays height-driven. Never stretch it just to fill a column.
         mediaW=Math.min(
