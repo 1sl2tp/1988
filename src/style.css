@@ -7743,12 +7743,13 @@ html.watch-minimized .watch-media-bar,
   }
 }
 
-
 /* ============================================================
-   WATCH SOURCE RAIL CLEANUP v477
-   Home/Search keep LIVE / Ngày / Tuần / hashtags.
-   Normal Watch owns only video + thin media bar, so collapse the old
-   source-navigation row completely instead of leaving a colored strip.
+   WATCH GRID + PIP SLOT v478
+   Normal one-column Watch has only three rows:
+   1) video + separate media bar
+   2) selected video info + mirrored LIVE/Ngày/Tuần/# rail
+   3) recommendation feed
+   The global header rail is never a Watch row.
    ============================================================ */
 html.watch-browse:not(.watch-search-open):not(.watch-search-results){
   --watch-source-row-h:0px!important;
@@ -7768,4 +7769,107 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav
   box-shadow:none!important;
   -webkit-backdrop-filter:none!important;
   backdrop-filter:none!important;
+}
+
+@media(max-width:720px){
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      calc(var(--safe-top) + var(--watch-stage-h,56.25vw) + var(--watch-media-bar-h))
+      auto
+      minmax(0,1fr)!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .player-section{
+    grid-row:1!important;
+    align-self:end!important;
+    height:calc(var(--watch-stage-h,56.25vw) + var(--watch-media-bar-h))!important;
+    min-height:calc(var(--watch-stage-h,56.25vw) + var(--watch-media-bar-h))!important;
+    max-height:calc(var(--watch-stage-h,56.25vw) + var(--watch-media-bar-h))!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info{
+    grid-row:2!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info:not([hidden]){
+    display:block!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail:not([hidden]){
+    display:block!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .feed-section{
+    grid-row:3!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      1px
+      auto
+      minmax(0,1fr)!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .watch-pip-anchor:not([hidden]){
+    grid-row:1!important;
+    height:1px!important;
+    min-height:1px!important;
+    max-height:1px!important;
+    background:none!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info{
+    grid-row:2!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .feed-section{
+    grid-row:3!important;
+  }
+}
+
+@media(min-width:721px) and (max-width:959px){
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      calc(var(--watch-stage-h,56.25vw) + var(--watch-media-bar-h))
+      auto
+      auto!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .player-section{
+    grid-row:1!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info{
+    grid-row:2!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results)
+  .feed-section{
+    grid-row:3!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      1px
+      auto
+      auto!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results)
+  .watch-pip-anchor:not([hidden]){
+    height:1px!important;
+    min-height:1px!important;
+    max-height:1px!important;
+    background:none!important;
+  }
 }
