@@ -21,6 +21,31 @@ const fixtures=[
 ];
 for(const [row,expected] of fixtures)test('filter '+JSON.stringify(row),()=>{assert.equal(client().isTooShortVideo(row),expected,'client');assert.equal(s.isTooShortVideo(row),expected,'server');});
 test('server normalization preserves formatted duration for filtering',()=>{assert.equal(s.isTooShortVideo(s.normalizeRow({id:'abcdefghijk',duration:'1:00'})),true);});
+test('server rejects English titles without confusing Vietnamese the with English the',()=>{
+ assert.equal(s.titleLooksEnglishOnly({title:'Saturday Intelligence Briefing'}),true);
+ assert.equal(s.titleLooksEnglishOnly({title:'The Nazi Code-Breaking War That Spawned the Computer Age'}),true);
+ assert.equal(s.titleLooksEnglishOnly({title:'Tin tức mới nhất hôm nay'}),false);
+ assert.equal(s.titleLooksEnglishOnly({title:'Tin moi hom nay'}),false);
+});
+test('server exact dedupe also removes short repeated labels',()=>{
+ const rows=[
+  {id:'aaaaaaaaaaa',title:'- VNAMedia'},
+  {id:'bbbbbbbbbbb',title:'- VNAMedia'}
+ ];
+ assert.equal(s.dedupeRows(rows).length,1);
+});
+test('server package semantic dedupe removes near copies but preserves episodes',()=>{
+ const duplicatePair=[
+  {id:'aaaaaaaaaaa',title:'Inside China Dark Factories where Robots Build Robots | VTV24'},
+  {id:'bbbbbbbbbbb',title:'Inside China Dark Factories where Robots Build Robots | VTVIndex'}
+ ];
+ assert.equal(s.dedupePackageRows(duplicatePair).length,1);
+ const episodes=[
+  {id:'ccccccccccc',title:'Alone Australia Season 4 The Frozen Challenge in Finland Episode 4'},
+  {id:'ddddddddddd',title:'Alone Australia Season 4 The Frozen Challenge in Finland Episode 5'}
+ ];
+ assert.equal(s.dedupePackageRows(episodes).length,2);
+});
 test('empty server snapshot replaces old data and remains readable',()=>{const c=client();c.commitAtomicSnapshot('feed:latest',[{id:'abcdefghijk',title:'old'}]);const result=c.commitAtomicSnapshot('feed:latest',[],{inputHash:'empty'});assert.equal(result.changed,true);assert.equal(c.readAtomicSnapshot('feed:latest').items.length,0);assert.equal(c.commitAtomicSnapshot('feed:latest',[],{inputHash:'empty'}).changed,false);});
 test('server package beyond 90 rows is preserved and hashed completely',()=>{const c=client();const rows=Array.from({length:120},(_,i)=>({id:String(i).padStart(11,'0'),title:'Video '+i}));c.commitAtomicSnapshot('feed:latest',rows);assert.equal(c.readAtomicSnapshot('feed:latest').items.length,120);const hash=c.snapshotRowsHash(rows);rows[119].title='changed';assert.notEqual(c.snapshotRowsHash(rows),hash);});
 test('channel batch prioritizes oldest checks and retains every deferred channel',()=>{assert.equal(typeof s.channelRefreshBatch,'function');const times={old:1,english:100,newest:200};const b=s.channelRefreshBatch(['english','newest','old'],id=>times[id],2);assert.deepEqual(Array.from(b.fetch),['old','english']);assert.deepEqual(Array.from(b.deferred),['newest']);});
