@@ -5562,3 +5562,204 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     border-radius:0!important;
   }
 }
+
+
+/* Sample-faithful PiP polish v431.
+   One quiet video surface; hover/tap turns it into a frosted interaction layer.
+   Drag can snap to corners, tuck into an edge, or close downward. */
+@media(max-width:959px){
+  html.watch-minimized .player-section.watch-pip-floating-section{
+    transition:
+      left .22s cubic-bezier(.175,.885,.32,1.2),
+      top .22s cubic-bezier(.175,.885,.32,1.2),
+      width .18s ease,
+      height .18s ease!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-floating-section:has(.float-moving),
+  html.watch-minimized .player-section.watch-pip-floating-section.pip-dock-instant{
+    transition:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe{
+    border-radius:16px!important;
+    overflow:hidden!important;
+    background:#090d16!important;
+    box-shadow:
+      0 20px 35px rgba(0,0,0,.70),
+      0 0 0 1px rgba(255,255,255,.20)!important;
+    transition:box-shadow .20s ease,opacity .20s ease!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe:hover,
+  html.watch-minimized .player-frame.floating-iframe.float-controls-open{
+    box-shadow:
+      0 24px 44px rgba(0,0,0,.76),
+      0 0 0 1px rgba(255,255,255,.24)!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe.float-moving{
+    box-shadow:
+      0 25px 50px rgba(0,0,0,.80),
+      0 0 0 2px #3b82f6!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+    z-index:140!important;
+    inset:0!important;
+    padding:8px!important;
+    border-radius:16px!important;
+    background:rgba(0,0,0,.50)!important;
+    -webkit-backdrop-filter:blur(2px)!important;
+    backdrop-filter:blur(2px)!important;
+    opacity:0!important;
+    pointer-events:none!important;
+    cursor:grab!important;
+    transition:opacity .20s ease!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe:hover .float-player-overlay,
+  html.watch-minimized .player-frame.floating-iframe:focus-within .float-player-overlay,
+  html.watch-minimized .player-frame.floating-iframe.float-controls-open .float-player-overlay{
+    opacity:1!important;
+    pointer-events:auto!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe.float-moving .float-player-overlay{
+    cursor:grabbing!important;
+  }
+
+  html.watch-minimized .float-player-overlay button{
+    pointer-events:auto!important;
+    border:1px solid rgba(255,255,255,.22)!important;
+    background:rgba(15,23,42,.78)!important;
+    color:#fff!important;
+    -webkit-backdrop-filter:blur(10px)!important;
+    backdrop-filter:blur(10px)!important;
+    box-shadow:0 8px 20px rgba(0,0,0,.32)!important;
+  }
+
+  html.watch-minimized .float-overlay-top,
+  html.watch-minimized .float-overlay-bottom{
+    display:flex!important;
+    align-items:center!important;
+    justify-content:space-between!important;
+    gap:7px!important;
+  }
+
+  html.watch-minimized .float-overlay-badge{
+    display:inline-flex!important;
+    align-items:center!important;
+    min-height:24px!important;
+    padding:0 8px!important;
+    border:1px solid rgba(96,165,250,.30)!important;
+    border-radius:999px!important;
+    background:rgba(37,99,235,.72)!important;
+    color:#fff!important;
+    font-size:9px!important;
+    font-weight:700!important;
+    letter-spacing:.03em!important;
+    pointer-events:none!important;
+  }
+
+  html.watch-minimized .float-overlay-close{
+    display:grid!important;
+    place-items:center!important;
+    width:28px!important;
+    height:28px!important;
+    padding:0!important;
+    border-radius:50%!important;
+    font-size:20px!important;
+    line-height:1!important;
+  }
+
+  html.watch-minimized .float-overlay-play{
+    position:absolute!important;
+    top:50%!important;
+    left:50%!important;
+    transform:translate(-50%,-50%)!important;
+    display:grid!important;
+    place-items:center!important;
+    width:44px!important;
+    height:44px!important;
+    padding:0!important;
+    border-radius:50%!important;
+    background:rgba(37,99,235,.90)!important;
+    border-color:rgba(96,165,250,.62)!important;
+    font-size:18px!important;
+    font-weight:800!important;
+    line-height:1!important;
+  }
+
+  html.watch-minimized .float-overlay-fullscreen{
+    position:static!important;
+    transform:none!important;
+    display:inline-flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    gap:5px!important;
+    width:auto!important;
+    height:28px!important;
+    min-height:28px!important;
+    padding:0 9px!important;
+    border-radius:9px!important;
+    font-size:10px!important;
+    font-weight:700!important;
+  }
+
+  html.watch-minimized .float-overlay-scale{
+    display:grid!important;
+    place-items:center!important;
+    width:30px!important;
+    min-width:30px!important;
+    height:28px!important;
+    padding:0!important;
+    border-radius:9px!important;
+    font-size:15px!important;
+    font-weight:800!important;
+  }
+
+  html.watch-minimized .watch-swipe-zone{
+    z-index:130!important;
+  }
+
+  html.watch-minimized .player-frame.float-controls-open .watch-swipe-zone,
+  html.watch-minimized .player-frame:hover .watch-swipe-zone{
+    pointer-events:none!important;
+  }
+}
+
+.watch-pip-dock-handle{
+  position:fixed!important;
+  z-index:10020!important;
+  width:26px!important;
+  height:64px!important;
+  padding:0!important;
+  display:grid!important;
+  place-items:center!important;
+  border:1px solid rgba(255,255,255,.25)!important;
+  border-radius:12px!important;
+  background:rgba(15,23,42,.95)!important;
+  color:#60a5fa!important;
+  font-size:24px!important;
+  line-height:1!important;
+  cursor:pointer!important;
+  box-shadow:0 8px 20px rgba(0,0,0,.60)!important;
+  -webkit-backdrop-filter:blur(10px)!important;
+  backdrop-filter:blur(10px)!important;
+  transition:transform .20s ease,background-color .20s ease!important;
+}
+.watch-pip-dock-handle[hidden]{display:none!important}
+.watch-pip-dock-handle.dock-left{
+  left:0!important;
+  right:auto!important;
+  border-radius:0 12px 12px 0!important;
+}
+.watch-pip-dock-handle.dock-right{
+  right:0!important;
+  left:auto!important;
+  border-radius:12px 0 0 12px!important;
+}
+.watch-pip-dock-handle:hover{
+  background:#1e293b!important;
+}
