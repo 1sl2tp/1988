@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+  <meta name="theme-color" content="#0b0b0c">
+  <title>1988 · Iframe demo</title>
+  <style>
+    :root{color-scheme:dark;--bg:#09090a;--panel:#151517;--line:#2d2d31;--text:#f5f5f5;--muted:#a6a6ad}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+    body{padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+    .wrap{width:min(980px,100%);margin:0 auto}
+    header{padding:14px 14px 10px;position:sticky;top:0;z-index:5;background:rgba(9,9,10,.94);backdrop-filter:blur(14px);border-bottom:1px solid #1f1f22}
+    h1{font-size:17px;margin:0 0 4px}
+    .sub{font-size:12px;color:var(--muted);line-height:1.45}
+    .toolbar{display:flex;gap:7px;overflow:auto;padding:10px 12px 8px;scrollbar-width:none}
+    .toolbar::-webkit-scrollbar{display:none}
+    button{border:1px solid var(--line);background:#19191c;color:#fff;border-radius:999px;padding:9px 12px;font-size:13px;white-space:nowrap}
+    button.active{background:#fff;color:#000;border-color:#fff}
+    .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden}
+    .stage iframe,.stage #api-player{position:absolute;inset:0;width:100%!important;height:100%!important;border:0}
+    .meta{padding:12px 14px;border-bottom:1px solid #202023}
+    .meta strong{display:block;font-size:14px;margin-bottom:4px}
+    .meta span{display:block;color:var(--muted);font-size:12px;line-height:1.45}
+    .code{margin:10px 12px 24px;padding:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:auto;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word}
+    .idbar{display:flex;gap:8px;padding:10px 12px 0}
+    .idbar input{min-width:0;flex:1;border:1px solid var(--line);background:#121214;color:#fff;border-radius:10px;padding:10px 11px;font-size:14px}
+    .idbar button{border-radius:10px}
+    @media(min-width:760px){
+      .stage{border-radius:14px;margin:12px;width:calc(100% - 24px)}
+      .meta{margin:0 12px}
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Demo các kiểu chèn iframe YouTube</h1>
+    <div class="sub">Cùng một video, chỉ đổi cách nhúng. Mẫu 1 là cấu hình player đang dùng trên yt.taphoa.xyz.</div>
+  </header>
+
+  <div class="idbar">
+    <input id="videoId" value="sQoD6meioNg" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
+    <button id="loadBtn" type="button">Tải video</button>
+  </div>
+
+  <div class="toolbar" id="modes"></div>
+  <div class="stage" id="stage"></div>
+  <div class="meta">
+    <strong id="modeTitle"></strong>
+    <span id="modeDesc"></span>
+  </div>
+  <pre class="code" id="code"></pre>
+</div>
+
+<script>
+const modes=[
+  {
+    id:"current",
+    title:"1 · Hiện tại · YT.Player API",
+    short:"Hiện tại",
+    desc:"youtube-nocookie + IFrame API. autoplay, playsinline, controls, fullscreen, JS API — đúng cấu hình player chính hiện tại.",
+    api:true,
+    params:{autoplay:1,playsinline:1,controls:1,cc_load_policy:0,rel:0,fs:1,disablekb:0,modestbranding:1,iv_load_policy:3,enablejsapi:1}
+  },
+  {
+    id:"standard",
+    title:"2 · YouTube iframe chuẩn",
+    short:"Chuẩn",
+    desc:"Mẫu iframe cơ bản giống đoạn bạn vừa gửi. YouTube tự quản lý toàn bộ controls và fullscreen.",
+    host:"https://www.youtube.com",
+    params:{}
+  },
+  {
+    id:"nocookie",
+    title:"3 · youtube-nocookie iframe thuần",
+    short:"No-cookie",
+    desc:"Không dùng YT.Player API; chỉ iframe trực tiếp từ youtube-nocookie.com.",
+    host:"https://www.youtube-nocookie.com",
+    params:{playsinline:1,controls:1,rel:0,fs:1}
+  },
+  {
+    id:"mobile",
+    title:"4 · Mobile / playsinline",
+    short:"Mobile",
+    desc:"Ưu tiên phát trong khung trên iPhone/PWA, giữ controls và fullscreen của YouTube.",
+    host:"https://www.youtube-nocookie.com",
+    params:{playsinline:1,controls:1,rel:0,fs:1,iv_load_policy:3}
+  },
+  {
+    id:"minimal",
+    title:"5 · Tối giản controls",
+    short:"Tối giản",
+    desc:"Ẩn thanh điều khiển YouTube để xem mức độ sạch của iframe. Không phù hợp nếu cần người dùng tự seek/fullscreen.",
+    host:"https://www.youtube-nocookie.com",
+    params:{playsinline:1,controls:0,rel:0,fs:0,iv_load_policy:3}
+  },
+  {
+    id:"autoplay",
+    title:"6 · Autoplay muted",
+    short:"Auto muted",
+    desc:"Autoplay đáng tin cậy hơn trên mobile vì bắt đầu ở trạng thái mute; vẫn có controls/fullscreen.",
+    host:"https://www.youtube-nocookie.com",
+    params:{autoplay:1,mute:1,playsinline:1,controls:1,rel:0,fs:1}
+  },
+  {
+    id:"jsapi",
+    title:"7 · iframe thuần + JS API",
+    short:"Iframe + API",
+    desc:"Không dùng constructor YT.Player nhưng bật enablejsapi để parent có thể postMessage play/pause.",
+    host:"https://www.youtube-nocookie.com",
+    params:{playsinline:1,controls:1,rel:0,fs:1,enablejsapi:1}
+  }
+];
+
+const stage=document.getElementById("stage");
+const modesEl=document.getElementById("modes");
+const titleEl=document.getElementById("modeTitle");
+const descEl=document.getElementById("modeDesc");
+const codeEl=document.getElementById("code");
+const input=document.getElementById("videoId");
+let active="current";
+let apiReady=false;
+let apiPlayer=null;
+
+function cleanId(value){
+  const raw=String(value||"").trim();
+  const direct=raw.match(/^[A-Za-z0-9_-]{11}$/)?.[0];
+  if(direct)return direct;
+  return raw.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||
+         raw.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1]||
+         raw.match(/\/embed\/([A-Za-z0-9_-]{11})/)?.[1]||
+         "sQoD6meioNg";
+}
+function query(params){
+  const p=new URLSearchParams();
+  for(const [k,v] of Object.entries(params||{}))p.set(k,String(v));
+  if(params?.enablejsapi)p.set("origin",location.origin);
+  const s=p.toString();
+  return s?"?"+s:"";
+}
+function iframeMarkup(host,id,params){
+  const src=host+"/embed/"+encodeURIComponent(id)+query(params);
+  return '<iframe src="'+src.replaceAll("&","&amp;")+'" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';
+}
+function loadApi(){
+  if(window.YT&&window.YT.Player){apiReady=true;return Promise.resolve();}
+  return new Promise(resolve=>{
+    const old=window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady=()=>{apiReady=true;try{old?.()}catch{}resolve();};
+    if(!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')){
+      const s=document.createElement("script");
+      s.src="https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    }
+  });
+}
+async function render(){
+  const id=cleanId(input.value);
+  input.value=id;
+  const mode=modes.find(x=>x.id===active)||modes[0];
+  titleEl.textContent=mode.title;
+  descEl.textContent=mode.desc;
+  document.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===active));
+
+  if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
+  stage.innerHTML="";
+
+  if(mode.api){
+    const host=document.createElement("div");
+    host.id="api-player";
+    stage.appendChild(host);
+    codeEl.textContent=
+`new YT.Player("api-player", {
+  host: "https://www.youtube-nocookie.com",
+  height: "100%",
+  width: "100%",
+  videoId: "${id}",
+  playerVars: ${JSON.stringify(mode.params,null,2)}
+});`;
+    await loadApi();
+    if(active!==mode.id)return;
+    apiPlayer=new YT.Player("api-player",{
+      host:"https://www.youtube-nocookie.com",
+      height:"100%",
+      width:"100%",
+      videoId:id,
+      playerVars:{...mode.params,origin:location.origin}
+    });
+    return;
+  }
+
+  const markup=iframeMarkup(mode.host,id,mode.params);
+  stage.innerHTML=markup;
+  codeEl.textContent=markup
+    .replaceAll("&amp;","&")
+    .replace("><",">\n<");
+}
+modesEl.innerHTML=modes.map(m=>'<button type="button" data-mode="'+m.id+'">'+m.short+'</button>').join("");
+modesEl.addEventListener("click",e=>{
+  const b=e.target.closest("[data-mode]");
+  if(!b)return;
+  active=b.dataset.mode;
+  render();
+});
+document.getElementById("loadBtn").addEventListener("click",render);
+input.addEventListener("keydown",e=>{if(e.key==="Enter")render();});
+const urlId=new URL(location.href).searchParams.get("v");
+if(urlId)input.value=cleanId(urlId);
+render();
+</script>
+</body>
+</html>
