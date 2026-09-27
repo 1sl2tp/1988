@@ -408,3 +408,12 @@ console.log('integration-shape: source/player assertions passed');
 assert.match(style,/WATCH SOURCE RAIL CLEANUP v477/);
 assert.match(style,/html\.watch-browse:not\(\.watch-search-open\):not\(\.watch-search-results\)\{[\s\S]{0,120}--watch-source-row-h:0px!important/);
 assert.match(style,/html\.watch-browse:not\(\.watch-search-open\):not\(\.watch-search-results\) \.header-nav\{[\s\S]{0,120}display:none!important/);
+
+assert.match(app,/function freezeWatchMediaSlot\(\)[\s\S]{0,900}--watch-inline-slot-h["'],["']1px["']/);
+assert.match(app,/anchor\.style\.height=["']1px["']/);
+assert.doesNotMatch(app,/function freezeWatchMediaSlot\(\)[\s\S]{0,1200}--watch-inline-slot-art["'],['"]url/);
+assert.match(style,/WATCH GRID \+ PIP SLOT v478/);
+assert.match(style,/@media\(max-width:720px\)[\s\S]{0,1200}grid-template-rows:[\s\S]{0,240}var\(--watch-media-bar-h\)[\s\S]{0,120}auto[\s\S]{0,120}minmax\(0,1fr\)/);
+assert.match(style,/\.selected-video-info\{[\s\S]{0,120}grid-row:2!important/);
+assert.match(style,/\.feed-section\{[\s\S]{0,120}grid-row:3!important/);
+assert.match(style,/\.header-nav\{[\s\S]{0,120}display:none!important/);
