@@ -5315,3 +5315,103 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
       auto!important;
   }
 }
+
+
+/* Mobile PiP feed-width hardening + topic badge v416.
+   When the iframe detaches, the feed must keep the same full-width card
+   geometry; no implicit grid/min-content column is allowed to collapse cards
+   down to just avatar + menu. */
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    grid-column:1!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    justify-self:start!important;
+    align-self:start!important;
+    box-sizing:border-box!important;
+    overflow:visible!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed{
+    display:flex!important;
+    flex-direction:column!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    margin:0!important;
+    padding:0!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card{
+    display:block!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    margin:0 0 18px!important;
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap{
+    display:block!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    height:56.25vw!important;
+    min-height:56.25vw!important;
+    max-height:56.25vw!important;
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap img,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap img{
+    display:block!important;
+    width:100%!important;
+    height:100%!important;
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy{
+    display:grid!important;
+    grid-template-columns:36px minmax(0,1fr)!important;
+    gap:9px!important;
+    width:100vw!important;
+    min-width:100vw!important;
+    max-width:100vw!important;
+    box-sizing:border-box!important;
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  html.watch-browse .feed>.card .card-copy-main,
+  html.watch-browse .feed>.card .card-title-row,
+  html.watch-browse .feed>.card .card-title,
+  html.watch-browse .feed>.card .card-meta-line{
+    min-width:0!important;
+    opacity:1!important;
+    visibility:visible!important;
+  }
+
+  html.watch-browse .feed>.card .card-copy-main{
+    display:block!important;
+  }
+
+  html.watch-browse .feed>.card .card-title-row{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) 28px!important;
+  }
+}
+
+.selected-source-avatar-fallback{
+  font-size:18px!important;
+  font-weight:850!important;
+  color:#f2f2f4!important;
+}
