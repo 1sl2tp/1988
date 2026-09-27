@@ -6180,7 +6180,7 @@ function compactPipBounds(width,height){
 
 function placeCompactWatchPip(
   frame=playerSection?.querySelector(".player-frame"),
-  {preservePosition=true}={}
+  {preservePosition=true,corner=null}={}
 ){
   if(!frame||!playerSection)return;
 
@@ -6193,7 +6193,10 @@ function placeCompactWatchPip(
   let left=Math.max(bounds.minX,bounds.maxX-12);
   let top=Math.max(bounds.minY,bounds.maxY-60);
 
-  if(preservePosition&&state.floatUserMoved&&state.floatBox){
+  if(corner){
+    left=corner.x==="left"?bounds.minX:bounds.maxX;
+    top=corner.y==="top"?bounds.minY:bounds.maxY;
+  }else if(preservePosition&&state.floatUserMoved&&state.floatBox){
     left=Math.max(
       bounds.minX,
       Math.min(bounds.maxX,Number(state.floatBox.left)||bounds.minX)
@@ -6324,6 +6327,48 @@ function toggleFloatPlayback(frame=playerSection?.querySelector(".player-frame")
     playVideoEngine();
   }
   showFloatOverlayControls(frame);
+}
+
+function closeFloatingPipInPlace(){
+  if(!state.watchMinimized)return;
+  setWatchMinimized(false,{preserveScroll:true});
+}
+
+function fullscreenFloatingPlayer(frame=playerSection?.querySelector(".player-frame")){
+  if(!frame||!playerSection||!state.watchMinimized)return;
+
+  const finish=()=>{
+    // Fullscreen and Close both finish the floating state only.
+    // The page keeps its current scroll position; no jump back to the media slot.
+    closeFloatingPipInPlace();
+  };
+
+  // Native media can use its browser-native fullscreen entry.
+  if(state.engine==="native"&&!nativePlayer.hidden){
+    try{
+      if(typeof nativePlayer.webkitEnterFullscreen==="function"){
+        nativePlayer.webkitEnterFullscreen();
+        setTimeout(finish,0);
+        return;
+      }
+    }catch{}
+  }
+
+  // For iframe playback, fullscreen the app-owned player container.
+  const request=
+    playerSection.requestFullscreen||
+    playerSection.webkitRequestFullscreen;
+
+  if(typeof request==="function"){
+    try{
+      const result=request.call(playerSection);
+      if(result?.then){
+        result.then(finish).catch(()=>{});
+      }else{
+        setTimeout(finish,0);
+      }
+    }catch{}
+  }
 }
 
 function startFloatMove(event,frame=playerSection?.querySelector(".player-frame")){
@@ -6488,7 +6533,7 @@ function ensureFloatHandles(){
     '</div>'+
     '<button type="button" class="float-overlay-play" data-float-overlay="play" aria-label="Tạm dừng">Ⅱ</button>'+
     '<div class="float-overlay-bottom">'+
-      '<button type="button" class="float-overlay-fullscreen" data-float-overlay="expand" aria-label="Mở rộng về trình phát chính">⛶ <span>Mở rộng</span></button>'+
+      '<button type="button" class="float-overlay-fullscreen" data-float-overlay="fullscreen" aria-label="Toàn màn hình">⛶ <span>Toàn màn</span></button>'+
       '<button type="button" class="float-overlay-scale" data-float-overlay="scale" aria-label="Tăng kích thước PiP">↗</button>'+
     '</div>';
 
@@ -6500,18 +6545,17 @@ function ensureFloatHandles(){
   overlay.querySelector('[data-float-overlay="close"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-    setWatchMinimized(false);
+    closeFloatingPipInPlace();
   });
   overlay.querySelector('[data-float-overlay="play"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
     toggleFloatPlayback(frame);
   });
-  overlay.querySelector('[data-float-overlay="expand"]')?.addEventListener("click",event=>{
+  overlay.querySelector('[data-float-overlay="fullscreen"]')?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
-    // Match the supplied sample: leave PiP and return to the main player.
-    setWatchMinimized(false);
+    fullscreenFloatingPlayer(frame);
   });
   overlay.querySelector('[data-float-overlay="scale"]')?.addEventListener("click",event=>{
     event.preventDefault();
@@ -6745,11 +6789,25 @@ function floatScaleValue(value=state.floatScale){
   return [1,1.35,1.5,2].includes(Number(value))?Number(value):1;
 }
 
+function currentCompactPipCorner(){
+  const rect=playerSection?.getBoundingClientRect?.();
+  if(!rect)return {x:"right",y:"bottom"};
+  return {
+    x:rect.left+rect.width/2<(window.innerWidth||0)/2?"left":"right",
+    y:rect.top+rect.height/2<(window.innerHeight||0)/2?"top":"bottom"
+  };
+}
+
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
+
+  // The sample resizes first, then snapToNearestCorner().
+  // Result: a PiP already at bottom-right grows inward while keeping the
+  // right/bottom edge; the other three corners behave the same way.
+  const corner=currentCompactPipCorner();
   state.floatScale=Math.abs(floatScaleValue()-1)<.01?1.35:1;
   state.floatUserSized=false;
-  placeCompactWatchPip(frame,{preservePosition:true});
+  placeCompactWatchPip(frame,{preservePosition:false,corner});
   syncFloatingPlayerViewport(frame,{settle:true});
   updateFloatControlState(frame);
   showFloatOverlayControls(frame);
@@ -7925,6 +7983,10 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     )return false;
 
     markPlaybackTransition();
+    state.floatUserMoved=false;
+    state.floatTucked=false;
+    state.floatDock="right";
+    state.floatBox=null;
     freezeWatchMediaSlot();
     state.watchMinimized=true;
     state.watchPipPinned=!!pinned;
