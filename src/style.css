@@ -8009,23 +8009,6 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
   backdrop-filter:none!important;
 }
 
-/* Full remains the fifth size but still uses exactly the same seek line. */
-html.watch-minimized .player-frame.floating-iframe.float-size-full{
-  border-radius:0!important;
-  box-shadow:none!important;
-  clip-path:none!important;
-  -webkit-clip-path:none!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full .float-player-overlay{
-  border-radius:0!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full .watch-swipe-zone{
-  cursor:default!important;
-}
-
-
 /* ============================================================
    YOUTUBE CINEMATIC COLOR v483
    Dynamic single-color adaptation: #0f0f0f base + 0.4 sampled-color mix.
@@ -8049,66 +8032,28 @@ html.watch-minimized .player-frame.floating-iframe > .float-media-progress .floa
   background:var(--video-progress-accent,#8b8cff)!important;
 }
 
-
 /* ============================================================
-   PIP FULL VISUAL COVER v483
-   Full means the exact visible browser viewport. Media cover-crops from centre;
-   resize sits top-left and close top-right.
+   PIP MAX ASPECT FIT v485
+   The fifth size is still PiP: it grows until one viewport edge is reached,
+   keeps the source aspect ratio, and never cover-crops into fullscreen.
    ============================================================ */
-html.watch-minimized .player-section.watch-pip-floating-section:has(.float-size-full){
-  overflow:hidden!important;
-  background:transparent!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full{
-  overflow:hidden!important;
-  border:0!important;
-  border-radius:0!important;
-  background:transparent!important;
-  box-shadow:none!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full::before,
-html.watch-minimized .player-frame.floating-iframe.float-size-full::after{
-  display:none!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full #yt-player,
-html.watch-minimized .player-frame.floating-iframe.float-size-full iframe,
-html.watch-minimized .player-frame.floating-iframe.float-size-full video{
-  max-width:none!important;
-  max-height:none!important;
-  border-radius:0!important;
-  background:transparent!important;
-}
-
-html.watch-minimized .player-frame.floating-iframe.float-size-full .float-player-overlay{
-  inset:0!important;
-  padding:0!important;
-  border:0!important;
-  border-radius:0!important;
-  background:transparent!important;
-  -webkit-backdrop-filter:none!important;
-  backdrop-filter:none!important;
-}
-
 html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-scale,
 html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-close{
   position:absolute!important;
   z-index:170!important;
-  top:max(8px,env(safe-area-inset-top))!important;
+  top:8px!important;
   bottom:auto!important;
   margin:0!important;
 }
 
 html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-scale{
-  left:max(8px,env(safe-area-inset-left))!important;
+  left:8px!important;
   right:auto!important;
 }
 
 html.watch-minimized .player-frame.floating-iframe.float-size-full .float-overlay-close{
   left:auto!important;
-  right:max(8px,env(safe-area-inset-right))!important;
+  right:8px!important;
 }
 
 html.watch-minimized .player-frame.floating-iframe.float-size-full > .float-media-progress{
