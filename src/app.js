@@ -15595,8 +15595,8 @@ function applyChromeTintFromArt(art,scope="watch",guardId="",force=false){
     await waitVisualArtReady(art,scope,expectedVideoId);
     if(seq!==visualCommitSeq)return;
 
-    const color=await averageThumbTint(art);
-    if(seq!==visualCommitSeq||!color)return;
+    const palette=await youtubeCinematicPalette(art);
+    if(seq!==visualCommitSeq||!palette)return;
 
     if(scope==="home"&&watchPlaybackVisible())return;
     if(
@@ -15606,7 +15606,7 @@ function applyChromeTintFromArt(art,scope="watch",guardId="",force=false){
     )return;
 
     visualAppliedKey=key;
-    applyPageChromeTint(color,scope);
+    applyPageChromeTint(palette.surface,scope);
   })();
 }
 
