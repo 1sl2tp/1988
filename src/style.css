@@ -5818,15 +5818,47 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
 /* Standalone Watch uses the viewport itself as the bottom boundary.
    Do not reserve the safe-area twice on body; keep any inset inside content. */
 @media(display-mode:standalone) and (max-width:959px){
+  /* Old mobile Watch rules still contain a later 100dvh!important fallback.
+     Override it here: installed PWA must own the full physical app height. */
+  html.watch-browse,
+  html.watch-browse body{
+    height:100vh!important;
+    min-height:100vh!important;
+    max-height:none!important;
+  }
+
   html.watch-browse body{
     padding-bottom:0!important;
-    min-height:100vh!important;
   }
 
   /* The scrolling list is allowed to pass under the Home Indicator.
      Only active media surfaces use safe-area bounds. */
   html.watch-browse .feed-section{
     padding-bottom:0!important;
+  }
+
+  /* While the MAIN video is inline, the hidden Watch header must occupy
+     absolutely no geometry. The only top reserve is the device media-safe edge. */
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) .app-header{
+    display:none!important;
+    width:0!important;
+    height:0!important;
+    min-height:0!important;
+    max-height:0!important;
+    margin:0!important;
+    padding:0!important;
+    overflow:hidden!important;
+  }
+
+  html.watch-browse:not(.watch-minimized):not(.watch-search-open):not(.watch-search-results) body{
+    box-sizing:border-box!important;
+    padding-top:var(--safe-top)!important;
+  }
+
+  /* Once the video becomes PiP, PiP itself owns safe-area geometry.
+     The page/feed goes back to true full-bleed scrolling under notch + home bar. */
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    padding-top:0!important;
   }
 }
 
