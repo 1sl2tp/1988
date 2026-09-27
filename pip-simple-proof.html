@@ -169,6 +169,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     grid-area:feed;
     min-width:0;
     padding:0;
+    grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--card-min-w,300px)),1fr));
   }
 
   html.two-col .media-col{
@@ -230,21 +231,53 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .info{padding:12px;border-bottom:1px solid #292929}
 .info b{display:block;font-size:15px;margin-bottom:4px}
 .info span{color:#999;font-size:12px}
-.rows{padding:10px}
+.rows{
+  padding:10px;
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,var(--card-min-w,300px)),1fr));
+  gap:12px;
+}
 .row{
-  min-height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
-  display:flex;align-items:center;gap:12px;padding:10px 14px;color:#aaa
+  margin:0;
+  min-width:0;
+  border-radius:16px;
+  background:#181818;
+  overflow:hidden;
+  color:#aaa;
 }
-.row img{
-  width:112px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;flex:0 0 auto
+.row-thumb{
+  position:relative;
+  width:100%;
+  aspect-ratio:16/9;
+  overflow:hidden;
+  background:#111;
 }
-.row-copy{min-width:0}
+.row-thumb img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.row-copy{
+  min-width:0;
+  padding:10px 12px 12px;
+}
 .row-title{
-  color:#fff;font-size:14px;line-height:1.35;
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+  color:#fff;
+  font-size:14px;
+  font-weight:600;
+  line-height:1.35;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden
 }
-.row-meta{margin-top:5px;color:#888;font-size:12px;line-height:1.3}
-.row:last-child{margin-bottom:0}
+.row-meta{
+  margin-top:6px;
+  color:#888;
+  font-size:12px;
+  line-height:1.35
+}
 .state{
   position:fixed;left:8px;bottom:8px;z-index:150;
   padding:6px 9px;border-radius:8px;background:rgba(0,0,0,.74);
@@ -353,8 +386,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const pageW=Math.min(1600,viewportW);
     const gap=14;
     const sidePadding=28;
-    const minFeedW=320;
-    const maxMediaW=Math.max(1,pageW-sidePadding-gap-minFeedW);
+    // One feed column must always be able to hold one proper card block.
+    // Card width follows the same visual unit as the sample card, not an arbitrary row width.
+    const cardMinW=Math.max(280,Math.min(360,Math.round(fullH*0.42)));
+    const maxMediaW=Math.max(1,pageW-sidePadding-gap-cardMinW);
+    root.style.setProperty("--card-min-w",cardMinW+"px");
     const idealMediaW=Math.max(1,Math.round(fullH*current.ratio));
     const mediaW=Math.min(idealMediaW,maxMediaW);
 
@@ -390,21 +426,21 @@ html.one-col .player.pip iframe{border-radius:inherit}
     ].filter(Boolean).join(" · ");
 
     rows.innerHTML=
-      '<div class="row">'+
-        '<img src="'+thumb+'" alt="">'+
+      '<article class="row">'+
+        '<div class="row-thumb"><img src="'+thumb+'" alt=""></div>'+
         '<div class="row-copy">'+
           '<div class="row-title">'+title+'</div>'+
-          '<div class="row-meta">'+source+(facts?' · '+facts:'')+'</div>'+
+          '<div class="row-meta">'+source+'</div>'+
+          '<div class="row-meta">'+(facts || (ratio+' · '+current.id))+'</div>'+
         '</div>'+
-      '</div>'+
-      '<div class="row"><div class="row-copy">'+
-        '<div class="row-title">'+source+'</div>'+
-        '<div class="row-meta">'+ratio+' · '+current.id+'</div>'+
-      '</div></div>'+
-      '<div class="row"><div class="row-copy">'+
-        '<div class="row-title">Thông tin từ data hiện tại</div>'+
-        '<div class="row-meta">'+(facts||"Đang tải dữ liệu…")+'</div>'+
-      '</div></div>';
+      '</article>'+
+      '<article class="row">'+
+        '<div class="row-thumb"><img src="'+thumb+'" alt=""></div>'+
+        '<div class="row-copy">'+
+          '<div class="row-title">'+title+'</div>'+
+          '<div class="row-meta">'+source+' · '+ratio+'</div>'+
+        '</div>'+
+      '</article>';
   }
 
   async function loadCurrentVideoMeta(){
