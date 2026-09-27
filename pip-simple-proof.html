@@ -230,9 +230,18 @@ html.one-col .player.pip iframe{border-radius:inherit}
 .info span{color:#999;font-size:12px}
 .rows{padding:10px}
 .row{
-  height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
-  display:flex;align-items:center;padding:0 14px;color:#aaa
+  min-height:92px;margin:0 0 10px;border-radius:12px;background:#181818;
+  display:flex;align-items:center;gap:12px;padding:10px 14px;color:#aaa
 }
+.row img{
+  width:112px;aspect-ratio:16/9;object-fit:cover;border-radius:8px;flex:0 0 auto
+}
+.row-copy{min-width:0}
+.row-title{
+  color:#fff;font-size:14px;line-height:1.35;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden
+}
+.row-meta{margin-top:5px;color:#888;font-size:12px;line-height:1.3}
 .row:last-child{margin-bottom:0}
 .state{
   position:fixed;left:8px;bottom:8px;z-index:150;
@@ -291,6 +300,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let current=VIDEOS.landscape;
   let pip=false;
   let raf=0;
+  let metaRequest=0;
+  let currentMeta=null;
   const columnsMq=matchMedia("(min-width:960px)");
 
   function embedUrl(id){
@@ -333,6 +344,61 @@ html.one-col .player.pip iframe{border-radius:inherit}
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
   }
 
+  function renderSampleContent(){
+    const rows=document.getElementById("rows");
+    const meta=currentMeta || {};
+    const title=meta.title || current.label;
+    const author=meta.author_name || "YouTube";
+    const thumb=meta.thumbnail_url ||
+      ("https://i.ytimg.com/vi/"+encodeURIComponent(current.id)+"/hqdefault.jpg");
+    const ratio=current.ratio<1?"9:16":"16:9";
+
+    rows.innerHTML=
+      '<div class="row">'+
+        '<img src="'+thumb+'" alt="">'+
+        '<div class="row-copy">'+
+          '<div class="row-title">'+title+'</div>'+
+          '<div class="row-meta">'+author+' · '+ratio+' · '+current.id+'</div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="row"><div class="row-copy">'+
+        '<div class="row-title">Video hiện tại</div>'+
+        '<div class="row-meta">'+title+'</div>'+
+      '</div></div>'+
+      '<div class="row"><div class="row-copy">'+
+        '<div class="row-title">Kênh</div>'+
+        '<div class="row-meta">'+author+'</div>'+
+      '</div></div>'+
+      '<div class="row"><div class="row-copy">'+
+        '<div class="row-title">Thông tin media</div>'+
+        '<div class="row-meta">YouTube · '+ratio+' · ID '+current.id+'</div>'+
+      '</div></div>';
+  }
+
+  async function loadCurrentVideoMeta(){
+    const request=++metaRequest;
+    currentMeta=null;
+    renderSampleContent();
+
+    const url="https://www.youtube.com/oembed?format=json&url="+
+      encodeURIComponent("https://www.youtube.com/watch?v="+current.id);
+
+    try{
+      const res=await fetch(url,{mode:"cors"});
+      if(!res.ok)throw new Error("oEmbed "+res.status);
+      const meta=await res.json();
+      if(request!==metaRequest)return;
+      currentMeta=meta;
+      titleEl.textContent=meta.title || current.label;
+      renderSampleContent();
+    }catch(_){
+      if(request!==metaRequest)return;
+      currentMeta=null;
+      titleEl.textContent=current.label;
+      renderSampleContent();
+    }
+  }
+
   function layout(){
     syncBoundaries();
     const two=isTwoColumn();
@@ -355,7 +421,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     paintText();
   }
   function paintText(){
-    titleEl.textContent=current.label;
+    titleEl.textContent=currentMeta?.title || current.label;
     if(isTwoColumn()){
       layoutHint.textContent=current.ratio<1
         ?"2 cột · dọc full, không đen."
@@ -412,6 +478,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     portraitBtn.classList.toggle("active",kind==="portrait");
     frame.src=embedUrl(current.id);
     layout();
+    loadCurrentVideoMeta();
     schedulePip();
   }
 
@@ -437,9 +504,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     syncBoundaries();
     schedulePip();
   }).observe(top);
-
-  document.getElementById("rows").innerHTML=
-    Array.from({length:14},(_,i)=>'<div class="row">Nội dung cuộn '+(i+1)+'</div>').join("");
 
   select("landscape");
 })();
