@@ -864,7 +864,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const sourceNameChips=document.getElementById("sourceNameChips");
   const themeColorMeta=document.getElementById("themeColorMeta");
 
-  let current=VIDEOS.landscape;
+  let current={...VIDEOS.landscape,kind:"landscape"};
   let pip=false;
   let raf=0;
   let metaRequest=0;
@@ -1092,19 +1092,48 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }
   }
 
+  function mediaLayoutKindFromRatio(ratio){
+    ratio=validMediaAspect(ratio)||16/9;
+    return ratio<1?"portrait":"landscape";
+  }
+
+  function applyMediaLayoutSelection(kind,{relayout=true}={}){
+    kind=kind==="portrait"?"portrait":"landscape";
+    const canonical=kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+
+    current={
+      ...current,
+      kind,
+      ratio:canonical
+    };
+
+    // This is intentionally the SAME state the old Ngang / Dọc proof buttons
+    // selected. Real media now selects it automatically.
+    landscapeBtn.classList.toggle("active",kind==="landscape");
+    portraitBtn.classList.toggle("active",kind==="portrait");
+    root.dataset.mediaShape=kind;
+    root.style.setProperty("--media-ratio",String(canonical));
+
+    if(relayout){
+      layout();
+      schedulePip();
+    }
+    return kind;
+  }
+
   function commitCurrentAspect(id,ratio,{relayout=true}={}){
     id=String(id||"").trim();
     ratio=validMediaAspect(ratio);
     if(!id||!ratio||String(current?.id||"")!==id)return false;
 
-    const changed=Math.abs((Number(current.ratio)||0)-ratio)>.015;
-    current={...current,ratio};
-    root.dataset.mediaShape=ratio<.84?"portrait":(ratio<=1.20?"square":"landscape");
+    const kind=mediaLayoutKindFromRatio(ratio);
+    const changed=current?.kind!==kind;
 
-    if(changed&&relayout){
-      layout();
-      schedulePip();
-    }
+    current={
+      ...current,
+      detectedRatio:ratio
+    };
+    applyMediaLayoutSelection(kind,{relayout:changed&&relayout});
     return changed;
   }
 
@@ -1270,6 +1299,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       cachedMediaAspect(id)||
       explicitMediaAspect(meta||{})||
       16/9;
+    const kind=mediaLayoutKindFromRatio(hint);
 
     if(meta?.id===id){
       currentMeta=meta;
@@ -1278,18 +1308,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
       currentMeta=null;
     }
 
-    // Critical rule: a new media never inherits the previous media's shape.
-    // Commit its own best-known aspect BEFORE the iframe and responsive layout.
+    // New media becomes the old proof's Ngang/Dọc selection immediately.
+    // It never inherits the previous video's layout.
     current={
       id,
-      ratio:validMediaAspect(hint)||16/9,
+      kind,
+      ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
+      detectedRatio:validMediaAspect(hint)||0,
       label:meta?.title||currentMeta?.title||"Video"
     };
-    root.dataset.mediaShape=
-      current.ratio<.84?"portrait":(current.ratio<=1.20?"square":"landscape");
-
-    // MAIN, PiP and 2-column all read this same current.ratio.
-    layout();
+    applyMediaLayoutSelection(kind,{relayout:true});
 
     frame.referrerPolicy="strict-origin-when-cross-origin";
     frame.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
@@ -1300,10 +1328,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
       setTimeout(forceFramePlay,450);
     };
 
-    // Playback and aspect refinement start together; neither waits for the other.
     frame.src=embedUrl(id);
     setTimeout(forceFramePlay,0);
 
+    // Resolve the real current media shape. When it resolves, it simply
+    // selects Ngang or Dọc exactly as the old proof button did.
     void resolveMediaAspect(id,meta).then(ratio=>{
       if(!ratio||String(current?.id||"")!==id)return;
       commitCurrentAspect(id,ratio,{relayout:true});
@@ -1390,7 +1419,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function syncBoundaries(){
-    const mediaRatio=validMediaAspect(current?.ratio)||16/9;
+    const mediaRatio=current?.kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
     root.style.setProperty("--media-ratio",String(mediaRatio));
 
     // Measure the CURRENT usable viewport, not svh/vw estimates.
@@ -1955,7 +1984,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   function layout(){
     syncBoundaries();
     const two=isTwoColumn();
-    const portrait=current.ratio<=1;
+    const portrait=current?.kind==="portrait";
 
     root.classList.toggle("one-col",!two);
     root.classList.toggle("two-col",two);
@@ -1973,32 +2002,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
     paintText();
   }
-  function aspectLabel(ratio=current.ratio){
-    ratio=validMediaAspect(ratio)||16/9;
-    const standards=[
-      [21/9,"21:9"],[16/9,"16:9"],[16/10,"16:10"],[3/2,"3:2"],
-      [4/3,"4:3"],[5/4,"5:4"],[1,"1:1"],[4/5,"4:5"],
-      [3/4,"3:4"],[2/3,"2:3"],[10/16,"10:16"],[9/16,"9:16"],[9/21,"9:21"]
-    ];
-    let best=standards[0];
-    let delta=Infinity;
-    for(const row of standards){
-      const next=Math.abs(row[0]-ratio);
-      if(next<delta){best=row;delta=next;}
-    }
-    return delta<=.05?best[1]:ratio.toFixed(2);
-  }
-
   function paintText(){
     titleEl.textContent=currentMeta?.title || current.label;
-    const label=aspectLabel(current.ratio);
-    const shape=current.ratio<1?"dọc":(current.ratio===1?"vuông":"ngang");
+    const portrait=current?.kind==="portrait";
+    const label=portrait?"9:16":"16:9";
+    const shape=portrait?"dọc":"ngang";
 
     if(isTwoColumn()){
-      layoutHint.textContent="2 cột · "+shape+" · tự theo khung media.";
+      layoutHint.textContent="2 cột · "+shape+" · theo media hiện tại.";
       stateEl.textContent="2 CỘT · MAIN · "+label;
     }else{
-      layoutHint.textContent="1 cột · "+shape+" · tự theo khung media.";
+      layoutHint.textContent="1 cột · "+shape+" · theo media hiện tại.";
       stateEl.textContent="1 CỘT · "+(pip?"PIP":"MAIN")+" · "+label;
     }
   }
@@ -2085,6 +2099,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function select(kind){
+    kind=kind==="portrait"?"portrait":"landscape";
     const sample=VIDEOS[kind];
     if(feedMode!=="search"&&feedMode!=="package"){
       relatedMetas=[];
@@ -2094,8 +2109,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
     pip=false;
     player.classList.remove("pip");
     stage.classList.remove("pip-host");
-    landscapeBtn.classList.toggle("active",kind==="landscape");
-    portraitBtn.classList.toggle("active",kind==="portrait");
 
     const sampleMeta={
       id:sample.id,
