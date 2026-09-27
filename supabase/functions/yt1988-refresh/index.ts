@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v28";
-const NON_LIVE_PIPELINE_VERSION="non-live-v6";
+const LIVE_PIPELINE_VERSION="live-v29";
+const NON_LIVE_PIPELINE_VERSION="non-live-v7";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -181,26 +181,34 @@ function isBlockedMusicTabVideo(meta:any={},row:any={}){
   return /\b(?:beat|kara|karaoke)\b/.test(title);
 }
 
+const VI_TITLE_WORDS_STRONG=new Set(
+  [...VI_TITLE_WORDS].filter((token)=>!EN_TITLE_WORDS.has(token))
+);
+
 function titleLooksEnglishOnly(row:any){
   const raw=clean(row?._displayTitle||row?.title||"",500);
   if(!raw)return false;
 
-  // Any real Vietnamese diacritic is a strong signal to keep the original title.
+  // A real Vietnamese letter/diacritic is authoritative. The old rule stripped
+  // accents first, so Vietnamese "thể" became "the" and could make an English
+  // title look Vietnamese.
   if(/[ăâđêôơưĂÂĐÊÔƠƯáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(raw)){
     return false;
   }
 
   const tokens=normalizeText(raw).split(" ").filter((token)=>token.length>1);
-  if(tokens.length<3)return false;
+  if(!tokens.length)return false;
 
   let vi=0,en=0;
   for(const token of tokens){
-    if(VI_TITLE_WORDS.has(token))vi++;
+    if(VI_TITLE_WORDS_STRONG.has(token))vi++;
     if(EN_TITLE_WORDS.has(token))en++;
   }
-  if(vi>=2)return false;
-  if(en>=3&&en>=vi+2)return true;
-  if(vi===0&&en>=2&&tokens.length>=5)return true;
+
+  if(vi>=2&&vi>=en)return false;
+  if(en>=2&&en>=vi+1)return true;
+  if(vi===0&&tokens.length>=3)return true;
+  if(vi===0&&tokens.length===2&&en>=1)return true;
   return false;
 }
 function normalizeLiveText(value:any){
@@ -346,11 +354,79 @@ function dedupeRows(rows:any[]){
     const id=videoId(row);
     if(!id||ids.has(id))continue;
     const title=normalizeText(row?._displayTitle||row?.title||"");
-    const th=title.length>=16?fastHash(title):"";
+    const th=title.length>=8?fastHash(title):"";
     if(th&&titleHashes.has(th))continue;
     ids.add(id);
     if(th)titleHashes.add(th);
     out.push(row);
+  }
+  return out;
+}
+
+const PACKAGE_DEDUPE_STOPWORDS=new Set(
+  "official video clip full news tin tuc moi nhat review phim movie recap trailer vietsub thuyet minh".split(" ")
+);
+
+function packageEpisodeKey(value:any){
+  const text=normalizeText(value||"");
+  const match=text.match(/\b(?:tap|ep|episode|phan|part)\s*0*(\d{1,4})\b/);
+  return match?String(Number(match[1])):"";
+}
+
+function packageSemanticTokens(row:any){
+  const raw=clean(row?._displayTitle||row?.title||"",500)
+    .replace(/\s*\|\s*[^|]{1,40}$/u," ")
+    .replace(/(?:#[\p{L}\p{N}_-]+\s*)+$/gu," ");
+  const tokens=normalizeText(raw)
+    .split(" ")
+    .filter((token)=>token.length>=2&&!PACKAGE_DEDUPE_STOPWORDS.has(token));
+  return {
+    episode:packageEpisodeKey(raw),
+    tokens:[...new Set(tokens)]
+  };
+}
+
+function packageTokenOverlap(a:string[],b:string[]){
+  if(!a.length||!b.length)return {common:0,maxRatio:0,minRatio:0};
+  const bSet=new Set(b);
+  let common=0;
+  for(const token of a)if(bSet.has(token))common++;
+  return {
+    common,
+    maxRatio:common/Math.max(a.length,b.length),
+    minRatio:common/Math.min(a.length,b.length)
+  };
+}
+
+function dedupePackageRows(rows:any[]){
+  const exact=dedupeRows(rows);
+  const out:any[]=[];
+  const signatures:any[]=[];
+
+  for(const row of exact){
+    const sig=packageSemanticTokens(row);
+    let duplicate=false;
+
+    if(sig.tokens.length>=5){
+      for(const prior of signatures){
+        if(sig.episode&&prior.episode&&sig.episode!==prior.episode)continue;
+        if((sig.episode&&!prior.episode)||(!sig.episode&&prior.episode))continue;
+
+        const overlap=packageTokenOverlap(sig.tokens,prior.tokens);
+        if(
+          overlap.common>=5&&
+          overlap.maxRatio>=.78&&
+          overlap.minRatio>=.86
+        ){
+          duplicate=true;
+          break;
+        }
+      }
+    }
+
+    if(duplicate)continue;
+    out.push(row);
+    signatures.push(sig);
   }
   return out;
 }
@@ -1934,10 +2010,14 @@ Deno.serve(async(req:Request)=>{
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
           !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")&&
-          !titleLooksEnglishOnly(r)
+          !titleLooksEnglishOnly(r)&&
+          !titleLooksForeignScript(r)
         );
       }else{
-        raw=raw.filter((r:any)=>!titleLooksEnglishOnly(r));
+        raw=raw.filter((r:any)=>
+          !titleLooksEnglishOnly(r)&&
+          !titleLooksForeignScript(r)
+        );
       }
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
 
@@ -1948,7 +2028,8 @@ Deno.serve(async(req:Request)=>{
           .filter((row:any)=>{
             const sid=channelId(row);
             return (!sid||!allBlockedLiveSourceIds.has(sid))&&
-              !titleLooksEnglishOnly(row);
+              !titleLooksEnglishOnly(row)&&
+              !titleLooksForeignScript(row);
           })
           .sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
@@ -1971,7 +2052,7 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(meta.kind!=="live")raw=sortRows(raw);
-      raw=dedupeRows(raw)
+      raw=(meta.kind==="live"?dedupeRows(raw):dedupePackageRows(raw))
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
@@ -2003,7 +2084,9 @@ Deno.serve(async(req:Request)=>{
       // is enough to publish fresh data without rate-limit stalls.
       let packaged=raw;
 
-      packaged=dedupeRows(packaged);
+      packaged=meta.kind==="live"
+        ?dedupeRows(packaged)
+        :dedupePackageRows(packaged);
 
       // Coverage above already prevents partial upstream failures from replacing
       // healthy data. Always publish the fully filtered current result so stale
