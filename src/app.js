@@ -5867,11 +5867,9 @@ function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
     (id?"https://i.ytimg.com/vi/"+id+"/hqdefault.jpg":"")
   );
 
-  frame.style.removeProperty("--video-progress-accent");
-  unifiedMediaBar()?.style.removeProperty("--video-progress-accent");
-
   if(!/^https?:\/\//i.test(raw)){
     frame.style.removeProperty("--pip-art");
+    applyWatchProgressAccent("",id);
     return;
   }
 
@@ -5881,13 +5879,7 @@ function syncFloatArtwork(frame=playerSection?.querySelector(".player-frame")){
     .replace(/\n|\r/g,"");
   frame.style.setProperty("--pip-art",'url("'+safe+'")');
 
-  const guardId=id;
-  void youtubeCinematicPalette(raw).then(palette=>{
-    if(!palette||!frame.isConnected)return;
-    if(guardId&&String(state.currentId||"")!==guardId)return;
-    frame.style.setProperty("--video-progress-accent",palette.accent);
-    unifiedMediaBar()?.style.setProperty("--video-progress-accent",palette.accent);
-  });
+  applyWatchProgressAccent(raw,id);
 }
 
 function updateFloatControlState(frame=playerSection?.querySelector(".player-frame")){
@@ -12485,6 +12477,24 @@ selectedVideoAvatar?.addEventListener("error",()=>{
   if(selectedVideoAvatarFallback)selectedVideoAvatarFallback.hidden=false;
 });
 
+function applyWatchProgressAccent(art="",guardId=state.currentId){
+  art=clean(art);
+  const frame=playerSection?.querySelector(".player-frame");
+  const bar=unifiedMediaBar();
+
+  frame?.style.removeProperty("--video-progress-accent");
+  bar?.style.removeProperty("--video-progress-accent");
+  if(!/^https?:\/\//i.test(art))return;
+
+  const expectedId=String(guardId||"").trim();
+  void youtubeCinematicPalette(art).then(palette=>{
+    if(!palette)return;
+    if(expectedId&&String(state.currentId||"")!==expectedId)return;
+    if(frame?.isConnected)frame.style.setProperty("--video-progress-accent",palette.accent);
+    bar?.style.setProperty("--video-progress-accent",palette.accent);
+  });
+}
+
 function updateNow(meta={}){
   const title=clean(meta.title)||"Video";
   const channel=clean(meta.uploader||meta.uploaderName||"");
@@ -12513,6 +12523,7 @@ function updateNow(meta={}){
     ""
   );
   if(art)applyChromeTintFromArt(art,"watch",state.currentId);
+  applyWatchProgressAccent(art,state.currentId);
 }
 
 function updateModeUi(){
