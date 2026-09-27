@@ -488,6 +488,7 @@ main{
   overflow:hidden;
   background:#000;
 }
+.player > #videoFrame,
 .player iframe{
   display:block;
   width:100%;
@@ -881,10 +882,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   <div class="media-col" id="mediaCol">
     <section class="stage" id="stage">
       <div class="player" id="player">
-        <iframe id="videoFrame"
-          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          allowfullscreen
-          referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        <div id="videoFrame"></div>
       </div>
     </section>
     <div class="info">
@@ -914,7 +912,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
-  const frame=document.getElementById("videoFrame");
   const stateEl=document.getElementById("state");
   const titleEl=document.getElementById("videoTitle");
   const layoutHint=document.getElementById("layoutHint");
@@ -961,6 +958,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const mobileHeaderMq=matchMedia("(max-width:656px)");
   let mobileHeaderLastY=0;
   let mobileHeaderHidden=false;
+
+  let ytPlayer=null;
+  let ytPlayerReady=false;
+  let pendingVideoId="";
+  let youtubeApiPromise=null;
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -1141,7 +1143,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     if(
       cached &&
       cachedRow?.verified===true &&
-      /thumbnail-pillarbox|visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
+      /iframe-content-rect|thumbnail-pillarbox|visualContentAspect|frame-pillarbox|video-metadata|resolved-stream/i.test(cachedSource) &&
       cached<.84
     ){
       return cached;
@@ -1444,23 +1446,165 @@ html.one-col .player.pip iframe{border-radius:inherit}
     top.classList.toggle("chrome-scrolled",pageScrollY()>2);
   }
 
-  function embedUrl(id){
-    const origin=encodeURIComponent(location.origin);
-    return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(id)+
-      "?autoplay=1&playsinline=1&rel=0&cc_load_policy=0&enablejsapi=1&origin="+origin;
+  function youtubeContentRect(player=ytPlayer){
+    const candidates=[
+      player?.playerInfo?.videoContentRect,
+      player?.videoContentRect,
+      player?.playerInfo?.video_content_rect
+    ];
+
+    for(const rect of candidates){
+      const width=Number(rect?.width)||0;
+      const height=Number(rect?.height)||0;
+      if(width<=0||height<=0)continue;
+
+      const aspectRatio=validMediaAspect(width/height);
+      if(!aspectRatio)continue;
+      return {width,height,aspectRatio};
+    }
+    return null;
   }
 
-  function frameCommand(func,args=[]){
+  function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
+    if(!player||!current?.id)return false;
+
+    let loadedId="";
     try{
-      frame.contentWindow?.postMessage(
-        JSON.stringify({event:"command",func,args}),
-        "https://www.youtube-nocookie.com"
+      const data=player.getVideoData?.()||{};
+      loadedId=String(data.video_id||data.videoId||"").trim();
+    }catch{}
+
+    // Never apply the previous video's rectangle while loadVideoById() settles.
+    if(loadedId&&loadedId!==String(current.id||""))return false;
+
+    const rect=youtubeContentRect(player);
+    if(!rect)return false;
+
+    rememberMediaAspect(
+      current.id,
+      rect.aspectRatio,
+      "iframe-content-rect",
+      true
+    );
+    commitCurrentAspect(current.id,rect.aspectRatio,{relayout:true});
+    return true;
+  }
+
+  function scheduleCurrentPlayerKind(player=ytPlayer){
+    const id=String(current?.id||"");
+    if(!id)return;
+
+    const attempt=()=>{
+      if(String(current?.id||"")!==id)return;
+      syncCurrentKindFromYoutubePlayer(player);
+    };
+
+    attempt();
+    [70,180,420,800,1400,2400,4200].forEach(delay=>setTimeout(attempt,delay));
+  }
+
+  function configurePlayerIframe(player=ytPlayer){
+    try{
+      const iframe=player?.getIframe?.();
+      if(!iframe)return;
+      iframe.setAttribute("allowfullscreen","");
+      iframe.setAttribute("webkitallowfullscreen","");
+      iframe.setAttribute(
+        "allow",
+        "autoplay; encrypted-media; picture-in-picture; fullscreen"
       );
+      iframe.referrerPolicy="strict-origin-when-cross-origin";
+      iframe.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
     }catch{}
   }
 
-  function forceFramePlay(){
-    frameCommand("playVideo");
+  function loadYoutubeIframeApi(){
+    if(window.YT&&typeof window.YT.Player==="function"){
+      return Promise.resolve(window.YT);
+    }
+    if(youtubeApiPromise)return youtubeApiPromise;
+
+    youtubeApiPromise=new Promise(resolve=>{
+      const previous=window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady=()=>{
+        try{previous?.()}catch{}
+        resolve(window.YT||null);
+      };
+
+      if(!document.querySelector('script[src*="youtube.com/iframe_api"]')){
+        const script=document.createElement("script");
+        script.src="https://www.youtube.com/iframe_api";
+        script.async=true;
+        document.head.appendChild(script);
+      }
+
+      const started=Date.now();
+      const timer=setInterval(()=>{
+        if(window.YT&&typeof window.YT.Player==="function"){
+          clearInterval(timer);
+          resolve(window.YT);
+        }else if(Date.now()-started>10000){
+          clearInterval(timer);
+          resolve(null);
+        }
+      },80);
+    });
+    return youtubeApiPromise;
+  }
+
+  async function ensureYoutubePlayer(){
+    if(ytPlayer)return ytPlayer;
+
+    const YTApi=await loadYoutubeIframeApi();
+    if(!YTApi?.Player||ytPlayer)return ytPlayer;
+
+    ytPlayer=new YTApi.Player("videoFrame",{
+      host:"https://www.youtube-nocookie.com",
+      width:"100%",
+      height:"100%",
+      playerVars:{
+        autoplay:1,
+        playsinline:1,
+        controls:1,
+        cc_load_policy:0,
+        rel:0,
+        fs:1,
+        disablekb:0,
+        modestbranding:1,
+        iv_load_policy:3,
+        enablejsapi:1,
+        origin:location.origin,
+        widget_referrer:location.href
+      },
+      events:{
+        onReady(event){
+          ytPlayerReady=true;
+          configurePlayerIframe(event.target);
+
+          const id=String(pendingVideoId||current?.id||"").trim();
+          pendingVideoId="";
+          if(id){
+            try{
+              event.target.loadVideoById(id);
+              event.target.playVideo?.();
+            }catch{}
+          }
+        },
+        onStateChange(event){
+          if(
+            event.data===YTApi.PlayerState.PLAYING ||
+            event.data===YTApi.PlayerState.BUFFERING ||
+            event.data===YTApi.PlayerState.CUED
+          ){
+            // THIS is the source of truth for Ngang/Dọc:
+            // the actual content rectangle of the media currently playing.
+            scheduleCurrentPlayerKind(event.target);
+          }
+        }
+      }
+    });
+
+    return ytPlayer;
   }
 
   function playVideoId(id,meta=null){
@@ -1482,8 +1626,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
       currentMeta=null;
     }
 
-    // New media becomes the old proof's Ngang/Dọc selection immediately.
-    // It never inherits the previous video's layout.
     current={
       id,
       kind,
@@ -1493,23 +1635,31 @@ html.one-col .player.pip iframe{border-radius:inherit}
     };
     applyMediaLayoutSelection(kind,{relayout:true});
 
-    frame.referrerPolicy="strict-origin-when-cross-origin";
-    frame.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
+    // Keep the current id ready before YouTube reports its content rectangle.
+    pendingVideoId=id;
+    void ensureYoutubePlayer().then(playerApi=>{
+      if(!playerApi||String(current?.id||"")!==id)return;
 
-    frame.onload=()=>{
-      forceFramePlay();
-      setTimeout(forceFramePlay,120);
-      setTimeout(forceFramePlay,450);
-    };
+      if(ytPlayerReady){
+        pendingVideoId="";
+        try{
+          playerApi.loadVideoById(id);
+          playerApi.playVideo?.();
+        }catch{}
+      }
 
-    frame.src=embedUrl(id);
-    setTimeout(forceFramePlay,0);
+      scheduleCurrentPlayerKind(playerApi);
+    });
 
-    // Resolve the real current media shape. When it resolves, it simply
-    // selects Ngang or Dọc exactly as the old proof button did.
+    // Local probe is only a fallback while YouTube's own content rectangle
+    // is not available yet. A later iframe-content-rect always corrects it.
     void resolveMediaAspect(id,meta).then(ratio=>{
       if(!ratio||String(current?.id||"")!==id)return;
-      commitCurrentAspect(id,ratio,{relayout:true});
+
+      const row=mediaAspectCache.get(id);
+      if(String(row?.source||"")!=="iframe-content-rect"){
+        commitCurrentAspect(id,ratio,{relayout:true});
+      }
     });
   }
   function isTwoColumn(){
