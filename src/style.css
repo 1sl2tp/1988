@@ -6139,3 +6139,264 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
   }
 }
 
+
+
+/* ============================================================
+   FINAL LAYOUT RHYTHM v462
+   One spacing system for Home + Watch.
+   - Mobile keeps the MAIN player full-bleed, while information/recommendation
+     content gets a small readable edge.
+   - Desktop reserves a real right-side scrollbar compensation so cards,
+     hover halos and metadata never visually touch the scroll track.
+   ============================================================ */
+:root{
+  --layout-gap-x:14px;
+  --layout-gap-y:16px;
+  --layout-edge-mobile-left:8px;
+  --layout-edge-mobile-right:12px;
+  --layout-edge-desktop:12px;
+  --layout-scrollbar-comp:10px;
+}
+
+/* HOME / SEARCH on tablet + desktop: one outer edge owner. */
+@media(min-width:721px){
+  html:not(.watch-browse){
+    scrollbar-gutter:stable;
+  }
+
+  html:not(.watch-browse) .header-inner,
+  html:not(.watch-browse) .header-nav-inner{
+    padding-left:var(--layout-edge-desktop)!important;
+    padding-right:calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))!important;
+  }
+
+  html:not(.watch-browse) .app-shell{
+    padding:12px 0 28px!important;
+  }
+
+  html:not(.watch-browse) .feed-section{
+    box-sizing:border-box!important;
+    padding-left:var(--layout-edge-desktop)!important;
+    padding-right:calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))!important;
+    padding-bottom:24px!important;
+  }
+
+  html:not(.watch-browse) .section-head{
+    margin:2px 0 12px!important;
+  }
+
+  html:not(.watch-browse) .feed:not(.search-grouped),
+  html:not(.watch-browse) .feed-loading-grid{
+    column-gap:var(--layout-gap-x)!important;
+    row-gap:var(--layout-gap-y)!important;
+  }
+}
+
+/* DESKTOP WATCH: 12px physical edge; scrollbar side receives +10px. */
+@media(min-width:960px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-inner,
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .header-nav-inner{
+    padding-left:var(--layout-edge-desktop)!important;
+    padding-right:var(--layout-edge-desktop)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
+    box-sizing:border-box!important;
+    padding-top:10px!important;
+    padding-right:var(--layout-edge-desktop)!important;
+    padding-bottom:10px!important;
+    padding-left:0!important;
+    column-gap:var(--watch-grid-gap,var(--layout-gap-x))!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    box-sizing:border-box!important;
+    padding-left:var(--watch-feed-pad-left,var(--layout-edge-desktop))!important;
+    padding-right:var(
+      --watch-feed-pad-right,
+      calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))
+    )!important;
+    padding-bottom:12px!important;
+    scrollbar-gutter:stable!important;
+    scroll-padding-top:8px;
+    scroll-padding-bottom:12px;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .feed:not(.search-grouped),
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .feed-loading-grid{
+    column-gap:var(--watch-grid-gap,var(--layout-gap-x))!important;
+    row-gap:var(--watch-grid-gap,var(--layout-gap-x))!important;
+  }
+}
+
+/* Narrow PC / tablet Watch is a document scroller. Keep a real right gutter. */
+@media(min-width:721px) and (max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results){
+    scrollbar-gutter:stable;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    box-sizing:border-box!important;
+    padding:8px
+      calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))
+      calc(20px + var(--safe-bottom))
+      var(--layout-edge-desktop)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .section-head{
+    margin:0!important;
+    padding:2px 0 10px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-video-row{
+    padding:10px
+      calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))
+      10px
+      var(--layout-edge-desktop)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-source-card{
+    margin:8px
+      calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))
+      0
+      var(--layout-edge-desktop)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-topic-rail{
+    padding:7px
+      calc(var(--layout-edge-desktop) + var(--layout-scrollbar-comp))
+      9px
+      var(--layout-edge-desktop)!important;
+  }
+}
+
+/* MOBILE HOME: small physical edge, plus 4px extra on the scroll-indicator side. */
+@media(max-width:720px){
+  html:not(.watch-browse) .header-inner{
+    padding-left:10px!important;
+    padding-right:var(--layout-edge-mobile-right)!important;
+  }
+
+  html:not(.watch-browse) .header-nav-inner{
+    padding-left:10px!important;
+    padding-right:var(--layout-edge-mobile-right)!important;
+  }
+
+  html:not(.watch-browse).home-search-open .header-search{
+    width:100%!important;
+  }
+
+  html:not(.watch-browse) .app-shell{
+    box-sizing:border-box!important;
+    padding-top:calc(var(--header-stack-h) + var(--safe-top) + 8px)!important;
+    padding-right:0!important;
+    padding-bottom:0!important;
+    padding-left:0!important;
+  }
+
+  html:not(.watch-browse) .feed-section{
+    box-sizing:border-box!important;
+    padding:
+      0
+      var(--layout-edge-mobile-right)
+      calc(18px + var(--safe-bottom))
+      var(--layout-edge-mobile-left)!important;
+  }
+
+  html:not(.watch-browse) .section-head{
+    margin:0!important;
+    padding:8px 2px 8px!important;
+  }
+
+  html:not(.watch-browse) .feed{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+  }
+
+  html:not(.watch-browse) .feed>.card{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    margin:0 0 14px!important;
+  }
+
+  html:not(.watch-browse) .feed>.card .thumb-wrap,
+  html:not(.watch-browse) .feed>.card .card-copy{
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+  }
+
+  /* MAIN Watch media deliberately remains full-width. Only content below it
+     receives page edges, keeping the player geometry/PiP contract untouched. */
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    padding:
+      8px
+      var(--layout-edge-mobile-right)
+      calc(18px + var(--safe-bottom))
+      var(--layout-edge-mobile-left)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .section-head{
+    margin:0!important;
+    padding:2px 2px 8px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    margin:0 0 14px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .thumb-wrap{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    aspect-ratio:16/9!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy,
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) .feed>.card .card-copy{
+    box-sizing:border-box!important;
+    width:100%!important;
+    min-width:0!important;
+    max-width:100%!important;
+    padding-left:10px!important;
+    padding-right:10px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-video-row{
+    padding:9px 14px 10px 10px!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-source-card{
+    margin:8px var(--layout-edge-mobile-right) 0 var(--layout-edge-mobile-left)!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .selected-topic-rail{
+    padding:7px var(--layout-edge-mobile-right) 9px var(--layout-edge-mobile-left)!important;
+  }
+}
