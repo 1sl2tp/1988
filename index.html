@@ -1,343 +1,2691 @@
 <!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
-  <meta name="theme-color" content="#0b0b0c">
-  <meta name="color-scheme" content="dark">
-  <meta name="referrer" content="strict-origin-when-cross-origin">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="1988">
-  <meta name="description" content="1988 - xem video nhanh trên web và PWA.">
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
-  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
-  <link rel="stylesheet" href="./src/style.css?v=watch-browse-490-surface2">
-  <title>1988</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta id="themeColorMeta" name="theme-color" content="rgba(33,33,33,.98)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="1988">
+<meta name="description" content="1988 - xem video nhanh.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<title>1988</title>
+<style>
+*{box-sizing:border-box}
+:root{
+  --yt-bg:#0f0f0f;
+  --yt-surface:#212121;
+  --yt-surface-2:#272727;
+  --yt-border:#303030;
+  --yt-divider:#292929;
+  --yt-text:#f1f1f1;
+  --yt-text-secondary:#aaa;
+  --yt-hover:rgba(255,255,255,.10);
+  --yt-press:rgba(255,255,255,.18);
+  --header-rgb:15,15,15;
+  --header-alpha:.94;
+  --header-blur:16px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --top-boundary:calc(56px + var(--safe-top));
+  --bottom-gap:8px;
+  --current-full-h:600px;
+  --pip-landscape-w:240px;
+  --pip-portrait-h:360px;
+  --two-col-media-w:420px;
+  --landscape-player-h:420px;
+  --landscape-top-safe:56px;
+  --landscape-bottom-safe:64px;
+  --layout-gap:16px;
+  --content-top-gap:0px;
+  --feed-cols:2;
+  --card-target-w:310px;
+  --floating-radius:10px;
+  --media-ratio:1.7777778;
+}
+html,body{
+  margin:0;
+  background:var(--yt-bg);
+  color:var(--yt-text);
+  font-family:Roboto,"Arial",sans-serif;
+}
+html{
+  overflow-y:scroll;
+  scrollbar-color:hsl(0 0% 67%) transparent;
+}
+body{
+  min-height:100vh;
+  overflow-y:visible;
+}
+html::-webkit-scrollbar{
+  width:16px;
+}
+html::-webkit-scrollbar-track{
+  background:transparent;
+}
+html::-webkit-scrollbar-thumb{
+  min-height:56px;
+  border:4px solid transparent;
+  border-radius:8px;
+  background-clip:content-box;
+  background-color:hsl(0 0% 67%);
+}
+html::-webkit-scrollbar-thumb:hover{
+  background-color:#bdbdbd;
+  background-clip:content-box;
+}
+html::-webkit-scrollbar-corner{
+  background:transparent;
+}
+html.one-col,
+html.one-col body{
+  max-width:100%;
+}
+html.one-col body{min-height:220vh}
+.top{
+  position:sticky;
+  top:0;
+  z-index:50;
+  width:100%;
+  display:flex;
+  align-items:center;
+  padding-top:var(--safe-top);
+  --header-alpha:.94;
+  background:rgba(var(--header-rgb),var(--header-alpha));
+  -webkit-backdrop-filter:saturate(145%) blur(var(--header-blur));
+  backdrop-filter:saturate(145%) blur(var(--header-blur));
+  border-bottom:0;
+  transform:translateY(0);
+  transition:
+    transform .20s cubic-bezier(.4,0,.2,1),
+    background-color .18s cubic-bezier(.2,0,0,1);
+  will-change:transform;
+}
+.top.chrome-scrolled{
+  --header-alpha:.78;
+}
+.top.search-open{
+  --header-alpha:.90;
+}
+.masthead{
+  flex:0 0 auto;
+  width:auto;
+  height:56px;
+  display:flex;
+  align-items:center;
+  gap:2px;
+  padding:0 4px 0 8px;
+}
+.brand{
+  flex:0 0 auto;
+  width:97px;
+  height:40px;
+  display:none;
+  align-items:center;
+  gap:5px;
+  color:#fff;
+  text-decoration:none;
+  user-select:none;
+}
+.brand-mark{
+  width:29px;
+  height:20px;
+  display:block;
+  flex:0 0 29px;
+}
+.brand-mark svg{
+  display:block;
+  width:29px;
+  height:20px;
+}
+.brand-name{
+  /* YouTube wordmark itself is SVG 93×20; custom 1988 matches its ~18px visual height. */
+  font:700 18px/20px "Arial Narrow",Roboto,Arial,sans-serif;
+  letter-spacing:-.55px;
+  transform:scaleX(.94);
+  transform-origin:left center;
+}
+.searchbox{
+  width:var(--auto-search-w,360px);
+  height:40px;
+  margin:0;
+  display:none;
+  min-width:0;
+}
+.search-input{
+  min-width:0;
+  flex:1 1 auto;
+  height:40px;
+  padding:0 16px;
+  border:1px solid hsl(0 0% 18.82%);
+  border-right:0;
+  border-radius:20px 0 0 20px;
+  outline:0;
+  background:hsl(0 0% 7%);
+  color:var(--yt-text);
+  font:400 16px/22px Roboto,"Arial",sans-serif;
+}
+.search-input::placeholder{color:#888}
+.search-input:focus{
+  border-color:#1c62b9;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.3);
+}
+.search-button,
+.icon-button{
+  width:40px;
+  height:40px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:50%;
+  color:var(--yt-text);
+  background:transparent;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.search-button{
+  width:64px;
+  border:1px solid hsl(0 0% 18.82%);
+  border-radius:0 20px 20px 0;
+  background:hsla(0 0% 100%/.08);
+}
+.search-button:hover{
+  border-color:hsl(0 0% 18.82%);
+  background:hsla(0 0% 100%/.08);
+}
+.search-button svg,
+.icon-button svg{
+  width:24px;
+  height:24px;
+  fill:currentColor;
+}
+.icon-button:hover{background:var(--yt-hover)}
+.icon-button:active{background:var(--yt-press)}
+.sourcebar{
+  position:relative;
+  flex:1 1 auto;
+  min-width:0;
+  width:auto;
+  height:56px;
+  background:transparent;
+  overflow:hidden;
+}
+.source-scroll{
+  position:relative;
+  width:100%;
+  height:56px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  scrollbar-width:none;
+  overscroll-behavior-x:contain;
+  -webkit-overflow-scrolling:touch;
+  scroll-behavior:smooth;
+  scroll-padding-inline:68px;
+}
+.source-scroll::-webkit-scrollbar{display:none}
+.source-chips{
+  min-width:max-content;
+  height:56px;
+  display:flex;
+  align-items:center;
+  gap:0;
+  white-space:nowrap;
+  padding:0;
+}
+.source-name-chips{display:contents}
+.source-chip{
+  flex:0 0 auto;
+  position:relative;
+  height:32px;
+  min-width:12px;
+  margin:12px 12px 12px 0;
+  padding:0 12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  border-radius:8px;
+  background:rgba(255,255,255,.10);
+  color:#f1f1f1;
+  font-family:Roboto,"Arial",sans-serif;
+  font-size:14px;
+  line-height:20px;
+  font-weight:500;
+  white-space:nowrap;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:background-color .15s cubic-bezier(.05,0,0,1);
+}
+.source-name-chips .source-chip:first-child{margin-left:24px}
+.source-chip:last-of-type{margin-right:0}
+.source-name-chips .source-chip:last-child{margin-right:0}
+.source-chip:hover{background:rgba(255,255,255,.20)}
+.source-chip:active{background:rgba(255,255,255,.15)}
+.source-chip.active{
+  background:#f1f1f1;
+  color:#0f0f0f;
+}
+.source-arrow{
+  position:absolute;
+  top:0;
+  bottom:0;
+  z-index:4;
+  width:52px;
+  height:56px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(var(--header-rgb),var(--header-alpha));
+  overflow:visible;
+  pointer-events:none;
+}
+.source-arrow[hidden]{display:none}
+.source-arrow.left{left:0}
+.source-arrow.right{right:0}
+
+/* Hard guard: chips are fully clipped below the arrow zone.
+   Only a short 16px feather remains toward the content. */
+.source-arrow.left::after,
+.source-arrow.right::before{
+  content:"";
+  position:absolute;
+  top:0;
+  width:16px;
+  height:100%;
+  pointer-events:none;
+}
+.source-arrow.left::after{
+  left:100%;
+  background:linear-gradient(
+    to right,
+    rgba(var(--header-rgb),var(--header-alpha)),
+    rgba(var(--header-rgb),0)
+  );
+}
+.source-arrow.right::before{
+  right:100%;
+  background:linear-gradient(
+    to left,
+    rgba(var(--header-rgb),var(--header-alpha)),
+    rgba(var(--header-rgb),0)
+  );
+}
+.source-arrow-button{
+  position:relative;
+  z-index:2;
+  width:32px;
+  height:32px;
+  margin:0;
+  padding:0;
+  border:0;
+  border-radius:16px;
+  display:grid;
+  place-items:center;
+  background:rgba(var(--header-rgb),var(--header-alpha));
+  color:#f1f1f1;
+  pointer-events:auto;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.source-arrow-button:hover{background:#272727}
+.source-arrow-button svg{
+  width:24px;
+  height:24px;
+  fill:currentColor;
+}
+.search-toggle{
+  display:grid;
+  flex:0 0 40px;
+  width:40px;
+  height:40px;
+  margin:0;
+}
+.search-back{display:none}
+.settings-button{display:none}
+
+/* Plenty of horizontal room: expand search without hiding the source rail. */
+.top.search-roomy:not(.search-open) .search-toggle{display:none}
+.top.search-roomy:not(.search-open) .searchbox{
+  display:flex;
+  flex:0 0 var(--auto-search-w,360px);
+  width:var(--auto-search-w,360px);
+}
+
+/* Explicit search mode: one pill takes the row, exactly like mobile. */
+.top.search-open .masthead{
+  flex:1 1 auto;
+  min-width:0;
+  width:100%;
+  padding:0 8px;
+  gap:6px;
+}
+.top.search-open .sourcebar{display:none}
+.top.search-open .search-toggle{display:none}
+.top.search-open .search-back{
+  display:grid;
+  flex:0 0 40px;
+}
+.top.search-open .settings-button{
+  display:grid;
+  flex:0 0 40px;
+}
+.top.search-open .searchbox{
+  display:flex;
+  flex:1 1 auto;
+  min-width:0;
+  width:auto;
+  height:40px;
+  margin:0;
+  overflow:hidden;
+  border:0;
+  border-radius:20px;
+  background:transparent;
+}
+.top.search-open .search-input{
+  min-width:0;
+  height:40px;
+  padding:0 14px;
+  border:1px solid hsl(0 0% 18.82%);
+  border-right:0;
+  border-radius:20px 0 0 20px;
+  background:hsl(0 0% 7%);
+  font-size:16px;
+  line-height:22px;
+}
+.top.search-open .search-input:focus{
+  border-color:#1c62b9;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.3);
+}
+.top.search-open .search-button{
+  flex:0 0 44px;
+  width:44px;
+  height:40px;
+  border:1px solid hsl(0 0% 18.82%);
+  border-radius:0 20px 20px 0;
+  background:hsla(0 0% 100%/.08);
+}
+
+@media(max-width:656px){
+  :root{
+    --top-boundary:calc(56px + var(--safe-top));
+    --content-top-gap:0px;
+  }
+
+  .top{
+    position:fixed;
+    top:0;
+    left:0;
+    right:0;
+    border:0;
+    outline:0;
+    box-shadow:none;
+  }
+
+  .source-name-chips .source-chip:first-child{margin-left:4px}
+  .source-chip{margin-right:8px}
+
+  .source-arrow{
+    width:40px;
+    height:56px;
+  }
+  .source-arrow.left::after,
+  .source-arrow.right::before{
+    width:12px;
+  }
+  .source-arrow-button{
+    width:32px;
+    height:32px;
+  }
+
+  .top.mobile-scroll-hidden:not(.search-open){
+    transform:translate3d(0,calc(-100% - 2px),0);
+    pointer-events:none;
+  }
+}
+
+@media(min-width:657px){
+  .top{
+    transform:none!important;
+    pointer-events:auto!important;
+  }
+  .source-name-chips .source-chip:first-child{margin-left:4px}
+  .source-chip{margin-right:8px}
+}
+
+main{
+  width:100%;
+  max-width:100%;
+  margin:0;
+  padding-top:var(--content-top-gap);
+}
+@media(max-width:656px){
+  main{
+    /* 1px overlap removes the compositor seam between frosted header and video. */
+    padding-top:calc(var(--top-boundary) - 1px);
+  }
+}
+.media-col{min-width:0;max-width:100%}
+.stage{
+  position:relative;
+  margin:0 auto;
+  background:#000;
+  overflow:hidden;
+}
+.stage.pip-host{
+  overflow:visible;
+}
+.player{
+  position:absolute;
+  overflow:hidden;
+  background:#000;
+}
+.player > #videoFrame,
+.player iframe{
+  position:relative;
+  z-index:1;
+  display:block;
+  width:100%;
+  height:100%;
+  border:0;
+  background:#000;
+}
+
+
+/* VISUAL RULES BY MODE
+   MAIN 1-col = square + no outer black
+   PiP = rounded + no outer black
+   2-col = rounded panel; landscape may letterbox inside, portrait has no black */
+/* MAIN 1 cột:
+   ngang chạm mép = vuông;
+   dọc là một media card độc lập = bo thống nhất với PiP / 2 cột. */
+html.one-col.landscape .stage,
+html.one-col.landscape .player,
+html.one-col.landscape .player iframe{
+  border-radius:0;
+  background:transparent;
+}
+
+html.one-col.portrait .stage,
+html.one-col.portrait .player,
+html.one-col.portrait .player iframe{
+  border-radius:var(--floating-radius);
+  background:transparent;
+}
+html.one-col.portrait .stage,
+html.one-col.portrait .player{
+  overflow:hidden;
+}
+
+html.one-col .player.pip,
+html.one-col .player.pip iframe{
+  border-radius:var(--floating-radius);
+  background:transparent;
+}
+
+html.two-col .stage,
+html.two-col .player,
+html.two-col .player iframe{
+  border-radius:var(--floating-radius);
+}
+
+/* 1 COLUMN MAIN
+   Landscape follows CURRENT WIDTH.
+   Portrait follows CURRENT HEIGHT. */
+html.one-col.landscape .stage{
+  width:100%;
+  max-width:none;
+  height:auto;
+  aspect-ratio:var(--media-ratio);
+  background:transparent;
+}
+html.one-col.landscape .player{
+  inset:0;
+  width:100%;
+  height:100%;
+}
+
+html.one-col.portrait .stage{
+  width:min(100%,calc(var(--current-full-h) * var(--media-ratio)));
+  height:auto;
+  aspect-ratio:var(--media-ratio);
+  background:transparent;
+}
+html.one-col.portrait .player{
+  inset:0;
+  width:100%;
+  height:100%;
+  transform:none;
+}
+
+/* PIP keeps the real media ratio and has no extra black gutter. */
+html.one-col .player.pip{
+  position:fixed !important;
+  z-index:1000;
+  transform:none !important;
+  inset:auto !important;
+  right:10px !important;
+  top:calc(var(--visible-top-boundary,var(--top-boundary)) + 8px) !important;
+  border-radius:var(--floating-radius);
+  background:transparent;
+  box-shadow:0 12px 34px rgba(0,0,0,.55);
+}
+html.one-col.landscape .player.pip{
+  width:var(--pip-landscape-w);
+  height:auto;
+  aspect-ratio:var(--media-ratio);
+}
+html.one-col.portrait .player.pip{
+  height:var(--pip-portrait-h);
+  width:auto;
+  aspect-ratio:var(--media-ratio);
+}
+html.one-col .player.pip iframe{border-radius:inherit}
+
+/* 2 COLUMNS */
+@media(min-width:1000px){
+  html.two-col,
+  html.two-col body{
+    overflow-x:clip;
+    overscroll-behavior-y:none;
+  }
+
+  html.two-col main{
+    width:100%;
+    max-width:none;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) var(--two-col-media-w);
+    grid-template-areas:"feed media";
+    gap:var(--layout-gap);
+    align-items:start;
+    margin:0;
+    padding:0 var(--layout-gap);
+  }
+
+  html.two-col .rows{
+    grid-area:feed;
+    min-width:0;
+    padding:0;
+    grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
+    gap:var(--layout-gap);
+  }
+
+  html.two-col .media-col{
+    grid-area:media;
+    position:sticky;
+    top:calc(var(--top-boundary) + var(--content-top-gap));
+    align-self:start;
+    height:var(--current-full-h);
+    justify-self:end;
+    min-width:0;
+    margin-right:0;
+    overflow:hidden;
+  }
+
+  /* 2-col landscape:
+     Column width is derived from CURRENT HEIGHT × 16/9 (capped only to preserve the feed). The iframe fills the current-height viewing area, so YouTube
+     itself letterboxes the 16:9 video and puts chrome in the black top/bottom. */
+  html.two-col.landscape .media-col{
+    width:var(--two-col-media-w);
+  }
+  html.two-col.landscape .stage{
+    width:100%;
+    height:var(--landscape-player-h);
+    border-radius:var(--floating-radius);
+    background:#000;
+    overflow:hidden;
+  }
+  html.two-col.landscape .player,
+  html.two-col.landscape .player iframe{
+    inset:0;
+    width:100%;
+    height:100%;
+    transform:none;
+    background:#000;
+  }
+
+  /* 2-col portrait:
+     Column width is derived from CURRENT HEIGHT × 9/16, so there is no wasted side space. */
+  html.two-col.portrait .media-col{
+    width:var(--two-col-media-w);
+    height:var(--current-full-h);
+  }
+  html.two-col.portrait .stage{
+    width:100%;
+    height:auto;
+    aspect-ratio:var(--media-ratio);
+    border-radius:var(--floating-radius);
+    background:transparent;
+    overflow:hidden;
+  }
+  html.two-col.portrait .player,
+  html.two-col.portrait .player iframe{
+    inset:0;
+    width:100%;
+    height:100%;
+    transform:none;
+    background:transparent;
+  }
+}
+.info{
+  padding:12px 16px 16px;
+  border-bottom:1px solid #292929;
+}
+.info b{
+  display:block;
+  color:var(--yt-text);
+  font:700 20px/28px Roboto,"Arial",sans-serif;
+  margin:0;
+}
+.info span{
+  display:block;
+  margin-top:4px;
+  color:#aaa;
+  font:400 12px/18px Roboto,Noto,Arial,sans-serif;
+}
+@media(max-width:527.9px){
+  .info b{font-size:18px;line-height:26px}
+}
+@media(max-width:656px){
+  .info{padding:12px 12px 16px}
+}
+.rows{
+  padding:0 var(--layout-gap);
+  display:grid;
+  grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
+  gap:var(--layout-gap);
+}
+.row{
+  position:relative;
+  margin:0;
+  padding-bottom:24px;
+  min-width:0;
+  background:transparent;
+  overflow:visible;
+  color:#aaa;
+  cursor:pointer;
+  border-radius:12px;
+  -webkit-tap-highlight-color:transparent;
+}
+.row::before{
+  content:"";
+  position:absolute;
+  inset:-12px;
+  z-index:-1;
+  border-radius:16px;
+  background:transparent;
+  transition:background-color .12s cubic-bezier(.4,0,1,1),transform .12s ease;
+}
+@media(hover:hover){
+  .row:hover::before{background:rgba(255,255,255,.08)}
+}
+.row:active::before{
+  background:rgba(255,255,255,.14);
+  transform:scale(.985);
+}
+.row.selected::before{background:var(--yt-hover)}
+.row-thumb{
+  position:relative;
+  width:100%;
+  aspect-ratio:16/9;
+  overflow:hidden;
+  border-radius:8px;
+  background:#111;
+}
+.row-thumb img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  transition:transform .18s cubic-bezier(.2,0,0,1);
+}
+@media(hover:hover){
+  .row:hover .row-thumb img{transform:scale(1.015)}
+}
+.duration-badge{
+  position:absolute;
+  right:4px;
+  bottom:4px;
+  min-height:18px;
+  display:flex;
+  align-items:center;
+  padding:1px 4px;
+  border-radius:4px;
+  background:rgba(0,0,0,.80);
+  color:#fff;
+  font:500 12px/16px Roboto,Arial,sans-serif;
+}
+.duration-badge.live{
+  background:#f00;
+  font-weight:600;
+}
+.row-details{
+  display:grid;
+  grid-template-columns:36px minmax(0,1fr) 40px;
+  gap:12px;
+  align-items:start;
+  padding:12px 0 0;
+}
+.row-avatar{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  object-fit:cover;
+  background:#272727;
+}
+.row-avatar.placeholder{
+  display:grid;
+  place-items:center;
+  color:#aaa;
+  font:600 13px/36px Roboto,Arial,sans-serif;
+  text-align:center;
+}
+.row-copy{min-width:0;padding:0}
+.row-title{
+  color:var(--yt-text);
+  font:500 16px/22px Roboto,"Arial",sans-serif;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.row-meta{
+  margin-top:2px;
+  color:var(--yt-text-secondary);
+  font:400 14px/20px Roboto,"Arial",sans-serif;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.row-meta:empty{display:none}
+.row-menu{
+  width:40px;
+  height:40px;
+  margin-top:-8px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:#f1f1f1;
+  opacity:0;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.row-menu svg{width:24px;height:24px;fill:currentColor}
+.row-menu:hover{background:var(--yt-hover)}
+.row-menu:active{background:var(--yt-press)}
+.row:hover .row-menu,
+.row:focus-within .row-menu{opacity:1}
+@media(hover:none){
+  .row-menu{opacity:1}
+}
+
+.state{display:none}
+</style>
 </head>
 <body>
-  <header class="app-header">
-    <div class="header-inner">
-      <a class="brand" href="./" aria-label="1988">
-        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 18"><path d="M7.55 3.55 17.55 9 7.55 14.45Z"></path></svg></span><strong>1988</strong>
-      </a>
-      <form id="searchForm" class="header-search" autocomplete="off">
-        <button id="homeSearchToggle" class="search-icon home-search-toggle" type="button" aria-label="Mở tìm kiếm"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.75"></circle><path d="m16.2 16.2 4.1 4.1"></path></svg></button>
-        <input id="queryInput" type="search" inputmode="search" enterkeyhint="search"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="none"
-          spellcheck="false"
-          placeholder="Tìm trên YouTube"
-          aria-label="Tìm trên YouTube"
-          aria-autocomplete="list"
-          aria-expanded="false"
-          aria-controls="suggestions">
-        <button type="submit" aria-label="Tìm">Tìm</button>
-        <button id="sourcesBtn" class="source-header-btn" type="button" aria-label="Quản lý nguồn">
-          <span class="source-header-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19 12a7 7 0 0 0-.12-1.28l2-1.56-2-3.46-2.45.98A7 7 0 0 0 14.2 5.4L13.8 2h-4l-.4 3.4a7 7 0 0 0-2.23 1.28L4.72 5.7l-2 3.46 2 1.56A7 7 0 0 0 4.6 12c0 .44.04.87.12 1.28l-2 1.56 2 3.46 2.45-.98A7 7 0 0 0 9.4 18.6l.4 3.4h4l.4-3.4a7 7 0 0 0 2.23-1.28l2.45.98 2-3.46-2-1.56c.08-.41.12-.84.12-1.28Z"></path></svg></span>
-        </button>
-        <div id="suggestions" class="suggestions" hidden></div>
-      </form>
-      <button id="installBtn" class="install-btn" type="button" hidden>Cài app</button>
+<header class="top" id="top">
+  <div class="masthead">
+    <a class="brand" href="#" aria-label="1988">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 29 20" focusable="false">
+          <path d="M14.4848 20C14.4848 20 23.5695 20 25.8229 19.4C27.0917 19.06 28.0459 18.08 28.3808 16.87C29 14.65 29 9.98 29 9.98C29 9.98 29 5.34 28.3808 3.14C28.0459 1.9 27.0917 0.94 25.8229 0.61C23.5695 0 14.4848 0 14.4848 0C14.4848 0 5.42037 0 3.17711 0.61C1.9286 0.94 0.954148 1.9 0.59888 3.14C0 5.34 0 9.98 0 9.98C0 9.98 0 14.65 0.59888 16.87C0.954148 18.08 1.9286 19.06 3.17711 19.4C5.42037 20 14.4848 20 14.4848 20Z" fill="#FF0033"></path>
+          <path d="M19 10L11.5 5.75V14.25L19 10Z" fill="#fff"></path>
+        </svg>
+      </span>
+      <span class="brand-name">1988</span>
+    </a>
+
+    <button id="searchBack" class="icon-button search-back" aria-label="Quay lại" title="Quay lại">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.707 5.293a1 1 0 010 1.414L9.414 12l5.293 5.293a1 1 0 01-1.414 1.414l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 0Z"></path></svg>
+    </button>
+
+    <div class="searchbox" role="search">
+      <input id="searchInput" class="search-input" type="search" placeholder="Tìm kiếm"
+        autocomplete="off" autocorrect="off" spellcheck="false">
+      <button id="searchButton" class="search-button" aria-label="Tìm kiếm" title="Tìm kiếm">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
+      </button>
     </div>
 
-    <nav class="header-nav" aria-label="Điều hướng nội dung">
-      <div class="header-nav-inner">
-        <section id="topicChips" class="topic-chips" aria-label="Khám phá">
-          <button class="topic-chip live-chip" type="button" data-feed="live" aria-label="LIVE"><svg class="live-chip-icon" viewBox="0 0 24 24" aria-hidden="true"><circle class="live-chip-dot" cx="12" cy="12" r="2.55"></circle><path class="live-chip-wave" d="M8.35 8.25C6.35 10.3 6.35 13.7 8.35 15.75M15.65 8.25C17.65 10.3 17.65 13.7 15.65 15.75M5.45 5.45C1.95 9.05 1.95 14.95 5.45 18.55M18.55 5.45C22.05 9.05 22.05 14.95 18.55 18.55"></path></svg></button>
-          <button class="topic-chip topic-mode active" type="button" data-feed="latest">Ngày</button>
-          <button class="topic-chip topic-mode" type="button" data-feed="week">Tuần</button>
-          <span class="topic-divider" aria-hidden="true"></span>
-        </section>
+    <button id="searchToggle" class="icon-button search-toggle" aria-label="Tìm kiếm" title="Tìm kiếm">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
+    </button>
+
+    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42L9.13 5.07c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+    </button>
+  </div>
+
+  <div class="sourcebar" id="sourcebar">
+    <div class="source-arrow left" id="sourcePrev" hidden>
+      <button class="source-arrow-button" type="button" aria-label="Trước">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.71 5.29a1 1 0 0 1 0 1.42L9.41 12l5.3 5.29a1 1 0 1 1-1.42 1.42l-6-6a1 1 0 0 1 0-1.42l6-6a1 1 0 0 1 1.42 0Z"/></svg>
+      </button>
+    </div>
+    <div class="source-scroll" id="sourceScroll">
+      <div class="source-chips" id="sourceChips">
+        <span class="source-name-chips" id="sourceNameChips"></span>
       </div>
-    </nav>
-  </header>
+    </div>
+    <div class="source-arrow right" id="sourceNext" hidden>
+      <button class="source-arrow-button" type="button" aria-label="Tiếp theo">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.29 5.29a1 1 0 0 0 0 1.42l5.3 5.29-5.3 5.29a1 1 0 1 0 1.42 1.42l6-6a1 1 0 0 0 0-1.42l-6-6a1 1 0 0 0-1.42 0Z"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
 
-  <main class="app-shell">
-    <div id="trendTopics" class="trend-topics" aria-label="Chủ đề đang nổi" hidden></div>
-
-    <section id="playerSection" class="player-section" hidden>
-      <div class="player-card">
-        <div class="player-frame">
-          <video id="nativePlayer" controls playsinline webkit-playsinline preload="auto" hidden></video>
-          <div id="yt-player" hidden></div>
-        </div>
-        <div id="watchMediaBar" class="watch-media-bar" aria-label="Thanh tua video">
-          <div class="watch-media-progress" role="slider" aria-label="Thanh tua video">
-            <div class="watch-media-progress-track"></div>
-            <div class="watch-media-progress-buffered"></div>
-            <div class="watch-media-progress-fill"></div>
-          </div>
-        </div>
-        <div id="seriesPanel" class="series-panel" hidden>
-          <div class="series-panel-head">
-            <div>
-              <strong id="seriesTitle">Danh sách tập</strong>
-              <span id="seriesMeta"></span>
-            </div>
-            <button id="seriesAutoplay" type="button" aria-pressed="true">Tự phát ✓</button>
-          </div>
-          <div id="seriesEpisodes" class="series-episodes"></div>
-        </div>
-        <div id="contextBrief" class="context-brief" hidden>
-          <div class="context-brief-head">
-            <span id="contextBriefLabel">Thông tin nhanh</span>
-            <span id="contextBriefAsOf"></span>
-          </div>
-          <strong id="contextBriefTitle"></strong>
-          <div id="contextBriefLines" class="context-brief-lines"></div>
-          <div id="contextBriefSources" class="context-brief-sources" hidden></div>
-        </div>
-        <div class="now">
-          <div class="now-copy">
-            <h1 id="videoTitle">1988</h1>
-            <div id="videoMeta" class="video-meta"></div>
-          </div>
-          <div class="actions" aria-label="Chế độ phát">
-            <button id="videoBtn" class="mode-btn active" type="button" aria-pressed="true" hidden>Video</button>
-            <button id="backgroundBtn" class="mode-btn" type="button" aria-pressed="false" hidden>Nền</button>
-            <button id="lockBtn" class="mode-btn" type="button" aria-pressed="false" hidden>Khóa</button>
-            <button id="shareBtn" class="mode-btn" type="button">Chia sẻ</button>
-          </div>
-          <div id="statusText" class="status-text">Sẵn sàng phát video</div>
-        </div>
+<main>
+  <div class="media-col" id="mediaCol">
+    <section class="stage" id="stage">
+      <div class="player" id="player">
+        <div id="videoFrame"></div>
       </div>
     </section>
-
-    <section id="selectedVideoInfo" class="selected-video-info" hidden aria-live="polite">
-      <div class="selected-video-row">
-        <span class="selected-video-avatar" aria-hidden="true">
-          <span id="selectedVideoAvatarFallback" class="selected-video-avatar-fallback">?</span>
-          <img id="selectedVideoAvatar" alt="" width="36" height="36" decoding="async" hidden>
-        </span>
-        <div class="selected-video-copy">
-          <div class="selected-video-title-line">
-            <strong id="selectedVideoTitle"></strong>
-            <span class="selected-video-more" aria-hidden="true">⋮</span>
-          </div>
-          <div id="selectedVideoMeta" class="selected-video-meta"></div>
-        </div>
-      </div>
-
-      <nav id="selectedTopicRail" class="selected-topic-rail" aria-label="Nguồn và chủ đề">
-        <div id="selectedTopicChips" class="topic-chips selected-topic-chips"></div>
-      </nav>
-    </section>
-
-    <section class="feed-section">
-      <div class="section-head">
-        <div>
-          <h2 id="feedTitle">Gợi ý</h2>
-          <span class="section-sub">Vuốt để xem thêm</span>
-        </div>
-        <span id="feedStatus"></span>
-      </div>
-      <div id="searchRefinements" class="search-refinements" hidden></div>
-      <div id="feed" class="feed"></div>
-    </section>
-  </main>
-
-  <audio id="bgAudio" preload="none" playsinline></audio>
-
-  <div id="installSheet" class="sheet-backdrop" hidden>
-    <div class="sheet" role="dialog" aria-modal="true" aria-label="Cài 1988">
-      <div class="sheet-handle"></div>
-      <div class="sheet-head">
-        <strong>Thêm 1988 vào màn hình chính</strong>
-        <button id="closeInstallSheet" type="button" aria-label="Đóng">×</button>
-      </div>
-      <p>Trên iPhone: mở bằng Safari → Chia sẻ → Thêm vào Màn hình chính → bật “Mở dưới dạng ứng dụng”.</p>
+    <div class="info">
+      <b id="videoTitle"></b>
+      <span id="layoutHint" hidden></span>
     </div>
   </div>
 
-  <div id="settingsAuthSheet" class="sheet-backdrop settings-auth-backdrop" hidden>
-    <form id="settingsAuthForm" class="sheet settings-auth-sheet" role="dialog" aria-modal="true" aria-labelledby="settingsAuthTitle">
-      <div class="sheet-handle"></div>
-      <div class="sheet-head">
-        <strong id="settingsAuthTitle">Cài đặt</strong>
-        <button id="closeSettingsAuth" type="button" aria-label="Đóng">×</button>
-      </div>
-      <p>Nhập mật khẩu để mở Cài đặt.</p>
-      <input
-        id="settingsAuthPin"
-        class="settings-auth-pin"
-        type="password"
-        inputmode="numeric"
-        autocomplete="current-password"
-        maxlength="4"
-        pattern="[0-9]*"
-        aria-label="Mật khẩu Cài đặt"
-        placeholder="••••">
-      <div id="settingsAuthError" class="settings-auth-error" aria-live="polite"></div>
-      <button class="settings-auth-submit" type="submit">Tiếp tục</button>
-    </form>
-  </div>
+  <div class="rows" id="rows"></div>
+</main>
 
-  <div id="sourcesSheet" class="sheet-backdrop" hidden>
-    <div class="sheet sources-sheet" role="dialog" aria-modal="true" aria-label="Thư viện kênh">
-      <div class="sheet-handle"></div>
-      <div class="sheet-head">
-        <div>
-          <strong>Quản lý nguồn</strong>
-          <span id="sourceSummary" class="source-summary"></span>
-        </div>
-        <button id="closeSourcesSheet" type="button" aria-label="Đóng">×</button>
-      </div>
-      <nav id="sourceAdminTabs" class="source-admin-tabs" aria-label="Quản trị nguồn">
-        <button class="source-admin-tab active" type="button" data-source-admin-tab="sources">Nguồn</button>
-        <button class="source-admin-tab" type="button" data-source-admin-tab="labels">Nhãn</button>
-        <button class="source-admin-tab" type="button" data-source-admin-tab="filters">Bộ lọc</button>
-      </nav>
-      <div id="sourceGroupNav" class="source-group-nav" hidden>
-        <button id="sourceGroupPrev" class="source-group-arrow prev" type="button" aria-label="Cuộn nhóm sang trái" hidden>‹</button>
-        <div id="sourceGroupTabs" class="source-group-tabs"></div>
-        <button id="sourceGroupRename" class="source-group-rename" type="button" aria-label="Đổi tên tab đang chọn">✎</button>
-        <button id="sourceGroupAdd" class="source-group-add" type="button" aria-label="Thêm tab mới">＋</button>
-        <button id="sourceGroupNext" class="source-group-arrow next" type="button" aria-label="Cuộn nhóm sang phải">›</button>
-      </div>
+<div class="state" id="state"></div>
 
-      <div id="sourceWorkspace" class="source-workspace">
-        <div id="sourceBrowse" class="source-browse">
-          <div class="source-pane-label">Tìm nguồn</div>
-          <div class="source-search-bar">
-            <div class="source-search-wrap">
-              <input id="sourceSearch" class="source-search" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Tìm kênh trên YouTube">
-              <button id="clearSourceSearch" class="source-search-clear" type="button" aria-label="Xóa tìm kiếm" hidden>×</button>
-            </div>
-            <button id="sourceSettingsBtn" class="source-settings-btn" type="button" aria-label="Cài đặt thư viện" aria-pressed="false">⚙︎</button>
-          </div>
-          <div id="sourceLocalTools" class="source-local-tools" hidden>
-            <div class="source-local-tools-copy">
-              <strong>Dữ liệu trên máy này</strong>
-              <span>Xóa cache/snapshot cũ rồi tải lại từ máy chủ. Nguồn đã chọn và danh sách chặn Live không bị mất.</span>
-            </div>
-            <button id="sourceDataResetBtn" class="source-data-reset-btn" type="button">Dọn dữ liệu &amp; cập nhật</button>
-          </div>
-          <div id="liveKeywordTools" class="live-keyword-tools" hidden>
-            <div class="live-keyword-head">
-              <div>
-                <strong>Từ khóa chặn</strong>
-                <span>Live có tiêu đề hoặc tên kênh chứa từ này sẽ bị ẩn. Ví dụ: xổ số, cây cảnh.</span>
-              </div>
-            </div>
-            <div class="live-keyword-entry">
-              <input id="liveKeywordInput" type="text" enterkeyhint="done" autocomplete="off" maxlength="120" placeholder="Nhập một từ hoặc cụm từ">
-              <button id="liveKeywordAddBtn" type="button">Thêm</button>
-            </div>
-            <div id="liveKeywordChips" class="live-keyword-chips"></div>
-          </div>
-          <div id="sourceSearchStatus" class="source-search-status"></div>
-          <div id="sourceList" class="source-list"></div>
-        </div>
+<script src="./src/api.js"></script>
+<script src="./src/media-meta.js"></script>
+<script>
+(() => {
+  const VIDEOS={
+    landscape:{id:"ypLlRC_2EFc",ratio:16/9,label:"Video ngang · 16:9"},
+    portrait:{id:"kUF9P2m9mrg",ratio:9/16,label:"Video dọc · 9:16"}
+  };
+  const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
+  const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
+  const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
 
-        <div id="sourcePreview" class="source-preview is-empty">
-          <div class="source-preview-head">
-            <button id="backSourcePreview" type="button" aria-label="Quay lại">← Quay lại</button>
-            <div class="source-preview-identity">
-              <strong id="sourcePreviewTitle">Xem nguồn</strong>
-              <span id="sourcePreviewStatus">Chọn một kênh ở bên trái để kiểm tra trước khi thêm.</span>
-            </div>
-            <button id="sourcePreviewSelect" class="source-preview-select" type="button" hidden>Chọn nguồn</button>
-          </div>
+  const root=document.documentElement;
+  const top=document.getElementById("top");
+  const mediaCol=document.getElementById("mediaCol");
+  const stage=document.getElementById("stage");
+  const player=document.getElementById("player");
+  const stateEl=document.getElementById("state");
+  const titleEl=document.getElementById("videoTitle");
+  const layoutHint=document.getElementById("layoutHint");
+  const searchInput=document.getElementById("searchInput");
+  const searchButton=document.getElementById("searchButton");
+  const searchToggle=document.getElementById("searchToggle");
+  const searchBack=document.getElementById("searchBack");
+  const sourcebar=document.getElementById("sourcebar");
+  const sourceScroll=document.getElementById("sourceScroll");
+  const sourceChips=document.getElementById("sourceChips");
+  const sourcePrev=document.getElementById("sourcePrev");
+  const sourceNext=document.getElementById("sourceNext");
+  const sourceNameChips=document.getElementById("sourceNameChips");
+  const themeColorMeta=document.getElementById("themeColorMeta");
 
-          <div id="sourcePreviewScopes" class="source-preview-scopes" hidden></div>
+  let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:""};
+  let pip=false;
+  let raf=0;
+  let metaRequest=0;
+  let currentMeta=null;
+  let feedMetas=[];
+  let relatedMetas=[];
+  let feedRequest=0;
+  let feedMode="package";
+  let activePackageScope="live";
+  let packageManifest={};
+  const packageCache=new Map();
+  const packagePending=new Map();
 
-          <div id="sourceVideoPopup" class="source-video-popup" hidden>
-            <div class="source-video-popup-card">
-              <div class="source-video-popup-source">
-                <button id="sourceVideoPopupSourceOpen" class="source-video-popup-source-main" type="button" aria-label="Mở nguồn">
-                  <span id="sourceVideoPopupAvatar" class="source-video-popup-avatar" aria-hidden="true"></span>
-                  <span class="source-video-popup-source-copy">
-                    <strong id="sourceVideoPopupSourceName">Nguồn YouTube</strong>
-                    <small id="sourceVideoPopupSourceTarget"></small>
-                  </span>
-                </button>
-                <button id="sourceVideoPopupSelect" class="source-video-popup-select" type="button" hidden>+ Nguồn</button>
-                <button id="closeSourceVideoPopup" class="source-video-popup-close" type="button" aria-label="Đóng video">×</button>
-              </div>
-              <div class="source-video-popup-frame">
-                <iframe id="sourceVideoFrame" aria-label="Video YouTube" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
-              </div>
-              <div id="sourceVideoPopupTitle" class="source-video-popup-title"></div>
-            </div>
-          </div>
+  // Search is independent from source tabs. Keep only the 2 most recent
+  // queries/results so repeats can paint immediately without another click.
+  const SEARCH_RECENT_KEY="yt1988-proof-recent-searches-v1";
+  const searchCache=new Map();
+  let recentSearches=[];
+  try{
+    const saved=JSON.parse(localStorage.getItem(SEARCH_RECENT_KEY)||"[]");
+    if(Array.isArray(saved))recentSearches=saved.map(String).filter(Boolean).slice(0,2);
+  }catch{}
 
-          <div class="source-preview-toolbar">
-            <span class="source-pane-label">Tìm kênh / video</span>
-            <input id="sourcePreviewSearch" type="search" inputmode="search" enterkeyhint="search" autocomplete="off" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Tìm kênh hoặc video YouTube">
-          </div>
-          <div id="sourcePreviewList" class="source-preview-list">
-            <div class="source-preview-placeholder">
-              <strong>Xem trước nguồn ngay tại đây</strong>
-              <span>Danh sách nguồn luôn giữ ở bên trái; video phát trong cửa sổ này nên không còn xung với trình phát chính.</span>
-            </div>
-          </div>
-        </div>
-      </div>
+  // Aspect belongs to the media id, never to the previous UI mode.
+  const mediaAspectCache=new Map();
+  const STANDARD_MEDIA_ASPECTS=[
+    1,
+    4/3,3/4,
+    5/4,4/5,
+    3/2,2/3,
+    16/10,10/16,
+    16/9,9/16,
+    21/9,9/21
+  ];
+  const columnsMq=matchMedia("(min-width:1000px)");
+  const mobileHeaderMq=matchMedia("(max-width:656px)");
+  let mobileHeaderLastY=0;
+  let mobileHeaderHidden=false;
+  let headerRoomy=false;
 
-      <section id="sourceLabelsPanel" class="source-admin-panel source-labels-panel" hidden>
-        <div class="source-admin-panel-head">
-          <div>
-            <strong>Quản lý nhãn nguồn</strong>
-            <span>Đổi tên, thêm nhãn và xem số nguồn đang chọn.</span>
-          </div>
-          <button id="sourceLabelsAdd" type="button">+ Thêm nhãn</button>
-        </div>
-        <div id="sourceLabelsList" class="source-labels-list"></div>
-      </section>
+  let ytPlayer=null;
+  let ytPlayerReady=false;
+  let pendingVideoId="";
+  let youtubeApiPromise=null;
 
-      <section id="sourceFiltersPanel" class="source-admin-panel source-filters-panel" hidden>
-        <div class="source-admin-panel-head">
-          <div>
-            <strong>Bộ lọc nguồn</strong>
-            <span>Quản lý từ khóa chặn và dữ liệu cục bộ.</span>
-          </div>
-        </div>
-        <div id="sourceFiltersContent" class="source-filters-content"></div>
-      </section>
-    </div>
-  </div>
+  // Server owns media aspect by video id; YouTube videoContentRect only
+  // confirms/corrects the server cache after playback.
+  const aspectPrimeCache=new Map();
+  const aspectPrimePending=new Map();
+  const aspectCorrectionSent=new Map();
 
-  <script>
-  (function(){
-    if(!('serviceWorker' in navigator))return;
+  function validMediaAspect(value){
+    const ratio=Number(value)||0;
+    if(!Number.isFinite(ratio)||ratio<.34||ratio>2.6)return 0;
 
-    let reloading=false;
-    navigator.serviceWorker.addEventListener('controllerchange',()=>{
-      if(reloading)return;
-      reloading=true;
-      location.reload();
+    let nearest=ratio;
+    let delta=Infinity;
+    for(const standard of STANDARD_MEDIA_ASPECTS){
+      const next=Math.abs(standard-ratio);
+      if(next<delta){
+        nearest=standard;
+        delta=next;
+      }
+    }
+    return delta<=.05?nearest:ratio;
+  }
+
+
+
+  function cachedMediaAspect(id,{verifiedOnly=false}={}){
+    const row=mediaAspectCache.get(String(id||"").trim());
+    if(verifiedOnly&&row?.verified!==true)return 0;
+    return validMediaAspect(row?.value);
+  }
+
+  function mediaAspectFromMeta(meta={}){
+    if(!meta||typeof meta!=="object")return 0;
+    if(meta.isShort===true)return 9/16;
+
+    const direct=validMediaAspect(
+      Number(meta.aspectRatio)||
+      Number(meta.videoAspectRatio)||
+      Number(meta.contentAspectRatio)||
+      0
+    );
+    if(direct)return direct;
+
+    const w=Number(meta.videoWidth||meta.width)||0;
+    const h=Number(meta.videoHeight||meta.height)||0;
+    return w>0&&h>0?validMediaAspect(w/h):0;
+  }
+
+  function rememberMediaAspect(id,ratio,source="",verified=false){
+    id=String(id||"").trim();
+    ratio=validMediaAspect(ratio);
+    if(!id||!ratio)return 0;
+
+    // Only the actual YouTube player content rectangle is allowed to define
+    // media kind. Everything else is presentation/data only.
+    if(source!=="iframe-content-rect"||verified!==true){
+      return cachedMediaAspect(id)||0;
+    }
+
+    mediaAspectCache.set(id,{
+      value:ratio,
+      source:"iframe-content-rect",
+      verified:true,
+      at:Date.now()
+    });
+    return ratio;
+  }
+
+  function cachedPrimedAspect(id){
+    const entry=aspectPrimeCache.get(String(id||"").trim());
+    return validMediaAspect(entry?.value);
+  }
+
+  function applyServerAspectRow(id,row){
+    id=String(id||"").trim();
+    const ratio=validMediaAspect(row?.aspectRatio);
+    if(!id||!ratio)return 0;
+
+    aspectPrimeCache.set(id,{
+      value:ratio,
+      source:String(row?.aspectSource||"server"),
+      verified:row?.aspectVerified===true,
+      at:Date.now()
     });
 
-    window.addEventListener('load',async()=>{
-      try{
-        const reg=await navigator.serviceWorker.register('./sw.js?v=490-surface2',{
-          scope:'./',
-          updateViaCache:'none'
+    if(row?.aspectVerified===true){
+      mediaAspectCache.set(id,{
+        value:ratio,
+        source:String(row?.aspectSource||"server"),
+        verified:true,
+        at:Date.now()
+      });
+    }
+    return ratio;
+  }
+
+  function fetchServerAspects(ids=[],resolve=true){
+    const unique=[...new Set(
+      (Array.isArray(ids)?ids:[])
+        .map(value=>String(value||"").trim())
+        .filter(Boolean)
+    )].slice(0,24);
+    if(!unique.length)return Promise.resolve({});
+
+    const url=VIDEO_META_URL+
+      "?ids="+encodeURIComponent(unique.join(","))+
+      (resolve?"&resolve=1":"");
+
+    return fetch(url,{cache:"no-store"})
+      .then(response=>{
+        if(!response.ok)throw new Error("aspect_http_"+response.status);
+        return response.json();
+      })
+      .then(payload=>{
+        const data=payload?.data&&typeof payload.data==="object"?payload.data:{};
+        for(const id of unique){
+          if(data[id])applyServerAspectRow(id,data[id]);
+        }
+        return data;
+      })
+      .catch(()=>({}));
+  }
+
+  function primeMediaAspect(id){
+    id=String(id||"").trim();
+    if(!id)return Promise.resolve(0);
+
+    const cached=cachedPrimedAspect(id);
+    if(cached)return Promise.resolve(cached);
+    if(aspectPrimePending.has(id))return aspectPrimePending.get(id);
+
+    const task=fetchServerAspects([id],true)
+      .then(data=>validMediaAspect(data?.[id]?.aspectRatio)||cachedPrimedAspect(id)||0)
+      .finally(()=>aspectPrimePending.delete(id));
+
+    aspectPrimePending.set(id,task);
+    return task;
+  }
+
+  function primeMediaAspects(metas=[],limit=18){
+    const list=(Array.isArray(metas)?metas:[])
+      .filter(meta=>meta?.id)
+      .slice(0,Math.max(0,limit));
+
+    // Package/search metadata from the server is authoritative for first paint.
+    for(const meta of list){
+      const ratio=mediaAspectFromMeta(meta);
+      if(ratio){
+        const id=String(meta.id);
+        aspectPrimeCache.set(id,{
+          value:ratio,
+          source:String(meta?._aspectSource||"server-package"),
+          verified:meta?._aspectVerified===true,
+          at:Date.now()
         });
+        if(meta?._aspectVerified===true){
+          mediaAspectCache.set(id,{
+            value:ratio,
+            source:String(meta?._aspectSource||"server-package"),
+            verified:true,
+            at:Date.now()
+          });
+        }
+      }
+    }
 
-        const update=()=>reg.update().catch(()=>{});
-        await update();
+    const missing=list
+      .map(meta=>String(meta.id||""))
+      .filter(id=>id&&!cachedPrimedAspect(id));
 
-        window.addEventListener('pageshow',update,{passive:true});
-        document.addEventListener('visibilitychange',()=>{
-          if(document.visibilityState==='visible')update();
-        },{passive:true});
+    if(!missing.length)return;
 
-        setInterval(update,5*60*1000);
-      }catch(e){}
+    // One background batch for the whole visible list. Click never waits on it.
+    const run=()=>{ void fetchServerAspects(missing,true); };
+    if("requestIdleCallback" in window){
+      requestIdleCallback(run,{timeout:180});
+    }else{
+      setTimeout(run,0);
+    }
+  }
+
+  function mediaLayoutKindFromRatio(ratio){
+    ratio=validMediaAspect(ratio)||16/9;
+    return ratio<1?"portrait":"landscape";
+  }
+
+  function applyMediaLayoutSelection(kind,{relayout=true}={}){
+    kind=kind==="portrait"?"portrait":"landscape";
+    const canonical=kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+
+    current={
+      ...current,
+      kind,
+      ratio:canonical
+    };
+
+    // Current media owns this binary layout state directly.
+    root.dataset.mediaShape=kind;
+    root.style.setProperty("--media-ratio",String(canonical));
+
+    if(relayout){
+      layout();
+      schedulePip();
+    }
+    return kind;
+  }
+
+  function commitCurrentAspect(id,ratio,{relayout=true}={}){
+    id=String(id||"").trim();
+    ratio=validMediaAspect(ratio);
+    if(!id||!ratio||String(current?.id||"")!==id)return false;
+
+    const kind=mediaLayoutKindFromRatio(ratio);
+    const changed=current?.kind!==kind;
+
+    current={
+      ...current,
+      detectedRatio:ratio
+    };
+    applyMediaLayoutSelection(kind,{relayout:changed&&relayout});
+    return changed;
+  }
+
+  const headerColorCache=new Map();
+
+  function rgbToHsl(r,g,b){
+    r/=255;g/=255;b/=255;
+    const max=Math.max(r,g,b),min=Math.min(r,g,b);
+    let h=0,s=0;
+    const l=(max+min)/2;
+    const d=max-min;
+    if(d){
+      s=d/(1-Math.abs(2*l-1));
+      if(max===r)h=((g-b)/d)%6;
+      else if(max===g)h=(b-r)/d+2;
+      else h=(r-g)/d+4;
+      h*=60;
+      if(h<0)h+=360;
+    }
+    return [h,s,l];
+  }
+
+  function hslToRgb(h,s,l){
+    const cc=(1-Math.abs(2*l-1))*s;
+    const x=cc*(1-Math.abs((h/60)%2-1));
+    const m=l-cc/2;
+    let rr=0,gg=0,bb=0;
+    if(h<60){rr=cc;gg=x}
+    else if(h<120){rr=x;gg=cc}
+    else if(h<180){gg=cc;bb=x}
+    else if(h<240){gg=x;bb=cc}
+    else if(h<300){rr=x;bb=cc}
+    else{rr=cc;bb=x}
+    return [rr,gg,bb].map(v=>Math.round((v+m)*255));
+  }
+
+  function youtubeCinematicPalette(url){
+    url=String(url||"").trim();
+    if(!url)return Promise.resolve(null);
+    if(headerColorCache.has(url))return headerColorCache.get(url);
+
+    const task=new Promise(resolve=>{
+      const img=new Image();
+      img.crossOrigin="anonymous";
+      img.decoding="async";
+      img.onload=()=>{
+        try{
+          const w=24,h=14;
+          const canvas=document.createElement("canvas");
+          canvas.width=w;canvas.height=h;
+          const ctx=canvas.getContext("2d",{willReadFrequently:true});
+          if(!ctx){resolve(null);return;}
+          ctx.drawImage(img,0,0,w,h);
+          const data=ctx.getImageData(0,0,w,h).data;
+          const buckets=new Map();
+
+          for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+            const i=(y*w+x)*4;
+            if(data[i+3]<128)continue;
+            const r=data[i],g=data[i+1],b=data[i+2];
+            const lum=.2126*r+.7152*g+.0722*b;
+            if(lum<24||lum>238)continue;
+            const max=Math.max(r,g,b),min=Math.min(r,g,b);
+            const sat=max?((max-min)/max):0;
+            const nx=(x-(w-1)/2)/(w/2),ny=(y-(h-1)/2)/(h/2);
+            const center=1+Math.max(0,1-Math.sqrt(nx*nx+ny*ny))*.55;
+            const weight=center*(.45+sat*1.65);
+            const key=((r>>5)<<6)|((g>>5)<<3)|(b>>5);
+            const row=buckets.get(key)||{r:0,g:0,b:0,w:0};
+            row.r+=r*weight;row.g+=g*weight;row.b+=b*weight;row.w+=weight;
+            buckets.set(key,row);
+          }
+
+          let winner=null;
+          for(const row of buckets.values()){
+            if(!winner||row.w>winner.w)winner=row;
+          }
+          if(!winner||winner.w<=0){resolve(null);return;}
+
+          const source=[winner.r/winner.w,winner.g/winner.w,winner.b/winner.w].map(Math.round);
+          const hsl=rgbToHsl(source[0],source[1],source[2]);
+          hsl[1]=Math.max(.42,Math.min(.88,hsl[1]*1.08));
+          hsl[2]=Math.max(.48,Math.min(.68,hsl[2]));
+          const accent=hslToRgb(hsl[0],hsl[1],hsl[2]);
+          const base=[15,15,15];
+          const surface=base.map((v,i)=>Math.round(v*.6+accent[i]*.4));
+          resolve({accent,surface});
+        }catch{
+          resolve(null);
+        }
+      };
+      img.onerror=()=>resolve(null);
+      img.src=url;
     });
-  })();
-  </script>
-  <script src="./src/media-core.js?v=2"></script>
-  <script src="./src/html5-background.js?v=9"></script>
-  <script src="./src/channel-library.js?v=sources-88"></script>
-  <script src="./src/media-meta.js?v=5"></script>
-  <script type="module" src="./src/yt-local.js?v=search-fast-287"></script>
-  <script src="https://www.youtube.com/iframe_api" defer referrerpolicy="strict-origin-when-cross-origin"></script>
-  <script defer src="./src/app.js?v=watch-browse-490-surface2"></script>
+
+    headerColorCache.set(url,task);
+    return task;
+  }
+
+  let headerTintSeq=0;
+  function applyHeaderTint(meta=currentMeta){
+    const art=String(
+      meta?.thumbnail||
+      meta?.thumbnailUrl||
+      meta?.poster||
+      ""
+    ).trim();
+    if(!/^https?:\/\//i.test(art))return;
+
+    const seq=++headerTintSeq;
+    void youtubeCinematicPalette(art).then(palette=>{
+      if(seq!==headerTintSeq||!palette)return;
+
+      // Same composition as the main app:
+      // palette.surface already contains 40% accent, then chrome keeps 32%
+      // of that surface over #0f0f0f -> ~12.8% effective video tint.
+      const base=[15,15,15];
+      const mix=.32;
+      const [r,g,b]=palette.surface.map((value,index)=>Math.round(
+        base[index]*(1-mix)+value*mix
+      ));
+      root.style.setProperty("--header-rgb",r+","+g+","+b);
+
+      // Do NOT paint browser/PWA status chrome with the media color.
+      // Keeping this neutral avoids a persistent colored notch strip while
+      // the in-page header itself scrolls away underneath black-translucent.
+      if(themeColorMeta){
+        themeColorMeta.setAttribute("content","rgba(33,33,33,.98)");
+      }
+    });
+  }
+
+  function syncHeaderScrollState(){
+    top.classList.toggle("chrome-scrolled",pageScrollY()>2);
+  }
+
+  function youtubeContentRect(player=ytPlayer){
+    const candidates=[
+      player?.playerInfo?.videoContentRect,
+      player?.videoContentRect,
+      player?.playerInfo?.video_content_rect
+    ];
+
+    for(const rect of candidates){
+      const width=Number(rect?.width)||0;
+      const height=Number(rect?.height)||0;
+      if(width<=0||height<=0)continue;
+
+      const aspectRatio=validMediaAspect(width/height);
+      if(!aspectRatio)continue;
+      return {width,height,aspectRatio};
+    }
+    return null;
+  }
+
+  function reportVerifiedAspect(id,rect){
+    id=String(id||"").trim();
+    const ratio=validMediaAspect(rect?.aspectRatio);
+    if(!id||!ratio)return;
+
+    const signature=[
+      ratio.toFixed(5),
+      Math.round(Number(rect?.width)||0),
+      Math.round(Number(rect?.height)||0)
+    ].join(":");
+    if(aspectCorrectionSent.get(id)===signature)return;
+    aspectCorrectionSent.set(id,signature);
+
+    void fetch(VIDEO_META_URL,{
+      method:"POST",
+      headers:{"content-type":"application/json"},
+      body:JSON.stringify({
+        videoId:id,
+        aspectRatio:ratio,
+        width:Math.round(Number(rect?.width)||0),
+        height:Math.round(Number(rect?.height)||0)
+      }),
+      keepalive:true
+    }).catch(()=>{});
+  }
+
+  function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
+    if(!player||!current?.id)return false;
+
+    const expectedId=String(current.id||"").trim();
+    let loadedId="";
+    try{
+      const data=player.getVideoData?.()||{};
+      loadedId=String(data.video_id||data.videoId||"").trim();
+    }catch{}
+
+    // During loadVideoById() YouTube can briefly expose the previous video's rect.
+    // Accept geometry only after YouTube explicitly reports THIS media id.
+    if(!loadedId||loadedId!==expectedId)return false;
+
+    const rect=youtubeContentRect(player);
+    if(!rect)return false;
+
+    const ratio=rememberMediaAspect(
+      expectedId,
+      rect.aspectRatio,
+      "iframe-content-rect",
+      true
+    );
+    if(!ratio)return false;
+
+    commitCurrentAspect(expectedId,ratio,{relayout:true});
+    aspectPrimeCache.set(expectedId,{
+      value:ratio,
+      source:"iframe-content-rect",
+      verified:true,
+      at:Date.now()
+    });
+    reportVerifiedAspect(expectedId,rect);
+    return true;
+  }
+
+  function scheduleCurrentPlayerKind(player=ytPlayer){
+    const id=String(current?.id||"").trim();
+    if(!id)return;
+
+    const attempt=()=>{
+      if(String(current?.id||"").trim()!==id)return;
+      syncCurrentKindFromYoutubePlayer(player);
+    };
+
+    attempt();
+    [90,260,700,1400,2600,4500].forEach(delay=>setTimeout(attempt,delay));
+  }
+
+  function configurePlayerIframe(player=ytPlayer){
+    try{
+      const iframe=player?.getIframe?.();
+      if(!iframe)return;
+      iframe.setAttribute("allowfullscreen","");
+      iframe.setAttribute("webkitallowfullscreen","");
+      iframe.setAttribute(
+        "allow",
+        "autoplay; encrypted-media; picture-in-picture; fullscreen"
+      );
+      iframe.referrerPolicy="strict-origin-when-cross-origin";
+      iframe.setAttribute("referrerpolicy","strict-origin-when-cross-origin");
+    }catch{}
+  }
+
+  function loadYoutubeIframeApi(){
+    if(window.YT&&typeof window.YT.Player==="function"){
+      return Promise.resolve(window.YT);
+    }
+    if(youtubeApiPromise)return youtubeApiPromise;
+
+    youtubeApiPromise=new Promise(resolve=>{
+      const previous=window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady=()=>{
+        try{previous?.()}catch{}
+        resolve(window.YT||null);
+      };
+
+      if(!document.querySelector('script[src*="youtube.com/iframe_api"]')){
+        const script=document.createElement("script");
+        script.src="https://www.youtube.com/iframe_api";
+        script.async=true;
+        document.head.appendChild(script);
+      }
+
+      const started=Date.now();
+      const timer=setInterval(()=>{
+        if(window.YT&&typeof window.YT.Player==="function"){
+          clearInterval(timer);
+          resolve(window.YT);
+        }else if(Date.now()-started>10000){
+          clearInterval(timer);
+          resolve(null);
+        }
+      },80);
+    });
+    return youtubeApiPromise;
+  }
+
+  async function ensureYoutubePlayer(){
+    if(ytPlayer)return ytPlayer;
+
+    const YTApi=await loadYoutubeIframeApi();
+    if(!YTApi?.Player||ytPlayer)return ytPlayer;
+
+    ytPlayer=new YTApi.Player("videoFrame",{
+      host:"https://www.youtube-nocookie.com",
+      width:"100%",
+      height:"100%",
+      playerVars:{
+        autoplay:1,
+        playsinline:1,
+        controls:1,
+        cc_load_policy:0,
+        rel:0,
+        fs:1,
+        disablekb:0,
+        modestbranding:1,
+        iv_load_policy:3,
+        enablejsapi:1,
+        origin:location.origin,
+        widget_referrer:location.href
+      },
+      events:{
+        onReady(event){
+          ytPlayerReady=true;
+          configurePlayerIframe(event.target);
+
+          const id=String(pendingVideoId||current?.id||"").trim();
+          pendingVideoId="";
+          if(!id)return;
+
+          try{
+            event.target.loadVideoById(id);
+            event.target.playVideo?.();
+          }catch{}
+        },
+        onStateChange(event){
+          if(event.data===YTApi.PlayerState.PLAYING){
+            scheduleCurrentPlayerKind(event.target);
+          }
+        }
+      }
+    });
+
+    return ytPlayer;
+  }
+
+  function playVideoId(id,meta=null){
+    id=String(id||"").trim();
+    if(!id)return false;
+
+    const confirmedRatio=
+      mediaAspectCache.get(id)?.source==="iframe-content-rect"
+        ?cachedMediaAspect(id,{verifiedOnly:true})
+        :0;
+    const metaRatio=mediaAspectFromMeta(meta||{});
+    const primedRatio=cachedPrimedAspect(id);
+
+    // Never delay the click. The list should already have primed this media.
+    // If data is still missing, preserve the current shell instead of forcing
+    // a new temporary 16:9 state.
+    const fallbackRatio=
+      validMediaAspect(current?.detectedRatio)||
+      (current?.kind==="portrait"?9/16:16/9);
+
+    const resolvedAspect=
+      confirmedRatio||
+      metaRatio||
+      primedRatio||
+      fallbackRatio;
+
+    const kind=mediaLayoutKindFromRatio(resolvedAspect);
+
+    if(meta?.id===id){
+      currentMeta=meta;
+      applyHeaderTint(meta);
+    }else if(String(current?.id||"")!==id){
+      currentMeta=null;
+    }
+
+    // media -> kind; MAIN / PiP / 2-column only consume it.
+    current={
+      id,
+      kind,
+      ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
+      detectedRatio:resolvedAspect,
+      label:meta?.title||"Video"
+    };
+    applyMediaLayoutSelection(kind,{relayout:true});
+
+    // PLAY IMMEDIATELY. No await, no cue, no pre-click wait.
+    pendingVideoId=id;
+    void ensureYoutubePlayer().then(playerApi=>{
+      if(!playerApi||String(current?.id||"")!==id)return;
+      if(!ytPlayerReady)return;
+
+      pendingVideoId="";
+      try{
+        playerApi.loadVideoById(id);
+        playerApi.playVideo?.();
+      }catch{}
+    });
+
+    // Only fill a missing cache in parallel. Never block the click.
+    if(!confirmedRatio&&!metaRatio&&!primedRatio){
+      void primeMediaAspect(id).then(ratio=>{
+        if(!ratio||String(current?.id||"")!==id)return;
+        if(mediaAspectCache.get(id)?.source==="iframe-content-rect")return;
+        commitCurrentAspect(id,ratio,{relayout:true});
+      });
+    }
+
+    return true;
+  }
+  function isTwoColumn(){
+    return columnsMq.matches;
+  }
+
+  function pageScrollY(){
+    return Math.max(
+      0,
+      Number(document.scrollingElement?.scrollTop) || Number(window.scrollY) || 0
+    );
+  }
+
+  function wrappedTextLines(text,maxWidth,font){
+    const canvas=wrappedTextLines.canvas||(wrappedTextLines.canvas=document.createElement("canvas"));
+    const ctx=canvas.getContext("2d");
+    if(!ctx)return 1;
+    ctx.font=font;
+
+    const words=String(text||"").trim().split(/\s+/).filter(Boolean);
+    if(!words.length)return 1;
+
+    let lines=1;
+    let line="";
+    for(const word of words){
+      const next=line?line+" "+word:word;
+      if(line && ctx.measureText(next).width>maxWidth){
+        lines+=1;
+        line=word;
+        if(lines>=2)return 2;
+      }else{
+        line=next;
+      }
+    }
+    return lines;
+  }
+
+  function measureLandscapeChrome(mediaW){
+    const title=currentMeta?.title || current.label || "";
+    const source=currentMeta?.sourceName || "";
+
+    // Approximate YouTube's own top overlay from the real title length and
+    // the CURRENT player width. Cross-origin iframe DOM itself cannot be read.
+    const titleFont=mediaW<560?14:(mediaW<900?16:18);
+    const titleLineH=Math.round(titleFont*1.22);
+    const reservedRight=mediaW<560?104:148; // sound / CC / settings
+    const reservedLeft=mediaW<560?48:58;    // avatar + left padding
+    const titleWidth=Math.max(120,mediaW-reservedLeft-reservedRight);
+    const titleLines=wrappedTextLines(
+      title,
+      titleWidth,
+      "700 "+titleFont+"px -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif"
+    );
+
+    const avatar=mediaW<560?32:40;
+    const sourceH=source?Math.round(titleFont*.82):0;
+    const titleBlock=titleLines*titleLineH+sourceH;
+    // YouTube embed source keeps player content below roughly 60px at top.
+    const topSafe=Math.max(60,Math.ceil(10+Math.max(avatar,titleBlock)+8));
+
+    // Source: ytp-embed player content bottom ~=53px; modern controls can grow
+    // toward ~72px, so keep that as a narrow bounded range.
+    const bottomSafe=Math.round(Math.max(53,Math.min(72,53+mediaW*.018)));
+
+    return {topSafe,bottomSafe,titleLines};
+  }
+
+  function chooseCardColumns(feedW,gap){
+    // YouTube source family: normal rich cards roughly 270..500px,
+    // skeleton flex-basis around 310px. Pick a count near 310 without
+    // allowing cards to drift outside the 270..500 band.
+    const MIN=270;
+    const TARGET=310;
+    const MAX=500;
+
+    const maxCols=Math.max(1,Math.floor((feedW+gap)/(MIN+gap)));
+    const minCols=Math.max(1,Math.ceil((feedW+gap)/(MAX+gap)));
+    const targetCols=Math.max(1,Math.round((feedW+gap)/(TARGET+gap)));
+
+    return Math.max(minCols,Math.min(maxCols,targetCols));
+  }
+
+  function syncBoundaries(){
+    const mediaRatio=current?.kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+    root.style.setProperty("--media-ratio",String(mediaRatio));
+
+    // Measure the CURRENT usable viewport, not svh/vw estimates.
+    const topBoundary=Math.max(
+      0,
+      Math.round(top.offsetHeight || top.getBoundingClientRect().height || 0)
+    );
+    const viewportH=Math.max(
+      topBoundary+1,
+      Math.round(document.documentElement.clientHeight || innerHeight || 1)
+    );
+    const bottomGap=8;
+    const contentTopGap=12;
+    const fullH=Math.max(1,viewportH-topBoundary-contentTopGap-bottomGap);
+
+    root.style.setProperty("--top-boundary",topBoundary+"px");
+    if(!root.style.getPropertyValue("--visible-top-boundary")){
+      root.style.setProperty("--visible-top-boundary",topBoundary+"px");
+    }
+    root.style.setProperty("--bottom-gap",bottomGap+"px");
+    root.style.setProperty("--current-full-h",fullH+"px");
+
+    // PiP also follows its CURRENT available size:
+    // landscape owns width, portrait owns height.
+    const viewportW=Math.max(1,Math.round(document.documentElement.clientWidth || innerWidth || 1));
+    const pipLandscapeW=Math.max(170,Math.min(280,Math.round(viewportW*.46)));
+    const pipPortraitH=Math.max(240,Math.min(420,Math.round(fullH*.50)));
+
+    root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
+    root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
+
+    // YOUTUBE-SOURCE GEOMETRY
+    // - two-column threshold: 1000px
+    // - horizontal page margin/gap: 16px
+    // - sidebar width percentage buckets: 22.5 / 27.5 / 32.5
+    // - sidebar min 320px, max 800px, never above 40%
+    // - normal card family: 270..500px, target ~310px
+    const pageW=viewportW;
+    const gap=viewportW<480?8:(viewportW<1000?12:16);
+    root.style.setProperty("--layout-gap",gap+"px");
+    root.style.setProperty("--card-target-w","310px");
+
+    if(!isTwoColumn()){
+      const feedW=Math.max(1,viewportW-(gap*2));
+      const cols=chooseCardColumns(feedW,gap);
+      root.style.setProperty("--feed-cols",String(cols));
+    }else{
+      const contentW=Math.max(1,pageW-(gap*2));
+
+      // YouTube's variable sidebar-width buckets, applied to OUR left feed.
+      const sidebarPct=viewportW>=1900?0.325:(viewportW>=1550?0.275:0.225);
+      const sidebarMax=Math.min(800,contentW*0.40);
+      const desiredFeedW=Math.max(320,Math.min(sidebarMax,contentW*sidebarPct));
+
+      let mediaW;
+      let landscapeChrome=null;
+
+      if(current.ratio>1){
+        // LANDSCAPE gets the remaining width after the source-sized feed.
+        let widthCap=Math.max(1,contentW-gap-desiredFeedW);
+
+        // Fit width to the current height after reserving source-derived
+        // title/control safe zones.
+        landscapeChrome=measureLandscapeChrome(widthCap);
+        let safeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
+        let heightDrivenW=Math.max(
+          1,
+          Math.round(Math.max(1,fullH-(safeBar*2))*current.ratio)
+        );
+        mediaW=Math.min(widthCap,heightDrivenW);
+
+        // Re-measure after final width because title wrapping can change.
+        landscapeChrome=measureLandscapeChrome(mediaW);
+        const finalSafeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
+        const videoH=mediaW/current.ratio;
+        const playerH=Math.min(fullH,Math.ceil(videoH+(finalSafeBar*2)));
+
+        root.style.setProperty("--landscape-player-h",playerH+"px");
+        root.style.setProperty("--landscape-top-safe",landscapeChrome.topSafe+"px");
+        root.style.setProperty("--landscape-bottom-safe",landscapeChrome.bottomSafe+"px");
+      }else{
+        // PORTRAIT stays height-driven. Never stretch it just to fill a column.
+        mediaW=Math.min(
+          Math.round(fullH*current.ratio),
+          Math.max(1,contentW-gap-320)
+        );
+      }
+
+      // Whatever media does not need is returned to the feed.
+      const feedW=Math.max(1,contentW-gap-mediaW);
+      const cols=chooseCardColumns(feedW,gap);
+
+      root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
+      root.style.setProperty("--feed-cols",String(cols));
+    }
+  }
+
+  function dataRow(payload){
+    const data=payload?.data ?? payload;
+    if(!data)return {};
+    if(Array.isArray(data))return data[0]||{};
+    return (
+      data.video ||
+      data.videoDetails ||
+      data.details ||
+      data.info ||
+      data.item ||
+      data
+    );
+  }
+
+  function escapeHtml(value=""){
+    return String(value)
+      .replace(/&/g,"&amp;")
+      .replace(/</g,"&lt;")
+      .replace(/>/g,"&gt;")
+      .replace(/"/g,"&quot;");
+  }
+
+  function cardVerified(row={}){
+    return row?.verified===true ||
+      row?.isVerified===true ||
+      row?.author?.verified===true ||
+      row?.uploaderVerified===true;
+  }
+
+  function cardMetaFromRow(row={}){
+    const meta=window.MediaMeta?.video ? window.MediaMeta.video(row) : {};
+    const videoWidth=Number(row?.videoWidth)||0;
+    const videoHeight=Number(row?.videoHeight)||0;
+    const genericWidth=Number(row?.width)||0;
+    const genericHeight=Number(row?.height)||0;
+    const isShort=row?.isShort===true||row?.is_short===true;
+    const aspectRatio=validMediaAspect(
+      (isShort?9/16:0)||
+      Number(row?.aspectRatio)||
+      Number(row?.videoAspectRatio)||
+      (
+        videoWidth>0&&videoHeight>0
+          ?videoWidth/videoHeight
+          :0
+      )||
+      (
+        genericWidth>0&&genericHeight>0
+          ?genericWidth/genericHeight
+          :0
+      )
+    );
+    return {
+      ...meta,
+      verified:cardVerified(row),
+      isShort,
+      videoWidth,
+      videoHeight,
+      aspectRatio,
+      mediaKind:String(row?.mediaKind||""),
+      _aspectVerified:
+        row?._aspectVerified===true||
+        (videoWidth>0&&videoHeight>0)||
+        isShort,
+      _aspectSource:String(row?.aspectSource||row?._aspectSource||"")
+    };
+  }
+
+  function collectVideoRows(payload){
+    const out=[];
+    const seen=new Set();
+
+    function visit(value,depth=0){
+      if(!value || out.length>=24 || depth>6)return;
+
+      if(Array.isArray(value)){
+        for(const item of value){
+          visit(item,depth+1);
+          if(out.length>=24)break;
+        }
+        return;
+      }
+
+      if(typeof value!=="object")return;
+
+      const id=window.MediaMeta?.videoId?.(value) || "";
+      const hasVideoShape=
+        !!value.videoId ||
+        /(?:watch\?v=|youtu\.be\/|shorts\/|embed\/|live\/)/i.test(String(value.url||"")) ||
+        (!!id && !!(value.title||value.name||value._displayTitle));
+
+      if(hasVideoShape && id && !seen.has(id)){
+        const meta=cardMetaFromRow(value);
+        if(meta.id && meta.title){
+          seen.add(meta.id);
+          out.push(meta);
+        }
+      }
+
+      for(const [key,child] of Object.entries(value)){
+        if(["thumbnails","thumbnailDetails","content_image","author"].includes(key))continue;
+        if(child && (Array.isArray(child)||typeof child==="object")){
+          visit(child,depth+1);
+          if(out.length>=24)break;
+        }
+      }
+    }
+
+    visit(payload?.data ?? payload);
+    return out;
+  }
+
+  function packageMetas(items=[]){
+    const out=[];
+    const seen=new Set();
+    for(const row of Array.isArray(items)?items:[]){
+      const meta=cardMetaFromRow(row);
+      if(!meta?.id||!meta?.title||seen.has(meta.id))continue;
+      seen.add(meta.id);
+      out.push(meta);
+    }
+    primeMediaAspects(out,18);
+    return out;
+  }
+
+  async function loadPackageManifest(){
+    try{
+      const response=await fetch(PACKAGE_SYNC_URL,{cache:"no-store"});
+      if(!response.ok)throw new Error("package_manifest_"+response.status);
+      const payload=await response.json();
+      packageManifest=
+        payload?.manifest && typeof payload.manifest==="object"
+          ? payload.manifest
+          : {};
+      return packageManifest;
+    }catch(_){
+      packageManifest={};
+      return packageManifest;
+    }
+  }
+
+  async function getPackage(scope,{force=false}={}){
+    scope=String(scope||"").trim();
+    if(!scope)return [];
+
+    if(!force&&packageCache.has(scope))return packageCache.get(scope);
+    if(packagePending.has(scope))return packagePending.get(scope);
+
+    const task=(async()=>{
+      try{
+        const response=await fetch(
+          PACKAGE_SYNC_URL+"?scope="+encodeURIComponent(scope),
+          {cache:"no-store"}
+        );
+        if(!response.ok)throw new Error("package_"+scope+"_"+response.status);
+        const payload=await response.json();
+        const pkg=payload?.package;
+        const items=payload?.ok&&payload?.exists&&Array.isArray(pkg?.items)
+          ? pkg.items
+          : [];
+        const metas=packageMetas(items);
+        packageCache.set(scope,metas);
+        return metas;
+      }catch(_){
+        return packageCache.get(scope)||[];
+      }finally{
+        packagePending.delete(scope);
+      }
+    })();
+
+    packagePending.set(scope,task);
+    return task;
+  }
+
+  async function showPackageScope(scope,{force=false}={}){
+    scope=String(scope||"").trim()||"live";
+    activePackageScope=scope;
+    feedMode="package";
+    const request=++feedRequest;
+
+    const cached=packageCache.get(scope);
+    if(cached?.length){
+      feedMetas=cached;
+      renderSampleContent();
+    }
+
+    const metas=await getPackage(scope,{force});
+    if(request!==feedRequest||activePackageScope!==scope||feedMode!=="package")return;
+    feedMetas=metas;
+    renderSampleContent();
+
+    if(!String(current?.id||"")&&metas[0]?.id){
+      if(playVideoId(metas[0].id,metas[0]))loadCurrentVideoMeta();
+    }
+  }
+
+  function prefetchPackages(scopes=[]){
+    const unique=[...new Set((Array.isArray(scopes)?scopes:[]).map(String).filter(Boolean))];
+    setTimeout(()=>{
+      for(const scope of unique){
+        if(scope===activePackageScope||packageCache.has(scope))continue;
+        void getPackage(scope);
+      }
+    },0);
+  }
+
+  function avatarMarkup(meta){
+    const avatar=meta.sourceAvatar || "";
+    if(avatar){
+      return '<img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="">';
+    }
+    const letter=(meta.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
+    return '<span class="row-avatar placeholder">'+escapeHtml(letter)+'</span>';
+  }
+
+  function cardMarkup(meta){
+    const id=meta.id || current.id;
+    const title=meta.title || current.label;
+    const source=meta.sourceName || "1988";
+    const thumb=meta.thumbnail ||
+      ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/mqdefault.jpg");
+
+    const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
+    const badgeClass=meta.isLive ? "duration-badge live" : "duration-badge";
+    const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
+    const verified=meta.verified
+      ? '<span aria-label="Đã xác minh" title="Đã xác minh"> ✓</span>'
+      : "";
+
+    return (
+      '<article class="row" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+        '<div class="row-thumb">'+
+          '<img src="'+escapeHtml(thumb)+'" alt="">'+
+          (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
+        '</div>'+
+        '<div class="row-details">'+
+          avatarMarkup(meta)+
+          '<div class="row-copy">'+
+            '<div class="row-title">'+escapeHtml(title)+'</div>'+
+            '<div class="row-meta">'+escapeHtml(source)+verified+'</div>'+
+            '<div class="row-meta">'+escapeHtml(facts)+'</div>'+
+          '</div>'+
+          '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>'+
+          '</button>'+
+        '</div>'+
+      '</article>'
+    );
+  }
+
+  function parseSourceOrder(labels={}){
+    try{
+      const raw=labels?.__source_order;
+      const parsed=Array.isArray(raw)?raw:JSON.parse(String(raw||"[]"));
+      return Array.isArray(parsed)?parsed.map(String).filter(Boolean):[];
+    }catch{
+      return [];
+    }
+  }
+
+  function existingSourceTabNames(remote={}){
+    const labels=
+      remote?.sourceLabels && typeof remote.sourceLabels==="object" && !Array.isArray(remote.sourceLabels)
+        ? remote.sourceLabels
+        : {};
+
+    const system=[
+      {key:"live",label:String(labels.live||"Live").trim()||"Live"},
+      {key:"latest",label:String(labels.latest||"Ngày").trim()||"Ngày"},
+      {key:"week",label:String(labels.week||"Tuần").trim()||"Tuần"}
+    ];
+
+    const custom=(Array.isArray(remote?.hashtags)?remote.hashtags:[])
+      .filter(row=>row?.enabled!==false)
+      .map((row,index)=>({
+        key:String(row?.id||row?.hashtag_id||"").trim(),
+        label:String(row?.label||"").replace(/\s+/g," ").trim(),
+        position:Number(row?.position)||0,
+        index
+      }))
+      .filter(row=>row.key&&row.label);
+
+    const order=parseSourceOrder(labels);
+    if(order.length){
+      const rank=new Map(order.map((key,index)=>[key,index]));
+      custom.sort((a,b)=>{
+        const ar=rank.has(a.key)?rank.get(a.key):Number.MAX_SAFE_INTEGER;
+        const br=rank.has(b.key)?rank.get(b.key):Number.MAX_SAFE_INTEGER;
+        return ar-br||a.position-b.position||a.index-b.index;
+      });
+    }else{
+      custom.sort((a,b)=>a.position-b.position||a.index-b.index);
+    }
+
+    const seen=new Set();
+    return [...system,...custom]
+      .map(row=>({key:row.key,label:row.label}))
+      .filter(row=>{
+        const key=row.label.toLocaleLowerCase("vi-VN");
+        if(seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function renderExistingSourceNames(rows=[]){
+    if(!sourceNameChips)return;
+    const list=Array.isArray(rows)?rows.filter(row=>row?.key&&row?.label):[];
+    sourceNameChips.innerHTML=list.map((row,index)=>
+      '<button class="source-chip'+(index===0?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
+        escapeHtml(row.label)+
+      '</button>'
+    ).join("");
+    sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
+    requestAnimationFrame(()=>{
+      updateHeaderSearchRoom();
+      updateSourceRailArrows();
+    });
+  }
+
+  function naturalSourceChipsWidth(){
+    if(!sourceNameChips)return 0;
+
+    let total=0;
+    const chips=sourceNameChips.querySelectorAll(".source-chip[data-source-tab]");
+    chips.forEach(chip=>{
+      const style=getComputedStyle(chip);
+      total+=chip.getBoundingClientRect().width;
+      total+=parseFloat(style.marginLeft)||0;
+      total+=parseFloat(style.marginRight)||0;
+    });
+    return Math.ceil(total);
+  }
+
+  function updateHeaderSearchRoom(){
+    if(!top||!sourceChips)return;
+
+    // Mobile keeps the compact icon; explicit search always owns the row.
+    if(mobileHeaderMq.matches||top.classList.contains("search-open")){
+      headerRoomy=false;
+      top.classList.remove("search-roomy");
+      top.style.removeProperty("--auto-search-w");
+      return;
+    }
+
+    const headerW=Math.max(
+      0,
+      top.clientWidth||
+      document.documentElement.clientWidth||
+      window.innerWidth||
+      0
+    );
+
+    // IMPORTANT: do not use sourceChips.scrollWidth here.
+    // The flex/block rail expands to its parent, so scrollWidth can look almost
+    // as wide as the whole header even when the actual chips occupy much less.
+    const chipsW=naturalSourceChipsWidth();
+
+    // Reserve compact outer spacing + a little breathing room after the last chip.
+    const chromeReserve=24;
+    const surplus=Math.max(0,headerW-chipsW-chromeReserve);
+
+    // Full search is useful from 280px upward; let it grow with the real spare
+    // space but cap it near YouTube's desktop search width.
+    const roomy=chipsW>0&&surplus>=280;
+    const searchW=roomy
+      ?Math.min(640,Math.max(280,Math.floor(surplus)))
+      :0;
+
+    headerRoomy=roomy;
+    top.classList.toggle("search-roomy",roomy);
+    if(roomy)top.style.setProperty("--auto-search-w",searchW+"px");
+    else top.style.removeProperty("--auto-search-w");
+  }
+
+  function updateSourceRailArrows(){
+    if(!sourceScroll||!sourcePrev||!sourceNext)return;
+    const max=Math.max(0,sourceScroll.scrollWidth-sourceScroll.clientWidth);
+    const left=Math.max(0,sourceScroll.scrollLeft);
+    sourcePrev.hidden=left<=2;
+    sourceNext.hidden=max<=2||left>=max-2;
+  }
+
+  function moveSourceRail(direction){
+    if(!sourceScroll)return;
+    const step=Math.max(180,Math.min(360,Math.round(sourceScroll.clientWidth*.55)));
+    sourceScroll.scrollBy({left:direction*step,behavior:"smooth"});
+  }
+
+  sourcePrev?.addEventListener("click",()=>moveSourceRail(-1));
+  sourceNext?.addEventListener("click",()=>moveSourceRail(1));
+  sourceScroll?.addEventListener("scroll",updateSourceRailArrows,{passive:true});
+
+  async function loadExistingSourceNames(){
+    sourceNameChips.innerHTML="";
+
+    const fallbackRows=[
+      {key:"live",label:"Live"},
+      {key:"latest",label:"Ngày"},
+      {key:"week",label:"Tuần"}
+    ];
+
+    // Paint the canonical rail immediately instead of waiting for network state.
+    renderExistingSourceNames(fallbackRows);
+
+    // Critical startup path: fetch the first real media package immediately.
+    // Do NOT serialize it behind source-state or manifest requests.
+    const firstPackagePromise=showPackageScope("live",{force:true});
+
+    const statePromise=(async()=>{
+      try{
+        const response=await fetch(SOURCE_STATE_URL,{cache:"no-store"});
+        if(!response.ok)throw new Error("source_state_"+response.status);
+        const payload=await response.json();
+        const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+        return existingSourceTabNames(remote);
+      }catch(_){
+        return [];
+      }
+    })();
+
+    const manifestPromise=loadPackageManifest();
+
+    const [rowsFromState]=await Promise.all([
+      statePromise,
+      manifestPromise,
+      firstPackagePromise
+    ]);
+
+    const rows=rowsFromState.length?rowsFromState:fallbackRows;
+    renderExistingSourceNames(rows);
+
+    const scopes=rows
+      .map(row=>row.key)
+      .filter(scope=>!Object.keys(packageManifest).length||packageManifest[scope]);
+
+    // Live is already loaded above; warm only the remaining packages.
+    prefetchPackages(scopes.filter(scope=>scope!=="live"));
+    return rows;
+  }
+
+  function renderSampleContent(){
+    const rows=document.getElementById("rows");
+    const meta=currentMeta || {};
+    const cards=feedMetas.length
+      ? feedMetas
+      : [meta.id?meta:{...meta,id:current.id,title:current.label}];
+
+    // A feed render is authoritative. Never re-apply stale search text here;
+    // otherwise clicking a source can load correctly but all new cards stay hidden.
+    const rendered=cards.slice(0,18);
+    rows.innerHTML=rendered.map(cardMarkup).join("");
+  }
+
+  function normalizedSearchQuery(value){
+    return String(value||"").trim().replace(/\s+/g," ").toLocaleLowerCase("vi-VN");
+  }
+
+  function rememberRecentSearch(query,results=[]){
+    const key=normalizedSearchQuery(query);
+    if(!key)return;
+
+    recentSearches=[key,...recentSearches.filter(item=>item!==key)].slice(0,2);
+    try{
+      localStorage.setItem(SEARCH_RECENT_KEY,JSON.stringify(recentSearches));
+    }catch{}
+
+    if(Array.isArray(results)&&results.length){
+      searchCache.set(key,results.slice(0,18));
+    }
+
+    // Cache results for only the same 2 recent queries.
+    for(const cachedKey of [...searchCache.keys()]){
+      if(!recentSearches.includes(cachedKey))searchCache.delete(cachedKey);
+    }
+  }
+
+  function uniqueSearchMetas(items=[]){
+    const out=[];
+    const seen=new Set();
+    for(const meta of Array.isArray(items)?items:[]){
+      const id=String(meta?.id||"").trim();
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      out.push(meta);
+      if(out.length>=18)break;
+    }
+    return out;
+  }
+
+  function localSearchMatches(query){
+    const q=normalizedSearchQuery(query);
+    if(!q)return [];
+
+    // Current visible feed first, then already-downloaded packages. This is only
+    // an instant first paint; the same click still launches global search.
+    const pool=[
+      ...feedMetas,
+      ...relatedMetas,
+      ...[...packageCache.values()].flat()
+    ];
+
+    return uniqueSearchMetas(pool.filter(meta=>{
+      const hay=normalizedSearchQuery(
+        (meta?.title||"")+" "+(meta?.sourceName||"")
+      );
+      return hay.includes(q);
+    }));
+  }
+
+  function showSearchResults(query,results=[]){
+    const next=uniqueSearchMetas(results);
+    if(!next.length)return false;
+
+    feedMode="search";
+    feedMetas=next;
+    primeMediaAspects(next,18);
+    renderSampleContent();
+    rememberRecentSearch(query,next);
+    return true;
+  }
+
+  function showCachedSearchIfAvailable(query){
+    const key=normalizedSearchQuery(query);
+    if(!key)return false;
+
+    const cached=searchCache.get(key);
+    if(cached?.length)return showSearchResults(key,cached);
+    return false;
+  }
+
+  async function runSearch(){
+    const raw=(searchInput?.value||"").trim();
+    const key=normalizedSearchQuery(raw);
+
+    if(!key){
+      void showPackageScope(activePackageScope);
+      return;
+    }
+
+    // Exact repeat: paint the previous result immediately.
+    const hadCached=showCachedSearchIfAvailable(key);
+
+    // Otherwise paint matching content we already have in memory immediately.
+    const localMatches=hadCached?[]:localSearchMatches(key);
+    if(localMatches.length)showSearchResults(key,localMatches);
+
+    // ONE user action always continues into the normal global search.
+    const request=++feedRequest;
+    try{
+      if(!window.YT1988_API?.search)return;
+
+      const payload=await window.YT1988_API.search(raw,"videos");
+      if(request!==feedRequest)return;
+
+      const globalResults=collectVideoRows(payload)
+        .filter(meta=>meta.id&&meta.title);
+
+      // Current-source/local matches get first positions only as a convenience;
+      // global search is not restricted by the selected source.
+      const merged=uniqueSearchMetas([
+        ...(searchCache.get(key)||localMatches),
+        ...globalResults
+      ]);
+
+      if(merged.length){
+        showSearchResults(key,merged);
+      }else if(!hadCached&&!localMatches.length){
+        feedMode="search";
+        feedMetas=[];
+        renderSampleContent();
+        rememberRecentSearch(key,[]);
+      }
+    }catch(_){
+      // If instant cached/local results were already painted, keep them.
+    }
+  }
+
+  async function loadFeedData(){
+    await loadPackageManifest();
+    return showPackageScope(activePackageScope,{force:true});
+  }
+
+  async function loadCurrentVideoMeta(){
+    const request=++metaRequest;
+    const requestedId=String(current?.id||"");
+    const previousMeta=currentMeta;
+
+    // Keep the selected card/list DOM and the provisional meta already supplied
+    // by the package/search result. Rebuilding rows here caused a visible flash.
+    try{
+      if(!window.YT1988_API?.video || !window.MediaMeta?.video){
+        throw new Error("app data helpers unavailable");
+      }
+
+      const payload=await window.YT1988_API.video(requestedId);
+      if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
+
+      const row=dataRow(payload);
+      const nextMeta=cardMetaFromRow(row);
+      if(!nextMeta.id)nextMeta.id=requestedId;
+      currentMeta=nextMeta;
+
+      const related=collectVideoRows(payload)
+        .filter(meta=>meta.id && meta.id!==requestedId)
+        .slice(0,18);
+
+      let feedChanged=false;
+      if(related.length){
+        relatedMetas=related;
+        if(feedMode!=="search"&&feedMode!=="package"){
+          feedMode="related";
+          feedMetas=relatedMetas;
+          feedChanged=true;
+        }
+      }
+
+      titleEl.textContent=currentMeta.title||current.label;
+      applyHeaderTint(currentMeta);
+
+      // Only rebuild rows when the actual feed changed. Package/search card
+      // lists remain untouched while the selected video metadata refreshes.
+      if(feedChanged||!feedMetas.length)renderSampleContent();
+      syncBoundaries();
+    }catch(_){
+      if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
+
+      // Keep the package/search meta already shown instead of blanking it.
+      currentMeta=previousMeta;
+      titleEl.textContent=currentMeta?.title||current.label||"";
+    }
+  }
+  function layout(){
+    syncBoundaries();
+    const two=isTwoColumn();
+    const portrait=current?.kind==="portrait";
+
+    root.classList.toggle("one-col",!two);
+    root.classList.toggle("two-col",two);
+    root.classList.toggle("portrait",portrait);
+    root.classList.toggle("landscape",!portrait);
+
+    /* CSS owns all geometry:
+       landscape follows width, portrait follows height. */
+
+    if(two){
+      pip=false;
+      player.classList.remove("pip");
+      stage.classList.remove("pip-host");
+    }
+
+    paintText();
+  }
+  function paintText(){
+    titleEl.textContent=currentMeta?.title||current.label||"";
+  }
+  function syncPip(){
+    if(isTwoColumn()){
+      if(pip){
+        pip=false;
+        player.classList.remove("pip");
+        paintText();
+      }
+      return;
+    }
+
+    /* Simple rule:
+       stage is always the original MAIN media box and stays in document flow.
+       When its real bottom passes the header -> PiP.
+       Because stage never becomes fixed, this remains stable after PiP opens. */
+    const shouldPip=
+      pageScrollY()>0 &&
+      stage.getBoundingClientRect().bottom<=top.getBoundingClientRect().bottom+1;
+
+    if(shouldPip===pip)return;
+
+    pip=shouldPip;
+
+    // Presentation-only transition. Keep current.kind/current.ratio untouched:
+    // PiP consumes the shape of the CURRENT media, wherever that media was opened.
+    player.classList.toggle("pip",pip);
+    stage.classList.toggle("pip-host",pip);
+    paintText();
+  }
+
+  function setMobileHeaderHidden(hidden){
+    hidden=!!hidden && mobileHeaderMq.matches && !top.classList.contains("search-open");
+    if(hidden===mobileHeaderHidden)return;
+
+    mobileHeaderHidden=hidden;
+    top.classList.toggle("mobile-scroll-hidden",hidden);
+    root.style.setProperty(
+      "--visible-top-boundary",
+      hidden ? "0px" : Math.max(0,Math.round(top.offsetHeight||0))+"px"
+    );
+  }
+
+  function syncMobileHeaderVisibility(reset=false){
+    const y=pageScrollY();
+
+    if(!mobileHeaderMq.matches){
+      mobileHeaderLastY=y;
+      setMobileHeaderHidden(false);
+      return;
+    }
+
+    if(reset){
+      mobileHeaderLastY=y;
+      if(y<=4)setMobileHeaderHidden(false);
+      return;
+    }
+
+    if(top.classList.contains("search-open")){
+      mobileHeaderLastY=y;
+      setMobileHeaderHidden(false);
+      return;
+    }
+
+    const delta=y-mobileHeaderLastY;
+
+    // Finger/content moves upward -> page scrollY increases -> hide.
+    // Reverse direction -> reveal immediately. Always reveal at page top.
+    if(y<=4){
+      setMobileHeaderHidden(false);
+    }else if(delta>6 && y>24){
+      setMobileHeaderHidden(true);
+    }else if(delta<-4){
+      setMobileHeaderHidden(false);
+    }
+
+    mobileHeaderLastY=y;
+  }
+
+  function schedulePip(){
+    if(raf)return;
+    raf=requestAnimationFrame(()=>{
+      raf=0;
+      syncPip();
+    });
+  }
+
+  function openNarrowSearch(){
+    setMobileHeaderHidden(false);
+    top.classList.remove("search-roomy");
+    top.classList.add("search-open");
+    syncHeaderScrollState();
+    requestAnimationFrame(()=>{
+      syncBoundaries();
+      searchInput.focus();
+    });
+  }
+
+  function closeNarrowSearch(){
+    top.classList.remove("search-open");
+    updateHeaderSearchRoom();
+    syncHeaderScrollState();
+    syncMobileHeaderVisibility(true);
+    syncBoundaries();
+  }
+
+  searchToggle.addEventListener("click",openNarrowSearch);
+  searchBack.addEventListener("click",closeNarrowSearch);
+
+  searchInput.addEventListener("input",()=>{
+    const key=normalizedSearchQuery(searchInput.value);
+    if(key&&recentSearches.includes(key)){
+      showCachedSearchIfAvailable(key);
+    }
+  });
+  searchInput.addEventListener("keydown",event=>{
+    if(event.key==="Enter"){
+      event.preventDefault();
+      runSearch();
+    }else if(event.key==="Escape"){
+      closeNarrowSearch();
+    }
+  });
+  searchButton.addEventListener("click",()=>{
+    runSearch();
+    searchInput.focus();
+  });
+
+  sourcebar.addEventListener("click",event=>{
+    const chip=event.target.closest(".source-chip[data-source-tab]");
+    if(!chip)return;
+
+    sourceNameChips.querySelectorAll(".source-chip[data-source-tab]").forEach(x=>x.classList.remove("active"));
+    chip.classList.add("active");
+    chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
+    requestAnimationFrame(updateSourceRailArrows);
+
+    // Source selection is independent from search state. Invalidate any
+    // in-flight global search so it cannot overwrite this source afterward.
+    feedRequest++;
+    feedMode="package";
+    void showPackageScope(chip.dataset.sourceTab||"live");
+  });
+
+  document.getElementById("rows").addEventListener("pointerdown",event=>{
+    const card=event.target.closest(".row[data-video-id]");
+    if(!card||event.target.closest(".row-menu"))return;
+
+    const id=String(card.dataset.videoId||"").trim();
+    if(!id)return;
+
+    const meta=
+      feedMetas.find(item=>item?.id===id)||
+      relatedMetas.find(item=>item?.id===id)||
+      null;
+
+    // Usually already warm from the server batch; this is a non-blocking fallback.
+    void primeMediaAspect(id);
+  },{passive:true});
+
+  document.getElementById("rows").addEventListener("click",event=>{
+    const menu=event.target.closest(".row-menu");
+    const card=event.target.closest(".row");
+    if(!card)return;
+
+    if(menu){
+      event.stopPropagation();
+      menu.animate(
+        [{transform:"scale(.88)"},{transform:"scale(1)"}],
+        {duration:140,easing:"cubic-bezier(.2,0,0,1)"}
+      );
+      return;
+    }
+
+    document.querySelectorAll(".row.selected").forEach(x=>x.classList.remove("selected"));
+    card.classList.add("selected");
+
+    const id=String(card.dataset.videoId||"").trim()||current.id;
+    const selectedMeta=
+      feedMetas.find(meta=>meta?.id===id)||
+      relatedMetas.find(meta=>meta?.id===id)||
+      null;
+
+    if(playVideoId(id,selectedMeta)){
+      loadCurrentVideoMeta();
+      schedulePip();
+    }
+  });
+  addEventListener("scroll",()=>{
+    syncHeaderScrollState();
+    schedulePip();
+    syncMobileHeaderVisibility();
+  },{passive:true});
+
+  /* Breakpoint has exactly one owner: the same media query used by CSS. */
+  columnsMq.addEventListener?.("change",()=>{
+    if(matchMedia("(min-width:657px)").matches){
+      top.classList.remove("search-open");
+    }
+    layout();
+    updateHeaderSearchRoom();
+    syncMobileHeaderVisibility(true);
+    schedulePip();
+  });
+
+  /* Resize refreshes geometry, but never enter a scrollbar feedback loop. */
+  let lastViewportW=document.documentElement.clientWidth||innerWidth||0;
+  addEventListener("resize",()=>{
+    const nextW=document.documentElement.clientWidth||innerWidth||0;
+    const widthChanged=Math.abs(nextW-lastViewportW)>1;
+    lastViewportW=nextW;
+
+    if(widthChanged || document.documentElement.scrollWidth<=nextW+1){
+      syncBoundaries();
+    }
+    updateHeaderSearchRoom();
+    syncMobileHeaderVisibility(true);
+    updateSourceRailArrows();
+    schedulePip();
+  },{passive:true});
+
+  /* If title/search/source chrome changes height, every media mode receives
+     the same new TOP without separate mode-specific calculations. */
+  new ResizeObserver(()=>{
+    updateHeaderSearchRoom();
+    syncBoundaries();
+    schedulePip();
+  }).observe(top);
+
+  new ResizeObserver(()=>{
+    updateHeaderSearchRoom();
+    updateSourceRailArrows();
+  }).observe(sourceChips);
+
+  window.visualViewport?.addEventListener?.("resize",()=>{
+    syncBoundaries();
+    syncMobileHeaderVisibility(true);
+    schedulePip();
+  },{passive:true});
+
+  mobileHeaderLastY=pageScrollY();
+  syncHeaderScrollState();
+  syncMobileHeaderVisibility(true);
+  loadExistingSourceNames();
+  requestAnimationFrame(()=>{
+    updateHeaderSearchRoom();
+    updateSourceRailArrows();
+  });
+  document.fonts?.ready?.then?.(()=>{
+    updateHeaderSearchRoom();
+    updateSourceRailArrows();
+  });
+})();
+</script>
+
+<script>
+if("serviceWorker" in navigator){
+  addEventListener("load",()=>{
+    navigator.serviceWorker
+      .register("./sw.js",{updateViaCache:"none"})
+      .then(registration=>registration.update())
+      .catch(()=>{});
+  },{once:true});
+}
+</script>
 </body>
 </html>
