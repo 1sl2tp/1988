@@ -11674,12 +11674,12 @@ function renderSelectedVideoInfo(meta={}){
 
   const topicScopes=selectedVideoTopicScopes(meta);
   const topicNames=topicScopes.map(topicHashtagLabel);
-  const topicName=topicNames.length
-    ?topicNames.join(" ")
-    :"#khác";
-  const topicMeta=topicNames.length
-    ?"Hashtag chủ đề"
-    :"Chưa phân loại chủ đề";
+  const topicName=topicNames[0]||"#khác";
+  const topicMeta=topicNames.length>1
+    ?"Hashtag chủ đề · "+topicNames.slice(1).join(" ")
+    :topicNames.length
+      ?"Hashtag chủ đề"
+      :"Chưa phân loại chủ đề";
 
   selectedVideoInfo.hidden=false;
   if(selectedVideoTitle)selectedVideoTitle.textContent=media.title||"Video";
