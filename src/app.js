@@ -6028,27 +6028,104 @@ function watchMediaSlotTopEdge(){
   return Math.max(0,Number(window.visualViewport?.offsetTop)||0);
 }
 
+let watchPipFlipTimer=0;
+
+function watchPlayerRect(){
+  if(!playerSection)return null;
+  const rect=playerSection.getBoundingClientRect?.();
+  if(
+    !rect||
+    !Number.isFinite(rect.left)||
+    !Number.isFinite(rect.top)||
+    rect.width<=0||
+    rect.height<=0
+  )return null;
+  return {
+    left:rect.left,
+    top:rect.top,
+    width:rect.width,
+    height:rect.height
+  };
+}
+
+function animateWatchPlayerFlip(fromRect,toRect,{duration=260}={}){
+  if(!playerSection||!fromRect||!toRect)return;
+  if(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches)return;
+
+  const sx=fromRect.width/toRect.width;
+  const sy=fromRect.height/toRect.height;
+  const dx=fromRect.left-toRect.left;
+  const dy=fromRect.top-toRect.top;
+
+  if(
+    !Number.isFinite(sx)||
+    !Number.isFinite(sy)||
+    Math.abs(dx)<.5&&
+    Math.abs(dy)<.5&&
+    Math.abs(sx-1)<.005&&
+    Math.abs(sy-1)<.005
+  )return;
+
+  clearTimeout(watchPipFlipTimer);
+  playerSection.classList.add("watch-pip-flip");
+  playerSection.style.setProperty("transform-origin","0 0","important");
+  playerSection.style.setProperty("transition","none","important");
+  playerSection.style.setProperty(
+    "transform",
+    `translate3d(${dx}px,${dy}px,0) scale(${sx},${sy})`,
+    "important"
+  );
+
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      if(!playerSection)return;
+      playerSection.style.setProperty(
+        "transition",
+        `transform ${duration}ms cubic-bezier(.4,0,.2,1)`,
+        "important"
+      );
+      playerSection.style.setProperty("transform","translate3d(0,0,0) scale(1)","important");
+
+      watchPipFlipTimer=setTimeout(()=>{
+        if(!playerSection)return;
+        playerSection.classList.remove("watch-pip-flip");
+        playerSection.style.removeProperty("transform");
+        playerSection.style.removeProperty("transform-origin");
+        playerSection.style.removeProperty("transition");
+      },duration+60);
+    });
+  });
+}
+
 function freezeWatchMediaSlot(){
   if(!playerSection)return;
 
   const root=document.documentElement;
+  const rect=watchPlayerRect();
+  const slotHeight=Math.max(
+    1,
+    Math.round(
+      Number(rect?.height)||
+      Number(playerSection.offsetHeight)||
+      1
+    )
+  );
 
-  // PiP owns the actual media surface. Keep only a 1px geometry anchor in the
-  // document so the return-to-MAIN threshold still works without leaving the
-  // old video/thumbnail area visible underneath.
-  root.style.setProperty("--watch-inline-slot-h","1px");
+  // Preserve the exact MAIN slot while the same media surface is floating.
+  // The list therefore keeps one stable geometry instead of expanding/collapsing
+  // during Main -> PiP -> Main.
+  root.style.setProperty("--watch-inline-slot-h",slotHeight+"px");
   root.style.removeProperty("--watch-inline-slot-art");
 
   const anchor=watchPipAnchor();
   if(anchor){
-    anchor.style.height="1px";
+    anchor.style.height=slotHeight+"px";
     anchor.style.removeProperty("background-image");
     anchor.hidden=false;
   }
 
   // The OUTER player section floats. The iframe/frame stays ordinary inside it.
-  // This avoids fixed-position descendants being trapped by paint/layout
-  // containment in some browser engines.
+  // This avoids reparenting/recreating the YouTube iframe.
   playerSection.classList.add("watch-pip-floating-section");
 }
 
@@ -8384,6 +8461,8 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
       isPlayerFullscreen()
     )return false;
 
+    const mainRect=watchPlayerRect();
+
     markPlaybackTransition();
     state.floatUserMoved=false;
     state.floatTucked=false;
@@ -8400,25 +8479,19 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
 
-    // One-column Watch uses one synchronous transition on every browser.
-    // This avoids relying on a browser-specific scroll/animation scheduling path.
-    if(watchAutoPipViewport()){
-      applyFloatingIframe(true);
-      const frame=playerSection?.querySelector(".player-frame");
-      if(frame){
-        syncFloatingPlayerViewport(frame,{settle:true});
-        requestAnimationFrame(()=>applyFloatingIframe(true));
-        setTimeout(()=>{
-          if(state.watchMinimized)applyFloatingIframe(true);
-        },120);
-      }
-    }else{
-      requestAnimationFrame(()=>applyFloatingIframe(true));
-    }
+    // Commit PiP geometry once, then animate the already-live player surface
+    // from MAIN to PiP with a compositor transform. Do not re-run outer
+    // width/height placement during the transition.
+    applyFloatingIframe(true);
+    const frame=playerSection?.querySelector(".player-frame");
+    if(frame)syncFloatingPlayerViewport(frame,{settle:true});
+    animateWatchPlayerFlip(mainRect,watchPlayerRect());
     return true;
   }
 
   if(!state.watchMinimized&&!root.classList.contains("watch-minimized"))return false;
+
+  const pipRect=watchPlayerRect();
 
   markPlaybackTransition();
   state.watchMinimized=false;
@@ -8427,9 +8500,15 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
   state.watchPipEnteredAt=0;
   state.watchRestoreUntil=Date.now()+650;
   root.classList.remove("watch-minimized");
+
+  // Restore layout ownership in one commit. The workspace gets its final MAIN
+  // geometry first; the visible player then FLIPs from the PiP rectangle back
+  // to that slot without making the feed resize on every animation frame.
   applyFloatingIframe(false);
   syncWatchBrowseLayout();
-  requestAnimationFrame(releaseWatchMediaSlot);
+  applyResponsivePlayerFrame();
+  animateWatchPlayerFlip(pipRect,watchPlayerRect());
+
   if(!preserveScroll)hardResetDocumentTop();
   if(state.intentPlay){
     setTimeout(resumeVideoAfterReturn,80);
