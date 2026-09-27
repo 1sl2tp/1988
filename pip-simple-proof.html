@@ -7,7 +7,12 @@
 <meta id="themeColorMeta" name="theme-color" content="rgba(33,33,33,.98)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>PiP Simple Proof</title>
+<meta name="apple-mobile-web-app-title" content="1988">
+<meta name="description" content="1988 - xem video nhanh.">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<title>1988</title>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -2670,6 +2675,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
     updateSourceRailArrows();
   });
 })();
+</script>
+
+<script>
+if("serviceWorker" in navigator){
+  addEventListener("load",()=>{
+    navigator.serviceWorker
+      .register("./sw.js",{updateViaCache:"none"})
+      .then(registration=>registration.update())
+      .catch(()=>{});
+  },{once:true});
+}
 </script>
 </body>
 </html>
