@@ -2642,8 +2642,31 @@ html.search-suggestions-open .suggestions{
     box-shadow:0 14px 32px rgba(0,0,0,.48);
   }
 
-  /* Standalone/PWA follows the same geometry; only safe-area changes. */
+  /* iOS/WebKit standalone with viewport-fit=cover can report dvh shorter
+     than the physical app surface by the bottom safe-area. Keep dvh on normal
+     Safari, but use vh for the installed PWA so the dark app surface reaches
+     the real bottom edge. Safe-area padding still protects interactive content. */
   @media(display-mode:standalone){
+    html,
+    body{
+      min-height:100vh;
+    }
+
+    html.watch-browse,
+    html.watch-browse body{
+      height:100vh;
+    }
+
+    html.watch-browse.watch-video-portrait{
+      height:auto;
+      min-height:100vh;
+    }
+
+    html.watch-browse.watch-video-portrait body{
+      height:auto;
+      min-height:100vh;
+    }
+
     html:not(.watch-browse) .app-header,
     html.watch-browse .header-inner{
       padding-top:var(--safe-top);
