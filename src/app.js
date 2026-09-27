@@ -7610,7 +7610,24 @@ function setWatchMinimized(minimized,{pinned=false,preserveScroll=false}={}){
     syncNativeMobileControls();
     setHomeSearchOpen(false);
     setHomeHeaderHidden(false);
-    requestAnimationFrame(()=>applyFloatingIframe(true));
+
+    // iOS Safari / standalone PWA can defer requestAnimationFrame while a
+    // momentum scroll is active. Enter floating mode synchronously on compact
+    // touch layouts, then settle the exact iframe viewport again on the next
+    // frames. Desktop keeps the normal RAF path.
+    if(mobileMiniViewport()){
+      applyFloatingIframe(true);
+      const frame=playerSection?.querySelector(".player-frame");
+      if(frame){
+        syncFloatingPlayerViewport(frame,{settle:true});
+        requestAnimationFrame(()=>applyFloatingIframe(true));
+        setTimeout(()=>{
+          if(state.watchMinimized)applyFloatingIframe(true);
+        },120);
+      }
+    }else{
+      requestAnimationFrame(()=>applyFloatingIframe(true));
+    }
     return true;
   }
 
@@ -7818,6 +7835,40 @@ function setupWatchMinimizeGesture(){
     !isPlayerFullscreen()
   );
 
+  // WebKit fallback: Safari/PWA can delay body scroll and IntersectionObserver
+  // notifications during the finger gesture. Detect the user's real upward
+  // browse swipe outside the cross-origin iframe and detach immediately. This
+  // does not preventDefault, so native page scrolling and YouTube controls keep
+  // their normal behaviour.
+  let compactSwipe=null;
+  document.addEventListener("touchstart",event=>{
+    if(
+      !mobileMiniViewport() ||
+      !eligibleInline() ||
+      event.touches?.length!==1
+    ){
+      compactSwipe=null;
+      return;
+    }
+    const touch=event.touches[0];
+    compactSwipe={x:touch.clientX,y:touch.clientY};
+  },{passive:true,capture:true});
+
+  document.addEventListener("touchmove",event=>{
+    if(!compactSwipe||event.touches?.length!==1||!eligibleInline())return;
+    const touch=event.touches[0];
+    const dx=touch.clientX-compactSwipe.x;
+    const dy=touch.clientY-compactSwipe.y;
+    if(dy<=-14&&Math.abs(dy)>Math.abs(dx)*1.08){
+      compactSwipe=null;
+      setWatchMinimized(true,{pinned:false});
+    }
+  },{passive:true,capture:true});
+
+  const clearCompactSwipe=()=>{compactSwipe=null;};
+  document.addEventListener("touchend",clearCompactSwipe,{passive:true,capture:true});
+  document.addEventListener("touchcancel",clearCompactSwipe,{passive:true,capture:true});
+
   const alignMediaSlotToTop=()=>{
     const rect=watchMediaSlotRect();
     if(!rect)return;
@@ -7879,6 +7930,7 @@ function setupWatchMinimizeGesture(){
   document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  window.visualViewport?.addEventListener?.("scroll",syncPipToMediaSlot,{passive:true});
   setTimeout(syncPipToMediaSlot,220);
 
   if("IntersectionObserver" in window&&playerSection){
