@@ -111,10 +111,8 @@
   }
 
   function escapeRegex(value=''){
-    return String(value).replace(/[.*+?^$(){}|[\\]\\\\]/g,'\\  function title(row={}){
-    const raw=pick(row?._displayTitle,row?.title,row?.name)||'Video';
-    return row?.isLive===true?cleanLiveTitle(raw):raw;
-  }');
+    const special=new Set(['\\','^','$','.','*','+','?','(',')','[',']','{','}','|']);
+    return [...String(value)].map(ch=>special.has(ch)?'\\\\'+ch:ch).join('');
   }
 
   function stripSourcePrefix(value='',source=''){
@@ -146,7 +144,6 @@
     const liveClean=row?.isLive===true?cleanLiveTitle(raw):raw;
     return stripSourcePrefix(liveClean,sourceName(row));
   }
-
   function normalizeImageUrl(value=''){
     const url=clean(value);
     return url.startsWith('//')?'https:'+url:url;
