@@ -12288,6 +12288,9 @@ let watchMediaChromeTimer=0;
 let watchMediaProgressRaf=0;
 let watchMediaDragging=false;
 let watchMediaScrubRect=null;
+let watchMediaSeekResume=false;
+let watchMediaSeekTarget=null;
+let watchMediaSeekSettlingUntil=0;
 let lastPlayerUiMode="";
 
 function mainPlaybackActive(){
@@ -12317,7 +12320,7 @@ function syncUnifiedMediaProgress(
 ){
   if(!frame)return;
 
-  const duration=unifiedMediaDuration();
+  const duration=unifiedMediaDuration()||durationSeconds(state.currentMeta||{});
   const current=ratioOverride===null
     ?getVideoTime()
     :duration*Math.max(0,Math.min(1,Number(ratioOverride)||0));
@@ -12424,13 +12427,73 @@ function seekUnifiedMediaFromClientX(
   frame=playerSection?.querySelector(".player-frame")
 ){
   const bar=frame?.querySelector(".watch-media-progress");
-  if(!bar)return;
+  if(!bar)return null;
   const rect=watchMediaScrubRect||bar.getBoundingClientRect();
-  if(!rect.width)return;
+  if(!rect.width)return null;
+
   const ratio=Math.max(0,Math.min(1,(Number(clientX)-rect.left)/rect.width));
-  const duration=unifiedMediaDuration();
-  if(duration>0)seekVideo(duration*ratio);
+  // Dragging is preview-only. Calling YouTube seekTo() for every pointermove
+  // creates competing BUFFERING/PAUSED events and makes the final position
+  // intermittent, especially on Safari/iOS.
+  watchMediaSeekTarget=ratio;
   syncUnifiedMediaProgress(frame,ratio);
+  return ratio;
+}
+
+function resumeUnifiedMediaAfterSeek(){
+  if(
+    !watchMediaSeekResume ||
+    Date.now()>=watchMediaSeekSettlingUntil ||
+    !state.currentId ||
+    state.mode!=="video"
+  )return;
+
+  state.intentPlay=true;
+  state.resumeOnReturn=false;
+  state.transitionUntil=0;
+
+  if(state.engine==="native"){
+    if(nativePlayer.paused)void nativePlayer.play().catch(()=>{});
+    return;
+  }
+
+  try{state.player?.playVideo?.();}catch{}
+}
+
+function commitUnifiedMediaSeek(
+  frame=playerSection?.querySelector(".player-frame")
+){
+  const ratio=Number(watchMediaSeekTarget);
+  const duration=unifiedMediaDuration()||durationSeconds(state.currentMeta||{});
+  if(!Number.isFinite(ratio)||ratio<0||ratio>1||duration<=0)return false;
+
+  const shouldResume=!!watchMediaSeekResume;
+  const target=Math.max(0,Math.min(duration,duration*ratio));
+  watchMediaSeekTarget=null;
+
+  // YouTube can emit PAUSED immediately after seekTo even though the viewer
+  // never asked to pause. Keep a short settlement window so that event cannot
+  // overwrite the playback intent captured at pointerdown.
+  watchMediaSeekSettlingUntil=Date.now()+1800;
+  if(shouldResume){
+    state.intentPlay=true;
+    state.resumeOnReturn=false;
+    state.transitionUntil=0;
+  }
+
+  seekVideo(target);
+  syncUnifiedMediaProgress(frame,ratio);
+
+  if(shouldResume){
+    resumeUnifiedMediaAfterSeek();
+    setTimeout(resumeUnifiedMediaAfterSeek,60);
+    setTimeout(resumeUnifiedMediaAfterSeek,180);
+    setTimeout(resumeUnifiedMediaAfterSeek,420);
+  }else{
+    watchMediaSeekSettlingUntil=0;
+    watchMediaSeekResume=false;
+  }
+  return true;
 }
 
 function bindUnifiedMediaSeek(frame,bar){
@@ -12440,8 +12503,12 @@ function bindUnifiedMediaSeek(frame,bar){
   const finish=event=>{
     if(!watchMediaDragging)return;
     watchMediaDragging=false;
-    watchMediaScrubRect=null;
     try{bar.releasePointerCapture?.(event.pointerId);}catch{}
+
+    // Commit exactly once on release, then resume immediately if the video was
+    // playing before the drag started.
+    commitUnifiedMediaSeek(frame);
+    watchMediaScrubRect=null;
     showUnifiedMediaChrome(frame,currentPlayerUiMode()==="pip"?2200:3000);
   };
 
@@ -12449,6 +12516,9 @@ function bindUnifiedMediaSeek(frame,bar){
     event.preventDefault();
     event.stopPropagation();
     watchMediaDragging=true;
+    watchMediaSeekResume=!!(state.intentPlay||state.videoPlaying);
+    watchMediaSeekTarget=null;
+    watchMediaSeekSettlingUntil=0;
     watchMediaScrubRect=bar.getBoundingClientRect();
     try{bar.setPointerCapture?.(event.pointerId);}catch{}
     seekUnifiedMediaFromClientX(event.clientX,frame);
@@ -13961,6 +14031,10 @@ function initYouTubePlayer(){
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           state.keepFloating=false;
+          if(watchMediaSeekSettlingUntil>0){
+            watchMediaSeekSettlingUntil=0;
+            watchMediaSeekResume=false;
+          }
           syncMainMinimalControls();
           showUnifiedMediaChrome(
             playerSection?.querySelector(".player-frame"),
@@ -13989,6 +14063,10 @@ function initYouTubePlayer(){
           state.videoPlaying=false;
           syncMainMinimalControls();
 
+          const seekPause=
+            watchMediaSeekResume &&
+            state.intentPlay &&
+            Date.now()<watchMediaSeekSettlingUntil;
           const openingPause=
             state.intentPlay &&
             Date.now()<Number(state.watchOpenSettlingUntil||0);
@@ -13998,7 +14076,13 @@ function initYouTubePlayer(){
             Date.now()>=state.fullscreenExitCooldownUntil &&
             Date.now()<state.transitionUntil;
 
-          if(openingPause){
+          if(seekPause){
+            // seekTo() may transiently report PAUSED. This is not a user pause.
+            state.intentPlay=true;
+            if(document.visibilityState==="visible"){
+              setTimeout(resumeUnifiedMediaAfterSeek,40);
+            }
+          }else if(openingPause){
             if(document.visibilityState==="visible"){
               setTimeout(ensureIframePlaying,70);
             }
@@ -15124,6 +15208,10 @@ nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;
   state.videoPlaying=true;
   state.intentPlay=true;
+  if(watchMediaSeekSettlingUntil>0){
+    watchMediaSeekSettlingUntil=0;
+    watchMediaSeekResume=false;
+  }
   state.resumeOnReturn=false;
   state.transitionUntil=0;
   if(state.mode==="video")statusText.textContent="Video đang phát";
@@ -15140,13 +15228,22 @@ nativePlayer.addEventListener("pause",()=>{
   state.videoPlaying=false;
   syncMainMinimalControls();
 
+  const seekPause=
+    watchMediaSeekResume &&
+    state.intentPlay &&
+    Date.now()<watchMediaSeekSettlingUntil;
   const lifecyclePause=
     state.resumeOnReturn &&
     !state.fullscreenActive &&
     Date.now()>=state.fullscreenExitCooldownUntil &&
     Date.now()<state.transitionUntil;
 
-  if(lifecyclePause&&state.intentPlay){
+  if(seekPause){
+    state.intentPlay=true;
+    if(document.visibilityState==="visible"){
+      setTimeout(resumeUnifiedMediaAfterSeek,30);
+    }
+  }else if(lifecyclePause&&state.intentPlay){
     if(document.visibilityState==="visible"){
       setTimeout(resumeVideoAfterReturn,90);
     }
