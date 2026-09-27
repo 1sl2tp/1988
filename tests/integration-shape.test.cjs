@@ -32,7 +32,7 @@ assert.doesNotMatch(app,/mainVideo/);
 assert.match(html,/youtube\.com\/iframe_api" defer/);
 assert.match(app,/if\(window\.YT&&typeof YT\.Player==="function"\)\{/);
 assert.match(app,/function createFloatingSwipeZone\(/);
-assert.match(app,/frame\.append\(zone,overlay\)/);
+assert.doesNotMatch(app,/frame\.append\(zone,overlay\);/);
 assert.match(app,/function closeFloatingPipAndExitPlayback\(/);
 assert.match(app,/closeFloatingPipAndExitPlayback\(\)/);
 assert.doesNotMatch(app,/frame&&!frame\.querySelector\("\.watch-swipe-zone"\)/);
