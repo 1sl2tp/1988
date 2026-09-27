@@ -34,7 +34,7 @@
   --landscape-top-safe:56px;
   --landscape-bottom-safe:64px;
   --layout-gap:16px;
-  --content-top-gap:12px;
+  --content-top-gap:0px;
   --feed-cols:2;
   --card-target-w:310px;
   --floating-radius:10px;
@@ -326,57 +326,127 @@ html.one-col body{min-height:220vh}
 }
 
 @media(max-width:656px){
+  :root{
+    --top-boundary:calc(56px + var(--safe-top));
+    --content-top-gap:0px;
+  }
+
   .top{
     position:fixed;
     top:0;
     left:0;
     right:0;
     width:100%;
+    display:flex;
+    align-items:center;
   }
-  .masthead{
-    height:56px;
-    padding:0 12px;
-    gap:8px;
-  }
-  .brand{
-    width:auto;
-    height:40px;
-    flex:0 0 auto;
-  }
-  .brand-name{font-size:18px}
 
-  /* Source-like narrow masthead: compact icon first; search expands only when opened. */
+  /* One compact row: Search · Settings · source chips. */
+  .masthead{
+    flex:0 0 auto;
+    width:auto;
+    height:56px;
+    padding:0 4px 0 8px;
+    gap:2px;
+  }
+  .brand{display:none}
+
   .searchbox{display:none}
-  .search-toggle{
+  .search-toggle,
+  .settings-button{
     display:grid;
+    flex:0 0 40px;
     width:40px;
     height:40px;
-    margin-left:auto;
+    margin:0;
   }
   .search-back{display:none}
-  .search-input{padding:0 12px;font-size:16px;line-height:24px}
-  .search-button{width:48px}
-  .sourcebar{height:56px}
+
+  .sourcebar{
+    flex:1 1 auto;
+    min-width:0;
+    width:auto;
+    height:56px;
+  }
+  .source-scroll{height:56px}
+  .source-chips{height:56px}
+  .source-name-chips .source-chip:first-child{margin-left:4px}
+  .source-chip{
+    margin-right:8px;
+  }
+
+  /* Compact arrow guard for the now-shorter source rail. */
+  .source-arrow{
+    width:40px;
+    height:56px;
+  }
+  .source-arrow.left::after,
+  .source-arrow.right::before{
+    width:12px;
+  }
+  .source-arrow-button{
+    width:32px;
+    height:32px;
+  }
 
   .top.mobile-scroll-hidden:not(.search-open){
     transform:translate3d(0,calc(-100% - 2px),0);
     pointer-events:none;
   }
 
-  .top.search-open .brand,
-  .top.search-open .search-toggle,
-  .top.search-open .masthead > .icon-button:not(.search-back):not(.search-toggle){
-    display:none;
+  /* Search opens INSIDE the same one-row header as one pill/card. */
+  .top.search-open .masthead{
+    flex:1 1 auto;
+    min-width:0;
+    width:100%;
+    padding:0 8px;
+    gap:6px;
   }
+  .top.search-open .sourcebar{display:none}
+  .top.search-open .search-toggle{display:none}
   .top.search-open .search-back{
+    display:grid;
+    flex:0 0 40px;
+  }
+  .top.search-open .settings-button{
     display:grid;
     flex:0 0 40px;
   }
   .top.search-open .searchbox{
     display:flex;
-    width:auto;
     flex:1 1 auto;
+    min-width:0;
+    width:auto;
+    height:40px;
     margin:0;
+    overflow:hidden;
+    border:1px solid #303030;
+    border-radius:20px;
+    background:rgba(18,18,18,.72);
+  }
+  .top.search-open .search-input{
+    min-width:0;
+    height:38px;
+    padding:0 14px;
+    border:0;
+    border-radius:0;
+    box-shadow:none;
+    background:transparent;
+    font-size:16px;
+    line-height:24px;
+  }
+  .top.search-open .search-input:focus{
+    border:0;
+    box-shadow:none;
+  }
+  .top.search-open .search-button{
+    flex:0 0 44px;
+    width:44px;
+    height:38px;
+    border:0;
+    border-left:1px solid #303030;
+    border-radius:0;
+    background:rgba(255,255,255,.08);
   }
 }
 
@@ -396,7 +466,7 @@ main{
 }
 @media(max-width:656px){
   main{
-    padding-top:calc(var(--top-boundary) + var(--content-top-gap));
+    padding-top:var(--top-boundary);
   }
 }
 .media-col{min-width:0;max-width:100%}
@@ -783,8 +853,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
     </button>
 
-    <button class="icon-button" aria-label="Thêm" title="Thêm">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5a1 1 0 112 0v6h6a1 1 0 110 2h-6v6a1 1 0 11-2 0v-6H5a1 1 0 110-2h6V5Z"></path></svg>
+    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42L9.13 5.07c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
     </button>
   </div>
 
