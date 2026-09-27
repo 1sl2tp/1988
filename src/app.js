@@ -7785,7 +7785,6 @@ function setupWatchMinimizeGesture(){
   const eligibleInline=()=>(
     watchAutoPipViewport() &&
     Date.now()>=Number(state.watchRestoreUntil||0) &&
-    Date.now()>=Number(state.watchOpenSettlingUntil||0) &&
     !root.classList.contains("watch-search-open") &&
     !root.classList.contains("watch-search-results") &&
     !state.watchMinimized &&
@@ -7855,6 +7854,7 @@ function setupWatchMinimizeGesture(){
   document.body?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   feedSection?.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
   document.addEventListener("scroll",syncPipToMediaSlot,{passive:true});
+  setTimeout(syncPipToMediaSlot,220);
 
   if("IntersectionObserver" in window&&playerSection){
     const slotObserver=new IntersectionObserver(entries=>{
@@ -12618,10 +12618,10 @@ async function playVideo(id,seedMeta={}){
   state.keepFloating=wasFloating;
   state.watchOpenedAt=Date.now();
   state.watchOpenSettlingUntil=watchAutoPipViewport()&&!wasFloating
-    ?Date.now()+1100
+    ?Date.now()+180
     :0;
-  if(watchAutoPipViewport()&&!wasFloating){
-    state.watchRestoreUntil=Date.now()+1100;
+  if(!wasFloating){
+    state.watchRestoreUntil=0;
   }
   state.currentId=id;
   state.currentMeta=playbackMeta;
@@ -12691,7 +12691,7 @@ async function playVideo(id,seedMeta={}){
   // is enough to catch the grid-mode switch; repeated delayed resets caused the
   // visible hitch and could be mistaken for a browse gesture that opened PiP.
   if(watchAutoPipViewport()&&!wasFloating){
-    state.watchOpenSettlingUntil=Date.now()+700;
+    state.watchOpenSettlingUntil=Date.now()+180;
 
     const resetWatchTop=()=>{
       if(state.currentId!==id||state.watchMinimized)return;
