@@ -5113,3 +5113,205 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     pointer-events:auto!important;
   }
 }
+
+
+/* Selected video footer + source card v415.
+   The chosen video gets the same compact information treatment as a feed card,
+   followed by a separate source card. This sits below the fixed 16:9 media slot
+   and therefore never changes PiP trigger geometry. */
+.selected-video-info{
+  display:none;
+}
+.selected-video-info[hidden]{
+  display:none!important;
+}
+
+@media(max-width:959px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info:not([hidden]){
+    display:block;
+    width:100%;
+    min-width:0;
+    margin:0;
+    padding:0 0 8px;
+    background:#0b0b0c;
+  }
+
+  .selected-video-row{
+    display:grid;
+    grid-template-columns:36px minmax(0,1fr);
+    gap:9px;
+    align-items:start;
+    padding:9px 10px 10px;
+    border-top:1px solid #242429;
+    border-bottom:1px solid #202024;
+    background:#111113;
+  }
+
+  .selected-video-avatar,
+  .selected-source-avatar{
+    position:relative;
+    display:block;
+    flex:0 0 auto;
+    overflow:hidden;
+    border-radius:50%;
+    background:#232328;
+  }
+
+  .selected-video-avatar{
+    width:36px;
+    height:36px;
+  }
+
+  .selected-source-avatar{
+    width:40px;
+    height:40px;
+  }
+
+  .selected-video-avatar-fallback,
+  .selected-source-avatar-fallback,
+  .selected-video-avatar>img,
+  .selected-source-avatar>img{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+  }
+
+  .selected-video-avatar-fallback,
+  .selected-source-avatar-fallback{
+    z-index:0;
+    display:grid;
+    place-items:center;
+    color:#ddd;
+    font-size:12px;
+    font-weight:800;
+  }
+
+  .selected-video-avatar>img,
+  .selected-source-avatar>img{
+    z-index:1;
+    display:block;
+    object-fit:cover;
+    border-radius:50%;
+  }
+
+  .selected-video-copy{
+    min-width:0;
+  }
+
+  .selected-video-title-line{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 22px;
+    gap:5px;
+    align-items:start;
+  }
+
+  .selected-video-title-line>strong{
+    min-width:0;
+    color:#f2f2f3;
+    font-size:13.5px;
+    line-height:1.34;
+    font-weight:700;
+    display:-webkit-box;
+    -webkit-box-orient:vertical;
+    -webkit-line-clamp:2;
+    overflow:hidden;
+  }
+
+  .selected-video-more{
+    display:block;
+    width:22px;
+    text-align:center;
+    color:#d9d9de;
+    font-size:22px;
+    line-height:20px;
+    transform:translateY(-1px);
+  }
+
+  .selected-video-meta{
+    margin-top:4px;
+    color:#85858e;
+    font-size:10.5px;
+    line-height:1.35;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .selected-source-card{
+    display:grid;
+    grid-template-columns:40px minmax(0,1fr);
+    gap:10px;
+    align-items:center;
+    margin:8px 10px 0;
+    padding:9px 10px;
+    min-height:58px;
+    border:1px solid #28282e;
+    border-radius:12px;
+    background:#151518;
+  }
+
+  .selected-source-copy{
+    min-width:0;
+    display:grid;
+    grid-template-rows:auto auto auto;
+    gap:1px;
+  }
+
+  .selected-source-label{
+    color:#777780;
+    font-size:9px;
+    line-height:1.2;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+  }
+
+  .selected-source-copy>strong{
+    min-width:0;
+    color:#f1f1f3;
+    font-size:12.5px;
+    line-height:1.3;
+    font-weight:700;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .selected-source-copy>span:last-child{
+    min-width:0;
+    color:#85858e;
+    font-size:10px;
+    line-height:1.3;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+}
+
+@media(max-width:720px){
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      56.25vw
+      auto
+      auto!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-video-info{
+    grid-row:2!important;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .feed-section{
+    grid-row:3!important;
+  }
+
+  html.watch-browse.watch-minimized:not(.watch-search-open):not(.watch-search-results) body{
+    grid-template-rows:
+      var(--watch-inline-slot-h,56.25vw)
+      auto
+      auto!important;
+  }
+}
