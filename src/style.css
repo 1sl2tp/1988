@@ -7165,3 +7165,84 @@ html.watch-minimized .player-frame.floating-iframe .float-player-overlay button{
     padding-right:var(--layout-edge-mobile-right)!important;
   }
 }
+
+
+/* ============================================================
+   FIXED SOURCE CLUSTER MASK v468
+   Sticky LIVE / Ngày / Tuần are visually fixed. Scrolling hashtags may move
+   underneath them geometrically, but an opaque mask prevents any text/underline
+   from leaking into the fixed cluster. Applies to Home and Watch mirror rails.
+   ============================================================ */
+@media(max-width:720px){
+  html:not(.watch-browse) .header-nav-inner{
+    --topic-fixed-cluster-w:146px;
+  }
+
+  html:not(.watch-browse) .header-nav-inner::before{
+    content:""!important;
+    position:absolute!important;
+    z-index:7!important;
+    left:0!important;
+    top:0!important;
+    bottom:0!important;
+    width:var(--topic-fixed-cluster-w)!important;
+    opacity:1!important;
+    pointer-events:none!important;
+    background:var(--mobile-chrome-surface,#0b0b0c)!important;
+    box-shadow:8px 0 10px rgba(11,11,12,.72)!important;
+  }
+
+  /* Keep the right-edge cue from v464, but the left side is now a permanent
+     opaque fixed-cluster mask rather than a fade. */
+  html:not(.watch-browse) .header-nav-inner::after{
+    z-index:7!important;
+  }
+
+  html:not(.watch-browse) .topic-chip[data-feed="live"],
+  html:not(.watch-browse) .topic-chip[data-feed="latest"],
+  html:not(.watch-browse) .topic-chip[data-feed="week"],
+  html:not(.watch-browse) .topic-divider{
+    z-index:9!important;
+  }
+
+  html:not(.watch-browse) .topic-chip.topic-subject,
+  html:not(.watch-browse) .topic-chip.topic-add{
+    position:relative!important;
+    z-index:1!important;
+  }
+
+  /* Watch has its own mirrored rail, so give it the same physical mask. */
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail{
+    position:relative!important;
+    isolation:isolate!important;
+    --topic-fixed-cluster-w:146px;
+  }
+
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results)
+  .selected-topic-rail::before{
+    content:"";
+    position:absolute;
+    z-index:7;
+    left:var(--layout-edge-mobile-left,8px);
+    top:5px;
+    bottom:6px;
+    width:var(--topic-fixed-cluster-w);
+    pointer-events:none;
+    background:#0b0b0c;
+    box-shadow:8px 0 10px rgba(11,11,12,.72);
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="live"],
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="latest"],
+  html.watch-browse .selected-topic-chips .topic-chip[data-feed="week"],
+  html.watch-browse .selected-topic-chips .topic-divider{
+    z-index:9!important;
+  }
+
+  html.watch-browse .selected-topic-chips .topic-chip.topic-subject,
+  html.watch-browse .selected-topic-chips .topic-chip.topic-add{
+    position:relative!important;
+    z-index:1!important;
+  }
+}
