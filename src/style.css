@@ -5644,6 +5644,10 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     display:none!important;
   }
 
+  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .app-shell{
+    display:contents!important;
+  }
+
   html.watch-browse:not(.watch-search-open):not(.watch-search-results) .player-section{
     grid-row:1!important;
     width:100%!important;
