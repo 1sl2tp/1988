@@ -952,6 +952,16 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const packageCache=new Map();
   const packagePending=new Map();
 
+  // Search is independent from source tabs. Keep only the 2 most recent
+  // queries/results so repeats can paint immediately without another click.
+  const SEARCH_RECENT_KEY="yt1988-proof-recent-searches-v1";
+  const searchCache=new Map();
+  let recentSearches=[];
+  try{
+    const saved=JSON.parse(localStorage.getItem(SEARCH_RECENT_KEY)||"[]");
+    if(Array.isArray(saved))recentSearches=saved.map(String).filter(Boolean).slice(0,2);
+  }catch{}
+
   // Aspect belongs to the media id, never to the previous UI mode.
   const mediaAspectCache=new Map();
   const mediaAspectPending=new Map();
@@ -2379,41 +2389,128 @@ html.one-col .player.pip iframe{border-radius:inherit}
     rows.innerHTML=cards.slice(0,18).map(cardMarkup).join("");
   }
 
-  function applySearchFilter(){
-    const q=(searchInput?.value||"").trim().toLowerCase();
+  function normalizedSearchQuery(value){
+    return String(value||"").trim().replace(/\s+/g," ").toLocaleLowerCase("vi-VN");
+  }
 
-    // Local typing filter only affects what is currently on screen.
-    // Switching source replaces the DOM and therefore exits this local filter.
-    document.querySelectorAll(".row").forEach(card=>{
-      const hay=(card.dataset.title||"")+" "+(card.dataset.source||"");
-      card.hidden=!!q && !hay.includes(q);
-    });
+  function rememberRecentSearch(query,results=[]){
+    const key=normalizedSearchQuery(query);
+    if(!key)return;
+
+    recentSearches=[key,...recentSearches.filter(item=>item!==key)].slice(0,2);
+    try{
+      localStorage.setItem(SEARCH_RECENT_KEY,JSON.stringify(recentSearches));
+    }catch{}
+
+    if(Array.isArray(results)&&results.length){
+      searchCache.set(key,results.slice(0,18));
+    }
+
+    // Cache results for only the same 2 recent queries.
+    for(const cachedKey of [...searchCache.keys()]){
+      if(!recentSearches.includes(cachedKey))searchCache.delete(cachedKey);
+    }
+  }
+
+  function uniqueSearchMetas(items=[]){
+    const out=[];
+    const seen=new Set();
+    for(const meta of Array.isArray(items)?items:[]){
+      const id=String(meta?.id||"").trim();
+      if(!id||seen.has(id))continue;
+      seen.add(id);
+      out.push(meta);
+      if(out.length>=18)break;
+    }
+    return out;
+  }
+
+  function localSearchMatches(query){
+    const q=normalizedSearchQuery(query);
+    if(!q)return [];
+
+    // Current visible feed first, then already-downloaded packages. This is only
+    // an instant first paint; the same click still launches global search.
+    const pool=[
+      ...feedMetas,
+      ...relatedMetas,
+      ...[...packageCache.values()].flat()
+    ];
+
+    return uniqueSearchMetas(pool.filter(meta=>{
+      const hay=normalizedSearchQuery(
+        (meta?.title||"")+" "+(meta?.sourceName||"")
+      );
+      return hay.includes(q);
+    }));
+  }
+
+  function showSearchResults(query,results=[]){
+    const next=uniqueSearchMetas(results);
+    if(!next.length)return false;
+
+    feedMode="search";
+    feedMetas=next;
+    primeMediaAspects(next,12);
+    renderSampleContent();
+    rememberRecentSearch(query,next);
+    return true;
+  }
+
+  function showCachedSearchIfAvailable(query){
+    const key=normalizedSearchQuery(query);
+    if(!key)return false;
+
+    const cached=searchCache.get(key);
+    if(cached?.length)return showSearchResults(key,cached);
+    return false;
   }
 
   async function runSearch(){
-    const q=(searchInput?.value||"").trim();
-    if(!q){
+    const raw=(searchInput?.value||"").trim();
+    const key=normalizedSearchQuery(raw);
+
+    if(!key){
       void showPackageScope(activePackageScope);
       return;
     }
 
+    // Exact repeat: paint the previous result immediately.
+    const hadCached=showCachedSearchIfAvailable(key);
+
+    // Otherwise paint matching content we already have in memory immediately.
+    const localMatches=hadCached?[]:localSearchMatches(key);
+    if(localMatches.length)showSearchResults(key,localMatches);
+
+    // ONE user action always continues into the normal global search.
     const request=++feedRequest;
     try{
       if(!window.YT1988_API?.search)return;
-      const payload=await window.YT1988_API.search(q,"videos");
+
+      const payload=await window.YT1988_API.search(raw,"videos");
       if(request!==feedRequest)return;
 
-      const next=collectVideoRows(payload)
-        .filter(meta=>meta.id && meta.title)
-        .slice(0,18);
+      const globalResults=collectVideoRows(payload)
+        .filter(meta=>meta.id&&meta.title);
 
-      if(next.length){
+      // Current-source/local matches get first positions only as a convenience;
+      // global search is not restricted by the selected source.
+      const merged=uniqueSearchMetas([
+        ...(searchCache.get(key)||localMatches),
+        ...globalResults
+      ]);
+
+      if(merged.length){
+        showSearchResults(key,merged);
+      }else if(!hadCached&&!localMatches.length){
         feedMode="search";
-        feedMetas=next;
-        primeMediaAspects(next,12);
+        feedMetas=[];
         renderSampleContent();
+        rememberRecentSearch(key,[]);
       }
-    }catch(_){}
+    }catch(_){
+      // If instant cached/local results were already painted, keep them.
+    }
   }
 
   async function loadFeedData(){
@@ -2604,7 +2701,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
   searchToggle.addEventListener("click",openNarrowSearch);
   searchBack.addEventListener("click",closeNarrowSearch);
 
-  searchInput.addEventListener("input",applySearchFilter);
+  searchInput.addEventListener("input",()=>{
+    const key=normalizedSearchQuery(searchInput.value);
+    if(key&&recentSearches.includes(key)){
+      showCachedSearchIfAvailable(key);
+    }
+  });
   searchInput.addEventListener("keydown",event=>{
     if(event.key==="Enter"){
       event.preventDefault();
@@ -2627,7 +2729,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     chip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
     requestAnimationFrame(updateSourceRailArrows);
 
-    // Source selection is independent from search state.
+    // Source selection is independent from search state. Invalidate any
+    // in-flight global search so it cannot overwrite this source afterward.
+    feedRequest++;
     feedMode="package";
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
