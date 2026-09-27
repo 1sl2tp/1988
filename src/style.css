@@ -5434,3 +5434,131 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     display:none!important;
   }
 }
+
+
+/* PiP interaction overlay v430.
+   Hover on desktop or tap on touch devices reveals one frosted control layer:
+   fullscreen, size, drag/move and close. */
+@media(max-width:959px){
+  html.watch-minimized .player-frame.floating-iframe .float-mode-rail,
+  html.watch-minimized .player-frame.floating-iframe .float-edge-tab{
+    display:none!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe .float-player-overlay{
+    z-index:120!important;
+    padding:8px!important;
+    border-radius:inherit!important;
+    background:rgba(5,7,12,.48)!important;
+    -webkit-backdrop-filter:blur(7px) saturate(1.08)!important;
+    backdrop-filter:blur(7px) saturate(1.08)!important;
+    transition:opacity .16s ease,background-color .16s ease!important;
+  }
+
+  html.watch-minimized .player-frame.floating-iframe:hover .float-player-overlay,
+  html.watch-minimized .player-frame.floating-iframe:focus-within .float-player-overlay,
+  html.watch-minimized .player-frame.floating-iframe.float-controls-open .float-player-overlay{
+    opacity:1!important;
+  }
+
+  html.watch-minimized .float-overlay-top,
+  html.watch-minimized .float-overlay-bottom{
+    position:relative;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:7px;
+  }
+
+  html.watch-minimized .float-overlay-move,
+  html.watch-minimized .float-overlay-close,
+  html.watch-minimized .float-overlay-scale{
+    display:grid!important;
+    place-items:center!important;
+    min-width:30px!important;
+    width:30px!important;
+    height:30px!important;
+    padding:0!important;
+    border-radius:9px!important;
+    font-size:13px!important;
+    line-height:1!important;
+  }
+
+  html.watch-minimized .float-overlay-move{
+    cursor:grab!important;
+    touch-action:none!important;
+    font-size:16px!important;
+  }
+
+  html.watch-minimized .float-overlay-move:active,
+  html.watch-minimized .player-frame.float-moving .float-overlay-move{
+    cursor:grabbing!important;
+    background:rgba(255,255,255,.94)!important;
+    color:#111!important;
+  }
+
+  html.watch-minimized .float-overlay-close{
+    border-radius:50%!important;
+    font-size:20px!important;
+  }
+
+  html.watch-minimized .float-overlay-fullscreen{
+    position:absolute!important;
+    z-index:2!important;
+    top:50%!important;
+    left:50%!important;
+    transform:translate(-50%,-50%)!important;
+    display:grid!important;
+    place-items:center!important;
+    width:46px!important;
+    height:46px!important;
+    padding:0!important;
+    border-radius:50%!important;
+    font-size:23px!important;
+    line-height:1!important;
+  }
+
+  html.watch-minimized .float-overlay-scale{
+    width:auto!important;
+    min-width:42px!important;
+    padding:0 8px!important;
+    font-size:11px!important;
+    font-weight:800!important;
+  }
+
+  html.watch-minimized .float-overlay-hint{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:rgba(255,255,255,.78);
+    font-size:9px;
+    font-weight:650;
+    text-shadow:0 1px 2px rgba(0,0,0,.65);
+    pointer-events:none;
+  }
+
+  html.watch-minimized .player-frame.float-moving{
+    transition:none!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-app-fullscreen{
+    border-radius:0!important;
+    background:#000!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-app-fullscreen .player-card,
+  html.watch-minimized .player-section.watch-pip-app-fullscreen .player-frame{
+    width:100%!important;
+    height:100%!important;
+    max-width:none!important;
+    max-height:none!important;
+    border-radius:0!important;
+    background:#000!important;
+  }
+
+  html.watch-minimized .player-section.watch-pip-app-fullscreen .float-player-overlay{
+    border-radius:0!important;
+  }
+}
