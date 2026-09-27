@@ -187,6 +187,7 @@ html.one-col body{min-height:220vh}
   overscroll-behavior-x:contain;
   -webkit-overflow-scrolling:touch;
   scroll-behavior:smooth;
+  scroll-padding-inline:68px;
 }
 .source-scroll::-webkit-scrollbar{display:none}
 .source-chips{
@@ -236,38 +237,44 @@ html.one-col body{min-height:220vh}
   top:0;
   bottom:0;
   z-index:4;
+  width:52px;
   height:56px;
   display:flex;
   align-items:center;
   justify-content:center;
+  background:var(--yt-bg);
+  overflow:visible;
   pointer-events:none;
 }
 .source-arrow[hidden]{display:none}
 .source-arrow.left{left:0}
 .source-arrow.right{right:0}
-.source-arrow::after,
-.source-arrow::before{
+
+/* Hard guard: chips are fully clipped below the arrow zone.
+   Only a short 16px feather remains toward the content. */
+.source-arrow.left::after,
+.source-arrow.right::before{
   content:"";
   position:absolute;
   top:0;
-  width:50px;
+  width:16px;
   height:100%;
   pointer-events:none;
 }
 .source-arrow.left::after{
-  left:32px;
-  background:linear-gradient(to right,var(--yt-bg) 20%,rgba(33,33,33,0) 80%);
+  left:100%;
+  background:linear-gradient(to right,var(--yt-bg),rgba(15,15,15,0));
 }
 .source-arrow.right::before{
-  right:32px;
-  background:linear-gradient(to left,var(--yt-bg) 20%,rgba(33,33,33,0) 80%);
+  right:100%;
+  background:linear-gradient(to left,var(--yt-bg),rgba(15,15,15,0));
 }
 .source-arrow-button{
   position:relative;
   z-index:2;
   width:32px;
   height:32px;
-  margin:0 12px;
+  margin:0;
   padding:0;
   border:0;
   border-radius:16px;
