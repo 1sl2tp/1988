@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v29";
-const NON_LIVE_PIPELINE_VERSION="non-live-v7";
+const LIVE_PIPELINE_VERSION="live-v30";
+const NON_LIVE_PIPELINE_VERSION="non-live-v8";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -512,12 +512,6 @@ async function mapLimit<T,R>(items:T[],limit:number,fn:(item:T,index:number)=>Pr
   return out;
 }
 
-function titleLooksForeignScript(row:any){
-  const raw=clean(row?._displayTitle||row?.title||"",500);
-  if(!raw)return false;
-  return /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Thai}\p{Script=Arabic}\p{Script=Cyrillic}]/u.test(raw);
-}
-
 function nonLiveSuggestionAgeAllowed(scope:string,row:any){
   const age=ageMs(row);
   if(!Number.isFinite(age)||age<0||age===Number.MAX_SAFE_INTEGER)return false;
@@ -529,7 +523,6 @@ function nonLiveSuggestionAgeAllowed(scope:string,row:any){
 function nonLiveSuggestionBaseAllowed(scope:string,meta:any,row:any){
   if(!row||isLive(row)||isTooShortVideo(row))return false;
   if(!nonLiveSuggestionAgeAllowed(scope,row))return false;
-  if(titleLooksEnglishOnly(row)||titleLooksForeignScript(row))return false;
   if(strongAd(row))return false;
   if(isBlockedMusicTabVideo(meta,row))return false;
   return true;
@@ -2009,15 +2002,10 @@ Deno.serve(async(req:Request)=>{
           !isTooShortVideo(r)&&
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
-          !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")&&
-          !titleLooksEnglishOnly(r)&&
-          !titleLooksForeignScript(r)
+          !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")
         );
       }else{
-        raw=raw.filter((r:any)=>
-          !titleLooksEnglishOnly(r)&&
-          !titleLooksForeignScript(r)
-        );
+        raw=raw.filter((r:any)=>!!r);
       }
       if(meta.kind==="content")raw=raw.filter((r:any)=>!isBlockedMusicTabVideo(meta,r));
 
@@ -2027,9 +2015,7 @@ Deno.serve(async(req:Request)=>{
         raw=verifiedLiveRowsCache
           .filter((row:any)=>{
             const sid=channelId(row);
-            return (!sid||!allBlockedLiveSourceIds.has(sid))&&
-              !titleLooksEnglishOnly(row)&&
-              !titleLooksForeignScript(row);
+            return (!sid||!allBlockedLiveSourceIds.has(sid));
           })
           .sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
