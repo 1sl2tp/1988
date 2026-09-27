@@ -7643,10 +7643,11 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   if(!frame.classList.contains("floating-iframe"))syncMobileInlinePlayerViewport();
 
   const sourceRatio=responsivePlayerAspect(meta);
-  // Desktop one-card Watch is <=640px; real mobile remains mobile by input mode.
-  // Wider desktop layouts keep MAIN visible and follow the real media shape.
-  const compactOneColumn=desktopWatchOneColumn();
-  const desktopResponsive=!compactOneColumn;
+  // Media placement has three states:
+  // 1 = inline/top, 2 = desktop right pane, 3 = PiP detached from state 1.
+  const sideMedia=watchSideMediaLayout();
+  const compactOneColumn=!sideMedia;
+  const desktopResponsive=sideMedia;
   const ratio=desktopResponsive ? sourceRatio : 16/9;
   const orientation=desktopResponsive ? aspectOrientation(ratio) : "landscape";
 
@@ -7723,7 +7724,7 @@ function applyResponsivePlayerFrame(meta=state.currentMeta||{}){
   );
 
   const mobile=mobileBrowserViewport();
-  const desktop=!compactOneColumn;
+  const desktop=sideMedia;
 
   if(compactOneColumn){
     const styles=getComputedStyle(root);
@@ -8207,6 +8208,19 @@ function setupWatchBrowseLayout(){
     if(viewportResizeRaf)return;
     viewportResizeRaf=requestAnimationFrame(()=>{
       viewportResizeRaf=0;
+
+      // If the viewport changes from Position 1/PiP into Position 2,
+      // resolve PiP immediately to the right-side MAIN slot. Do not let a
+      // floating box coexist with the desktop side player.
+      if(
+        state.watchMinimized &&
+        watchSideMediaLayout() &&
+        !isPlayerFullscreen()
+      ){
+        setWatchMinimized(false,{preserveScroll:true});
+        return;
+      }
+
       queueWatchBrowseLayout();
       queueResponsivePlayerFrame();
     });
@@ -8359,24 +8373,26 @@ function mobileBrowserViewport(){
   return uaMobile || (coarse&&noHover);
 }
 
-function desktopWatchOneColumn(){
-  // Keep this identical to the actual desktop card-grid breakpoint:
-  // >640px still has at least two recommendation cards per row.
-  return window.matchMedia?.("(max-width:640px)")?.matches===true;
+function watchSideMediaLayout(){
+  // Position 2: desktop media lives in the dedicated right-side pane.
+  // Real mobile/touch never enters this desktop placement, even in landscape.
+  return !mobileBrowserViewport() &&
+    window.matchMedia?.("(min-width:960px)")?.matches===true;
+}
+
+function watchInlineMediaLayout(){
+  // Position 1: media owns the inline/top slot above the recommendation flow.
+  return !watchSideMediaLayout();
 }
 
 function mobileMiniViewport(){
-  return mobileBrowserViewport() || desktopWatchOneColumn();
+  return mobileBrowserViewport() || watchInlineMediaLayout();
 }
 
 function watchAutoPipViewport(){
-  // Real mobile/touch keeps the mobile PiP behaviour regardless of orientation
-  // or reported CSS width.
-  if(mobileBrowserViewport())return true;
-
-  // Desktop web only auto-floats when the recommendation grid itself has
-  // collapsed to one card per row. At two cards or more, MAIN owns the player.
-  return desktopWatchOneColumn();
+  // Position 3 (PiP) is only a detached form of Position 1.
+  // Position 2 already keeps media visible beside the feed and must never float.
+  return watchInlineMediaLayout();
 }
 
 function currentPlayerUiMode(){
