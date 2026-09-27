@@ -6817,12 +6817,12 @@ function ensureFloatHandles(){
     '</div>';
 
   overlay.addEventListener("pointerdown",event=>{
-    if(event.target.closest("button"))return;
+    if(event.target.closest("button,.float-media-controls"))return;
     if(event.pointerType==="touch"&&("ontouchstart" in window))return;
     startFloatMove(event,frame);
   },{passive:false});
   overlay.addEventListener("touchstart",event=>{
-    if(event.target.closest("button"))return;
+    if(event.target.closest("button,.float-media-controls"))return;
     startFloatMove(event,frame);
   },{passive:false});
 
@@ -7092,7 +7092,8 @@ function nextPipScale(value=state.floatScale){
 function toggleCompactPipSize(frame=playerSection?.querySelector(".player-frame")){
   if(!frame||!state.watchMinimized)return;
 
-  const anchor=currentCompactPipAnchor();
+  const previousKey=pipSizeKey();
+  const anchor=previousKey==="full"?null:currentCompactPipAnchor();
   state.floatScale=nextPipScale();
   const full=pipSizeKey()==="full";
   state.floatUserSized=false;
