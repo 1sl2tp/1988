@@ -12291,6 +12291,7 @@ let watchMediaScrubRect=null;
 let watchMediaSeekResume=false;
 let watchMediaSeekTarget=null;
 let watchMediaSeekSettlingUntil=0;
+let watchMediaSeekCleanupTimer=0;
 let lastPlayerUiMode="";
 
 function mainPlaybackActive(){
@@ -12321,11 +12322,18 @@ function syncUnifiedMediaProgress(
   if(!frame)return;
 
   const duration=unifiedMediaDuration()||durationSeconds(state.currentMeta||{});
-  const current=ratioOverride===null
+  const settlingRatio=
+    ratioOverride===null &&
+    Date.now()<watchMediaSeekSettlingUntil &&
+    Number.isFinite(Number(watchMediaSeekTarget))
+      ?Number(watchMediaSeekTarget)
+      :null;
+  const effectiveRatio=ratioOverride===null?settlingRatio:ratioOverride;
+  const current=effectiveRatio===null
     ?getVideoTime()
-    :duration*Math.max(0,Math.min(1,Number(ratioOverride)||0));
+    :duration*Math.max(0,Math.min(1,Number(effectiveRatio)||0));
   const ratio=duration>0
-    ?Math.max(0,Math.min(1,ratioOverride===null?current/duration:Number(ratioOverride)||0))
+    ?Math.max(0,Math.min(1,effectiveRatio===null?current/duration:Number(effectiveRatio)||0))
     :0;
 
   const fill=frame.querySelector(".watch-media-progress-fill");
@@ -12406,6 +12414,7 @@ function syncUnifiedMediaState(frame=playerSection?.querySelector(".player-frame
 function toggleUnifiedMediaPlayback(frame=playerSection?.querySelector(".player-frame")){
   if(!frame)return;
   if(mainPlaybackActive()){
+    watchMediaSeekResume=false;
     state.intentPlay=false;
     state.videoPlaying=false;
     state.resumeOnReturn=false;
@@ -12469,12 +12478,19 @@ function commitUnifiedMediaSeek(
 
   const shouldResume=!!watchMediaSeekResume;
   const target=Math.max(0,Math.min(duration,duration*ratio));
-  watchMediaSeekTarget=null;
 
   // YouTube can emit PAUSED immediately after seekTo even though the viewer
   // never asked to pause. Keep a short settlement window so that event cannot
   // overwrite the playback intent captured at pointerdown.
+  clearTimeout(watchMediaSeekCleanupTimer);
   watchMediaSeekSettlingUntil=Date.now()+1800;
+  watchMediaSeekCleanupTimer=setTimeout(()=>{
+    watchMediaSeekCleanupTimer=0;
+    watchMediaSeekSettlingUntil=0;
+    watchMediaSeekResume=false;
+    watchMediaSeekTarget=null;
+    syncUnifiedMediaProgress(frame);
+  },1850);
   if(shouldResume){
     state.intentPlay=true;
     state.resumeOnReturn=false;
@@ -12489,9 +12505,6 @@ function commitUnifiedMediaSeek(
     setTimeout(resumeUnifiedMediaAfterSeek,60);
     setTimeout(resumeUnifiedMediaAfterSeek,180);
     setTimeout(resumeUnifiedMediaAfterSeek,420);
-  }else{
-    watchMediaSeekSettlingUntil=0;
-    watchMediaSeekResume=false;
   }
   return true;
 }
@@ -12516,6 +12529,8 @@ function bindUnifiedMediaSeek(frame,bar){
     event.preventDefault();
     event.stopPropagation();
     watchMediaDragging=true;
+    clearTimeout(watchMediaSeekCleanupTimer);
+    watchMediaSeekCleanupTimer=0;
     watchMediaSeekResume=!!(state.intentPlay||state.videoPlaying);
     watchMediaSeekTarget=null;
     watchMediaSeekSettlingUntil=0;
@@ -14031,10 +14046,6 @@ function initYouTubePlayer(){
           state.resumeOnReturn=false;
           state.transitionUntil=0;
           state.keepFloating=false;
-          if(watchMediaSeekSettlingUntil>0){
-            watchMediaSeekSettlingUntil=0;
-            watchMediaSeekResume=false;
-          }
           syncMainMinimalControls();
           showUnifiedMediaChrome(
             playerSection?.querySelector(".player-frame"),
@@ -15208,10 +15219,6 @@ nativePlayer.addEventListener("playing",()=>{
   if(state.engine!=="native")return;
   state.videoPlaying=true;
   state.intentPlay=true;
-  if(watchMediaSeekSettlingUntil>0){
-    watchMediaSeekSettlingUntil=0;
-    watchMediaSeekResume=false;
-  }
   state.resumeOnReturn=false;
   state.transitionUntil=0;
   if(state.mode==="video")statusText.textContent="Video đang phát";
