@@ -1712,7 +1712,14 @@ html.one-col .player.pip iframe{border-radius:inherit}
       label:meta?.title||currentMeta?.title||"Video"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
-    showPlayerPoster(meta,id);
+
+    // Poster is only for the very first player boot. Once YT.Player exists,
+    // keep its current frame visible while loadVideoById swaps media.
+    if(!ytPlayerReady){
+      showPlayerPoster(meta,id);
+    }else{
+      hidePlayerPoster();
+    }
 
     // Keep the current id ready before YouTube reports its content rectangle.
     pendingVideoId=id;
@@ -2412,54 +2419,59 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   async function loadCurrentVideoMeta(){
     const request=++metaRequest;
-    currentMeta=null;
-    renderSampleContent();
+    const requestedId=String(current?.id||"");
+    const previousMeta=currentMeta;
 
+    // Keep the selected card/list DOM and the provisional meta already supplied
+    // by the package/search result. Rebuilding rows here caused a visible flash.
     try{
       if(!window.YT1988_API?.video || !window.MediaMeta?.video){
         throw new Error("app data helpers unavailable");
       }
 
-      // Same app data source as the real site; no YouTube/oEmbed side request.
-      const payload=await window.YT1988_API.video(current.id);
-      if(request!==metaRequest)return;
+      const payload=await window.YT1988_API.video(requestedId);
+      if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
 
       const row=dataRow(payload);
-      currentMeta=cardMetaFromRow(row);
+      const nextMeta=cardMetaFromRow(row);
+      if(!nextMeta.id)nextMeta.id=requestedId;
+      currentMeta=nextMeta;
 
       const related=collectVideoRows(payload)
-        .filter(meta=>meta.id && meta.id!==current.id)
+        .filter(meta=>meta.id && meta.id!==requestedId)
         .slice(0,18);
+
+      let feedChanged=false;
       if(related.length){
         relatedMetas=related;
         if(feedMode!=="search"&&feedMode!=="package"){
           feedMode="related";
           feedMetas=relatedMetas;
+          feedChanged=true;
         }
       }
 
-      // Preserve the requested/current ID even if an upstream row is sparse.
-      if(!currentMeta.id)currentMeta={...currentMeta,id:current.id};
-
-      titleEl.textContent=currentMeta.title || current.label;
+      titleEl.textContent=currentMeta.title||current.label;
       applyHeaderTint(currentMeta);
 
       const metaHint=explicitMediaAspect(currentMeta);
-      if(metaHint)commitCurrentAspect(current.id,metaHint,{relayout:true});
-      void resolveMediaAspect(current.id,currentMeta).then(ratio=>{
-        if(ratio)commitCurrentAspect(current.id,ratio,{relayout:true});
+      if(metaHint)commitCurrentAspect(requestedId,metaHint,{relayout:true});
+      void resolveMediaAspect(requestedId,currentMeta).then(ratio=>{
+        if(ratio)commitCurrentAspect(requestedId,ratio,{relayout:true});
       });
 
-      renderSampleContent();
+      // Only rebuild rows when the actual feed changed. Package/search card
+      // lists remain untouched while the selected video metadata refreshes.
+      if(feedChanged||!feedMetas.length)renderSampleContent();
       syncBoundaries();
     }catch(_){
-      if(request!==metaRequest)return;
-      currentMeta=null;
-      titleEl.textContent=current.label;
-      renderSampleContent();
+      if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
+
+      // Keep the package/search meta already shown instead of blanking it.
+      currentMeta=previousMeta;
+      titleEl.textContent=currentMeta?.title||current.label||"";
     }
   }
-
   function layout(){
     syncBoundaries();
     const two=isTwoColumn();
