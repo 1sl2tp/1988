@@ -8892,6 +8892,10 @@ function isBlockedMusicTabVideo(scope="",row={}){
   return /\b(?:beat|kara|karaoke)\b/.test(title);
 }
 
+const VI_TITLE_WORDS_STRONG=new Set(
+  [...VI_TITLE_WORDS].filter(token=>!EN_TITLE_WORDS.has(token))
+);
+
 function titleLooksEnglishOnly(row={}){
   const raw=clean(row?._displayTitle||row?.title||"");
   if(!raw)return false;
@@ -8900,15 +8904,16 @@ function titleLooksEnglishOnly(row={}){
   }
 
   const tokens=normalizeSearchText(raw).split(" ").filter(token=>token.length>1);
-  if(tokens.length<3)return false;
+  if(!tokens.length)return false;
   let vi=0,en=0;
   for(const token of tokens){
-    if(VI_TITLE_WORDS.has(token))vi++;
+    if(VI_TITLE_WORDS_STRONG.has(token))vi++;
     if(EN_TITLE_WORDS.has(token))en++;
   }
-  if(vi>=2)return false;
-  if(en>=3&&en>=vi+2)return true;
-  return vi===0&&en>=2&&tokens.length>=5;
+  if(vi>=2&&vi>=en)return false;
+  if(en>=2&&en>=vi+1)return true;
+  if(vi===0&&tokens.length>=3)return true;
+  return vi===0&&tokens.length===2&&en>=1;
 }
 
 function shouldHideVideo(row={}){
