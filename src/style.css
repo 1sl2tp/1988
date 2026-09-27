@@ -2661,7 +2661,7 @@ html.search-suggestions-open .suggestions{
       background:var(--mobile-chrome-surface,#0b0b0c);
     }
     html:not(.watch-browse) .app-shell{
-      padding-bottom:max(22px,var(--safe-bottom))!important;
+      padding-bottom:0!important;
     }
 
     html.watch-browse,
@@ -5823,8 +5823,10 @@ html.watch-browse:not(.watch-search-open):not(.watch-search-results)
     min-height:100vh!important;
   }
 
-  html.watch-browse:not(.watch-search-open):not(.watch-search-results) .feed-section{
-    padding-bottom:max(8px,var(--safe-bottom))!important;
+  /* The scrolling list is allowed to pass under the Home Indicator.
+     Only active media surfaces use safe-area bounds. */
+  html.watch-browse .feed-section{
+    padding-bottom:0!important;
   }
 }
 
