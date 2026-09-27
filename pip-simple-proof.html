@@ -1690,6 +1690,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       label:meta?.title||"Video"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
+    syncVideoDocumentIdentity({push:true});
 
     // PLAY IMMEDIATELY. No await, no cue, no pre-click wait.
     pendingVideoId=id;
@@ -1925,6 +1926,107 @@ html.one-col .player.pip iframe{border-radius:inherit}
       .replace(/"/g,"&quot;");
   }
 
+  function videoTitleSlug(value=""){
+    return String(value||"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .replace(/[đĐ]/g,match=>match==="Đ"?"D":"d")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g,"-")
+      .replace(/^-+|-+$/g,"")
+      .replace(/-+/g,"-")
+      .slice(0,88)
+      .replace(/-+$/,"");
+  }
+
+  function routeVideoId(){
+    const hash=decodeURIComponent(String(location.hash||""));
+    const fromHash=hash.match(/(?:^|\/)watch\/.*?([A-Za-z0-9_-]{11})$/i)?.[1]||
+      hash.match(/([A-Za-z0-9_-]{11})$/)?.[1]||
+      "";
+    if(fromHash)return fromHash;
+
+    try{
+      const legacy=new URLSearchParams(location.search).get("v")||"";
+      if(/^[A-Za-z0-9_-]{11}$/.test(legacy))return legacy;
+    }catch{}
+    return "";
+  }
+
+  function canonicalVideoHash(id,title=""){
+    id=String(id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+
+    const cleanTitle=String(title||"").trim();
+    const slug=
+      cleanTitle && cleanTitle.toLowerCase()!=="video"
+        ? videoTitleSlug(cleanTitle)
+        : "";
+
+    return "#/watch/"+(slug?slug+"-":"")+id;
+  }
+
+  function syncVideoDocumentIdentity({push=false}={}){
+    const id=String(current?.id||"").trim();
+    if(!id)return;
+
+    const title=String(currentMeta?.title||current?.label||"").trim();
+    const meaningfulTitle=title&&title.toLowerCase()!=="video"?title:"";
+    document.title=meaningfulTitle?meaningfulTitle+" · 1988":"1988";
+
+    const existingId=routeVideoId();
+    const currentHash=String(location.hash||"");
+    const hasCanonicalHash=/^#\/watch\//i.test(currentHash);
+
+    // Preserve an already-readable incoming slug until real metadata arrives.
+    if(
+      existingId===id &&
+      hasCanonicalHash &&
+      !meaningfulTitle
+    )return;
+
+    const nextHash=canonicalVideoHash(id,meaningfulTitle);
+    if(!nextHash)return;
+
+    const nextUrl="/"+nextHash;
+    const shouldPush=
+      push &&
+      !!existingId &&
+      existingId!==id;
+
+    if(shouldPush){
+      history.pushState({videoId:id},"",nextUrl);
+    }else if(
+      location.pathname!=="/" ||
+      location.search ||
+      currentHash!==nextHash
+    ){
+      history.replaceState({videoId:id},"",nextUrl);
+    }
+  }
+
+  function metaForVideoId(id){
+    id=String(id||"").trim();
+    return (
+      feedMetas.find(meta=>meta?.id===id)||
+      relatedMetas.find(meta=>meta?.id===id)||
+      [...packageCache.values()].flat().find(meta=>meta?.id===id)||
+      null
+    );
+  }
+
+  function openVideoFromLocation(){
+    const id=routeVideoId();
+    if(!id||id===String(current?.id||""))return false;
+
+    const meta=metaForVideoId(id);
+    if(!playVideoId(id,meta))return false;
+    renderCurrentInfo();
+    loadCurrentVideoMeta();
+    schedulePip();
+    return true;
+  }
+
   function cardVerified(row={}){
     return row?.verified===true ||
       row?.isVerified===true ||
@@ -2145,6 +2247,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     titleEl.textContent=title;
     videoSourceEl.textContent=source+(meta.verified?" ✓":"");
     videoFactsEl.textContent=facts;
+    syncVideoDocumentIdentity({push:false});
 
     const avatar=String(meta.sourceAvatar||"").trim();
     if(avatar){
@@ -2867,6 +2970,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   mobileHeaderLastY=pageScrollY();
   syncHeaderScrollState();
   syncMobileHeaderVisibility(true);
+
+  // Deep link owns the initial media. Setting it before loading packages prevents
+  // Live's first item from replacing the requested video.
+  openVideoFromLocation();
   loadExistingSourceNames();
   requestAnimationFrame(()=>{
     updateHeaderSearchRoom();
@@ -2875,6 +2982,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
   document.fonts?.ready?.then?.(()=>{
     updateHeaderSearchRoom();
     updateSourceRailArrows();
+  });
+
+  addEventListener("popstate",()=>{
+    openVideoFromLocation();
+  });
+  addEventListener("hashchange",()=>{
+    openVideoFromLocation();
   });
 })();
 </script>
