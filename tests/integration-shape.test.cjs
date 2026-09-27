@@ -404,3 +404,7 @@ assert.match(allMigrations,/jsonb_build_object\('scopes',jsonb_build_array\('liv
 assert.match(allMigrations,/jsonb_build_object\('scopes',jsonb_build_array\('live'\)\)/);
 
 console.log('integration-shape: source/player assertions passed');
+
+assert.match(style,/WATCH SOURCE RAIL CLEANUP v477/);
+assert.match(style,/html\.watch-browse:not\(\.watch-search-open\):not\(\.watch-search-results\)\{[\s\S]{0,120}--watch-source-row-h:0px!important/);
+assert.match(style,/html\.watch-browse:not\(\.watch-search-open\):not\(\.watch-search-results\) \.header-nav\{[\s\S]{0,120}display:none!important/);
