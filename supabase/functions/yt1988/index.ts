@@ -156,6 +156,99 @@ function rowVideoId(row: any) {
     url.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1] || "";
 }
 
+async function videoMetaMap(ids: string[]) {
+  const unique=[...new Set(ids.filter((id)=>validId(id,"video")))].slice(0,80);
+  if(!unique.length)return new Map<string,any>();
+
+  const supabaseUrl=Deno.env.get("SUPABASE_URL")||"";
+  const serviceKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"";
+  if(!supabaseUrl||!serviceKey)return new Map<string,any>();
+
+  try{
+    const res=await fetch(
+      supabaseUrl+"/rest/v1/yt1988_video_meta?video_id=in.("+
+        unique.map(encodeURIComponent).join(",")+")"+
+        "&select=video_id,aspect_ratio,media_kind,width,height,source,verified,updated_at",
+      {
+        headers:{
+          "apikey":serviceKey,
+          "authorization":"Bearer "+serviceKey
+        }
+      }
+    );
+    if(!res.ok)return new Map<string,any>();
+    const rows=await res.json().catch(()=>[]);
+    return new Map(
+      (Array.isArray(rows)?rows:[])
+        .map((row:any)=>[String(row?.video_id||""),row])
+        .filter(([id]:any)=>!!id)
+    );
+  }catch{
+    return new Map<string,any>();
+  }
+}
+
+async function warmVideoMeta(ids:string[]){
+  const unique=[...new Set(ids.filter((id)=>validId(id,"video")))].slice(0,24);
+  if(!unique.length)return;
+
+  const supabaseUrl=Deno.env.get("SUPABASE_URL")||"";
+  const serviceKey=Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")||"";
+  if(!supabaseUrl||!serviceKey)return;
+
+  const task=fetch(
+    supabaseUrl+"/functions/v1/yt1988-video-meta?ids="+
+      encodeURIComponent(unique.join(","))+"&resolve=1",
+    {
+      headers:{
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      }
+    }
+  ).catch(()=>null);
+
+  try{(globalThis as any).EdgeRuntime?.waitUntil?.(task)}catch{}
+}
+
+async function enrichRowsWithVideoMeta(rows:any[]) {
+  const list=Array.isArray(rows)?rows:[];
+  const ids=list.map(rowVideoId).filter(Boolean);
+  const meta=await videoMetaMap(ids);
+
+  const missing=ids.filter(id=>!meta.has(id));
+  if(missing.length)void warmVideoMeta(missing);
+
+  if(!meta.size)return list;
+
+  return list.map((row:any)=>{
+    const id=rowVideoId(row);
+    const m:any=meta.get(id);
+    const ratio=Number(m?.aspect_ratio)||0;
+    if(!m||!Number.isFinite(ratio)||ratio<=0)return row;
+
+    return {
+      ...row,
+      aspectRatio:ratio,
+      videoWidth:Number(m?.width)||0,
+      videoHeight:Number(m?.height)||0,
+      mediaKind:String(m?.media_kind||""),
+      aspectSource:String(m?.source||""),
+      _aspectVerified:m?.verified===true,
+      _aspectUpdatedAt:m?.updated_at||null
+    };
+  });
+}
+
+async function enrichSearchData(data:any) {
+  if(Array.isArray(data?.items)){
+    return {...data,items:await enrichRowsWithVideoMeta(data.items)};
+  }
+  if(Array.isArray(data?.relatedStreams)){
+    return {...data,relatedStreams:await enrichRowsWithVideoMeta(data.relatedStreams)};
+  }
+  return data;
+}
+
 function mergeYoutubeOriginalTitles(data: any, rssData: any) {
   const rows = channelRows(data);
   const rssRows = channelRows(rssData);
@@ -1151,7 +1244,11 @@ Deno.serve(async (req) => {
     }
 
     const result = await piped(path, Math.max(maxAge, 20) * 1000);
-    return json({ ok: true, source: result.source, data: result.data }, 200, maxAge);
+    const data =
+      action === "search" || action === "search_next"
+        ? await enrichSearchData(result.data)
+        : result.data;
+    return json({ ok: true, source: result.source, data }, 200, maxAge);
   } catch (error) {
     console.error("yt1988", action, error);
     return json({ ok: false, error: "upstream_unavailable" }, 503, 0);
