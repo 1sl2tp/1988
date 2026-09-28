@@ -515,22 +515,27 @@ function paintGeometryReadout(result){
   const p=result.playCenter;
   const top=result.clusters?.top||{};
   const bottom=result.clusters?.bottom||{};
+  const activeEdge=(box)=>box
+    ? (box.active?"ON ":"OFF ")+Math.round(box.edge||0)
+    : "OFF 0";
   const boxText=(box)=>box
-    ? Math.round(box.height)+"+"+Math.round(box.offset)+"="+Math.round(box.edge)
-    : "0";
+    ? (box.active?"ON ":"OFF ")+Math.round(box.height||0)+"+"+Math.round(box.offset||0)+"="+Math.round(box.edge||0)
+    : "OFF 0";
   const range=result.sampleRange||[0,0];
+  const state=result.layoutState||{};
   geometryReadout.textContent=
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
+    " · state "+(state.tier||"?")+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
     " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
     " · TOP "+Math.round(result.topInset)+
-      " [avatar "+Math.round(top.avatarEdge||0)+
-      " / title "+Math.round(top.titleEdge||0)+
-      " / kênh "+Math.round(top.channelEdge||0)+
-      " / phụ "+Math.round(top.auxEdge||0)+
-      " / phải "+Math.round(top.topRightEdge||0)+
+      " [logo "+activeEdge(top.avatarBox)+
+      " / title "+activeEdge(top.titleBox)+
+      " / kênh "+activeEdge(top.channelBox)+
+      " / phụ "+activeEdge(top.auxBox)+
+      " / phải "+activeEdge(top.topRightBox)+
       " / MAX "+Math.round(top.outerMax||0)+"]"+
     " · BOTTOM "+Math.round(result.bottomInset)+
       " [link "+boxText(bottom.linkBox)+
@@ -550,7 +555,7 @@ function syncMeasuredSafeWindow(){
     paintGeometryReadout(null);
     return null;
   }
-  const result=geometry.apply(stage,{title:currentVideoTitle()});
+  const result=geometry.apply(stage,{title:currentVideoTitle(),controls:false,aux:true});
   paintGeometryReadout(result);
   return result;
 }
