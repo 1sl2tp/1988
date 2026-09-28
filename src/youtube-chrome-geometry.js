@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.5";
+  const VERSION = "2026-09-28.6";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -17,28 +17,42 @@
   // Values are calibrated as cluster depths from the player's corresponding
   // edge, not as symmetric crops.
   const UI_PROFILES = {
-    // Values below are OUTER EDGE DEPTHS measured from the player edge.
-    // They are not text/icon heights. This matters because YouTube pills/cards
-    // include background, thumbnail, padding, border and sometimes extend much
-    // farther than the text/icon inside them.
+    // Bottom controls are modeled as {height + offsetFromBottom}. The visible
+    // depth is NOT the icon/text height; it is the full outer pill/card box
+    // plus its vertical offset from the player edge.
     landscape: [
-      { w:160, h:90,  avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:46, topRightEdge:32, linkEdge:29, nextEdge:31, youtubeEdge:25, seekEdge:10 },
-      { w:190, h:107, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:50, topRightEdge:34, linkEdge:31, nextEdge:33, youtubeEdge:26, seekEdge:10 },
-      { w:220, h:124, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:54, topRightEdge:36, linkEdge:32, nextEdge:35, youtubeEdge:27, seekEdge:11 },
-      { w:280, h:158, avatarEdge:44, title1Edge:37, title2Edge:52, channelEdge:54, auxEdge:59, topRightEdge:39, linkEdge:34, nextEdge:38, youtubeEdge:29, seekEdge:11 },
-      { w:360, h:203, avatarEdge:48, title1Edge:40, title2Edge:56, channelEdge:59, auxEdge:66, topRightEdge:42, linkEdge:36, nextEdge:41, youtubeEdge:31, seekEdge:12 },
-      { w:520, h:293, avatarEdge:54, title1Edge:44, title2Edge:62, channelEdge:65, auxEdge:78, topRightEdge:47, linkEdge:39, nextEdge:45, youtubeEdge:33, seekEdge:13 },
-      { w:720, h:405, avatarEdge:60, title1Edge:48, title2Edge:68, channelEdge:72, auxEdge:88, topRightEdge:52, linkEdge:43, nextEdge:49, youtubeEdge:36, seekEdge:14 },
-      { w:960, h:540, avatarEdge:66, title1Edge:52, title2Edge:74, channelEdge:78, auxEdge:96, topRightEdge:57, linkEdge:47, nextEdge:53, youtubeEdge:39, seekEdge:15 }
+      { w:160, h:90,  avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:46, topRightEdge:32,
+        linkH:27, linkOff:6, nextH:31, nextOff:7, youtubeH:24, youtubeOff:7, seekH:5, seekOff:4 },
+      { w:190, h:107, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:50, topRightEdge:34,
+        linkH:28, linkOff:7, nextH:33, nextOff:8, youtubeH:25, youtubeOff:8, seekH:5, seekOff:4 },
+      { w:220, h:124, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:54, topRightEdge:36,
+        linkH:29, linkOff:8, nextH:35, nextOff:9, youtubeH:26, youtubeOff:9, seekH:5, seekOff:5 },
+      { w:280, h:158, avatarEdge:44, title1Edge:37, title2Edge:52, channelEdge:54, auxEdge:59, topRightEdge:39,
+        linkH:31, linkOff:9, nextH:37, nextOff:10, youtubeH:28, youtubeOff:10, seekH:5, seekOff:5 },
+      { w:360, h:203, avatarEdge:48, title1Edge:40, title2Edge:56, channelEdge:59, auxEdge:66, topRightEdge:42,
+        linkH:33, linkOff:10, nextH:39, nextOff:11, youtubeH:30, youtubeOff:11, seekH:6, seekOff:5 },
+      { w:520, h:293, avatarEdge:54, title1Edge:44, title2Edge:62, channelEdge:65, auxEdge:78, topRightEdge:47,
+        linkH:35, linkOff:12, nextH:41, nextOff:13, youtubeH:32, youtubeOff:12, seekH:6, seekOff:6 },
+      { w:720, h:405, avatarEdge:60, title1Edge:48, title2Edge:68, channelEdge:72, auxEdge:88, topRightEdge:52,
+        linkH:38, linkOff:13, nextH:44, nextOff:14, youtubeH:35, youtubeOff:13, seekH:6, seekOff:7 },
+      { w:960, h:540, avatarEdge:66, title1Edge:52, title2Edge:74, channelEdge:78, auxEdge:96, topRightEdge:57,
+        linkH:41, linkOff:15, nextH:47, nextOff:16, youtubeH:38, youtubeOff:15, seekH:7, seekOff:8 }
     ],
     portrait: [
-      { w:120, h:213, avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:47, topRightEdge:32, linkEdge:29, nextEdge:31, youtubeEdge:25, seekEdge:10 },
-      { w:150, h:267, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:51, topRightEdge:34, linkEdge:31, nextEdge:33, youtubeEdge:26, seekEdge:10 },
-      { w:180, h:320, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:55, topRightEdge:36, linkEdge:32, nextEdge:35, youtubeEdge:27, seekEdge:11 },
-      { w:220, h:391, avatarEdge:43, title1Edge:36, title2Edge:51, channelEdge:53, auxEdge:59, topRightEdge:38, linkEdge:33, nextEdge:37, youtubeEdge:28, seekEdge:11 },
-      { w:280, h:498, avatarEdge:47, title1Edge:39, title2Edge:55, channelEdge:58, auxEdge:65, topRightEdge:41, linkEdge:35, nextEdge:40, youtubeEdge:30, seekEdge:12 },
-      { w:360, h:640, avatarEdge:51, title1Edge:42, title2Edge:59, channelEdge:62, auxEdge:72, topRightEdge:44, linkEdge:38, nextEdge:43, youtubeEdge:32, seekEdge:13 },
-      { w:460, h:818, avatarEdge:56, title1Edge:46, title2Edge:64, channelEdge:67, auxEdge:80, topRightEdge:48, linkEdge:41, nextEdge:47, youtubeEdge:35, seekEdge:14 }
+      { w:120, h:213, avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:47, topRightEdge:32,
+        linkH:27, linkOff:6, nextH:31, nextOff:7, youtubeH:24, youtubeOff:7, seekH:5, seekOff:4 },
+      { w:150, h:267, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:51, topRightEdge:34,
+        linkH:28, linkOff:7, nextH:33, nextOff:8, youtubeH:25, youtubeOff:8, seekH:5, seekOff:4 },
+      { w:180, h:320, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:55, topRightEdge:36,
+        linkH:29, linkOff:8, nextH:35, nextOff:9, youtubeH:26, youtubeOff:9, seekH:5, seekOff:5 },
+      { w:220, h:391, avatarEdge:43, title1Edge:36, title2Edge:51, channelEdge:53, auxEdge:59, topRightEdge:38,
+        linkH:30, linkOff:9, nextH:36, nextOff:10, youtubeH:27, youtubeOff:10, seekH:5, seekOff:5 },
+      { w:280, h:498, avatarEdge:47, title1Edge:39, title2Edge:55, channelEdge:58, auxEdge:65, topRightEdge:41,
+        linkH:32, linkOff:10, nextH:38, nextOff:11, youtubeH:29, youtubeOff:11, seekH:6, seekOff:5 },
+      { w:360, h:640, avatarEdge:51, title1Edge:42, title2Edge:59, channelEdge:62, auxEdge:72, topRightEdge:44,
+        linkH:34, linkOff:11, nextH:40, nextOff:12, youtubeH:31, youtubeOff:12, seekH:6, seekOff:6 },
+      { w:460, h:818, avatarEdge:56, title1Edge:46, title2Edge:64, channelEdge:67, auxEdge:80, topRightEdge:48,
+        linkH:37, linkOff:12, nextH:43, nextOff:13, youtubeH:34, youtubeOff:13, seekH:6, seekOff:7 }
     ]
   };
 
@@ -96,13 +110,22 @@
     );
   }
 
+  function bottomBoxes(sample) {
+    const linkEdge = sample.linkOff + sample.linkH;
+    const nextEdge = sample.nextOff + sample.nextH;
+    const youtubeEdge = sample.youtubeOff + sample.youtubeH;
+    const seekEdge = sample.seekOff + sample.seekH;
+    return {
+      link: { height:sample.linkH, offset:sample.linkOff, edge:linkEdge },
+      next: { height:sample.nextH, offset:sample.nextOff, edge:nextEdge },
+      youtube: { height:sample.youtubeH, offset:sample.youtubeOff, edge:youtubeEdge },
+      seek: { height:sample.seekH, offset:sample.seekOff, edge:seekEdge },
+      outerMax: Math.max(linkEdge,nextEdge,youtubeEdge,seekEdge)
+    };
+  }
+
   function bottomCluster(sample) {
-    return Math.max(
-      sample.linkEdge,
-      sample.nextEdge,
-      sample.youtubeEdge,
-      sample.seekEdge
-    );
+    return bottomBoxes(sample).outerMax;
   }
 
   function measure(input = {}, options = {}) {
@@ -115,7 +138,8 @@
 
     const playCenter = { x: width / 2, y: height / 2 };
     const topChrome = topCluster(sample, titleLines);
-    const bottomChrome = bottomCluster(sample);
+    const bottomBoxMetrics = bottomBoxes(sample);
+    const bottomChrome = bottomBoxMetrics.outerMax;
 
     // Keep the native center Play/Pause completely untouched. Insets are capped
     // independently so the top cluster never forces unnecessary bottom crop.
@@ -148,10 +172,10 @@
           height: topChrome
         },
         bottom: {
-          linkEdge: sample.linkEdge,
-          nextEdge: sample.nextEdge,
-          youtubeEdge: sample.youtubeEdge,
-          seekEdge: sample.seekEdge,
+          linkBox: bottomBoxMetrics.link,
+          nextBox: bottomBoxMetrics.next,
+          youtubeBox: bottomBoxMetrics.youtube,
+          seekBox: bottomBoxMetrics.seek,
           outerMax: bottomChrome,
           height: bottomChrome
         }
