@@ -65,10 +65,12 @@
       pointer-events:none!important;
       transform:scale(1);
       transform-origin:50% 50%;
-      transition:transform .16s cubic-bezier(.2,0,0,1);
+      transition:transform .30s cubic-bezier(.2,.8,.2,1);
+      will-change:transform;
     }
-    .stage.demo-pip.max-clean-mode.controls-visible iframe{
-      transform:scale(1.22);
+    .stage.demo-pip.max-clean-mode.chrome-mask iframe{
+      transform:scale(1.18);
+      transition-duration:.20s;
     }
     .clean-overlay{
       position:absolute;
@@ -263,21 +265,46 @@ let active="current";
 let apiReady=false;
 let apiPlayer=null;
 let cleanHideTimer=0;
+let chromeMaskTimer=0;
+let optimisticPlaying=false;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
   clearTimeout(cleanHideTimer);
   cleanHideTimer=0;
 }
+function stopChromeMaskTimer(){
+  if(!chromeMaskTimer)return;
+  clearTimeout(chromeMaskTimer);
+  chromeMaskTimer=0;
+}
+function playerIsPlaying(){
+  try{return apiPlayer?.getPlayerState?.()===1}catch{return optimisticPlaying}
+}
+function setChromeMask(on){
+  stage.classList.toggle("chrome-mask",!!on);
+}
+function scheduleChromeRelease(delay=3000){
+  stopChromeMaskTimer();
+  if(!playerIsPlaying())return;
+  chromeMaskTimer=setTimeout(()=>{
+    if(playerIsPlaying()&&!stage.classList.contains("controls-visible")){
+      setChromeMask(false);
+    }
+  },delay);
+}
 function hideCleanControls(){
   stopCleanHideTimer();
   stage.classList.remove("controls-visible");
+  scheduleChromeRelease(1100);
 }
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
   stage.classList.add("controls-visible");
+  if(stage.classList.contains("max-clean-mode"))setChromeMask(true);
   stopCleanHideTimer();
-  cleanHideTimer=setTimeout(()=>stage.classList.remove("controls-visible"),1800);
+  stopChromeMaskTimer();
+  cleanHideTimer=setTimeout(hideCleanControls,1800);
 }
 function syncCleanPlayIcon(){
   const btn=stage.querySelector("[data-clean-play]");
@@ -306,11 +333,12 @@ function cleanOverlayMarkup(){
   '</div>';
 }
 function exitDemoPip(){
-  stage.classList.remove("demo-pip","demo-pip-large","controls-visible");
+  stage.classList.remove("demo-pip","demo-pip-large","controls-visible","chrome-mask");
   stageSpacer.style.display="none";
   stageSpacer.style.height="";
   demoPipToggle.textContent="Bật PiP demo";
   stopCleanHideTimer();
+  stopChromeMaskTimer();
 }
 function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
@@ -318,9 +346,14 @@ function enterDemoPip(){
   stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
   stageSpacer.style.display="block";
   stage.classList.add("demo-pip");
-  stage.classList.remove("demo-pip-large","controls-visible");
+  stage.classList.remove("demo-pip-large","controls-visible","chrome-mask");
   demoPipToggle.textContent="Trả về MAIN";
   stopCleanHideTimer();
+  stopChromeMaskTimer();
+  if(stage.classList.contains("max-clean-mode")){
+    setChromeMask(true);
+    scheduleChromeRelease(3000);
+  }
 }
 function toggleDemoPip(){
   stage.classList.contains("demo-pip")?exitDemoPip():enterDemoPip();
@@ -415,10 +448,20 @@ async function render(){
       playerVars:{...mode.params,origin:location.origin},
       events:mode.cleanDemo?{
         onReady(){
+          optimisticPlaying=false;
           syncCleanPlayIcon();
         },
-        onStateChange(){
+        onStateChange(event){
+          optimisticPlaying=event?.data===1;
           syncCleanPlayIcon();
+          if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+          if(event?.data===1){
+            setChromeMask(true);
+            scheduleChromeRelease(3000);
+          }else{
+            stopChromeMaskTimer();
+            setChromeMask(true);
+          }
         }
       }:undefined
     });
@@ -452,13 +495,16 @@ stage.addEventListener("click",e=>{
   if(play){
     e.preventDefault();
     e.stopPropagation();
+    const playing=playerIsPlaying();
+    optimisticPlaying=!playing;
+    if(stage.classList.contains("max-clean-mode"))setChromeMask(true);
+    syncCleanPlayIcon();
     try{
-      const playing=apiPlayer?.getPlayerState?.()===1;
-      if(playing)apiPlayer.pauseVideo?.();
+      if(playing)apiPlayer?.pauseVideo?.();
       else apiPlayer?.playVideo?.();
     }catch{}
-    syncCleanPlayIcon();
     showCleanControls();
+    if(!playing)scheduleChromeRelease(3000);
     return;
   }
   const close=e.target.closest("[data-clean-close]");
