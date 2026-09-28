@@ -2623,18 +2623,38 @@ document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
+
+  const pipRectBefore=
+    stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")
+      ? stage.getBoundingClientRect()
+      : null;
+
   if(currentChromeLibrary){
     const oldMin=currentChromeLibrary.minWidth;
     const oldMax=currentChromeLibrary.maxWidth;
     const t=oldMax>oldMin?(calibrationWidth-oldMin)/(oldMax-oldMin):0;
+
     prepareCurrentChromeLibrary(true);
+
     if(currentChromeLibrary){
       calibrationWidth=currentChromeLibrary.minWidth+
         Math.max(0,Math.min(1,t))*(currentChromeLibrary.maxWidth-currentChromeLibrary.minWidth);
       renderChromeCalibration();
     }
   }
-  if(stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")){
+
+  if(pipRectBefore&&currentChromeLibrary){
+    // Re-resolve the physical PiP rect through the NEW Library bounds.
+    // This keeps real size, overlay inset:0 and TOP/BOTTOM sample identical
+    // after viewport resize/orientation changes.
+    setPipRect(
+      pipRectBefore.left,
+      pipRectBefore.top,
+      pipRectBefore.width,
+      pipRectBefore.height
+    );
+    touchChromeCover("viewport-resize");
+  }else if(stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")){
     queueMeasuredSafeWindow();
   }
 },{passive:true});
