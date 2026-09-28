@@ -3285,26 +3285,62 @@ html.one-col.portrait .player.pip{
     return metas;
   }
 
-  function prefetchPackages(scopes=[]){
-    const unique=[...new Set(
-      (Array.isArray(scopes)?scopes:[])
-        .map(String)
-        .filter(Boolean)
-    )];
+  let packageSyncRunning=false;
 
-    // Server already built these packages. The UI only downloads them into RAM
-    // from Live through the remaining tags; search is a separate workflow.
-    setTimeout(()=>{
-      for(const scope of unique){
-        if(
-          scope===activePackageScope||
-          packageCache.has(scope)||
-          packagePending.has(scope)
-        )continue;
-        void getPackage(scope);
-      }
-    },0);
+  function paintSyncedPackage(scope,metas){
+    if(feedMode!=="package"||activePackageScope!==scope)return;
+    feedMetas=Array.isArray(metas)?metas:[];
+    renderSampleContent();
   }
+
+  async function syncPreparedPackages(scopes=[],{refreshManifest=false}={}){
+    if(packageSyncRunning)return false;
+    packageSyncRunning=true;
+    try{
+      if(refreshManifest||!Object.keys(packageManifest).length){
+        await loadPackageManifest();
+      }
+
+      const unique=[...new Set(
+        ((Array.isArray(scopes)&&scopes.length)?scopes:Object.keys(packageManifest))
+          .map(String)
+          .filter(Boolean)
+      )];
+
+      for(const scope of unique){
+        const remoteHash=String(packageManifest?.[scope]?.hash||"").trim();
+        if(!remoteHash)continue;
+
+        const localHash=String(packageHashCache.get(scope)||"").trim();
+        if(localHash&&localHash===remoteHash)continue;
+
+        const metas=await getPackage(scope,{force:true});
+        const downloadedHash=String(packageHashCache.get(scope)||"").trim();
+        if(!downloadedHash)continue;
+
+        // Swap to the complete new package only after download/parse finished.
+        paintSyncedPackage(scope,metas);
+      }
+      return true;
+    }finally{
+      packageSyncRunning=false;
+    }
+  }
+
+  function prefetchPackages(scopes=[]){
+    setTimeout(()=>{ void syncPreparedPackages(scopes); },0);
+  }
+
+  setInterval(()=>{
+    if(document.hidden||feedMode==="search")return;
+    void syncPreparedPackages([],{refreshManifest:true});
+  },15000);
+
+  document.addEventListener("visibilitychange",()=>{
+    if(document.visibilityState==="visible"){
+      void syncPreparedPackages([],{refreshManifest:true});
+    }
+  },{passive:true});
 
   function verifiedBadgeMarkup(){
     return '<span class="verified-badge" aria-label="Đã xác minh" title="Đã xác minh">'+
