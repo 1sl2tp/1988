@@ -2338,7 +2338,7 @@ stage.addEventListener("pointerdown",e=>{
   if(shield){
     e.preventDefault();
     e.stopPropagation();
-    if(!pipCoverVisible)showChromeCover("shield");
+    touchChromeCover("shield");
     return;
   }
   const resize=e.target.closest("[data-pip-resize]");
