@@ -2252,7 +2252,6 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
-  const DOWNLOAD_RESOLVER_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4298,7 +4297,7 @@ html.one-col.portrait .player.pip{
       rowActionButton("view-channel","Xem kênh","channel",{disabled:!sourceId})+
       adminActions+
       '<div class="row-action-sep"></div>'+
-      rowActionButton("download","Tải xuống","download");
+      rowActionButton("download-cobalt","Tải qua Cobalt","download",{disabled:!canOpenCobalt(meta)});
 
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(anchor));
@@ -4323,75 +4322,22 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function directDownloadUrlForMeta(meta={},format="mp4"){
-    format=String(format||"mp4").toLowerCase();
-    const direct=String(
-      format==="mp3"
-        ?(meta.downloadAudioUrl||"")
-        :(meta.downloadVideoUrl||"")
-    ).trim();
-    return /^https?:\/\//i.test(direct)?direct:"";
-  }
+  const COBALT_DOWNLOAD_BASE="https://cobalt.meowing.de/#";
 
-  function canResolveDownload(meta={}){
+  function canOpenCobalt(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
   }
 
-  function startResolvedDownload(meta={},format="mp4"){
-    format=String(format||"mp4").toLowerCase();
-    const direct=directDownloadUrlForMeta(meta,format);
-    if(direct){
-      return openDirectDownload(direct);
-    }
-
+  function openInCobalt(meta={}){
     const id=String(meta?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
 
-    // One click -> one real file request. The Edge Function resolves Cobalt and
-    // streams the bytes in this same request, so the browser keeps the native
-    // download gesture instead of creating a 0-byte async download.
-    const url=
-      DOWNLOAD_RESOLVER_URL+
-      "?id="+encodeURIComponent(id)+
-      "&format="+encodeURIComponent(format)+
-      "&title="+encodeURIComponent(String(meta?.title||id).trim());
-
-    return openDirectDownload(url);
-  }
-
-  function showDownloadMenu(){
-    const meta=openRowMenuMeta||{};
-    const canDownload=
-      !!directDownloadUrlForMeta(meta,"mp4")||
-      !!directDownloadUrlForMeta(meta,"mp3")||
-      canResolveDownload(meta);
-    const menu=ensureRowActionMenu();
-    menu.innerHTML=
-      '<div class="row-action-title">Tải xuống</div>'+
-      rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!canDownload})+
-      rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!canDownload})+
-      (canDownload
-        ?'<div class="row-action-note">Tải trực tiếp qua Cobalt.</div>'
-        :'<div class="row-action-note">Nguồn này chưa hỗ trợ tải trực tiếp.</div>')+
-      '<div class="row-action-sep"></div>'+
-      rowActionButton("back-main","Quay lại","back");
-    menu.hidden=false;
-    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
-  }
-
-  function openDirectDownload(url){
-    url=String(url||"").trim();
-    if(!/^https?:\/\//i.test(url))return false;
-
-    // Do not set target=_blank or a synthetic cross-origin filename. The file
-    // response itself carries Content-Disposition: attachment.
-    const a=document.createElement("a");
-    a.href=url;
-    a.rel="noopener";
-    a.style.display="none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const youtubeUrl="https://www.youtube.com/watch?v="+id;
+    // Cobalt web accepts the source URL in the hash and starts processing it
+    // automatically. Keep this in the same tab so there is no popup/new tab.
+    window.location.assign(
+      COBALT_DOWNLOAD_BASE+encodeURIComponent(youtubeUrl)
+    );
     return true;
   }
 
@@ -6227,18 +6173,9 @@ html.one-col.portrait .player.pip{
         void openChannelInApp(meta);
         return;
       }
-      if(kind==="download"){
-        showDownloadMenu();
-        return;
-      }
-      if(kind==="download-mp4"){
+      if(kind==="download-cobalt"){
         closeRowActionMenu();
-        startResolvedDownload(meta,"mp4");
-        return;
-      }
-      if(kind==="download-mp3"){
-        closeRowActionMenu();
-        startResolvedDownload(meta,"mp3");
+        openInCobalt(meta);
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
