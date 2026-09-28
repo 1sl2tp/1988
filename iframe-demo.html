@@ -478,7 +478,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-21"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-22"></script>
 <script>
 const modes=[
   {
@@ -550,7 +550,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Không zoom. Giữ Play/Pause gốc ở tâm player; đo riêng vùng title/kênh phía trên và branding/thông tin phía dưới để chỉ che vừa đủ, giữ được nhiều hình nhất. Trên là phóng/đóng, dưới là thanh tua thật.",
+    desc:"Không zoom. Library chỉ đo TOP và BOTTOM của chrome YouTube; Play/Pause gốc không tham gia tính toán. Trên là phóng/đóng, dưới là thanh tua thật.",
     api:true,
     cleanDemo:true,
     maxClean:true,
@@ -590,7 +590,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="top-metadata-v4";
+const CHROME_LIBRARY_PROFILE_REV="top-bottom-only-v5";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -976,7 +976,6 @@ function paintGeometryReadout(result){
     return;
   }
   geometryReadout.hidden=false;
-  const p=result.playCenter;
   const top=result.clusters?.top||{};
   const bottom=result.clusters?.bottom||{};
   const activeEdge=(box)=>box
@@ -994,9 +993,7 @@ function paintGeometryReadout(result){
     " v"+String(currentChromeLibrary?.version||window.YouTubeChromeGeometry?.VERSION||"?")+
     " · embed "+(result.embedMode||currentChromeLibrary?.embedMode||"?")+
     " · state "+(state.tier||"?")+"/"+(state.density||"?")+
-    (result.collisionMode?" · CHẠM PLAY":"")+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
-    " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
     " · TOP "+Math.round(result.topInset)+
       " [logo kênh "+activeEdge(top.avatarBox)+
