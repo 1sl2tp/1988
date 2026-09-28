@@ -1634,6 +1634,74 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   .row-menu{opacity:1}
 }
 
+.row-action-menu{
+  position:fixed;
+  z-index:1200;
+  width:min(286px,calc(100vw - 24px));
+  padding:8px;
+  border:1px solid var(--yt-border);
+  border-radius:12px;
+  background:var(--yt-surface);
+  color:var(--yt-text);
+  box-shadow:0 10px 36px rgba(0,0,0,.38);
+}
+.row-action-menu[hidden]{display:none!important}
+.row-action-title{
+  padding:7px 10px 8px;
+  overflow:hidden;
+  color:var(--yt-text-secondary);
+  font:500 12px/16px Roboto,Arial,sans-serif;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.row-action-item{
+  width:100%;
+  min-height:44px;
+  padding:0 10px;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:inherit;
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  text-align:left;
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  cursor:pointer;
+}
+.row-action-item:hover{background:var(--yt-hover)}
+.row-action-item:active{background:var(--yt-press)}
+.row-action-item[disabled]{
+  opacity:.45;
+  cursor:default;
+}
+.row-action-item[disabled]:hover{background:transparent}
+.row-action-icon{
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+}
+.row-action-icon svg{
+  width:22px;
+  height:22px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.row-action-sep{
+  height:1px;
+  margin:6px 2px;
+  background:var(--yt-border);
+}
+.row-action-note{
+  padding:8px 10px;
+  color:var(--yt-text-secondary);
+  font:400 12px/17px Roboto,Arial,sans-serif;
+}
 
 .state{display:none}
 
@@ -1858,6 +1926,10 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
+  const sourceUiChannel=typeof BroadcastChannel==="function"
+    ?new BroadcastChannel("1988-source-ui-v1")
+    :null;
 
   const root=document.documentElement;
   const top=document.getElementById("top");
@@ -1905,6 +1977,10 @@ html.one-col.portrait .player.pip{
   let feedRequest=0;
   let feedMode="package";
   let activePackageScope="live";
+  let sourceStateRemote={};
+  let sourceAdminPin="";
+  let openRowMenuMeta=null;
+  let openRowMenuAnchor=null;
   const AUTOPLAY_NEXT_KEY="yt1988-autoplay-next-v1";
   let autoplayNext=true;
   try{
@@ -3169,6 +3245,22 @@ html.one-col.portrait .player.pip{
       videoHeight,
       aspectRatio,
       mediaKind:String(row?.mediaKind||""),
+      downloadVideoUrl:String(
+        row?.downloadVideoUrl||
+        row?.videoDownloadUrl||
+        row?.mp4Url||
+        row?.downloads?.mp4||
+        row?.download?.video||
+        ""
+      ).trim(),
+      downloadAudioUrl:String(
+        row?.downloadAudioUrl||
+        row?.audioDownloadUrl||
+        row?.mp3Url||
+        row?.downloads?.mp3||
+        row?.download?.audio||
+        ""
+      ).trim(),
       _aspectVerified:
         row?._aspectVerified===true||
         (videoWidth>0&&videoHeight>0)||
@@ -3194,7 +3286,8 @@ html.one-col.portrait .player.pip{
       "title","sourceName","sourceAvatar","thumbnail",
       "viewsLabel","publishedLabel","durationLabel",
       "isLive","verified","mediaKind","aspectRatio",
-      "videoWidth","videoHeight","_aspectVerified","_aspectSource"
+      "videoWidth","videoHeight","downloadVideoUrl","downloadAudioUrl",
+      "_aspectVerified","_aspectSource"
     ]){
       if(keep(key))merged[key]=base[key];
     }
@@ -3728,6 +3821,255 @@ html.one-col.portrait .player.pip{
     images.forEach(img=>youtubeThumbQualityObserver.observe(img));
   }
 
+  function validSourceId(value=""){
+    const id=String(value||"").trim();
+    return /^UC[A-Za-z0-9_-]+$/.test(id)?id:"";
+  }
+
+  function directSourceStatus(sourceId,scope=activePackageScope){
+    sourceId=validSourceId(sourceId);
+    scope=String(scope||"").trim();
+    if(!sourceId||!scope)return "normal";
+    const selected=Array.isArray(sourceStateRemote?.scopedSelected?.[scope])
+      ?sourceStateRemote.scopedSelected[scope]
+      :[];
+    const blocked=Array.isArray(sourceStateRemote?.scopedBlocked?.[scope])
+      ?sourceStateRemote.scopedBlocked[scope]
+      :[];
+    if(blocked.includes(sourceId))return "blocked";
+    if(selected.includes(sourceId))return "selected";
+    return "normal";
+  }
+
+  function patchLocalSourceStatus(sourceId,status,scope){
+    sourceId=validSourceId(sourceId);
+    scope=String(scope||"").trim();
+    if(!sourceId||!scope)return;
+    sourceStateRemote=sourceStateRemote&&typeof sourceStateRemote==="object"
+      ?sourceStateRemote
+      :{};
+    sourceStateRemote.scopedSelected=sourceStateRemote.scopedSelected||{};
+    sourceStateRemote.scopedBlocked=sourceStateRemote.scopedBlocked||{};
+    const without=(list)=>Array.isArray(list)?list.filter(id=>id!==sourceId):[];
+    sourceStateRemote.scopedSelected[scope]=without(sourceStateRemote.scopedSelected[scope]);
+    sourceStateRemote.scopedBlocked[scope]=without(sourceStateRemote.scopedBlocked[scope]);
+    if(status==="selected")sourceStateRemote.scopedSelected[scope].push(sourceId);
+    if(status==="blocked")sourceStateRemote.scopedBlocked[scope].push(sourceId);
+  }
+
+  function currentSourceChoices(){
+    return [...(sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]")||[])]
+      .map(node=>({
+        key:String(node.dataset.sourceTab||"").trim(),
+        label:String(node.textContent||"").trim()
+      }))
+      .filter(row=>row.key&&row.label);
+  }
+
+  function menuIcon(kind){
+    const icons={
+      channel:'<svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"></circle><path d="M5 20c.8-4 3.2-6 7-6s6.2 2 7 6"></path></svg>',
+      select:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>',
+      block:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="m6 6 12 12"></path></svg>',
+      download:'<svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14"></path></svg>',
+      back:'<svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"></path></svg>',
+      video:'<svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="m10 9 5 3-5 3z"></path></svg>',
+      audio:'<svg viewBox="0 0 24 24"><path d="M9 18V6l9-2v12"></path><circle cx="6" cy="18" r="3"></circle><circle cx="15" cy="16" r="3"></circle></svg>'
+    };
+    return '<span class="row-action-icon" aria-hidden="true">'+(icons[kind]||"")+'</span>';
+  }
+
+  function ensureRowActionMenu(){
+    let menu=document.getElementById("rowActionMenu");
+    if(menu)return menu;
+    menu=document.createElement("div");
+    menu.id="rowActionMenu";
+    menu.className="row-action-menu";
+    menu.hidden=true;
+    menu.setAttribute("role","menu");
+    document.body.appendChild(menu);
+    return menu;
+  }
+
+  function positionRowActionMenu(anchor){
+    const menu=ensureRowActionMenu();
+    if(!anchor||menu.hidden)return;
+    const rect=anchor.getBoundingClientRect();
+    const menuRect=menu.getBoundingClientRect();
+    const gap=6;
+    const left=Math.max(
+      8,
+      Math.min(
+        window.innerWidth-menuRect.width-8,
+        rect.right-menuRect.width
+      )
+    );
+    const below=rect.bottom+gap;
+    const top=below+menuRect.height<=window.innerHeight-8
+      ?below
+      :Math.max(8,rect.top-menuRect.height-gap);
+    menu.style.left=Math.round(left)+"px";
+    menu.style.top=Math.round(top)+"px";
+  }
+
+  function closeRowActionMenu(){
+    const menu=ensureRowActionMenu();
+    menu.hidden=true;
+    menu.innerHTML="";
+    openRowMenuMeta=null;
+    openRowMenuAnchor=null;
+  }
+
+  function rowActionButton(action,label,icon,{disabled=false}={}){
+    return '<button class="row-action-item" type="button" role="menuitem" data-row-action="'+escapeHtml(action)+'"'+(disabled?' disabled':'')+'>'+
+      menuIcon(icon)+'<span>'+escapeHtml(label)+'</span></button>';
+  }
+
+  function showMainRowActionMenu(meta,anchor){
+    const menu=ensureRowActionMenu();
+    openRowMenuMeta=meta||{};
+    openRowMenuAnchor=anchor||null;
+    const sourceId=validSourceId(meta?.sourceId);
+    const scope=feedMode==="package"?String(activePackageScope||""):"";
+    const status=scope?directSourceStatus(sourceId,scope):"normal";
+    const selectLabel=status==="selected"?"Bỏ chọn kênh":"Chọn kênh này";
+    const blockLabel=status==="blocked"?"Bỏ chặn kênh":"Không đề xuất kênh này";
+
+    menu.innerHTML=
+      '<div class="row-action-title">'+escapeHtml(meta?.sourceName||meta?.title||"Video")+'</div>'+
+      rowActionButton("view-channel","Xem kênh","channel",{disabled:!sourceId})+
+      rowActionButton("select-source",selectLabel,"select",{disabled:!sourceId})+
+      rowActionButton("block-source",blockLabel,"block",{disabled:!sourceId})+
+      '<div class="row-action-sep"></div>'+
+      rowActionButton("download","Tải xuống","download");
+
+    menu.hidden=false;
+    requestAnimationFrame(()=>positionRowActionMenu(anchor));
+  }
+
+  function showScopePicker(action){
+    const menu=ensureRowActionMenu();
+    const choices=currentSourceChoices();
+    menu.innerHTML=
+      '<div class="row-action-title">'+
+        escapeHtml(action==="selected"?"Chọn vào nguồn":"Không đề xuất trong nguồn")+
+      '</div>'+
+      choices.map(row=>
+        '<button class="row-action-item" type="button" role="menuitem" data-row-scope="'+escapeHtml(row.key)+'" data-row-status="'+escapeHtml(action)+'">'+
+          menuIcon(action==="selected"?"select":"block")+
+          '<span>'+escapeHtml(row.label)+'</span>'+
+        '</button>'
+      ).join("")+
+      '<div class="row-action-sep"></div>'+
+      rowActionButton("back-main","Quay lại","back");
+    menu.hidden=false;
+    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+  }
+
+  function showDownloadMenu(){
+    const meta=openRowMenuMeta||{};
+    const videoUrl=String(meta.downloadVideoUrl||"").trim();
+    const audioUrl=String(meta.downloadAudioUrl||"").trim();
+    const menu=ensureRowActionMenu();
+    menu.innerHTML=
+      '<div class="row-action-title">Tải xuống</div>'+
+      rowActionButton("download-mp4","Video MP4","video",{disabled:!videoUrl})+
+      rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!audioUrl})+
+      ((!videoUrl&&!audioUrl)
+        ?'<div class="row-action-note">Video này chưa có liên kết tải trực tiếp từ nguồn.</div>'
+        :"")+
+      '<div class="row-action-sep"></div>'+
+      rowActionButton("back-main","Quay lại","back");
+    menu.hidden=false;
+    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+  }
+
+  function openDirectDownload(url,filename=""){
+    url=String(url||"").trim();
+    if(!/^https?:\/\//i.test(url))return false;
+    const a=document.createElement("a");
+    a.href=url;
+    if(filename)a.download=filename;
+    a.rel="noopener noreferrer";
+    a.target="_blank";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return true;
+  }
+
+  async function sourceAdminPinForWrite(){
+    if(sourceAdminPin)return sourceAdminPin;
+    const entered=window.prompt("Mã quản trị để cập nhật nguồn");
+    if(!entered)return "";
+    sourceAdminPin=String(entered).trim();
+    return sourceAdminPin;
+  }
+
+  async function writeCardSourceStatus(meta,status,scope){
+    const sourceId=validSourceId(meta?.sourceId);
+    scope=String(scope||"").trim();
+    if(!sourceId||!scope)return false;
+    const pin=await sourceAdminPinForWrite();
+    if(!pin)return false;
+
+    const previous=directSourceStatus(sourceId,scope);
+    patchLocalSourceStatus(sourceId,status,scope);
+
+    const event={
+      type:"source-state",
+      id:sourceId,
+      status,
+      scope,
+      name:String(meta?.sourceName||"").trim(),
+      at:Date.now()
+    };
+    try{sourceUiChannel?.postMessage(event)}catch{}
+    try{localStorage.setItem(SOURCE_UI_EVENT_KEY,JSON.stringify(event))}catch{}
+
+    try{
+      const response=await fetch(SOURCE_STATE_URL,{
+        method:"POST",
+        cache:"no-store",
+        headers:{
+          "content-type":"application/json",
+          "x-1988-pin":pin
+        },
+        body:JSON.stringify({
+          op:"set_source",
+          scope,
+          channel_id:sourceId,
+          status,
+          version:Date.now(),
+          source:{
+            name:String(meta?.sourceName||"").trim(),
+            thumbnailUrl:String(meta?.sourceAvatar||"").trim(),
+            subscribers:""
+          }
+        })
+      });
+      if(response.status===401){
+        sourceAdminPin="";
+        patchLocalSourceStatus(sourceId,previous,scope);
+        window.alert("Mã quản trị chưa đúng.");
+        return false;
+      }
+      if(!response.ok){
+        patchLocalSourceStatus(sourceId,previous,scope);
+        throw new Error("source_state_"+response.status);
+      }
+
+      closeRowActionMenu();
+      setTimeout(()=>void syncPreparedPackages([scope],{refreshManifest:true}),1200);
+      return true;
+    }catch(error){
+      patchLocalSourceStatus(sourceId,previous,scope);
+      console.warn("save source status failed",error);
+      window.alert("Chưa lưu được thay đổi nguồn.");
+      return false;
+    }
+  }
+
   function cardMarkup(meta,index=0){
     const id=meta.id || current.id;
     const title=meta.title || current.label;
@@ -3745,7 +4087,7 @@ html.one-col.portrait .player.pip{
     const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
-      '<article class="row'+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+      '<article class="row'+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
           '<img src="'+escapeHtml(thumb)+'" data-thumb-base="'+escapeHtml(baseThumb)+'" data-thumb-fallback-stage="0" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
           (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
@@ -3945,6 +4287,7 @@ html.one-col.portrait .player.pip{
         if(!response.ok)throw new Error("source_state_"+response.status);
         const payload=await response.json();
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+        sourceStateRemote=remote;
         const rows=existingSourceTabNames(remote);
         try{localStorage.setItem(sourceTabsKey,JSON.stringify(rows))}catch{}
         return rows;
@@ -5233,9 +5576,27 @@ html.one-col.portrait .player.pip{
   document.addEventListener("keydown",event=>{
     if(event.key==="Escape")closeSettingsMenu();
   });
+  function applySourceUiEvent(event={}){
+    if(event?.type!=="source-state")return;
+    const id=validSourceId(event.id);
+    const scope=String(event.scope||"").trim();
+    const status=String(event.status||"");
+    if(!id||!scope||!["selected","blocked","normal"].includes(status))return;
+    patchLocalSourceStatus(id,status,scope);
+  }
+
+  try{
+    sourceUiChannel?.addEventListener?.("message",event=>applySourceUiEvent(event.data));
+  }catch{}
+
   addEventListener("storage",event=>{
-    if(event.key!==THEME_KEY)return;
-    applyTheme(event.newValue,{persist:false});
+    if(event.key===THEME_KEY){
+      applyTheme(event.newValue,{persist:false});
+      return;
+    }
+    if(event.key===SOURCE_UI_EVENT_KEY&&event.newValue){
+      try{applySourceUiEvent(JSON.parse(event.newValue))}catch{}
+    }
   });
 
   videoMenu?.addEventListener("click",()=>{
@@ -5278,11 +5639,15 @@ html.one-col.portrait .player.pip{
     if(!card)return;
 
     if(menu){
+      event.preventDefault();
       event.stopPropagation();
-      menu.animate(
-        [{transform:"scale(.88)"},{transform:"scale(1)"}],
-        {duration:140,easing:"cubic-bezier(.2,0,0,1)"}
-      );
+      const id=String(card.dataset.videoId||"").trim();
+      const selectedMeta=
+        feedMetas.find(meta=>meta?.id===id)||
+        relatedMetas.find(meta=>meta?.id===id)||
+        metaForVideoId(id)||
+        {};
+      showMainRowActionMenu(selectedMeta,menu);
       return;
     }
 
@@ -5310,7 +5675,93 @@ html.one-col.portrait .player.pip{
       schedulePip();
     }
   });
+  document.addEventListener("click",event=>{
+    const action=event.target.closest?.("[data-row-action]");
+    if(action&&ensureRowActionMenu().contains(action)){
+      event.preventDefault();
+      event.stopPropagation();
+      const kind=String(action.dataset.rowAction||"");
+      const meta=openRowMenuMeta||{};
+
+      if(kind==="back-main"){
+        showMainRowActionMenu(meta,openRowMenuAnchor);
+        return;
+      }
+      if(kind==="view-channel"){
+        const sourceId=validSourceId(meta.sourceId);
+        if(sourceId){
+          window.open(
+            "https://www.youtube.com/channel/"+encodeURIComponent(sourceId),
+            "_blank",
+            "noopener,noreferrer"
+          );
+        }
+        closeRowActionMenu();
+        return;
+      }
+      if(kind==="download"){
+        showDownloadMenu();
+        return;
+      }
+      if(kind==="download-mp4"){
+        openDirectDownload(
+          meta.downloadVideoUrl,
+          videoTitleSlug(meta.title||"video")+".mp4"
+        );
+        closeRowActionMenu();
+        return;
+      }
+      if(kind==="download-mp3"){
+        openDirectDownload(
+          meta.downloadAudioUrl,
+          videoTitleSlug(meta.title||"audio")+".mp3"
+        );
+        closeRowActionMenu();
+        return;
+      }
+      if(kind==="select-source"||kind==="block-source"){
+        const wanted=kind==="select-source"?"selected":"blocked";
+        if(feedMode==="package"&&activePackageScope){
+          const currentStatus=directSourceStatus(meta.sourceId,activePackageScope);
+          const nextStatus=currentStatus===wanted?"normal":wanted;
+          void writeCardSourceStatus(meta,nextStatus,activePackageScope);
+        }else{
+          showScopePicker(wanted);
+        }
+        return;
+      }
+    }
+
+    const scoped=event.target.closest?.("[data-row-scope][data-row-status]");
+    if(scoped&&ensureRowActionMenu().contains(scoped)){
+      event.preventDefault();
+      event.stopPropagation();
+      const scope=String(scoped.dataset.rowScope||"");
+      const wanted=String(scoped.dataset.rowStatus||"");
+      const meta=openRowMenuMeta||{};
+      const currentStatus=directSourceStatus(meta.sourceId,scope);
+      const nextStatus=currentStatus===wanted?"normal":wanted;
+      void writeCardSourceStatus(meta,nextStatus,scope);
+      return;
+    }
+
+    const rowMenu=ensureRowActionMenu();
+    if(!rowMenu.hidden&&!rowMenu.contains(event.target)&&event.target!==openRowMenuAnchor){
+      closeRowActionMenu();
+    }
+  });
+
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape")closeRowActionMenu();
+  });
+
+  addEventListener("resize",()=>{
+    const rowMenu=ensureRowActionMenu();
+    if(!rowMenu.hidden)positionRowActionMenu(openRowMenuAnchor);
+  },{passive:true});
+
   addEventListener("scroll",()=>{
+    closeRowActionMenu();
     syncHeaderScrollState();
     schedulePip();
     syncMobileHeaderVisibility();
