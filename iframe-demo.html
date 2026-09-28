@@ -379,6 +379,9 @@ let chromeMaskTimer=0;
 let optimisticPlaying=false;
 let seekRaf=0;
 let activeSeekPointer=null;
+const YT_CHROME_IDLE_MS=3800;
+let chromeReleaseMediaTime=0;
+let chromeReleaseWallTime=0;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -479,29 +482,60 @@ function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
   stage.classList.toggle("chrome-mask",!!on);
 }
-function scheduleChromeRelease(delay=3800){
+function currentMediaTime(){
+  try{return Number(apiPlayer?.getCurrentTime?.())||0}catch{return 0}
+}
+function currentPlaybackRate(){
+  try{return Math.max(.1,Number(apiPlayer?.getPlaybackRate?.())||1)}catch{return 1}
+}
+function scheduleChromeRelease(delay=YT_CHROME_IDLE_MS){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
-  chromeMaskTimer=setTimeout(()=>{
-    const stillPlaying=playerIsPlaying();
-    const customUiHidden=!stage.classList.contains("controls-visible");
-    const notSeeking=activeSeekPointer===null;
-    if(stillPlaying&&customUiHidden&&notSeeking){
-      setChromeMask(false);
+
+  chromeReleaseMediaTime=currentMediaTime();
+  chromeReleaseWallTime=performance.now();
+
+  const verify=()=>{
+    if(!playerIsPlaying()){
+      stopChromeMaskTimer();
+      return;
     }
-  },delay);
+    if(stage.classList.contains("controls-visible")||activeSeekPointer!==null){
+      chromeMaskTimer=setTimeout(verify,250);
+      return;
+    }
+
+    const elapsedWall=performance.now()-chromeReleaseWallTime;
+    const advanced=Math.max(0,currentMediaTime()-chromeReleaseMediaTime);
+    const expected=(elapsedWall/1000)*currentPlaybackRate();
+    const movingEnough=advanced>=Math.max(.35,expected*.55);
+
+    if(elapsedWall>=delay&&movingEnough){
+      setChromeMask(false);
+      stopChromeMaskTimer();
+      return;
+    }
+
+    // Network stall or delayed playback: keep the mask until media time really
+    // advances, instead of opening full merely because wall-clock time passed.
+    chromeMaskTimer=setTimeout(verify,250);
+  };
+
+  chromeMaskTimer=setTimeout(verify,delay);
 }
 function hideCleanControls(){
   stopCleanHideTimer();
   stage.classList.remove("controls-visible");
-  scheduleChromeRelease(1100);
 }
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
   stage.classList.add("controls-visible");
-  if(stage.classList.contains("max-clean-mode"))setChromeMask(true);
+  if(stage.classList.contains("max-clean-mode")){
+    setChromeMask(true);
+    if(playerIsPlaying())scheduleChromeRelease(YT_CHROME_IDLE_MS);
+    else stopChromeMaskTimer();
+  }
   stopCleanHideTimer();
-  stopChromeMaskTimer();
   cleanHideTimer=setTimeout(hideCleanControls,1800);
 }
 function cleanOverlayMarkup(){
@@ -546,7 +580,7 @@ function enterDemoPip(){
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
       setChromeMask(true);
-      scheduleChromeRelease(3800);
+      scheduleChromeRelease(YT_CHROME_IDLE_MS);
     });
   }
 }
@@ -660,10 +694,15 @@ async function render(){
             syncMeasuredSafeWindow();
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
-          if(event?.data===1){
+          const state=Number(event?.data);
+          if(state===1){
+            // Start the 3.8 s window only after YouTube says playback is really
+            // running. A BUFFERING -> PLAYING transition naturally restarts it.
             setChromeMask(true);
-            scheduleChromeRelease(3800);
+            scheduleChromeRelease(YT_CHROME_IDLE_MS);
           }else{
+            // PAUSED / BUFFERING / CUED / ENDED: never reveal full video.
+            // Network delay therefore cannot consume the hide timeout.
             stopChromeMaskTimer();
             setChromeMask(true);
           }
@@ -714,7 +753,7 @@ function finishSeek(e){
     try{seek.releasePointerCapture(e.pointerId)}catch{}
   }
   activeSeekPointer=null;
-  scheduleChromeRelease(3200);
+  scheduleChromeRelease(YT_CHROME_IDLE_MS);
 }
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
