@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.13";
+  const VERSION = "2026-09-28.14";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -214,47 +214,97 @@
     };
   }
 
-  function dynamicSample(width, height, orientation) {
-    // Compute UI geometry from the CURRENT player box. No breakpoint profile is
-    // used for dimensions: dragging 1px changes the measured geometry 1px-flow
-    // immediately. Breakpoints only decide which YouTube boxes exist.
+  const EMBED_PROFILES = Object.freeze({
+    "nocookie-controls0-clean": Object.freeze({
+      controls:false,
+      nativeSeek:false,
+      // Exact family used by PiP max in iframe-demo.html.
+      top:{
+        padMin:8,
+        avatarMin:30,
+        title1Min:18,
+        title2Min:34,
+        channelMin:13,
+        gapMin:4,
+        outer:4
+      },
+      bottom:{
+        padMin:8,
+        linkMin:34,
+        nextMin:44,
+        youtubeMin:28,
+        outer:2
+      }
+    }),
+    "youtube-controls1": Object.freeze({
+      controls:true,
+      nativeSeek:true,
+      top:{
+        padMin:8,
+        avatarMin:30,
+        title1Min:18,
+        title2Min:34,
+        channelMin:13,
+        gapMin:4,
+        outer:4
+      },
+      bottom:{
+        padMin:9,
+        linkMin:34,
+        nextMin:44,
+        youtubeMin:28,
+        outer:3
+      }
+    })
+  });
+
+  function embedProfile(options = {}) {
+    const key=String(options.embedMode||"");
+    if(key&&EMBED_PROFILES[key])return {key,profile:EMBED_PROFILES[key]};
+    const controls=options.controls!==false;
+    const fallback=controls?"youtube-controls1":"nocookie-controls0-clean";
+    return {key:fallback,profile:EMBED_PROFILES[fallback]};
+  }
+
+  function dynamicSample(width, height, orientation, options = {}) {
+    const {key:embedKey,profile}=embedProfile(options);
     const uiSpan = orientation === "portrait"
       ? width
       : Math.min(width, height * (16 / 9));
 
-    const s = clamp(uiSpan / 520, .42, 1.35);
-    const topPad = clamp(11 * s, 6, 14);
-    const avatar = clamp(44 * s, 26, 56);
-    const title1 = clamp(23 * s, 15, 29);
-    const title2 = clamp(42 * s, 27, 52);
-    const channel = clamp(15 * s, 10, 19);
-    const topGap = clamp(5 * s, 2, 7);
+    // YouTube overlay text/buttons do not shrink linearly with the iframe.
+    // They keep a relatively large minimum size, especially in controls:0.
+    const s = clamp(uiSpan / 520, .72, 1.28);
 
-    const bottomPad = clamp(12 * s, 5, 16);
-    const linkH = clamp(38 * s, 26, 48);
-    // "Video khác" is a full pill/card with thumbnail + background + padding.
-    // Its OUTER box is visibly taller than the text and taller than the old
-    // estimate, so model the whole card instead of the label height.
-    const nextH = clamp(52 * s, 36, 60);
-    const youtubeH = clamp(34 * s, 23, 44);
-    const seekH = clamp(6 * s, 3, 8);
+    const topPad = Math.max(profile.top.padMin, 11*s);
+    const avatar = Math.max(profile.top.avatarMin, 42*s);
+    const title1 = Math.max(profile.top.title1Min, 22*s);
+    const title2 = Math.max(profile.top.title2Min, 40*s);
+    const channel = Math.max(profile.top.channelMin, 15*s);
+    const topGap = Math.max(profile.top.gapMin, 5*s);
+
+    const bottomPad = Math.max(profile.bottom.padMin, 11*s);
+    const linkH = Math.max(profile.bottom.linkMin, 38*s);
+    const nextH = Math.max(profile.bottom.nextMin, 52*s);
+    const youtubeH = Math.max(profile.bottom.youtubeMin, 34*s);
 
     return {
-      w: width,
-      h: height,
-      avatarEdge: topPad + avatar,
-      title1Edge: topPad + title1,
-      title2Edge: topPad + title2,
-      channelEdge: topPad + title1 + topGap + channel,
-      // Full outer boxes + live edge offsets from the CURRENT player bottom.
+      embedKey,
+      nativeSeek:profile.nativeSeek,
+      w:width,
+      h:height,
+      avatarEdge:topPad+avatar+profile.top.outer,
+      title1Edge:topPad+title1+profile.top.outer,
+      title2Edge:topPad+title2+profile.top.outer,
+      channelEdge:topPad+title1+topGap+channel+profile.top.outer,
       linkH,
-      linkOff: bottomPad,
+      linkOff:bottomPad+profile.bottom.outer,
       nextH,
-      nextOff: bottomPad,
+      nextOff:bottomPad+profile.bottom.outer,
       youtubeH,
-      youtubeOff: bottomPad,
-      seekH,
-      seekOff: clamp(bottomPad * .55, 3, 9),
+      youtubeOff:bottomPad+profile.bottom.outer,
+      seekH:profile.nativeSeek?Math.max(4,6*s):0,
+      seekOff:profile.nativeSeek?Math.max(3,bottomPad*.55):0,
       range:[width,width]
     };
   }
@@ -263,8 +313,13 @@
     const width = Math.max(1, Number(input.width) || 1);
     const height = Math.max(1, Number(input.height) || 1);
     const orientation = options.orientation || orientationOf(width, height);
-    const sample = dynamicSample(width, height, orientation);
-    const layoutState = resolveLayoutState(width, height, orientation, options);
+    const sample = dynamicSample(width, height, orientation, options);
+    const profileInfo=embedProfile(options);
+    const layoutState = resolveLayoutState(width, height, orientation, {
+      ...options,
+      controls:profileInfo.profile.controls
+    });
+    if(!sample.nativeSeek)layoutState.bottom.seek=false;
     const titleLines = Math.min(
       estimateTitleLines(width, options.title || ""),
       layoutState.maxTitleLines
@@ -276,10 +331,10 @@
     const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
     const bottomChromeRaw = bottomBoxMetrics.outerMax;
 
-    // YouTube pills/cards can paint a tiny antialiased edge/shadow beyond their
-    // nominal outer box. Keep a small visual bleed so no white rim peeks through.
-    const topBleed = 2;
-    const bottomBleed = 2;
+    // The embed profile already describes the OUTER chrome bounds including
+    // background/pill padding. Only retain a tiny AA margin.
+    const topBleed = 1;
+    const bottomBleed = 1;
     const topChrome = topChromeRaw + topBleed;
     const bottomChrome = bottomChromeRaw + bottomBleed;
 
@@ -306,16 +361,16 @@
 
     const wantedTop = Math.max(topChrome, topBarMin);
     const wantedBottom = Math.max(bottomChrome, bottomBarMin);
-    const maxTopInset = Math.max(0, playCenter.y - playSafety);
-    const maxBottomInset = Math.max(0, (height - playCenter.y) - playSafety);
+    const playTop = playCenter.y - playSafety;
+    const playBottom = playCenter.y + playSafety;
 
-    const topCollision = wantedTop > maxTopInset;
-    const bottomCollision = wantedBottom > maxBottomInset;
-
-    // Only when a band reaches the native Play/Pause do we stop at its edge.
-    // Until that point, never shrink the mask below the actual YouTube chrome.
-    const topInset = Math.min(wantedTop, maxTopInset);
-    const bottomInset = Math.min(wantedBottom, maxBottomInset);
+    // IMPORTANT: Play/Pause never clamps the measured chrome. The library must
+    // report the true TOP/BOTTOM bounds. Collision is only a layout state that
+    // the PiP UI may react to separately.
+    const topInset = wantedTop;
+    const bottomInset = wantedBottom;
+    const topCollision = topInset >= playTop;
+    const bottomCollision = (height-bottomInset) <= playBottom;
     const collisionMode = topCollision || bottomCollision;
 
     return {
@@ -331,6 +386,7 @@
       bottomBarMin,
       collisionMode,
       collisions:{top:topCollision,bottom:bottomCollision},
+      embedMode:sample.embedKey,
       sampleRange: sample.range || [sample.w,sample.w],
       layoutState,
       clusters: {
@@ -375,14 +431,16 @@
     const minWidth = Math.max(96, Math.round(Number(options.minWidth) || 140));
     const maxWidth = Math.max(minWidth, Math.round(Number(options.maxWidth) || 760));
     const step = Math.max(1, Math.round(Number(options.step) || 2));
-    const controls = options.controls !== false;
+    const modeInfo=embedProfile(options);
+    const controls = modeInfo.profile.controls;
+    const embedMode=modeInfo.key;
     const samples = [];
 
     for (let w = minWidth; w <= maxWidth; w += step) {
       const h = w / aspect;
       const result = measure(
         { width:w, height:h },
-        { title, controls, orientation:options.orientation }
+        { title, controls, embedMode, orientation:options.orientation }
       );
       samples.push(result);
     }
@@ -390,7 +448,7 @@
       const h = maxWidth / aspect;
       samples.push(measure(
         { width:maxWidth, height:h },
-        { title, controls, orientation:options.orientation }
+        { title, controls, embedMode, orientation:options.orientation }
       ));
     }
 
@@ -403,6 +461,7 @@
       maxWidth,
       step,
       controls,
+      embedMode,
       createdAt: Date.now(),
       samples
     };
@@ -474,6 +533,7 @@
   window.YouTubeChromeGeometry = Object.freeze({
     VERSION,
     UI_PROFILES,
+    EMBED_PROFILES,
     orientationOf,
     estimateTitleLines,
     resolveLayoutState,
