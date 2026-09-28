@@ -1235,6 +1235,33 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   object-fit:cover;
   transition:transform .18s cubic-bezier(.2,0,0,1);
 }
+html.one-col .row-thumb.inline-playing:not(.pip-floating) > img,
+html.one-col .row-thumb.inline-playing:not(.pip-floating) > .duration-badge{
+  visibility:hidden;
+}
+html.one-col .row-thumb.inline-playing.pip-floating{
+  overflow:visible;
+}
+html.one-col .row-thumb.inline-playing > .player:not(.pip){
+  position:absolute!important;
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+  border-radius:inherit!important;
+  overflow:hidden!important;
+  z-index:3;
+  box-shadow:none!important;
+}
+/* Inside a feed thumbnail use the thumbnail as the native viewport.
+   Rail crop resumes automatically when the same player becomes PiP. */
+html.one-col .row-thumb.inline-playing > .player:not(.pip) > #videoFrame,
+html.one-col .row-thumb.inline-playing > .player:not(.pip) > iframe,
+html.one-col .row-thumb.inline-playing > .player:not(.pip) iframe{
+  top:0!important;
+  left:0!important;
+  width:100%!important;
+  height:100%!important;
+}
 @media(hover:hover){
   .row:hover .row-thumb img{transform:scale(1.015)}
 }
@@ -1643,6 +1670,7 @@ html.one-col.portrait .player.pip{
   let raf=0;
   let pipGesture=null;
   let pipUiTimer=0;
+  let inlineVideoId="";
   let metaRequest=0;
   let currentMeta=null;
   let feedMetas=[];
@@ -3173,7 +3201,7 @@ html.one-col.portrait .player.pip{
     const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
-      '<article class="row" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+      '<article class="row'+(String(id)===inlineVideoId?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
           '<img src="'+escapeHtml(thumb)+'" alt="">'+
           (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
@@ -3408,11 +3436,28 @@ html.one-col.portrait .player.pip{
       ? feedMetas
       : [meta.id?meta:{...meta,id:current.id,title:current.label}];
 
+    const activeInlineId=inlineVideoId;
+    const wasFloating=!!pip && !!activeInlineId;
+    const playerWasInRows=!!player.closest(".row-thumb");
+
+    // Detach the same player before rows.innerHTML replaces its host card.
+    // Modern browsers use moveBefore() when available to preserve iframe state.
+    if(playerWasInRows){
+      movePlayerNode(stage);
+    }
+
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const rendered=cards.slice(0,18);
     rows.innerHTML=rendered.map(cardMarkup).join("");
     applyRenderedCardTints(rows);
+
+    if(activeInlineId){
+      const card=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
+      if(card){
+        attachPlayerToCard(card,{floating:wasFloating});
+      }
+    }
   }
 
   function normalizedSearchQuery(value){
@@ -3812,10 +3857,14 @@ html.one-col.portrait .player.pip{
        landscape follows width, portrait follows height. */
 
     if(two){
-      pip=false;
-      player.classList.remove("pip");
-      stage.classList.remove("pip-host");
-      clearMobilePipGestureGeometry();
+      if(inlineVideoId||player.parentNode!==stage){
+        returnPlayerToMainStage();
+      }else{
+        pip=false;
+        player.classList.remove("pip");
+        stage.classList.remove("pip-host");
+        clearMobilePipGestureGeometry();
+      }
     }
 
     paintText();
@@ -3824,35 +3873,117 @@ html.one-col.portrait .player.pip{
     renderCurrentInfo();
   }
 
-  function openSelectedVideoInMain(){
-    if(isTwoColumn())return;
+  function movePlayerNode(parent){
+    if(!parent||player.parentNode===parent)return;
+    try{
+      if(typeof parent.moveBefore==="function"){
+        parent.moveBefore(player,null);
+      }else{
+        parent.appendChild(player);
+      }
+    }catch{
+      parent.appendChild(player);
+    }
+  }
 
-    // A fresh user selection always starts in MAIN, never inside an existing PiP.
-    pip=false;
+  function inlineCardForCurrentVideo(){
+    if(!inlineVideoId)return null;
+    return document.querySelector('.row[data-video-id="'+inlineVideoId+'"]');
+  }
+
+  function clearInlineCardClasses(exceptThumb=null){
+    document.querySelectorAll(".row-thumb.inline-playing,.row-thumb.pip-floating").forEach(thumb=>{
+      if(thumb===exceptThumb)return;
+      thumb.classList.remove("inline-playing","pip-floating");
+    });
+  }
+
+  function attachPlayerToCard(card,{floating=false}={}){
+    if(!card||isTwoColumn())return false;
+    const thumb=card.querySelector(".row-thumb");
+    if(!thumb)return false;
+
+    clearInlineCardClasses(thumb);
+    thumb.classList.add("inline-playing");
+    thumb.classList.toggle("pip-floating",!!floating);
+    movePlayerNode(thumb);
+
+    player.classList.toggle("pip",!!floating);
+    stage.classList.remove("pip-host");
+    if(!floating)clearMobilePipGestureGeometry();
+    pip=!!floating;
+    return true;
+  }
+
+  function returnPlayerToMainStage(){
+    clearInlineCardClasses();
+    inlineVideoId="";
     player.classList.remove("pip");
     stage.classList.remove("pip-host");
     clearMobilePipGestureGeometry();
+    movePlayerNode(stage);
+    pip=false;
+  }
 
-    // Bring the real MAIN media back into view immediately. After this,
-    // normal scrolling alone decides whether the same player becomes PiP.
-    scrollPageToTop();
+  function openSelectedVideoInline(card,id){
+    if(isTwoColumn())return false;
+    inlineVideoId=String(id||"").trim();
+    if(!inlineVideoId)return false;
+    return attachPlayerToCard(card,{floating:false});
   }
 
   function syncPip(){
     if(isTwoColumn()){
-      if(pip){
+      if(inlineVideoId||player.parentNode!==stage){
+        returnPlayerToMainStage();
+      }else if(pip){
         pip=false;
         player.classList.remove("pip");
-        paintText();
+        clearMobilePipGestureGeometry();
       }
+      paintText();
       return;
     }
 
-    /* One-column rule:
-       - MAIN visible anywhere in the usable viewport => keep MAIN, hide PiP.
-       - Scroll past MAIN in either direction => show PiP.
-       - Scroll back onto the same MAIN video => PiP closes automatically.
-       stage stays in document flow, so this is stable in both directions. */
+    const inlineCard=inlineCardForCurrentVideo();
+    const host=inlineCard?.querySelector(".row-thumb")||null;
+
+    // After a one-column card is selected, THAT thumbnail is the playback home.
+    // The same player becomes PiP only while that exact frame is outside view.
+    if(inlineVideoId){
+      if(!host)return;
+
+      const rect=host.getBoundingClientRect();
+      const headerBottom=Math.max(0,Math.round(top.getBoundingClientRect().bottom||0));
+      const viewportBottom=Math.max(
+        1,
+        Math.round(window.visualViewport?.height || document.documentElement.clientHeight || innerHeight || 1)
+      );
+      const visiblePixels=Math.max(
+        0,
+        Math.min(rect.bottom,viewportBottom)-Math.max(rect.top,headerBottom)
+      );
+      const hostVisible=visiblePixels>4;
+
+      if(hostVisible){
+        if(pip){
+          host.classList.remove("pip-floating");
+          player.classList.remove("pip");
+          clearMobilePipGestureGeometry();
+          pip=false;
+        }
+      }else{
+        if(!pip){
+          host.classList.add("pip-floating");
+          player.classList.add("pip");
+          pip=true;
+        }
+      }
+      paintText();
+      return;
+    }
+
+    // Startup/deep-link fallback before the user explicitly chooses a feed card.
     const stageRect=stage.getBoundingClientRect();
     const headerRect=top.getBoundingClientRect();
     const viewportBottom=Math.max(
@@ -3865,21 +3996,13 @@ html.one-col.portrait .player.pip{
       Math.min(stageRect.bottom,viewportBottom)-Math.max(stageRect.top,usableTop)
     );
     const mainVisible=visiblePixels>4;
-    const shouldPip=
-      pageScrollY()>0 &&
-      !mainVisible;
+    const shouldPip=pageScrollY()>0&&!mainVisible;
 
     if(shouldPip===pip)return;
-
     pip=shouldPip;
-
-    // Presentation-only transition. Keep current.kind/current.ratio untouched:
-    // PiP consumes the shape of the CURRENT media, wherever that media was opened.
     player.classList.toggle("pip",pip);
     stage.classList.toggle("pip-host",pip);
-    if(!pip){
-      clearMobilePipGestureGeometry();
-    }
+    if(!pip)clearMobilePipGestureGeometry();
     paintText();
   }
 
@@ -4171,7 +4294,7 @@ html.one-col.portrait .player.pip{
       null;
 
     if(!isTwoColumn()){
-      openSelectedVideoInMain();
+      openSelectedVideoInline(card,id);
     }
 
     if(navigateToVideo(id,selectedMeta)){
