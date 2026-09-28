@@ -93,7 +93,7 @@
       row?.avatar,
       row?.author?.thumbnails?.[0]?.url
     );
-    return value.startsWith('//')?'https:'+value:value;
+    return normalizeAvatarUrl(value);
   }
 
   function cleanLiveTitle(value=''){
@@ -147,6 +147,40 @@
   function normalizeImageUrl(value=''){
     const url=clean(value);
     return url.startsWith('//')?'https:'+url:url;
+  }
+
+  function normalizeAvatarUrl(value=''){
+    const url=normalizeImageUrl(value);
+    if(!url)return '';
+
+    const upgrade=size=>{
+      const n=Number(size)||0;
+      return n>=160?String(n):'160';
+    };
+
+    try{
+      const parsed=new URL(url,'https://yt3.googleusercontent.com');
+      const host=parsed.hostname.replace(/^www\./,'').toLowerCase();
+      const upstream=String(parsed.searchParams.get('host')||'').toLowerCase();
+      const youtubeAvatar=
+        host==='yt3.ggpht.com'||
+        host==='yt3.googleusercontent.com'||
+        upstream==='yt3.ggpht.com'||
+        upstream==='yt3.googleusercontent.com';
+
+      if(!youtubeAvatar)return url;
+
+      parsed.pathname=parsed.pathname.replace(
+        /=s(\d+)(?=-|$)/i,
+        (_,size)=>'=s'+upgrade(size)
+      );
+      return parsed.toString();
+    }catch{
+      return url.replace(
+        /=s(\d+)(?=-|$)/i,
+        (_,size)=>'=s'+upgrade(size)
+      );
+    }
   }
 
   function thumbnailCandidate(value,width=0,height=0){
@@ -204,8 +238,8 @@
     return ratio>=1.70&&ratio<=1.86;
   }
 
-  function knownYoutubeWideThumb(url='',video=''){
-    if(!url||!video)return false;
+  function youtubeThumbnailRank(url='',video=''){
+    if(!url||!video)return 0;
     try{
       const parsed=new URL(url,'https://i.ytimg.com');
       const host=parsed.hostname.replace(/^www\./,'').toLowerCase();
@@ -216,38 +250,29 @@
         'i2.ytimg.com',
         'i3.ytimg.com',
         'i4.ytimg.com'
-      ].includes(host))return false;
-      const path=parsed.pathname;
-      if(!path.includes('/'+video+'/'))return false;
-      return /\/(?:mqdefault|maxresdefault)\.(?:jpg|jpeg|webp)$/i.test(path);
-    }catch{
-      return false;
-    }
-  }
+      ].includes(host))return 0;
+      if(!parsed.pathname.includes('/'+video+'/'))return 0;
 
-  function knownYoutubePaddedThumb(url='',video=''){
-    if(!url||!video)return false;
-    try{
-      const parsed=new URL(url,'https://i.ytimg.com');
-      const host=parsed.hostname.replace(/^www\./,'').toLowerCase();
-      if(![
-        'i.ytimg.com',
-        'img.youtube.com',
-        'i1.ytimg.com',
-        'i2.ytimg.com',
-        'i3.ytimg.com',
-        'i4.ytimg.com'
-      ].includes(host))return false;
-      if(!parsed.pathname.includes('/'+video+'/'))return false;
-      return /\/(?:default|hqdefault|sddefault)\.(?:jpg|jpeg|webp)$/i.test(parsed.pathname);
+      const match=parsed.pathname.match(
+        /\/(maxresdefault|sddefault|hqdefault|mqdefault|default)\.(?:jpg|jpeg|webp)$/i
+      );
+      if(!match)return 0;
+
+      return {
+        maxresdefault:5,
+        sddefault:4,
+        hqdefault:3,
+        mqdefault:2,
+        default:1
+      }[match[1].toLowerCase()]||0;
     }catch{
-      return false;
+      return 0;
     }
   }
 
   function youtubeWideFallback(video=''){
     return VIDEO_ID_RE.test(video)
-      ?'https://i.ytimg.com/vi/'+video+'/mqdefault.jpg'
+      ?'https://i.ytimg.com/vi/'+video+'/hqdefault.jpg'
       :'';
   }
 
@@ -256,23 +281,31 @@
     const candidates=thumbnailCandidates(row);
 
     if(video){
-      // Data/media contract: every YouTube card receives a 16:9 thumbnail.
-      // Prefer the largest explicitly-sized 16:9 asset from the source data.
-      // If upstream only supplies hqdefault/default (4:3 canvas), normalize
-      // to mqdefault, YouTube's stable 320x180 thumbnail.
+      // Keep the highest-quality YouTube artwork the package/API already has.
+      // hqdefault/sddefault use a 4:3 canvas, but the card itself crops with
+      // object-fit:cover. Downgrading those to mqdefault (320x180) made cards
+      // visibly soft on Retina/mobile screens.
+      const youtube=candidates
+        .map((item,index)=>({
+          ...item,
+          index,
+          rank:youtubeThumbnailRank(item.url,video)
+        }))
+        .filter(item=>item.rank>0)
+        .sort((a,b)=>
+          (b.rank-a.rank)||
+          ((b.width*b.height)-(a.width*a.height))||
+          (a.index-b.index)
+        )[0];
+      if(youtube?.url)return youtube.url;
+
       const measured=candidates
         .filter(item=>isSixteenNine(item.width,item.height))
         .sort((a,b)=>(b.width*b.height)-(a.width*a.height))[0];
       if(measured?.url)return measured.url;
 
-      const knownWide=candidates.find(item=>knownYoutubeWideThumb(item.url,video));
-      if(knownWide?.url)return knownWide.url;
-
-      // Never throw away a real upstream thumbnail merely because it has no
-      // width/height metadata. Old videos and oEmbed often expose only
-      // hqdefault; blindly replacing it with maxres can create a broken image.
       const upstream=candidates.find(item=>item?.url);
-      if(upstream?.url&&!knownYoutubePaddedThumb(upstream.url,video))return upstream.url;
+      if(upstream?.url)return upstream.url;
 
       return youtubeWideFallback(video);
     }
