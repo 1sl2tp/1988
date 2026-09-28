@@ -91,7 +91,10 @@
     }
     .chrome-calibration-frame iframe{
       position:absolute;
-      inset:0;
+      left:0;
+      top:0;
+      right:auto;
+      bottom:auto;
       width:100%;
       height:100%;
       border:0;
@@ -225,13 +228,18 @@
     .stage.demo-pip.max-clean-mode iframe{
       pointer-events:auto!important;
       transform:none!important;
-      clip-path:inset(0 0 0 0 round 12px);
-      transition:clip-path .30s cubic-bezier(.2,.8,.2,1);
-      will-change:clip-path;
+      clip-path:none!important;
     }
-    .stage.demo-pip.max-clean-mode.chrome-mask iframe{
-      clip-path:inset(var(--yt-top-inset) 0 var(--yt-bottom-inset) 0 round 10px);
-      transition-duration:.22s;
+    .stage.demo-pip.max-clean-mode.viewport-cropped iframe{
+      inset:auto!important;
+      left:var(--pip-iframe-left,0px)!important;
+      top:var(--pip-iframe-top,0px)!important;
+      right:auto!important;
+      bottom:auto!important;
+      width:var(--pip-iframe-width,100%)!important;
+      height:var(--pip-iframe-height,100%)!important;
+      max-width:none!important;
+      max-height:none!important;
     }
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
     .stage.demo-pip.max-clean-mode.chrome-mask .clean-controls{
@@ -244,7 +252,9 @@
       right:0;
       z-index:0;
       pointer-events:auto;
-      background:transparent;
+      background:rgba(0,0,0,.16);
+      backdrop-filter:blur(10px) saturate(.88) brightness(.78);
+      -webkit-backdrop-filter:blur(10px) saturate(.88) brightness(.78);
       touch-action:none;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask .pip-mask-shield{display:block}
@@ -580,8 +590,9 @@ let geometrySettleTimer=0;
 let geometryResizeObserver=null;
 const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
-let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
+let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
 let viewportPrimeTimers=[];
+let mainAspectBeforePip="";
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -662,38 +673,63 @@ function clearViewportPrimeTimers(){
   viewportPrimeTimers=[];
 }
 function viewportTrimSignature(trim){
-  return ["top","right","bottom","left"]
-    .map(k=>(Number(trim?.[k])||0).toFixed(5))
-    .join(",");
+  return [
+    "top","right","bottom","left","rawAspect","contentAspect"
+  ].map(k=>(Number(trim?.[k])||0).toFixed(5)).join(",");
 }
 function readMainYoutubeViewportTrim(){
   if(stage.classList.contains("demo-pip"))return currentViewportTrim;
+
   const iframe=apiPlayer?.getIframe?.();
   const playerRect=iframe?.getBoundingClientRect?.()||stage.getBoundingClientRect();
-  const info=apiPlayer?.playerInfo?.videoContentRect;
-  if(!info||!playerRect?.width||!playerRect?.height){
-    return {top:0,right:0,bottom:0,left:0,source:"none"};
+  const rawW=Math.max(1,Number(playerRect?.width)||1);
+  const rawH=Math.max(1,Number(playerRect?.height)||1);
+  const rawAspect=rawW/rawH;
+
+  const candidates=[
+    apiPlayer?.playerInfo?.videoContentRect,
+    apiPlayer?.videoContentRect,
+    apiPlayer?.playerInfo?.video_content_rect
+  ];
+  let contentAspect=0;
+  for(const info of candidates){
+    const width=Number(info?.width)||0;
+    const height=Number(info?.height)||0;
+    if(width>0&&height>0){
+      contentAspect=width/height;
+      if(Number.isFinite(contentAspect)&&contentAspect>.25&&contentAspect<4)break;
+      contentAspect=0;
+    }
   }
 
-  const left=Number(info.left ?? info.x ?? 0);
-  const top=Number(info.top ?? info.y ?? 0);
-  const width=Number(info.width);
-  const height=Number(info.height);
-  if(![left,top,width,height].every(Number.isFinite)||width<=0||height<=0){
-    return {top:0,right:0,bottom:0,left:0,source:"none"};
+  if(!contentAspect){
+    return {
+      top:0,right:0,bottom:0,left:0,
+      source:"none",
+      rawAspect,
+      contentAspect:rawAspect
+    };
   }
 
-  const right=Math.max(0,playerRect.width-(left+width));
-  const bottom=Math.max(0,playerRect.height-(top+height));
-  const safeLeft=Math.max(0,left);
-  const safeTop=Math.max(0,top);
+  // YouTube contains the media inside the iframe. Derive the centered black
+  // bars from raw player aspect vs actual media content aspect.
+  let top=0,right=0,bottom=0,left=0;
+  if(rawAspect>contentAspect){
+    const visibleX=contentAspect/rawAspect;
+    left=right=(1-visibleX)/2;
+  }else if(rawAspect<contentAspect){
+    const visibleY=rawAspect/contentAspect;
+    top=bottom=(1-visibleY)/2;
+  }
 
   return {
-    top:Math.min(.45,safeTop/playerRect.height),
-    right:Math.min(.45,right/playerRect.width),
-    bottom:Math.min(.45,bottom/playerRect.height),
-    left:Math.min(.45,safeLeft/playerRect.width),
-    source:"videoContentRect"
+    top:Math.min(.45,Math.max(0,top)),
+    right:Math.min(.45,Math.max(0,right)),
+    bottom:Math.min(.45,Math.max(0,bottom)),
+    left:Math.min(.45,Math.max(0,left)),
+    source:"videoContentRect",
+    rawAspect,
+    contentAspect
   };
 }
 function refreshMainViewportTrimLibrary(force=false){
@@ -723,11 +759,12 @@ function prepareCurrentChromeLibrary(){
   const videoId=currentVideoId();
   const title=currentVideoTitle();
   const author=currentVideoAuthor();
-  const aspect=currentMainAspect();
+  const rawAspect=Number(currentViewportTrim.rawAspect)||currentMainAspect();
+  const contentAspect=Number(currentViewportTrim.contentAspect)||rawAspect;
   const minWidth=140;
   const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
   const trimSig=viewportTrimSignature(currentViewportTrim);
-  const key=[PIP_EMBED_MODE,videoId,title,author,aspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
+  const key=[PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
 
   const cached=mediaChromeLibraries.get(key);
   if(cached){
@@ -739,7 +776,9 @@ function prepareCurrentChromeLibrary(){
   const library=geometry.buildMediaLibrary({
     videoId,
     title,
-    aspect,
+    aspect:contentAspect,
+    rawAspect,
+    contentAspect,
     minWidth,
     maxWidth,
     step:2,
@@ -751,6 +790,46 @@ function prepareCurrentChromeLibrary(){
   currentChromeLibrary=library;
   requestAnimationFrame(renderChromeCalibration);
   return library;
+}
+function applyPipViewportCrop(){
+  if(!currentChromeLibrary)return;
+  const trim=currentChromeLibrary.viewportTrim||currentViewportTrim||{};
+  const visibleX=Math.max(.1,1-(Number(trim.left)||0)-(Number(trim.right)||0));
+  const visibleY=Math.max(.1,1-(Number(trim.top)||0)-(Number(trim.bottom)||0));
+  const contentAspect=Number(currentChromeLibrary.contentAspect)||Number(trim.contentAspect)||0;
+
+  if(contentAspect>0)stage.style.aspectRatio=String(contentAspect);
+
+  const hasCrop=
+    (Number(trim.top)||0)>.0005 ||
+    (Number(trim.right)||0)>.0005 ||
+    (Number(trim.bottom)||0)>.0005 ||
+    (Number(trim.left)||0)>.0005;
+
+  stage.classList.toggle("viewport-cropped",hasCrop);
+  if(!hasCrop){
+    stage.style.removeProperty("--pip-iframe-width");
+    stage.style.removeProperty("--pip-iframe-height");
+    stage.style.removeProperty("--pip-iframe-left");
+    stage.style.removeProperty("--pip-iframe-top");
+    return;
+  }
+
+  stage.style.setProperty("--pip-iframe-width",(100/visibleX).toFixed(5)+"%");
+  stage.style.setProperty("--pip-iframe-height",(100/visibleY).toFixed(5)+"%");
+  stage.style.setProperty("--pip-iframe-left",(-100*(Number(trim.left)||0)/visibleX).toFixed(5)+"%");
+  stage.style.setProperty("--pip-iframe-top",(-100*(Number(trim.top)||0)/visibleY).toFixed(5)+"%");
+}
+function clearPipViewportCrop(){
+  stage.classList.remove("viewport-cropped");
+  stage.style.removeProperty("--pip-iframe-width");
+  stage.style.removeProperty("--pip-iframe-height");
+  stage.style.removeProperty("--pip-iframe-left");
+  stage.style.removeProperty("--pip-iframe-top");
+  if(mainAspectBeforePip){
+    stage.style.aspectRatio=mainAspectBeforePip;
+    mainAspectBeforePip="";
+  }
 }
 function calibrationIframeSrc(videoId){
   const params=new URLSearchParams({
@@ -796,6 +875,13 @@ function renderCalibrationSample(kind,result,library){
   iframe.title=(isMin?"MIN":"MAX")+" YouTube PiP calibration";
   iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
   iframe.referrerPolicy="strict-origin-when-cross-origin";
+  const vt=result.viewportTrim||{};
+  if(result.rawWidth&&result.rawHeight){
+    iframe.style.width=(result.rawWidth*(vt.scaleX||1))+"px";
+    iframe.style.height=(result.rawHeight*(vt.scaleY||1))+"px";
+    iframe.style.left=(vt.renderedLeft||0)+"px";
+    iframe.style.top=(vt.renderedTop||0)+"px";
+  }
 
   const top=document.createElement("div");
   top.className="chrome-calibration-guide top";
@@ -879,8 +965,11 @@ function paintGeometryReadout(result){
       " / MAX "+Math.round(bottom.outerMax||0)+"]"+
     " · RAW→FINAL "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
       " / "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
-    " · TRIM "+Math.round((result.viewportTrim?.topPx||0))+
-      "/"+Math.round((result.viewportTrim?.bottomPx||0))+
+    " · TRIM T/R/B/L "+
+      Math.round(result.viewportTrim?.topPx||0)+"/"+
+      Math.round(result.viewportTrim?.rightPx||0)+"/"+
+      Math.round(result.viewportTrim?.bottomPx||0)+"/"+
+      Math.round(result.viewportTrim?.leftPx||0)+
       " "+(result.viewportTrim?.source||"none")+
     " · cửa sổ "+Math.round(result.safeWindow.height);
 }
@@ -1081,6 +1170,7 @@ function cleanOverlayMarkup(){
 }
 function exitDemoPip(){
   stage.classList.remove("demo-pip","demo-pip-large","controls-visible","chrome-mask","pip-dragging","pip-resizing");
+  clearPipViewportCrop();
   stage.style.left="";
   stage.style.top="";
   stage.style.right="";
@@ -1101,6 +1191,7 @@ function exitDemoPip(){
 function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
   const rect=stage.getBoundingClientRect();
+  mainAspectBeforePip=stage.style.aspectRatio||"";
   stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
   stageSpacer.style.display="block";
   stage.classList.add("demo-pip");
@@ -1113,6 +1204,7 @@ function enterDemoPip(){
     refreshMainViewportTrimLibrary();
     clearViewportPrimeTimers();
     if(!currentChromeLibrary)prepareCurrentChromeLibrary();
+    applyPipViewportCrop();
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
       setChromeMask(true);
@@ -1183,7 +1275,7 @@ async function render(){
 
   exitDemoPip();
   clearViewportPrimeTimers();
-  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
+  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
@@ -1228,7 +1320,7 @@ async function render(){
             startSeekLoop();
             // Resolve MAIN content trim + chrome library BEFORE PiP, like aspect/orientation.
             currentChromeLibrary=null;
-            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
+            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:currentMainAspect(),contentAspect:currentMainAspect()};
             primeMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
           }
