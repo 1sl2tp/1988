@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v34";
-const NON_LIVE_PIPELINE_VERSION="non-live-v12";
+const LIVE_PIPELINE_VERSION="live-v35";
+const NON_LIVE_PIPELINE_VERSION="non-live-v13";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -206,11 +206,13 @@ function titleLooksEnglishOnly(row:any){
   }
 
   if(vi>=2&&vi>=en)return false;
+  if(en>=2&&en>=vi+1)return true;
 
-  // Be conservative with unaccented Vietnamese, but reject an obvious English
-  // sentence in system feeds even when names/proper nouns dilute the ratio.
-  if(en>=3&&en>=vi+1)return true;
-  return tokens.length<=8&&en>=2&&en>=vi+1;
+  // This classifier is only used by system feeds (Live/Ngày/Tuần). A title
+  // with no Vietnamese signal and 3+ Latin words is treated as English.
+  if(vi===0&&tokens.length>=3)return true;
+  if(vi===0&&tokens.length===2&&en>=1)return true;
+  return false;
 }
 
 function titleLooksBroken(row:any){
