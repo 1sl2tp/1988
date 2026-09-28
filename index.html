@@ -2252,7 +2252,6 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
-  const DOWNLOAD_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4323,20 +4322,13 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
+  const COBALT_DIRECT_APIS=[
+    "https://cobaltapi.cjs.nz/",
+    "https://rue-cobalt.xenon.zone/"
+  ];
+
   function canDownloadMeta(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
-  }
-
-  function downloadGetUrl(meta={},format="mp4"){
-    const id=String(meta?.id||"").trim();
-    format=String(format||"mp4").toLowerCase();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
-    if(format!=="mp3"&&format!=="mp4")return "";
-    return (
-      DOWNLOAD_URL+
-      "?id="+encodeURIComponent(id)+
-      "&format="+encodeURIComponent(format)
-    );
   }
 
   function showDownloadMenu(){
@@ -4347,24 +4339,74 @@ html.one-col.portrait .player.pip{
       '<div class="row-action-title">Tải xuống</div>'+
       rowActionButton("download-mp4","Video MP4 · 720p H.264","video",{disabled:!enabled})+
       rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Tải trực tiếp, không mở trang Cobalt.</div>'+
+      '<div class="row-action-note">Cobalt xử lý trực tiếp trên máy này.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function startNativeDownload(meta={},format="mp4"){
-    const url=downloadGetUrl(meta,format);
-    if(!url)return false;
+  async function resolveCobaltInBrowser(meta={},format="mp4"){
+    const id=String(meta?.id||"").trim();
+    format=String(format||"mp4").toLowerCase();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+    if(format!=="mp3"&&format!=="mp4")return "";
 
-    const a=document.createElement("a");
-    a.href=url;
-    a.rel="noopener";
-    a.style.display="none";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    const youtubeUrl="https://www.youtube.com/watch?v="+id;
+    const payload=format==="mp3"
+      ?{
+          url:youtubeUrl,
+          downloadMode:"audio",
+          audioFormat:"mp3",
+          audioBitrate:"128",
+          filenameStyle:"pretty",
+          youtubeVideoCodec:"h264",
+          alwaysProxy:true
+        }
+      :{
+          url:youtubeUrl,
+          downloadMode:"auto",
+          videoQuality:"720",
+          youtubeVideoCodec:"h264",
+          youtubeVideoContainer:"mp4",
+          filenameStyle:"pretty",
+          alwaysProxy:true
+        };
+
+    for(const api of COBALT_DIRECT_APIS){
+      try{
+        const response=await fetch(api,{
+          method:"POST",
+          mode:"cors",
+          cache:"no-store",
+          credentials:"omit",
+          headers:{
+            "accept":"application/json",
+            "content-type":"application/json"
+          },
+          body:JSON.stringify(payload)
+        });
+        const data=await response.json().catch(()=>({}));
+        const url=String(data?.url||"").trim();
+        if(response.ok&&/^https:\/\//i.test(url))return url;
+      }catch(error){
+        console.warn("cobalt direct resolve failed",api,error);
+      }
+    }
+    return "";
+  }
+
+  async function startNativeDownload(meta={},format="mp4"){
+    const url=await resolveCobaltInBrowser(meta,format);
+    if(!url){
+      window.alert("Chưa tạo được file tải xuống.");
+      return false;
+    }
+
+    // The tunnel is created by the user's own browser/IP, matching how Cobalt
+    // itself works. Navigating to an attachment URL starts the native browser
+    // download without opening Cobalt's interface.
+    window.location.assign(url);
     return true;
   }
 
