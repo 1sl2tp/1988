@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.30";
+  const VERSION = "2026-09-28.31";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -191,36 +191,44 @@
   }
 
   function bottomBoxes(sample, visibility) {
+    const directEdge=(name,heightName,offsetName)=>{
+      const direct=Number(sample[name]);
+      if(Number.isFinite(direct))return Math.max(0,direct);
+      return Math.max(
+        0,
+        (Number(sample[heightName])||0)+(Number(sample[offsetName])||0)
+      );
+    };
+
     const boxes = {
       link: {
         active:!!visibility.link,
-        height:sample.linkH,
-        offset:sample.linkOff,
-        edge:sample.linkOff + sample.linkH
+        edge:directEdge("linkTopDepth","linkH","linkOff")
       },
       next: {
         active:!!visibility.next,
-        height:sample.nextH,
-        offset:sample.nextOff,
-        edge:sample.nextOff + sample.nextH
+        edge:directEdge("nextTopDepth","nextH","nextOff")
       },
       youtube: {
         active:!!visibility.youtube,
-        height:sample.youtubeH,
-        offset:sample.youtubeOff,
-        edge:sample.youtubeOff + sample.youtubeH
+        edge:directEdge("youtubeTopDepth","youtubeH","youtubeOff")
       },
       seek: {
         active:!!visibility.seek,
-        height:sample.seekH,
-        offset:sample.seekOff,
-        edge:sample.seekOff + sample.seekH
+        edge:directEdge("seekTopDepth","seekH","seekOff")
       }
     };
-    const activeEdges = Object.values(boxes).filter(x=>x.active).map(x=>x.edge);
+
+    // Coordinates are measured upward from the player's bottom edge.
+    // The largest depth is therefore the HIGHEST visible top edge.
+    const activeEdges=Object.values(boxes)
+      .filter(x=>x.active)
+      .map(x=>x.edge)
+      .filter(Number.isFinite);
+
     return {
       ...boxes,
-      outerMax: activeEdges.length ? Math.max(...activeEdges) : 0
+      outerMax:activeEdges.length?Math.max(...activeEdges):0
     };
   }
 
@@ -229,48 +237,47 @@
   // These are OUTER chrome bounds measured from the corresponding player edge.
   // PiP never derives them from Play/Pause or from artwork inside the video.
   const CLEAN_EMBED_CALIBRATION = Object.freeze({
-    // Same rule for every orientation:
-    // TOP    = lowest visible bottom edge among avatar/title/channel.
-    // BOTTOM = highest visible top edge among link/next/YouTube. Because the
-    //          bottom boxes are expressed as depth from the player bottom,
-    //          that is simply the largest active depth.
+    // Store EDGES, not inferred boxes.
+    // TOP: bottom edge of each top item, measured down from player top.
+    // BOTTOM: top edge of each bottom item, measured up from player bottom.
+    // Final TOP/BOTTOM are just the extreme active edge.
     landscape:Object.freeze([
       {w:140, avatarEdge:46,title1Edge:34,title2Edge:46,channelEdge:50,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:34},
       {w:170, avatarEdge:47,title1Edge:35,title2Edge:47,channelEdge:51,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:35},
       {w:200, avatarEdge:48,title1Edge:36,title2Edge:48,channelEdge:52,
-        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:36},
       {w:240, avatarEdge:49,title1Edge:37,title2Edge:49,channelEdge:53,
-        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
+        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:37},
       {w:280, avatarEdge:51,title1Edge:39,title2Edge:51,channelEdge:55,
-        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+        linkTopDepth:43,nextTopDepth:52,youtubeTopDepth:38},
       {w:360, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+        linkTopDepth:46,nextTopDepth:55,youtubeTopDepth:40},
       {w:520, avatarEdge:58,title1Edge:46,title2Edge:58,channelEdge:62,
-        linkH:40,linkOff:13,nextH:50,nextOff:13,youtubeH:39,youtubeOff:13},
+        linkTopDepth:50,nextTopDepth:61,youtubeTopDepth:44},
       {w:760, avatarEdge:62,title1Edge:50,title2Edge:62,channelEdge:66,
-        linkH:49,linkOff:16,nextH:67,nextOff:16,youtubeH:44,youtubeOff:16}
+        linkTopDepth:61,nextTopDepth:80,youtubeTopDepth:52}
     ]),
     portrait:Object.freeze([
       {w:140, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:34},
       {w:170, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:35},
       {w:200, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:36},
       {w:220, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:36},
       {w:240, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
+        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:37},
       {w:280, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
-        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+        linkTopDepth:43,nextTopDepth:52,youtubeTopDepth:38},
       {w:320, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
-        linkH:36,linkOff:10,nextH:45,nextOff:10,youtubeH:35,youtubeOff:10},
+        linkTopDepth:44,nextTopDepth:53,youtubeTopDepth:39},
       {w:360, avatarEdge:57,title1Edge:45,title2Edge:57,channelEdge:61,
-        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+        linkTopDepth:46,nextTopDepth:55,youtubeTopDepth:40},
       {w:460, avatarEdge:58,title1Edge:46,title2Edge:58,channelEdge:62,
-        linkH:39,linkOff:12,nextH:49,nextOff:12,youtubeH:38,youtubeOff:12}
+        linkTopDepth:49,nextTopDepth:59,youtubeTopDepth:43}
     ])
   });
 
@@ -367,8 +374,7 @@
         ...row,
         embedKey,
         nativeSeek:false,
-        seekH:0,
-        seekOff:0,
+        seekTopDepth:0,
         extremeBounds:true,
         h:height,
         range:row.range||[width,width]
