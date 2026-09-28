@@ -971,7 +971,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. Mở PiP lấy trực tiếp khung ĐÃ CẮT làm đầu vào, còn cách mở/neo/min-max/resize dùng cùng quy tắc với PiP max.",
+    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. PiP Rail chỉ hiển thị lại đúng khung ĐÃ CẮT rồi dùng cách mở/neo/min-max/resize của PiP max; không thêm xử lý media riêng.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1021,7 +1021,6 @@ let railPipBaseGeometry=null;
 let railPipPointerId=null;
 let railPipPointerMode=null;
 let railPipPointerStart=null;
-let railPipMediaHandoff=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
 let seekRaf=0;
@@ -1728,7 +1727,6 @@ function stopRailCropPreviewSync(){
 }
 function destroyRailCropPreviewPlayer(){
   stopRailCropPreviewSync();
-  railPipMediaHandoff=null;
   if(railCropPreviewPlayer){
     try{railCropPreviewPlayer.destroy()}catch{}
     railCropPreviewPlayer=null;
@@ -1881,106 +1879,16 @@ function railPlayerVideoId(player){
     return String(data.video_id||data.videoId||"").trim();
   }catch{return ""}
 }
-function railPlayerMediaInfo(player){
-  try{
-    const data=player?.getVideoData?.()||{};
-    return {
-      videoId:String(data.video_id||data.videoId||"").trim(),
-      title:String(data.title||"").trim(),
-      author:String(data.author||"").trim(),
-      time:Math.max(0,Number(player?.getCurrentTime?.())||0),
-      state:Number(player?.getPlayerState?.()),
-      muted:!!player?.isMuted?.(),
-      volume:Math.max(0,Math.min(100,Number(player?.getVolume?.())||0))
-    };
-  }catch{
-    return {
-      videoId:"",title:"",author:"",time:0,state:-1,muted:true,volume:0
-    };
-  }
-}
 function ensureRailCropInputVideo(){
   if(!railCropPreviewPlayer)return false;
   const expected=String(requestedVideoId||"").trim();
   const loaded=railPlayerVideoId(railCropPreviewPlayer);
   if(loaded===expected)return true;
 
-  try{
-    railCropPreviewPlayer.loadVideoById?.(expected);
-  }catch{}
+  try{railCropPreviewPlayer.loadVideoById?.(expected)}catch{}
   return false;
 }
-function handoffRailMediaToPip(){
-  if(!apiPlayer||!railCropPreviewPlayer)return null;
 
-  // One final sync before PiP becomes authoritative.
-  syncRailCropPreview(true);
-  stopRailCropPreviewSync();
-
-  const source=railPlayerMediaInfo(apiPlayer);
-  const crop=railPlayerMediaInfo(railCropPreviewPlayer);
-  const media={
-    videoId:String(requestedVideoId||crop.videoId||source.videoId||""),
-    orientation:
-      railSelectedShape||
-      verifiedMediaShape||
-      ((Number(railSelectedAspect)||Number(verifiedMediaAspect)||16/9)<1?"portrait":"landscape"),
-    aspect:Math.max(
-      .25,
-      Number(railSelectedAspect)||
-      Number(verifiedMediaAspect)||
-      Number(currentRailLibrary?.contentAspect)||
-      16/9
-    ),
-    title:crop.title||source.title||"",
-    author:crop.author||source.author||"",
-    source
-  };
-
-  try{
-    railCropPreviewPlayer.seekTo?.(source.time,true);
-    if(source.volume>0)railCropPreviewPlayer.setVolume?.(source.volume);
-    source.muted
-      ? railCropPreviewPlayer.mute?.()
-      : railCropPreviewPlayer.unMute?.();
-
-    if(source.state===1)railCropPreviewPlayer.playVideo?.();
-    else if(source.state===2)railCropPreviewPlayer.pauseVideo?.();
-
-    // PiP/cropped player is now the authoritative media. Keep the source
-    // visually available in Library but stop duplicate playback/audio.
-    apiPlayer.mute?.();
-    apiPlayer.pauseVideo?.();
-  }catch{}
-
-  railPipMediaHandoff=media;
-  return media;
-}
-function handoffRailMediaBackToSource(){
-  if(!railPipMediaHandoff||!apiPlayer||!railCropPreviewPlayer){
-    railPipMediaHandoff=null;
-    return;
-  }
-
-  const pip=railPlayerMediaInfo(railCropPreviewPlayer);
-  const before=railPipMediaHandoff.source||{};
-
-  try{
-    apiPlayer.seekTo?.(pip.time,true);
-    if(before.volume>0)apiPlayer.setVolume?.(before.volume);
-    before.muted ? apiPlayer.mute?.() : apiPlayer.unMute?.();
-
-    if(pip.state===1)apiPlayer.playVideo?.();
-    else apiPlayer.pauseVideo?.();
-
-    // The on-page cropped preview returns to mirror mode.
-    railCropPreviewPlayer.mute?.();
-  }catch{}
-
-  railPipMediaHandoff=null;
-  stopRailCropPreviewSync();
-  railCropSyncTimer=setInterval(()=>syncRailCropPreview(false),400);
-}
 
 function currentRailCroppedGeometry(){
   const aspect=Math.max(
@@ -2055,7 +1963,8 @@ function openRailCropPip(){
     !railCropPreviewPlayer
   )return;
 
-  // INPUT must be the CURRENT video's already-cropped player.
+  // Rail PiP has NO independent media logic.
+  // Its only input is the already-cropped frame on the right.
   if(!ensureRailCropInputVideo()){
     setTimeout(()=>{
       if(!railPipOpen&&railPlayerVideoId(railCropPreviewPlayer)===requestedVideoId){
@@ -2065,23 +1974,8 @@ function openRailCropPip(){
     return;
   }
 
+  stopRailCropPreviewSync();
   railPipBaseGeometry=currentRailCroppedGeometry();
-  const media=handoffRailMediaToPip();
-  if(!media||media.videoId!==requestedVideoId){
-    railPipBaseGeometry=null;
-    handoffRailMediaBackToSource();
-    return;
-  }
-
-  railPipBaseGeometry={
-    ...railPipBaseGeometry,
-    videoId:media.videoId,
-    orientation:media.orientation,
-    mediaAspect:media.aspect,
-    title:media.title,
-    author:media.author
-  };
-
   railPipOpen=true;
   railCropPreview.classList.add("rail-pip-open");
 
@@ -2092,8 +1986,8 @@ function openRailCropPip(){
     minW,
     Math.min(maxW,Math.max(170,Math.min(280,window.innerWidth*.46)))
   );
-  const initialHeight=initialWidth/railPipBaseGeometry.aspect;
 
+  // Same placement rule as PiP max: top-right, then clamp.
   setRailPipRect(
     window.innerWidth-initialWidth-10,
     10,
@@ -2105,7 +1999,6 @@ function openRailCropPip(){
 function closeRailCropPip(){
   if(!railCropPreview)return;
 
-  if(railPipOpen)handoffRailMediaBackToSource();
   railPipOpen=false;
   railPipBaseGeometry=null;
   railPipPointerId=null;
@@ -2136,6 +2029,9 @@ function closeRailCropPip(){
       16/9
     );
     applyRailComparisonGeometry(railLayoutForWidth(railWorkbenchWidth,aspect));
+
+    stopRailCropPreviewSync();
+    railCropSyncTimer=setInterval(()=>syncRailCropPreview(false),400);
   }
 
   if(railCropPipToggle)railCropPipToggle.textContent="Mở PiP";
