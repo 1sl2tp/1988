@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.3";
+  const VERSION = "2026-09-28.4";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -18,23 +18,23 @@
   // edge, not as symmetric crops.
   const UI_PROFILES = {
     landscape: [
-      { w:160, h:90,  avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, bottomActions:25, bottomBrand:22, seek:4, bottomPad:6 },
-      { w:190, h:107, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, bottomActions:27, bottomBrand:23, seek:4, bottomPad:6 },
-      { w:220, h:124, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, bottomActions:28, bottomBrand:24, seek:4, bottomPad:7 },
-      { w:280, h:158, avatar:36, title1:20, title2:37, channel:13, topPad:9,  topGap:4, bottomActions:30, bottomBrand:26, seek:4, bottomPad:8 },
-      { w:360, h:203, avatar:40, title1:21, title2:39, channel:14, topPad:10, topGap:5, bottomActions:32, bottomBrand:28, seek:5, bottomPad:9 },
-      { w:520, h:293, avatar:44, title1:23, title2:42, channel:15, topPad:11, topGap:5, bottomActions:35, bottomBrand:30, seek:5, bottomPad:10 },
-      { w:720, h:405, avatar:48, title1:25, title2:45, channel:16, topPad:12, topGap:6, bottomActions:38, bottomBrand:33, seek:5, bottomPad:11 },
-      { w:960, h:540, avatar:52, title1:27, title2:48, channel:17, topPad:13, topGap:6, bottomActions:41, bottomBrand:36, seek:6, bottomPad:12 }
+      { w:160, h:90,  avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, linkBox:28, nextBox:30, youtubeBox:24, seekBox:4, bottomPad:5 },
+      { w:190, h:107, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, linkBox:30, nextBox:32, youtubeBox:25, seekBox:4, bottomPad:5 },
+      { w:220, h:124, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, linkBox:31, nextBox:34, youtubeBox:26, seekBox:4, bottomPad:6 },
+      { w:280, h:158, avatar:36, title1:20, title2:37, channel:13, topPad:9,  topGap:4, linkBox:33, nextBox:37, youtubeBox:28, seekBox:4, bottomPad:6 },
+      { w:360, h:203, avatar:40, title1:21, title2:39, channel:14, topPad:10, topGap:5, linkBox:35, nextBox:40, youtubeBox:30, seekBox:5, bottomPad:7 },
+      { w:520, h:293, avatar:44, title1:23, title2:42, channel:15, topPad:11, topGap:5, linkBox:38, nextBox:44, youtubeBox:32, seekBox:5, bottomPad:8 },
+      { w:720, h:405, avatar:48, title1:25, title2:45, channel:16, topPad:12, topGap:6, linkBox:42, nextBox:48, youtubeBox:35, seekBox:5, bottomPad:9 },
+      { w:960, h:540, avatar:52, title1:27, title2:48, channel:17, topPad:13, topGap:6, linkBox:46, nextBox:52, youtubeBox:38, seekBox:6, bottomPad:10 }
     ],
     portrait: [
-      { w:120, h:213, avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, bottomActions:25, bottomBrand:22, seek:4, bottomPad:6 },
-      { w:150, h:267, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, bottomActions:27, bottomBrand:23, seek:4, bottomPad:6 },
-      { w:180, h:320, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, bottomActions:28, bottomBrand:24, seek:4, bottomPad:7 },
-      { w:220, h:391, avatar:34, title1:19, title2:36, channel:13, topPad:8,  topGap:4, bottomActions:29, bottomBrand:25, seek:4, bottomPad:7 },
-      { w:280, h:498, avatar:38, title1:20, title2:38, channel:14, topPad:9,  topGap:5, bottomActions:31, bottomBrand:27, seek:5, bottomPad:8 },
-      { w:360, h:640, avatar:42, title1:22, title2:40, channel:15, topPad:10, topGap:5, bottomActions:34, bottomBrand:29, seek:5, bottomPad:9 },
-      { w:460, h:818, avatar:46, title1:24, title2:43, channel:16, topPad:11, topGap:6, bottomActions:37, bottomBrand:32, seek:5, bottomPad:10 }
+      { w:120, h:213, avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, linkBox:28, nextBox:30, youtubeBox:24, seekBox:4, bottomPad:5 },
+      { w:150, h:267, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, linkBox:30, nextBox:32, youtubeBox:25, seekBox:4, bottomPad:5 },
+      { w:180, h:320, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, linkBox:31, nextBox:34, youtubeBox:26, seekBox:4, bottomPad:6 },
+      { w:220, h:391, avatar:34, title1:19, title2:36, channel:13, topPad:8,  topGap:4, linkBox:32, nextBox:36, youtubeBox:27, seekBox:4, bottomPad:6 },
+      { w:280, h:498, avatar:38, title1:20, title2:38, channel:14, topPad:9,  topGap:5, linkBox:34, nextBox:39, youtubeBox:29, seekBox:5, bottomPad:7 },
+      { w:360, h:640, avatar:42, title1:22, title2:40, channel:15, topPad:10, topGap:5, linkBox:37, nextBox:42, youtubeBox:31, seekBox:5, bottomPad:8 },
+      { w:460, h:818, avatar:46, title1:24, title2:43, channel:16, topPad:11, topGap:6, linkBox:40, nextBox:46, youtubeBox:34, seekBox:5, bottomPad:9 }
     ]
   };
 
@@ -87,10 +87,17 @@
   }
 
   function bottomCluster(sample) {
-    // Bottom items share a horizontal band. The cluster depth is the largest
-    // action/branding block plus seek/padding below it.
-    const contentH = Math.max(sample.bottomActions, sample.bottomBrand);
-    return sample.bottomPad + contentH + sample.seek;
+    // Measure the OUTER box of each native YouTube item, including its pill/card
+    // background, thumbnail, internal padding and border. They share one band,
+    // so the correct depth is the MAX outer box, not text/logo height and not
+    // the sum of all controls.
+    const outerMax = Math.max(
+      sample.linkBox,
+      sample.nextBox,
+      sample.youtubeBox,
+      sample.seekBox
+    );
+    return sample.bottomPad + outerMax;
   }
 
   function measure(input = {}, options = {}) {
@@ -134,9 +141,11 @@
           height: topChrome
         },
         bottom: {
-          actions: sample.bottomActions,
-          branding: sample.bottomBrand,
-          seek: sample.seek,
+          linkBox: sample.linkBox,
+          nextBox: sample.nextBox,
+          youtubeBox: sample.youtubeBox,
+          seekBox: sample.seekBox,
+          outerMax: Math.max(sample.linkBox,sample.nextBox,sample.youtubeBox,sample.seekBox),
           padding: sample.bottomPad,
           height: bottomChrome
         }
