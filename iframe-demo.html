@@ -89,6 +89,7 @@
       inset:0;
       z-index:4;
       display:none;
+      pointer-events:none;
       touch-action:manipulation;
       -webkit-tap-highlight-color:transparent;
     }
@@ -102,6 +103,9 @@
     }
     .stage.controls-visible .clean-controls{
       opacity:1;
+      pointer-events:none;
+    }
+    .clean-controls .clean-control{
       pointer-events:auto;
     }
     .clean-controls::before{
@@ -130,13 +134,6 @@
     .clean-control svg{display:block;width:22px;height:22px;fill:currentColor}
     .clean-control.close{top:8px;right:8px}
     .clean-control.resize{top:8px;left:8px}
-    .clean-control.play{
-      top:50%;
-      left:50%;
-      width:46px;
-      height:46px;
-      transform:translate(-50%,-50%);
-    }
     .clean-control:hover{background:rgba(0,0,0,.72)}
     @media(max-width:560px){
       .stage.demo-pip{
@@ -246,7 +243,7 @@ const modes=[
     id:"cleanpip",
     title:"8 · PiP sạch · controls:0 + custom overlay",
     short:"PiP sạch",
-    desc:"YT.Player API với controls:0. Bật PiP demo: lúc vừa nổi chỉ có video; chạm/rê mới hiện Play/Pause + X + phóng/thu của trang rồi tự ẩn.",
+    desc:"YT.Player API với controls:0. Bật PiP demo: giữ Play/Pause trung tâm của YouTube; lớp của trang chỉ thêm X + phóng/thu rồi tự ẩn.",
     api:true,
     cleanDemo:true,
     params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
@@ -255,7 +252,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Giữ iframe nguyên kích thước, không zoom. Khi title/branding YouTube đang hiện, chỉ mở vùng nhìn ở giữa để cắt tạm mép trên/dưới; khi UI ẩn, cửa sổ mở mượt về toàn bộ video.",
+    desc:"Giữ iframe nguyên kích thước và Play/Pause gốc của YouTube. Chỉ cắt tạm mép trên/dưới để che title/branding; lớp của trang chỉ giữ X + phóng/thu.",
     api:true,
     cleanDemo:true,
     maxClean:true,
@@ -318,25 +315,11 @@ function showCleanControls(){
   stopChromeMaskTimer();
   cleanHideTimer=setTimeout(hideCleanControls,1800);
 }
-function syncCleanPlayIcon(){
-  const btn=stage.querySelector("[data-clean-play]");
-  if(!btn||!apiPlayer)return;
-  let playing=false;
-  try{playing=apiPlayer.getPlayerState?.()===1}catch{}
-  btn.innerHTML=playing
-    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7V5Zm6 0h4v14h-4V5Z"/></svg>'
-    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z"/></svg>';
-  btn.setAttribute("aria-label",playing?"Tạm dừng":"Phát");
-  btn.title=playing?"Tạm dừng":"Phát";
-}
 function cleanOverlayMarkup(){
   return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
     '<div class="clean-controls">'+
       '<button class="clean-control resize" type="button" data-clean-resize aria-label="Phóng hoặc thu PiP" title="Phóng / thu">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v2H7.41l4.3 4.29-1.42 1.42L6 7.41V11H4V4Zm16 16h-7v-2h3.59l-4.3-4.29 1.42-1.42L18 16.59V13h2v7Z"/></svg>'+
-      '</button>'+
-      '<button class="clean-control play" type="button" data-clean-play aria-label="Phát" title="Phát">'+
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z"/></svg>'+
       '</button>'+
       '<button class="clean-control close" type="button" data-clean-close aria-label="Đóng PiP demo" title="Đóng PiP">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
@@ -461,11 +444,9 @@ async function render(){
       events:mode.cleanDemo?{
         onReady(){
           optimisticPlaying=false;
-          syncCleanPlayIcon();
         },
         onStateChange(event){
           optimisticPlaying=event?.data===1;
-          syncCleanPlayIcon();
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           if(event?.data===1){
             setChromeMask(true);
@@ -494,31 +475,10 @@ modesEl.addEventListener("click",e=>{
   render();
 });
 demoPipToggle.addEventListener("click",toggleDemoPip);
-stage.addEventListener("pointerdown",e=>{
-  if(!e.target.closest("[data-clean-overlay]"))return;
-  if(e.target.closest("[data-clean-play],[data-clean-close],[data-clean-resize]"))return;
-  showCleanControls();
-});
 stage.addEventListener("pointermove",()=>{
   if(stage.classList.contains("demo-pip"))showCleanControls();
 });
 stage.addEventListener("click",e=>{
-  const play=e.target.closest("[data-clean-play]");
-  if(play){
-    e.preventDefault();
-    e.stopPropagation();
-    const playing=playerIsPlaying();
-    optimisticPlaying=!playing;
-    if(stage.classList.contains("max-clean-mode"))setChromeMask(true);
-    syncCleanPlayIcon();
-    try{
-      if(playing)apiPlayer?.pauseVideo?.();
-      else apiPlayer?.playVideo?.();
-    }catch{}
-    showCleanControls();
-    if(!playing)scheduleChromeRelease(3000);
-    return;
-  }
   const close=e.target.closest("[data-clean-close]");
   if(close){
     e.preventDefault();
