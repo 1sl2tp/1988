@@ -219,7 +219,9 @@
       layoutState.density === "compact" ? clamp(Math.min(width,height)*.27,28,34) :
       clamp(Math.min(width,height)*.22,34,52);
     const playRadius = playDiameter/2;
-    const playGap = layoutState.density === "normal" ? 5 : 3;
+    const playGap =
+      layoutState.density === "tight" ? 1 :
+      layoutState.density === "compact" ? 2 : 5;
     const playSafety = playRadius + playGap;
 
     // Our own top buttons and bottom seek must stay entirely inside the masked
