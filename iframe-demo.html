@@ -19,7 +19,7 @@
     button{border:1px solid var(--line);background:#19191c;color:#fff;border-radius:999px;padding:9px 12px;font-size:13px;white-space:nowrap}
     button.active{background:#fff;color:#000;border-color:#fff}
     .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;overflow:hidden}
-    .stage iframe,.stage #api-player{position:absolute;inset:0;width:100%!important;height:100%!important;border:0}
+    .stage iframe,.stage #api-player{position:absolute;inset:0;width:100%!important;height:100%!important;border:0;z-index:1}
     .meta{padding:12px 14px;border-bottom:1px solid #202023}
     .meta strong{display:block;font-size:14px;margin-bottom:4px}
     .meta span{display:block;color:var(--muted);font-size:12px;line-height:1.45}
@@ -59,12 +59,32 @@
       box-shadow:0 14px 38px rgba(0,0,0,.58);
     }
     .stage.demo-pip.demo-pip-large{width:min(72vw,520px)}
-    /* MAX-CLEAN iframe: center-crop YouTube's corner chrome out of the visible PiP.
-       This is intentionally demo-only because it trims a small amount of picture. */
+    /* PiP MAX: never zoom the iframe. Keep the native YouTube play button at its
+       real center, and temporarily reveal only a measured center window while
+       YouTube title / lower chrome are expected to be visible. */
     .stage.demo-pip.max-clean-mode{
-      --chrome-top:clamp(34px,16%,52px);
-      --chrome-bottom:clamp(28px,13%,44px);
+      --safe-edge:clamp(34px,24%,48px);
+      --pip-poster:none;
+      isolation:isolate;
+      background:#000;
     }
+    .stage.demo-pip.max-clean-mode::before{
+      content:"";
+      position:absolute;
+      inset:-6px;
+      z-index:0;
+      background-image:
+        linear-gradient(rgba(0,0,0,.20),rgba(0,0,0,.20)),
+        var(--pip-poster);
+      background-size:cover;
+      background-position:center;
+      filter:blur(4px) saturate(.92) brightness(.82);
+      transform:scale(1.04);
+      opacity:0;
+      transition:opacity .22s ease;
+      pointer-events:none;
+    }
+    .stage.demo-pip.max-clean-mode.chrome-mask::before{opacity:1}
     .stage.demo-pip.max-clean-mode iframe{
       pointer-events:auto!important;
       transform:none!important;
@@ -73,17 +93,75 @@
       will-change:clip-path;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask iframe{
-      clip-path:inset(var(--chrome-top) 0 var(--chrome-bottom) 0 round 12px);
+      clip-path:inset(var(--safe-edge) 0 var(--safe-edge) 0 round 10px);
       transition-duration:.22s;
     }
-    .stage.demo-pip.max-clean-mode .clean-control.close,
+    .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
+    .stage.demo-pip.max-clean-mode.chrome-mask .clean-controls{
+      opacity:1;
+    }
+    .stage.demo-pip.max-clean-mode .clean-control{
+      width:30px;
+      height:30px;
+      background:rgba(8,8,8,.62);
+      box-shadow:0 1px 8px rgba(0,0,0,.28);
+      backdrop-filter:blur(8px);
+      -webkit-backdrop-filter:blur(8px);
+    }
+    .stage.demo-pip.max-clean-mode .clean-control svg{width:18px;height:18px}
     .stage.demo-pip.max-clean-mode .clean-control.resize{
-      transition:top .22s cubic-bezier(.2,.8,.2,1),background .14s ease;
+      top:4px;
+      left:6px;
     }
-    .stage.demo-pip.max-clean-mode.chrome-mask .clean-control.close,
-    .stage.demo-pip.max-clean-mode.chrome-mask .clean-control.resize{
-      top:calc(var(--chrome-top) + 6px);
+    .stage.demo-pip.max-clean-mode .clean-control.close{
+      top:4px;
+      right:6px;
     }
+    .pip-seek{
+      display:none;
+      position:absolute;
+      z-index:2;
+      left:10px;
+      right:10px;
+      bottom:8px;
+      height:22px;
+      align-items:center;
+      pointer-events:auto;
+      touch-action:none;
+      cursor:pointer;
+    }
+    .stage.demo-pip.max-clean-mode .pip-seek{display:flex}
+    .pip-seek-track{
+      position:relative;
+      width:100%;
+      height:3px;
+      border-radius:999px;
+      background:rgba(255,255,255,.28);
+      overflow:visible;
+    }
+    .pip-seek-fill{
+      position:absolute;
+      inset:0 auto 0 0;
+      width:0%;
+      border-radius:inherit;
+      background:#fff;
+      transition:width .12s linear;
+    }
+    .pip-seek-thumb{
+      position:absolute;
+      top:50%;
+      left:0%;
+      width:9px;
+      height:9px;
+      border-radius:50%;
+      background:#fff;
+      transform:translate(-50%,-50%);
+      box-shadow:0 1px 6px rgba(0,0,0,.45);
+      transition:left .12s linear,transform .12s ease;
+    }
+    .pip-seek.dragging .pip-seek-thumb{transform:translate(-50%,-50%) scale(1.22)}
+    .pip-seek.dragging .pip-seek-fill,
+    .pip-seek.dragging .pip-seek-thumb{transition:none}
     .clean-overlay{
       position:absolute;
       inset:0;
@@ -252,7 +330,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Giữ iframe nguyên kích thước và Play/Pause gốc của YouTube. Chỉ cắt tạm mép trên/dưới để che title/branding; lớp của trang chỉ giữ X + phóng/thu.",
+    desc:"Không zoom. Giữ Play/Pause gốc ở đúng tâm; khi chrome YouTube đang hiện chỉ mở cửa sổ giữa cân tâm, dùng thumbnail làm nền che hai mép. Trên là phóng/đóng, dưới là thanh tua thật.",
     api:true,
     cleanDemo:true,
     maxClean:true,
@@ -276,6 +354,8 @@ let apiPlayer=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
 let optimisticPlaying=false;
+let seekRaf=0;
+let activeSeekPointer=null;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -289,6 +369,53 @@ function stopChromeMaskTimer(){
 }
 function playerIsPlaying(){
   try{return apiPlayer?.getPlayerState?.()===1}catch{return optimisticPlaying}
+}
+function formatSeekProgress(){
+  const seek=stage.querySelector("[data-pip-seek]");
+  const fill=stage.querySelector("[data-pip-seek-fill]");
+  const thumb=stage.querySelector("[data-pip-seek-thumb]");
+  if(!seek||!fill||!thumb||!apiPlayer)return;
+  let current=0,duration=0;
+  try{
+    current=Number(apiPlayer.getCurrentTime?.())||0;
+    duration=Number(apiPlayer.getDuration?.())||0;
+  }catch{}
+  const p=duration>0?Math.max(0,Math.min(1,current/duration)):0;
+  const pct=(p*100).toFixed(3)+"%";
+  fill.style.width=pct;
+  thumb.style.left=pct;
+  seek.setAttribute("aria-valuenow",String(Math.round(p*100)));
+}
+function startSeekLoop(){
+  cancelAnimationFrame(seekRaf);
+  const tick=()=>{
+    formatSeekProgress();
+    seekRaf=requestAnimationFrame(tick);
+  };
+  seekRaf=requestAnimationFrame(tick);
+}
+function stopSeekLoop(){
+  cancelAnimationFrame(seekRaf);
+  seekRaf=0;
+}
+function seekAtClientX(clientX,seek){
+  if(!apiPlayer||!seek)return;
+  const r=seek.getBoundingClientRect();
+  if(r.width<=0)return;
+  const p=Math.max(0,Math.min(1,(clientX-r.left)/r.width));
+  let duration=0;
+  try{duration=Number(apiPlayer.getDuration?.())||0}catch{}
+  if(duration>0){
+    try{apiPlayer.seekTo?.(duration*p,true)}catch{}
+  }
+  const pct=(p*100).toFixed(3)+"%";
+  const fill=stage.querySelector("[data-pip-seek-fill]");
+  const thumb=stage.querySelector("[data-pip-seek-thumb]");
+  if(fill)fill.style.width=pct;
+  if(thumb)thumb.style.left=pct;
+  seek.setAttribute("aria-valuenow",String(Math.round(p*100)));
+  setChromeMask(true);
+  showCleanControls();
 }
 function setChromeMask(on){
   stage.classList.toggle("chrome-mask",!!on);
@@ -324,6 +451,12 @@ function cleanOverlayMarkup(){
       '<button class="clean-control close" type="button" data-clean-close aria-label="Đóng PiP demo" title="Đóng PiP">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
       '</button>'+
+      '<div class="pip-seek" data-pip-seek role="slider" aria-label="Tua video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'+
+        '<div class="pip-seek-track">'+
+          '<div class="pip-seek-fill" data-pip-seek-fill></div>'+
+          '<div class="pip-seek-thumb" data-pip-seek-thumb></div>'+
+        '</div>'+
+      '</div>'+
     '</div>'+
   '</div>';
 }
@@ -334,6 +467,8 @@ function exitDemoPip(){
   demoPipToggle.textContent="Bật PiP demo";
   stopCleanHideTimer();
   stopChromeMaskTimer();
+  stopSeekLoop();
+  activeSeekPointer=null;
 }
 function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
@@ -414,6 +549,7 @@ async function render(){
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
+  stage.style.setProperty("--pip-poster",mode.maxClean?'url("https://i.ytimg.com/vi/'+id+'/hqdefault.jpg")':"none");
   demoActions.hidden=!mode.cleanDemo;
   scrollDemo.classList.toggle("show",!!mode.cleanDemo);
   stage.innerHTML="";
@@ -444,9 +580,14 @@ async function render(){
       events:mode.cleanDemo?{
         onReady(){
           optimisticPlaying=false;
+          if(mode.maxClean){
+            formatSeekProgress();
+            startSeekLoop();
+          }
         },
         onStateChange(event){
           optimisticPlaying=event?.data===1;
+          if(mode.maxClean)formatSeekProgress();
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           if(event?.data===1){
             setChromeMask(true);
@@ -475,9 +616,37 @@ modesEl.addEventListener("click",e=>{
   render();
 });
 demoPipToggle.addEventListener("click",toggleDemoPip);
-stage.addEventListener("pointermove",()=>{
+stage.addEventListener("pointerdown",e=>{
+  const seek=e.target.closest("[data-pip-seek]");
+  if(!seek)return;
+  e.preventDefault();
+  e.stopPropagation();
+  activeSeekPointer=e.pointerId;
+  seek.classList.add("dragging");
+  try{seek.setPointerCapture(e.pointerId)}catch{}
+  seekAtClientX(e.clientX,seek);
+});
+stage.addEventListener("pointermove",e=>{
+  if(activeSeekPointer!==null&&e.pointerId===activeSeekPointer){
+    const seek=stage.querySelector("[data-pip-seek]");
+    if(seek)seekAtClientX(e.clientX,seek);
+    return;
+  }
   if(stage.classList.contains("demo-pip"))showCleanControls();
 });
+function finishSeek(e){
+  if(activeSeekPointer===null||e.pointerId!==activeSeekPointer)return;
+  const seek=stage.querySelector("[data-pip-seek]");
+  if(seek){
+    seekAtClientX(e.clientX,seek);
+    seek.classList.remove("dragging");
+    try{seek.releasePointerCapture(e.pointerId)}catch{}
+  }
+  activeSeekPointer=null;
+  scheduleChromeRelease(3000);
+}
+stage.addEventListener("pointerup",finishSeek);
+stage.addEventListener("pointercancel",finishSeek);
 stage.addEventListener("click",e=>{
   const close=e.target.closest("[data-clean-close]");
   if(close){
