@@ -2580,9 +2580,11 @@ Deno.serve(async(req:Request)=>{
         });
       }
     }
+    const preferOlderVerification=
+      scopes.includes("week")&&!scopes.includes("latest");
     verificationCandidates.sort((a,b)=>
       Number(b.inCurrentPackage)-Number(a.inCurrentPackage)||
-      a.age-b.age
+      (preferOlderVerification?b.age-a.age:a.age-b.age)
     );
 
     const verificationMeta=new Map<string,any>();
