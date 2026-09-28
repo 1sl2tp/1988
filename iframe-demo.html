@@ -422,17 +422,16 @@ function syncMeasuredSafeWindow(){
   const rect=stage.getBoundingClientRect();
   const h=Math.max(1,rect.height);
 
-  // YouTube's native play/pause is centered in the player. Keep a symmetric
-  // center window so that control never shifts visually. The visible middle
-  // is derived from the real PiP height instead of a hard-coded pixel crop.
-  //
-  // Current calibration from the real YouTube chrome in this proof:
-  // keep ~52% of the player height visible while chrome is active.
-  const visibleRatio=0.52;
-  const visibleH=Math.max(56,h*visibleRatio);
-  const safeEdge=Math.max(0,(h-visibleH)/2);
+  // The native YouTube Play/Pause stays at the geometric center of the player.
+  // Treat that center as fixed, estimate how deep YouTube's top/bottom chrome
+  // reaches from the real PiP height, then crop the SAME amount on both sides.
+  // This keeps Play/Pause visually centered while pushing title/channel above
+  // and lower metadata/branding below the visible center window.
+  const topChrome=Math.max(48,Math.min(76,h*.25));
+  const bottomChrome=Math.max(40,Math.min(64,h*.18));
+  const safeEdge=Math.min((h-52)/2,Math.max(topChrome,bottomChrome));
 
-  stage.style.setProperty("--safe-edge",safeEdge.toFixed(2)+"px");
+  stage.style.setProperty("--safe-edge",Math.max(0,safeEdge).toFixed(2)+"px");
 }
 function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
