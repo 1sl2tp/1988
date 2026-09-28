@@ -578,7 +578,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">PiP: khi chrome YouTube còn hiện thì che TOP/BOTTOM và giữ X + thanh tua; khi chrome ẩn an toàn thì tất cả lớp này cùng ẩn.</span>
+    <span class="hint">PiP dùng Library đã tải sẵn geometry + metadata + timing. Có HIDDEN signal thì mở sau 1s; không có signal thì dùng idle timing của Library.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -595,7 +595,7 @@
 
 <script src="/src/media-meta.js?v=20260928-pip-top"></script>
 <script src="/src/api.js?v=20260928-pip-top"></script>
-<script src="/src/youtube-chrome-geometry.js?v=20260928-32"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-33"></script>
 <script>
 const modes=[
   {
@@ -702,7 +702,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="small-portrait-youtube-edge-v16";
+const CHROME_LIBRARY_PROFILE_REV="library-meta-timing-v17";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -736,6 +736,8 @@ let calibrationReplayTimer=0;
 let calibrationChromeWakeTimer=0;
 let calibrationGuideDrag=null;
 let pipMetaRequestToken=0;
+const pipMetaCache=new Map();
+let pipUiActivityAt=0;
 let currentPipMeta={
   id:"",
   title:"",
@@ -800,30 +802,26 @@ function resetNativeChromeSignal(){
 }
 function setNativeChromeSignal(visible,key=""){
   const isVisible=!!visible;
+  const now=performance.now();
   nativeChromeVisible=isVisible;
-  nativeChromeSignalAt=performance.now();
+  nativeChromeSignalAt=now;
   nativeChromeSignalKey=String(key||"");
 
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
   if(isVisible){
-    // A real VISIBLE signal starts the only trustworthy release sequence.
     nativeChromeVisibleCycle=pipUiCycle;
     nativeChromeHiddenCycle=-1;
-    stopChromeMaskTimer();
+    pipUiActivityAt=now;
     setChromeMask(true);
+    if(playerIsPlaying())scheduleChromeRelease();
     return;
   }
 
-  // Never trust a standalone HIDDEN. It must follow a VISIBLE signal from the
-  // same UI-activity cycle; otherwise it may be an unrelated/stale iframe msg.
-  if(nativeChromeVisibleCycle!==pipUiCycle){
-    nativeChromeHiddenCycle=-1;
-    return;
+  if(nativeChromeVisibleCycle===pipUiCycle){
+    nativeChromeHiddenCycle=pipUiCycle;
+    if(playerIsPlaying())scheduleChromeRelease();
   }
-
-  nativeChromeHiddenCycle=pipUiCycle;
-  if(playerIsPlaying())scheduleChromeRelease();
 }
 window.addEventListener("message",event=>{
   let iframeWindow=null;
@@ -921,9 +919,11 @@ function renderPipTopInfo(){
   const root=stage.querySelector("[data-pip-top-info]");
   if(!root)return;
 
-  const meta=currentPipMeta?.id===requestedVideoId
-    ? currentPipMeta
-    : pipMetaFallback(requestedVideoId);
+  const meta=currentChromeLibrary?.mediaMeta?.id===requestedVideoId
+    ? currentChromeLibrary.mediaMeta
+    : currentPipMeta?.id===requestedVideoId
+      ? currentPipMeta
+      : pipMetaFallback(requestedVideoId);
 
   const avatar=root.querySelector("[data-pip-top-avatar]");
   const avatarImg=root.querySelector("[data-pip-top-avatar-img]");
@@ -966,28 +966,44 @@ function renderPipTopInfo(){
     }
   }
 }
-async function loadPipTopMeta(id){
+function attachPipMetaToLibrary(id,meta){
+  if(!meta||String(meta.id||"")!==String(id||""))return;
+  pipMetaCache.set(id,meta);
+  currentPipMeta=meta;
+  if(currentChromeLibrary?.videoId===id){
+    currentChromeLibrary={...currentChromeLibrary,mediaMeta:meta};
+  }
+  renderPipTopInfo();
+}
+
+async function preloadPipLibraryMeta(id){
   id=String(id||"").trim();
-  if(!id)return;
+  if(!id)return null;
+
+  const cached=pipMetaCache.get(id);
+  if(cached){
+    attachPipMetaToLibrary(id,cached);
+    return cached;
+  }
+
   const token=++pipMetaRequestToken;
-  currentPipMeta=pipMetaFallback(id);
+  const fallback=pipMetaFallback(id);
+  currentPipMeta=fallback;
   renderPipTopInfo();
 
   try{
     const response=await window.YT1988_API?.video?.(id);
-    if(token!==pipMetaRequestToken||id!==requestedVideoId)return;
+    if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
 
     const raw=response?.data||response||{};
     let meta=normalizePipMeta(raw,id);
 
-    // Piped/oEmbed video metadata does not always include the channel avatar.
-    // Resolve the channel once when needed; no extra request when avatar exists.
     if(!meta.avatar){
       const channelRef=pipChannelRef(raw);
       if(channelRef){
         try{
           const channelResponse=await window.YT1988_API?.channel?.(channelRef);
-          if(token!==pipMetaRequestToken||id!==requestedVideoId)return;
+          if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
           const channelRaw=channelResponse?.data||channelResponse||{};
           const avatar=pipAvatarFromRow(channelRaw);
           if(avatar)meta={...meta,avatar};
@@ -995,16 +1011,12 @@ async function loadPipTopMeta(id){
       }
     }
 
-    currentPipMeta=meta;
-    renderPipTopInfo();
+    attachPipMetaToLibrary(id,meta);
+    return meta;
   }catch{
-    if(token!==pipMetaRequestToken||id!==requestedVideoId)return;
-    currentPipMeta={
-      ...pipMetaFallback(id),
-      ...currentPipMeta,
-      id
-    };
-    renderPipTopInfo();
+    if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
+    attachPipMetaToLibrary(id,fallback);
+    return fallback;
   }
 }
 
@@ -1044,7 +1056,6 @@ function seekAtClientX(clientX,seek){
   let duration=0;
   try{duration=Number(apiPlayer.getDuration?.())||0}catch{}
   if(duration>0){
-    resetNativeChromeSignal();
     try{apiPlayer.seekTo?.(duration*p,true)}catch{}
   }
   const pct=(p*100).toFixed(3)+"%";
@@ -1305,7 +1316,10 @@ function prepareCurrentChromeLibrary(force=false){
     currentChromeLibrary=geometry.applyManualCalibration
       ? geometry.applyManualCalibration(cached,manualPoints)
       : cached;
+    const prefetchedMeta=pipMetaCache.get(videoId);
+    if(prefetchedMeta)currentChromeLibrary={...currentChromeLibrary,mediaMeta:prefetchedMeta};
     requestAnimationFrame(renderChromeCalibration);
+    renderPipTopInfo();
     return currentChromeLibrary;
   }
 
@@ -1329,7 +1343,10 @@ function prepareCurrentChromeLibrary(force=false){
   currentChromeLibrary=geometry.applyManualCalibration
     ? geometry.applyManualCalibration(library,manualPoints)
     : library;
+  const prefetchedMeta=pipMetaCache.get(videoId);
+  if(prefetchedMeta)currentChromeLibrary={...currentChromeLibrary,mediaMeta:prefetchedMeta};
   requestAnimationFrame(renderChromeCalibration);
+  renderPipTopInfo();
   return currentChromeLibrary;
 }
 function applyPipViewportCrop(){
@@ -1720,6 +1737,13 @@ function paintGeometryReadout(result){
           : "NONE"
     )+
     " · CYCLE "+pipUiCycle+
+    " · RELEASE "+(
+      nativeChromeVisible===false &&
+      nativeChromeVisibleCycle===pipUiCycle &&
+      nativeChromeHiddenCycle===pipUiCycle
+        ? "SIGNAL"
+        : "LIB "+Math.round(pipChromeTiming().idleHideMs)+"ms"
+    )+
     (nativeChromeSignalKey?" ["+nativeChromeSignalKey+"]":"");
 }
 function syncMeasuredSafeWindow(){
@@ -1865,33 +1889,55 @@ function currentMediaTime(){
 function currentPlaybackRate(){
   try{return Math.max(.1,Number(apiPlayer?.getPlaybackRate?.())||1)}catch{return 1}
 }
+function pipChromeTiming(){
+  const timing=currentChromeLibrary?.chromeTiming||{};
+  return {
+    idleHideMs:Math.max(0,Number(timing.idleHideMs)||3800),
+    hiddenGraceMs:Math.max(0,Number(timing.hiddenGraceMs)||1000)
+  };
+}
 function scheduleChromeRelease(){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
 
-  // Release only after a verified VISIBLE -> HIDDEN sequence from this exact
-  // UI cycle. No fixed-time guess is allowed to uncover YouTube chrome.
-  if(
-    nativeChromeVisible!==false ||
-    nativeChromeVisibleCycle!==pipUiCycle ||
-    nativeChromeHiddenCycle!==pipUiCycle ||
-    nativeChromeSignalAt<=0
-  )return;
-
+  const now=performance.now();
+  const timing=pipChromeTiming();
   const cycle=pipUiCycle;
-  const hiddenAt=nativeChromeSignalAt;
-  const wait=Math.max(
-    0,
-    YT_CHROME_HIDDEN_GRACE_MS-(performance.now()-hiddenAt)
-  );
+
+  const verifiedHidden=
+    nativeChromeVisible===false &&
+    nativeChromeVisibleCycle===cycle &&
+    nativeChromeHiddenCycle===cycle &&
+    nativeChromeSignalAt>0 &&
+    nativeChromeSignalAt>=pipUiActivityAt;
+
+  const targetAt=verifiedHidden
+    ? nativeChromeSignalAt+timing.hiddenGraceMs
+    : pipUiActivityAt+timing.idleHideMs+timing.hiddenGraceMs;
+
+  const wait=Math.max(0,targetAt-now);
 
   chromeMaskTimer=setTimeout(()=>{
     if(!playerIsPlaying())return;
     if(pipUiCycle!==cycle)return;
-    if(nativeChromeVisible!==false)return;
-    if(nativeChromeVisibleCycle!==cycle)return;
-    if(nativeChromeHiddenCycle!==cycle)return;
     if(activeSeekPointer!==null)return;
+
+    const currentTiming=pipChromeTiming();
+    const hiddenStillVerified=
+      nativeChromeVisible===false &&
+      nativeChromeVisibleCycle===cycle &&
+      nativeChromeHiddenCycle===cycle &&
+      nativeChromeSignalAt>=pipUiActivityAt;
+
+    const fallbackReady=
+      performance.now()>=pipUiActivityAt+
+        currentTiming.idleHideMs+
+        currentTiming.hiddenGraceMs;
+
+    if(!hiddenStillVerified&&!fallbackReady){
+      scheduleChromeRelease();
+      return;
+    }
 
     setChromeMask(false);
     stopChromeMaskTimer();
@@ -1900,12 +1946,24 @@ function scheduleChromeRelease(){
 function markPipUiActivity(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  // Every interaction/play/reflow starts a new cycle. Only signals belonging
-  // to this cycle may later uncover the video.
-  pipUiCycle+=1;
-  resetNativeChromeSignal();
+  const wasMasked=stage.classList.contains("chrome-mask");
+  if(!wasMasked){
+    pipUiCycle+=1;
+    resetNativeChromeSignal();
+  }else{
+    // Same covered session: keep any VISIBLE proof, but an older HIDDEN can no
+    // longer release after a new hover/touch/seek/resize.
+    nativeChromeVisible=null;
+    nativeChromeSignalAt=0;
+    nativeChromeSignalKey="";
+    nativeChromeHiddenCycle=-1;
+  }
+
+  pipUiActivityAt=performance.now();
   setChromeMask(true);
-  stopChromeMaskTimer();
+
+  if(playerIsPlaying())scheduleChromeRelease();
+  else stopChromeMaskTimer();
 }
 
 function hideCleanControls(){
@@ -2103,7 +2161,8 @@ async function render(){
   invalidateChromeLibraries();
   requestedVideoId=id;
   pipMetaRequestToken+=1;
-  currentPipMeta=pipMetaFallback(id);
+  currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
+  void preloadPipLibraryMeta(id);
   verifiedMediaAspect=0;
   verifiedMediaShape="";
   calibrationWidth=280;
@@ -2129,7 +2188,6 @@ async function render(){
     if(mode.cleanDemo){
       stage.insertAdjacentHTML("beforeend",cleanOverlayMarkup());
       renderPipTopInfo();
-      if(mode.maxClean)void loadPipTopMeta(id);
     }
     codeEl.textContent=
 `new YT.Player("api-player", {
@@ -2156,7 +2214,7 @@ async function render(){
               title:currentPipMeta.title||currentVideoTitle()||"Video",
               channel:currentPipMeta.channel||currentVideoAuthor()||""
             };
-            renderPipTopInfo();
+            attachPipMetaToLibrary(id,currentPipMeta);
           }
           if(mode.maxClean){
             formatSeekProgress();
@@ -2172,7 +2230,6 @@ async function render(){
         },
         onStateChange(event){
           optimisticPlaying=event?.data===1;
-          resetNativeChromeSignal();
           if(mode.maxClean){
             formatSeekProgress();
             if(!stage.classList.contains("demo-pip"))refreshMainViewportTrimLibrary();
