@@ -340,7 +340,8 @@ def _resolve_with_ytdlp(video_id, kind):
         ]
     else:
         selectors = [
-            "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]",
+            "best[ext=mp4][vcodec^=avc1][acodec!=none]/best[ext=mp4][vcodec^=h264][acodec!=none]",
+            "best[ext=mp4][vcodec!=none][acodec!=none]",
             "best[vcodec!=none][acodec!=none]/best",
             "best",
         ]
@@ -770,11 +771,19 @@ def download_mp4_response(video_id, title=""):
             info = resolve_media(video_id, "video", force=(attempt == 1))
             mime = str(info.get("mimeType") or "").lower()
             ext = str(info.get("ext") or "").lower()
+            protocol = str(info.get("protocol") or "").lower()
 
-            # The menu promises MP4. Do not disguise a WebM fallback as .mp4.
-            if ext not in ("mp4", "m4v") and "video/mp4" not in mime:
+            # The menu promises a real downloadable MP4 file. Do not disguise
+            # HLS playlists or a WebM fallback as .mp4.
+            if (
+                "m3u8" in protocol
+                or "mpegurl" in mime
+                or (ext not in ("mp4", "m4v") and "video/mp4" not in mime)
+            ):
                 _cache_drop(video_id, "video")
-                raise RuntimeError(f"mp4_unavailable:{mime or ext or 'unknown'}")
+                raise RuntimeError(
+                    f"mp4_unavailable:{protocol or mime or ext or 'unknown'}"
+                )
 
             upstream = upstream_request(info, method="GET")
             if upstream.status_code in (401, 403, 410) and attempt == 0:
