@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v35";
+const LIVE_PIPELINE_VERSION="live-v36";
 const NON_LIVE_PIPELINE_VERSION="non-live-v13";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -344,8 +344,21 @@ function sourceTitleAliases(value:any){
   };
 
   add(raw);
+
   const dashHead=raw.split(/\s+[-–—]\s+/u)[0]||"";
   if(dashHead&&dashHead!==raw)add(dashHead);
+
+  // Channel names often add a generic brand suffix while the video title uses
+  // only the actual brand (e.g. "60 Giây Official" -> "60 Giây").
+  const debranded=raw
+    .replace(/\s+(?:official|official\s+channel|channel|news|television|media)\s*$/iu,"")
+    .trim();
+  if(debranded&&debranded!==raw)add(debranded);
+
+  // Parenthesized acronyms are commonly repeated as a title segment:
+  // "Báo Điện tử Tiếng nói Việt Nam (VOV)" -> "VOV".
+  const acronym=raw.match(/\(([A-Z0-9]{2,12})\)\s*$/u)?.[1]||"";
+  if(acronym)add(acronym);
 
   const firstToken=raw.split(/\s+/u)[0]||"";
   if(/^[A-Z0-9]{3,12}$/.test(firstToken))add(firstToken);
@@ -388,6 +401,27 @@ function cleanSourceTitle(value:any,sourceName:any){
         .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
         .trim();
       if(candidate.length>=3)title=candidate;
+    }
+  }
+
+  // A generic suffix in the channel label should not force that suffix into
+  // the video title. Strip the shorter brand only when it is the leading title
+  // phrase, so names inside the actual subject are left intact.
+  const sourceRaw=clean(sourceName,180);
+  const debrandedSource=sourceRaw
+    .replace(/\s+(?:official|official\s+channel|channel|news|television|media)\s*$/iu,"")
+    .trim();
+  if(debrandedSource&&debrandedSource!==sourceRaw){
+    const sourceWords=debrandedSource.split(/\s+/u).filter(Boolean);
+    const titleWords=title.split(/\s+/u);
+    if(titleWords.length>sourceWords.length){
+      const head=titleWords.slice(0,sourceWords.length).join(" ");
+      if(sourceTitleSegmentMatches(head,sourceName)){
+        const candidate=clean(titleWords.slice(sourceWords.length).join(" "),300)
+          .replace(/^[\s|:;–—-]+|[\s|:;–—-]+$/gu,"")
+          .trim();
+        if(candidate.length>=3)title=candidate;
+      }
     }
   }
 
@@ -936,19 +970,39 @@ function decodeJsonString(value:any){
 }
 
 function youtubePlayerMetaFromResponse(data:any){
-  let live=data?.videoDetails?.isLive===true||data?.videoDetails?.isLiveContent===true;
-  const tracking=Array.isArray(data?.responseContext?.serviceTrackingParams)
-    ?data.responseContext.serviceTrackingParams
-    :[];
-  for(const service of tracking){
-    for(const param of Array.isArray(service?.params)?service.params:[]){
-      if(param?.key==="is_viewed_live"&&String(param?.value||"").toLowerCase()==="true"){
-        live=true;
+  const details=data?.videoDetails||{};
+  const liveDetails=data?.microformat?.playerMicroformatRenderer?.liveBroadcastDetails||{};
+  const isLiveContent=details?.isLiveContent===true||!!liveDetails?.startTimestamp;
+  const ended=!!liveDetails?.endTimestamp&&liveDetails?.isLiveNow!==true;
+
+  // isLiveContent stays true on archived/ended livestreams. Only current-live
+  // signals may keep a row in the LIVE package.
+  let live=details?.isLive===true||liveDetails?.isLiveNow===true;
+
+  // Some player clients omit isLive/isLiveNow but expose the current viewing
+  // mode in service tracking. Never use this fallback after an end timestamp.
+  if(!live&&!ended){
+    const tracking=Array.isArray(data?.responseContext?.serviceTrackingParams)
+      ?data.responseContext.serviceTrackingParams
+      :[];
+    for(const service of tracking){
+      for(const param of Array.isArray(service?.params)?service.params:[]){
+        if(param?.key==="is_viewed_live"&&String(param?.value||"").toLowerCase()==="true"){
+          live=true;
+          break;
+        }
       }
+      if(live)break;
     }
   }
-  const duration=parseDurationValue(data?.videoDetails?.lengthSeconds);
-  return {duration:live?-1:duration,isLive:live};
+
+  const duration=parseDurationValue(details?.lengthSeconds);
+  return {
+    duration:live?-1:duration,
+    isLive:live,
+    isLiveContent,
+    ended
+  };
 }
 
 async function youtubePlayerMetadata(id:string){
@@ -995,6 +1049,30 @@ async function youtubePlayerMetadata(id:string){
 
 async function youtubePlayerIsLive(id:string){
   return (await youtubePlayerMetadata(id)).isLive;
+}
+
+async function verifyCurrentLiveRows(rows:any[],limit=48){
+  const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
+  if(!list.length)return [];
+
+  const checked=await mapLimit(list,6,async(row)=>{
+    const id=videoId(row);
+    if(!id)return null;
+    const meta=await youtubePlayerMetadata(id);
+    if(!meta?.isLive)return null;
+    return normalizeRow({
+      ...row,
+      id,
+      videoId:id,
+      isLive:true,
+      duration:-1,
+      uploaded:-1,
+      publishedText:"Đang trực tiếp",
+      _liveVerified:"youtube_player"
+    },{});
+  });
+
+  return checked.filter(Boolean);
 }
 
 
@@ -1103,7 +1181,7 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
       const finalUrl=String(probe.url||"");
       try{await probe.body?.cancel();}catch{}
       const idValue=finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
-      if(idValue){
+      if(idValue&&await youtubePlayerIsLive(idValue)){
         return normalizeRow({
           id:idValue,
           videoId:idValue,
@@ -1119,7 +1197,7 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
           views:0,
           isLive:true,
           publishedText:"Đang trực tiếp",
-          _liveVerified:"channel_live_redirect"
+          _liveVerified:"channel_live_redirect+youtube_player"
         },source);
       }
     }
@@ -1144,6 +1222,7 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
     if(!idValue)continue;
     const checkedAt=Date.parse(String(row?._liveCacheCheckedAt||""));
     if(!Number.isFinite(checkedAt)||now-checkedAt>20*60*1000)continue;
+    if(!(await youtubePlayerIsLive(idValue)))continue;
     return normalizeRow({
       ...row,
       id:idValue,
@@ -1160,7 +1239,7 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
       duration:-1,
       isLive:true,
       publishedText:"Đang trực tiếp",
-      _liveVerified:"fresh_channel_cache"
+      _liveVerified:"fresh_channel_cache+youtube_player"
     },source);
   }
 
@@ -1558,11 +1637,16 @@ Deno.serve(async(req:Request)=>{
         console.warn("global live discovery failed",String(error));
         return {external:[],selected:[]};
       });
-      const verifiedExternalRows=(discovery.external||[])
-        .map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
+      // Search providers may leave archived livestreams marked isLive=true.
+      // Player verification is authoritative before an outside row can enter
+      // the LIVE package.
+      const verifiedExternalRows=(await verifyCurrentLiveRows(
+        discovery.external||[],
+        48
+      )).map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
 
-      // LIVE suggestions are also server-owned. External live discovery may
-      // surface new channels, but the browser never invents or persists them.
+      // LIVE suggestions are also server-owned. Only genuinely live outside
+      // rows are persisted as suggestions.
       await storeServerSourceSuggestions(
         rest,
         authHeaders,
@@ -1570,27 +1654,24 @@ Deno.serve(async(req:Request)=>{
         verifiedExternalRows
       ).catch(()=>0);
 
-      // STEP 2 — scan the selected library once. Fresh selected rows already
-      // found by STEP 1 are reused, so only the remaining selected channels need
-      // one lightweight /live HEAD check.
-      const selectedFromSearch=(discovery.selected||[]).map((row:any)=>{
+      // Search hits from selected channels are candidates only, never proof of
+      // current LIVE state. Feed them into the per-channel checker so every
+      // selected row passes /live + player verification.
+      const searchCheckedAt=new Date().toISOString();
+      for(const row of discovery.selected||[]){
         const sid=channelId(row);
-        return {
-          ...row,
-          _liveOrigin:"source",
-          _interestPriority:explicitLiveIds.has(sid)
-            ?2
-            :inheritedLiveIds.has(sid)
-              ?1
-              :0
-        };
-      });
-      const selectedSeenIds=new Set(
-        selectedFromSearch.map((row:any)=>channelId(row)).filter(Boolean)
-      );
-      const remainingSelected=selectedLiveSources.filter(
-        (source:any)=>!selectedSeenIds.has(source.id)
-      );
+        if(!sid||!liveSourceById.has(sid))continue;
+        const list=liveCandidateRowsById.get(sid)||[];
+        liveCandidateRowsById.set(
+          sid,
+          dedupeRows([
+            ...list,
+            {...row,_liveCacheCheckedAt:searchCheckedAt}
+          ])
+        );
+      }
+      const selectedFromSearch:any[]=[];
+      const remainingSelected=selectedLiveSources.slice();
 
       // Explicit LIVE selections are authoritative: check every one on every
       // LIVE refresh. Inherited selections from other tabs are rotated so the
