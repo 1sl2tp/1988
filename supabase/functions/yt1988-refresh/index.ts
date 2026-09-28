@@ -2531,7 +2531,6 @@ Deno.serve(async(req:Request)=>{
     // Shorts surface are independent signals: either <=60 seconds OR Shorts
     // membership excludes a video from every non-live package.
     const verificationScopeChannelIds=new Set<string>();
-    const nonLiveScopes=scopes.filter(scope=>scope!=="live");
     const verificationScopesByChannel=new Map<string,Set<string>>();
     for(const scope of nonLiveScopes){
       for(const source of selectedByScope.get(scope)||[]){
