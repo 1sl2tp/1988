@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.26";
+  const VERSION = "2026-09-28.27";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -233,28 +233,30 @@
     // These values are independent. At tiny sizes TOP can pass BOTTOM; that
     // signed overlap belongs to PiP policy, never to the library.
     landscape:Object.freeze([
-      {w:140, topInset:51, bottomInset:33},
-      {w:170, topInset:50, bottomInset:34},
-      {w:200, topInset:49, bottomInset:35},
-      {w:240, topInset:49, bottomInset:36},
-      {w:280, topInset:49, bottomInset:37},
+      // TOP follows the LOWEST visible edge of channel avatar + title + channel
+      // name. Unlike BOTTOM it grows steadily with the native YouTube UI size.
+      {w:140, topInset:50, bottomInset:33},
+      {w:170, topInset:51, bottomInset:34},
+      {w:200, topInset:52, bottomInset:35},
+      {w:240, topInset:53, bottomInset:36},
+      {w:280, topInset:55, bottomInset:37},
       // YouTube introduces the larger lower action/card cluster around here.
-      {w:319, topInset:50, bottomInset:38},
-      {w:320, topInset:50, bottomInset:53},
-      {w:360, topInset:50, bottomInset:55},
-      {w:520, topInset:52, bottomInset:58},
-      {w:760, topInset:55, bottomInset:61}
+      {w:319, topInset:56, bottomInset:38},
+      {w:320, topInset:56, bottomInset:53},
+      {w:360, topInset:58, bottomInset:55},
+      {w:520, topInset:62, bottomInset:58},
+      {w:760, topInset:66, bottomInset:61}
     ]),
     portrait:Object.freeze([
-      {w:140, topInset:51, bottomInset:33},
-      {w:170, topInset:50, bottomInset:34},
-      {w:200, topInset:49, bottomInset:35},
-      {w:240, topInset:49, bottomInset:36},
-      {w:280, topInset:49, bottomInset:37},
-      {w:319, topInset:50, bottomInset:38},
-      {w:320, topInset:50, bottomInset:53},
-      {w:360, topInset:50, bottomInset:55},
-      {w:460, topInset:51, bottomInset:57}
+      {w:140, topInset:50, bottomInset:33},
+      {w:170, topInset:51, bottomInset:34},
+      {w:200, topInset:52, bottomInset:35},
+      {w:240, topInset:53, bottomInset:36},
+      {w:280, topInset:55, bottomInset:37},
+      {w:319, topInset:56, bottomInset:38},
+      {w:320, topInset:56, bottomInset:53},
+      {w:360, topInset:58, bottomInset:55},
+      {w:460, topInset:61, bottomInset:57}
     ])
   });
 
