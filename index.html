@@ -1175,6 +1175,14 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     min-width:0;
   }
 
+  /* The generic 8px row cap is useful in one-column feeds, but in two-column
+     mode it sat directly above the feed header and became a visible dark seam
+     once the page gained video-derived ambient color. Let the page ambient
+     continue through that 8px strip instead of painting a separate yt-bg bar. */
+  html.two-col .rows::before{
+    background:transparent;
+  }
+
   html.two-col .media-col{
     grid-area:media;
     position:sticky;
