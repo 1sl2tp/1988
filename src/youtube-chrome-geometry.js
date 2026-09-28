@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.7";
+  const VERSION = "2026-09-28.8";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -114,14 +114,11 @@
     else if (uiSpan < 640) tier = "lg";
 
     const nativeControls = options.controls !== false;
-    const allowAux = options.aux !== false;
 
     const top = {
       avatar: tier !== "xs",
       title: true,
-      channel: !["xs"].includes(tier),
-      aux: allowAux && !["xs"].includes(tier) && uiSpan >= 250,
-      topRight: nativeControls && ["md","lg","xl"].includes(tier)
+      channel: !["xs"].includes(tier)
     };
 
     const bottom = {
@@ -143,12 +140,13 @@
   }
 
   function topBoxes(sample, titleLines, visibility) {
+    // TOP is intentionally limited to the three YouTube metadata elements that
+    // belong to the player chrome: channel logo, title and channel name.
+    // Never include artwork/logo inside the video frame or auxiliary UI.
     const boxes = {
       avatar: { active:!!visibility.avatar, edge:sample.avatarEdge },
       title: { active:!!visibility.title, edge:titleLines > 1 ? sample.title2Edge : sample.title1Edge },
-      channel: { active:!!visibility.channel, edge:sample.channelEdge },
-      aux: { active:!!visibility.aux, edge:sample.auxEdge },
-      topRight: { active:!!visibility.topRight, edge:sample.topRightEdge }
+      channel: { active:!!visibility.channel, edge:sample.channelEdge }
     };
     const activeEdges = Object.values(boxes).filter(x=>x.active).map(x=>x.edge);
     return {
@@ -232,8 +230,6 @@
           avatarBox: topBoxMetrics.avatar,
           titleBox: topBoxMetrics.title,
           channelBox: topBoxMetrics.channel,
-          auxBox: topBoxMetrics.aux,
-          topRightBox: topBoxMetrics.topRight,
           outerMax: topChrome,
           height: topChrome
         },
