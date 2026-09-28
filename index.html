@@ -3156,8 +3156,18 @@ html.one-col.portrait .player.pip{
         if(String(row.dataset.videoId||"")!==id)return;
         const oldAvatar=row.querySelector(".row-avatar");
         if(!oldAvatar)return;
-        oldAvatar.outerHTML=
-          '<img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="">';
+
+        if(oldAvatar instanceof HTMLImageElement){
+          const currentSrc=String(oldAvatar.getAttribute("src")||"").trim();
+          if(currentSrc!==avatar)oldAvatar.src=avatar;
+          return;
+        }
+
+        const next=document.createElement("img");
+        next.className="row-avatar";
+        next.alt="";
+        next.src=avatar;
+        oldAvatar.replaceWith(next);
       });
     }
     return true;
@@ -3510,13 +3520,28 @@ html.one-col.portrait .player.pip{
     syncVideoDocumentIdentity({push:false});
 
     const avatar=String(meta.sourceAvatar||"").trim();
+    const existingAvatar=videoAvatarSlot.querySelector(".info-avatar");
     if(avatar){
-      videoAvatarSlot.innerHTML=
-        '<img class="info-avatar" src="'+escapeHtml(avatar)+'" alt="">';
+      if(existingAvatar instanceof HTMLImageElement){
+        const currentSrc=String(existingAvatar.getAttribute("src")||"").trim();
+        if(currentSrc!==avatar)existingAvatar.src=avatar;
+      }else{
+        const next=document.createElement("img");
+        next.className="info-avatar";
+        next.alt="";
+        next.src=avatar;
+        videoAvatarSlot.replaceChildren(next);
+      }
     }else{
       const letter=(source||"1988").trim().slice(0,1).toUpperCase()||"1";
-      videoAvatarSlot.innerHTML=
-        '<span class="info-avatar placeholder">'+escapeHtml(letter)+'</span>';
+      if(existingAvatar?.classList?.contains("placeholder")){
+        if(existingAvatar.textContent!==letter)existingAvatar.textContent=letter;
+      }else{
+        const next=document.createElement("span");
+        next.className="info-avatar placeholder";
+        next.textContent=letter;
+        videoAvatarSlot.replaceChildren(next);
+      }
     }
   }
 
@@ -4017,6 +4042,100 @@ html.one-col.portrait .player.pip{
     }
   },true);
 
+  const preservedThumbNodes=new Map();
+  const preservedAvatarNodes=new Map();
+  const PRESERVED_IMAGE_LIMIT=120;
+
+  function thumbPreserveKey(card,img){
+    const id=String(card?.dataset?.videoId||"").trim();
+    const base=String(img?.dataset?.thumbBase||"").trim();
+    return id&&base?id+"|"+base:"";
+  }
+
+  function rememberRenderedThumbs(rows){
+    rows?.querySelectorAll?.(".row[data-video-id] .row-thumb img").forEach(img=>{
+      const card=img.closest(".row[data-video-id]");
+      const key=thumbPreserveKey(card,img);
+      if(!key)return;
+      img.remove();
+      preservedThumbNodes.delete(key);
+      preservedThumbNodes.set(key,img);
+    });
+
+    while(preservedThumbNodes.size>PRESERVED_IMAGE_LIMIT){
+      const oldest=preservedThumbNodes.keys().next().value;
+      if(!oldest)break;
+      preservedThumbNodes.delete(oldest);
+    }
+  }
+
+  function rememberRenderedAvatars(rows){
+    rows?.querySelectorAll?.(".row[data-video-id] .row-avatar-shell img.row-avatar").forEach(img=>{
+      const card=img.closest(".row[data-video-id]");
+      const id=String(card?.dataset?.videoId||"").trim();
+      const src=String(img.getAttribute("src")||"").trim();
+      const key=id&&src?id+"|"+src:"";
+      if(!key)return;
+      img.remove();
+      preservedAvatarNodes.delete(key);
+      preservedAvatarNodes.set(key,img);
+    });
+
+    while(preservedAvatarNodes.size>PRESERVED_IMAGE_LIMIT){
+      const oldest=preservedAvatarNodes.keys().next().value;
+      if(!oldest)break;
+      preservedAvatarNodes.delete(oldest);
+    }
+  }
+
+  function restoreRenderedThumbs(rows){
+    rows?.querySelectorAll?.(".row[data-video-id] .row-thumb img").forEach(fresh=>{
+      const card=fresh.closest(".row[data-video-id]");
+      const key=thumbPreserveKey(card,fresh);
+      const cached=key?preservedThumbNodes.get(key):null;
+      if(!(cached instanceof HTMLImageElement))return;
+
+      // Keep the already-decoded image node when this video/package image is
+      // unchanged. This avoids a decode/repaint flash when switching tabs or
+      // when a package refresh repaints the same visible cards.
+      cached.dataset.thumbBase=fresh.dataset.thumbBase||"";
+      cached.dataset.thumbFallbackStage=fresh.dataset.thumbFallbackStage||"0";
+      cached.loading=fresh.loading;
+      cached.decoding=fresh.decoding;
+      try{cached.fetchPriority=fresh.fetchPriority;}catch{}
+      fresh.replaceWith(cached);
+    });
+  }
+
+  function restoreRenderedAvatars(rows){
+    rows?.querySelectorAll?.(".row[data-video-id] .row-avatar-shell img.row-avatar").forEach(fresh=>{
+      const card=fresh.closest(".row[data-video-id]");
+      const id=String(card?.dataset?.videoId||"").trim();
+      const src=String(fresh.getAttribute("src")||"").trim();
+      const key=id&&src?id+"|"+src:"";
+      const cached=key?preservedAvatarNodes.get(key):null;
+      if(!(cached instanceof HTMLImageElement))return;
+      cached.loading=fresh.loading;
+      cached.decoding=fresh.decoding;
+      fresh.replaceWith(cached);
+    });
+  }
+
+  function feedVisualSignature(cards=[]){
+    return cards.slice(0,18).map(meta=>[
+      String(meta?.id||""),
+      String(meta?.thumbnail||""),
+      String(meta?.sourceAvatar||""),
+      String(meta?.title||""),
+      String(meta?.sourceName||""),
+      String(meta?.durationLabel||""),
+      String(meta?.viewsLabel||""),
+      String(meta?.publishedLabel||""),
+      meta?.isLive===true?"1":"0",
+      meta?.verified===true?"1":"0"
+    ].join("\u001f")).join("\u001e");
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
 
@@ -4038,7 +4157,31 @@ html.one-col.portrait .player.pip{
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const rendered=cards.slice(0,18);
+    const signature=feedVisualSignature(rendered);
+
+    // Package hashes may change while the visible first page does not. Do not
+    // destroy/recreate the same DOM in that case.
+    if(rows.dataset.renderSignature===signature&&rows.querySelector(".row")){
+      const currentId=String(current?.id||"");
+      rows.querySelectorAll(".row[data-video-id]").forEach(row=>{
+        row.classList.toggle("selected",String(row.dataset.videoId||"")===currentId);
+      });
+      if(activeInlineId){
+        const activeCard=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
+        if(activeCard)attachPlayerToCard(activeCard,{floating:wasFloating});
+      }
+      observeRowThumbQuality(rows);
+      applyRenderedCardTints(rows);
+      observeFeedMasonryRows();
+      return;
+    }
+
+    rememberRenderedThumbs(rows);
+    rememberRenderedAvatars(rows);
     rows.innerHTML=rendered.map(cardMarkup).join("");
+    rows.dataset.renderSignature=signature;
+    restoreRenderedThumbs(rows);
+    restoreRenderedAvatars(rows);
     observeRowThumbQuality(rows);
     applyRenderedCardTints(rows);
 

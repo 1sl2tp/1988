@@ -264,6 +264,46 @@ function avatarMarkup(row,klass="channel-avatar"){
   '</div>';
 }
 
+function takeImagePool(roots=[]){
+  const pool=new Map();
+  for(const root of roots){
+    root?.querySelectorAll?.("img").forEach(img=>{
+      const src=clean(img.getAttribute("src")||"");
+      if(!src)return;
+      const parentClass=clean(img.parentElement?.className||"");
+      const key=src+"|"+clean(img.className||"")+"|"+parentClass;
+      if(!pool.has(key))pool.set(key,[]);
+      img.remove();
+      pool.get(key).push(img);
+    });
+  }
+  return pool;
+}
+
+function restoreImagePool(pool,roots=[]){
+  for(const root of roots){
+    root?.querySelectorAll?.("img").forEach(fresh=>{
+      const src=clean(fresh.getAttribute("src")||"");
+      if(!src)return;
+      const parentClass=clean(fresh.parentElement?.className||"");
+      const key=src+"|"+clean(fresh.className||"")+"|"+parentClass;
+      const list=pool.get(key);
+      const cached=Array.isArray(list)?list.shift():null;
+      if(!(cached instanceof HTMLImageElement))return;
+      cached.loading=fresh.loading;
+      cached.decoding=fresh.decoding;
+      fresh.replaceWith(cached);
+    });
+  }
+}
+
+function setHtmlPreservingImages(root,html){
+  if(!root)return;
+  const pool=takeImagePool([root]);
+  root.innerHTML=html;
+  restoreImagePool(pool,[root]);
+}
+
 function currentScopeLabel(){
   return sourceLabels()[state.scope]||state.scope;
 }
@@ -335,12 +375,22 @@ function renderColumns(){
   el.selectedCount.textContent=selected.length;
   el.blockedCount.textContent=blocked.length;
 
+  const imagePool=takeImagePool([
+    el.suggestedList,
+    el.selectedList,
+    el.blockedList
+  ]);
   el.suggestedList.innerHTML=suggested.map(r=>cardMarkup(r,"suggested")).join("")
     ||'<div class="empty">Chưa có gợi ý.</div>';
   el.selectedList.innerHTML=selected.map(r=>cardMarkup(r,"selected")).join("")
     ||'<div class="empty">Chưa chọn kênh.</div>';
   el.blockedList.innerHTML=blocked.map(r=>cardMarkup(r,"blocked")).join("")
     ||'<div class="empty">Chưa chặn kênh.</div>';
+  restoreImagePool(imagePool,[
+    el.suggestedList,
+    el.selectedList,
+    el.blockedList
+  ]);
 }
 
 function searchResultMarkup(row){
@@ -417,6 +467,7 @@ function renderVideoSearchGrid(){
   const rows=state.searchRows.filter(row=>row._video);
   el.searchCount.textContent=rows.length?String(rows.length):"";
   el.searchList.classList.add("video-search-grid");
+  const imagePool=takeImagePool([el.searchList]);
   el.searchList.innerHTML=rows.map(row=>{
     const video=row._video||{};
     const id=video.videoId||video.id||"";
@@ -452,6 +503,7 @@ function renderVideoSearchGrid(){
       '</div>'+
     '</article>';
   }).join("")||'<div class="empty">Không có video phù hợp.</div>';
+  restoreImagePool(imagePool,[el.searchList]);
 }
 
 function updateSearchBack(){
@@ -542,8 +594,11 @@ function renderSearch(){
   }
   el.searchList.classList.remove("video-search-grid");
   el.searchCount.textContent=state.searchRows.length?String(state.searchRows.length):"";
-  el.searchList.innerHTML=state.searchRows.map(searchResultMarkup).join("")
-    ||'<div class="empty">Tìm kênh hoặc video mới ở đây.</div>';
+  setHtmlPreservingImages(
+    el.searchList,
+    state.searchRows.map(searchResultMarkup).join("")
+      ||'<div class="empty">Tìm kênh hoặc video mới ở đây.</div>'
+  );
 }
 
 function renderKeywords(){
@@ -597,7 +652,10 @@ function renderPreview(){
   el.searchColumn?.classList.add("has-preview");
   el.searchList.hidden=true;
   el.searchStatus.hidden=true;
-  el.previewAvatar.innerHTML=avatarMarkup(row,"preview-avatar-inner");
+  setHtmlPreservingImages(
+    el.previewAvatar,
+    avatarMarkup(row,"preview-avatar-inner")
+  );
   el.previewName.textContent=row.name||row.id;
   el.previewMeta.textContent=[
     currentScopeLabel(),
@@ -636,6 +694,7 @@ function renderVideos(rows){
   const fallbackChannel=clean(state.detail?.name||"Kênh YouTube");
   const fallbackAvatar=clean(state.detail?.thumbnailUrl||"");
 
+  const imagePool=takeImagePool([el.videoGrid]);
   el.videoGrid.innerHTML=(rows||[]).map(v=>{
     const id=v.videoId||v.id||"";
     const thumb=v.thumbnailUrl||v.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg");
@@ -662,6 +721,7 @@ function renderVideos(rows){
       '</div>'+
     '</article>';
   }).join("")||'<div class="empty">Chưa có video.</div>';
+  restoreImagePool(imagePool,[el.videoGrid]);
 }
 
 async function waitYT(){
