@@ -3613,7 +3613,12 @@ html.one-col.portrait .player.pip{
       }
     })();
 
-    const manifestPromise=loadPackageManifest();
+    const manifestPromise=loadPackageManifest().then(async manifest=>{
+      if(manifest?.live){
+        await syncPreparedPackages(["live"]);
+      }
+      return manifest;
+    });
 
     const [rowsFromState]=await Promise.all([
       statePromise,
