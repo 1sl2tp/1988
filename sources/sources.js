@@ -29,7 +29,7 @@ disableNativeHoverHints();
 
 const STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
 const PIN="8881";
-const AUTH_KEY="1988-settings-unlocked-v1";
+const AUTH_KEY="1988-sources-auth-8881-v2";
 const UI_EVENT_KEY="1988-source-ui-event-v1";
 const LOCAL_RESET_EVENT_KEY="1988-local-reset-event-v1";
 const SYSTEM_SCOPES=[
@@ -1085,17 +1085,26 @@ function applyExternalUiEvent(data={}){
 }
 
 function requireAuth(){
-  if(localStorage.getItem(AUTH_KEY)==="1")return Promise.resolve(true);
+  if(localStorage.getItem(AUTH_KEY)==="1"){
+    el.auth.hidden=true;
+    return Promise.resolve(true);
+  }
 
   el.auth.hidden=false;
+  el.authError.textContent="";
+  el.authPin.value="";
+  requestAnimationFrame(()=>el.authPin.focus());
+
   return new Promise(resolve=>{
     el.authForm.onsubmit=e=>{
       e.preventDefault();
       if(clean(el.authPin.value)!==PIN){
-        el.authError.textContent="Mã chưa đúng";
+        el.authError.textContent="Mật khẩu chưa đúng";
+        el.authPin.select();
         return;
       }
       localStorage.setItem(AUTH_KEY,"1");
+      el.authError.textContent="";
       el.auth.hidden=true;
       resolve(true);
     };
@@ -1384,15 +1393,12 @@ window.addEventListener("storage",event=>{
 });
 
 (async()=>{
-  // Do not block the whole source manager behind a modal before GET finishes.
-  // This page is already the admin workspace and POST mutations carry the
-  // server PIN themselves. A stale/empty local auth flag must never leave the
-  // UI covered by an invisible layer.
-  if(el.auth)el.auth.hidden=true;
+  // Source management is admin-only. Ask once for the PIN on this browser,
+  // then remember the unlocked state locally so later visits open directly.
+  await requireAuth();
   await loadState();
 })().catch(error=>{
   console.error(error);
-  if(el.auth)el.auth.hidden=true;
   if(el.searchStatus){
     el.searchStatus.hidden=false;
     el.searchStatus.textContent="Không tải được dữ liệu nguồn · bấm để thử lại";
