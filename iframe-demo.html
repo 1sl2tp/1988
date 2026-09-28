@@ -618,7 +618,10 @@ let geometryResizeObserver=null;
 const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
 let currentLibraryRevision="";
-let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
+let requestedVideoId="";
+let verifiedMediaAspect=0;
+let verifiedMediaShape="";
+let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:16/9};
 let viewportPrimeTimers=[];
 let mainAspectBeforePip="";
 let calibrationPointerId=null;
@@ -771,12 +774,18 @@ function currentVideoAuthor(){
   try{return String(apiPlayer?.getVideoData?.()?.author||"")}catch{return ""}
 }
 function currentVideoId(){
-  try{return String(apiPlayer?.getVideoData?.()?.video_id||cleanId(input.value)||"")}catch{return cleanId(input.value)}
+  return String(requestedVideoId||cleanId(input.value)||"").trim();
+}
+function loadedYoutubeVideoId(){
+  try{
+    const data=apiPlayer?.getVideoData?.()||{};
+    return String(data.video_id||data.videoId||"").trim();
+  }catch{return ""}
 }
 function currentMainAspect(){
   const rect=stage.getBoundingClientRect();
   if(rect.width>0&&rect.height>0)return rect.width/rect.height;
-  return stage.dataset.demoShape==="portrait" ? 9/16 : 16/9;
+  return 16/9;
 }
 function clearViewportPrimeTimers(){
   viewportPrimeTimers.forEach(clearTimeout);
@@ -797,12 +806,20 @@ function invalidateChromeLibraries(){
   calLiveFrame?.replaceChildren();
 }
 function viewportTrimSignature(trim){
-  return [
+  const numeric=[
     "top","right","bottom","left","rawAspect","contentAspect"
   ].map(k=>(Number(trim?.[k])||0).toFixed(5)).join(",");
+  return String(trim?.videoId||"")+"|"+numeric;
 }
 function readMainYoutubeViewportTrim(){
   if(stage.classList.contains("demo-pip"))return currentViewportTrim;
+
+  const expectedId=String(requestedVideoId||cleanId(input.value)||"").trim();
+  const loadedId=loadedYoutubeVideoId();
+
+  // YouTube can expose the previous video's content rect for a short moment
+  // during loadVideoById/new YT.Player. Never accept geometry until IDs match.
+  if(!expectedId||!loadedId||loadedId!==expectedId)return null;
 
   const iframe=apiPlayer?.getIframe?.();
   const playerRect=iframe?.getBoundingClientRect?.()||stage.getBoundingClientRect();
@@ -815,28 +832,30 @@ function readMainYoutubeViewportTrim(){
     apiPlayer?.videoContentRect,
     apiPlayer?.playerInfo?.video_content_rect
   ];
+
   let contentAspect=0;
   for(const info of candidates){
     const width=Number(info?.width)||0;
     const height=Number(info?.height)||0;
-    if(width>0&&height>0){
-      contentAspect=width/height;
-      if(Number.isFinite(contentAspect)&&contentAspect>.25&&contentAspect<4)break;
-      contentAspect=0;
-    }
+    if(width<=0||height<=0)continue;
+    const ratio=width/height;
+    if(!Number.isFinite(ratio)||ratio<=.25||ratio>=4)continue;
+    contentAspect=ratio;
+    break;
   }
 
-  if(!contentAspect){
-    return {
-      top:0,right:0,bottom:0,left:0,
-      source:"none",
-      rawAspect,
-      contentAspect:rawAspect
-    };
-  }
+  // Do not guess orientation from the outer stage. Library/PiP waits for the
+  // verified YouTube content rect so portrait regular-watch videos cannot be
+  // mistaken for the previous landscape video.
+  if(!contentAspect)return null;
 
-  // YouTube contains the media inside the iframe. Derive the centered black
-  // bars from raw player aspect vs actual media content aspect.
+  verifiedMediaAspect=contentAspect;
+  verifiedMediaShape=
+    contentAspect<.98?"portrait":
+    contentAspect>1.02?"landscape":"square";
+  stage.dataset.demoShape=verifiedMediaShape;
+  stage.dataset.detectedAspect=contentAspect.toFixed(6);
+
   let top=0,right=0,bottom=0,left=0;
   if(rawAspect>contentAspect){
     const visibleX=contentAspect/rawAspect;
@@ -852,6 +871,7 @@ function readMainYoutubeViewportTrim(){
     bottom:Math.min(.45,Math.max(0,bottom)),
     left:Math.min(.45,Math.max(0,left)),
     source:"videoContentRect",
+    videoId:expectedId,
     rawAspect,
     contentAspect
   };
@@ -859,21 +879,29 @@ function readMainYoutubeViewportTrim(){
 function refreshMainViewportTrimLibrary(force=false){
   if(stage.classList.contains("demo-pip"))return currentChromeLibrary;
   const next=readMainYoutubeViewportTrim();
+  if(!next)return currentChromeLibrary;
+
   const changed=viewportTrimSignature(next)!==viewportTrimSignature(currentViewportTrim);
-  if(changed||force){
+  if(changed||force||!currentChromeLibrary){
     currentViewportTrim=next;
-    return prepareCurrentChromeLibrary(true);
+    const library=prepareCurrentChromeLibrary(true);
+    requestAnimationFrame(syncAutoDemoPip);
+    return library;
   }
-  return currentChromeLibrary||prepareCurrentChromeLibrary(false);
+  return currentChromeLibrary;
 }
 function primeMainViewportTrimLibrary(){
   clearViewportPrimeTimers();
   const playerRef=apiPlayer;
-  [0,80,180,420,800,1400,2400].forEach(delay=>{
-    viewportPrimeTimers.push(setTimeout(()=>{
-      if(apiPlayer!==playerRef||stage.classList.contains("demo-pip"))return;
-      refreshMainViewportTrimLibrary(delay===0);
-    },delay));
+  const expectedId=requestedVideoId;
+  const attempt=()=>{
+    if(apiPlayer!==playerRef||stage.classList.contains("demo-pip"))return;
+    if(requestedVideoId!==expectedId)return;
+    refreshMainViewportTrimLibrary(false);
+  };
+  attempt();
+  [90,260,700,1400,2600,4500].forEach(delay=>{
+    viewportPrimeTimers.push(setTimeout(attempt,delay));
   });
 }
 function clearLegacyCalibrationCache(){
@@ -938,6 +966,14 @@ function prepareCurrentChromeLibrary(force=false){
   const geometry=window.YouTubeChromeGeometry;
   if(!geometry?.buildMediaLibrary)return null;
 
+  const expectedId=String(requestedVideoId||"").trim();
+  if(
+    !expectedId ||
+    currentViewportTrim.source!=="videoContentRect" ||
+    currentViewportTrim.videoId!==expectedId ||
+    !verifiedMediaAspect
+  )return null;
+
   const revision=chromeLibraryRevision();
   if(force||currentLibraryRevision!==revision){
     mediaChromeLibraries.clear();
@@ -945,7 +981,7 @@ function prepareCurrentChromeLibrary(force=false){
     currentLibraryRevision=revision;
   }
 
-  const videoId=currentVideoId();
+  const videoId=expectedId;
   const title=currentVideoTitle();
   const author=currentVideoAuthor();
   const rawAspect=Number(currentViewportTrim.rawAspect)||currentMainAspect();
@@ -1713,8 +1749,14 @@ async function render(){
   exitDemoPip();
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
+  requestedVideoId=id;
+  verifiedMediaAspect=0;
+  verifiedMediaShape="";
   calibrationWidth=280;
-  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
+  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:16/9};
+  stage.style.aspectRatio="";
+  delete stage.dataset.demoShape;
+  delete stage.dataset.detectedAspect;
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
@@ -1756,11 +1798,13 @@ async function render(){
           if(mode.maxClean){
             formatSeekProgress();
             startSeekLoop();
-            // Resolve MAIN content trim + chrome library BEFORE PiP, like aspect/orientation.
+            // Resolve the exact loaded media id + YouTube content rect first.
+            // Library/PiP remains unset until that geometry is verified.
             invalidateChromeLibraries();
-            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:currentMainAspect(),contentAspect:currentMainAspect()};
+            verifiedMediaAspect=0;
+            verifiedMediaShape="";
+            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:currentMainAspect(),contentAspect:0};
             primeMainViewportTrimLibrary();
-            syncMeasuredSafeWindow();
           }
         },
         onStateChange(event){
@@ -1972,9 +2016,8 @@ presets.addEventListener("click",e=>{
   const b=e.target.closest("[data-video]");
   if(!b)return;
   input.value=b.dataset.video;
-  const portrait=b.dataset.shape==="portrait";
-  stage.style.aspectRatio=portrait?"9 / 16":"16 / 9";
-  stage.dataset.demoShape=portrait?"portrait":"landscape";
+  // data-shape is display metadata only. Geometry comes from YouTube's verified
+  // videoContentRect for this exact video id.
   render();
 });
 document.getElementById("loadBtn").addEventListener("click",render);
