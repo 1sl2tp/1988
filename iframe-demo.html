@@ -925,8 +925,8 @@ let railWorkbenchWidth=520;
 let railBlackPerSide=28;
 let railCropPipOpen=false;
 const RAIL_CROP_PRESETS={
-  landscape:{width:170,blackTop:65,blackBottom:65,aspect:16/9},
-  portrait:{width:311,blackTop:63,blackBottom:63,aspect:9/16}
+  landscape:{width:170,blackTop:65,blackBottom:65,referenceAspect:16/9},
+  portrait:{width:311,blackTop:63,blackBottom:63,referenceAspect:9/16}
 };
 let currentLibraryRevision="";
 let requestedVideoId="";
@@ -1606,8 +1606,22 @@ function applyRailLayout(width,{workbench=true}={}){
   return layout;
 }
 function railCropPreset(){
-  const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentRailLibrary?.contentAspect)||16/9);
-  return aspect<1?RAIL_CROP_PRESETS.portrait:RAIL_CROP_PRESETS.landscape;
+  const actualAspect=Math.max(
+    .25,
+    Number(verifiedMediaAspect)||
+    Number(currentViewportTrim?.contentAspect)||
+    Number(currentRailLibrary?.contentAspect)||
+    16/9
+  );
+  const base=actualAspect<1
+    ? RAIL_CROP_PRESETS.portrait
+    : RAIL_CROP_PRESETS.landscape;
+
+  return {
+    ...base,
+    aspect:actualAspect,
+    orientation:actualAspect<1?"portrait":"landscape"
+  };
 }
 function railCropGeometryForWidth(width){
   const preset=railCropPreset();
@@ -1674,9 +1688,16 @@ function applyRailCropGeometry(width){
 function openRailCropPip(){
   if(!stage.classList.contains("rail-mode"))return;
 
+  // Resolve the CURRENT video's exact content aspect before building the source frame.
+  refreshRailMediaAspect();
+  if(!verifiedMediaAspect){
+    primeRailMediaAspect();
+    return;
+  }
+
   const preset=railCropPreset();
 
-  // Use the two locked source standards only to build the source frame.
+  // Width + BLACK are locked standards; video height follows the exact media aspect.
   // The visible crop is always bounded by videoTop/videoBottom.
   railBlackPerSide=preset.blackTop;
   railWorkbenchWidth=preset.width;
@@ -1691,6 +1712,7 @@ function openRailCropPip(){
   if(railLibraryReadout){
     railLibraryReadout.textContent=
       "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
+      " · ASPECT "+preset.aspect.toFixed(5)+
       " · SOURCE "+Math.round(g.sourceWidth)+"×"+Math.round(g.sourceHeight)+
       " · SCALE "+g.scale.toFixed(2)+
       " · CẮT "+Math.round(g.cropTop)+" / "+Math.round(g.cropBottom)+
@@ -1722,8 +1744,18 @@ function refreshRailMediaAspect(){
   const next=readMainYoutubeViewportTrim();
   if(!next?.contentAspect)return 0;
   currentViewportTrim=next;
+  const previousShape=verifiedMediaShape;
   verifiedMediaAspect=next.contentAspect;
   verifiedMediaShape=next.contentAspect<.98?"portrait":next.contentAspect>1.02?"landscape":"square";
+
+  if(previousShape!==verifiedMediaShape){
+    const standard=verifiedMediaAspect<1
+      ? RAIL_CROP_PRESETS.portrait
+      : RAIL_CROP_PRESETS.landscape;
+    railBlackPerSide=standard.blackTop;
+    railWorkbenchWidth=standard.width;
+  }
+
   applyRailLayout(railWorkbenchWidth,{workbench:true});
   return verifiedMediaAspect;
 }
