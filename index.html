@@ -1979,6 +1979,9 @@ html.one-col.portrait .player.pip{
   let feedRequest=0;
   let feedMode="package";
   let activePackageScope="live";
+  let channelFeedSourceId="";
+  let channelFeedName="";
+  let channelFeedRequest=0;
   let sourceStateRemote={};
   let openRowMenuMeta=null;
   let openRowMenuAnchor=null;
@@ -3940,9 +3943,18 @@ html.one-col.portrait .player.pip{
     openRowMenuAnchor=anchor||null;
     const sourceId=validSourceId(meta?.sourceId);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
+    const scopeLabel=scope?currentFeedLabel():"";
     const status=scope?directSourceStatus(sourceId,scope):"normal";
-    const selectLabel=status==="selected"?"Bỏ chọn kênh":"Chọn kênh này";
-    const blockLabel=status==="blocked"?"Bỏ chặn kênh":"Không đề xuất kênh này";
+    const selectLabel=scope
+      ?(status==="selected"
+        ?"Bỏ chọn khỏi "+scopeLabel
+        :"Chọn vào "+scopeLabel)
+      :"Chọn vào nguồn…";
+    const blockLabel=scope
+      ?(status==="blocked"
+        ?"Bỏ chặn khỏi "+scopeLabel
+        :"Chặn khỏi "+scopeLabel)
+      :"Chặn trong nguồn…";
 
     const adminActions=hasSourceAdminAccess()
       ?(
@@ -4551,6 +4563,9 @@ html.one-col.portrait .player.pip{
   }
 
   function currentFeedLabel(){
+    if(feedMode==="channel"){
+      return channelFeedName?("Kênh · "+channelFeedName):"Kênh";
+    }
     if(feedMode==="search")return "Tìm kiếm";
     if(feedMode==="related")return "Gợi ý";
     if(feedMode==="package"){
@@ -4624,6 +4639,59 @@ html.one-col.portrait .player.pip{
     }
     syncFeedHeader(rows);
     return true;
+  }
+
+  async function openChannelInApp(meta={}){
+    const sourceId=validSourceId(meta?.sourceId);
+    if(!sourceId)return false;
+
+    const sourceName=String(meta?.sourceName||"").trim()||"Kênh";
+    const request=++channelFeedRequest;
+    feedRequest++;
+    feedMode="channel";
+    channelFeedSourceId=sourceId;
+    channelFeedName=sourceName;
+
+    sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]")
+      .forEach(chip=>chip.classList.remove("active"));
+
+    const local=uniqueSearchMetas([
+      ...feedMetas,
+      ...relatedMetas,
+      ...[...packageCache.values()].flat()
+    ].filter(item=>String(item?.sourceId||"").trim()===sourceId));
+
+    feedMetas=local;
+    renderSampleContent();
+    syncFeedHeader();
+    scrollPageToTop();
+
+    try{
+      if(!window.YT1988_API?.channel)return true;
+      const payload=await window.YT1988_API.channel(sourceId);
+      if(
+        request!==channelFeedRequest ||
+        feedMode!=="channel" ||
+        channelFeedSourceId!==sourceId
+      )return false;
+
+      const fetched=collectVideoRows(payload)
+        .filter(item=>String(item?.sourceId||sourceId).trim()===sourceId)
+        .map(item=>{
+          if(!item.sourceId)item.sourceId=sourceId;
+          if(!item.sourceName)item.sourceName=sourceName;
+          if(!item.sourceAvatar&&meta?.sourceAvatar)item.sourceAvatar=meta.sourceAvatar;
+          return item;
+        });
+
+      feedMetas=uniqueSearchMetas([...local,...fetched]);
+      renderSampleContent();
+      syncFeedHeader();
+      return true;
+    }catch(error){
+      console.warn("channel_view_failed",sourceId,error);
+      return local.length>0;
+    }
   }
 
   function feedVisualSignature(cards=[]){
@@ -5610,11 +5678,10 @@ html.one-col.portrait .player.pip{
     }
   });
 
-  videoMenu?.addEventListener("click",()=>{
-    videoMenu.animate(
-      [{transform:"scale(.88)"},{transform:"scale(1)"}],
-      {duration:140,easing:"cubic-bezier(.2,0,0,1)"}
-    );
+  videoMenu?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    showMainRowActionMenu(currentMeta||{},videoMenu);
   });
 
   sourcebar.addEventListener("click",event=>{
@@ -5632,6 +5699,9 @@ html.one-col.portrait .player.pip{
     // Source selection is independent from search state. Invalidate any
     // in-flight global search so it cannot overwrite this source afterward.
     feedRequest++;
+    channelFeedRequest++;
+    channelFeedSourceId="";
+    channelFeedName="";
     feedMode="package";
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
@@ -5699,15 +5769,8 @@ html.one-col.portrait .player.pip{
         return;
       }
       if(kind==="view-channel"){
-        const sourceId=validSourceId(meta.sourceId);
-        if(sourceId){
-          window.open(
-            "https://www.youtube.com/channel/"+encodeURIComponent(sourceId),
-            "_blank",
-            "noopener,noreferrer"
-          );
-        }
         closeRowActionMenu();
+        void openChannelInApp(meta);
         return;
       }
       if(kind==="download"){
