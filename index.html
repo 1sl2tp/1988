@@ -3307,20 +3307,21 @@ html.one-col.portrait .player.pip{
           .filter(Boolean)
       )];
 
-      for(const scope of unique){
+      const changedScopes=unique.filter(scope=>{
         const remoteHash=String(packageManifest?.[scope]?.hash||"").trim();
-        if(!remoteHash)continue;
+        if(!remoteHash)return false;
+        return String(packageHashCache.get(scope)||"").trim()!==remoteHash;
+      });
 
-        const localHash=String(packageHashCache.get(scope)||"").trim();
-        if(localHash&&localHash===remoteHash)continue;
-
+      await Promise.allSettled(changedScopes.map(async scope=>{
         const metas=await getPackage(scope,{force:true});
-        const downloadedHash=String(packageHashCache.get(scope)||"").trim();
-        if(!downloadedHash)continue;
+        if(!packageHashCache.get(scope))return false;
 
-        // Swap to the complete new package only after download/parse finished.
+        // Each package swaps independently only after its complete download,
+        // parse and normalization have finished.
         paintSyncedPackage(scope,metas);
-      }
+        return true;
+      }));
       return true;
     }finally{
       packageSyncRunning=false;
@@ -3332,9 +3333,9 @@ html.one-col.portrait .player.pip{
   }
 
   setInterval(()=>{
-    if(document.hidden||feedMode==="search")return;
+    if(document.hidden)return;
     void syncPreparedPackages([],{refreshManifest:true});
-  },15000);
+  },5000);
 
   document.addEventListener("visibilitychange",()=>{
     if(document.visibilityState==="visible"){
