@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.8";
+  const VERSION = "2026-09-28.9";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -130,9 +130,14 @@
       seek: nativeControls && ["md","lg","xl"].includes(tier)
     };
 
+    const density = tier === "xs" ? "tight" : tier === "sm" ? "compact" : "normal";
+    const maxTitleLines = ["xs","sm"].includes(tier) ? 1 : 2;
+
     return {
       id: orientation + "-" + tier + (nativeControls ? "-controls" : "-minimal"),
       tier,
+      density,
+      maxTitleLines,
       uiSpan,
       top,
       bottom
@@ -195,8 +200,11 @@
     const orientation = options.orientation || orientationOf(width, height);
     const profileKind = orientation === "portrait" ? "portrait" : "landscape";
     const sample = interpolateSample(profileKind, width);
-    const titleLines = estimateTitleLines(width, options.title || "");
     const layoutState = resolveLayoutState(width, height, orientation, options);
+    const titleLines = Math.min(
+      estimateTitleLines(width, options.title || ""),
+      layoutState.maxTitleLines
+    );
 
     const playCenter = { x: width / 2, y: height / 2 };
     const topBoxMetrics = topBoxes(sample, titleLines, layoutState.top);
@@ -204,15 +212,38 @@
     const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
     const bottomChrome = bottomBoxMetrics.outerMax;
 
-    // Keep the native center Play/Pause completely untouched. Insets are capped
-    // independently so the top cluster never forces unnecessary bottom crop.
-    const playRadius = clamp(Math.min(width, height) * 0.105, 18, 34);
-    const playSafety = playRadius + clamp(Math.min(width, height) * 0.055, 8, 16);
+    // Native Play/Pause remains centered. At small player sizes YouTube also
+    // shrinks that control, so do not use a large fixed minimum radius.
+    const playDiameter =
+      layoutState.density === "tight" ? clamp(Math.min(width,height)*.29,24,28) :
+      layoutState.density === "compact" ? clamp(Math.min(width,height)*.27,28,34) :
+      clamp(Math.min(width,height)*.22,34,52);
+    const playRadius = playDiameter/2;
+    const playGap = layoutState.density === "normal" ? 5 : 3;
+    const playSafety = playRadius + playGap;
+
+    // Our own top buttons and bottom seek must stay entirely inside the masked
+    // bands. Their minimum required band depth changes with compact density.
+    const topBarMin =
+      layoutState.density === "tight" ? 28 :
+      layoutState.density === "compact" ? 32 : 38;
+    const bottomBarMin =
+      layoutState.density === "tight" ? 18 :
+      layoutState.density === "compact" ? 22 : 30;
+
+    const wantedTop = Math.max(topChrome, topBarMin);
+    const wantedBottom = Math.max(bottomChrome, bottomBarMin);
     const maxTopInset = Math.max(0, playCenter.y - playSafety);
     const maxBottomInset = Math.max(0, (height - playCenter.y) - playSafety);
 
-    const topInset = clamp(topChrome, 0, maxTopInset);
-    const bottomInset = clamp(bottomChrome, 0, maxBottomInset);
+    const topCollision = wantedTop > maxTopInset;
+    const bottomCollision = wantedBottom > maxBottomInset;
+
+    // Only when a band reaches the native Play/Pause do we stop at its edge.
+    // Until that point, never shrink the mask below the actual YouTube chrome.
+    const topInset = Math.min(wantedTop, maxTopInset);
+    const bottomInset = Math.min(wantedBottom, maxBottomInset);
+    const collisionMode = topCollision || bottomCollision;
 
     return {
       version: VERSION,
@@ -223,6 +254,10 @@
       playCenter,
       playRadius,
       playSafety,
+      topBarMin,
+      bottomBarMin,
+      collisionMode,
+      collisions:{top:topCollision,bottom:bottomCollision},
       sampleRange: sample.range || [sample.w,sample.w],
       layoutState,
       clusters: {
@@ -269,6 +304,9 @@
     element.dataset.ytChromeOrientation = result.orientation;
     element.dataset.ytTitleLines = String(result.titleLines);
     element.dataset.ytChromeLayout = result.layoutState.id;
+    element.dataset.ytChromeTier = result.layoutState.tier;
+    element.dataset.ytChromeDensity = result.layoutState.density;
+    element.dataset.ytChromeCollision = result.collisionMode ? "1" : "0";
     return result;
   }
 
