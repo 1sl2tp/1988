@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.29";
+  const VERSION = "2026-09-28.30";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -229,37 +229,48 @@
   // These are OUTER chrome bounds measured from the corresponding player edge.
   // PiP never derives them from Play/Pause or from artwork inside the video.
   const CLEAN_EMBED_CALIBRATION = Object.freeze({
-    // Direct TOP/BOTTOM bounds for the exact PLAYING controls:0 player.
-    // These values are independent. At tiny sizes TOP can pass BOTTOM; that
-    // signed overlap belongs to PiP policy, never to the library.
+    // Same rule for every orientation:
+    // TOP    = lowest visible bottom edge among avatar/title/channel.
+    // BOTTOM = highest visible top edge among link/next/YouTube. Because the
+    //          bottom boxes are expressed as depth from the player bottom,
+    //          that is simply the largest active depth.
     landscape:Object.freeze([
-      // TOP follows the LOWEST visible edge of channel avatar + title + channel
-      // name. Unlike BOTTOM it grows steadily with the native YouTube UI size.
-      {w:140, topInset:50, bottomInset:26},
-      {w:170, topInset:51, bottomInset:27},
-      {w:200, topInset:52, bottomInset:28},
-      {w:240, topInset:53, bottomInset:29},
-      {w:280, topInset:55, bottomInset:30},
-      // YouTube introduces the larger lower action/card cluster around here.
-      {w:319, topInset:56, bottomInset:31},
-      {w:320, topInset:56, bottomInset:46},
-      {w:360, topInset:58, bottomInset:48},
-      {w:520, topInset:62, bottomInset:51},
-      {w:760, topInset:66, bottomInset:54}
+      {w:140, avatarEdge:46,title1Edge:34,title2Edge:46,channelEdge:50,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+      {w:170, avatarEdge:47,title1Edge:35,title2Edge:47,channelEdge:51,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+      {w:200, avatarEdge:48,title1Edge:36,title2Edge:48,channelEdge:52,
+        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+      {w:240, avatarEdge:49,title1Edge:37,title2Edge:49,channelEdge:53,
+        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
+      {w:280, avatarEdge:51,title1Edge:39,title2Edge:51,channelEdge:55,
+        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+      {w:360, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
+        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+      {w:520, avatarEdge:58,title1Edge:46,title2Edge:58,channelEdge:62,
+        linkH:40,linkOff:13,nextH:50,nextOff:13,youtubeH:39,youtubeOff:13},
+      {w:760, avatarEdge:62,title1Edge:50,title2Edge:62,channelEdge:66,
+        linkH:49,linkOff:16,nextH:67,nextOff:16,youtubeH:44,youtubeOff:16}
     ]),
     portrait:Object.freeze([
-      // Portrait regular-watch keeps the top metadata chrome nearly fixed in
-      // physical pixels. Follow the actual lower border of that top strip.
-      // The lower YouTube strip also grows smoothly; unlike landscape there is
-      // no 319→320 action-card breakpoint.
-      {w:140, topInset:58, bottomInset:25},
-      {w:170, topInset:58, bottomInset:26},
-      {w:200, topInset:59, bottomInset:27},
-      {w:240, topInset:59, bottomInset:29},
-      {w:280, topInset:60, bottomInset:33},
-      {w:320, topInset:60, bottomInset:35},
-      {w:360, topInset:61, bottomInset:37},
-      {w:460, topInset:62, bottomInset:40}
+      {w:140, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+      {w:170, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+      {w:200, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+      {w:220, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
+        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+      {w:240, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
+        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
+      {w:280, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
+        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+      {w:320, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
+        linkH:36,linkOff:10,nextH:45,nextOff:10,youtubeH:35,youtubeOff:10},
+      {w:360, avatarEdge:57,title1Edge:45,title2Edge:57,channelEdge:61,
+        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+      {w:460, avatarEdge:58,title1Edge:46,title2Edge:58,channelEdge:62,
+        linkH:39,linkOff:12,nextH:49,nextOff:12,youtubeH:38,youtubeOff:12}
     ])
   });
 
@@ -356,8 +367,10 @@
         ...row,
         embedKey,
         nativeSeek:false,
+        seekH:0,
+        seekOff:0,
+        extremeBounds:true,
         h:height,
-        directBounds:true,
         range:row.range||[width,width]
       };
     }
@@ -459,8 +472,8 @@
     const topChromeRaw=topBoxMetrics.outerMax;
     const bottomBoxMetrics=bottomBoxes(sample,layoutState.bottom);
     const bottomChromeRaw=bottomBoxMetrics.outerMax;
-    const topBleed=1;
-    const bottomBleed=1;
+    const topBleed=sample.extremeBounds?0:1;
+    const bottomBleed=sample.extremeBounds?0:1;
     const topChrome=topChromeRaw+topBleed;
     const bottomChrome=bottomChromeRaw+bottomBleed;
     const topInset=topChrome;
