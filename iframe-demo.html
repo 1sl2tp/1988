@@ -738,6 +738,8 @@ let calibrationGuideDrag=null;
 let pipMetaRequestToken=0;
 const pipMetaCache=new Map();
 let pipUiActivityAt=0;
+let pipCoverVisible=false;
+let pipCoverCycle=0;
 let currentPipMeta={
   id:"",
   title:"",
@@ -803,14 +805,16 @@ function resetNativeChromeSignal(){
 function setNativeChromeSignal(visible,key=""){
   const isVisible=!!visible;
   const now=performance.now();
+
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+  if(!pipCoverVisible)return;
+
   nativeChromeVisible=isVisible;
   nativeChromeSignalAt=now;
   nativeChromeSignalKey=String(key||"");
 
-  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
-
   if(isVisible){
-    nativeChromeVisibleCycle=pipUiCycle;
+    nativeChromeVisibleCycle=pipCoverCycle;
     nativeChromeHiddenCycle=-1;
     pipUiActivityAt=now;
     setChromeMask(true);
@@ -818,8 +822,8 @@ function setNativeChromeSignal(visible,key=""){
     return;
   }
 
-  if(nativeChromeVisibleCycle===pipUiCycle){
-    nativeChromeHiddenCycle=pipUiCycle;
+  if(nativeChromeVisibleCycle===pipCoverCycle){
+    nativeChromeHiddenCycle=pipCoverCycle;
     if(playerIsPlaying())scheduleChromeRelease();
   }
 }
@@ -1737,10 +1741,11 @@ function paintGeometryReadout(result){
           : "NONE"
     )+
     " · CYCLE "+pipUiCycle+
+    " · COVER "+(pipCoverVisible?"ON":"OFF")+
     " · RELEASE "+(
       nativeChromeVisible===false &&
-      nativeChromeVisibleCycle===pipUiCycle &&
-      nativeChromeHiddenCycle===pipUiCycle
+      nativeChromeVisibleCycle===pipCoverCycle &&
+      nativeChromeHiddenCycle===pipCoverCycle
         ? "SIGNAL"
         : "LIB "+Math.round(pipChromeTiming().idleHideMs)+"ms"
     )+
@@ -1777,9 +1782,6 @@ function setChromeMask(on){
   const active=!!on;
   stage.classList.toggle("chrome-mask",active);
 
-  // PiP max has ONE visibility state:
-  // YouTube chrome needs covering -> mask + X + seek are visible.
-  // YouTube chrome is safely hidden -> all three disappear together.
   if(stage.classList.contains("max-clean-mode")){
     stopCleanHideTimer();
     stage.classList.toggle("controls-visible",active);
@@ -1821,7 +1823,7 @@ function setPipRect(left,top,width,height){
 }
 function beginPipPointer(e,mode,handle=""){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
-  markPipUiActivity();
+  showChromeCover(mode==="resize"?"resize":"drag");
   const r=stage.getBoundingClientRect();
   pipPointerMode=mode;
   pipPointerId=e.pointerId;
@@ -1896,14 +1898,27 @@ function pipChromeTiming(){
     hiddenGraceMs:Math.max(0,Number(timing.hiddenGraceMs)||1000)
   };
 }
+
+function hideChromeCover(reason=""){
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+
+  // HIDE is terminal for this cycle: stop everything and clear its signals.
+  stopChromeMaskTimer();
+  pipCoverVisible=false;
+  setChromeMask(false);
+  resetNativeChromeSignal();
+  nativeChromeVisibleCycle=-1;
+  nativeChromeHiddenCycle=-1;
+  stage.dataset.pipCoverState="hidden";
+  stage.dataset.pipCoverReason=String(reason||"");
+}
+
 function scheduleChromeRelease(){
   stopChromeMaskTimer();
-  if(!playerIsPlaying())return;
+  if(!pipCoverVisible||!playerIsPlaying())return;
 
-  const now=performance.now();
   const timing=pipChromeTiming();
-  const cycle=pipUiCycle;
-
+  const cycle=pipCoverCycle;
   const verifiedHidden=
     nativeChromeVisible===false &&
     nativeChromeVisibleCycle===cycle &&
@@ -1915,11 +1930,13 @@ function scheduleChromeRelease(){
     ? nativeChromeSignalAt+timing.hiddenGraceMs
     : pipUiActivityAt+timing.idleHideMs+timing.hiddenGraceMs;
 
-  const wait=Math.max(0,targetAt-now);
+  const wait=Math.max(0,targetAt-performance.now());
 
   chromeMaskTimer=setTimeout(()=>{
+    chromeMaskTimer=0;
+    if(!pipCoverVisible)return;
     if(!playerIsPlaying())return;
-    if(pipUiCycle!==cycle)return;
+    if(pipCoverCycle!==cycle)return;
     if(activeSeekPointer!==null)return;
 
     const currentTiming=pipChromeTiming();
@@ -1934,38 +1951,40 @@ function scheduleChromeRelease(){
         currentTiming.idleHideMs+
         currentTiming.hiddenGraceMs;
 
-    if(!hiddenStillVerified&&!fallbackReady){
-      scheduleChromeRelease();
+    if(hiddenStillVerified){
+      hideChromeCover("signal");
+      return;
+    }
+    if(fallbackReady){
+      hideChromeCover("library-timing");
       return;
     }
 
-    setChromeMask(false);
-    stopChromeMaskTimer();
+    // One pending hide check only. This does not create a new SHOW cycle.
+    scheduleChromeRelease();
   },wait);
 }
-function markPipUiActivity(){
+
+function showChromeCover(reason="activity"){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  const wasMasked=stage.classList.contains("chrome-mask");
-  if(!wasMasked){
-    pipUiCycle+=1;
-    resetNativeChromeSignal();
-  }else{
-    // Same covered session: keep any VISIBLE proof, but an older HIDDEN can no
-    // longer release after a new hover/touch/seek/resize.
-    nativeChromeVisible=null;
-    nativeChromeSignalAt=0;
-    nativeChromeSignalKey="";
-    nativeChromeHiddenCycle=-1;
-  }
-
+  // SHOW is a separate action from HIDE. A new show always owns a new cycle.
+  stopChromeMaskTimer();
+  pipCoverCycle+=1;
+  pipUiCycle=pipCoverCycle;
   pipUiActivityAt=performance.now();
+  pipCoverVisible=true;
+  resetNativeChromeSignal();
+  stage.dataset.pipCoverState="visible";
+  stage.dataset.pipCoverReason=String(reason||"");
   setChromeMask(true);
 
   if(playerIsPlaying())scheduleChromeRelease();
-  else stopChromeMaskTimer();
 }
 
+function markPipUiActivity(reason="activity"){
+  showChromeCover(reason);
+}
 function hideCleanControls(){
   stopCleanHideTimer();
   // max-clean visibility is owned by chrome-mask; only the simpler clean mode
@@ -1976,7 +1995,7 @@ function hideCleanControls(){
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
   if(stage.classList.contains("max-clean-mode")){
-    markPipUiActivity();
+    markPipUiActivity("activity");
     return;
   }
   stage.classList.add("controls-visible");
@@ -2024,6 +2043,8 @@ function cleanOverlayMarkup(){
   '</div>';
 }
 function exitDemoPip(){
+  stopChromeMaskTimer();
+  pipCoverVisible=false;
   resetNativeChromeSignal();
   stage.classList.remove("demo-pip","controls-visible","chrome-mask","pip-dragging","pip-resizing");
   clearPipViewportCrop();
@@ -2092,7 +2113,7 @@ function enterDemoPip(){
       initialWidth,
       initialHeight
     );
-    markPipUiActivity();
+    markPipUiActivity("show-controls");
   }
 }
 function toggleDemoPip(){
@@ -2238,13 +2259,11 @@ async function render(){
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           const state=Number(event?.data);
           if(state===1){
-            // PLAY / RESUME / BUFFERING->PLAYING starts a fresh covered cycle.
-            // It can be released only by a verified VISIBLE -> HIDDEN sequence.
-            markPipUiActivity();
+            showChromeCover("play");
           }else{
-            // PAUSED / BUFFERING / CUED / ENDED: keep YouTube chrome covered.
             stopChromeMaskTimer();
-            setChromeMask(true);
+            if(!pipCoverVisible)showChromeCover("pause");
+            else setChromeMask(true);
           }
         }
       }:undefined
@@ -2271,7 +2290,7 @@ stage.addEventListener("pointerdown",e=>{
   if(shield){
     e.preventDefault();
     e.stopPropagation();
-    showCleanControls();
+    if(!pipCoverVisible)showChromeCover("shield");
     return;
   }
   const resize=e.target.closest("[data-pip-resize]");
@@ -2288,6 +2307,7 @@ stage.addEventListener("pointerdown",e=>{
   if(!seek)return;
   e.preventDefault();
   e.stopPropagation();
+  showChromeCover("seek");
   activeSeekPointer=e.pointerId;
   seek.classList.add("dragging");
   try{seek.setPointerCapture(e.pointerId)}catch{}
@@ -2300,7 +2320,7 @@ stage.addEventListener("pointermove",e=>{
     if(seek)seekAtClientX(e.clientX,seek);
     return;
   }
-  if(stage.classList.contains("demo-pip"))showCleanControls();
+  if(stage.classList.contains("demo-pip")&&!pipCoverVisible)showChromeCover("pointermove");
 });
 function finishSeek(e){
   if(endPipPointer(e))return;
