@@ -675,16 +675,37 @@ function strongAd(row:any){
 function reviewCleanTitle(value:any){
   const original=clean(value,300);
   if(!original)return "";
+
+  // In the Review tab the category is already known, so repeated labels such
+  // as "Review" / "[Review Phim]" add no information to the card title.
   const title=original
     .replace(/https?:\/\/\S+|www\.\S+/giu," ")
     .replace(/(?:#[\p{L}\p{N}_-]+\s*)+$/gu," ")
-    .replace(/^\s*(?:review\s*phim|phim\s*review|tóm\s*tắt\s*phim|tom\s*tat\s*phim|movie\s*recap)\s*[:|\-–—]*\s*/iu,"")
-    .replace(/\b(?:full\s*tập|full\s*tap|trọn\s*bộ|tron\s*bo|vietsub|thuyết\s*minh|thuyet\s*minh)\b/giu," ")
+    .replace(/[\[(]?\s*(?:review\s*phim|phim\s*review|review)\s*[\])]?\s*[:|\-–—]*\s*/giu," ")
     .replace(/([!?.,])\1{1,}/g,"$1")
     .replace(/\s{2,}/g," ")
     .replace(/^[\s|:;\-–—]+|[\s|:;\-–—]+$/g,"")
     .trim();
-  return title.length>=10?title:original;
+
+  return title.length>=6?title:original;
+}
+
+function kidCleanTitle(value:any){
+  const original=clean(value,300);
+  if(!original)return "";
+
+  // "Phim hoạt hình HAY NHẤT 2026" is a repeated channel template, not the
+  // episode/story name. Keep the actual story title that follows it.
+  const title=original
+    .replace(
+      /^\s*phim\s*hoạt\s*hình\s*hay\s*nhất(?:\s*\d{4})?\s*[:|\-–—]*\s*/iu,
+      ""
+    )
+    .replace(/\s{2,}/g," ")
+    .replace(/^[\s|:;\-–—]+|[\s|:;\-–—]+$/g,"")
+    .trim();
+
+  return title.length>=6?title:original;
 }
 function sourceSignature(rows:any[],scope:string){
   return rows
@@ -2370,6 +2391,27 @@ Deno.serve(async(req:Request)=>{
 
       if(scope==="latest"||scope==="week"){
         raw=raw.filter((r:any)=>!obviousNonNewsForNewsScope(r));
+      }
+
+      if(meta.kind==="content"){
+        const labelNorm=normalizeText(meta?.label||"");
+        if(labelNorm==="review"){
+          raw=raw.map((row:any)=>{
+            const currentTitle=clean(row?._displayTitle||row?.title||"",300);
+            const displayTitle=reviewCleanTitle(currentTitle);
+            return displayTitle&&displayTitle!==currentTitle
+              ?{...row,_displayTitle:displayTitle}
+              :row;
+          });
+        }else if(labelNorm==="kid"){
+          raw=raw.map((row:any)=>{
+            const currentTitle=clean(row?._displayTitle||row?.title||"",300);
+            const displayTitle=kidCleanTitle(currentTitle);
+            return displayTitle&&displayTitle!==currentTitle
+              ?{...row,_displayTitle:displayTitle}
+              :row;
+          });
+        }
       }
 
       // Final deterministic package policy shared by every source.
