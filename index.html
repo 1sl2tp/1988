@@ -4905,7 +4905,10 @@ html.one-col.portrait .player.pip{
     // selected video first, then same-channel rows, then already-loaded related
     // videos so a mix can still exist when that channel has only a few rows.
     let items=feedMode==="channel"
-      ?uniquePlaylistRows(feedMetas)
+      ?uniquePlaylistRows([
+        ...(selected&&String(selected?.sourceId||"").trim()===sourceId?[selected]:[]),
+        ...feedMetas
+      ])
       :uniquePlaylistRows([
         ...(selected?[selected]:[]),
         ...sameSource,
@@ -4972,6 +4975,17 @@ html.one-col.portrait .player.pip{
     renderSampleContent();
     syncFeedHeader();
     scrollPageToTop();
+
+    const currentId=String(current?.id||"").trim();
+    const currentIndex=feedMetas.findIndex(meta=>String(meta?.id||"").trim()===currentId);
+    if(currentIndex<0&&feedMetas[0]){
+      const first=feedMetas[0];
+      const firstId=String(first?.id||"").trim();
+      if(firstId&&navigateToVideo(firstId,first)){
+        renderCurrentInfo();
+        if(selectedMetaNeedsLookup(first))void loadCurrentVideoMeta();
+      }
+    }
     return true;
   }
 
