@@ -103,7 +103,7 @@
       width:100%;
       height:100%;
       border:0;
-      pointer-events:none;
+      pointer-events:auto;
     }
     .chrome-calibration-guide{
       position:absolute;
@@ -463,6 +463,7 @@
     <div class="chrome-calibration-title">Library PiP · kéo từ MIN → FULL</div>
     <div class="chrome-calibration-workbench">
       <div class="chrome-calibration-label" id="calLiveLabel">Library</div>
+      <div class="chrome-calibration-label" style="color:var(--muted)">PLAYING · rê/chạm vào video để hiện chrome YouTube; kéo size thì chrome được gọi hiện lại.</div>
       <input class="chrome-calibration-range" id="calLiveRange" type="range" min="140" max="760" value="280" step="1" aria-label="Kích thước Library PiP">
       <div class="chrome-calibration-viewport" id="calLiveViewport">
         <div class="chrome-calibration-frame" id="calLiveFrame"></div>
@@ -616,6 +617,7 @@ let calibrationPlayerVideoId="";
 let calibrationPlayerReady=false;
 let calibrationPlayerPlaying=false;
 let calibrationReplayTimer=0;
+let calibrationChromeWakeTimer=0;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -908,8 +910,28 @@ function stopCalibrationReplayTimer(){
   clearTimeout(calibrationReplayTimer);
   calibrationReplayTimer=0;
 }
+function stopCalibrationChromeWakeTimer(){
+  if(!calibrationChromeWakeTimer)return;
+  clearTimeout(calibrationChromeWakeTimer);
+  calibrationChromeWakeTimer=0;
+}
+function scheduleCalibrationChromeWake(delay=90){
+  stopCalibrationChromeWakeTimer();
+  calibrationChromeWakeTimer=setTimeout(()=>{
+    calibrationChromeWakeTimer=0;
+    if(!calibrationPlayerPlaying||!calibrationPlayer)return;
+    try{
+      const t=Number(calibrationPlayer.getCurrentTime?.())||0;
+      // Same-time seek is only used by this diagnostic player to make the
+      // native controls:0 chrome visible without changing playback position.
+      calibrationPlayer.seekTo?.(t,true);
+      calibrationPlayer.playVideo?.();
+    }catch{}
+  },delay);
+}
 function destroyCalibrationPlayer(){
   stopCalibrationReplayTimer();
+  stopCalibrationChromeWakeTimer();
   calibrationPlayerPlaying=false;
   calibrationPlayerReady=false;
   calibrationPlayerVideoId="";
@@ -1007,6 +1029,7 @@ function ensureLibraryCalibrationFrame(videoId){
             if(playing){
               stopCalibrationReplayTimer();
               renderLibraryCalibration(calibrationWidth,true);
+              scheduleCalibrationChromeWake(120);
               return;
             }
 
@@ -1094,6 +1117,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false){
     " · lib "+String(currentChromeLibrary.version||geometry?.VERSION||"?")+
     " · "+(currentChromeLibrary.contentAspect<1?"dọc":"ngang");
 
+  if(calibrationPlayerPlaying&&!force)scheduleCalibrationChromeWake(80);
   return result;
 }
 function renderChromeCalibration(){
@@ -1633,6 +1657,13 @@ stage.addEventListener("click",e=>{
     showCleanControls();
   }
 });
+calLiveFrame?.addEventListener("mouseenter",()=>{
+  if(calibrationPlayerPlaying)scheduleCalibrationChromeWake(0);
+});
+calLiveFrame?.addEventListener("touchstart",()=>{
+  if(calibrationPlayerPlaying)scheduleCalibrationChromeWake(0);
+},{passive:true});
+
 calLiveRange?.addEventListener("input",()=>{
   if(!calibrationPlayerPlaying){
     calLiveRange.value=String(Math.round(calibrationWidth));
