@@ -1010,22 +1010,26 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .info-meta-line{
   min-width:0;
-  display:grid;
-  grid-template-columns:minmax(0,1fr);
-  gap:0;
-  overflow:visible;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  overflow:hidden;
+  white-space:nowrap;
 }
-.info-source,
-.info-facts{
+.info-source{
+  flex:0 1 auto;
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-.info-meta-sep{
-  display:none;
-  opacity:.9;
+.info-facts{
+  flex:0 0 auto;
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
 }
+.info-meta-sep{display:none!important;}
 .info-meta-sep[hidden]{
   display:none!important;
 }
@@ -1159,22 +1163,26 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .row-meta-line{
   min-width:0;
-  display:grid;
-  grid-template-columns:minmax(0,1fr);
-  gap:0;
-  overflow:visible;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  overflow:hidden;
+  white-space:nowrap;
 }
-.row-source,
-.row-facts{
+.row-source{
+  flex:0 1 auto;
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
-.row-meta-sep{
-  display:none;
-  opacity:.9;
+.row-facts{
+  flex:0 0 auto;
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
 }
+.row-meta-sep{display:none!important;}
 .verified-badge{
   display:inline-flex;
   width:14px;
@@ -1192,33 +1200,33 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .views-play-icon{
   display:inline-flex;
-  width:14px;
-  height:14px;
-  margin-right:3px;
-  vertical-align:-2px;
+  width:12px;
+  height:12px;
+  margin:0;
   color:var(--yt-text-secondary);
-  flex:0 0 auto;
+  flex:0 0 12px;
 }
 .views-play-icon svg{
-  width:14px;
-  height:14px;
+  width:12px;
+  height:12px;
   display:block;
-  fill:currentColor;
+  overflow:visible;
 }
 .row-facts,
 .info-facts{
   display:inline-flex;
   align-items:center;
+  gap:10px;
   min-width:0;
 }
-.fact-views,
-.fact-time,
-.fact-sep{
+.fact-views-group{
+  display:inline-flex;
+  align-items:center;
+  gap:2px;
   flex:0 0 auto;
 }
-.fact-sep{
-  margin:0 4px;
-}
+.fact-views,
+.fact-time{flex:0 0 auto;}
 
 .row-meta-line:empty{display:none}
 .row-menu{
@@ -1245,30 +1253,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
   .row-menu{opacity:1}
 }
 
-
-@container media-card (min-width:360px){
-  .row-meta-line,
-  .info-meta-line{
-    display:flex;
-    align-items:center;
-    gap:3px;
-    overflow:hidden;
-    white-space:nowrap;
-  }
-  .row-source,
-  .info-source{
-    flex:1 1 auto;
-  }
-  .row-facts,
-  .info-facts{
-    flex:0 0 auto;
-  }
-  .row-meta-sep,
-  .info-meta-sep{
-    display:inline;
-    flex:0 0 auto;
-  }
-}
 
 .state{display:none}
 </style>
@@ -2881,8 +2865,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function viewsPlayIconMarkup(){
     return '<span class="views-play-icon" aria-hidden="true">'+
-      '<svg viewBox="0 0 24 24">'+
-        '<path d="M8 5.5v13l10-6.5-10-6.5Z"></path>'+
+      '<svg viewBox="0 0 12 12" focusable="false">'+
+        '<path d="M3.2 2.1 9.55 6 3.2 9.9V2.1Z" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linejoin="round"></path>'+
       '</svg>'+
     '</span>';
   }
@@ -2892,12 +2876,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const time=String(meta.publishedLabel || (meta.isLive?"Đang trực tiếp":"")).trim();
     const pieces=[];
     if(views){
-      pieces.push(viewsPlayIconMarkup()+'<span class="fact-views">'+escapeHtml(views)+'</span>');
+      pieces.push('<span class="fact-views-group">'+viewsPlayIconMarkup()+'<span class="fact-views">'+escapeHtml(views)+'</span></span>');
     }
-    if(time){
-      if(pieces.length)pieces.push('<span class="fact-sep">·</span>');
-      pieces.push('<span class="fact-time">'+escapeHtml(time)+'</span>');
-    }
+    if(time)pieces.push('<span class="fact-time">'+escapeHtml(time)+'</span>');
     return pieces.join("");
   }
 
@@ -2962,7 +2943,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
             '<div class="row-title">'+escapeHtml(title)+'</div>'+
             '<div class="row-meta row-meta-line">'+
               '<span class="row-source">'+escapeHtml(source)+verified+'</span>'+
-              ((source&&facts)?'<span class="row-meta-sep">·</span>':"")+
+              ((source&&facts)?'<span class="row-meta-sep" aria-hidden="true"></span>':"")+
               (facts?'<span class="row-facts">'+factsMarkup+'</span>':"")+
             '</div>'+
           '</div>'+
