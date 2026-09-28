@@ -750,8 +750,8 @@
   <section class="rail-library" id="railLibrary" aria-label="Thư viện thử khung đen YouTube">
     <div class="rail-library-title">FRAME LIBRARY · tạo SOURCE FRAME → PiP chỉ crop HÌNH + TUA</div>
     <div class="rail-library-samples">
-      <button type="button" data-rail-video="dQw4w9WgXcQ">Ngang 16:9 · Rick</button>
-      <button type="button" data-rail-video="C91FyjzHUr0">Dọc 9:16 · Me Rehúso</button>
+      <button type="button" data-rail-video="dQw4w9WgXcQ" data-rail-shape="landscape" data-rail-aspect="1.7777777778">Ngang 16:9 · Rick</button>
+      <button type="button" data-rail-video="C91FyjzHUr0" data-rail-shape="portrait" data-rail-aspect="0.5625">Dọc 9:16 · Me Rehúso</button>
       <button type="button" id="railCropPipToggle">Mở PiP crop</button>
     </div>
     <div class="rail-control-row">
@@ -932,6 +932,8 @@ let currentLibraryRevision="";
 let requestedVideoId="";
 let verifiedMediaAspect=0;
 let verifiedMediaShape="";
+let railSelectedShape="";
+let railSelectedAspect=0;
 let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:16/9};
 let viewportPrimeTimers=[];
 let mainAspectBeforePip="";
@@ -1572,7 +1574,13 @@ function paintRailLibrary(layout){
   }
 }
 function applyRailLayout(width,{workbench=true}={}){
-  const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentViewportTrim.contentAspect)||16/9);
+  const aspect=Math.max(
+    .25,
+    Number(railSelectedAspect)||
+    Number(verifiedMediaAspect)||
+    Number(currentViewportTrim.contentAspect)||
+    16/9
+  );
   const layout=railLayoutForWidth(width,aspect);
   railWorkbenchWidth=layout.width;
 
@@ -1608,52 +1616,59 @@ function applyRailLayout(width,{workbench=true}={}){
 function railCropPreset(){
   const actualAspect=Math.max(
     .25,
+    Number(railSelectedAspect)||
     Number(verifiedMediaAspect)||
     Number(currentViewportTrim?.contentAspect)||
     Number(currentRailLibrary?.contentAspect)||
     16/9
   );
-  const base=actualAspect<1
+  const orientation=
+    railSelectedShape||
+    (actualAspect<1?"portrait":"landscape");
+  const base=orientation==="portrait"
     ? RAIL_CROP_PRESETS.portrait
     : RAIL_CROP_PRESETS.landscape;
 
   return {
     ...base,
     aspect:actualAspect,
-    orientation:actualAspect<1?"portrait":"landscape"
+    orientation
   };
 }
 function railCropGeometryForWidth(width){
   const preset=railCropPreset();
   const scale=Math.max(.25,Number(width)||preset.width)/preset.width;
 
+  // Base source model:
+  //   sourceHeight = blackTop + videoHeight + blackBottom
+  // Example: 6 + 10 + 6 = 22. From here on, 22 is treated as one video.
   const baseVideoHeight=preset.width/preset.aspect;
-  const baseSourceHeight=baseVideoHeight+preset.blackTop+preset.blackBottom;
+  const baseSourceWidth=preset.width;
+  const baseSourceHeight=preset.blackTop+baseVideoHeight+preset.blackBottom;
 
-  // 1) SCALE the whole source frame first.
-  const sourceWidth=preset.width*scale;
+  // First scale the WHOLE source frame.
+  const sourceWidth=baseSourceWidth*scale;
   const sourceHeight=baseSourceHeight*scale;
 
-  // 2) CROP the compensated black rails after scaling.
-  //    Landscape: 65*scale from top and bottom.
-  //    Portrait : 63*scale from top and bottom.
+  // Then crop the scaled black rails.
   const cropTop=preset.blackTop*scale;
   const cropBottom=preset.blackBottom*scale;
+  const cropWidth=sourceWidth;
   const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
-  const videoTop=cropTop;
-  const videoBottom=sourceHeight-cropBottom;
 
   return {
     preset,
     scale,
+    baseVideoHeight,
+    baseSourceHeight,
     sourceWidth,
     sourceHeight,
     cropTop,
     cropBottom,
-    videoTop,
-    videoBottom,
+    videoTop:cropTop,
+    videoBottom:sourceHeight-cropBottom,
     videoHeight:cropHeight,
-    cropWidth:sourceWidth,
+    cropWidth,
     cropHeight
   };
 }
@@ -1690,7 +1705,7 @@ function openRailCropPip(){
 
   // Resolve the CURRENT video's exact content aspect before building the source frame.
   refreshRailMediaAspect();
-  if(!verifiedMediaAspect){
+  if(!verifiedMediaAspect&&!railSelectedAspect){
     primeRailMediaAspect();
     return;
   }
@@ -1745,11 +1760,17 @@ function refreshRailMediaAspect(){
   if(!next?.contentAspect)return 0;
   currentViewportTrim=next;
   const previousShape=verifiedMediaShape;
-  verifiedMediaAspect=next.contentAspect;
-  verifiedMediaShape=next.contentAspect<.98?"portrait":next.contentAspect>1.02?"landscape":"square";
+
+  if(railSelectedShape&&railSelectedAspect){
+    verifiedMediaAspect=railSelectedAspect;
+    verifiedMediaShape=railSelectedShape;
+  }else{
+    verifiedMediaAspect=next.contentAspect;
+    verifiedMediaShape=next.contentAspect<.98?"portrait":next.contentAspect>1.02?"landscape":"square";
+  }
 
   if(previousShape!==verifiedMediaShape){
-    const standard=verifiedMediaAspect<1
+    const standard=verifiedMediaShape==="portrait"
       ? RAIL_CROP_PRESETS.portrait
       : RAIL_CROP_PRESETS.landscape;
     railBlackPerSide=standard.blackTop;
@@ -2913,20 +2934,39 @@ async function render(){
   pipSourceAvatarCache=pipReadStoredObject(PIP_SOURCE_AVATAR_CACHE_KEY);
   currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
   if(mode.railMode){
+    const seedAspect=Math.max(.25,Number(railSelectedAspect)||16/9);
+    const seedShape=railSelectedShape||(seedAspect<1?"portrait":"landscape");
+    const standard=seedShape==="portrait"
+      ? RAIL_CROP_PRESETS.portrait
+      : RAIL_CROP_PRESETS.landscape;
+
+    verifiedMediaAspect=seedAspect;
+    verifiedMediaShape=seedShape;
+    railBlackPerSide=standard.blackTop;
+    railWorkbenchWidth=standard.width;
+
     currentRailLibrary={
       type:"native-frame-workbench",
       videoId:id,
-      contentAspect:16/9,
-      orientation:"landscape"
+      contentAspect:seedAspect,
+      orientation:seedShape
     };
   }else{
     void preloadPipLibraryMeta(id);
   }
 
-  verifiedMediaAspect=0;
-  verifiedMediaShape="";
+  if(!mode.railMode){
+    verifiedMediaAspect=0;
+    verifiedMediaShape="";
+  }
   calibrationWidth=280;
-  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:16/9};
+  currentViewportTrim={
+    top:0,right:0,bottom:0,left:0,
+    source:"none",
+    videoId:"",
+    rawAspect:mode.railMode?(verifiedMediaAspect||16/9):16/9,
+    contentAspect:mode.railMode?(verifiedMediaAspect||16/9):16/9
+  };
   stage.style.aspectRatio="";
   delete stage.dataset.demoShape;
   delete stage.dataset.detectedAspect;
@@ -3241,12 +3281,17 @@ presets.addEventListener("click",e=>{
   const b=e.target.closest("[data-video]");
   if(!b)return;
   input.value=b.dataset.video;
+  const label=String(b.textContent||"");
+  railSelectedShape=/^Dọc/.test(label)?"portrait":/^Ngang/.test(label)?"landscape":"";
+  railSelectedAspect=railSelectedShape==="portrait"?9/16:railSelectedShape==="landscape"?16/9:0;
   render();
 });
 railLibrary?.addEventListener("click",e=>{
   const b=e.target.closest("[data-rail-video]");
   if(!b)return;
   input.value=b.dataset.railVideo;
+  railSelectedShape=String(b.dataset.railShape||"");
+  railSelectedAspect=Math.max(0,Number(b.dataset.railAspect)||0);
   render();
 });
 railCropPipToggle?.addEventListener("click",toggleRailCropPip);
@@ -3260,7 +3305,11 @@ railBlackRange?.addEventListener("input",()=>{
   railBlackPerSide=Math.max(0,Math.min(180,Number(railBlackRange.value)||0));
   applyRailLayout(railWorkbenchWidth,{workbench:true});
 });
-document.getElementById("loadBtn").addEventListener("click",render);
+document.getElementById("loadBtn").addEventListener("click",()=>{
+  railSelectedShape="";
+  railSelectedAspect=0;
+  render();
+});
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
