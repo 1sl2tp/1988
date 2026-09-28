@@ -208,6 +208,7 @@ html.one-col body{min-height:220vh}
   box-shadow:inset 0 1px 2px rgba(0,0,0,.3);
 }
 .search-button,
+.voice-search-button,
 .icon-button{
   width:40px;
   height:40px;
@@ -221,6 +222,28 @@ html.one-col body{min-height:220vh}
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
+.voice-search-button{
+  flex:0 0 40px;
+  border:1px solid hsl(0 0% 18.82%);
+  border-left:0;
+  border-right:0;
+  border-radius:0;
+  background:hsl(0 0% 7%);
+}
+.voice-search-button:hover{
+  background:hsla(0 0% 100%/.08);
+}
+.voice-search-button.listening{
+  color:#ff4e45;
+  background:rgba(255,78,69,.10);
+}
+.voice-search-button.listening svg{
+  animation:voice-search-pulse .9s ease-in-out infinite alternate;
+}
+@keyframes voice-search-pulse{
+  from{transform:scale(.90);opacity:.72}
+  to{transform:scale(1.08);opacity:1}
+}
 .search-button{
   width:64px;
   border:1px solid hsl(0 0% 18.82%);
@@ -232,6 +255,7 @@ html.one-col body{min-height:220vh}
   background:hsla(0 0% 100%/.08);
 }
 .search-button svg,
+.voice-search-button svg,
 .icon-button svg{
   width:24px;
   height:24px;
@@ -452,6 +476,22 @@ html.one-col body{min-height:220vh}
 .top.search-open .search-input:focus{
   border:0;
   box-shadow:none;
+}
+.top.search-open .voice-search-button{
+  flex:0 0 40px;
+  width:40px;
+  height:38px;
+  border:0;
+  border-left:1px solid rgba(var(--header-accent-rgb),.10);
+  border-radius:0;
+  background:transparent;
+}
+.top.search-open .voice-search-button:hover{
+  background:rgba(var(--header-accent-rgb),.08);
+}
+.top.search-open .voice-search-button.listening{
+  color:#ff4e45;
+  background:rgba(255,78,69,.10);
 }
 .top.search-open .search-button{
   flex:0 0 44px;
@@ -1056,6 +1096,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
     <div class="searchbox" role="search">
       <input id="searchInput" class="search-input" type="search" placeholder="Tìm kiếm"
         autocomplete="off" autocorrect="off" spellcheck="false">
+      <button id="voiceSearchButton" class="voice-search-button" type="button"
+        aria-label="Tìm kiếm bằng giọng nói" title="Tìm kiếm bằng giọng nói" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V19H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 11Z"></path></svg>
+      </button>
       <button id="searchButton" class="search-button" aria-label="Tìm kiếm" title="Tìm kiếm">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
       </button>
@@ -1146,6 +1190,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
   const searchInput=document.getElementById("searchInput");
+  const voiceSearchButton=document.getElementById("voiceSearchButton");
   const searchButton=document.getElementById("searchButton");
   const searchToggle=document.getElementById("searchToggle");
   const searchBack=document.getElementById("searchBack");
@@ -1176,6 +1221,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const SEARCH_RECENT_KEY="yt1988-proof-recent-searches-v1";
   const searchCache=new Map();
   let recentSearches=[];
+  const SpeechRecognitionCtor=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+  let voiceRecognition=null;
+  let voiceListening=false;
+  if(voiceSearchButton)voiceSearchButton.hidden=!SpeechRecognitionCtor;
   try{
     const saved=JSON.parse(localStorage.getItem(SEARCH_RECENT_KEY)||"[]");
     if(Array.isArray(saved))recentSearches=saved.map(String).filter(Boolean).slice(0,2);
@@ -3150,7 +3199,92 @@ html.one-col .player.pip iframe{border-radius:inherit}
     });
   }
 
+  function setVoiceListening(active){
+    voiceListening=!!active;
+    if(!voiceSearchButton)return;
+    voiceSearchButton.classList.toggle("listening",voiceListening);
+    voiceSearchButton.setAttribute("aria-pressed",voiceListening?"true":"false");
+    voiceSearchButton.setAttribute(
+      "aria-label",
+      voiceListening?"Dừng nghe":"Tìm kiếm bằng giọng nói"
+    );
+    voiceSearchButton.title=voiceListening?"Đang nghe…":"Tìm kiếm bằng giọng nói";
+  }
+
+  function stopVoiceSearch(abort=false){
+    const recognition=voiceRecognition;
+    voiceRecognition=null;
+    if(recognition){
+      try{
+        if(abort)recognition.abort();
+        else recognition.stop();
+      }catch{}
+    }
+    setVoiceListening(false);
+  }
+
+  function startVoiceSearch(){
+    if(!SpeechRecognitionCtor||!voiceSearchButton)return;
+    if(voiceListening){
+      stopVoiceSearch(false);
+      return;
+    }
+
+    // Hide the software keyboard before opening microphone capture on phones.
+    try{searchInput.blur()}catch{}
+
+    const recognition=new SpeechRecognitionCtor();
+    voiceRecognition=recognition;
+    recognition.lang="vi-VN";
+    recognition.continuous=false;
+    recognition.interimResults=true;
+    recognition.maxAlternatives=1;
+
+    let submitted=false;
+    recognition.onstart=()=>setVoiceListening(true);
+    recognition.onresult=event=>{
+      let interim="";
+      let finalText="";
+      for(let i=event.resultIndex;i<event.results.length;i++){
+        const text=String(event.results[i]?.[0]?.transcript||"").trim();
+        if(!text)continue;
+        if(event.results[i].isFinal)finalText+=(finalText?" ":"")+text;
+        else interim+=(interim?" ":"")+text;
+      }
+
+      const spoken=(finalText||interim).trim();
+      if(spoken){
+        searchInput.value=spoken;
+        searchInput.dispatchEvent(new Event("input",{bubbles:true}));
+      }
+
+      if(finalText.trim()&&!submitted){
+        submitted=true;
+        void runSearch();
+        try{recognition.stop()}catch{}
+      }
+    };
+    recognition.onerror=event=>{
+      if(event?.error==="not-allowed"||event?.error==="service-not-allowed"){
+        voiceSearchButton.title="Cho phép micro để tìm bằng giọng nói";
+      }
+      setVoiceListening(false);
+    };
+    recognition.onend=()=>{
+      if(voiceRecognition===recognition)voiceRecognition=null;
+      setVoiceListening(false);
+    };
+
+    try{
+      recognition.start();
+    }catch{
+      voiceRecognition=null;
+      setVoiceListening(false);
+    }
+  }
+
   function closeNarrowSearch(){
+    stopVoiceSearch(true);
     top.classList.remove("search-open");
     updateHeaderSearchRoom();
     syncHeaderScrollState();
@@ -3177,9 +3311,11 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }
   });
   searchButton.addEventListener("click",()=>{
+    stopVoiceSearch(true);
     runSearch();
     searchInput.focus();
   });
+  voiceSearchButton?.addEventListener("click",startVoiceSearch);
 
   videoMenu?.addEventListener("click",()=>{
     videoMenu.animate(
