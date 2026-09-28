@@ -600,12 +600,60 @@
       min-height:120px;
       max-height:calc(100vh - 180px);
       overflow:auto;
-      display:flex;
-      justify-content:center;
-      align-items:flex-start;
       padding:8px;
       background:#0b0b0c;
       border-radius:10px;
+    }
+    .rail-preview-grid{
+      width:max-content;
+      min-width:100%;
+      display:flex;
+      justify-content:center;
+      align-items:flex-start;
+      gap:22px;
+    }
+    .rail-preview-card{
+      flex:0 0 auto;
+      min-width:0;
+    }
+    .rail-preview-title{
+      min-height:20px;
+      margin-bottom:6px;
+      color:#d8d8dd;
+      font:10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+      white-space:nowrap;
+    }
+    .rail-preview-title span{color:var(--muted)}
+    .rail-source-slot{
+      display:flex;
+      justify-content:center;
+      align-items:flex-start;
+    }
+    .rail-crop-preview{
+      position:relative;
+      overflow:hidden;
+      flex:0 0 auto;
+      background:#000;
+      border-radius:10px;
+      box-shadow:0 0 0 1px rgba(255,255,255,.12);
+      isolation:isolate;
+    }
+    .rail-crop-player-mount{
+      position:absolute;
+      left:0;
+      top:calc(-1 * var(--rail-preview-crop-top,0px));
+      width:var(--rail-preview-source-width,1px);
+      height:var(--rail-preview-source-height,1px);
+    }
+    .rail-crop-player-mount #rail-crop-player,
+    .rail-crop-player-mount iframe{
+      position:absolute!important;
+      inset:0!important;
+      width:100%!important;
+      height:100%!important;
+      max-width:none!important;
+      max-height:none!important;
+      border:0!important;
     }
     .stage.rail-mode.rail-workbench{
       position:relative;
@@ -702,6 +750,12 @@
     }
 
     @media(max-width:560px){
+      .rail-preview-grid{
+        min-width:0;
+        width:max-content;
+        flex-direction:column;
+        margin:0 auto;
+      }
       .stage.demo-pip{
         right:8px;
         top:calc(env(safe-area-inset-top) + 8px);
@@ -748,11 +802,10 @@
     </div>
   </section>
   <section class="rail-library" id="railLibrary" aria-label="Thư viện thử khung đen YouTube">
-    <div class="rail-library-title">FRAME LIBRARY · tạo SOURCE FRAME → PiP chỉ crop HÌNH + TUA</div>
+    <div class="rail-library-title">FRAME LIBRARY · CHƯA CẮT ↔ ĐÃ CẮT · PiP dùng lại đúng kết quả ĐÃ CẮT</div>
     <div class="rail-library-samples">
       <button type="button" data-rail-video="dQw4w9WgXcQ" data-rail-shape="landscape" data-rail-aspect="1.7777777778">Ngang 16:9 · Rick</button>
       <button type="button" data-rail-video="C91FyjzHUr0" data-rail-shape="portrait" data-rail-aspect="0.5625">Dọc 9:16 · Me Rehúso</button>
-      <button type="button" id="railCropPipToggle">Mở PiP crop</button>
     </div>
     <div class="rail-control-row">
       <span class="rail-control-label">SIZE</span>
@@ -764,7 +817,22 @@
       <output class="rail-black-value" id="railBlackValue">28 + 28</output>
     </div>
     <span class="rail-library-readout" id="railLibraryReadout">Đang chờ media…</span>
-    <div class="rail-workbench-viewport" id="railWorkbenchViewport"></div>
+    <div class="rail-workbench-viewport" id="railWorkbenchViewport">
+      <div class="rail-preview-grid">
+        <div class="rail-preview-card">
+          <div class="rail-preview-title">CHƯA CẮT <span id="railSourceReadout"></span></div>
+          <div class="rail-source-slot" id="railSourceSlot"></div>
+        </div>
+        <div class="rail-preview-card">
+          <div class="rail-preview-title">ĐÃ CẮT <span id="railCropReadout"></span></div>
+          <div class="rail-crop-preview" id="railCropPreview">
+            <div class="rail-crop-player-mount" id="railCropPlayerMount">
+              <div id="rail-crop-player"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
@@ -869,7 +937,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench dùng khung đen để đẩy chrome YouTube khỏi hình. PiP luôn crop đúng từ mép trên video tới mép dưới video; resize chỉ scale source + hai mép crop cùng nhau.",
+    desc:"Workbench luôn hiển thị song song SOURCE chưa cắt và kết quả đã cắt. SIZE/BLACK tác động lên SOURCE; khung bên phải chỉ bỏ đúng phần đen trên/dưới. PiP sau này dùng lại cùng geometry.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -895,6 +963,11 @@ const railBlackRange=document.getElementById("railBlackRange");
 const railBlackValue=document.getElementById("railBlackValue");
 const railCropPipToggle=document.getElementById("railCropPipToggle");
 const railWorkbenchViewport=document.getElementById("railWorkbenchViewport");
+const railSourceSlot=document.getElementById("railSourceSlot");
+const railSourceReadout=document.getElementById("railSourceReadout");
+const railCropPreview=document.getElementById("railCropPreview");
+const railCropReadout=document.getElementById("railCropReadout");
+const railCropPlayerMount=document.getElementById("railCropPlayerMount");
 const stageHomeParent=stage.parentNode;
 const stageHomeNext=stage.nextSibling;
 const demoHint=document.querySelector("#demoActions .hint");
@@ -907,6 +980,8 @@ const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
 let apiReady=false;
 let apiPlayer=null;
+let railCropPreviewPlayer=null;
+let railCropSyncTimer=0;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
 let seekRaf=0;
@@ -1573,6 +1648,91 @@ function paintRailLibrary(layout){
     railBlackValue.textContent=layout.blackBar+" + "+layout.blackBar;
   }
 }
+function applyRailComparisonGeometry(layout){
+  if(!layout||!railCropPreview)return;
+
+  const cropTop=Math.max(0,Number(layout.topHeight)||0);
+  const cropBottom=Math.max(0,Number(layout.bottomHeight)||0);
+  const sourceWidth=Math.max(1,Number(layout.width)||1);
+  const sourceHeight=Math.max(1,Number(layout.height)||1);
+  const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
+
+  railCropPreview.style.setProperty("--rail-preview-source-width",sourceWidth+"px");
+  railCropPreview.style.setProperty("--rail-preview-source-height",sourceHeight+"px");
+  railCropPreview.style.setProperty("--rail-preview-crop-top",cropTop+"px");
+  railCropPreview.style.width=sourceWidth+"px";
+  railCropPreview.style.height=cropHeight+"px";
+
+  if(railSourceReadout){
+    railSourceReadout.textContent=
+      "· "+Math.round(sourceWidth)+"×"+Math.round(sourceHeight)+
+      " · BLACK "+Math.round(cropTop)+"+"+Math.round(cropBottom);
+  }
+  if(railCropReadout){
+    railCropReadout.textContent=
+      "· "+Math.round(sourceWidth)+"×"+Math.round(cropHeight)+
+      " · cắt "+Math.round(cropTop)+"/"+Math.round(cropBottom);
+  }
+
+  return {
+    sourceWidth,sourceHeight,cropTop,cropBottom,
+    cropWidth:sourceWidth,cropHeight
+  };
+}
+function stopRailCropPreviewSync(){
+  if(railCropSyncTimer){
+    clearInterval(railCropSyncTimer);
+    railCropSyncTimer=0;
+  }
+}
+function destroyRailCropPreviewPlayer(){
+  stopRailCropPreviewSync();
+  if(railCropPreviewPlayer){
+    try{railCropPreviewPlayer.destroy()}catch{}
+    railCropPreviewPlayer=null;
+  }
+  if(railCropPlayerMount){
+    railCropPlayerMount.innerHTML='<div id="rail-crop-player"></div>';
+  }
+}
+function syncRailCropPreview(force=false){
+  if(!apiPlayer||!railCropPreviewPlayer)return;
+  try{
+    const sourceTime=Number(apiPlayer.getCurrentTime?.())||0;
+    const previewTime=Number(railCropPreviewPlayer.getCurrentTime?.())||0;
+    if(force||Math.abs(sourceTime-previewTime)>.45){
+      railCropPreviewPlayer.seekTo(sourceTime,true);
+    }
+
+    const sourceState=Number(apiPlayer.getPlayerState?.());
+    const previewState=Number(railCropPreviewPlayer.getPlayerState?.());
+    if(sourceState===1&&previewState!==1)railCropPreviewPlayer.playVideo?.();
+    else if(sourceState===2&&previewState!==2)railCropPreviewPlayer.pauseVideo?.();
+    railCropPreviewPlayer.mute?.();
+  }catch{}
+}
+function createRailCropPreviewPlayer(id,params){
+  if(!window.YT?.Player||!railCropPlayerMount)return;
+  destroyRailCropPreviewPlayer();
+
+  railCropPlayerMount.innerHTML='<div id="rail-crop-player"></div>';
+  railCropPreviewPlayer=new YT.Player("rail-crop-player",{
+    host:"https://www.youtube-nocookie.com",
+    height:"100%",
+    width:"100%",
+    videoId:id,
+    playerVars:{...params,origin:location.origin},
+    events:{
+      onReady(event){
+        try{event.target.mute()}catch{}
+        syncRailCropPreview(true);
+        stopRailCropPreviewSync();
+        railCropSyncTimer=setInterval(()=>syncRailCropPreview(false),400);
+      }
+    }
+  });
+}
+
 function applyRailLayout(width,{workbench=true}={}){
   const aspect=Math.max(
     .25,
@@ -1601,6 +1761,7 @@ function applyRailLayout(width,{workbench=true}={}){
     blackBar:layout.blackBar
   };
   paintRailLibrary(layout);
+  applyRailComparisonGeometry(layout);
 
   if(workbench){
     stage.style.left="";
@@ -1796,7 +1957,7 @@ function primeRailMediaAspect(){
 }
 function mountStageForMode(mode){
   if(mode?.railMode){
-    if(stage.parentNode!==railWorkbenchViewport)railWorkbenchViewport.appendChild(stage);
+    if(stage.parentNode!==railSourceSlot)railSourceSlot.appendChild(stage);
     stage.classList.add("rail-workbench");
     return;
   }
@@ -2927,6 +3088,7 @@ async function render(){
   mountStageForMode(mode);
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
+  destroyRailCropPreviewPlayer();
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
 
   requestedVideoId=id;
@@ -3038,9 +3200,26 @@ async function render(){
             primeMainViewportTrimLibrary();
           }
           if(mode.railMode){
-            verifiedMediaAspect=0;
-            verifiedMediaShape="";
-            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:0};
+            if(!(railSelectedShape&&railSelectedAspect)){
+              verifiedMediaAspect=0;
+              verifiedMediaShape="";
+              currentViewportTrim={
+                top:0,right:0,bottom:0,left:0,
+                source:"none",videoId:"",
+                rawAspect:16/9,contentAspect:0
+              };
+            }else{
+              verifiedMediaAspect=railSelectedAspect;
+              verifiedMediaShape=railSelectedShape;
+              currentViewportTrim={
+                top:0,right:0,bottom:0,left:0,
+                source:"rail-sample",
+                videoId:id,
+                rawAspect:railSelectedAspect,
+                contentAspect:railSelectedAspect
+              };
+            }
+            createRailCropPreviewPlayer(id,mode.params);
             primeRailMediaAspect();
           }
         },
@@ -3052,6 +3231,7 @@ async function render(){
           }
           if(mode.railMode){
             refreshRailMediaAspect();
+            syncRailCropPreview(true);
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
