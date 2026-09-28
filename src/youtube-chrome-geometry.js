@@ -118,7 +118,7 @@
     const top = {
       avatar: tier !== "xs",
       title: true,
-      channel: !["xs"].includes(tier)
+      channel: ["md","lg","xl"].includes(tier)
     };
 
     const bottom = {
