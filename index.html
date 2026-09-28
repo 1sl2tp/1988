@@ -2407,8 +2407,20 @@ html.one-col.portrait .player.pip{
       1,
       Math.round(document.documentElement.clientWidth || innerWidth || 1)
     );
-    const pipLandscapeW=Math.max(170,Math.min(280,Math.round(viewportW*.46)));
-    const pipPortraitH=Math.max(240,Math.min(420,Math.round(fullH*.50)));
+    // Mobile opens PiP at the SAME Library minimum SIZE as web:
+    // landscape min width = 170px, portrait min width = 120px.
+    // Do not let very tall portrait ratios become narrower than the web minimum.
+    const mobilePip=viewportW<=656;
+    const mobileAvailableW=Math.max(1,viewportW-20);
+    const mobileLandscapeMinW=Math.min(170,mobileAvailableW);
+    const mobilePortraitMinW=Math.min(120,mobileAvailableW);
+
+    const pipLandscapeW=mobilePip
+      ? mobileLandscapeMinW
+      : Math.max(170,Math.min(280,Math.round(viewportW*.46)));
+    const pipPortraitH=mobilePip
+      ? Math.max(1,Math.round(mobilePortraitMinW/mediaRatio))
+      : Math.max(240,Math.min(420,Math.round(fullH*.50)));
 
     root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
