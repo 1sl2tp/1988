@@ -37,6 +37,12 @@ if(simpleProduction){
   assert.match(html,/const VIDEO_META_URL=.*yt1988-video-meta/);
   assert.match(html,/function fetchServerAspects\(/);
   assert.match(html,/function primeMediaAspects\(/);
+  assert.match(html,/never fan out video-meta resolves/);
+  assert.match(html,/loading=["']lazy["']/);
+  assert.match(html,/decoding=["']async["']/);
+  assert.match(html,/new IntersectionObserver\(/);
+  assert.match(html,/packagePrefetchQueue/);
+  assert.match(html,/function selectedMetaNeedsLookup\(/);
   assert.match(html,/function reportVerifiedAspect\(/);
   assert.match(html,/method:["']POST["']/);
   assert.match(html,/function playVideoId\(/);
@@ -79,7 +85,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v28/);
+  assert.match(sw,/1988-simple-media-v29/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);

@@ -2075,40 +2075,29 @@ html.one-col.portrait .player.pip{
       .filter(meta=>meta?.id)
       .slice(0,Math.max(0,limit));
 
-    // Package/search metadata from the server is authoritative for first paint.
+    // UI rule: a downloaded package is authoritative for list rendering.
+    // Read aspect data only when it is already present in that package.
+    // Missing shape is learned from the real YouTube player after selection;
+    // never fan out video-meta resolves for cards sitting in the list.
     for(const meta of list){
       const ratio=mediaAspectFromMeta(meta);
-      if(ratio){
-        const id=String(meta.id);
-        aspectPrimeCache.set(id,{
+      if(!ratio)continue;
+
+      const id=String(meta.id);
+      aspectPrimeCache.set(id,{
+        value:ratio,
+        source:String(meta?._aspectSource||"server-package"),
+        verified:meta?._aspectVerified===true,
+        at:Date.now()
+      });
+      if(meta?._aspectVerified===true){
+        mediaAspectCache.set(id,{
           value:ratio,
           source:String(meta?._aspectSource||"server-package"),
-          verified:meta?._aspectVerified===true,
+          verified:true,
           at:Date.now()
         });
-        if(meta?._aspectVerified===true){
-          mediaAspectCache.set(id,{
-            value:ratio,
-            source:String(meta?._aspectSource||"server-package"),
-            verified:true,
-            at:Date.now()
-          });
-        }
       }
-    }
-
-    const missing=list
-      .map(meta=>String(meta.id||""))
-      .filter(id=>id&&!cachedPrimedAspect(id));
-
-    if(!missing.length)return;
-
-    // One background batch for the whole visible list. Click never waits on it.
-    const run=()=>{ void fetchServerAspects(missing,true); };
-    if("requestIdleCallback" in window){
-      requestIdleCallback(run,{timeout:180});
-    }else{
-      setTimeout(run,0);
     }
   }
 
@@ -2593,15 +2582,8 @@ html.one-col.portrait .player.pip{
       });
     }
 
-    // Only fill a missing cache in parallel. Never block the click.
-    if(!confirmedRatio&&!metaRatio&&!primedRatio){
-      void primeMediaAspect(id).then(ratio=>{
-        if(!ratio||String(current?.id||"")!==id)return;
-        if(mediaAspectCache.get(id)?.source==="iframe-content-rect")return;
-        commitCurrentAspect(id,ratio,{relayout:true});
-      });
-    }
-
+    // No per-click metadata resolve here. Package data paints instantly;
+    // the real YouTube videoContentRect corrects shape after playback begins.
     return true;
   }
   function isTwoColumn(){
@@ -3298,19 +3280,64 @@ html.one-col.portrait .player.pip{
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
       if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
         renderCurrentInfo();
-        loadCurrentVideoMeta();
+        if(selectedMetaNeedsLookup(metas[0])){
+          void loadCurrentVideoMeta();
+        }
       }
     }
   }
 
-  function prefetchPackages(scopes=[]){
-    const unique=[...new Set((Array.isArray(scopes)?scopes:[]).map(String).filter(Boolean))];
-    setTimeout(()=>{
-      for(const scope of unique){
-        if(scope===activePackageScope||packageCache.has(scope))continue;
-        void getPackage(scope);
+  let packagePrefetchQueue=[];
+  let packagePrefetchRunning=false;
+
+  function runPackagePrefetchQueue(){
+    if(packagePrefetchRunning)return;
+
+    const next=packagePrefetchQueue.shift();
+    if(!next)return;
+
+    if(next===activePackageScope||packageCache.has(next)){
+      runPackagePrefetchQueue();
+      return;
+    }
+
+    packagePrefetchRunning=true;
+    void getPackage(next).finally(()=>{
+      packagePrefetchRunning=false;
+      const continueRun=()=>runPackagePrefetchQueue();
+      if("requestIdleCallback" in window){
+        requestIdleCallback(continueRun,{timeout:1200});
+      }else{
+        setTimeout(continueRun,180);
       }
-    },0);
+    });
+  }
+
+  function prefetchPackages(scopes=[]){
+    const incoming=[...new Set(
+      (Array.isArray(scopes)?scopes:[])
+        .map(String)
+        .filter(Boolean)
+    )];
+
+    const queued=new Set(packagePrefetchQueue);
+    for(const scope of incoming){
+      if(
+        scope===activePackageScope||
+        packageCache.has(scope)||
+        packagePending.has(scope)||
+        queued.has(scope)
+      )continue;
+      packagePrefetchQueue.push(scope);
+      queued.add(scope);
+    }
+
+    const start=()=>runPackagePrefetchQueue();
+    if("requestIdleCallback" in window){
+      requestIdleCallback(start,{timeout:900});
+    }else{
+      setTimeout(start,120);
+    }
   }
 
   function verifiedBadgeMarkup(){
@@ -3367,16 +3394,16 @@ html.one-col.portrait .player.pip{
     }
   }
 
-  function avatarMarkup(meta){
+  function avatarMarkup(meta,eager=false){
     const avatar=meta.sourceAvatar || "";
     if(avatar){
-      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt=""></span>';
+      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
     }
     const letter=(meta.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
     return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
   }
 
-  function cardMarkup(meta){
+  function cardMarkup(meta,index=0){
     const id=meta.id || current.id;
     const title=meta.title || current.label;
     const source=meta.sourceName || "1988";
@@ -3392,11 +3419,11 @@ html.one-col.portrait .player.pip{
     return (
       '<article class="row'+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
-          '<img src="'+escapeHtml(thumb)+'" alt="">'+
+          '<img src="'+escapeHtml(thumb)+'" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
           (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
         '</div>'+
         '<div class="row-details">'+
-          avatarMarkup(meta)+
+          avatarMarkup(meta,index<6)+
           '<div class="row-copy">'+
             '<div class="row-title">'+escapeHtml(title)+'</div>'+
             '<div class="row-meta row-meta-line">'+
@@ -3605,16 +3632,42 @@ html.one-col.portrait .player.pip{
     return rows;
   }
 
+  let cardTintObserver=null;
+
+  function paintCardTint(card){
+    if(!card||card.dataset.tintReady==="1")return;
+    card.dataset.tintReady="1";
+
+    const thumb=card.querySelector(".row-thumb img");
+    const art=String(thumb?.currentSrc||thumb?.src||"").trim();
+    if(!/^https?:\/\//i.test(art))return;
+
+    void youtubeCinematicPalette(art).then(palette=>{
+      if(!palette||!card.isConnected)return;
+      card.style.setProperty("--card-accent-rgb",palette.accent.join(","));
+    });
+  }
+
   function applyRenderedCardTints(rows){
     if(!rows)return;
+
+    if(!("IntersectionObserver" in window)){
+      rows.querySelectorAll(".row[data-video-id]").forEach(paintCardTint);
+      return;
+    }
+
+    if(!cardTintObserver){
+      cardTintObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          cardTintObserver.unobserve(entry.target);
+          paintCardTint(entry.target);
+        }
+      },{root:null,rootMargin:"320px 0px",threshold:0.01});
+    }
+
     rows.querySelectorAll(".row[data-video-id]").forEach(card=>{
-      const thumb=card.querySelector(".row-thumb img");
-      const art=String(thumb?.src||"").trim();
-      if(!/^https?:\/\//i.test(art))return;
-      void youtubeCinematicPalette(art).then(palette=>{
-        if(!palette||!card.isConnected)return;
-        card.style.setProperty("--card-accent-rgb",palette.accent.join(","));
-      });
+      cardTintObserver.observe(card);
     });
   }
 
@@ -3855,6 +3908,15 @@ html.one-col.portrait .player.pip{
   async function loadFeedData(){
     await loadPackageManifest();
     return showPackageScope(activePackageScope,{force:true});
+  }
+
+  function selectedMetaNeedsLookup(meta){
+    return !(
+      meta?.id &&
+      meta?.title &&
+      meta?.thumbnail &&
+      meta?.sourceName
+    );
   }
 
   async function loadCurrentVideoMeta(){
@@ -4618,22 +4680,6 @@ html.one-col.portrait .player.pip{
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
 
-  document.getElementById("rows").addEventListener("pointerdown",event=>{
-    const card=event.target.closest(".row[data-video-id]");
-    if(!card||event.target.closest(".row-menu"))return;
-
-    const id=String(card.dataset.videoId||"").trim();
-    if(!id)return;
-
-    const meta=
-      feedMetas.find(item=>item?.id===id)||
-      relatedMetas.find(item=>item?.id===id)||
-      null;
-
-    // Usually already warm from the server batch; this is a non-blocking fallback.
-    void primeMediaAspect(id);
-  },{passive:true});
-
   document.getElementById("rows").addEventListener("click",event=>{
     const menu=event.target.closest(".row-menu");
     const card=event.target.closest(".row");
@@ -4663,7 +4709,9 @@ html.one-col.portrait .player.pip{
 
     if(navigateToVideo(id,selectedMeta)){
       renderCurrentInfo();
-      loadCurrentVideoMeta();
+      if(selectedMetaNeedsLookup(selectedMeta)){
+        void loadCurrentVideoMeta();
+      }
       schedulePip();
     }
   });
