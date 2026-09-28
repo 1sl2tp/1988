@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-simple-media-v15';
+const CACHE='1988-simple-media-v16';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 

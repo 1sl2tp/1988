@@ -1248,6 +1248,22 @@ html.one-col .row-thumb.inline-playing:not(.pip-floating) > .duration-badge{
 html.one-col .row-thumb.inline-playing.pip-floating{
   overflow:visible;
 }
+
+/* The clicked card follows the REAL media shape.
+   Landscape keeps the card width; portrait opens as a true vertical viewport
+   instead of staying 16:9 with black side bars. */
+html.one-col .row-thumb.inline-playing:not(.pip-floating){
+  aspect-ratio:var(--media-ratio)!important;
+}
+html.one-col.landscape .row-thumb.inline-playing:not(.pip-floating){
+  width:100%;
+  margin-inline:0;
+}
+html.one-col.portrait .row-thumb.inline-playing:not(.pip-floating){
+  width:min(100%,calc(var(--current-full-h) * var(--media-ratio)));
+  margin-inline:auto;
+}
+
 html.one-col .row-thumb.inline-playing > .player:not(.pip){
   position:absolute!important;
   inset:0!important;
