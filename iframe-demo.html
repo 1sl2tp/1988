@@ -437,11 +437,14 @@ function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
   stage.classList.toggle("chrome-mask",!!on);
 }
-function scheduleChromeRelease(delay=3200){
+function scheduleChromeRelease(delay=3800){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
   chromeMaskTimer=setTimeout(()=>{
-    if(playerIsPlaying()&&!stage.classList.contains("controls-visible")){
+    const stillPlaying=playerIsPlaying();
+    const customUiHidden=!stage.classList.contains("controls-visible");
+    const notSeeking=activeSeekPointer===null;
+    if(stillPlaying&&customUiHidden&&notSeeking){
       setChromeMask(false);
     }
   },delay);
@@ -501,7 +504,7 @@ function enterDemoPip(){
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
       setChromeMask(true);
-      scheduleChromeRelease(3200);
+      scheduleChromeRelease(3800);
     });
   }
 }
@@ -611,7 +614,7 @@ async function render(){
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           if(event?.data===1){
             setChromeMask(true);
-            scheduleChromeRelease(3200);
+            scheduleChromeRelease(3800);
           }else{
             stopChromeMaskTimer();
             setChromeMask(true);
