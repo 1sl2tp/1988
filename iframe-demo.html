@@ -525,9 +525,11 @@ function paintGeometryReadout(result){
       " / title "+Math.round(top.title||0)+
       " / kênh "+Math.round(top.channel||0)+"]"+
     " · BOTTOM "+Math.round(result.bottomInset)+
-      " [action "+Math.round(bottom.actions||0)+
-      " / YT "+Math.round(bottom.branding||0)+
-      " / tua "+Math.round(bottom.seek||0)+"]"+
+      " [link "+Math.round(bottom.linkBox||0)+
+      " / video khác "+Math.round(bottom.nextBox||0)+
+      " / YouTube "+Math.round(bottom.youtubeBox||0)+
+      " / tua "+Math.round(bottom.seekBox||0)+
+      " / MAX "+Math.round(bottom.outerMax||0)+"]"+
     " · cửa sổ "+Math.round(result.safeWindow.height);
 }
 function syncMeasuredSafeWindow(){
