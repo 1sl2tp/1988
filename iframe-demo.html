@@ -515,6 +515,9 @@ function paintGeometryReadout(result){
   const p=result.playCenter;
   const top=result.clusters?.top||{};
   const bottom=result.clusters?.bottom||{};
+  const boxText=(box)=>box
+    ? Math.round(box.height)+"+"+Math.round(box.offset)+"="+Math.round(box.edge)
+    : "0";
   const range=result.sampleRange||[0,0];
   geometryReadout.textContent=
     Math.round(result.width)+"×"+Math.round(result.height)+
@@ -530,10 +533,10 @@ function paintGeometryReadout(result){
       " / phải "+Math.round(top.topRightEdge||0)+
       " / MAX "+Math.round(top.outerMax||0)+"]"+
     " · BOTTOM "+Math.round(result.bottomInset)+
-      " [link "+Math.round(bottom.linkEdge||0)+
-      " / video khác "+Math.round(bottom.nextEdge||0)+
-      " / YouTube "+Math.round(bottom.youtubeEdge||0)+
-      " / tua "+Math.round(bottom.seekEdge||0)+
+      " [link "+boxText(bottom.linkBox)+
+      " / video khác "+boxText(bottom.nextBox)+
+      " / YouTube "+boxText(bottom.youtubeBox)+
+      " / tua "+boxText(bottom.seekBox)+
       " / MAX "+Math.round(bottom.outerMax||0)+"]"+
     " · cửa sổ "+Math.round(result.safeWindow.height);
 }
