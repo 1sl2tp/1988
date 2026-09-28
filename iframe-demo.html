@@ -1946,6 +1946,7 @@ function beginPipPointer(e,mode,handle=""){
 }
 function updatePipPointer(e){
   if(pipPointerId===null||e.pointerId!==pipPointerId||!pipPointerStart)return false;
+  touchChromeCover(pipPointerMode==="resize"?"resize-move":"drag-move");
   const s=pipPointerStart;
   const dx=e.clientX-s.x;
   const dy=e.clientY-s.y;
@@ -1978,12 +1979,14 @@ function updatePipPointer(e){
 }
 function endPipPointer(e){
   if(pipPointerId===null||e.pointerId!==pipPointerId)return false;
+  const endedMode=pipPointerMode;
   try{e.target.releasePointerCapture(e.pointerId)}catch{}
   pipPointerMode=null;
   pipPointerId=null;
   pipPointerStart=null;
   stage.classList.remove("pip-dragging","pip-resizing");
   syncMeasuredSafeWindow();
+  touchChromeCover(endedMode==="resize"?"resize-end":"drag-end");
   return true;
 }
 function pipChromeTiming(){
@@ -1996,6 +1999,9 @@ function pipChromeTiming(){
 
 function setWakeLayer(on){
   stage.classList.toggle("pip-wake-active",!!on);
+}
+function mediaGeometryBusy(){
+  return pipPointerId!==null || activeSeekPointer!==null;
 }
 
 function hideChromeCover(reason=""){
@@ -2028,7 +2034,12 @@ function armChromeCoverHide(reason="idle"){
     chromeMaskTimer=0;
     if(!pipCoverVisible||!pipCoverArmed)return;
     if(pipCoverCycle!==cycle)return;
-    if(activeSeekPointer!==null)return;
+    if(mediaGeometryBusy()){
+      pipCoverArmed=false;
+      setWakeLayer(false);
+      touchChromeCover("geometry-busy");
+      return;
+    }
     hideChromeCover(reason);
   },grace);
 }
@@ -2057,7 +2068,10 @@ function scheduleChromeRelease(){
     if(!pipCoverVisible||pipCoverArmed)return;
     if(pipCoverCycle!==cycle)return;
     if(!playerIsPlaying())return;
-    if(activeSeekPointer!==null)return;
+    if(mediaGeometryBusy()){
+      touchChromeCover("geometry-busy");
+      return;
+    }
     armChromeCoverHide("library-idle");
   },wait);
 }
