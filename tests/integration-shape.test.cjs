@@ -52,10 +52,14 @@ if(simpleProduction){
   assert.match(html,/player\.classList\.toggle\(["']pip["'],!!floating\)/);
   assert.match(html,/player\.classList\.add\(["']pip["']\)/);
   assert.match(html,/player\.classList\.remove\(["']pip["']\)/);
+  assert.match(html,/function layoutFeedMasonry\(/);
+  assert.match(html,/rows\.classList\.add\(["']masonry-active["']\)/);
+  assert.match(html,/grid-auto-flow:row dense/);
+  assert.match(html,/const cardGap=32/);
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v22/);
+  assert.match(sw,/1988-simple-media-v23/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
