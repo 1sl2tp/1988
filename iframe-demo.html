@@ -595,7 +595,7 @@
 
 <script src="/src/media-meta.js?v=20260928-pip-top"></script>
 <script src="/src/api.js?v=20260928-pip-top"></script>
-<script src="/src/youtube-chrome-geometry.js?v=20260928-31"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-32"></script>
 <script>
 const modes=[
   {
@@ -702,7 +702,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="direct-component-edges-v15";
+const CHROME_LIBRARY_PROFILE_REV="small-portrait-youtube-edge-v16";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -1217,7 +1217,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v10-direct-edges",
+    "pip-chrome-calibration-v11-small-portrait-youtube",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
