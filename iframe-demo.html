@@ -662,7 +662,7 @@
       position:fixed!important;
       z-index:50;
       top:calc(env(safe-area-inset-top) + 10px);
-      right:10px;
+      right:auto;
       left:auto;
       bottom:auto;
       margin:0!important;
@@ -671,6 +671,8 @@
       background:#000;
       box-shadow:0 14px 38px rgba(0,0,0,.58);
       isolation:isolate;
+      transform-origin:0 0;
+      will-change:transform,left,top;
     }
     .rail-crop-preview.rail-pip-open .rail-pip-drag-zone{
       display:block;
@@ -971,7 +973,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. PiP Rail chỉ hiển thị lại đúng khung ĐÃ CẮT rồi dùng cách mở/neo/min-max/resize của PiP max; không thêm xử lý media riêng.",
+    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. PiP Rail giữ nguyên khung ĐÃ CẮT bên trong và chỉ scale toàn bộ khung khi mở/resize; YouTube không được reflow lại.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1926,35 +1928,48 @@ function setRailPipRect(left,top,width){
 
   const aspect=Math.max(.25,Number(railPipBaseGeometry.aspect)||16/9);
   const bounds=libraryWidthBounds(aspect);
-  const finalWidth=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,Number(width)||bounds.minWidth));
+  const finalWidth=Math.max(
+    bounds.minWidth,
+    Math.min(bounds.maxWidth,Number(width)||bounds.minWidth)
+  );
   const finalHeight=finalWidth/aspect;
-  const scale=finalWidth/railPipBaseGeometry.cropWidth;
-
-  const sourceWidth=railPipBaseGeometry.sourceWidth*scale;
-  const sourceHeight=railPipBaseGeometry.sourceHeight*scale;
-  const cropTop=railPipBaseGeometry.cropTop*scale;
+  const scale=finalWidth/Math.max(1,railPipBaseGeometry.cropWidth);
   const pos=clampPipPosition(left,top,finalWidth,finalHeight);
 
-  railCropPreview.style.setProperty("--rail-preview-source-width",sourceWidth+"px");
-  railCropPreview.style.setProperty("--rail-preview-source-height",sourceHeight+"px");
-  railCropPreview.style.setProperty("--rail-preview-crop-top",cropTop+"px");
+  // IMPORTANT: keep the cropped input internally IDENTICAL to Library.
+  // Do not resize sourceWidth/sourceHeight/cropTop here. Resizing the iframe
+  // makes YouTube reflow its own chrome. PiP only scales the finished crop.
   railCropPreview.style.left=pos.left+"px";
   railCropPreview.style.top=pos.top+"px";
   railCropPreview.style.right="auto";
   railCropPreview.style.bottom="auto";
-  railCropPreview.style.width=finalWidth+"px";
-  railCropPreview.style.height=finalHeight+"px";
+  railCropPreview.style.width=railPipBaseGeometry.cropWidth+"px";
+  railCropPreview.style.height=railPipBaseGeometry.cropHeight+"px";
   railCropPreview.style.aspectRatio=String(aspect);
-  railCropPreview.dataset.pipVideoId=String(railPipBaseGeometry.videoId||"");
-  railCropPreview.dataset.pipOrientation=String(railPipBaseGeometry.orientation||"");
+  railCropPreview.style.transform="scale("+scale+")";
+
+  railCropPreview.dataset.pipVideoId=String(requestedVideoId||"");
+  railCropPreview.dataset.pipOrientation=String(
+    railSelectedShape||
+    verifiedMediaShape||
+    (aspect<1?"portrait":"landscape")
+  );
   railCropPreview.dataset.pipAspect=Number(aspect).toFixed(6);
+  railCropPreview.dataset.pipScale=Number(scale).toFixed(6);
   railCropPreview.dataset.pipCrop=
     [
       Math.round(railPipBaseGeometry.cropTop||0),
       Math.round(railPipBaseGeometry.cropBottom||0)
     ].join("/");
 
-  return {width:finalWidth,height:finalHeight,left:pos.left,top:pos.top,aspect};
+  return {
+    width:finalWidth,
+    height:finalHeight,
+    left:pos.left,
+    top:pos.top,
+    aspect,
+    scale
+  };
 }
 function openRailCropPip(){
   if(
@@ -1975,7 +1990,24 @@ function openRailCropPip(){
   }
 
   stopRailCropPreviewSync();
+
+  // Freeze EXACTLY what the user sees in "ĐÃ CẮT".
   railPipBaseGeometry=currentRailCroppedGeometry();
+  railCropPreview.style.setProperty(
+    "--rail-preview-source-width",
+    railPipBaseGeometry.sourceWidth+"px"
+  );
+  railCropPreview.style.setProperty(
+    "--rail-preview-source-height",
+    railPipBaseGeometry.sourceHeight+"px"
+  );
+  railCropPreview.style.setProperty(
+    "--rail-preview-crop-top",
+    railPipBaseGeometry.cropTop+"px"
+  );
+  railCropPreview.style.width=railPipBaseGeometry.cropWidth+"px";
+  railCropPreview.style.height=railPipBaseGeometry.cropHeight+"px";
+
   railPipOpen=true;
   railCropPreview.classList.add("rail-pip-open");
 
@@ -2015,9 +2047,11 @@ function closeRailCropPip(){
   railCropPreview.style.width="";
   railCropPreview.style.height="";
   railCropPreview.style.aspectRatio="";
+  railCropPreview.style.transform="";
   delete railCropPreview.dataset.pipVideoId;
   delete railCropPreview.dataset.pipOrientation;
   delete railCropPreview.dataset.pipAspect;
+  delete railCropPreview.dataset.pipScale;
   delete railCropPreview.dataset.pipCrop;
 
   if(stage.classList.contains("rail-mode")){
