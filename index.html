@@ -1202,6 +1202,18 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   column-gap:var(--card-gap-x);
   row-gap:var(--card-gap-y);
 }
+
+/* Variable-height cards pack into the shortest available column.
+   This is normal page layout, not an inner scroller. */
+.rows.masonry-active{
+  grid-auto-flow:row dense;
+  grid-auto-rows:4px;
+  row-gap:0;
+  align-items:start;
+}
+.rows.masonry-active .row{
+  align-self:start;
+}
 /* Keep the visual top gap exact.
    .row::before extends 12px outside the card for hover/selected feedback.
    Rows start at 20px = 8px desired gap + 12px halo, so the OUTER card
@@ -2032,6 +2044,7 @@ html.one-col.portrait .player.pip{
     if(relayout){
       layout();
       schedulePip();
+      scheduleFeedMasonry();
     }
     return kind;
   }
@@ -2698,7 +2711,7 @@ html.one-col.portrait .player.pip{
 
     const pageW=viewportW;
     const pageEdge=viewportW<480?12:24;
-    const cardGap=16;
+    const cardGap=32;
     const mediaGap=16;
     root.style.setProperty("--feed-edge-gap",pageEdge+"px");
     root.style.setProperty("--card-gap-x",cardGap+"px");
@@ -3559,6 +3572,59 @@ html.one-col.portrait .player.pip{
     });
   }
 
+  let feedMasonryRaf=0;
+  let feedMasonryObserver=null;
+
+  function currentFeedColumnCount(){
+    const raw=getComputedStyle(root).getPropertyValue("--feed-cols");
+    return Math.max(1,Math.round(Number(raw)||1));
+  }
+
+  function layoutFeedMasonry(){
+    const rows=document.getElementById("rows");
+    if(!rows)return;
+
+    const cards=[...rows.querySelectorAll(".row")];
+    const cols=currentFeedColumnCount();
+
+    if(cols<=1||cards.length<=1){
+      rows.classList.remove("masonry-active");
+      cards.forEach(card=>card.style.removeProperty("grid-row-end"));
+      return;
+    }
+
+    rows.classList.add("masonry-active");
+
+    const unit=4;
+    const verticalGap=40;
+    cards.forEach(card=>card.style.removeProperty("grid-row-end"));
+
+    for(const card of cards){
+      const height=Math.max(1,Math.ceil(card.getBoundingClientRect().height));
+      const span=Math.max(1,Math.ceil((height+verticalGap)/unit));
+      card.style.gridRowEnd="span "+span;
+    }
+  }
+
+  function scheduleFeedMasonry(){
+    if(feedMasonryRaf)return;
+    feedMasonryRaf=requestAnimationFrame(()=>{
+      feedMasonryRaf=0;
+      layoutFeedMasonry();
+    });
+  }
+
+  function observeFeedMasonryRows(){
+    const rows=document.getElementById("rows");
+    if(!rows)return;
+    if(!feedMasonryObserver){
+      feedMasonryObserver=new ResizeObserver(()=>scheduleFeedMasonry());
+    }
+    feedMasonryObserver.disconnect();
+    rows.querySelectorAll(".row").forEach(card=>feedMasonryObserver.observe(card));
+    scheduleFeedMasonry();
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
     const meta=currentMeta || {};
@@ -3598,6 +3664,8 @@ html.one-col.portrait .player.pip{
         }
       }
     }
+
+    observeFeedMasonryRows();
   }
 
   function normalizedSearchQuery(value){
@@ -4072,6 +4140,7 @@ html.one-col.portrait .player.pip{
     stage.classList.remove("pip-host");
     if(!floating)clearMobilePipGestureGeometry();
     pip=!!floating;
+    scheduleFeedMasonry();
     return true;
   }
 
@@ -4083,6 +4152,7 @@ html.one-col.portrait .player.pip{
     clearMobilePipGestureGeometry();
     movePlayerNode(stage);
     pip=false;
+    scheduleFeedMasonry();
   }
 
   function openSelectedVideoInline(card,id){
@@ -4468,6 +4538,7 @@ html.one-col.portrait .player.pip{
       top.classList.remove("search-open");
     }
     layout();
+    scheduleFeedMasonry();
     updateHeaderSearchRoom();
     syncMobileHeaderVisibility(true);
     schedulePip();
@@ -4487,6 +4558,7 @@ html.one-col.portrait .player.pip{
     syncMobileHeaderVisibility(true);
     updateSourceRailArrows();
     schedulePip();
+    scheduleFeedMasonry();
   },{passive:true});
 
   /* If title/search/source chrome changes height, every media mode receives
