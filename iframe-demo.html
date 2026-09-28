@@ -811,7 +811,7 @@
   <section class="rail-library" id="railLibrary" aria-label="Thư viện thử khung đen YouTube">
     <div class="rail-library-title">FRAME LIBRARY · CHƯA CẮT ↔ ĐÃ CẮT · PiP dùng lại đúng kết quả ĐÃ CẮT</div>
     <div class="rail-library-samples">
-      <button type="button" data-rail-video="dQw4w9WgXcQ" data-rail-shape="landscape" data-rail-aspect="1.7777777778">Ngang 16:9 · Rick</button>
+      <button type="button" data-rail-video="dQw4w9WgXcQ" data-rail-shape="landscape" data-rail-aspect="1.7777777778">Ngang · Rick</button>
       <button type="button" data-rail-video="C91FyjzHUr0" data-rail-shape="portrait" data-rail-aspect="0.5625">Dọc 9:16 · Me Rehúso</button>
       <button type="button" id="railCropPipToggle">Mở PiP</button>
     </div>
@@ -2156,12 +2156,34 @@ function refreshRailMediaAspect(){
   currentViewportTrim=next;
   const previousShape=verifiedMediaShape;
 
-  if(railSelectedShape&&railSelectedAspect){
-    verifiedMediaAspect=railSelectedAspect;
+  if(railSelectedShape){
+    const measuredShape=
+      next.contentAspect<.98
+        ? "portrait"
+        : next.contentAspect>1.02
+          ? "landscape"
+          : "square";
+
+    // Shape selection is authoritative, aspect is not.
+    // Use the real YouTube media aspect when it belongs to the selected shape.
+    // This lets old landscape 4:3 videos stay 4:3 instead of being forced 16:9,
+    // while still preventing a stale landscape rect from flipping a portrait.
+    if(measuredShape===railSelectedShape){
+      verifiedMediaAspect=next.contentAspect;
+    }else if(!verifiedMediaAspect){
+      verifiedMediaAspect=
+        Number(railSelectedAspect)||
+        (railSelectedShape==="portrait"?9/16:16/9);
+    }
     verifiedMediaShape=railSelectedShape;
   }else{
     verifiedMediaAspect=next.contentAspect;
-    verifiedMediaShape=next.contentAspect<.98?"portrait":next.contentAspect>1.02?"landscape":"square";
+    verifiedMediaShape=
+      next.contentAspect<.98
+        ? "portrait"
+        : next.contentAspect>1.02
+          ? "landscape"
+          : "square";
   }
 
   if(previousShape!==verifiedMediaShape){
@@ -2172,6 +2194,10 @@ function refreshRailMediaAspect(){
     railWorkbenchWidth=standard.width;
   }
 
+  currentViewportTrim={
+    ...currentViewportTrim,
+    contentAspect:verifiedMediaAspect
+  };
   applyRailLayout(railWorkbenchWidth,{workbench:true});
   return verifiedMediaAspect;
 }
