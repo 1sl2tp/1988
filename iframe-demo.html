@@ -95,6 +95,7 @@
       width:100%;
       height:100%;
       border:0;
+      pointer-events:none;
     }
     .chrome-calibration-guide{
       position:absolute;
@@ -235,6 +236,25 @@
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
     .stage.demo-pip.max-clean-mode.chrome-mask .clean-controls{
       opacity:1;
+    }
+    .pip-mask-shield{
+      display:none;
+      position:absolute;
+      left:0;
+      right:0;
+      z-index:0;
+      pointer-events:auto;
+      background:transparent;
+      touch-action:none;
+    }
+    .stage.demo-pip.max-clean-mode.chrome-mask .pip-mask-shield{display:block}
+    .pip-mask-shield.top{
+      top:0;
+      height:var(--yt-top-inset);
+    }
+    .pip-mask-shield.bottom{
+      bottom:0;
+      height:var(--yt-bottom-inset);
     }
     .stage.demo-pip.max-clean-mode{
       --pip-control-size:30px;
@@ -962,6 +982,8 @@ function showCleanControls(){
 }
 function cleanOverlayMarkup(){
   return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
+    '<div class="pip-mask-shield top" data-pip-mask-shield="top" aria-hidden="true"></div>'+
+    '<div class="pip-mask-shield bottom" data-pip-mask-shield="bottom" aria-hidden="true"></div>'+
     '<div class="pip-drag-zone" data-pip-drag title="Kéo để di chuyển PiP"></div>'+
     '<div class="pip-resize-handle n" data-pip-resize="n"></div>'+
     '<div class="pip-resize-handle ne" data-pip-resize="ne"></div>'+
@@ -1176,6 +1198,13 @@ modesEl.addEventListener("click",e=>{
 });
 demoPipToggle.addEventListener("click",toggleDemoPip);
 stage.addEventListener("pointerdown",e=>{
+  const shield=e.target.closest("[data-pip-mask-shield]");
+  if(shield){
+    e.preventDefault();
+    e.stopPropagation();
+    showCleanControls();
+    return;
+  }
   const resize=e.target.closest("[data-pip-resize]");
   if(resize){
     beginPipPointer(e,"resize",resize.dataset.pipResize||"se");
@@ -1219,6 +1248,13 @@ function finishSeek(e){
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
 stage.addEventListener("click",e=>{
+  const shield=e.target.closest("[data-pip-mask-shield]");
+  if(shield){
+    e.preventDefault();
+    e.stopPropagation();
+    showCleanControls();
+    return;
+  }
   const close=e.target.closest("[data-clean-close]");
   if(close){
     e.preventDefault();
