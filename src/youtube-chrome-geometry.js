@@ -6,27 +6,30 @@
   // the native play-control invariant (center of player), orientation, and
   // calibrated responsive samples. Title length is used only to estimate
   // whether YouTube's top title area grows to two lines.
-  const VERSION = "2026-09-28.1";
+  const VERSION = "2026-09-28.2";
 
   const PROFILES = {
+    // Calibrated from real YouTube embed chrome at several PiP widths.
+    // Top chrome is deeper because it carries avatar + title + channel.
+    // Bottom chrome is intentionally much shallower so we keep more picture.
     landscape: [
-      { w: 160, top: 44, bottom: 38 },
-      { w: 190, top: 46, bottom: 40 },
-      { w: 220, top: 48, bottom: 41 },
-      { w: 280, top: 50, bottom: 43 },
-      { w: 360, top: 54, bottom: 46 },
-      { w: 520, top: 60, bottom: 50 },
-      { w: 720, top: 66, bottom: 54 },
-      { w: 960, top: 72, bottom: 58 }
+      { w: 160, top: 42, bottom: 22 },
+      { w: 190, top: 44, bottom: 23 },
+      { w: 220, top: 46, bottom: 24 },
+      { w: 280, top: 50, bottom: 26 },
+      { w: 360, top: 54, bottom: 28 },
+      { w: 520, top: 58, bottom: 30 },
+      { w: 720, top: 62, bottom: 32 },
+      { w: 960, top: 66, bottom: 34 }
     ],
     portrait: [
-      { w: 120, top: 46, bottom: 40 },
-      { w: 150, top: 50, bottom: 42 },
-      { w: 180, top: 54, bottom: 45 },
-      { w: 220, top: 58, bottom: 48 },
-      { w: 280, top: 62, bottom: 51 },
-      { w: 360, top: 67, bottom: 55 },
-      { w: 460, top: 72, bottom: 59 }
+      { w: 120, top: 44, bottom: 22 },
+      { w: 150, top: 47, bottom: 23 },
+      { w: 180, top: 50, bottom: 24 },
+      { w: 220, top: 53, bottom: 26 },
+      { w: 280, top: 57, bottom: 28 },
+      { w: 360, top: 61, bottom: 30 },
+      { w: 460, top: 65, bottom: 32 }
     ]
   };
 
@@ -82,22 +85,26 @@
 
     const titleLines = estimateTitleLines(width, options.title || "");
     const secondLineExtra = titleLines > 1
-      ? clamp(width * 0.048, 11, 18)
+      ? clamp(width * 0.038, 9, 14)
       : 0;
 
     const topChrome = base.top + secondLineExtra;
     const bottomChrome = base.bottom;
 
-    // Preserve the native YouTube play/pause at exact geometric center by using
-    // a symmetric inset. Keep at least ~52 px around the center control.
-    const minCenterWindow = clamp(Math.min(width, height) * 0.34, 52, 88);
-    const maxInset = Math.max(0, (height - minCenterWindow) / 2);
-    const safeEdge = clamp(Math.max(topChrome, bottomChrome), 0, maxInset);
-
     const playCenter = {
       x: width / 2,
       y: height / 2
     };
+
+    // Crop top and bottom independently. The native Play/Pause remains at the
+    // real player center; we only guarantee a clear area around that center so
+    // the control is never clipped. This keeps substantially more picture than
+    // the old symmetric max(top,bottom) crop.
+    const playClearance = clamp(Math.min(width, height) * 0.16, 26, 42);
+    const maxTopInset = Math.max(0, playCenter.y - playClearance);
+    const maxBottomInset = Math.max(0, (height - playCenter.y) - playClearance);
+    const topInset = clamp(topChrome, 0, maxTopInset);
+    const bottomInset = clamp(bottomChrome, 0, maxBottomInset);
 
     return {
       version: VERSION,
@@ -105,15 +112,19 @@
       width,
       height,
       playCenter,
+      playClearance,
       titleLines,
       topChrome,
       bottomChrome,
-      safeEdge,
+      topInset,
+      bottomInset,
+      // Legacy compatibility for callers that still expect a single value.
+      safeEdge: Math.max(topInset, bottomInset),
       safeWindow: {
         x: 0,
-        y: safeEdge,
+        y: topInset,
         width,
-        height: Math.max(0, height - safeEdge * 2)
+        height: Math.max(0, height - topInset - bottomInset)
       }
     };
   }
@@ -122,6 +133,8 @@
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     const result = measure(rect, options);
+    element.style.setProperty("--yt-top-inset", result.topInset.toFixed(2) + "px");
+    element.style.setProperty("--yt-bottom-inset", result.bottomInset.toFixed(2) + "px");
     element.style.setProperty("--safe-edge", result.safeEdge.toFixed(2) + "px");
     element.style.setProperty("--yt-play-x", result.playCenter.x.toFixed(2) + "px");
     element.style.setProperty("--yt-play-y", result.playCenter.y.toFixed(2) + "px");
