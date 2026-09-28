@@ -883,10 +883,11 @@ def download_mp3_response(video_id, title=""):
                 continue
 
             if upstream.status_code >= 400:
+                status = upstream.status_code
                 detail = upstream.text[:240]
                 upstream.close()
                 upstream = None
-                raise RuntimeError(f"upstream_http_{upstream.status_code}:{detail}")
+                raise RuntimeError(f"upstream_http_{status}:{detail}")
 
             proc = subprocess.Popen(
                 [
