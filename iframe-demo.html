@@ -2009,18 +2009,25 @@ function openRailCropPip(){
   railPipOpen=true;
   railCropPreview.classList.add("rail-pip-open");
 
+  // Open EXACTLY at the already-cropped Library size.
+  // Do not auto-enlarge landscape from 170px to a generic PiP width:
+  // that makes YouTube reflow its native chrome and changes the result.
   const bounds=libraryWidthBounds(railPipBaseGeometry.aspect);
-  const minW=bounds.minWidth;
-  const maxW=bounds.maxWidth;
-  const initialWidth=Math.max(
-    minW,
-    Math.min(maxW,Math.max(170,Math.min(280,window.innerWidth*.46)))
+  const initialWidth=Math.min(
+    railPipBaseGeometry.cropWidth,
+    bounds.maxWidth
   );
+  const initialHeight=initialWidth/railPipBaseGeometry.aspect;
 
-  // Same placement rule as PiP max: top-right, then clamp.
-  setRailPipRect(
+  const pos=clampPipPosition(
     window.innerWidth-initialWidth-10,
     10,
+    initialWidth,
+    initialHeight
+  );
+  setRailPipRect(
+    pos.left,
+    pos.top,
     initialWidth
   );
 
