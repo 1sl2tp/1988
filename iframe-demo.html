@@ -531,11 +531,9 @@ function paintGeometryReadout(result){
     " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
     " · TOP "+Math.round(result.topInset)+
-      " [logo "+activeEdge(top.avatarBox)+
+      " [logo kênh "+activeEdge(top.avatarBox)+
       " / title "+activeEdge(top.titleBox)+
-      " / kênh "+activeEdge(top.channelBox)+
-      " / phụ "+activeEdge(top.auxBox)+
-      " / phải "+activeEdge(top.topRightBox)+
+      " / tên kênh "+activeEdge(top.channelBox)+
       " / MAX "+Math.round(top.outerMax||0)+"]"+
     " · BOTTOM "+Math.round(result.bottomInset)+
       " [link "+boxText(bottom.linkBox)+
@@ -555,7 +553,7 @@ function syncMeasuredSafeWindow(){
     paintGeometryReadout(null);
     return null;
   }
-  const result=geometry.apply(stage,{title:currentVideoTitle(),controls:false,aux:true});
+  const result=geometry.apply(stage,{title:currentVideoTitle(),controls:false});
   paintGeometryReadout(result);
   return result;
 }
