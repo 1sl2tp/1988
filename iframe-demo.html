@@ -925,8 +925,8 @@ let railWorkbenchWidth=520;
 let railBlackPerSide=28;
 let railCropPipOpen=false;
 const RAIL_CROP_PRESETS={
-  landscape:{width:170,blackTop:61,blackBottom:61,aspect:16/9},
-  portrait:{width:311,blackTop:61,blackBottom:61,aspect:9/16}
+  landscape:{width:170,blackTop:65,blackBottom:65,aspect:16/9},
+  portrait:{width:311,blackTop:63,blackBottom:63,aspect:9/16}
 };
 let currentLibraryRevision="";
 let requestedVideoId="";
@@ -1616,21 +1616,31 @@ function railCropGeometryForWidth(width){
   const baseVideoHeight=preset.width/preset.aspect;
   const baseSourceHeight=baseVideoHeight+preset.blackTop+preset.blackBottom;
 
-  // Crop is defined ONLY by the two video edges.
-  const videoTop=preset.blackTop*scale;
-  const videoHeight=baseVideoHeight*scale;
-  const videoBottom=videoTop+videoHeight;
+  // 1) SCALE the whole source frame first.
+  const sourceWidth=preset.width*scale;
+  const sourceHeight=baseSourceHeight*scale;
+
+  // 2) CROP the compensated black rails after scaling.
+  //    Landscape: 65*scale from top and bottom.
+  //    Portrait : 63*scale from top and bottom.
+  const cropTop=preset.blackTop*scale;
+  const cropBottom=preset.blackBottom*scale;
+  const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
+  const videoTop=cropTop;
+  const videoBottom=sourceHeight-cropBottom;
 
   return {
     preset,
     scale,
-    sourceWidth:preset.width*scale,
-    sourceHeight:baseSourceHeight*scale,
+    sourceWidth,
+    sourceHeight,
+    cropTop,
+    cropBottom,
     videoTop,
     videoBottom,
-    videoHeight,
-    cropWidth:preset.width*scale,
-    cropHeight:videoHeight
+    videoHeight:cropHeight,
+    cropWidth:sourceWidth,
+    cropHeight
   };
 }
 function applyRailCropGeometry(width){
@@ -1638,7 +1648,7 @@ function applyRailCropGeometry(width){
 
   stage.style.setProperty("--rail-source-width",g.sourceWidth+"px");
   stage.style.setProperty("--rail-source-height",g.sourceHeight+"px");
-  stage.style.setProperty("--rail-crop-top",g.videoTop+"px");
+  stage.style.setProperty("--rail-crop-top",g.cropTop+"px");
 
   stage.style.width=g.cropWidth+"px";
   stage.style.height=g.cropHeight+"px";
@@ -1682,9 +1692,10 @@ function openRailCropPip(){
     railLibraryReadout.textContent=
       "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
       " · SOURCE "+Math.round(g.sourceWidth)+"×"+Math.round(g.sourceHeight)+
+      " · SCALE "+g.scale.toFixed(2)+
+      " · CẮT "+Math.round(g.cropTop)+" / "+Math.round(g.cropBottom)+
       " · VIDEO EDGE "+Math.round(g.videoTop)+" → "+Math.round(g.videoBottom)+
-      " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight)+
-      " · GIỮ HÌNH + TUA";
+      " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight);
   }
 }
 function closeRailCropPip(){
