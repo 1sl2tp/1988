@@ -4597,7 +4597,11 @@ html.one-col.portrait .player.pip{
     const head=rows?.querySelector?.("[data-feed-head]");
     if(!head)return;
     const title=head.querySelector(".feed-head-title");
-    if(title)title.textContent="Tiếp theo · "+currentFeedLabel();
+    if(title){
+      title.textContent=feedMode==="channel"
+        ?currentFeedLabel()
+        :"Tiếp theo · "+currentFeedLabel();
+    }
     const toggle=head.querySelector("[data-autoplay-toggle]");
     if(toggle){
       toggle.setAttribute("aria-checked",autoplayNext?"true":"false");
