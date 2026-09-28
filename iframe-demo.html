@@ -452,6 +452,12 @@
           <div class="chrome-calibration-scale" id="calMaxScale"></div>
         </div>
       </div>
+      <div class="chrome-calibration-card">
+        <div class="chrome-calibration-label" id="calCurrentLabel">CURRENT</div>
+        <div class="chrome-calibration-viewport" id="calCurrentViewport">
+          <div class="chrome-calibration-scale" id="calCurrentScale"></div>
+        </div>
+      </div>
     </div>
   </section>
   <div class="stage-spacer" id="stageSpacer"></div>
@@ -472,7 +478,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-20"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-21"></script>
 <script>
 const modes=[
   {
@@ -569,6 +575,9 @@ const calMinViewport=document.getElementById("calMinViewport");
 const calMaxViewport=document.getElementById("calMaxViewport");
 const calMinScale=document.getElementById("calMinScale");
 const calMaxScale=document.getElementById("calMaxScale");
+const calCurrentLabel=document.getElementById("calCurrentLabel");
+const calCurrentViewport=document.getElementById("calCurrentViewport");
+const calCurrentScale=document.getElementById("calCurrentScale");
 const stageSpacer=document.getElementById("stageSpacer");
 const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
@@ -581,7 +590,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="top-metadata-v3";
+const CHROME_LIBRARY_PROFILE_REV="top-metadata-v4";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -687,6 +696,7 @@ function invalidateChromeLibraries(){
   currentLibraryRevision=chromeLibraryRevision();
   calMinScale?.replaceChildren();
   calMaxScale?.replaceChildren();
+  calCurrentScale?.replaceChildren();
 }
 function viewportTrimSignature(trim){
   return [
@@ -870,9 +880,10 @@ function calibrationIframeSrc(videoId){
 }
 function renderCalibrationSample(kind,result,library){
   const isMin=kind==="min";
-  const viewport=isMin?calMinViewport:calMaxViewport;
-  const scaleBox=isMin?calMinScale:calMaxScale;
-  const label=isMin?calMinLabel:calMaxLabel;
+  const isMax=kind==="max";
+  const viewport=isMin?calMinViewport:(isMax?calMaxViewport:calCurrentViewport);
+  const scaleBox=isMin?calMinScale:(isMax?calMaxScale:calCurrentScale);
+  const label=isMin?calMinLabel:(isMax?calMaxLabel:calCurrentLabel);
   if(!viewport||!scaleBox||!label||!result||!library)return;
 
   const w=Math.max(1,Math.round(result.width));
@@ -895,7 +906,7 @@ function renderCalibrationSample(kind,result,library){
 
   const iframe=document.createElement("iframe");
   iframe.src=calibrationIframeSrc(library.videoId);
-  iframe.title=(isMin?"MIN":"MAX")+" YouTube PiP calibration";
+  iframe.title=(isMin?"MIN":isMax?"MAX":"CURRENT")+" YouTube PiP calibration";
   iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
   iframe.referrerPolicy="strict-origin-when-cross-origin";
   const vt=result.viewportTrim||{};
@@ -915,7 +926,7 @@ function renderCalibrationSample(kind,result,library){
   scaleBox.replaceChildren(frame);
 
   label.textContent=
-    (isMin?"MIN ":"MAX ")+w+"×"+h+
+    (isMin?"MIN ":isMax?"MAX ":"CURRENT ")+w+"×"+h+
     " · TOP "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
     " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
@@ -927,18 +938,25 @@ function renderChromeCalibration(){
   if(!chromeCalibration)return;
   calMinScale?.replaceChildren();
   calMaxScale?.replaceChildren();
+  calCurrentScale?.replaceChildren();
   const mode=modes.find(x=>x.id===active)||modes[0];
   if(!mode.maxClean||!currentChromeLibrary){
     chromeCalibration.classList.remove("show");
     calMinScale?.replaceChildren();
     calMaxScale?.replaceChildren();
+    calCurrentScale?.replaceChildren();
     return;
   }
 
   const geometry=window.YouTubeChromeGeometry;
   const min=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.minWidth);
   const max=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.maxWidth);
-  if(!min||!max){
+  const defaultPipW=Math.max(170,Math.min(280,window.innerWidth*.46));
+  const currentW=stage.classList.contains("demo-pip")
+    ? stage.getBoundingClientRect().width
+    : defaultPipW;
+  const current=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentW);
+  if(!min||!max||!current){
     chromeCalibration.classList.remove("show");
     return;
   }
@@ -947,6 +965,7 @@ function renderChromeCalibration(){
   requestAnimationFrame(()=>{
     renderCalibrationSample("min",min,currentChromeLibrary);
     renderCalibrationSample("max",max,currentChromeLibrary);
+    renderCalibrationSample("current",current,currentChromeLibrary);
   });
 }
 function paintGeometryReadout(result){
@@ -1026,7 +1045,10 @@ function queueMeasuredSafeWindow(){
   syncMeasuredSafeWindow();
   requestAnimationFrame(syncMeasuredSafeWindow);
   clearTimeout(geometrySettleTimer);
-  geometrySettleTimer=setTimeout(syncMeasuredSafeWindow,120);
+  geometrySettleTimer=setTimeout(()=>{
+    syncMeasuredSafeWindow();
+    renderChromeCalibration();
+  },120);
 }
 function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
@@ -1108,6 +1130,7 @@ function endPipPointer(e){
   pipPointerStart=null;
   stage.classList.remove("pip-dragging","pip-resizing");
   syncMeasuredSafeWindow();
+  renderChromeCalibration();
   return true;
 }
 function currentMediaTime(){
