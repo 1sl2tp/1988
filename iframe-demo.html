@@ -1653,12 +1653,16 @@ function enterDemoPip(){
   const rect=stage.getBoundingClientRect();
   mainAspectBeforePip=stage.style.aspectRatio||"";
 
-  // Freeze geometry while this is still MAIN. Once demo-pip is added we no
-  // longer inspect YouTube's player rect; PiP only consumes the frozen library.
+  // Freeze geometry while this is still MAIN. For PiP max, never fall back
+  // to the outer stage ratio: portrait/landscape must be verified from the
+  // exact loaded video's YouTube content rect first.
   if(stage.classList.contains("max-clean-mode")){
     refreshMainViewportTrimLibrary();
+    if(!currentChromeLibrary){
+      primeMainViewportTrimLibrary();
+      return;
+    }
     clearViewportPrimeTimers();
-    if(!currentChromeLibrary)prepareCurrentChromeLibrary();
   }
 
   stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
