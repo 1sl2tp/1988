@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.31";
+  const VERSION = "2026-09-28.32";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -261,15 +261,15 @@
     ]),
     portrait:Object.freeze([
       {w:140, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:34},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:38},
       {w:170, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:35},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:40},
       {w:200, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:36},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:42},
       {w:220, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:36},
+        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:42},
       {w:240, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:37},
+        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:44},
       {w:280, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
         linkTopDepth:43,nextTopDepth:52,youtubeTopDepth:38},
       {w:320, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
