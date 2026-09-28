@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v39";
-const NON_LIVE_PIPELINE_VERSION="non-live-v17";
+const LIVE_PIPELINE_VERSION="live-v40";
+const NON_LIVE_PIPELINE_VERSION="non-live-v18";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -1355,10 +1355,71 @@ function youtubeEmbedPlaybackFromResponse(data:any){
   return {playable:null,definitive:false,status,reason};
 }
 
+async function youtubeOEmbedPlayback(id:string){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id)){
+    return {playable:null,definitive:false,status:"INVALID_ID",reason:""};
+  }
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3200);
+  try{
+    const url=new URL("https://www.youtube.com/oembed");
+    url.searchParams.set("url","https://www.youtube.com/watch?v="+id);
+    url.searchParams.set("format","json");
+
+    const res=await fetch(url.toString(),{
+      method:"GET",
+      signal:controller.signal,
+      cache:"no-store",
+      headers:{
+        "accept":"application/json,text/plain,*/*",
+        "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+      }
+    });
+
+    if(res.ok){
+      try{await res.body?.cancel()}catch{}
+      return {playable:true,definitive:true,status:"OEMBED_OK",reason:""};
+    }
+
+    // YouTube returns 401 for the observed "owner disabled playback on other
+    // websites" case, and 404 for removed/unavailable IDs.
+    if(res.status===401||res.status===404){
+      return {
+        playable:false,
+        definitive:true,
+        status:"OEMBED_"+res.status,
+        reason:""
+      };
+    }
+
+    return {
+      playable:null,
+      definitive:false,
+      status:"OEMBED_HTTP_"+res.status,
+      reason:""
+    };
+  }catch(error){
+    return {
+      playable:null,
+      definitive:false,
+      status:"OEMBED_ERROR",
+      reason:clean((error as any)?.message||error||"",500)
+    };
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function youtubeEmbedPlayback(id:string){
   if(!/^[A-Za-z0-9_-]{11}$/.test(id)){
     return {playable:null,definitive:false,status:"INVALID_ID",reason:""};
   }
+
+  // Prefer the simple public oEmbed check. It is much cheaper and has proven
+  // reliable for the blocked row seen in the feed.
+  const oembed=await youtubeOEmbedPlayback(id);
+  if(oembed?.definitive===true)return oembed;
 
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),3200);
@@ -1392,9 +1453,25 @@ async function youtubeEmbedPlayback(id:string){
         })
       }
     );
-    if(!res.ok)return {playable:null,definitive:false,status:"HTTP_"+res.status,reason:""};
+    if(!res.ok){
+      return {
+        playable:null,
+        definitive:false,
+        status:"HTTP_"+res.status,
+        reason:""
+      };
+    }
     const data=await res.json().catch(()=>null);
-    return youtubeEmbedPlaybackFromResponse(data);
+    const parsed=youtubeEmbedPlaybackFromResponse(data);
+    if(parsed?.definitive===true)return parsed;
+
+    // Do not turn an infrastructure/probe failure into "video blocked".
+    return {
+      playable:null,
+      definitive:false,
+      status:clean(parsed?.status||oembed?.status||"PROBE_UNKNOWN",80),
+      reason:clean(parsed?.reason||oembed?.reason||"",500)
+    };
   }catch(error){
     return {
       playable:null,
@@ -2332,8 +2409,12 @@ Deno.serve(async(req:Request)=>{
             _shortCheckedAt:Number(previousRow?._shortCheckedAt)||0,
             // Embed verification is server state. Never drop it when a fresh
             // channel snapshot replaces the display fields for the same video.
-            _embedCheckedAt:Number(previousRow?._embedCheckedAt)||0,
-            _embedPlayable:previousRow?._embedPlayable===true,
+            _embedCheckedAt:typeof previousRow?._embedPlayable==="boolean"
+              ?Number(previousRow?._embedCheckedAt)||0
+              :0,
+            _embedPlayable:typeof previousRow?._embedPlayable==="boolean"
+              ?previousRow._embedPlayable
+              :undefined,
             _embedStatus:clean(previousRow?._embedStatus||"",80)
           };
         });
@@ -2454,6 +2535,10 @@ Deno.serve(async(req:Request)=>{
         const durationCheckedAt=Number(row?._durationCheckedAt)||0;
         const shortCheckedAt=Number(row?._shortCheckedAt)||0;
         const embedCheckedAt=Number(row?._embedCheckedAt)||0;
+        const embedStatus=clean(row?._embedStatus||"",80);
+        const embedKnown=typeof row?._embedPlayable==="boolean"&&
+          !["PROBE_ERROR","OEMBED_ERROR"].includes(embedStatus)&&
+          !/^HTTP_|^OEMBED_HTTP_/.test(embedStatus);
         const resolverVersion=Number(row?._durationResolverVersion)||0;
         const needDuration=duration<=0&&(
           resolverVersion<3||
@@ -2462,6 +2547,7 @@ Deno.serve(async(req:Request)=>{
         );
         const needShort=!shortCheckedAt;
         const needEmbed=
+          !embedKnown||
           !embedCheckedAt||
           now-embedCheckedAt>=EMBED_CHECK_TTL_MS;
         if(!needDuration&&!needShort&&!needEmbed)continue;
@@ -2515,8 +2601,10 @@ Deno.serve(async(req:Request)=>{
         views:Math.max(0,Number(searchMeta?.views)||0),
         durationCheckedAt:candidate.needDuration?checkedAt:0,
         shortCheckedAt:candidate.needShort?checkedAt:0,
-        embedCheckedAt:candidate.needEmbed?checkedAt:0,
-        embedPlayable:candidate.needEmbed
+        embedCheckedAt:candidate.needEmbed&&embed?.definitive===true
+          ?checkedAt
+          :0,
+        embedPlayable:candidate.needEmbed&&embed?.definitive===true
           ?embed?.playable===true
           :undefined,
         embedStatus:candidate.needEmbed
@@ -2566,13 +2654,13 @@ Deno.serve(async(req:Request)=>{
             _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
             _durationResolverVersion:meta.durationCheckedAt?3:(Number(row?._durationResolverVersion)||0),
             _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0,
-            _embedCheckedAt:meta.embedCheckedAt||Number(row?._embedCheckedAt)||0,
+            _embedCheckedAt:meta.embedCheckedAt||
+              (typeof row?._embedPlayable==="boolean"?Number(row?._embedCheckedAt)||0:0),
             _embedPlayable:meta.embedCheckedAt
               ?meta.embedPlayable===true
-              :row?._embedPlayable===true,
-            _embedStatus:meta.embedCheckedAt
-              ?meta.embedStatus
-              :clean(row?._embedStatus||"",80)
+              :(typeof row?._embedPlayable==="boolean"?row._embedPlayable:undefined),
+            _embedStatus:meta.embedStatus||
+              clean(row?._embedStatus||"",80)
           };
         });
         if(changed){
