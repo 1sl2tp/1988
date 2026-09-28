@@ -2534,18 +2534,35 @@ html.one-col.portrait .player.pip{
       void hydrateCurrentSourceIdentity(id);
     }
 
-    // PLAY IMMEDIATELY. No await, no cue, no pre-click wait.
+    // PLAY IMMEDIATELY.
+    // IMPORTANT on mobile Safari/PWA: if the YT player is already ready,
+    // call loadVideoById/playVideo synchronously inside the user's click.
+    // Deferring this through Promise.then() can lose the user-activation token
+    // and leave the video paused until a second tap.
     pendingVideoId=id;
-    void ensureYoutubePlayer().then(playerApi=>{
-      if(!playerApi||String(current?.id||"")!==id)return;
-      if(!ytPlayerReady)return;
+    let playedInGesture=false;
 
+    if(ytPlayer&&ytPlayerReady){
       pendingVideoId="";
       try{
-        playerApi.loadVideoById(id);
-        playerApi.playVideo?.();
+        ytPlayer.loadVideoById(id);
+        ytPlayer.playVideo?.();
+        playedInGesture=true;
       }catch{}
-    });
+    }
+
+    if(!playedInGesture){
+      void ensureYoutubePlayer().then(playerApi=>{
+        if(!playerApi||String(current?.id||"")!==id)return;
+        if(!ytPlayerReady)return;
+
+        pendingVideoId="";
+        try{
+          playerApi.loadVideoById(id);
+          playerApi.playVideo?.();
+        }catch{}
+      });
+    }
 
     // Only fill a missing cache in parallel. Never block the click.
     if(!confirmedRatio&&!metaRatio&&!primedRatio){
@@ -4587,6 +4604,11 @@ html.one-col.portrait .player.pip{
   // Deep link owns the initial media. Setting it before loading packages prevents
   // Live's first item from replacing the requested video.
   openVideoFromLocation();
+
+  // Warm only the player shell/API. With no selected video current.id is empty,
+  // so this does not restore the old waiting MAIN or start playback by itself.
+  void ensureYoutubePlayer();
+
   loadExistingSourceNames();
   requestAnimationFrame(()=>{
     updateHeaderSearchRoom();
