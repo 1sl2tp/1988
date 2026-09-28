@@ -3279,65 +3279,31 @@ html.one-col.portrait .player.pip{
 
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
       if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
+        // Two-column auto-open also uses only the downloaded package record.
         renderCurrentInfo();
-        if(selectedMetaNeedsLookup(metas[0])){
-          void loadCurrentVideoMeta();
-        }
       }
     }
-  }
-
-  let packagePrefetchQueue=[];
-  let packagePrefetchRunning=false;
-
-  function runPackagePrefetchQueue(){
-    if(packagePrefetchRunning)return;
-
-    const next=packagePrefetchQueue.shift();
-    if(!next)return;
-
-    if(next===activePackageScope||packageCache.has(next)){
-      runPackagePrefetchQueue();
-      return;
-    }
-
-    packagePrefetchRunning=true;
-    void getPackage(next).finally(()=>{
-      packagePrefetchRunning=false;
-      const continueRun=()=>runPackagePrefetchQueue();
-      if("requestIdleCallback" in window){
-        requestIdleCallback(continueRun,{timeout:1200});
-      }else{
-        setTimeout(continueRun,180);
-      }
-    });
   }
 
   function prefetchPackages(scopes=[]){
-    const incoming=[...new Set(
+    const unique=[...new Set(
       (Array.isArray(scopes)?scopes:[])
         .map(String)
         .filter(Boolean)
     )];
 
-    const queued=new Set(packagePrefetchQueue);
-    for(const scope of incoming){
-      if(
-        scope===activePackageScope||
-        packageCache.has(scope)||
-        packagePending.has(scope)||
-        queued.has(scope)
-      )continue;
-      packagePrefetchQueue.push(scope);
-      queued.add(scope);
-    }
-
-    const start=()=>runPackagePrefetchQueue();
-    if("requestIdleCallback" in window){
-      requestIdleCallback(start,{timeout:900});
-    }else{
-      setTimeout(start,120);
-    }
+    // Server already built these packages. The UI only downloads them into RAM
+    // from Live through the remaining tags; search is a separate workflow.
+    setTimeout(()=>{
+      for(const scope of unique){
+        if(
+          scope===activePackageScope||
+          packageCache.has(scope)||
+          packagePending.has(scope)
+        )continue;
+        void getPackage(scope);
+      }
+    },0);
   }
 
   function verifiedBadgeMarkup(){
@@ -4709,7 +4675,10 @@ html.one-col.portrait .player.pip{
 
     if(navigateToVideo(id,selectedMeta)){
       renderCurrentInfo();
-      if(selectedMetaNeedsLookup(selectedMeta)){
+
+      // Package tabs are complete server snapshots: UI reads them only.
+      // Search/deep-link flows may still fill genuinely missing fields.
+      if(feedMode!=="package"&&selectedMetaNeedsLookup(selectedMeta)){
         void loadCurrentVideoMeta();
       }
       schedulePip();

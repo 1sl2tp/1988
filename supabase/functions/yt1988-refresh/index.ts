@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v38";
-const NON_LIVE_PIPELINE_VERSION="non-live-v15";
+const LIVE_PIPELINE_VERSION="live-v39";
+const NON_LIVE_PIPELINE_VERSION="non-live-v16";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -912,7 +912,12 @@ function snapshotRowsHash(rows:any[],sourceSig=""){
     clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",1000),
     String(Math.max(0,Number(row?.views)||0)),
     isLive(row)?"1":"0",
-    String(durationSeconds(row)||0)
+    String(durationSeconds(row)||0),
+    String(Number(row?.aspectRatio)||0),
+    clean(row?.mediaKind||"",24),
+    String(Number(row?.videoWidth)||0),
+    String(Number(row?.videoHeight)||0),
+    row?._aspectVerified===true?"1":"0"
   ].join("|")).join("\n");
   return fastHash(String(sourceSig||"")+"\n"+body);
 }
@@ -932,6 +937,67 @@ async function fetchJson(url:string,headers:any={},timeout=7000){
     if(!res.ok||data?.ok===false)throw new Error(data?.error||("HTTP "+res.status));
     return data;
   }finally{clearTimeout(timer);}
+}
+async function enrichRowsWithStoredVideoMeta(
+  rest:string,
+  authHeaders:any,
+  rows:any[]
+){
+  const input=Array.isArray(rows)?rows:[];
+  const ids=[...new Set(
+    input.map((row:any)=>videoId(row))
+      .filter((id:string)=>/^[A-Za-z0-9_-]{11}$/.test(id))
+  )];
+  if(!ids.length)return input;
+
+  const metaById=new Map<string,any>();
+
+  for(let start=0;start<ids.length;start+=80){
+    const batch=ids.slice(start,start+80);
+    const res=await fetch(
+      rest+"/yt1988_video_meta?verified=eq.true&video_id=in.("+
+        batch.map(encodeURIComponent).join(",")+
+        ")&select=video_id,aspect_ratio,media_kind,width,height,source,verified",
+      {headers:authHeaders}
+    ).catch(()=>null);
+
+    if(!res||!res.ok)continue;
+    const values=await res.json().catch(()=>[]);
+    for(const meta of Array.isArray(values)?values:[]){
+      const id=clean(meta?.video_id,32);
+      const ratio=Number(meta?.aspect_ratio)||0;
+      if(
+        !/^[A-Za-z0-9_-]{11}$/.test(id)||
+        !Number.isFinite(ratio)||
+        ratio<.34||
+        ratio>2.6
+      )continue;
+      metaById.set(id,meta);
+    }
+  }
+
+  if(!metaById.size)return input;
+
+  return input.map((row:any)=>{
+    const meta=metaById.get(videoId(row));
+    if(!meta)return row;
+
+    const ratio=Number(meta?.aspect_ratio)||0;
+    const width=Math.max(0,Math.round(Number(meta?.width)||0));
+    const height=Math.max(0,Math.round(Number(meta?.height)||0));
+    const kind=clean(meta?.media_kind,24)||
+      (ratio<1?"portrait":"landscape");
+
+    return {
+      ...row,
+      aspectRatio:ratio,
+      mediaKind:kind,
+      videoWidth:width,
+      videoHeight:height,
+      _aspectVerified:true,
+      _aspectSource:clean(meta?.source||"server-video-meta",80)
+    };
+  });
 }
 function channelRefreshBatch(ids:string[],checkedTime:(id:string)=>number,limit:number){
   const ordered=ids.slice().sort((a,b)=>checkedTime(a)-checkedTime(b)||a.localeCompare(b));
@@ -2771,6 +2837,10 @@ Deno.serve(async(req:Request)=>{
         results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:current.items.length});
         continue;
       }
+
+      // Rotation/shape is server data too. Merge only metadata that the player
+      // already verified and stored; the browser does not resolve it per card.
+      raw=await enrichRowsWithStoredVideoMeta(rest,authHeaders,raw);
 
       const sig=sourceSignature(rows,scope);
       const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
