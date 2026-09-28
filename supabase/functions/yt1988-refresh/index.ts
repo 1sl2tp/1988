@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v40";
+const LIVE_PIPELINE_VERSION="live-v41";
 const NON_LIVE_PIPELINE_VERSION="non-live-v19";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
@@ -71,6 +71,31 @@ function json(data:any,status=200){
 }
 function clean(value:any,max=1000){
   return String(value??"").replace(/\s+/g," ").trim().slice(0,max);
+}
+function normalizeAvatarUrl(value:any){
+  const raw=clean(value,1000);
+  if(!raw)return "";
+  try{
+    const url=new URL(raw);
+    const host=url.hostname.replace(/^www\./i,"").toLowerCase();
+    const proxiedHost=String(url.searchParams.get("host")||"").replace(/^www\./i,"").toLowerCase();
+    const isYoutubeAvatar=[
+      "yt3.ggpht.com",
+      "yt3.googleusercontent.com"
+    ].includes(host)||[
+      "yt3.ggpht.com",
+      "yt3.googleusercontent.com"
+    ].includes(proxiedHost);
+    if(!isYoutubeAvatar)return raw;
+
+    url.pathname=url.pathname.replace(/=s(\d+)(?=[-/?]|$)/i,(_m,size)=>{
+      const n=Number(size)||0;
+      return "=s"+Math.max(160,n);
+    });
+    return url.toString();
+  }catch{
+    return raw;
+  }
 }
 function normalizeText(value:any){
   return clean(value,600)
@@ -488,7 +513,7 @@ function normalizeRow(row:any,source:any={}){
     ("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg"),
     1000
   );
-  const sourceThumb=clean(
+  const sourceThumb=normalizeAvatarUrl(clean(
     source?.thumbnailUrl||
     row?._sourceThumbnailUrl||
     row?.uploaderThumbnailUrl||
@@ -497,7 +522,7 @@ function normalizeRow(row:any,source:any={}){
     row?.channelAvatar||
     "",
     1000
-  );
+  ));
   const live=isLive(row);
   const rawTitle=clean(row?._displayTitle||row?.title||"",300);
   const sourceCleanTitle=cleanSourceTitle(rawTitle,sname);
@@ -1615,10 +1640,10 @@ function exactSearchVideoMeta(data:any,id:string){
     duration:durationSeconds(row),
     isLive:isLive(row),
     sourceName:validChannelDisplayName(row?.uploaderName||row?.uploader||row?.channelName||""),
-    sourceThumbnailUrl:clean(
+    sourceThumbnailUrl:normalizeAvatarUrl(clean(
       row?.uploaderAvatar||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",
       1000
-    ),
+    )),
     thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
     views:Math.max(0,Number(row?.views)||Number(row?.viewCount)||0)
   };
@@ -2388,10 +2413,10 @@ Deno.serve(async(req:Request)=>{
         },7500);
         const data=result?.data||{};
         const discoveredName=validChannelDisplayName(data?.name||data?.title||"");
-        const discoveredAvatar=clean(
+        const discoveredAvatar=normalizeAvatarUrl(clean(
           data?.avatarUrl||data?.thumbnailUrl||data?.avatar||"",
           1000
-        );
+        ));
         if(discoveredName)source.name=discoveredName;
         if(discoveredAvatar)source.thumbnailUrl=discoveredAvatar;
         if(discoveredName||discoveredAvatar)channelMeta.set(id,source);
@@ -2473,7 +2498,7 @@ Deno.serve(async(req:Request)=>{
           newest_video_id:newest?.id||"",
           newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():null,
           source_name:sourceName,
-          thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+          thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
           checked_at:checkedAt,
           last_success_at:checkedAt,
           last_error:"",
@@ -2491,7 +2516,7 @@ Deno.serve(async(req:Request)=>{
           newest_video_id:clean(previous?.newest_video_id,64),
           newest_uploaded_at:previous?.newest_uploaded_at||null,
           source_name:clean(source?.name||previous?.source_name||"",180),
-          thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+          thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
           checked_at:checkedAt,
           last_success_at:previous?.last_success_at||null,
           last_error:message,
@@ -2648,10 +2673,10 @@ Deno.serve(async(req:Request)=>{
           const sourceName=validChannelDisplayName(
             meta?.sourceName||row?._sourceName||row?.uploaderName||row?.uploader||""
           );
-          const sourceThumbnailUrl=clean(
+          const sourceThumbnailUrl=normalizeAvatarUrl(clean(
             meta?.sourceThumbnailUrl||row?._sourceThumbnailUrl||"",
             1000
-          );
+          ));
           const sourceMeta=channelMeta.get(channelId)||{id:channelId,name:"",thumbnailUrl:""};
           if(sourceName)sourceMeta.name=sourceName;
           if(sourceThumbnailUrl)sourceMeta.thumbnailUrl=sourceThumbnailUrl;
@@ -2718,7 +2743,7 @@ Deno.serve(async(req:Request)=>{
         newest_video_id:newest?.id||clean(previous?.newest_video_id,64),
         newest_uploaded_at:newest?new Date(Date.now()-newest.age).toISOString():(previous?.newest_uploaded_at||null),
         source_name:clean(source?.name||previous?.source_name||"",180),
-        thumbnail_url:clean(source?.thumbnailUrl||previous?.thumbnail_url||"",1000),
+        thumbnail_url:normalizeAvatarUrl(source?.thumbnailUrl||previous?.thumbnail_url||""),
         checked_at:existing?.checked_at||previous?.checked_at||new Date().toISOString(),
         last_success_at:existing?.last_success_at||previous?.last_success_at||null,
         last_error:existing?.last_error||previous?.last_error||"",
@@ -2736,7 +2761,7 @@ Deno.serve(async(req:Request)=>{
     await mapLimit(sourceMetaUpdates,4,async(source:any)=>{
       const body:any={};
       const name=validChannelDisplayName(source?.name);
-      const thumbnailUrl=clean(source?.thumbnailUrl,1000);
+      const thumbnailUrl=normalizeAvatarUrl(source?.thumbnailUrl);
       if(name)body.name=name;
       if(thumbnailUrl)body.thumbnail_url=thumbnailUrl;
       if(!Object.keys(body).length)return true;
