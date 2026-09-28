@@ -397,6 +397,37 @@ html.one-col .player.inline-overlay:not(.pip){
   display:none;
   min-width:0;
 }
+.searchbox.search-pending{
+  animation:search-pending-glow .88s ease-in-out infinite alternate;
+  transform-origin:center;
+  will-change:transform,box-shadow,border-color;
+}
+@keyframes search-pending-glow{
+  from{
+    transform:scale(1);
+    border-color:rgba(var(--header-accent-rgb),.58);
+    box-shadow:
+      0 0 0 1px rgba(var(--header-accent-rgb),.10),
+      0 0 8px rgba(var(--header-accent-rgb),.08);
+  }
+  to{
+    transform:scale(1.012);
+    border-color:rgba(var(--header-accent-rgb),.96);
+    box-shadow:
+      0 0 0 2px rgba(var(--header-accent-rgb),.18),
+      0 0 18px rgba(var(--header-accent-rgb),.22);
+  }
+}
+@media(prefers-reduced-motion:reduce){
+  .searchbox.search-pending{
+    animation:none;
+    transform:none;
+    border-color:rgba(var(--header-accent-rgb),.92);
+    box-shadow:
+      0 0 0 2px rgba(var(--header-accent-rgb),.14),
+      0 0 12px rgba(var(--header-accent-rgb),.16);
+  }
+}
 .search-input{
   min-width:0;
   flex:1 1 auto;
@@ -2246,6 +2277,7 @@ html.one-col.portrait .player.pip{
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
   const searchInput=document.getElementById("searchInput");
+  const searchBox=searchInput?.closest?.(".searchbox")||null;
   const voiceSearchButton=document.getElementById("voiceSearchButton");
   const searchButton=document.getElementById("searchButton");
   const searchToggle=document.getElementById("searchToggle");
@@ -2274,6 +2306,7 @@ html.one-col.portrait .player.pip{
   let feedRequest=0;
   let feedMode="package";
   let activePackageScope="live";
+  let searchPendingSeq=0;
   let channelFeedSourceId="";
   let channelFeedName="";
   let channelFeedRequest=0;
@@ -5186,6 +5219,18 @@ html.one-col.portrait .player.pip{
     }));
   }
 
+  function setSearchPending(active,token=0){
+    if(!searchBox)return;
+    if(active){
+      searchBox.classList.add("search-pending");
+      searchBox.setAttribute("aria-busy","true");
+      return;
+    }
+    if(token&&token!==searchPendingSeq)return;
+    searchBox.classList.remove("search-pending");
+    searchBox.removeAttribute("aria-busy");
+  }
+
   function showSearchResults(query,results=[]){
     const next=uniqueSearchMetas(results);
     if(!next.length)return false;
@@ -5215,9 +5260,14 @@ html.one-col.portrait .player.pip{
     if(key)scrollPageToTop();
 
     if(!key){
+      searchPendingSeq++;
+      setSearchPending(false);
       void showPackageScope(activePackageScope);
       return;
     }
+
+    const pendingToken=++searchPendingSeq;
+    setSearchPending(true,pendingToken);
 
     // Exact repeat: paint the previous result immediately.
     const hadCached=showCachedSearchIfAvailable(key);
@@ -5254,6 +5304,8 @@ html.one-col.portrait .player.pip{
       }
     }catch(_){
       // If instant cached/local results were already painted, keep them.
+    }finally{
+      setSearchPending(false,pendingToken);
     }
   }
 
@@ -5947,6 +5999,8 @@ html.one-col.portrait .player.pip{
   }
 
   function closeNarrowSearch(){
+    searchPendingSeq++;
+    setSearchPending(false);
     stopVoiceSearch(true);
     closeSettingsMenu();
     top.classList.remove("search-open");
