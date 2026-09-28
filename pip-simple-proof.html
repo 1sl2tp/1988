@@ -789,6 +789,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   display:none;
   opacity:.9;
 }
+.info-meta-sep[hidden]{
+  display:none!important;
+}
 .info-meta-line:empty{display:none}
 .info-menu{
   width:32px;
@@ -2863,7 +2866,15 @@ html.one-col .player.pip iframe{border-radius:inherit}
       const row=dataRow(payload);
       const nextMeta=cardMetaFromRow(row);
       if(!nextMeta.id)nextMeta.id=requestedId;
-      currentMeta=mergeSelectedMeta(previousMeta||{},nextMeta);
+
+      // Package/search metadata may have hydrated currentMeta while this
+      // request was in flight. Always merge into the newest same-video state;
+      // never restore the stale snapshot captured before the request started.
+      const latestBase=
+        String(currentMeta?.id||"")===requestedId
+          ? currentMeta
+          : (previousMeta||{});
+      currentMeta=mergeSelectedMeta(latestBase,nextMeta);
 
       const related=collectVideoRows(payload)
         .filter(meta=>meta.id && meta.id!==requestedId)
@@ -2892,8 +2903,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }catch(_){
       if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
 
-      // Keep the package/search meta already shown instead of blanking it.
-      currentMeta=previousMeta;
+      // Keep any newer package/search hydration that arrived while the
+      // request was in flight. Only fall back to the original snapshot when
+      // there is no current metadata for this video.
+      if(String(currentMeta?.id||"")!==requestedId){
+        currentMeta=previousMeta;
+      }
       renderCurrentInfo();
     }
   }
