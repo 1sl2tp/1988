@@ -47,7 +47,7 @@ if(simpleProduction){
   assert.match(html,/changedScopes=unique\.filter/);
   assert.match(html,/Promise\.allSettled\(changedScopes\.map/);
   assert.match(html,/5000\);/);
-  assert.match(html,/getPackage\(scope,\{force:true\}\)/);
+  assert.match(html,/getPackage\(scope,\{[\s\S]{0,120}force:true,[\s\S]{0,120}expectedHash:remoteHash/);
   assert.doesNotMatch(html,/packagePrefetchQueue/);
   assert.match(refresh,/function enrichRowsWithStoredVideoMeta\(/);
   assert.match(refresh,/_aspectVerified:true/);
