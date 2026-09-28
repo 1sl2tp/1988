@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.18";
+  const VERSION = "2026-09-28.19";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -347,10 +347,11 @@
       layoutState.density === "compact" ? clamp(Math.min(width,height)*.27,28,34) :
       clamp(Math.min(width,height)*.22,34,52);
     const playRadius = playDiameter/2;
-    const playGap =
-      layoutState.density === "tight" ? 1 :
-      layoutState.density === "compact" ? 2 : 5;
-    const playSafety = playRadius + playGap;
+    // Collision is based on the actual native Play/Pause circle only.
+    // Do not reserve any extra halo/border around it; that prematurely stops
+    // TOP/BOTTOM masking and can leave tiny YouTube chrome fragments visible.
+    const playGap = 0;
+    const playSafety = playRadius;
 
     // Our own top buttons and bottom seek must stay entirely inside the masked
     // bands. Their minimum required band depth changes with compact density.
