@@ -896,115 +896,66 @@ html.one-col.portrait .player.pip{
 }
 html.one-col .player.pip iframe{border-radius:inherit}
 
-/* Mobile PiP interaction:
-   - bottom-left corner = resize
-   - small top-center grip = move
-   Both stay invisible until touched, then briefly reveal the gesture hint. */
+/* PiP interaction in every 1-column layout (mobile + PC).
+   Top short bar = move. Bottom-left short bar = resize.
+   The resize hit zone is intentionally larger than the visible bar so the
+   user can grab anywhere around that corner without covering YouTube controls. */
 .pip-move-zone,
-.pip-resize-zone,
-.pip-resize-tip{display:none}
+.pip-resize-zone{display:none}
 
-@media(max-width:656px){
-  html.one-col .player.pip .pip-move-zone{
-    display:block;
-    position:absolute;
-    z-index:8;
-    top:0;
-    left:50%;
-    width:58px;
-    height:30px;
-    transform:translateX(-50%);
-    touch-action:none;
-    -webkit-user-select:none;
-    user-select:none;
-  }
-  html.one-col .player.pip .pip-move-zone::after{
-    content:"";
-    position:absolute;
-    left:50%;
-    top:7px;
-    width:30px;
-    height:4px;
-    transform:translateX(-50%);
-    border-radius:999px;
-    background:rgba(255,255,255,.92);
-    box-shadow:0 1px 3px rgba(0,0,0,.45);
-    opacity:0;
-    transition:opacity .12s ease;
-    pointer-events:none;
-  }
+html.one-col .player.pip .pip-move-zone{
+  display:block;
+  position:absolute;
+  z-index:8;
+  top:0;
+  left:50%;
+  width:64px;
+  height:32px;
+  transform:translateX(-50%);
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+  cursor:grab;
+}
+html.one-col .player.pip .pip-move-zone:active{cursor:grabbing}
+html.one-col .player.pip .pip-move-zone::after{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:7px;
+  width:32px;
+  height:4px;
+  transform:translateX(-50%);
+  border-radius:999px;
+  background:rgba(255,255,255,.94);
+  box-shadow:0 1px 3px rgba(0,0,0,.45);
+  pointer-events:none;
+}
 
-  html.one-col .player.pip .pip-resize-zone{
-    display:block;
-    position:absolute;
-    z-index:9;
-    left:0;
-    bottom:0;
-    width:42px;
-    height:42px;
-    touch-action:none;
-    -webkit-user-select:none;
-    user-select:none;
-  }
-  html.one-col .player.pip .pip-resize-zone::before{
-    content:"";
-    position:absolute;
-    left:7px;
-    bottom:7px;
-    width:16px;
-    height:16px;
-    border-left:2px solid rgba(255,255,255,.95);
-    border-bottom:2px solid rgba(255,255,255,.95);
-    border-radius:0 0 0 3px;
-    filter:drop-shadow(0 1px 2px rgba(0,0,0,.55));
-    opacity:0;
-    transition:opacity .12s ease;
-    pointer-events:none;
-  }
-  html.one-col .player.pip .pip-resize-zone::after{
-    content:"";
-    position:absolute;
-    left:13px;
-    bottom:13px;
-    width:9px;
-    height:9px;
-    border-left:1.5px solid rgba(255,255,255,.9);
-    border-bottom:1.5px solid rgba(255,255,255,.9);
-    opacity:0;
-    transition:opacity .12s ease;
-    pointer-events:none;
-  }
-
-  html.one-col .player.pip .pip-resize-tip{
-    display:block;
-    position:absolute;
-    z-index:10;
-    left:34px;
-    bottom:8px;
-    padding:3px 7px;
-    border-radius:999px;
-    background:rgba(0,0,0,.66);
-    color:#fff;
-    font:500 11px/16px Roboto,Arial,sans-serif;
-    white-space:nowrap;
-    opacity:0;
-    transform:translateY(2px);
-    transition:opacity .12s ease,transform .12s ease;
-    pointer-events:none;
-  }
-
-  html.one-col .player.pip.pip-guides .pip-move-zone::after,
-  html.one-col .player.pip.pip-guides .pip-resize-zone::before,
-  html.one-col .player.pip.pip-guides .pip-resize-zone::after,
-  html.one-col .player.pip.pip-gesture-active .pip-move-zone::after,
-  html.one-col .player.pip.pip-gesture-active .pip-resize-zone::before,
-  html.one-col .player.pip.pip-gesture-active .pip-resize-zone::after{
-    opacity:1;
-  }
-  html.one-col .player.pip.pip-guides .pip-resize-tip{
-    opacity:1;
-    transform:none;
-  }
+html.one-col .player.pip .pip-resize-zone{
+  display:block;
+  position:absolute;
+  z-index:9;
+  left:0;
+  bottom:0;
+  width:56px;
+  height:56px;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+  cursor:nesw-resize;
+}
+html.one-col .player.pip .pip-resize-zone::after{
+  content:"";
+  position:absolute;
+  left:8px;
+  bottom:8px;
+  width:24px;
+  height:4px;
+  border-radius:999px;
+  background:rgba(255,255,255,.94);
+  box-shadow:0 1px 3px rgba(0,0,0,.45);
+  pointer-events:none;
 }
 
 /* 2 COLUMNS */
@@ -1573,7 +1524,6 @@ html.one-col.portrait .player.pip{
         <div id="videoFrame"></div>
         <div class="pip-move-zone" id="pipMoveZone" aria-hidden="true"></div>
         <div class="pip-resize-zone" id="pipResizeZone" aria-hidden="true"></div>
-        <div class="pip-resize-tip" id="pipResizeTip" aria-hidden="true">Kéo giãn</div>
       </div>
     </section>
     <div class="info" id="videoInfo">
@@ -1647,7 +1597,6 @@ html.one-col.portrait .player.pip{
   let pip=false;
   let raf=0;
   let pipGesture=null;
-  let pipGuideTimer=0;
   let metaRequest=0;
   let currentMeta=null;
   let feedMetas=[];
@@ -3615,28 +3564,9 @@ html.one-col.portrait .player.pip{
       renderCurrentInfo();
     }
   }
-  function clearPipGuideTimer(){
-    if(!pipGuideTimer)return;
-    clearTimeout(pipGuideTimer);
-    pipGuideTimer=0;
-  }
-
-  function showMobilePipGuides(duration=1500){
-    if(!pip||!mobileHeaderMq.matches)return;
-    clearPipGuideTimer();
-    player.classList.add("pip-guides");
-    if(duration>0){
-      pipGuideTimer=setTimeout(()=>{
-        pipGuideTimer=0;
-        if(!pipGesture)player.classList.remove("pip-guides");
-      },duration);
-    }
-  }
-
   function clearMobilePipGestureGeometry(){
-    clearPipGuideTimer();
     pipGesture=null;
-    player.classList.remove("pip-guides","pip-gesture-active");
+    player.classList.remove("pip-gesture-active");
     for(const prop of ["left","right","top","bottom","width","height"]){
       player.style.removeProperty(prop);
     }
@@ -3677,7 +3607,7 @@ html.one-col.portrait .player.pip{
   }
 
   function beginMobilePipGesture(event,mode){
-    if(!pip||!mobileHeaderMq.matches||event.pointerType==="mouse")return;
+    if(!pip||isTwoColumn())return;
     const rect=player.getBoundingClientRect();
     if(rect.width<1||rect.height<1)return;
 
@@ -3699,8 +3629,7 @@ html.one-col.portrait .player.pip{
       ratio
     };
 
-    clearPipGuideTimer();
-    player.classList.add("pip-guides","pip-gesture-active");
+    player.classList.add("pip-gesture-active");
     try{event.currentTarget.setPointerCapture(event.pointerId)}catch{}
     event.preventDefault();
     event.stopPropagation();
@@ -3732,7 +3661,8 @@ html.one-col.portrait .player.pip{
     const maxByHeight=Math.max(minW,(viewportH-g.top-10)*ratio);
     const maxW=Math.max(minW,Math.min(maxByWidth,maxByHeight));
 
-    // Bottom-left handle: drag left or down to grow, right or up to shrink.
+    // Bottom-left resize zone accepts any drag direction; the dominant axis
+    // chooses the requested size while preserving the real media aspect.
     let nextW;
     if(Math.abs(dx)>=Math.abs(dy)){
       nextW=g.width-dx;
@@ -3754,17 +3684,14 @@ html.one-col.portrait .player.pip{
     try{event.currentTarget.releasePointerCapture(event.pointerId)}catch{}
     pipGesture=null;
     player.classList.remove("pip-gesture-active");
-    showMobilePipGuides(900);
     event.preventDefault();
     event.stopPropagation();
   }
 
   pipResizeZone?.addEventListener("pointerdown",event=>{
-    showMobilePipGuides(0);
     beginMobilePipGesture(event,"resize");
   });
   pipMoveZone?.addEventListener("pointerdown",event=>{
-    showMobilePipGuides(0);
     beginMobilePipGesture(event,"move");
   });
   for(const zone of [pipResizeZone,pipMoveZone]){
