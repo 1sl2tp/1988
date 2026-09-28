@@ -608,6 +608,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
+<script src="/src/channel-library.js?v=20260928-pip-source"></script>
 <script src="/src/media-meta.js?v=20260928-pip-top"></script>
 <script src="/src/api.js?v=20260928-pip-top"></script>
 <script src="/src/youtube-chrome-geometry.js?v=20260928-34"></script>
@@ -860,6 +861,62 @@ window.addEventListener("message",event=>{
 function escText(value=""){
   return String(value??"");
 }
+const PIP_SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
+let pipSourceAvatarCache=null;
+let pipSourceById=null;
+
+function pipReadStoredObject(key){
+  try{
+    const value=JSON.parse(localStorage.getItem(key)||"{}");
+    return value&&typeof value==="object"&&!Array.isArray(value)?value:{};
+  }catch{return {}}
+}
+function pipEnsureSourceCache(){
+  if(!pipSourceAvatarCache)pipSourceAvatarCache=pipReadStoredObject(PIP_SOURCE_AVATAR_CACHE_KEY);
+  if(!pipSourceById){
+    pipSourceById=new Map(
+      (Array.isArray(window.CHANNEL_LIBRARY)?window.CHANNEL_LIBRARY:[])
+        .filter(row=>row&&row.id)
+        .map(row=>[String(row.id),row])
+    );
+  }
+}
+function pipLocalSourceMeta(channelId="",channelName=""){
+  pipEnsureSourceCache();
+  channelId=String(channelId||"").trim();
+  channelName=String(channelName||"").trim();
+
+  let row=channelId?pipSourceById.get(channelId):null;
+  if(!row&&channelName){
+    const target=channelName.toLocaleLowerCase("vi").replace(/\s+/g," ").trim();
+    row=[...pipSourceById.values()].find(item=>
+      String(item?.name||"").toLocaleLowerCase("vi").replace(/\s+/g," ").trim()===target
+    )||null;
+    if(row?.id&&!channelId)channelId=String(row.id);
+  }
+
+  const avatar=channelId
+    ? String(pipSourceAvatarCache?.[channelId]||row?.thumbnailUrl||"").trim()
+    : "";
+
+  return {
+    id:channelId||String(row?.id||"").trim(),
+    name:String(row?.name||channelName||"").trim(),
+    avatar
+  };
+}
+function pipRememberSourceAvatar(channelId="",avatar=""){
+  channelId=String(channelId||"").trim();
+  avatar=String(avatar||"").trim();
+  if(!/^UC[A-Za-z0-9_-]+$/.test(channelId)||!avatar)return;
+  pipEnsureSourceCache();
+  if(pipSourceAvatarCache[channelId]===avatar)return;
+  pipSourceAvatarCache[channelId]=avatar;
+  try{
+    localStorage.setItem(PIP_SOURCE_AVATAR_CACHE_KEY,JSON.stringify(pipSourceAvatarCache));
+  }catch{}
+}
+
 function pipMetaFallback(id=requestedVideoId){
   return {
     id:String(id||""),
@@ -876,19 +933,23 @@ function pipMetaFallback(id=requestedVideoId){
 function normalizePipMeta(raw={},id=requestedVideoId){
   const row={...raw,id,videoId:id};
   const media=window.MediaMeta?.video?.(row)||{};
-  const channelId=pipChannelRef(raw);
+  const detectedChannel=String(
+    media.sourceName||
+    raw?.uploaderName||
+    raw?.uploader||
+    raw?.channelName||
+    ""
+  ).trim();
+  const detectedChannelId=pipChannelRef(raw);
+  const localSource=pipLocalSourceMeta(detectedChannelId,detectedChannel);
+
   return {
     id:String(id||""),
     title:String(media.title||raw?.title||"Video"),
-    channel:String(
-      media.sourceName||
-      raw?.uploaderName||
-      raw?.uploader||
-      raw?.channelName||
-      ""
-    ),
-    channelId,
+    channel:String(localSource.name||detectedChannel||""),
+    channelId:String(localSource.id||detectedChannelId||""),
     avatar:String(
+      localSource.avatar||
       media.sourceAvatar||
       raw?.uploaderThumbnailUrl||
       raw?.channelThumbnailUrl||
@@ -900,7 +961,7 @@ function normalizePipMeta(raw={},id=requestedVideoId){
     views:String(media.viewsLabel||""),
     published:String(media.publishedLabel||""),
     verified:true,
-    source:"video"
+    source:localSource.avatar?"video+source-cache":"video"
   };
 }
 function pipChannelRef(raw={}){
@@ -1048,6 +1109,10 @@ async function preloadPipLibraryMeta(id){
     const raw=response?.data||response||{};
     let meta=normalizePipMeta(raw,id);
 
+    // Publish the video + local source-cache result immediately.
+    // channel() below is enrichment only and must not delay PiP paint.
+    attachPipMetaToLibrary(id,meta);
+
     const channelRef=meta.channelId||pipChannelRef(raw);
     if(channelRef){
       try{
@@ -1069,6 +1134,7 @@ async function preloadPipLibraryMeta(id){
           avatar:avatar||meta.avatar,
           source:"video+channel"
         };
+        if(meta.avatar)pipRememberSourceAvatar(channelRef,meta.avatar);
       }catch{}
     }
 
@@ -2350,6 +2416,7 @@ async function render(){
 
   requestedVideoId=id;
   pipMetaRequestToken+=1;
+  pipSourceAvatarCache=pipReadStoredObject(PIP_SOURCE_AVATAR_CACHE_KEY);
   currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
   void preloadPipLibraryMeta(id);
 
