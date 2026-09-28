@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.23";
+  const VERSION = "2026-09-28.24";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -229,39 +229,26 @@
   // These are OUTER chrome bounds measured from the corresponding player edge.
   // PiP never derives them from Play/Pause or from artwork inside the video.
   const CLEAN_EMBED_CALIBRATION = Object.freeze({
+    // Direct final chrome depths for the exact controls:0 player.
+    // No component MAX logic: each row stores only the final TOP and BOTTOM
+    // boundaries that the PiP/library must use at that width.
     landscape:Object.freeze([
-      // w, TOP: channel avatar/title/channel-name outer bottoms,
-      // BOTTOM: full outer boxes + distance from bottom.
-      {w:140, avatarEdge:38, title1Edge:28, title2Edge:38, channelEdge:41,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
-      {w:170, avatarEdge:40, title1Edge:30, title2Edge:40, channelEdge:43,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
-      {w:200, avatarEdge:42, title1Edge:31, title2Edge:42, channelEdge:45,
-        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
-      {w:240, avatarEdge:44, title1Edge:32, title2Edge:44, channelEdge:47,
-        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
-      {w:280, avatarEdge:45, title1Edge:33, title2Edge:45, channelEdge:48,
-        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
-      {w:360, avatarEdge:46, title1Edge:34, title2Edge:46, channelEdge:49,
-        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
-      {w:520, avatarEdge:47, title1Edge:35, title2Edge:47, channelEdge:50,
-        linkH:40,linkOff:13,nextH:50,nextOff:13,youtubeH:39,youtubeOff:13},
-      {w:760, avatarEdge:48, title1Edge:36, title2Edge:48, channelEdge:50,
-        linkH:49,linkOff:16,nextH:67,nextOff:16,youtubeH:44,youtubeOff:16}
+      {w:140, topInset:41, bottomInset:38},
+      {w:170, topInset:43, bottomInset:40},
+      {w:200, topInset:45, bottomInset:43},
+      {w:240, topInset:47, bottomInset:46},
+      {w:280, topInset:48, bottomInset:55},
+      {w:360, topInset:50, bottomInset:58},
+      {w:520, topInset:50, bottomInset:66},
+      {w:760, topInset:50, bottomInset:84}
     ]),
     portrait:Object.freeze([
-      {w:140, avatarEdge:39, title1Edge:29, title2Edge:40, channelEdge:42,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
-      {w:180, avatarEdge:41, title1Edge:31, title2Edge:42, channelEdge:44,
-        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
-      {w:220, avatarEdge:43, title1Edge:32, title2Edge:44, channelEdge:46,
-        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
-      {w:280, avatarEdge:45, title1Edge:33, title2Edge:45, channelEdge:48,
-        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
-      {w:360, avatarEdge:46, title1Edge:34, title2Edge:46, channelEdge:49,
-        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
-      {w:460, avatarEdge:47, title1Edge:35, title2Edge:47, channelEdge:50,
-        linkH:39,linkOff:12,nextH:49,nextOff:12,youtubeH:38,youtubeOff:12}
+      {w:140, topInset:42, bottomInset:38},
+      {w:180, topInset:44, bottomInset:40},
+      {w:220, topInset:46, bottomInset:43},
+      {w:280, topInset:48, bottomInset:55},
+      {w:360, topInset:49, bottomInset:58},
+      {w:460, topInset:50, bottomInset:64}
     ])
   });
 
@@ -359,9 +346,8 @@
         embedKey,
         nativeSeek:false,
         h:height,
-        // controls:0 has no native seek in the library.
-        seekH:0,
-        seekOff:0
+        directBounds:true,
+        range:row.range||[width,width]
       };
     }
 
@@ -412,52 +398,85 @@
     const profileInfo=embedProfile(options);
     const layoutState = resolveLayoutState(width, height, orientation, {
       ...options,
-      controls:profileInfo.profile.controls
+      controls:profileInfo.profile.controls,
+      embedMode:sample.embedKey
     });
+
+    if(sample.directBounds){
+      const topInset=Math.max(0,Number(sample.topInset)||0);
+      const bottomInset=Math.max(0,Number(sample.bottomInset)||0);
+      return {
+        version:VERSION,
+        orientation,
+        width,
+        height,
+        titleLines:1,
+        embedMode:sample.embedKey,
+        sampleRange:sample.range||[sample.w,sample.w],
+        layoutState,
+        directBounds:true,
+        clusters:{
+          top:{outerMax:topInset,height:topInset},
+          bottom:{outerMax:bottomInset,height:bottomInset}
+        },
+        topChrome:topInset,
+        bottomChrome:bottomInset,
+        topChromeRaw:topInset,
+        bottomChromeRaw:bottomInset,
+        topBleed:0,
+        bottomBleed:0,
+        topInset,
+        bottomInset,
+        safeEdge:Math.max(topInset,bottomInset),
+        safeWindow:{
+          x:0,
+          y:topInset,
+          width,
+          height:Math.max(0,height-topInset-bottomInset)
+        }
+      };
+    }
+
     if(!sample.nativeSeek)layoutState.bottom.seek=false;
-    const titleLines = Math.min(
-      estimateTitleLines(width, options.title || ""),
+    const titleLines=Math.min(
+      estimateTitleLines(width,options.title||""),
       layoutState.maxTitleLines
     );
-
-    const topBoxMetrics = topBoxes(sample, titleLines, layoutState.top);
-    const topChromeRaw = topBoxMetrics.outerMax;
-    const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
-    const bottomChromeRaw = bottomBoxMetrics.outerMax;
-
-    // Library geometry is now deliberately only TOP/BOTTOM. Native Play/Pause
-    // remains inside the video but never constrains, expands or clips these bounds.
-    const topBleed = 1;
-    const bottomBleed = 1;
-    const topChrome = topChromeRaw + topBleed;
-    const bottomChrome = bottomChromeRaw + bottomBleed;
-    const topInset = topChrome;
-    const bottomInset = bottomChrome;
+    const topBoxMetrics=topBoxes(sample,titleLines,layoutState.top);
+    const topChromeRaw=topBoxMetrics.outerMax;
+    const bottomBoxMetrics=bottomBoxes(sample,layoutState.bottom);
+    const bottomChromeRaw=bottomBoxMetrics.outerMax;
+    const topBleed=1;
+    const bottomBleed=1;
+    const topChrome=topChromeRaw+topBleed;
+    const bottomChrome=bottomChromeRaw+bottomBleed;
+    const topInset=topChrome;
+    const bottomInset=bottomChrome;
 
     return {
-      version: VERSION,
+      version:VERSION,
       orientation,
       width,
       height,
       titleLines,
       embedMode:sample.embedKey,
-      sampleRange: sample.range || [sample.w,sample.w],
+      sampleRange:sample.range||[sample.w,sample.w],
       layoutState,
-      clusters: {
-        top: {
-          avatarBox: topBoxMetrics.avatar,
-          titleBox: topBoxMetrics.title,
-          channelBox: topBoxMetrics.channel,
-          outerMax: topChrome,
-          height: topChrome
+      clusters:{
+        top:{
+          avatarBox:topBoxMetrics.avatar,
+          titleBox:topBoxMetrics.title,
+          channelBox:topBoxMetrics.channel,
+          outerMax:topChrome,
+          height:topChrome
         },
-        bottom: {
-          linkBox: bottomBoxMetrics.link,
-          nextBox: bottomBoxMetrics.next,
-          youtubeBox: bottomBoxMetrics.youtube,
-          seekBox: bottomBoxMetrics.seek,
-          outerMax: bottomChrome,
-          height: bottomChrome
+        bottom:{
+          linkBox:bottomBoxMetrics.link,
+          nextBox:bottomBoxMetrics.next,
+          youtubeBox:bottomBoxMetrics.youtube,
+          seekBox:bottomBoxMetrics.seek,
+          outerMax:bottomChrome,
+          height:bottomChrome
         }
       },
       topChrome,
@@ -468,12 +487,12 @@
       bottomBleed,
       topInset,
       bottomInset,
-      safeEdge: Math.max(topInset, bottomInset),
-      safeWindow: {
-        x: 0,
-        y: topInset,
+      safeEdge:Math.max(topInset,bottomInset),
+      safeWindow:{
+        x:0,
+        y:topInset,
         width,
-        height: Math.max(0, height - topInset - bottomInset)
+        height:Math.max(0,height-topInset-bottomInset)
       }
     };
   }
