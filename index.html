@@ -3598,9 +3598,8 @@ html.one-col.portrait .player.pip{
     // Paint the canonical rail immediately instead of waiting for network state.
     renderExistingSourceNames(fallbackRows);
 
-    // Critical startup path: fetch the first real media package immediately.
-    // Do NOT serialize it behind source-state or manifest requests.
-    const firstPackagePromise=showPackageScope("live",{force:true});
+    // Render from RAM immediately; the synchronizer owns package network reads.
+    const firstPackagePromise=showPackageScope("live");
 
     const statePromise=(async()=>{
       try{
