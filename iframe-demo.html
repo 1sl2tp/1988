@@ -297,6 +297,148 @@
     .stage[data-yt-chrome-density="tight"]{--pip-control-size:24px}
     .stage[data-yt-chrome-density="tight"] .clean-control svg{width:14px;height:14px}
     .stage[data-yt-chrome-density="tight"] .clean-control.close{right:4px}
+
+    .pip-top-info{
+      position:absolute;
+      z-index:2;
+      left:7px;
+      right:42px;
+      top:0;
+      height:var(--yt-safe-top);
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:4px 0;
+      color:#fff;
+      pointer-events:none;
+      overflow:hidden;
+    }
+    .pip-top-avatar{
+      flex:0 0 32px;
+      width:32px;
+      height:32px;
+      border-radius:50%;
+      overflow:hidden;
+      display:grid;
+      place-items:center;
+      background:rgba(255,255,255,.14);
+      box-shadow:0 0 0 1px rgba(255,255,255,.12);
+      font-size:12px;
+      font-weight:700;
+    }
+    .pip-top-avatar img{
+      width:100%;
+      height:100%;
+      display:block;
+      object-fit:cover;
+    }
+    .pip-top-copy{
+      min-width:0;
+      flex:1 1 auto;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      gap:1px;
+      overflow:hidden;
+    }
+    .pip-top-title{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      font-size:12px;
+      line-height:1.18;
+      font-weight:700;
+      text-shadow:0 1px 2px rgba(0,0,0,.7);
+    }
+    .pip-top-meta{
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:0;
+      overflow:hidden;
+      white-space:nowrap;
+      text-overflow:ellipsis;
+      font-size:9.5px;
+      line-height:1.2;
+      color:rgba(255,255,255,.86);
+      text-shadow:0 1px 2px rgba(0,0,0,.7);
+    }
+    .pip-top-meta > span{
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .pip-top-meta .pip-top-dot::before{
+      content:" · ";
+      white-space:pre;
+    }
+    .stage[data-yt-chrome-orientation="portrait"] .pip-top-info{
+      left:6px;
+      right:38px;
+      gap:7px;
+      padding:4px 0 3px;
+      align-items:flex-start;
+    }
+    .stage[data-yt-chrome-orientation="portrait"] .pip-top-avatar{
+      flex-basis:30px;
+      width:30px;
+      height:30px;
+      margin-top:1px;
+    }
+    .stage[data-yt-chrome-orientation="portrait"] .pip-top-title{
+      white-space:normal;
+      display:-webkit-box;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:2;
+      line-clamp:2;
+      line-height:1.12;
+      font-size:11.5px;
+    }
+    .stage[data-yt-chrome-orientation="portrait"] .pip-top-meta{
+      font-size:9px;
+    }
+    .stage[data-yt-chrome-density="compact"] .pip-top-info{
+      left:5px;
+      right:34px;
+      gap:6px;
+      padding-top:3px;
+    }
+    .stage[data-yt-chrome-density="compact"] .pip-top-avatar{
+      flex-basis:27px;
+      width:27px;
+      height:27px;
+      font-size:10px;
+    }
+    .stage[data-yt-chrome-density="compact"] .pip-top-title{font-size:10.5px}
+    .stage[data-yt-chrome-density="compact"] .pip-top-meta{font-size:8.5px}
+    .stage[data-yt-chrome-density="tight"] .pip-top-info{
+      left:4px;
+      right:30px;
+      gap:5px;
+      padding:2px 0;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-top-avatar{
+      flex-basis:24px;
+      width:24px;
+      height:24px;
+      font-size:9px;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-top-title{
+      font-size:9.5px;
+      -webkit-line-clamp:2;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-top-meta{
+      font-size:7.8px;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-top-channel{
+      display:none;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-top-channel + .pip-top-dot::before{
+      content:"";
+    }
+
     .pip-seek{
       display:none;
       position:absolute;
@@ -472,6 +614,8 @@
   <pre class="code" id="code"></pre>
 </div>
 
+<script src="/src/media-meta.js?v=20260928-pip-top"></script>
+<script src="/src/api.js?v=20260928-pip-top"></script>
 <script src="/src/youtube-chrome-geometry.js?v=20260928-30"></script>
 <script>
 const modes=[
@@ -612,6 +756,15 @@ let calibrationPlayerPlaying=false;
 let calibrationReplayTimer=0;
 let calibrationChromeWakeTimer=0;
 let calibrationGuideDrag=null;
+let pipMetaRequestToken=0;
+let currentPipMeta={
+  id:"",
+  title:"",
+  channel:"",
+  avatar:"",
+  views:"",
+  published:""
+};
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -708,6 +861,121 @@ window.addEventListener("message",event=>{
   const signal=findChromeVisibilitySignal(data);
   if(signal)setNativeChromeSignal(signal.visible,signal.key);
 });
+
+function escText(value=""){
+  return String(value??"");
+}
+function pipMetaFallback(id=requestedVideoId){
+  const title=currentVideoTitle();
+  const channel=currentVideoAuthor();
+  return {
+    id:String(id||""),
+    title:title||"Video",
+    channel,
+    avatar:"",
+    views:"",
+    published:""
+  };
+}
+function normalizePipMeta(raw={},id=requestedVideoId){
+  const row={...raw,id,videoId:id};
+  const media=window.MediaMeta?.video?.(row)||{};
+  return {
+    id:String(id||""),
+    title:String(media.title||raw?.title||currentVideoTitle()||"Video"),
+    channel:String(
+      media.sourceName||
+      raw?.uploaderName||
+      raw?.uploader||
+      raw?.channelName||
+      currentVideoAuthor()||
+      ""
+    ),
+    avatar:String(
+      media.sourceAvatar||
+      raw?.uploaderThumbnailUrl||
+      raw?.channelThumbnailUrl||
+      raw?.uploaderAvatar||
+      raw?.channelAvatar||
+      raw?.avatarUrl||
+      ""
+    ),
+    views:String(media.viewsLabel||""),
+    published:String(media.publishedLabel||"")
+  };
+}
+function renderPipTopInfo(){
+  const root=stage.querySelector("[data-pip-top-info]");
+  if(!root)return;
+
+  const meta=currentPipMeta?.id===requestedVideoId
+    ? currentPipMeta
+    : pipMetaFallback(requestedVideoId);
+
+  const avatar=root.querySelector("[data-pip-top-avatar]");
+  const avatarImg=root.querySelector("[data-pip-top-avatar-img]");
+  const avatarFallback=root.querySelector("[data-pip-top-avatar-fallback]");
+  const title=root.querySelector("[data-pip-top-title]");
+  const channel=root.querySelector("[data-pip-top-channel]");
+  const views=root.querySelector("[data-pip-top-views]");
+  const published=root.querySelector("[data-pip-top-published]");
+
+  if(title){
+    title.textContent=meta.title||"Video";
+    title.title=meta.title||"";
+  }
+  if(channel){
+    channel.textContent=meta.channel||"";
+    channel.hidden=!meta.channel;
+  }
+  if(views){
+    views.textContent=meta.views||"";
+    views.hidden=!meta.views;
+  }
+  if(published){
+    published.textContent=meta.published||"";
+    published.hidden=!meta.published;
+  }
+
+  if(avatar){
+    const letter=(meta.channel||meta.title||"?").trim().charAt(0).toUpperCase()||"?";
+    if(avatarFallback)avatarFallback.textContent=letter;
+    if(avatarImg){
+      if(meta.avatar){
+        avatarImg.src=meta.avatar;
+        avatarImg.hidden=false;
+        if(avatarFallback)avatarFallback.hidden=true;
+      }else{
+        avatarImg.removeAttribute("src");
+        avatarImg.hidden=true;
+        if(avatarFallback)avatarFallback.hidden=false;
+      }
+    }
+  }
+}
+async function loadPipTopMeta(id){
+  id=String(id||"").trim();
+  if(!id)return;
+  const token=++pipMetaRequestToken;
+  currentPipMeta=pipMetaFallback(id);
+  renderPipTopInfo();
+
+  try{
+    const response=await window.YT1988_API?.video?.(id);
+    if(token!==pipMetaRequestToken||id!==requestedVideoId)return;
+    const raw=response?.data||response||{};
+    currentPipMeta=normalizePipMeta(raw,id);
+    renderPipTopInfo();
+  }catch{
+    if(token!==pipMetaRequestToken||id!==requestedVideoId)return;
+    currentPipMeta={
+      ...pipMetaFallback(id),
+      ...currentPipMeta,
+      id
+    };
+    renderPipTopInfo();
+  }
+}
 
 function formatSeekProgress(){
   const seek=stage.querySelector("[data-pip-seek]");
@@ -1625,6 +1893,20 @@ function cleanOverlayMarkup(){
     '<div class="pip-resize-handle w" data-pip-resize="w"></div>'+
     '<div class="pip-resize-handle nw" data-pip-resize="nw"></div>'+
     '<div class="clean-controls">'+
+      '<div class="pip-top-info" data-pip-top-info aria-hidden="true">'+
+        '<span class="pip-top-avatar" data-pip-top-avatar>'+
+          '<img data-pip-top-avatar-img alt="" hidden>'+
+          '<span data-pip-top-avatar-fallback>?</span>'+
+        '</span>'+
+        '<span class="pip-top-copy">'+
+          '<span class="pip-top-title" data-pip-top-title>Video</span>'+
+          '<span class="pip-top-meta">'+
+            '<span class="pip-top-channel" data-pip-top-channel></span>'+
+            '<span class="pip-top-dot" data-pip-top-views></span>'+
+            '<span class="pip-top-dot" data-pip-top-published></span>'+
+          '</span>'+
+        '</span>'+
+      '</div>'+
       '<button class="clean-control close" type="button" data-clean-close aria-label="Đóng PiP demo" title="Đóng PiP">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
       '</button>'+
@@ -1773,6 +2055,8 @@ async function render(){
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
   requestedVideoId=id;
+  pipMetaRequestToken+=1;
+  currentPipMeta=pipMetaFallback(id);
   verifiedMediaAspect=0;
   verifiedMediaShape="";
   calibrationWidth=280;
@@ -1797,6 +2081,8 @@ async function render(){
     stage.appendChild(host);
     if(mode.cleanDemo){
       stage.insertAdjacentHTML("beforeend",cleanOverlayMarkup());
+      renderPipTopInfo();
+      if(mode.maxClean)void loadPipTopMeta(id);
     }
     codeEl.textContent=
 `new YT.Player("api-player", {
@@ -1817,6 +2103,14 @@ async function render(){
       events:mode.cleanDemo?{
         onReady(){
           optimisticPlaying=false;
+          if(currentPipMeta?.id===id){
+            currentPipMeta={
+              ...currentPipMeta,
+              title:currentPipMeta.title||currentVideoTitle()||"Video",
+              channel:currentPipMeta.channel||currentVideoAuthor()||""
+            };
+            renderPipTopInfo();
+          }
           if(mode.maxClean){
             formatSeekProgress();
             startSeekLoop();
