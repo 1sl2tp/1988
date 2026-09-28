@@ -70,6 +70,60 @@
       box-shadow:0 14px 38px rgba(0,0,0,.58);
     }
     .stage.demo-pip.demo-pip-large{width:min(72vw,520px)}
+    .pip-drag-zone{
+      display:none;
+      position:absolute;
+      z-index:6;
+      left:36px;
+      right:36px;
+      top:0;
+      height:18px;
+      cursor:grab;
+      pointer-events:auto;
+      touch-action:none;
+    }
+    .stage.demo-pip.max-clean-mode .pip-drag-zone{display:block}
+    .stage.pip-dragging .pip-drag-zone{cursor:grabbing}
+    .pip-resize-handle{
+      display:none;
+      position:absolute;
+      z-index:7;
+      pointer-events:auto;
+      touch-action:none;
+    }
+    .stage.demo-pip.max-clean-mode .pip-resize-handle{display:block}
+    .pip-resize-handle.n,.pip-resize-handle.s{
+      left:14px;right:14px;height:10px;
+    }
+    .pip-resize-handle.n{top:-2px;cursor:ns-resize}
+    .pip-resize-handle.s{bottom:-2px;cursor:ns-resize}
+    .pip-resize-handle.e,.pip-resize-handle.w{
+      top:14px;bottom:14px;width:10px;
+    }
+    .pip-resize-handle.e{right:-2px;cursor:ew-resize}
+    .pip-resize-handle.w{left:-2px;cursor:ew-resize}
+    .pip-resize-handle.ne,.pip-resize-handle.nw,
+    .pip-resize-handle.se,.pip-resize-handle.sw{
+      width:16px;height:16px;
+    }
+    .pip-resize-handle.ne{top:-2px;right:-2px;cursor:nesw-resize}
+    .pip-resize-handle.nw{top:-2px;left:-2px;cursor:nwse-resize}
+    .pip-resize-handle.se{bottom:-2px;right:-2px;cursor:nwse-resize}
+    .pip-resize-handle.sw{bottom:-2px;left:-2px;cursor:nesw-resize}
+    .stage.demo-pip.max-clean-mode::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      z-index:5;
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:inherit;
+      pointer-events:none;
+      opacity:0;
+      transition:opacity .14s ease;
+    }
+    .stage.demo-pip.max-clean-mode:hover::after,
+    .stage.pip-resizing::after,
+    .stage.pip-dragging::after{opacity:1}
     /* PiP MAX: never zoom the iframe. Keep the native YouTube play button at its
        real center, and temporarily reveal only a measured center window while
        YouTube title / lower chrome are expected to be visible. */
@@ -383,6 +437,9 @@ let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
+let pipPointerMode=null;
+let pipPointerId=null;
+let pipPointerStart=null;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -491,6 +548,84 @@ function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
   stage.classList.toggle("chrome-mask",!!on);
 }
+function clampPipPosition(left,top,width,height){
+  const gap=6;
+  const maxLeft=Math.max(gap,window.innerWidth-width-gap);
+  const maxTop=Math.max(gap,window.innerHeight-height-gap);
+  return {
+    left:Math.max(gap,Math.min(maxLeft,left)),
+    top:Math.max(gap,Math.min(maxTop,top))
+  };
+}
+function setPipRect(left,top,width,height){
+  const pos=clampPipPosition(left,top,width,height);
+  stage.style.left=pos.left+"px";
+  stage.style.top=pos.top+"px";
+  stage.style.right="auto";
+  stage.style.bottom="auto";
+  stage.style.width=width+"px";
+  stage.style.height=height+"px";
+  syncMeasuredSafeWindow();
+}
+function beginPipPointer(e,mode,handle=""){
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+  const r=stage.getBoundingClientRect();
+  pipPointerMode=mode;
+  pipPointerId=e.pointerId;
+  pipPointerStart={
+    x:e.clientX,y:e.clientY,
+    left:r.left,top:r.top,width:r.width,height:r.height,
+    ratio:r.width/Math.max(1,r.height),
+    handle
+  };
+  stage.classList.toggle("pip-dragging",mode==="drag");
+  stage.classList.toggle("pip-resizing",mode==="resize");
+  try{e.target.setPointerCapture(e.pointerId)}catch{}
+  e.preventDefault();
+  e.stopPropagation();
+}
+function updatePipPointer(e){
+  if(pipPointerId===null||e.pointerId!==pipPointerId||!pipPointerStart)return false;
+  const s=pipPointerStart;
+  const dx=e.clientX-s.x;
+  const dy=e.clientY-s.y;
+
+  if(pipPointerMode==="drag"){
+    setPipRect(s.left+dx,s.top+dy,s.width,s.height);
+    return true;
+  }
+
+  const h=s.handle;
+  const minW=140;
+  const maxW=Math.max(minW,Math.min(window.innerWidth-12,760));
+  let width=s.width;
+  if(h.includes("e")) width=s.width+dx;
+  else if(h.includes("w")) width=s.width-dx;
+  else if(h.includes("n")||h.includes("s")){
+    const targetH=h.includes("s")?s.height+dy:s.height-dy;
+    width=targetH*s.ratio;
+  }
+  width=Math.max(minW,Math.min(maxW,width));
+  const height=width/s.ratio;
+
+  let left=s.left;
+  let top=s.top;
+  if(h.includes("w")) left=s.left+(s.width-width);
+  if(h.includes("n")) top=s.top+(s.height-height);
+
+  setPipRect(left,top,width,height);
+  return true;
+}
+function endPipPointer(e){
+  if(pipPointerId===null||e.pointerId!==pipPointerId)return false;
+  try{e.target.releasePointerCapture(e.pointerId)}catch{}
+  pipPointerMode=null;
+  pipPointerId=null;
+  pipPointerStart=null;
+  stage.classList.remove("pip-dragging","pip-resizing");
+  syncMeasuredSafeWindow();
+  return true;
+}
 function currentMediaTime(){
   try{return Number(apiPlayer?.getCurrentTime?.())||0}catch{return 0}
 }
@@ -549,6 +684,15 @@ function showCleanControls(){
 }
 function cleanOverlayMarkup(){
   return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
+    '<div class="pip-drag-zone" data-pip-drag title="Kéo để di chuyển PiP"></div>'+
+    '<div class="pip-resize-handle n" data-pip-resize="n"></div>'+
+    '<div class="pip-resize-handle ne" data-pip-resize="ne"></div>'+
+    '<div class="pip-resize-handle e" data-pip-resize="e"></div>'+
+    '<div class="pip-resize-handle se" data-pip-resize="se"></div>'+
+    '<div class="pip-resize-handle s" data-pip-resize="s"></div>'+
+    '<div class="pip-resize-handle sw" data-pip-resize="sw"></div>'+
+    '<div class="pip-resize-handle w" data-pip-resize="w"></div>'+
+    '<div class="pip-resize-handle nw" data-pip-resize="nw"></div>'+
     '<div class="clean-controls">'+
       '<button class="clean-control resize" type="button" data-clean-resize aria-label="Phóng hoặc thu PiP" title="Phóng / thu">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v2H7.41l4.3 4.29-1.42 1.42L6 7.41V11H4V4Zm16 16h-7v-2h3.59l-4.3-4.29 1.42-1.42L18 16.59V13h2v7Z"/></svg>'+
@@ -566,7 +710,16 @@ function cleanOverlayMarkup(){
   '</div>';
 }
 function exitDemoPip(){
-  stage.classList.remove("demo-pip","demo-pip-large","controls-visible","chrome-mask");
+  stage.classList.remove("demo-pip","demo-pip-large","controls-visible","chrome-mask","pip-dragging","pip-resizing");
+  stage.style.left="";
+  stage.style.top="";
+  stage.style.right="";
+  stage.style.bottom="";
+  stage.style.width="";
+  stage.style.height="";
+  pipPointerMode=null;
+  pipPointerId=null;
+  pipPointerStart=null;
   stageSpacer.style.display="none";
   stageSpacer.style.height="";
   demoPipToggle.textContent="Bật PiP demo";
@@ -736,6 +889,16 @@ modesEl.addEventListener("click",e=>{
 });
 demoPipToggle.addEventListener("click",toggleDemoPip);
 stage.addEventListener("pointerdown",e=>{
+  const resize=e.target.closest("[data-pip-resize]");
+  if(resize){
+    beginPipPointer(e,"resize",resize.dataset.pipResize||"se");
+    return;
+  }
+  const drag=e.target.closest("[data-pip-drag]");
+  if(drag){
+    beginPipPointer(e,"drag");
+    return;
+  }
   const seek=e.target.closest("[data-pip-seek]");
   if(!seek)return;
   e.preventDefault();
@@ -746,6 +909,7 @@ stage.addEventListener("pointerdown",e=>{
   seekAtClientX(e.clientX,seek);
 });
 stage.addEventListener("pointermove",e=>{
+  if(updatePipPointer(e))return;
   if(activeSeekPointer!==null&&e.pointerId===activeSeekPointer){
     const seek=stage.querySelector("[data-pip-seek]");
     if(seek)seekAtClientX(e.clientX,seek);
@@ -754,6 +918,7 @@ stage.addEventListener("pointermove",e=>{
   if(stage.classList.contains("demo-pip"))showCleanControls();
 });
 function finishSeek(e){
+  if(endPipPointer(e))return;
   if(activeSeekPointer===null||e.pointerId!==activeSeekPointer)return;
   const seek=stage.querySelector("[data-pip-seek]");
   if(seek){
