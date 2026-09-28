@@ -743,7 +743,6 @@ function seekAtClientX(clientX,seek){
   if(fill)fill.style.width=pct;
   if(thumb)thumb.style.left=pct;
   seek.setAttribute("aria-valuenow",String(Math.round(p*100)));
-  setChromeMask(true);
   showCleanControls();
 }
 function currentVideoTitle(){
@@ -1455,6 +1454,7 @@ function setPipRect(left,top,width,height){
 }
 function beginPipPointer(e,mode,handle=""){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+  markPipUiActivity({showControls:true});
   const r=stage.getBoundingClientRect();
   pipPointerMode=mode;
   pipPointerId=e.pointerId;
@@ -1541,7 +1541,8 @@ function scheduleChromeRelease(){
     return;
   }
 
-  // Fallback for YouTube builds that expose no chrome-visibility signal.
+  // Safety fallback only for YouTube builds that expose no chrome-visibility signal.
+  // Normal release is HIDDEN signal + 1 second.
   chromeReleaseMediaTime=currentMediaTime();
   chromeReleaseWallTime=performance.now();
 
@@ -1574,19 +1575,35 @@ function scheduleChromeRelease(){
 
   chromeMaskTimer=setTimeout(verify,250);
 }
+function markPipUiActivity({showControls=false}={}){
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+
+  // Any action that can make YouTube chrome appear must be covered immediately.
+  // From this point the mask release is owned only by scheduleChromeRelease().
+  resetNativeChromeSignal();
+  setChromeMask(true);
+
+  if(showControls){
+    stage.classList.add("controls-visible");
+    stopCleanHideTimer();
+    cleanHideTimer=setTimeout(hideCleanControls,1800);
+  }
+
+  if(playerIsPlaying())scheduleChromeRelease();
+  else stopChromeMaskTimer();
+}
+
 function hideCleanControls(){
   stopCleanHideTimer();
   stage.classList.remove("controls-visible");
 }
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
-  resetNativeChromeSignal();
-  stage.classList.add("controls-visible");
   if(stage.classList.contains("max-clean-mode")){
-    setChromeMask(true);
-    if(playerIsPlaying())scheduleChromeRelease();
-    else stopChromeMaskTimer();
+    markPipUiActivity({showControls:true});
+    return;
   }
+  stage.classList.add("controls-visible");
   stopCleanHideTimer();
   cleanHideTimer=setTimeout(hideCleanControls,1800);
 }
@@ -1684,8 +1701,7 @@ function enterDemoPip(){
       initialWidth,
       initialHeight
     );
-    setChromeMask(true);
-    scheduleChromeRelease();
+    markPipUiActivity({showControls:false});
   }
 }
 function toggleDemoPip(){
@@ -1820,13 +1836,11 @@ async function render(){
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           const state=Number(event?.data);
           if(state===1){
-            // Start the 3.8 s window only after YouTube says playback is really
-            // running. A BUFFERING -> PLAYING transition naturally restarts it.
-            setChromeMask(true);
-            scheduleChromeRelease();
+            // PLAY / RESUME / BUFFERING->PLAYING all enter the same UI-activity
+            // state. Custom controls do not have to be shown just because play began.
+            markPipUiActivity({showControls:false});
           }else{
-            // PAUSED / BUFFERING / CUED / ENDED: never reveal full video.
-            // Network delay therefore cannot consume the hide timeout.
+            // PAUSED / BUFFERING / CUED / ENDED: keep YouTube chrome covered.
             stopChromeMaskTimer();
             setChromeMask(true);
           }
@@ -1896,7 +1910,7 @@ function finishSeek(e){
     try{seek.releasePointerCapture(e.pointerId)}catch{}
   }
   activeSeekPointer=null;
-  scheduleChromeRelease();
+  if(playerIsPlaying())scheduleChromeRelease();
 }
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
