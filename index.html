@@ -3711,12 +3711,24 @@ html.one-col.portrait .player.pip{
       {key:"latest",label:"Ngày"},
       {key:"week",label:"Tuần"}
     ];
+    const sourceTabsKey="yt1988-source-tabs-v1";
+    let storedRows=[];
+    try{
+      const saved=JSON.parse(localStorage.getItem(sourceTabsKey)||"[]");
+      if(Array.isArray(saved)){
+        storedRows=saved.filter(row=>row?.key&&row?.label);
+      }
+    }catch{}
 
-    // Paint the canonical rail immediately instead of waiting for network state.
-    renderExistingSourceNames(fallbackRows);
+    // Paint remembered tabs immediately; network state can refresh them later.
+    renderExistingSourceNames(storedRows.length?storedRows:fallbackRows);
 
-    // Render from RAM immediately; the synchronizer owns package network reads.
-    const firstPackagePromise=showPackageScope("live");
+    // A reload restores the last fully committed Live package first. Even with
+    // no network, the previous complete feed remains usable.
+    const firstPackagePromise=(async()=>{
+      await restoreStoredPackage("live");
+      return showPackageScope("live");
+    })();
 
     const statePromise=(async()=>{
       try{
@@ -3724,9 +3736,11 @@ html.one-col.portrait .player.pip{
         if(!response.ok)throw new Error("source_state_"+response.status);
         const payload=await response.json();
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
-        return existingSourceTabNames(remote);
+        const rows=existingSourceTabNames(remote);
+        try{localStorage.setItem(sourceTabsKey,JSON.stringify(rows))}catch{}
+        return rows;
       }catch(_){
-        return [];
+        return storedRows;
       }
     })();
 
@@ -3743,15 +3757,22 @@ html.one-col.portrait .player.pip{
       firstPackagePromise
     ]);
 
-    const rows=rowsFromState.length?rowsFromState:fallbackRows;
+    const rows=rowsFromState.length?rowsFromState:(storedRows.length?storedRows:fallbackRows);
     renderExistingSourceNames(rows);
 
     const scopes=rows
       .map(row=>row.key)
       .filter(scope=>!Object.keys(packageManifest).length||packageManifest[scope]);
 
-    // Live is already loaded above; warm only the remaining packages.
-    prefetchPackages(scopes.filter(scope=>scope!=="live"));
+    // Restore every previously committed package before any new download. Tab
+    // clicks remain RAM-only even after a refresh or temporary loss of network.
+    await Promise.all(scopes.map(scope=>restoreStoredPackage(scope)));
+    if(feedMode==="package"){
+      await showPackageScope(activePackageScope);
+    }
+
+    // Synchronizer compares manifest hashes and downloads only changed scopes.
+    prefetchPackages(scopes);
     return rows;
   }
 
