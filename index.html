@@ -2252,6 +2252,7 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const DOWNLOAD_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4297,7 +4298,7 @@ html.one-col.portrait .player.pip{
       rowActionButton("view-channel","Xem kênh","channel",{disabled:!sourceId})+
       adminActions+
       '<div class="row-action-sep"></div>'+
-      rowActionButton("download-cobalt","Tải qua Cobalt","download",{disabled:!canOpenCobalt(meta)});
+      rowActionButton("download","Tải xuống","download",{disabled:!canDownloadMeta(meta)});
 
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(anchor));
@@ -4322,22 +4323,48 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  const COBALT_DOWNLOAD_BASE="https://cobalt.meowing.de/#";
-
-  function canOpenCobalt(meta={}){
+  function canDownloadMeta(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
   }
 
-  function openInCobalt(meta={}){
+  function downloadGetUrl(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
-
-    const youtubeUrl="https://www.youtube.com/watch?v="+id;
-    // Cobalt web accepts the source URL in the hash and starts processing it
-    // automatically. Keep this in the same tab so there is no popup/new tab.
-    window.location.assign(
-      COBALT_DOWNLOAD_BASE+encodeURIComponent(youtubeUrl)
+    format=String(format||"mp4").toLowerCase();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+    if(format!=="mp3"&&format!=="mp4")return "";
+    return (
+      DOWNLOAD_URL+
+      "?id="+encodeURIComponent(id)+
+      "&format="+encodeURIComponent(format)
     );
+  }
+
+  function showDownloadMenu(){
+    const meta=openRowMenuMeta||{};
+    const enabled=canDownloadMeta(meta);
+    const menu=ensureRowActionMenu();
+    menu.innerHTML=
+      '<div class="row-action-title">Tải xuống</div>'+
+      rowActionButton("download-mp4","Video MP4 · 720p H.264","video",{disabled:!enabled})+
+      rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!enabled})+
+      '<div class="row-action-note">Tải trực tiếp, không mở trang Cobalt.</div>'+
+      '<div class="row-action-sep"></div>'+
+      rowActionButton("back-main","Quay lại","back");
+    menu.hidden=false;
+    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+  }
+
+  function startNativeDownload(meta={},format="mp4"){
+    const url=downloadGetUrl(meta,format);
+    if(!url)return false;
+
+    const a=document.createElement("a");
+    a.href=url;
+    a.rel="noopener";
+    a.style.display="none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     return true;
   }
 
@@ -6173,9 +6200,18 @@ html.one-col.portrait .player.pip{
         void openChannelInApp(meta);
         return;
       }
-      if(kind==="download-cobalt"){
+      if(kind==="download"){
+        showDownloadMenu();
+        return;
+      }
+      if(kind==="download-mp4"){
         closeRowActionMenu();
-        openInCobalt(meta);
+        startNativeDownload(meta,"mp4");
+        return;
+      }
+      if(kind==="download-mp3"){
+        closeRowActionMenu();
+        startNativeDownload(meta,"mp3");
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
