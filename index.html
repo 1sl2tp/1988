@@ -3298,22 +3298,29 @@ html.one-col.portrait .player.pip{
 
   async function loadPackageManifest(){
     try{
-      const response=await fetch(PACKAGE_SYNC_URL,{cache:"no-store"});
+      const response=await fetchWithTimeout(
+        PACKAGE_SYNC_URL,
+        {cache:"no-store"},
+        5000
+      );
       if(!response.ok)throw new Error("package_manifest_"+response.status);
       const payload=await response.json();
-      packageManifest=
+      const next=
         payload?.manifest && typeof payload.manifest==="object"
           ? payload.manifest
-          : {};
+          : null;
+      if(!next)throw new Error("package_manifest_invalid");
+      packageManifest=next;
       return packageManifest;
     }catch(_){
-      packageManifest={};
+      // A failed/slow manifest request must never erase the last known hashes.
       return packageManifest;
     }
   }
 
-  async function getPackage(scope,{force=false}={}){
+  async function getPackage(scope,{force=false,expectedHash=""}={}){
     scope=String(scope||"").trim();
+    expectedHash=String(expectedHash||"").trim();
     if(!scope)return [];
 
     if(!force&&packageCache.has(scope)){
@@ -3325,23 +3332,32 @@ html.one-col.portrait .player.pip{
 
     const task=(async()=>{
       try{
-        const response=await fetch(
+        const response=await fetchWithTimeout(
           PACKAGE_SYNC_URL+"?scope="+encodeURIComponent(scope),
-          {cache:"no-store"}
+          {cache:"no-store"},
+          12000
         );
         if(!response.ok)throw new Error("package_"+scope+"_"+response.status);
+
         const payload=await response.json();
-        const pkg=payload?.package;
-        const items=payload?.ok&&payload?.exists&&Array.isArray(pkg?.items)
-          ? pkg.items
-          : [];
-        const metas=packageMetas(items);
+        const pkg=payload?.ok&&payload?.exists?payload?.package:null;
         const nextHash=String(pkg?.hash||"").trim();
 
-        // A package becomes visible only after the whole response has arrived,
-        // parsed and converted. This is the single in-memory swap point.
+        if(!pkg||!nextHash||!Array.isArray(pkg?.items)){
+          throw new Error("package_"+scope+"_invalid");
+        }
+        if(expectedHash&&nextHash!==expectedHash){
+          throw new Error("package_"+scope+"_hash_mismatch");
+        }
+
+        const metas=packageMetas(pkg.items);
+
+        // Download + JSON parse + normalization must all finish before either
+        // durable storage or RAM is replaced. IndexedDB writes are transactional.
+        await writeStoredPackage(scope,pkg);
+
         packageCache.set(scope,metas);
-        if(nextHash)packageHashCache.set(scope,nextHash);
+        packageHashCache.set(scope,nextHash);
 
         // Important for deep links: the video may have started from
         // YT1988_API.video(id) before its source package finished loading.
