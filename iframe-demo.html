@@ -456,6 +456,7 @@ let optimisticPlaying=false;
 let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
+const PIP_EMBED_MODE="nocookie-controls0-clean";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -529,6 +530,9 @@ function seekAtClientX(clientX,seek){
 function currentVideoTitle(){
   try{return String(apiPlayer?.getVideoData?.()?.title||"")}catch{return ""}
 }
+function currentVideoAuthor(){
+  try{return String(apiPlayer?.getVideoData?.()?.author||"")}catch{return ""}
+}
 function currentVideoId(){
   try{return String(apiPlayer?.getVideoData?.()?.video_id||cleanId(input.value)||"")}catch{return cleanId(input.value)}
 }
@@ -543,10 +547,11 @@ function prepareCurrentChromeLibrary(){
 
   const videoId=currentVideoId();
   const title=currentVideoTitle();
+  const author=currentVideoAuthor();
   const aspect=currentMainAspect();
   const minWidth=140;
   const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
-  const key=[videoId,title,aspect.toFixed(5),minWidth,maxWidth].join("|");
+  const key=[PIP_EMBED_MODE,videoId,title,author,aspect.toFixed(5),minWidth,maxWidth].join("|");
 
   const cached=mediaChromeLibraries.get(key);
   if(cached){
@@ -561,6 +566,7 @@ function prepareCurrentChromeLibrary(){
     minWidth,
     maxWidth,
     step:2,
+    embedMode:PIP_EMBED_MODE,
     controls:false
   });
   mediaChromeLibraries.set(key,library);
@@ -590,6 +596,7 @@ function paintGeometryReadout(result){
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · "+(currentChromeLibrary?"LIB":"LIVE")+
+    " · embed "+(result.embedMode||currentChromeLibrary?.embedMode||"?")+
     " · state "+(state.tier||"?")+"/"+(state.density||"?")+
     (result.collisionMode?" · CHẠM PLAY":"")+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
