@@ -1184,12 +1184,29 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   .info{padding:12px 12px 16px}
 }
 .rows{
+  position:relative;
   padding:8px var(--feed-edge-gap) 0;
   display:grid;
   grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
   column-gap:var(--card-gap-x);
   row-gap:var(--card-gap-y);
 }
+/* Keep the visual top gap exact.
+   .row::before extends 12px outside the card for hover/selected feedback;
+   this 8px cover prevents the first card background from bleeding upward
+   into the source/search gap while leaving card geometry untouched. */
+.rows::before{
+  content:"";
+  position:absolute;
+  z-index:3;
+  top:0;
+  left:0;
+  right:0;
+  height:8px;
+  background:var(--yt-bg);
+  pointer-events:none;
+}
+
 .row{
   --card-accent-rgb:var(--header-accent-rgb);
   position:relative;
