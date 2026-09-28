@@ -5576,9 +5576,27 @@ html.one-col.portrait .player.pip{
   document.addEventListener("keydown",event=>{
     if(event.key==="Escape")closeSettingsMenu();
   });
+  function applySourceUiEvent(event={}){
+    if(event?.type!=="source-state")return;
+    const id=validSourceId(event.id);
+    const scope=String(event.scope||"").trim();
+    const status=String(event.status||"");
+    if(!id||!scope||!["selected","blocked","normal"].includes(status))return;
+    patchLocalSourceStatus(id,status,scope);
+  }
+
+  try{
+    sourceUiChannel?.addEventListener?.("message",event=>applySourceUiEvent(event.data));
+  }catch{}
+
   addEventListener("storage",event=>{
-    if(event.key!==THEME_KEY)return;
-    applyTheme(event.newValue,{persist:false});
+    if(event.key===THEME_KEY){
+      applyTheme(event.newValue,{persist:false});
+      return;
+    }
+    if(event.key===SOURCE_UI_EVENT_KEY&&event.newValue){
+      try{applySourceUiEvent(JSON.parse(event.newValue))}catch{}
+    }
   });
 
   videoMenu?.addEventListener("click",()=>{
