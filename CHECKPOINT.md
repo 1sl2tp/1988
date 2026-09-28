@@ -1,38 +1,75 @@
 # CHECKPOINT — MAIN 1988
 
-Ngày chốt: **2026-09-28 05:55 (UTC+7)**
+Ngày chốt: **2026-09-29 00:56 (UTC+7)**
 
 ## Baseline runtime
 
 - Repo: `1sl2tp/1988`
 - Branch production: `main`
-- Runtime baseline commit: `4fc6a811064a9a78d1e1db3391da4aeaaa80fa07`
+- Runtime baseline đã chạy xanh: `fb3c76bdbc552645d8752ebe27d3e395b8c68acb`
 - Domain: `yt.taphoa.xyz`
 - Hosting: **GitHub Pages**
 - Backend: **Supabase**
+- PWA shell cache: `1988-simple-media-v3`
+- Deploy kiểm chứng: **Deploy 1988 Player #2307 — success**
 
 ## Bản được coi là MAIN chính
 
-`index.html` = giao diện proof hiện tại từ `pip-simple-proof.html`.
+`index.html` hiện dùng **Rail media core** chung cho:
 
-Đây là mốc chuẩn để rollback khi một thay đổi mới làm hỏng:
-
-- header / search / source rail;
-- bố cục 1 cột, 2 cột;
+- MAIN 1 cột;
 - PiP;
-- tỉ lệ video Ngang–Dọc;
-- luồng package/search;
-- PWA/cache.
+- MAIN 2 cột.
 
-## Hợp đồng media tại checkpoint
+Mốc này được coi là bản ổn để rollback nếu các thay đổi sau làm hỏng bố cục/media/PiP.
 
-1. Server quản lý aspect theo `videoId`.
-2. Package và search dùng chung `yt1988_video_meta`.
-3. Client phát video ngay, không chờ dò aspect.
-4. `videoContentRect` của đúng video đang phát là lớp xác nhận cuối.
-5. Nếu player xác nhận khác server, client gửi correction về `yt1988-video-meta`.
-6. MAIN / PiP / 2 cột không tự suy ra orientation độc lập.
+## Trạng thái media đã chốt
+
+1. **MAIN 1 cột: OK**
+   - dùng đúng aspect thật của video;
+   - viewport chỉ hiển thị phần video thật;
+   - không zoom/scaling giả để bù vùng đen.
+
+2. **MAIN 2 cột: OK**
+   - dùng cùng Rail player;
+   - kích thước media theo không gian thực và aspect thật;
+   - không còn phải đo title/icon/chrome để tính vùng đen.
+
+3. **PiP: OK**
+   - chuyển sang PiP thì **thu nhỏ đúng SIZE**, không giữ width/height của MAIN;
+   - ngang dùng `--pip-landscape-w`;
+   - dọc dùng `--pip-portrait-h`;
+   - giữ đúng aspect thật;
+   - không thêm nút X riêng;
+   - không zoom iframe/video khi đổi SIZE.
+
+4. **Công thức Rail chung**
+   - source iframe = BLACK trên + video thật + BLACK dưới;
+   - ngang: `65 + 65`;
+   - dọc: `59 + 59`;
+   - crop bằng viewport, không scale video;
+   - `controls=1` để giữ tua native YouTube;
+   - fullscreen bỏ crop và dùng toàn viewport.
+
+5. **Aspect**
+   - ưu tiên `videoContentRect`/detected ratio thật;
+   - khi aspect thật đổi đủ ngưỡng thì relayout;
+   - MAIN / PiP / 2 cột dùng cùng một nguồn aspect.
+
+## Các commit chính của mốc này
+
+- `cf167aa` — Use Rail crop player for main one-col PiP and two-col media
+- `67f1637` — Refresh shell cache for Rail media main
+- `39f579f` — Fix Rail PiP shrink size override
+- `50bd597` — Refresh shell cache for PiP shrink fix
+- `fb3c76b` — Update media cache test for v3, deploy xanh
 
 ## Rollback
 
-Checkpoint branch được tạo từ MAIN sau khi ghi nhật ký/checkpoint này. Khi cần rollback UI, ưu tiên quay về checkpoint branch thay vì ghép lại từng commit cũ.
+Backup/checkpoint branch được tạo từ commit ghi checkpoint này.
+
+Khi cần quay lại bản ổn, ưu tiên checkout branch:
+
+`checkpoint-2026-09-29-rail-media-stable`
+
+Không ghép lại từng commit cũ nếu không cần thiết.
