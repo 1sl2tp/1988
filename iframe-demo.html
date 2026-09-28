@@ -31,9 +31,16 @@
     .presets::-webkit-scrollbar{display:none}
     .presets button{padding:7px 10px;font-size:12px}
     .presets .portrait{border-color:#4a4a50}
-    .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0}
+    .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0;flex-wrap:wrap}
     .demo-actions[hidden]{display:none}
     .demo-actions .hint{font-size:12px;color:var(--muted);line-height:1.4}
+    .geometry-readout{
+      flex-basis:100%;
+      font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+      color:#c9c9cf;
+      opacity:.9;
+    }
+    .geometry-readout[hidden]{display:none}
     .scroll-demo{
       display:none;
       padding:12px 12px 120vh;
@@ -258,6 +265,7 @@
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
     <span class="hint">PiP vừa nổi chỉ có video. Chạm/rê mới hiện Play/Pause · X · phóng/thu rồi tự ẩn.</span>
+    <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
     <strong id="modeTitle"></strong>
@@ -271,6 +279,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
+<script src="/src/youtube-chrome-geometry.js"></script>
 <script>
 const modes=[
   {
@@ -359,6 +368,7 @@ const input=document.getElementById("videoId");
 const presets=document.getElementById("presets");
 const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
+const geometryReadout=document.getElementById("geometryReadout");
 const stageSpacer=document.getElementById("stageSpacer");
 const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
@@ -430,21 +440,40 @@ function seekAtClientX(clientX,seek){
   setChromeMask(true);
   showCleanControls();
 }
+function currentVideoTitle(){
+  try{return String(apiPlayer?.getVideoData?.()?.title||"")}catch{return ""}
+}
+function paintGeometryReadout(result){
+  if(!geometryReadout)return;
+  if(!result||!stage.classList.contains("max-clean-mode")){
+    geometryReadout.hidden=true;
+    geometryReadout.textContent="";
+    return;
+  }
+  geometryReadout.hidden=false;
+  const p=result.playCenter;
+  geometryReadout.textContent=
+    Math.round(result.width)+"×"+Math.round(result.height)+
+    " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
+    " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
+    " · title "+result.titleLines+" dòng"+
+    " · trên "+Math.round(result.topChrome)+
+    " · dưới "+Math.round(result.bottomChrome)+
+    " · crop "+Math.round(result.safeEdge);
+}
 function syncMeasuredSafeWindow(){
-  if(!stage.classList.contains("max-clean-mode"))return;
-  const rect=stage.getBoundingClientRect();
-  const h=Math.max(1,rect.height);
-
-  // The native YouTube Play/Pause stays at the geometric center of the player.
-  // Treat that center as fixed, estimate how deep YouTube's top/bottom chrome
-  // reaches from the real PiP height, then crop the SAME amount on both sides.
-  // This keeps Play/Pause visually centered while pushing title/channel above
-  // and lower metadata/branding below the visible center window.
-  const topChrome=Math.max(48,Math.min(76,h*.25));
-  const bottomChrome=Math.max(40,Math.min(64,h*.18));
-  const safeEdge=Math.min((h-52)/2,Math.max(topChrome,bottomChrome));
-
-  stage.style.setProperty("--safe-edge",Math.max(0,safeEdge).toFixed(2)+"px");
+  if(!stage.classList.contains("max-clean-mode")){
+    paintGeometryReadout(null);
+    return null;
+  }
+  const geometry=window.YouTubeChromeGeometry;
+  if(!geometry){
+    paintGeometryReadout(null);
+    return null;
+  }
+  const result=geometry.apply(stage,{title:currentVideoTitle()});
+  paintGeometryReadout(result);
+  return result;
 }
 function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
@@ -588,6 +617,7 @@ async function render(){
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
   stage.style.setProperty("--pip-poster",mode.maxClean?'url("https://i.ytimg.com/vi/'+id+'/hqdefault.jpg")':"none");
   demoActions.hidden=!mode.cleanDemo;
+  if(!mode.maxClean)paintGeometryReadout(null);
   scrollDemo.classList.toggle("show",!!mode.cleanDemo);
   stage.innerHTML="";
 
@@ -620,11 +650,15 @@ async function render(){
           if(mode.maxClean){
             formatSeekProgress();
             startSeekLoop();
+            syncMeasuredSafeWindow();
           }
         },
         onStateChange(event){
           optimisticPlaying=event?.data===1;
-          if(mode.maxClean)formatSeekProgress();
+          if(mode.maxClean){
+            formatSeekProgress();
+            syncMeasuredSafeWindow();
+          }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           if(event?.data===1){
             setChromeMask(true);
