@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.28";
+  const VERSION = "2026-09-28.29";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -235,31 +235,31 @@
     landscape:Object.freeze([
       // TOP follows the LOWEST visible edge of channel avatar + title + channel
       // name. Unlike BOTTOM it grows steadily with the native YouTube UI size.
-      {w:140, topInset:50, bottomInset:33},
-      {w:170, topInset:51, bottomInset:34},
-      {w:200, topInset:52, bottomInset:35},
-      {w:240, topInset:53, bottomInset:36},
-      {w:280, topInset:55, bottomInset:37},
+      {w:140, topInset:50, bottomInset:26},
+      {w:170, topInset:51, bottomInset:27},
+      {w:200, topInset:52, bottomInset:28},
+      {w:240, topInset:53, bottomInset:29},
+      {w:280, topInset:55, bottomInset:30},
       // YouTube introduces the larger lower action/card cluster around here.
-      {w:319, topInset:56, bottomInset:38},
-      {w:320, topInset:56, bottomInset:53},
-      {w:360, topInset:58, bottomInset:55},
-      {w:520, topInset:62, bottomInset:58},
-      {w:760, topInset:66, bottomInset:61}
+      {w:319, topInset:56, bottomInset:31},
+      {w:320, topInset:56, bottomInset:46},
+      {w:360, topInset:58, bottomInset:48},
+      {w:520, topInset:62, bottomInset:51},
+      {w:760, topInset:66, bottomInset:54}
     ]),
     portrait:Object.freeze([
       // Portrait regular-watch keeps the top metadata chrome nearly fixed in
       // physical pixels. Follow the actual lower border of that top strip.
       // The lower YouTube strip also grows smoothly; unlike landscape there is
       // no 319→320 action-card breakpoint.
-      {w:140, topInset:58, bottomInset:32},
-      {w:170, topInset:58, bottomInset:33},
-      {w:200, topInset:59, bottomInset:34},
-      {w:240, topInset:59, bottomInset:36},
-      {w:280, topInset:60, bottomInset:40},
-      {w:320, topInset:60, bottomInset:42},
-      {w:360, topInset:61, bottomInset:44},
-      {w:460, topInset:62, bottomInset:47}
+      {w:140, topInset:58, bottomInset:25},
+      {w:170, topInset:58, bottomInset:26},
+      {w:200, topInset:59, bottomInset:27},
+      {w:240, topInset:59, bottomInset:29},
+      {w:280, topInset:60, bottomInset:33},
+      {w:320, topInset:60, bottomInset:35},
+      {w:360, topInset:61, bottomInset:37},
+      {w:460, topInset:62, bottomInset:40}
     ])
   });
 
