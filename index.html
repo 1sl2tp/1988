@@ -876,7 +876,7 @@ html.one-col.portrait .player{
 /* PIP keeps the real media ratio and has no extra black gutter. */
 html.one-col .player.pip{
   position:fixed !important;
-  z-index:1000;
+  z-index:2147483000;
   transform:none !important;
   inset:auto !important;
   right:10px !important;
@@ -3899,7 +3899,15 @@ html.one-col.portrait .player.pip{
     clearInlineCardClasses(thumb);
     thumb.classList.add("inline-playing");
     thumb.classList.toggle("pip-floating",!!floating);
-    movePlayerNode(thumb);
+
+    // Inline: the player lives inside the clicked thumbnail.
+    // PiP: move the SAME player to <body> so no card/container stacking
+    // context can sit above it. This is what makes PiP truly top-layer.
+    if(floating){
+      movePlayerNode(document.body);
+    }else{
+      movePlayerNode(thumb);
+    }
 
     player.classList.toggle("pip",!!floating);
     stage.classList.remove("pip-host");
@@ -3960,6 +3968,8 @@ html.one-col.portrait .player.pip{
 
       if(hostVisible){
         if(pip){
+          // Return the SAME player to the exact card it came from.
+          movePlayerNode(host);
           host.classList.remove("pip-floating");
           player.classList.remove("pip");
           clearMobilePipGestureGeometry();
@@ -3967,7 +3977,9 @@ html.one-col.portrait .player.pip{
         }
       }else{
         if(!pip){
+          // Escape the card/grid stacking context before floating.
           host.classList.add("pip-floating");
+          movePlayerNode(document.body);
           player.classList.add("pip");
           pip=true;
         }
