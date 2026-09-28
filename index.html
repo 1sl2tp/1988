@@ -188,9 +188,16 @@ html.one-col body{
 html.one-col body{min-height:220vh}
 
 /* One-column no longer keeps a waiting MAIN player above the feed.
-   Playback starts only inside the card the user selects. */
+   Playback starts only inside the card the user selects.
+   The media-query guard also applies BEFORE JS adds the one-col class, so the
+   old empty MAIN info/menu cannot flash as a stray vertical ellipsis. */
 html.one-col .media-col{
   display:none!important;
+}
+@media(max-width:999px){
+  .media-col{
+    display:none!important;
+  }
 }
 .top{
   position:sticky;
