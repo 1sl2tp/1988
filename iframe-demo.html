@@ -328,6 +328,7 @@
       pointer-events:none;
       overflow:hidden;
     }
+    .pip-top-avatar[hidden]{display:none!important}
     .pip-top-avatar{
       flex:0 0 30px;
       width:30px;
@@ -868,7 +869,8 @@ function pipMetaFallback(id=requestedVideoId){
     avatar:"",
     views:"",
     published:"",
-    verified:false
+    verified:false,
+    source:"fallback"
   };
 }
 function normalizePipMeta(raw={},id=requestedVideoId){
@@ -897,7 +899,8 @@ function normalizePipMeta(raw={},id=requestedVideoId){
     ),
     views:String(media.viewsLabel||""),
     published:String(media.publishedLabel||""),
-    verified:true
+    verified:true,
+    source:"video"
   };
 }
 function pipChannelRef(raw={}){
@@ -981,17 +984,22 @@ function renderPipTopInfo(){
   }
 
   if(avatar){
-    const letter=(meta.channel||meta.title||"?").trim().charAt(0).toUpperCase()||"?";
-    if(avatarFallback)avatarFallback.textContent=letter;
+    const expected=String(meta.avatar||"").trim();
+    avatar.hidden=!expected;
+    if(avatarFallback)avatarFallback.hidden=true;
+
     if(avatarImg){
-      if(meta.avatar){
-        avatarImg.src=meta.avatar;
+      avatarImg.onerror=null;
+      if(expected){
         avatarImg.hidden=false;
-        if(avatarFallback)avatarFallback.hidden=true;
+        avatarImg.onerror=()=>{
+          avatarImg.hidden=true;
+          avatar.hidden=true;
+        };
+        if(avatarImg.getAttribute("src")!==expected)avatarImg.src=expected;
       }else{
         avatarImg.removeAttribute("src");
         avatarImg.hidden=true;
-        if(avatarFallback)avatarFallback.hidden=false;
       }
     }
   }
@@ -1008,7 +1016,12 @@ function attachPipMetaToLibrary(id,meta,{cache=true}={}){
     currentChromeLibrary={
       ...currentChromeLibrary,
       mediaMeta:meta,
-      mediaMetaState:meta.verified===true?"ready":"fallback"
+      mediaMetaState:
+        meta.verified===true && meta.title && meta.channel && meta.avatar
+          ? "ready"
+          : meta.verified===true
+            ? "partial"
+            : "fallback"
     };
   }
   renderPipTopInfo();
@@ -1053,7 +1066,8 @@ async function preloadPipLibraryMeta(id){
           ...meta,
           channelId:channelRef,
           channel:channelName||meta.channel,
-          avatar:avatar||meta.avatar
+          avatar:avatar||meta.avatar,
+          source:"video+channel"
         };
       }catch{}
     }
@@ -1374,7 +1388,12 @@ function prepareCurrentChromeLibrary(force=false){
     currentChromeLibrary={
       ...currentChromeLibrary,
       mediaMeta:seedMeta,
-      mediaMetaState:seedMeta.verified===true?"ready":"fallback"
+      mediaMetaState:
+        seedMeta.verified===true && seedMeta.title && seedMeta.channel && seedMeta.avatar
+          ? "ready"
+          : seedMeta.verified===true
+            ? "partial"
+            : "fallback"
     };
     requestAnimationFrame(renderChromeCalibration);
     renderPipTopInfo();
@@ -1411,7 +1430,12 @@ function prepareCurrentChromeLibrary(force=false){
   currentChromeLibrary={
     ...currentChromeLibrary,
     mediaMeta:seedMeta,
-    mediaMetaState:seedMeta.verified===true?"ready":"fallback"
+    mediaMetaState:
+      seedMeta.verified===true && seedMeta.title && seedMeta.channel && seedMeta.avatar
+        ? "ready"
+        : seedMeta.verified===true
+          ? "partial"
+          : "fallback"
   };
   requestAnimationFrame(renderChromeCalibration);
   renderPipTopInfo();
@@ -1805,11 +1829,7 @@ function paintGeometryReadout(result){
           : "NONE"
     )+
     " · CYCLE "+pipCoverCycle+
-    " · META "+(
-      currentChromeLibrary?.mediaMetaState==="ready"
-        ? "READY"
-        : "FALLBACK"
-    )+
+    " · META "+String(currentChromeLibrary?.mediaMetaState||"none").toUpperCase()+
     "["+
       (currentChromeLibrary?.mediaMeta?.avatar?"A":"-")+
       (currentChromeLibrary?.mediaMeta?.title?"T":"-")+
@@ -1817,6 +1837,7 @@ function paintGeometryReadout(result){
       (currentChromeLibrary?.mediaMeta?.views?"V":"-")+
       (currentChromeLibrary?.mediaMeta?.published?"P":"-")+
     "]"+
+    " "+String(currentChromeLibrary?.mediaMeta?.source||"")+
     " · COVER "+(
       !pipCoverVisible?"HIDDEN":
       pipCoverArmed?"ARMED":"ACTIVE"
