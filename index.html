@@ -1711,7 +1711,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return ytPlayer;
   }
 
-  function playVideoId(id,meta=null,{history="push"}={}){
+  function playVideoId(id,meta=null,{history="none"}={}){
     id=String(id||"").trim();
     if(!id)return false;
 
@@ -2117,6 +2117,30 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }
   }
 
+  function navigateToVideo(id,meta=null,{replace=false}={}){
+    id=String(id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
+
+    const previousId=historyVideoId()||routeVideoId();
+    const title=String(meta?.title||"").trim();
+    const nextHash=canonicalVideoHash(id,title);
+    if(!nextHash)return false;
+
+    // The first media in this document establishes the current browser entry.
+    // Every later user-selected media gets its own entry, so Back/Forward is
+    // always video <-> video instead of falling into an empty same-page route.
+    const state=videoHistoryState(id,title);
+    if(replace||!previousId){
+      history.replaceState(state,"","/"+nextHash);
+    }else if(previousId!==id){
+      history.pushState(state,"","/"+nextHash);
+    }else{
+      history.replaceState(state,"","/"+nextHash);
+    }
+
+    return playVideoId(id,meta,{history:"none"});
+  }
+
   function metaForVideoId(id){
     id=String(id||"").trim();
     return (
@@ -2129,7 +2153,15 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function openVideoFromLocation(state=history.state){
     const id=historyVideoId(state)||routeVideoId();
-    if(!id||id===String(current?.id||""))return false;
+    if(!id){
+      // Compatibility with legacy empty app entries created by older builds.
+      // Do not leave the same video on screen under a route with no video.
+      if(String(current?.id||"")){
+        queueMicrotask(()=>history.back());
+      }
+      return false;
+    }
+    if(id===String(current?.id||""))return false;
 
     const meta=metaForVideoId(id);
     // Browser Back/Forward owns the selected entry. Replay it only; never
@@ -2460,7 +2492,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     renderSampleContent();
 
     if(!String(current?.id||"")&&metas[0]?.id){
-      if(playVideoId(metas[0].id,metas[0],{history:"replace"})){
+      if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
         renderCurrentInfo();
         loadCurrentVideoMeta();
       }
@@ -3176,7 +3208,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       relatedMetas.find(meta=>meta?.id===id)||
       null;
 
-    if(playVideoId(id,selectedMeta)){
+    if(navigateToVideo(id,selectedMeta)){
       renderCurrentInfo();
       loadCurrentVideoMeta();
       schedulePip();
