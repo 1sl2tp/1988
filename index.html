@@ -4393,7 +4393,7 @@ html.one-col.portrait .player.pip{
       rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!canDownload})+
       rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!canDownload})+
       (canDownload
-        ?'<div class="row-action-note">Tự chọn máy chủ tải khả dụng.</div>'
+        ?'<div class="row-action-note">Tải trực tiếp qua Cobalt.</div>'
         :'<div class="row-action-note">Nguồn này chưa hỗ trợ tải trực tiếp.</div>')+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
@@ -4405,19 +4405,17 @@ html.one-col.portrait .player.pip{
     url=String(url||"").trim();
     if(!/^https?:\/\//i.test(url))return false;
 
-    // Trigger the download in an invisible frame so the current page stays put
-    // and no extra tab/window is opened. Both 1988-media and the resolver
-    // fallback return attachment responses for downloadable files.
-    const frame=document.createElement("iframe");
-    frame.hidden=true;
-    frame.setAttribute("aria-hidden","true");
-    frame.tabIndex=-1;
-    frame.src=url;
-    document.body.appendChild(frame);
-
-    window.setTimeout(()=>{
-      try{frame.remove()}catch{}
-    },120000);
+    // Cobalt tunnel URLs are file streams. A normal same-tab anchor lets the
+    // browser handle Content-Disposition directly; unlike a hidden iframe it
+    // does not create a 0-byte completed download in Chromium/Safari.
+    const a=document.createElement("a");
+    a.href=url;
+    if(filename)a.download=filename;
+    a.rel="noopener noreferrer";
+    a.style.display="none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
     return true;
   }
 
