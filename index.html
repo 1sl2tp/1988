@@ -1033,7 +1033,8 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   html.two-col .rows{
     grid-area:feed;
     min-width:0;
-    padding:8px 0 0;
+    /* 8px visual gap + 12px card halo from row::before. */
+    padding:20px 0 0;
     grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
     column-gap:var(--card-gap-x);
     row-gap:var(--card-gap-y);
@@ -1185,16 +1186,16 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
 }
 .rows{
   position:relative;
-  padding:8px var(--feed-edge-gap) 0;
+  padding:20px var(--feed-edge-gap) 0;
   display:grid;
   grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
   column-gap:var(--card-gap-x);
   row-gap:var(--card-gap-y);
 }
 /* Keep the visual top gap exact.
-   .row::before extends 12px outside the card for hover/selected feedback;
-   this 8px cover prevents the first card background from bleeding upward
-   into the source/search gap while leaving card geometry untouched. */
+   .row::before extends 12px outside the card for hover/selected feedback.
+   Rows start at 20px = 8px desired gap + 12px halo, so the OUTER card
+   background aligns with the media column's 8px top gap. */
 .rows::before{
   content:"";
   position:absolute;
