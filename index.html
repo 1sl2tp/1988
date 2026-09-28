@@ -49,9 +49,26 @@
   --yt-avatar-bg:#272727;
   --yt-thumb-bg:#111;
   --yt-placeholder:#888;
+  --yt-icon:#f1f1f1;
+  --yt-disabled:#646464;
+  --yt-skeleton:#292929;
+  --yt-menu-shadow:0 8px 28px rgba(0,0,0,.28);
+  --yt-floating-shadow:0 12px 34px rgba(0,0,0,.55);
   --header-rgb:15,15,15;
   --header-accent-rgb:82,108,168;
-  --header-alpha:.94;
+  --header-alpha-base:.94;
+  --header-alpha-scrolled:.78;
+  --header-alpha-search:.90;
+  --header-wash-opacity:.48;
+  --header-search-wash-opacity:.92;
+  --header-wash-strong:.10;
+  --header-wash-mid:.045;
+  --header-wash-soft:.035;
+  --header-wash-edge:.025;
+  --accent-chip-strong:.16;
+  --accent-chip-soft:.05;
+  --accent-outline:.10;
+  --accent-shadow:.08;
   --header-blur:16px;
   --safe-top:env(safe-area-inset-top,0px);
   --top-boundary:calc(56px + var(--safe-top));
@@ -75,12 +92,12 @@
   --yt-bg:#fff;
   --yt-surface:#fff;
   --yt-surface-2:#f2f2f2;
-  --yt-border:#d3d3d3;
-  --yt-divider:#e5e5e5;
-  --yt-text:#0f0f0f;
-  --yt-text-secondary:#606060;
-  --yt-hover:rgba(0,0,0,.06);
-  --yt-press:rgba(0,0,0,.11);
+  --yt-border:#dbdbdb;
+  --yt-divider:#dbdbdb;
+  --yt-text:#212121;
+  --yt-text-secondary:#737373;
+  --yt-hover:rgba(0,0,0,.055);
+  --yt-press:rgba(0,0,0,.10);
   --yt-search-bg:#fff;
   --yt-search-border:#c6c6c6;
   --yt-search-button:#f8f8f8;
@@ -89,17 +106,38 @@
   --yt-chip-press:#d9d9d9;
   --yt-chip-active-bg:#0f0f0f;
   --yt-chip-active-text:#fff;
-  --yt-avatar-bg:#e5e5e5;
+  --yt-avatar-bg:#e3e3e3;
   --yt-thumb-bg:#f2f2f2;
-  --yt-placeholder:#606060;
+  --yt-placeholder:#888;
+  --yt-icon:#606060;
+  --yt-disabled:#9b9b9b;
+  --yt-skeleton:#e3e3e3;
+  --yt-menu-shadow:0 8px 24px rgba(0,0,0,.16);
+  --yt-floating-shadow:0 10px 28px rgba(0,0,0,.24);
   --header-rgb:255,255,255;
+  --header-alpha-base:.965;
+  --header-alpha-scrolled:.90;
+  --header-alpha-search:.95;
+  --header-wash-opacity:.34;
+  --header-search-wash-opacity:.52;
+  --header-wash-strong:.055;
+  --header-wash-mid:.024;
+  --header-wash-soft:.018;
+  --header-wash-edge:.012;
+  --accent-chip-strong:.065;
+  --accent-chip-soft:.018;
+  --accent-outline:.055;
+  --accent-shadow:.035;
+  --header-blur:14px;
   color-scheme:light;
 }
 html,body{
   margin:0;
   background:var(--yt-bg);
   color:var(--yt-text);
-  font-family:Roboto,"Arial",sans-serif;
+  font-family:Roboto,Noto,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;
 }
 html{
   overflow-y:scroll;
@@ -142,7 +180,7 @@ html.one-col body{min-height:220vh}
   display:flex;
   align-items:center;
   padding-top:var(--safe-top);
-  --header-alpha:.94;
+  --header-alpha:var(--header-alpha-base);
   background:rgba(var(--header-rgb),var(--header-alpha));
   -webkit-backdrop-filter:saturate(145%) blur(var(--header-blur));
   backdrop-filter:saturate(145%) blur(var(--header-blur));
@@ -159,24 +197,24 @@ html.one-col body{min-height:220vh}
   inset:0;
   z-index:0;
   pointer-events:none;
-  opacity:.48;
+  opacity:var(--header-wash-opacity);
   background:
     radial-gradient(
       62% 120% at 18% 50%,
-      rgba(var(--header-accent-rgb),.10) 0,
-      rgba(var(--header-accent-rgb),.045) 38%,
+      rgba(var(--header-accent-rgb),var(--header-wash-strong)) 0,
+      rgba(var(--header-accent-rgb),var(--header-wash-mid)) 38%,
       rgba(var(--header-accent-rgb),0) 72%
     ),
     linear-gradient(
       90deg,
-      rgba(var(--header-accent-rgb),.035),
+      rgba(var(--header-accent-rgb),var(--header-wash-soft)),
       transparent 45%,
-      rgba(var(--header-accent-rgb),.025)
+      rgba(var(--header-accent-rgb),var(--header-wash-edge))
     );
   transition:opacity .22s cubic-bezier(.2,0,0,1);
 }
 .top.search-open::after{
-  opacity:.92;
+  opacity:var(--header-search-wash-opacity);
   animation:search-chrome-wash .36s cubic-bezier(.2,0,0,1) both;
 }
 .top > *{
@@ -188,10 +226,10 @@ html.one-col body{min-height:220vh}
   to{opacity:.92;filter:saturate(1.12)}
 }
 .top.chrome-scrolled{
-  --header-alpha:.78;
+  --header-alpha:var(--header-alpha-scrolled);
 }
 .top.search-open{
-  --header-alpha:.90;
+  --header-alpha:var(--header-alpha-search);
 }
 .masthead{
   flex:0 0 auto;
@@ -209,7 +247,7 @@ html.one-col body{min-height:220vh}
   display:none;
   align-items:center;
   gap:5px;
-  color:#fff;
+  color:var(--yt-text);
   text-decoration:none;
   user-select:none;
 }
@@ -249,7 +287,8 @@ html.one-col body{min-height:220vh}
   outline:0;
   background:var(--yt-search-bg);
   color:var(--yt-text);
-  font:400 16px/22px Roboto,"Arial",sans-serif;
+  font:400 16px/24px Roboto,Noto,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;
 }
 .search-input::placeholder{color:var(--yt-placeholder)}
 .search-input:focus{
@@ -266,7 +305,7 @@ html.one-col body{min-height:220vh}
   place-items:center;
   border:0;
   border-radius:50%;
-  color:var(--yt-text);
+  color:var(--yt-icon);
   background:transparent;
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
@@ -311,6 +350,8 @@ html.one-col body{min-height:220vh}
 .icon-button svg{
   width:24px;
   height:24px;
+  display:block;
+  flex:0 0 24px;
   fill:currentColor;
 }
 .icon-button:hover{background:var(--yt-hover)}
@@ -379,14 +420,14 @@ html.one-col body{min-height:220vh}
   background:
     linear-gradient(
       135deg,
-      rgba(var(--header-accent-rgb),.16),
-      rgba(var(--header-accent-rgb),.05)
+      rgba(var(--header-accent-rgb),var(--accent-chip-strong)),
+      rgba(var(--header-accent-rgb),var(--accent-chip-soft))
     ),
     var(--yt-chip-active-bg);
   color:var(--yt-chip-active-text);
   box-shadow:
-    0 0 0 1px rgba(var(--header-accent-rgb),.10),
-    0 3px 12px rgba(var(--header-accent-rgb),.08);
+    0 0 0 1px rgba(var(--header-accent-rgb),var(--accent-outline)),
+    0 3px 12px rgba(var(--header-accent-rgb),var(--accent-shadow));
 }
 .source-arrow{
   position:absolute;
@@ -445,12 +486,12 @@ html.one-col body{min-height:220vh}
   display:grid;
   place-items:center;
   background:rgba(var(--header-rgb),var(--header-alpha));
-  color:#f1f1f1;
+  color:var(--yt-icon);
   pointer-events:auto;
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
-.source-arrow-button:hover{background:#272727}
+.source-arrow-button:hover{background:var(--yt-surface-2)}
 .source-arrow-button svg{
   width:24px;
   height:24px;
@@ -466,15 +507,6 @@ html.one-col body{min-height:220vh}
 .search-back{display:none}
 .settings-button{display:none}
 
-:root[data-theme="light"] .brand,
-:root[data-theme="light"] .source-arrow-button,
-:root[data-theme="light"] .info-menu,
-:root[data-theme="light"] .row-menu{
-  color:var(--yt-text);
-}
-:root[data-theme="light"] .source-arrow-button:hover{
-  background:var(--yt-surface-2);
-}
 :root[data-theme="light"] .top.search-open .voice-search-button{
   background:var(--yt-chip-bg);
 }
@@ -496,7 +528,7 @@ html.one-col body{min-height:220vh}
   border-radius:12px;
   background:var(--yt-surface);
   color:var(--yt-text);
-  box-shadow:0 8px 28px rgba(0,0,0,.28);
+  box-shadow:var(--yt-menu-shadow);
 }
 .settings-popover[hidden]{display:none}
 .settings-popover-title{
@@ -643,7 +675,7 @@ html.one-col body{min-height:220vh}
   background:var(--yt-chip-bg);
 }
 .top.search-open .voice-search-button:hover{
-  background:rgba(255,255,255,.16);
+  background:var(--yt-chip-hover);
 }
 .top.search-open .voice-search-button.listening{
   color:#ff4e45;
@@ -659,10 +691,10 @@ html.one-col body{min-height:220vh}
   background:
     linear-gradient(
       135deg,
-      rgba(var(--header-accent-rgb),.16),
-      rgba(var(--header-accent-rgb),.07)
+      rgba(var(--header-accent-rgb),var(--accent-chip-strong)),
+      rgba(var(--header-accent-rgb),var(--accent-chip-soft))
     ),
-    hsla(0 0% 100%/.05);
+    var(--yt-search-button);
   transition:
     background-color .16s ease,
     transform .12s ease;
@@ -837,7 +869,7 @@ html.one-col .player.pip{
   top:calc(var(--visible-top-boundary,var(--top-boundary)) + 8px) !important;
   border-radius:var(--floating-radius);
   background:transparent;
-  box-shadow:0 12px 34px rgba(0,0,0,.55);
+  box-shadow:var(--yt-floating-shadow);
 }
 html.one-col.landscape .player.pip{
   width:var(--pip-landscape-w);
@@ -1008,7 +1040,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   border:0;
   border-radius:50%;
   background:transparent;
-  color:#f1f1f1;
+  color:var(--yt-icon);
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
@@ -1255,28 +1287,28 @@ html.one-col .player.pip iframe{border-radius:inherit}
     </a>
 
     <button id="searchBack" class="icon-button search-back" aria-label="Quay lại" title="Quay lại">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.707 5.293a1 1 0 010 1.414L9.414 12l5.293 5.293a1 1 0 01-1.414 1.414l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 0Z"></path></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg>
     </button>
 
     <div class="searchbox" role="search">
       <input id="searchInput" class="search-input" type="search" placeholder="Tìm kiếm"
         autocomplete="off" autocorrect="off" spellcheck="false">
       <button id="searchButton" class="search-button" aria-label="Tìm kiếm" title="Tìm kiếm">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
       </button>
     </div>
 
     <button id="voiceSearchButton" class="voice-search-button" type="button"
       aria-label="Tìm kiếm bằng giọng nói" title="Tìm kiếm bằng giọng nói" hidden>
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15c1.66 0 3-1.34 3-3V6c0-1.66-1.34-3-3-3S9 4.34 9 6v6c0 1.66 1.34 3 3 3Zm-1.5-9a1.5 1.5 0 0 1 3 0v6a1.5 1.5 0 0 1-3 0V6ZM18 11h-1.5v1a4.5 4.5 0 0 1-9 0v-1H6v1a6 6 0 0 0 5.25 5.95V20H8.5v1.5h7V20h-2.75v-2.05A6 6 0 0 0 18 12v-1Z"></path></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.063 14.5a1 1 0 111.73 1A8.998 8.998 0 0113 19.942V22a1 1 0 11-2 0v-2.058A8.999 8.999 0 014.206 15.5l.866-.5.865-.5a7.002 7.002 0 0012.125 0ZM12 1a5 5 0 015 5v5a5 5 0 01-10 0V6a5 5 0 015-5ZM4.572 14.134a1 1 0 011.365.366l-1.731 1a1 1 0 01.366-1.366ZM12 3a3 3 0 00-3 3v5a3 3 0 106 0V6a3 3 0 00-3-3Z"></path></svg>
     </button>
 
     <button id="searchToggle" class="icon-button search-toggle" aria-label="Tìm kiếm" title="Tìm kiếm">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path></svg>
     </button>
 
     <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt" aria-expanded="false" aria-controls="settingsPopover">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42L9.13 5.07c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
     </button>
   </div>
 
@@ -1791,9 +1823,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
           hsl[1]=Math.max(.42,Math.min(.88,hsl[1]*1.08));
           hsl[2]=Math.max(.48,Math.min(.68,hsl[2]));
           const accent=hslToRgb(hsl[0],hsl[1],hsl[2]);
-          const base=[15,15,15];
-          const surface=base.map((v,i)=>Math.round(v*.6+accent[i]*.4));
-          resolve({accent,surface});
+          resolve({accent});
         }catch{
           resolve(null);
         }
@@ -1821,12 +1851,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
       if(seq!==headerTintSeq||!palette)return;
 
       const light=root.dataset.theme==="light";
-      // Dark mode keeps the established cinematic tint. Light mode follows
-      // YouTube's mostly-white chrome and uses only a very small color wash.
+      // The sampled video color is theme-neutral. Dark and light each blend
+      // that same accent into their own base, preventing a dark/dirty cast in
+      // light mode while preserving the cinematic tint.
       const base=light?[255,255,255]:[15,15,15];
-      const source=light?palette.accent:palette.surface;
-      const mix=light?.08:.32;
-      const [r,g,b]=source.map((value,index)=>Math.round(
+      const mix=light?.075:.128;
+      const [r,g,b]=palette.accent.map((value,index)=>Math.round(
         base[index]*(1-mix)+value*mix
       ));
       root.style.setProperty("--header-rgb",r+","+g+","+b);
