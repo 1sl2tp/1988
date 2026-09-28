@@ -1316,18 +1316,54 @@ function saveManualCalibrationPoint(videoId,contentAspect,point){
   try{localStorage.setItem(key,JSON.stringify(points))}catch{}
   return points;
 }
-function libraryWidthBounds(contentAspect){
+function libraryWidthBounds(contentAspect,availableBox=null){
   const minWidth=140;
   const vv=window.visualViewport;
-  const viewportW=Math.max(minWidth,Math.floor(vv?.width||window.innerWidth||minWidth));
-  const viewportH=Math.max(1,Math.floor(vv?.height||window.innerHeight||1));
+  const viewportW=Math.max(
+    minWidth,
+    Math.floor(
+      Number(availableBox?.width)||
+      vv?.width||
+      window.innerWidth||
+      minWidth
+    )
+  );
+  const viewportH=Math.max(
+    1,
+    Math.floor(
+      Number(availableBox?.height)||
+      vv?.height||
+      window.innerHeight||
+      1
+    )
+  );
   const gap=12;
   const aspect=Math.max(.25,Math.min(4,Number(contentAspect)||16/9));
   const portrait=aspect<1;
-  const maxWidth=portrait
-    ? Math.max(minWidth,Math.floor(Math.max(1,viewportH-gap)*aspect))
-    : Math.max(minWidth,viewportW-gap);
-  return {minWidth,maxWidth,portrait,viewportW,viewportH};
+
+  const availableW=Math.max(1,viewportW-gap);
+  const availableH=Math.max(1,viewportH-gap);
+
+  // One rule for every orientation: the frame must fit BOTH available axes.
+  // Width determines height through the verified media aspect.
+  const fitWidth=Math.floor(Math.min(
+    availableW,
+    availableH*aspect
+  ));
+  const maxWidth=Math.max(minWidth,fitWidth);
+
+  return {
+    minWidth,
+    maxWidth,
+    minHeight:minWidth/aspect,
+    maxHeight:maxWidth/aspect,
+    portrait,
+    aspect,
+    viewportW,
+    viewportH,
+    availableW,
+    availableH
+  };
 }
 function prepareCurrentChromeLibrary(force=false){
   const geometry=window.YouTubeChromeGeometry;
