@@ -214,12 +214,53 @@
     };
   }
 
+  function dynamicSample(width, height, orientation) {
+    // Compute UI geometry from the CURRENT player box. No breakpoint profile is
+    // used for dimensions: dragging 1px changes the measured geometry 1px-flow
+    // immediately. Breakpoints only decide which YouTube boxes exist.
+    const uiSpan = orientation === "portrait"
+      ? width
+      : Math.min(width, height * (16 / 9));
+
+    const s = clamp(uiSpan / 520, .42, 1.35);
+    const topPad = clamp(11 * s, 6, 14);
+    const avatar = clamp(44 * s, 26, 56);
+    const title1 = clamp(23 * s, 15, 29);
+    const title2 = clamp(42 * s, 27, 52);
+    const channel = clamp(15 * s, 10, 19);
+    const topGap = clamp(5 * s, 2, 7);
+
+    const bottomPad = clamp(12 * s, 5, 16);
+    const linkH = clamp(35 * s, 24, 46);
+    const nextH = clamp(41 * s, 30, 54);
+    const youtubeH = clamp(32 * s, 22, 42);
+    const seekH = clamp(6 * s, 3, 8);
+
+    return {
+      w: width,
+      h: height,
+      avatarEdge: topPad + avatar,
+      title1Edge: topPad + title1,
+      title2Edge: topPad + title2,
+      channelEdge: topPad + title1 + topGap + channel,
+      // Full outer boxes + live edge offsets from the CURRENT player bottom.
+      linkH,
+      linkOff: bottomPad,
+      nextH,
+      nextOff: bottomPad,
+      youtubeH,
+      youtubeOff: bottomPad,
+      seekH,
+      seekOff: clamp(bottomPad * .55, 3, 9),
+      range:[width,width]
+    };
+  }
+
   function measure(input = {}, options = {}) {
     const width = Math.max(1, Number(input.width) || 1);
     const height = Math.max(1, Number(input.height) || 1);
     const orientation = options.orientation || orientationOf(width, height);
-    const profileKind = orientation === "portrait" ? "portrait" : "landscape";
-    const sample = interpolateSample(profileKind, width);
+    const sample = dynamicSample(width, height, orientation);
     const layoutState = resolveLayoutState(width, height, orientation, options);
     const titleLines = Math.min(
       estimateTitleLines(width, options.title || ""),
@@ -351,6 +392,7 @@
     orientationOf,
     estimateTitleLines,
     resolveLayoutState,
+    dynamicSample,
     measure,
     apply,
     observe
