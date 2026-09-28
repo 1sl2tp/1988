@@ -1072,11 +1072,25 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   html.two-col .rows{
     grid-area:feed;
     min-width:0;
-    /* 8px visual gap + 12px card halo from row::before. */
-    padding:20px 0 0;
+    /* Feed header sits at 8px. First card outer halo starts 8px below it. */
+    padding:60px 0 0;
     grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
     column-gap:var(--card-gap-x);
     row-gap:var(--card-gap-y);
+  }
+
+  html.two-col .feed-head{
+    position:absolute;
+    z-index:8;
+    top:8px;
+    left:0;
+    right:0;
+    height:32px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    min-width:0;
   }
 
   html.two-col .media-col{
@@ -1230,6 +1244,60 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
   column-gap:var(--card-gap-x);
   row-gap:var(--card-gap-y);
+}
+.feed-head{display:none}
+.feed-head-title{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  color:var(--yt-text);
+  font:600 16px/22px Roboto,Arial,sans-serif;
+}
+.autoplay-toggle{
+  flex:0 0 auto;
+  height:30px;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:var(--yt-text);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font:500 13px/18px Roboto,Arial,sans-serif;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.autoplay-track{
+  width:32px;
+  height:18px;
+  padding:2px;
+  display:flex;
+  align-items:center;
+  border-radius:999px;
+  background:var(--yt-chip);
+  box-shadow:inset 0 0 0 1px var(--yt-border);
+  transition:background .16s ease;
+}
+.autoplay-knob{
+  width:14px;
+  height:14px;
+  border-radius:50%;
+  background:var(--yt-text);
+  transform:translateX(0);
+  transition:transform .16s ease,background .16s ease;
+}
+.autoplay-toggle[aria-checked="true"] .autoplay-track{
+  background:var(--yt-text);
+}
+.autoplay-toggle[aria-checked="true"] .autoplay-knob{
+  background:var(--yt-bg);
+  transform:translateX(14px);
+}
+.autoplay-toggle:focus-visible{
+  outline:2px solid currentColor;
+  outline-offset:3px;
+  border-radius:6px;
 }
 
 /* Variable-height cards pack into the shortest available column.
@@ -1837,6 +1905,13 @@ html.one-col.portrait .player.pip{
   let feedRequest=0;
   let feedMode="package";
   let activePackageScope="live";
+  const AUTOPLAY_NEXT_KEY="yt1988-autoplay-next-v1";
+  let autoplayNext=true;
+  try{
+    const savedAutoplay=localStorage.getItem(AUTOPLAY_NEXT_KEY);
+    if(savedAutoplay==="0")autoplayNext=false;
+    if(savedAutoplay==="1")autoplayNext=true;
+  }catch{}
   let packageManifest={};
   const packageCache=new Map();
   const packageHashCache=new Map();
@@ -2580,6 +2655,8 @@ html.one-col.portrait .player.pip{
         onStateChange(event){
           if(event.data===YTApi.PlayerState.PLAYING){
             scheduleCurrentPlayerKind(event.target);
+          }else if(event.data===YTApi.PlayerState.ENDED){
+            queueMicrotask(()=>playNextFeedVideo());
           }
         },
         onError(event){
@@ -3391,6 +3468,7 @@ html.one-col.portrait .player.pip{
     activePackageScope=scope;
     feedMode="package";
     ++feedRequest;
+    syncFeedHeader();
 
     // Tab/UI reads memory only. Network package reads belong to the package synchronizer.
     const metas=packageCache.get(scope)||[];
@@ -4122,6 +4200,81 @@ html.one-col.portrait .player.pip{
     });
   }
 
+  function currentFeedLabel(){
+    if(feedMode==="search")return "Tìm kiếm";
+    if(feedMode==="related")return "Gợi ý";
+    if(feedMode==="package"){
+      const selector='.source-chip[data-source-tab="'+CSS.escape(String(activePackageScope||""))+'"]';
+      const chip=sourceNameChips?.querySelector?.(selector);
+      const label=String(chip?.textContent||"").trim();
+      if(label)return label;
+      if(activePackageScope==="latest")return "Ngày";
+      if(activePackageScope==="week")return "Tuần";
+      if(activePackageScope==="live")return "Live";
+    }
+    return "Video";
+  }
+
+  function feedHeaderMarkup(){
+    return (
+      '<div class="feed-head" data-feed-head>'+
+        '<div class="feed-head-title"></div>'+
+        '<button class="autoplay-toggle" type="button" role="switch" aria-checked="'+(autoplayNext?'true':'false')+'" data-autoplay-toggle>'+
+          '<span>Tự động phát</span>'+
+          '<span class="autoplay-track" aria-hidden="true"><span class="autoplay-knob"></span></span>'+
+        '</button>'+
+      '</div>'
+    );
+  }
+
+  function syncFeedHeader(rows=document.getElementById("rows")){
+    const head=rows?.querySelector?.("[data-feed-head]");
+    if(!head)return;
+    const title=head.querySelector(".feed-head-title");
+    if(title)title.textContent="Tiếp theo · "+currentFeedLabel();
+    const toggle=head.querySelector("[data-autoplay-toggle]");
+    if(toggle){
+      toggle.setAttribute("aria-checked",autoplayNext?"true":"false");
+      toggle.title=autoplayNext?"Tắt tự động phát":"Bật tự động phát";
+    }
+  }
+
+  function setAutoplayNext(value){
+    autoplayNext=!!value;
+    try{localStorage.setItem(AUTOPLAY_NEXT_KEY,autoplayNext?"1":"0")}catch{}
+    syncFeedHeader();
+    return autoplayNext;
+  }
+
+  function playNextFeedVideo(){
+    if(!autoplayNext||!isTwoColumn())return false;
+
+    const currentId=String(current?.id||"").trim();
+    const list=Array.isArray(feedMetas)?feedMetas:[];
+    const index=list.findIndex(meta=>String(meta?.id||"").trim()===currentId);
+    if(index<0||index>=list.length-1)return false;
+
+    const next=list[index+1];
+    const nextId=String(next?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(nextId))return false;
+    if(!navigateToVideo(nextId,next))return false;
+
+    renderCurrentInfo();
+    if(feedMode!=="package"&&selectedMetaNeedsLookup(next)){
+      void loadCurrentVideoMeta();
+    }
+
+    const rows=document.getElementById("rows");
+    rows?.querySelectorAll?.(".row.selected").forEach(row=>row.classList.remove("selected"));
+    const nextCard=rows?.querySelector?.('.row[data-video-id="'+nextId+'"]');
+    if(nextCard){
+      nextCard.classList.add("selected");
+      nextCard.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
+    }
+    syncFeedHeader(rows);
+    return true;
+  }
+
   function feedVisualSignature(cards=[]){
     return cards.slice(0,18).map(meta=>[
       String(meta?.id||""),
@@ -4163,6 +4316,7 @@ html.one-col.portrait .player.pip{
     // Package hashes may change while the visible first page does not. Do not
     // destroy/recreate the same DOM in that case.
     if(rows.dataset.renderSignature===signature&&rows.querySelector(".row")){
+      syncFeedHeader(rows);
       const currentId=String(current?.id||"");
       rows.querySelectorAll(".row[data-video-id]").forEach(row=>{
         row.classList.toggle("selected",String(row.dataset.videoId||"")===currentId);
@@ -4179,8 +4333,9 @@ html.one-col.portrait .player.pip{
 
     rememberRenderedThumbs(rows);
     rememberRenderedAvatars(rows);
-    rows.innerHTML=rendered.map(cardMarkup).join("");
+    rows.innerHTML=feedHeaderMarkup()+rendered.map(cardMarkup).join("");
     rows.dataset.renderSignature=signature;
+    syncFeedHeader(rows);
     restoreRenderedThumbs(rows);
     restoreRenderedAvatars(rows);
     observeRowThumbQuality(rows);
@@ -4268,6 +4423,7 @@ html.one-col.portrait .player.pip{
 
     feedMode="search";
     feedMetas=next;
+    syncFeedHeader();
     primeMediaAspects(next,18);
     renderSampleContent();
     rememberRecentSearch(query,next);
@@ -5108,6 +5264,14 @@ html.one-col.portrait .player.pip{
   });
 
   document.getElementById("rows").addEventListener("click",event=>{
+    const autoplayToggle=event.target.closest("[data-autoplay-toggle]");
+    if(autoplayToggle){
+      event.preventDefault();
+      event.stopPropagation();
+      setAutoplayNext(!autoplayNext);
+      return;
+    }
+
     const menu=event.target.closest(".row-menu");
     const card=event.target.closest(".row");
     if(!card)return;
