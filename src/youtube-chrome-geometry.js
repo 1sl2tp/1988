@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.14";
+  const VERSION = "2026-09-28.15";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -226,7 +226,9 @@
         title2Min:34,
         channelMin:13,
         gapMin:4,
-        outer:4
+        // Calibrated from the real controls:0 embed: the metadata background
+        // paints a few pixels below its text/avatar content box.
+        outer:7
       },
       bottom:{
         padMin:8,
