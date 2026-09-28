@@ -412,14 +412,24 @@ html.one-col .player.inline-overlay:not(.pip){
   flex:0 0 40px;
   border:0;
   border-radius:50%;
-  background:var(--yt-chip-bg);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-control))
+    ),
+    var(--yt-chip-bg);
 }
 .top.search-roomy:not(.search-open) .voice-search-button,
 .top.search-open .voice-search-button{
   display:grid;
 }
 .voice-search-button:hover{
-  background:var(--yt-search-button);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover))
+    ),
+    var(--yt-search-button);
 }
 .voice-search-button.listening{
   color:#ff4e45;
@@ -617,10 +627,20 @@ html.one-col .player.inline-overlay:not(.pip){
 .settings-button{display:none}
 
 :root[data-theme="light"] .top.search-open .voice-search-button{
-  background:var(--yt-chip-bg);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-control))
+    ),
+    var(--yt-chip-bg);
 }
 :root[data-theme="light"] .top.search-open .voice-search-button:hover{
-  background:var(--yt-chip-hover);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover))
+    ),
+    var(--yt-chip-hover);
 }
 :root[data-theme="light"] .top.search-open .search-button{
   background:var(--yt-search-button);
@@ -786,10 +806,20 @@ html.one-col .player.inline-overlay:not(.pip){
   height:40px;
   border:0;
   border-radius:50%;
-  background:var(--yt-chip-bg);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-control))
+    ),
+    var(--yt-chip-bg);
 }
 .top.search-open .voice-search-button:hover{
-  background:var(--yt-chip-hover);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover))
+    ),
+    var(--yt-chip-hover);
 }
 .top.search-open .voice-search-button.listening{
   color:#ff4e45;
