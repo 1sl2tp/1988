@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.32";
+  const VERSION = "2026-09-28.33";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -303,6 +303,8 @@
     "nocookie-controls0-clean": Object.freeze({
       controls:false,
       nativeSeek:false,
+      chromeIdleMs:3800,
+      chromeHiddenGraceMs:1000,
       // Exact family used by PiP max in iframe-demo.html.
       top:{
         // Only YouTube CHANNEL metadata belongs to TOP:
@@ -332,6 +334,8 @@
     "youtube-controls1": Object.freeze({
       controls:true,
       nativeSeek:true,
+      chromeIdleMs:3000,
+      chromeHiddenGraceMs:800,
       top:{
         padMin:8,
         avatarMin:30,
@@ -659,6 +663,10 @@
       controls,
       embedMode,
       viewportTrim,
+      chromeTiming:{
+        idleHideMs:Math.max(0,Number(modeInfo.profile.chromeIdleMs)||0),
+        hiddenGraceMs:Math.max(0,Number(modeInfo.profile.chromeHiddenGraceMs)||0)
+      },
       createdAt: Date.now(),
       samples
     };
