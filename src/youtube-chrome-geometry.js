@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.15";
+  const VERSION = "2026-09-28.16";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -426,6 +426,83 @@
     };
   }
 
+  function normalizeViewportTrim(trim = {}) {
+    return {
+      top:clamp(Number(trim.top)||0,0,.45),
+      right:clamp(Number(trim.right)||0,0,.45),
+      bottom:clamp(Number(trim.bottom)||0,0,.45),
+      left:clamp(Number(trim.left)||0,0,.45),
+      source:String(trim.source||"none")
+    };
+  }
+
+  function transformMeasurementToViewport(rawResult, trimInput = {}) {
+    if(!rawResult)return null;
+    const trim=normalizeViewportTrim(trimInput);
+    const rawW=Math.max(1,rawResult.width);
+    const rawH=Math.max(1,rawResult.height);
+
+    const trimTop=rawH*trim.top;
+    const trimBottom=rawH*trim.bottom;
+    const trimLeft=rawW*trim.left;
+    const trimRight=rawW*trim.right;
+    const visibleW=Math.max(1,rawW-trimLeft-trimRight);
+    const visibleH=Math.max(1,rawH-trimTop-trimBottom);
+    const scaleX=rawW/visibleW;
+    const scaleY=rawH/visibleH;
+
+    const topInset=Math.max(
+      0,
+      (rawResult.topInset-trimTop)*scaleY
+    );
+    const bottomInset=Math.max(
+      0,
+      (rawResult.bottomInset-trimBottom)*scaleY
+    );
+
+    const playCenter={
+      x:(rawResult.playCenter.x-trimLeft)*scaleX,
+      y:(rawResult.playCenter.y-trimTop)*scaleY
+    };
+    const playSafety=rawResult.playSafety*Math.max(scaleX,scaleY);
+    const playTop=playCenter.y-playSafety;
+    const playBottom=playCenter.y+playSafety;
+    const collisionMode=
+      topInset>=playTop ||
+      (rawH-bottomInset)<=playBottom;
+
+    return {
+      ...rawResult,
+      rawTopInset:rawResult.topInset,
+      rawBottomInset:rawResult.bottomInset,
+      rawPlayCenter:rawResult.playCenter,
+      rawPlaySafety:rawResult.playSafety,
+      viewportTrim:{
+        ...trim,
+        topPx:trimTop,
+        rightPx:trimRight,
+        bottomPx:trimBottom,
+        leftPx:trimLeft,
+        visibleW,
+        visibleH,
+        scaleX,
+        scaleY
+      },
+      topInset,
+      bottomInset,
+      playCenter,
+      playSafety,
+      collisionMode,
+      safeEdge:Math.max(topInset,bottomInset),
+      safeWindow:{
+        x:0,
+        y:topInset,
+        width:rawW,
+        height:Math.max(0,rawH-topInset-bottomInset)
+      }
+    };
+  }
+
   function buildMediaLibrary(options = {}) {
     const videoId = String(options.videoId || "");
     const title = String(options.title || "");
@@ -436,22 +513,24 @@
     const modeInfo=embedProfile(options);
     const controls = modeInfo.profile.controls;
     const embedMode=modeInfo.key;
+    const viewportTrim=normalizeViewportTrim(options.viewportTrim||{});
     const samples = [];
 
     for (let w = minWidth; w <= maxWidth; w += step) {
       const h = w / aspect;
-      const result = measure(
+      const rawResult = measure(
         { width:w, height:h },
         { title, controls, embedMode, orientation:options.orientation }
       );
-      samples.push(result);
+      samples.push(transformMeasurementToViewport(rawResult,viewportTrim));
     }
     if (!samples.length || samples[samples.length - 1].width !== maxWidth) {
       const h = maxWidth / aspect;
-      samples.push(measure(
+      const rawResult=measure(
         { width:maxWidth, height:h },
         { title, controls, embedMode, orientation:options.orientation }
-      ));
+      );
+      samples.push(transformMeasurementToViewport(rawResult,viewportTrim));
     }
 
     return {
@@ -464,6 +543,7 @@
       step,
       controls,
       embedMode,
+      viewportTrim,
       createdAt: Date.now(),
       samples
     };
@@ -541,6 +621,8 @@
     resolveLayoutState,
     dynamicSample,
     measure,
+    normalizeViewportTrim,
+    transformMeasurementToViewport,
     buildMediaLibrary,
     lookupMediaLibrary,
     applyMediaLibrary,
