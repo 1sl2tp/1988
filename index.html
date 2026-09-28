@@ -2253,6 +2253,7 @@ html.one-col.portrait .player.pip{
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
   const MEDIA_DOWNLOAD_URL="https://one988-media.onrender.com/download";
+  const DOWNLOAD_RESOLVER_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4323,39 +4324,92 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function downloadUrlForMeta(meta={},format="mp4"){
+  function directDownloadUrlForMeta(meta={},format="mp4"){
     format=String(format||"mp4").toLowerCase();
     const direct=String(
       format==="mp3"
         ?(meta.downloadAudioUrl||"")
         :(meta.downloadVideoUrl||"")
     ).trim();
-    if(/^https?:\/\//i.test(direct))return direct;
+    return /^https?:\/\//i.test(direct)?direct:"";
+  }
+
+  function canResolveDownload(meta={}){
+    return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
+  }
+
+  async function startResolvedDownload(meta={},format="mp4"){
+    format=String(format||"mp4").toLowerCase();
+    const direct=directDownloadUrlForMeta(meta,format);
+    if(direct){
+      return openDirectDownload(
+        direct,
+        videoTitleSlug(meta.title||"download")+"."+format
+      );
+    }
 
     const id=String(meta?.id||"").trim();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
 
-    const title=String(meta?.title||id).trim();
-    return (
-      MEDIA_DOWNLOAD_URL+
-      "?id="+encodeURIComponent(id)+
-      "&format="+encodeURIComponent(format)+
-      "&title="+encodeURIComponent(title)
-    );
+    // Open synchronously from the user's click so iOS/Safari does not block
+    // the final download tab while the resolver is doing its network work.
+    let pending=null;
+    try{
+      pending=window.open("about:blank","_blank");
+      if(pending?.document){
+        pending.document.title="Đang chuẩn bị tải xuống…";
+        pending.document.body.innerHTML=
+          '<div style="min-height:100vh;display:grid;place-items:center;background:#0f0f0f;color:#fff;font:16px Arial,sans-serif">Đang chuẩn bị '+escapeHtml(format.toUpperCase())+'…</div>';
+      }
+    }catch{}
+
+    try{
+      const response=await fetch(DOWNLOAD_RESOLVER_URL,{
+        method:"POST",
+        cache:"no-store",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({
+          id,
+          format,
+          title:String(meta?.title||id).trim()
+        })
+      });
+      const payload=await response.json().catch(()=>({}));
+      const url=String(payload?.url||"").trim();
+      if(!response.ok||!/^https?:\/\//i.test(url)){
+        try{pending?.close?.()}catch{}
+        window.alert("Chưa chuẩn bị được file "+format.toUpperCase()+".");
+        return false;
+      }
+
+      if(pending&&!pending.closed){
+        pending.location.replace(url);
+      }else{
+        window.location.href=url;
+      }
+      return true;
+    }catch(error){
+      console.warn("download resolve failed",error);
+      try{pending?.close?.()}catch{}
+      window.alert("Chưa kết nối được máy chủ tải xuống.");
+      return false;
+    }
   }
 
   function showDownloadMenu(){
     const meta=openRowMenuMeta||{};
-    const videoUrl=downloadUrlForMeta(meta,"mp4");
-    const audioUrl=downloadUrlForMeta(meta,"mp3");
+    const canDownload=
+      !!directDownloadUrlForMeta(meta,"mp4")||
+      !!directDownloadUrlForMeta(meta,"mp3")||
+      canResolveDownload(meta);
     const menu=ensureRowActionMenu();
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
-      rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!videoUrl})+
-      rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!audioUrl})+
-      ((!videoUrl&&!audioUrl)
-        ?'<div class="row-action-note">Nguồn này chưa hỗ trợ tải trực tiếp.</div>'
-        :'<div class="row-action-note">File được chuẩn bị bởi máy chủ 1988.</div>')+
+      rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!canDownload})+
+      rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!canDownload})+
+      (canDownload
+        ?'<div class="row-action-note">Tự chọn máy chủ tải khả dụng.</div>'
+        :'<div class="row-action-note">Nguồn này chưa hỗ trợ tải trực tiếp.</div>')+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
@@ -6213,19 +6267,13 @@ html.one-col.portrait .player.pip{
         return;
       }
       if(kind==="download-mp4"){
-        openDirectDownload(
-          downloadUrlForMeta(meta,"mp4"),
-          videoTitleSlug(meta.title||"video")+".mp4"
-        );
         closeRowActionMenu();
+        void startResolvedDownload(meta,"mp4");
         return;
       }
       if(kind==="download-mp3"){
-        openDirectDownload(
-          downloadUrlForMeta(meta,"mp3"),
-          videoTitleSlug(meta.title||"audio")+".mp3"
-        );
         closeRowActionMenu();
+        void startResolvedDownload(meta,"mp3");
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
