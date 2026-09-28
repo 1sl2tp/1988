@@ -1842,6 +1842,101 @@ html.one-col.portrait .player.pip{
   const packageHashCache=new Map();
   const packagePending=new Map();
 
+  const PACKAGE_DB_NAME="yt1988-packages-v1";
+  const PACKAGE_DB_STORE="packages";
+  let packageDbPromise=null;
+
+  function openPackageDb(){
+    if(packageDbPromise)return packageDbPromise;
+    packageDbPromise=new Promise((resolve,reject)=>{
+      if(!("indexedDB" in window)){
+        reject(new Error("indexeddb_unavailable"));
+        return;
+      }
+      const request=indexedDB.open(PACKAGE_DB_NAME,1);
+      request.onupgradeneeded=()=>{
+        const db=request.result;
+        if(!db.objectStoreNames.contains(PACKAGE_DB_STORE)){
+          db.createObjectStore(PACKAGE_DB_STORE,{keyPath:"scope"});
+        }
+      };
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error||new Error("indexeddb_open_failed"));
+    }).catch(error=>{
+      packageDbPromise=null;
+      throw error;
+    });
+    return packageDbPromise;
+  }
+
+  async function readStoredPackage(scope){
+    scope=String(scope||"").trim();
+    if(!scope)return null;
+    try{
+      const db=await openPackageDb();
+      return await new Promise((resolve,reject)=>{
+        const tx=db.transaction(PACKAGE_DB_STORE,"readonly");
+        const request=tx.objectStore(PACKAGE_DB_STORE).get(scope);
+        request.onsuccess=()=>resolve(request.result||null);
+        request.onerror=()=>reject(request.error||new Error("package_store_read_failed"));
+      });
+    }catch{
+      return null;
+    }
+  }
+
+  async function writeStoredPackage(scope,pkg){
+    scope=String(scope||"").trim();
+    const hash=String(pkg?.hash||"").trim();
+    if(!scope||!hash||!Array.isArray(pkg?.items))return false;
+    try{
+      const db=await openPackageDb();
+      const row={
+        scope,
+        hash,
+        version:Number(pkg?.version)||0,
+        updatedAt:pkg?.updated_at||pkg?.updatedAt||null,
+        items:pkg.items
+      };
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction(PACKAGE_DB_STORE,"readwrite");
+        tx.objectStore(PACKAGE_DB_STORE).put(row);
+        tx.oncomplete=()=>resolve(true);
+        tx.onerror=()=>reject(tx.error||new Error("package_store_write_failed"));
+        tx.onabort=()=>reject(tx.error||new Error("package_store_write_aborted"));
+      });
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
+  async function restoreStoredPackage(scope){
+    scope=String(scope||"").trim();
+    if(!scope||packageCache.has(scope))return packageCache.get(scope)||[];
+    const row=await readStoredPackage(scope);
+    if(
+      !row ||
+      String(row.scope||"")!==scope ||
+      !String(row.hash||"").trim() ||
+      !Array.isArray(row.items)
+    )return [];
+    const metas=packageMetas(row.items);
+    packageCache.set(scope,metas);
+    packageHashCache.set(scope,String(row.hash));
+    return metas;
+  }
+
+  async function fetchWithTimeout(url,options={},timeoutMs=12000){
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),Math.max(1000,timeoutMs));
+    try{
+      return await fetch(url,{...options,signal:controller.signal});
+    }finally{
+      clearTimeout(timer);
+    }
+  }
+
   const THEME_KEY="yt1988-theme-v1";
   function normalizedTheme(value){
     return value==="light"?"light":"dark";
