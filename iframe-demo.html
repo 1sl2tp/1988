@@ -475,7 +475,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-29"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-30"></script>
 <script>
 const modes=[
   {
@@ -583,7 +583,7 @@ let activeSeekPointer=null;
 const YT_CHROME_FALLBACK_MS=3800;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="bottom-border-calibration-v13";
+const CHROME_LIBRARY_PROFILE_REV="chrome-extrema-v14";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -904,7 +904,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v8-bottom-border",
+    "pip-chrome-calibration-v9-extrema",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -1358,18 +1358,18 @@ function paintGeometryReadout(result){
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
     " · title "+result.titleLines+" dòng"+
     " · TOP "+Math.round(result.topInset)+
-      (result.directBounds||result.manualCalibration?" [DIRECT]":
+      (result.manualCalibration?" [MANUAL]":
         " [logo kênh "+activeEdge(top.avatarBox)+
         " / title "+activeEdge(top.titleBox)+
         " / tên kênh "+activeEdge(top.channelBox)+
-        " / MAX "+Math.round(top.outerMax||0)+"]")+
+        " / LOWEST "+Math.round(top.outerMax||0)+"]")+
     " · BOTTOM "+Math.round(result.bottomInset)+
-      (result.directBounds||result.manualCalibration?" [DIRECT]":
+      (result.manualCalibration?" [MANUAL]":
         " [link "+boxText(bottom.linkBox)+
         " / video khác "+boxText(bottom.nextBox)+
         " / YouTube "+boxText(bottom.youtubeBox)+
         " / tua "+boxText(bottom.seekBox)+
-        " / MAX "+Math.round(bottom.outerMax||0)+"]")+
+        " / HIGHEST "+Math.round(bottom.outerMax||0)+"]")+
     " · RAW→FINAL "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
       " / "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
     " · TRIM T/R/B/L "+
