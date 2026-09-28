@@ -956,7 +956,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"PiP Rail dùng đúng player ĐÃ CẮT có tua native YouTube; chỉ co giãn khung thật và nút X, không zoom toàn bộ iframe hay vẽ media control riêng.",
+    desc:"PiP Rail dùng đúng player ĐÃ CẮT có tua native YouTube. Resize dùng chính SIZE của Library: đổi width thật, BLACK giữ nguyên, crop lại; không zoom toàn khung.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1908,22 +1908,38 @@ function currentRailCroppedGeometry(){
 function setRailPipRect(left,top,width){
   if(!railPipBaseGeometry||!railCropPreview)return null;
 
-  const aspect=Math.max(.25,Number(railPipBaseGeometry.aspect)||16/9);
-  const bounds=libraryWidthBounds(aspect);
-  const finalWidth=Math.max(
+  const mediaAspect=Math.max(
+    .25,
+    Number(railPipBaseGeometry.mediaAspect)||
+    Number(railSelectedAspect)||
+    Number(verifiedMediaAspect)||
+    Number(currentRailLibrary?.contentAspect)||
+    16/9
+  );
+
+  // IMPORTANT: PiP resize uses the EXACT same SIZE rule as Library.
+  // BLACK is an independent fixed value; it is NOT multiplied by a zoom scale.
+  const bounds=railWidthBounds(mediaAspect);
+  const requestedWidth=Math.max(
     bounds.minWidth,
     Math.min(bounds.maxWidth,Number(width)||bounds.minWidth)
   );
-  const finalHeight=finalWidth/aspect;
-  const scale=finalWidth/Math.max(1,railPipBaseGeometry.cropWidth);
-  const pos=clampPipPosition(left,top,finalWidth,finalHeight);
+  const layout=railLayoutForWidth(requestedWidth,mediaAspect);
 
-  // Resize the actual YouTube SOURCE frame, then crop the compensated
-  // top/bottom rails again. This keeps native YouTube controls at native size.
-  const sourceWidth=railPipBaseGeometry.sourceWidth*scale;
-  const sourceHeight=railPipBaseGeometry.sourceHeight*scale;
-  const cropTop=railPipBaseGeometry.cropTop*scale;
-  const cropBottom=railPipBaseGeometry.cropBottom*scale;
+  const sourceWidth=layout.width;
+  const sourceHeight=layout.height;
+  const cropTop=layout.topHeight;
+  const cropBottom=layout.bottomHeight;
+  const cropWidth=layout.width;
+  const cropHeight=layout.videoHeight;
+  const cropAspect=cropWidth/Math.max(1,cropHeight);
+
+  const pos=clampPipPosition(
+    left,
+    top,
+    cropWidth,
+    cropHeight
+  );
 
   railCropPreview.style.setProperty(
     "--rail-preview-source-width",
@@ -1942,29 +1958,29 @@ function setRailPipRect(left,top,width){
   railCropPreview.style.top=pos.top+"px";
   railCropPreview.style.right="auto";
   railCropPreview.style.bottom="auto";
-  railCropPreview.style.width=finalWidth+"px";
-  railCropPreview.style.height=finalHeight+"px";
-  railCropPreview.style.aspectRatio=String(aspect);
+  railCropPreview.style.width=cropWidth+"px";
+  railCropPreview.style.height=cropHeight+"px";
+  railCropPreview.style.aspectRatio=String(cropAspect);
   railCropPreview.style.transform="";
 
   railCropPreview.dataset.pipVideoId=String(requestedVideoId||"");
   railCropPreview.dataset.pipOrientation=String(
-    railSelectedShape||
-    verifiedMediaShape||
-    (aspect<1?"portrait":"landscape")
+    layout.orientation
   );
-  railCropPreview.dataset.pipAspect=Number(aspect).toFixed(6);
-  railCropPreview.dataset.pipScale=Number(scale).toFixed(6);
+  railCropPreview.dataset.pipAspect=Number(cropAspect).toFixed(6);
+  railCropPreview.dataset.pipSize=String(Math.round(layout.width));
   railCropPreview.dataset.pipCrop=
     [Math.round(cropTop),Math.round(cropBottom)].join("/");
 
   return {
-    width:finalWidth,
-    height:finalHeight,
+    width:cropWidth,
+    height:cropHeight,
     left:pos.left,
     top:pos.top,
-    aspect,
-    scale,
+    aspect:cropAspect,
+    mediaAspect,
+    sourceWidth,
+    sourceHeight,
     cropTop,
     cropBottom
   };
@@ -2012,23 +2028,28 @@ function openRailCropPip(){
   // Open EXACTLY at the already-cropped Library size.
   // Do not auto-enlarge landscape from 170px to a generic PiP width:
   // that makes YouTube reflow its native chrome and changes the result.
-  const bounds=libraryWidthBounds(railPipBaseGeometry.aspect);
-  const initialWidth=Math.min(
-    railPipBaseGeometry.cropWidth,
-    bounds.maxWidth
+  const mediaAspect=Math.max(
+    .25,
+    Number(railPipBaseGeometry.mediaAspect)||
+    Number(railSelectedAspect)||
+    Number(verifiedMediaAspect)||
+    16/9
   );
-  const initialHeight=initialWidth/railPipBaseGeometry.aspect;
+  const initialLayout=railLayoutForWidth(
+    railWorkbenchWidth,
+    mediaAspect
+  );
 
   const pos=clampPipPosition(
-    window.innerWidth-initialWidth-10,
+    window.innerWidth-initialLayout.width-10,
     10,
-    initialWidth,
-    initialHeight
+    initialLayout.width,
+    initialLayout.videoHeight
   );
   setRailPipRect(
     pos.left,
     pos.top,
-    initialWidth
+    initialLayout.width
   );
 
   if(railCropPipToggle)railCropPipToggle.textContent="Trả về Library";
@@ -2055,7 +2076,6 @@ function closeRailCropPip(){
   delete railCropPreview.dataset.pipVideoId;
   delete railCropPreview.dataset.pipOrientation;
   delete railCropPreview.dataset.pipAspect;
-  delete railCropPreview.dataset.pipScale;
   delete railCropPreview.dataset.pipCrop;
 
   if(stage.classList.contains("rail-mode")){
@@ -2114,18 +2134,26 @@ function updateRailPipResize(e){
   const dx=e.clientX-s.x;
   const dy=e.clientY-s.y;
   const h=s.handle;
-  const bounds=libraryWidthBounds(s.ratio);
+  const mediaAspect=Math.max(
+    .25,
+    Number(railPipBaseGeometry?.mediaAspect)||
+    Number(railSelectedAspect)||
+    Number(verifiedMediaAspect)||
+    s.ratio
+  );
+  const bounds=railWidthBounds(mediaAspect);
   let width=s.width;
 
   if(h.includes("e"))width=s.width+dx;
   else if(h.includes("w"))width=s.width-dx;
   else if(h.includes("n")||h.includes("s")){
     const targetH=h.includes("s")?s.height+dy:s.height-dy;
-    width=targetH*s.ratio;
+    width=targetH*mediaAspect;
   }
 
   width=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,width));
-  const height=width/s.ratio;
+  const nextLayout=railLayoutForWidth(width,mediaAspect);
+  const height=nextLayout.videoHeight;
 
   let left=s.left;
   let top=s.top;
