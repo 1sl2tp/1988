@@ -3266,29 +3266,23 @@ html.one-col.portrait .player.pip{
     return task;
   }
 
-  async function showPackageScope(scope,{force=false}={}){
+  async function showPackageScope(scope){
     scope=String(scope||"").trim()||"live";
     activePackageScope=scope;
     feedMode="package";
-    const request=++feedRequest;
+    ++feedRequest;
 
-    const cached=packageCache.get(scope);
-    if(cached?.length){
-      feedMetas=cached;
-      renderSampleContent();
-    }
-
-    const metas=await getPackage(scope,{force});
-    if(request!==feedRequest||activePackageScope!==scope||feedMode!=="package")return;
+    // Tab/UI reads memory only. Network package reads belong to the package synchronizer.
+    const metas=packageCache.get(scope)||[];
     feedMetas=metas;
     renderSampleContent();
 
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
       if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
-        // Two-column auto-open also uses only the downloaded package record.
         renderCurrentInfo();
       }
     }
+    return metas;
   }
 
   function prefetchPackages(scopes=[]){
