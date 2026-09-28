@@ -16,6 +16,10 @@ const RAPIDAPI_BASE="https://"+RAPIDAPI_HOST;
 const RAPIDAPI_KEY=(
   Deno.env.get("RAPIDAPI_YOUTUBE_TO_MP315_KEY")||
   Deno.env.get("RAPIDAPI_KEY")||
+  Deno.env.get("X_RAPIDAPI_KEY")||
+  Deno.env.get("RAPIDAPI_YOUTUBE_KEY")||
+  Deno.env.get("YOUTUBE_TO_MP315_KEY")||
+  Deno.env.get("X-RapidAPI-Key")||
   ""
 ).trim();
 const RAPID_READY=new Set([
