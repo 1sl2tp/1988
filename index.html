@@ -93,6 +93,9 @@
   --card-target-w:310px;
   --floating-radius:10px;
   --media-ratio:1.7777778;
+  --rail-black-landscape:65px;
+  --rail-black-portrait:59px;
+  --rail-black:var(--rail-black-landscape);
   color-scheme:dark;
 }
 :root[data-theme="light"]{
@@ -1280,6 +1283,91 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
 
 .state{display:none}
+
+
+/* ============================================================
+   RAIL MEDIA CORE
+   One native YouTube player for MAIN 1-col / PiP / MAIN 2-col.
+   Visible viewport = real media.
+   Source iframe = media + BLACK top + BLACK bottom.
+   Landscape BLACK 65px; portrait BLACK 59px.
+   ============================================================ */
+html.landscape{--rail-black:var(--rail-black-landscape)}
+html.portrait{--rail-black:var(--rail-black-portrait)}
+
+.stage,
+.player{
+  overflow:hidden;
+}
+
+/* The iframe itself is the taller SOURCE FRAME.
+   The parent .player is the cropped media viewport. */
+.player > #videoFrame,
+.player > iframe,
+.player iframe{
+  position:absolute!important;
+  left:0!important;
+  right:auto!important;
+  top:calc(0px - var(--rail-black))!important;
+  bottom:auto!important;
+  width:100%!important;
+  height:calc(100% + var(--rail-black) + var(--rail-black))!important;
+  max-width:none!important;
+  max-height:none!important;
+  transform:none!important;
+  border:0!important;
+  background:#000!important;
+}
+
+/* MAIN 1 column: SIZE changes only the crop viewport. */
+html.one-col .stage{
+  height:auto!important;
+  aspect-ratio:var(--media-ratio)!important;
+}
+html.one-col .player{
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+}
+
+/* PiP: same cropped player, only its SIZE/position changes. */
+html.one-col .player.pip{
+  aspect-ratio:var(--media-ratio)!important;
+}
+
+/* MAIN 2 columns: same engine, column width chooses SIZE. */
+@media(min-width:1000px){
+  html.two-col .stage{
+    width:100%!important;
+    height:auto!important;
+    aspect-ratio:var(--media-ratio)!important;
+    overflow:hidden!important;
+    background:transparent!important;
+  }
+  html.two-col .player{
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    transform:none!important;
+    overflow:hidden!important;
+  }
+}
+
+/* Native YouTube fullscreen must use the whole fullscreen viewport,
+   not the cropped rail source offset. */
+.player > #videoFrame:fullscreen,
+.player > iframe:fullscreen,
+.player iframe:fullscreen,
+.player > #videoFrame:-webkit-full-screen,
+.player > iframe:-webkit-full-screen,
+.player iframe:-webkit-full-screen{
+  position:fixed!important;
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+}
 </style>
 </head>
 <body>
@@ -1716,17 +1804,27 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function applyMediaLayoutSelection(kind,{relayout=true}={}){
     kind=kind==="portrait"?"portrait":"landscape";
-    const canonical=kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+    const fallback=kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+    const mediaRatio=
+      validMediaAspect(current?.detectedRatio)||
+      validMediaAspect(current?.ratio)||
+      fallback;
 
     current={
       ...current,
       kind,
-      ratio:canonical
+      ratio:mediaRatio
     };
 
-    // Current media owns this binary layout state directly.
+    // Shape chooses BLACK; exact media aspect chooses the crop viewport.
     root.dataset.mediaShape=kind;
-    root.style.setProperty("--media-ratio",String(canonical));
+    root.style.setProperty("--media-ratio",String(mediaRatio));
+    root.style.setProperty(
+      "--rail-black",
+      kind==="portrait"
+        ? "var(--rail-black-portrait)"
+        : "var(--rail-black-landscape)"
+    );
 
     if(relayout){
       layout();
@@ -1740,15 +1838,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
     ratio=validMediaAspect(ratio);
     if(!id||!ratio||String(current?.id||"")!==id)return false;
 
+    const previousRatio=
+      validMediaAspect(current?.detectedRatio)||
+      validMediaAspect(current?.ratio)||
+      0;
     const kind=mediaLayoutKindFromRatio(ratio);
-    const changed=current?.kind!==kind;
+    const shapeChanged=current?.kind!==kind;
+    const ratioChanged=!previousRatio||Math.abs(previousRatio-ratio)>.002;
 
     current={
       ...current,
       detectedRatio:ratio
     };
-    applyMediaLayoutSelection(kind,{relayout:changed&&relayout});
-    return changed;
+    applyMediaLayoutSelection(kind,{
+      relayout:relayout&&(shapeChanged||ratioChanged)
+    });
+    return shapeChanged||ratioChanged;
   }
 
   const headerColorCache=new Map();
@@ -2249,8 +2354,22 @@ html.one-col .player.pip iframe{border-radius:inherit}
   }
 
   function syncBoundaries(){
-    const mediaRatio=current?.kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio;
+    const fallbackRatio=
+      current?.kind==="portrait"
+        ? VIDEOS.portrait.ratio
+        : VIDEOS.landscape.ratio;
+    const mediaRatio=
+      validMediaAspect(current?.detectedRatio)||
+      validMediaAspect(current?.ratio)||
+      fallbackRatio;
+
     root.style.setProperty("--media-ratio",String(mediaRatio));
+    root.style.setProperty(
+      "--rail-black",
+      current?.kind==="portrait"
+        ? "var(--rail-black-portrait)"
+        : "var(--rail-black-landscape)"
+    );
 
     // Measure the CURRENT usable viewport, not svh/vw estimates.
     const topBoundary=Math.max(
@@ -2272,20 +2391,18 @@ html.one-col .player.pip iframe{border-radius:inherit}
     root.style.setProperty("--bottom-gap",bottomGap+"px");
     root.style.setProperty("--current-full-h",fullH+"px");
 
-    // PiP also follows its CURRENT available size:
-    // landscape owns width, portrait owns height.
-    const viewportW=Math.max(1,Math.round(document.documentElement.clientWidth || innerWidth || 1));
+    // PiP keeps the existing visual size policy. Rail only changes how the
+    // native YouTube source is built/cropped inside that viewport.
+    const viewportW=Math.max(
+      1,
+      Math.round(document.documentElement.clientWidth || innerWidth || 1)
+    );
     const pipLandscapeW=Math.max(170,Math.min(280,Math.round(viewportW*.46)));
     const pipPortraitH=Math.max(240,Math.min(420,Math.round(fullH*.50)));
 
     root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
 
-    // YOUTUBE-SOURCE GEOMETRY
-    // - rich-grid item margin: 16px
-    // - outer desktop grid gutter: ~24px
-    // - rich-card vertical rhythm: ~40px
-    // - normal card family: 270..500px, target ~310px
     const pageW=viewportW;
     const pageEdge=viewportW<480?12:24;
     const cardGap=16;
@@ -2304,55 +2421,15 @@ html.one-col .player.pip iframe{border-radius:inherit}
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
 
-      // YouTube's variable sidebar-width buckets, applied to OUR left feed.
+      // Keep the existing feed-width family, but media now fits by the REAL
+      // cropped video height. No title/chrome safe-zone estimation is needed.
       const sidebarPct=viewportW>=1900?0.325:(viewportW>=1550?0.275:0.225);
       const sidebarMax=Math.min(800,contentW*0.40);
       const desiredFeedW=Math.max(320,Math.min(sidebarMax,contentW*sidebarPct));
+      const widthCap=Math.max(1,contentW-mediaGap-desiredFeedW);
+      const heightDrivenW=Math.max(1,Math.round(fullH*mediaRatio));
+      const mediaW=Math.min(widthCap,heightDrivenW);
 
-      let mediaW;
-      let landscapeChrome=null;
-
-      if(current.ratio>1){
-        // LANDSCAPE gets the remaining width after the source-sized feed.
-        let widthCap=Math.max(1,contentW-mediaGap-desiredFeedW);
-
-        // Fit width to the current height after reserving source-derived
-        // title/control safe zones.
-        landscapeChrome=measureLandscapeChrome(widthCap);
-        let safeBar=Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe);
-        let heightDrivenW=Math.max(
-          1,
-          Math.round(Math.max(1,fullH-(safeBar*2))*current.ratio)
-        );
-        mediaW=Math.min(widthCap,heightDrivenW);
-
-        // Re-measure after final width because title wrapping can change.
-        landscapeChrome=measureLandscapeChrome(mediaW);
-        const extraLandscapeBlack=8;
-        const finalSafeBar=
-          Math.max(landscapeChrome.topSafe,landscapeChrome.bottomSafe)+
-          extraLandscapeBlack;
-        const videoH=mediaW/current.ratio;
-        const playerH=Math.min(fullH,Math.ceil(videoH+(finalSafeBar*2)));
-
-        root.style.setProperty("--landscape-player-h",playerH+"px");
-        root.style.setProperty(
-          "--landscape-top-safe",
-          (landscapeChrome.topSafe+extraLandscapeBlack)+"px"
-        );
-        root.style.setProperty(
-          "--landscape-bottom-safe",
-          (landscapeChrome.bottomSafe+extraLandscapeBlack)+"px"
-        );
-      }else{
-        // PORTRAIT stays height-driven. Never stretch it just to fill a column.
-        mediaW=Math.min(
-          Math.round(fullH*current.ratio),
-          Math.max(1,contentW-mediaGap-320)
-        );
-      }
-
-      // Whatever media does not need is returned to the feed.
       const feedW=Math.max(1,contentW-mediaGap-mediaW);
       const cols=chooseCardColumns(feedW,cardGap);
 
@@ -2360,7 +2437,6 @@ html.one-col .player.pip iframe{border-radius:inherit}
       root.style.setProperty("--feed-cols",String(cols));
     }
   }
-
   function dataRow(payload){
     const data=payload?.data ?? payload;
     if(!data)return {};
