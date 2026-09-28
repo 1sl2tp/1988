@@ -251,6 +251,20 @@
       clip-path:none!important;
     }
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
+    .pip-wake-layer{
+      display:none;
+      position:absolute;
+      inset:0;
+      z-index:2;
+      pointer-events:auto;
+      background:transparent;
+      touch-action:manipulation;
+      cursor:default;
+    }
+    .stage.demo-pip.max-clean-mode:not(.chrome-mask) .pip-wake-layer{
+      display:block;
+    }
+
     .pip-mask-shield{
       display:none;
       position:absolute;
@@ -578,7 +592,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">PiP dùng Library đã tải sẵn geometry + metadata + timing. Có HIDDEN signal thì mở sau 1s; không có signal thì dùng idle timing của Library.</span>
+    <span class="hint">Library chỉ cấp geometry/metadata/timing. Đóng/mở cover chỉ theo PiP hiện tại: OFF thì lớp wake bắt rê/chạm để mở cycle mới; HIDE xong ngắt hẳn.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -1742,6 +1756,7 @@ function paintGeometryReadout(result){
     )+
     " · CYCLE "+pipUiCycle+
     " · COVER "+(pipCoverVisible?"ON":"OFF")+
+    " · WAKE "+(pipCoverVisible?"OFF":"ON")+
     " · RELEASE "+(
       nativeChromeVisible===false &&
       nativeChromeVisibleCycle===pipCoverCycle &&
@@ -2004,6 +2019,7 @@ function showCleanControls(){
 }
 function cleanOverlayMarkup(){
   return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
+    '<div class="pip-wake-layer" data-pip-wake aria-hidden="true"></div>'+
     '<div class="pip-mask-shield top" data-pip-mask-shield="top" aria-hidden="true"></div>'+
     '<div class="pip-mask-shield bottom" data-pip-mask-shield="bottom" aria-hidden="true"></div>'+
     '<div class="pip-drag-zone" data-pip-drag title="Kéo để di chuyển PiP"></div>'+
@@ -2286,6 +2302,14 @@ modesEl.addEventListener("click",e=>{
 });
 demoPipToggle.addEventListener("click",toggleDemoPip);
 stage.addEventListener("pointerdown",e=>{
+  const wake=e.target.closest("[data-pip-wake]");
+  if(wake){
+    e.preventDefault();
+    e.stopPropagation();
+    if(!pipCoverVisible)showChromeCover("wake-pointer");
+    return;
+  }
+
   const shield=e.target.closest("[data-pip-mask-shield]");
   if(shield){
     e.preventDefault();
@@ -2320,7 +2344,11 @@ stage.addEventListener("pointermove",e=>{
     if(seek)seekAtClientX(e.clientX,seek);
     return;
   }
-  if(stage.classList.contains("demo-pip")&&!pipCoverVisible)showChromeCover("pointermove");
+
+  const wake=e.target.closest("[data-pip-wake]");
+  if(wake&&!pipCoverVisible){
+    showChromeCover("wake-move");
+  }
 });
 function finishSeek(e){
   if(endPipPointer(e))return;
@@ -2337,6 +2365,14 @@ function finishSeek(e){
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
 stage.addEventListener("click",e=>{
+  const wake=e.target.closest("[data-pip-wake]");
+  if(wake){
+    e.preventDefault();
+    e.stopPropagation();
+    if(!pipCoverVisible)showChromeCover("wake-click");
+    return;
+  }
+
   const shield=e.target.closest("[data-pip-mask-shield]");
   if(shield){
     e.preventDefault();
