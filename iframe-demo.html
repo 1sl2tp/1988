@@ -74,7 +74,8 @@
        real center, and temporarily reveal only a measured center window while
        YouTube title / lower chrome are expected to be visible. */
     .stage.demo-pip.max-clean-mode{
-      --safe-edge:36px;
+      --yt-top-inset:48px;
+      --yt-bottom-inset:26px;
       --pip-poster:none;
       isolation:isolate;
       background:#000;
@@ -104,7 +105,7 @@
       will-change:clip-path;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask iframe{
-      clip-path:inset(var(--safe-edge) 0 var(--safe-edge) 0 round 10px);
+      clip-path:inset(var(--yt-top-inset) 0 var(--yt-bottom-inset) 0 round 10px);
       transition-duration:.22s;
     }
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
@@ -351,7 +352,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Không zoom. Giữ Play/Pause gốc ở đúng tâm; khi chrome YouTube đang hiện chỉ mở cửa sổ giữa cân tâm, dùng thumbnail làm nền che hai mép. Trên là phóng/đóng, dưới là thanh tua thật.",
+    desc:"Không zoom. Giữ Play/Pause gốc ở tâm player; đo riêng vùng title/kênh phía trên và branding/thông tin phía dưới để chỉ che vừa đủ, giữ được nhiều hình nhất. Trên là phóng/đóng, dưới là thanh tua thật.",
     api:true,
     cleanDemo:true,
     maxClean:true,
@@ -460,9 +461,9 @@ function paintGeometryReadout(result){
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
-    " · trên "+Math.round(result.topChrome)+
-    " · dưới "+Math.round(result.bottomChrome)+
-    " · crop "+Math.round(result.safeEdge);
+    " · trên "+Math.round(result.topInset)+
+    " · dưới "+Math.round(result.bottomInset)+
+    " · cửa sổ "+Math.round(result.safeWindow.height);
 }
 function syncMeasuredSafeWindow(){
   if(!stage.classList.contains("max-clean-mode")){
