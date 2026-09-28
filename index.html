@@ -1254,6 +1254,38 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   color:var(--yt-text);
   font:600 16px/22px Roboto,Arial,sans-serif;
 }
+.feed-head-left{
+  min-width:0;
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+.feed-back{
+  width:28px;
+  height:28px;
+  flex:0 0 28px;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  background:transparent;
+  color:var(--yt-text);
+  display:grid;
+  place-items:center;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.feed-back[hidden]{display:none!important}
+.feed-back:hover{background:var(--yt-hover)}
+.feed-back:active{background:var(--yt-press)}
+.feed-back svg{
+  width:20px;
+  height:20px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
 .autoplay-toggle{
   flex:0 0 auto;
   height:30px;
@@ -1982,6 +2014,7 @@ html.one-col.portrait .player.pip{
   let channelFeedSourceId="";
   let channelFeedName="";
   let channelFeedRequest=0;
+  const channelFeedBackStack=[];
   let sourceStateRemote={};
   let openRowMenuMeta=null;
   let openRowMenuAnchor=null;
@@ -4564,7 +4597,7 @@ html.one-col.portrait .player.pip{
 
   function currentFeedLabel(){
     if(feedMode==="channel"){
-      return channelFeedName?("Kênh · "+channelFeedName):"Kênh";
+      return channelFeedName?("Kênh / "+channelFeedName):"Kênh";
     }
     if(feedMode==="search")return "Tìm kiếm";
     if(feedMode==="related")return "Gợi ý";
@@ -4584,7 +4617,12 @@ html.one-col.portrait .player.pip{
   function feedHeaderMarkup(){
     return (
       '<div class="feed-head" data-feed-head>'+
-        '<div class="feed-head-title"></div>'+
+        '<div class="feed-head-left">'+
+          '<button class="feed-back" type="button" aria-label="Quay lại" title="Quay lại" data-channel-back hidden>'+
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7"></path></svg>'+
+          '</button>'+
+          '<div class="feed-head-title"></div>'+
+        '</div>'+
         '<button class="autoplay-toggle" type="button" role="switch" aria-checked="'+(autoplayNext?'true':'false')+'" data-autoplay-toggle>'+
           '<span>Tự động phát</span>'+
           '<span class="autoplay-track" aria-hidden="true"><span class="autoplay-knob"></span></span>'+
@@ -4601,6 +4639,10 @@ html.one-col.portrait .player.pip{
       title.textContent=feedMode==="channel"
         ?currentFeedLabel()
         :"Tiếp theo · "+currentFeedLabel();
+    }
+    const back=head.querySelector("[data-channel-back]");
+    if(back){
+      back.hidden=feedMode!=="channel"||channelFeedBackStack.length===0;
     }
     const toggle=head.querySelector("[data-autoplay-toggle]");
     if(toggle){
@@ -4645,11 +4687,52 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
+  function captureChannelFeedSnapshot(){
+    return {
+      feedMode,
+      activePackageScope:String(activePackageScope||""),
+      feedMetas:Array.isArray(feedMetas)?feedMetas.slice():[],
+      channelFeedSourceId:String(channelFeedSourceId||""),
+      channelFeedName:String(channelFeedName||"")
+    };
+  }
+
+  function syncSourceChipForCurrentFeed(){
+    sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]").forEach(chip=>{
+      const active=
+        feedMode==="package" &&
+        String(chip.dataset.sourceTab||"")===String(activePackageScope||"");
+      chip.classList.toggle("active",active);
+    });
+  }
+
+  function restorePreviousFeedFromChannel(){
+    if(feedMode!=="channel"||!channelFeedBackStack.length)return false;
+    channelFeedRequest++;
+    feedRequest++;
+
+    const snapshot=channelFeedBackStack.pop();
+    feedMode=snapshot.feedMode||"package";
+    activePackageScope=snapshot.activePackageScope||activePackageScope;
+    feedMetas=Array.isArray(snapshot.feedMetas)?snapshot.feedMetas.slice():[];
+    channelFeedSourceId=String(snapshot.channelFeedSourceId||"");
+    channelFeedName=String(snapshot.channelFeedName||"");
+
+    syncSourceChipForCurrentFeed();
+    renderSampleContent();
+    syncFeedHeader();
+    scrollPageToTop();
+    return true;
+  }
+
   async function openChannelInApp(meta={}){
     const sourceId=validSourceId(meta?.sourceId);
     if(!sourceId)return false;
 
     const sourceName=String(meta?.sourceName||"").trim()||"Kênh";
+    channelFeedBackStack.push(captureChannelFeedSnapshot());
+    if(channelFeedBackStack.length>8)channelFeedBackStack.shift();
+
     const request=++channelFeedRequest;
     feedRequest++;
     feedMode="channel";
@@ -5704,6 +5787,7 @@ html.one-col.portrait .player.pip{
     // in-flight global search so it cannot overwrite this source afterward.
     feedRequest++;
     channelFeedRequest++;
+    channelFeedBackStack.length=0;
     channelFeedSourceId="";
     channelFeedName="";
     feedMode="package";
@@ -5711,6 +5795,14 @@ html.one-col.portrait .player.pip{
   });
 
   document.getElementById("rows").addEventListener("click",event=>{
+    const channelBack=event.target.closest("[data-channel-back]");
+    if(channelBack){
+      event.preventDefault();
+      event.stopPropagation();
+      restorePreviousFeedFromChannel();
+      return;
+    }
+
     const autoplayToggle=event.target.closest("[data-autoplay-toggle]");
     if(autoplayToggle){
       event.preventDefault();
