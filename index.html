@@ -1275,7 +1275,7 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   display:flex;
   align-items:center;
   border-radius:999px;
-  background:var(--yt-chip);
+  background:var(--yt-chip-bg);
   box-shadow:inset 0 0 0 1px var(--yt-border);
   transition:background .16s ease;
 }
@@ -4204,8 +4204,9 @@ html.one-col.portrait .player.pip{
     if(feedMode==="search")return "Tìm kiếm";
     if(feedMode==="related")return "Gợi ý";
     if(feedMode==="package"){
-      const selector='.source-chip[data-source-tab="'+CSS.escape(String(activePackageScope||""))+'"]';
-      const chip=sourceNameChips?.querySelector?.(selector);
+      const scope=String(activePackageScope||"");
+      const chip=[...(sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]")||[])]
+        .find(node=>String(node.dataset.sourceTab||"")===scope);
       const label=String(chip?.textContent||"").trim();
       if(label)return label;
       if(activePackageScope==="latest")return "Ngày";
