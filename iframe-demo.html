@@ -27,6 +27,10 @@
     .idbar{display:flex;gap:8px;padding:10px 12px 0}
     .idbar input{min-width:0;flex:1;border:1px solid var(--line);background:#121214;color:#fff;border-radius:10px;padding:10px 11px;font-size:14px}
     .idbar button{border-radius:10px}
+    .presets{display:flex;gap:7px;overflow:auto;padding:8px 12px 0;scrollbar-width:none}
+    .presets::-webkit-scrollbar{display:none}
+    .presets button{padding:7px 10px;font-size:12px}
+    .presets .portrait{border-color:#4a4a50}
     .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0}
     .demo-actions[hidden]{display:none}
     .demo-actions .hint{font-size:12px;color:var(--muted);line-height:1.4}
@@ -239,6 +243,14 @@
     <input id="videoId" value="sQoD6meioNg" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
     <button id="loadBtn" type="button">Tải video</button>
   </div>
+  <div class="presets" id="presets" aria-label="Video mẫu ngang dọc">
+    <button type="button" data-video="sQoD6meioNg" data-shape="landscape">Ngang · hiện tại</button>
+    <button type="button" data-video="MXLXvLpUqq4" data-shape="landscape">Ngang · thiên nhiên</button>
+    <button type="button" data-video="yhIhuY2pSMY" data-shape="landscape">Ngang · Việt Nam</button>
+    <button type="button" class="portrait" data-video="3HiJYYIupd4" data-shape="portrait">Dọc · Shorts 1</button>
+    <button type="button" class="portrait" data-video="D85p9P-3kMc" data-shape="portrait">Dọc · Shorts 2</button>
+    <button type="button" class="portrait" data-video="-pxx7EyQm90" data-shape="portrait">Dọc · Shorts 3</button>
+  </div>
 
   <div class="toolbar" id="modes"></div>
   <div class="stage" id="stage"></div>
@@ -344,6 +356,7 @@ const titleEl=document.getElementById("modeTitle");
 const descEl=document.getElementById("modeDesc");
 const codeEl=document.getElementById("code");
 const input=document.getElementById("videoId");
+const presets=document.getElementById("presets");
 const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
 const stageSpacer=document.getElementById("stageSpacer");
@@ -535,6 +548,7 @@ function cleanId(value){
   return raw.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/\/embed\/([A-Za-z0-9_-]{11})/)?.[1]||
+         raw.match(/\/shorts\/([A-Za-z0-9_-]{11})/)?.[1]||
          "sQoD6meioNg";
 }
 function query(params){
@@ -685,6 +699,15 @@ stage.addEventListener("click",e=>{
     stage.classList.toggle("demo-pip-large");
     showCleanControls();
   }
+});
+presets.addEventListener("click",e=>{
+  const b=e.target.closest("[data-video]");
+  if(!b)return;
+  input.value=b.dataset.video;
+  const portrait=b.dataset.shape==="portrait";
+  stage.style.aspectRatio=portrait?"9 / 16":"16 / 9";
+  stage.dataset.demoShape=portrait?"portrait":"landscape";
+  render();
 });
 document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
