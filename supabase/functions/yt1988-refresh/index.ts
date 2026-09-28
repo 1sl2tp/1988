@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v38";
-const NON_LIVE_PIPELINE_VERSION="non-live-v13";
+const NON_LIVE_PIPELINE_VERSION="non-live-v14";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -706,6 +706,191 @@ function kidCleanTitle(value:any){
     .trim();
 
   return title.length>=6?title:original;
+}
+
+function staticContentDisplayTitle(value:any,meta:any={}){
+  const original=clean(value,300);
+  if(!original)return "";
+  const label=normalizeText(meta?.label||"");
+  if(label==="review")return reviewCleanTitle(original);
+  if(label==="kid")return kidCleanTitle(original);
+  return original;
+}
+
+function withStaticContentDisplayTitle(row:any,meta:any={}){
+  const current=clean(row?._displayTitle||row?.title||"",300);
+  const displayTitle=staticContentDisplayTitle(current,meta);
+  return displayTitle&&displayTitle!==current
+    ?{...row,_displayTitle:displayTitle}
+    :row;
+}
+
+function displayTitleSegments(value:any){
+  const title=clean(value,300);
+  if(!title)return [];
+  return title
+    .split(/\s+(?:[-–—|•▪►▶◆◇])\s+/u)
+    .map((part)=>clean(part,140)
+      .replace(/^[\s|:;\-–—]+|[\s|:;\-–—]+$/gu,"")
+      .trim())
+    .filter(Boolean);
+}
+
+function displayBoilerplateKey(value:any){
+  return normalizeText(value)
+    .replace(/\b(?:19|20)\d{2}\b/g,"year")
+    .replace(/\s+/g," ")
+    .trim();
+}
+
+function displaySegmentProtected(value:any){
+  const raw=clean(value,140);
+  const norm=normalizeText(raw);
+  if(!norm)return true;
+
+  // Episode/season numbers are discriminative data, not decoration.
+  if(/\b(?:tap|ep|episode|phan|part|mua|season)\s*\d{1,4}\b/.test(norm))return true;
+  if(/(?:^|\s)#\s*\d{1,4}(?:\s|$)/u.test(raw))return true;
+
+  // A segment that is only a date should never be learned as boilerplate.
+  if(/^\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?$/.test(raw))return true;
+  return false;
+}
+
+function displaySegmentLooksGeneric(value:any){
+  const norm=normalizeText(value);
+  if(!norm)return false;
+  return (
+    /\b(?:review|tom tat phim|movie recap|phim hoat hinh|hoat hinh long tieng)\b/.test(norm)||
+    /\b(?:phim hai|hai tet|sitcom hai|phim hay|hay nhat|moi nhat)\b/.test(norm)||
+    /\b(?:tin giai tri|tinh huong hai huoc|truc tiep)\b/.test(norm)||
+    /\b(?:official visualizer|official music video|official audio|official beat)\b/.test(norm)||
+    /\b(?:gap nhau cuoi tuan|truyen co tich viet nam)\b/.test(norm)||
+    /^hai\s+.+\syear$/.test(displayBoilerplateKey(value))
+  );
+}
+
+function displaySegmentLooksLikeSource(value:any,sourceName:any){
+  const segment=clean(value,140);
+  const source=clean(sourceName,180);
+  if(!segment||!source)return false;
+  if(sourceTitleSegmentMatches(segment,source))return true;
+
+  const seg=normalizeText(segment);
+  const src=normalizeText(source)
+    .replace(/\b(?:official|channel|news|television|media)\b/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  if(!seg||!src)return false;
+  const words=seg.split(" ").filter(Boolean);
+  if(words.length<2||seg.length<5)return false;
+  return seg===src||src.startsWith(seg+" ")||seg.startsWith(src+" ");
+}
+
+function meaningfulDisplayRemainder(value:any){
+  const norm=normalizeText(value);
+  if(norm.length<4)return false;
+  if(/^(?:tap|ep|episode|phan|part|mua|season)\s*\d{1,4}$/.test(norm))return false;
+  return /[a-z0-9]/.test(norm);
+}
+
+function inferDisplayBoilerplate(referenceRows:any[],meta:any={}){
+  const bySource=new Map<string,any>();
+
+  for(const sourceRow of Array.isArray(referenceRows)?referenceRows:[]){
+    const row=withStaticContentDisplayTitle(sourceRow,meta);
+    const sid=channelId(row);
+    const title=clean(row?._displayTitle||row?.title||"",300);
+    if(!sid||!title)continue;
+
+    let group=bySource.get(sid);
+    if(!group){
+      group={
+        total:0,
+        sourceName:clean(row?._sourceName||row?.uploaderName||row?.uploader||"",180),
+        counts:new Map<string,any>()
+      };
+      bySource.set(sid,group);
+    }
+    group.total++;
+
+    const segments=displayTitleSegments(title);
+    if(segments.length<2)continue;
+
+    const seen=new Set<string>();
+    for(const segment of segments){
+      if(displaySegmentProtected(segment))continue;
+      const key=displayBoilerplateKey(segment);
+      if(!key||seen.has(key))continue;
+      seen.add(key);
+
+      const stat=group.counts.get(key)||{hits:0,sample:segment};
+      stat.hits++;
+      group.counts.set(key,stat);
+    }
+  }
+
+  const learned=new Map<string,Set<string>>();
+  for(const [sid,group] of bySource){
+    const rules=new Set<string>();
+    const total=Math.max(1,Number(group.total)||0);
+    for(const [key,stat] of group.counts){
+      const hits=Number(stat?.hits)||0;
+      const ratio=hits/total;
+      const sample=clean(stat?.sample||"",140);
+      const words=key.split(" ").filter((word:string)=>word&&word!=="year");
+
+      const sourceLike=displaySegmentLooksLikeSource(sample,group.sourceName);
+      const generic=displaySegmentLooksGeneric(sample);
+      const statisticallyStrong=hits>=5&&ratio>=.85&&words.length>=3;
+
+      if(
+        (sourceLike&&hits>=2&&ratio>=.15)||
+        (generic&&hits>=3&&ratio>=.30)||
+        statisticallyStrong
+      ){
+        rules.add(key);
+      }
+    }
+    if(rules.size)learned.set(sid,rules);
+  }
+  return learned;
+}
+
+function cleanRepeatedDisplayBoilerplate(rows:any[],referenceRows:any[],meta:any={}){
+  const learned=inferDisplayBoilerplate(referenceRows,meta);
+  if(!learned.size)return (Array.isArray(rows)?rows:[]).map((row:any)=>
+    withStaticContentDisplayTitle(row,meta)
+  );
+
+  return (Array.isArray(rows)?rows:[]).map((sourceRow:any)=>{
+    const row=withStaticContentDisplayTitle(sourceRow,meta);
+    const sid=channelId(row);
+    const rules=learned.get(sid);
+    if(!rules?.size)return row;
+
+    const current=clean(row?._displayTitle||row?.title||"",300);
+    const segments=displayTitleSegments(current);
+    if(segments.length<2)return row;
+
+    const kept:string[]=[];
+    let removed=0;
+    for(const segment of segments){
+      const key=displayBoilerplateKey(segment);
+      if(rules.has(key)&&!displaySegmentProtected(segment)){
+        removed++;
+        continue;
+      }
+      kept.push(segment);
+    }
+
+    if(!removed||!kept.length)return row;
+    const next=clean(kept.join(" - "),300);
+    if(!meaningfulDisplayRemainder(next))return row;
+
+    // Display cleanup never changes the underlying title/video identity.
+    return {...row,_displayTitle:next};
+  });
 }
 function sourceSignature(rows:any[],scope:string){
   return rows
@@ -2345,6 +2530,10 @@ Deno.serve(async(req:Request)=>{
         }
       }
 
+      // Keep the full channel sample for display-title boilerplate learning.
+      // The package itself is still filtered by age/Short/duration below.
+      const displayPatternReference=meta.kind==="content"?raw.slice():[];
+
       if(scope!=="live"){
         // NON-LIVE packages contain only rows the server has already resolved.
         // Unknown rows are omitted and retried by the normal server schedule.
@@ -2394,24 +2583,9 @@ Deno.serve(async(req:Request)=>{
       }
 
       if(meta.kind==="content"){
-        const labelNorm=normalizeText(meta?.label||"");
-        if(labelNorm==="review"){
-          raw=raw.map((row:any)=>{
-            const currentTitle=clean(row?._displayTitle||row?.title||"",300);
-            const displayTitle=reviewCleanTitle(currentTitle);
-            return displayTitle&&displayTitle!==currentTitle
-              ?{...row,_displayTitle:displayTitle}
-              :row;
-          });
-        }else if(labelNorm==="kid"){
-          raw=raw.map((row:any)=>{
-            const currentTitle=clean(row?._displayTitle||row?.title||"",300);
-            const displayTitle=kidCleanTitle(currentTitle);
-            return displayTitle&&displayTitle!==currentTitle
-              ?{...row,_displayTitle:displayTitle}
-              :row;
-          });
-        }
+        // Learn repeated edge/column text from the channel's cached titles and
+        // remove it only from _displayTitle. The video and row.title stay intact.
+        raw=cleanRepeatedDisplayBoilerplate(raw,displayPatternReference,meta);
       }
 
       // Final deterministic package policy shared by every source.
