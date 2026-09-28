@@ -159,7 +159,6 @@ async function resolveRapid(id,format){
   if(!RAPIDAPI_KEY)throw new Error("rapidapi_key_missing");
 
   const youtubeUrl="https://www.youtube.com/watch?v="+id;
-  const quality=format==="mp3"?128:720;
 
   const created=normalizeRapidJob(
     await rapidRequest("/download",{
@@ -167,7 +166,7 @@ async function resolveRapid(id,format){
       query:{
         url:youtubeUrl,
         format,
-        quality
+        quality:format==="mp4"?720:undefined
       }
     })
   );
