@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.17";
+  const VERSION = "2026-09-28.18";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -436,7 +436,7 @@
     };
   }
 
-  function transformMeasurementToViewport(rawResult, trimInput = {}) {
+  function transformMeasurementToViewport(rawResult, trimInput = {}, viewport = {}) {
     if(!rawResult)return null;
     const trim=normalizeViewportTrim(trimInput);
     const rawW=Math.max(1,rawResult.width);
@@ -448,20 +448,16 @@
     const trimRight=rawW*trim.right;
     const visibleW=Math.max(1,rawW-trimLeft-trimRight);
     const visibleH=Math.max(1,rawH-trimTop-trimBottom);
-    const scaleX=rawW/visibleW;
-    const scaleY=rawH/visibleH;
 
-    // PiP already removes the media's outer black edge. The library bounds
-    // are measured on the full embed, so compensate the removed edge OUTWARD.
-    // Subtracting trim here makes the mask shallower and leaks title/branding.
-    const topInset=Math.max(
-      0,
-      (rawResult.topInset+trimTop)*scaleY
-    );
-    const bottomInset=Math.max(
-      0,
-      (rawResult.bottomInset+trimBottom)*scaleY
-    );
+    const viewportW=Math.max(1,Number(viewport.width)||visibleW);
+    const viewportH=Math.max(1,Number(viewport.height)||visibleH);
+    const scaleX=viewportW/visibleW;
+    const scaleY=viewportH/visibleH;
+
+    // The PiP viewport physically crops the player's black bars first.
+    // Convert raw iframe coordinates into that cropped viewport afterwards.
+    const topInset=Math.max(0,(rawResult.topInset-trimTop)*scaleY);
+    const bottomInset=Math.max(0,(rawResult.bottomInset-trimBottom)*scaleY);
 
     const playCenter={
       x:(rawResult.playCenter.x-trimLeft)*scaleX,
@@ -472,10 +468,14 @@
     const playBottom=playCenter.y+playSafety;
     const collisionMode=
       topInset>=playTop ||
-      (rawH-bottomInset)<=playBottom;
+      (viewportH-bottomInset)<=playBottom;
 
     return {
       ...rawResult,
+      width:viewportW,
+      height:viewportH,
+      rawWidth:rawW,
+      rawHeight:rawH,
       rawTopInset:rawResult.topInset,
       rawBottomInset:rawResult.bottomInset,
       rawPlayCenter:rawResult.playCenter,
@@ -486,12 +486,16 @@
         rightPx:trimRight,
         bottomPx:trimBottom,
         leftPx:trimLeft,
-        compensationTopPx:trimTop*scaleY,
-        compensationBottomPx:trimBottom*scaleY,
         visibleW,
         visibleH,
+        viewportW,
+        viewportH,
         scaleX,
-        scaleY
+        scaleY,
+        renderedRawW:rawW*scaleX,
+        renderedRawH:rawH*scaleY,
+        renderedLeft:-trimLeft*scaleX,
+        renderedTop:-trimTop*scaleY
       },
       topInset,
       bottomInset,
@@ -502,8 +506,8 @@
       safeWindow:{
         x:0,
         y:topInset,
-        width:rawW,
-        height:Math.max(0,rawH-topInset-bottomInset)
+        width:viewportW,
+        height:Math.max(0,viewportH-topInset-bottomInset)
       }
     };
   }
@@ -511,7 +515,7 @@
   function buildMediaLibrary(options = {}) {
     const videoId = String(options.videoId || "");
     const title = String(options.title || "");
-    const aspect = clamp(Number(options.aspect) || (16/9), .25, 4);
+    const rawAspect = clamp(Number(options.rawAspect)||Number(options.aspect)||(16/9),.25,4);
     const minWidth = Math.max(96, Math.round(Number(options.minWidth) || 140));
     const maxWidth = Math.max(minWidth, Math.round(Number(options.maxWidth) || 760));
     const step = Math.max(1, Math.round(Number(options.step) || 2));
@@ -519,30 +523,45 @@
     const controls = modeInfo.profile.controls;
     const embedMode=modeInfo.key;
     const viewportTrim=normalizeViewportTrim(options.viewportTrim||{});
+    const visibleX=Math.max(.1,1-viewportTrim.left-viewportTrim.right);
+    const visibleY=Math.max(.1,1-viewportTrim.top-viewportTrim.bottom);
+    const derivedContentAspect=rawAspect*visibleX/visibleY;
+    const contentAspect=clamp(
+      Number(options.contentAspect)||derivedContentAspect,
+      .25,
+      4
+    );
     const samples = [];
 
-    for (let w = minWidth; w <= maxWidth; w += step) {
-      const h = w / aspect;
-      const rawResult = measure(
-        { width:w, height:h },
-        { title, controls, embedMode, orientation:options.orientation }
-      );
-      samples.push(transformMeasurementToViewport(rawResult,viewportTrim));
-    }
-    if (!samples.length || samples[samples.length - 1].width !== maxWidth) {
-      const h = maxWidth / aspect;
+    const makeSample=(viewportW)=>{
+      const viewportH=viewportW/contentAspect;
+      const rawW=viewportW/visibleX;
+      const rawH=viewportH/visibleY;
       const rawResult=measure(
-        { width:maxWidth, height:h },
-        { title, controls, embedMode, orientation:options.orientation }
+        {width:rawW,height:rawH},
+        {title,controls,embedMode,orientation:options.orientation}
       );
-      samples.push(transformMeasurementToViewport(rawResult,viewportTrim));
+      return transformMeasurementToViewport(
+        rawResult,
+        viewportTrim,
+        {width:viewportW,height:viewportH}
+      );
+    };
+
+    for (let w=minWidth;w<=maxWidth;w+=step){
+      samples.push(makeSample(w));
+    }
+    if(!samples.length||Math.round(samples[samples.length-1].width)!==maxWidth){
+      samples.push(makeSample(maxWidth));
     }
 
     return {
       version: VERSION,
       videoId,
       title,
-      aspect,
+      aspect:contentAspect,
+      rawAspect,
+      contentAspect,
       minWidth,
       maxWidth,
       step,
