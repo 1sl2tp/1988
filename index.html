@@ -329,13 +329,14 @@ html.one-col .player.inline-overlay:not(.pip){
   --header-alpha:var(--header-alpha-search);
 }
 .masthead{
+  order:2;
   flex:0 0 auto;
   width:auto;
   height:56px;
   display:flex;
   align-items:center;
   gap:2px;
-  padding:0 4px 0 8px;
+  padding:0 8px 0 4px;
 }
 .brand{
   flex:0 0 auto;
@@ -464,6 +465,7 @@ html.one-col .player.inline-overlay:not(.pip){
 .icon-button:hover{background:linear-gradient(rgba(var(--header-accent-rgb),var(--ambient-control-hover)),rgba(var(--header-accent-rgb),var(--ambient-control-hover))),var(--yt-hover)}
 .icon-button:active{background:var(--yt-press)}
 .sourcebar{
+  order:1;
   position:relative;
   flex:1 1 auto;
   min-width:0;
@@ -731,7 +733,9 @@ html.one-col .player.inline-overlay:not(.pip){
   }
 }
 
-/* Plenty of horizontal room: expand search without hiding the source rail. */
+/* Plenty of horizontal room: keep the source rail on the left and
+   expand search on the right. Mobile keeps the same order with a compact
+   right-edge search button, so the hand-off between breakpoints stays natural. */
 .top.search-roomy:not(.search-open) .search-toggle{display:none}
 .top.search-roomy:not(.search-open) .searchbox{
   display:flex;
@@ -4373,7 +4377,7 @@ html.one-col.portrait .player.pip{
     const chipsW=naturalSourceChipsWidth();
 
     // Reserve outer spacing plus the separate mic + settings buttons.
-    // They sit beside the search pill on roomy desktop, like YouTube.
+    // The source rail owns the left side; search/mic/settings own the right.
     const chromeReserve=108;
     const surplus=Math.max(0,headerW-chipsW-chromeReserve);
 
