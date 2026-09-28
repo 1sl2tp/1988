@@ -269,9 +269,16 @@
 
     const playCenter = { x: width / 2, y: height / 2 };
     const topBoxMetrics = topBoxes(sample, titleLines, layoutState.top);
-    const topChrome = topBoxMetrics.outerMax;
+    const topChromeRaw = topBoxMetrics.outerMax;
     const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
-    const bottomChrome = bottomBoxMetrics.outerMax;
+    const bottomChromeRaw = bottomBoxMetrics.outerMax;
+
+    // YouTube pills/cards can paint a tiny antialiased edge/shadow beyond their
+    // nominal outer box. Keep a small visual bleed so no white rim peeks through.
+    const topBleed = 2;
+    const bottomBleed = 4;
+    const topChrome = topChromeRaw + topBleed;
+    const bottomChrome = bottomChromeRaw + bottomBleed;
 
     // Native Play/Pause remains centered. At small player sizes YouTube also
     // shrinks that control, so do not use a large fixed minimum radius.
@@ -342,6 +349,10 @@
       },
       topChrome,
       bottomChrome,
+      topChromeRaw,
+      bottomChromeRaw,
+      topBleed,
+      bottomBleed,
       topInset,
       bottomInset,
       safeEdge: Math.max(topInset, bottomInset),
