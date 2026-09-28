@@ -52,42 +52,41 @@
       font-weight:600;
       margin:0 0 8px;
     }
-    .chrome-calibration-grid{
-      display:grid;
-      grid-template-columns:1fr;
-      gap:10px;
-    }
-    .chrome-calibration-card{
-      min-width:0;
-      border:1px solid var(--line);
-      border-radius:12px;
-      background:#111113;
-      padding:8px;
+    .chrome-calibration{
+      width:100vw;
+      margin-left:calc(50% - 50vw);
       overflow:hidden;
     }
+    .chrome-calibration-workbench{
+      width:100%;
+      padding:0 8px 10px;
+    }
     .chrome-calibration-label{
-      font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+      font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
       color:#d6d6db;
-      margin-bottom:6px;
+      margin-bottom:7px;
       white-space:normal;
+    }
+    .chrome-calibration-range{
+      width:100%;
+      margin:0 0 8px;
+      accent-color:#fff;
     }
     .chrome-calibration-viewport{
       position:relative;
       width:100%;
-      overflow:hidden;
+      min-height:80px;
+      overflow:auto;
       border-radius:10px;
-      background:#000;
-    }
-    .chrome-calibration-scale{
-      position:absolute;
-      left:0;
-      top:0;
-      transform-origin:top left;
+      background:#0b0b0c;
+      padding:0;
     }
     .chrome-calibration-frame{
       position:relative;
       background:#000;
       overflow:hidden;
+      border-radius:10px;
+      touch-action:none;
     }
     .chrome-calibration-frame iframe{
       position:absolute;
@@ -107,13 +106,30 @@
       z-index:3;
       height:0;
       border-top:2px solid #000;
-      box-shadow:0 0 0 1px rgba(255,255,255,.45);
+      box-shadow:0 0 0 1px rgba(255,255,255,.58);
       pointer-events:none;
     }
     .chrome-calibration-guide.top{top:var(--guide-top)}
     .chrome-calibration-guide.bottom{top:calc(100% - var(--guide-bottom))}
-    @media(min-width:720px){
-      .chrome-calibration-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+    .chrome-calibration-resize{
+      position:absolute;
+      z-index:5;
+      right:0;
+      bottom:0;
+      width:24px;
+      height:24px;
+      cursor:nwse-resize;
+      touch-action:none;
+    }
+    .chrome-calibration-resize::before{
+      content:"";
+      position:absolute;
+      right:5px;
+      bottom:5px;
+      width:10px;
+      height:10px;
+      border-right:2px solid rgba(255,255,255,.85);
+      border-bottom:2px solid rgba(255,255,255,.85);
     }
     .scroll-demo{
       display:none;
@@ -437,26 +453,13 @@
 
   <div class="toolbar" id="modes"></div>
   <div class="stage" id="stage"></div>
-  <section class="chrome-calibration" id="chromeCalibration" aria-label="Kiểm tra thư viện MIN MAX">
-    <div class="chrome-calibration-title">Library PiP · kiểm tra MIN / CURRENT / MAX</div>
-    <div class="chrome-calibration-grid">
-      <div class="chrome-calibration-card">
-        <div class="chrome-calibration-label" id="calMinLabel">MIN</div>
-        <div class="chrome-calibration-viewport" id="calMinViewport">
-          <div class="chrome-calibration-scale" id="calMinScale"></div>
-        </div>
-      </div>
-      <div class="chrome-calibration-card">
-        <div class="chrome-calibration-label" id="calMaxLabel">MAX</div>
-        <div class="chrome-calibration-viewport" id="calMaxViewport">
-          <div class="chrome-calibration-scale" id="calMaxScale"></div>
-        </div>
-      </div>
-      <div class="chrome-calibration-card">
-        <div class="chrome-calibration-label" id="calCurrentLabel">CURRENT</div>
-        <div class="chrome-calibration-viewport" id="calCurrentViewport">
-          <div class="chrome-calibration-scale" id="calCurrentScale"></div>
-        </div>
+  <section class="chrome-calibration" id="chromeCalibration" aria-label="Kiểm tra thư viện PiP">
+    <div class="chrome-calibration-title">Library PiP · kéo từ MIN → FULL</div>
+    <div class="chrome-calibration-workbench">
+      <div class="chrome-calibration-label" id="calLiveLabel">Library</div>
+      <input class="chrome-calibration-range" id="calLiveRange" type="range" min="140" max="760" value="280" step="1" aria-label="Kích thước Library PiP">
+      <div class="chrome-calibration-viewport" id="calLiveViewport">
+        <div class="chrome-calibration-frame" id="calLiveFrame"></div>
       </div>
     </div>
   </section>
@@ -569,15 +572,10 @@ const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
 const geometryReadout=document.getElementById("geometryReadout");
 const chromeCalibration=document.getElementById("chromeCalibration");
-const calMinLabel=document.getElementById("calMinLabel");
-const calMaxLabel=document.getElementById("calMaxLabel");
-const calMinViewport=document.getElementById("calMinViewport");
-const calMaxViewport=document.getElementById("calMaxViewport");
-const calMinScale=document.getElementById("calMinScale");
-const calMaxScale=document.getElementById("calMaxScale");
-const calCurrentLabel=document.getElementById("calCurrentLabel");
-const calCurrentViewport=document.getElementById("calCurrentViewport");
-const calCurrentScale=document.getElementById("calCurrentScale");
+const calLiveLabel=document.getElementById("calLiveLabel");
+const calLiveRange=document.getElementById("calLiveRange");
+const calLiveViewport=document.getElementById("calLiveViewport");
+const calLiveFrame=document.getElementById("calLiveFrame");
 const stageSpacer=document.getElementById("stageSpacer");
 const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
@@ -604,6 +602,9 @@ let currentLibraryRevision="";
 let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
 let viewportPrimeTimers=[];
 let mainAspectBeforePip="";
+let calibrationPointerId=null;
+let calibrationPointerStart=null;
+let calibrationWidth=280;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -694,9 +695,7 @@ function invalidateChromeLibraries(){
   mediaChromeLibraries.clear();
   currentChromeLibrary=null;
   currentLibraryRevision=chromeLibraryRevision();
-  calMinScale?.replaceChildren();
-  calMaxScale?.replaceChildren();
-  calCurrentScale?.replaceChildren();
+  calLiveFrame?.replaceChildren();
 }
 function viewportTrimSignature(trim){
   return [
@@ -778,6 +777,19 @@ function primeMainViewportTrimLibrary(){
     },delay));
   });
 }
+function libraryWidthBounds(contentAspect){
+  const minWidth=140;
+  const vv=window.visualViewport;
+  const viewportW=Math.max(minWidth,Math.floor(vv?.width||window.innerWidth||minWidth));
+  const viewportH=Math.max(1,Math.floor(vv?.height||window.innerHeight||1));
+  const gap=12;
+  const aspect=Math.max(.25,Math.min(4,Number(contentAspect)||16/9));
+  const portrait=aspect<1;
+  const maxWidth=portrait
+    ? Math.max(minWidth,Math.floor(Math.max(1,viewportH-gap)*aspect))
+    : Math.max(minWidth,viewportW-gap);
+  return {minWidth,maxWidth,portrait,viewportW,viewportH};
+}
 function prepareCurrentChromeLibrary(force=false){
   const geometry=window.YouTubeChromeGeometry;
   if(!geometry?.buildMediaLibrary)return null;
@@ -794,8 +806,9 @@ function prepareCurrentChromeLibrary(force=false){
   const author=currentVideoAuthor();
   const rawAspect=Number(currentViewportTrim.rawAspect)||currentMainAspect();
   const contentAspect=Number(currentViewportTrim.contentAspect)||rawAspect;
-  const minWidth=140;
-  const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
+  const bounds=libraryWidthBounds(contentAspect);
+  const minWidth=bounds.minWidth;
+  const maxWidth=bounds.maxWidth;
   const trimSig=viewportTrimSignature(currentViewportTrim);
   const key=[revision,PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
 
@@ -878,37 +891,33 @@ function calibrationIframeSrc(videoId){
   });
   return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(videoId)+"?"+params.toString();
 }
-function renderCalibrationSample(kind,result,library){
-  const isMin=kind==="min";
-  const isMax=kind==="max";
-  const viewport=isMin?calMinViewport:(isMax?calMaxViewport:calCurrentViewport);
-  const scaleBox=isMin?calMinScale:(isMax?calMaxScale:calCurrentScale);
-  const label=isMin?calMinLabel:(isMax?calMaxLabel:calCurrentLabel);
-  if(!viewport||!scaleBox||!label||!result||!library)return;
+function renderLibraryCalibration(width=calibrationWidth){
+  if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
+  const geometry=window.YouTubeChromeGeometry;
+  const minW=currentChromeLibrary.minWidth;
+  const maxW=currentChromeLibrary.maxWidth;
+  const w=Math.max(minW,Math.min(maxW,Math.round(Number(width)||minW)));
+  calibrationWidth=w;
+  calLiveRange.min=String(minW);
+  calLiveRange.max=String(maxW);
+  calLiveRange.value=String(w);
 
-  const w=Math.max(1,Math.round(result.width));
-  const h=Math.max(1,Math.round(result.height));
-  const available=Math.max(1,viewport.clientWidth||viewport.parentElement?.clientWidth||w);
-  const scale=Math.min(1,available/w);
-  const shownH=Math.max(1,Math.round(h*scale));
+  const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,w);
+  if(!result)return null;
 
-  viewport.style.height=shownH+"px";
-  scaleBox.style.width=w+"px";
-  scaleBox.style.height=h+"px";
-  scaleBox.style.transform="scale("+scale+")";
-
-  const frame=document.createElement("div");
-  frame.className="chrome-calibration-frame";
-  frame.style.width=w+"px";
-  frame.style.height=h+"px";
+  const frame=calLiveFrame;
+  frame.replaceChildren();
+  frame.style.width=Math.round(result.width)+"px";
+  frame.style.height=Math.round(result.height)+"px";
   frame.style.setProperty("--guide-top",result.topInset.toFixed(2)+"px");
   frame.style.setProperty("--guide-bottom",result.bottomInset.toFixed(2)+"px");
 
   const iframe=document.createElement("iframe");
-  iframe.src=calibrationIframeSrc(library.videoId);
-  iframe.title=(isMin?"MIN":isMax?"MAX":"CURRENT")+" YouTube PiP calibration";
+  iframe.src=calibrationIframeSrc(currentChromeLibrary.videoId);
+  iframe.title="YouTube PiP library calibration";
   iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
   iframe.referrerPolicy="strict-origin-when-cross-origin";
+
   const vt=result.viewportTrim||{};
   if(result.rawWidth&&result.rawHeight){
     iframe.style.width=(result.rawWidth*(vt.scaleX||1))+"px";
@@ -921,52 +930,45 @@ function renderCalibrationSample(kind,result,library){
   top.className="chrome-calibration-guide top";
   const bottom=document.createElement("div");
   bottom.className="chrome-calibration-guide bottom";
+  const resize=document.createElement("div");
+  resize.className="chrome-calibration-resize";
+  resize.dataset.calibrationResize="1";
+  resize.title="Kéo để thay đổi kích thước Library";
 
-  frame.append(iframe,top,bottom);
-  scaleBox.replaceChildren(frame);
+  frame.append(iframe,top,bottom,resize);
 
-  label.textContent=
-    (isMin?"MIN ":isMax?"MAX ":"CURRENT ")+w+"×"+h+
+  const range=result.sampleRange||[w,w];
+  const isMin=w<=minW+1;
+  const isMax=w>=maxW-1;
+  const marker=isMin?"MIN":isMax?"FULL":"LIVE";
+  calLiveLabel.textContent=
+    marker+" "+Math.round(result.width)+"×"+Math.round(result.height)+
     " · TOP "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
     " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
+    " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
     " · "+(result.viewportTrim?.source||"none")+
-    " · lib "+String(library.version||window.YouTubeChromeGeometry?.VERSION||"?")+
-    " · "+(result.embedMode||library.embedMode||"?");
+    " · lib "+String(currentChromeLibrary.version||geometry?.VERSION||"?")+
+    " · "+(currentChromeLibrary.contentAspect<1?"dọc":"ngang");
+
+  return result;
 }
 function renderChromeCalibration(){
   if(!chromeCalibration)return;
-  calMinScale?.replaceChildren();
-  calMaxScale?.replaceChildren();
-  calCurrentScale?.replaceChildren();
   const mode=modes.find(x=>x.id===active)||modes[0];
   if(!mode.maxClean||!currentChromeLibrary){
     chromeCalibration.classList.remove("show");
-    calMinScale?.replaceChildren();
-    calMaxScale?.replaceChildren();
-    calCurrentScale?.replaceChildren();
+    calLiveFrame?.replaceChildren();
     return;
   }
-
-  const geometry=window.YouTubeChromeGeometry;
-  const min=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.minWidth);
-  const max=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.maxWidth);
-  const defaultPipW=Math.max(170,Math.min(280,window.innerWidth*.46));
-  const currentW=stage.classList.contains("demo-pip")
-    ? stage.getBoundingClientRect().width
-    : defaultPipW;
-  const current=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentW);
-  if(!min||!max||!current){
-    chromeCalibration.classList.remove("show");
-    return;
-  }
-
   chromeCalibration.classList.add("show");
-  requestAnimationFrame(()=>{
-    renderCalibrationSample("min",min,currentChromeLibrary);
-    renderCalibrationSample("max",max,currentChromeLibrary);
-    renderCalibrationSample("current",current,currentChromeLibrary);
-  });
+
+  const minW=currentChromeLibrary.minWidth;
+  const maxW=currentChromeLibrary.maxWidth;
+  if(!Number.isFinite(calibrationWidth)||calibrationWidth<minW||calibrationWidth>maxW){
+    calibrationWidth=Math.max(minW,Math.min(maxW,280));
+  }
+  requestAnimationFrame(()=>renderLibraryCalibration(calibrationWidth));
 }
 function paintGeometryReadout(result){
   if(!geometryReadout)return;
@@ -1042,10 +1044,7 @@ function queueMeasuredSafeWindow(){
   syncMeasuredSafeWindow();
   requestAnimationFrame(syncMeasuredSafeWindow);
   clearTimeout(geometrySettleTimer);
-  geometrySettleTimer=setTimeout(()=>{
-    syncMeasuredSafeWindow();
-    renderChromeCalibration();
-  },120);
+  geometrySettleTimer=setTimeout(syncMeasuredSafeWindow,120);
 }
 function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
@@ -1099,8 +1098,8 @@ function updatePipPointer(e){
   }
 
   const h=s.handle;
-  const minW=140;
-  const maxW=Math.max(minW,Math.min(window.innerWidth-12,760));
+  const minW=currentChromeLibrary?.minWidth||140;
+  const maxW=currentChromeLibrary?.maxWidth||Math.max(minW,window.innerWidth-12);
   let width=s.width;
   if(h.includes("e")) width=s.width+dx;
   else if(h.includes("w")) width=s.width-dx;
@@ -1127,7 +1126,6 @@ function endPipPointer(e){
   pipPointerStart=null;
   stage.classList.remove("pip-dragging","pip-resizing");
   syncMeasuredSafeWindow();
-  renderChromeCalibration();
   return true;
 }
 function currentMediaTime(){
@@ -1329,6 +1327,7 @@ async function render(){
   exitDemoPip();
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
+  calibrationWidth=280;
   currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
@@ -1491,6 +1490,31 @@ stage.addEventListener("click",e=>{
     showCleanControls();
   }
 });
+calLiveRange?.addEventListener("input",()=>{
+  renderLibraryCalibration(Number(calLiveRange.value));
+});
+calLiveFrame?.addEventListener("pointerdown",e=>{
+  const handle=e.target.closest("[data-calibration-resize]");
+  if(!handle||!currentChromeLibrary)return;
+  calibrationPointerId=e.pointerId;
+  calibrationPointerStart={x:e.clientX,width:calibrationWidth};
+  try{handle.setPointerCapture(e.pointerId)}catch{}
+  e.preventDefault();
+});
+calLiveFrame?.addEventListener("pointermove",e=>{
+  if(calibrationPointerId===null||e.pointerId!==calibrationPointerId||!calibrationPointerStart)return;
+  renderLibraryCalibration(calibrationPointerStart.width+(e.clientX-calibrationPointerStart.x));
+  e.preventDefault();
+});
+function finishCalibrationResize(e){
+  if(calibrationPointerId===null||e.pointerId!==calibrationPointerId)return;
+  try{e.target.releasePointerCapture(e.pointerId)}catch{}
+  calibrationPointerId=null;
+  calibrationPointerStart=null;
+}
+calLiveFrame?.addEventListener("pointerup",finishCalibrationResize);
+calLiveFrame?.addEventListener("pointercancel",finishCalibrationResize);
+
 presets.addEventListener("click",e=>{
   const b=e.target.closest("[data-video]");
   if(!b)return;
