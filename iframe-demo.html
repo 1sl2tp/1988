@@ -275,9 +275,9 @@
       overflow:hidden;
       contain:paint;
       clip-path:inset(0);
-      background:rgba(8,8,10,.72);
-      backdrop-filter:blur(12px) saturate(.78) brightness(.56);
-      -webkit-backdrop-filter:blur(12px) saturate(.78) brightness(.56);
+      background:rgba(255,255,255,.035);
+      backdrop-filter:blur(12px) saturate(.82) brightness(.68);
+      -webkit-backdrop-filter:blur(12px) saturate(.82) brightness(.68);
       touch-action:none;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask .pip-mask-shield{display:block}
@@ -593,7 +593,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">PiP max chỉ dùng một state machine: ACTIVE → ARMED → HIDDEN. Mọi show/hide đều đi qua show/touch/arm/hide; không còn timer hay controls cũ tham gia.</span>
+    <span class="hint">Cover chỉ theo activity: rê/chạm/play/pause/seek/drag/resize → ACTIVE; hết idle → ARMED → HIDDEN. Không đọc chrome YouTube, không có điều kiện phát lại khác.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -713,19 +713,10 @@ let apiReady=false;
 let apiPlayer=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
-let optimisticPlaying=false;
 let seekRaf=0;
 let activeSeekPointer=null;
-const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
 const CHROME_LIBRARY_PROFILE_REV="portrait-outer-youtube-edge-v18";
-let chromeReleaseMediaTime=0;
-let chromeReleaseWallTime=0;
-let nativeChromeVisible=null;
-let nativeChromeSignalAt=0;
-let nativeChromeSignalKey="";
-let nativeChromeVisibleCycle=-1;
-let nativeChromeHiddenCycle=-1;
 let pipPointerMode=null;
 let pipPointerId=null;
 let pipPointerStart=null;
@@ -776,89 +767,6 @@ function stopChromeMaskTimer(){
   clearTimeout(chromeMaskTimer);
   chromeMaskTimer=0;
 }
-function playerIsPlaying(){
-  try{return apiPlayer?.getPlayerState?.()===1}catch{return optimisticPlaying}
-}
-function normalizeChromeVisibilityValue(value){
-  if(typeof value==="boolean")return value;
-  if(value===1||value==="1")return true;
-  if(value===0||value==="0")return false;
-  const s=String(value??"").trim().toLowerCase();
-  if(["visible","shown","show","open","on"].includes(s))return true;
-  if(["hidden","hide","closed","off"].includes(s))return false;
-  return null;
-}
-function findChromeVisibilitySignal(value,path=""){
-  if(!value||typeof value!=="object")return null;
-  const keys=Object.keys(value);
-  const wanted=new Set([
-    "controlsvisible","chromevisible","uivisible","overlayvisible",
-    "showcontrols","showchrome","controlsvisibility","chromevisibility",
-    "uivisibility","overlayvisibility"
-  ]);
-  for(const key of keys){
-    const lower=key.toLowerCase();
-    if(wanted.has(lower)){
-      const visible=normalizeChromeVisibilityValue(value[key]);
-      if(visible!==null)return {visible,key:path?path+"."+key:key};
-    }
-  }
-  for(const key of keys){
-    const child=value[key];
-    if(child&&typeof child==="object"){
-      const found=findChromeVisibilitySignal(child,path?path+"."+key:key);
-      if(found)return found;
-    }
-  }
-  return null;
-}
-function resetNativeChromeSignal(){
-  nativeChromeVisible=null;
-  nativeChromeSignalAt=0;
-  nativeChromeSignalKey="";
-  nativeChromeVisibleCycle=-1;
-  nativeChromeHiddenCycle=-1;
-}
-function setNativeChromeSignal(visible,key=""){
-  const isVisible=!!visible;
-  const now=performance.now();
-
-  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
-  if(!pipCoverVisible||pipCoverArmed)return;
-
-  nativeChromeVisible=isVisible;
-  nativeChromeSignalAt=now;
-  nativeChromeSignalKey=String(key||"");
-
-  if(isVisible){
-    nativeChromeVisibleCycle=pipCoverCycle;
-    nativeChromeHiddenCycle=-1;
-    pipUiActivityAt=now;
-    if(playerIsPlaying())scheduleChromeRelease();
-    return;
-  }
-
-  if(nativeChromeVisibleCycle===pipCoverCycle){
-    nativeChromeHiddenCycle=pipCoverCycle;
-    if(playerIsPlaying())scheduleChromeRelease();
-  }
-}
-window.addEventListener("message",event=>{
-  let iframeWindow=null;
-  try{iframeWindow=apiPlayer?.getIframe?.()?.contentWindow||null}catch{}
-  if(!iframeWindow||event.source!==iframeWindow)return;
-
-  const origin=String(event.origin||"");
-  if(origin&&!/youtube(?:-nocookie)?\.com$/i.test(origin.replace(/^https?:\/\//,"")))return;
-
-  let data=event.data;
-  if(typeof data==="string"){
-    try{data=JSON.parse(data)}catch{return}
-  }
-  const signal=findChromeVisibilitySignal(data);
-  if(signal)setNativeChromeSignal(signal.visible,signal.key);
-});
-
 function escText(value=""){
   return String(value??"");
 }
@@ -1919,18 +1827,6 @@ function paintGeometryReadout(result){
     " · GAP "+Math.round(result.signedGap??result.safeWindow.height)+
     (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"")+
     " · LINK "+(stage.classList.contains("demo-pip")?"PIP=LIB":"LIB")+
-    " · UI-SIGNAL "+(
-      nativeChromeVisible===true
-        ? "VISIBLE✓"
-        : nativeChromeVisible===false
-          ? (
-              nativeChromeVisibleCycle===pipCoverCycle &&
-              nativeChromeHiddenCycle===pipCoverCycle
-                ? "HIDDEN✓"
-                : "HIDDEN?"
-            )
-          : "NONE"
-    )+
     " · CYCLE "+pipCoverCycle+
     " · META "+String(currentChromeLibrary?.mediaMetaState||"none").toUpperCase()+
     "["+
@@ -1953,14 +1849,7 @@ function paintGeometryReadout(result){
         ? "LOCK"
         : "OPEN"
     )+
-    " · RELEASE "+(
-      nativeChromeVisible===false &&
-      nativeChromeVisibleCycle===pipCoverCycle &&
-      nativeChromeHiddenCycle===pipCoverCycle
-        ? "SIGNAL"
-        : "LIB "+Math.round(pipChromeTiming().idleHideMs)+"ms"
-    )+
-    (nativeChromeSignalKey?" ["+nativeChromeSignalKey+"]":"");
+    " · IDLE "+Math.round(pipChromeTiming().idleHideMs)+"ms";
 }
 function syncMeasuredSafeWindow(){
   if(!stage.classList.contains("max-clean-mode")){
@@ -2138,7 +2027,6 @@ function hideChromeCover(reason=""){
   pipCoverArmed=false;
   setWakeLayer(true);
   setChromeMask(false);
-  resetNativeChromeSignal();
   stage.dataset.pipCoverState="hidden";
   stage.dataset.pipCoverReason=String(reason||"");
 }
@@ -2172,36 +2060,26 @@ function armChromeCoverHide(reason="idle"){
 
 function scheduleChromeRelease(){
   stopChromeMaskTimer();
-  if(!pipCoverVisible||pipCoverArmed||!playerIsPlaying())return;
+  if(!pipCoverVisible||pipCoverArmed)return;
 
   const timing=pipChromeTiming();
   const cycle=pipCoverCycle;
-  const verifiedHidden=
-    nativeChromeVisible===false &&
-    nativeChromeVisibleCycle===cycle &&
-    nativeChromeHiddenCycle===cycle &&
-    nativeChromeSignalAt>0 &&
-    nativeChromeSignalAt>=pipUiActivityAt;
-
-  if(verifiedHidden){
-    armChromeCoverHide("signal");
-    return;
-  }
-
   const wait=Math.max(0,pipUiActivityAt+timing.idleHideMs-performance.now());
+
   chromeMaskTimer=setTimeout(()=>{
     chromeMaskTimer=0;
     if(!pipCoverVisible||pipCoverArmed)return;
     if(pipCoverCycle!==cycle)return;
-    if(!playerIsPlaying())return;
+
+    // Drag/resize/seek is itself ongoing activity; do not hide mid-action.
     if(mediaGeometryBusy()){
       touchChromeCover("geometry-busy");
       return;
     }
-    armChromeCoverHide("library-idle");
+
+    armChromeCoverHide("idle");
   },wait);
 }
-
 function showChromeCover(reason="activity"){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
@@ -2215,15 +2093,13 @@ function showChromeCover(reason="activity"){
 
   // Wake stays ON during handoff so YouTube cannot receive hover first.
   setWakeLayer(true);
-  resetNativeChromeSignal();
   stage.dataset.pipCoverState="active";
   stage.dataset.pipCoverReason=String(reason||"");
 
   // Turn the visual shield on first, then release wake after a committed frame.
   setChromeMask(true);
   releaseWakeAfterCoverPaint(cycle);
-
-  if(playerIsPlaying())scheduleChromeRelease();
+  scheduleChromeRelease();
 }
 
 function touchChromeCover(reason="activity"){
@@ -2237,12 +2113,8 @@ function touchChromeCover(reason="activity"){
   // Activity inside ACTIVE does not create another SHOW cycle.
   stopChromeMaskTimer();
   pipUiActivityAt=performance.now();
-  nativeChromeVisible=null;
-  nativeChromeSignalAt=0;
-  nativeChromeSignalKey="";
-  nativeChromeHiddenCycle=-1;
   stage.dataset.pipCoverReason=String(reason||"");
-  if(playerIsPlaying())scheduleChromeRelease();
+  scheduleChromeRelease();
 }
 
 function hideCleanControls(){
@@ -2309,7 +2181,6 @@ function exitDemoPip(){
   pipCoverVisible=false;
   pipCoverArmed=false;
   setWakeLayer(false);
-  resetNativeChromeSignal();
   stage.classList.remove("demo-pip","controls-visible","chrome-mask","pip-dragging","pip-resizing");
   clearPipViewportCrop();
   stage.style.left="";
@@ -2494,7 +2365,6 @@ async function render(){
       playerVars:{...mode.params,origin:location.origin},
       events:mode.cleanDemo?{
         onReady(){
-          optimisticPlaying=false;
           if(currentPipMeta?.id===id&&currentPipMeta.verified!==true){
             currentPipMeta={
               ...currentPipMeta,
@@ -2516,27 +2386,18 @@ async function render(){
           }
         },
         onStateChange(event){
-          optimisticPlaying=event?.data===1;
           if(mode.maxClean){
             formatSeekProgress();
             if(!stage.classList.contains("demo-pip"))refreshMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+
           const state=Number(event?.data);
-          if(state===1){
-            if(!pipCoverVisible||pipCoverArmed)showChromeCover("play");
-            else touchChromeCover("play");
-          }else{
-            stopChromeMaskTimer();
-            if(!pipCoverVisible||pipCoverArmed){
-              showChromeCover("pause");
-            }else{
-              pipCoverArmed=false;
-              setWakeLayer(false);
-              stage.dataset.pipCoverState="active";
-              stage.dataset.pipCoverReason="pause";
-            }
+          if(state===1||state===2){
+            const reason=state===1?"play":"pause";
+            if(!pipCoverVisible||pipCoverArmed)showChromeCover(reason);
+            else touchChromeCover(reason);
           }
         }
       }:undefined
