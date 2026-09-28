@@ -949,10 +949,10 @@ function renderPipTopInfo(){
   const root=stage.querySelector("[data-pip-top-info]");
   if(!root)return;
 
-  const meta=currentChromeLibrary?.mediaMeta?.id===requestedVideoId
-    ? currentChromeLibrary.mediaMeta
-    : currentPipMeta?.id===requestedVideoId
-      ? currentPipMeta
+  const meta=
+    currentChromeLibrary?.videoId===requestedVideoId &&
+    currentChromeLibrary?.mediaMeta?.id===requestedVideoId
+      ? currentChromeLibrary.mediaMeta
       : pipMetaFallback(requestedVideoId);
 
   const avatar=root.querySelector("[data-pip-top-avatar]");
@@ -1004,8 +1004,12 @@ function attachPipMetaToLibrary(id,meta,{cache=true}={}){
     pipMetaCache.set(id,meta);
   }
 
-  if(currentChromeLibrary?.videoId===id&&meta.verified===true){
-    currentChromeLibrary={...currentChromeLibrary,mediaMeta:meta,mediaMetaState:"ready"};
+  if(currentChromeLibrary?.videoId===id){
+    currentChromeLibrary={
+      ...currentChromeLibrary,
+      mediaMeta:meta,
+      mediaMetaState:meta.verified===true?"ready":"fallback"
+    };
   }
   renderPipTopInfo();
 }
@@ -1048,7 +1052,7 @@ async function preloadPipLibraryMeta(id){
         meta={
           ...meta,
           channelId:channelRef,
-          channel:meta.channel||channelName,
+          channel:channelName||meta.channel,
           avatar:avatar||meta.avatar
         };
       }catch{}
@@ -1361,10 +1365,16 @@ function prepareCurrentChromeLibrary(force=false){
       ? geometry.applyManualCalibration(cached,manualPoints)
       : cached;
     const prefetchedMeta=pipMetaCache.get(videoId);
+    const seedMeta=
+      prefetchedMeta?.verified===true
+        ? prefetchedMeta
+        : currentPipMeta?.id===videoId
+          ? currentPipMeta
+          : pipMetaFallback(videoId);
     currentChromeLibrary={
       ...currentChromeLibrary,
-      mediaMeta:prefetchedMeta?.verified===true?prefetchedMeta:null,
-      mediaMetaState:prefetchedMeta?.verified===true?"ready":"pending"
+      mediaMeta:seedMeta,
+      mediaMetaState:seedMeta.verified===true?"ready":"fallback"
     };
     requestAnimationFrame(renderChromeCalibration);
     renderPipTopInfo();
@@ -1392,10 +1402,16 @@ function prepareCurrentChromeLibrary(force=false){
     ? geometry.applyManualCalibration(library,manualPoints)
     : library;
   const prefetchedMeta=pipMetaCache.get(videoId);
+  const seedMeta=
+    prefetchedMeta?.verified===true
+      ? prefetchedMeta
+      : currentPipMeta?.id===videoId
+        ? currentPipMeta
+        : pipMetaFallback(videoId);
   currentChromeLibrary={
     ...currentChromeLibrary,
-    mediaMeta:prefetchedMeta?.verified===true?prefetchedMeta:null,
-    mediaMetaState:prefetchedMeta?.verified===true?"ready":"pending"
+    mediaMeta:seedMeta,
+    mediaMetaState:seedMeta.verified===true?"ready":"fallback"
   };
   requestAnimationFrame(renderChromeCalibration);
   renderPipTopInfo();
@@ -1792,8 +1808,15 @@ function paintGeometryReadout(result){
     " · META "+(
       currentChromeLibrary?.mediaMetaState==="ready"
         ? "READY"
-        : "PENDING"
+        : "FALLBACK"
     )+
+    "["+
+      (currentChromeLibrary?.mediaMeta?.avatar?"A":"-")+
+      (currentChromeLibrary?.mediaMeta?.title?"T":"-")+
+      (currentChromeLibrary?.mediaMeta?.channel?"C":"-")+
+      (currentChromeLibrary?.mediaMeta?.views?"V":"-")+
+      (currentChromeLibrary?.mediaMeta?.published?"P":"-")+
+    "]"+
     " · COVER "+(
       !pipCoverVisible?"HIDDEN":
       pipCoverArmed?"ARMED":"ACTIVE"
