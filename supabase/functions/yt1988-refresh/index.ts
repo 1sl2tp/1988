@@ -1433,6 +1433,11 @@ async function verifyCurrentLiveRows(rows:any[],limit=36){
     const currentId=await youtubeChannelLiveVideoId(sid,3200);
     if(currentId!==id)return null;
 
+    // LIVE uses the same single YouTube embed engine as every other feed.
+    // If YouTube does not confirm embedded playback, do not publish it.
+    const embed=await youtubeEmbedPlayback(id);
+    if(embed?.playable!==true)return null;
+
     return normalizeRow({
       ...row,
       id,
