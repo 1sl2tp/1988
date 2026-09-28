@@ -250,17 +250,6 @@
       transform:none!important;
       clip-path:none!important;
     }
-    .stage.demo-pip.max-clean-mode.viewport-cropped iframe{
-      inset:auto!important;
-      left:var(--pip-iframe-left,0px)!important;
-      top:var(--pip-iframe-top,0px)!important;
-      right:auto!important;
-      bottom:auto!important;
-      width:var(--pip-iframe-width,100%)!important;
-      height:var(--pip-iframe-height,100%)!important;
-      max-width:none!important;
-      max-height:none!important;
-    }
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
     .stage.demo-pip.max-clean-mode.chrome-mask .clean-controls{
       opacity:1;
@@ -594,7 +583,7 @@ let activeSeekPointer=null;
 const YT_CHROME_FALLBACK_MS=3800;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v10";
+const CHROME_LIBRARY_PROFILE_REV="content-viewport-calibration-v11";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -915,7 +904,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v6-unified-flow",
+    "pip-chrome-calibration-v7-content-viewport",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -976,13 +965,26 @@ function prepareCurrentChromeLibrary(force=false){
   const videoId=expectedId;
   const title=currentVideoTitle();
   const author=currentVideoAuthor();
-  const rawAspect=Number(currentViewportTrim.rawAspect)||currentMainAspect();
-  const contentAspect=Number(currentViewportTrim.contentAspect)||rawAspect;
+  const contentAspect=Number(currentViewportTrim.contentAspect)||verifiedMediaAspect;
+  const rawAspect=contentAspect;
   const bounds=libraryWidthBounds(contentAspect);
   const minWidth=bounds.minWidth;
   const maxWidth=bounds.maxWidth;
-  const trimSig=viewportTrimSignature(currentViewportTrim);
-  const key=[revision,PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
+
+  // MAIN videoContentRect is detection-only. Once aspect is known, Library
+  // models the actual PiP/content viewport where the iframe itself has the
+  // content aspect, so there are no inherited MAIN letterbox/pillarbox trims.
+  const pipViewportTrim={
+    top:0,right:0,bottom:0,left:0,
+    source:"pip-content-viewport",
+    videoId,
+    rawAspect:contentAspect,
+    contentAspect
+  };
+  const key=[
+    revision,PIP_EMBED_MODE,videoId,title,author,
+    contentAspect.toFixed(5),minWidth,maxWidth,"pip-content-viewport"
+  ].join("|");
 
   const manualPoints=loadManualCalibrationPoints(videoId,contentAspect);
   const cached=mediaChromeLibraries.get(key);
@@ -1005,7 +1007,10 @@ function prepareCurrentChromeLibrary(force=false){
     step:2,
     embedMode:PIP_EMBED_MODE,
     controls:false,
-    viewportTrim:currentViewportTrim
+    orientation:
+      contentAspect<.98?"portrait":
+      contentAspect>1.02?"landscape":"square",
+    viewportTrim:pipViewportTrim
   });
   mediaChromeLibraries.set(key,library);
   currentChromeLibrary=geometry.applyManualCalibration
@@ -1016,32 +1021,16 @@ function prepareCurrentChromeLibrary(force=false){
 }
 function applyPipViewportCrop(){
   if(!currentChromeLibrary)return;
-  const trim=currentChromeLibrary.viewportTrim||currentViewportTrim||{};
-  const visibleX=Math.max(.1,1-(Number(trim.left)||0)-(Number(trim.right)||0));
-  const visibleY=Math.max(.1,1-(Number(trim.top)||0)-(Number(trim.bottom)||0));
-  const contentAspect=Number(currentChromeLibrary.contentAspect)||Number(trim.contentAspect)||0;
-
+  const contentAspect=Number(currentChromeLibrary.contentAspect)||verifiedMediaAspect||0;
   if(contentAspect>0)stage.style.aspectRatio=String(contentAspect);
 
-  const hasCrop=
-    (Number(trim.top)||0)>.0005 ||
-    (Number(trim.right)||0)>.0005 ||
-    (Number(trim.bottom)||0)>.0005 ||
-    (Number(trim.left)||0)>.0005;
-
-  stage.classList.toggle("viewport-cropped",hasCrop);
-  if(!hasCrop){
-    stage.style.removeProperty("--pip-iframe-width");
-    stage.style.removeProperty("--pip-iframe-height");
-    stage.style.removeProperty("--pip-iframe-left");
-    stage.style.removeProperty("--pip-iframe-top");
-    return;
-  }
-
-  stage.style.setProperty("--pip-iframe-width",(100/visibleX).toFixed(5)+"%");
-  stage.style.setProperty("--pip-iframe-height",(100/visibleY).toFixed(5)+"%");
-  stage.style.setProperty("--pip-iframe-left",(-100*(Number(trim.left)||0)/visibleX).toFixed(5)+"%");
-  stage.style.setProperty("--pip-iframe-top",(-100*(Number(trim.top)||0)/visibleY).toFixed(5)+"%");
+  // Never carry MAIN's letterbox/pillarbox transform into PiP. The PiP iframe
+  // is resized to the real media aspect and YouTube performs its own reflow.
+  stage.classList.remove("viewport-cropped");
+  stage.style.removeProperty("--pip-iframe-width");
+  stage.style.removeProperty("--pip-iframe-height");
+  stage.style.removeProperty("--pip-iframe-left");
+  stage.style.removeProperty("--pip-iframe-top");
 }
 function clearPipViewportCrop(){
   stage.classList.remove("viewport-cropped");
@@ -1290,20 +1279,12 @@ function renderLibraryCalibration(width=calibrationWidth,force=false,resolvedRes
   if(!frameParts)return null;
   const {iframe}=frameParts;
 
-  const vt=result.viewportTrim||{};
   if(iframe){
     iframe.style.position="absolute";
-    if(result.rawWidth&&result.rawHeight){
-      iframe.style.width=(result.rawWidth*(vt.scaleX||1))+"px";
-      iframe.style.height=(result.rawHeight*(vt.scaleY||1))+"px";
-      iframe.style.left=(vt.renderedLeft||0)+"px";
-      iframe.style.top=(vt.renderedTop||0)+"px";
-    }else{
-      iframe.style.width="100%";
-      iframe.style.height="100%";
-      iframe.style.left="0";
-      iframe.style.top="0";
-    }
+    iframe.style.width="100%";
+    iframe.style.height="100%";
+    iframe.style.left="0";
+    iframe.style.top="0";
   }
 
   const range=result.sampleRange||[w,w];
@@ -1319,6 +1300,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false,resolvedRes
     " · GAP "+Math.round(result.signedGap??(result.height-result.topInset-result.bottomInset))+
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
     " · "+(result.viewportTrim?.source||"none")+
+    " · detect "+(currentViewportTrim.source||"none")+
     " · lib "+String(currentChromeLibrary.version||geometry?.VERSION||"?")+
     (result.manualCalibration?" · MANUAL":"")+
     " · "+(currentChromeLibrary.contentAspect<1?"dọc":"ngang");
