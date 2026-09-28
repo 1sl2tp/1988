@@ -818,6 +818,16 @@ main{
   border:0;
   background:#000;
 }
+.native-video-fallback{
+  position:absolute!important;
+  inset:0!important;
+  z-index:2!important;
+  display:block!important;
+  width:100%!important;
+  height:100%!important;
+  object-fit:contain!important;
+  background:#000!important;
+}
 
 
 /* VISUAL RULES BY MODE
@@ -1806,6 +1816,7 @@ html.one-col.portrait .player.pip{
   let ytPlayerReady=false;
   let pendingVideoId="";
   let youtubeApiPromise=null;
+  let nativeFallbackVideo=null;
 
   // Server owns media aspect by video id; YouTube videoContentRect only
   // confirms/corrects the server cache after playback.
@@ -2330,6 +2341,72 @@ html.one-col.portrait .player.pip{
     return youtubeApiPromise;
   }
 
+  function clearNativeVideoFallback(){
+    const old=nativeFallbackVideo;
+    nativeFallbackVideo=null;
+    if(old){
+      try{old.pause()}catch{}
+      try{old.removeAttribute("src");old.load()}catch{}
+      try{old.remove()}catch{}
+    }
+    try{
+      const iframe=ytPlayer?.getIframe?.();
+      if(iframe)iframe.style.visibility="";
+    }catch{}
+  }
+
+  function startNativeVideoFallback(id,errorCode=0){
+    id=String(id||"").trim();
+    if(!id||String(current?.id||"").trim()!==id)return false;
+
+    const src=window.YT1988_API?.mediaUrl?.(id,"video");
+    if(!src)return false;
+
+    clearNativeVideoFallback();
+
+    const video=document.createElement("video");
+    video.className="native-video-fallback";
+    video.controls=true;
+    video.autoplay=true;
+    video.playsInline=true;
+    video.preload="metadata";
+    video.setAttribute("playsinline","");
+    video.setAttribute("webkit-playsinline","");
+    video.dataset.youtubeError=String(errorCode||0);
+
+    try{
+      const iframe=ytPlayer?.getIframe?.();
+      if(iframe)iframe.style.visibility="hidden";
+    }catch{}
+
+    nativeFallbackVideo=video;
+    player.appendChild(video);
+
+    video.addEventListener("loadedmetadata",()=>{
+      if(nativeFallbackVideo!==video||String(current?.id||"").trim()!==id)return;
+      const w=Number(video.videoWidth)||0;
+      const h=Number(video.videoHeight)||0;
+      if(w>0&&h>0){
+        const ratio=validMediaAspect(w/h);
+        if(ratio)commitCurrentAspect(id,ratio,{relayout:true});
+      }
+    },{once:true});
+
+    video.addEventListener("error",()=>{
+      if(nativeFallbackVideo!==video)return;
+      nativeFallbackVideo=null;
+      try{video.remove()}catch{}
+      try{
+        const iframe=ytPlayer?.getIframe?.();
+        if(iframe)iframe.style.visibility="";
+      }catch{}
+    },{once:true});
+
+    video.src=src;
+    try{video.play()?.catch?.(()=>{})}catch{}
+    return true;
+  }
+
   async function ensureYoutubePlayer(){
     if(ytPlayer)return ytPlayer;
 
@@ -2372,6 +2449,16 @@ html.one-col.portrait .player.pip{
           if(event.data===YTApi.PlayerState.PLAYING){
             scheduleCurrentPlayerKind(event.target);
           }
+        },
+        onError(event){
+          const code=Number(event?.data)||0;
+          const id=String(current?.id||"").trim();
+          // 5 = HTML5 playback error; 101/150 = owner blocks embedding;
+          // 153 = embed identity/referrer rejection. These can still have a
+          // valid media stream, so use our existing yt1988 media proxy.
+          if([5,101,150,153].includes(code)){
+            startNativeVideoFallback(id,code);
+          }
         }
       }
     });
@@ -2382,6 +2469,8 @@ html.one-col.portrait .player.pip{
   function playVideoId(id,meta=null,{history="none"}={}){
     id=String(id||"").trim();
     if(!id)return false;
+
+    clearNativeVideoFallback();
 
     const confirmedRatio=
       mediaAspectCache.get(id)?.source==="iframe-content-rect"
