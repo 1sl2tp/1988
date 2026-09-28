@@ -1192,6 +1192,15 @@ function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
   const rect=stage.getBoundingClientRect();
   mainAspectBeforePip=stage.style.aspectRatio||"";
+
+  // Freeze geometry while this is still MAIN. Once demo-pip is added we no
+  // longer inspect YouTube's player rect; PiP only consumes the frozen library.
+  if(stage.classList.contains("max-clean-mode")){
+    refreshMainViewportTrimLibrary();
+    clearViewportPrimeTimers();
+    if(!currentChromeLibrary)prepareCurrentChromeLibrary();
+  }
+
   stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
   stageSpacer.style.display="block";
   stage.classList.add("demo-pip");
@@ -1199,11 +1208,8 @@ function enterDemoPip(){
   demoPipToggle.textContent="Trả về MAIN";
   stopCleanHideTimer();
   stopChromeMaskTimer();
+
   if(stage.classList.contains("max-clean-mode")){
-    // Freeze the latest MAIN trim/library before PiP consumes it.
-    refreshMainViewportTrimLibrary();
-    clearViewportPrimeTimers();
-    if(!currentChromeLibrary)prepareCurrentChromeLibrary();
     applyPipViewportCrop();
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
