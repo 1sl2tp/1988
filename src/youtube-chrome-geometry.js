@@ -1,40 +1,42 @@
 (() => {
   "use strict";
 
-  // Geometry-only helper for YouTube iframe chrome.
-  // It never reads the cross-origin iframe DOM. Instead it uses the player box,
-  // the native play-control invariant (center of player), orientation, and
-  // calibrated responsive samples. Title length is used only to estimate
-  // whether YouTube's top title area grows to two lines.
-  const VERSION = "2026-09-28.2";
-
-  const PROFILES = {
-    // Calibrated from real YouTube embed chrome at several PiP widths.
-    // Top chrome is deeper because it carries avatar + title + channel.
-    // Bottom chrome is intentionally much shallower so we keep more picture.
-    landscape: [
-      { w: 160, top: 42, bottom: 22 },
-      { w: 190, top: 44, bottom: 23 },
-      { w: 220, top: 46, bottom: 24 },
-      { w: 280, top: 50, bottom: 26 },
-      { w: 360, top: 54, bottom: 28 },
-      { w: 520, top: 58, bottom: 30 },
-      { w: 720, top: 62, bottom: 32 },
-      { w: 960, top: 66, bottom: 34 }
-    ],
-    portrait: [
-      { w: 120, top: 44, bottom: 22 },
-      { w: 150, top: 47, bottom: 23 },
-      { w: 180, top: 50, bottom: 24 },
-      { w: 220, top: 53, bottom: 26 },
-      { w: 280, top: 57, bottom: 28 },
-      { w: 360, top: 61, bottom: 30 },
-      { w: 460, top: 65, bottom: 32 }
-    ]
-  };
+  // Responsive geometry model for YouTube iframe chrome.
+  // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
+  // this library models YouTube's UI clusters from calibrated player sizes.
+  // The native Play/Pause anchor is always the geometric player center.
+  const VERSION = "2026-09-28.3";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
+
+  // Each sample describes the OUTER BOUNDS of YouTube's visible UI clusters.
+  // top: avatar/logo + title block + channel line + top padding.
+  // bottom: left action/share + "Video khác" + YouTube branding + seek/lower padding.
+  //
+  // Values are calibrated as cluster depths from the player's corresponding
+  // edge, not as symmetric crops.
+  const UI_PROFILES = {
+    landscape: [
+      { w:160, h:90,  avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, bottomActions:25, bottomBrand:22, seek:4, bottomPad:6 },
+      { w:190, h:107, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, bottomActions:27, bottomBrand:23, seek:4, bottomPad:6 },
+      { w:220, h:124, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, bottomActions:28, bottomBrand:24, seek:4, bottomPad:7 },
+      { w:280, h:158, avatar:36, title1:20, title2:37, channel:13, topPad:9,  topGap:4, bottomActions:30, bottomBrand:26, seek:4, bottomPad:8 },
+      { w:360, h:203, avatar:40, title1:21, title2:39, channel:14, topPad:10, topGap:5, bottomActions:32, bottomBrand:28, seek:5, bottomPad:9 },
+      { w:520, h:293, avatar:44, title1:23, title2:42, channel:15, topPad:11, topGap:5, bottomActions:35, bottomBrand:30, seek:5, bottomPad:10 },
+      { w:720, h:405, avatar:48, title1:25, title2:45, channel:16, topPad:12, topGap:6, bottomActions:38, bottomBrand:33, seek:5, bottomPad:11 },
+      { w:960, h:540, avatar:52, title1:27, title2:48, channel:17, topPad:13, topGap:6, bottomActions:41, bottomBrand:36, seek:6, bottomPad:12 }
+    ],
+    portrait: [
+      { w:120, h:213, avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, bottomActions:25, bottomBrand:22, seek:4, bottomPad:6 },
+      { w:150, h:267, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, bottomActions:27, bottomBrand:23, seek:4, bottomPad:6 },
+      { w:180, h:320, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, bottomActions:28, bottomBrand:24, seek:4, bottomPad:7 },
+      { w:220, h:391, avatar:34, title1:19, title2:36, channel:13, topPad:8,  topGap:4, bottomActions:29, bottomBrand:25, seek:4, bottomPad:7 },
+      { w:280, h:498, avatar:38, title1:20, title2:38, channel:14, topPad:9,  topGap:5, bottomActions:31, bottomBrand:27, seek:5, bottomPad:8 },
+      { w:360, h:640, avatar:42, title1:22, title2:40, channel:15, topPad:10, topGap:5, bottomActions:34, bottomBrand:29, seek:5, bottomPad:9 },
+      { w:460, h:818, avatar:46, title1:24, title2:43, channel:16, topPad:11, topGap:6, bottomActions:37, bottomBrand:32, seek:5, bottomPad:10 }
+    ]
+  };
 
   function orientationOf(width, height) {
     if (height > width * 1.12) return "portrait";
@@ -42,9 +44,9 @@
     return "square";
   }
 
-  function interpolateProfile(kind, width) {
+  function interpolateSample(kind, width) {
     const key = kind === "portrait" ? "portrait" : "landscape";
-    const list = PROFILES[key];
+    const list = UI_PROFILES[key];
     if (width <= list[0].w) return { ...list[0] };
     if (width >= list[list.length - 1].w) return { ...list[list.length - 1] };
 
@@ -53,11 +55,12 @@
       const b = list[i + 1];
       if (width >= a.w && width <= b.w) {
         const t = (width - a.w) / Math.max(1, b.w - a.w);
-        return {
-          w: width,
-          top: lerp(a.top, b.top, t),
-          bottom: lerp(a.bottom, b.bottom, t)
-        };
+        const out = { w: width };
+        for (const k of Object.keys(a)) {
+          if (k === "w") continue;
+          out[k] = lerp(a[k], b[k], t);
+        }
+        return out;
       }
     }
     return { ...list[list.length - 1] };
@@ -67,13 +70,27 @@
     const text = String(title || "").trim();
     if (!text) return 1;
 
-    // At small widths YouTube reserves avatar + right-side actions, so title has
-    // much less usable width than the player itself.
-    const reserved = width < 240 ? 86 : width < 360 ? 104 : 126;
-    const usable = Math.max(72, width - reserved);
-    const avgGlyph = clamp(width * 0.032, 6.2, 8.2);
-    const estimatedPixels = text.length * avgGlyph;
-    return clamp(Math.ceil(estimatedPixels / usable), 1, 2);
+    // YouTube's title column loses room to avatar + right-side controls.
+    const reserved = width < 200 ? 76 : width < 280 ? 92 : width < 420 ? 112 : 136;
+    const usable = Math.max(64, width - reserved);
+    const avgGlyph = clamp(width * 0.030, 5.9, 8.0);
+    return clamp(Math.ceil((text.length * avgGlyph) / usable), 1, 2);
+  }
+
+  function topCluster(sample, titleLines) {
+    const titleH = titleLines > 1 ? sample.title2 : sample.title1;
+    // Avatar and text sit in the same row/block. The cluster bottom is the max
+    // of avatar extent vs title + channel stack, plus outer padding/gap.
+    const textStack = titleH + sample.channel + sample.topGap;
+    const contentH = Math.max(sample.avatar, textStack);
+    return sample.topPad + contentH;
+  }
+
+  function bottomCluster(sample) {
+    // Bottom items share a horizontal band. The cluster depth is the largest
+    // action/branding block plus seek/padding below it.
+    const contentH = Math.max(sample.bottomActions, sample.bottomBrand);
+    return sample.bottomPad + contentH + sample.seek;
   }
 
   function measure(input = {}, options = {}) {
@@ -81,28 +98,20 @@
     const height = Math.max(1, Number(input.height) || 1);
     const orientation = options.orientation || orientationOf(width, height);
     const profileKind = orientation === "portrait" ? "portrait" : "landscape";
-    const base = interpolateProfile(profileKind, width);
-
+    const sample = interpolateSample(profileKind, width);
     const titleLines = estimateTitleLines(width, options.title || "");
-    const secondLineExtra = titleLines > 1
-      ? clamp(width * 0.038, 9, 14)
-      : 0;
 
-    const topChrome = base.top + secondLineExtra;
-    const bottomChrome = base.bottom;
+    const playCenter = { x: width / 2, y: height / 2 };
+    const topChrome = topCluster(sample, titleLines);
+    const bottomChrome = bottomCluster(sample);
 
-    const playCenter = {
-      x: width / 2,
-      y: height / 2
-    };
+    // Keep the native center Play/Pause completely untouched. Insets are capped
+    // independently so the top cluster never forces unnecessary bottom crop.
+    const playRadius = clamp(Math.min(width, height) * 0.105, 18, 34);
+    const playSafety = playRadius + clamp(Math.min(width, height) * 0.055, 8, 16);
+    const maxTopInset = Math.max(0, playCenter.y - playSafety);
+    const maxBottomInset = Math.max(0, (height - playCenter.y) - playSafety);
 
-    // Crop top and bottom independently. The native Play/Pause remains at the
-    // real player center; we only guarantee a clear area around that center so
-    // the control is never clipped. This keeps substantially more picture than
-    // the old symmetric max(top,bottom) crop.
-    const playClearance = clamp(Math.min(width, height) * 0.16, 26, 42);
-    const maxTopInset = Math.max(0, playCenter.y - playClearance);
-    const maxBottomInset = Math.max(0, (height - playCenter.y) - playClearance);
     const topInset = clamp(topChrome, 0, maxTopInset);
     const bottomInset = clamp(bottomChrome, 0, maxBottomInset);
 
@@ -111,14 +120,31 @@
       orientation,
       width,
       height,
-      playCenter,
-      playClearance,
       titleLines,
+      playCenter,
+      playRadius,
+      playSafety,
+      clusters: {
+        top: {
+          avatar: sample.avatar,
+          title: titleLines > 1 ? sample.title2 : sample.title1,
+          channel: sample.channel,
+          padding: sample.topPad,
+          gap: sample.topGap,
+          height: topChrome
+        },
+        bottom: {
+          actions: sample.bottomActions,
+          branding: sample.bottomBrand,
+          seek: sample.seek,
+          padding: sample.bottomPad,
+          height: bottomChrome
+        }
+      },
       topChrome,
       bottomChrome,
       topInset,
       bottomInset,
-      // Legacy compatibility for callers that still expect a single value.
       safeEdge: Math.max(topInset, bottomInset),
       safeWindow: {
         x: 0,
@@ -133,11 +159,12 @@
     if (!element) return null;
     const rect = element.getBoundingClientRect();
     const result = measure(rect, options);
+
     element.style.setProperty("--yt-top-inset", result.topInset.toFixed(2) + "px");
     element.style.setProperty("--yt-bottom-inset", result.bottomInset.toFixed(2) + "px");
-    element.style.setProperty("--safe-edge", result.safeEdge.toFixed(2) + "px");
     element.style.setProperty("--yt-play-x", result.playCenter.x.toFixed(2) + "px");
     element.style.setProperty("--yt-play-y", result.playCenter.y.toFixed(2) + "px");
+    element.style.setProperty("--yt-play-safe", result.playSafety.toFixed(2) + "px");
     element.dataset.ytChromeOrientation = result.orientation;
     element.dataset.ytTitleLines = String(result.titleLines);
     return result;
@@ -158,7 +185,7 @@
 
   window.YouTubeChromeGeometry = Object.freeze({
     VERSION,
-    PROFILES,
+    UI_PROFILES,
     orientationOf,
     estimateTitleLines,
     measure,
