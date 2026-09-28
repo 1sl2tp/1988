@@ -63,8 +63,12 @@
        This is intentionally demo-only because it trims a small amount of picture. */
     .stage.demo-pip.max-clean-mode iframe{
       pointer-events:none!important;
-      transform:scale(1.22);
+      transform:scale(1);
       transform-origin:50% 50%;
+      transition:transform .16s cubic-bezier(.2,0,0,1);
+    }
+    .stage.demo-pip.max-clean-mode.controls-visible iframe{
+      transform:scale(1.22);
     }
     .clean-overlay{
       position:absolute;
@@ -237,7 +241,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Giống PiP sạch nhưng center-crop iframe 22% khi nổi để đẩy title/kênh/logo ở các mép ra ngoài khung. Sạch hơn nhưng mất một ít mép hình.",
+    desc:"Giống PiP sạch nhưng chỉ center-crop iframe 22% trong lúc lớp thông tin/controls đang hiện. Khi controls tự ẩn, video lập tức trở về tỷ lệ bình thường để không mất mép hình.",
     api:true,
     cleanDemo:true,
     maxClean:true,
