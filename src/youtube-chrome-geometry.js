@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.25";
+  const VERSION = "2026-09-28.26";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -229,26 +229,32 @@
   // These are OUTER chrome bounds measured from the corresponding player edge.
   // PiP never derives them from Play/Pause or from artwork inside the video.
   const CLEAN_EMBED_CALIBRATION = Object.freeze({
-    // Direct final chrome depths for the exact controls:0 player.
-    // No component MAX logic: each row stores only the final TOP and BOTTOM
-    // boundaries that the PiP/library must use at that width.
+    // Direct TOP/BOTTOM bounds for the exact PLAYING controls:0 player.
+    // These values are independent. At tiny sizes TOP can pass BOTTOM; that
+    // signed overlap belongs to PiP policy, never to the library.
     landscape:Object.freeze([
-      {w:140, topInset:41, bottomInset:38},
-      {w:170, topInset:43, bottomInset:40},
-      {w:200, topInset:45, bottomInset:43},
-      {w:240, topInset:47, bottomInset:46},
-      {w:280, topInset:48, bottomInset:55},
-      {w:360, topInset:50, bottomInset:58},
-      {w:520, topInset:50, bottomInset:66},
-      {w:760, topInset:50, bottomInset:84}
+      {w:140, topInset:51, bottomInset:33},
+      {w:170, topInset:50, bottomInset:34},
+      {w:200, topInset:49, bottomInset:35},
+      {w:240, topInset:49, bottomInset:36},
+      {w:280, topInset:49, bottomInset:37},
+      // YouTube introduces the larger lower action/card cluster around here.
+      {w:319, topInset:50, bottomInset:38},
+      {w:320, topInset:50, bottomInset:53},
+      {w:360, topInset:50, bottomInset:55},
+      {w:520, topInset:52, bottomInset:58},
+      {w:760, topInset:55, bottomInset:61}
     ]),
     portrait:Object.freeze([
-      {w:140, topInset:42, bottomInset:38},
-      {w:180, topInset:44, bottomInset:40},
-      {w:220, topInset:46, bottomInset:43},
-      {w:280, topInset:48, bottomInset:55},
-      {w:360, topInset:49, bottomInset:58},
-      {w:460, topInset:50, bottomInset:64}
+      {w:140, topInset:51, bottomInset:33},
+      {w:170, topInset:50, bottomInset:34},
+      {w:200, topInset:49, bottomInset:35},
+      {w:240, topInset:49, bottomInset:36},
+      {w:280, topInset:49, bottomInset:37},
+      {w:319, topInset:50, bottomInset:38},
+      {w:320, topInset:50, bottomInset:53},
+      {w:360, topInset:50, bottomInset:55},
+      {w:460, topInset:51, bottomInset:57}
     ])
   });
 
@@ -427,12 +433,14 @@
         bottomBleed:0,
         topInset,
         bottomInset,
+        signedGap:height-topInset-bottomInset,
+        overlap:Math.max(0,topInset+bottomInset-height),
         safeEdge:Math.max(topInset,bottomInset),
         safeWindow:{
           x:0,
           y:topInset,
           width,
-          height:Math.max(0,height-topInset-bottomInset)
+          height:height-topInset-bottomInset
         }
       };
     }
@@ -487,12 +495,14 @@
       bottomBleed,
       topInset,
       bottomInset,
+      signedGap:height-topInset-bottomInset,
+      overlap:Math.max(0,topInset+bottomInset-height),
       safeEdge:Math.max(topInset,bottomInset),
       safeWindow:{
         x:0,
         y:topInset,
         width,
-        height:Math.max(0,height-topInset-bottomInset)
+        height:height-topInset-bottomInset
       }
     };
   }
@@ -557,12 +567,14 @@
       },
       topInset,
       bottomInset,
+      signedGap:viewportH-topInset-bottomInset,
+      overlap:Math.max(0,topInset+bottomInset-viewportH),
       safeEdge:Math.max(topInset,bottomInset),
       safeWindow:{
         x:0,
         y:topInset,
         width:viewportW,
-        height:Math.max(0,viewportH-topInset-bottomInset)
+        height:viewportH-topInset-bottomInset
       }
     };
   }
@@ -681,12 +693,14 @@
         topInset,
         bottomInset,
         manualCalibration:true,
+        signedGap:sample.height-topInset-bottomInset,
+        overlap:Math.max(0,topInset+bottomInset-sample.height),
         safeEdge:Math.max(topInset,bottomInset),
         safeWindow:{
           x:0,
           y:topInset,
           width:sample.width,
-          height:Math.max(0,sample.height-topInset-bottomInset)
+          height:sample.height-topInset-bottomInset
         }
       };
     });
