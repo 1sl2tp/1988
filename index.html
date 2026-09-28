@@ -76,6 +76,12 @@
   --ambient-control-hover:.13;
   --ambient-surface:.065;
   --ambient-surface-strong:.10;
+  --ambient-one-page-strong:.065;
+  --ambient-one-page-soft:.026;
+  --ambient-one-control:.055;
+  --ambient-one-control-hover:.095;
+  --ambient-one-surface:.045;
+  --ambient-one-surface-strong:.070;
   --card-hover-alpha:.17;
   --card-press-alpha:.23;
   --card-selected-alpha:.11;
@@ -152,6 +158,12 @@
   --ambient-control-hover:.045;
   --ambient-surface:.022;
   --ambient-surface-strong:.035;
+  --ambient-one-page-strong:.018;
+  --ambient-one-page-soft:.007;
+  --ambient-one-control:.016;
+  --ambient-one-control-hover:.030;
+  --ambient-one-surface:.014;
+  --ambient-one-surface-strong:.022;
   --card-hover-alpha:.095;
   --card-press-alpha:.135;
   --card-selected-alpha:.070;
@@ -174,6 +186,17 @@ html{
 body{
   min-height:100vh;
   overflow-y:visible;
+}
+html.one-col body{
+  background-color:var(--yt-bg);
+  background-image:
+    radial-gradient(
+      92% 70% at 50% 0,
+      rgba(var(--header-accent-rgb),var(--ambient-one-page-strong)) 0,
+      rgba(var(--header-accent-rgb),var(--ambient-one-page-soft)) 42%,
+      rgba(var(--header-accent-rgb),0) 78%
+    );
+  background-attachment:fixed;
 }
 html.two-col body{
   background-color:var(--yt-bg);
@@ -747,7 +770,12 @@ html.one-col .player.inline-overlay:not(.pip){
   overflow:hidden;
   border:1px solid var(--yt-search-border);
   border-radius:20px;
-  background:var(--yt-search-bg);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface))
+    ),
+    var(--yt-search-bg);
   transition:
     border-color .16s ease,
     box-shadow .16s ease,
@@ -832,7 +860,12 @@ html.one-col .player.inline-overlay:not(.pip){
   overflow:hidden;
   border:1px solid var(--yt-search-border);
   border-radius:20px;
-  background:var(--yt-search-bg);
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface))
+    ),
+    var(--yt-search-bg);
   transition:
     border-color .16s ease,
     box-shadow .16s ease,
@@ -894,8 +927,8 @@ html.one-col .player.inline-overlay:not(.pip){
   background:
     linear-gradient(
       135deg,
-      rgba(var(--header-accent-rgb),var(--accent-chip-strong)),
-      rgba(var(--header-accent-rgb),var(--accent-chip-soft))
+      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-control))
     ),
     var(--yt-search-button);
   transition:
@@ -904,6 +937,23 @@ html.one-col .player.inline-overlay:not(.pip){
 }
 .top.search-open .search-button:active{
   transform:scale(.94);
+}
+
+html.one-col .voice-search-button{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-control))
+    ),
+    var(--yt-chip-bg);
+}
+html.one-col .voice-search-button:hover{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover))
+    ),
+    var(--yt-chip-hover);
 }
 
 @media(max-width:656px){
@@ -1301,6 +1351,14 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   border-bottom:0;
   container-type:inline-size;
   container-name:media-card;
+}
+html.one-col .info{
+  background:
+    linear-gradient(
+      180deg,
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface)) 0,
+      rgba(var(--header-accent-rgb),0) 100%
+    );
 }
 html.two-col .info{
   background:
@@ -1828,6 +1886,42 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
 .row:focus-within .row-menu{opacity:1}
 @media(hover:none){
   .row-menu{opacity:1}
+}
+
+/* One-column/mobile uses the same video-derived control language as desktop
+   two-column, but with softer alpha so the interface stays calm on small screens. */
+html.one-col .search-toggle,
+html.one-col .settings-button,
+html.one-col .search-back,
+html.one-col .info-menu,
+html.one-col .row-menu{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-control))
+    ),
+    var(--yt-chip-bg);
+}
+html.one-col .search-toggle:hover,
+html.one-col .settings-button:hover,
+html.one-col .search-back:hover,
+html.one-col .info-menu:hover,
+html.one-col .row-menu:hover{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-control-hover))
+    ),
+    var(--yt-hover);
+}
+html.one-col .settings-popover,
+html.one-col .row-action-menu{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface-strong)),
+      rgba(var(--header-accent-rgb),var(--ambient-one-surface-strong))
+    ),
+    var(--yt-surface);
 }
 
 .row-action-menu{
