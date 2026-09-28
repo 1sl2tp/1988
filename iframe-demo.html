@@ -504,7 +504,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-25"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-26"></script>
 <script>
 const modes=[
   {
@@ -611,7 +611,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v7";
+const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v8";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -810,7 +810,7 @@ function primeMainViewportTrimLibrary(){
 }
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v1",
+    "pip-chrome-calibration-v2",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -1104,6 +1104,22 @@ function ensureLibraryCalibrationFrame(videoId){
     resize
   };
 }
+function libraryResultForWidth(width){
+  const geometry=window.YouTubeChromeGeometry;
+  if(!geometry?.lookupMediaLibrary||!currentChromeLibrary)return null;
+  return geometry.lookupMediaLibrary(currentChromeLibrary,width);
+}
+function applyLibraryResultToStage(result){
+  if(!result)return null;
+  stage.style.setProperty("--yt-top-inset",result.topInset.toFixed(2)+"px");
+  stage.style.setProperty("--yt-bottom-inset",result.bottomInset.toFixed(2)+"px");
+  stage.dataset.ytChromeOrientation=result.orientation||"";
+  stage.dataset.ytTitleLines=String(result.titleLines||1);
+  stage.dataset.ytChromeLayout=result.layoutState?.id||"direct";
+  stage.dataset.ytChromeTier=result.layoutState?.tier||"direct";
+  stage.dataset.ytChromeDensity=result.layoutState?.density||"normal";
+  return result;
+}
 function renderLibraryCalibration(width=calibrationWidth,force=false){
   if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
   const geometry=window.YouTubeChromeGeometry;
@@ -1126,7 +1142,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false){
   calLiveRange.max=String(maxW);
   calLiveRange.value=String(w);
 
-  const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,w);
+  const result=libraryResultForWidth(w);
   if(!result)return null;
 
   calLiveFrame.style.width=Math.round(result.width)+"px";
@@ -1164,6 +1180,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false){
     " · TOP "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
     " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
+    " · GAP "+Math.round(result.signedGap??(result.height-result.topInset-result.bottomInset))+
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
     " · "+(result.viewportTrim?.source||"none")+
     " · lib "+String(currentChromeLibrary.version||geometry?.VERSION||"?")+
@@ -1238,7 +1255,8 @@ function paintGeometryReadout(result){
       Math.round(result.viewportTrim?.bottomPx||0)+"/"+
       Math.round(result.viewportTrim?.leftPx||0)+
       " "+(result.viewportTrim?.source||"none")+
-    " · cửa sổ "+Math.round(result.safeWindow.height);
+    " · GAP "+Math.round(result.signedGap??result.safeWindow.height)+
+    (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"");
 }
 function syncMeasuredSafeWindow(){
   if(!stage.classList.contains("max-clean-mode")){
@@ -1251,12 +1269,14 @@ function syncMeasuredSafeWindow(){
     return null;
   }
 
-  // PiP never measures YouTube chrome live. It only consumes the profile that
-  // was prepared for this media while it was still in MAIN.
+  // Library is the sole source of truth. PiP only selects the precomputed
+  // sample for its current width; it does not re-measure or reinterpret chrome.
   if(!currentChromeLibrary)prepareCurrentChromeLibrary();
+  const width=stage.getBoundingClientRect().width;
   const result=currentChromeLibrary
-    ? geometry.applyMediaLibrary(stage,currentChromeLibrary)
-    : geometry.apply(stage,{title:currentVideoTitle(),controls:false});
+    ? libraryResultForWidth(width)
+    : null;
+  applyLibraryResultToStage(result);
 
   paintGeometryReadout(result);
   return result;
@@ -1731,8 +1751,7 @@ calLiveFrame?.addEventListener("pointerdown",e=>{
 
   const guide=e.target.closest("[data-calibration-guide]");
   if(guide){
-    const geometry=window.YouTubeChromeGeometry;
-    const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,calibrationWidth);
+    const result=libraryResultForWidth(calibrationWidth);
     if(!result)return;
     calibrationGuideDrag={
       pointerId:e.pointerId,
