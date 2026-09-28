@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.22";
+  const VERSION = "2026-09-28.23";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -133,18 +133,28 @@
     // Calibrated order:
     // TOP: title -> channel logo -> channel name.
     // BOTTOM: YouTube -> link/share -> "Video khác".
-    const top = {
-      title: true,
-      avatar: uiSpan >= 175,
-      channel: uiSpan >= 255
-    };
+    const cleanEmbed=String(options.embedMode||"")==="nocookie-controls0-clean";
+    const top = cleanEmbed
+      ? {title:true,avatar:true,channel:true}
+      : {
+          title:true,
+          avatar:uiSpan>=175,
+          channel:uiSpan>=255
+        };
 
-    const bottom = {
-      youtube: true,
-      link: uiSpan >= 210,
-      next: uiSpan >= 275,
-      seek: nativeControls && uiSpan >= 300
-    };
+    const bottom = cleanEmbed
+      ? {
+          youtube:true,
+          link:uiSpan>=200,
+          next:uiSpan>=275,
+          seek:false
+        }
+      : {
+          youtube:true,
+          link:uiSpan>=210,
+          next:uiSpan>=275,
+          seek:nativeControls&&uiSpan>=300
+        };
 
     const density = uiSpan < 200 ? "tight" : uiSpan < 300 ? "compact" : "normal";
     // Small embeds truncate the native title rather than growing the top block.
@@ -214,6 +224,65 @@
     };
   }
 
+  // Dedicated calibration library for the exact PiP embed:
+  // youtube-nocookie + controls:0 + fs:0 + disablekb:1.
+  // These are OUTER chrome bounds measured from the corresponding player edge.
+  // PiP never derives them from Play/Pause or from artwork inside the video.
+  const CLEAN_EMBED_CALIBRATION = Object.freeze({
+    landscape:Object.freeze([
+      // w, TOP: channel avatar/title/channel-name outer bottoms,
+      // BOTTOM: full outer boxes + distance from bottom.
+      {w:140, avatarEdge:38, title1Edge:28, title2Edge:38, channelEdge:41,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+      {w:170, avatarEdge:40, title1Edge:30, title2Edge:40, channelEdge:43,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+      {w:200, avatarEdge:42, title1Edge:31, title2Edge:42, channelEdge:45,
+        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+      {w:240, avatarEdge:44, title1Edge:32, title2Edge:44, channelEdge:47,
+        linkH:35,linkOff:10,nextH:0,nextOff:0,youtubeH:34,youtubeOff:10},
+      {w:280, avatarEdge:45, title1Edge:33, title2Edge:45, channelEdge:48,
+        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+      {w:360, avatarEdge:46, title1Edge:34, title2Edge:46, channelEdge:49,
+        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+      {w:520, avatarEdge:47, title1Edge:35, title2Edge:47, channelEdge:50,
+        linkH:40,linkOff:13,nextH:50,nextOff:13,youtubeH:39,youtubeOff:13},
+      {w:760, avatarEdge:48, title1Edge:36, title2Edge:48, channelEdge:50,
+        linkH:49,linkOff:16,nextH:67,nextOff:16,youtubeH:44,youtubeOff:16}
+    ]),
+    portrait:Object.freeze([
+      {w:140, avatarEdge:39, title1Edge:29, title2Edge:40, channelEdge:42,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:31,youtubeOff:7},
+      {w:180, avatarEdge:41, title1Edge:31, title2Edge:42, channelEdge:44,
+        linkH:0,linkOff:0,nextH:0,nextOff:0,youtubeH:32,youtubeOff:8},
+      {w:220, avatarEdge:43, title1Edge:32, title2Edge:44, channelEdge:46,
+        linkH:34,linkOff:9,nextH:0,nextOff:0,youtubeH:33,youtubeOff:9},
+      {w:280, avatarEdge:45, title1Edge:33, title2Edge:45, channelEdge:48,
+        linkH:35,linkOff:10,nextH:44,nextOff:10,youtubeH:34,youtubeOff:10},
+      {w:360, avatarEdge:46, title1Edge:34, title2Edge:46, channelEdge:49,
+        linkH:37,linkOff:11,nextH:46,nextOff:11,youtubeH:36,youtubeOff:11},
+      {w:460, avatarEdge:47, title1Edge:35, title2Edge:47, channelEdge:50,
+        linkH:39,linkOff:12,nextH:49,nextOff:12,youtubeH:38,youtubeOff:12}
+    ])
+  });
+
+  function interpolateCalibration(list,width){
+    if(width<=list[0].w)return {...list[0],w:width,range:[list[0].w,list[0].w]};
+    const last=list[list.length-1];
+    if(width>=last.w)return {...last,w:width,range:[last.w,last.w]};
+    for(let i=0;i<list.length-1;i+=1){
+      const a=list[i],b=list[i+1];
+      if(width<a.w||width>b.w)continue;
+      const t=(width-a.w)/Math.max(1,b.w-a.w);
+      const out={w:width,range:[a.w,b.w]};
+      for(const key of Object.keys(a)){
+        if(key==="w")continue;
+        out[key]=lerp(a[key],b[key],t);
+      }
+      return out;
+    }
+    return {...last,w:width,range:[last.w,last.w]};
+  }
+
   const EMBED_PROFILES = Object.freeze({
     "nocookie-controls0-clean": Object.freeze({
       controls:false,
@@ -281,25 +350,33 @@
 
   function dynamicSample(width, height, orientation, options = {}) {
     const {key:embedKey,profile}=embedProfile(options);
+
+    if(embedKey==="nocookie-controls0-clean"){
+      const kind=orientation==="portrait"?"portrait":"landscape";
+      const row=interpolateCalibration(CLEAN_EMBED_CALIBRATION[kind],width);
+      return {
+        ...row,
+        embedKey,
+        nativeSeek:false,
+        h:height,
+        // controls:0 has no native seek in the library.
+        seekH:0,
+        seekOff:0
+      };
+    }
+
     const uiSpan = orientation === "portrait"
       ? width
       : Math.min(width, height * (16 / 9));
 
-    // TOP is YouTube UI, not video artwork. Above compact sizes YouTube keeps
-    // the channel avatar/text close to fixed CSS dimensions instead of scaling
-    // with player width. This is especially important at mid-size PiP widths:
-    // interpolating from MIN->MAX made the channel avatar too small and leaked
-    // a crescent of the real avatar under the mask.
-    const compactT=clamp((uiSpan-175)/125,0,1);
-    const normalTop=uiSpan>=300;
-    const topPad=normalTop ? 8 : lerp(profile.top.padMin,8,compactT);
-    const avatar=normalTop ? 40 : lerp(profile.top.avatarMin,34,compactT);
-    const title1=normalTop ? 20 : lerp(profile.top.title1Min,19,compactT);
-    const title2=normalTop ? 36 : lerp(profile.top.title2Min,34,compactT);
-    const channel=normalTop ? 14 : lerp(profile.top.channelMin,13,compactT);
-    const topGap=normalTop ? 3 : lerp(profile.top.gapMin,3,compactT);
+    const topT = clamp((uiSpan - 140) / 620, 0, 1);
+    const topPad = profile.top.padMin + topT*2;
+    const avatar = lerp(profile.top.avatarMin,profile.top.avatarMax,topT);
+    const title1 = lerp(profile.top.title1Min,profile.top.title1Max,topT);
+    const title2 = lerp(profile.top.title2Min,profile.top.title2Max,topT);
+    const channel = lerp(profile.top.channelMin,profile.top.channelMax,topT);
+    const topGap = lerp(profile.top.gapMin,profile.top.gapMax,topT);
 
-    // BOTTOM keeps its separate responsive scaling.
     const s = clamp(uiSpan / 520, .72, 1.28);
     const bottomPad = Math.max(profile.bottom.padMin, 11*s);
     const linkH = Math.max(profile.bottom.linkMin, 38*s);
@@ -592,6 +669,7 @@
   window.YouTubeChromeGeometry = Object.freeze({
     VERSION,
     UI_PROFILES,
+    CLEAN_EMBED_CALIBRATION,
     EMBED_PROFILES,
     orientationOf,
     estimateTitleLines,
