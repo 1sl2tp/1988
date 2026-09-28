@@ -204,20 +204,38 @@ html.one-col .media-col{
    Park the SAME player off-screen in one-column mode instead of inside the
    display:none MAIN column. It stays renderable, but never visible or clickable. */
 .player-warm-host{
-  position:fixed;
-  left:-10000px;
-  top:0;
-  width:320px;
-  height:180px;
-  overflow:hidden;
-  opacity:.001;
-  pointer-events:none;
-  contain:strict;
+  position:static;
+  width:0;
+  height:0;
+  overflow:visible;
 }
-.player-warm-host > .player{
-  inset:0!important;
+
+/* iOS/Safari fallback path: never reparent a live YouTube iframe.
+   Reparenting with appendChild reloads the iframe there and loses the tap
+   activation that is required for first-tap playback. */
+html.one-col .player.warm-idle{
+  position:absolute!important;
+  inset:auto!important;
+  left:-10000px!important;
+  top:0!important;
   width:320px!important;
   height:180px!important;
+  opacity:.001!important;
+  pointer-events:none!important;
+  transform:none!important;
+}
+html.one-col .player.inline-overlay:not(.pip){
+  position:absolute!important;
+  inset:auto!important;
+  left:var(--inline-player-left)!important;
+  top:var(--inline-player-top)!important;
+  width:var(--inline-player-w)!important;
+  height:var(--inline-player-h)!important;
+  z-index:40!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  border-radius:var(--floating-radius)!important;
+  overflow:hidden!important;
   transform:none!important;
 }
 .top{
@@ -1907,6 +1925,11 @@ html.one-col.portrait .player.pip{
   let pendingVideoId="";
   let youtubeApiPromise=null;
 
+  // Element.moveBefore() preserves iframe browsing state; appendChild() does
+  // not on iOS Safari/PWA. When unavailable, keep the player top-level forever.
+  const canPreservePlayerMove=
+    typeof document.body?.moveBefore==="function";
+
   // Server owns media aspect by video id; YouTube videoContentRect only
   // confirms/corrects the server cache after playback.
   const aspectPrimeCache=new Map();
@@ -2122,6 +2145,7 @@ html.one-col.portrait .player.pip{
       layout();
       schedulePip();
       scheduleFeedMasonry();
+      requestAnimationFrame(()=>syncInlinePlayerOverlay());
     }
     return kind;
   }
@@ -3644,6 +3668,7 @@ html.one-col.portrait .player.pip{
     feedMasonryRaf=requestAnimationFrame(()=>{
       feedMasonryRaf=0;
       layoutFeedMasonry();
+      syncInlinePlayerOverlay();
     });
   }
 
@@ -4119,8 +4144,8 @@ html.one-col.portrait .player.pip{
           attached=attachPlayerToCard(card,{floating:false});
         }
       }
-      if(!attached&&playerWarmHost&&player.parentNode!==playerWarmHost){
-        movePlayerNode(playerWarmHost);
+      if(!attached){
+        parkPlayerWarm();
       }
     }
 
@@ -4141,6 +4166,50 @@ html.one-col.portrait .player.pip{
     }catch{
       parent.appendChild(player);
     }
+  }
+
+  function useStableInlineOverlay(){
+    return !canPreservePlayerMove && !isTwoColumn();
+  }
+
+  function clearInlinePlayerGeometry(){
+    player.style.removeProperty("--inline-player-left");
+    player.style.removeProperty("--inline-player-top");
+    player.style.removeProperty("--inline-player-w");
+    player.style.removeProperty("--inline-player-h");
+  }
+
+  function syncInlinePlayerOverlay(host=null){
+    if(!useStableInlineOverlay())return false;
+    host=host || inlineCardForCurrentVideo()?.querySelector(".row-thumb") || null;
+    if(!host||!host.isConnected)return false;
+
+    const rect=host.getBoundingClientRect();
+    const pageX=Number(window.scrollX)||0;
+    const pageY=pageScrollY();
+
+    player.style.setProperty("--inline-player-left",Math.round(rect.left+pageX)+"px");
+    player.style.setProperty("--inline-player-top",Math.round(rect.top+pageY)+"px");
+    player.style.setProperty("--inline-player-w",Math.max(1,Math.round(rect.width))+"px");
+    player.style.setProperty("--inline-player-h",Math.max(1,Math.round(rect.height))+"px");
+    return true;
+  }
+
+  function parkPlayerWarm(){
+    if(!playerWarmHost)return false;
+
+    // This move is safe before YT.Player is created. After that, iOS/Safari
+    // remains in this host and only CSS geometry changes.
+    if(player.parentNode!==playerWarmHost){
+      if(ytPlayer&&!canPreservePlayerMove)return false;
+      movePlayerNode(playerWarmHost);
+    }
+
+    player.classList.remove("pip","inline-overlay");
+    player.classList.add("warm-idle");
+    clearInlinePlayerGeometry();
+    clearMobilePipGestureGeometry();
+    return true;
   }
 
   function inlineCardForCurrentVideo(){
@@ -4164,16 +4233,34 @@ html.one-col.portrait .player.pip{
     thumb.classList.add("inline-playing");
     thumb.classList.toggle("pip-floating",!!floating);
 
-    // Inline: the player lives inside the clicked thumbnail.
-    // PiP: move the SAME player to <body> so no card/container stacking
-    // context can sit above it. This is what makes PiP truly top-layer.
-    if(floating){
-      movePlayerNode(document.body);
+    player.classList.remove("warm-idle");
+
+    if(useStableInlineOverlay()){
+      // Critical iPhone/PWA path: do not move the iframe after it becomes ready.
+      if(player.parentNode!==playerWarmHost){
+        if(!ytPlayer){
+          movePlayerNode(playerWarmHost);
+        }
+      }
+
+      player.classList.toggle("pip",!!floating);
+      player.classList.toggle("inline-overlay",!floating);
+      if(floating){
+        clearInlinePlayerGeometry();
+      }else{
+        syncInlinePlayerOverlay(thumb);
+      }
     }else{
-      movePlayerNode(thumb);
+      // Browsers with state-preserving moveBefore() keep the existing path.
+      if(floating){
+        movePlayerNode(document.body);
+      }else{
+        movePlayerNode(thumb);
+      }
+      player.classList.remove("inline-overlay");
+      player.classList.toggle("pip",!!floating);
     }
 
-    player.classList.toggle("pip",!!floating);
     stage.classList.remove("pip-host");
     if(!floating)clearMobilePipGestureGeometry();
     pip=!!floating;
@@ -4184,9 +4271,13 @@ html.one-col.portrait .player.pip{
   function returnPlayerToMainStage(){
     clearInlineCardClasses();
     inlineVideoId="";
-    player.classList.remove("pip");
+    player.classList.remove("pip","inline-overlay","warm-idle");
     stage.classList.remove("pip-host");
+    clearInlinePlayerGeometry();
     clearMobilePipGestureGeometry();
+
+    // Two-column MAIN still owns the stage. A one-column idle player is parked
+    // warm instead by syncPip/layout.
     movePlayerNode(stage);
     pip=false;
     scheduleFeedMasonry();
@@ -4234,18 +4325,31 @@ html.one-col.portrait .player.pip{
 
       if(hostVisible){
         if(pip){
-          // Return the SAME player to the exact card it came from.
-          movePlayerNode(host);
           host.classList.remove("pip-floating");
           player.classList.remove("pip");
           clearMobilePipGestureGeometry();
+
+          if(useStableInlineOverlay()){
+            player.classList.add("inline-overlay");
+            syncInlinePlayerOverlay(host);
+          }else{
+            movePlayerNode(host);
+          }
           pip=false;
+        }else if(useStableInlineOverlay()){
+          syncInlinePlayerOverlay(host);
         }
       }else{
         if(!pip){
-          // Escape the card/grid stacking context before floating.
           host.classList.add("pip-floating");
-          movePlayerNode(document.body);
+
+          if(useStableInlineOverlay()){
+            player.classList.remove("inline-overlay");
+            clearInlinePlayerGeometry();
+          }else{
+            movePlayerNode(document.body);
+          }
+
           player.classList.add("pip");
           pip=true;
         }
@@ -4262,9 +4366,7 @@ html.one-col.portrait .player.pip{
       clearMobilePipGestureGeometry();
     }
     stage.classList.remove("pip-host");
-    if(playerWarmHost&&player.parentNode!==playerWarmHost){
-      movePlayerNode(playerWarmHost);
-    }
+    parkPlayerWarm();
     return;
   }
 
@@ -4598,6 +4700,7 @@ html.one-col.portrait .player.pip{
     updateSourceRailArrows();
     schedulePip();
     scheduleFeedMasonry();
+    syncInlinePlayerOverlay();
   },{passive:true});
 
   /* If title/search/source chrome changes height, every media mode receives
@@ -4626,7 +4729,7 @@ html.one-col.portrait .player.pip{
   // One-column/mobile: warm the real YouTube iframe off-screen, never in the
   // display:none MAIN column. Two-column keeps the normal MAIN host.
   if(!isTwoColumn()&&playerWarmHost){
-    movePlayerNode(playerWarmHost);
+    parkPlayerWarm();
   }
 
   // Start API/player creation as early as possible. No video is selected here,
