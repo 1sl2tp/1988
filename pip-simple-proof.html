@@ -572,6 +572,12 @@ html.one-col body{min-height:220vh}
   flex:0 0 var(--auto-search-w,360px);
   width:var(--auto-search-w,360px);
 }
+.top.search-roomy:not(.search-open) .settings-button{
+  display:grid;
+  flex:0 0 40px;
+  width:40px;
+  height:40px;
+}
 
 /* Explicit search mode: one pill takes the row, exactly like mobile. */
 .top.search-open .masthead{
@@ -3009,8 +3015,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     // as wide as the whole header even when the actual chips occupy much less.
     const chipsW=naturalSourceChipsWidth();
 
-    // Reserve compact outer spacing + a little breathing room after the last chip.
-    const chromeReserve=24;
+    // Reserve outer spacing plus the separate mic + settings buttons.
+    // They sit beside the search pill on roomy desktop, like YouTube.
+    const chromeReserve=108;
     const surplus=Math.max(0,headerW-chipsW-chromeReserve);
 
     // Full search is useful from 280px upward; let it grow with the real spare
