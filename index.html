@@ -2029,6 +2029,71 @@ html.one-col .row-action-menu{
   font:400 12px/17px Roboto,Arial,sans-serif;
 }
 
+.download-task{
+  position:fixed;
+  top:76px;
+  right:18px;
+  z-index:1450;
+  width:min(360px,calc(100vw - 24px));
+  padding:12px 14px;
+  border:1px solid var(--yt-border);
+  border-radius:14px;
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-surface-strong)),
+      rgba(var(--header-accent-rgb),var(--ambient-surface-strong))
+    ),
+    var(--yt-surface);
+  color:var(--yt-text);
+  box-shadow:0 12px 34px rgba(0,0,0,.34);
+}
+.download-task[hidden]{display:none!important}
+.download-task-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:8px;
+}
+.download-task-title{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font:600 13px/18px Roboto,Arial,sans-serif;
+}
+.download-task-status{
+  flex:0 0 auto;
+  color:var(--yt-text-secondary);
+  font:500 11px/16px Roboto,Arial,sans-serif;
+}
+.download-task-track{
+  height:3px;
+  overflow:hidden;
+  border-radius:999px;
+  background:rgba(255,255,255,.13);
+}
+.download-task-bar{
+  width:0;
+  height:100%;
+  border-radius:inherit;
+  background:currentColor;
+  transition:width .16s linear;
+}
+.download-task-meta{
+  margin-top:7px;
+  color:var(--yt-text-secondary);
+  font:400 11px/15px Roboto,Arial,sans-serif;
+}
+@media(max-width:656px){
+  .download-task{
+    top:64px;
+    right:8px;
+    left:8px;
+    width:auto;
+  }
+}
+
 .state{display:none}
 
 
@@ -4326,6 +4391,8 @@ html.one-col.portrait .player.pip{
     "https://cobaltapi.cjs.nz/",
     "https://rue-cobalt.xenon.zone/"
   ];
+  let downloadTaskBusy=false;
+  let downloadTaskHideTimer=0;
 
   function canDownloadMeta(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
@@ -4333,24 +4400,77 @@ html.one-col.portrait .player.pip{
 
   function showDownloadMenu(){
     const meta=openRowMenuMeta||{};
-    const enabled=canDownloadMeta(meta);
+    const enabled=canDownloadMeta(meta)&&!downloadTaskBusy;
     const menu=ensureRowActionMenu();
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
       rowActionButton("download-mp4","Video MP4 · 720p H.264","video",{disabled:!enabled})+
       rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Cobalt xử lý trực tiếp trên máy này.</div>'+
+      '<div class="row-action-note">Tải dữ liệu về máy trước, xong mới tạo file tải xuống.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
+  function ensureDownloadTask(){
+    let box=document.getElementById("downloadTask");
+    if(box)return box;
+    box=document.createElement("div");
+    box.id="downloadTask";
+    box.className="download-task";
+    box.hidden=true;
+    box.innerHTML=
+      '<div class="download-task-head">'+
+        '<div class="download-task-title" data-download-task-title>Đang chuẩn bị…</div>'+
+        '<div class="download-task-status" data-download-task-status>0%</div>'+
+      '</div>'+
+      '<div class="download-task-track"><div class="download-task-bar" data-download-task-bar></div></div>'+
+      '<div class="download-task-meta" data-download-task-meta>Đang lấy dữ liệu từ Cobalt…</div>';
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function setDownloadTask({title,status,progress,meta,done=false}={}){
+    const box=ensureDownloadTask();
+    clearTimeout(downloadTaskHideTimer);
+    box.hidden=false;
+
+    const titleEl=box.querySelector("[data-download-task-title]");
+    const statusEl=box.querySelector("[data-download-task-status]");
+    const bar=box.querySelector("[data-download-task-bar]");
+    const metaEl=box.querySelector("[data-download-task-meta]");
+
+    if(title!==undefined)titleEl.textContent=String(title||"Đang chuẩn bị…");
+    if(status!==undefined)statusEl.textContent=String(status||"");
+    if(meta!==undefined)metaEl.textContent=String(meta||"");
+
+    if(Number.isFinite(progress)){
+      const pct=Math.max(0,Math.min(100,Number(progress)));
+      bar.style.width=pct+"%";
+    }
+
+    if(done){
+      downloadTaskHideTimer=setTimeout(()=>{
+        box.hidden=true;
+        bar.style.width="0%";
+      },2600);
+    }
+  }
+
+  function bytesLabel(value){
+    const n=Math.max(0,Number(value)||0);
+    if(n>=1024*1024*1024)return (n/(1024*1024*1024)).toFixed(2)+" GB";
+    if(n>=1024*1024)return (n/(1024*1024)).toFixed(1)+" MB";
+    if(n>=1024)return (n/1024).toFixed(1)+" KB";
+    return Math.round(n)+" B";
+  }
+
   async function resolveCobaltInBrowser(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
     format=String(format||"mp4").toLowerCase();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
-    if(format!=="mp3"&&format!=="mp4")return "";
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+    if(format!=="mp3"&&format!=="mp4")return null;
 
     const youtubeUrl="https://www.youtube.com/watch?v="+id;
     const payload=format==="mp3"
@@ -4361,7 +4481,8 @@ html.one-col.portrait .player.pip{
           audioBitrate:"128",
           filenameStyle:"pretty",
           youtubeVideoCodec:"h264",
-          alwaysProxy:true
+          alwaysProxy:true,
+          localProcessing:"disabled"
         }
       :{
           url:youtubeUrl,
@@ -4370,7 +4491,8 @@ html.one-col.portrait .player.pip{
           youtubeVideoCodec:"h264",
           youtubeVideoContainer:"mp4",
           filenameStyle:"pretty",
-          alwaysProxy:true
+          alwaysProxy:true,
+          localProcessing:"disabled"
         };
 
     for(const api of COBALT_DIRECT_APIS){
@@ -4388,26 +4510,140 @@ html.one-col.portrait .player.pip{
         });
         const data=await response.json().catch(()=>({}));
         const url=String(data?.url||"").trim();
-        if(response.ok&&/^https:\/\//i.test(url))return url;
+        if(response.ok&&/^https:\/\//i.test(url)){
+          return {
+            url,
+            filename:String(data?.filename||"").trim(),
+            api,
+            status:String(data?.status||"").trim()
+          };
+        }
       }catch(error){
         console.warn("cobalt direct resolve failed",api,error);
       }
     }
-    return "";
+    return null;
+  }
+
+  async function fetchPreparedFile(resolved,format,title){
+    const response=await fetch(resolved.url,{
+      method:"GET",
+      mode:"cors",
+      cache:"no-store",
+      credentials:"omit",
+      headers:{"accept":"*/*"}
+    });
+    if(!response.ok)throw new Error("file_http_"+response.status);
+    if(!response.body)throw new Error("file_body_missing");
+
+    const type=
+      response.headers.get("content-type")||
+      (format==="mp3"?"audio/mpeg":"video/mp4");
+    const exact=Number(response.headers.get("content-length")||0);
+    const estimated=Number(response.headers.get("estimated-content-length")||0);
+    const expected=exact||estimated||0;
+
+    const reader=response.body.getReader();
+    const chunks=[];
+    let loaded=0;
+
+    while(true){
+      const part=await reader.read();
+      if(part.done)break;
+      if(!part.value?.byteLength)continue;
+      chunks.push(part.value);
+      loaded+=part.value.byteLength;
+
+      const progress=expected?Math.min(99,(loaded/expected)*100):0;
+      setDownloadTask({
+        title,
+        status:expected?Math.round(progress)+"%":bytesLabel(loaded),
+        progress,
+        meta:expected
+          ?bytesLabel(loaded)+" / "+bytesLabel(expected)
+          :"Đã nhận "+bytesLabel(loaded)
+      });
+    }
+
+    if(!loaded)throw new Error("file_empty");
+    return {
+      blob:new Blob(chunks,{type}),
+      bytes:loaded
+    };
+  }
+
+  function savePreparedBlob(blob,filename){
+    const objectUrl=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=objectUrl;
+    a.download=filename||"download";
+    a.rel="noopener";
+    a.style.display="none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),60000);
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=await resolveCobaltInBrowser(meta,format);
-    if(!url){
-      window.alert("Chưa tạo được file tải xuống.");
-      return false;
-    }
+    if(downloadTaskBusy)return false;
+    downloadTaskBusy=true;
 
-    // The tunnel is created by the user's own browser/IP, matching how Cobalt
-    // itself works. Navigating to an attachment URL starts the native browser
-    // download without opening Cobalt's interface.
-    window.location.assign(url);
-    return true;
+    const title=String(meta?.title||"Video").trim();
+    const fallbackName=
+      videoTitleSlug(title||"download")+"."+String(format||"mp4").toLowerCase();
+
+    try{
+      setDownloadTask({
+        title,
+        status:"Chuẩn bị",
+        progress:2,
+        meta:"Đang lấy liên kết từ Cobalt…"
+      });
+
+      const resolved=await resolveCobaltInBrowser(meta,format);
+      if(!resolved?.url)throw new Error("resolve_failed");
+
+      setDownloadTask({
+        title,
+        status:"GET",
+        progress:5,
+        meta:"Đang tải dữ liệu về máy…"
+      });
+
+      const prepared=await fetchPreparedFile(resolved,format,title);
+      const filename=resolved.filename||fallbackName;
+
+      setDownloadTask({
+        title,
+        status:"100%",
+        progress:100,
+        meta:"Xong · "+bytesLabel(prepared.bytes)+" · đang tạo file tải xuống"
+      });
+
+      savePreparedBlob(prepared.blob,filename);
+
+      setDownloadTask({
+        title,
+        status:"Xong",
+        progress:100,
+        meta:bytesLabel(prepared.bytes)+" · đã tạo tải xuống",
+        done:true
+      });
+      return true;
+    }catch(error){
+      console.warn("download prepare failed",error);
+      setDownloadTask({
+        title,
+        status:"Lỗi",
+        progress:0,
+        meta:"Không chuẩn bị được file. Thử lại.",
+        done:true
+      });
+      return false;
+    }finally{
+      downloadTaskBusy=false;
+    }
   }
 
   async function writeCardSourceStatus(meta,status,scope){
