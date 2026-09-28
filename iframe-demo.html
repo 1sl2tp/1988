@@ -463,6 +463,8 @@ let pipPointerId=null;
 let pipPointerStart=null;
 let geometrySettleTimer=0;
 let geometryResizeObserver=null;
+const mediaChromeLibraries=new Map();
+let currentChromeLibrary=null;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -527,6 +529,44 @@ function seekAtClientX(clientX,seek){
 function currentVideoTitle(){
   try{return String(apiPlayer?.getVideoData?.()?.title||"")}catch{return ""}
 }
+function currentVideoId(){
+  try{return String(apiPlayer?.getVideoData?.()?.video_id||cleanId(input.value)||"")}catch{return cleanId(input.value)}
+}
+function currentMainAspect(){
+  const rect=stage.getBoundingClientRect();
+  if(rect.width>0&&rect.height>0)return rect.width/rect.height;
+  return stage.dataset.demoShape==="portrait" ? 9/16 : 16/9;
+}
+function prepareCurrentChromeLibrary(){
+  const geometry=window.YouTubeChromeGeometry;
+  if(!geometry?.buildMediaLibrary)return null;
+
+  const videoId=currentVideoId();
+  const title=currentVideoTitle();
+  const aspect=currentMainAspect();
+  const minWidth=140;
+  const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
+  const key=[videoId,title,aspect.toFixed(5),minWidth,maxWidth].join("|");
+
+  const cached=mediaChromeLibraries.get(key);
+  if(cached){
+    currentChromeLibrary=cached;
+    return cached;
+  }
+
+  const library=geometry.buildMediaLibrary({
+    videoId,
+    title,
+    aspect,
+    minWidth,
+    maxWidth,
+    step:2,
+    controls:false
+  });
+  mediaChromeLibraries.set(key,library);
+  currentChromeLibrary=library;
+  return library;
+}
 function paintGeometryReadout(result){
   if(!geometryReadout)return;
   if(!result||!stage.classList.contains("max-clean-mode")){
@@ -549,6 +589,7 @@ function paintGeometryReadout(result){
   geometryReadout.textContent=
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
+    " · "+(currentChromeLibrary?"LIB":"LIVE")+
     " · state "+(state.tier||"?")+"/"+(state.density||"?")+
     (result.collisionMode?" · CHẠM PLAY":"")+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
@@ -577,7 +618,14 @@ function syncMeasuredSafeWindow(){
     paintGeometryReadout(null);
     return null;
   }
-  const result=geometry.apply(stage,{title:currentVideoTitle(),controls:false});
+
+  // PiP never measures YouTube chrome live. It only consumes the profile that
+  // was prepared for this media while it was still in MAIN.
+  if(!currentChromeLibrary)prepareCurrentChromeLibrary();
+  const result=currentChromeLibrary
+    ? geometry.applyMediaLibrary(stage,currentChromeLibrary)
+    : geometry.apply(stage,{title:currentVideoTitle(),controls:false});
+
   paintGeometryReadout(result);
   return result;
 }
@@ -783,6 +831,8 @@ function enterDemoPip(){
   stopCleanHideTimer();
   stopChromeMaskTimer();
   if(stage.classList.contains("max-clean-mode")){
+    // Ensure the library exists before PiP consumes it.
+    if(!currentChromeLibrary)prepareCurrentChromeLibrary();
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
       setChromeMask(true);
@@ -862,6 +912,7 @@ async function render(){
   stage.innerHTML="";
 
   if(mode.api){
+    currentChromeLibrary=null;
     const host=document.createElement("div");
     host.id="api-player";
     stage.appendChild(host);
@@ -890,6 +941,9 @@ async function render(){
           if(mode.maxClean){
             formatSeekProgress();
             startSeekLoop();
+            // Resolve the media's chrome geometry BEFORE PiP, like aspect/orientation.
+            currentChromeLibrary=null;
+            prepareCurrentChromeLibrary();
             syncMeasuredSafeWindow();
           }
         },
