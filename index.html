@@ -199,6 +199,27 @@ html.one-col .media-col{
     display:none!important;
   }
 }
+
+/* iPhone/PWA first-tap playback needs the YouTube iframe READY before the tap.
+   Park the SAME player off-screen in one-column mode instead of inside the
+   display:none MAIN column. It stays renderable, but never visible or clickable. */
+.player-warm-host{
+  position:fixed;
+  left:-10000px;
+  top:0;
+  width:320px;
+  height:180px;
+  overflow:hidden;
+  opacity:.001;
+  pointer-events:none;
+  contain:strict;
+}
+.player-warm-host > .player{
+  inset:0!important;
+  width:320px!important;
+  height:180px!important;
+  transform:none!important;
+}
 .top{
   position:sticky;
   top:0;
@@ -1672,6 +1693,7 @@ html.one-col.portrait .player.pip{
   <div class="rows" id="rows"></div>
 </main>
 
+<div class="player-warm-host" id="playerWarmHost" aria-hidden="true"></div>
 <div class="state" id="state"></div>
 
 <script src="./src/api.js"></script>
@@ -1691,6 +1713,7 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const playerWarmHost=document.getElementById("playerWarmHost");
   const pipActivateZone=document.getElementById("pipActivateZone");
   const pipMoveZone=document.getElementById("pipMoveZone");
   const pipResizeEdges=[...document.querySelectorAll("[data-pip-edge]")];
@@ -4012,12 +4035,16 @@ html.one-col.portrait .player.pip{
     if(!two&&!inlineVideoId){
       const routedId=routeVideoId();
       const currentId=String(current?.id||"").trim();
+      let attached=false;
       if(routedId&&currentId&&routedId===currentId){
         const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
         if(card){
           inlineVideoId=currentId;
-          attachPlayerToCard(card,{floating:false});
+          attached=attachPlayerToCard(card,{floating:false});
         }
+      }
+      if(!attached&&playerWarmHost&&player.parentNode!==playerWarmHost){
+        movePlayerNode(playerWarmHost);
       }
     }
 
@@ -4151,15 +4178,17 @@ html.one-col.portrait .player.pip{
       return;
     }
 
-    // No one-column card has been selected yet: keep the player parked
-    // in the hidden MAIN host and do not create a waiting/fallback PiP.
+    // No one-column card has been selected yet: keep the SAME player
+    // warm off-screen so iPhone/PWA receives a ready iframe before the first tap.
     if(pip){
       pip=false;
       player.classList.remove("pip");
       clearMobilePipGestureGeometry();
     }
     stage.classList.remove("pip-host");
-    if(player.parentNode!==stage)movePlayerNode(stage);
+    if(playerWarmHost&&player.parentNode!==playerWarmHost){
+      movePlayerNode(playerWarmHost);
+    }
     return;
   }
 
@@ -4518,13 +4547,19 @@ html.one-col.portrait .player.pip{
   syncHeaderScrollState();
   syncMobileHeaderVisibility(true);
 
+  // One-column/mobile: warm the real YouTube iframe off-screen, never in the
+  // display:none MAIN column. Two-column keeps the normal MAIN host.
+  if(!isTwoColumn()&&playerWarmHost){
+    movePlayerNode(playerWarmHost);
+  }
+
+  // Start API/player creation as early as possible. No video is selected here,
+  // so this cannot autoplay or resurrect the old waiting MAIN.
+  void ensureYoutubePlayer();
+
   // Deep link owns the initial media. Setting it before loading packages prevents
   // Live's first item from replacing the requested video.
   openVideoFromLocation();
-
-  // Warm only the player shell/API. With no selected video current.id is empty,
-  // so this does not restore the old waiting MAIN or start playback by itself.
-  void ensureYoutubePlayer();
 
   loadExistingSourceNames();
   requestAnimationFrame(()=>{

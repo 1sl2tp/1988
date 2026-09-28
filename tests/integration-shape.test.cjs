@@ -43,6 +43,9 @@ if(simpleProduction){
   assert.match(html,/playerApi\.loadVideoById\(id\)/);
   assert.match(html,/if\(ytPlayer&&ytPlayerReady\)/);
   assert.match(html,/ytPlayer\.loadVideoById\(id\)/);
+  assert.match(html,/id=["']playerWarmHost["']/);
+  assert.match(html,/player-warm-host/);
+  assert.match(html,/movePlayerNode\(playerWarmHost\)/);
   assert.match(html,/void ensureYoutubePlayer\(\);/);
   assert.match(html,/onError\(event\)/);
   assert.match(html,/youtube_embed_error/);
@@ -67,7 +70,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v25/);
+  assert.match(sw,/1988-simple-media-v26/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
