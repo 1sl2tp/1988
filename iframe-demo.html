@@ -1021,6 +1021,7 @@ let railPipBaseGeometry=null;
 let railPipPointerId=null;
 let railPipPointerMode=null;
 let railPipPointerStart=null;
+let railPipMediaHandoff=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
 let seekRaf=0;
@@ -1727,6 +1728,7 @@ function stopRailCropPreviewSync(){
 }
 function destroyRailCropPreviewPlayer(){
   stopRailCropPreviewSync();
+  railPipMediaHandoff=null;
   if(railCropPreviewPlayer){
     try{railCropPreviewPlayer.destroy()}catch{}
     railCropPreviewPlayer=null;
@@ -1873,6 +1875,113 @@ function railCropGeometryForWidth(width){
     cropHeight
   };
 }
+function railPlayerVideoId(player){
+  try{
+    const data=player?.getVideoData?.()||{};
+    return String(data.video_id||data.videoId||"").trim();
+  }catch{return ""}
+}
+function railPlayerMediaInfo(player){
+  try{
+    const data=player?.getVideoData?.()||{};
+    return {
+      videoId:String(data.video_id||data.videoId||"").trim(),
+      title:String(data.title||"").trim(),
+      author:String(data.author||"").trim(),
+      time:Math.max(0,Number(player?.getCurrentTime?.())||0),
+      state:Number(player?.getPlayerState?.()),
+      muted:!!player?.isMuted?.(),
+      volume:Math.max(0,Math.min(100,Number(player?.getVolume?.())||0))
+    };
+  }catch{
+    return {
+      videoId:"",title:"",author:"",time:0,state:-1,muted:true,volume:0
+    };
+  }
+}
+function ensureRailCropInputVideo(){
+  if(!railCropPreviewPlayer)return false;
+  const expected=String(requestedVideoId||"").trim();
+  const loaded=railPlayerVideoId(railCropPreviewPlayer);
+  if(loaded===expected)return true;
+
+  try{
+    railCropPreviewPlayer.loadVideoById?.(expected);
+  }catch{}
+  return false;
+}
+function handoffRailMediaToPip(){
+  if(!apiPlayer||!railCropPreviewPlayer)return null;
+
+  // One final sync before PiP becomes authoritative.
+  syncRailCropPreview(true);
+  stopRailCropPreviewSync();
+
+  const source=railPlayerMediaInfo(apiPlayer);
+  const crop=railPlayerMediaInfo(railCropPreviewPlayer);
+  const media={
+    videoId:String(requestedVideoId||crop.videoId||source.videoId||""),
+    orientation:
+      railSelectedShape||
+      verifiedMediaShape||
+      ((Number(railSelectedAspect)||Number(verifiedMediaAspect)||16/9)<1?"portrait":"landscape"),
+    aspect:Math.max(
+      .25,
+      Number(railSelectedAspect)||
+      Number(verifiedMediaAspect)||
+      Number(currentRailLibrary?.contentAspect)||
+      16/9
+    ),
+    title:crop.title||source.title||"",
+    author:crop.author||source.author||"",
+    source
+  };
+
+  try{
+    railCropPreviewPlayer.seekTo?.(source.time,true);
+    if(source.volume>0)railCropPreviewPlayer.setVolume?.(source.volume);
+    source.muted
+      ? railCropPreviewPlayer.mute?.()
+      : railCropPreviewPlayer.unMute?.();
+
+    if(source.state===1)railCropPreviewPlayer.playVideo?.();
+    else if(source.state===2)railCropPreviewPlayer.pauseVideo?.();
+
+    // PiP/cropped player is now the authoritative media. Keep the source
+    // visually available in Library but stop duplicate playback/audio.
+    apiPlayer.mute?.();
+    apiPlayer.pauseVideo?.();
+  }catch{}
+
+  railPipMediaHandoff=media;
+  return media;
+}
+function handoffRailMediaBackToSource(){
+  if(!railPipMediaHandoff||!apiPlayer||!railCropPreviewPlayer){
+    railPipMediaHandoff=null;
+    return;
+  }
+
+  const pip=railPlayerMediaInfo(railCropPreviewPlayer);
+  const before=railPipMediaHandoff.source||{};
+
+  try{
+    apiPlayer.seekTo?.(pip.time,true);
+    if(before.volume>0)apiPlayer.setVolume?.(before.volume);
+    before.muted ? apiPlayer.mute?.() : apiPlayer.unMute?.();
+
+    if(pip.state===1)apiPlayer.playVideo?.();
+    else apiPlayer.pauseVideo?.();
+
+    // The on-page cropped preview returns to mirror mode.
+    railCropPreviewPlayer.mute?.();
+  }catch{}
+
+  railPipMediaHandoff=null;
+  stopRailCropPreviewSync();
+  railCropSyncTimer=setInterval(()=>syncRailCropPreview(false),400);
+}
+
 function currentRailCroppedGeometry(){
   const aspect=Math.max(
     .25,
@@ -1889,6 +1998,12 @@ function currentRailCroppedGeometry(){
   const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
 
   return {
+    videoId:String(requestedVideoId||""),
+    orientation:
+      railSelectedShape||
+      verifiedMediaShape||
+      (aspect<1?"portrait":"landscape"),
+    mediaAspect:aspect,
     aspect:sourceWidth/cropHeight,
     sourceWidth,
     sourceHeight,
@@ -1922,15 +2037,51 @@ function setRailPipRect(left,top,width){
   railCropPreview.style.width=finalWidth+"px";
   railCropPreview.style.height=finalHeight+"px";
   railCropPreview.style.aspectRatio=String(aspect);
+  railCropPreview.dataset.pipVideoId=String(railPipBaseGeometry.videoId||"");
+  railCropPreview.dataset.pipOrientation=String(railPipBaseGeometry.orientation||"");
+  railCropPreview.dataset.pipAspect=Number(aspect).toFixed(6);
+  railCropPreview.dataset.pipCrop=
+    [
+      Math.round(railPipBaseGeometry.cropTop||0),
+      Math.round(railPipBaseGeometry.cropBottom||0)
+    ].join("/");
 
   return {width:finalWidth,height:finalHeight,left:pos.left,top:pos.top,aspect};
 }
 function openRailCropPip(){
-  if(!stage.classList.contains("rail-mode")||!railCropPreview)return;
+  if(
+    !stage.classList.contains("rail-mode")||
+    !railCropPreview||
+    !railCropPreviewPlayer
+  )return;
 
-  // INPUT = the already-cropped preview on the right. From this point onward
-  // opening/fit/resize follows the same geometry rule as PiP max.
+  // INPUT must be the CURRENT video's already-cropped player.
+  if(!ensureRailCropInputVideo()){
+    setTimeout(()=>{
+      if(!railPipOpen&&railPlayerVideoId(railCropPreviewPlayer)===requestedVideoId){
+        openRailCropPip();
+      }
+    },180);
+    return;
+  }
+
   railPipBaseGeometry=currentRailCroppedGeometry();
+  const media=handoffRailMediaToPip();
+  if(!media||media.videoId!==requestedVideoId){
+    railPipBaseGeometry=null;
+    handoffRailMediaBackToSource();
+    return;
+  }
+
+  railPipBaseGeometry={
+    ...railPipBaseGeometry,
+    videoId:media.videoId,
+    orientation:media.orientation,
+    mediaAspect:media.aspect,
+    title:media.title,
+    author:media.author
+  };
+
   railPipOpen=true;
   railCropPreview.classList.add("rail-pip-open");
 
@@ -1954,6 +2105,7 @@ function openRailCropPip(){
 function closeRailCropPip(){
   if(!railCropPreview)return;
 
+  if(railPipOpen)handoffRailMediaBackToSource();
   railPipOpen=false;
   railPipBaseGeometry=null;
   railPipPointerId=null;
@@ -1970,6 +2122,10 @@ function closeRailCropPip(){
   railCropPreview.style.width="";
   railCropPreview.style.height="";
   railCropPreview.style.aspectRatio="";
+  delete railCropPreview.dataset.pipVideoId;
+  delete railCropPreview.dataset.pipOrientation;
+  delete railCropPreview.dataset.pipAspect;
+  delete railCropPreview.dataset.pipCrop;
 
   if(stage.classList.contains("rail-mode")){
     const aspect=Math.max(
@@ -3355,7 +3511,7 @@ async function render(){
           }
           if(mode.railMode){
             refreshRailMediaAspect();
-            syncRailCropPreview(true);
+            if(!railPipOpen)syncRailCropPreview(true);
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
