@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.20";
+  const VERSION = "2026-09-28.21";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -285,17 +285,19 @@
       ? width
       : Math.min(width, height * (16 / 9));
 
-    // TOP chrome is a bounded UI cluster, not artwork. Its text/avatar sizes
-    // stay close to fixed CSS sizes even when the iframe becomes very wide.
-    // Use a small interpolation range so a logo drawn INSIDE the video can never
-    // make the estimated TOP grow with the media image.
-    const topT = clamp((uiSpan - 140) / 620, 0, 1);
-    const topPad = profile.top.padMin + topT*2;
-    const avatar = lerp(profile.top.avatarMin,profile.top.avatarMax,topT);
-    const title1 = lerp(profile.top.title1Min,profile.top.title1Max,topT);
-    const title2 = lerp(profile.top.title2Min,profile.top.title2Max,topT);
-    const channel = lerp(profile.top.channelMin,profile.top.channelMax,topT);
-    const topGap = lerp(profile.top.gapMin,profile.top.gapMax,topT);
+    // TOP is YouTube UI, not video artwork. Above compact sizes YouTube keeps
+    // the channel avatar/text close to fixed CSS dimensions instead of scaling
+    // with player width. This is especially important at mid-size PiP widths:
+    // interpolating from MIN->MAX made the channel avatar too small and leaked
+    // a crescent of the real avatar under the mask.
+    const compactT=clamp((uiSpan-175)/125,0,1);
+    const normalTop=uiSpan>=300;
+    const topPad=normalTop ? 8 : lerp(profile.top.padMin,8,compactT);
+    const avatar=normalTop ? 40 : lerp(profile.top.avatarMin,34,compactT);
+    const title1=normalTop ? 20 : lerp(profile.top.title1Min,19,compactT);
+    const title2=normalTop ? 36 : lerp(profile.top.title2Min,34,compactT);
+    const channel=normalTop ? 14 : lerp(profile.top.channelMin,13,compactT);
+    const topGap=normalTop ? 3 : lerp(profile.top.gapMin,3,compactT);
 
     // BOTTOM keeps its separate responsive scaling.
     const s = clamp(uiSpan / 520, .72, 1.28);
