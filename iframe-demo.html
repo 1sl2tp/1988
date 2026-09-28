@@ -583,7 +583,7 @@ let activeSeekPointer=null;
 const YT_CHROME_FALLBACK_MS=3800;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="content-viewport-calibration-v11";
+const CHROME_LIBRARY_PROFILE_REV="pixel-locked-library-v12";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -1343,12 +1343,13 @@ function paintGeometryReadout(result){
     : "OFF 0";
   const range=result.sampleRange||[0,0];
   const state=result.layoutState||{};
-  const physicalPipWidth=stage.classList.contains("demo-pip")
-    ? stage.getBoundingClientRect().width
-    : result.width;
+  const physicalRect=stage.classList.contains("demo-pip")
+    ? stage.getBoundingClientRect()
+    : {width:result.width,height:result.height};
   geometryReadout.textContent=
-    "PIP "+Math.round(physicalPipWidth)+
+    "PIP "+Math.round(physicalRect.width)+"×"+Math.round(physicalRect.height)+
     " · SAMPLE "+Math.round(result.width)+"×"+Math.round(result.height)+
+    " · Δ "+Math.round(physicalRect.width-result.width)+"/"+Math.round(physicalRect.height-result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · "+(currentChromeLibrary?"LIB":"LIVE")+
     " v"+String(currentChromeLibrary?.version||window.YouTubeChromeGeometry?.VERSION||"?")+
@@ -1428,21 +1429,26 @@ function clampPipPosition(left,top,width,height){
   };
 }
 function setPipRect(left,top,width,height){
-  const pos=clampPipPosition(left,top,width,height);
+  // The drag gives only a requested width. The Library sample is authoritative
+  // for ALL four geometric values: width, height, TOP and BOTTOM.
+  const result=currentChromeLibrary
+    ? syncPipAndLibrary(width)
+    : null;
 
-  // IMPORTANT: move Library geometry first. YouTube iframe reflows after the
-  // box changes, so the mask must already be at the target TOP/BOTTOM before
-  // the new PiP dimensions become visible.
-  if(currentChromeLibrary)syncPipAndLibrary(width);
+  const finalWidth=Math.max(1,Number(result?.width)||Number(width)||1);
+  const finalHeight=Math.max(1,Number(result?.height)||Number(height)||1);
+  const pos=clampPipPosition(left,top,finalWidth,finalHeight);
 
   stage.style.left=pos.left+"px";
   stage.style.top=pos.top+"px";
   stage.style.right="auto";
   stage.style.bottom="auto";
-  stage.style.width=width+"px";
-  stage.style.height=height+"px";
+  stage.style.width=finalWidth+"px";
+  stage.style.height=finalHeight+"px";
+  if(result)stage.style.aspectRatio=String(finalWidth/finalHeight);
 
-  // Verify after layout, but never use this delayed pass as the first update.
+  // Only verify that layout kept the exact Library dimensions. The delayed
+  // pass is never allowed to choose a different geometry.
   requestAnimationFrame(syncMeasuredSafeWindow);
   clearTimeout(geometrySettleTimer);
   geometrySettleTimer=setTimeout(syncMeasuredSafeWindow,120);
@@ -1452,10 +1458,14 @@ function beginPipPointer(e,mode,handle=""){
   const r=stage.getBoundingClientRect();
   pipPointerMode=mode;
   pipPointerId=e.pointerId;
+  const libraryAspect=Math.max(
+    .25,
+    Number(currentChromeLibrary?.contentAspect)||r.width/Math.max(1,r.height)
+  );
   pipPointerStart={
     x:e.clientX,y:e.clientY,
     left:r.left,top:r.top,width:r.width,height:r.height,
-    ratio:r.width/Math.max(1,r.height),
+    ratio:libraryAspect,
     handle
   };
   stage.classList.toggle("pip-dragging",mode==="drag");
