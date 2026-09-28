@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.10";
+  const VERSION = "2026-09-28.12";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -231,9 +231,12 @@
     const topGap = clamp(5 * s, 2, 7);
 
     const bottomPad = clamp(12 * s, 5, 16);
-    const linkH = clamp(35 * s, 24, 46);
-    const nextH = clamp(41 * s, 30, 54);
-    const youtubeH = clamp(32 * s, 22, 42);
+    const linkH = clamp(38 * s, 26, 48);
+    // "Video khác" is a full pill/card with thumbnail + background + padding.
+    // Its OUTER box is visibly taller than the text and taller than the old
+    // estimate, so model the whole card instead of the label height.
+    const nextH = clamp(52 * s, 36, 60);
+    const youtubeH = clamp(34 * s, 23, 44);
     const seekH = clamp(6 * s, 3, 8);
 
     return {
@@ -276,7 +279,7 @@
     // YouTube pills/cards can paint a tiny antialiased edge/shadow beyond their
     // nominal outer box. Keep a small visual bleed so no white rim peeks through.
     const topBleed = 2;
-    const bottomBleed = 4;
+    const bottomBleed = 2;
     const topChrome = topChromeRaw + topBleed;
     const bottomChrome = bottomChromeRaw + bottomBleed;
 
