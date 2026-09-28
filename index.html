@@ -897,25 +897,45 @@ html.one-col.portrait .player.pip{
 html.one-col .player.pip iframe{border-radius:inherit}
 
 /* PiP interaction in every 1-column layout (mobile + PC).
-   Top short bar = move. Bottom-left short bar = resize.
-   The resize hit zone is intentionally larger than the visible bar so the
-   user can grab anywhere around that corner without covering YouTube controls. */
+   Tap anywhere once to reveal the top move grip.
+   Resize has NO visible handle: drag from any edge. */
+.pip-activate-zone,
 .pip-move-zone,
-.pip-resize-zone{display:none}
+.pip-resize-edge{display:none}
+
+html.one-col .player.pip .pip-activate-zone{
+  display:block;
+  position:absolute;
+  z-index:7;
+  inset:0;
+  touch-action:manipulation;
+  background:transparent;
+}
+html.one-col .player.pip.pip-ui-visible .pip-activate-zone{
+  pointer-events:none;
+}
 
 html.one-col .player.pip .pip-move-zone{
   display:block;
   position:absolute;
-  z-index:8;
+  z-index:11;
   top:0;
   left:50%;
-  width:64px;
+  width:68px;
   height:32px;
   transform:translateX(-50%);
   touch-action:none;
   -webkit-user-select:none;
   user-select:none;
   cursor:grab;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity .12s ease;
+}
+html.one-col .player.pip.pip-ui-visible .pip-move-zone,
+html.one-col .player.pip.pip-gesture-active .pip-move-zone{
+  opacity:1;
+  pointer-events:auto;
 }
 html.one-col .player.pip .pip-move-zone:active{cursor:grabbing}
 html.one-col .player.pip .pip-move-zone::after{
@@ -932,30 +952,37 @@ html.one-col .player.pip .pip-move-zone::after{
   pointer-events:none;
 }
 
-html.one-col .player.pip .pip-resize-zone{
+/* Invisible edge resize hit-zones. No corner icon, no text. */
+html.one-col .player.pip .pip-resize-edge{
   display:block;
   position:absolute;
-  z-index:9;
-  left:0;
-  bottom:0;
-  width:56px;
-  height:56px;
+  z-index:10;
   touch-action:none;
   -webkit-user-select:none;
   user-select:none;
-  cursor:nesw-resize;
+  background:transparent;
 }
-html.one-col .player.pip .pip-resize-zone::after{
-  content:"";
-  position:absolute;
-  left:8px;
-  bottom:8px;
-  width:24px;
-  height:4px;
-  border-radius:999px;
-  background:rgba(255,255,255,.94);
-  box-shadow:0 1px 3px rgba(0,0,0,.45);
-  pointer-events:none;
+html.one-col .player.pip .pip-resize-left{
+  left:0; top:14px; bottom:14px; width:18px;
+  cursor:ew-resize;
+}
+html.one-col .player.pip .pip-resize-right{
+  right:0; top:14px; bottom:14px; width:18px;
+  cursor:ew-resize;
+}
+html.one-col .player.pip .pip-resize-top{
+  left:14px; right:14px; top:0; height:18px;
+  cursor:ns-resize;
+}
+html.one-col .player.pip .pip-resize-bottom{
+  left:14px; right:14px; bottom:0; height:18px;
+  cursor:ns-resize;
+}
+
+/* The center of the top edge belongs to MOVE, not resize. */
+html.one-col .player.pip.pip-ui-visible .pip-resize-top{
+  clip-path:polygon(0 0,calc(50% - 38px) 0,calc(50% - 38px) 100%,0 100%,0 0,
+                    100% 0,100% 100%,calc(50% + 38px) 100%,calc(50% + 38px) 0,100% 0);
 }
 
 /* 2 COLUMNS */
@@ -1522,8 +1549,12 @@ html.one-col.portrait .player.pip{
     <section class="stage" id="stage">
       <div class="player" id="player">
         <div id="videoFrame"></div>
+        <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
         <div class="pip-move-zone" id="pipMoveZone" aria-hidden="true"></div>
-        <div class="pip-resize-zone" id="pipResizeZone" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-left" data-pip-edge="left" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-right" data-pip-edge="right" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-top" data-pip-edge="top" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-bottom" data-pip-edge="bottom" aria-hidden="true"></div>
       </div>
     </section>
     <div class="info" id="videoInfo">
@@ -1567,8 +1598,9 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const pipActivateZone=document.getElementById("pipActivateZone");
   const pipMoveZone=document.getElementById("pipMoveZone");
-  const pipResizeZone=document.getElementById("pipResizeZone");
+  const pipResizeEdges=[...document.querySelectorAll("[data-pip-edge]")];
   const stateEl=document.getElementById("state");
   const titleEl=document.getElementById("videoTitle");
   const videoAvatarSlot=document.getElementById("videoAvatarSlot");
@@ -1597,6 +1629,7 @@ html.one-col.portrait .player.pip{
   let pip=false;
   let raf=0;
   let pipGesture=null;
+  let pipUiTimer=0;
   let metaRequest=0;
   let currentMeta=null;
   let feedMetas=[];
@@ -3564,9 +3597,28 @@ html.one-col.portrait .player.pip{
       renderCurrentInfo();
     }
   }
+  function clearPipUiTimer(){
+    if(!pipUiTimer)return;
+    clearTimeout(pipUiTimer);
+    pipUiTimer=0;
+  }
+
+  function showPipUi(duration=1800){
+    if(!pip||isTwoColumn())return;
+    clearPipUiTimer();
+    player.classList.add("pip-ui-visible");
+    if(duration>0){
+      pipUiTimer=setTimeout(()=>{
+        pipUiTimer=0;
+        if(!pipGesture)player.classList.remove("pip-ui-visible");
+      },duration);
+    }
+  }
+
   function clearMobilePipGestureGeometry(){
+    clearPipUiTimer();
     pipGesture=null;
-    player.classList.remove("pip-gesture-active");
+    player.classList.remove("pip-ui-visible","pip-gesture-active");
     for(const prop of ["left","right","top","bottom","width","height"]){
       player.style.removeProperty(prop);
     }
@@ -3606,7 +3658,7 @@ html.one-col.portrait .player.pip{
     player.style.setProperty("height",Math.round(height)+"px","important");
   }
 
-  function beginMobilePipGesture(event,mode){
+  function beginMobilePipGesture(event,mode,edge=""){
     if(!pip||isTwoColumn())return;
     const rect=player.getBoundingClientRect();
     if(rect.width<1||rect.height<1)return;
@@ -3618,6 +3670,7 @@ html.one-col.portrait .player.pip{
 
     pipGesture={
       mode,
+      edge,
       pointerId:event.pointerId,
       startX:event.clientX,
       startY:event.clientY,
@@ -3626,9 +3679,11 @@ html.one-col.portrait .player.pip{
       width:rect.width,
       height:rect.height,
       right:rect.right,
+      bottom:rect.bottom,
       ratio
     };
 
+    showPipUi(0);
     player.classList.add("pip-gesture-active");
     try{event.currentTarget.setPointerCapture(event.pointerId)}catch{}
     event.preventDefault();
@@ -3643,12 +3698,7 @@ html.one-col.portrait .player.pip{
     const dy=event.clientY-g.startY;
 
     if(g.mode==="move"){
-      setMobilePipRect(
-        g.left+dx,
-        g.top+dy,
-        g.width,
-        g.height
-      );
+      setMobilePipRect(g.left+dx,g.top+dy,g.width,g.height);
       event.preventDefault();
       return;
     }
@@ -3657,24 +3707,26 @@ html.one-col.portrait .player.pip{
     const minW=mobilePipMinWidth(ratio);
     const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
     const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
-    const maxByWidth=Math.max(minW,viewportW-20);
-    const maxByHeight=Math.max(minW,(viewportH-g.top-10)*ratio);
-    const maxW=Math.max(minW,Math.min(maxByWidth,maxByHeight));
 
-    // Bottom-left resize zone accepts any drag direction; the dominant axis
-    // chooses the requested size while preserving the real media aspect.
-    let nextW;
-    if(Math.abs(dx)>=Math.abs(dy)){
-      nextW=g.width-dx;
-    }else{
-      nextW=(g.height+dy)*ratio;
-    }
+    let nextW=g.width;
+    if(g.edge==="left") nextW=g.width-dx;
+    else if(g.edge==="right") nextW=g.width+dx;
+    else if(g.edge==="top") nextW=(g.height-dy)*ratio;
+    else if(g.edge==="bottom") nextW=(g.height+dy)*ratio;
+
+    const maxW=Math.max(
+      minW,
+      Math.min(viewportW-20,(viewportH-18)*ratio)
+    );
     nextW=Math.max(minW,Math.min(maxW,nextW));
     const nextH=nextW/ratio;
 
-    // Keep the original right/top edges fixed while resizing from bottom-left.
-    const nextLeft=g.right-nextW;
-    setMobilePipRect(nextLeft,g.top,nextW,nextH);
+    let nextLeft=g.left;
+    let nextTop=g.top;
+    if(g.edge==="left") nextLeft=g.right-nextW;
+    if(g.edge==="top") nextTop=g.bottom-nextH;
+
+    setMobilePipRect(nextLeft,nextTop,nextW,nextH);
     event.preventDefault();
   }
 
@@ -3684,17 +3736,29 @@ html.one-col.portrait .player.pip{
     try{event.currentTarget.releasePointerCapture(event.pointerId)}catch{}
     pipGesture=null;
     player.classList.remove("pip-gesture-active");
+    showPipUi(1200);
     event.preventDefault();
     event.stopPropagation();
   }
 
-  pipResizeZone?.addEventListener("pointerdown",event=>{
-    beginMobilePipGesture(event,"resize");
+  pipActivateZone?.addEventListener("pointerdown",event=>{
+    if(!pip||isTwoColumn())return;
+    showPipUi(1800);
+    event.preventDefault();
+    event.stopPropagation();
   });
+
   pipMoveZone?.addEventListener("pointerdown",event=>{
     beginMobilePipGesture(event,"move");
   });
-  for(const zone of [pipResizeZone,pipMoveZone]){
+
+  for(const edge of pipResizeEdges){
+    edge.addEventListener("pointerdown",event=>{
+      beginMobilePipGesture(event,"resize",edge.dataset.pipEdge||"");
+    });
+  }
+
+  for(const zone of [pipMoveZone,...pipResizeEdges]){
     zone?.addEventListener("pointermove",updateMobilePipGesture,{passive:false});
     zone?.addEventListener("pointerup",endMobilePipGesture,{passive:false});
     zone?.addEventListener("pointercancel",endMobilePipGesture,{passive:false});
