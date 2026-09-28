@@ -63,7 +63,7 @@
        real center, and temporarily reveal only a measured center window while
        YouTube title / lower chrome are expected to be visible. */
     .stage.demo-pip.max-clean-mode{
-      --safe-edge:clamp(34px,24%,48px);
+      --safe-edge:36px;
       --pip-poster:none;
       isolation:isolate;
       background:#000;
@@ -417,10 +417,28 @@ function seekAtClientX(clientX,seek){
   setChromeMask(true);
   showCleanControls();
 }
+function syncMeasuredSafeWindow(){
+  if(!stage.classList.contains("max-clean-mode"))return;
+  const rect=stage.getBoundingClientRect();
+  const h=Math.max(1,rect.height);
+
+  // YouTube's native play/pause is centered in the player. Keep a symmetric
+  // center window so that control never shifts visually. The visible middle
+  // is derived from the real PiP height instead of a hard-coded pixel crop.
+  //
+  // Current calibration from the real YouTube chrome in this proof:
+  // keep ~52% of the player height visible while chrome is active.
+  const visibleRatio=0.52;
+  const visibleH=Math.max(56,h*visibleRatio);
+  const safeEdge=Math.max(0,(h-visibleH)/2);
+
+  stage.style.setProperty("--safe-edge",safeEdge.toFixed(2)+"px");
+}
 function setChromeMask(on){
+  if(on)syncMeasuredSafeWindow();
   stage.classList.toggle("chrome-mask",!!on);
 }
-function scheduleChromeRelease(delay=3000){
+function scheduleChromeRelease(delay=3200){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
   chromeMaskTimer=setTimeout(()=>{
@@ -481,8 +499,11 @@ function enterDemoPip(){
   stopCleanHideTimer();
   stopChromeMaskTimer();
   if(stage.classList.contains("max-clean-mode")){
-    setChromeMask(true);
-    scheduleChromeRelease(3000);
+    requestAnimationFrame(()=>{
+      syncMeasuredSafeWindow();
+      setChromeMask(true);
+      scheduleChromeRelease(3200);
+    });
   }
 }
 function toggleDemoPip(){
@@ -591,7 +612,7 @@ async function render(){
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           if(event?.data===1){
             setChromeMask(true);
-            scheduleChromeRelease(3000);
+            scheduleChromeRelease(3200);
           }else{
             stopChromeMaskTimer();
             setChromeMask(true);
@@ -643,7 +664,7 @@ function finishSeek(e){
     try{seek.releasePointerCapture(e.pointerId)}catch{}
   }
   activeSeekPointer=null;
-  scheduleChromeRelease(3000);
+  scheduleChromeRelease(3200);
 }
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
@@ -665,7 +686,12 @@ stage.addEventListener("click",e=>{
 });
 document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
-window.addEventListener("resize",syncAutoDemoPip,{passive:true});
+window.addEventListener("resize",()=>{
+  syncAutoDemoPip();
+  if(stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")){
+    syncMeasuredSafeWindow();
+  }
+},{passive:true});
 input.addEventListener("keydown",e=>{if(e.key==="Enter")render();});
 const urlId=new URL(location.href).searchParams.get("v");
 if(urlId)input.value=cleanId(urlId);
