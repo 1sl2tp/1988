@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.12";
+  const VERSION = "2026-09-28.13";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -368,6 +368,77 @@
     };
   }
 
+  function buildMediaLibrary(options = {}) {
+    const videoId = String(options.videoId || "");
+    const title = String(options.title || "");
+    const aspect = clamp(Number(options.aspect) || (16/9), .25, 4);
+    const minWidth = Math.max(96, Math.round(Number(options.minWidth) || 140));
+    const maxWidth = Math.max(minWidth, Math.round(Number(options.maxWidth) || 760));
+    const step = Math.max(1, Math.round(Number(options.step) || 2));
+    const controls = options.controls !== false;
+    const samples = [];
+
+    for (let w = minWidth; w <= maxWidth; w += step) {
+      const h = w / aspect;
+      const result = measure(
+        { width:w, height:h },
+        { title, controls, orientation:options.orientation }
+      );
+      samples.push(result);
+    }
+    if (!samples.length || samples[samples.length - 1].width !== maxWidth) {
+      const h = maxWidth / aspect;
+      samples.push(measure(
+        { width:maxWidth, height:h },
+        { title, controls, orientation:options.orientation }
+      ));
+    }
+
+    return {
+      version: VERSION,
+      videoId,
+      title,
+      aspect,
+      minWidth,
+      maxWidth,
+      step,
+      controls,
+      createdAt: Date.now(),
+      samples
+    };
+  }
+
+  function lookupMediaLibrary(library, width) {
+    if (!library || !Array.isArray(library.samples) || !library.samples.length) return null;
+    const w = clamp(Number(width) || library.minWidth, library.minWidth, library.maxWidth);
+    const index = clamp(
+      Math.round((w - library.minWidth) / Math.max(1, library.step)),
+      0,
+      library.samples.length - 1
+    );
+    return library.samples[index] || library.samples[library.samples.length - 1];
+  }
+
+  function applyMediaLibrary(element, library) {
+    if (!element || !library) return null;
+    const rect = element.getBoundingClientRect();
+    const result = lookupMediaLibrary(library, rect.width);
+    if (!result) return null;
+
+    element.style.setProperty("--yt-top-inset", result.topInset.toFixed(2) + "px");
+    element.style.setProperty("--yt-bottom-inset", result.bottomInset.toFixed(2) + "px");
+    element.style.setProperty("--yt-play-x", result.playCenter.x.toFixed(2) + "px");
+    element.style.setProperty("--yt-play-y", result.playCenter.y.toFixed(2) + "px");
+    element.style.setProperty("--yt-play-safe", result.playSafety.toFixed(2) + "px");
+    element.dataset.ytChromeOrientation = result.orientation;
+    element.dataset.ytTitleLines = String(result.titleLines);
+    element.dataset.ytChromeLayout = result.layoutState.id;
+    element.dataset.ytChromeTier = result.layoutState.tier;
+    element.dataset.ytChromeDensity = result.layoutState.density;
+    element.dataset.ytChromeCollision = result.collisionMode ? "1" : "0";
+    return result;
+  }
+
   function apply(element, options = {}) {
     if (!element) return null;
     const rect = element.getBoundingClientRect();
@@ -408,6 +479,9 @@
     resolveLayoutState,
     dynamicSample,
     measure,
+    buildMediaLibrary,
+    lookupMediaLibrary,
+    applyMediaLibrary,
     apply,
     observe
   });
