@@ -655,6 +655,28 @@
       clip-path:none!important;
     }
     .stage.rail-mode.rail-pip-crop .pip-resize-handle{display:none!important}
+    .stage.rail-mode.rail-pip-crop .pip-resize-handle.se{
+      display:block!important;
+      z-index:9;
+      right:-1px;
+      bottom:-1px;
+      width:24px;
+      height:24px;
+      cursor:nwse-resize;
+      pointer-events:auto;
+      touch-action:none;
+    }
+    .stage.rail-mode.rail-pip-crop .pip-resize-handle.se::before{
+      content:"";
+      position:absolute;
+      right:5px;
+      bottom:5px;
+      width:10px;
+      height:10px;
+      border-right:2px solid rgba(255,255,255,.86);
+      border-bottom:2px solid rgba(255,255,255,.86);
+      filter:drop-shadow(0 1px 2px #000);
+    }
     .stage.rail-mode.rail-workbench .pip-resize-handle{display:none}
     .stage.rail-mode.rail-workbench .pip-resize-handle.se{
       display:block;
@@ -847,7 +869,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench dùng khung đen để đẩy chrome YouTube khỏi hình. Khi mở PiP crop, chỉ lát cắt HÌNH + TUA được hiển thị; phần đen trên/dưới cùng title/logo/link bị bỏ ngoài viewport.",
+    desc:"Workbench dùng khung đen để đẩy chrome YouTube khỏi hình. PiP luôn crop đúng từ mép trên video tới mép dưới video; resize chỉ scale source + hai mép crop cùng nhau.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1587,69 +1609,81 @@ function railCropPreset(){
   const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentRailLibrary?.contentAspect)||16/9);
   return aspect<1?RAIL_CROP_PRESETS.portrait:RAIL_CROP_PRESETS.landscape;
 }
-function applyRailCropPreset(){
+function railCropGeometryForWidth(width){
   const preset=railCropPreset();
+  const scale=Math.max(.25,Number(width)||preset.width)/preset.width;
 
-  railBlackPerSide=preset.blackTop;
-  railWorkbenchWidth=preset.width;
+  const baseVideoHeight=preset.width/preset.aspect;
+  const baseSourceHeight=baseVideoHeight+preset.blackTop+preset.blackBottom;
 
-  const layout=railLayoutForWidth(preset.width,preset.aspect);
-  layout.topHeight=preset.blackTop;
-  layout.bottomHeight=preset.blackBottom;
-  layout.blackBar=preset.blackTop;
-  layout.videoHeight=preset.width/preset.aspect;
-  layout.height=layout.videoHeight+preset.blackTop+preset.blackBottom;
+  // Crop is defined ONLY by the two video edges.
+  const videoTop=preset.blackTop*scale;
+  const videoHeight=baseVideoHeight*scale;
+  const videoBottom=videoTop+videoHeight;
+
+  return {
+    preset,
+    scale,
+    sourceWidth:preset.width*scale,
+    sourceHeight:baseSourceHeight*scale,
+    videoTop,
+    videoBottom,
+    videoHeight,
+    cropWidth:preset.width*scale,
+    cropHeight:videoHeight
+  };
+}
+function applyRailCropGeometry(width){
+  const g=railCropGeometryForWidth(width);
+
+  stage.style.setProperty("--rail-source-width",g.sourceWidth+"px");
+  stage.style.setProperty("--rail-source-height",g.sourceHeight+"px");
+  stage.style.setProperty("--rail-crop-top",g.videoTop+"px");
+
+  stage.style.width=g.cropWidth+"px";
+  stage.style.height=g.cropHeight+"px";
+  stage.style.aspectRatio=String(g.preset.aspect);
 
   currentRailLibrary={
     ...(currentRailLibrary||{}),
-    type:"native-frame-workbench",
+    type:"native-frame-crop",
     videoId:requestedVideoId,
-    contentAspect:preset.aspect,
-    orientation:preset.aspect<1?"portrait":"landscape",
-    currentWidth:preset.width,
-    currentHeight:layout.height,
-    videoHeight:layout.videoHeight,
-    blackTop:preset.blackTop,
-    blackBottom:preset.blackBottom,
-    blackBar:preset.blackTop,
-    cropHeight:layout.videoHeight
+    contentAspect:g.preset.aspect,
+    orientation:g.preset.aspect<1?"portrait":"landscape",
+    sourceWidth:g.sourceWidth,
+    sourceHeight:g.sourceHeight,
+    videoTop:g.videoTop,
+    videoBottom:g.videoBottom,
+    cropWidth:g.cropWidth,
+    cropHeight:g.cropHeight,
+    cropScale:g.scale
   };
 
-  if(railLiveRange)railLiveRange.value=String(preset.width);
-  if(railBlackRange)railBlackRange.value=String(preset.blackTop);
-  if(railBlackValue)railBlackValue.textContent=preset.blackTop+" + "+preset.blackBottom;
-
-  stage.style.setProperty("--rail-source-width",preset.width+"px");
-  stage.style.setProperty("--rail-source-height",layout.height+"px");
-  stage.style.setProperty("--rail-crop-top",preset.blackTop+"px");
-
-  return {preset,layout};
+  return g;
 }
 function openRailCropPip(){
   if(!stage.classList.contains("rail-mode"))return;
 
-  const {preset,layout}=applyRailCropPreset();
+  const preset=railCropPreset();
+
+  // Use the two locked source standards only to build the source frame.
+  // The visible crop is always bounded by videoTop/videoBottom.
+  railBlackPerSide=preset.blackTop;
+  railWorkbenchWidth=preset.width;
   railCropPipOpen=true;
 
   stage.classList.remove("rail-workbench");
   stage.classList.add("rail-pip-crop");
 
-  // Visible PiP = only the media slice. The iframe itself keeps the full
-  // source frame, shifted upward by BLACK TOP. BLACK BOTTOM falls below
-  // the crop viewport, so title/source/YouTube chrome in the black rails
-  // are simply outside the visible PiP.
-  stage.style.width=preset.width+"px";
-  stage.style.height=layout.videoHeight+"px";
-  stage.style.aspectRatio=String(preset.aspect);
+  const g=applyRailCropGeometry(preset.width);
 
   if(railCropPipToggle)railCropPipToggle.textContent="Trả về Library";
   if(railLibraryReadout){
     railLibraryReadout.textContent=
       "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
-      " · SOURCE "+preset.width+"×"+Math.round(layout.height)+
-      " · CROP "+preset.width+"×"+Math.round(layout.videoHeight)+
-      " · BỎ TOP "+preset.blackTop+
-      " · BỎ BOTTOM "+preset.blackBottom+
+      " · SOURCE "+Math.round(g.sourceWidth)+"×"+Math.round(g.sourceHeight)+
+      " · VIDEO EDGE "+Math.round(g.videoTop)+" → "+Math.round(g.videoBottom)+
+      " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight)+
       " · GIỮ HÌNH + TUA";
   }
 }
@@ -2319,6 +2353,7 @@ function clampPipPosition(left,top,width,height){
 }
 function setPipRect(left,top,width,height){
   if(stage.classList.contains("rail-mode")){
+    if(stage.classList.contains("rail-pip-crop"))return applyRailCropGeometry(width);
     return applyRailLayout(width,{workbench:true});
   }
 
@@ -2350,12 +2385,15 @@ function beginPipPointer(e,mode,handle=""){
   const railWorkbench=
     stage.classList.contains("rail-mode")&&
     stage.classList.contains("rail-workbench");
+  const railCrop=
+    stage.classList.contains("rail-mode")&&
+    stage.classList.contains("rail-pip-crop");
   const floatingPip=
     stage.classList.contains("demo-pip")&&
     stage.classList.contains("max-clean-mode");
 
-  if(!railWorkbench&&!floatingPip)return;
-  if(railWorkbench&&mode!=="resize")return;
+  if(!railWorkbench&&!railCrop&&!floatingPip)return;
+  if((railWorkbench||railCrop)&&mode!=="resize")return;
   if(floatingPip)touchChromeCover(mode==="resize"?"resize":"drag");
 
   const r=stage.getBoundingClientRect();
@@ -2386,6 +2424,27 @@ function updatePipPointer(e){
   const s=pipPointerStart;
   const dx=e.clientX-s.x;
   const dy=e.clientY-s.y;
+
+  if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-pip-crop")){
+    const preset=railCropPreset();
+    const vv=window.visualViewport;
+    const maxW=Math.max(
+      preset.width*.6,
+      Math.min(760,(vv?.width||window.innerWidth||760)-20)
+    );
+    const minW=Math.max(96,preset.width*.55);
+    const width=Math.max(minW,Math.min(maxW,s.width+dx));
+    const g=applyRailCropGeometry(width);
+
+    if(railLibraryReadout){
+      railLibraryReadout.textContent=
+        "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
+        " · VIDEO EDGE "+Math.round(g.videoTop)+" → "+Math.round(g.videoBottom)+
+        " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight)+
+        " · SCALE "+g.scale.toFixed(2);
+    }
+    return true;
+  }
 
   if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-workbench")){
     const bounds=railWidthBounds(verifiedMediaAspect||currentRailLibrary?.contentAspect||16/9);
@@ -2435,6 +2494,9 @@ function endPipPointer(e){
   pipPointerId=null;
   pipPointerStart=null;
   stage.classList.remove("pip-dragging","pip-resizing");
+  if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-pip-crop")){
+    return true;
+  }
   if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-workbench")){
     paintRailLibrary(railLayoutForWidth(railWorkbenchWidth,verifiedMediaAspect||currentRailLibrary?.contentAspect||16/9));
     return true;
