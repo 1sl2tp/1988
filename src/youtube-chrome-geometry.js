@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.24";
+  const VERSION = "2026-09-28.25";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -628,6 +628,76 @@
     };
   }
 
+  function applyManualCalibration(library, points = []) {
+    if(!library||!Array.isArray(library.samples)||!library.samples.length)return library;
+    const clean=(Array.isArray(points)?points:[])
+      .map(p=>({
+        width:Number(p.width),
+        topInset:Number(p.topInset),
+        bottomInset:Number(p.bottomInset)
+      }))
+      .filter(p=>Number.isFinite(p.width)&&Number.isFinite(p.topInset)&&Number.isFinite(p.bottomInset))
+      .sort((a,b)=>a.width-b.width);
+    if(!clean.length)return library;
+
+    const baseLookup=(width)=>{
+      const w=clamp(Number(width)||library.minWidth,library.minWidth,library.maxWidth);
+      const index=clamp(
+        Math.round((w-library.minWidth)/Math.max(1,library.step)),
+        0,
+        library.samples.length-1
+      );
+      return library.samples[index]||library.samples[library.samples.length-1];
+    };
+
+    const deltas=clean.map(p=>{
+      const base=baseLookup(p.width);
+      return {
+        width:p.width,
+        top:p.topInset-(Number(base?.topInset)||0),
+        bottom:p.bottomInset-(Number(base?.bottomInset)||0)
+      };
+    });
+
+    const deltaAt=(width,key)=>{
+      if(deltas.length===1)return deltas[0][key];
+      if(width<=deltas[0].width)return deltas[0][key];
+      const last=deltas[deltas.length-1];
+      if(width>=last.width)return last[key];
+      for(let i=0;i<deltas.length-1;i+=1){
+        const a=deltas[i],b=deltas[i+1];
+        if(width<a.width||width>b.width)continue;
+        const t=(width-a.width)/Math.max(1,b.width-a.width);
+        return lerp(a[key],b[key],t);
+      }
+      return 0;
+    };
+
+    const samples=library.samples.map(sample=>{
+      const topInset=Math.max(0,(Number(sample.topInset)||0)+deltaAt(sample.width,"top"));
+      const bottomInset=Math.max(0,(Number(sample.bottomInset)||0)+deltaAt(sample.width,"bottom"));
+      return {
+        ...sample,
+        topInset,
+        bottomInset,
+        manualCalibration:true,
+        safeEdge:Math.max(topInset,bottomInset),
+        safeWindow:{
+          x:0,
+          y:topInset,
+          width:sample.width,
+          height:Math.max(0,sample.height-topInset-bottomInset)
+        }
+      };
+    });
+
+    return {
+      ...library,
+      manualCalibrationPoints:clean,
+      samples
+    };
+  }
+
   function lookupMediaLibrary(library, width) {
     if (!library || !Array.isArray(library.samples) || !library.samples.length) return null;
     const w = clamp(Number(width) || library.minWidth, library.minWidth, library.maxWidth);
@@ -698,6 +768,7 @@
     normalizeViewportTrim,
     transformMeasurementToViewport,
     buildMediaLibrary,
+    applyManualCalibration,
     lookupMediaLibrary,
     applyMediaLibrary,
     apply,
