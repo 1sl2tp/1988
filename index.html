@@ -1927,6 +1927,8 @@ html.one-col.portrait .player.pip{
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
+  const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
+  const SOURCE_ADMIN_PIN="8881";
   const sourceUiChannel=typeof BroadcastChannel==="function"
     ?new BroadcastChannel("1988-source-ui-v1")
     :null;
@@ -1978,7 +1980,6 @@ html.one-col.portrait .player.pip{
   let feedMode="package";
   let activePackageScope="live";
   let sourceStateRemote={};
-  let sourceAdminPin="";
   let openRowMenuMeta=null;
   let openRowMenuAnchor=null;
   const AUTOPLAY_NEXT_KEY="yt1988-autoplay-next-v1";
@@ -3821,6 +3822,14 @@ html.one-col.portrait .player.pip{
     images.forEach(img=>youtubeThumbQualityObserver.observe(img));
   }
 
+  function hasSourceAdminAccess(){
+    try{
+      return localStorage.getItem(SOURCE_ADMIN_AUTH_KEY)==="1";
+    }catch{
+      return false;
+    }
+  }
+
   function validSourceId(value=""){
     const id=String(value||"").trim();
     return /^UC[A-Za-z0-9_-]+$/.test(id)?id:"";
@@ -3935,11 +3944,17 @@ html.one-col.portrait .player.pip{
     const selectLabel=status==="selected"?"Bỏ chọn kênh":"Chọn kênh này";
     const blockLabel=status==="blocked"?"Bỏ chặn kênh":"Không đề xuất kênh này";
 
+    const adminActions=hasSourceAdminAccess()
+      ?(
+        rowActionButton("select-source",selectLabel,"select",{disabled:!sourceId})+
+        rowActionButton("block-source",blockLabel,"block",{disabled:!sourceId})
+      )
+      :"";
+
     menu.innerHTML=
       '<div class="row-action-title">'+escapeHtml(meta?.sourceName||meta?.title||"Video")+'</div>'+
       rowActionButton("view-channel","Xem kênh","channel",{disabled:!sourceId})+
-      rowActionButton("select-source",selectLabel,"select",{disabled:!sourceId})+
-      rowActionButton("block-source",blockLabel,"block",{disabled:!sourceId})+
+      adminActions+
       '<div class="row-action-sep"></div>'+
       rowActionButton("download","Tải xuống","download");
 
@@ -3998,20 +4013,11 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  async function sourceAdminPinForWrite(){
-    if(sourceAdminPin)return sourceAdminPin;
-    const entered=window.prompt("Mã quản trị để cập nhật nguồn");
-    if(!entered)return "";
-    sourceAdminPin=String(entered).trim();
-    return sourceAdminPin;
-  }
-
   async function writeCardSourceStatus(meta,status,scope){
     const sourceId=validSourceId(meta?.sourceId);
     scope=String(scope||"").trim();
-    if(!sourceId||!scope)return false;
-    const pin=await sourceAdminPinForWrite();
-    if(!pin)return false;
+    if(!sourceId||!scope||!hasSourceAdminAccess())return false;
+    const pin=SOURCE_ADMIN_PIN;
 
     const previous=directSourceStatus(sourceId,scope);
     patchLocalSourceStatus(sourceId,status,scope);
@@ -4049,9 +4055,10 @@ html.one-col.portrait .player.pip{
         })
       });
       if(response.status===401){
-        sourceAdminPin="";
+        try{localStorage.removeItem(SOURCE_ADMIN_AUTH_KEY)}catch{}
         patchLocalSourceStatus(sourceId,previous,scope);
-        window.alert("Mã quản trị chưa đúng.");
+        closeRowActionMenu();
+        window.alert("Phiên quản trị không còn hợp lệ.");
         return false;
       }
       if(!response.ok){
@@ -5596,6 +5603,10 @@ html.one-col.portrait .player.pip{
     }
     if(event.key===SOURCE_UI_EVENT_KEY&&event.newValue){
       try{applySourceUiEvent(JSON.parse(event.newValue))}catch{}
+      return;
+    }
+    if(event.key===SOURCE_ADMIN_AUTH_KEY){
+      closeRowActionMenu();
     }
   });
 
