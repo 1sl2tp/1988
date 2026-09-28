@@ -38,7 +38,7 @@ if(simpleProduction){
   assert.match(html,/function fetchServerAspects\(/);
   assert.match(html,/function primeMediaAspects\(/);
   assert.match(html,/never fan out video-meta resolves/);
-  assert.match(html,/loading=["']lazy["']/);
+  assert.match(html,/index<4\?["']eager["']:["']lazy["']/);
   assert.match(html,/decoding=["']async["']/);
   assert.match(html,/new IntersectionObserver\(/);
   assert.match(html,/packagePrefetchQueue/);
