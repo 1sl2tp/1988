@@ -240,27 +240,11 @@
     .stage.demo-pip.max-clean-mode{
       --yt-top-inset:48px;
       --yt-bottom-inset:26px;
-      --pip-poster:none;
+      --yt-safe-top:48px;
+      --yt-safe-bottom:calc(100% - 26px);
       isolation:isolate;
       background:#000;
     }
-    .stage.demo-pip.max-clean-mode::before{
-      content:"";
-      position:absolute;
-      inset:-6px;
-      z-index:0;
-      background-image:
-        linear-gradient(rgba(0,0,0,.20),rgba(0,0,0,.20)),
-        var(--pip-poster);
-      background-size:cover;
-      background-position:center;
-      filter:blur(8px) saturate(.86) brightness(.74);
-      transform:scale(1.08);
-      opacity:0;
-      transition:opacity .22s ease;
-      pointer-events:none;
-    }
-    .stage.demo-pip.max-clean-mode.chrome-mask::before{opacity:1}
     .stage.demo-pip.max-clean-mode iframe{
       pointer-events:auto!important;
       transform:none!important;
@@ -286,21 +270,26 @@
       position:absolute;
       left:0;
       right:0;
-      z-index:0;
+      z-index:1;
       pointer-events:auto;
-      background:rgba(0,0,0,.16);
-      backdrop-filter:blur(10px) saturate(.88) brightness(.78);
-      -webkit-backdrop-filter:blur(10px) saturate(.88) brightness(.78);
+      overflow:hidden;
+      contain:paint;
+      clip-path:inset(0);
+      background:rgba(0,0,0,.14);
+      backdrop-filter:blur(9px) saturate(.9) brightness(.8);
+      -webkit-backdrop-filter:blur(9px) saturate(.9) brightness(.8);
       touch-action:none;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask .pip-mask-shield{display:block}
     .pip-mask-shield.top{
       top:0;
-      height:var(--yt-top-inset);
+      bottom:calc(100% - var(--yt-safe-top));
+      height:auto;
     }
     .pip-mask-shield.bottom{
+      top:var(--yt-safe-bottom);
       bottom:0;
-      height:var(--yt-bottom-inset);
+      height:auto;
     }
     .stage.demo-pip.max-clean-mode{
       --pip-control-size:30px;
@@ -328,8 +317,9 @@
       z-index:2;
       left:0;
       right:0;
+      top:var(--yt-safe-bottom);
       bottom:0;
-      height:var(--yt-bottom-inset);
+      height:auto;
       padding:0 10px;
       align-items:center;
       pointer-events:auto;
@@ -1232,8 +1222,19 @@ function libraryResultForWidth(width){
 }
 function applyLibraryResultToStage(result){
   if(!result)return null;
-  stage.style.setProperty("--yt-top-inset",result.topInset.toFixed(2)+"px");
-  stage.style.setProperty("--yt-bottom-inset",result.bottomInset.toFixed(2)+"px");
+
+  const top=Math.max(0,Number(result.topInset)||0);
+  const bottom=Math.max(0,Number(result.bottomInset)||0);
+  const height=Math.max(1,Number(result.height)||stage.getBoundingClientRect().height||1);
+  const safeTop=Math.min(height,top);
+  const safeBottom=Math.max(0,Math.min(height,height-bottom));
+
+  stage.style.setProperty("--yt-top-inset",top.toFixed(2)+"px");
+  stage.style.setProperty("--yt-bottom-inset",bottom.toFixed(2)+"px");
+  stage.style.setProperty("--yt-safe-top",safeTop.toFixed(2)+"px");
+  stage.style.setProperty("--yt-safe-bottom",safeBottom.toFixed(2)+"px");
+  stage.dataset.ytSafeTop=safeTop.toFixed(2);
+  stage.dataset.ytSafeBottom=safeBottom.toFixed(2);
   stage.dataset.ytChromeOrientation=result.orientation||"";
   stage.dataset.ytTitleLines=String(result.titleLines||1);
   stage.dataset.ytChromeLayout=result.layoutState?.id||"direct";
@@ -1394,6 +1395,8 @@ function paintGeometryReadout(result){
       Math.round(result.viewportTrim?.bottomPx||0)+"/"+
       Math.round(result.viewportTrim?.leftPx||0)+
       " "+(result.viewportTrim?.source||"none")+
+    " · SAFE "+Math.round(Number(stage.dataset.ytSafeTop)||result.topInset)+
+      "→"+Math.round(Number(stage.dataset.ytSafeBottom)||(result.height-result.bottomInset))+
     " · GAP "+Math.round(result.signedGap??result.safeWindow.height)+
     (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"")+
     " · LINK "+(stage.classList.contains("demo-pip")?"PIP=LIB":"LIB")+
@@ -1631,6 +1634,10 @@ function exitDemoPip(){
   stage.style.bottom="";
   stage.style.width="";
   stage.style.height="";
+  stage.style.removeProperty("--yt-safe-top");
+  stage.style.removeProperty("--yt-safe-bottom");
+  delete stage.dataset.ytSafeTop;
+  delete stage.dataset.ytSafeBottom;
   pipPointerMode=null;
   pipPointerId=null;
   pipPointerStart=null;
@@ -1764,7 +1771,6 @@ async function render(){
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
-  stage.style.setProperty("--pip-poster",mode.maxClean?'url("https://i.ytimg.com/vi/'+id+'/hqdefault.jpg")':"none");
   demoActions.hidden=!mode.cleanDemo;
   if(!mode.maxClean){
     paintGeometryReadout(null);
