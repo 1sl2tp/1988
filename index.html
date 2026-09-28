@@ -2032,7 +2032,6 @@ html.one-col.portrait .player.pip{
   const aspectPrimePending=new Map();
   const aspectCorrectionSent=new Map();
   const sourceIdentityCache=new Map();
-  const sourceIdentityPending=new Map();
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -3164,52 +3163,50 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  async function hydrateCurrentSourceIdentity(id=String(current?.id||"")){
+  function localSourceIdentity(sourceId=""){
+    sourceId=String(sourceId||"").trim();
+    if(!sourceId)return {};
+
+    const cached=sourceIdentityCache.get(sourceId);
+    if(cached?.sourceAvatar||cached?.sourceName)return cached;
+
+    const pools=[
+      currentMeta,
+      ...feedMetas,
+      ...relatedMetas,
+      ...[...packageCache.values()].flat(),
+      ...[...searchCache.values()].flat()
+    ];
+
+    let sourceName="";
+    let sourceAvatar="";
+    for(const meta of pools){
+      if(!meta||String(meta.sourceId||"").trim()!==sourceId)continue;
+      if(!sourceName)sourceName=String(meta.sourceName||"").trim();
+      if(!sourceAvatar)sourceAvatar=String(meta.sourceAvatar||"").trim();
+      if(sourceName&&sourceAvatar)break;
+    }
+
+    const identity={sourceName,sourceAvatar};
+    if(sourceAvatar||sourceName)sourceIdentityCache.set(sourceId,identity);
+    return identity;
+  }
+
+  function hydrateCurrentSourceIdentity(id=String(current?.id||"")){
     id=String(id||"").trim();
     if(!id||String(current?.id||"")!==id)return false;
 
     const meta=currentMeta||{};
     if(meta.sourceAvatar)return true;
 
+    // UI is download/read-only here. Channel identity must come from metadata
+    // that is already present in the prepared packages/search cache; selecting
+    // a video must not start an extra channel request.
     const sourceId=String(meta.sourceId||"").trim();
-    if(!/^UC[A-Za-z0-9_-]{20,}$/.test(sourceId))return false;
+    if(!sourceId)return false;
 
-    const cached=sourceIdentityCache.get(sourceId);
-    if(cached){
-      return applySourceIdentityToVideo(id,cached);
-    }
-
-    if(sourceIdentityPending.has(sourceId)){
-      const identity=await sourceIdentityPending.get(sourceId);
-      if(String(current?.id||"")!==id)return false;
-      return applySourceIdentityToVideo(id,identity);
-    }
-
-    if(!window.YT1988_API?.channel||!window.MediaMeta?.source)return false;
-
-    const task=(async()=>{
-      try{
-        const payload=await window.YT1988_API.channel(sourceId);
-        const row=dataRow(payload);
-        const source=window.MediaMeta.source(row);
-        const identity={
-          sourceName:String(source?.name||"").trim(),
-          sourceAvatar:String(source?.avatar||"").trim()
-        };
-        if(identity.sourceAvatar||identity.sourceName){
-          sourceIdentityCache.set(sourceId,identity);
-        }
-        return identity;
-      }catch{
-        return {};
-      }finally{
-        sourceIdentityPending.delete(sourceId);
-      }
-    })();
-
-    sourceIdentityPending.set(sourceId,task);
-    const identity=await task;
-    if(String(current?.id||"")!==id)return false;
+    const identity=localSourceIdentity(sourceId);
+    if(!identity?.sourceAvatar&&!identity?.sourceName)return false;
     return applySourceIdentityToVideo(id,identity);
   }
 
@@ -3487,6 +3484,16 @@ html.one-col.portrait .player.pip{
   }
 
   function renderCurrentInfo(){
+    if(currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
+      const identity=localSourceIdentity(currentMeta.sourceId);
+      if(identity?.sourceAvatar&&!currentMeta.sourceAvatar){
+        currentMeta.sourceAvatar=identity.sourceAvatar;
+      }
+      if(identity?.sourceName&&!currentMeta.sourceName){
+        currentMeta.sourceName=identity.sourceName;
+      }
+    }
+
     const meta=currentMeta||{};
     const title=meta.title||current.label||"";
     const source=meta.sourceName||"";
