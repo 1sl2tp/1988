@@ -59,6 +59,13 @@
       box-shadow:0 14px 38px rgba(0,0,0,.58);
     }
     .stage.demo-pip.demo-pip-large{width:min(72vw,520px)}
+    /* MAX-CLEAN iframe: center-crop YouTube's corner chrome out of the visible PiP.
+       This is intentionally demo-only because it trims a small amount of picture. */
+    .stage.demo-pip.max-clean-mode iframe{
+      pointer-events:none!important;
+      transform:scale(1.22);
+      transform-origin:50% 50%;
+    }
     .clean-overlay{
       position:absolute;
       inset:0;
@@ -224,7 +231,17 @@ const modes=[
     desc:"YT.Player API với controls:0. Bật PiP demo: lúc vừa nổi chỉ có video; chạm/rê mới hiện Play/Pause + X + phóng/thu của trang rồi tự ẩn.",
     api:true,
     cleanDemo:true,
-    params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,modestbranding:1,iv_load_policy:3,enablejsapi:1}
+    params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
+  },
+  {
+    id:"maxcleanpip",
+    title:"9 · PiP max · crop mạnh chrome YouTube",
+    short:"PiP max",
+    desc:"Giống PiP sạch nhưng center-crop iframe 22% khi nổi để đẩy title/kênh/logo ở các mép ra ngoài khung. Sạch hơn nhưng mất một ít mép hình.",
+    api:true,
+    cleanDemo:true,
+    maxClean:true,
+    params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
   }
 ];
 
@@ -305,7 +322,7 @@ function toggleDemoPip(){
   stage.classList.contains("demo-pip")?exitDemoPip():enterDemoPip();
 }
 function syncAutoDemoPip(){
-  if(active!=="cleanpip"||!stage.classList.contains("clean-mode"))return;
+  if(!["cleanpip","maxcleanpip"].includes(active)||!stage.classList.contains("clean-mode"))return;
 
   const anchor=stageSpacer.style.display==="block" ? stageSpacer : stage;
   const header=document.querySelector("header");
@@ -364,6 +381,7 @@ async function render(){
   exitDemoPip();
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
+  stage.classList.toggle("max-clean-mode",!!mode.maxClean);
   demoActions.hidden=!mode.cleanDemo;
   scrollDemo.classList.toggle("show",!!mode.cleanDemo);
   stage.innerHTML="";
