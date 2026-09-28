@@ -11,6 +11,19 @@ const COBALT_APIS=[
   "https://rue-cobalt.xenon.zone/"
 ];
 const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
+const RAPIDAPI_HOST="youtube-to-mp315.p.rapidapi.com";
+const RAPIDAPI_BASE="https://"+RAPIDAPI_HOST;
+const RAPIDAPI_KEY=(
+  Deno.env.get("RAPIDAPI_YOUTUBE_TO_MP315_KEY")||
+  Deno.env.get("RAPIDAPI_KEY")||
+  ""
+).trim();
+const RAPID_READY=new Set([
+  "COMPLETED","COMPLETE","DONE","READY","FINISHED","SUCCESS","CONVERTED"
+]);
+const RAPID_FAILED=new Set([
+  "FAILED","FAILURE","ERROR","CANCELED","CANCELLED"
+]);
 
 function reply(body,status=200){
   return new Response(JSON.stringify(body),{
@@ -85,17 +98,124 @@ async function resolveCobalt(id,format){
   throw new Error(errors.join(" | ")||"no_cobalt_instance");
 }
 
-function fallbackFilename(id,format,title=""){
-  const base=clean(title,120)
-    .replace(/[\\/:*?"<>|\x00-\x1f]+/g," ")
-    .replace(/\s+/g," ")
-    .trim();
-  return (base||id)+"."+format;
+function rapidHeaders(){
+  return {
+    "x-rapidapi-key":RAPIDAPI_KEY,
+    "x-rapidapi-host":RAPIDAPI_HOST,
+    "accept":"application/json",
+    "content-type":"application/json"
+  };
 }
 
-async function streamDownload(req,id,format,title=""){
-  const resolved=await resolveCobalt(id,format);
+function sleep(ms){
+  return new Promise(resolve=>setTimeout(resolve,ms));
+}
 
+function normalizeRapidJob(data={}){
+  return {
+    id:clean(data?.id||data?.jobId||data?.job_id,80),
+    status:clean(data?.status||data?.state,40).toUpperCase(),
+    downloadUrl:clean(
+      data?.downloadUrl||
+      data?.download_url||
+      data?.url||
+      data?.fileUrl||
+      data?.file_url,
+      4000
+    ),
+    title:clean(data?.title,240),
+    raw:data
+  };
+}
+
+async function rapidRequest(path,{method="GET",query={}}={}){
+  const url=new URL(RAPIDAPI_BASE+path);
+  for(const [key,value] of Object.entries(query||{})){
+    if(value===undefined||value===null||value==="")continue;
+    url.searchParams.set(key,String(value));
+  }
+
+  const response=await fetch(url,{
+    method,
+    headers:rapidHeaders(),
+    body:method==="POST"?"{}":undefined,
+    signal:AbortSignal.timeout(20000)
+  });
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok){
+    throw new Error(
+      "rapidapi_http_"+response.status+":"+
+      clean(data?.message||data?.error||data?.detail||"",180)
+    );
+  }
+  return data;
+}
+
+async function resolveRapid(id,format){
+  if(!RAPIDAPI_KEY)throw new Error("rapidapi_key_missing");
+
+  const youtubeUrl="https://www.youtube.com/watch?v="+id;
+  const quality=format==="mp3"?128:720;
+
+  const created=normalizeRapidJob(
+    await rapidRequest("/download",{
+      method:"POST",
+      query:{
+        url:youtubeUrl,
+        format,
+        quality
+      }
+    })
+  );
+
+  if(!created.id){
+    throw new Error("rapidapi_missing_job_id");
+  }
+
+  let latest=created;
+  for(let attempt=0;attempt<30;attempt++){
+    if(latest.status&&RAPID_FAILED.has(latest.status)){
+      throw new Error("rapidapi_job_"+latest.status.toLowerCase());
+    }
+    if(
+      latest.downloadUrl &&
+      (!latest.status||RAPID_READY.has(latest.status))
+    ){
+      return {
+        url:latest.downloadUrl,
+        filename:fallbackFilename(id,format,latest.title),
+        provider:"rapidapi",
+        jobId:created.id,
+        status:latest.status||"READY"
+      };
+    }
+
+    await sleep(attempt<8?800:1200);
+
+    let statusData=null;
+    try{
+      // Public schema names the route /status/{id}. Keep id in the query as
+      // well because the generated OpenAPI marks it as a query parameter.
+      statusData=await rapidRequest(
+        "/status/"+encodeURIComponent(created.id),
+        {query:{id:created.id}}
+      );
+    }catch(error){
+      // Some generated RapidAPI specs have route/query mismatches. One retry
+      // against /status?id=... keeps the integration tolerant.
+      statusData=await rapidRequest("/status",{query:{id:created.id}});
+    }
+    latest=normalizeRapidJob(statusData);
+
+    if(!latest.id)latest.id=created.id;
+    if(!latest.downloadUrl)latest.downloadUrl=created.downloadUrl;
+    if(!latest.title)latest.title=created.title;
+  }
+
+  throw new Error("rapidapi_timeout");
+}
+
+async function fetchDownloadSource(req,resolved,format,id,title=""){
   const upstreamHeaders=new Headers();
   upstreamHeaders.set("accept","*/*");
   const range=req.headers.get("range");
@@ -110,18 +230,19 @@ async function streamDownload(req,id,format,title=""){
 
   if(!upstream.ok&&upstream.status!==206){
     try{upstream.body?.cancel()}catch{}
-    throw new Error("cobalt_tunnel_http_"+upstream.status);
+    throw new Error(
+      (resolved.provider||"download")+"_http_"+upstream.status
+    );
   }
 
   const headers=new Headers(CORS);
-  const passthrough=[
+  for(const name of [
     "content-length",
     "content-range",
     "accept-ranges",
     "etag",
     "last-modified"
-  ];
-  for(const name of passthrough){
+  ]){
     const value=upstream.headers.get(name);
     if(value)headers.set(name,value);
   }
@@ -134,21 +255,60 @@ async function streamDownload(req,id,format,title=""){
   headers.set(
     "content-disposition",
     upstream.headers.get("content-disposition")||
-      'attachment; filename="'+fallbackFilename(id,format,title).replace(/"/g,"")+'"'
+      'attachment; filename="'+
+      fallbackFilename(id,format,title).replace(/"/g,"")+
+      '"'
   );
-  headers.set("x-1988-download-provider",resolved.api);
+  headers.set(
+    "x-1988-download-provider",
+    String(resolved.provider||"unknown")
+  );
 
   if(req.method==="HEAD"){
     try{upstream.body?.cancel()}catch{}
     return new Response(null,{status:upstream.status,headers});
   }
 
-  if(!upstream.body)throw new Error("cobalt_empty_body");
+  if(!upstream.body)throw new Error("download_empty_body");
 
   return new Response(upstream.body,{
     status:upstream.status,
     headers
   });
+}
+
+function fallbackFilename(id,format,title=""){
+  const base=clean(title,120)
+    .replace(/[\\/:*?"<>|\x00-\x1f]+/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+  return (base||id)+"."+format;
+}
+
+async function streamDownload(req,id,format,title=""){
+  const errors=[];
+
+  if(RAPIDAPI_KEY){
+    try{
+      const rapid=await resolveRapid(id,format);
+      return await fetchDownloadSource(req,rapid,format,id,title||rapid.filename);
+    }catch(error){
+      errors.push("rapidapi:"+clean(error?.message||error,240));
+    }
+  }
+
+  try{
+    const cobalt=await resolveCobalt(id,format);
+    const resolved={
+      ...cobalt,
+      provider:"cobalt:"+cobalt.api
+    };
+    return await fetchDownloadSource(req,resolved,format,id,title||cobalt.filename);
+  }catch(error){
+    errors.push("cobalt:"+clean(error?.message||error,240));
+  }
+
+  throw new Error(errors.join(" | ")||"no_download_provider");
 }
 
 Deno.serve(async req=>{
@@ -196,6 +356,24 @@ Deno.serve(async req=>{
   }
 
   // POST remains as a lightweight resolver/debug endpoint.
+  const resolverErrors=[];
+  if(RAPIDAPI_KEY){
+    try{
+      const rapid=await resolveRapid(id,format);
+      return reply({
+        ok:true,
+        url:rapid.url,
+        filename:rapid.filename,
+        provider:"rapidapi",
+        jobId:rapid.jobId,
+        status:rapid.status,
+        mode:format
+      });
+    }catch(error){
+      resolverErrors.push("rapidapi:"+clean(error?.message||error,220));
+    }
+  }
+
   try{
     const resolved=await resolveCobalt(id,format);
     return reply({
@@ -204,13 +382,15 @@ Deno.serve(async req=>{
       filename:resolved.filename,
       provider:"cobalt",
       api:resolved.api,
-      mode:format
+      mode:format,
+      fallbackReason:resolverErrors.join(" | ")
     });
   }catch(error){
+    resolverErrors.push("cobalt:"+clean(error?.message||error,220));
     return reply({
       ok:false,
       error:"resolver_failed",
-      detail:clean(error?.message||error,300)
+      detail:resolverErrors.join(" | ")
     },502);
   }
 });
