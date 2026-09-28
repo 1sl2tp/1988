@@ -18,7 +18,7 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v39";
-const NON_LIVE_PIPELINE_VERSION="non-live-v16";
+const NON_LIVE_PIPELINE_VERSION="non-live-v17";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -2329,7 +2329,12 @@ Deno.serve(async(req:Request)=>{
             duration:isLive(row)?row.duration:(knownDuration||row.duration||0),
             isShort:row?.isShort===true||previousRow?.isShort===true,
             _durationCheckedAt:Number(previousRow?._durationCheckedAt)||0,
-            _shortCheckedAt:Number(previousRow?._shortCheckedAt)||0
+            _shortCheckedAt:Number(previousRow?._shortCheckedAt)||0,
+            // Embed verification is server state. Never drop it when a fresh
+            // channel snapshot replaces the display fields for the same video.
+            _embedCheckedAt:Number(previousRow?._embedCheckedAt)||0,
+            _embedPlayable:previousRow?._embedPlayable===true,
+            _embedStatus:clean(previousRow?._embedStatus||"",80)
           };
         });
 
@@ -2833,9 +2838,23 @@ Deno.serve(async(req:Request)=>{
         .filter((r:any)=>meta.kind!=="content"||!strongAd(r));
 
       if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
-        degradedNotes.push(scope+":empty_candidate_kept_previous");
-        results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:current.items.length});
-        continue;
+        const previousItems=Array.isArray(current.items)?current.items:[];
+        const previousFullyVerified=previousItems.length>0&&previousItems.every((row:any)=>
+          Number(row?._shortCheckedAt)>0&&
+          Number(row?._embedCheckedAt)>0&&
+          row?._embedPlayable===true
+        );
+
+        if(previousFullyVerified){
+          degradedNotes.push(scope+":empty_candidate_kept_previous");
+          results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:previousItems.length});
+          continue;
+        }
+
+        // Old packages created before strict embed verification are not safe
+        // fallback data. Publish the verified result (even empty) instead of
+        // resurrecting videos that YouTube refuses to embed.
+        degradedNotes.push(scope+":stale_unverified_package_dropped");
       }
 
       // Rotation/shape is server data too. Merge only metadata that the player
