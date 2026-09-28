@@ -4351,18 +4351,6 @@ html.one-col.portrait .player.pip{
     const id=String(meta?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
 
-    // Open synchronously from the user's click so iOS/Safari does not block
-    // the final download tab while the resolver is doing its network work.
-    let pending=null;
-    try{
-      pending=window.open("about:blank","_blank");
-      if(pending?.document){
-        pending.document.title="Đang chuẩn bị tải xuống…";
-        pending.document.body.innerHTML=
-          '<div style="min-height:100vh;display:grid;place-items:center;background:#0f0f0f;color:#fff;font:16px Arial,sans-serif">Đang chuẩn bị '+escapeHtml(format.toUpperCase())+'…</div>';
-      }
-    }catch{}
-
     try{
       const response=await fetch(DOWNLOAD_RESOLVER_URL,{
         method:"POST",
@@ -4377,20 +4365,17 @@ html.one-col.portrait .player.pip{
       const payload=await response.json().catch(()=>({}));
       const url=String(payload?.url||"").trim();
       if(!response.ok||!/^https?:\/\//i.test(url)){
-        try{pending?.close?.()}catch{}
         window.alert("Chưa chuẩn bị được file "+format.toUpperCase()+".");
         return false;
       }
 
-      if(pending&&!pending.closed){
-        pending.location.replace(url);
-      }else{
-        window.location.href=url;
-      }
-      return true;
+      return openDirectDownload(
+        url,
+        String(payload?.filename||"").trim()||
+          (videoTitleSlug(meta.title||"download")+"."+format)
+      );
     }catch(error){
       console.warn("download resolve failed",error);
-      try{pending?.close?.()}catch{}
       window.alert("Chưa kết nối được máy chủ tải xuống.");
       return false;
     }
@@ -4419,14 +4404,20 @@ html.one-col.portrait .player.pip{
   function openDirectDownload(url,filename=""){
     url=String(url||"").trim();
     if(!/^https?:\/\//i.test(url))return false;
-    const a=document.createElement("a");
-    a.href=url;
-    if(filename)a.download=filename;
-    a.rel="noopener noreferrer";
-    a.target="_blank";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+
+    // Trigger the download in an invisible frame so the current page stays put
+    // and no extra tab/window is opened. Both 1988-media and the resolver
+    // fallback return attachment responses for downloadable files.
+    const frame=document.createElement("iframe");
+    frame.hidden=true;
+    frame.setAttribute("aria-hidden","true");
+    frame.tabIndex=-1;
+    frame.src=url;
+    document.body.appendChild(frame);
+
+    window.setTimeout(()=>{
+      try{frame.remove()}catch{}
+    },120000);
     return true;
   }
 
