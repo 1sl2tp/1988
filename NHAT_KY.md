@@ -64,4 +64,4 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Chuẩn hóa blacklist LIVE thành từng keyword/phrase riêng và áp dụng cho cả LIVE tìm ngoài lẫn LIVE từ kênh đã chọn.
 - `general` blocked channel được áp dụng toàn bộ scope; blocked theo scope vẫn được giữ riêng.
 - Mọi package bắt buộc có channel display name hợp lệ trước khi publish.
-- Pipeline versions: `live-v34`, `non-live-v12`.
+- Pipeline versions: `live-v35`, `non-live-v13`.
