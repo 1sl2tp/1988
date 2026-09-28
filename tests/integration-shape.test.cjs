@@ -45,7 +45,9 @@ if(simpleProduction){
   assert.doesNotMatch(html,/thumbnailContentAspect|detectPillarboxFromImage|primeCardPortraitNow/);
   assert.match(html,/const PACKAGE_SYNC_URL=.*yt1988-packages/);
   assert.match(html,/YT1988_API\.search\(raw,["']videos["']\)/);
-  assert.match(html,/player\.classList\.toggle\(["']pip["'],pip\)/);
+  assert.match(html,/player\.classList\.toggle\(["']pip["'],!!floating\)/);
+  assert.match(html,/player\.classList\.add\(["']pip["']\)/);
+  assert.match(html,/player\.classList\.remove\(["']pip["']\)/);
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
