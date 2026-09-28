@@ -475,7 +475,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-28"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-29"></script>
 <script>
 const modes=[
   {
@@ -583,7 +583,7 @@ let activeSeekPointer=null;
 const YT_CHROME_FALLBACK_MS=3800;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="pixel-locked-library-v12";
+const CHROME_LIBRARY_PROFILE_REV="bottom-border-calibration-v13";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -904,7 +904,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v7-content-viewport",
+    "pip-chrome-calibration-v8-bottom-border",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
