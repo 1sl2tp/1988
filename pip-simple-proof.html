@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="dark light">
 <meta id="themeColorMeta" name="theme-color" content="rgba(33,33,33,.98)">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,6 +13,19 @@
 <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png">
 <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
 <title>1988</title>
+<script>
+(()=>{
+  try{
+    const theme=localStorage.getItem("yt1988-theme-v1");
+    if(theme==="light"||theme==="dark"){
+      document.documentElement.dataset.theme=theme;
+      document.documentElement.style.colorScheme=theme;
+      const meta=document.getElementById("themeColorMeta");
+      if(meta)meta.setAttribute("content",theme==="light"?"#ffffff":"#212121");
+    }
+  }catch{}
+})();
+</script>
 <style>
 *{box-sizing:border-box}
 :root{
@@ -25,6 +38,17 @@
   --yt-text-secondary:#aaa;
   --yt-hover:rgba(255,255,255,.10);
   --yt-press:rgba(255,255,255,.18);
+  --yt-search-bg:hsl(0 0% 7%);
+  --yt-search-border:hsl(0 0% 18.82%);
+  --yt-search-button:hsla(0 0% 100%/.08);
+  --yt-chip-bg:rgba(255,255,255,.10);
+  --yt-chip-hover:rgba(255,255,255,.20);
+  --yt-chip-press:rgba(255,255,255,.15);
+  --yt-chip-active-bg:#f1f1f1;
+  --yt-chip-active-text:#0f0f0f;
+  --yt-avatar-bg:#272727;
+  --yt-thumb-bg:#111;
+  --yt-placeholder:#888;
   --header-rgb:15,15,15;
   --header-accent-rgb:82,108,168;
   --header-alpha:.94;
@@ -45,6 +69,31 @@
   --card-target-w:310px;
   --floating-radius:10px;
   --media-ratio:1.7777778;
+  color-scheme:dark;
+}
+:root[data-theme="light"]{
+  --yt-bg:#fff;
+  --yt-surface:#fff;
+  --yt-surface-2:#f2f2f2;
+  --yt-border:#d3d3d3;
+  --yt-divider:#e5e5e5;
+  --yt-text:#0f0f0f;
+  --yt-text-secondary:#606060;
+  --yt-hover:rgba(0,0,0,.06);
+  --yt-press:rgba(0,0,0,.11);
+  --yt-search-bg:#fff;
+  --yt-search-border:#c6c6c6;
+  --yt-search-button:#f8f8f8;
+  --yt-chip-bg:#f2f2f2;
+  --yt-chip-hover:#e5e5e5;
+  --yt-chip-press:#d9d9d9;
+  --yt-chip-active-bg:#0f0f0f;
+  --yt-chip-active-text:#fff;
+  --yt-avatar-bg:#e5e5e5;
+  --yt-thumb-bg:#f2f2f2;
+  --yt-placeholder:#606060;
+  --header-rgb:255,255,255;
+  color-scheme:light;
 }
 html,body{
   margin:0;
@@ -194,15 +243,15 @@ html.one-col body{min-height:220vh}
   flex:1 1 auto;
   height:40px;
   padding:0 16px;
-  border:1px solid hsl(0 0% 18.82%);
+  border:1px solid var(--yt-search-border);
   border-right:0;
   border-radius:20px 0 0 20px;
   outline:0;
-  background:hsl(0 0% 7%);
+  background:var(--yt-search-bg);
   color:var(--yt-text);
   font:400 16px/22px Roboto,"Arial",sans-serif;
 }
-.search-input::placeholder{color:#888}
+.search-input::placeholder{color:var(--yt-placeholder)}
 .search-input:focus{
   border-color:#1c62b9;
   box-shadow:inset 0 1px 2px rgba(0,0,0,.3);
@@ -227,14 +276,14 @@ html.one-col body{min-height:220vh}
   flex:0 0 40px;
   border:0;
   border-radius:50%;
-  background:rgba(255,255,255,.10);
+  background:var(--yt-chip-bg);
 }
 .top.search-roomy:not(.search-open) .voice-search-button,
 .top.search-open .voice-search-button{
   display:grid;
 }
 .voice-search-button:hover{
-  background:hsla(0 0% 100%/.08);
+  background:var(--yt-search-button);
 }
 .voice-search-button.listening{
   color:#ff4e45;
@@ -249,13 +298,13 @@ html.one-col body{min-height:220vh}
 }
 .search-button{
   width:64px;
-  border:1px solid hsl(0 0% 18.82%);
+  border:1px solid var(--yt-search-border);
   border-radius:0 20px 20px 0;
-  background:hsla(0 0% 100%/.08);
+  background:var(--yt-search-button);
 }
 .search-button:hover{
-  border-color:hsl(0 0% 18.82%);
-  background:hsla(0 0% 100%/.08);
+  border-color:var(--yt-search-border);
+  background:var(--yt-search-button);
 }
 .search-button svg,
 .voice-search-button svg,
@@ -310,7 +359,7 @@ html.one-col body{min-height:220vh}
   justify-content:center;
   border:0;
   border-radius:8px;
-  background:rgba(255,255,255,.10);
+  background:var(--yt-chip-bg);
   color:#f1f1f1;
   font-family:Roboto,"Arial",sans-serif;
   font-size:14px;
@@ -324,8 +373,8 @@ html.one-col body{min-height:220vh}
 .source-name-chips .source-chip:first-child{margin-left:4px}
 .source-chip:last-of-type{margin-right:0}
 .source-name-chips .source-chip:last-child{margin-right:0}
-.source-chip:hover{background:rgba(255,255,255,.20)}
-.source-chip:active{background:rgba(255,255,255,.15)}
+.source-chip:hover{background:var(--yt-chip-hover)}
+.source-chip:active{background:var(--yt-chip-press)}
 .source-chip.active{
   background:
     linear-gradient(
@@ -333,8 +382,8 @@ html.one-col body{min-height:220vh}
       rgba(var(--header-accent-rgb),.16),
       rgba(var(--header-accent-rgb),.05)
     ),
-    #f1f1f1;
-  color:#0f0f0f;
+    var(--yt-chip-active-bg);
+  color:var(--yt-chip-active-text);
   box-shadow:
     0 0 0 1px rgba(var(--header-accent-rgb),.10),
     0 3px 12px rgba(var(--header-accent-rgb),.08);
@@ -417,6 +466,105 @@ html.one-col body{min-height:220vh}
 .search-back{display:none}
 .settings-button{display:none}
 
+:root[data-theme="light"] .brand,
+:root[data-theme="light"] .source-arrow-button,
+:root[data-theme="light"] .info-menu,
+:root[data-theme="light"] .row-menu{
+  color:var(--yt-text);
+}
+:root[data-theme="light"] .source-arrow-button:hover{
+  background:var(--yt-surface-2);
+}
+:root[data-theme="light"] .top.search-open .voice-search-button{
+  background:var(--yt-chip-bg);
+}
+:root[data-theme="light"] .top.search-open .voice-search-button:hover{
+  background:var(--yt-chip-hover);
+}
+:root[data-theme="light"] .top.search-open .search-button{
+  background:var(--yt-search-button);
+}
+
+.settings-popover{
+  position:fixed;
+  z-index:120;
+  top:calc(var(--safe-top) + 52px);
+  right:8px;
+  width:min(280px,calc(100vw - 16px));
+  padding:8px;
+  border:1px solid var(--yt-border);
+  border-radius:12px;
+  background:var(--yt-surface);
+  color:var(--yt-text);
+  box-shadow:0 8px 28px rgba(0,0,0,.28);
+}
+.settings-popover[hidden]{display:none}
+.settings-popover-title{
+  padding:8px 10px 6px;
+  font:500 16px/22px Roboto,Arial,sans-serif;
+}
+.settings-popover-label{
+  padding:4px 10px 6px;
+  color:var(--yt-text-secondary);
+  font:400 13px/18px Roboto,Arial,sans-serif;
+}
+.settings-theme-option,
+.settings-source-link{
+  width:100%;
+  min-height:44px;
+  padding:0 10px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  border:0;
+  border-radius:10px;
+  background:transparent;
+  color:var(--yt-text);
+  font:400 14px/20px Roboto,Arial,sans-serif;
+  text-align:left;
+  text-decoration:none;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.settings-theme-option:hover,
+.settings-source-link:hover{background:var(--yt-hover)}
+.settings-theme-dot{
+  width:18px;
+  height:18px;
+  border:1.5px solid var(--yt-text-secondary);
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  flex:0 0 18px;
+}
+.settings-theme-option[aria-checked="true"] .settings-theme-dot{
+  border-color:var(--yt-text);
+}
+.settings-theme-option[aria-checked="true"] .settings-theme-dot::after{
+  content:"";
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:var(--yt-text);
+}
+.settings-source-link{
+  margin-top:6px;
+  border-top:1px solid var(--yt-divider);
+  border-radius:0 0 10px 10px;
+}
+.settings-source-link svg{
+  width:18px;
+  height:18px;
+  margin-left:auto;
+  fill:currentColor;
+}
+@media(max-width:656px){
+  .settings-popover{
+    top:calc(var(--safe-top) + 50px);
+    right:8px;
+  }
+}
+
 /* Plenty of horizontal room: expand search without hiding the source rail. */
 .top.search-roomy:not(.search-open) .search-toggle{display:none}
 .top.search-roomy:not(.search-open) .searchbox{
@@ -451,9 +599,9 @@ html.one-col body{min-height:220vh}
   height:40px;
   margin:0;
   overflow:hidden;
-  border:1px solid hsl(0 0% 18.82%);
+  border:1px solid var(--yt-search-border);
   border-radius:20px;
-  background:hsl(0 0% 7%);
+  background:var(--yt-search-bg);
   transition:
     border-color .16s ease,
     box-shadow .16s ease,
@@ -486,7 +634,7 @@ html.one-col body{min-height:220vh}
   height:40px;
   border:0;
   border-radius:50%;
-  background:rgba(255,255,255,.10);
+  background:var(--yt-chip-bg);
 }
 .top.search-open .voice-search-button:hover{
   background:rgba(255,255,255,.16);
@@ -784,7 +932,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 }
 .info{
   padding:12px 16px 16px;
-  border-bottom:1px solid #292929;
+  border-bottom:1px solid var(--yt-divider);
   container-type:inline-size;
   container-name:media-card;
 }
@@ -799,12 +947,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
   height:36px;
   border-radius:50%;
   object-fit:cover;
-  background:#272727;
+  background:var(--yt-avatar-bg);
 }
 .info-avatar.placeholder{
   display:grid;
   place-items:center;
-  color:#aaa;
+  color:var(--yt-text-secondary);
   font:600 13px/36px Roboto,Arial,sans-serif;
   text-align:center;
 }
@@ -879,7 +1027,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   min-width:0;
   background:transparent;
   overflow:visible;
-  color:#aaa;
+  color:var(--yt-text-secondary);
   cursor:pointer;
   border-radius:12px;
   -webkit-tap-highlight-color:transparent;
@@ -894,10 +1042,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
   transition:background-color .12s cubic-bezier(.4,0,1,1),transform .12s ease;
 }
 @media(hover:hover){
-  .row:hover::before{background:rgba(255,255,255,.08)}
+  .row:hover::before{background:var(--yt-hover)}
 }
 .row:active::before{
-  background:rgba(255,255,255,.14);
+  background:var(--yt-press);
   transform:scale(.985);
 }
 .row.selected::before{background:var(--yt-hover)}
@@ -907,7 +1055,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   aspect-ratio:16/9;
   overflow:hidden;
   border-radius:8px;
-  background:#111;
+  background:var(--yt-thumb-bg);
 }
 .row-thumb img{
   display:block;
@@ -948,12 +1096,12 @@ html.one-col .player.pip iframe{border-radius:inherit}
   height:36px;
   border-radius:50%;
   object-fit:cover;
-  background:#272727;
+  background:var(--yt-avatar-bg);
 }
 .row-avatar.placeholder{
   display:grid;
   place-items:center;
-  color:#aaa;
+  color:var(--yt-text-secondary);
   font:600 13px/36px Roboto,Arial,sans-serif;
   text-align:center;
 }
@@ -1121,7 +1269,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 2a9 9 0 105.641 16.01.966.966 0 00.152.197l3.5 3.5a1 1 0 101.414-1.414l-3.5-3.5a1 1 0 00-.197-.153A8.96 8.96 0 0020 11a9 9 0 00-9-9Zm0 2a7 7 0 110 14 7 7 0 010-14Z"></path></svg>
     </button>
 
-    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt" onclick="window.open('https://yt.taphoa.xyz/sources/?scope=latest','_blank','noopener,noreferrer')">
+    <button id="settingsButton" class="icon-button settings-button" aria-label="Cài đặt" title="Cài đặt" aria-expanded="false" aria-controls="settingsPopover">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.65.07-.98s-.03-.66-.08-.98l2.11-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1a7.1 7.1 0 0 0-1.69-.98L14.5 2.42A.5.5 0 0 0 14 2h-4a.5.5 0 0 0-.49.42L9.13 5.07c-.61.25-1.17.58-1.69.98l-2.49-1a.5.5 0 0 0-.61.22l-2 3.46a.5.5 0 0 0 .12.64l2.11 1.65c-.05.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65a.5.5 0 0 0-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65A.5.5 0 0 0 10 22h4a.5.5 0 0 0 .49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1a.5.5 0 0 0 .61-.22l2-3.46a.5.5 0 0 0-.12-.64l-2.11-1.65ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
     </button>
   </div>
@@ -1144,6 +1292,23 @@ html.one-col .player.pip iframe{border-radius:inherit}
     </div>
   </div>
 </header>
+
+<div id="settingsPopover" class="settings-popover" hidden>
+  <div class="settings-popover-title">Cài đặt</div>
+  <div class="settings-popover-label">Giao diện</div>
+  <button class="settings-theme-option" type="button" role="radio" aria-checked="false" data-theme-choice="dark">
+    <span class="settings-theme-dot" aria-hidden="true"></span>
+    <span>Tối</span>
+  </button>
+  <button class="settings-theme-option" type="button" role="radio" aria-checked="false" data-theme-choice="light">
+    <span class="settings-theme-dot" aria-hidden="true"></span>
+    <span>Sáng</span>
+  </button>
+  <a class="settings-source-link" href="https://yt.taphoa.xyz/sources/?scope=latest" target="_blank" rel="noopener noreferrer">
+    <span>Quản lý nguồn</span>
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7h-6V5h8v8h-2V8.41L8.41 17H13v2H5v-8h2v6Z"/></svg>
+  </a>
+</div>
 
 <main>
   <div class="media-col" id="mediaCol">
@@ -1213,6 +1378,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
   const sourceNext=document.getElementById("sourceNext");
   const sourceNameChips=document.getElementById("sourceNameChips");
   const themeColorMeta=document.getElementById("themeColorMeta");
+  const settingsButton=document.getElementById("settingsButton");
+  const settingsPopover=document.getElementById("settingsPopover");
+  const themeChoiceButtons=[...document.querySelectorAll("[data-theme-choice]")];
 
   let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:""};
   let pip=false;
@@ -1227,6 +1395,54 @@ html.one-col .player.pip iframe{border-radius:inherit}
   let packageManifest={};
   const packageCache=new Map();
   const packagePending=new Map();
+
+  const THEME_KEY="yt1988-theme-v1";
+  function normalizedTheme(value){
+    return value==="light"?"light":"dark";
+  }
+  function syncThemeControls(){
+    const current=normalizedTheme(root.dataset.theme);
+    for(const button of themeChoiceButtons){
+      button.setAttribute(
+        "aria-checked",
+        button.dataset.themeChoice===current?"true":"false"
+      );
+    }
+  }
+  function applyTheme(value,{persist=true,retint=true}={}){
+    const theme=normalizedTheme(value);
+    root.dataset.theme=theme;
+    root.style.colorScheme=theme;
+    root.style.setProperty(
+      "--header-rgb",
+      theme==="light"?"255,255,255":"15,15,15"
+    );
+    if(themeColorMeta){
+      themeColorMeta.setAttribute(
+        "content",
+        theme==="light"?"#ffffff":"rgba(33,33,33,.98)"
+      );
+    }
+    if(persist){
+      try{localStorage.setItem(THEME_KEY,theme)}catch{}
+    }
+    syncThemeControls();
+    if(retint&&currentMeta)applyHeaderTint(currentMeta);
+  }
+  function closeSettingsMenu(){
+    if(!settingsPopover||!settingsButton)return;
+    settingsPopover.hidden=true;
+    settingsButton.setAttribute("aria-expanded","false");
+  }
+  function toggleSettingsMenu(){
+    if(!settingsPopover||!settingsButton)return;
+    const willOpen=settingsPopover.hidden;
+    settingsPopover.hidden=!willOpen;
+    settingsButton.setAttribute("aria-expanded",willOpen?"true":"false");
+    if(willOpen)syncThemeControls();
+  }
+
+  applyTheme(root.dataset.theme||"dark",{persist:false,retint:false});
 
   // Search is independent from source tabs. Keep only the 2 most recent
   // queries/results so repeats can paint immediately without another click.
@@ -1598,12 +1814,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     void youtubeCinematicPalette(art).then(palette=>{
       if(seq!==headerTintSeq||!palette)return;
 
-      // Same composition as the main app:
-      // palette.surface already contains 40% accent, then chrome keeps 32%
-      // of that surface over #0f0f0f -> ~12.8% effective video tint.
-      const base=[15,15,15];
-      const mix=.32;
-      const [r,g,b]=palette.surface.map((value,index)=>Math.round(
+      const light=root.dataset.theme==="light";
+      // Dark mode keeps the established cinematic tint. Light mode follows
+      // YouTube's mostly-white chrome and uses only a very small color wash.
+      const base=light?[255,255,255]:[15,15,15];
+      const source=light?palette.accent:palette.surface;
+      const mix=light?.08:.32;
+      const [r,g,b]=source.map((value,index)=>Math.round(
         base[index]*(1-mix)+value*mix
       ));
       root.style.setProperty("--header-rgb",r+","+g+","+b);
@@ -1616,7 +1833,10 @@ html.one-col .player.pip iframe{border-radius:inherit}
       // Keeping this neutral avoids a persistent colored notch strip while
       // the in-page header itself scrolls away underneath black-translucent.
       if(themeColorMeta){
-        themeColorMeta.setAttribute("content","rgba(33,33,33,.98)");
+        themeColorMeta.setAttribute(
+          "content",
+          light?"#ffffff":"rgba(33,33,33,.98)"
+        );
       }
     });
   }
@@ -3297,6 +3517,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
   function closeNarrowSearch(){
     stopVoiceSearch(true);
+    closeSettingsMenu();
     top.classList.remove("search-open");
     updateHeaderSearchRoom();
     syncHeaderScrollState();
@@ -3328,6 +3549,31 @@ html.one-col .player.pip iframe{border-radius:inherit}
     searchInput.focus();
   });
   voiceSearchButton?.addEventListener("click",startVoiceSearch);
+
+  settingsButton?.addEventListener("click",event=>{
+    event.preventDefault();
+    event.stopPropagation();
+    toggleSettingsMenu();
+  });
+  for(const button of themeChoiceButtons){
+    button.addEventListener("click",()=>{
+      applyTheme(button.dataset.themeChoice);
+      closeSettingsMenu();
+    });
+  }
+  settingsPopover?.addEventListener("click",event=>event.stopPropagation());
+  document.addEventListener("click",event=>{
+    if(settingsPopover?.hidden)return;
+    if(settingsButton?.contains(event.target)||settingsPopover?.contains(event.target))return;
+    closeSettingsMenu();
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape")closeSettingsMenu();
+  });
+  addEventListener("storage",event=>{
+    if(event.key!==THEME_KEY)return;
+    applyTheme(event.newValue,{persist:false});
+  });
 
   videoMenu?.addEventListener("click",()=>{
     videoMenu.animate(
