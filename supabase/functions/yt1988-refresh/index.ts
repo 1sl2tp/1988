@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v36";
+const LIVE_PIPELINE_VERSION="live-v37";
 const NON_LIVE_PIPELINE_VERSION="non-live-v13";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -1051,15 +1051,52 @@ async function youtubePlayerIsLive(id:string){
   return (await youtubePlayerMetadata(id)).isLive;
 }
 
-async function verifyCurrentLiveRows(rows:any[],limit=48){
+async function youtubeChannelLiveVideoId(channel:string,timeout=3200){
+  const id=clean(channel,180);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id))return "";
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeout);
+  try{
+    const probe=await fetch(
+      "https://www.youtube.com/channel/"+encodeURIComponent(id)+"/live?hl=vi&gl=VN",
+      {
+        method:"GET",
+        signal:controller.signal,
+        cache:"no-store",
+        redirect:"follow",
+        headers:{
+          "accept":"text/html,application/xhtml+xml",
+          "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
+          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+        }
+      }
+    );
+    if(!probe.ok)return "";
+    const finalUrl=String(probe.url||"");
+    try{await probe.body?.cancel();}catch{}
+    return finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
+  }catch{
+    return "";
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+async function verifyCurrentLiveRows(rows:any[],limit=36){
   const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
   if(!list.length)return [];
 
-  const checked=await mapLimit(list,6,async(row)=>{
+  const checked=await mapLimit(list,8,async(row)=>{
     const id=videoId(row);
-    if(!id)return null;
-    const meta=await youtubePlayerMetadata(id);
-    if(!meta?.isLive)return null;
+    const sid=channelId(row);
+    if(!id||!sid)return null;
+
+    // The canonical channel /live redirect must point at this exact video.
+    // Search/provider "isLive" flags are only discovery hints.
+    const currentId=await youtubeChannelLiveVideoId(sid,3200);
+    if(currentId!==id)return null;
+
     return normalizeRow({
       ...row,
       id,
@@ -1068,13 +1105,12 @@ async function verifyCurrentLiveRows(rows:any[],limit=48){
       duration:-1,
       uploaded:-1,
       publishedText:"Đang trực tiếp",
-      _liveVerified:"youtube_player"
+      _liveVerified:"channel_live_redirect"
     },{});
   });
 
   return checked.filter(Boolean);
 }
-
 
 function exactSearchVideoMeta(data:any,id:string){
   const items=Array.isArray(data?.items)
@@ -1158,80 +1194,68 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
   const id=clean(source?.id,180);
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
 
-  // First ask the channel's canonical /live endpoint. A redirect to /watch?v=
-  // is the cheapest current-state signal and does not depend on stale package
-  // flags or the youtubei player API.
-  const endpoint=
-    "https://www.youtube.com/channel/"+encodeURIComponent(id)+"/live?hl=vi&gl=VN";
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),1900);
-  try{
-    const probe=await fetch(endpoint,{
-      method:"GET",
-      signal:controller.signal,
-      cache:"no-store",
-      redirect:"follow",
-      headers:{
-        "accept":"text/html,application/xhtml+xml",
-        "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
-        "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
-      }
-    });
-    if(probe.ok){
-      const finalUrl=String(probe.url||"");
-      try{await probe.body?.cancel();}catch{}
-      const idValue=finalUrl.match(/[?&]v=([A-Za-z0-9_-]{11})/)?.[1]||"";
-      if(idValue&&await youtubePlayerIsLive(idValue)){
-        return normalizeRow({
-          id:idValue,
-          videoId:idValue,
-          url:"/watch?v="+idValue,
-          title:clean(source?.name||"Đang trực tiếp",300),
-          thumbnail:"https://i.ytimg.com/vi/"+idValue+"/hqdefault.jpg",
-          thumbnailUrl:"https://i.ytimg.com/vi/"+idValue+"/hqdefault.jpg",
-          uploaderName:clean(source?.name||"",180),
-          uploaderUrl:"/channel/"+id,
-          channelId:id,
-          uploaded:-1,
-          duration:-1,
-          views:0,
-          isLive:true,
-          publishedText:"Đang trực tiếp",
-          _liveVerified:"channel_live_redirect+youtube_player"
-        },source);
-      }
+  // The channel's canonical /live redirect is the strongest cheap current-live
+  // signal. If it points to a video, preserve richer metadata for that exact id.
+  const currentId=await youtubeChannelLiveVideoId(id,3200);
+  if(currentId){
+    const matching=(Array.isArray(candidates)?candidates:[])
+      .map((row:any)=>normalizeRow(row,source))
+      .find((row:any)=>videoId(row)===currentId);
+
+    if(matching){
+      return normalizeRow({
+        ...matching,
+        id:currentId,
+        videoId:currentId,
+        url:"/watch?v="+currentId,
+        uploaded:-1,
+        duration:-1,
+        isLive:true,
+        publishedText:"Đang trực tiếp",
+        _liveVerified:"channel_live_redirect"
+      },source);
     }
-  }catch{
-    // Fall through to a fresh cache signal below.
-  }finally{
-    clearTimeout(timer);
+
+    return normalizeRow({
+      id:currentId,
+      videoId:currentId,
+      url:"/watch?v="+currentId,
+      title:clean(source?.name||"Đang trực tiếp",300),
+      thumbnail:"https://i.ytimg.com/vi/"+currentId+"/hqdefault.jpg",
+      thumbnailUrl:"https://i.ytimg.com/vi/"+currentId+"/hqdefault.jpg",
+      uploaderName:clean(source?.name||"",180),
+      uploaderUrl:"/channel/"+id,
+      channelId:id,
+      uploaded:-1,
+      duration:-1,
+      views:0,
+      isLive:true,
+      publishedText:"Đang trực tiếp",
+      _liveVerified:"channel_live_redirect"
+    },source);
   }
 
-  // Some long-running streams do not redirect from /live. Use only a recently
-  // refreshed cache row in that case; old LIVE flags are deliberately ignored
-  // so an ended stream cannot survive indefinitely.
+  // Fallback only to a freshly fetched channel/search candidate. A previous
+  // LIVE package row is deliberately excluded so an ended stream cannot
+  // refresh its own timestamp forever.
   const now=Date.now();
   const candidateRows=dedupeRows(
     (Array.isArray(candidates)?candidates:[])
+      .filter((row:any)=>row?._liveCandidateOrigin!=="previous_package")
       .map((row:any)=>normalizeRow(row,source))
-      .filter((row:any)=>row&&(isLive(row)||strongFreshLiveSignal(row)))
+      .filter((row:any)=>row&&isLive(row))
   ).slice(0,LIVE_SELECTED_CANDIDATES_PER_SOURCE);
 
   for(const row of candidateRows){
     const idValue=videoId(row);
     if(!idValue)continue;
     const checkedAt=Date.parse(String(row?._liveCacheCheckedAt||""));
-    if(!Number.isFinite(checkedAt)||now-checkedAt>20*60*1000)continue;
-    if(!(await youtubePlayerIsLive(idValue)))continue;
+    if(!Number.isFinite(checkedAt)||now-checkedAt>8*60*1000)continue;
     return normalizeRow({
       ...row,
       id:idValue,
       videoId:idValue,
       url:"/watch?v="+idValue,
-      thumbnail:clean(row?.thumbnail||row?.thumbnailUrl||"",1000)||
-        "https://i.ytimg.com/vi/"+idValue+"/hqdefault.jpg",
-      thumbnailUrl:clean(row?.thumbnailUrl||row?.thumbnail||"",1000)||
-        "https://i.ytimg.com/vi/"+idValue+"/hqdefault.jpg",
       uploaderName:clean(source?.name||row?.uploaderName||row?.uploader||"",180),
       uploaderUrl:"/channel/"+id,
       channelId:id,
@@ -1239,13 +1263,12 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
       duration:-1,
       isLive:true,
       publishedText:"Đang trực tiếp",
-      _liveVerified:"fresh_channel_cache+youtube_player"
+      _liveVerified:"fresh_"+clean(row?._liveCandidateOrigin||"candidate",40)
     },source);
   }
 
   return null;
 }
-
 async function discoverGlobalLiveCandidates(
   supabaseUrl:string,
   serviceKey:string,
@@ -1568,6 +1591,7 @@ Deno.serve(async(req:Request)=>{
         const list=liveCandidateRowsById.get(sid)||[];
         list.push({
           ...item,
+          _liveCandidateOrigin:"previous_package",
           _liveCacheCheckedAt:currentByScope.get("live")?.updated_at||""
         });
         liveCandidateRowsById.set(sid,list);
@@ -1595,6 +1619,7 @@ Deno.serve(async(req:Request)=>{
               ...(Array.isArray(cacheRow?.items)
                 ?cacheRow.items.map((item:any)=>({
                     ...item,
+                    _liveCandidateOrigin:"channel_cache",
                     _liveCacheCheckedAt:cacheRow?.checked_at||cacheRow?.last_success_at||""
                   }))
                 :[])
@@ -1642,7 +1667,7 @@ Deno.serve(async(req:Request)=>{
       // the LIVE package.
       const verifiedExternalRows=(await verifyCurrentLiveRows(
         discovery.external||[],
-        48
+        36
       )).map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
 
       // LIVE suggestions are also server-owned. Only genuinely live outside
@@ -1666,7 +1691,7 @@ Deno.serve(async(req:Request)=>{
           sid,
           dedupeRows([
             ...list,
-            {...row,_liveCacheCheckedAt:searchCheckedAt}
+            {...row,_liveCandidateOrigin:"live_search",_liveCacheCheckedAt:searchCheckedAt}
           ])
         );
       }
