@@ -616,7 +616,7 @@
 
 <script src="/src/media-meta.js?v=20260928-pip-top"></script>
 <script src="/src/api.js?v=20260928-pip-top"></script>
-<script src="/src/youtube-chrome-geometry.js?v=20260928-30"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-31"></script>
 <script>
 const modes=[
   {
@@ -723,7 +723,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="chrome-extrema-v14";
+const CHROME_LIBRARY_PROFILE_REV="direct-component-edges-v15";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
@@ -1169,6 +1169,10 @@ function clearLegacyCalibrationCache(){
       "pip-chrome-calibration-v3:",
       "pip-chrome-calibration-v4-freshset:",
       "pip-chrome-calibration-v5-portrait-border:"
+      "pip-chrome-calibration-v6-unified-flow:",
+      "pip-chrome-calibration-v7-content-viewport:",
+      "pip-chrome-calibration-v8-bottom-border:",
+      "pip-chrome-calibration-v9-extrema:",
     ];
     const remove=[];
     for(let i=0;i<localStorage.length;i+=1){
@@ -1182,7 +1186,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v9-extrema",
+    "pip-chrome-calibration-v10-direct-edges",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -1617,8 +1621,8 @@ function paintGeometryReadout(result){
     ? (box.active?"ON ":"OFF ")+Math.round(box.edge||0)
     : "OFF 0";
   const boxText=(box)=>box
-    ? (box.active?"ON ":"OFF ")+Math.round(box.height||0)+"+"+Math.round(box.offset||0)+"="+Math.round(box.edge||0)
-    : "OFF 0";
+    ? (box.active?"ON EDGE ":"OFF EDGE ")+Math.round(box.edge||0)
+    : "OFF EDGE 0";
   const range=result.sampleRange||[0,0];
   const state=result.layoutState||{};
   const physicalRect=stage.classList.contains("demo-pip")
