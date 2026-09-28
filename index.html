@@ -2252,6 +2252,7 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const MEDIA_DOWNLOAD_URL="https://one988-media.onrender.com/download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4322,18 +4323,39 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
+  function downloadUrlForMeta(meta={},format="mp4"){
+    format=String(format||"mp4").toLowerCase();
+    const direct=String(
+      format==="mp3"
+        ?(meta.downloadAudioUrl||"")
+        :(meta.downloadVideoUrl||"")
+    ).trim();
+    if(/^https?:\/\//i.test(direct))return direct;
+
+    const id=String(meta?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+
+    const title=String(meta?.title||id).trim();
+    return (
+      MEDIA_DOWNLOAD_URL+
+      "?id="+encodeURIComponent(id)+
+      "&format="+encodeURIComponent(format)+
+      "&title="+encodeURIComponent(title)
+    );
+  }
+
   function showDownloadMenu(){
     const meta=openRowMenuMeta||{};
-    const videoUrl=String(meta.downloadVideoUrl||"").trim();
-    const audioUrl=String(meta.downloadAudioUrl||"").trim();
+    const videoUrl=downloadUrlForMeta(meta,"mp4");
+    const audioUrl=downloadUrlForMeta(meta,"mp3");
     const menu=ensureRowActionMenu();
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
-      rowActionButton("download-mp4","Video MP4","video",{disabled:!videoUrl})+
-      rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!audioUrl})+
+      rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!videoUrl})+
+      rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!audioUrl})+
       ((!videoUrl&&!audioUrl)
-        ?'<div class="row-action-note">Video này chưa có liên kết tải trực tiếp từ nguồn.</div>'
-        :"")+
+        ?'<div class="row-action-note">Nguồn này chưa hỗ trợ tải trực tiếp.</div>'
+        :'<div class="row-action-note">File được chuẩn bị bởi máy chủ 1988.</div>')+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
@@ -6192,7 +6214,7 @@ html.one-col.portrait .player.pip{
       }
       if(kind==="download-mp4"){
         openDirectDownload(
-          meta.downloadVideoUrl,
+          downloadUrlForMeta(meta,"mp4"),
           videoTitleSlug(meta.title||"video")+".mp4"
         );
         closeRowActionMenu();
@@ -6200,7 +6222,7 @@ html.one-col.portrait .player.pip{
       }
       if(kind==="download-mp3"){
         openDirectDownload(
-          meta.downloadAudioUrl,
+          downloadUrlForMeta(meta,"mp3"),
           videoTitleSlug(meta.title||"audio")+".mp3"
         );
         closeRowActionMenu();

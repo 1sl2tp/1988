@@ -7,11 +7,12 @@ import threading
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from flask import Flask, Response, jsonify, request, stream_with_context
 import requests
 import yt_dlp
+import imageio_ffmpeg
 
 app = Flask(__name__)
 
@@ -38,7 +39,8 @@ def cors(resp):
     resp.headers["Access-Control-Allow-Headers"] = "Range,Content-Type"
     resp.headers["Access-Control-Expose-Headers"] = (
         "Content-Length,Content-Range,Accept-Ranges,Content-Type,"
-        "ETag,Last-Modified,X-1988-Media,X-1988-Audio"
+        "Content-Disposition,ETag,Last-Modified,X-1988-Media,X-1988-Audio,"
+        "X-1988-Download"
     )
     return resp
 
@@ -49,6 +51,30 @@ def valid_id(video_id):
 
 def valid_kind(kind):
     return kind in ("audio", "video")
+
+
+def _ffmpeg_exe():
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
+
+
+def _download_disposition(title, video_id, ext):
+    title = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", str(title or ""))
+    title = re.sub(r"\s+", " ", title).strip(" .")[:120]
+    unicode_name = f"{title or video_id}.{ext}"
+
+    ascii_base = re.sub(r"[^A-Za-z0-9._-]+", "_", title).strip("._")[:80]
+    if not ascii_base:
+        ascii_base = video_id
+
+    ascii_name = f"{ascii_base}.{ext}"
+    encoded = quote(unicode_name, safe="")
+    return (
+        f'attachment; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{encoded}"
+    )
 
 
 def _proxy_url():
@@ -314,7 +340,8 @@ def _resolve_with_ytdlp(video_id, kind):
         ]
     else:
         selectors = [
-            "best[ext=mp4][vcodec!=none][acodec!=none]/best[vcodec!=none][acodec!=none]",
+            "best[ext=mp4][vcodec^=avc1][acodec!=none]/best[ext=mp4][vcodec^=h264][acodec!=none]",
+            "best[ext=mp4][vcodec!=none][acodec!=none]",
             "best[vcodec!=none][acodec!=none]/best",
             "best",
         ]
@@ -717,6 +744,274 @@ def media_response(video_id, kind):
     }), 502
 
 
+def download_mp4_response(video_id, title=""):
+    if request.method == "OPTIONS":
+        return Response(status=204)
+
+    if not valid_id(video_id):
+        return jsonify({"ok": False, "error": "invalid_video"}), 400
+
+    disposition = _download_disposition(title, video_id, "mp4")
+
+    if request.method == "HEAD":
+        return Response(
+            status=200,
+            headers={
+                "Content-Type": "video/mp4",
+                "Content-Disposition": disposition,
+                "Cache-Control": "no-store",
+                "X-1988-Download": "mp4",
+            },
+        )
+
+    last_error = None
+    for attempt in range(2):
+        upstream = None
+        try:
+            info = resolve_media(video_id, "video", force=(attempt == 1))
+            mime = str(info.get("mimeType") or "").lower()
+            ext = str(info.get("ext") or "").lower()
+            protocol = str(info.get("protocol") or "").lower()
+
+            # The menu promises a real downloadable MP4 file. Do not disguise
+            # HLS playlists or a WebM fallback as .mp4.
+            if (
+                "m3u8" in protocol
+                or "mpegurl" in mime
+                or (ext not in ("mp4", "m4v") and "video/mp4" not in mime)
+            ):
+                _cache_drop(video_id, "video")
+                raise RuntimeError(
+                    f"mp4_unavailable:{protocol or mime or ext or 'unknown'}"
+                )
+
+            upstream = upstream_request(info, method="GET")
+            if upstream.status_code in (401, 403, 410) and attempt == 0:
+                upstream.close()
+                _cache_drop(video_id, "video")
+                continue
+
+            if upstream.status_code >= 400:
+                status = upstream.status_code
+                detail = upstream.text[:240]
+                upstream.close()
+                upstream = None
+                raise RuntimeError(f"upstream_http_{status}:{detail}")
+
+            headers = {}
+            for name in (
+                "Content-Length",
+                "Content-Range",
+                "Accept-Ranges",
+                "ETag",
+                "Last-Modified",
+            ):
+                value = upstream.headers.get(name)
+                if value:
+                    headers[name] = value
+
+            headers["Content-Type"] = "video/mp4"
+            headers["Content-Disposition"] = disposition
+            headers["Cache-Control"] = "no-store"
+            headers["X-1988-Download"] = "mp4"
+
+            @stream_with_context
+            def generate():
+                try:
+                    for chunk in upstream.iter_content(chunk_size=128 * 1024):
+                        if chunk:
+                            yield chunk
+                finally:
+                    upstream.close()
+
+            return Response(
+                generate(),
+                status=upstream.status_code,
+                headers=headers,
+            )
+        except Exception as exc:
+            last_error = exc
+            try:
+                if upstream is not None:
+                    upstream.close()
+            except Exception:
+                pass
+            _cache_drop(video_id, "video")
+
+    app.logger.error("mp4 download failed %s: %s", video_id, last_error)
+    return jsonify({
+        "ok": False,
+        "error": "mp4_download_failed",
+        "detail": str(last_error)[:400],
+    }), 502
+
+
+def download_mp3_response(video_id, title=""):
+    if request.method == "OPTIONS":
+        return Response(status=204)
+
+    if not valid_id(video_id):
+        return jsonify({"ok": False, "error": "invalid_video"}), 400
+
+    disposition = _download_disposition(title, video_id, "mp3")
+
+    if request.method == "HEAD":
+        return Response(
+            status=200,
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Content-Disposition": disposition,
+                "Cache-Control": "no-store",
+                "X-1988-Download": "mp3-128k",
+            },
+        )
+
+    last_error = None
+    for attempt in range(2):
+        upstream = None
+        proc = None
+        pump_thread = None
+        pump_errors = []
+        try:
+            info = resolve_media(video_id, "audio", force=(attempt == 1))
+            upstream = upstream_request(info, method="GET")
+
+            if upstream.status_code in (401, 403, 410) and attempt == 0:
+                upstream.close()
+                upstream = None
+                _cache_drop(video_id, "audio")
+                continue
+
+            if upstream.status_code >= 400:
+                status = upstream.status_code
+                detail = upstream.text[:240]
+                upstream.close()
+                upstream = None
+                raise RuntimeError(f"upstream_http_{status}:{detail}")
+
+            proc = subprocess.Popen(
+                [
+                    _ffmpeg_exe(),
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    "pipe:0",
+                    "-vn",
+                    "-codec:a",
+                    "libmp3lame",
+                    "-b:a",
+                    "128k",
+                    "-f",
+                    "mp3",
+                    "pipe:1",
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                bufsize=0,
+            )
+
+            def pump_audio():
+                try:
+                    if not proc or not proc.stdin:
+                        return
+                    for chunk in upstream.iter_content(chunk_size=128 * 1024):
+                        if not chunk:
+                            continue
+                        proc.stdin.write(chunk)
+                except Exception as exc:
+                    pump_errors.append(str(exc))
+                finally:
+                    try:
+                        if proc and proc.stdin:
+                            proc.stdin.close()
+                    except Exception:
+                        pass
+                    try:
+                        upstream.close()
+                    except Exception:
+                        pass
+
+            pump_thread = threading.Thread(target=pump_audio, daemon=True)
+            pump_thread.start()
+
+            @stream_with_context
+            def generate():
+                try:
+                    if not proc or not proc.stdout:
+                        return
+                    while True:
+                        chunk = proc.stdout.read(128 * 1024)
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    try:
+                        if proc and proc.poll() is None:
+                            proc.kill()
+                    except Exception:
+                        pass
+                    try:
+                        if pump_thread:
+                            pump_thread.join(timeout=0.4)
+                    except Exception:
+                        pass
+                    try:
+                        upstream.close()
+                    except Exception:
+                        pass
+
+                    if proc:
+                        try:
+                            stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
+                            if stderr:
+                                app.logger.warning(
+                                    "mp3 ffmpeg %s: %s",
+                                    video_id,
+                                    stderr[-1200:],
+                                )
+                        except Exception:
+                            pass
+                    if pump_errors:
+                        app.logger.warning(
+                            "mp3 source pump %s: %s",
+                            video_id,
+                            pump_errors[-1][:600],
+                        )
+
+            return Response(
+                generate(),
+                status=200,
+                headers={
+                    "Content-Type": "audio/mpeg",
+                    "Content-Disposition": disposition,
+                    "Cache-Control": "no-store",
+                    "X-1988-Download": "mp3-128k",
+                },
+            )
+        except Exception as exc:
+            last_error = exc
+            try:
+                if upstream is not None:
+                    upstream.close()
+            except Exception:
+                pass
+            try:
+                if proc is not None and proc.poll() is None:
+                    proc.kill()
+            except Exception:
+                pass
+            _cache_drop(video_id, "audio")
+
+    app.logger.error("mp3 download failed %s: %s", video_id, last_error)
+    return jsonify({
+        "ok": False,
+        "error": "mp3_download_failed",
+        "detail": str(last_error)[:400],
+    }), 502
+
+
 @app.after_request
 def add_cors(resp):
     return cors(resp)
@@ -730,6 +1025,10 @@ def health():
         "engine": "yt-dlp+piped-proxy+stdout",
         "streamCompat": True,
         "videoMode": "muxed-av",
+        "downloadMp4": True,
+        "downloadMp3": True,
+        "mp3Bitrate": "128k",
+        "ffmpeg": os.path.basename(_ffmpeg_exe()),
         "ytDlpBlocked": time.time() < _ytdlp_blocked_until,
         "proxyConfigured": bool(_proxy_url()),
         "cookiesConfigured": bool(_cookiefile()),
@@ -1277,6 +1576,33 @@ def resolve():
             "kind": kind,
             "detail": str(exc)[:400],
         }), 502
+
+
+@app.route("/download", methods=["GET", "HEAD", "OPTIONS"])
+def download():
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    download_format = (request.args.get("format") or "mp4").strip().lower()
+    title = (request.args.get("title") or "").strip()
+
+    if download_format == "mp3":
+        return download_mp3_response(video_id, title)
+    if download_format == "mp4":
+        return download_mp4_response(video_id, title)
+    return jsonify({"ok": False, "error": "invalid_download_format"}), 400
+
+
+@app.route("/download/mp4", methods=["GET", "HEAD", "OPTIONS"])
+def download_mp4():
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    title = (request.args.get("title") or "").strip()
+    return download_mp4_response(video_id, title)
+
+
+@app.route("/download/mp3", methods=["GET", "HEAD", "OPTIONS"])
+def download_mp3():
+    video_id = (request.args.get("v") or request.args.get("id") or "").strip()
+    title = (request.args.get("title") or "").strip()
+    return download_mp3_response(video_id, title)
 
 
 @app.route("/media", methods=["GET", "HEAD", "OPTIONS"])
