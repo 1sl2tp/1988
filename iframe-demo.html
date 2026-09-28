@@ -251,9 +251,6 @@
       clip-path:none!important;
     }
     .stage.demo-pip.max-clean-mode .clean-controls::before{display:none}
-    .stage.demo-pip.max-clean-mode.chrome-mask .clean-controls{
-      opacity:1;
-    }
     .pip-mask-shield{
       display:none;
       position:absolute;
@@ -460,7 +457,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">PiP vừa nổi chỉ có video. Chạm/rê mới hiện Play/Pause · X; co giãn bằng kéo mép/góc.</span>
+    <span class="hint">PiP: khi chrome YouTube còn hiện thì che TOP/BOTTOM và giữ X + thanh tua; khi chrome ẩn an toàn thì tất cả lớp này cùng ẩn.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -1416,7 +1413,16 @@ function queueMeasuredSafeWindow(){
 }
 function setChromeMask(on){
   if(on)syncMeasuredSafeWindow();
-  stage.classList.toggle("chrome-mask",!!on);
+  const active=!!on;
+  stage.classList.toggle("chrome-mask",active);
+
+  // PiP max has ONE visibility state:
+  // YouTube chrome needs covering -> mask + X + seek are visible.
+  // YouTube chrome is safely hidden -> all three disappear together.
+  if(stage.classList.contains("max-clean-mode")){
+    stopCleanHideTimer();
+    stage.classList.toggle("controls-visible",active);
+  }
 }
 function clampPipPosition(left,top,width,height){
   const gap=6;
@@ -1454,7 +1460,7 @@ function setPipRect(left,top,width,height){
 }
 function beginPipPointer(e,mode,handle=""){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
-  markPipUiActivity({showControls:true});
+  markPipUiActivity();
   const r=stage.getBoundingClientRect();
   pipPointerMode=mode;
   pipPointerId=e.pointerId;
@@ -1575,19 +1581,13 @@ function scheduleChromeRelease(){
 
   chromeMaskTimer=setTimeout(verify,250);
 }
-function markPipUiActivity({showControls=false}={}){
+function markPipUiActivity(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  // Any action that can make YouTube chrome appear must be covered immediately.
-  // From this point the mask release is owned only by scheduleChromeRelease().
+  // Any action that can make YouTube chrome appear enters the same covered
+  // state. There is no second 1.8s timer for X/seek in PiP max.
   resetNativeChromeSignal();
   setChromeMask(true);
-
-  if(showControls){
-    stage.classList.add("controls-visible");
-    stopCleanHideTimer();
-    cleanHideTimer=setTimeout(hideCleanControls,1800);
-  }
 
   if(playerIsPlaying())scheduleChromeRelease();
   else stopChromeMaskTimer();
@@ -1595,12 +1595,15 @@ function markPipUiActivity({showControls=false}={}){
 
 function hideCleanControls(){
   stopCleanHideTimer();
+  // max-clean visibility is owned by chrome-mask; only the simpler clean mode
+  // uses an independent controls timeout.
+  if(stage.classList.contains("max-clean-mode"))return;
   stage.classList.remove("controls-visible");
 }
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
   if(stage.classList.contains("max-clean-mode")){
-    markPipUiActivity({showControls:true});
+    markPipUiActivity();
     return;
   }
   stage.classList.add("controls-visible");
@@ -1701,7 +1704,7 @@ function enterDemoPip(){
       initialWidth,
       initialHeight
     );
-    markPipUiActivity({showControls:false});
+    markPipUiActivity();
   }
 }
 function toggleDemoPip(){
@@ -1838,7 +1841,7 @@ async function render(){
           if(state===1){
             // PLAY / RESUME / BUFFERING->PLAYING all enter the same UI-activity
             // state. Custom controls do not have to be shown just because play began.
-            markPipUiActivity({showControls:false});
+            markPipUiActivity();
           }else{
             // PAUSED / BUFFERING / CUED / ENDED: keep YouTube chrome covered.
             stopChromeMaskTimer();
