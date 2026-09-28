@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.9";
+  const VERSION = "2026-09-28.10";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -128,26 +128,33 @@
 
     const nativeControls = options.controls !== false;
 
+    // Presence is component-specific, not one shared tier. YouTube introduces
+    // each metadata/control box at a different player span while resizing.
+    // Calibrated order:
+    // TOP: title -> channel logo -> channel name.
+    // BOTTOM: YouTube -> link/share -> "Video khác".
     const top = {
-      avatar: tier !== "xs",
       title: true,
-      channel: ["md","lg","xl"].includes(tier)
+      avatar: uiSpan >= 175,
+      channel: uiSpan >= 235
     };
 
     const bottom = {
-      // YouTube branding survives at the smallest embed sizes.
       youtube: true,
-      // Extra cards appear progressively as horizontal room becomes available.
-      link: ["md","lg","xl"].includes(tier),
-      next: ["lg","xl"].includes(tier),
-      seek: nativeControls && ["md","lg","xl"].includes(tier)
+      link: uiSpan >= 210,
+      next: uiSpan >= 275,
+      seek: nativeControls && uiSpan >= 300
     };
 
-    const density = tier === "xs" ? "tight" : tier === "sm" ? "compact" : "normal";
-    const maxTitleLines = ["xs","sm"].includes(tier) ? 1 : 2;
+    const density = uiSpan < 200 ? "tight" : uiSpan < 300 ? "compact" : "normal";
+    // Small embeds truncate the native title rather than growing the top block.
+    const maxTitleLines = uiSpan < 390 ? 1 : 2;
 
     return {
-      id: orientation + "-" + tier + (nativeControls ? "-controls" : "-minimal"),
+      id: orientation + "-" + tier + "-" +
+        (top.avatar?"A":"")+(top.title?"T":"")+(top.channel?"C":"") + "-" +
+        (bottom.link?"L":"")+(bottom.next?"N":"")+(bottom.youtube?"Y":"") +
+        (nativeControls ? "-controls" : "-minimal"),
       tier,
       density,
       maxTitleLines,
