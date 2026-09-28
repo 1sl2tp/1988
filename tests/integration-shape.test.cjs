@@ -45,9 +45,14 @@ if(simpleProduction){
   assert.match(html,/ytPlayer\.loadVideoById\(id\)/);
   assert.match(html,/void ensureYoutubePlayer\(\);/);
   assert.match(html,/onError\(event\)/);
-  assert.match(html,/startNativeVideoFallback\(id,code\)/);
-  assert.match(html,/native-video-fallback/);
-  assert.match(html,/YT1988_API\?\.mediaUrl\?\.\(id,["']video["']\)/);
+  assert.match(html,/youtube_embed_error/);
+  assert.doesNotMatch(html,/startNativeVideoFallback/);
+  assert.doesNotMatch(html,/native-video-fallback/);
+  assert.doesNotMatch(html,/YT1988_API\?\.mediaUrl/);
+  assert.match(refresh,/function youtubeEmbedPlayback\(/);
+  assert.match(refresh,/clientName:["']WEB_EMBEDDED_PLAYER["']/);
+  assert.match(refresh,/r\?\._embedPlayable===true/);
+  assert.match(refresh,/const EMBED_CHECK_TTL_MS=6\*60\*60\*1000/);
   assert.doesNotMatch(html,/cueVideoById/);
   assert.doesNotMatch(html,/thumbnailContentAspect|detectPillarboxFromImage|primeCardPortraitNow/);
   assert.match(html,/const PACKAGE_SYNC_URL=.*yt1988-packages/);
@@ -62,7 +67,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v24/);
+  assert.match(sw,/1988-simple-media-v25/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
