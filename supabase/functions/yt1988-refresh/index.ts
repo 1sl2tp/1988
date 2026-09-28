@@ -18,7 +18,8 @@ const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
 const LIVE_PIPELINE_VERSION="live-v38";
-const NON_LIVE_PIPELINE_VERSION="non-live-v14";
+const NON_LIVE_PIPELINE_VERSION="non-live-v15";
+const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
@@ -1114,12 +1115,18 @@ async function discoverServerSourceSuggestions(
     let duration=durationSeconds(row);
     let live=isLive(row);
 
+    const [player,embed]=await Promise.all([
+      duration<=0
+        ?youtubePlayerMetadata(id).catch(()=>({duration:0,isLive:false}))
+        :Promise.resolve(null),
+      youtubeEmbedPlayback(id).catch(()=>({playable:null,definitive:false,status:"PROBE_ERROR",reason:""}))
+    ]);
+
     if(duration<=0){
-      const player=await youtubePlayerMetadata(id).catch(()=>({duration:0,isLive:false}));
       duration=Number(player?.duration)||0;
       live=player?.isLive===true;
     }
-    if(live||duration<=60)return false;
+    if(live||duration<=60||embed?.playable!==true)return false;
 
     const short=await youtubeShortsMembership(id).catch(()=>false);
     if(short)return false;
@@ -1209,6 +1216,129 @@ function youtubePlayerMetaFromResponse(data:any){
     isLiveContent,
     ended
   };
+}
+
+function youtubePlayerReasonText(value:any):string{
+  if(value==null)return "";
+  if(typeof value==="string"||typeof value==="number")return clean(value,500);
+  if(Array.isArray(value))return clean(value.map(youtubePlayerReasonText).filter(Boolean).join(" "),500);
+  if(typeof value==="object"){
+    const direct=clean(value?.simpleText||value?.text||"",500);
+    if(direct)return direct;
+    if(Array.isArray(value?.runs)){
+      return clean(value.runs.map((run:any)=>run?.text||"").join(" "),500);
+    }
+  }
+  return "";
+}
+
+function youtubeEmbedPlaybackFromResponse(data:any){
+  const play=data?.playabilityStatus||{};
+  const details=data?.videoDetails||{};
+  const micro=data?.microformat?.playerMicroformatRenderer||{};
+  const status=clean(play?.status||"",80).toUpperCase();
+  const reason=clean([
+    youtubePlayerReasonText(play?.reason),
+    youtubePlayerReasonText(play?.messages),
+    youtubePlayerReasonText(play?.errorScreen?.playerErrorMessageRenderer?.reason),
+    youtubePlayerReasonText(play?.errorScreen?.playerErrorMessageRenderer?.subreason)
+  ].filter(Boolean).join(" · "),900);
+  const reasonNorm=reason.toLowerCase();
+
+  const booleans=[
+    play?.embeddable,
+    play?.playableInEmbed,
+    details?.isEmbeddable,
+    details?.is_embeddable,
+    micro?.isEmbeddable,
+    micro?.is_embeddable
+  ].filter((value:any)=>typeof value==="boolean");
+  const embeddable=booleans.length?booleans[0]:null;
+
+  if(embeddable===false){
+    return {playable:false,definitive:true,status:status||"UNPLAYABLE",reason:reason||"embed_disabled"};
+  }
+
+  if(
+    /other\s+(?:web)?sites?|embedding|embed(?:ding)?\s+(?:has\s+been\s+)?disabled|playback\s+on\s+other|watch\s+(?:this\s+)?video\s+on\s+youtube|xem\s+trên\s+youtube/i.test(reason)
+  ){
+    return {playable:false,definitive:true,status:status||"UNPLAYABLE",reason};
+  }
+
+  if(
+    /private\s+video|video\s+is\s+private|video\s+unavailable|not\s+available|has\s+been\s+removed|deleted\s+video|members?[- ]only|video\s+riêng\s+tư|video\s+không\s+khả\s+dụng|đã\s+bị\s+xóa|không\s+có\s+sẵn/i.test(reason)
+  ){
+    return {playable:false,definitive:true,status:status||"UNPLAYABLE",reason};
+  }
+
+  if(status==="OK"){
+    return {playable:true,definitive:true,status,reason};
+  }
+
+  if(/bot|confirm\s+you(?:'re| are)\s+not/i.test(reasonNorm)){
+    return {playable:null,definitive:false,status,reason};
+  }
+
+  if([
+    "UNPLAYABLE","ERROR","AGE_CHECK_REQUIRED","CONTENT_CHECK_REQUIRED",
+    "LOGIN_REQUIRED","LIVE_STREAM_OFFLINE"
+  ].includes(status)){
+    return {playable:false,definitive:true,status,reason};
+  }
+
+  return {playable:null,definitive:false,status,reason};
+}
+
+async function youtubeEmbedPlayback(id:string){
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id)){
+    return {playable:null,definitive:false,status:"INVALID_ID",reason:""};
+  }
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3200);
+  try{
+    const client:any={
+      clientName:"WEB_EMBEDDED_PLAYER",
+      clientVersion:YT_WEB_PLAYER_CLIENT_VERSION,
+      clientScreen:"EMBED",
+      hl:"vi",
+      gl:"VN"
+    };
+    const res=await fetch(
+      "https://www.youtube.com/youtubei/v1/player?key="+
+        encodeURIComponent(YT_WEB_PLAYER_API_KEY),
+      {
+        method:"POST",
+        signal:controller.signal,
+        cache:"no-store",
+        headers:{
+          "content-type":"application/json",
+          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36",
+          "origin":"https://www.youtube.com",
+          "referer":"https://www.youtube.com/"
+        },
+        body:JSON.stringify({
+          context:{
+            client,
+            thirdParty:{embedUrl:"https://yt.taphoa.xyz/"}
+          },
+          videoId:id
+        })
+      }
+    );
+    if(!res.ok)return {playable:null,definitive:false,status:"HTTP_"+res.status,reason:""};
+    const data=await res.json().catch(()=>null);
+    return youtubeEmbedPlaybackFromResponse(data);
+  }catch(error){
+    return {
+      playable:null,
+      definitive:false,
+      status:"PROBE_ERROR",
+      reason:clean((error as any)?.message||error||"",500)
+    };
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 async function youtubePlayerMetadata(id:string){
@@ -2247,6 +2377,7 @@ Deno.serve(async(req:Request)=>{
         const duration=durationSeconds(row);
         const durationCheckedAt=Number(row?._durationCheckedAt)||0;
         const shortCheckedAt=Number(row?._shortCheckedAt)||0;
+        const embedCheckedAt=Number(row?._embedCheckedAt)||0;
         const resolverVersion=Number(row?._durationResolverVersion)||0;
         const needDuration=duration<=0&&(
           resolverVersion<3||
@@ -2254,7 +2385,10 @@ Deno.serve(async(req:Request)=>{
           now-durationCheckedAt>=15*60*1000
         );
         const needShort=!shortCheckedAt;
-        if(!needDuration&&!needShort)continue;
+        const needEmbed=
+          !embedCheckedAt||
+          now-embedCheckedAt>=EMBED_CHECK_TTL_MS;
+        if(!needDuration&&!needShort&&!needEmbed)continue;
 
         verificationCandidateIds.add(id);
         verificationCandidates.push({
@@ -2263,6 +2397,7 @@ Deno.serve(async(req:Request)=>{
           duration,
           needDuration,
           needShort,
+          needEmbed,
           inCurrentPackage:currentPackageVideoIds.has(id)
         });
       }
@@ -2275,13 +2410,16 @@ Deno.serve(async(req:Request)=>{
     const verificationMeta=new Map<string,any>();
     await mapLimit(verificationCandidates.slice(0,NON_LIVE_VERIFY_BATCH),8,async(candidate)=>{
       const checkedAt=Date.now();
-      const [searchMeta,isShort]=await Promise.all([
+      const [searchMeta,isShort,embed]=await Promise.all([
         candidate.needDuration
           ?youtubeSearchVideoMetadata(supabaseUrl,serviceKey,candidate.id)
           :Promise.resolve(null),
         candidate.needShort
           ?youtubeShortsMembership(candidate.id)
-          :Promise.resolve(false)
+          :Promise.resolve(false),
+        candidate.needEmbed
+          ?youtubeEmbedPlayback(candidate.id)
+          :Promise.resolve(null)
       ]);
 
       // Keep the package path simple and bounded: exact video-ID search is the
@@ -2300,7 +2438,14 @@ Deno.serve(async(req:Request)=>{
         thumbnailUrl:clean(searchMeta?.thumbnailUrl||"",1000),
         views:Math.max(0,Number(searchMeta?.views)||0),
         durationCheckedAt:candidate.needDuration?checkedAt:0,
-        shortCheckedAt:candidate.needShort?checkedAt:0
+        shortCheckedAt:candidate.needShort?checkedAt:0,
+        embedCheckedAt:candidate.needEmbed?checkedAt:0,
+        embedPlayable:candidate.needEmbed
+          ?embed?.playable===true
+          :undefined,
+        embedStatus:candidate.needEmbed
+          ?clean(embed?.status||"",80)
+          :""
       });
       return true;
     });
@@ -2344,7 +2489,14 @@ Deno.serve(async(req:Request)=>{
             views:Math.max(Number(row?.views)||0,Number(meta?.views)||0),
             _durationCheckedAt:meta.durationCheckedAt||Number(row?._durationCheckedAt)||0,
             _durationResolverVersion:meta.durationCheckedAt?3:(Number(row?._durationResolverVersion)||0),
-            _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0
+            _shortCheckedAt:meta.shortCheckedAt||Number(row?._shortCheckedAt)||0,
+            _embedCheckedAt:meta.embedCheckedAt||Number(row?._embedCheckedAt)||0,
+            _embedPlayable:meta.embedCheckedAt
+              ?meta.embedPlayable===true
+              :row?._embedPlayable===true,
+            _embedStatus:meta.embedCheckedAt
+              ?meta.embedStatus
+              :clean(row?._embedStatus||"",80)
           };
         });
         if(changed){
@@ -2371,7 +2523,9 @@ Deno.serve(async(req:Request)=>{
         publishedText(row),
         String(durationSeconds(row)||0),
         String(Number(row?._durationResolverVersion)||0),
-        row?.isShort===true?"1":"0"
+        row?.isShort===true?"1":"0",
+        row?._embedPlayable===true?"1":"0",
+        String(Number(row?._embedCheckedAt)||0)
       ].join("|")).join("\n"));
       const existing=index>=0?cacheWrites[index]:null;
       const write={
@@ -2542,6 +2696,8 @@ Deno.serve(async(req:Request)=>{
           !isTooShortVideo(r)&&
           Number(r?._shortCheckedAt)>0&&
           durationSeconds(r)>60&&
+          Number(r?._embedCheckedAt)>0&&
+          r?._embedPlayable===true&&
           !!validChannelDisplayName(r?._sourceName||r?.uploaderName||r?.uploader||"")&&
           !!clean(r?._displayTitle||r?.title||"",300)
         );
