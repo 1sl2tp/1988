@@ -48,6 +48,8 @@ if(simpleProduction){
   assert.match(refresh,/_aspectVerified:true/);
   assert.match(refresh,/yt1988_video_meta\?verified=eq\.true/);
   assert.match(html,/function selectedMetaNeedsLookup\(/);
+  assert.match(html,/Never synthesize a fake card from current/);
+  assert.doesNotMatch(html,/\[meta\.id\?meta:\{\.\.\.meta,id:current\.id,title:current\.label\}\]/);
   assert.match(html,/function reportVerifiedAspect\(/);
   assert.match(html,/method:["']POST["']/);
   assert.match(html,/function playVideoId\(/);
@@ -90,7 +92,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v30/);
+  assert.match(sw,/1988-simple-media-v31/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);

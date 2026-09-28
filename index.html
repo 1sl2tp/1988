@@ -3704,10 +3704,11 @@ html.one-col.portrait .player.pip{
 
   function renderSampleContent(){
     const rows=document.getElementById("rows");
-    const meta=currentMeta || {};
-    const cards=feedMetas.length
-      ? feedMetas
-      : [meta.id?meta:{...meta,id:current.id,title:current.label}];
+
+    // The feed is authoritative. Never synthesize a fake card from current
+    // player state when a package/search result is empty; that produced the
+    // grey YouTube "..." thumbnail with source "1988".
+    const cards=Array.isArray(feedMetas)?feedMetas:[];
 
     const activeInlineId=inlineVideoId;
     const wasFloating=!!pip && !!activeInlineId;
