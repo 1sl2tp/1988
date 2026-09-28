@@ -1036,13 +1036,10 @@ function renderPipTopInfo(){
   const root=stage.querySelector("[data-pip-top-info]");
   if(!root)return;
 
-  const activeMetaLibrary=stage.classList.contains("rail-mode")
-    ? currentRailLibrary
-    : currentChromeLibrary;
   const meta=
-    activeMetaLibrary?.videoId===requestedVideoId &&
-    activeMetaLibrary?.mediaMeta?.id===requestedVideoId
-      ? activeMetaLibrary.mediaMeta
+    currentChromeLibrary?.videoId===requestedVideoId &&
+    currentChromeLibrary?.mediaMeta?.id===requestedVideoId
+      ? currentChromeLibrary.mediaMeta
       : pipMetaFallback(requestedVideoId);
 
   const avatar=root.querySelector("[data-pip-top-avatar]");
@@ -1109,13 +1106,6 @@ function attachPipMetaToLibrary(id,meta,{cache=true}={}){
   if(currentChromeLibrary?.videoId===id){
     currentChromeLibrary={
       ...currentChromeLibrary,
-      mediaMeta:meta,
-      mediaMetaState
-    };
-  }
-  if(currentRailLibrary?.videoId===id){
-    currentRailLibrary={
-      ...currentRailLibrary,
       mediaMeta:meta,
       mediaMetaState
     };
@@ -2656,15 +2646,14 @@ async function render(){
   currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
   if(mode.railMode){
     currentRailLibrary={
-      type:"rail",
+      type:"native-frame-workbench",
       videoId:id,
-      mediaMeta:currentPipMeta,
-      mediaMetaState:currentPipMeta.verified===true?"partial":"fallback",
       contentAspect:16/9,
       orientation:"landscape"
     };
+  }else{
+    void preloadPipLibraryMeta(id);
   }
-  void preloadPipLibraryMeta(id);
 
   verifiedMediaAspect=0;
   verifiedMediaShape="";
@@ -2721,7 +2710,7 @@ async function render(){
       playerVars:{...mode.params,origin:location.origin},
       events:mode.cleanDemo?{
         onReady(){
-          if(currentPipMeta?.id===id&&currentPipMeta.verified!==true){
+          if(!mode.railMode&&currentPipMeta?.id===id&&currentPipMeta.verified!==true){
             currentPipMeta={
               ...currentPipMeta,
               title:currentVideoTitle()||currentPipMeta.title||"Video",
