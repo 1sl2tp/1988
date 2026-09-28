@@ -592,7 +592,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">Cover: ACTIVE → hết idle thì ARMED (wake chặn iframe trước) → hết grace thì HIDDEN. HIDDEN/ARMED gặp rê/chạm wake → SHOW cycle mới.</span>
+    <span class="hint">PiP max chỉ dùng một state machine: ACTIVE → ARMED → HIDDEN. Mọi show/hide đều đi qua show/touch/arm/hide; không còn timer hay controls cũ tham gia.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -722,7 +722,6 @@ let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
 let nativeChromeSignalAt=0;
 let nativeChromeSignalKey="";
-let pipUiCycle=0;
 let nativeChromeVisibleCycle=-1;
 let nativeChromeHiddenCycle=-1;
 let pipPointerMode=null;
@@ -1082,7 +1081,8 @@ function seekAtClientX(clientX,seek){
   if(fill)fill.style.width=pct;
   if(thumb)thumb.style.left=pct;
   seek.setAttribute("aria-valuenow",String(Math.round(p*100)));
-  showCleanControls();
+  if(stage.classList.contains("max-clean-mode"))touchChromeCover("seek-move");
+  else showCleanControls();
 }
 function currentVideoTitle(){
   try{return String(apiPlayer?.getVideoData?.()?.title||"")}catch{return ""}
@@ -1747,14 +1747,14 @@ function paintGeometryReadout(result){
         ? "VISIBLE✓"
         : nativeChromeVisible===false
           ? (
-              nativeChromeVisibleCycle===pipUiCycle &&
-              nativeChromeHiddenCycle===pipUiCycle
+              nativeChromeVisibleCycle===pipCoverCycle &&
+              nativeChromeHiddenCycle===pipCoverCycle
                 ? "HIDDEN✓"
                 : "HIDDEN?"
             )
           : "NONE"
     )+
-    " · CYCLE "+pipUiCycle+
+    " · CYCLE "+pipCoverCycle+
     " · COVER "+(
       !pipCoverVisible?"HIDDEN":
       pipCoverArmed?"ARMED":"ACTIVE"
@@ -1903,12 +1903,6 @@ function endPipPointer(e){
   syncMeasuredSafeWindow();
   return true;
 }
-function currentMediaTime(){
-  try{return Number(apiPlayer?.getCurrentTime?.())||0}catch{return 0}
-}
-function currentPlaybackRate(){
-  try{return Math.max(.1,Number(apiPlayer?.getPlaybackRate?.())||1)}catch{return 1}
-}
 function pipChromeTiming(){
   const timing=currentChromeLibrary?.chromeTiming||{};
   return {
@@ -1991,7 +1985,6 @@ function showChromeCover(reason="activity"){
   // SHOW: new cycle, iframe interaction allowed again.
   stopChromeMaskTimer();
   pipCoverCycle+=1;
-  pipUiCycle=pipCoverCycle;
   pipUiActivityAt=performance.now();
   pipCoverVisible=true;
   pipCoverArmed=false;
@@ -2023,9 +2016,6 @@ function touchChromeCover(reason="activity"){
   if(playerIsPlaying())scheduleChromeRelease();
 }
 
-function markPipUiActivity(reason="activity"){
-  touchChromeCover(reason);
-}
 function hideCleanControls(){
   stopCleanHideTimer();
   // max-clean visibility is owned by chrome-mask; only the simpler clean mode
@@ -2034,11 +2024,11 @@ function hideCleanControls(){
   stage.classList.remove("controls-visible");
 }
 function showCleanControls(){
-  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
-  if(stage.classList.contains("max-clean-mode")){
-    touchChromeCover("controls");
-    return;
-  }
+  if(
+    !stage.classList.contains("demo-pip") ||
+    !stage.classList.contains("clean-mode") ||
+    stage.classList.contains("max-clean-mode")
+  )return;
   stage.classList.add("controls-visible");
   stopCleanHideTimer();
   cleanHideTimer=setTimeout(hideCleanControls,1800);
@@ -2116,7 +2106,6 @@ function exitDemoPip(){
 }
 function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
-  resetNativeChromeSignal();
   const rect=stage.getBoundingClientRect();
   mainAspectBeforePip=stage.style.aspectRatio||"";
 
@@ -2312,8 +2301,8 @@ async function render(){
             }else{
               pipCoverArmed=false;
               setWakeLayer(false);
-              setChromeMask(true);
               stage.dataset.pipCoverState="active";
+              stage.dataset.pipCoverReason="pause";
             }
           }
         }
@@ -2398,7 +2387,7 @@ function finishSeek(e){
     try{seek.releasePointerCapture(e.pointerId)}catch{}
   }
   activeSeekPointer=null;
-  if(playerIsPlaying())scheduleChromeRelease();
+  if(stage.classList.contains("max-clean-mode"))touchChromeCover("seek-end");
 }
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
@@ -2415,7 +2404,8 @@ stage.addEventListener("click",e=>{
   if(shield){
     e.preventDefault();
     e.stopPropagation();
-    showCleanControls();
+    if(stage.classList.contains("max-clean-mode"))touchChromeCover("shield");
+    else showCleanControls();
     return;
   }
   const close=e.target.closest("[data-clean-close]");
