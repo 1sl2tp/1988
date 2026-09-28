@@ -1634,6 +1634,74 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   .row-menu{opacity:1}
 }
 
+.row-action-menu{
+  position:fixed;
+  z-index:1200;
+  width:min(286px,calc(100vw - 24px));
+  padding:8px;
+  border:1px solid var(--yt-border);
+  border-radius:12px;
+  background:var(--yt-surface);
+  color:var(--yt-text);
+  box-shadow:0 10px 36px rgba(0,0,0,.38);
+}
+.row-action-menu[hidden]{display:none!important}
+.row-action-title{
+  padding:7px 10px 8px;
+  overflow:hidden;
+  color:var(--yt-text-secondary);
+  font:500 12px/16px Roboto,Arial,sans-serif;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.row-action-item{
+  width:100%;
+  min-height:44px;
+  padding:0 10px;
+  border:0;
+  border-radius:8px;
+  background:transparent;
+  color:inherit;
+  display:grid;
+  grid-template-columns:24px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  text-align:left;
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  cursor:pointer;
+}
+.row-action-item:hover{background:var(--yt-hover)}
+.row-action-item:active{background:var(--yt-press)}
+.row-action-item[disabled]{
+  opacity:.45;
+  cursor:default;
+}
+.row-action-item[disabled]:hover{background:transparent}
+.row-action-icon{
+  width:24px;
+  height:24px;
+  display:grid;
+  place-items:center;
+}
+.row-action-icon svg{
+  width:22px;
+  height:22px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.row-action-sep{
+  height:1px;
+  margin:6px 2px;
+  background:var(--yt-border);
+}
+.row-action-note{
+  padding:8px 10px;
+  color:var(--yt-text-secondary);
+  font:400 12px/17px Roboto,Arial,sans-serif;
+}
 
 .state{display:none}
 
@@ -1858,6 +1926,10 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
+  const sourceUiChannel=typeof BroadcastChannel==="function"
+    ?new BroadcastChannel("1988-source-ui-v1")
+    :null;
 
   const root=document.documentElement;
   const top=document.getElementById("top");
@@ -1905,6 +1977,10 @@ html.one-col.portrait .player.pip{
   let feedRequest=0;
   let feedMode="package";
   let activePackageScope="live";
+  let sourceStateRemote={};
+  let sourceAdminPin="";
+  let openRowMenuMeta=null;
+  let openRowMenuAnchor=null;
   const AUTOPLAY_NEXT_KEY="yt1988-autoplay-next-v1";
   let autoplayNext=true;
   try{
@@ -3169,6 +3245,22 @@ html.one-col.portrait .player.pip{
       videoHeight,
       aspectRatio,
       mediaKind:String(row?.mediaKind||""),
+      downloadVideoUrl:String(
+        row?.downloadVideoUrl||
+        row?.videoDownloadUrl||
+        row?.mp4Url||
+        row?.downloads?.mp4||
+        row?.download?.video||
+        ""
+      ).trim(),
+      downloadAudioUrl:String(
+        row?.downloadAudioUrl||
+        row?.audioDownloadUrl||
+        row?.mp3Url||
+        row?.downloads?.mp3||
+        row?.download?.audio||
+        ""
+      ).trim(),
       _aspectVerified:
         row?._aspectVerified===true||
         (videoWidth>0&&videoHeight>0)||
@@ -3194,7 +3286,8 @@ html.one-col.portrait .player.pip{
       "title","sourceName","sourceAvatar","thumbnail",
       "viewsLabel","publishedLabel","durationLabel",
       "isLive","verified","mediaKind","aspectRatio",
-      "videoWidth","videoHeight","_aspectVerified","_aspectSource"
+      "videoWidth","videoHeight","downloadVideoUrl","downloadAudioUrl",
+      "_aspectVerified","_aspectSource"
     ]){
       if(keep(key))merged[key]=base[key];
     }
@@ -3945,6 +4038,7 @@ html.one-col.portrait .player.pip{
         if(!response.ok)throw new Error("source_state_"+response.status);
         const payload=await response.json();
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
+        sourceStateRemote=remote;
         const rows=existingSourceTabNames(remote);
         try{localStorage.setItem(sourceTabsKey,JSON.stringify(rows))}catch{}
         return rows;
