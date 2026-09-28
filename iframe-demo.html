@@ -655,8 +655,7 @@
       max-height:none!important;
       border:0!important;
     }
-    .rail-crop-preview .pip-resize-handle,
-    .rail-pip-close{display:none}
+    .rail-crop-preview .pip-resize-handle{display:none}
     .rail-crop-preview.rail-pip-open{
       position:fixed!important;
       z-index:50;
@@ -675,30 +674,6 @@
     .rail-crop-preview.rail-pip-open .pip-resize-handle{
       display:block;
       z-index:9;
-    }
-    .rail-crop-preview.rail-pip-open .rail-pip-close{
-      display:grid;
-      place-items:center;
-      position:absolute;
-      z-index:10;
-      right:6px;
-      top:6px;
-      width:30px;
-      height:30px;
-      padding:0;
-      border:0;
-      border-radius:50%;
-      color:#fff;
-      background:rgba(8,8,8,.62);
-      box-shadow:0 1px 8px rgba(0,0,0,.28);
-      backdrop-filter:blur(8px);
-      -webkit-backdrop-filter:blur(8px);
-      pointer-events:auto;
-    }
-    .rail-crop-preview.rail-pip-open .rail-pip-close svg{
-      width:18px;
-      height:18px;
-      fill:currentColor;
     }
     .rail-crop-preview.rail-pip-open::after{
       content:"";
@@ -845,9 +820,6 @@
             <div class="pip-resize-handle sw" data-rail-pip-resize="sw"></div>
             <div class="pip-resize-handle w" data-rail-pip-resize="w"></div>
             <div class="pip-resize-handle nw" data-rail-pip-resize="nw"></div>
-            <button class="rail-pip-close" type="button" data-rail-pip-close aria-label="Đóng PiP">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>
-            </button>
           </div>
         </div>
       </div>
@@ -956,7 +928,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"PiP Rail dùng đúng player ĐÃ CẮT có tua native YouTube. Resize dùng chính SIZE của Library: đổi width thật, BLACK giữ nguyên, crop lại; không zoom toàn khung.",
+    desc:"PiP Rail dùng đúng player ĐÃ CẮT có tua native YouTube. Resize dùng chính SIZE của Library; không thêm nút X hay control riêng.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -3739,14 +3711,6 @@ railCropPipToggle?.addEventListener("click",toggleRailCropPip);
 
 railCropPreview?.addEventListener("pointerdown",e=>{
   if(!railPipOpen)return;
-
-  const close=e.target.closest("[data-rail-pip-close]");
-  if(close){
-    e.preventDefault();
-    e.stopPropagation();
-    closeRailCropPip();
-    return;
-  }
 
   const resize=e.target.closest("[data-rail-pip-resize]");
   if(resize){
