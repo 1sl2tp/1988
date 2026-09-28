@@ -1190,6 +1190,21 @@ function applyLibraryResultToStage(result){
   stage.dataset.ytChromeDensity=result.layoutState?.density||"normal";
   return result;
 }
+function applyLibraryWidthToPip(width){
+  const result=libraryResultForWidth(width);
+  if(!result)return null;
+  applyLibraryResultToStage(result);
+  paintGeometryReadout(result);
+  return result;
+}
+function syncLibraryPreviewToPip(width){
+  if(!stage.classList.contains("demo-pip")||!currentChromeLibrary)return;
+  const minW=currentChromeLibrary.minWidth;
+  const maxW=currentChromeLibrary.maxWidth;
+  const w=Math.max(minW,Math.min(maxW,Number(width)||minW));
+  calibrationWidth=w;
+  renderLibraryCalibration(w,true);
+}
 function renderLibraryCalibration(width=calibrationWidth,force=false){
   if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
   const geometry=window.YouTubeChromeGeometry;
@@ -1295,8 +1310,12 @@ function paintGeometryReadout(result){
     : "OFF 0";
   const range=result.sampleRange||[0,0];
   const state=result.layoutState||{};
+  const physicalPipWidth=stage.classList.contains("demo-pip")
+    ? stage.getBoundingClientRect().width
+    : result.width;
   geometryReadout.textContent=
-    Math.round(result.width)+"×"+Math.round(result.height)+
+    "PIP "+Math.round(physicalPipWidth)+
+    " · SAMPLE "+Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · "+(currentChromeLibrary?"LIB":"LIVE")+
     " v"+String(currentChromeLibrary?.version||window.YouTubeChromeGeometry?.VERSION||"?")+
@@ -1349,11 +1368,9 @@ function syncMeasuredSafeWindow(){
   if(!currentChromeLibrary)prepareCurrentChromeLibrary();
   const width=stage.getBoundingClientRect().width;
   const result=currentChromeLibrary
-    ? libraryResultForWidth(width)
+    ? applyLibraryWidthToPip(width)
     : null;
-  applyLibraryResultToStage(result);
-
-  paintGeometryReadout(result);
+  if(stage.classList.contains("demo-pip"))syncLibraryPreviewToPip(width);
   return result;
 }
 function queueMeasuredSafeWindow(){
@@ -1378,13 +1395,26 @@ function clampPipPosition(left,top,width,height){
 }
 function setPipRect(left,top,width,height){
   const pos=clampPipPosition(left,top,width,height);
+
+  // IMPORTANT: move Library geometry first. YouTube iframe reflows after the
+  // box changes, so the mask must already be at the target TOP/BOTTOM before
+  // the new PiP dimensions become visible.
+  if(currentChromeLibrary){
+    applyLibraryWidthToPip(width);
+    syncLibraryPreviewToPip(width);
+  }
+
   stage.style.left=pos.left+"px";
   stage.style.top=pos.top+"px";
   stage.style.right="auto";
   stage.style.bottom="auto";
   stage.style.width=width+"px";
   stage.style.height=height+"px";
-  queueMeasuredSafeWindow();
+
+  // Verify after layout, but never use this delayed pass as the first update.
+  requestAnimationFrame(syncMeasuredSafeWindow);
+  clearTimeout(geometrySettleTimer);
+  geometrySettleTimer=setTimeout(syncMeasuredSafeWindow,120);
 }
 function beginPipPointer(e,mode,handle=""){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
@@ -1590,8 +1620,15 @@ function enterDemoPip(){
 
   if(stage.classList.contains("max-clean-mode")){
     applyPipViewportCrop();
+    // Apply the Library sample before the first visible PiP frame.
+    const initialWidth=Math.max(
+      currentChromeLibrary?.minWidth||140,
+      Math.min(currentChromeLibrary?.maxWidth||280,window.innerWidth*.46)
+    );
+    applyLibraryWidthToPip(initialWidth);
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
+      syncLibraryPreviewToPip(stage.getBoundingClientRect().width);
       setChromeMask(true);
       scheduleChromeRelease();
     });
