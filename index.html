@@ -88,7 +88,7 @@
   --card-gap-x:16px;
   --card-gap-y:40px;
   --card-meta-gap:12px;
-  --content-top-gap:8px;
+  --content-top-gap:0px;
   --feed-cols:2;
   --card-target-w:310px;
   --floating-radius:10px;
@@ -735,7 +735,7 @@ html.one-col .media-col{
 
   :root{
     --top-boundary:calc(56px + var(--safe-top));
-    --content-top-gap:8px;
+    --content-top-gap:0px;
   }
 
   .top{
@@ -782,8 +782,8 @@ main{
 }
 @media(max-width:656px){
   main{
-    /* Fixed header + one small layout gap before the first video card. */
-    padding-top:calc(var(--top-boundary) + var(--content-top-gap));
+    /* Keep the original fixed-header alignment; feed gap is applied to rows only. */
+    padding-top:calc(var(--top-boundary) - 1px);
   }
 }
 .media-col{min-width:0;max-width:100%}
@@ -1026,7 +1026,7 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   html.two-col .rows{
     grid-area:feed;
     min-width:0;
-    padding:0;
+    padding:8px 0 0;
     grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
     column-gap:var(--card-gap-x);
     row-gap:var(--card-gap-y);
@@ -1035,11 +1035,12 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   html.two-col .media-col{
     grid-area:media;
     position:sticky;
-    top:calc(var(--top-boundary) + var(--content-top-gap));
+    top:calc(var(--top-boundary) + 8px);
     align-self:start;
     height:var(--current-full-h);
     justify-self:end;
     min-width:0;
+    margin-top:8px;
     margin-right:0;
     overflow:hidden;
   }
@@ -1176,7 +1177,7 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   .info{padding:12px 12px 16px}
 }
 .rows{
-  padding:0 var(--feed-edge-gap);
+  padding:8px var(--feed-edge-gap) 0;
   display:grid;
   grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
   column-gap:var(--card-gap-x);
@@ -2547,7 +2548,7 @@ html.one-col.portrait .player.pip{
       Math.round(document.documentElement.clientHeight || innerHeight || 1)
     );
     const bottomGap=8;
-    const contentTopGap=8;
+    const contentTopGap=12;
     const fullH=Math.max(1,viewportH-topBoundary-contentTopGap-bottomGap);
 
     root.style.setProperty("--top-boundary",topBoundary+"px");
