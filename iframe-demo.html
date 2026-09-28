@@ -566,7 +566,28 @@
     .rail-library-samples{display:flex;gap:7px;overflow:auto;scrollbar-width:none}
     .rail-library-samples::-webkit-scrollbar{display:none}
     .rail-library-samples button{padding:7px 10px;font-size:12px}
-    .rail-live-range{margin-top:8px}
+    .rail-control-row{
+      display:grid;
+      grid-template-columns:52px minmax(0,1fr) auto;
+      gap:8px;
+      align-items:center;
+      margin-top:7px;
+    }
+    .rail-control-label{
+      color:#d8d8dd;
+      font:10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    .rail-live-range,
+    .rail-black-range{
+      width:100%;
+      margin:0;
+    }
+    .rail-black-value{
+      min-width:48px;
+      color:#d8d8dd;
+      text-align:right;
+      font:10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
     .rail-library-readout{
       display:block;
       margin:0 0 8px;
@@ -681,7 +702,15 @@
       <button type="button" data-rail-video="dQw4w9WgXcQ">Ngang 16:9 · Rick</button>
       <button type="button" data-rail-video="C91FyjzHUr0">Dọc 9:16 · Me Rehúso</button>
     </div>
-    <input class="chrome-calibration-range rail-live-range" id="railLiveRange" type="range" min="170" max="760" value="520" step="1" aria-label="Kích thước khung thử">
+    <div class="rail-control-row">
+      <span class="rail-control-label">SIZE</span>
+      <input class="chrome-calibration-range rail-live-range" id="railLiveRange" type="range" min="170" max="760" value="520" step="1" aria-label="Kích thước khung thử">
+    </div>
+    <div class="rail-control-row">
+      <span class="rail-control-label">BLACK</span>
+      <input class="chrome-calibration-range rail-black-range" id="railBlackRange" type="range" min="0" max="180" value="28" step="1" aria-label="Khoảng đen thêm ở mỗi phía">
+      <output class="rail-black-value" id="railBlackValue">28 + 28</output>
+    </div>
     <span class="rail-library-readout" id="railLibraryReadout">Đang chờ media…</span>
     <div class="rail-workbench-viewport" id="railWorkbenchViewport"></div>
   </section>
@@ -788,7 +817,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench dùng YouTube gốc có tua. Khung player cao hơn tỷ lệ video để tạo khoảng đen trên/dưới; chrome YouTube nằm vào vùng đen, hình video sạch ở giữa. Kéo trực tiếp MIN → FULL để thử.",
+    desc:"Workbench dùng YouTube gốc có tua. SIZE đổi kích thước video; BLACK thêm khoảng đen trên/dưới độc lập. Mục tiêu là thử một viewport mới để chrome YouTube nằm xa vùng hình.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -810,6 +839,8 @@ const chromeCalibration=document.getElementById("chromeCalibration");
 const railLibrary=document.getElementById("railLibrary");
 const railLibraryReadout=document.getElementById("railLibraryReadout");
 const railLiveRange=document.getElementById("railLiveRange");
+const railBlackRange=document.getElementById("railBlackRange");
+const railBlackValue=document.getElementById("railBlackValue");
 const railWorkbenchViewport=document.getElementById("railWorkbenchViewport");
 const stageHomeParent=stage.parentNode;
 const stageHomeNext=stage.nextSibling;
@@ -838,6 +869,7 @@ const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
 let currentRailLibrary=null;
 let railWorkbenchWidth=520;
+let railBlackPerSide=28;
 let currentLibraryRevision="";
 let requestedVideoId="";
 let verifiedMediaAspect=0;
@@ -1408,10 +1440,8 @@ function saveManualCalibrationPoint(videoId,contentAspect,point){
   try{localStorage.setItem(key,JSON.stringify(points))}catch{}
   return points;
 }
-function railBlackBarForWidth(width){
-  width=Math.max(1,Number(width)||1);
-  // Seed only. The workbench exists so this relationship can be tuned visually.
-  return Math.round(Math.max(28,Math.min(72,width*.075)));
+function railBlackBarValue(){
+  return Math.max(0,Math.min(180,Math.round(Number(railBlackPerSide)||0)));
 }
 function railWidthBounds(contentAspect,availableBox=null){
   const aspect=Math.max(.25,Math.min(4,Number(contentAspect)||16/9));
@@ -1429,16 +1459,12 @@ function railWidthBounds(contentAspect,availableBox=null){
   const availableW=Math.max(1,viewportW-16);
   const availableH=Math.max(1,viewportH-16);
 
-  let maxWidth=Math.max(minWidth,Math.min(760,Math.floor(availableW)));
-  while(maxWidth>minWidth){
-    const bar=railBlackBarForWidth(maxWidth);
-    const outerH=maxWidth/aspect+bar*2;
-    if(outerH<=availableH)break;
-    maxWidth-=1;
-  }
+  // SIZE and BLACK are independent in this workbench.
+  // Width is limited only by the horizontal workspace; vertical overflow can scroll.
+  const maxWidth=Math.max(minWidth,Math.min(760,Math.floor(availableW)));
   return {
     minWidth,
-    maxWidth:Math.max(minWidth,maxWidth),
+    maxWidth,
     aspect,
     portrait,
     availableW,
@@ -1448,7 +1474,7 @@ function railWidthBounds(contentAspect,availableBox=null){
 function railLayoutForWidth(width,contentAspect=verifiedMediaAspect||currentViewportTrim.contentAspect||16/9){
   const bounds=railWidthBounds(contentAspect);
   const w=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,Math.round(Number(width)||bounds.minWidth)));
-  const bar=railBlackBarForWidth(w);
+  const bar=railBlackBarValue();
   const videoHeight=w/bounds.aspect;
   return {
     width:w,
@@ -1480,6 +1506,12 @@ function paintRailLibrary(layout){
     railLiveRange.max=String(Math.round(layout.maxWidth));
     railLiveRange.value=String(Math.round(layout.width));
   }
+  if(railBlackRange){
+    railBlackRange.value=String(layout.blackBar);
+  }
+  if(railBlackValue){
+    railBlackValue.textContent=layout.blackBar+" + "+layout.blackBar;
+  }
 }
 function applyRailLayout(width,{workbench=true}={}){
   const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentViewportTrim.contentAspect)||16/9);
@@ -1498,6 +1530,8 @@ function applyRailLayout(width,{workbench=true}={}){
     currentWidth:layout.width,
     currentHeight:layout.height,
     videoHeight:layout.videoHeight,
+    blackTop:layout.blackBar,
+    blackBottom:layout.blackBar,
     blackBar:layout.blackBar
   };
   paintRailLibrary(layout);
@@ -2984,6 +3018,11 @@ railLibrary?.addEventListener("click",e=>{
 railLiveRange?.addEventListener("input",()=>{
   if(!stage.classList.contains("rail-mode"))return;
   applyRailLayout(Number(railLiveRange.value),{workbench:true});
+});
+railBlackRange?.addEventListener("input",()=>{
+  if(!stage.classList.contains("rail-mode"))return;
+  railBlackPerSide=Math.max(0,Math.min(180,Number(railBlackRange.value)||0));
+  applyRailLayout(railWorkbenchWidth,{workbench:true});
 });
 document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
