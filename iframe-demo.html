@@ -504,7 +504,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-26"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-27"></script>
 <script>
 const modes=[
   {
@@ -611,7 +611,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v8";
+const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v9";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -810,7 +810,7 @@ function primeMainViewportTrimLibrary(){
 }
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v2",
+    "pip-chrome-calibration-v3",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
