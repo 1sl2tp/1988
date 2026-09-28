@@ -438,7 +438,7 @@
   <div class="toolbar" id="modes"></div>
   <div class="stage" id="stage"></div>
   <section class="chrome-calibration" id="chromeCalibration" aria-label="Kiểm tra thư viện MIN MAX">
-    <div class="chrome-calibration-title">Library PiP · kiểm tra MIN / MAX</div>
+    <div class="chrome-calibration-title">Library PiP · kiểm tra MIN / CURRENT / MAX</div>
     <div class="chrome-calibration-grid">
       <div class="chrome-calibration-card">
         <div class="chrome-calibration-label" id="calMinLabel">MIN</div>
@@ -478,7 +478,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-22"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-23"></script>
 <script>
 const modes=[
   {
@@ -590,7 +590,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="top-bottom-only-v5";
+const CHROME_LIBRARY_PROFILE_REV="controls0-calibration-v6";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
