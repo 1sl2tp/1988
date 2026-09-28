@@ -275,9 +275,9 @@
       overflow:hidden;
       contain:paint;
       clip-path:inset(0);
-      background:rgba(0,0,0,.14);
-      backdrop-filter:blur(9px) saturate(.9) brightness(.8);
-      -webkit-backdrop-filter:blur(9px) saturate(.9) brightness(.8);
+      background:rgba(8,8,10,.72);
+      backdrop-filter:blur(12px) saturate(.78) brightness(.56);
+      -webkit-backdrop-filter:blur(12px) saturate(.78) brightness(.56);
       touch-action:none;
     }
     .stage.demo-pip.max-clean-mode.chrome-mask .pip-mask-shield{display:block}
@@ -756,6 +756,7 @@ let pipUiActivityAt=0;
 let pipCoverVisible=false;
 let pipCoverArmed=false;
 let pipCoverCycle=0;
+let pipWakeReleaseToken=0;
 let currentPipMeta={
   id:"",
   title:"",
@@ -1945,6 +1946,13 @@ function paintGeometryReadout(result){
       pipCoverArmed?"ARMED":"ACTIVE"
     )+
     " · WAKE "+(stage.classList.contains("pip-wake-active")?"ON":"OFF")+
+    " · HANDOFF "+(
+      pipCoverVisible &&
+      !pipCoverArmed &&
+      stage.classList.contains("pip-wake-active")
+        ? "LOCK"
+        : "OPEN"
+    )+
     " · RELEASE "+(
       nativeChromeVisible===false &&
       nativeChromeVisibleCycle===pipCoverCycle &&
@@ -2102,6 +2110,20 @@ function pipChromeTiming(){
 function setWakeLayer(on){
   stage.classList.toggle("pip-wake-active",!!on);
 }
+function releaseWakeAfterCoverPaint(cycle){
+  const token=++pipWakeReleaseToken;
+
+  // Keep wake + mask together for one committed frame. Only then allow the
+  // iframe to receive hover/touch again.
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      if(token!==pipWakeReleaseToken)return;
+      if(!pipCoverVisible||pipCoverArmed)return;
+      if(pipCoverCycle!==cycle)return;
+      setWakeLayer(false);
+    });
+  });
+}
 function mediaGeometryBusy(){
   return pipPointerId!==null || activeSeekPointer!==null;
 }
@@ -2111,6 +2133,7 @@ function hideChromeCover(reason=""){
 
   // HIDDEN: end this cycle completely. Wake remains on to block iframe hover.
   stopChromeMaskTimer();
+  pipWakeReleaseToken+=1;
   pipCoverVisible=false;
   pipCoverArmed=false;
   setWakeLayer(true);
@@ -2125,6 +2148,7 @@ function armChromeCoverHide(reason="idle"){
 
   // ARMED: block new iframe hover first, keep mask during the grace window.
   stopChromeMaskTimer();
+  pipWakeReleaseToken+=1;
   pipCoverArmed=true;
   setWakeLayer(true);
   stage.dataset.pipCoverState="armed";
@@ -2181,17 +2205,23 @@ function scheduleChromeRelease(){
 function showChromeCover(reason="activity"){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  // SHOW: new cycle, iframe interaction allowed again.
+  // SHOW: new cycle. Never expose the iframe before the cover is painted.
   stopChromeMaskTimer();
   pipCoverCycle+=1;
+  const cycle=pipCoverCycle;
   pipUiActivityAt=performance.now();
   pipCoverVisible=true;
   pipCoverArmed=false;
-  setWakeLayer(false);
+
+  // Wake stays ON during handoff so YouTube cannot receive hover first.
+  setWakeLayer(true);
   resetNativeChromeSignal();
   stage.dataset.pipCoverState="active";
   stage.dataset.pipCoverReason=String(reason||"");
+
+  // Turn the visual shield on first, then release wake after a committed frame.
   setChromeMask(true);
+  releaseWakeAfterCoverPaint(cycle);
 
   if(playerIsPlaying())scheduleChromeRelease();
 }
@@ -2275,6 +2305,7 @@ function cleanOverlayMarkup(){
 }
 function exitDemoPip(){
   stopChromeMaskTimer();
+  pipWakeReleaseToken+=1;
   pipCoverVisible=false;
   pipCoverArmed=false;
   setWakeLayer(false);
@@ -2563,6 +2594,13 @@ stage.addEventListener("pointerdown",e=>{
   try{seek.setPointerCapture(e.pointerId)}catch{}
   seekAtClientX(e.clientX,seek);
 });
+stage.addEventListener("pointerenter",e=>{
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+  if(!pipCoverVisible||pipCoverArmed){
+    showChromeCover("pointer-enter");
+  }
+});
+
 stage.addEventListener("pointermove",e=>{
   if(updatePipPointer(e))return;
   if(activeSeekPointer!==null&&e.pointerId===activeSeekPointer){
