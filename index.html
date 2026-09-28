@@ -3367,7 +3367,8 @@ html.one-col.portrait .player.pip{
 
         return metas;
       }catch(_){
-        return packageCache.get(scope)||[];
+        if(packageCache.has(scope))return packageCache.get(scope)||[];
+        return await restoreStoredPackage(scope);
       }finally{
         packagePending.delete(scope);
       }
@@ -3425,11 +3426,15 @@ html.one-col.portrait .player.pip{
       });
 
       await Promise.allSettled(changedScopes.map(async scope=>{
-        const metas=await getPackage(scope,{force:true});
-        if(!packageHashCache.get(scope))return false;
+        const remoteHash=String(packageManifest?.[scope]?.hash||"").trim();
+        const metas=await getPackage(scope,{
+          force:true,
+          expectedHash:remoteHash
+        });
+        if(String(packageHashCache.get(scope)||"")!==remoteHash)return false;
 
         // Each package swaps independently only after its complete download,
-        // parse and normalization have finished.
+        // parse, hash check and normalization have finished.
         paintSyncedPackage(scope,metas);
         return true;
       }));
