@@ -181,12 +181,11 @@
       overflow:hidden;
       box-shadow:0 14px 38px rgba(0,0,0,.58);
     }
-    .stage.demo-pip.demo-pip-large{width:min(72vw,520px)}
     .pip-drag-zone{
       display:none;
       position:absolute;
       z-index:6;
-      left:36px;
+      left:8px;
       right:36px;
       top:0;
       height:18px;
@@ -317,15 +316,12 @@
       -webkit-backdrop-filter:blur(8px);
     }
     .stage.demo-pip.max-clean-mode .clean-control svg{width:18px;height:18px}
-    .stage.demo-pip.max-clean-mode .clean-control.resize{left:6px}
     .stage.demo-pip.max-clean-mode .clean-control.close{right:6px}
     .stage[data-yt-chrome-density="compact"]{--pip-control-size:26px}
     .stage[data-yt-chrome-density="compact"] .clean-control svg{width:16px;height:16px}
-    .stage[data-yt-chrome-density="compact"] .clean-control.resize{left:5px}
     .stage[data-yt-chrome-density="compact"] .clean-control.close{right:5px}
     .stage[data-yt-chrome-density="tight"]{--pip-control-size:24px}
     .stage[data-yt-chrome-density="tight"] .clean-control svg{width:14px;height:14px}
-    .stage[data-yt-chrome-density="tight"] .clean-control.resize{left:4px}
     .stage[data-yt-chrome-density="tight"] .clean-control.close{right:4px}
     .pip-seek{
       display:none;
@@ -436,7 +432,6 @@
     }
     .clean-control svg{display:block;width:22px;height:22px;fill:currentColor}
     .clean-control.close{top:8px;right:8px}
-    .clean-control.resize{top:8px;left:8px}
     .clean-control:hover{background:rgba(0,0,0,.72)}
     @media(max-width:560px){
       .stage.demo-pip{
@@ -444,7 +439,6 @@
         top:calc(env(safe-area-inset-top) + 8px);
         width:46vw;
       }
-      .stage.demo-pip.demo-pip-large{width:calc(100vw - 16px)}
       .demo-actions{align-items:flex-start;flex-direction:column}
     }
     @media(min-width:760px){
@@ -489,7 +483,7 @@
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
-    <span class="hint">PiP vừa nổi chỉ có video. Chạm/rê mới hiện Play/Pause · X · phóng/thu rồi tự ẩn.</span>
+    <span class="hint">PiP vừa nổi chỉ có video. Chạm/rê mới hiện Play/Pause · X; co giãn bằng kéo mép/góc.</span>
     <span class="geometry-readout" id="geometryReadout" hidden></span>
   </div>
   <div class="meta">
@@ -567,7 +561,7 @@ const modes=[
     id:"cleanpip",
     title:"8 · PiP sạch · controls:0 + custom overlay",
     short:"PiP sạch",
-    desc:"YT.Player API với controls:0. Bật PiP demo: giữ Play/Pause trung tâm của YouTube; lớp của trang chỉ thêm X + phóng/thu rồi tự ẩn.",
+    desc:"YT.Player API với controls:0. Bật PiP demo: giữ Play/Pause trung tâm của YouTube; lớp của trang chỉ thêm X, co giãn bằng kéo mép/góc.",
     api:true,
     cleanDemo:true,
     params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
@@ -576,7 +570,7 @@ const modes=[
     id:"maxcleanpip",
     title:"9 · PiP max · crop mạnh chrome YouTube",
     short:"PiP max",
-    desc:"Không zoom. Library chỉ đo TOP và BOTTOM của chrome YouTube; Play/Pause gốc không tham gia tính toán. Trên là phóng/đóng, dưới là thanh tua thật.",
+    desc:"Không zoom. Library chỉ đo TOP và BOTTOM của chrome YouTube; Play/Pause gốc không tham gia tính toán. Chỉ giữ X để đóng; co giãn bằng kéo mép/góc; dưới là thanh tua thật.",
     api:true,
     cleanDemo:true,
     maxClean:true,
@@ -1440,9 +1434,6 @@ function cleanOverlayMarkup(){
     '<div class="pip-resize-handle w" data-pip-resize="w"></div>'+
     '<div class="pip-resize-handle nw" data-pip-resize="nw"></div>'+
     '<div class="clean-controls">'+
-      '<button class="clean-control resize" type="button" data-clean-resize aria-label="Phóng hoặc thu PiP" title="Phóng / thu">'+
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v2H7.41l4.3 4.29-1.42 1.42L6 7.41V11H4V4Zm16 16h-7v-2h3.59l-4.3-4.29 1.42-1.42L18 16.59V13h2v7Z"/></svg>'+
-      '</button>'+
       '<button class="clean-control close" type="button" data-clean-close aria-label="Đóng PiP demo" title="Đóng PiP">'+
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
       '</button>'+
@@ -1456,7 +1447,7 @@ function cleanOverlayMarkup(){
   '</div>';
 }
 function exitDemoPip(){
-  stage.classList.remove("demo-pip","demo-pip-large","controls-visible","chrome-mask","pip-dragging","pip-resizing");
+  stage.classList.remove("demo-pip","controls-visible","chrome-mask","pip-dragging","pip-resizing");
   clearPipViewportCrop();
   stage.style.left="";
   stage.style.top="";
@@ -1491,7 +1482,7 @@ function enterDemoPip(){
   stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
   stageSpacer.style.display="block";
   stage.classList.add("demo-pip");
-  stage.classList.remove("demo-pip-large","controls-visible","chrome-mask");
+  stage.classList.remove("controls-visible","chrome-mask");
   demoPipToggle.textContent="Trả về MAIN";
   stopCleanHideTimer();
   stopChromeMaskTimer();
@@ -1723,13 +1714,6 @@ stage.addEventListener("click",e=>{
     e.stopPropagation();
     exitDemoPip();
     return;
-  }
-  const resize=e.target.closest("[data-clean-resize]");
-  if(resize){
-    e.preventDefault();
-    e.stopPropagation();
-    stage.classList.toggle("demo-pip-large");
-    showCleanControls();
   }
 });
 calLiveFrame?.addEventListener("mouseenter",()=>{
