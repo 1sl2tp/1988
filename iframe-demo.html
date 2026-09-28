@@ -670,12 +670,7 @@
       background:#000;
       box-shadow:0 14px 38px rgba(0,0,0,.58);
       isolation:isolate;
-      transform-origin:0 0;
-      will-change:transform,left,top;
-    }
-    .rail-crop-preview.rail-pip-open .rail-crop-player-mount,
-    .rail-crop-preview.rail-pip-open iframe{
-      pointer-events:none!important;
+      will-change:left,top,width,height;
     }
     .rail-crop-preview.rail-pip-open .pip-resize-handle{
       display:block;
@@ -961,7 +956,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"PiP Rail chỉ hiển thị lại khung ĐÃ CẮT sạch: không xử lý media riêng, chỉ co giãn và nút X để thoát.",
+    desc:"PiP Rail dùng đúng player ĐÃ CẮT có tua native YouTube; chỉ co giãn khung thật và nút X, không zoom toàn bộ iframe hay vẽ media control riêng.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1923,17 +1918,34 @@ function setRailPipRect(left,top,width){
   const scale=finalWidth/Math.max(1,railPipBaseGeometry.cropWidth);
   const pos=clampPipPosition(left,top,finalWidth,finalHeight);
 
-  // IMPORTANT: keep the cropped input internally IDENTICAL to Library.
-  // Do not resize sourceWidth/sourceHeight/cropTop here. Resizing the iframe
-  // makes YouTube reflow its own chrome. PiP only scales the finished crop.
+  // Resize the actual YouTube SOURCE frame, then crop the compensated
+  // top/bottom rails again. This keeps native YouTube controls at native size.
+  const sourceWidth=railPipBaseGeometry.sourceWidth*scale;
+  const sourceHeight=railPipBaseGeometry.sourceHeight*scale;
+  const cropTop=railPipBaseGeometry.cropTop*scale;
+  const cropBottom=railPipBaseGeometry.cropBottom*scale;
+
+  railCropPreview.style.setProperty(
+    "--rail-preview-source-width",
+    sourceWidth+"px"
+  );
+  railCropPreview.style.setProperty(
+    "--rail-preview-source-height",
+    sourceHeight+"px"
+  );
+  railCropPreview.style.setProperty(
+    "--rail-preview-crop-top",
+    cropTop+"px"
+  );
+
   railCropPreview.style.left=pos.left+"px";
   railCropPreview.style.top=pos.top+"px";
   railCropPreview.style.right="auto";
   railCropPreview.style.bottom="auto";
-  railCropPreview.style.width=railPipBaseGeometry.cropWidth+"px";
-  railCropPreview.style.height=railPipBaseGeometry.cropHeight+"px";
+  railCropPreview.style.width=finalWidth+"px";
+  railCropPreview.style.height=finalHeight+"px";
   railCropPreview.style.aspectRatio=String(aspect);
-  railCropPreview.style.transform="scale("+scale+")";
+  railCropPreview.style.transform="";
 
   railCropPreview.dataset.pipVideoId=String(requestedVideoId||"");
   railCropPreview.dataset.pipOrientation=String(
@@ -1944,10 +1956,7 @@ function setRailPipRect(left,top,width){
   railCropPreview.dataset.pipAspect=Number(aspect).toFixed(6);
   railCropPreview.dataset.pipScale=Number(scale).toFixed(6);
   railCropPreview.dataset.pipCrop=
-    [
-      Math.round(railPipBaseGeometry.cropTop||0),
-      Math.round(railPipBaseGeometry.cropBottom||0)
-    ].join("/");
+    [Math.round(cropTop),Math.round(cropBottom)].join("/");
 
   return {
     width:finalWidth,
@@ -1955,7 +1964,9 @@ function setRailPipRect(left,top,width){
     left:pos.left,
     top:pos.top,
     aspect,
-    scale
+    scale,
+    cropTop,
+    cropBottom
   };
 }
 function openRailCropPip(){
