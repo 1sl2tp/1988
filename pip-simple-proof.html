@@ -69,9 +69,9 @@
   --accent-chip-soft:.05;
   --accent-outline:.10;
   --accent-shadow:.08;
-  --card-hover-alpha:.20;
-  --card-press-alpha:.28;
-  --card-selected-alpha:.13;
+  --card-hover-alpha:.17;
+  --card-press-alpha:.23;
+  --card-selected-alpha:.11;
   --header-blur:16px;
   --safe-top:env(safe-area-inset-top,0px);
   --top-boundary:calc(56px + var(--safe-top));
@@ -84,6 +84,10 @@
   --landscape-top-safe:56px;
   --landscape-bottom-safe:64px;
   --layout-gap:16px;
+  --feed-edge-gap:24px;
+  --card-gap-x:16px;
+  --card-gap-y:40px;
+  --card-meta-gap:12px;
   --content-top-gap:0px;
   --feed-cols:2;
   --card-target-w:310px;
@@ -131,9 +135,9 @@
   --accent-chip-soft:.018;
   --accent-outline:.055;
   --accent-shadow:.035;
-  --card-hover-alpha:.070;
-  --card-press-alpha:.105;
-  --card-selected-alpha:.045;
+  --card-hover-alpha:.060;
+  --card-press-alpha:.085;
+  --card-selected-alpha:.038;
   --header-blur:14px;
   color-scheme:light;
 }
@@ -906,7 +910,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     gap:var(--layout-gap);
     align-items:start;
     margin:0;
-    padding:0 var(--layout-gap);
+    padding:0 var(--feed-edge-gap);
   }
 
   html.two-col .rows{
@@ -914,7 +918,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     min-width:0;
     padding:0;
     grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
-    gap:var(--layout-gap);
+    column-gap:var(--card-gap-x);
+    row-gap:var(--card-gap-y);
   }
 
   html.two-col .media-col{
@@ -1057,16 +1062,18 @@ html.one-col .player.pip iframe{border-radius:inherit}
   .info{padding:12px 12px 16px}
 }
 .rows{
-  padding:0 var(--layout-gap);
+  padding:0 var(--feed-edge-gap);
   display:grid;
   grid-template-columns:repeat(var(--feed-cols),minmax(0,1fr));
-  gap:var(--layout-gap);
+  column-gap:var(--card-gap-x);
+  row-gap:var(--card-gap-y);
 }
 .row{
   --card-accent-rgb:var(--header-accent-rgb);
   position:relative;
+  isolation:isolate;
   margin:0;
-  padding-bottom:24px;
+  padding-bottom:0;
   container-type:inline-size;
   container-name:media-card;
   min-width:0;
@@ -1081,12 +1088,17 @@ html.one-col .player.pip iframe{border-radius:inherit}
   content:"";
   position:absolute;
   inset:-12px;
-  z-index:-1;
+  z-index:0;
+  pointer-events:none;
   border-radius:16px;
   background-color:transparent;
   transition:
     background-color .16s cubic-bezier(.2,0,0,1),
     transform .12s ease;
+}
+.row > *{
+  position:relative;
+  z-index:1;
 }
 @media(hover:hover){
   .row:hover::before{
@@ -1140,7 +1152,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   grid-template-columns:36px minmax(0,1fr) 32px;
   gap:10px;
   align-items:start;
-  padding:10px 0 0;
+  padding:var(--card-meta-gap) 0 0;
 }
 .row-avatar{
   width:36px;
@@ -2286,22 +2298,27 @@ html.one-col .player.pip iframe{border-radius:inherit}
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
 
     // YOUTUBE-SOURCE GEOMETRY
-    // - two-column threshold: 1000px
-    // - horizontal page margin/gap: 16px
-    // - sidebar width percentage buckets: 22.5 / 27.5 / 32.5
-    // - sidebar min 320px, max 800px, never above 40%
+    // - rich-grid item margin: 16px
+    // - outer desktop grid gutter: ~24px
+    // - rich-card vertical rhythm: ~40px
     // - normal card family: 270..500px, target ~310px
     const pageW=viewportW;
-    const gap=viewportW<480?8:(viewportW<1000?12:16);
-    root.style.setProperty("--layout-gap",gap+"px");
+    const pageEdge=viewportW<480?12:24;
+    const cardGap=16;
+    const mediaGap=16;
+    root.style.setProperty("--feed-edge-gap",pageEdge+"px");
+    root.style.setProperty("--card-gap-x",cardGap+"px");
+    root.style.setProperty("--card-gap-y","40px");
+    root.style.setProperty("--card-meta-gap","12px");
+    root.style.setProperty("--layout-gap",mediaGap+"px");
     root.style.setProperty("--card-target-w","310px");
 
     if(!isTwoColumn()){
-      const feedW=Math.max(1,viewportW-(gap*2));
-      const cols=chooseCardColumns(feedW,gap);
+      const feedW=Math.max(1,viewportW-(pageEdge*2));
+      const cols=chooseCardColumns(feedW,cardGap);
       root.style.setProperty("--feed-cols",String(cols));
     }else{
-      const contentW=Math.max(1,pageW-(gap*2));
+      const contentW=Math.max(1,pageW-(pageEdge*2));
 
       // YouTube's variable sidebar-width buckets, applied to OUR left feed.
       const sidebarPct=viewportW>=1900?0.325:(viewportW>=1550?0.275:0.225);
@@ -2313,7 +2330,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
 
       if(current.ratio>1){
         // LANDSCAPE gets the remaining width after the source-sized feed.
-        let widthCap=Math.max(1,contentW-gap-desiredFeedW);
+        let widthCap=Math.max(1,contentW-mediaGap-desiredFeedW);
 
         // Fit width to the current height after reserving source-derived
         // title/control safe zones.
@@ -2347,13 +2364,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
         // PORTRAIT stays height-driven. Never stretch it just to fill a column.
         mediaW=Math.min(
           Math.round(fullH*current.ratio),
-          Math.max(1,contentW-gap-320)
+          Math.max(1,contentW-mediaGap-320)
         );
       }
 
       // Whatever media does not need is returned to the feed.
-      const feedW=Math.max(1,contentW-gap-mediaW);
-      const cols=chooseCardColumns(feedW,gap);
+      const feedW=Math.max(1,contentW-mediaGap-mediaW);
+      const cols=chooseCardColumns(feedW,cardGap);
 
       root.style.setProperty("--two-col-media-w",Math.round(mediaW)+"px");
       root.style.setProperty("--feed-cols",String(cols));
