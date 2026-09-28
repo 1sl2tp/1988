@@ -30,7 +30,6 @@
     .presets{display:flex;gap:7px;overflow:auto;padding:8px 12px 0;scrollbar-width:none}
     .presets::-webkit-scrollbar{display:none}
     .presets button{padding:7px 10px;font-size:12px}
-    .presets .portrait{border-color:#4a4a50}
     .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0;flex-wrap:wrap}
     .demo-actions[hidden]{display:none}
     .demo-actions .hint{font-size:12px;color:var(--muted);line-height:1.4}
@@ -455,14 +454,15 @@
   </header>
 
   <div class="idbar">
-    <input id="videoId" value="M7lc1UVf-VE" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
+    <input id="videoId" value="dQw4w9WgXcQ" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
     <button id="loadBtn" type="button">Tải video</button>
   </div>
   <div class="presets" id="presets" aria-label="Video mẫu ngang dọc">
-    <button type="button" data-video="M7lc1UVf-VE" data-shape="landscape">Ngang · API demo</button>
-    <button type="button" data-video="aqz-KE-bpKQ" data-shape="landscape">Ngang · Big Buck Bunny</button>
-    <button type="button" data-video="zvzwFHm7-9s" data-shape="landscape">Ngang · tutorial</button>
-    <button type="button" class="portrait" data-video="KRntP-q_R9s" data-shape="portrait">Dọc · regular watch</button>
+    <button type="button" data-video="dQw4w9WgXcQ">Ngang · Rick Astley</button>
+    <button type="button" data-video="9bZkp7q19f0">Ngang · PSY</button>
+    <button type="button" data-video="kJQP7kiw5Fk">Ngang · Despacito</button>
+    <button type="button" data-video="occ-41QGYNE">Dọc · The Middle</button>
+    <button type="button" data-video="C91FyjzHUr0">Dọc · Me Rehúso</button>
   </div>
 
   <div class="toolbar" id="modes"></div>
@@ -909,7 +909,9 @@ function clearLegacyCalibrationCache(){
     const prefixes=[
       "pip-chrome-calibration-v1:",
       "pip-chrome-calibration-v2:",
-      "pip-chrome-calibration-v3:"
+      "pip-chrome-calibration-v3:",
+      "pip-chrome-calibration-v4-freshset:",
+      "pip-chrome-calibration-v5-portrait-border:"
     ];
     const remove=[];
     for(let i=0;i<localStorage.length;i+=1){
@@ -923,7 +925,7 @@ clearLegacyCalibrationCache();
 
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v5-portrait-border",
+    "pip-chrome-calibration-v6-unified-flow",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -1057,10 +1059,8 @@ function clearPipViewportCrop(){
   stage.style.removeProperty("--pip-iframe-height");
   stage.style.removeProperty("--pip-iframe-left");
   stage.style.removeProperty("--pip-iframe-top");
-  if(mainAspectBeforePip){
-    stage.style.aspectRatio=mainAspectBeforePip;
-    mainAspectBeforePip="";
-  }
+  stage.style.aspectRatio=mainAspectBeforePip||"";
+  mainAspectBeforePip="";
 }
 function calibrationIframeSrc(videoId){
   const params=new URLSearchParams({
@@ -1241,22 +1241,21 @@ function applyLibraryResultToStage(result){
   stage.dataset.ytChromeDensity=result.layoutState?.density||"normal";
   return result;
 }
-function applyLibraryWidthToPip(width){
+function syncPipAndLibrary(width){
+  if(!currentChromeLibrary)return null;
   const result=libraryResultForWidth(width);
   if(!result)return null;
+
   applyLibraryResultToStage(result);
   paintGeometryReadout(result);
+
+  if(stage.classList.contains("demo-pip")){
+    calibrationWidth=result.width;
+    renderLibraryCalibration(result.width,true,result);
+  }
   return result;
 }
-function syncLibraryPreviewToPip(width){
-  if(!stage.classList.contains("demo-pip")||!currentChromeLibrary)return;
-  const minW=currentChromeLibrary.minWidth;
-  const maxW=currentChromeLibrary.maxWidth;
-  const w=Math.max(minW,Math.min(maxW,Number(width)||minW));
-  calibrationWidth=w;
-  renderLibraryCalibration(w,true);
-}
-function renderLibraryCalibration(width=calibrationWidth,force=false){
+function renderLibraryCalibration(width=calibrationWidth,force=false,resolvedResult=null){
   if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
   const geometry=window.YouTubeChromeGeometry;
   const minW=currentChromeLibrary.minWidth;
@@ -1278,7 +1277,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false){
   calLiveRange.max=String(maxW);
   calLiveRange.value=String(w);
 
-  const result=libraryResultForWidth(w);
+  const result=resolvedResult||libraryResultForWidth(w);
   if(!result)return null;
 
   calLiveFrame.style.width=Math.round(result.width)+"px";
@@ -1397,6 +1396,7 @@ function paintGeometryReadout(result){
       " "+(result.viewportTrim?.source||"none")+
     " · GAP "+Math.round(result.signedGap??result.safeWindow.height)+
     (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"")+
+    " · LINK "+(stage.classList.contains("demo-pip")?"PIP=LIB":"LIB")+
     " · UI-SIGNAL "+(
       nativeChromeVisible===true?"VISIBLE":
       nativeChromeVisible===false?"HIDDEN":"NONE"
@@ -1418,11 +1418,9 @@ function syncMeasuredSafeWindow(){
   // sample for its current width; it does not re-measure or reinterpret chrome.
   if(!currentChromeLibrary)prepareCurrentChromeLibrary();
   const width=stage.getBoundingClientRect().width;
-  const result=currentChromeLibrary
-    ? applyLibraryWidthToPip(width)
+  return currentChromeLibrary
+    ? syncPipAndLibrary(width)
     : null;
-  if(stage.classList.contains("demo-pip"))syncLibraryPreviewToPip(width);
-  return result;
 }
 function queueMeasuredSafeWindow(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
@@ -1450,10 +1448,7 @@ function setPipRect(left,top,width,height){
   // IMPORTANT: move Library geometry first. YouTube iframe reflows after the
   // box changes, so the mask must already be at the target TOP/BOTTOM before
   // the new PiP dimensions become visible.
-  if(currentChromeLibrary){
-    applyLibraryWidthToPip(width);
-    syncLibraryPreviewToPip(width);
-  }
+  if(currentChromeLibrary)syncPipAndLibrary(width);
 
   stage.style.left=pos.left+"px";
   stage.style.top=pos.top+"px";
@@ -1675,18 +1670,23 @@ function enterDemoPip(){
 
   if(stage.classList.contains("max-clean-mode")){
     applyPipViewportCrop();
-    // Apply the Library sample before the first visible PiP frame.
-    const initialWidth=Math.max(
-      currentChromeLibrary?.minWidth||140,
-      Math.min(currentChromeLibrary?.maxWidth||280,window.innerWidth*.46)
+
+    const minW=currentChromeLibrary.minWidth;
+    const maxW=currentChromeLibrary.maxWidth;
+    const initialWidth=Math.max(minW,Math.min(maxW,Math.max(170,Math.min(280,window.innerWidth*.46))));
+    const aspect=Math.max(.25,Number(currentChromeLibrary.contentAspect)||16/9);
+    const initialHeight=initialWidth/aspect;
+
+    // Same lifecycle for every aspect: same target width rule, same top-right
+    // anchor, same setPipRect(), same Library result before the first paint.
+    setPipRect(
+      window.innerWidth-initialWidth-10,
+      10,
+      initialWidth,
+      initialHeight
     );
-    applyLibraryWidthToPip(initialWidth);
-    requestAnimationFrame(()=>{
-      syncMeasuredSafeWindow();
-      syncLibraryPreviewToPip(stage.getBoundingClientRect().width);
-      setChromeMask(true);
-      scheduleChromeRelease();
-    });
+    setChromeMask(true);
+    scheduleChromeRelease();
   }
 }
 function toggleDemoPip(){
@@ -1717,7 +1717,7 @@ function cleanId(value){
          raw.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/\/embed\/([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/\/shorts\/([A-Za-z0-9_-]{11})/)?.[1]||
-         "M7lc1UVf-VE";
+         "dQw4w9WgXcQ";
 }
 function query(params){
   const p=new URLSearchParams();
@@ -2020,8 +2020,6 @@ presets.addEventListener("click",e=>{
   const b=e.target.closest("[data-video]");
   if(!b)return;
   input.value=b.dataset.video;
-  // data-shape is display metadata only. Geometry comes from YouTube's verified
-  // videoContentRect for this exact video id.
   render();
 });
 document.getElementById("loadBtn").addEventListener("click",render);
