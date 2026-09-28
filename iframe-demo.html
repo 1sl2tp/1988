@@ -72,6 +72,12 @@
       margin:0 0 8px;
       accent-color:#fff;
     }
+    .chrome-calibration-range:disabled{opacity:.38;cursor:not-allowed}
+    .chrome-calibration-frame[data-playing="0"] .chrome-calibration-resize{
+      opacity:.28;
+      cursor:not-allowed;
+      pointer-events:none;
+    }
     .chrome-calibration-viewport{
       position:relative;
       width:100%;
@@ -605,6 +611,11 @@ let mainAspectBeforePip="";
 let calibrationPointerId=null;
 let calibrationPointerStart=null;
 let calibrationWidth=280;
+let calibrationPlayer=null;
+let calibrationPlayerVideoId="";
+let calibrationPlayerReady=false;
+let calibrationPlayerPlaying=false;
+let calibrationReplayTimer=0;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -692,6 +703,7 @@ function chromeLibraryRevision(){
   ].join("|");
 }
 function invalidateChromeLibraries(){
+  destroyCalibrationPlayer();
   mediaChromeLibraries.clear();
   currentChromeLibrary=null;
   currentLibraryRevision=chromeLibraryRevision();
@@ -891,21 +903,60 @@ function calibrationIframeSrc(videoId){
   });
   return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(videoId)+"?"+params.toString();
 }
+function stopCalibrationReplayTimer(){
+  if(!calibrationReplayTimer)return;
+  clearTimeout(calibrationReplayTimer);
+  calibrationReplayTimer=0;
+}
+function destroyCalibrationPlayer(){
+  stopCalibrationReplayTimer();
+  calibrationPlayerPlaying=false;
+  calibrationPlayerReady=false;
+  calibrationPlayerVideoId="";
+  try{calibrationPlayer?.destroy?.()}catch{}
+  calibrationPlayer=null;
+}
+function setCalibrationPlayingState(playing){
+  calibrationPlayerPlaying=!!playing;
+  if(calLiveRange)calLiveRange.disabled=!calibrationPlayerPlaying;
+  if(calLiveFrame)calLiveFrame.dataset.playing=calibrationPlayerPlaying?"1":"0";
+  if(currentChromeLibrary){
+    const prefix=calibrationPlayerPlaying?"PLAYING · ":"CHỜ PLAY · ";
+    if(calLiveLabel&&!calLiveLabel.textContent.startsWith(prefix)){
+      const clean=calLiveLabel.textContent.replace(/^(PLAYING|CHỜ PLAY) · /,"");
+      calLiveLabel.textContent=prefix+clean;
+    }
+  }
+}
+function keepCalibrationPlaying(){
+  if(!calibrationPlayerReady||!calibrationPlayer)return;
+  try{
+    calibrationPlayer.mute?.();
+    const state=Number(calibrationPlayer.getPlayerState?.());
+    if(state===0){
+      calibrationPlayer.seekTo?.(0,true);
+    }
+    calibrationPlayer.playVideo?.();
+  }catch{}
+}
 function ensureLibraryCalibrationFrame(videoId){
   if(!calLiveFrame)return null;
-  let iframe=calLiveFrame.querySelector("iframe");
+
   let top=calLiveFrame.querySelector(".chrome-calibration-guide.top");
   let bottom=calLiveFrame.querySelector(".chrome-calibration-guide.bottom");
   let resize=calLiveFrame.querySelector("[data-calibration-resize]");
 
-  if(!iframe||iframe.dataset.videoId!==videoId){
+  if(!calibrationPlayer||calibrationPlayerVideoId!==videoId){
+    destroyCalibrationPlayer();
     calLiveFrame.replaceChildren();
-    iframe=document.createElement("iframe");
-    iframe.src=calibrationIframeSrc(videoId);
-    iframe.dataset.videoId=videoId;
-    iframe.title="YouTube PiP library calibration";
-    iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
-    iframe.referrerPolicy="strict-origin-when-cross-origin";
+
+    const host=document.createElement("div");
+    host.id="library-calibration-player";
+    host.style.position="absolute";
+    host.style.left="0";
+    host.style.top="0";
+    host.style.width="100%";
+    host.style.height="100%";
 
     top=document.createElement("div");
     top.className="chrome-calibration-guide top";
@@ -915,16 +966,86 @@ function ensureLibraryCalibrationFrame(videoId){
     resize.className="chrome-calibration-resize";
     resize.dataset.calibrationResize="1";
     resize.title="Kéo để thay đổi kích thước Library";
-    calLiveFrame.append(iframe,top,bottom,resize);
+
+    calLiveFrame.append(host,top,bottom,resize);
+    calLiveFrame.dataset.playing="0";
+    if(calLiveRange)calLiveRange.disabled=true;
+    calibrationPlayerVideoId=videoId;
+
+    if(window.YT?.Player){
+      calibrationPlayer=new YT.Player(host,{
+        host:"https://www.youtube-nocookie.com",
+        width:"100%",
+        height:"100%",
+        videoId,
+        playerVars:{
+          autoplay:1,
+          playsinline:1,
+          controls:0,
+          cc_load_policy:0,
+          rel:0,
+          fs:0,
+          disablekb:1,
+          iv_load_policy:3,
+          enablejsapi:1,
+          origin:location.origin
+        },
+        events:{
+          onReady(event){
+            if(calibrationPlayerVideoId!==videoId)return;
+            calibrationPlayerReady=true;
+            try{event.target.mute?.()}catch{}
+            try{event.target.playVideo?.()}catch{}
+            setCalibrationPlayingState(false);
+          },
+          onStateChange(event){
+            if(calibrationPlayerVideoId!==videoId)return;
+            const state=Number(event?.data);
+            const playing=state===1;
+            setCalibrationPlayingState(playing);
+
+            if(playing){
+              stopCalibrationReplayTimer();
+              renderLibraryCalibration(calibrationWidth,true);
+              return;
+            }
+
+            // Library is a calibration instrument: it must remain PLAYING.
+            // BUFFERING waits naturally; paused/cued/ended are driven back to play.
+            if(state===0||state===2||state===5){
+              stopCalibrationReplayTimer();
+              calibrationReplayTimer=setTimeout(keepCalibrationPlaying,120);
+            }
+          }
+        }
+      });
+    }
   }
-  return {iframe,top,bottom,resize};
+
+  return {
+    iframe:calibrationPlayer?.getIframe?.()||calLiveFrame.querySelector("iframe"),
+    top,
+    bottom,
+    resize
+  };
 }
-function renderLibraryCalibration(width=calibrationWidth){
+function renderLibraryCalibration(width=calibrationWidth,force=false){
   if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
   const geometry=window.YouTubeChromeGeometry;
   const minW=currentChromeLibrary.minWidth;
   const maxW=currentChromeLibrary.maxWidth;
-  const w=Math.max(minW,Math.min(maxW,Math.round(Number(width)||minW)));
+  const requested=Math.max(minW,Math.min(maxW,Math.round(Number(width)||minW)));
+
+  // After the first frame exists, geometry changes are valid only while the
+  // exact controls:0 calibration player is really PLAYING.
+  const hasCalibrationPlayer=!!calibrationPlayer;
+  if(hasCalibrationPlayer&&!calibrationPlayerPlaying&&!force){
+    calLiveRange.value=String(Math.round(calibrationWidth));
+    setCalibrationPlayingState(false);
+    return geometry?.lookupMediaLibrary?.(currentChromeLibrary,calibrationWidth)||null;
+  }
+
+  const w=requested;
   calibrationWidth=w;
   calLiveRange.min=String(minW);
   calLiveRange.max=String(maxW);
@@ -933,26 +1054,29 @@ function renderLibraryCalibration(width=calibrationWidth){
   const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,w);
   if(!result)return null;
 
-  const frameParts=ensureLibraryCalibrationFrame(currentChromeLibrary.videoId);
-  if(!frameParts)return null;
-  const {iframe}=frameParts;
-
   calLiveFrame.style.width=Math.round(result.width)+"px";
   calLiveFrame.style.height=Math.round(result.height)+"px";
   calLiveFrame.style.setProperty("--guide-top",result.topInset.toFixed(2)+"px");
   calLiveFrame.style.setProperty("--guide-bottom",result.bottomInset.toFixed(2)+"px");
 
+  const frameParts=ensureLibraryCalibrationFrame(currentChromeLibrary.videoId);
+  if(!frameParts)return null;
+  const {iframe}=frameParts;
+
   const vt=result.viewportTrim||{};
-  if(result.rawWidth&&result.rawHeight){
-    iframe.style.width=(result.rawWidth*(vt.scaleX||1))+"px";
-    iframe.style.height=(result.rawHeight*(vt.scaleY||1))+"px";
-    iframe.style.left=(vt.renderedLeft||0)+"px";
-    iframe.style.top=(vt.renderedTop||0)+"px";
-  }else{
-    iframe.style.width="100%";
-    iframe.style.height="100%";
-    iframe.style.left="0";
-    iframe.style.top="0";
+  if(iframe){
+    iframe.style.position="absolute";
+    if(result.rawWidth&&result.rawHeight){
+      iframe.style.width=(result.rawWidth*(vt.scaleX||1))+"px";
+      iframe.style.height=(result.rawHeight*(vt.scaleY||1))+"px";
+      iframe.style.left=(vt.renderedLeft||0)+"px";
+      iframe.style.top=(vt.renderedTop||0)+"px";
+    }else{
+      iframe.style.width="100%";
+      iframe.style.height="100%";
+      iframe.style.left="0";
+      iframe.style.top="0";
+    }
   }
 
   const range=result.sampleRange||[w,w];
@@ -960,6 +1084,7 @@ function renderLibraryCalibration(width=calibrationWidth){
   const isMax=w>=maxW-1;
   const marker=isMin?"MIN":isMax?"FULL":"LIVE";
   calLiveLabel.textContent=
+    (calibrationPlayerPlaying?"PLAYING · ":"CHỜ PLAY · ")+
     marker+" "+Math.round(result.width)+"×"+Math.round(result.height)+
     " · TOP "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
     " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
@@ -986,7 +1111,7 @@ function renderChromeCalibration(){
   if(!Number.isFinite(calibrationWidth)||calibrationWidth<minW||calibrationWidth>maxW){
     calibrationWidth=Math.max(minW,Math.min(maxW,280));
   }
-  requestAnimationFrame(()=>renderLibraryCalibration(calibrationWidth));
+  requestAnimationFrame(()=>renderLibraryCalibration(calibrationWidth,true));
 }
 function paintGeometryReadout(result){
   if(!geometryReadout)return;
@@ -1509,11 +1634,15 @@ stage.addEventListener("click",e=>{
   }
 });
 calLiveRange?.addEventListener("input",()=>{
+  if(!calibrationPlayerPlaying){
+    calLiveRange.value=String(Math.round(calibrationWidth));
+    return;
+  }
   renderLibraryCalibration(Number(calLiveRange.value));
 });
 calLiveFrame?.addEventListener("pointerdown",e=>{
   const handle=e.target.closest("[data-calibration-resize]");
-  if(!handle||!currentChromeLibrary)return;
+  if(!handle||!currentChromeLibrary||!calibrationPlayerPlaying)return;
   calibrationPointerId=e.pointerId;
   calibrationPointerStart={x:e.clientX,width:calibrationWidth};
   try{handle.setPointerCapture(e.pointerId)}catch{}
@@ -1521,6 +1650,7 @@ calLiveFrame?.addEventListener("pointerdown",e=>{
 });
 calLiveFrame?.addEventListener("pointermove",e=>{
   if(calibrationPointerId===null||e.pointerId!==calibrationPointerId||!calibrationPointerStart)return;
+  if(!calibrationPlayerPlaying)return;
   renderLibraryCalibration(calibrationPointerStart.width+(e.clientX-calibrationPointerStart.x));
   e.preventDefault();
 });
