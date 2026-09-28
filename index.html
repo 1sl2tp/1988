@@ -896,6 +896,117 @@ html.one-col.portrait .player.pip{
 }
 html.one-col .player.pip iframe{border-radius:inherit}
 
+/* Mobile PiP interaction:
+   - bottom-left corner = resize
+   - small top-center grip = move
+   Both stay invisible until touched, then briefly reveal the gesture hint. */
+.pip-move-zone,
+.pip-resize-zone,
+.pip-resize-tip{display:none}
+
+@media(max-width:656px){
+  html.one-col .player.pip .pip-move-zone{
+    display:block;
+    position:absolute;
+    z-index:8;
+    top:0;
+    left:50%;
+    width:58px;
+    height:30px;
+    transform:translateX(-50%);
+    touch-action:none;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  html.one-col .player.pip .pip-move-zone::after{
+    content:"";
+    position:absolute;
+    left:50%;
+    top:7px;
+    width:30px;
+    height:4px;
+    transform:translateX(-50%);
+    border-radius:999px;
+    background:rgba(255,255,255,.92);
+    box-shadow:0 1px 3px rgba(0,0,0,.45);
+    opacity:0;
+    transition:opacity .12s ease;
+    pointer-events:none;
+  }
+
+  html.one-col .player.pip .pip-resize-zone{
+    display:block;
+    position:absolute;
+    z-index:9;
+    left:0;
+    bottom:0;
+    width:42px;
+    height:42px;
+    touch-action:none;
+    -webkit-user-select:none;
+    user-select:none;
+  }
+  html.one-col .player.pip .pip-resize-zone::before{
+    content:"";
+    position:absolute;
+    left:7px;
+    bottom:7px;
+    width:16px;
+    height:16px;
+    border-left:2px solid rgba(255,255,255,.95);
+    border-bottom:2px solid rgba(255,255,255,.95);
+    border-radius:0 0 0 3px;
+    filter:drop-shadow(0 1px 2px rgba(0,0,0,.55));
+    opacity:0;
+    transition:opacity .12s ease;
+    pointer-events:none;
+  }
+  html.one-col .player.pip .pip-resize-zone::after{
+    content:"";
+    position:absolute;
+    left:13px;
+    bottom:13px;
+    width:9px;
+    height:9px;
+    border-left:1.5px solid rgba(255,255,255,.9);
+    border-bottom:1.5px solid rgba(255,255,255,.9);
+    opacity:0;
+    transition:opacity .12s ease;
+    pointer-events:none;
+  }
+
+  html.one-col .player.pip .pip-resize-tip{
+    display:block;
+    position:absolute;
+    z-index:10;
+    left:34px;
+    bottom:8px;
+    padding:3px 7px;
+    border-radius:999px;
+    background:rgba(0,0,0,.66);
+    color:#fff;
+    font:500 11px/16px Roboto,Arial,sans-serif;
+    white-space:nowrap;
+    opacity:0;
+    transform:translateY(2px);
+    transition:opacity .12s ease,transform .12s ease;
+    pointer-events:none;
+  }
+
+  html.one-col .player.pip.pip-guides .pip-move-zone::after,
+  html.one-col .player.pip.pip-guides .pip-resize-zone::before,
+  html.one-col .player.pip.pip-guides .pip-resize-zone::after,
+  html.one-col .player.pip.pip-gesture-active .pip-move-zone::after,
+  html.one-col .player.pip.pip-gesture-active .pip-resize-zone::before,
+  html.one-col .player.pip.pip-gesture-active .pip-resize-zone::after{
+    opacity:1;
+  }
+  html.one-col .player.pip.pip-guides .pip-resize-tip{
+    opacity:1;
+    transform:none;
+  }
+}
+
 /* 2 COLUMNS */
 @media(min-width:1000px){
   html.two-col,
@@ -1460,6 +1571,9 @@ html.one-col.portrait .player.pip{
     <section class="stage" id="stage">
       <div class="player" id="player">
         <div id="videoFrame"></div>
+        <div class="pip-move-zone" id="pipMoveZone" aria-hidden="true"></div>
+        <div class="pip-resize-zone" id="pipResizeZone" aria-hidden="true"></div>
+        <div class="pip-resize-tip" id="pipResizeTip" aria-hidden="true">Kéo giãn</div>
       </div>
     </section>
     <div class="info" id="videoInfo">
@@ -1503,6 +1617,8 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const pipMoveZone=document.getElementById("pipMoveZone");
+  const pipResizeZone=document.getElementById("pipResizeZone");
   const stateEl=document.getElementById("state");
   const titleEl=document.getElementById("videoTitle");
   const videoAvatarSlot=document.getElementById("videoAvatarSlot");
@@ -1530,6 +1646,8 @@ html.one-col.portrait .player.pip{
   let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:""};
   let pip=false;
   let raf=0;
+  let pipGesture=null;
+  let pipGuideTimer=0;
   let metaRequest=0;
   let currentMeta=null;
   let feedMetas=[];
@@ -3497,6 +3615,164 @@ html.one-col.portrait .player.pip{
       renderCurrentInfo();
     }
   }
+  function clearPipGuideTimer(){
+    if(!pipGuideTimer)return;
+    clearTimeout(pipGuideTimer);
+    pipGuideTimer=0;
+  }
+
+  function showMobilePipGuides(duration=1500){
+    if(!pip||!mobileHeaderMq.matches)return;
+    clearPipGuideTimer();
+    player.classList.add("pip-guides");
+    if(duration>0){
+      pipGuideTimer=setTimeout(()=>{
+        pipGuideTimer=0;
+        if(!pipGesture)player.classList.remove("pip-guides");
+      },duration);
+    }
+  }
+
+  function clearMobilePipGestureGeometry(){
+    clearPipGuideTimer();
+    pipGesture=null;
+    player.classList.remove("pip-guides","pip-gesture-active");
+    for(const prop of ["left","right","top","bottom","width","height"]){
+      player.style.removeProperty(prop);
+    }
+  }
+
+  function mobilePipMinWidth(ratio){
+    return ratio<1?120:170;
+  }
+
+  function mobilePipBounds(width,height){
+    const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
+    const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
+    const headerBottom=mobileHeaderHidden
+      ? 0
+      : Math.max(0,Math.round(top.getBoundingClientRect().bottom||0));
+    const gap=10;
+    return {
+      minLeft:gap,
+      maxLeft:Math.max(gap,viewportW-width-gap),
+      minTop:headerBottom+8,
+      maxTop:Math.max(headerBottom+8,viewportH-height-gap),
+      viewportW,
+      viewportH,
+      gap
+    };
+  }
+
+  function setMobilePipRect(left,topPos,width,height){
+    const bounds=mobilePipBounds(width,height);
+    const x=Math.max(bounds.minLeft,Math.min(bounds.maxLeft,left));
+    const y=Math.max(bounds.minTop,Math.min(bounds.maxTop,topPos));
+    player.style.setProperty("left",Math.round(x)+"px","important");
+    player.style.setProperty("right","auto","important");
+    player.style.setProperty("top",Math.round(y)+"px","important");
+    player.style.setProperty("bottom","auto","important");
+    player.style.setProperty("width",Math.round(width)+"px","important");
+    player.style.setProperty("height",Math.round(height)+"px","important");
+  }
+
+  function beginMobilePipGesture(event,mode){
+    if(!pip||!mobileHeaderMq.matches||event.pointerType==="mouse")return;
+    const rect=player.getBoundingClientRect();
+    if(rect.width<1||rect.height<1)return;
+
+    const ratio=
+      validMediaAspect(current?.detectedRatio)||
+      validMediaAspect(current?.ratio)||
+      rect.width/Math.max(1,rect.height);
+
+    pipGesture={
+      mode,
+      pointerId:event.pointerId,
+      startX:event.clientX,
+      startY:event.clientY,
+      left:rect.left,
+      top:rect.top,
+      width:rect.width,
+      height:rect.height,
+      right:rect.right,
+      ratio
+    };
+
+    clearPipGuideTimer();
+    player.classList.add("pip-guides","pip-gesture-active");
+    try{event.currentTarget.setPointerCapture(event.pointerId)}catch{}
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function updateMobilePipGesture(event){
+    const g=pipGesture;
+    if(!g||event.pointerId!==g.pointerId)return;
+
+    const dx=event.clientX-g.startX;
+    const dy=event.clientY-g.startY;
+
+    if(g.mode==="move"){
+      setMobilePipRect(
+        g.left+dx,
+        g.top+dy,
+        g.width,
+        g.height
+      );
+      event.preventDefault();
+      return;
+    }
+
+    const ratio=Math.max(.34,Math.min(2.6,g.ratio||16/9));
+    const minW=mobilePipMinWidth(ratio);
+    const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
+    const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
+    const maxByWidth=Math.max(minW,viewportW-20);
+    const maxByHeight=Math.max(minW,(viewportH-g.top-10)*ratio);
+    const maxW=Math.max(minW,Math.min(maxByWidth,maxByHeight));
+
+    // Bottom-left handle: drag left or down to grow, right or up to shrink.
+    let nextW;
+    if(Math.abs(dx)>=Math.abs(dy)){
+      nextW=g.width-dx;
+    }else{
+      nextW=(g.height+dy)*ratio;
+    }
+    nextW=Math.max(minW,Math.min(maxW,nextW));
+    const nextH=nextW/ratio;
+
+    // Keep the original right/top edges fixed while resizing from bottom-left.
+    const nextLeft=g.right-nextW;
+    setMobilePipRect(nextLeft,g.top,nextW,nextH);
+    event.preventDefault();
+  }
+
+  function endMobilePipGesture(event){
+    const g=pipGesture;
+    if(!g||event.pointerId!==g.pointerId)return;
+    try{event.currentTarget.releasePointerCapture(event.pointerId)}catch{}
+    pipGesture=null;
+    player.classList.remove("pip-gesture-active");
+    showMobilePipGuides(900);
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  pipResizeZone?.addEventListener("pointerdown",event=>{
+    showMobilePipGuides(0);
+    beginMobilePipGesture(event,"resize");
+  });
+  pipMoveZone?.addEventListener("pointerdown",event=>{
+    showMobilePipGuides(0);
+    beginMobilePipGesture(event,"move");
+  });
+  for(const zone of [pipResizeZone,pipMoveZone]){
+    zone?.addEventListener("pointermove",updateMobilePipGesture,{passive:false});
+    zone?.addEventListener("pointerup",endMobilePipGesture,{passive:false});
+    zone?.addEventListener("pointercancel",endMobilePipGesture,{passive:false});
+  }
+
   function layout(){
     syncBoundaries();
     const two=isTwoColumn();
@@ -3514,6 +3790,7 @@ html.one-col.portrait .player.pip{
       pip=false;
       player.classList.remove("pip");
       stage.classList.remove("pip-host");
+      clearMobilePipGestureGeometry();
     }
 
     paintText();
@@ -3547,6 +3824,9 @@ html.one-col.portrait .player.pip{
     // PiP consumes the shape of the CURRENT media, wherever that media was opened.
     player.classList.toggle("pip",pip);
     stage.classList.toggle("pip-host",pip);
+    if(!pip){
+      clearMobilePipGestureGeometry();
+    }
     paintText();
   }
 
