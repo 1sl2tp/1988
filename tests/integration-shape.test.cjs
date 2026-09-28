@@ -44,7 +44,9 @@ if(simpleProduction){
   assert.match(html,/function prefetchPackages\(/);
   assert.match(html,/function syncPreparedPackages\(/);
   assert.match(html,/Tab\/UI reads memory only/);
-  assert.match(html,/localHash&&localHash===remoteHash/);
+  assert.match(html,/changedScopes=unique\.filter/);
+  assert.match(html,/Promise\.allSettled\(changedScopes\.map/);
+  assert.match(html,/5000\);/);
   assert.match(html,/getPackage\(scope,\{force:true\}\)/);
   assert.doesNotMatch(html,/packagePrefetchQueue/);
   assert.match(refresh,/function enrichRowsWithStoredVideoMeta\(/);
