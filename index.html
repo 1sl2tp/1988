@@ -963,20 +963,43 @@ html.one-col .player.pip .pip-resize-edge{
   background:transparent;
 }
 html.one-col .player.pip .pip-resize-left{
-  left:0; top:14px; bottom:14px; width:18px;
+  left:0; top:0; bottom:0; width:26px;
   cursor:ew-resize;
 }
 html.one-col .player.pip .pip-resize-right{
-  right:0; top:14px; bottom:14px; width:18px;
+  right:0; top:0; bottom:0; width:26px;
   cursor:ew-resize;
 }
 html.one-col .player.pip .pip-resize-top{
-  left:14px; right:14px; top:0; height:18px;
+  left:0; right:0; top:0; height:26px;
   cursor:ns-resize;
 }
 html.one-col .player.pip .pip-resize-bottom{
-  left:14px; right:14px; bottom:0; height:18px;
+  left:0; right:0; bottom:0; height:26px;
   cursor:ns-resize;
+}
+
+/* Exact corners get their own generous invisible hit boxes. */
+html.one-col .player.pip .pip-resize-corner{
+  z-index:12;
+  width:38px;
+  height:38px;
+}
+html.one-col .player.pip .pip-resize-top-left{
+  left:0; top:0;
+  cursor:nwse-resize;
+}
+html.one-col .player.pip .pip-resize-top-right{
+  right:0; top:0;
+  cursor:nesw-resize;
+}
+html.one-col .player.pip .pip-resize-bottom-left{
+  left:0; bottom:0;
+  cursor:nesw-resize;
+}
+html.one-col .player.pip .pip-resize-bottom-right{
+  right:0; bottom:0;
+  cursor:nwse-resize;
 }
 
 /* The center of the top edge belongs to MOVE, not resize. */
@@ -1555,6 +1578,10 @@ html.one-col.portrait .player.pip{
         <div class="pip-resize-edge pip-resize-right" data-pip-edge="right" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-top" data-pip-edge="top" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-bottom" data-pip-edge="bottom" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-corner pip-resize-top-left" data-pip-edge="top-left" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-corner pip-resize-top-right" data-pip-edge="top-right" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-corner pip-resize-bottom-left" data-pip-edge="bottom-left" aria-hidden="true"></div>
+        <div class="pip-resize-edge pip-resize-corner pip-resize-bottom-right" data-pip-edge="bottom-right" aria-hidden="true"></div>
       </div>
     </section>
     <div class="info" id="videoInfo">
@@ -3708,11 +3735,32 @@ html.one-col.portrait .player.pip{
     const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
     const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
 
-    let nextW=g.width;
-    if(g.edge==="left") nextW=g.width-dx;
-    else if(g.edge==="right") nextW=g.width+dx;
-    else if(g.edge==="top") nextW=(g.height-dy)*ratio;
-    else if(g.edge==="bottom") nextW=(g.height+dy)*ratio;
+    const edge=String(g.edge||"");
+    const fromLeft=edge.includes("left");
+    const fromRight=edge.includes("right");
+    const fromTop=edge.includes("top");
+    const fromBottom=edge.includes("bottom");
+
+    const widthFromX=fromLeft
+      ? g.width-dx
+      : fromRight
+        ? g.width+dx
+        : g.width;
+    const widthFromY=fromTop
+      ? (g.height-dy)*ratio
+      : fromBottom
+        ? (g.height+dy)*ratio
+        : g.width;
+
+    let nextW;
+    if((fromLeft||fromRight)&&(fromTop||fromBottom)){
+      // At a corner, whichever finger movement is stronger controls SIZE.
+      nextW=Math.abs(dx)>=Math.abs(dy)?widthFromX:widthFromY;
+    }else if(fromLeft||fromRight){
+      nextW=widthFromX;
+    }else{
+      nextW=widthFromY;
+    }
 
     const maxW=Math.max(
       minW,
@@ -3723,8 +3771,8 @@ html.one-col.portrait .player.pip{
 
     let nextLeft=g.left;
     let nextTop=g.top;
-    if(g.edge==="left") nextLeft=g.right-nextW;
-    if(g.edge==="top") nextTop=g.bottom-nextH;
+    if(fromLeft) nextLeft=g.right-nextW;
+    if(fromTop) nextTop=g.bottom-nextH;
 
     setMobilePipRect(nextLeft,nextTop,nextW,nextH);
     event.preventDefault();
