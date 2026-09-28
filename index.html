@@ -138,9 +138,9 @@
   --accent-chip-soft:.018;
   --accent-outline:.055;
   --accent-shadow:.035;
-  --card-hover-alpha:.060;
-  --card-press-alpha:.085;
-  --card-selected-alpha:.038;
+  --card-hover-alpha:.095;
+  --card-press-alpha:.135;
+  --card-selected-alpha:.070;
   --header-blur:14px;
   color-scheme:light;
 }
@@ -1216,6 +1216,13 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
 
 /* Variable-height cards pack into the shortest available column.
    This is normal page layout, not an inner scroller. */
+.rows.multi-column-feed .row-title{
+  min-height:42px;
+}
+.rows.multi-column-feed .row-meta-line{
+  min-height:19px;
+}
+
 .rows.masonry-active{
   grid-auto-flow:row dense;
   grid-auto-rows:4px;
@@ -1363,7 +1370,65 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   align-items:start;
   padding:var(--card-meta-gap) 0 0;
 }
+.row-avatar-shell{
+  position:relative;
+  width:36px;
+  height:36px;
+  display:block;
+  border-radius:50%;
+  isolation:isolate;
+}
+.row-avatar-shell::before{
+  content:"";
+  position:absolute;
+  inset:-3px;
+  z-index:0;
+  border:2px solid transparent;
+  border-radius:50%;
+  opacity:0;
+  background:
+    linear-gradient(var(--yt-bg),var(--yt-bg)) padding-box,
+    conic-gradient(
+      from 0deg,
+      #25f4ee 0 20%,
+      #fe2c55 34% 58%,
+      #ff8a00 70%,
+      #25f4ee 100%
+    ) border-box;
+  transform:rotate(0deg);
+  transition:opacity .16s ease;
+  pointer-events:none;
+}
+.row.selected .row-avatar-shell::before{
+  opacity:1;
+  animation:playing-avatar-ring 1.8s linear infinite;
+}
+.row.selected .row-avatar-shell::after{
+  content:"";
+  position:absolute;
+  inset:-5px;
+  z-index:-1;
+  border-radius:50%;
+  box-shadow:0 0 0 1px rgba(var(--card-accent-rgb),.18);
+  animation:playing-avatar-pulse 1.4s ease-in-out infinite;
+  pointer-events:none;
+}
+@keyframes playing-avatar-ring{
+  to{transform:rotate(360deg)}
+}
+@keyframes playing-avatar-pulse{
+  0%,100%{opacity:.30;transform:scale(.96)}
+  50%{opacity:.72;transform:scale(1.06)}
+}
+@media(prefers-reduced-motion:reduce){
+  .row.selected .row-avatar-shell::before,
+  .row.selected .row-avatar-shell::after{
+    animation:none;
+  }
+}
 .row-avatar{
+  position:relative;
+  z-index:1;
   width:36px;
   height:36px;
   border-radius:50%;
@@ -3281,10 +3346,10 @@ html.one-col.portrait .player.pip{
   function avatarMarkup(meta){
     const avatar=meta.sourceAvatar || "";
     if(avatar){
-      return '<img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="">';
+      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt=""></span>';
     }
     const letter=(meta.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
-    return '<span class="row-avatar placeholder">'+escapeHtml(letter)+'</span>';
+    return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
   }
 
   function cardMarkup(meta){
@@ -3301,7 +3366,7 @@ html.one-col.portrait .player.pip{
     const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
-      '<article class="row'+(String(id)===inlineVideoId?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+      '<article class="row'+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
           '<img src="'+escapeHtml(thumb)+'" alt="">'+
           (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
@@ -3543,10 +3608,22 @@ html.one-col.portrait .player.pip{
 
     const cards=[...rows.querySelectorAll(".row")];
     const cols=currentFeedColumnCount();
+    const multi=cols>1&&cards.length>1;
+    rows.classList.toggle("multi-column-feed",multi);
 
-    if(cols<=1||cards.length<=1){
+    // Ordinary list cards stay on strict shared rows so every thumbnail frame
+    // starts on the same horizontal line. Masonry is only needed while a
+    // portrait video is actually open inline and makes one card much taller.
+    const hasTallInlinePortrait=
+      multi &&
+      !isTwoColumn() &&
+      current?.kind==="portrait" &&
+      !!rows.querySelector(".row-thumb.inline-playing:not(.pip-floating)");
+
+    cards.forEach(card=>card.style.removeProperty("grid-row-end"));
+
+    if(!hasTallInlinePortrait){
       rows.classList.remove("masonry-active");
-      cards.forEach(card=>card.style.removeProperty("grid-row-end"));
       return;
     }
 
@@ -3554,7 +3631,6 @@ html.one-col.portrait .player.pip{
 
     const unit=4;
     const verticalGap=40;
-    cards.forEach(card=>card.style.removeProperty("grid-row-end"));
 
     for(const card of cards){
       const height=Math.max(1,Math.ceil(card.getBoundingClientRect().height));
