@@ -455,16 +455,14 @@
   </header>
 
   <div class="idbar">
-    <input id="videoId" value="sQoD6meioNg" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
+    <input id="videoId" value="M7lc1UVf-VE" inputmode="text" autocomplete="off" spellcheck="false" aria-label="YouTube video ID">
     <button id="loadBtn" type="button">Tải video</button>
   </div>
   <div class="presets" id="presets" aria-label="Video mẫu ngang dọc">
-    <button type="button" data-video="sQoD6meioNg" data-shape="landscape">Ngang · hiện tại</button>
-    <button type="button" data-video="MXLXvLpUqq4" data-shape="landscape">Ngang · thiên nhiên</button>
-    <button type="button" data-video="yhIhuY2pSMY" data-shape="landscape">Ngang · Việt Nam</button>
-    <button type="button" class="portrait" data-video="3HiJYYIupd4" data-shape="portrait">Dọc · Shorts 1</button>
-    <button type="button" class="portrait" data-video="D85p9P-3kMc" data-shape="portrait">Dọc · Shorts 2</button>
-    <button type="button" class="portrait" data-video="-pxx7EyQm90" data-shape="portrait">Dọc · Shorts 3</button>
+    <button type="button" data-video="M7lc1UVf-VE" data-shape="landscape">Ngang · API demo</button>
+    <button type="button" data-video="aqz-KE-bpKQ" data-shape="landscape">Ngang · Big Buck Bunny</button>
+    <button type="button" data-video="zvzwFHm7-9s" data-shape="landscape">Ngang · tutorial</button>
+    <button type="button" class="portrait" data-video="KRntP-q_R9s" data-shape="portrait">Dọc · regular watch</button>
   </div>
 
   <div class="toolbar" id="modes"></div>
@@ -878,9 +876,26 @@ function primeMainViewportTrimLibrary(){
     },delay));
   });
 }
+function clearLegacyCalibrationCache(){
+  try{
+    const prefixes=[
+      "pip-chrome-calibration-v1:",
+      "pip-chrome-calibration-v2:",
+      "pip-chrome-calibration-v3:"
+    ];
+    const remove=[];
+    for(let i=0;i<localStorage.length;i+=1){
+      const key=localStorage.key(i)||"";
+      if(prefixes.some(prefix=>key.startsWith(prefix)))remove.push(key);
+    }
+    remove.forEach(key=>localStorage.removeItem(key));
+  }catch{}
+}
+clearLegacyCalibrationCache();
+
 function manualCalibrationKey(videoId,contentAspect){
   return [
-    "pip-chrome-calibration-v3",
+    "pip-chrome-calibration-v4-freshset",
     PIP_EMBED_MODE,
     String(videoId||""),
     Number(contentAspect)<1?"portrait":"landscape"
@@ -1662,7 +1677,7 @@ function cleanId(value){
          raw.match(/youtu\.be\/([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/\/embed\/([A-Za-z0-9_-]{11})/)?.[1]||
          raw.match(/\/shorts\/([A-Za-z0-9_-]{11})/)?.[1]||
-         "sQoD6meioNg";
+         "M7lc1UVf-VE";
 }
 function query(params){
   const p=new URLSearchParams();
