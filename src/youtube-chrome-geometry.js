@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.6";
+  const VERSION = "2026-09-28.7";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -99,33 +99,96 @@
     return clamp(Math.ceil((text.length * avgGlyph) / usable), 1, 2);
   }
 
-  function topCluster(sample, titleLines) {
-    const titleEdge = titleLines > 1 ? sample.title2Edge : sample.title1Edge;
-    return Math.max(
-      sample.avatarEdge,
-      titleEdge,
-      sample.channelEdge,
-      sample.auxEdge,
-      sample.topRightEdge
-    );
-  }
+  function resolveLayoutState(width, height, orientation, options = {}) {
+    // YouTube changes which chrome blocks exist as the iframe crosses responsive
+    // sizes. Presence is discrete; geometry inside an active state is continuous.
+    // For landscape, height also limits the usable UI span.
+    const uiSpan = orientation === "portrait"
+      ? width
+      : Math.min(width, height * (16 / 9));
 
-  function bottomBoxes(sample) {
-    const linkEdge = sample.linkOff + sample.linkH;
-    const nextEdge = sample.nextOff + sample.nextH;
-    const youtubeEdge = sample.youtubeOff + sample.youtubeH;
-    const seekEdge = sample.seekOff + sample.seekH;
+    let tier = "xl";
+    if (uiSpan < 200) tier = "xs";
+    else if (uiSpan < 300) tier = "sm";
+    else if (uiSpan < 420) tier = "md";
+    else if (uiSpan < 640) tier = "lg";
+
+    const nativeControls = options.controls !== false;
+    const allowAux = options.aux !== false;
+
+    const top = {
+      avatar: tier !== "xs",
+      title: true,
+      channel: !["xs"].includes(tier),
+      aux: allowAux && !["xs"].includes(tier) && uiSpan >= 250,
+      topRight: nativeControls && ["md","lg","xl"].includes(tier)
+    };
+
+    const bottom = {
+      // YouTube branding survives at the smallest embed sizes.
+      youtube: true,
+      // Extra cards appear progressively as horizontal room becomes available.
+      link: ["md","lg","xl"].includes(tier),
+      next: ["lg","xl"].includes(tier),
+      seek: nativeControls && ["md","lg","xl"].includes(tier)
+    };
+
     return {
-      link: { height:sample.linkH, offset:sample.linkOff, edge:linkEdge },
-      next: { height:sample.nextH, offset:sample.nextOff, edge:nextEdge },
-      youtube: { height:sample.youtubeH, offset:sample.youtubeOff, edge:youtubeEdge },
-      seek: { height:sample.seekH, offset:sample.seekOff, edge:seekEdge },
-      outerMax: Math.max(linkEdge,nextEdge,youtubeEdge,seekEdge)
+      id: orientation + "-" + tier + (nativeControls ? "-controls" : "-minimal"),
+      tier,
+      uiSpan,
+      top,
+      bottom
     };
   }
 
-  function bottomCluster(sample) {
-    return bottomBoxes(sample).outerMax;
+  function topBoxes(sample, titleLines, visibility) {
+    const boxes = {
+      avatar: { active:!!visibility.avatar, edge:sample.avatarEdge },
+      title: { active:!!visibility.title, edge:titleLines > 1 ? sample.title2Edge : sample.title1Edge },
+      channel: { active:!!visibility.channel, edge:sample.channelEdge },
+      aux: { active:!!visibility.aux, edge:sample.auxEdge },
+      topRight: { active:!!visibility.topRight, edge:sample.topRightEdge }
+    };
+    const activeEdges = Object.values(boxes).filter(x=>x.active).map(x=>x.edge);
+    return {
+      ...boxes,
+      outerMax: activeEdges.length ? Math.max(...activeEdges) : 0
+    };
+  }
+
+  function bottomBoxes(sample, visibility) {
+    const boxes = {
+      link: {
+        active:!!visibility.link,
+        height:sample.linkH,
+        offset:sample.linkOff,
+        edge:sample.linkOff + sample.linkH
+      },
+      next: {
+        active:!!visibility.next,
+        height:sample.nextH,
+        offset:sample.nextOff,
+        edge:sample.nextOff + sample.nextH
+      },
+      youtube: {
+        active:!!visibility.youtube,
+        height:sample.youtubeH,
+        offset:sample.youtubeOff,
+        edge:sample.youtubeOff + sample.youtubeH
+      },
+      seek: {
+        active:!!visibility.seek,
+        height:sample.seekH,
+        offset:sample.seekOff,
+        edge:sample.seekOff + sample.seekH
+      }
+    };
+    const activeEdges = Object.values(boxes).filter(x=>x.active).map(x=>x.edge);
+    return {
+      ...boxes,
+      outerMax: activeEdges.length ? Math.max(...activeEdges) : 0
+    };
   }
 
   function measure(input = {}, options = {}) {
@@ -135,10 +198,12 @@
     const profileKind = orientation === "portrait" ? "portrait" : "landscape";
     const sample = interpolateSample(profileKind, width);
     const titleLines = estimateTitleLines(width, options.title || "");
+    const layoutState = resolveLayoutState(width, height, orientation, options);
 
     const playCenter = { x: width / 2, y: height / 2 };
-    const topChrome = topCluster(sample, titleLines);
-    const bottomBoxMetrics = bottomBoxes(sample);
+    const topBoxMetrics = topBoxes(sample, titleLines, layoutState.top);
+    const topChrome = topBoxMetrics.outerMax;
+    const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
     const bottomChrome = bottomBoxMetrics.outerMax;
 
     // Keep the native center Play/Pause completely untouched. Insets are capped
@@ -161,13 +226,14 @@
       playRadius,
       playSafety,
       sampleRange: sample.range || [sample.w,sample.w],
+      layoutState,
       clusters: {
         top: {
-          avatarEdge: sample.avatarEdge,
-          titleEdge: titleLines > 1 ? sample.title2Edge : sample.title1Edge,
-          channelEdge: sample.channelEdge,
-          auxEdge: sample.auxEdge,
-          topRightEdge: sample.topRightEdge,
+          avatarBox: topBoxMetrics.avatar,
+          titleBox: topBoxMetrics.title,
+          channelBox: topBoxMetrics.channel,
+          auxBox: topBoxMetrics.aux,
+          topRightBox: topBoxMetrics.topRight,
           outerMax: topChrome,
           height: topChrome
         },
@@ -206,6 +272,7 @@
     element.style.setProperty("--yt-play-safe", result.playSafety.toFixed(2) + "px");
     element.dataset.ytChromeOrientation = result.orientation;
     element.dataset.ytTitleLines = String(result.titleLines);
+    element.dataset.ytChromeLayout = result.layoutState.id;
     return result;
   }
 
@@ -227,6 +294,7 @@
     UI_PROFILES,
     orientationOf,
     estimateTitleLines,
+    resolveLayoutState,
     measure,
     apply,
     observe
