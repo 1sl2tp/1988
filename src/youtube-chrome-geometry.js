@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.4";
+  const VERSION = "2026-09-28.5";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -17,24 +17,28 @@
   // Values are calibrated as cluster depths from the player's corresponding
   // edge, not as symmetric crops.
   const UI_PROFILES = {
+    // Values below are OUTER EDGE DEPTHS measured from the player edge.
+    // They are not text/icon heights. This matters because YouTube pills/cards
+    // include background, thumbnail, padding, border and sometimes extend much
+    // farther than the text/icon inside them.
     landscape: [
-      { w:160, h:90,  avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, linkBox:28, nextBox:30, youtubeBox:24, seekBox:4, bottomPad:5 },
-      { w:190, h:107, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, linkBox:30, nextBox:32, youtubeBox:25, seekBox:4, bottomPad:5 },
-      { w:220, h:124, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, linkBox:31, nextBox:34, youtubeBox:26, seekBox:4, bottomPad:6 },
-      { w:280, h:158, avatar:36, title1:20, title2:37, channel:13, topPad:9,  topGap:4, linkBox:33, nextBox:37, youtubeBox:28, seekBox:4, bottomPad:6 },
-      { w:360, h:203, avatar:40, title1:21, title2:39, channel:14, topPad:10, topGap:5, linkBox:35, nextBox:40, youtubeBox:30, seekBox:5, bottomPad:7 },
-      { w:520, h:293, avatar:44, title1:23, title2:42, channel:15, topPad:11, topGap:5, linkBox:38, nextBox:44, youtubeBox:32, seekBox:5, bottomPad:8 },
-      { w:720, h:405, avatar:48, title1:25, title2:45, channel:16, topPad:12, topGap:6, linkBox:42, nextBox:48, youtubeBox:35, seekBox:5, bottomPad:9 },
-      { w:960, h:540, avatar:52, title1:27, title2:48, channel:17, topPad:13, topGap:6, linkBox:46, nextBox:52, youtubeBox:38, seekBox:6, bottomPad:10 }
+      { w:160, h:90,  avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:46, topRightEdge:32, linkEdge:29, nextEdge:31, youtubeEdge:25, seekEdge:10 },
+      { w:190, h:107, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:50, topRightEdge:34, linkEdge:31, nextEdge:33, youtubeEdge:26, seekEdge:10 },
+      { w:220, h:124, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:54, topRightEdge:36, linkEdge:32, nextEdge:35, youtubeEdge:27, seekEdge:11 },
+      { w:280, h:158, avatarEdge:44, title1Edge:37, title2Edge:52, channelEdge:54, auxEdge:59, topRightEdge:39, linkEdge:34, nextEdge:38, youtubeEdge:29, seekEdge:11 },
+      { w:360, h:203, avatarEdge:48, title1Edge:40, title2Edge:56, channelEdge:59, auxEdge:66, topRightEdge:42, linkEdge:36, nextEdge:41, youtubeEdge:31, seekEdge:12 },
+      { w:520, h:293, avatarEdge:54, title1Edge:44, title2Edge:62, channelEdge:65, auxEdge:78, topRightEdge:47, linkEdge:39, nextEdge:45, youtubeEdge:33, seekEdge:13 },
+      { w:720, h:405, avatarEdge:60, title1Edge:48, title2Edge:68, channelEdge:72, auxEdge:88, topRightEdge:52, linkEdge:43, nextEdge:49, youtubeEdge:36, seekEdge:14 },
+      { w:960, h:540, avatarEdge:66, title1Edge:52, title2Edge:74, channelEdge:78, auxEdge:96, topRightEdge:57, linkEdge:47, nextEdge:53, youtubeEdge:39, seekEdge:15 }
     ],
     portrait: [
-      { w:120, h:213, avatar:28, title1:17, title2:31, channel:12, topPad:7,  topGap:4, linkBox:28, nextBox:30, youtubeBox:24, seekBox:4, bottomPad:5 },
-      { w:150, h:267, avatar:30, title1:18, title2:33, channel:12, topPad:7,  topGap:4, linkBox:30, nextBox:32, youtubeBox:25, seekBox:4, bottomPad:5 },
-      { w:180, h:320, avatar:32, title1:18, title2:34, channel:13, topPad:8,  topGap:4, linkBox:31, nextBox:34, youtubeBox:26, seekBox:4, bottomPad:6 },
-      { w:220, h:391, avatar:34, title1:19, title2:36, channel:13, topPad:8,  topGap:4, linkBox:32, nextBox:36, youtubeBox:27, seekBox:4, bottomPad:6 },
-      { w:280, h:498, avatar:38, title1:20, title2:38, channel:14, topPad:9,  topGap:5, linkBox:34, nextBox:39, youtubeBox:29, seekBox:5, bottomPad:7 },
-      { w:360, h:640, avatar:42, title1:22, title2:40, channel:15, topPad:10, topGap:5, linkBox:37, nextBox:42, youtubeBox:31, seekBox:5, bottomPad:8 },
-      { w:460, h:818, avatar:46, title1:24, title2:43, channel:16, topPad:11, topGap:6, linkBox:40, nextBox:46, youtubeBox:34, seekBox:5, bottomPad:9 }
+      { w:120, h:213, avatarEdge:34, title1Edge:30, title2Edge:42, channelEdge:44, auxEdge:47, topRightEdge:32, linkEdge:29, nextEdge:31, youtubeEdge:25, seekEdge:10 },
+      { w:150, h:267, avatarEdge:37, title1Edge:32, title2Edge:45, channelEdge:47, auxEdge:51, topRightEdge:34, linkEdge:31, nextEdge:33, youtubeEdge:26, seekEdge:10 },
+      { w:180, h:320, avatarEdge:40, title1Edge:34, title2Edge:48, channelEdge:50, auxEdge:55, topRightEdge:36, linkEdge:32, nextEdge:35, youtubeEdge:27, seekEdge:11 },
+      { w:220, h:391, avatarEdge:43, title1Edge:36, title2Edge:51, channelEdge:53, auxEdge:59, topRightEdge:38, linkEdge:33, nextEdge:37, youtubeEdge:28, seekEdge:11 },
+      { w:280, h:498, avatarEdge:47, title1Edge:39, title2Edge:55, channelEdge:58, auxEdge:65, topRightEdge:41, linkEdge:35, nextEdge:40, youtubeEdge:30, seekEdge:12 },
+      { w:360, h:640, avatarEdge:51, title1Edge:42, title2Edge:59, channelEdge:62, auxEdge:72, topRightEdge:44, linkEdge:38, nextEdge:43, youtubeEdge:32, seekEdge:13 },
+      { w:460, h:818, avatarEdge:56, title1Edge:46, title2Edge:64, channelEdge:67, auxEdge:80, topRightEdge:48, linkEdge:41, nextEdge:47, youtubeEdge:35, seekEdge:14 }
     ]
   };
 
@@ -47,15 +51,18 @@
   function interpolateSample(kind, width) {
     const key = kind === "portrait" ? "portrait" : "landscape";
     const list = UI_PROFILES[key];
-    if (width <= list[0].w) return { ...list[0] };
-    if (width >= list[list.length - 1].w) return { ...list[list.length - 1] };
+    if (width <= list[0].w) return { ...list[0], range:[list[0].w,list[0].w] };
+    if (width >= list[list.length - 1].w) {
+      const last=list[list.length - 1];
+      return { ...last, range:[last.w,last.w] };
+    }
 
     for (let i = 0; i < list.length - 1; i += 1) {
       const a = list[i];
       const b = list[i + 1];
       if (width >= a.w && width <= b.w) {
         const t = (width - a.w) / Math.max(1, b.w - a.w);
-        const out = { w: width };
+        const out = { w: width, range:[a.w,b.w] };
         for (const k of Object.keys(a)) {
           if (k === "w") continue;
           out[k] = lerp(a[k], b[k], t);
@@ -63,7 +70,8 @@
         return out;
       }
     }
-    return { ...list[list.length - 1] };
+    const last=list[list.length - 1];
+    return { ...last, range:[last.w,last.w] };
   }
 
   function estimateTitleLines(width, title = "") {
@@ -78,26 +86,23 @@
   }
 
   function topCluster(sample, titleLines) {
-    const titleH = titleLines > 1 ? sample.title2 : sample.title1;
-    // Avatar and text sit in the same row/block. The cluster bottom is the max
-    // of avatar extent vs title + channel stack, plus outer padding/gap.
-    const textStack = titleH + sample.channel + sample.topGap;
-    const contentH = Math.max(sample.avatar, textStack);
-    return sample.topPad + contentH;
+    const titleEdge = titleLines > 1 ? sample.title2Edge : sample.title1Edge;
+    return Math.max(
+      sample.avatarEdge,
+      titleEdge,
+      sample.channelEdge,
+      sample.auxEdge,
+      sample.topRightEdge
+    );
   }
 
   function bottomCluster(sample) {
-    // Measure the OUTER box of each native YouTube item, including its pill/card
-    // background, thumbnail, internal padding and border. They share one band,
-    // so the correct depth is the MAX outer box, not text/logo height and not
-    // the sum of all controls.
-    const outerMax = Math.max(
-      sample.linkBox,
-      sample.nextBox,
-      sample.youtubeBox,
-      sample.seekBox
+    return Math.max(
+      sample.linkEdge,
+      sample.nextEdge,
+      sample.youtubeEdge,
+      sample.seekEdge
     );
-    return sample.bottomPad + outerMax;
   }
 
   function measure(input = {}, options = {}) {
@@ -131,22 +136,23 @@
       playCenter,
       playRadius,
       playSafety,
+      sampleRange: sample.range || [sample.w,sample.w],
       clusters: {
         top: {
-          avatar: sample.avatar,
-          title: titleLines > 1 ? sample.title2 : sample.title1,
-          channel: sample.channel,
-          padding: sample.topPad,
-          gap: sample.topGap,
+          avatarEdge: sample.avatarEdge,
+          titleEdge: titleLines > 1 ? sample.title2Edge : sample.title1Edge,
+          channelEdge: sample.channelEdge,
+          auxEdge: sample.auxEdge,
+          topRightEdge: sample.topRightEdge,
+          outerMax: topChrome,
           height: topChrome
         },
         bottom: {
-          linkBox: sample.linkBox,
-          nextBox: sample.nextBox,
-          youtubeBox: sample.youtubeBox,
-          seekBox: sample.seekBox,
-          outerMax: Math.max(sample.linkBox,sample.nextBox,sample.youtubeBox,sample.seekBox),
-          padding: sample.bottomPad,
+          linkEdge: sample.linkEdge,
+          nextEdge: sample.nextEdge,
+          youtubeEdge: sample.youtubeEdge,
+          seekEdge: sample.seekEdge,
+          outerMax: bottomChrome,
           height: bottomChrome
         }
       },
