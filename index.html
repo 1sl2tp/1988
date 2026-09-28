@@ -938,6 +938,51 @@ html.one-col .player.pip iframe{border-radius:inherit}
   display:none;
   opacity:.9;
 }
+.verified-badge{
+  display:inline-flex;
+  width:14px;
+  height:14px;
+  margin-left:4px;
+  vertical-align:-2px;
+  color:var(--yt-text-secondary);
+  flex:0 0 auto;
+}
+.verified-badge svg{
+  width:14px;
+  height:14px;
+  display:block;
+  fill:currentColor;
+}
+.views-play-icon{
+  display:inline-flex;
+  width:14px;
+  height:14px;
+  margin-right:3px;
+  vertical-align:-2px;
+  color:var(--yt-text-secondary);
+  flex:0 0 auto;
+}
+.views-play-icon svg{
+  width:14px;
+  height:14px;
+  display:block;
+  fill:currentColor;
+}
+.row-facts,
+.info-facts{
+  display:inline-flex;
+  align-items:center;
+  min-width:0;
+}
+.fact-views,
+.fact-time,
+.fact-sep{
+  flex:0 0 auto;
+}
+.fact-sep{
+  margin:0 4px;
+}
+
 .row-meta-line:empty{display:none}
 .row-menu{
   width:32px;
@@ -2509,6 +2554,36 @@ html.one-col .player.pip iframe{border-radius:inherit}
     },0);
   }
 
+  function verifiedBadgeMarkup(){
+    return '<span class="verified-badge" aria-label="Đã xác minh" title="Đã xác minh">'+
+      '<svg viewBox="0 0 24 24" aria-hidden="true">'+
+        '<path d="M12 1C5.925 1 1 5.925 1 12s4.925 11 11 11 11-4.925 11-11S18.075 1 12 1Zm5.707 7.293a1 1 0 010 1.414L10 17.414l-3.707-3.707a1 1 0 111.414-1.414L10 14.586l6.293-6.293a1 1 0 011.414 0Z"></path>'+
+      '</svg>'+
+    '</span>';
+  }
+
+  function viewsPlayIconMarkup(){
+    return '<span class="views-play-icon" aria-hidden="true">'+
+      '<svg viewBox="0 0 24 24">'+
+        '<path d="M8 5.5v13l10-6.5-10-6.5Z"></path>'+
+      '</svg>'+
+    '</span>';
+  }
+
+  function compactFactsMarkup(meta={}){
+    const views=String(meta.viewsLabel||"").trim();
+    const time=String(meta.publishedLabel || (meta.isLive?"Đang trực tiếp":"")).trim();
+    const pieces=[];
+    if(views){
+      pieces.push(viewsPlayIconMarkup()+'<span class="fact-views">'+escapeHtml(views)+'</span>');
+    }
+    if(time){
+      if(pieces.length)pieces.push('<span class="fact-sep">·</span>');
+      pieces.push('<span class="fact-time">'+escapeHtml(time)+'</span>');
+    }
+    return pieces.join("");
+  }
+
   function renderCurrentInfo(){
     const meta=currentMeta||{};
     const title=meta.title||current.label||"";
@@ -2519,8 +2594,9 @@ html.one-col .player.pip iframe{border-radius:inherit}
     ].filter(Boolean).join(" • ");
 
     titleEl.textContent=title;
-    videoSourceEl.textContent=source+(meta.verified?" ✓":"");
-    videoFactsEl.textContent=facts;
+    videoSourceEl.innerHTML=
+      escapeHtml(source)+(meta.verified?verifiedBadgeMarkup():"");
+    videoFactsEl.innerHTML=compactFactsMarkup(meta);
     if(videoMetaSep)videoMetaSep.hidden=!(source&&facts);
     syncVideoDocumentIdentity({push:false});
 
@@ -2554,9 +2630,8 @@ html.one-col .player.pip iframe{border-radius:inherit}
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
     const badgeClass=meta.isLive ? "duration-badge live" : "duration-badge";
     const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
-    const verified=meta.verified
-      ? '<span aria-label="Đã xác minh" title="Đã xác minh"> ✓</span>'
-      : "";
+    const factsMarkup=compactFactsMarkup(meta);
+    const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
       '<article class="row" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
@@ -2571,7 +2646,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
             '<div class="row-meta row-meta-line">'+
               '<span class="row-source">'+escapeHtml(source)+verified+'</span>'+
               ((source&&facts)?'<span class="row-meta-sep">·</span>':"")+
-              (facts?'<span class="row-facts">'+escapeHtml(facts)+'</span>':"")+
+              (facts?'<span class="row-facts">'+factsMarkup+'</span>':"")+
             '</div>'+
           '</div>'+
           '<button class="row-menu" aria-label="Thao tác khác" title="Thao tác khác">'+
