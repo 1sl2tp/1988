@@ -30,6 +30,20 @@
     .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0}
     .demo-actions[hidden]{display:none}
     .demo-actions .hint{font-size:12px;color:var(--muted);line-height:1.4}
+    .scroll-demo{
+      display:none;
+      padding:12px 12px 120vh;
+    }
+    .scroll-demo.show{display:block}
+    .scroll-demo-card{
+      padding:14px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:var(--panel);
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.55;
+    }
     .stage-spacer{display:none;width:100%}
     .stage.demo-pip{
       position:fixed;
@@ -137,6 +151,11 @@
     <strong id="modeTitle"></strong>
     <span id="modeDesc"></span>
   </div>
+  <div class="scroll-demo" id="scrollDemo">
+    <div class="scroll-demo-card">
+      Cuộn xuống để thử đúng luồng MAIN → PiP. Khi đáy video đi qua header, PiP sẽ tự nổi. Cuộn ngược lên tới video thì PiP tự trả về MAIN.
+    </div>
+  </div>
   <pre class="code" id="code"></pre>
 </div>
 
@@ -218,6 +237,7 @@ const input=document.getElementById("videoId");
 const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
 const stageSpacer=document.getElementById("stageSpacer");
+const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
 let apiReady=false;
 let apiPlayer=null;
@@ -284,6 +304,22 @@ function enterDemoPip(){
 function toggleDemoPip(){
   stage.classList.contains("demo-pip")?exitDemoPip():enterDemoPip();
 }
+function syncAutoDemoPip(){
+  if(active!=="cleanpip"||!stage.classList.contains("clean-mode"))return;
+
+  const anchor=stageSpacer.style.display==="block" ? stageSpacer : stage;
+  const header=document.querySelector("header");
+  const headerBottom=header?.getBoundingClientRect().bottom||0;
+  const shouldPip=
+    window.scrollY>0 &&
+    anchor.getBoundingClientRect().bottom<=headerBottom+1;
+
+  if(shouldPip&&!stage.classList.contains("demo-pip")){
+    enterDemoPip();
+  }else if(!shouldPip&&stage.classList.contains("demo-pip")){
+    exitDemoPip();
+  }
+}
 
 function cleanId(value){
   const raw=String(value||"").trim();
@@ -329,6 +365,7 @@ async function render(){
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   demoActions.hidden=!mode.cleanDemo;
+  scrollDemo.classList.toggle("show",!!mode.cleanDemo);
   stage.innerHTML="";
 
   if(mode.api){
@@ -418,6 +455,8 @@ stage.addEventListener("click",e=>{
   }
 });
 document.getElementById("loadBtn").addEventListener("click",render);
+window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
+window.addEventListener("resize",syncAutoDemoPip,{passive:true});
 input.addEventListener("keydown",e=>{if(e.key==="Enter")render();});
 const urlId=new URL(location.href).searchParams.get("v");
 if(urlId)input.value=cleanId(urlId);
