@@ -65,7 +65,20 @@
   function interpolateSample(kind, width) {
     const key = kind === "portrait" ? "portrait" : "landscape";
     const list = UI_PROFILES[key];
-    if (width <= list[0].w) return { ...list[0], range:[list[0].w,list[0].w] };
+    if (width <= list[0].w) {
+      const first=list[0];
+      const scale=clamp(width/first.w,.72,1);
+      const out={ w:width, range:[0,first.w] };
+      for(const k of Object.keys(first)){
+        if(k==="w"){continue}
+        if(k==="h"){
+          out[k]=first[k]*scale;
+          continue;
+        }
+        out[k]=typeof first[k]==="number" ? first[k]*scale : first[k];
+      }
+      return out;
+    }
     if (width >= list[list.length - 1].w) {
       const last=list[list.length - 1];
       return { ...last, range:[last.w,last.w] };
