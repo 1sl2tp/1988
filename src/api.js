@@ -51,11 +51,4 @@ function playlistPlayerUrl(id){
   url.searchParams.set("origin",location.origin);
   return url.toString();
 }
-function mediaUrl(id,kind="video"){
-  const url=new URL(BASE);
-  url.searchParams.set("action","media");
-  url.searchParams.set("id",String(id||""));
-  url.searchParams.set("kind",kind==="audio"?"audio":"video");
-  return url.toString();
-}
-window.YT1988_API={home,trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl,mediaUrl};
+window.YT1988_API={home,trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};
