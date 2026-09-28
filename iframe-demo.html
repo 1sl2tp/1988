@@ -655,7 +655,6 @@
       max-height:none!important;
       border:0!important;
     }
-    .rail-pip-drag-zone,
     .rail-crop-preview .pip-resize-handle,
     .rail-pip-close{display:none}
     .rail-crop-preview.rail-pip-open{
@@ -674,19 +673,10 @@
       transform-origin:0 0;
       will-change:transform,left,top;
     }
-    .rail-crop-preview.rail-pip-open .rail-pip-drag-zone{
-      display:block;
-      position:absolute;
-      z-index:8;
-      left:8px;
-      right:42px;
-      top:0;
-      height:18px;
-      cursor:grab;
-      pointer-events:auto;
-      touch-action:none;
+    .rail-crop-preview.rail-pip-open .rail-crop-player-mount,
+    .rail-crop-preview.rail-pip-open iframe{
+      pointer-events:none!important;
     }
-    .rail-crop-preview.rail-pip-open.rail-pip-dragging .rail-pip-drag-zone{cursor:grabbing}
     .rail-crop-preview.rail-pip-open .pip-resize-handle{
       display:block;
       z-index:9;
@@ -727,8 +717,7 @@
       transition:opacity .14s ease;
     }
     .rail-crop-preview.rail-pip-open:hover::after,
-    .rail-crop-preview.rail-pip-resizing::after,
-    .rail-crop-preview.rail-pip-dragging::after{opacity:1}
+    .rail-crop-preview.rail-pip-resizing::after{opacity:1}
     .stage.rail-mode.rail-workbench{
       position:relative;
       flex:0 0 auto;
@@ -853,7 +842,6 @@
             <div class="rail-crop-player-mount" id="railCropPlayerMount">
               <div id="rail-crop-player"></div>
             </div>
-            <div class="rail-pip-drag-zone" data-rail-pip-drag title="Kéo PiP"></div>
             <div class="pip-resize-handle n" data-rail-pip-resize="n"></div>
             <div class="pip-resize-handle ne" data-rail-pip-resize="ne"></div>
             <div class="pip-resize-handle e" data-rail-pip-resize="e"></div>
@@ -973,7 +961,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. PiP Rail giữ nguyên khung ĐÃ CẮT bên trong và chỉ scale toàn bộ khung khi mở/resize; YouTube không được reflow lại.",
+    desc:"PiP Rail chỉ hiển thị lại khung ĐÃ CẮT sạch: không xử lý media riêng, chỉ co giãn và nút X để thoát.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -1021,7 +1009,6 @@ let railCropSyncTimer=0;
 let railPipOpen=false;
 let railPipBaseGeometry=null;
 let railPipPointerId=null;
-let railPipPointerMode=null;
 let railPipPointerStart=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
@@ -2034,11 +2021,10 @@ function closeRailCropPip(){
   railPipOpen=false;
   railPipBaseGeometry=null;
   railPipPointerId=null;
-  railPipPointerMode=null;
   railPipPointerStart=null;
 
   railCropPreview.classList.remove(
-    "rail-pip-open","rail-pip-dragging","rail-pip-resizing"
+    "rail-pip-open","rail-pip-resizing"
   );
   railCropPreview.style.left="";
   railCropPreview.style.top="";
@@ -2073,12 +2059,11 @@ function closeRailCropPip(){
 function toggleRailCropPip(){
   railPipOpen?closeRailCropPip():openRailCropPip();
 }
-function beginRailPipPointer(e,mode,handle=""){
+function beginRailPipResize(e,handle="se"){
   if(!railPipOpen||!railCropPreview)return false;
 
   const r=railCropPreview.getBoundingClientRect();
   railPipPointerId=e.pointerId;
-  railPipPointerMode=mode;
   railPipPointerStart={
     x:e.clientX,
     y:e.clientY,
@@ -2086,19 +2071,20 @@ function beginRailPipPointer(e,mode,handle=""){
     top:r.top,
     width:r.width,
     height:r.height,
-    ratio:Math.max(.25,Number(railPipBaseGeometry?.aspect)||r.width/Math.max(1,r.height)),
+    ratio:Math.max(
+      .25,
+      Number(railPipBaseGeometry?.aspect)||r.width/Math.max(1,r.height)
+    ),
     handle
   };
 
-  railCropPreview.classList.toggle("rail-pip-dragging",mode==="drag");
-  railCropPreview.classList.toggle("rail-pip-resizing",mode==="resize");
-
+  railCropPreview.classList.add("rail-pip-resizing");
   try{e.target.setPointerCapture(e.pointerId)}catch{}
   e.preventDefault();
   e.stopPropagation();
   return true;
 }
-function updateRailPipPointer(e){
+function updateRailPipResize(e){
   if(
     !railPipOpen||
     railPipPointerId===null||
@@ -2109,12 +2095,6 @@ function updateRailPipPointer(e){
   const s=railPipPointerStart;
   const dx=e.clientX-s.x;
   const dy=e.clientY-s.y;
-
-  if(railPipPointerMode==="drag"){
-    setRailPipRect(s.left+dx,s.top+dy,s.width);
-    return true;
-  }
-
   const h=s.handle;
   const bounds=libraryWidthBounds(s.ratio);
   let width=s.width;
@@ -2137,7 +2117,7 @@ function updateRailPipPointer(e){
   setRailPipRect(left,top,width);
   return true;
 }
-function endRailPipPointer(e){
+function endRailPipResize(e){
   if(
     railPipPointerId===null||
     e.pointerId!==railPipPointerId
@@ -2145,9 +2125,8 @@ function endRailPipPointer(e){
 
   try{e.target.releasePointerCapture(e.pointerId)}catch{}
   railPipPointerId=null;
-  railPipPointerMode=null;
   railPipPointerStart=null;
-  railCropPreview?.classList.remove("rail-pip-dragging","rail-pip-resizing");
+  railCropPreview?.classList.remove("rail-pip-resizing");
   return true;
 }
 
@@ -3699,21 +3678,17 @@ railCropPreview?.addEventListener("pointerdown",e=>{
 
   const resize=e.target.closest("[data-rail-pip-resize]");
   if(resize){
-    beginRailPipPointer(e,"resize",resize.dataset.railPipResize||"se");
-    return;
+    beginRailPipResize(e,resize.dataset.railPipResize||"se");
   }
-
-  const drag=e.target.closest("[data-rail-pip-drag]");
-  if(drag)beginRailPipPointer(e,"drag");
 });
 railCropPreview?.addEventListener("pointermove",e=>{
-  updateRailPipPointer(e);
+  updateRailPipResize(e);
 });
 railCropPreview?.addEventListener("pointerup",e=>{
-  endRailPipPointer(e);
+  endRailPipResize(e);
 });
 railCropPreview?.addEventListener("pointercancel",e=>{
-  endRailPipPointer(e);
+  endRailPipResize(e);
 });
 
 railLiveRange?.addEventListener("input",()=>{
