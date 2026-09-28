@@ -109,14 +109,30 @@
       position:absolute;
       left:0;
       right:0;
-      z-index:3;
-      height:0;
+      z-index:8;
+      height:12px;
+      margin-top:-6px;
       border-top:2px solid #000;
-      box-shadow:0 0 0 1px rgba(255,255,255,.58);
+      box-shadow:0 -1px 0 rgba(255,255,255,.58);
+      pointer-events:auto;
+      cursor:ns-resize;
+      touch-action:none;
+    }
+    .chrome-calibration-guide::after{
+      position:absolute;
+      left:5px;
+      top:-16px;
+      padding:1px 4px;
+      border-radius:4px;
+      background:rgba(0,0,0,.72);
+      color:#fff;
+      font:10px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;
       pointer-events:none;
     }
     .chrome-calibration-guide.top{top:var(--guide-top)}
+    .chrome-calibration-guide.top::after{content:"TOP"}
     .chrome-calibration-guide.bottom{top:calc(100% - var(--guide-bottom))}
+    .chrome-calibration-guide.bottom::after{content:"BOTTOM"}
     .chrome-calibration-resize{
       position:absolute;
       z-index:5;
@@ -463,7 +479,7 @@
     <div class="chrome-calibration-title">Library PiP · kéo từ MIN → FULL</div>
     <div class="chrome-calibration-workbench">
       <div class="chrome-calibration-label" id="calLiveLabel">Library</div>
-      <div class="chrome-calibration-label" style="color:var(--muted)">PLAYING · rê/chạm vào video để hiện chrome YouTube; kéo size thì chrome được gọi hiện lại.</div>
+      <div class="chrome-calibration-label" style="color:var(--muted)">PLAYING · rê/chạm để hiện chrome YouTube · kéo đường TOP/BOTTOM tới đúng mép rồi thả để lưu mốc.</div>
       <input class="chrome-calibration-range" id="calLiveRange" type="range" min="140" max="760" value="280" step="1" aria-label="Kích thước Library PiP">
       <div class="chrome-calibration-viewport" id="calLiveViewport">
         <div class="chrome-calibration-frame" id="calLiveFrame"></div>
@@ -488,7 +504,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js?v=20260928-23"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-25"></script>
 <script>
 const modes=[
   {
@@ -595,7 +611,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
-const CHROME_LIBRARY_PROFILE_REV="controls0-calibration-v6";
+const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v7";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -618,6 +634,7 @@ let calibrationPlayerReady=false;
 let calibrationPlayerPlaying=false;
 let calibrationReplayTimer=0;
 let calibrationChromeWakeTimer=0;
+let calibrationGuideDrag=null;
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -791,6 +808,34 @@ function primeMainViewportTrimLibrary(){
     },delay));
   });
 }
+function manualCalibrationKey(videoId,contentAspect){
+  return [
+    "pip-chrome-calibration-v1",
+    PIP_EMBED_MODE,
+    String(videoId||""),
+    Number(contentAspect)<1?"portrait":"landscape"
+  ].join(":");
+}
+function loadManualCalibrationPoints(videoId,contentAspect){
+  try{
+    const raw=localStorage.getItem(manualCalibrationKey(videoId,contentAspect));
+    const points=JSON.parse(raw||"[]");
+    return Array.isArray(points)?points:[];
+  }catch{return []}
+}
+function saveManualCalibrationPoint(videoId,contentAspect,point){
+  const key=manualCalibrationKey(videoId,contentAspect);
+  const points=loadManualCalibrationPoints(videoId,contentAspect)
+    .filter(p=>Math.abs((Number(p.width)||0)-point.width)>2);
+  points.push({
+    width:Math.round(point.width),
+    topInset:Number(point.topInset.toFixed(2)),
+    bottomInset:Number(point.bottomInset.toFixed(2))
+  });
+  points.sort((a,b)=>a.width-b.width);
+  try{localStorage.setItem(key,JSON.stringify(points))}catch{}
+  return points;
+}
 function libraryWidthBounds(contentAspect){
   const minWidth=140;
   const vv=window.visualViewport;
@@ -826,11 +871,14 @@ function prepareCurrentChromeLibrary(force=false){
   const trimSig=viewportTrimSignature(currentViewportTrim);
   const key=[revision,PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
 
+  const manualPoints=loadManualCalibrationPoints(videoId,contentAspect);
   const cached=mediaChromeLibraries.get(key);
   if(cached){
-    currentChromeLibrary=cached;
+    currentChromeLibrary=geometry.applyManualCalibration
+      ? geometry.applyManualCalibration(cached,manualPoints)
+      : cached;
     requestAnimationFrame(renderChromeCalibration);
-    return cached;
+    return currentChromeLibrary;
   }
 
   const library=geometry.buildMediaLibrary({
@@ -847,9 +895,11 @@ function prepareCurrentChromeLibrary(force=false){
     viewportTrim:currentViewportTrim
   });
   mediaChromeLibraries.set(key,library);
-  currentChromeLibrary=library;
+  currentChromeLibrary=geometry.applyManualCalibration
+    ? geometry.applyManualCalibration(library,manualPoints)
+    : library;
   requestAnimationFrame(renderChromeCalibration);
-  return library;
+  return currentChromeLibrary;
 }
 function applyPipViewportCrop(){
   if(!currentChromeLibrary)return;
@@ -982,8 +1032,10 @@ function ensureLibraryCalibrationFrame(videoId){
 
     top=document.createElement("div");
     top.className="chrome-calibration-guide top";
+    top.dataset.calibrationGuide="top";
     bottom=document.createElement("div");
     bottom.className="chrome-calibration-guide bottom";
+    bottom.dataset.calibrationGuide="bottom";
     resize=document.createElement("div");
     resize.className="chrome-calibration-resize";
     resize.dataset.calibrationResize="1";
@@ -1115,6 +1167,7 @@ function renderLibraryCalibration(width=calibrationWidth,force=false){
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
     " · "+(result.viewportTrim?.source||"none")+
     " · lib "+String(currentChromeLibrary.version||geometry?.VERSION||"?")+
+    (result.manualCalibration?" · MANUAL":"")+
     " · "+(currentChromeLibrary.contentAspect<1?"dọc":"ngang");
 
   if(calibrationPlayerPlaying&&!force)scheduleCalibrationChromeWake(80);
@@ -1165,16 +1218,18 @@ function paintGeometryReadout(result){
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
     " · title "+result.titleLines+" dòng"+
     " · TOP "+Math.round(result.topInset)+
-      " [logo kênh "+activeEdge(top.avatarBox)+
-      " / title "+activeEdge(top.titleBox)+
-      " / tên kênh "+activeEdge(top.channelBox)+
-      " / MAX "+Math.round(top.outerMax||0)+"]"+
+      (result.directBounds||result.manualCalibration?" [DIRECT]":
+        " [logo kênh "+activeEdge(top.avatarBox)+
+        " / title "+activeEdge(top.titleBox)+
+        " / tên kênh "+activeEdge(top.channelBox)+
+        " / MAX "+Math.round(top.outerMax||0)+"]")+
     " · BOTTOM "+Math.round(result.bottomInset)+
-      " [link "+boxText(bottom.linkBox)+
-      " / video khác "+boxText(bottom.nextBox)+
-      " / YouTube "+boxText(bottom.youtubeBox)+
-      " / tua "+boxText(bottom.seekBox)+
-      " / MAX "+Math.round(bottom.outerMax||0)+"]"+
+      (result.directBounds||result.manualCalibration?" [DIRECT]":
+        " [link "+boxText(bottom.linkBox)+
+        " / video khác "+boxText(bottom.nextBox)+
+        " / YouTube "+boxText(bottom.youtubeBox)+
+        " / tua "+boxText(bottom.seekBox)+
+        " / MAX "+Math.round(bottom.outerMax||0)+"]")+
     " · RAW→FINAL "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
       " / "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
     " · TRIM T/R/B/L "+
@@ -1672,20 +1727,82 @@ calLiveRange?.addEventListener("input",()=>{
   renderLibraryCalibration(Number(calLiveRange.value));
 });
 calLiveFrame?.addEventListener("pointerdown",e=>{
+  if(!currentChromeLibrary||!calibrationPlayerPlaying)return;
+
+  const guide=e.target.closest("[data-calibration-guide]");
+  if(guide){
+    const geometry=window.YouTubeChromeGeometry;
+    const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,calibrationWidth);
+    if(!result)return;
+    calibrationGuideDrag={
+      pointerId:e.pointerId,
+      kind:guide.dataset.calibrationGuide,
+      topInset:Number(result.topInset)||0,
+      bottomInset:Number(result.bottomInset)||0
+    };
+    try{guide.setPointerCapture(e.pointerId)}catch{}
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+
   const handle=e.target.closest("[data-calibration-resize]");
-  if(!handle||!currentChromeLibrary||!calibrationPlayerPlaying)return;
+  if(!handle)return;
   calibrationPointerId=e.pointerId;
   calibrationPointerStart={x:e.clientX,width:calibrationWidth};
   try{handle.setPointerCapture(e.pointerId)}catch{}
   e.preventDefault();
 });
 calLiveFrame?.addEventListener("pointermove",e=>{
+  if(calibrationGuideDrag&&e.pointerId===calibrationGuideDrag.pointerId){
+    const r=calLiveFrame.getBoundingClientRect();
+    const y=Math.max(0,Math.min(r.height,e.clientY-r.top));
+    if(calibrationGuideDrag.kind==="top"){
+      calibrationGuideDrag.topInset=y;
+      calLiveFrame.style.setProperty("--guide-top",y.toFixed(2)+"px");
+    }else{
+      const bottom=Math.max(0,r.height-y);
+      calibrationGuideDrag.bottomInset=bottom;
+      calLiveFrame.style.setProperty("--guide-bottom",bottom.toFixed(2)+"px");
+    }
+    calLiveLabel.textContent=
+      "ĐANG CHỈNH "+calibrationGuideDrag.kind.toUpperCase()+
+      " · "+Math.round(calibrationWidth)+"px"+
+      " · TOP "+Math.round(calibrationGuideDrag.topInset)+
+      " · BOTTOM "+Math.round(calibrationGuideDrag.bottomInset);
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+
   if(calibrationPointerId===null||e.pointerId!==calibrationPointerId||!calibrationPointerStart)return;
   if(!calibrationPlayerPlaying)return;
   renderLibraryCalibration(calibrationPointerStart.width+(e.clientX-calibrationPointerStart.x));
   e.preventDefault();
 });
 function finishCalibrationResize(e){
+  if(calibrationGuideDrag&&e.pointerId===calibrationGuideDrag.pointerId){
+    try{e.target.releasePointerCapture(e.pointerId)}catch{}
+    const point={
+      width:calibrationWidth,
+      topInset:calibrationGuideDrag.topInset,
+      bottomInset:calibrationGuideDrag.bottomInset
+    };
+    calibrationGuideDrag=null;
+
+    if(currentChromeLibrary){
+      saveManualCalibrationPoint(
+        currentChromeLibrary.videoId,
+        currentChromeLibrary.contentAspect,
+        point
+      );
+      prepareCurrentChromeLibrary(true);
+      renderLibraryCalibration(calibrationWidth,true);
+      scheduleCalibrationChromeWake(80);
+    }
+    return;
+  }
+
   if(calibrationPointerId===null||e.pointerId!==calibrationPointerId)return;
   try{e.target.releasePointerCapture(e.pointerId)}catch{}
   calibrationPointerId=null;
