@@ -3241,7 +3241,12 @@ html.one-col.portrait .player.pip{
           ? pkg.items
           : [];
         const metas=packageMetas(items);
+        const nextHash=String(pkg?.hash||"").trim();
+
+        // A package becomes visible only after the whole response has arrived,
+        // parsed and converted. This is the single in-memory swap point.
         packageCache.set(scope,metas);
+        if(nextHash)packageHashCache.set(scope,nextHash);
 
         // Important for deep links: the video may have started from
         // YT1988_API.video(id) before its source package finished loading.
