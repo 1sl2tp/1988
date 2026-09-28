@@ -603,11 +603,15 @@ let chromeMaskTimer=0;
 let optimisticPlaying=false;
 let seekRaf=0;
 let activeSeekPointer=null;
-const YT_CHROME_IDLE_MS=3800;
+const YT_CHROME_FALLBACK_MS=3800;
+const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
 const CHROME_LIBRARY_PROFILE_REV="direct-guide-calibration-v9";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
+let nativeChromeVisible=null;
+let nativeChromeSignalAt=0;
+let nativeChromeSignalKey="";
 let pipPointerMode=null;
 let pipPointerId=null;
 let pipPointerStart=null;
@@ -643,6 +647,77 @@ function stopChromeMaskTimer(){
 function playerIsPlaying(){
   try{return apiPlayer?.getPlayerState?.()===1}catch{return optimisticPlaying}
 }
+function normalizeChromeVisibilityValue(value){
+  if(typeof value==="boolean")return value;
+  if(value===1||value==="1")return true;
+  if(value===0||value==="0")return false;
+  const s=String(value??"").trim().toLowerCase();
+  if(["visible","shown","show","open","on"].includes(s))return true;
+  if(["hidden","hide","closed","off"].includes(s))return false;
+  return null;
+}
+function findChromeVisibilitySignal(value,path=""){
+  if(!value||typeof value!=="object")return null;
+  const keys=Object.keys(value);
+  const wanted=new Set([
+    "controlsvisible","chromevisible","uivisible","overlayvisible",
+    "showcontrols","showchrome","controlsvisibility","chromevisibility",
+    "uivisibility","overlayvisibility"
+  ]);
+  for(const key of keys){
+    const lower=key.toLowerCase();
+    if(wanted.has(lower)){
+      const visible=normalizeChromeVisibilityValue(value[key]);
+      if(visible!==null)return {visible,key:path?path+"."+key:key};
+    }
+  }
+  for(const key of keys){
+    const child=value[key];
+    if(child&&typeof child==="object"){
+      const found=findChromeVisibilitySignal(child,path?path+"."+key:key);
+      if(found)return found;
+    }
+  }
+  return null;
+}
+function resetNativeChromeSignal(){
+  nativeChromeVisible=null;
+  nativeChromeSignalAt=0;
+  nativeChromeSignalKey="";
+}
+function setNativeChromeSignal(visible,key=""){
+  nativeChromeVisible=!!visible;
+  nativeChromeSignalAt=performance.now();
+  nativeChromeSignalKey=String(key||"");
+
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+
+  if(nativeChromeVisible){
+    stopChromeMaskTimer();
+    setChromeMask(true);
+    return;
+  }
+
+  if(playerIsPlaying()){
+    scheduleChromeRelease();
+  }
+}
+window.addEventListener("message",event=>{
+  let iframeWindow=null;
+  try{iframeWindow=apiPlayer?.getIframe?.()?.contentWindow||null}catch{}
+  if(!iframeWindow||event.source!==iframeWindow)return;
+
+  const origin=String(event.origin||"");
+  if(origin&&!/youtube(?:-nocookie)?\.com$/i.test(origin.replace(/^https?:\/\//,"")))return;
+
+  let data=event.data;
+  if(typeof data==="string"){
+    try{data=JSON.parse(data)}catch{return}
+  }
+  const signal=findChromeVisibilitySignal(data);
+  if(signal)setNativeChromeSignal(signal.visible,signal.key);
+});
+
 function formatSeekProgress(){
   const seek=stage.querySelector("[data-pip-seek]");
   const fill=stage.querySelector("[data-pip-seek-fill]");
@@ -679,6 +754,7 @@ function seekAtClientX(clientX,seek){
   let duration=0;
   try{duration=Number(apiPlayer.getDuration?.())||0}catch{}
   if(duration>0){
+    resetNativeChromeSignal();
     try{apiPlayer.seekTo?.(duration*p,true)}catch{}
   }
   const pct=(p*100).toFixed(3)+"%";
@@ -1250,7 +1326,12 @@ function paintGeometryReadout(result){
       Math.round(result.viewportTrim?.leftPx||0)+
       " "+(result.viewportTrim?.source||"none")+
     " · GAP "+Math.round(result.signedGap??result.safeWindow.height)+
-    (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"");
+    (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"")+
+    " · UI-SIGNAL "+(
+      nativeChromeVisible===true?"VISIBLE":
+      nativeChromeVisible===false?"HIDDEN":"NONE"
+    )+
+    (nativeChromeSignalKey?" ["+nativeChromeSignalKey+"]":"");
 }
 function syncMeasuredSafeWindow(){
   if(!stage.classList.contains("max-clean-mode")){
@@ -1370,16 +1451,36 @@ function currentMediaTime(){
 function currentPlaybackRate(){
   try{return Math.max(.1,Number(apiPlayer?.getPlaybackRate?.())||1)}catch{return 1}
 }
-function scheduleChromeRelease(delay=YT_CHROME_IDLE_MS){
+function scheduleChromeRelease(){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
 
+  // Best path: an explicit iframe UI-hidden signal. Wait one extra second after
+  // YouTube says its chrome is hidden, then reveal the full video.
+  if(nativeChromeVisible===false&&nativeChromeSignalAt>0){
+    const elapsed=performance.now()-nativeChromeSignalAt;
+    const wait=Math.max(0,YT_CHROME_HIDDEN_GRACE_MS-elapsed);
+    chromeMaskTimer=setTimeout(()=>{
+      if(!playerIsPlaying())return;
+      if(nativeChromeVisible!==false)return;
+      if(stage.classList.contains("controls-visible")||activeSeekPointer!==null)return;
+      setChromeMask(false);
+      stopChromeMaskTimer();
+    },wait);
+    return;
+  }
+
+  // Fallback for YouTube builds that expose no chrome-visibility signal.
   chromeReleaseMediaTime=currentMediaTime();
   chromeReleaseWallTime=performance.now();
 
   const verify=()=>{
     if(!playerIsPlaying()){
       stopChromeMaskTimer();
+      return;
+    }
+    if(nativeChromeVisible===false&&nativeChromeSignalAt>0){
+      scheduleChromeRelease();
       return;
     }
     if(stage.classList.contains("controls-visible")||activeSeekPointer!==null){
@@ -1392,18 +1493,15 @@ function scheduleChromeRelease(delay=YT_CHROME_IDLE_MS){
     const expected=(elapsedWall/1000)*currentPlaybackRate();
     const movingEnough=advanced>=Math.max(.35,expected*.55);
 
-    if(elapsedWall>=delay&&movingEnough){
+    if(elapsedWall>=YT_CHROME_FALLBACK_MS&&movingEnough){
       setChromeMask(false);
       stopChromeMaskTimer();
       return;
     }
-
-    // Network stall or delayed playback: keep the mask until media time really
-    // advances, instead of opening full merely because wall-clock time passed.
     chromeMaskTimer=setTimeout(verify,250);
   };
 
-  chromeMaskTimer=setTimeout(verify,delay);
+  chromeMaskTimer=setTimeout(verify,250);
 }
 function hideCleanControls(){
   stopCleanHideTimer();
@@ -1411,10 +1509,11 @@ function hideCleanControls(){
 }
 function showCleanControls(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
+  resetNativeChromeSignal();
   stage.classList.add("controls-visible");
   if(stage.classList.contains("max-clean-mode")){
     setChromeMask(true);
-    if(playerIsPlaying())scheduleChromeRelease(YT_CHROME_IDLE_MS);
+    if(playerIsPlaying())scheduleChromeRelease();
     else stopChromeMaskTimer();
   }
   stopCleanHideTimer();
@@ -1447,6 +1546,7 @@ function cleanOverlayMarkup(){
   '</div>';
 }
 function exitDemoPip(){
+  resetNativeChromeSignal();
   stage.classList.remove("demo-pip","controls-visible","chrome-mask","pip-dragging","pip-resizing");
   clearPipViewportCrop();
   stage.style.left="";
@@ -1468,6 +1568,7 @@ function exitDemoPip(){
 }
 function enterDemoPip(){
   if(!stage.classList.contains("clean-mode"))return;
+  resetNativeChromeSignal();
   const rect=stage.getBoundingClientRect();
   mainAspectBeforePip=stage.style.aspectRatio||"";
 
@@ -1492,7 +1593,7 @@ function enterDemoPip(){
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
       setChromeMask(true);
-      scheduleChromeRelease(YT_CHROME_IDLE_MS);
+      scheduleChromeRelease();
     });
   }
 }
@@ -1612,6 +1713,7 @@ async function render(){
         },
         onStateChange(event){
           optimisticPlaying=event?.data===1;
+          resetNativeChromeSignal();
           if(mode.maxClean){
             formatSeekProgress();
             if(!stage.classList.contains("demo-pip"))refreshMainViewportTrimLibrary();
@@ -1623,7 +1725,7 @@ async function render(){
             // Start the 3.8 s window only after YouTube says playback is really
             // running. A BUFFERING -> PLAYING transition naturally restarts it.
             setChromeMask(true);
-            scheduleChromeRelease(YT_CHROME_IDLE_MS);
+            scheduleChromeRelease();
           }else{
             // PAUSED / BUFFERING / CUED / ENDED: never reveal full video.
             // Network delay therefore cannot consume the hide timeout.
@@ -1696,7 +1798,7 @@ function finishSeek(e){
     try{seek.releasePointerCapture(e.pointerId)}catch{}
   }
   activeSeekPointer=null;
-  scheduleChromeRelease(YT_CHROME_IDLE_MS);
+  scheduleChromeRelease();
 }
 stage.addEventListener("pointerup",finishSeek);
 stage.addEventListener("pointercancel",finishSeek);
