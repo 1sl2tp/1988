@@ -1061,8 +1061,8 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     width:100%;
     max-width:none;
     display:grid;
-    grid-template-columns:minmax(0,1fr) var(--two-col-media-w);
-    grid-template-areas:"feed media";
+    grid-template-columns:var(--two-col-media-w) minmax(0,1fr);
+    grid-template-areas:"media feed";
     gap:var(--layout-gap);
     align-items:start;
     margin:0;
@@ -1085,7 +1085,7 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     top:calc(var(--top-boundary) + 8px);
     align-self:start;
     height:var(--current-full-h);
-    justify-self:end;
+    justify-self:start;
     min-width:0;
     margin-top:8px;
     margin-right:0;
@@ -2850,8 +2850,9 @@ html.one-col.portrait .player.pip{
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
 
-      // Keep the existing feed-width family, but media now fits by the REAL
-      // cropped video height. No title/chrome safe-zone estimation is needed.
+      // Desktop 2-column order is MEDIA LEFT + FEED RIGHT. Keep the existing
+      // width family; only the visual order changes. Media still fits by the REAL
+      // cropped video height, so no title/chrome safe-zone estimation is needed.
       const sidebarPct=viewportW>=1900?0.325:(viewportW>=1550?0.275:0.225);
       const sidebarMax=Math.min(800,contentW*0.40);
       const desiredFeedW=Math.max(320,Math.min(sidebarMax,contentW*sidebarPct));
