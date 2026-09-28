@@ -655,6 +655,78 @@
       max-height:none!important;
       border:0!important;
     }
+    .rail-pip-drag-zone,
+    .rail-crop-preview .pip-resize-handle,
+    .rail-pip-close{display:none}
+    .rail-crop-preview.rail-pip-open{
+      position:fixed!important;
+      z-index:50;
+      top:calc(env(safe-area-inset-top) + 10px);
+      right:10px;
+      left:auto;
+      bottom:auto;
+      margin:0!important;
+      overflow:hidden!important;
+      border-radius:12px!important;
+      background:#000;
+      box-shadow:0 14px 38px rgba(0,0,0,.58);
+      isolation:isolate;
+    }
+    .rail-crop-preview.rail-pip-open .rail-pip-drag-zone{
+      display:block;
+      position:absolute;
+      z-index:8;
+      left:8px;
+      right:42px;
+      top:0;
+      height:18px;
+      cursor:grab;
+      pointer-events:auto;
+      touch-action:none;
+    }
+    .rail-crop-preview.rail-pip-open.rail-pip-dragging .rail-pip-drag-zone{cursor:grabbing}
+    .rail-crop-preview.rail-pip-open .pip-resize-handle{
+      display:block;
+      z-index:9;
+    }
+    .rail-crop-preview.rail-pip-open .rail-pip-close{
+      display:grid;
+      place-items:center;
+      position:absolute;
+      z-index:10;
+      right:6px;
+      top:6px;
+      width:30px;
+      height:30px;
+      padding:0;
+      border:0;
+      border-radius:50%;
+      color:#fff;
+      background:rgba(8,8,8,.62);
+      box-shadow:0 1px 8px rgba(0,0,0,.28);
+      backdrop-filter:blur(8px);
+      -webkit-backdrop-filter:blur(8px);
+      pointer-events:auto;
+    }
+    .rail-crop-preview.rail-pip-open .rail-pip-close svg{
+      width:18px;
+      height:18px;
+      fill:currentColor;
+    }
+    .rail-crop-preview.rail-pip-open::after{
+      content:"";
+      position:absolute;
+      inset:0;
+      z-index:7;
+      border:1px solid rgba(255,255,255,.16);
+      border-radius:inherit;
+      pointer-events:none;
+      opacity:0;
+      transition:opacity .14s ease;
+    }
+    .rail-crop-preview.rail-pip-open:hover::after,
+    .rail-crop-preview.rail-pip-resizing::after,
+    .rail-crop-preview.rail-pip-dragging::after{opacity:1}
     .stage.rail-mode.rail-workbench{
       position:relative;
       flex:0 0 auto;
@@ -673,57 +745,6 @@
       height:100%!important;
       border:0;
       z-index:1;
-    }
-    .stage.rail-mode.rail-pip-crop{
-      position:fixed!important;
-      z-index:80;
-      top:calc(env(safe-area-inset-top) + 10px)!important;
-      right:10px!important;
-      left:auto!important;
-      bottom:auto!important;
-      margin:0!important;
-      overflow:hidden!important;
-      border-radius:10px!important;
-      background:#000;
-      box-shadow:0 14px 38px rgba(0,0,0,.58);
-    }
-    .stage.rail-mode.rail-pip-crop #api-player,
-    .stage.rail-mode.rail-pip-crop iframe{
-      position:absolute!important;
-      left:0!important;
-      right:auto!important;
-      bottom:auto!important;
-      top:calc(-1 * var(--rail-crop-top,0px))!important;
-      width:var(--rail-source-width)!important;
-      height:var(--rail-source-height)!important;
-      max-width:none!important;
-      max-height:none!important;
-      border:0!important;
-      transform:none!important;
-      clip-path:none!important;
-    }
-    .stage.rail-mode.rail-pip-crop .pip-resize-handle{display:none!important}
-    .stage.rail-mode.rail-pip-crop .pip-resize-handle.se{
-      display:block!important;
-      z-index:9;
-      right:-1px;
-      bottom:-1px;
-      width:24px;
-      height:24px;
-      cursor:nwse-resize;
-      pointer-events:auto;
-      touch-action:none;
-    }
-    .stage.rail-mode.rail-pip-crop .pip-resize-handle.se::before{
-      content:"";
-      position:absolute;
-      right:5px;
-      bottom:5px;
-      width:10px;
-      height:10px;
-      border-right:2px solid rgba(255,255,255,.86);
-      border-bottom:2px solid rgba(255,255,255,.86);
-      filter:drop-shadow(0 1px 2px #000);
     }
     .stage.rail-mode.rail-workbench .pip-resize-handle{display:none}
     .stage.rail-mode.rail-workbench .pip-resize-handle.se{
@@ -806,6 +827,7 @@
     <div class="rail-library-samples">
       <button type="button" data-rail-video="dQw4w9WgXcQ" data-rail-shape="landscape" data-rail-aspect="1.7777777778">Ngang 16:9 · Rick</button>
       <button type="button" data-rail-video="C91FyjzHUr0" data-rail-shape="portrait" data-rail-aspect="0.5625">Dọc 9:16 · Me Rehúso</button>
+      <button type="button" id="railCropPipToggle">Mở PiP</button>
     </div>
     <div class="rail-control-row">
       <span class="rail-control-label">SIZE</span>
@@ -829,6 +851,18 @@
             <div class="rail-crop-player-mount" id="railCropPlayerMount">
               <div id="rail-crop-player"></div>
             </div>
+            <div class="rail-pip-drag-zone" data-rail-pip-drag title="Kéo PiP"></div>
+            <div class="pip-resize-handle n" data-rail-pip-resize="n"></div>
+            <div class="pip-resize-handle ne" data-rail-pip-resize="ne"></div>
+            <div class="pip-resize-handle e" data-rail-pip-resize="e"></div>
+            <div class="pip-resize-handle se" data-rail-pip-resize="se"></div>
+            <div class="pip-resize-handle s" data-rail-pip-resize="s"></div>
+            <div class="pip-resize-handle sw" data-rail-pip-resize="sw"></div>
+            <div class="pip-resize-handle w" data-rail-pip-resize="w"></div>
+            <div class="pip-resize-handle nw" data-rail-pip-resize="nw"></div>
+            <button class="rail-pip-close" type="button" data-rail-pip-close aria-label="Đóng PiP">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>
+            </button>
           </div>
         </div>
       </div>
@@ -937,7 +971,7 @@ const modes=[
     id:"railpip",
     title:"10 · PiP rail · khung đen tách chrome khỏi hình",
     short:"PiP rail",
-    desc:"Workbench luôn hiển thị song song SOURCE chưa cắt và kết quả đã cắt. SIZE/BLACK tác động lên SOURCE; khung bên phải chỉ bỏ đúng phần đen trên/dưới. PiP sau này dùng lại cùng geometry.",
+    desc:"Workbench hiển thị SOURCE và kết quả ĐÃ CẮT. Mở PiP lấy trực tiếp khung ĐÃ CẮT làm đầu vào, còn cách mở/neo/min-max/resize dùng cùng quy tắc với PiP max.",
     api:true,
     cleanDemo:true,
     railMode:true,
@@ -982,6 +1016,11 @@ let apiReady=false;
 let apiPlayer=null;
 let railCropPreviewPlayer=null;
 let railCropSyncTimer=0;
+let railPipOpen=false;
+let railPipBaseGeometry=null;
+let railPipPointerId=null;
+let railPipPointerMode=null;
+let railPipPointerStart=null;
 let cleanHideTimer=0;
 let chromeMaskTimer=0;
 let seekRaf=0;
@@ -998,7 +1037,7 @@ let currentChromeLibrary=null;
 let currentRailLibrary=null;
 let railWorkbenchWidth=520;
 let railBlackPerSide=28;
-let railCropPipOpen=false;
+let railPipOpen=false;
 const RAIL_CROP_PRESETS={
   landscape:{width:170,blackTop:65,blackBottom:65,referenceAspect:16/9},
   portrait:{width:311,blackTop:63,blackBottom:63,referenceAspect:9/16}
@@ -1657,11 +1696,13 @@ function applyRailComparisonGeometry(layout){
   const sourceHeight=Math.max(1,Number(layout.height)||1);
   const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
 
-  railCropPreview.style.setProperty("--rail-preview-source-width",sourceWidth+"px");
-  railCropPreview.style.setProperty("--rail-preview-source-height",sourceHeight+"px");
-  railCropPreview.style.setProperty("--rail-preview-crop-top",cropTop+"px");
-  railCropPreview.style.width=sourceWidth+"px";
-  railCropPreview.style.height=cropHeight+"px";
+  if(!railPipOpen){
+    railCropPreview.style.setProperty("--rail-preview-source-width",sourceWidth+"px");
+    railCropPreview.style.setProperty("--rail-preview-source-height",sourceHeight+"px");
+    railCropPreview.style.setProperty("--rail-preview-crop-top",cropTop+"px");
+    railCropPreview.style.width=sourceWidth+"px";
+    railCropPreview.style.height=cropHeight+"px";
+  }
 
   if(railSourceReadout){
     railSourceReadout.textContent=
@@ -1833,90 +1874,201 @@ function railCropGeometryForWidth(width){
     cropHeight
   };
 }
-function applyRailCropGeometry(width){
-  const g=railCropGeometryForWidth(width);
+function currentRailCroppedGeometry(){
+  const aspect=Math.max(
+    .25,
+    Number(railSelectedAspect)||
+    Number(verifiedMediaAspect)||
+    Number(currentRailLibrary?.contentAspect)||
+    16/9
+  );
+  const layout=railLayoutForWidth(railWorkbenchWidth,aspect);
+  const sourceWidth=Math.max(1,layout.width);
+  const sourceHeight=Math.max(1,layout.height);
+  const cropTop=Math.max(0,layout.topHeight);
+  const cropBottom=Math.max(0,layout.bottomHeight);
+  const cropHeight=Math.max(1,sourceHeight-cropTop-cropBottom);
 
-  stage.style.setProperty("--rail-source-width",g.sourceWidth+"px");
-  stage.style.setProperty("--rail-source-height",g.sourceHeight+"px");
-  stage.style.setProperty("--rail-crop-top",g.cropTop+"px");
-
-  stage.style.width=g.cropWidth+"px";
-  stage.style.height=g.cropHeight+"px";
-  stage.style.aspectRatio=String(g.preset.aspect);
-
-  currentRailLibrary={
-    ...(currentRailLibrary||{}),
-    type:"native-frame-crop",
-    videoId:requestedVideoId,
-    contentAspect:g.preset.aspect,
-    orientation:g.preset.aspect<1?"portrait":"landscape",
-    sourceWidth:g.sourceWidth,
-    sourceHeight:g.sourceHeight,
-    videoTop:g.videoTop,
-    videoBottom:g.videoBottom,
-    cropWidth:g.cropWidth,
-    cropHeight:g.cropHeight,
-    cropScale:g.scale
+  return {
+    aspect:sourceWidth/cropHeight,
+    sourceWidth,
+    sourceHeight,
+    cropTop,
+    cropBottom,
+    cropWidth:sourceWidth,
+    cropHeight
   };
+}
+function setRailPipRect(left,top,width){
+  if(!railPipBaseGeometry||!railCropPreview)return null;
 
-  return g;
+  const aspect=Math.max(.25,Number(railPipBaseGeometry.aspect)||16/9);
+  const bounds=libraryWidthBounds(aspect);
+  const finalWidth=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,Number(width)||bounds.minWidth));
+  const finalHeight=finalWidth/aspect;
+  const scale=finalWidth/railPipBaseGeometry.cropWidth;
+
+  const sourceWidth=railPipBaseGeometry.sourceWidth*scale;
+  const sourceHeight=railPipBaseGeometry.sourceHeight*scale;
+  const cropTop=railPipBaseGeometry.cropTop*scale;
+  const pos=clampPipPosition(left,top,finalWidth,finalHeight);
+
+  railCropPreview.style.setProperty("--rail-preview-source-width",sourceWidth+"px");
+  railCropPreview.style.setProperty("--rail-preview-source-height",sourceHeight+"px");
+  railCropPreview.style.setProperty("--rail-preview-crop-top",cropTop+"px");
+  railCropPreview.style.left=pos.left+"px";
+  railCropPreview.style.top=pos.top+"px";
+  railCropPreview.style.right="auto";
+  railCropPreview.style.bottom="auto";
+  railCropPreview.style.width=finalWidth+"px";
+  railCropPreview.style.height=finalHeight+"px";
+  railCropPreview.style.aspectRatio=String(aspect);
+
+  return {width:finalWidth,height:finalHeight,left:pos.left,top:pos.top,aspect};
 }
 function openRailCropPip(){
-  if(!stage.classList.contains("rail-mode"))return;
+  if(!stage.classList.contains("rail-mode")||!railCropPreview)return;
 
-  // Resolve the CURRENT video's exact content aspect before building the source frame.
-  refreshRailMediaAspect();
-  if(!verifiedMediaAspect&&!railSelectedAspect){
-    primeRailMediaAspect();
-    return;
-  }
+  // INPUT = the already-cropped preview on the right. From this point onward
+  // opening/fit/resize follows the same geometry rule as PiP max.
+  railPipBaseGeometry=currentRailCroppedGeometry();
+  railPipOpen=true;
+  railCropPreview.classList.add("rail-pip-open");
 
-  const preset=railCropPreset();
+  const bounds=libraryWidthBounds(railPipBaseGeometry.aspect);
+  const minW=bounds.minWidth;
+  const maxW=bounds.maxWidth;
+  const initialWidth=Math.max(
+    minW,
+    Math.min(maxW,Math.max(170,Math.min(280,window.innerWidth*.46)))
+  );
+  const initialHeight=initialWidth/railPipBaseGeometry.aspect;
 
-  // Width + BLACK are locked standards; video height follows the exact media aspect.
-  // The visible crop is always bounded by videoTop/videoBottom.
-  railBlackPerSide=preset.blackTop;
-  railWorkbenchWidth=preset.width;
-  railCropPipOpen=true;
-
-  stage.classList.remove("rail-workbench");
-  stage.classList.add("rail-pip-crop");
-
-  const g=applyRailCropGeometry(preset.width);
+  setRailPipRect(
+    window.innerWidth-initialWidth-10,
+    10,
+    initialWidth
+  );
 
   if(railCropPipToggle)railCropPipToggle.textContent="Trả về Library";
-  if(railLibraryReadout){
-    railLibraryReadout.textContent=
-      "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
-      " · ASPECT "+preset.aspect.toFixed(5)+
-      " · SOURCE "+Math.round(g.sourceWidth)+"×"+Math.round(g.sourceHeight)+
-      " · SCALE "+g.scale.toFixed(2)+
-      " · CẮT "+Math.round(g.cropTop)+" / "+Math.round(g.cropBottom)+
-      " · VIDEO EDGE "+Math.round(g.videoTop)+" → "+Math.round(g.videoBottom)+
-      " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight);
-  }
 }
 function closeRailCropPip(){
-  if(!stage.classList.contains("rail-mode"))return;
-  railCropPipOpen=false;
+  if(!railCropPreview)return;
 
-  stage.classList.remove("rail-pip-crop");
-  stage.classList.add("rail-workbench");
+  railPipOpen=false;
+  railPipBaseGeometry=null;
+  railPipPointerId=null;
+  railPipPointerMode=null;
+  railPipPointerStart=null;
 
-  stage.style.removeProperty("--rail-source-width");
-  stage.style.removeProperty("--rail-source-height");
-  stage.style.removeProperty("--rail-crop-top");
+  railCropPreview.classList.remove(
+    "rail-pip-open","rail-pip-dragging","rail-pip-resizing"
+  );
+  railCropPreview.style.left="";
+  railCropPreview.style.top="";
+  railCropPreview.style.right="";
+  railCropPreview.style.bottom="";
+  railCropPreview.style.width="";
+  railCropPreview.style.height="";
+  railCropPreview.style.aspectRatio="";
 
-  applyRailLayout(railWorkbenchWidth,{workbench:true});
-  if(railCropPipToggle)railCropPipToggle.textContent="Mở PiP crop";
+  if(stage.classList.contains("rail-mode")){
+    const aspect=Math.max(
+      .25,
+      Number(railSelectedAspect)||
+      Number(verifiedMediaAspect)||
+      Number(currentRailLibrary?.contentAspect)||
+      16/9
+    );
+    applyRailComparisonGeometry(railLayoutForWidth(railWorkbenchWidth,aspect));
+  }
+
+  if(railCropPipToggle)railCropPipToggle.textContent="Mở PiP";
 }
 function toggleRailCropPip(){
-  railCropPipOpen?closeRailCropPip():openRailCropPip();
+  railPipOpen?closeRailCropPip():openRailCropPip();
+}
+function beginRailPipPointer(e,mode,handle=""){
+  if(!railPipOpen||!railCropPreview)return false;
+
+  const r=railCropPreview.getBoundingClientRect();
+  railPipPointerId=e.pointerId;
+  railPipPointerMode=mode;
+  railPipPointerStart={
+    x:e.clientX,
+    y:e.clientY,
+    left:r.left,
+    top:r.top,
+    width:r.width,
+    height:r.height,
+    ratio:Math.max(.25,Number(railPipBaseGeometry?.aspect)||r.width/Math.max(1,r.height)),
+    handle
+  };
+
+  railCropPreview.classList.toggle("rail-pip-dragging",mode==="drag");
+  railCropPreview.classList.toggle("rail-pip-resizing",mode==="resize");
+
+  try{e.target.setPointerCapture(e.pointerId)}catch{}
+  e.preventDefault();
+  e.stopPropagation();
+  return true;
+}
+function updateRailPipPointer(e){
+  if(
+    !railPipOpen||
+    railPipPointerId===null||
+    e.pointerId!==railPipPointerId||
+    !railPipPointerStart
+  )return false;
+
+  const s=railPipPointerStart;
+  const dx=e.clientX-s.x;
+  const dy=e.clientY-s.y;
+
+  if(railPipPointerMode==="drag"){
+    setRailPipRect(s.left+dx,s.top+dy,s.width);
+    return true;
+  }
+
+  const h=s.handle;
+  const bounds=libraryWidthBounds(s.ratio);
+  let width=s.width;
+
+  if(h.includes("e"))width=s.width+dx;
+  else if(h.includes("w"))width=s.width-dx;
+  else if(h.includes("n")||h.includes("s")){
+    const targetH=h.includes("s")?s.height+dy:s.height-dy;
+    width=targetH*s.ratio;
+  }
+
+  width=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,width));
+  const height=width/s.ratio;
+
+  let left=s.left;
+  let top=s.top;
+  if(h.includes("w"))left=s.left+(s.width-width);
+  if(h.includes("n"))top=s.top+(s.height-height);
+
+  setRailPipRect(left,top,width);
+  return true;
+}
+function endRailPipPointer(e){
+  if(
+    railPipPointerId===null||
+    e.pointerId!==railPipPointerId
+  )return false;
+
+  try{e.target.releasePointerCapture(e.pointerId)}catch{}
+  railPipPointerId=null;
+  railPipPointerMode=null;
+  railPipPointerStart=null;
+  railCropPreview?.classList.remove("rail-pip-dragging","rail-pip-resizing");
+  return true;
 }
 
 function refreshRailMediaAspect(){
   if(!stage.classList.contains("rail-mode"))return 0;
-  if(railCropPipOpen)return verifiedMediaAspect||0;
+  if(railPipOpen)return verifiedMediaAspect||0;
   const next=readMainYoutubeViewportTrim();
   if(!next?.contentAspect)return 0;
   currentViewportTrim=next;
@@ -1961,8 +2113,8 @@ function mountStageForMode(mode){
     stage.classList.add("rail-workbench");
     return;
   }
-  railCropPipOpen=false;
-  stage.classList.remove("rail-workbench","rail-pip-crop");
+  railPipOpen=false;
+  stage.classList.remove("rail-workbench");
   stage.style.removeProperty("--rail-source-width");
   stage.style.removeProperty("--rail-source-height");
   stage.style.removeProperty("--rail-crop-top");
@@ -2578,7 +2730,6 @@ function clampPipPosition(left,top,width,height){
 }
 function setPipRect(left,top,width,height){
   if(stage.classList.contains("rail-mode")){
-    if(stage.classList.contains("rail-pip-crop"))return applyRailCropGeometry(width);
     return applyRailLayout(width,{workbench:true});
   }
 
@@ -2610,15 +2761,12 @@ function beginPipPointer(e,mode,handle=""){
   const railWorkbench=
     stage.classList.contains("rail-mode")&&
     stage.classList.contains("rail-workbench");
-  const railCrop=
-    stage.classList.contains("rail-mode")&&
-    stage.classList.contains("rail-pip-crop");
   const floatingPip=
     stage.classList.contains("demo-pip")&&
     stage.classList.contains("max-clean-mode");
 
-  if(!railWorkbench&&!railCrop&&!floatingPip)return;
-  if((railWorkbench||railCrop)&&mode!=="resize")return;
+  if(!railWorkbench&&!floatingPip)return;
+  if(railWorkbench&&mode!=="resize")return;
   if(floatingPip)touchChromeCover(mode==="resize"?"resize":"drag");
 
   const r=stage.getBoundingClientRect();
@@ -2649,27 +2797,6 @@ function updatePipPointer(e){
   const s=pipPointerStart;
   const dx=e.clientX-s.x;
   const dy=e.clientY-s.y;
-
-  if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-pip-crop")){
-    const preset=railCropPreset();
-    const vv=window.visualViewport;
-    const maxW=Math.max(
-      preset.width*.6,
-      Math.min(760,(vv?.width||window.innerWidth||760)-20)
-    );
-    const minW=Math.max(96,preset.width*.55);
-    const width=Math.max(minW,Math.min(maxW,s.width+dx));
-    const g=applyRailCropGeometry(width);
-
-    if(railLibraryReadout){
-      railLibraryReadout.textContent=
-        "PIP CROP · "+(preset.aspect<1?"DỌC":"NGANG")+
-        " · VIDEO EDGE "+Math.round(g.videoTop)+" → "+Math.round(g.videoBottom)+
-        " · CROP "+Math.round(g.cropWidth)+"×"+Math.round(g.cropHeight)+
-        " · SCALE "+g.scale.toFixed(2);
-    }
-    return true;
-  }
 
   if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-workbench")){
     const bounds=railWidthBounds(verifiedMediaAspect||currentRailLibrary?.contentAspect||16/9);
@@ -2719,9 +2846,6 @@ function endPipPointer(e){
   pipPointerId=null;
   pipPointerStart=null;
   stage.classList.remove("pip-dragging","pip-resizing");
-  if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-pip-crop")){
-    return true;
-  }
   if(stage.classList.contains("rail-mode")&&stage.classList.contains("rail-workbench")){
     paintRailLibrary(railLayoutForWidth(railWorkbenchWidth,verifiedMediaAspect||currentRailLibrary?.contentAspect||16/9));
     return true;
@@ -3085,6 +3209,7 @@ async function render(){
   document.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===active));
 
   exitDemoPip();
+  closeRailCropPip();
   mountStageForMode(mode);
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
@@ -3476,12 +3601,42 @@ railLibrary?.addEventListener("click",e=>{
 });
 railCropPipToggle?.addEventListener("click",toggleRailCropPip);
 
+railCropPreview?.addEventListener("pointerdown",e=>{
+  if(!railPipOpen)return;
+
+  const close=e.target.closest("[data-rail-pip-close]");
+  if(close){
+    e.preventDefault();
+    e.stopPropagation();
+    closeRailCropPip();
+    return;
+  }
+
+  const resize=e.target.closest("[data-rail-pip-resize]");
+  if(resize){
+    beginRailPipPointer(e,"resize",resize.dataset.railPipResize||"se");
+    return;
+  }
+
+  const drag=e.target.closest("[data-rail-pip-drag]");
+  if(drag)beginRailPipPointer(e,"drag");
+});
+railCropPreview?.addEventListener("pointermove",e=>{
+  updateRailPipPointer(e);
+});
+railCropPreview?.addEventListener("pointerup",e=>{
+  endRailPipPointer(e);
+});
+railCropPreview?.addEventListener("pointercancel",e=>{
+  endRailPipPointer(e);
+});
+
 railLiveRange?.addEventListener("input",()=>{
-  if(!stage.classList.contains("rail-mode")||railCropPipOpen)return;
+  if(!stage.classList.contains("rail-mode")||railPipOpen)return;
   applyRailLayout(Number(railLiveRange.value),{workbench:true});
 });
 railBlackRange?.addEventListener("input",()=>{
-  if(!stage.classList.contains("rail-mode")||railCropPipOpen)return;
+  if(!stage.classList.contains("rail-mode")||railPipOpen)return;
   railBlackPerSide=Math.max(0,Math.min(180,Number(railBlackRange.value)||0));
   applyRailLayout(railWorkbenchWidth,{workbench:true});
 });
@@ -3494,6 +3649,10 @@ window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
 
+  const railPipRectBefore=
+    railPipOpen&&railCropPreview
+      ? railCropPreview.getBoundingClientRect()
+      : null;
   const pipRectBefore=
     stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")
       ? stage.getBoundingClientRect()
@@ -3513,7 +3672,15 @@ window.addEventListener("resize",()=>{
     }
   }
 
-  if(stage.classList.contains("rail-mode")&&!railCropPipOpen){
+  if(railPipRectBefore&&railPipBaseGeometry){
+    setRailPipRect(
+      railPipRectBefore.left,
+      railPipRectBefore.top,
+      railPipRectBefore.width
+    );
+  }
+
+  if(stage.classList.contains("rail-mode")&&!railPipOpen){
     const aspect=verifiedMediaAspect||currentRailLibrary?.contentAspect||16/9;
     const bounds=railWidthBounds(aspect);
     railWorkbenchWidth=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,railWorkbenchWidth));
