@@ -456,13 +456,21 @@ function paintGeometryReadout(result){
   }
   geometryReadout.hidden=false;
   const p=result.playCenter;
+  const top=result.clusters?.top||{};
+  const bottom=result.clusters?.bottom||{};
   geometryReadout.textContent=
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
-    " · trên "+Math.round(result.topInset)+
-    " · dưới "+Math.round(result.bottomInset)+
+    " · TOP "+Math.round(result.topInset)+
+      " [avatar "+Math.round(top.avatar||0)+
+      " / title "+Math.round(top.title||0)+
+      " / kênh "+Math.round(top.channel||0)+"]"+
+    " · BOTTOM "+Math.round(result.bottomInset)+
+      " [action "+Math.round(bottom.actions||0)+
+      " / YT "+Math.round(bottom.branding||0)+
+      " / tua "+Math.round(bottom.seek||0)+"]"+
     " · cửa sổ "+Math.round(result.safeWindow.height);
 }
 function syncMeasuredSafeWindow(){
