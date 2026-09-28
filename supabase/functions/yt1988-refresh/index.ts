@@ -168,6 +168,15 @@ function isTooShortVideo(row:any){
   return Number.isFinite(duration)&&duration>0&&duration<=60;
 }
 
+function rowMatchesScopeAge(scope:string,row:any){
+  const age=ageMs(row);
+  if(!Number.isFinite(age)||age<0)return false;
+  if(scope==="latest")return age<DAY_MS;
+  if(scope==="week")return age>=DAY_MS&&age<7*DAY_MS;
+  if(scope==="live")return isLive(row);
+  return age<7*DAY_MS;
+}
+
 const VI_TITLE_WORDS=new Set(
   "va voi cua cho trong tren duoi tai tu den nay hom ngay moi nhat khong co la mot nhung nguoi viet nam tin tuc nhac phim hai the thao cong nghe kinh te giai tri truc tiep du bao thoi tiet sau truoc dang da se can gia thi truong xuat khau tong bi bat cong an doi tuyen giai vo dich ban ket chung ca si bai hat lien khuc tuyen chon dem chuyen tinh mua nang mien bac trung ha noi hcm tphcm pin dep may dien thoai xe nha dat hoc sinh giao vien benh vien bo me con tre nuoc dan".split(" ")
 );
