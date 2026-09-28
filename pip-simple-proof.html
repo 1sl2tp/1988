@@ -69,6 +69,9 @@
   --accent-chip-soft:.05;
   --accent-outline:.10;
   --accent-shadow:.08;
+  --card-hover-alpha:.20;
+  --card-press-alpha:.28;
+  --card-selected-alpha:.13;
   --header-blur:16px;
   --safe-top:env(safe-area-inset-top,0px);
   --top-boundary:calc(56px + var(--safe-top));
@@ -128,6 +131,9 @@
   --accent-chip-soft:.018;
   --accent-outline:.055;
   --accent-shadow:.035;
+  --card-hover-alpha:.070;
+  --card-press-alpha:.105;
+  --card-selected-alpha:.045;
   --header-blur:14px;
   color-scheme:light;
 }
@@ -1057,6 +1063,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
   gap:var(--layout-gap);
 }
 .row{
+  --card-accent-rgb:var(--header-accent-rgb);
   position:relative;
   margin:0;
   padding-bottom:24px;
@@ -1076,17 +1083,23 @@ html.one-col .player.pip iframe{border-radius:inherit}
   inset:-12px;
   z-index:-1;
   border-radius:16px;
-  background:transparent;
-  transition:background-color .12s cubic-bezier(.4,0,1,1),transform .12s ease;
+  background-color:transparent;
+  transition:
+    background-color .16s cubic-bezier(.2,0,0,1),
+    transform .12s ease;
 }
 @media(hover:hover){
-  .row:hover::before{background:var(--yt-hover)}
+  .row:hover::before{
+    background-color:rgba(var(--card-accent-rgb),var(--card-hover-alpha));
+  }
 }
 .row:active::before{
-  background:var(--yt-press);
+  background-color:rgba(var(--card-accent-rgb),var(--card-press-alpha));
   transform:scale(.985);
 }
-.row.selected::before{background:var(--yt-hover)}
+.row.selected::before{
+  background-color:rgba(var(--card-accent-rgb),var(--card-selected-alpha));
+}
 .row-thumb{
   position:relative;
   width:100%;
@@ -3129,6 +3142,19 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return rows;
   }
 
+  function applyRenderedCardTints(rows){
+    if(!rows)return;
+    rows.querySelectorAll(".row[data-video-id]").forEach(card=>{
+      const thumb=card.querySelector(".row-thumb img");
+      const art=String(thumb?.src||"").trim();
+      if(!/^https?:\/\//i.test(art))return;
+      void youtubeCinematicPalette(art).then(palette=>{
+        if(!palette||!card.isConnected)return;
+        card.style.setProperty("--card-accent-rgb",palette.accent.join(","));
+      });
+    });
+  }
+
   function renderSampleContent(){
     const rows=document.getElementById("rows");
     const meta=currentMeta || {};
@@ -3140,6 +3166,7 @@ html.one-col .player.pip iframe{border-radius:inherit}
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const rendered=cards.slice(0,18);
     rows.innerHTML=rendered.map(cardMarkup).join("");
+    applyRenderedCardTints(rows);
   }
 
   function normalizedSearchQuery(value){
