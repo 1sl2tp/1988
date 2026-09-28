@@ -580,6 +580,8 @@ let geometrySettleTimer=0;
 let geometryResizeObserver=null;
 const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
+let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
+let viewportPrimeTimers=[];
 
 function stopCleanHideTimer(){
   if(!cleanHideTimer)return;
@@ -655,6 +657,65 @@ function currentMainAspect(){
   if(rect.width>0&&rect.height>0)return rect.width/rect.height;
   return stage.dataset.demoShape==="portrait" ? 9/16 : 16/9;
 }
+function clearViewportPrimeTimers(){
+  viewportPrimeTimers.forEach(clearTimeout);
+  viewportPrimeTimers=[];
+}
+function viewportTrimSignature(trim){
+  return ["top","right","bottom","left"]
+    .map(k=>(Number(trim?.[k])||0).toFixed(5))
+    .join(",");
+}
+function readMainYoutubeViewportTrim(){
+  if(stage.classList.contains("demo-pip"))return currentViewportTrim;
+  const iframe=apiPlayer?.getIframe?.();
+  const playerRect=iframe?.getBoundingClientRect?.()||stage.getBoundingClientRect();
+  const info=apiPlayer?.playerInfo?.videoContentRect;
+  if(!info||!playerRect?.width||!playerRect?.height){
+    return {top:0,right:0,bottom:0,left:0,source:"none"};
+  }
+
+  const left=Number(info.left ?? info.x ?? 0);
+  const top=Number(info.top ?? info.y ?? 0);
+  const width=Number(info.width);
+  const height=Number(info.height);
+  if(![left,top,width,height].every(Number.isFinite)||width<=0||height<=0){
+    return {top:0,right:0,bottom:0,left:0,source:"none"};
+  }
+
+  const right=Math.max(0,playerRect.width-(left+width));
+  const bottom=Math.max(0,playerRect.height-(top+height));
+  const safeLeft=Math.max(0,left);
+  const safeTop=Math.max(0,top);
+
+  return {
+    top:Math.min(.45,safeTop/playerRect.height),
+    right:Math.min(.45,right/playerRect.width),
+    bottom:Math.min(.45,bottom/playerRect.height),
+    left:Math.min(.45,safeLeft/playerRect.width),
+    source:"videoContentRect"
+  };
+}
+function refreshMainViewportTrimLibrary(force=false){
+  if(stage.classList.contains("demo-pip"))return currentChromeLibrary;
+  const next=readMainYoutubeViewportTrim();
+  const changed=viewportTrimSignature(next)!==viewportTrimSignature(currentViewportTrim);
+  if(changed||force){
+    currentViewportTrim=next;
+    currentChromeLibrary=null;
+  }
+  return prepareCurrentChromeLibrary();
+}
+function primeMainViewportTrimLibrary(){
+  clearViewportPrimeTimers();
+  const playerRef=apiPlayer;
+  [0,80,180,420,800,1400,2400].forEach(delay=>{
+    viewportPrimeTimers.push(setTimeout(()=>{
+      if(apiPlayer!==playerRef||stage.classList.contains("demo-pip"))return;
+      refreshMainViewportTrimLibrary(delay===0);
+    },delay));
+  });
+}
 function prepareCurrentChromeLibrary(){
   const geometry=window.YouTubeChromeGeometry;
   if(!geometry?.buildMediaLibrary)return null;
@@ -665,7 +726,8 @@ function prepareCurrentChromeLibrary(){
   const aspect=currentMainAspect();
   const minWidth=140;
   const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
-  const key=[PIP_EMBED_MODE,videoId,title,author,aspect.toFixed(5),minWidth,maxWidth].join("|");
+  const trimSig=viewportTrimSignature(currentViewportTrim);
+  const key=[PIP_EMBED_MODE,videoId,title,author,aspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
 
   const cached=mediaChromeLibraries.get(key);
   if(cached){
@@ -682,7 +744,8 @@ function prepareCurrentChromeLibrary(){
     maxWidth,
     step:2,
     embedMode:PIP_EMBED_MODE,
-    controls:false
+    controls:false,
+    viewportTrim:currentViewportTrim
   });
   mediaChromeLibraries.set(key,library);
   currentChromeLibrary=library;
@@ -744,8 +807,10 @@ function renderCalibrationSample(kind,result,library){
 
   label.textContent=
     (isMin?"MIN ":"MAX ")+w+"×"+h+
-    " · TOP "+Math.round(result.topInset)+
-    " · BOTTOM "+Math.round(result.bottomInset)+
+    " · TOP "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
+    " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
+    " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
+    " · "+(result.viewportTrim?.source||"none")+
     " · "+(result.embedMode||library.embedMode||"?");
 }
 function renderChromeCalibration(){
@@ -812,6 +877,11 @@ function paintGeometryReadout(result){
       " / YouTube "+boxText(bottom.youtubeBox)+
       " / tua "+boxText(bottom.seekBox)+
       " / MAX "+Math.round(bottom.outerMax||0)+"]"+
+    " · RAW→FINAL "+Math.round(result.rawTopInset??result.topInset)+"→"+Math.round(result.topInset)+
+      " / "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
+    " · TRIM "+Math.round((result.viewportTrim?.topPx||0))+
+      "/"+Math.round((result.viewportTrim?.bottomPx||0))+
+      " "+(result.viewportTrim?.source||"none")+
     " · cửa sổ "+Math.round(result.safeWindow.height);
 }
 function syncMeasuredSafeWindow(){
@@ -1039,7 +1109,9 @@ function enterDemoPip(){
   stopCleanHideTimer();
   stopChromeMaskTimer();
   if(stage.classList.contains("max-clean-mode")){
-    // Ensure the library exists before PiP consumes it.
+    // Freeze the latest MAIN trim/library before PiP consumes it.
+    refreshMainViewportTrimLibrary();
+    clearViewportPrimeTimers();
     if(!currentChromeLibrary)prepareCurrentChromeLibrary();
     requestAnimationFrame(()=>{
       syncMeasuredSafeWindow();
@@ -1110,6 +1182,8 @@ async function render(){
   document.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===active));
 
   exitDemoPip();
+  clearViewportPrimeTimers();
+  currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
@@ -1152,9 +1226,10 @@ async function render(){
           if(mode.maxClean){
             formatSeekProgress();
             startSeekLoop();
-            // Resolve the media's chrome geometry BEFORE PiP, like aspect/orientation.
+            // Resolve MAIN content trim + chrome library BEFORE PiP, like aspect/orientation.
             currentChromeLibrary=null;
-            prepareCurrentChromeLibrary();
+            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none"};
+            primeMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
           }
         },
@@ -1162,6 +1237,7 @@ async function render(){
           optimisticPlaying=event?.data===1;
           if(mode.maxClean){
             formatSeekProgress();
+            if(!stage.classList.contains("demo-pip"))refreshMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
