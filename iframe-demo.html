@@ -860,31 +860,32 @@ function escText(value=""){
   return String(value??"");
 }
 function pipMetaFallback(id=requestedVideoId){
-  const title=currentVideoTitle();
-  const channel=currentVideoAuthor();
   return {
     id:String(id||""),
-    title:title||"Video",
-    channel,
+    title:"Video",
+    channel:"",
+    channelId:"",
     avatar:"",
     views:"",
-    published:""
+    published:"",
+    verified:false
   };
 }
 function normalizePipMeta(raw={},id=requestedVideoId){
   const row={...raw,id,videoId:id};
   const media=window.MediaMeta?.video?.(row)||{};
+  const channelId=pipChannelRef(raw);
   return {
     id:String(id||""),
-    title:String(media.title||raw?.title||currentVideoTitle()||"Video"),
+    title:String(media.title||raw?.title||"Video"),
     channel:String(
       media.sourceName||
       raw?.uploaderName||
       raw?.uploader||
       raw?.channelName||
-      currentVideoAuthor()||
       ""
     ),
+    channelId,
     avatar:String(
       media.sourceAvatar||
       raw?.uploaderThumbnailUrl||
@@ -895,7 +896,8 @@ function normalizePipMeta(raw={},id=requestedVideoId){
       ""
     ),
     views:String(media.viewsLabel||""),
-    published:String(media.publishedLabel||"")
+    published:String(media.publishedLabel||""),
+    verified:true
   };
 }
 function pipChannelRef(raw={}){
@@ -917,19 +919,30 @@ function pipChannelRef(raw={}){
 
   return (
     url.match(/\/channel\/([^/?#]+)/i)?.[1]||
-    url.match(/\/@([^/?#]+)/i)?.[1]||
+    (url.match(/\/@([^/?#]+)/i)?.[1] ? "@"+url.match(/\/@([^/?#]+)/i)[1] : "")||
     ""
   );
 }
-function pipAvatarFromRow(row={}){
-  return String(
-    window.MediaMeta?.sourceAvatar?.(row)||
+function pipAvatarFromRow(row={},channelRef=""){
+  const explicit=String(
     row?.avatarUrl||
-    row?.thumbnailUrl||
-    row?.uploaderAvatar||
     row?.channelAvatar||
+    row?.uploaderAvatar||
+    row?.channelThumbnailUrl||
+    row?.uploaderThumbnailUrl||
     ""
   ).trim();
+  if(explicit)return explicit;
+
+  const rowId=String(row?.id||row?.channelId||channelRef||"").trim();
+  if(
+    row?.thumbnailUrl &&
+    (/^UC[A-Za-z0-9_-]{20,}$/.test(rowId)||rowId.startsWith("@"))
+  ){
+    return String(row.thumbnailUrl).trim();
+  }
+
+  return String(window.MediaMeta?.sourceAvatar?.({...row,id:rowId})||"").trim();
 }
 
 function renderPipTopInfo(){
@@ -983,12 +996,16 @@ function renderPipTopInfo(){
     }
   }
 }
-function attachPipMetaToLibrary(id,meta){
+function attachPipMetaToLibrary(id,meta,{cache=true}={}){
   if(!meta||String(meta.id||"")!==String(id||""))return;
-  pipMetaCache.set(id,meta);
   currentPipMeta=meta;
-  if(currentChromeLibrary?.videoId===id){
-    currentChromeLibrary={...currentChromeLibrary,mediaMeta:meta};
+
+  if(meta.verified===true&&cache){
+    pipMetaCache.set(id,meta);
+  }
+
+  if(currentChromeLibrary?.videoId===id&&meta.verified===true){
+    currentChromeLibrary={...currentChromeLibrary,mediaMeta:meta,mediaMetaState:"ready"};
   }
   renderPipTopInfo();
 }
@@ -998,15 +1015,14 @@ async function preloadPipLibraryMeta(id){
   if(!id)return null;
 
   const cached=pipMetaCache.get(id);
-  if(cached){
+  if(cached?.verified===true){
     attachPipMetaToLibrary(id,cached);
     return cached;
   }
 
   const token=++pipMetaRequestToken;
   const fallback=pipMetaFallback(id);
-  currentPipMeta=fallback;
-  renderPipTopInfo();
+  attachPipMetaToLibrary(id,fallback,{cache:false});
 
   try{
     const response=await window.YT1988_API?.video?.(id);
@@ -1015,24 +1031,34 @@ async function preloadPipLibraryMeta(id){
     const raw=response?.data||response||{};
     let meta=normalizePipMeta(raw,id);
 
-    if(!meta.avatar){
-      const channelRef=pipChannelRef(raw);
-      if(channelRef){
-        try{
-          const channelResponse=await window.YT1988_API?.channel?.(channelRef);
-          if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
-          const channelRaw=channelResponse?.data||channelResponse||{};
-          const avatar=pipAvatarFromRow(channelRaw);
-          if(avatar)meta={...meta,avatar};
-        }catch{}
-      }
+    const channelRef=meta.channelId||pipChannelRef(raw);
+    if(channelRef){
+      try{
+        const channelResponse=await window.YT1988_API?.channel?.(channelRef);
+        if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
+        const channelRaw=channelResponse?.data||channelResponse||{};
+        const avatar=pipAvatarFromRow(channelRaw,channelRef);
+        const channelName=String(
+          channelRaw?.name||
+          channelRaw?.channelName||
+          channelRaw?.uploaderName||
+          ""
+        ).trim();
+
+        meta={
+          ...meta,
+          channelId:channelRef,
+          channel:meta.channel||channelName,
+          avatar:avatar||meta.avatar
+        };
+      }catch{}
     }
 
     attachPipMetaToLibrary(id,meta);
     return meta;
   }catch{
     if(token!==pipMetaRequestToken||id!==requestedVideoId)return null;
-    attachPipMetaToLibrary(id,fallback);
+    attachPipMetaToLibrary(id,fallback,{cache:false});
     return fallback;
   }
 }
@@ -1335,7 +1361,11 @@ function prepareCurrentChromeLibrary(force=false){
       ? geometry.applyManualCalibration(cached,manualPoints)
       : cached;
     const prefetchedMeta=pipMetaCache.get(videoId);
-    if(prefetchedMeta)currentChromeLibrary={...currentChromeLibrary,mediaMeta:prefetchedMeta};
+    currentChromeLibrary={
+      ...currentChromeLibrary,
+      mediaMeta:prefetchedMeta?.verified===true?prefetchedMeta:null,
+      mediaMetaState:prefetchedMeta?.verified===true?"ready":"pending"
+    };
     requestAnimationFrame(renderChromeCalibration);
     renderPipTopInfo();
     return currentChromeLibrary;
@@ -1362,7 +1392,11 @@ function prepareCurrentChromeLibrary(force=false){
     ? geometry.applyManualCalibration(library,manualPoints)
     : library;
   const prefetchedMeta=pipMetaCache.get(videoId);
-  if(prefetchedMeta)currentChromeLibrary={...currentChromeLibrary,mediaMeta:prefetchedMeta};
+  currentChromeLibrary={
+    ...currentChromeLibrary,
+    mediaMeta:prefetchedMeta?.verified===true?prefetchedMeta:null,
+    mediaMetaState:prefetchedMeta?.verified===true?"ready":"pending"
+  };
   requestAnimationFrame(renderChromeCalibration);
   renderPipTopInfo();
   return currentChromeLibrary;
@@ -1755,6 +1789,11 @@ function paintGeometryReadout(result){
           : "NONE"
     )+
     " · CYCLE "+pipCoverCycle+
+    " · META "+(
+      currentChromeLibrary?.mediaMetaState==="ready"
+        ? "READY"
+        : "PENDING"
+    )+
     " · COVER "+(
       !pipCoverVisible?"HIDDEN":
       pipCoverArmed?"ARMED":"ACTIVE"
@@ -2213,10 +2252,13 @@ async function render(){
   exitDemoPip();
   clearViewportPrimeTimers();
   invalidateChromeLibraries();
+  if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
+
   requestedVideoId=id;
   pipMetaRequestToken+=1;
   currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
   void preloadPipLibraryMeta(id);
+
   verifiedMediaAspect=0;
   verifiedMediaShape="";
   calibrationWidth=280;
@@ -2224,7 +2266,6 @@ async function render(){
   stage.style.aspectRatio="";
   delete stage.dataset.demoShape;
   delete stage.dataset.detectedAspect;
-  if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
   demoActions.hidden=!mode.cleanDemo;
@@ -2262,13 +2303,13 @@ async function render(){
       events:mode.cleanDemo?{
         onReady(){
           optimisticPlaying=false;
-          if(currentPipMeta?.id===id){
+          if(currentPipMeta?.id===id&&currentPipMeta.verified!==true){
             currentPipMeta={
               ...currentPipMeta,
-              title:currentPipMeta.title||currentVideoTitle()||"Video",
-              channel:currentPipMeta.channel||currentVideoAuthor()||""
+              title:currentVideoTitle()||currentPipMeta.title||"Video",
+              channel:currentVideoAuthor()||currentPipMeta.channel||""
             };
-            attachPipMetaToLibrary(id,currentPipMeta);
+            attachPipMetaToLibrary(id,currentPipMeta,{cache:false});
           }
           if(mode.maxClean){
             formatSeekProgress();
