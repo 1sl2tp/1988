@@ -472,7 +472,7 @@
   <pre class="code" id="code"></pre>
 </div>
 
-<script src="/src/youtube-chrome-geometry.js"></script>
+<script src="/src/youtube-chrome-geometry.js?v=20260928-20"></script>
 <script>
 const modes=[
   {
@@ -581,6 +581,7 @@ let seekRaf=0;
 let activeSeekPointer=null;
 const YT_CHROME_IDLE_MS=3800;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
+const CHROME_LIBRARY_PROFILE_REV="top-metadata-v3";
 let chromeReleaseMediaTime=0;
 let chromeReleaseWallTime=0;
 let pipPointerMode=null;
@@ -590,6 +591,7 @@ let geometrySettleTimer=0;
 let geometryResizeObserver=null;
 const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
+let currentLibraryRevision="";
 let currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
 let viewportPrimeTimers=[];
 let mainAspectBeforePip="";
@@ -672,6 +674,20 @@ function clearViewportPrimeTimers(){
   viewportPrimeTimers.forEach(clearTimeout);
   viewportPrimeTimers=[];
 }
+function chromeLibraryRevision(){
+  return [
+    String(window.YouTubeChromeGeometry?.VERSION||"0"),
+    CHROME_LIBRARY_PROFILE_REV,
+    PIP_EMBED_MODE
+  ].join("|");
+}
+function invalidateChromeLibraries(){
+  mediaChromeLibraries.clear();
+  currentChromeLibrary=null;
+  currentLibraryRevision=chromeLibraryRevision();
+  calMinScale?.replaceChildren();
+  calMaxScale?.replaceChildren();
+}
 function viewportTrimSignature(trim){
   return [
     "top","right","bottom","left","rawAspect","contentAspect"
@@ -738,9 +754,9 @@ function refreshMainViewportTrimLibrary(force=false){
   const changed=viewportTrimSignature(next)!==viewportTrimSignature(currentViewportTrim);
   if(changed||force){
     currentViewportTrim=next;
-    currentChromeLibrary=null;
+    return prepareCurrentChromeLibrary(true);
   }
-  return prepareCurrentChromeLibrary();
+  return currentChromeLibrary||prepareCurrentChromeLibrary(false);
 }
 function primeMainViewportTrimLibrary(){
   clearViewportPrimeTimers();
@@ -752,9 +768,16 @@ function primeMainViewportTrimLibrary(){
     },delay));
   });
 }
-function prepareCurrentChromeLibrary(){
+function prepareCurrentChromeLibrary(force=false){
   const geometry=window.YouTubeChromeGeometry;
   if(!geometry?.buildMediaLibrary)return null;
+
+  const revision=chromeLibraryRevision();
+  if(force||currentLibraryRevision!==revision){
+    mediaChromeLibraries.clear();
+    currentChromeLibrary=null;
+    currentLibraryRevision=revision;
+  }
 
   const videoId=currentVideoId();
   const title=currentVideoTitle();
@@ -764,7 +787,7 @@ function prepareCurrentChromeLibrary(){
   const minWidth=140;
   const maxWidth=Math.max(minWidth,Math.min(window.innerWidth-12,760));
   const trimSig=viewportTrimSignature(currentViewportTrim);
-  const key=[PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
+  const key=[revision,PIP_EMBED_MODE,videoId,title,author,rawAspect.toFixed(5),contentAspect.toFixed(5),trimSig,minWidth,maxWidth].join("|");
 
   const cached=mediaChromeLibraries.get(key);
   if(cached){
@@ -897,10 +920,13 @@ function renderCalibrationSample(kind,result,library){
     " · BOTTOM "+Math.round(result.rawBottomInset??result.bottomInset)+"→"+Math.round(result.bottomInset)+
     " · trim T/B "+Math.round(result.viewportTrim?.topPx||0)+"/"+Math.round(result.viewportTrim?.bottomPx||0)+
     " · "+(result.viewportTrim?.source||"none")+
+    " · lib "+String(library.version||window.YouTubeChromeGeometry?.VERSION||"?")+
     " · "+(result.embedMode||library.embedMode||"?");
 }
 function renderChromeCalibration(){
   if(!chromeCalibration)return;
+  calMinScale?.replaceChildren();
+  calMaxScale?.replaceChildren();
   const mode=modes.find(x=>x.id===active)||modes[0];
   if(!mode.maxClean||!currentChromeLibrary){
     chromeCalibration.classList.remove("show");
@@ -946,6 +972,7 @@ function paintGeometryReadout(result){
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
     " · "+(currentChromeLibrary?"LIB":"LIVE")+
+    " v"+String(currentChromeLibrary?.version||window.YouTubeChromeGeometry?.VERSION||"?")+
     " · embed "+(result.embedMode||currentChromeLibrary?.embedMode||"?")+
     " · state "+(state.tier||"?")+"/"+(state.density||"?")+
     (result.collisionMode?" · CHẠM PLAY":"")+
@@ -1281,6 +1308,7 @@ async function render(){
 
   exitDemoPip();
   clearViewportPrimeTimers();
+  invalidateChromeLibraries();
   currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:16/9,contentAspect:16/9};
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
@@ -1295,7 +1323,6 @@ async function render(){
   stage.innerHTML="";
 
   if(mode.api){
-    currentChromeLibrary=null;
     const host=document.createElement("div");
     host.id="api-player";
     stage.appendChild(host);
@@ -1325,7 +1352,7 @@ async function render(){
             formatSeekProgress();
             startSeekLoop();
             // Resolve MAIN content trim + chrome library BEFORE PiP, like aspect/orientation.
-            currentChromeLibrary=null;
+            invalidateChromeLibraries();
             currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",rawAspect:currentMainAspect(),contentAspect:currentMainAspect()};
             primeMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
