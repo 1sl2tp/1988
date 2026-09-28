@@ -41,6 +41,76 @@
       opacity:.9;
     }
     .geometry-readout[hidden]{display:none}
+    .chrome-calibration{
+      display:none;
+      padding:10px 12px 2px;
+      border-bottom:1px solid #202023;
+    }
+    .chrome-calibration.show{display:block}
+    .chrome-calibration-title{
+      font-size:12px;
+      font-weight:600;
+      margin:0 0 8px;
+    }
+    .chrome-calibration-grid{
+      display:grid;
+      grid-template-columns:1fr;
+      gap:10px;
+    }
+    .chrome-calibration-card{
+      min-width:0;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#111113;
+      padding:8px;
+      overflow:hidden;
+    }
+    .chrome-calibration-label{
+      font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+      color:#d6d6db;
+      margin-bottom:6px;
+      white-space:normal;
+    }
+    .chrome-calibration-viewport{
+      position:relative;
+      width:100%;
+      overflow:hidden;
+      border-radius:10px;
+      background:#000;
+    }
+    .chrome-calibration-scale{
+      position:absolute;
+      left:0;
+      top:0;
+      transform-origin:top left;
+    }
+    .chrome-calibration-frame{
+      position:relative;
+      background:#000;
+      overflow:hidden;
+    }
+    .chrome-calibration-frame iframe{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      border:0;
+    }
+    .chrome-calibration-guide{
+      position:absolute;
+      left:0;
+      right:0;
+      z-index:3;
+      height:0;
+      border-top:2px solid #000;
+      box-shadow:0 0 0 1px rgba(255,255,255,.45);
+      pointer-events:none;
+    }
+    .chrome-calibration-guide.top{top:var(--guide-top)}
+    .chrome-calibration-guide.bottom{top:calc(100% - var(--guide-bottom))}
+    @media(min-width:720px){
+      .chrome-calibration-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+    }
     .scroll-demo{
       display:none;
       padding:12px 12px 120vh;
@@ -337,6 +407,23 @@
 
   <div class="toolbar" id="modes"></div>
   <div class="stage" id="stage"></div>
+  <section class="chrome-calibration" id="chromeCalibration" aria-label="Kiểm tra thư viện MIN MAX">
+    <div class="chrome-calibration-title">Library PiP · kiểm tra MIN / MAX</div>
+    <div class="chrome-calibration-grid">
+      <div class="chrome-calibration-card">
+        <div class="chrome-calibration-label" id="calMinLabel">MIN</div>
+        <div class="chrome-calibration-viewport" id="calMinViewport">
+          <div class="chrome-calibration-scale" id="calMinScale"></div>
+        </div>
+      </div>
+      <div class="chrome-calibration-card">
+        <div class="chrome-calibration-label" id="calMaxLabel">MAX</div>
+        <div class="chrome-calibration-viewport" id="calMaxViewport">
+          <div class="chrome-calibration-scale" id="calMaxScale"></div>
+        </div>
+      </div>
+    </div>
+  </section>
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
     <button id="demoPipToggle" type="button">Bật PiP demo</button>
@@ -445,6 +532,13 @@ const presets=document.getElementById("presets");
 const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
 const geometryReadout=document.getElementById("geometryReadout");
+const chromeCalibration=document.getElementById("chromeCalibration");
+const calMinLabel=document.getElementById("calMinLabel");
+const calMaxLabel=document.getElementById("calMaxLabel");
+const calMinViewport=document.getElementById("calMinViewport");
+const calMaxViewport=document.getElementById("calMaxViewport");
+const calMinScale=document.getElementById("calMinScale");
+const calMaxScale=document.getElementById("calMaxScale");
 const stageSpacer=document.getElementById("stageSpacer");
 const scrollDemo=document.getElementById("scrollDemo");
 let active="current";
@@ -556,6 +650,7 @@ function prepareCurrentChromeLibrary(){
   const cached=mediaChromeLibraries.get(key);
   if(cached){
     currentChromeLibrary=cached;
+    requestAnimationFrame(renderChromeCalibration);
     return cached;
   }
 
@@ -571,7 +666,91 @@ function prepareCurrentChromeLibrary(){
   });
   mediaChromeLibraries.set(key,library);
   currentChromeLibrary=library;
+  requestAnimationFrame(renderChromeCalibration);
   return library;
+}
+function calibrationIframeSrc(videoId){
+  const params=new URLSearchParams({
+    playsinline:"1",
+    controls:"0",
+    cc_load_policy:"0",
+    rel:"0",
+    fs:"0",
+    disablekb:"1",
+    iv_load_policy:"3",
+    enablejsapi:"1",
+    origin:location.origin
+  });
+  return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(videoId)+"?"+params.toString();
+}
+function renderCalibrationSample(kind,result,library){
+  const isMin=kind==="min";
+  const viewport=isMin?calMinViewport:calMaxViewport;
+  const scaleBox=isMin?calMinScale:calMaxScale;
+  const label=isMin?calMinLabel:calMaxLabel;
+  if(!viewport||!scaleBox||!label||!result||!library)return;
+
+  const w=Math.max(1,Math.round(result.width));
+  const h=Math.max(1,Math.round(result.height));
+  const available=Math.max(1,viewport.clientWidth||viewport.parentElement?.clientWidth||w);
+  const scale=Math.min(1,available/w);
+  const shownH=Math.max(1,Math.round(h*scale));
+
+  viewport.style.height=shownH+"px";
+  scaleBox.style.width=w+"px";
+  scaleBox.style.height=h+"px";
+  scaleBox.style.transform="scale("+scale+")";
+
+  const frame=document.createElement("div");
+  frame.className="chrome-calibration-frame";
+  frame.style.width=w+"px";
+  frame.style.height=h+"px";
+  frame.style.setProperty("--guide-top",result.topInset.toFixed(2)+"px");
+  frame.style.setProperty("--guide-bottom",result.bottomInset.toFixed(2)+"px");
+
+  const iframe=document.createElement("iframe");
+  iframe.src=calibrationIframeSrc(library.videoId);
+  iframe.title=(isMin?"MIN":"MAX")+" YouTube PiP calibration";
+  iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+  iframe.referrerPolicy="strict-origin-when-cross-origin";
+
+  const top=document.createElement("div");
+  top.className="chrome-calibration-guide top";
+  const bottom=document.createElement("div");
+  bottom.className="chrome-calibration-guide bottom";
+
+  frame.append(iframe,top,bottom);
+  scaleBox.replaceChildren(frame);
+
+  label.textContent=
+    (isMin?"MIN ":"MAX ")+w+"×"+h+
+    " · TOP "+Math.round(result.topInset)+
+    " · BOTTOM "+Math.round(result.bottomInset)+
+    " · "+(result.embedMode||library.embedMode||"?");
+}
+function renderChromeCalibration(){
+  if(!chromeCalibration)return;
+  const mode=modes.find(x=>x.id===active)||modes[0];
+  if(!mode.maxClean||!currentChromeLibrary){
+    chromeCalibration.classList.remove("show");
+    calMinScale?.replaceChildren();
+    calMaxScale?.replaceChildren();
+    return;
+  }
+
+  const geometry=window.YouTubeChromeGeometry;
+  const min=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.minWidth);
+  const max=geometry?.lookupMediaLibrary?.(currentChromeLibrary,currentChromeLibrary.maxWidth);
+  if(!min||!max){
+    chromeCalibration.classList.remove("show");
+    return;
+  }
+
+  chromeCalibration.classList.add("show");
+  requestAnimationFrame(()=>{
+    renderCalibrationSample("min",min,currentChromeLibrary);
+    renderCalibrationSample("max",max,currentChromeLibrary);
+  });
 }
 function paintGeometryReadout(result){
   if(!geometryReadout)return;
@@ -914,7 +1093,10 @@ async function render(){
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
   stage.style.setProperty("--pip-poster",mode.maxClean?'url("https://i.ytimg.com/vi/'+id+'/hqdefault.jpg")':"none");
   demoActions.hidden=!mode.cleanDemo;
-  if(!mode.maxClean)paintGeometryReadout(null);
+  if(!mode.maxClean){
+    paintGeometryReadout(null);
+    chromeCalibration.classList.remove("show");
+  }
   scrollDemo.classList.toggle("show",!!mode.cleanDemo);
   stage.innerHTML="";
 
@@ -1065,6 +1247,7 @@ document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
+  if(currentChromeLibrary)renderChromeCalibration();
   if(stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")){
     queueMeasuredSafeWindow();
   }
