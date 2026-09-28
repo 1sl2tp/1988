@@ -891,6 +891,34 @@ function calibrationIframeSrc(videoId){
   });
   return "https://www.youtube-nocookie.com/embed/"+encodeURIComponent(videoId)+"?"+params.toString();
 }
+function ensureLibraryCalibrationFrame(videoId){
+  if(!calLiveFrame)return null;
+  let iframe=calLiveFrame.querySelector("iframe");
+  let top=calLiveFrame.querySelector(".chrome-calibration-guide.top");
+  let bottom=calLiveFrame.querySelector(".chrome-calibration-guide.bottom");
+  let resize=calLiveFrame.querySelector("[data-calibration-resize]");
+
+  if(!iframe||iframe.dataset.videoId!==videoId){
+    calLiveFrame.replaceChildren();
+    iframe=document.createElement("iframe");
+    iframe.src=calibrationIframeSrc(videoId);
+    iframe.dataset.videoId=videoId;
+    iframe.title="YouTube PiP library calibration";
+    iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+    iframe.referrerPolicy="strict-origin-when-cross-origin";
+
+    top=document.createElement("div");
+    top.className="chrome-calibration-guide top";
+    bottom=document.createElement("div");
+    bottom.className="chrome-calibration-guide bottom";
+    resize=document.createElement("div");
+    resize.className="chrome-calibration-resize";
+    resize.dataset.calibrationResize="1";
+    resize.title="Kéo để thay đổi kích thước Library";
+    calLiveFrame.append(iframe,top,bottom,resize);
+  }
+  return {iframe,top,bottom,resize};
+}
 function renderLibraryCalibration(width=calibrationWidth){
   if(!chromeCalibration||!calLiveFrame||!calLiveRange||!currentChromeLibrary)return null;
   const geometry=window.YouTubeChromeGeometry;
@@ -905,18 +933,14 @@ function renderLibraryCalibration(width=calibrationWidth){
   const result=geometry?.lookupMediaLibrary?.(currentChromeLibrary,w);
   if(!result)return null;
 
-  const frame=calLiveFrame;
-  frame.replaceChildren();
-  frame.style.width=Math.round(result.width)+"px";
-  frame.style.height=Math.round(result.height)+"px";
-  frame.style.setProperty("--guide-top",result.topInset.toFixed(2)+"px");
-  frame.style.setProperty("--guide-bottom",result.bottomInset.toFixed(2)+"px");
+  const frameParts=ensureLibraryCalibrationFrame(currentChromeLibrary.videoId);
+  if(!frameParts)return null;
+  const {iframe}=frameParts;
 
-  const iframe=document.createElement("iframe");
-  iframe.src=calibrationIframeSrc(currentChromeLibrary.videoId);
-  iframe.title="YouTube PiP library calibration";
-  iframe.allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
-  iframe.referrerPolicy="strict-origin-when-cross-origin";
+  calLiveFrame.style.width=Math.round(result.width)+"px";
+  calLiveFrame.style.height=Math.round(result.height)+"px";
+  calLiveFrame.style.setProperty("--guide-top",result.topInset.toFixed(2)+"px");
+  calLiveFrame.style.setProperty("--guide-bottom",result.bottomInset.toFixed(2)+"px");
 
   const vt=result.viewportTrim||{};
   if(result.rawWidth&&result.rawHeight){
@@ -924,18 +948,12 @@ function renderLibraryCalibration(width=calibrationWidth){
     iframe.style.height=(result.rawHeight*(vt.scaleY||1))+"px";
     iframe.style.left=(vt.renderedLeft||0)+"px";
     iframe.style.top=(vt.renderedTop||0)+"px";
+  }else{
+    iframe.style.width="100%";
+    iframe.style.height="100%";
+    iframe.style.left="0";
+    iframe.style.top="0";
   }
-
-  const top=document.createElement("div");
-  top.className="chrome-calibration-guide top";
-  const bottom=document.createElement("div");
-  bottom.className="chrome-calibration-guide bottom";
-  const resize=document.createElement("div");
-  resize.className="chrome-calibration-resize";
-  resize.dataset.calibrationResize="1";
-  resize.title="Kéo để thay đổi kích thước Library";
-
-  frame.append(iframe,top,bottom,resize);
 
   const range=result.sampleRange||[w,w];
   const isMin=w<=minW+1;
@@ -1528,7 +1546,17 @@ document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
-  if(currentChromeLibrary)renderChromeCalibration();
+  if(currentChromeLibrary){
+    const oldMin=currentChromeLibrary.minWidth;
+    const oldMax=currentChromeLibrary.maxWidth;
+    const t=oldMax>oldMin?(calibrationWidth-oldMin)/(oldMax-oldMin):0;
+    prepareCurrentChromeLibrary(true);
+    if(currentChromeLibrary){
+      calibrationWidth=currentChromeLibrary.minWidth+
+        Math.max(0,Math.min(1,t))*(currentChromeLibrary.maxWidth-currentChromeLibrary.minWidth);
+      renderChromeCalibration();
+    }
+  }
   if(stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")){
     queueMeasuredSafeWindow();
   }
