@@ -30,66 +30,6 @@ function videoId(row:any){
     "";
 }
 
-async function enrichItemsWithVideoMeta(rest:string,headers:any,items:any[]){
-  const rows=Array.isArray(items)?items:[];
-  const ids=[...new Set(rows.map(videoId).filter(Boolean))].slice(0,80);
-  if(!ids.length)return rows;
-
-  try{
-    const res=await fetch(
-      rest+"/yt1988_video_meta?video_id=in.("+ids.map(encodeURIComponent).join(",")+")"+
-      "&select=video_id,aspect_ratio,media_kind,width,height,source,verified,updated_at",
-      {headers}
-    );
-    if(!res.ok)return rows;
-
-    const metaRows=await res.json().catch(()=>[]);
-    const byId=new Map(
-      (Array.isArray(metaRows)?metaRows:[])
-        .map((row:any)=>[clean(row?.video_id,64),row])
-        .filter(([id]:any)=>!!id)
-    );
-
-    const missing=ids.filter(id=>!byId.has(id)).slice(0,24);
-    if(missing.length){
-      const base=rest.replace(/\/rest\/v1$/,"");
-      const warm=fetch(
-        base+"/functions/v1/yt1988-video-meta?ids="+
-          encodeURIComponent(missing.join(","))+"&resolve=1",
-        {
-          headers:{
-            "apikey":String(headers?.apikey||""),
-            "authorization":String(headers?.authorization||"")
-          }
-        }
-      ).catch(()=>null);
-      try{(globalThis as any).EdgeRuntime?.waitUntil?.(warm)}catch{}
-    }
-
-    return rows.map((item:any)=>{
-      const id=videoId(item);
-      const meta:any=byId.get(id);
-      if(!meta)return item;
-
-      const ratio=Number(meta?.aspect_ratio)||0;
-      if(!Number.isFinite(ratio)||ratio<=0)return item;
-
-      return {
-        ...item,
-        aspectRatio:ratio,
-        videoWidth:Number(meta?.width)||0,
-        videoHeight:Number(meta?.height)||0,
-        mediaKind:clean(meta?.media_kind,16),
-        aspectSource:clean(meta?.source,80),
-        _aspectVerified:meta?.verified===true,
-        _aspectUpdatedAt:meta?.updated_at||null
-      };
-    });
-  }catch{
-    return rows;
-  }
-}
-
 Deno.serve(async(req:Request)=>{
   if(req.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
 
@@ -132,9 +72,9 @@ Deno.serve(async(req:Request)=>{
       if(!res.ok)return json({ok:false,error:"read_failed",detail:await res.text()},502);
       const rows=await res.json();
       const row=Array.isArray(rows)?rows[0]:null;
-      if(row&&Array.isArray(row.items)){
-        row.items=await enrichItemsWithVideoMeta(rest,headers,row.items);
-      }
+
+      // Package rows are complete server snapshots. Reading must be a pure
+      // lookup: no per-video metadata resolution and no background warm-up.
       return json({ok:true,exists:!!row,package:row||null});
     }
 
