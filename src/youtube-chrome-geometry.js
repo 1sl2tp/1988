@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.33";
+  const VERSION = "2026-09-28.34";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -239,7 +239,8 @@
   const CLEAN_EMBED_CALIBRATION = Object.freeze({
     // Store EDGES, not inferred boxes.
     // TOP: bottom edge of each top item, measured down from player top.
-    // BOTTOM: top edge of each bottom item, measured up from player bottom.
+    // BOTTOM: OUTER top edge of each full bottom component/button/row, measured
+    //         up from player bottom; never use only the glyph/logo bounds.
     // Final TOP/BOTTOM are just the extreme active edge.
     landscape:Object.freeze([
       {w:140, avatarEdge:46,title1Edge:34,title2Edge:46,channelEdge:50,
@@ -261,23 +262,23 @@
     ]),
     portrait:Object.freeze([
       {w:140, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:38},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:62},
       {w:170, avatarEdge:54,title1Edge:42,title2Edge:54,channelEdge:58,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:40},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:62},
       {w:200, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:42},
+        linkTopDepth:0,nextTopDepth:0,youtubeTopDepth:62},
       {w:220, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:42},
+        linkTopDepth:40,nextTopDepth:0,youtubeTopDepth:62},
       {w:240, avatarEdge:55,title1Edge:43,title2Edge:55,channelEdge:59,
-        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:44},
+        linkTopDepth:42,nextTopDepth:0,youtubeTopDepth:62},
       {w:280, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
-        linkTopDepth:43,nextTopDepth:52,youtubeTopDepth:38},
+        linkTopDepth:43,nextTopDepth:52,youtubeTopDepth:62},
       {w:320, avatarEdge:56,title1Edge:44,title2Edge:56,channelEdge:60,
-        linkTopDepth:44,nextTopDepth:53,youtubeTopDepth:39},
+        linkTopDepth:44,nextTopDepth:53,youtubeTopDepth:62},
       {w:360, avatarEdge:57,title1Edge:45,title2Edge:57,channelEdge:61,
-        linkTopDepth:46,nextTopDepth:55,youtubeTopDepth:40},
+        linkTopDepth:46,nextTopDepth:55,youtubeTopDepth:62},
       {w:460, avatarEdge:58,title1Edge:46,title2Edge:58,channelEdge:62,
-        linkTopDepth:49,nextTopDepth:59,youtubeTopDepth:43}
+        linkTopDepth:49,nextTopDepth:59,youtubeTopDepth:62}
     ])
   });
 
