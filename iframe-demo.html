@@ -183,6 +183,38 @@
       top:4px;
       right:6px;
     }
+    .stage[data-yt-chrome-density="compact"] .clean-control{
+      width:26px;
+      height:26px;
+    }
+    .stage[data-yt-chrome-density="compact"] .clean-control svg{
+      width:16px;
+      height:16px;
+    }
+    .stage[data-yt-chrome-density="compact"] .clean-control.resize{
+      top:3px;
+      left:5px;
+    }
+    .stage[data-yt-chrome-density="compact"] .clean-control.close{
+      top:3px;
+      right:5px;
+    }
+    .stage[data-yt-chrome-density="tight"] .clean-control{
+      width:24px;
+      height:24px;
+    }
+    .stage[data-yt-chrome-density="tight"] .clean-control svg{
+      width:14px;
+      height:14px;
+    }
+    .stage[data-yt-chrome-density="tight"] .clean-control.resize{
+      top:2px;
+      left:4px;
+    }
+    .stage[data-yt-chrome-density="tight"] .clean-control.close{
+      top:2px;
+      right:4px;
+    }
     .pip-seek{
       display:none;
       position:absolute;
@@ -197,6 +229,30 @@
       cursor:pointer;
     }
     .stage.demo-pip.max-clean-mode .pip-seek{display:flex}
+    .stage[data-yt-chrome-density="compact"] .pip-seek{
+      left:8px;
+      right:8px;
+      bottom:4px;
+      height:14px;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-seek{
+      left:7px;
+      right:7px;
+      bottom:2px;
+      height:12px;
+    }
+    .stage[data-yt-chrome-density="compact"] .pip-seek-track,
+    .stage[data-yt-chrome-density="tight"] .pip-seek-track{
+      height:2px;
+    }
+    .stage[data-yt-chrome-density="compact"] .pip-seek-thumb{
+      width:7px;
+      height:7px;
+    }
+    .stage[data-yt-chrome-density="tight"] .pip-seek-thumb{
+      width:6px;
+      height:6px;
+    }
     .pip-seek-track{
       position:relative;
       width:100%;
@@ -526,7 +582,8 @@ function paintGeometryReadout(result){
   geometryReadout.textContent=
     Math.round(result.width)+"×"+Math.round(result.height)+
     " · "+(result.orientation==="portrait"?"dọc":result.orientation==="square"?"vuông":"ngang")+
-    " · state "+(state.tier||"?")+
+    " · state "+(state.tier||"?")+"/"+(state.density||"?")+
+    (result.collisionMode?" · CHẠM PLAY":"")+
     " · mốc "+Math.round(range[0])+"↔"+Math.round(range[1])+
     " · tâm "+Math.round(p.x)+"×"+Math.round(p.y)+
     " · title "+result.titleLines+" dòng"+
