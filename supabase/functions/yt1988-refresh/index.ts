@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v37";
+const LIVE_PIPELINE_VERSION="live-v38";
 const NON_LIVE_PIPELINE_VERSION="non-live-v13";
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -1662,16 +1662,19 @@ Deno.serve(async(req:Request)=>{
         console.warn("global live discovery failed",String(error));
         return {external:[],selected:[]};
       });
-      // Search providers may leave archived livestreams marked isLive=true.
-      // Player verification is authoritative before an outside row can enter
-      // the LIVE package.
-      const verifiedExternalRows=(await verifyCurrentLiveRows(
-        discovery.external||[],
-        36
-      )).map((row:any)=>({...row,_liveOrigin:"search",_interestPriority:0}));
+      // Global LIVE search is fetched fresh on every LIVE refresh. Use those
+      // rows as the current-cycle source of truth; unlike package/cache rows,
+      // they cannot keep themselves alive across refreshes.
+      const verifiedExternalRows=(discovery.external||[])
+        .map((row:any)=>({
+          ...row,
+          _liveOrigin:"search",
+          _liveCandidateOrigin:"live_search",
+          _liveCacheCheckedAt:new Date().toISOString(),
+          _interestPriority:0
+        }));
 
-      // LIVE suggestions are also server-owned. Only genuinely live outside
-      // rows are persisted as suggestions.
+      // LIVE suggestions are also server-owned.
       await storeServerSourceSuggestions(
         rest,
         authHeaders,
@@ -1679,24 +1682,39 @@ Deno.serve(async(req:Request)=>{
         verifiedExternalRows
       ).catch(()=>0);
 
-      // Search hits from selected channels are candidates only, never proof of
-      // current LIVE state. Feed them into the per-channel checker so every
-      // selected row passes /live + player verification.
+      // A selected channel found by this same fresh LIVE search can be used
+      // immediately. Channels not found there still go through the per-channel
+      // checker below; importantly, old package rows are excluded as fallback.
       const searchCheckedAt=new Date().toISOString();
-      for(const row of discovery.selected||[]){
+      const selectedFromSearch=(discovery.selected||[]).map((row:any)=>{
+        const sid=channelId(row);
+        return {
+          ...row,
+          _liveOrigin:"source",
+          _liveCandidateOrigin:"live_search",
+          _liveCacheCheckedAt:searchCheckedAt,
+          _liveVerified:"fresh_live_search",
+          _interestPriority:explicitLiveIds.has(sid)
+            ?2
+            :inheritedLiveIds.has(sid)
+              ?1
+              :0
+        };
+      });
+
+      for(const row of selectedFromSearch){
         const sid=channelId(row);
         if(!sid||!liveSourceById.has(sid))continue;
         const list=liveCandidateRowsById.get(sid)||[];
-        liveCandidateRowsById.set(
-          sid,
-          dedupeRows([
-            ...list,
-            {...row,_liveCandidateOrigin:"live_search",_liveCacheCheckedAt:searchCheckedAt}
-          ])
-        );
+        liveCandidateRowsById.set(sid,dedupeRows([...list,row]));
       }
-      const selectedFromSearch:any[]=[];
-      const remainingSelected=selectedLiveSources.slice();
+
+      const selectedSeenIds=new Set(
+        selectedFromSearch.map((row:any)=>channelId(row)).filter(Boolean)
+      );
+      const remainingSelected=selectedLiveSources.filter(
+        (source:any)=>!selectedSeenIds.has(source.id)
+      );
 
       // Explicit LIVE selections are authoritative: check every one on every
       // LIVE refresh. Inherited selections from other tabs are rotated so the
