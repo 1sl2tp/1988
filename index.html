@@ -3823,6 +3823,21 @@ html.one-col.portrait .player.pip{
   function paintText(){
     renderCurrentInfo();
   }
+
+  function openSelectedVideoInMain(){
+    if(isTwoColumn())return;
+
+    // A fresh user selection always starts in MAIN, never inside an existing PiP.
+    pip=false;
+    player.classList.remove("pip");
+    stage.classList.remove("pip-host");
+    clearMobilePipGestureGeometry();
+
+    // Bring the real MAIN media back into view immediately. After this,
+    // normal scrolling alone decides whether the same player becomes PiP.
+    scrollPageToTop();
+  }
+
   function syncPip(){
     if(isTwoColumn()){
       if(pip){
@@ -3833,13 +3848,26 @@ html.one-col.portrait .player.pip{
       return;
     }
 
-    /* Simple rule:
-       stage is always the original MAIN media box and stays in document flow.
-       When its real bottom passes the header -> PiP.
-       Because stage never becomes fixed, this remains stable after PiP opens. */
+    /* One-column rule:
+       - MAIN visible anywhere in the usable viewport => keep MAIN, hide PiP.
+       - Scroll past MAIN in either direction => show PiP.
+       - Scroll back onto the same MAIN video => PiP closes automatically.
+       stage stays in document flow, so this is stable in both directions. */
+    const stageRect=stage.getBoundingClientRect();
+    const headerRect=top.getBoundingClientRect();
+    const viewportBottom=Math.max(
+      1,
+      Math.round(window.visualViewport?.height || document.documentElement.clientHeight || innerHeight || 1)
+    );
+    const usableTop=Math.max(0,Math.round(headerRect.bottom||0));
+    const visiblePixels=Math.max(
+      0,
+      Math.min(stageRect.bottom,viewportBottom)-Math.max(stageRect.top,usableTop)
+    );
+    const mainVisible=visiblePixels>4;
     const shouldPip=
       pageScrollY()>0 &&
-      stage.getBoundingClientRect().bottom<=top.getBoundingClientRect().bottom+1;
+      !mainVisible;
 
     if(shouldPip===pip)return;
 
@@ -4141,6 +4169,10 @@ html.one-col.portrait .player.pip{
       feedMetas.find(meta=>meta?.id===id)||
       relatedMetas.find(meta=>meta?.id===id)||
       null;
+
+    if(!isTwoColumn()){
+      openSelectedVideoInMain();
+    }
 
     if(navigateToVideo(id,selectedMeta)){
       renderCurrentInfo();
