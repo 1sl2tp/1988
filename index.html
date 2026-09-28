@@ -1330,9 +1330,19 @@ html.one-col .player{
   height:100%!important;
 }
 
-/* PiP: same cropped player, only its SIZE/position changes. */
+/* PiP: same cropped player, only its SIZE/position changes.
+   IMPORTANT: override the generic one-col 100%/100% Rail viewport here.
+   Otherwise PiP keeps MAIN size and appears to stretch wide instead of shrinking. */
 html.one-col .player.pip{
   aspect-ratio:var(--media-ratio)!important;
+}
+html.one-col.landscape .player.pip{
+  width:var(--pip-landscape-w)!important;
+  height:auto!important;
+}
+html.one-col.portrait .player.pip{
+  width:auto!important;
+  height:var(--pip-portrait-h)!important;
 }
 
 /* MAIN 2 columns: same engine, column width chooses SIZE. */
