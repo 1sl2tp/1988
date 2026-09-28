@@ -186,6 +186,12 @@ html.one-col body{
   max-width:100%;
 }
 html.one-col body{min-height:220vh}
+
+/* One-column no longer keeps a waiting MAIN player above the feed.
+   Playback starts only inside the card the user selects. */
+html.one-col .media-col{
+  display:none!important;
+}
 .top{
   position:sticky;
   top:0;
@@ -3099,7 +3105,7 @@ html.one-col.portrait .player.pip{
     feedMetas=metas;
     renderSampleContent();
 
-    if(!String(current?.id||"")&&metas[0]?.id){
+    if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
       if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
         renderCurrentInfo();
         loadCurrentVideoMeta();
@@ -3449,6 +3455,16 @@ html.one-col.portrait .player.pip{
       const card=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
       if(card){
         attachPlayerToCard(card,{floating:wasFloating});
+      }
+    }else if(!isTwoColumn()){
+      const routedId=routeVideoId();
+      const currentId=String(current?.id||"").trim();
+      if(routedId&&currentId&&routedId===currentId){
+        const card=rows.querySelector('.row[data-video-id="'+currentId+'"]');
+        if(card){
+          inlineVideoId=currentId;
+          attachPlayerToCard(card,{floating:false});
+        }
       }
     }
   }
@@ -3860,6 +3876,18 @@ html.one-col.portrait .player.pip{
       }
     }
 
+    if(!two&&!inlineVideoId){
+      const routedId=routeVideoId();
+      const currentId=String(current?.id||"").trim();
+      if(routedId&&currentId&&routedId===currentId){
+        const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
+        if(card){
+          inlineVideoId=currentId;
+          attachPlayerToCard(card,{floating:false});
+        }
+      }
+    }
+
     paintText();
   }
   function paintText(){
@@ -3988,27 +4016,16 @@ html.one-col.portrait .player.pip{
       return;
     }
 
-    // Startup/deep-link fallback before the user explicitly chooses a feed card.
-    const stageRect=stage.getBoundingClientRect();
-    const headerRect=top.getBoundingClientRect();
-    const viewportBottom=Math.max(
-      1,
-      Math.round(window.visualViewport?.height || document.documentElement.clientHeight || innerHeight || 1)
-    );
-    const usableTop=Math.max(0,Math.round(headerRect.bottom||0));
-    const visiblePixels=Math.max(
-      0,
-      Math.min(stageRect.bottom,viewportBottom)-Math.max(stageRect.top,usableTop)
-    );
-    const mainVisible=visiblePixels>4;
-    const shouldPip=pageScrollY()>0&&!mainVisible;
-
-    if(shouldPip===pip)return;
-    pip=shouldPip;
-    player.classList.toggle("pip",pip);
-    stage.classList.toggle("pip-host",pip);
-    if(!pip)clearMobilePipGestureGeometry();
-    paintText();
+    // No one-column card has been selected yet: keep the player parked
+    // in the hidden MAIN host and do not create a waiting/fallback PiP.
+    if(pip){
+      pip=false;
+      player.classList.remove("pip");
+      clearMobilePipGestureGeometry();
+    }
+    stage.classList.remove("pip-host");
+    if(player.parentNode!==stage)movePlayerNode(stage);
+    return;
   }
 
   function setMobileHeaderHidden(hidden){
