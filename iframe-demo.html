@@ -544,6 +544,161 @@
     .clean-control svg{display:block;width:22px;height:22px;fill:currentColor}
     .clean-control.close{top:8px;right:8px}
     .clean-control:hover{background:rgba(0,0,0,.72)}
+
+    /* PiP RAIL: metadata/seek live in dedicated rows OUTSIDE the video. */
+    .rail-library{
+      display:none;
+      padding:9px 12px 10px;
+      border-bottom:1px solid #202023;
+      background:#0d0d0f;
+    }
+    .rail-library.show{display:block}
+    .rail-library-title{
+      margin-bottom:7px;
+      font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
+      color:#d8d8dd;
+    }
+    .rail-library-samples{display:flex;gap:7px;overflow:auto;scrollbar-width:none}
+    .rail-library-samples::-webkit-scrollbar{display:none}
+    .rail-library-samples button{padding:7px 10px;font-size:12px}
+    .rail-library-readout{
+      display:block;
+      margin-top:7px;
+      color:var(--muted);
+      font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+
+    .stage.rail-mode{
+      --rail-media-aspect:1.7777778;
+      --rail-top-h:58px;
+      --rail-bottom-h:50px;
+      aspect-ratio:auto;
+      overflow:hidden;
+      background:#050506;
+      isolation:isolate;
+    }
+    .stage.rail-mode .rail-shell{
+      position:relative;
+      width:100%;
+      height:auto;
+      display:grid;
+      grid-template-rows:var(--rail-top-h) auto var(--rail-bottom-h);
+      background:#050506;
+      overflow:hidden;
+      border-radius:inherit;
+    }
+    .stage.rail-mode.demo-pip .rail-shell{height:100%}
+    .stage.rail-mode .rail-top{
+      position:relative;
+      z-index:3;
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      padding:0 10px;
+      background:#050506;
+      overflow:hidden;
+    }
+    .stage.rail-mode .rail-top-info{
+      min-width:0;
+      flex:1 1 auto;
+      display:flex;
+      align-items:center;
+      gap:8px;
+      overflow:hidden;
+      color:#fff;
+      pointer-events:none;
+    }
+    .stage.rail-mode .rail-top-info .pip-top-title{font-size:13px}
+    .stage.rail-mode .rail-top-info .pip-top-meta{font-size:10px}
+    .stage.rail-mode .rail-close{
+      flex:0 0 30px;
+      width:30px;
+      height:30px;
+      padding:0;
+      border:0;
+      border-radius:50%;
+      display:none;
+      place-items:center;
+      background:rgba(255,255,255,.1);
+      color:#fff;
+      pointer-events:auto;
+    }
+    .stage.rail-mode.demo-pip .rail-close{display:grid}
+    .stage.rail-mode .rail-close svg{width:17px;height:17px;fill:currentColor}
+    .stage.rail-mode .rail-video{
+      position:relative;
+      z-index:1;
+      width:100%;
+      aspect-ratio:var(--rail-media-aspect);
+      min-height:1px;
+      background:#000;
+      overflow:hidden;
+    }
+    .stage.rail-mode .rail-video #api-player,
+    .stage.rail-mode .rail-video iframe{
+      position:absolute;
+      inset:0;
+      width:100%!important;
+      height:100%!important;
+      border:0;
+      z-index:1;
+    }
+    .stage.rail-mode .rail-bottom{
+      position:relative;
+      z-index:3;
+      min-width:0;
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:0 10px;
+      background:#050506;
+      overflow:hidden;
+    }
+    .stage.rail-mode .rail-bottom .pip-seek{
+      position:relative;
+      inset:auto;
+      display:flex;
+      flex:1 1 auto;
+      min-width:30px;
+      height:100%;
+      padding:0;
+    }
+    .stage.rail-mode .rail-brand{
+      flex:0 0 auto;
+      display:flex;
+      align-items:center;
+      gap:5px;
+      color:#fff;
+      font-size:11px;
+      font-weight:700;
+      white-space:nowrap;
+      opacity:.92;
+    }
+    .stage.rail-mode .rail-brand-mark{
+      width:19px;
+      height:13px;
+      border-radius:4px;
+      background:#fff;
+      color:#050506;
+      display:grid;
+      place-items:center;
+      font-size:8px;
+      line-height:1;
+    }
+    .stage.rail-mode .pip-drag-zone{top:0;height:var(--rail-top-h)}
+    .stage.demo-pip.rail-mode .pip-drag-zone,
+    .stage.demo-pip.rail-mode .pip-resize-handle{display:block}
+    .stage.rail-mode[data-rail-level="1"] .pip-top-avatar,
+    .stage.rail-mode[data-rail-level="1"] .pip-top-meta,
+    .stage.rail-mode[data-rail-level="1"] .rail-brand-text{display:none!important}
+    .stage.rail-mode[data-rail-level="2"] .pip-top-meta{display:none!important}
+    .stage.rail-mode[data-rail-level="1"] .rail-top{padding:0 7px}
+    .stage.rail-mode[data-rail-level="1"] .rail-bottom{padding:0 7px}
+    .stage.rail-mode[data-rail-level="1"] .rail-top-info .pip-top-title{font-size:10px}
+    .stage.rail-mode[data-rail-level="2"] .rail-top-info .pip-top-title{font-size:11px}
+    .stage.rail-mode[data-rail-level="3"] .rail-top-info .pip-top-title{font-size:12px}
+
     @media(max-width:560px){
       .stage.demo-pip{
         right:8px;
@@ -589,6 +744,14 @@
         <div class="chrome-calibration-frame" id="calLiveFrame"></div>
       </div>
     </div>
+  </section>
+  <section class="rail-library" id="railLibrary" aria-label="Thư viện mẫu PiP rail">
+    <div class="rail-library-title">RAIL LIBRARY · video mẫu ngang / dọc · rail nằm ngoài vùng video</div>
+    <div class="rail-library-samples">
+      <button type="button" data-rail-video="dQw4w9WgXcQ">Ngang 16:9 · Rick</button>
+      <button type="button" data-rail-video="C91FyjzHUr0">Dọc 9:16 · Me Rehúso</button>
+    </div>
+    <span class="rail-library-readout" id="railLibraryReadout">Đang chờ media…</span>
   </section>
   <div class="stage-spacer" id="stageSpacer"></div>
   <div class="demo-actions" id="demoActions" hidden>
@@ -688,6 +851,16 @@ const modes=[
     cleanDemo:true,
     maxClean:true,
     params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
+  },
+  {
+    id:"railpip",
+    title:"10 · PiP rail · TOP/BOTTOM tách khỏi video",
+    short:"PiP rail",
+    desc:"Kiểu mới: TOP chứa avatar/tiêu đề/nguồn, BOTTOM chứa tua/YouTube; cả hai là rail riêng ngoài vùng video nên không đè hình. Library có mẫu ngang và dọc với MIN/MAX riêng.",
+    api:true,
+    cleanDemo:true,
+    railMode:true,
+    params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,iv_load_policy:3,enablejsapi:1}
   }
 ];
 
@@ -702,6 +875,9 @@ const demoActions=document.getElementById("demoActions");
 const demoPipToggle=document.getElementById("demoPipToggle");
 const geometryReadout=document.getElementById("geometryReadout");
 const chromeCalibration=document.getElementById("chromeCalibration");
+const railLibrary=document.getElementById("railLibrary");
+const railLibraryReadout=document.getElementById("railLibraryReadout");
+const demoHint=document.querySelector("#demoActions .hint");
 const calLiveLabel=document.getElementById("calLiveLabel");
 const calLiveRange=document.getElementById("calLiveRange");
 const calLiveViewport=document.getElementById("calLiveViewport");
@@ -1291,6 +1467,135 @@ function saveManualCalibrationPoint(videoId,contentAspect,point){
   try{localStorage.setItem(key,JSON.stringify(points))}catch{}
   return points;
 }
+function railLevelForWidth(width){
+  width=Math.max(1,Number(width)||1);
+  return width>=520?4:width>=340?3:width>=220?2:1;
+}
+function railChromeForWidth(width){
+  const level=railLevelForWidth(width);
+  if(level===1)return {level,top:34,bottom:32};
+  if(level===2)return {level,top:40,bottom:36};
+  if(level===3)return {level,top:48,bottom:42};
+  return {level,top:58,bottom:50};
+}
+function railWidthBounds(contentAspect,availableBox=null){
+  const aspect=Math.max(.25,Math.min(4,Number(contentAspect)||16/9));
+  const portrait=aspect<1;
+  const minWidth=portrait?120:170;
+  const vv=window.visualViewport;
+  const viewportW=Math.max(
+    minWidth,
+    Math.floor(Number(availableBox?.width)||vv?.width||window.innerWidth||minWidth)
+  );
+  const viewportH=Math.max(
+    1,
+    Math.floor(Number(availableBox?.height)||vv?.height||window.innerHeight||1)
+  );
+  const gap=12;
+  const availableW=Math.max(1,viewportW-gap);
+  const availableH=Math.max(1,viewportH-gap);
+
+  let maxWidth=Math.max(minWidth,Math.floor(Math.min(availableW,760)));
+  while(maxWidth>minWidth){
+    const chrome=railChromeForWidth(maxWidth);
+    const outerH=maxWidth/aspect+chrome.top+chrome.bottom;
+    if(outerH<=availableH)break;
+    maxWidth-=1;
+  }
+  maxWidth=Math.max(minWidth,maxWidth);
+
+  return {minWidth,maxWidth,aspect,portrait,availableW,availableH};
+}
+function railLayoutForWidth(width,contentAspect=verifiedMediaAspect||currentViewportTrim.contentAspect||16/9){
+  const bounds=railWidthBounds(contentAspect);
+  const w=Math.max(bounds.minWidth,Math.min(bounds.maxWidth,Math.round(Number(width)||bounds.minWidth)));
+  const chrome=railChromeForWidth(w);
+  const videoHeight=w/bounds.aspect;
+  return {
+    width:w,
+    videoHeight,
+    topHeight:chrome.top,
+    bottomHeight:chrome.bottom,
+    height:videoHeight+chrome.top+chrome.bottom,
+    level:chrome.level,
+    aspect:bounds.aspect,
+    orientation:bounds.portrait?"portrait":"landscape",
+    minWidth:bounds.minWidth,
+    maxWidth:bounds.maxWidth
+  };
+}
+function paintRailLibrary(layout){
+  if(!railLibraryReadout||!layout)return;
+  const min=railLayoutForWidth(layout.minWidth,layout.aspect);
+  const max=railLayoutForWidth(layout.maxWidth,layout.aspect);
+  railLibraryReadout.textContent=
+    "RAIL · "+(layout.orientation==="portrait"?"DỌC":"NGANG")+
+    " · MIN "+Math.round(min.width)+"×"+Math.round(min.height)+
+    " · NOW "+Math.round(layout.width)+"×"+Math.round(layout.height)+
+    " · FULL "+Math.round(max.width)+"×"+Math.round(max.height)+
+    " · VIDEO "+Math.round(layout.width)+"×"+Math.round(layout.videoHeight)+
+    " · TOP/BOTTOM "+layout.topHeight+"/"+layout.bottomHeight;
+}
+function applyRailLayout(width,{pip=false,left=null,top=null}={}){
+  const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentViewportTrim.contentAspect)||16/9);
+  const layout=railLayoutForWidth(width,aspect);
+
+  stage.style.setProperty("--rail-media-aspect",String(layout.aspect));
+  stage.style.setProperty("--rail-top-h",layout.topHeight+"px");
+  stage.style.setProperty("--rail-bottom-h",layout.bottomHeight+"px");
+  stage.dataset.railLevel=String(layout.level);
+  stage.dataset.pipTopLevel=String(layout.level);
+  stage.dataset.demoShape=layout.orientation;
+  paintRailLibrary(layout);
+
+  if(pip){
+    const rect=stage.getBoundingClientRect();
+    const pos=clampPipPosition(
+      Number.isFinite(left)?left:rect.left,
+      Number.isFinite(top)?top:rect.top,
+      layout.width,
+      layout.height
+    );
+    stage.style.left=pos.left+"px";
+    stage.style.top=pos.top+"px";
+    stage.style.right="auto";
+    stage.style.bottom="auto";
+    stage.style.width=layout.width+"px";
+    stage.style.height=layout.height+"px";
+    stage.style.aspectRatio="auto";
+  }else{
+    stage.style.width="";
+    stage.style.height="";
+    stage.style.aspectRatio="auto";
+  }
+
+  renderPipTopInfo();
+  return layout;
+}
+function refreshRailMediaAspect(){
+  if(stage.classList.contains("demo-pip"))return verifiedMediaAspect||0;
+  const next=readMainYoutubeViewportTrim();
+  if(!next?.contentAspect)return 0;
+  currentViewportTrim=next;
+  verifiedMediaAspect=next.contentAspect;
+  applyRailLayout(stage.getBoundingClientRect().width||window.innerWidth,false);
+  return verifiedMediaAspect;
+}
+function primeRailMediaAspect(){
+  clearViewportPrimeTimers();
+  const playerRef=apiPlayer;
+  const expectedId=requestedVideoId;
+  const attempt=()=>{
+    if(apiPlayer!==playerRef||stage.classList.contains("demo-pip"))return;
+    if(requestedVideoId!==expectedId)return;
+    refreshRailMediaAspect();
+  };
+  attempt();
+  [90,260,700,1400,2600].forEach(delay=>{
+    viewportPrimeTimers.push(setTimeout(attempt,delay));
+  });
+}
+
 function libraryWidthBounds(contentAspect,availableBox=null){
   const minWidth=140;
   const vv=window.visualViewport;
@@ -1897,6 +2202,10 @@ function clampPipPosition(left,top,width,height){
   };
 }
 function setPipRect(left,top,width,height){
+  if(stage.classList.contains("rail-mode")){
+    return applyRailLayout(width,{pip:true,left,top});
+  }
+
   // The drag gives only a requested width. The Library sample is authoritative
   // for ALL four geometric values: width, height, TOP and BOTTOM.
   const result=currentChromeLibrary
@@ -1922,7 +2231,10 @@ function setPipRect(left,top,width,height){
   geometrySettleTimer=setTimeout(syncMeasuredSafeWindow,120);
 }
 function beginPipPointer(e,mode,handle=""){
-  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
+  if(
+    !stage.classList.contains("demo-pip") ||
+    (!stage.classList.contains("max-clean-mode")&&!stage.classList.contains("rail-mode"))
+  )return;
   touchChromeCover(mode==="resize"?"resize":"drag");
   const r=stage.getBoundingClientRect();
   pipPointerMode=mode;
@@ -1956,8 +2268,11 @@ function updatePipPointer(e){
   }
 
   const h=s.handle;
-  const minW=currentChromeLibrary?.minWidth||140;
-  const maxW=currentChromeLibrary?.maxWidth||Math.max(minW,window.innerWidth-12);
+  const railBounds=stage.classList.contains("rail-mode")
+    ? railWidthBounds(verifiedMediaAspect||currentViewportTrim.contentAspect||16/9)
+    : null;
+  const minW=railBounds?.minWidth||currentChromeLibrary?.minWidth||140;
+  const maxW=railBounds?.maxWidth||currentChromeLibrary?.maxWidth||Math.max(minW,window.innerWidth-12);
   let width=s.width;
   if(h.includes("e")) width=s.width+dx;
   else if(h.includes("w")) width=s.width-dx;
@@ -1966,7 +2281,9 @@ function updatePipPointer(e){
     width=targetH*s.ratio;
   }
   width=Math.max(minW,Math.min(maxW,width));
-  const height=width/s.ratio;
+  const height=stage.classList.contains("rail-mode")
+    ? railLayoutForWidth(width,verifiedMediaAspect||currentViewportTrim.contentAspect||16/9).height
+    : width/s.ratio;
 
   let left=s.left;
   let top=s.top;
@@ -2134,6 +2451,52 @@ function showCleanControls(){
   stopCleanHideTimer();
   cleanHideTimer=setTimeout(hideCleanControls,1800);
 }
+function railPlayerMarkup(){
+  return '<div class="rail-shell" data-rail-shell>'+
+    '<div class="rail-top">'+
+      '<div class="rail-top-info" data-pip-top-info aria-hidden="true">'+
+        '<span class="pip-top-avatar" data-pip-top-avatar>'+
+          '<img data-pip-top-avatar-img alt="" hidden>'+
+          '<span data-pip-top-avatar-fallback hidden>?</span>'+
+        '</span>'+
+        '<span class="pip-top-copy">'+
+          '<span class="pip-top-title" data-pip-top-title>Video</span>'+
+          '<span class="pip-top-meta">'+
+            '<span class="pip-top-channel" data-pip-top-channel></span>'+
+            '<span class="pip-top-dot pip-top-views" data-pip-top-views></span>'+
+            '<span class="pip-top-dot pip-top-published" data-pip-top-published></span>'+
+          '</span>'+
+        '</span>'+
+      '</div>'+
+      '<button class="rail-close" type="button" data-clean-close aria-label="Đóng PiP rail">'+
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
+      '</button>'+
+    '</div>'+
+    '<div class="rail-video"><div id="api-player"></div></div>'+
+    '<div class="rail-bottom">'+
+      '<div class="pip-seek" data-pip-seek role="slider" aria-label="Tua video" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">'+
+        '<div class="pip-seek-track">'+
+          '<div class="pip-seek-fill" data-pip-seek-fill></div>'+
+          '<div class="pip-seek-thumb" data-pip-seek-thumb></div>'+
+        '</div>'+
+      '</div>'+
+      '<div class="rail-brand" aria-hidden="true">'+
+        '<span class="rail-brand-mark">▶</span>'+
+        '<span class="rail-brand-text">YouTube</span>'+
+      '</div>'+
+    '</div>'+
+    '<div class="pip-drag-zone" data-pip-drag title="Kéo để di chuyển PiP rail"></div>'+
+    '<div class="pip-resize-handle n" data-pip-resize="n"></div>'+
+    '<div class="pip-resize-handle ne" data-pip-resize="ne"></div>'+
+    '<div class="pip-resize-handle e" data-pip-resize="e"></div>'+
+    '<div class="pip-resize-handle se" data-pip-resize="se"></div>'+
+    '<div class="pip-resize-handle s" data-pip-resize="s"></div>'+
+    '<div class="pip-resize-handle sw" data-pip-resize="sw"></div>'+
+    '<div class="pip-resize-handle w" data-pip-resize="w"></div>'+
+    '<div class="pip-resize-handle nw" data-pip-resize="nw"></div>'+
+  '</div>';
+}
+
 function cleanOverlayMarkup(){
   return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
     '<div class="pip-wake-layer" data-pip-wake aria-hidden="true"></div>'+
@@ -2194,6 +2557,14 @@ function exitDemoPip(){
   delete stage.dataset.ytSafeTop;
   delete stage.dataset.ytSafeBottom;
   delete stage.dataset.pipTopLevel;
+  if(stage.classList.contains("rail-mode")){
+    const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentViewportTrim.contentAspect)||16/9);
+    const chrome=railChromeForWidth(stage.getBoundingClientRect().width||window.innerWidth);
+    stage.style.setProperty("--rail-media-aspect",String(aspect));
+    stage.style.setProperty("--rail-top-h",chrome.top+"px");
+    stage.style.setProperty("--rail-bottom-h",chrome.bottom+"px");
+    stage.dataset.railLevel=String(chrome.level);
+  }
   pipPointerMode=null;
   pipPointerId=null;
   pipPointerStart=null;
@@ -2210,9 +2581,18 @@ function enterDemoPip(){
   const rect=stage.getBoundingClientRect();
   mainAspectBeforePip=stage.style.aspectRatio||"";
 
-  // Freeze geometry while this is still MAIN. For PiP max, never fall back
-  // to the outer stage ratio: portrait/landscape must be verified from the
-  // exact loaded video's YouTube content rect first.
+  // Freeze geometry while this is still MAIN.
+  if(stage.classList.contains("rail-mode")){
+    refreshRailMediaAspect();
+    if(!verifiedMediaAspect){
+      primeRailMediaAspect();
+      return;
+    }
+    clearViewportPrimeTimers();
+  }
+
+  // For PiP max, never fall back to the outer stage ratio: portrait/landscape
+  // must be verified from the exact loaded video's YouTube content rect first.
   if(stage.classList.contains("max-clean-mode")){
     refreshMainViewportTrimLibrary();
     if(!currentChromeLibrary){
@@ -2229,6 +2609,23 @@ function enterDemoPip(){
   demoPipToggle.textContent="Trả về MAIN";
   stopCleanHideTimer();
   stopChromeMaskTimer();
+
+  if(stage.classList.contains("rail-mode")){
+    const bounds=railWidthBounds(verifiedMediaAspect);
+    const initialWidth=Math.max(
+      bounds.minWidth,
+      Math.min(bounds.maxWidth,Math.max(bounds.minWidth,Math.min(320,window.innerWidth*.5)))
+    );
+    const layout=railLayoutForWidth(initialWidth,verifiedMediaAspect);
+    applyRailLayout(initialWidth,{
+      pip:true,
+      left:window.innerWidth-layout.width-10,
+      top:10
+    });
+    formatSeekProgress();
+    startSeekLoop();
+    return;
+  }
 
   if(stage.classList.contains("max-clean-mode")){
     applyPipViewportCrop();
@@ -2254,7 +2651,7 @@ function toggleDemoPip(){
   stage.classList.contains("demo-pip")?exitDemoPip():enterDemoPip();
 }
 function syncAutoDemoPip(){
-  if(!["cleanpip","maxcleanpip"].includes(active)||!stage.classList.contains("clean-mode"))return;
+  if(!["cleanpip","maxcleanpip","railpip"].includes(active)||!stage.classList.contains("clean-mode"))return;
 
   const anchor=stageSpacer.style.display==="block" ? stageSpacer : stage;
   const header=document.querySelector("header");
@@ -2331,7 +2728,14 @@ async function render(){
   delete stage.dataset.detectedAspect;
   stage.classList.toggle("clean-mode",!!mode.cleanDemo);
   stage.classList.toggle("max-clean-mode",!!mode.maxClean);
+  stage.classList.toggle("rail-mode",!!mode.railMode);
   demoActions.hidden=!mode.cleanDemo;
+  railLibrary.classList.toggle("show",!!mode.railMode);
+  if(demoHint){
+    demoHint.textContent=mode.railMode
+      ? "PiP rail: TOP/BOTTOM là vùng riêng ngoài video; kéo đổi kích thước dùng Rail Library ngang/dọc, không cần cover."
+      : "Cover chỉ theo activity: rê/chạm/play/pause/seek/drag/resize → ACTIVE; hết idle → ARMED → HIDDEN.";
+  }
   if(!mode.maxClean){
     paintGeometryReadout(null);
     chromeCalibration.classList.remove("show");
@@ -2340,12 +2744,18 @@ async function render(){
   stage.innerHTML="";
 
   if(mode.api){
-    const host=document.createElement("div");
-    host.id="api-player";
-    stage.appendChild(host);
-    if(mode.cleanDemo){
-      stage.insertAdjacentHTML("beforeend",cleanOverlayMarkup());
+    if(mode.railMode){
+      stage.innerHTML=railPlayerMarkup();
+      applyRailLayout(stage.getBoundingClientRect().width||window.innerWidth,{pip:false});
       renderPipTopInfo();
+    }else{
+      const host=document.createElement("div");
+      host.id="api-player";
+      stage.appendChild(host);
+      if(mode.cleanDemo){
+        stage.insertAdjacentHTML("beforeend",cleanOverlayMarkup());
+        renderPipTopInfo();
+      }
     }
     codeEl.textContent=
 `new YT.Player("api-player", {
@@ -2384,12 +2794,24 @@ async function render(){
             currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:currentMainAspect(),contentAspect:0};
             primeMainViewportTrimLibrary();
           }
+          if(mode.railMode){
+            formatSeekProgress();
+            startSeekLoop();
+            verifiedMediaAspect=0;
+            verifiedMediaShape="";
+            currentViewportTrim={top:0,right:0,bottom:0,left:0,source:"none",videoId:"",rawAspect:16/9,contentAspect:0};
+            primeRailMediaAspect();
+          }
         },
         onStateChange(event){
           if(mode.maxClean){
             formatSeekProgress();
             if(!stage.classList.contains("demo-pip"))refreshMainViewportTrimLibrary();
             syncMeasuredSafeWindow();
+          }
+          if(mode.railMode){
+            formatSeekProgress();
+            if(!stage.classList.contains("demo-pip"))refreshRailMediaAspect();
           }
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
@@ -2621,11 +3043,21 @@ presets.addEventListener("click",e=>{
   input.value=b.dataset.video;
   render();
 });
+railLibrary?.addEventListener("click",e=>{
+  const b=e.target.closest("[data-rail-video]");
+  if(!b)return;
+  input.value=b.dataset.railVideo;
+  render();
+});
 document.getElementById("loadBtn").addEventListener("click",render);
 window.addEventListener("scroll",syncAutoDemoPip,{passive:true});
 window.addEventListener("resize",()=>{
   syncAutoDemoPip();
 
+  const railRectBefore=
+    stage.classList.contains("demo-pip")&&stage.classList.contains("rail-mode")
+      ? stage.getBoundingClientRect()
+      : null;
   const pipRectBefore=
     stage.classList.contains("demo-pip")&&stage.classList.contains("max-clean-mode")
       ? stage.getBoundingClientRect()
@@ -2643,6 +3075,16 @@ window.addEventListener("resize",()=>{
         Math.max(0,Math.min(1,t))*(currentChromeLibrary.maxWidth-currentChromeLibrary.minWidth);
       renderChromeCalibration();
     }
+  }
+
+  if(railRectBefore&&verifiedMediaAspect){
+    applyRailLayout(railRectBefore.width,{
+      pip:true,
+      left:railRectBefore.left,
+      top:railRectBefore.top
+    });
+  }else if(stage.classList.contains("rail-mode")&&!stage.classList.contains("demo-pip")){
+    refreshRailMediaAspect();
   }
 
   if(pipRectBefore&&currentChromeLibrary){
