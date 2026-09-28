@@ -2031,6 +2031,21 @@ html.one-col .player.pip iframe{border-radius:inherit}
     return "";
   }
 
+  function historyVideoId(state=history.state){
+    const id=String(state?.videoId||"").trim();
+    return /^[A-Za-z0-9_-]{11}$/.test(id)?id:"";
+  }
+
+  function videoHistoryState(id,title=""){
+    return {
+      yt1988:"video",
+      videoId:String(id||"").trim(),
+      title:String(title||"").trim(),
+      scope:String(activePackageScope||""),
+      feedMode:String(feedMode||"")
+    };
+  }
+
   function canonicalVideoHash(id,title=""){
     id=String(id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
@@ -2053,33 +2068,49 @@ html.one-col .player.pip iframe{border-radius:inherit}
     document.title=meaningfulTitle?meaningfulTitle+" · 1988":"1988";
     if(!write)return;
 
-    const existingId=routeVideoId();
+    const stateId=historyVideoId();
+    const routeId=routeVideoId();
+    const existingId=stateId||routeId;
     const currentHash=String(location.hash||"");
     const hasCanonicalHash=/^#\/watch\//i.test(currentHash);
 
-    // Preserve an already-readable incoming slug until real metadata arrives.
+    // A direct/deep link is also a real video history entry. Keep its readable
+    // slug while metadata is still loading, but mark the browser state now.
     if(
       existingId===id &&
       hasCanonicalHash &&
       !meaningfulTitle
-    )return;
+    ){
+      if(stateId!==id){
+        history.replaceState(
+          videoHistoryState(id,""),
+          "",
+          location.pathname+location.search+location.hash
+        );
+      }
+      return;
+    }
 
     const nextHash=canonicalVideoHash(id,meaningfulTitle);
     if(!nextHash)return;
 
     const nextUrl="/"+nextHash;
-    const shouldPush=
-      push &&
-      existingId!==id;
+    const nextState=videoHistoryState(id,meaningfulTitle);
 
-    if(shouldPush){
-      history.pushState({videoId:id},"",nextUrl);
-    }else if(
+    // User-selected videos become separate browser-history entries.
+    // Metadata/title refreshes only rewrite the current entry.
+    if(push&&existingId!==id){
+      history.pushState(nextState,"",nextUrl);
+      return;
+    }
+
+    if(
+      stateId!==id ||
       location.pathname!=="/" ||
       location.search ||
       currentHash!==nextHash
     ){
-      history.replaceState({videoId:id},"",nextUrl);
+      history.replaceState(nextState,"",nextUrl);
     }
   }
 
@@ -2093,13 +2124,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     );
   }
 
-  function openVideoFromLocation(){
-    const id=routeVideoId();
+  function openVideoFromLocation(state=history.state){
+    const id=historyVideoId(state)||routeVideoId();
     if(!id||id===String(current?.id||""))return false;
 
     const meta=metaForVideoId(id);
-    // Browser Back/Forward owns the current history entry. Never push or
-    // replace a route while replaying it.
+    // Browser Back/Forward owns the selected entry. Replay it only; never
+    // create or replace history while traversing.
     if(!playVideoId(id,meta,{history:"none"}))return false;
     renderCurrentInfo();
     loadCurrentVideoMeta();
@@ -3205,11 +3236,13 @@ html.one-col .player.pip iframe{border-radius:inherit}
     updateSourceRailArrows();
   });
 
-  addEventListener("popstate",()=>{
-    openVideoFromLocation();
+  addEventListener("popstate",event=>{
+    openVideoFromLocation(event.state);
   });
   addEventListener("hashchange",()=>{
-    openVideoFromLocation();
+    // Covers a manually edited/pasted hash. Back/Forward is handled by popstate
+    // and the second call becomes a harmless no-op because current.id matches.
+    openVideoFromLocation(history.state);
   });
 })();
 </script>
