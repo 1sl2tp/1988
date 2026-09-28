@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.19";
+  const VERSION = "2026-09-28.20";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -136,7 +136,7 @@
     const top = {
       title: true,
       avatar: uiSpan >= 175,
-      channel: uiSpan >= 235
+      channel: uiSpan >= 255
     };
 
     const bottom = {
@@ -220,15 +220,21 @@
       nativeSeek:false,
       // Exact family used by PiP max in iframe-demo.html.
       top:{
-        padMin:8,
-        avatarMin:30,
-        title1Min:18,
-        title2Min:34,
-        channelMin:13,
-        gapMin:4,
-        // Calibrated from the real controls:0 embed: the metadata background
-        // paints a few pixels below its text/avatar content box.
-        outer:7
+        // Only YouTube CHANNEL metadata belongs to TOP:
+        // channel avatar + video title + channel name.
+        // Never use artwork/watermarks/logos inside the video pixels.
+        padMin:7,
+        avatarMin:28,
+        avatarMax:38,
+        title1Min:17,
+        title1Max:21,
+        title2Min:31,
+        title2Max:38,
+        channelMin:12,
+        channelMax:14,
+        gapMin:2,
+        gapMax:3,
+        outer:2
       },
       bottom:{
         padMin:8,
@@ -244,11 +250,16 @@
       top:{
         padMin:8,
         avatarMin:30,
+        avatarMax:40,
         title1Min:18,
+        title1Max:22,
         title2Min:34,
+        title2Max:40,
         channelMin:13,
-        gapMin:4,
-        outer:4
+        channelMax:15,
+        gapMin:3,
+        gapMax:4,
+        outer:3
       },
       bottom:{
         padMin:9,
@@ -274,17 +285,20 @@
       ? width
       : Math.min(width, height * (16 / 9));
 
-    // YouTube overlay text/buttons do not shrink linearly with the iframe.
-    // They keep a relatively large minimum size, especially in controls:0.
+    // TOP chrome is a bounded UI cluster, not artwork. Its text/avatar sizes
+    // stay close to fixed CSS sizes even when the iframe becomes very wide.
+    // Use a small interpolation range so a logo drawn INSIDE the video can never
+    // make the estimated TOP grow with the media image.
+    const topT = clamp((uiSpan - 140) / 620, 0, 1);
+    const topPad = profile.top.padMin + topT*2;
+    const avatar = lerp(profile.top.avatarMin,profile.top.avatarMax,topT);
+    const title1 = lerp(profile.top.title1Min,profile.top.title1Max,topT);
+    const title2 = lerp(profile.top.title2Min,profile.top.title2Max,topT);
+    const channel = lerp(profile.top.channelMin,profile.top.channelMax,topT);
+    const topGap = lerp(profile.top.gapMin,profile.top.gapMax,topT);
+
+    // BOTTOM keeps its separate responsive scaling.
     const s = clamp(uiSpan / 520, .72, 1.28);
-
-    const topPad = Math.max(profile.top.padMin, 11*s);
-    const avatar = Math.max(profile.top.avatarMin, 42*s);
-    const title1 = Math.max(profile.top.title1Min, 22*s);
-    const title2 = Math.max(profile.top.title2Min, 40*s);
-    const channel = Math.max(profile.top.channelMin, 15*s);
-    const topGap = Math.max(profile.top.gapMin, 5*s);
-
     const bottomPad = Math.max(profile.bottom.padMin, 11*s);
     const linkH = Math.max(profile.bottom.linkMin, 38*s);
     const nextH = Math.max(profile.bottom.nextMin, 52*s);
