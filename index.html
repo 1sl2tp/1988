@@ -953,7 +953,7 @@ html.one-col .player.pip .pip-move-zone::after{
   pointer-events:none;
 }
 
-/* Invisible edge resize hit-zones. No corner icon, no text. */
+/* Invisible resize hit-zones. Bottom 36px is reserved for native YouTube seek/controls. */
 html.one-col .player.pip .pip-resize-edge{
   display:block;
   position:absolute;
@@ -964,19 +964,15 @@ html.one-col .player.pip .pip-resize-edge{
   background:transparent;
 }
 html.one-col .player.pip .pip-resize-left{
-  left:0; top:0; bottom:0; width:26px;
+  left:0; top:0; bottom:36px; width:26px;
   cursor:ew-resize;
 }
 html.one-col .player.pip .pip-resize-right{
-  right:0; top:0; bottom:0; width:26px;
+  right:0; top:0; bottom:36px; width:26px;
   cursor:ew-resize;
 }
 html.one-col .player.pip .pip-resize-top{
   left:0; right:0; top:0; height:26px;
-  cursor:ns-resize;
-}
-html.one-col .player.pip .pip-resize-bottom{
-  left:0; right:0; bottom:0; height:26px;
   cursor:ns-resize;
 }
 
@@ -993,14 +989,6 @@ html.one-col .player.pip .pip-resize-top-left{
 html.one-col .player.pip .pip-resize-top-right{
   right:0; top:0;
   cursor:nesw-resize;
-}
-html.one-col .player.pip .pip-resize-bottom-left{
-  left:0; bottom:0;
-  cursor:nesw-resize;
-}
-html.one-col .player.pip .pip-resize-bottom-right{
-  right:0; bottom:0;
-  cursor:nwse-resize;
 }
 
 /* The center of the top edge belongs to MOVE, not resize. */
@@ -1578,11 +1566,8 @@ html.one-col.portrait .player.pip{
         <div class="pip-resize-edge pip-resize-left" data-pip-edge="left" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-right" data-pip-edge="right" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-top" data-pip-edge="top" aria-hidden="true"></div>
-        <div class="pip-resize-edge pip-resize-bottom" data-pip-edge="bottom" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-corner pip-resize-top-left" data-pip-edge="top-left" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-corner pip-resize-top-right" data-pip-edge="top-right" aria-hidden="true"></div>
-        <div class="pip-resize-edge pip-resize-corner pip-resize-bottom-left" data-pip-edge="bottom-left" aria-hidden="true"></div>
-        <div class="pip-resize-edge pip-resize-corner pip-resize-bottom-right" data-pip-edge="bottom-right" aria-hidden="true"></div>
       </div>
     </section>
     <div class="info" id="videoInfo">
