@@ -577,7 +577,6 @@ let chromeMaskTimer=0;
 let optimisticPlaying=false;
 let seekRaf=0;
 let activeSeekPointer=null;
-const YT_CHROME_FALLBACK_MS=3800;
 const YT_CHROME_HIDDEN_GRACE_MS=1000;
 const PIP_EMBED_MODE="nocookie-controls0-clean";
 const CHROME_LIBRARY_PROFILE_REV="chrome-extrema-v14";
@@ -586,6 +585,9 @@ let chromeReleaseWallTime=0;
 let nativeChromeVisible=null;
 let nativeChromeSignalAt=0;
 let nativeChromeSignalKey="";
+let pipUiCycle=0;
+let nativeChromeVisibleCycle=-1;
+let nativeChromeHiddenCycle=-1;
 let pipPointerMode=null;
 let pipPointerId=null;
 let pipPointerStart=null;
@@ -661,23 +663,35 @@ function resetNativeChromeSignal(){
   nativeChromeVisible=null;
   nativeChromeSignalAt=0;
   nativeChromeSignalKey="";
+  nativeChromeVisibleCycle=-1;
+  nativeChromeHiddenCycle=-1;
 }
 function setNativeChromeSignal(visible,key=""){
-  nativeChromeVisible=!!visible;
+  const isVisible=!!visible;
+  nativeChromeVisible=isVisible;
   nativeChromeSignalAt=performance.now();
   nativeChromeSignalKey=String(key||"");
 
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  if(nativeChromeVisible){
+  if(isVisible){
+    // A real VISIBLE signal starts the only trustworthy release sequence.
+    nativeChromeVisibleCycle=pipUiCycle;
+    nativeChromeHiddenCycle=-1;
     stopChromeMaskTimer();
     setChromeMask(true);
     return;
   }
 
-  if(playerIsPlaying()){
-    scheduleChromeRelease();
+  // Never trust a standalone HIDDEN. It must follow a VISIBLE signal from the
+  // same UI-activity cycle; otherwise it may be an unrelated/stale iframe msg.
+  if(nativeChromeVisibleCycle!==pipUiCycle){
+    nativeChromeHiddenCycle=-1;
+    return;
   }
+
+  nativeChromeHiddenCycle=pipUiCycle;
+  if(playerIsPlaying())scheduleChromeRelease();
 }
 window.addEventListener("message",event=>{
   let iframeWindow=null;
@@ -1380,9 +1394,18 @@ function paintGeometryReadout(result){
     (Number(result.signedGap??result.safeWindow.height)<0?" (OVERLAP)":"")+
     " · LINK "+(stage.classList.contains("demo-pip")?"PIP=LIB":"LIB")+
     " · UI-SIGNAL "+(
-      nativeChromeVisible===true?"VISIBLE":
-      nativeChromeVisible===false?"HIDDEN":"NONE"
+      nativeChromeVisible===true
+        ? "VISIBLE✓"
+        : nativeChromeVisible===false
+          ? (
+              nativeChromeVisibleCycle===pipUiCycle &&
+              nativeChromeHiddenCycle===pipUiCycle
+                ? "HIDDEN✓"
+                : "HIDDEN?"
+            )
+          : "NONE"
     )+
+    " · CYCLE "+pipUiCycle+
     (nativeChromeSignalKey?" ["+nativeChromeSignalKey+"]":"");
 }
 function syncMeasuredSafeWindow(){
@@ -1532,65 +1555,43 @@ function scheduleChromeRelease(){
   stopChromeMaskTimer();
   if(!playerIsPlaying())return;
 
-  // Best path: an explicit iframe UI-hidden signal. Wait one extra second after
-  // YouTube says its chrome is hidden, then reveal the full video.
-  if(nativeChromeVisible===false&&nativeChromeSignalAt>0){
-    const elapsed=performance.now()-nativeChromeSignalAt;
-    const wait=Math.max(0,YT_CHROME_HIDDEN_GRACE_MS-elapsed);
-    chromeMaskTimer=setTimeout(()=>{
-      if(!playerIsPlaying())return;
-      if(nativeChromeVisible!==false)return;
-      if(stage.classList.contains("controls-visible")||activeSeekPointer!==null)return;
-      setChromeMask(false);
-      stopChromeMaskTimer();
-    },wait);
-    return;
-  }
+  // Release only after a verified VISIBLE -> HIDDEN sequence from this exact
+  // UI cycle. No fixed-time guess is allowed to uncover YouTube chrome.
+  if(
+    nativeChromeVisible!==false ||
+    nativeChromeVisibleCycle!==pipUiCycle ||
+    nativeChromeHiddenCycle!==pipUiCycle ||
+    nativeChromeSignalAt<=0
+  )return;
 
-  // Safety fallback only for YouTube builds that expose no chrome-visibility signal.
-  // Normal release is HIDDEN signal + 1 second.
-  chromeReleaseMediaTime=currentMediaTime();
-  chromeReleaseWallTime=performance.now();
+  const cycle=pipUiCycle;
+  const hiddenAt=nativeChromeSignalAt;
+  const wait=Math.max(
+    0,
+    YT_CHROME_HIDDEN_GRACE_MS-(performance.now()-hiddenAt)
+  );
 
-  const verify=()=>{
-    if(!playerIsPlaying()){
-      stopChromeMaskTimer();
-      return;
-    }
-    if(nativeChromeVisible===false&&nativeChromeSignalAt>0){
-      scheduleChromeRelease();
-      return;
-    }
-    if(stage.classList.contains("controls-visible")||activeSeekPointer!==null){
-      chromeMaskTimer=setTimeout(verify,250);
-      return;
-    }
+  chromeMaskTimer=setTimeout(()=>{
+    if(!playerIsPlaying())return;
+    if(pipUiCycle!==cycle)return;
+    if(nativeChromeVisible!==false)return;
+    if(nativeChromeVisibleCycle!==cycle)return;
+    if(nativeChromeHiddenCycle!==cycle)return;
+    if(activeSeekPointer!==null)return;
 
-    const elapsedWall=performance.now()-chromeReleaseWallTime;
-    const advanced=Math.max(0,currentMediaTime()-chromeReleaseMediaTime);
-    const expected=(elapsedWall/1000)*currentPlaybackRate();
-    const movingEnough=advanced>=Math.max(.35,expected*.55);
-
-    if(elapsedWall>=YT_CHROME_FALLBACK_MS&&movingEnough){
-      setChromeMask(false);
-      stopChromeMaskTimer();
-      return;
-    }
-    chromeMaskTimer=setTimeout(verify,250);
-  };
-
-  chromeMaskTimer=setTimeout(verify,250);
+    setChromeMask(false);
+    stopChromeMaskTimer();
+  },wait);
 }
 function markPipUiActivity(){
   if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
 
-  // Any action that can make YouTube chrome appear enters the same covered
-  // state. There is no second 1.8s timer for X/seek in PiP max.
+  // Every interaction/play/reflow starts a new cycle. Only signals belonging
+  // to this cycle may later uncover the video.
+  pipUiCycle+=1;
   resetNativeChromeSignal();
   setChromeMask(true);
-
-  if(playerIsPlaying())scheduleChromeRelease();
-  else stopChromeMaskTimer();
+  stopChromeMaskTimer();
 }
 
 function hideCleanControls(){
@@ -1839,8 +1840,8 @@ async function render(){
           if(!stage.classList.contains("demo-pip")||!stage.classList.contains("max-clean-mode"))return;
           const state=Number(event?.data);
           if(state===1){
-            // PLAY / RESUME / BUFFERING->PLAYING all enter the same UI-activity
-            // state. Custom controls do not have to be shown just because play began.
+            // PLAY / RESUME / BUFFERING->PLAYING starts a fresh covered cycle.
+            // It can be released only by a verified VISIBLE -> HIDDEN sequence.
             markPipUiActivity();
           }else{
             // PAUSED / BUFFERING / CUED / ENDED: keep YouTube chrome covered.
