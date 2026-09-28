@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.27";
+  const VERSION = "2026-09-28.28";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -248,15 +248,18 @@
       {w:760, topInset:66, bottomInset:61}
     ]),
     portrait:Object.freeze([
-      {w:140, topInset:50, bottomInset:33},
-      {w:170, topInset:51, bottomInset:34},
-      {w:200, topInset:52, bottomInset:35},
-      {w:240, topInset:53, bottomInset:36},
-      {w:280, topInset:55, bottomInset:37},
-      {w:319, topInset:56, bottomInset:38},
-      {w:320, topInset:56, bottomInset:53},
-      {w:360, topInset:58, bottomInset:55},
-      {w:460, topInset:61, bottomInset:57}
+      // Portrait regular-watch keeps the top metadata chrome nearly fixed in
+      // physical pixels. Follow the actual lower border of that top strip.
+      // The lower YouTube strip also grows smoothly; unlike landscape there is
+      // no 319→320 action-card breakpoint.
+      {w:140, topInset:58, bottomInset:32},
+      {w:170, topInset:58, bottomInset:33},
+      {w:200, topInset:59, bottomInset:34},
+      {w:240, topInset:59, bottomInset:36},
+      {w:280, topInset:60, bottomInset:40},
+      {w:320, topInset:60, bottomInset:42},
+      {w:360, topInset:61, bottomInset:44},
+      {w:460, topInset:62, bottomInset:47}
     ])
   });
 
