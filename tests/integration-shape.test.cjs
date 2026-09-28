@@ -52,6 +52,14 @@ if(simpleProduction){
   assert.match(refresh,/function enrichRowsWithStoredVideoMeta\(/);
   assert.match(refresh,/_aspectVerified:true/);
   assert.match(refresh,/yt1988_video_meta\?verified=eq\.true/);
+  assert.match(html,/indexedDB\.open\(PACKAGE_DB_NAME,1\)/);
+  assert.match(html,/function restoreStoredPackage\(/);
+  assert.match(html,/function fetchWithTimeout\(/);
+  assert.match(html,/package_["']\+scope\+["']_hash_mismatch/);
+  assert.match(html,/expectedHash:remoteHash/);
+  assert.match(html,/writeStoredPackage\(scope,pkg\)/);
+  assert.match(html,/await restoreStoredPackage\(["']live["']\)/);
+  assert.match(html,/Promise\.all\(scopes\.map\(scope=>restoreStoredPackage\(scope\)\)\)/);
   assert.match(html,/function selectedMetaNeedsLookup\(/);
   assert.match(html,/Never synthesize a fake card from current/);
   assert.doesNotMatch(html,/\[meta\.id\?meta:\{\.\.\.meta,id:current\.id,title:current\.label\}\]/);
@@ -97,7 +105,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v32/);
+  assert.match(sw,/1988-simple-media-v33/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
