@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.21";
+  const VERSION = "2026-09-28.22";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -343,54 +343,19 @@
       layoutState.maxTitleLines
     );
 
-    const playCenter = { x: width / 2, y: height / 2 };
     const topBoxMetrics = topBoxes(sample, titleLines, layoutState.top);
     const topChromeRaw = topBoxMetrics.outerMax;
     const bottomBoxMetrics = bottomBoxes(sample, layoutState.bottom);
     const bottomChromeRaw = bottomBoxMetrics.outerMax;
 
-    // The embed profile already describes the OUTER chrome bounds including
-    // background/pill padding. Only retain a tiny AA margin.
+    // Library geometry is now deliberately only TOP/BOTTOM. Native Play/Pause
+    // remains inside the video but never constrains, expands or clips these bounds.
     const topBleed = 1;
     const bottomBleed = 1;
     const topChrome = topChromeRaw + topBleed;
     const bottomChrome = bottomChromeRaw + bottomBleed;
-
-    // Native Play/Pause remains centered. At small player sizes YouTube also
-    // shrinks that control, so do not use a large fixed minimum radius.
-    const playDiameter =
-      layoutState.density === "tight" ? clamp(Math.min(width,height)*.29,24,28) :
-      layoutState.density === "compact" ? clamp(Math.min(width,height)*.27,28,34) :
-      clamp(Math.min(width,height)*.22,34,52);
-    const playRadius = playDiameter/2;
-    // Collision is based on the actual native Play/Pause circle only.
-    // Do not reserve any extra halo/border around it; that prematurely stops
-    // TOP/BOTTOM masking and can leave tiny YouTube chrome fragments visible.
-    const playGap = 0;
-    const playSafety = playRadius;
-
-    // Our own top buttons and bottom seek must stay entirely inside the masked
-    // bands. Their minimum required band depth changes with compact density.
-    const topBarMin =
-      layoutState.density === "tight" ? 28 :
-      layoutState.density === "compact" ? 32 : 38;
-    const bottomBarMin =
-      layoutState.density === "tight" ? 18 :
-      layoutState.density === "compact" ? 22 : 30;
-
-    const wantedTop = Math.max(topChrome, topBarMin);
-    const wantedBottom = Math.max(bottomChrome, bottomBarMin);
-    const playTop = playCenter.y - playSafety;
-    const playBottom = playCenter.y + playSafety;
-
-    // IMPORTANT: Play/Pause never clamps the measured chrome. The library must
-    // report the true TOP/BOTTOM bounds. Collision is only a layout state that
-    // the PiP UI may react to separately.
-    const topInset = wantedTop;
-    const bottomInset = wantedBottom;
-    const topCollision = topInset >= playTop;
-    const bottomCollision = (height-bottomInset) <= playBottom;
-    const collisionMode = topCollision || bottomCollision;
+    const topInset = topChrome;
+    const bottomInset = bottomChrome;
 
     return {
       version: VERSION,
@@ -398,13 +363,6 @@
       width,
       height,
       titleLines,
-      playCenter,
-      playRadius,
-      playSafety,
-      topBarMin,
-      bottomBarMin,
-      collisionMode,
-      collisions:{top:topCollision,bottom:bottomCollision},
       embedMode:sample.embedKey,
       sampleRange: sample.range || [sample.w,sample.w],
       layoutState,
@@ -476,17 +434,6 @@
     const topInset=Math.max(0,(rawResult.topInset-trimTop)*scaleY);
     const bottomInset=Math.max(0,(rawResult.bottomInset-trimBottom)*scaleY);
 
-    const playCenter={
-      x:(rawResult.playCenter.x-trimLeft)*scaleX,
-      y:(rawResult.playCenter.y-trimTop)*scaleY
-    };
-    const playSafety=rawResult.playSafety*Math.max(scaleX,scaleY);
-    const playTop=playCenter.y-playSafety;
-    const playBottom=playCenter.y+playSafety;
-    const collisionMode=
-      topInset>=playTop ||
-      (viewportH-bottomInset)<=playBottom;
-
     return {
       ...rawResult,
       width:viewportW,
@@ -495,8 +442,6 @@
       rawHeight:rawH,
       rawTopInset:rawResult.topInset,
       rawBottomInset:rawResult.bottomInset,
-      rawPlayCenter:rawResult.playCenter,
-      rawPlaySafety:rawResult.playSafety,
       viewportTrim:{
         ...trim,
         topPx:trimTop,
@@ -516,9 +461,6 @@
       },
       topInset,
       bottomInset,
-      playCenter,
-      playSafety,
-      collisionMode,
       safeEdge:Math.max(topInset,bottomInset),
       safeWindow:{
         x:0,
@@ -609,15 +551,12 @@
 
     element.style.setProperty("--yt-top-inset", result.topInset.toFixed(2) + "px");
     element.style.setProperty("--yt-bottom-inset", result.bottomInset.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-x", result.playCenter.x.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-y", result.playCenter.y.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-safe", result.playSafety.toFixed(2) + "px");
     element.dataset.ytChromeOrientation = result.orientation;
     element.dataset.ytTitleLines = String(result.titleLines);
     element.dataset.ytChromeLayout = result.layoutState.id;
     element.dataset.ytChromeTier = result.layoutState.tier;
     element.dataset.ytChromeDensity = result.layoutState.density;
-    element.dataset.ytChromeCollision = result.collisionMode ? "1" : "0";
+    delete element.dataset.ytChromeCollision;
     return result;
   }
 
@@ -628,15 +567,12 @@
 
     element.style.setProperty("--yt-top-inset", result.topInset.toFixed(2) + "px");
     element.style.setProperty("--yt-bottom-inset", result.bottomInset.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-x", result.playCenter.x.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-y", result.playCenter.y.toFixed(2) + "px");
-    element.style.setProperty("--yt-play-safe", result.playSafety.toFixed(2) + "px");
     element.dataset.ytChromeOrientation = result.orientation;
     element.dataset.ytTitleLines = String(result.titleLines);
     element.dataset.ytChromeLayout = result.layoutState.id;
     element.dataset.ytChromeTier = result.layoutState.tier;
     element.dataset.ytChromeDensity = result.layoutState.density;
-    element.dataset.ytChromeCollision = result.collisionMode ? "1" : "0";
+    delete element.dataset.ytChromeCollision;
     return result;
   }
 
