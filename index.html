@@ -2252,7 +2252,6 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
-  const MEDIA_DOWNLOAD_URL="https://one988-media.onrender.com/download";
   const DOWNLOAD_RESOLVER_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-download";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
@@ -4338,47 +4337,26 @@ html.one-col.portrait .player.pip{
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
   }
 
-  async function startResolvedDownload(meta={},format="mp4"){
+  function startResolvedDownload(meta={},format="mp4"){
     format=String(format||"mp4").toLowerCase();
     const direct=directDownloadUrlForMeta(meta,format);
     if(direct){
-      return openDirectDownload(
-        direct,
-        videoTitleSlug(meta.title||"download")+"."+format
-      );
+      return openDirectDownload(direct);
     }
 
     const id=String(meta?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return false;
 
-    try{
-      const response=await fetch(DOWNLOAD_RESOLVER_URL,{
-        method:"POST",
-        cache:"no-store",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({
-          id,
-          format,
-          title:String(meta?.title||id).trim()
-        })
-      });
-      const payload=await response.json().catch(()=>({}));
-      const url=String(payload?.url||"").trim();
-      if(!response.ok||!/^https?:\/\//i.test(url)){
-        window.alert("Chưa chuẩn bị được file "+format.toUpperCase()+".");
-        return false;
-      }
+    // One click -> one real file request. The Edge Function resolves Cobalt and
+    // streams the bytes in this same request, so the browser keeps the native
+    // download gesture instead of creating a 0-byte async download.
+    const url=
+      DOWNLOAD_RESOLVER_URL+
+      "?id="+encodeURIComponent(id)+
+      "&format="+encodeURIComponent(format)+
+      "&title="+encodeURIComponent(String(meta?.title||id).trim());
 
-      return openDirectDownload(
-        url,
-        String(payload?.filename||"").trim()||
-          (videoTitleSlug(meta.title||"download")+"."+format)
-      );
-    }catch(error){
-      console.warn("download resolve failed",error);
-      window.alert("Chưa kết nối được máy chủ tải xuống.");
-      return false;
-    }
+    return openDirectDownload(url);
   }
 
   function showDownloadMenu(){
@@ -4401,17 +4379,15 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function openDirectDownload(url,filename=""){
+  function openDirectDownload(url){
     url=String(url||"").trim();
     if(!/^https?:\/\//i.test(url))return false;
 
-    // Cobalt tunnel URLs are file streams. A normal same-tab anchor lets the
-    // browser handle Content-Disposition directly; unlike a hidden iframe it
-    // does not create a 0-byte completed download in Chromium/Safari.
+    // Do not set target=_blank or a synthetic cross-origin filename. The file
+    // response itself carries Content-Disposition: attachment.
     const a=document.createElement("a");
     a.href=url;
-    if(filename)a.download=filename;
-    a.rel="noopener noreferrer";
+    a.rel="noopener";
     a.style.display="none";
     document.body.appendChild(a);
     a.click();
@@ -6257,12 +6233,12 @@ html.one-col.portrait .player.pip{
       }
       if(kind==="download-mp4"){
         closeRowActionMenu();
-        void startResolvedDownload(meta,"mp4");
+        startResolvedDownload(meta,"mp4");
         return;
       }
       if(kind==="download-mp3"){
         closeRowActionMenu();
-        void startResolvedDownload(meta,"mp3");
+        startResolvedDownload(meta,"mp3");
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
