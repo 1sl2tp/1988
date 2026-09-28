@@ -3529,13 +3529,92 @@ html.one-col.portrait .player.pip{
       :"";
   }
 
-  function preferredCardThumb(id,current=""){
-    const maxres=youtubeThumbUrl(id,"maxresdefault.jpg");
-    if(!maxres)return current;
-    if(/\/maxresdefault\.(?:jpg|jpeg|webp)(?:[?#]|$)/i.test(String(current||""))){
+  const youtubeThumbQualityCache=new Map();
+  let youtubeThumbQualityObserver=null;
+
+  function probeYoutubeThumb(url,minWidth=480,minHeight=270){
+    return new Promise(resolve=>{
+      if(!url){resolve("");return;}
+      const test=new Image();
+      test.decoding="async";
+      try{test.fetchPriority="low";}catch{}
+      let settled=false;
+      const finish=value=>{
+        if(settled)return;
+        settled=true;
+        resolve(value);
+      };
+      test.onload=async()=>{
+        try{await test.decode?.();}catch{}
+        const width=Number(test.naturalWidth)||0;
+        const height=Number(test.naturalHeight)||0;
+        finish(width>=minWidth&&height>=minHeight?url:"");
+      };
+      test.onerror=()=>finish("");
+      test.src=url;
+      if(test.complete&&test.naturalWidth)queueMicrotask(()=>test.onload?.());
+      setTimeout(()=>finish(""),1800);
+    });
+  }
+
+  function resolvePreferredCardThumb(id,current=""){
+    id=String(id||"").trim();
+    current=String(current||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return Promise.resolve(current);
+    const cacheKey=id+"|"+current;
+    const cached=youtubeThumbQualityCache.get(cacheKey);
+    if(cached)return cached;
+
+    const task=(async()=>{
+      const maxres=await probeYoutubeThumb(youtubeThumbUrl(id,"maxresdefault.jpg"),640,360);
+      if(maxres)return maxres;
+
+      // Some videos do not publish maxres. YouTube can answer those URLs with
+      // a tiny grey placeholder instead of a network error, so validate the
+      // decoded size before switching the visible card away from its safe hq image.
+      const sd=await probeYoutubeThumb(youtubeThumbUrl(id,"sddefault.jpg"),480,360);
+      if(sd)return sd;
+
       return current;
+    })().catch(()=>current);
+
+    youtubeThumbQualityCache.set(cacheKey,task);
+    return task;
+  }
+
+  function upgradeRowThumb(img){
+    if(!(img instanceof HTMLImageElement)||img.dataset.thumbQualityDone==="1")return;
+    const card=img.closest(".row[data-video-id]");
+    const id=String(card?.dataset?.videoId||"").trim();
+    const base=String(img.dataset.thumbBase||img.getAttribute("src")||"").trim();
+    if(!id||!base){
+      img.dataset.thumbQualityDone="1";
+      return;
     }
-    return maxres;
+    img.dataset.thumbQualityDone="1";
+    void resolvePreferredCardThumb(id,base).then(best=>{
+      if(!best||!img.isConnected||card?.dataset?.videoId!==id)return;
+      if(best!==img.getAttribute("src"))img.src=best;
+    });
+  }
+
+  function observeRowThumbQuality(root){
+    if(!root)return;
+    const images=[...root.querySelectorAll(".row[data-video-id] .row-thumb img")];
+    if(!("IntersectionObserver" in window)){
+      images.forEach(upgradeRowThumb);
+      return;
+    }
+    if(!youtubeThumbQualityObserver){
+      youtubeThumbQualityObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          youtubeThumbQualityObserver?.unobserve?.(entry.target);
+          upgradeRowThumb(entry.target);
+        }
+      },{rootMargin:"320px 0px"});
+    }
+    images.forEach(img=>youtubeThumbQualityObserver.observe(img));
   }
 
   function cardMarkup(meta,index=0){
@@ -3544,7 +3623,9 @@ html.one-col.portrait .player.pip{
     const source=meta.sourceName || "1988";
     const baseThumb=meta.thumbnail ||
       ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg");
-    const thumb=preferredCardThumb(id,baseThumb);
+    // Render the known-safe package image first. Higher quality variants are
+    // swapped in only after their decoded dimensions prove they are real art.
+    const thumb=baseThumb;
 
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
     const badgeClass=meta.isLive ? "duration-badge live" : "duration-badge";
@@ -3951,6 +4032,7 @@ html.one-col.portrait .player.pip{
     // otherwise clicking a source can load correctly but all new cards stay hidden.
     const rendered=cards.slice(0,18);
     rows.innerHTML=rendered.map(cardMarkup).join("");
+    observeRowThumbQuality(rows);
     applyRenderedCardTints(rows);
 
     if(activeInlineId){
