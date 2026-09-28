@@ -2945,22 +2945,15 @@ Deno.serve(async(req:Request)=>{
 
       if(scope!=="live"&&selected.length&&raw.length===0&&Array.isArray(current?.items)&&current.items.length){
         const previousItems=Array.isArray(current.items)?current.items:[];
-        const previousFullyVerified=previousItems.length>0&&previousItems.every((row:any)=>
-          Number(row?._shortCheckedAt)>0&&
-          Number(row?._embedCheckedAt)>0&&
-          row?._embedPlayable===true
-        );
-
-        if(previousFullyVerified){
-          degradedNotes.push(scope+":empty_candidate_kept_previous");
-          results.push({scope,changed:false,reason:"empty_candidate_kept_previous",items:previousItems.length});
-          continue;
-        }
-
-        // Old packages created before strict embed verification are not safe
-        // fallback data. Publish the verified result (even empty) instead of
-        // resurrecting videos that YouTube refuses to embed.
-        degradedNotes.push(scope+":stale_unverified_package_dropped");
+        degradedNotes.push(scope+":empty_candidate_kept_previous");
+        await queuePendingRefresh(rest,authHeaders,[scope]);
+        results.push({
+          scope,
+          changed:false,
+          reason:"empty_candidate_kept_previous",
+          items:previousItems.length
+        });
+        continue;
       }
 
       // Rotation/shape is server data too. Merge only metadata that the player
