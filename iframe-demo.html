@@ -27,6 +27,87 @@
     .idbar{display:flex;gap:8px;padding:10px 12px 0}
     .idbar input{min-width:0;flex:1;border:1px solid var(--line);background:#121214;color:#fff;border-radius:10px;padding:10px 11px;font-size:14px}
     .idbar button{border-radius:10px}
+    .demo-actions{display:flex;align-items:center;gap:8px;padding:10px 12px 0}
+    .demo-actions[hidden]{display:none}
+    .demo-actions .hint{font-size:12px;color:var(--muted);line-height:1.4}
+    .stage-spacer{display:none;width:100%}
+    .stage.demo-pip{
+      position:fixed;
+      z-index:50;
+      top:calc(env(safe-area-inset-top) + 10px);
+      right:10px;
+      width:clamp(170px,46vw,280px);
+      height:auto;
+      aspect-ratio:16/9;
+      margin:0!important;
+      border-radius:12px!important;
+      overflow:hidden;
+      box-shadow:0 14px 38px rgba(0,0,0,.58);
+    }
+    .stage.demo-pip.demo-pip-large{width:min(72vw,520px)}
+    .clean-overlay{
+      position:absolute;
+      inset:0;
+      z-index:4;
+      display:none;
+      touch-action:manipulation;
+      -webkit-tap-highlight-color:transparent;
+    }
+    .stage.demo-pip.clean-mode .clean-overlay{display:block}
+    .clean-controls{
+      position:absolute;
+      inset:0;
+      opacity:0;
+      pointer-events:none;
+      transition:opacity .16s ease;
+    }
+    .stage.controls-visible .clean-controls{
+      opacity:1;
+      pointer-events:auto;
+    }
+    .clean-controls::before{
+      content:"";
+      position:absolute;
+      inset:0;
+      background:
+        linear-gradient(to bottom,rgba(0,0,0,.34),transparent 34%,transparent 66%,rgba(0,0,0,.22));
+      pointer-events:none;
+    }
+    .clean-control{
+      position:absolute;
+      z-index:1;
+      width:38px;
+      height:38px;
+      padding:0;
+      border:0;
+      border-radius:50%;
+      display:grid;
+      place-items:center;
+      background:rgba(0,0,0,.56);
+      color:#fff;
+      backdrop-filter:blur(6px);
+      -webkit-backdrop-filter:blur(6px);
+    }
+    .clean-control svg{display:block;width:22px;height:22px;fill:currentColor}
+    .clean-control.close{top:8px;right:8px}
+    .clean-control.resize{top:8px;left:8px}
+    .clean-control.play{
+      top:50%;
+      left:50%;
+      width:46px;
+      height:46px;
+      transform:translate(-50%,-50%);
+    }
+    .clean-control:hover{background:rgba(0,0,0,.72)}
+    @media(max-width:560px){
+      .stage.demo-pip{
+        right:8px;
+        top:calc(env(safe-area-inset-top) + 8px);
+        width:46vw;
+      }
+      .stage.demo-pip.demo-pip-large{width:calc(100vw - 16px)}
+      .demo-actions{align-items:flex-start;flex-direction:column}
+    }
     @media(min-width:760px){
       .stage{border-radius:14px;margin:12px;width:calc(100% - 24px)}
       .meta{margin:0 12px}
@@ -47,6 +128,11 @@
 
   <div class="toolbar" id="modes"></div>
   <div class="stage" id="stage"></div>
+  <div class="stage-spacer" id="stageSpacer"></div>
+  <div class="demo-actions" id="demoActions" hidden>
+    <button id="demoPipToggle" type="button">Bật PiP demo</button>
+    <span class="hint">PiP vừa nổi chỉ có video. Chạm/rê mới hiện Play/Pause · X · phóng/thu rồi tự ẩn.</span>
+  </div>
   <div class="meta">
     <strong id="modeTitle"></strong>
     <span id="modeDesc"></span>
@@ -111,6 +197,15 @@ const modes=[
     desc:"Không dùng constructor YT.Player nhưng bật enablejsapi để parent có thể postMessage play/pause.",
     host:"https://www.youtube-nocookie.com",
     params:{playsinline:1,controls:1,rel:0,fs:1,enablejsapi:1}
+  },
+  {
+    id:"cleanpip",
+    title:"8 · PiP sạch · controls:0 + custom overlay",
+    short:"PiP sạch",
+    desc:"YT.Player API với controls:0. Bật PiP demo: lúc vừa nổi chỉ có video; chạm/rê mới hiện Play/Pause + X + phóng/thu của trang rồi tự ẩn.",
+    api:true,
+    cleanDemo:true,
+    params:{autoplay:1,playsinline:1,controls:0,cc_load_policy:0,rel:0,fs:0,disablekb:1,modestbranding:1,iv_load_policy:3,enablejsapi:1}
   }
 ];
 
@@ -120,9 +215,75 @@ const titleEl=document.getElementById("modeTitle");
 const descEl=document.getElementById("modeDesc");
 const codeEl=document.getElementById("code");
 const input=document.getElementById("videoId");
+const demoActions=document.getElementById("demoActions");
+const demoPipToggle=document.getElementById("demoPipToggle");
+const stageSpacer=document.getElementById("stageSpacer");
 let active="current";
 let apiReady=false;
 let apiPlayer=null;
+let cleanHideTimer=0;
+
+function stopCleanHideTimer(){
+  if(!cleanHideTimer)return;
+  clearTimeout(cleanHideTimer);
+  cleanHideTimer=0;
+}
+function hideCleanControls(){
+  stopCleanHideTimer();
+  stage.classList.remove("controls-visible");
+}
+function showCleanControls(){
+  if(!stage.classList.contains("demo-pip")||!stage.classList.contains("clean-mode"))return;
+  stage.classList.add("controls-visible");
+  stopCleanHideTimer();
+  cleanHideTimer=setTimeout(()=>stage.classList.remove("controls-visible"),1800);
+}
+function syncCleanPlayIcon(){
+  const btn=stage.querySelector("[data-clean-play]");
+  if(!btn||!apiPlayer)return;
+  let playing=false;
+  try{playing=apiPlayer.getPlayerState?.()===1}catch{}
+  btn.innerHTML=playing
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7V5Zm6 0h4v14h-4V5Z"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z"/></svg>';
+  btn.setAttribute("aria-label",playing?"Tạm dừng":"Phát");
+  btn.title=playing?"Tạm dừng":"Phát";
+}
+function cleanOverlayMarkup(){
+  return '<div class="clean-overlay" data-clean-overlay aria-label="Vùng điều khiển PiP demo">'+
+    '<div class="clean-controls">'+
+      '<button class="clean-control resize" type="button" data-clean-resize aria-label="Phóng hoặc thu PiP" title="Phóng / thu">'+
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h7v2H7.41l4.3 4.29-1.42 1.42L6 7.41V11H4V4Zm16 16h-7v-2h3.59l-4.3-4.29 1.42-1.42L18 16.59V13h2v7Z"/></svg>'+
+      '</button>'+
+      '<button class="clean-control play" type="button" data-clean-play aria-label="Phát" title="Phát">'+
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7L8 5Z"/></svg>'+
+      '</button>'+
+      '<button class="clean-control close" type="button" data-clean-close aria-label="Đóng PiP demo" title="Đóng PiP">'+
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z"/></svg>'+
+      '</button>'+
+    '</div>'+
+  '</div>';
+}
+function exitDemoPip(){
+  stage.classList.remove("demo-pip","demo-pip-large","controls-visible");
+  stageSpacer.style.display="none";
+  stageSpacer.style.height="";
+  demoPipToggle.textContent="Bật PiP demo";
+  stopCleanHideTimer();
+}
+function enterDemoPip(){
+  if(!stage.classList.contains("clean-mode"))return;
+  const rect=stage.getBoundingClientRect();
+  stageSpacer.style.height=Math.max(1,Math.round(rect.height))+"px";
+  stageSpacer.style.display="block";
+  stage.classList.add("demo-pip");
+  stage.classList.remove("demo-pip-large","controls-visible");
+  demoPipToggle.textContent="Trả về MAIN";
+  stopCleanHideTimer();
+}
+function toggleDemoPip(){
+  stage.classList.contains("demo-pip")?exitDemoPip():enterDemoPip();
+}
 
 function cleanId(value){
   const raw=String(value||"").trim();
@@ -164,13 +325,19 @@ async function render(){
   descEl.textContent=mode.desc;
   document.querySelectorAll("[data-mode]").forEach(b=>b.classList.toggle("active",b.dataset.mode===active));
 
+  exitDemoPip();
   if(apiPlayer){try{apiPlayer.destroy()}catch{} apiPlayer=null;}
+  stage.classList.toggle("clean-mode",!!mode.cleanDemo);
+  demoActions.hidden=!mode.cleanDemo;
   stage.innerHTML="";
 
   if(mode.api){
     const host=document.createElement("div");
     host.id="api-player";
     stage.appendChild(host);
+    if(mode.cleanDemo){
+      stage.insertAdjacentHTML("beforeend",cleanOverlayMarkup());
+    }
     codeEl.textContent=
 `new YT.Player("api-player", {
   host: "https://www.youtube-nocookie.com",
@@ -186,7 +353,15 @@ async function render(){
       height:"100%",
       width:"100%",
       videoId:id,
-      playerVars:{...mode.params,origin:location.origin}
+      playerVars:{...mode.params,origin:location.origin},
+      events:mode.cleanDemo?{
+        onReady(){
+          syncCleanPlayIcon();
+        },
+        onStateChange(){
+          syncCleanPlayIcon();
+        }
+      }:undefined
     });
     return;
   }
@@ -203,6 +378,44 @@ modesEl.addEventListener("click",e=>{
   if(!b)return;
   active=b.dataset.mode;
   render();
+});
+demoPipToggle.addEventListener("click",toggleDemoPip);
+stage.addEventListener("pointerdown",e=>{
+  if(!e.target.closest("[data-clean-overlay]"))return;
+  if(e.target.closest("[data-clean-play],[data-clean-close],[data-clean-resize]"))return;
+  showCleanControls();
+});
+stage.addEventListener("pointermove",()=>{
+  if(stage.classList.contains("demo-pip"))showCleanControls();
+});
+stage.addEventListener("click",e=>{
+  const play=e.target.closest("[data-clean-play]");
+  if(play){
+    e.preventDefault();
+    e.stopPropagation();
+    try{
+      const playing=apiPlayer?.getPlayerState?.()===1;
+      if(playing)apiPlayer.pauseVideo?.();
+      else apiPlayer?.playVideo?.();
+    }catch{}
+    syncCleanPlayIcon();
+    showCleanControls();
+    return;
+  }
+  const close=e.target.closest("[data-clean-close]");
+  if(close){
+    e.preventDefault();
+    e.stopPropagation();
+    exitDemoPip();
+    return;
+  }
+  const resize=e.target.closest("[data-clean-resize]");
+  if(resize){
+    e.preventDefault();
+    e.stopPropagation();
+    stage.classList.toggle("demo-pip-large");
+    showCleanControls();
+  }
 });
 document.getElementById("loadBtn").addEventListener("click",render);
 input.addEventListener("keydown",e=>{if(e.key==="Enter")render();});
