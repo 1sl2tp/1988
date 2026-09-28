@@ -169,11 +169,11 @@
     </div>
   </div>
 
-  <div id="auth" class="auth" hidden>
+  <div id="auth" class="auth">
     <form id="authForm" class="auth-card">
       <strong>Mở Quản lý nguồn</strong>
-      <span>Nhập mã quản trị</span>
-      <input id="authPin" inputmode="numeric" autocomplete="off" maxlength="8">
+      <span>Nhập mật khẩu quản trị</span>
+      <input id="authPin" type="password" inputmode="numeric" autocomplete="current-password" maxlength="8" aria-label="Mật khẩu quản trị">
       <div id="authError" class="auth-error"></div>
       <button class="primary">Mở</button>
     </form>
@@ -188,6 +188,6 @@
   })();
   </script>
   <script type="module" src="../src/yt-local.js?v=search-fast-286"></script>
-  <script src="./sources.js?v=19"></script>
+  <script src="./sources.js?v=20"></script>
 </body>
 </html>
