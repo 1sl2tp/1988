@@ -612,6 +612,8 @@
     .stage.rail-mode .rail-top-info .pip-top-title{font-size:13px}
     .stage.rail-mode .rail-top-info .pip-top-meta{font-size:10px}
     .stage.rail-mode .rail-close{
+      position:relative;
+      z-index:8;
       flex:0 0 30px;
       width:30px;
       height:30px;
@@ -686,7 +688,7 @@
       font-size:8px;
       line-height:1;
     }
-    .stage.rail-mode .pip-drag-zone{top:0;height:var(--rail-top-h)}
+    .stage.rail-mode .pip-drag-zone{top:0;right:46px;height:var(--rail-top-h)}
     .stage.demo-pip.rail-mode .pip-drag-zone,
     .stage.demo-pip.rail-mode .pip-resize-handle{display:block}
     .stage.rail-mode[data-rail-level="1"] .pip-top-avatar,
@@ -900,6 +902,7 @@ let geometrySettleTimer=0;
 let geometryResizeObserver=null;
 const mediaChromeLibraries=new Map();
 let currentChromeLibrary=null;
+let currentRailLibrary=null;
 let currentLibraryRevision="";
 let requestedVideoId="";
 let verifiedMediaAspect=0;
@@ -1098,10 +1101,13 @@ function renderPipTopInfo(){
   const root=stage.querySelector("[data-pip-top-info]");
   if(!root)return;
 
+  const activeMetaLibrary=stage.classList.contains("rail-mode")
+    ? currentRailLibrary
+    : currentChromeLibrary;
   const meta=
-    currentChromeLibrary?.videoId===requestedVideoId &&
-    currentChromeLibrary?.mediaMeta?.id===requestedVideoId
-      ? currentChromeLibrary.mediaMeta
+    activeMetaLibrary?.videoId===requestedVideoId &&
+    activeMetaLibrary?.mediaMeta?.id===requestedVideoId
+      ? activeMetaLibrary.mediaMeta
       : pipMetaFallback(requestedVideoId);
 
   const avatar=root.querySelector("[data-pip-top-avatar]");
@@ -1158,16 +1164,25 @@ function attachPipMetaToLibrary(id,meta,{cache=true}={}){
     pipMetaCache.set(id,meta);
   }
 
+  const mediaMetaState=
+    meta.verified===true && meta.title && meta.channel && meta.avatar
+      ? "ready"
+      : meta.verified===true
+        ? "partial"
+        : "fallback";
+
   if(currentChromeLibrary?.videoId===id){
     currentChromeLibrary={
       ...currentChromeLibrary,
       mediaMeta:meta,
-      mediaMetaState:
-        meta.verified===true && meta.title && meta.channel && meta.avatar
-          ? "ready"
-          : meta.verified===true
-            ? "partial"
-            : "fallback"
+      mediaMetaState
+    };
+  }
+  if(currentRailLibrary?.videoId===id){
+    currentRailLibrary={
+      ...currentRailLibrary,
+      mediaMeta:meta,
+      mediaMetaState
     };
   }
   renderPipTopInfo();
@@ -1314,6 +1329,7 @@ function invalidateChromeLibraries(){
   destroyCalibrationPlayer();
   mediaChromeLibraries.clear();
   currentChromeLibrary=null;
+  currentRailLibrary=null;
   currentLibraryRevision=chromeLibraryRevision();
   calLiveFrame?.replaceChildren();
 }
@@ -1534,7 +1550,8 @@ function paintRailLibrary(layout){
     " · NOW "+Math.round(layout.width)+"×"+Math.round(layout.height)+
     " · FULL "+Math.round(max.width)+"×"+Math.round(max.height)+
     " · VIDEO "+Math.round(layout.width)+"×"+Math.round(layout.videoHeight)+
-    " · TOP/BOTTOM "+layout.topHeight+"/"+layout.bottomHeight;
+    " · TOP/BOTTOM "+layout.topHeight+"/"+layout.bottomHeight+
+    " · META "+String(currentRailLibrary?.mediaMetaState||"fallback").toUpperCase();
 }
 function applyRailLayout(width,{pip=false,left=null,top=null}={}){
   const aspect=Math.max(.25,Number(verifiedMediaAspect)||Number(currentViewportTrim.contentAspect)||16/9);
@@ -1546,6 +1563,37 @@ function applyRailLayout(width,{pip=false,left=null,top=null}={}){
   stage.dataset.railLevel=String(layout.level);
   stage.dataset.pipTopLevel=String(layout.level);
   stage.dataset.demoShape=layout.orientation;
+
+  const seedMeta=
+    currentRailLibrary?.videoId===requestedVideoId
+      ? currentRailLibrary.mediaMeta
+      : pipMetaCache.get(requestedVideoId)?.verified===true
+        ? pipMetaCache.get(requestedVideoId)
+        : currentPipMeta?.id===requestedVideoId
+          ? currentPipMeta
+          : pipMetaFallback(requestedVideoId);
+  currentRailLibrary={
+    ...(currentRailLibrary?.videoId===requestedVideoId?currentRailLibrary:{}),
+    type:"rail",
+    videoId:requestedVideoId,
+    contentAspect:layout.aspect,
+    orientation:layout.orientation,
+    minWidth:layout.minWidth,
+    maxWidth:layout.maxWidth,
+    currentWidth:layout.width,
+    currentHeight:layout.height,
+    videoHeight:layout.videoHeight,
+    topHeight:layout.topHeight,
+    bottomHeight:layout.bottomHeight,
+    level:layout.level,
+    mediaMeta:seedMeta,
+    mediaMetaState:
+      seedMeta?.verified===true && seedMeta.title && seedMeta.channel && seedMeta.avatar
+        ? "ready"
+        : seedMeta?.verified===true
+          ? "partial"
+          : "fallback"
+  };
   paintRailLibrary(layout);
 
   if(pip){
@@ -2717,6 +2765,16 @@ async function render(){
   pipMetaRequestToken+=1;
   pipSourceAvatarCache=pipReadStoredObject(PIP_SOURCE_AVATAR_CACHE_KEY);
   currentPipMeta=pipMetaCache.get(id)||pipMetaFallback(id);
+  if(mode.railMode){
+    currentRailLibrary={
+      type:"rail",
+      videoId:id,
+      mediaMeta:currentPipMeta,
+      mediaMetaState:currentPipMeta.verified===true?"partial":"fallback",
+      contentAspect:16/9,
+      orientation:"landscape"
+    };
+  }
   void preloadPipLibraryMeta(id);
 
   verifiedMediaAspect=0;
