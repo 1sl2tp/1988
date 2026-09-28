@@ -5,7 +5,7 @@
   // Cross-origin iframe DOM/pixels cannot be inspected by the parent page, so
   // this library models YouTube's UI clusters from calibrated player sizes.
   // The native Play/Pause anchor is always the geometric player center.
-  const VERSION = "2026-09-28.16";
+  const VERSION = "2026-09-28.17";
 
   const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -451,13 +451,16 @@
     const scaleX=rawW/visibleW;
     const scaleY=rawH/visibleH;
 
+    // PiP already removes the media's outer black edge. The library bounds
+    // are measured on the full embed, so compensate the removed edge OUTWARD.
+    // Subtracting trim here makes the mask shallower and leaks title/branding.
     const topInset=Math.max(
       0,
-      (rawResult.topInset-trimTop)*scaleY
+      (rawResult.topInset+trimTop)*scaleY
     );
     const bottomInset=Math.max(
       0,
-      (rawResult.bottomInset-trimBottom)*scaleY
+      (rawResult.bottomInset+trimBottom)*scaleY
     );
 
     const playCenter={
@@ -483,6 +486,8 @@
         rightPx:trimRight,
         bottomPx:trimBottom,
         leftPx:trimLeft,
+        compensationTopPx:trimTop*scaleY,
+        compensationBottomPx:trimBottom*scaleY,
         visibleW,
         visibleH,
         scaleX,
