@@ -208,7 +208,7 @@ button{cursor:pointer}
     </div>
     <div class="toolbar">
       <button class="tool active" data-filter="all">Tất cả</button>
-      <button class="tool" data-filter="live">LIVE</button>
+      <button class="tool" data-filter="live">Đang phát</button>
       <button class="tool" id="refreshBtn">Làm mới</button>
     </div>
     <div class="list" id="channelList"></div>
@@ -386,7 +386,7 @@ function renderList(){
   const root=document.getElementById('channelList');
   const visible=filterMode==='live'?channels.filter(x=>x.live):channels.slice();
   const liveCount=channels.filter(x=>x.live).length;
-  document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' LIVE';
+  document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
 
   const sorted=visible.sort((a,b)=>
     Number(b.live)-Number(a.live)||
@@ -403,12 +403,13 @@ function renderList(){
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const id=identityFor(handle)||{};
-    const name=String(id.nickname||'').trim()||('@'+handle);
+    const nickname=String(id.nickname||'').trim();
+    const name=nickname||('@'+handle);
     const avatar=String(id.avatar||'').trim();
     const stats=identityStatsHtml(id);
     return '<div class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'" role="button" tabindex="0">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
-      '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span>'+
+      '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+(nickname?'<span class="chhandle">@'+esc(handle)+'</span>':'')+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span>'+
       '<span class="row-actions">'+(row.live?'<span class="live-dot" title="Đang phát">●</span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
@@ -417,8 +418,8 @@ function renderList(){
   }).join('');
 
   let html='';
-  if(live.length)html+='<div class="group">Đang LIVE · '+live.length+'</div>'+makeRows(live);
-  if(offline.length)html+='<div class="group">Không LIVE · '+offline.length+'</div>'+makeRows(offline);
+  if(live.length)html+='<div class="group">Đang phát · '+live.length+'</div>'+makeRows(live);
+  if(offline.length)html+='<div class="group">Kênh khác · '+offline.length+'</div>'+makeRows(offline);
   root.innerHTML=html;
 
   root.querySelectorAll('.channel[data-handle]').forEach(el=>{
