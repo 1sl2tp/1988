@@ -161,6 +161,13 @@ async function syncLiveLibrary({force=false}={}){
       liveLibraryItems=Object.fromEntries(
         data.items.map(row=>[String(row.handle||'').toLowerCase(),row])
       );
+      // The server/Supabase package is authoritative for selected channels.
+      // Local storage is only a mirror so a fresh browser immediately receives
+      // the same full list after the first package read.
+      liveLibraryHandles=data.items
+        .map(row=>parseTikTokHandle(row?.handle||''))
+        .filter(Boolean)
+        .slice(0,60);
       liveLibraryVersion=Number(data.version??liveLibraryVersion);
       saveLocalLiveLibrary();
       renderSavedLiveLinks();
