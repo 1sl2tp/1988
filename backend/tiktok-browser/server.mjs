@@ -2,6 +2,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import {createSocialHub} from './social-hub.mjs';
 
 const PORT = Number(process.env.PORT || 10000);
 const ORIGIN = process.env.ALLOW_ORIGIN || 'https://yt.taphoa.xyz';
@@ -68,6 +69,8 @@ async function getBrowser() {
   return browser;
 }
 
+const socialHub=createSocialHub({getBrowser,logger:console});
+
 async function newTikTokPage() {
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -79,6 +82,7 @@ async function newTikTokPage() {
     'accept-language': 'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4',
   });
   await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(() => {});
+  await socialHub.bindPageSession('tiktok',page);
   await page.setRequestInterception(true);
   page.on('request', (request) => {
     const type = request.resourceType();
@@ -654,7 +658,108 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url || '/', 'http://localhost');
   if (url.pathname === '/health') {
-    json(res, 200, { ok: true, browser: Boolean(browserPromise) });
+    json(res, 200, {
+      ok: true,
+      service: '1988-social-hub',
+      browser: Boolean(browserPromise),
+      platforms: ['tiktok','youtube','facebook','news'],
+    });
+    return;
+  }
+
+  if (url.pathname === '/social-status') {
+    try {
+      json(res, 200, { ok: true, ...(await socialHub.status()) });
+    } catch (error) {
+      json(res, 502, { ok: false, error: String(error?.message || error) });
+    }
+    return;
+  }
+
+  if (url.pathname === '/social-feed' && req.method === 'GET') {
+    const platform = String(url.searchParams.get('platform') || '').toLowerCase();
+    const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') || 80), 200));
+    if (!['tiktok','youtube','facebook','news'].includes(platform)) {
+      json(res, 400, { ok: false, error: 'invalid_platform' });
+      return;
+    }
+    try {
+      const row = await socialHub.getSnapshot(platform);
+      json(res, 200, {
+        ok: true,
+        platform,
+        status: row?.status || null,
+        collectedAt: row?.collectedAt || null,
+        data: row?.payload
+          ? { ...row.payload, items: (row.payload.items || []).slice(0, limit) }
+          : null,
+      });
+    } catch (error) {
+      json(res, 502, { ok: false, error: String(error?.message || error) });
+    }
+    return;
+  }
+
+  if (url.pathname === '/collect' && req.method === 'POST') {
+    if (!socialHub.authorized(req)) {
+      json(res, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
+    const platform = String(url.searchParams.get('platform') || '').toLowerCase();
+    try {
+      let data;
+      if (platform === 'tiktok') {
+        const live = await feed('live', [], 40);
+        const recommend = await feed('recommend', [], 70);
+        data = {
+          platform: 'tiktok',
+          count: recommend.items.length + live.items.length,
+          liveCount: live.items.length,
+          items: uniqueRows([
+            ...live.items.map(item => ({ platform:'tiktok', ...item, isLive:true })),
+            ...recommend.items.map(item => ({ platform:'tiktok', ...item, isLive:Boolean(item.live) })),
+          ], 100),
+        };
+        await socialHub.saveSnapshot('tiktok', data, 'ok');
+      } else {
+        data = await socialHub.collect(platform);
+      }
+      json(res, 200, { ok: true, data });
+    } catch (error) {
+      json(res, 502, { ok: false, error: String(error?.message || error) });
+    }
+    return;
+  }
+
+  const sessionMatch = url.pathname.match(/^\/session\/(tiktok|youtube|facebook)$/);
+  if (sessionMatch) {
+    if (!socialHub.authorized(req)) {
+      json(res, 401, { ok: false, error: 'unauthorized' });
+      return;
+    }
+    const platform = sessionMatch[1];
+    try {
+      if (req.method === 'GET') {
+        json(res, 200, { ok: true, ...(await socialHub.sessionInfo(platform)) });
+        return;
+      }
+      if (req.method === 'POST') {
+        const chunks = [];
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 1024 * 1024) throw new Error('body_too_large');
+          chunks.push(chunk);
+        }
+        const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+        const cookies = body?.cookies || body?.state?.cookies || [];
+        json(res, 200, { ok: true, ...(await socialHub.importSession(platform, cookies)) });
+        return;
+      }
+      json(res, 405, { ok: false, error: 'method_not_allowed' });
+    } catch (error) {
+      json(res, 400, { ok: false, error: String(error?.message || error) });
+    }
     return;
   }
 
@@ -683,7 +788,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('1988 TikTok browser service listening on', PORT);
+  console.log('1988 social hub service listening on', PORT);
+  void socialHub.init();
   void getBrowser()
     .then(async () => {
       console.log('chromium:warm');
@@ -703,4 +809,42 @@ server.listen(PORT, '0.0.0.0', () => {
   setInterval(() => {
     void refreshPublicFeed('live');
   }, 60 * 1000).unref();
+
+  // Same Chromium, extra social collectors. Stagger them so a free instance
+  // does not open YouTube/Facebook pages at the same moment as TikTok warmers.
+  setTimeout(() => {
+    void socialHub.collect('youtube').catch(error =>
+      console.warn('[social-hub] youtube', String(error?.message || error))
+    );
+  }, 45 * 1000).unref();
+
+  setTimeout(() => {
+    void socialHub.collect('news').catch(error =>
+      console.warn('[social-hub] news', String(error?.message || error))
+    );
+  }, 75 * 1000).unref();
+
+  setTimeout(() => {
+    void socialHub.collect('facebook').catch(error =>
+      console.warn('[social-hub] facebook', String(error?.message || error))
+    );
+  }, 105 * 1000).unref();
+
+  setInterval(() => {
+    void socialHub.collect('youtube').catch(error =>
+      console.warn('[social-hub] youtube', String(error?.message || error))
+    );
+  }, 5 * 60 * 1000).unref();
+
+  setInterval(() => {
+    void socialHub.collect('news').catch(error =>
+      console.warn('[social-hub] news', String(error?.message || error))
+    );
+  }, 5 * 60 * 1000).unref();
+
+  setInterval(() => {
+    void socialHub.collect('facebook').catch(error =>
+      console.warn('[social-hub] facebook', String(error?.message || error))
+    );
+  }, 10 * 60 * 1000).unref();
 });
