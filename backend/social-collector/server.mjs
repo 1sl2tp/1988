@@ -1893,11 +1893,16 @@ async function fetchTikTokProfileIdentity(handle){
     const html=await r.text();
 
     const parseScriptJson=id=>{
-      const escaped=id.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&');
-      const re=new RegExp('<script[^>]+id=["\\']'+escaped+'["\\'][^>]*>([\\s\\S]*?)<\\/script>','i');
-      const m=html.match(re);
-      if(!m?.[1])return null;
-      try{return JSON.parse(m[1])}catch{return null}
+      let at=html.indexOf('id="'+id+'"');
+      if(at<0)at=html.indexOf("id='"+id+"'");
+      if(at<0)return null;
+      const open=html.indexOf('>',at);
+      if(open<0)return null;
+      const close=html.indexOf('</script>',open+1);
+      if(close<0)return null;
+      const raw=html.slice(open+1,close).trim();
+      if(!raw)return null;
+      try{return JSON.parse(raw)}catch{return null}
     };
 
     let user=null;
