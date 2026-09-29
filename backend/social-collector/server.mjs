@@ -2290,9 +2290,13 @@ function liveProxyHeaders(req){
 async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',proxySegments=false,headersOverride=null,deferError=false}={}){
   try{res.socket?.setNoDelay?.(true)}catch{}
   const session=handle?tiktokLiveSessions.get(String(handle).toLowerCase()):null;
-  const headers=headersOverride||(
-    session?await liveSessionHeaders(req,session,targetUrl):liveProxyHeaders(req)
-  );
+  const headers=headersOverride
+    ? {...headersOverride}
+    : (session?await liveSessionHeaders(req,session,targetUrl):liveProxyHeaders(req));
+  // MP4 playback depends on byte-range requests. Preserve yt-dlp's required
+  // headers, but always forward the browser Range header as well.
+  if(req.headers.range)headers.range=String(req.headers.range);
+  if(!headers.accept)headers.accept='*/*';
   const upstream=await fetch(targetUrl,{
     headers,
     redirect:'follow'
@@ -6370,6 +6374,7 @@ const server=http.createServer(async(req,res)=>{
         return;
       }
       let source=await resolveTikTokVideoSource(handle,id);
+      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source='+String(source.source||'cache'));
       let piped=await pipeTikTokTarget(req,res,source.url,{
         fallbackType:'video/mp4',
         handle:'',
