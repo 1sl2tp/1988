@@ -18,7 +18,7 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
 .cardhead{padding:12px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:800}.badge{background:var(--tt);border-radius:5px;padding:4px 7px;font-size:11px}.sub{margin-left:auto;color:var(--muted);font-size:12px;font-weight:500}
 .body{min-height:480px;display:flex;align-items:center;justify-content:center;background:#111}.status{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px}
 .official{width:100%;padding:10px;display:flex;justify-content:center;overflow:hidden}.official .tiktok-embed{margin:0!important;min-width:0!important;max-width:605px!important;width:100%!important}
-.livebox{position:relative;width:min(100%,430px);aspect-ratio:9/16;background:#000}.livebox video{width:100%;height:100%;display:block;object-fit:cover;background:#000}
+.livebox{position:relative;width:min(100%,430px);aspect-ratio:9/16;background:#000;transition:width .18s ease,aspect-ratio .18s ease}.livebox video{width:100%;height:100%;display:block;object-fit:contain;background:#000}.livebox.landscape{width:100%;max-width:100%;aspect-ratio:16/9}.livebox.square{width:min(100%,560px);aspect-ratio:1/1}.livebox.portrait{width:min(100%,430px);aspect-ratio:9/16}
 .liveinfo{position:absolute;left:10px;right:10px;bottom:12px;text-shadow:0 1px 3px #000;pointer-events:none}.liveinfo strong{display:block}.liveinfo span{font-size:12px}
 .foot{padding:10px 12px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;justify-content:space-between}.foot span{font-size:12px;color:var(--muted)}
 @media(min-width:760px){.grid{grid-template-columns:1fr 1fr}}
@@ -90,9 +90,24 @@ function attachLive(type,directUrl,allowProxyFallback=true){
   const state=document.getElementById('liveState');
   box.innerHTML='<div class="livebox"><video id="liveVideo" controls autoplay muted playsinline preload="metadata"></video><div class="liveinfo"><strong>@'+HANDLE+'</strong><span>LIVE trực tiếp</span></div></div>';
   const video=document.getElementById('liveVideo');
+  const shell=video.closest('.livebox');
   const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
   const play=()=>video.play().catch(()=>{});
   let usingProxy=false;
+
+  const fitByVideoShape=()=>{
+    const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
+    if(!w||!h||!shell)return;
+    shell.classList.remove('landscape','portrait','square');
+    const ratio=w/h;
+    if(ratio>1.12)shell.classList.add('landscape');
+    else if(ratio<0.88)shell.classList.add('portrait');
+    else shell.classList.add('square');
+    shell.style.aspectRatio=w+' / '+h;
+    state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+w+'×'+h;
+  };
+  video.addEventListener('loadedmetadata',fitByVideoShape);
+  video.addEventListener('resize',fitByVideoShape);
 
   const loadHls=(src)=>{
     if(video.canPlayType('application/vnd.apple.mpegurl')){
@@ -107,10 +122,21 @@ function attachLive(type,directUrl,allowProxyFallback=true){
     }
     if(window.Hls&&Hls.isSupported()){
       try{player?.destroy?.()}catch{}
-      const h=new Hls({lowLatencyMode:true,backBufferLength:20,enableWorker:true});
+      const h=new Hls({
+        lowLatencyMode:false,
+        enableWorker:true,
+        startFragPrefetch:true,
+        backBufferLength:30,
+        maxBufferLength:30,
+        maxMaxBufferLength:60,
+        liveSyncDurationCount:4,
+        liveMaxLatencyDurationCount:8,
+        maxLiveSyncPlaybackRate:1.15
+      });
       h.loadSource(src);
       h.attachMedia(video);
       h.on(Hls.Events.MANIFEST_PARSED,play);
+      h.on(Hls.Events.FRAG_BUFFERED,fitByVideoShape);
       h.on(Hls.Events.ERROR,(_,d)=>{
         if(d.fatal&&allowProxyFallback&&!usingProxy&&src!==proxy){
           usingProxy=true;
@@ -137,10 +163,10 @@ function attachLive(type,directUrl,allowProxyFallback=true){
     return;
   }
   if(type==='flv'&&window.flvjs&&flvjs.isSupported()){
-    const p=flvjs.createPlayer({type:'flv',isLive:true,url:src},{enableStashBuffer:false});
+    const p=flvjs.createPlayer({type:'flv',isLive:true,url:src},{enableStashBuffer:true,stashInitialSize:768*1024});
     p.attachMediaElement(video);
     p.load();
-    p.on(flvjs.Events.METADATA_ARRIVED,play);
+    p.on(flvjs.Events.METADATA_ARRIVED,()=>{fitByVideoShape();play()});
     player=p;
     state.textContent='Đang LIVE · FLV';
     return;
