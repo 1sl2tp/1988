@@ -4738,12 +4738,55 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(missing.length){
-        const browserRows=await browserTikTokProfileIdentities(missing);
-        for(const handle of missing){
-          const key=handle.toLowerCase();
-          const row=browserRows.get(key);
-          if(row)items.set(key,row);
+        const fallback=[];
+        let cursor=0;
+        const officialWorker=async()=>{
+          while(true){
+            const index=cursor++;
+            if(index>=missing.length)return;
+            const handle=missing[index];
+            const key=handle.toLowerCase();
+            try{
+              const official=await fetchTikTokOfficialProfileIdentity(handle);
+              if(official&&(official.nickname||official.avatar)){
+                const data={
+                  secUid:'',
+                  userId:'',
+                  nickname:String(official.nickname||''),
+                  avatar:String(official.avatar||''),
+                  followerCount:Number(official.followerCount||0),
+                  followingCount:Number(official.followingCount||0),
+                  heartCount:Number(official.heartCount||0),
+                  videoCount:Number(official.videoCount||0),
+                  videoId:'',
+                  source:'official'
+                };
+                items.set(key,data);
+                tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
+              }else{
+                fallback.push(handle);
+              }
+            }catch{
+              fallback.push(handle);
+            }
+          }
+        };
+        await Promise.all(Array.from({length:Math.min(4,missing.length)},()=>officialWorker()));
+
+        if(fallback.length){
+          const browserRows=await browserTikTokProfileIdentities(fallback);
+          for(const handle of fallback){
+            const key=handle.toLowerCase();
+            const row=browserRows.get(key);
+            if(row)items.set(key,row);
+          }
         }
+        console.log(
+          '[tiktok-profile-batch]',
+          'total='+missing.length,
+          'official='+(missing.length-fallback.length),
+          'fallback='+fallback.length
+        );
       }
 
       const payload=handles.map(handle=>{
@@ -4965,6 +5008,25 @@ server.listen(PORT,'0.0.0.0',()=>{
     loadTikTokLiveStore()
   ]).then(async()=>{
     await loadTikTokVideoStore();
+
+    const probeHandle=[...tiktokLiveSelectedHandles][0]||'aoelinhfbi.official';
+    try{
+      const probe=await fetchTikTokOfficialProfileIdentity(probeHandle);
+      console.log(
+        '[tiktok-official-selftest]',
+        probeHandle,
+        probe?.nickname?'nickname=yes':'nickname=no',
+        probe?.avatar?'avatar=yes':'avatar=no'
+      );
+    }catch(error){
+      console.log(
+        '[tiktok-official-selftest]',
+        probeHandle,
+        'failed',
+        compactText(error?.message||error,160)
+      );
+    }
+
     void runTikTokLiveMinuteSweep();
     setTimeout(()=>{void ensureTikTokVideoPackageScan();},3*60_000).unref();
   });
