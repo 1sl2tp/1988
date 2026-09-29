@@ -91,8 +91,6 @@ export function createTikTokLoginRuntime({
   let qr=null;
   let pollTimer=0;
   let cdp=null;
-  let checkRequest=null;
-  let pollBusy=false;
   let completing=false;
   let state={
     status:'idle',
@@ -228,64 +226,61 @@ export function createTikTokLoginRuntime({
     }
   }
 
-  async function pollCapturedCheck(){
-    if(pollBusy||completing||!checkRequest||!page||page.isClosed())return;
-    pollBusy=true;
+  async function detectAuthenticated(source='watch'){
+    if(completing||!page||page.isClosed())return false;
     try{
-      const result=await page.evaluate(async request=>{
-        let url=String(request.url||'');
-        try{
-          const u=new URL(url);
-          if(u.searchParams.has('is_frontier'))u.searchParams.set('is_frontier','0');
-          url=u.toString();
-        }catch{}
+      const cookies=await browserCookies(page);
+      const profile=await readProfile();
+      const currentUrl=String(page.url()||'');
+      const hasSessionCookie=cookies.some(cookie=>
+        /^(sessionid|sessionid_ss)$/i.test(String(cookie?.name||''))&&
+        String(cookie?.value||'').length>8
+      );
+      const leftLogin=!/\/login(?:\/|\?|$)/i.test(currentUrl);
+      if(!hasSessionCookie&&!(leftLogin&&profile.username))return false;
 
-        let body=request.postData||'';
-        if(body){
-          try{
-            const p=new URLSearchParams(body);
-            if(p.has('is_frontier'))p.set('is_frontier','0');
-            body=p.toString();
-          }catch{}
-        }
+      completing=true;
+      set({status:'confirming',error:null});
+      const normalized=normalizeCookies(cookies);
+      const saved=await saveSession('tiktok',{cookies:normalized});
+      if(saved===false)throw new Error('tiktok_session_save_failed');
 
-        const init={
-          method:request.method||'GET',
-          credentials:'include',
-          cache:'no-store',
-          headers:{},
-        };
-        if(request.contentType)init.headers['content-type']=request.contentType;
-        if(init.method!=='GET'&&init.method!=='HEAD'&&body)init.body=body;
-        const response=await fetch(url,init);
-        return {status:response.status,text:await response.text()};
-      },checkRequest);
-      if(result?.text)await processSignal(result.text,'poll');
+      set({
+        status:'success',
+        username:profile.username||null,
+        userId:profile.userId||null,
+        error:null,
+      });
+      qr=null;
+      logger.info?.(
+        '[tiktok-login] logged in via '+source+
+        (profile.username?' @'+profile.username:'')+
+        ' cookies='+normalized.length
+      );
+      if(pollTimer){clearInterval(pollTimer);pollTimer=0;}
+      return true;
     }catch(error){
-      logger.debug?.('[tiktok-login] qr poll',String(error?.message||error));
+      logger.warn?.('[tiktok-login] auth watch',String(error?.message||error));
+      return false;
     }finally{
-      pollBusy=false;
+      completing=false;
     }
   }
 
   async function attachNetwork(){
-    page.on('request',request=>{
-      const url=String(request.url()||'');
-      if(!/check_qrconnect/i.test(url))return;
-      const headers=request.headers?.()||{};
-      checkRequest={
-        url,
-        method:String(request.method?.()||'GET').toUpperCase(),
-        postData:request.postData?.()||'',
-        contentType:String(headers['content-type']||headers['Content-Type']||''),
-      };
-    });
-
     page.on('response',response=>{
       const url=String(response.url()||'');
       if(!/check_qrconnect/i.test(url))return;
       void response.text()
-        .then(text=>processSignal(text,'http'))
+        .then(async text=>{
+          const signal=signalFrom(text);
+          logger.info?.(
+            '[tiktok-login] qr signal status='+(signal.status||'unknown')+
+            ' redirect='+(signal.redirect?'yes':'no')
+          );
+          await processSignal(text,'http');
+          await detectAuthenticated('http');
+        })
         .catch(()=>{});
     });
 
@@ -295,13 +290,18 @@ export function createTikTokLoginRuntime({
       cdp.on('Network.webSocketFrameReceived',event=>{
         const data=String(event?.response?.payloadData||'');
         if(!data||!/confirmed|redirect_url|qrconnect|scanned/i.test(data))return;
+        const signal=signalFrom(data);
+        logger.info?.(
+          '[tiktok-login] ws signal status='+(signal.status||'unknown')+
+          ' redirect='+(signal.redirect?'yes':'no')
+        );
         void processSignal(data,'websocket');
       });
     }catch(error){
       logger.warn?.('[tiktok-login] websocket monitor unavailable',String(error?.message||error));
     }
 
-    pollTimer=setInterval(()=>{void pollCapturedCheck();},1200);
+    pollTimer=setInterval(()=>{void detectAuthenticated('watch');},1000);
     pollTimer.unref?.();
   }
 
@@ -334,8 +334,6 @@ export function createTikTokLoginRuntime({
 
   async function close(){
     if(pollTimer){clearInterval(pollTimer);pollTimer=0;}
-    checkRequest=null;
-    pollBusy=false;
     completing=false;
     try{await cdp?.detach?.();}catch{}
     cdp=null;
@@ -397,7 +395,7 @@ export function createTikTokLoginRuntime({
   }
   async function refresh(){
     if(state.status==='waiting_qr'||state.status==='scanned'||state.status==='confirming'){
-      await pollCapturedCheck();
+      await detectAuthenticated('status');
     }
     return snapshot();
   }
