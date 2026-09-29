@@ -618,6 +618,7 @@ let mediaMode='live';
 let videoVersion=-1;
 let currentVideoId='';
 let currentVideo=null;
+let videoOpenSeq=0;
 let searchQuery='';
 const videoLoadBusy=new Set();
 let currentHandle='';
@@ -936,11 +937,12 @@ function renderRecentVideos(handle=currentHandle){
     });
   });
 }
-function openVideo(rawHandle,videoId){
+async function openVideo(rawHandle,videoId){
   const handle=parseHandle(rawHandle);
   const video=currentVideoFor(handle,videoId);
   if(!handle||!video)return;
 
+  const seq=++videoOpenSeq;
   currentHandle=handle;
   currentVideoId=String(video.id||'');
   currentVideo=video;
@@ -949,33 +951,13 @@ function openVideo(rawHandle,videoId){
 
   const frame=document.getElementById('videoFrame');
   const native=document.getElementById('liveVideo');
-  const playUrl=String(video.playUrl||'').trim();
-
-  if(playUrl){
-    frame.hidden=true;
-    frame.src='about:blank';
-    native.hidden=false;
-    native.controls=true;
-    native.preload='auto';
-    native.src=playUrl;
-    native.onloadedmetadata=()=>{
-      setPlayerShape(native);
-      native.play().catch(()=>{});
-    };
-    native.onerror=()=>{
-      native.hidden=true;
-      frame.hidden=false;
-      frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
-        '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
-    };
-    native.load();
-    native.play().catch(()=>{});
-  }else{
-    native.hidden=true;
-    frame.hidden=false;
-    frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
-      '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
-  }
+  frame.hidden=true;
+  frame.src='about:blank';
+  native.hidden=false;
+  native.controls=true;
+  native.preload='auto';
+  native.removeAttribute('src');
+  native.load();
 
   document.getElementById('overlay').hidden=false;
   updateCurrentUi();
@@ -986,7 +968,46 @@ function openVideo(rawHandle,videoId){
   renderList();
   renderRecentVideos(handle);
   hideSearchResults();
+
+  const fallbackEmbed=()=>{
+    if(seq!==videoOpenSeq)return;
+    native.pause();
+    native.removeAttribute('src');
+    native.load();
+    native.hidden=true;
+    frame.hidden=false;
+    frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
+      '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+  };
+
+  try{
+    const data=await apiJson(
+      API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
+      '&id='+encodeURIComponent(currentVideoId)+
+      '&t='+Date.now()
+    );
+    if(seq!==videoOpenSeq)return;
+    const stream=String(data.stream||'').trim();
+    if(!stream)throw new Error('missing_video_stream');
+
+    native.hidden=false;
+    frame.hidden=true;
+    frame.src='about:blank';
+    native.onerror=fallbackEmbed;
+    native.onloadedmetadata=()=>{
+      if(seq!==videoOpenSeq)return;
+      setPlayerShape(native);
+      native.play().catch(()=>{});
+    };
+    native.src=API+stream+(stream.includes('?')?'&':'?')+'t='+Date.now();
+    native.load();
+    native.play().catch(()=>{});
+  }catch(error){
+    console.warn('video source',handle,currentVideoId,error);
+    fallbackEmbed();
+  }
 }
+
 async function refreshChannelVideos(handle,{silent=true}={}){
   handle=parseHandle(handle);
   if(!handle)return;
