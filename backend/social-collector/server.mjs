@@ -70,6 +70,8 @@ const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=2;
 const TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS=30_000;
 let tiktokLiveLibraryRefreshCursor=0;
 let ytdlpSerial=Promise.resolve();
+let tikwmVideoSerial=Promise.resolve();
+let tikwmVideoLastAt=0;
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function nowIso(){return new Date().toISOString();}
@@ -2869,7 +2871,18 @@ function normalizeTikTokPostItem(handle,row){
     playCount:Number(stats?.playCount||stats?.play_count||0),
     diggCount:Number(stats?.diggCount||stats?.digg_count||0),
     commentCount:Number(stats?.commentCount||stats?.comment_count||0),
-    shareCount:Number(stats?.shareCount||stats?.share_count||0)
+    shareCount:Number(stats?.shareCount||stats?.share_count||0),
+    playUrl:firstTikTokAssetUrl(
+      row?.play||
+      row?.playUrl||
+      row?.play_url||
+      video?.playAddr||
+      video?.play_addr||
+      video?.downloadAddr||
+      video?.download_addr
+    ),
+    width:Number(video?.width||row?.width||0),
+    height:Number(video?.height||row?.height||0)
   };
 }
 
@@ -2903,6 +2916,99 @@ function updateTikTokVideoLibrary(rawHandle,patch={}){
   }
   tiktokVideoLibrary.set(key,next);
   return changed;
+}
+
+async function fetchTikwmChannelVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
+
+  const task=tikwmVideoSerial.then(async()=>{
+    const wait=Math.max(0,1100-(Date.now()-tikwmVideoLastAt));
+    if(wait)await sleep(wait);
+    tikwmVideoLastAt=Date.now();
+
+    try{
+      const endpoint=new URL('https://www.tikwm.com/api/user/posts');
+      endpoint.searchParams.set('unique_id',handle);
+      endpoint.searchParams.set('count',String(Math.max(1,Math.min(10,Number(count)||10))));
+      endpoint.searchParams.set('cursor','0');
+
+      const r=await fetch(endpoint,{
+        method:'GET',
+        headers:{
+          'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+          'accept':'application/json,text/plain,*/*',
+          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5'
+        },
+        redirect:'follow',
+        signal:AbortSignal.timeout(10_000)
+      });
+      if(!r.ok){
+        console.log('[tikwm-videos]',handle,'http='+r.status);
+        return {known:false,handle,secUid:'',videos:[],error:'tikwm_http_'+r.status};
+      }
+
+      const json=await r.json();
+      if(Number(json?.code)!==0){
+        console.log('[tikwm-videos]',handle,'code='+String(json?.code||'unknown'),compactText(json?.msg||'',120));
+        return {known:false,handle,secUid:'',videos:[],error:'tikwm_'+String(json?.msg||json?.code||'error')};
+      }
+
+      const data=json?.data||{};
+      const author=data?.user||data?.author||{};
+      const rows=
+        (Array.isArray(data?.videos)&&data.videos)||
+        (Array.isArray(data?.items)&&data.items)||
+        [];
+
+      const videos=rows
+        .map(row=>normalizeTikTokPostItem(handle,{
+          id:row?.video_id||row?.aweme_id||row?.id,
+          desc:row?.title||row?.desc||row?.description,
+          createTime:row?.create_time||row?.createTime||row?.create_time_ms||0,
+          duration:row?.duration||0,
+          cover:row?.cover||row?.origin_cover||row?.ai_dynamic_cover,
+          play:row?.play||row?.wmplay||row?.hdplay,
+          width:row?.width||0,
+          height:row?.height||0,
+          stats:{
+            playCount:row?.play_count||row?.playCount||row?.views||0,
+            diggCount:row?.digg_count||row?.diggCount||row?.likes||0,
+            commentCount:row?.comment_count||row?.commentCount||row?.comment||0,
+            shareCount:row?.share_count||row?.shareCount||row?.share||0
+          }
+        }))
+        .filter(Boolean)
+        .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+        .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+
+      if(!videos.length){
+        return {known:false,handle,secUid:'',videos:[],error:'tikwm_no_videos'};
+      }
+
+      return {
+        known:true,
+        handle,
+        secUid:String(author?.sec_uid||author?.secUid||''),
+        videos,
+        latestVideoId:String(videos[0]?.id||''),
+        hasMore:Boolean(data?.hasMore??data?.has_more),
+        cursor:String(data?.cursor||''),
+        source:'tikwm-user-posts'
+      };
+    }catch(error){
+      return {
+        known:false,handle,secUid:'',videos:[],
+        error:'tikwm_'+compactText(error?.message||error,140)
+      };
+    }
+  },async()=>{
+    await sleep(1100);
+    return fetchTikwmChannelVideos(handle,count);
+  });
+
+  tikwmVideoSerial=task.catch(()=>{});
+  return task;
 }
 
 async function fetchTikTokChannelVideosYtdlp(rawHandle){
@@ -4685,10 +4791,13 @@ const server=http.createServer(async(req,res)=>{
         handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
       };
       if(url.searchParams.get('refresh')!=='0'){
-        const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
+        let result=await fetchTikwmChannelVideos(handle,TIKTOK_VIDEO_PER_CHANNEL);
+        if(!result?.known){
+          result=await fetchTikTokChannelVideos(handle,current.secUid||'');
+        }
         if(result?.known){
           updateTikTokVideoLibrary(handle,{
-            secUid:result.secUid,
+            secUid:result.secUid||current.secUid||'',
             latestVideoId:result.latestVideoId,
             videos:result.videos,
             checkedAt:Date.now(),
