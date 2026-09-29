@@ -2114,17 +2114,23 @@ async function fetchTikTokProfileIdentity(rawHandle){
   }
 
   const task=(async()=>{
-    const [official,scraped]=await Promise.all([
+    const [official,detail]=await Promise.all([
       fetchTikTokOfficialProfileIdentity(handle).catch(()=>null),
-      fetchTikTokProfileIdentityScraped(handle)
+      fetchTikTokUserDetail(handle).catch(()=>null)
     ]);
+
+    let scraped=null;
+    if(!detail?.secUid||(!official?.nickname&&!detail?.nickname)||(!official?.avatar&&!detail?.avatar)){
+      scraped=await fetchTikTokProfileIdentityScraped(handle);
+    }
+
     const data={
-      secUid:String(scraped?.secUid||''),
-      userId:String(scraped?.userId||''),
-      nickname:String(official?.nickname||scraped?.nickname||''),
-      avatar:String(official?.avatar||scraped?.avatar||''),
+      secUid:String(detail?.secUid||scraped?.secUid||''),
+      userId:String(detail?.userId||scraped?.userId||''),
+      nickname:String(official?.nickname||detail?.nickname||scraped?.nickname||''),
+      avatar:String(official?.avatar||detail?.avatar||scraped?.avatar||''),
       videoId:String(scraped?.videoId||''),
-      source:official?'official':'profile'
+      source:official?'official':(detail?'user-detail':'profile')
     };
     tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
     return {...data};
