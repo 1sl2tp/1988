@@ -181,6 +181,11 @@ function tiktokLiveSourceUsable(row,maxAge=TIKTOK_LIVE_REUSE_MS){
   if(expiresAt&&expiresAt-Date.now()<60_000)return false;
   return true;
 }
+function tiktokLiveCacheReusable(row){
+  if(!tiktokLiveSourceUsable(row))return false;
+  if(row.confirmed===true)return true;
+  return Date.now()-Number(row.at||0)<15_000;
+}
 
 async function closeTikTokLiveSession(handle){
   const key=String(handle||'').toLowerCase();
@@ -191,7 +196,7 @@ async function closeTikTokLiveSession(handle){
 }
 function cleanTikTokLiveSessions(){
   for(const [key,row] of tiktokLiveSessions){
-    if(!row||!tiktokLiveSourceUsable(row))void closeTikTokLiveSession(key);
+    if(!row||!tiktokLiveCacheReusable(row))void closeTikTokLiveSession(key);
   }
 }
 
@@ -353,7 +358,7 @@ async function fastTikTokLiveWithYtdlp(handle){
 }
 function cleanTikTokFastSources(){
   for(const [key,row] of tiktokLiveFastSources){
-    if(!row||!tiktokLiveSourceUsable(row))tiktokLiveFastSources.delete(key);
+    if(!row||!tiktokLiveCacheReusable(row))tiktokLiveFastSources.delete(key);
   }
 }
 async function resolveTikTokLiveSource(rawHandle){
@@ -363,14 +368,14 @@ async function resolveTikTokLiveSource(rawHandle){
   const key=handle.toLowerCase();
 
   const browserSession=tiktokLiveSessions.get(key);
-  if(browserSession&&browserSession.page&&!browserSession.page.isClosed()&&tiktokLiveSourceUsable(browserSession)){
+  if(browserSession&&browserSession.page&&!browserSession.page.isClosed()&&tiktokLiveCacheReusable(browserSession)){
     browserSession.at=Date.now();
     console.log('[tiktok-cache] browser reuse',handle,browserSession.type);
     return {mode:'browser-cache',handle,type:browserSession.type,url:browserSession.url,at:browserSession.at,source:'browser-cache'};
   }
 
   const cached=tiktokLiveFastSources.get(key);
-  if(cached&&tiktokLiveSourceUsable(cached)){
+  if(cached&&tiktokLiveCacheReusable(cached)){
     cached.at=Date.now();
     console.log('[tiktok-cache] fast reuse',handle,cached.type,cached.source||'fast');
     return {...cached,mode:'fast-cache'};
@@ -382,7 +387,7 @@ async function resolveTikTokLiveSource(rawHandle){
   for(const candidate of (preflight.candidates||[]).slice(0,4)){
     const valid=await validateTikTokLiveCandidate(handle,candidate);
     if(valid){
-      const row={mode:'fast',handle,type:valid.type,url:valid.url,headers:valid.headers,at:Date.now(),source:'room-api'};
+      const row={mode:'fast',handle,type:valid.type,url:valid.url,headers:valid.headers,at:Date.now(),source:'room-api',confirmed:false};
       tiktokLiveFastSources.set(key,row);
       console.log('[tiktok-fast] room-api',handle,row.type);
       return row;
@@ -393,7 +398,7 @@ async function resolveTikTokLiveSource(rawHandle){
   if(ytdlp){
     const valid=await validateTikTokLiveCandidate(handle,ytdlp);
     if(valid){
-      const row={mode:'fast',handle,type:valid.type,url:valid.url,headers:valid.headers,at:Date.now(),source:'yt-dlp'};
+      const row={mode:'fast',handle,type:valid.type,url:valid.url,headers:valid.headers,at:Date.now(),source:'yt-dlp',confirmed:false};
       tiktokLiveFastSources.set(key,row);
       console.log('[tiktok-fast] yt-dlp',handle,row.type);
       return row;
@@ -424,7 +429,7 @@ async function resolveTikTokCompatibleLiveSource(rawHandle){
     if(valid){
       const row={
         mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
-        at:Date.now(),source:'room-api-flv'
+        at:Date.now(),source:'room-api-flv',confirmed:false
       };
       tiktokLiveFastSources.set(key,row);
       console.log('[tiktok-compat] flv',handle);
@@ -453,7 +458,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
 
   const key=handle.toLowerCase();
   const current=tiktokLiveSessions.get(key);
-  if(current&&current.page&&!current.page.isClosed()&&tiktokLiveSourceUsable(current)){
+  if(current&&current.page&&!current.page.isClosed()&&tiktokLiveCacheReusable(current)){
     current.at=Date.now();
     console.log('[tiktok-cache] session reuse',handle,current.type);
     return current;
@@ -594,7 +599,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     page.off('request',onRequest);
     page.off('response',onResponse);
 
-    const row={handle,page,url:captured.url,type:captured.type,headers:captured.headers,at:Date.now()};
+    const row={handle,page,url:captured.url,type:captured.type,headers:captured.headers,at:Date.now(),confirmed:false};
     tiktokLiveSessions.set(key,row);
     console.log('[tiktok-session] ready',handle,row.type,'ms='+(Date.now()-started));
     void navPromise;
@@ -2105,6 +2110,44 @@ const server=http.createServer(async(req,res)=>{
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
     }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-feedback'&&req.method==='GET'){
+    const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+    const status=String(url.searchParams.get('status')||'').toLowerCase();
+    const type=String(url.searchParams.get('type')||'').toLowerCase();
+    if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+    const key=handle.toLowerCase();
+    const fast=tiktokLiveFastSources.get(key);
+    const browser=tiktokLiveSessions.get(key);
+
+    if(status==='ok'){
+      let marked=false;
+      if(fast&&(!type||fast.type===type)){
+        fast.confirmed=true;
+        fast.at=Date.now();
+        marked=true;
+      }
+      if(browser&&(!type||browser.type===type)){
+        browser.confirmed=true;
+        browser.at=Date.now();
+        marked=true;
+      }
+      console.log('[tiktok-cache] confirmed',handle,type||'any',marked?'yes':'miss');
+      json(res,200,{ok:true,confirmed:marked});
+      return;
+    }
+
+    if(status==='bad'){
+      if(fast&&(!type||fast.type===type))tiktokLiveFastSources.delete(key);
+      if(browser&&(!type||browser.type===type))await closeTikTokLiveSession(key);
+      console.log('[tiktok-cache] evict bad',handle,type||'any');
+      json(res,200,{ok:true});
+      return;
+    }
+
+    json(res,400,{ok:false,error:'invalid_status'});
     return;
   }
 
