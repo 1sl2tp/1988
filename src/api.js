@@ -22,6 +22,7 @@ const suggestions=async(q)=>{
   return Array.isArray(d)?d:[];
 };
 const video=(id)=>call("video",{id});
+const videoMeta=(id)=>call("video_meta",{id});
 const playlist=(id)=>call("playlist",{id});
 const playlistNext=(id,nextpage)=>call("playlist_next",{id,nextpage});
 const channel=(id)=>call("channel",{id});
@@ -51,4 +52,4 @@ function playlistPlayerUrl(id){
   url.searchParams.set("origin",location.origin);
   return url.toString();
 }
-window.YT1988_API={home,trending,search,searchNext,suggestions,video,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};
+window.YT1988_API={home,trending,search,searchNext,suggestions,video,videoMeta,playlist,playlistNext,channel,channelNext,sponsors,background,branding,playerUrl,playlistPlayerUrl};
