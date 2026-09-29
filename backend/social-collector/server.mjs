@@ -1081,25 +1081,39 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       continue;
     }
 
-    // LIVE: use FLV immediately. Do not probe it first and do not try another
-    // transport. The player is the health check. If it dies, feedback below
-    // discards it and this same fast scan fetches a fresh FLV URL.
+    // LIVE: validate only the selected FLV candidate before publishing it.
+    // This is a tiny ranged request (2 KB), not a full ffprobe. TikTok can
+    // keep returning an old signed FLV after the broadcaster reconnects; that
+    // URL may already be 403/404 even though status is still LIVE.
     if(flv){
-      let row=tiktokLiveFastSources.get(key);
-      if(!row||!tiktokLiveSourceUsable(row)||isTikTokBadSource(handle,row)){
-        row=seedTikTokFastSource(handle,{
-          stream_url:flv.url,
-          stream_type:'flv'
-        });
-      }
+      const valid=await validateTikTokLiveCandidate(handle,flv);
+      if(!valid){
+        markTikTokBadSource(handle,flv);
+        const current=tiktokLiveFastSources.get(key);
+        if(current&&String(current.url||'')===String(flv.url||'')){
+          tiktokLiveFastSources.delete(key);
+        }
+        console.log('[tiktok-scan] rejected dead FLV',handle);
+      }else{
+        let row=tiktokLiveFastSources.get(key);
+        if(!row||
+           String(row.url||'')!==String(valid.url||'')||
+           !tiktokLiveSourceUsable(row)||
+           isTikTokBadSource(handle,row)){
+          row=seedTikTokFastSource(handle,{
+            stream_url:valid.url,
+            stream_type:'flv'
+          });
+        }
 
-      if(row){
-        publishTikTokLiveSourceNow(handle,row,{
-          mode:String(row.mode||'fast'),
-          source:String(row.source||'room-api-flv')
-        });
+        if(row){
+          publishTikTokLiveSourceNow(handle,row,{
+            mode:String(row.mode||'fast'),
+            source:String(row.source||'room-api-flv')
+          });
+          continue;
+        }
       }
-      continue;
     }
 
     // TikTok says LIVE but did not return FLV in this pass. Keep it marked
