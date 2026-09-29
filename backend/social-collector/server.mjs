@@ -2433,7 +2433,7 @@ async function fetchTikTokOfficialProfileIdentity(handle){
 
   try{
     const r=await fetch(
-      'https://open.tiktokapis.com/v2/research/user/info/?fields=display_name,avatar_url',
+      'https://open.tiktokapis.com/v2/research/user/info/?fields=display_name,avatar_url,follower_count,following_count,likes_count,video_count',
       {
         method:'POST',
         headers:{
@@ -2459,7 +2459,15 @@ async function fetchTikTokOfficialProfileIdentity(handle){
     const nickname=String(row?.display_name||row?.displayName||'');
     const avatar=String(row?.avatar_url||row?.avatarUrl||'');
     if(!nickname&&!avatar)return null;
-    return {nickname,avatar,source:'official'};
+    return {
+      nickname,
+      avatar,
+      followerCount:Number(row?.follower_count||row?.followerCount||0),
+      followingCount:Number(row?.following_count||row?.followingCount||0),
+      heartCount:Number(row?.likes_count||row?.likesCount||0),
+      videoCount:Number(row?.video_count||row?.videoCount||0),
+      source:'official'
+    };
   }catch(error){
     console.warn('[tiktok-official] identity failed',handle,compactText(error?.message||error,140));
     return null;
@@ -2495,10 +2503,10 @@ async function fetchTikTokProfileIdentity(rawHandle){
       nickname:String(official?.nickname||detail?.nickname||scraped?.nickname||''),
       avatar:String(official?.avatar||detail?.avatar||scraped?.avatar||''),
       videoId:String(scraped?.videoId||''),
-      followerCount:Number(detail?.followerCount||scraped?.followerCount||0),
-      followingCount:Number(detail?.followingCount||scraped?.followingCount||0),
-      heartCount:Number(detail?.heartCount||scraped?.heartCount||0),
-      videoCount:Number(detail?.videoCount||scraped?.videoCount||0),
+      followerCount:Number(official?.followerCount||detail?.followerCount||scraped?.followerCount||0),
+      followingCount:Number(official?.followingCount||detail?.followingCount||scraped?.followingCount||0),
+      heartCount:Number(official?.heartCount||detail?.heartCount||scraped?.heartCount||0),
+      videoCount:Number(official?.videoCount||detail?.videoCount||scraped?.videoCount||0),
       source:official?'official':(detail?'user-detail':'profile')
     };
     tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
@@ -4534,7 +4542,9 @@ const server=http.createServer(async(req,res)=>{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
       const identity=await fetchTikTokProfileIdentity(handle);
-      console.log('[tiktok-identity]',handle,'video='+(identity.videoId||'none'),'sec='+(identity.secUid?'yes':'no'));
+      const videoRow=tiktokVideoLibrary.get(handle.toLowerCase())||null;
+      const latestVideo=Array.isArray(videoRow?.videos)?videoRow.videos[0]||null:null;
+      console.log('[tiktok-identity]',handle,'video='+(identity.videoId||latestVideo?.id||'none'),'sec='+(identity.secUid?'yes':'no'));
       json(res,200,{
         ok:true,
         handle,
@@ -4548,6 +4558,9 @@ const server=http.createServer(async(req,res)=>{
         followingCount:Number(identity.followingCount||0),
         heartCount:Number(identity.heartCount||0),
         videoCount:Number(identity.videoCount||0),
+        latestVideoId:String(latestVideo?.id||identity.videoId||''),
+        latestVideoPlayCount:Number(latestVideo?.playCount||0),
+        latestVideoDiggCount:Number(latestVideo?.diggCount||0),
         source:String(identity.source||'')
       });
     }catch(error){
