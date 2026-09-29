@@ -17,7 +17,7 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v41";
+const LIVE_PIPELINE_VERSION="live-v42";
 const NON_LIVE_PIPELINE_VERSION="non-live-v19";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
@@ -39,16 +39,16 @@ const YT_PLAYER_CLIENTS:any[]=[
 const LIVE_SELECTED_CANDIDATES_PER_SOURCE=2;
 const LIVE_SELECTED_SOURCES_PER_RUN=32;
 const LIVE_SEARCH_QUERIES=[
-  "trực tiếp",
-  "đang phát trực tiếp",
-  "phát trực tiếp",
-  "trực tiếp hôm nay",
-  "trực tiếp tin tức",
+  "trực tiếp ca nhạc",
+  "trực tiếp bolero",
+  "trực tiếp radio",
   "trực tiếp thể thao",
-  "trực tiếp âm nhạc",
+  "trực tiếp bóng đá",
+  "trực tiếp thời sự",
+  "trực tiếp tin tức",
   "trực tiếp game",
   "trực tiếp sự kiện",
-  "livestream việt nam"
+  "trực tiếp 24/7"
 ];
 const DEFAULT_SYSTEM_INTERVAL_MINUTES:any={
   live:2,
@@ -1798,8 +1798,41 @@ async function discoverGlobalLiveCandidates(
   const external:any[]=[];
   const selected:any[]=[];
 
-  // STEP 1: one fresh page per broad LIVE query. Blocked channels disappear.
-  // Selected channels are removed from "outside" and handed to STEP 2 instead.
+  const accept=(item:any,origin:string)=>{
+    const row=normalizeRow(item,{});
+    if(!row||!strongFreshLiveSignal(row))return;
+    const sid=channelId(row);
+    if(sid&&blockedSourceIds.has(sid))return;
+    if(liveKeywordBlocked(row,keywords))return;
+    if(sid&&selectedSourceIds.has(sid)){
+      selected.push({...row,_liveOrigin:"source",_liveDiscoveryOrigin:origin});
+      return;
+    }
+    external.push({...row,_liveOrigin:"search",_liveDiscoveryOrigin:origin});
+  };
+
+  // SOURCE 1 — reference YouTube's own regional VN surface first.
+  // This is not keyword discovery: Piped /trending mirrors YouTube's regional
+  // ranking and currently exposes the same kind of "what is live now" pool
+  // shown by YouTube's Trực tiếp surface.
+  try{
+    const result=await fetchJson(
+      supabaseUrl+"/functions/v1/yt1988?action=trending&region=VN",
+      {
+        "apikey":serviceKey,
+        "authorization":"Bearer "+serviceKey
+      },
+      4200
+    );
+    const raw=Array.isArray(result?.data)?result.data:
+      Array.isArray(result?.data?.items)?result.data.items:[];
+    for(const item of raw)accept(item,"youtube_regional");
+  }catch(error){
+    console.warn("youtube regional live reference failed",String(error));
+  }
+
+  // SOURCE 3 — keyword search is supplemental only. It expands categories that
+  // may not be present on the current YouTube regional surface.
   await mapLimit(LIVE_SEARCH_QUERIES,4,async(query)=>{
     if(Date.now()>=deadline)return false;
     try{
@@ -1815,18 +1848,7 @@ async function discoverGlobalLiveCandidates(
       const raw=Array.isArray(result?.data?.items)?result.data.items:
         Array.isArray(result?.data)?result.data:[];
 
-      for(const item of raw){
-        const row=normalizeRow(item,{});
-        if(!row||!strongFreshLiveSignal(row))continue;
-        const sid=channelId(row);
-        if(sid&&blockedSourceIds.has(sid))continue;
-        if(liveKeywordBlocked(row,keywords))continue;
-        if(sid&&selectedSourceIds.has(sid)){
-          selected.push({...row,_liveOrigin:"source"});
-          continue;
-        }
-        external.push({...row,_liveOrigin:"search"});
-      }
+      for(const item of raw)accept(item,"keyword");
       return true;
     }catch(error){
       console.warn("global live search failed",query,String(error));
