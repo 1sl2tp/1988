@@ -69,13 +69,19 @@ if(simpleProduction){
   assert.match(html,/playerApi\.loadVideoById\(id\)/);
   assert.match(html,/if\(ytPlayer&&ytPlayerReady\)/);
   assert.match(html,/ytPlayer\.loadVideoById\(id\)/);
-  assert.match(html,/id=["']playerWarmHost["']/);
-  assert.match(html,/player-warm-host/);
-  assert.match(html,/canPreservePlayerMove/);
+  // One permanent YouTube iframe home: MAIN stage. One-column/PiP are CSS
+  // presentations only; never reparent a live iframe through a hidden warm host.
+  assert.doesNotMatch(html,/playerWarmHost/);
+  assert.doesNotMatch(html,/player-warm-host/);
+  assert.doesNotMatch(html,/canPreservePlayerMove/);
+  assert.doesNotMatch(html,/function movePlayerNode\(/);
+  assert.doesNotMatch(html,/warm-idle/);
   assert.match(html,/function useStableInlineOverlay\(/);
   assert.match(html,/function syncInlinePlayerOverlay\(/);
+  assert.match(html,/function parkPlayerAtMainHome\(/);
+  assert.match(html,/function showPlayerAsPip\(/);
   assert.match(html,/classList\.add\(["']inline-overlay["']\)/);
-  assert.match(html,/parkPlayerWarm\(\)/);
+  assert.match(html,/MAIN stage is the permanent player home/);
   assert.match(html,/void ensureYoutubePlayer\(\);/);
   assert.match(html,/onError\(event\)/);
   assert.match(html,/youtube_embed_error/);
@@ -90,9 +96,10 @@ if(simpleProduction){
   assert.doesNotMatch(html,/thumbnailContentAspect|detectPillarboxFromImage|primeCardPortraitNow/);
   assert.match(html,/const PACKAGE_SYNC_URL=.*yt1988-packages/);
   assert.match(html,/YT1988_API\.search\(raw,["']videos["']\)/);
-  assert.match(html,/player\.classList\.toggle\(["']pip["'],!!floating\)/);
   assert.match(html,/player\.classList\.add\(["']pip["']\)/);
   assert.match(html,/player\.classList\.remove\(["']pip["']\)/);
+  assert.match(html,/bottom:calc\(10px \+ env\(safe-area-inset-bottom,0px\)\)/);
+  assert.match(html,/function mobilePipMinWidth\(/);
   assert.match(html,/function layoutFeedMasonry\(/);
   assert.match(html,/hasTallInlinePortrait/);
   assert.match(html,/rows\.classList\.add\(["']masonry-active["']\)/);
