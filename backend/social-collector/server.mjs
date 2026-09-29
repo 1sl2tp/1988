@@ -851,9 +851,28 @@ function runTikTokLiveMinuteSweep(){
     let unknown=0;
     const newlyLive=[];
 
-    for(const {handle,state} of checked){
+    for(const checkedRow of checked){
+      const handle=checkedRow.handle;
       const key=handle.toLowerCase();
       const prev=tiktokLiveLibrary.get(key)||null;
+      let state=checkedRow.state;
+
+      // A stale LIVE row is the only case where UNKNOWN is dangerous. Give
+      // just those channels one deeper API fallback before preserving LIVE.
+      if(!state?.known&&prev?.live){
+        try{
+          const verify=await quickTikTokLiveStatus(handle);
+          if(verify?.known){
+            state={
+              known:true,
+              live:verify.live===true,
+              status:Number(verify.status),
+              source:'live-verify'
+            };
+          }
+        }catch{}
+      }
+
       if(!state?.known){
         unknown+=1;
         continue;
