@@ -465,10 +465,9 @@ function renderSavedLiveLinks(){
         PENDING_HANDLE='';
         openLiveFromLibrary(row,handle);
       }else if(row?.live){
-        // The list already knows this account is LIVE. Keep the current player
-        // untouched while the backend prepares/validates its media in background.
-        PENDING_HANDLE=handle;
-        void syncLiveLibrary({force:true});
+        // LIVE is already known but its package source is not ready yet.
+        // Open the relay immediately instead of waiting for the next package scan.
+        void openCurrentLive(handle);
       }
       // Non-LIVE rows are intentionally ignored: no yt-dlp, no ffprobe,
       // no browser session, no player reset.
@@ -672,6 +671,10 @@ async function loadLive(){
   const row=liveLibraryItem(HANDLE);
   if(row?.live&&row?.ready&&row?.type&&row?.sourceSig){
     openLiveFromLibrary(row,HANDLE);
+    return;
+  }
+  if(row?.live){
+    void openCurrentLive(HANDLE);
     return;
   }
   PENDING_HANDLE=HANDLE;
