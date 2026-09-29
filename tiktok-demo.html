@@ -14,7 +14,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(15,15,15,.94);backdrop-fi
 .head{max-width:900px;margin:auto;padding:12px 16px;display:flex;align-items:center;gap:10px}.head strong{font-size:19px}.head span{color:var(--muted);font-size:13px}.spacer{flex:1}
 button,a.btn{border:0;background:#292929;color:#fff;border-radius:18px;padding:9px 13px;text-decoration:none;font-size:13px;cursor:pointer}
 main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-size:13px;margin:0 0 14px}
-.tester{display:flex;gap:8px;align-items:center;margin:0 0 12px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.workspace{display:grid;grid-template-columns:minmax(220px,290px) minmax(0,1fr);gap:14px;align-items:start}.librarypanel{border:1px solid var(--line);background:var(--card);border-radius:18px;padding:12px;position:sticky;top:72px}.libhead{display:flex;align-items:center;gap:8px;margin:0 0 10px}.libhead strong{font-size:13px}.libhead span{margin-left:auto;color:var(--muted);font-size:11px}.saved{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 190px);overflow-y:auto;overflow-x:hidden;padding:0 3px 0 0}.saved button{width:100%;padding:9px 10px;font-size:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;text-align:left;align-items:center;border-radius:12px}.saved button>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.saved button.active{background:#fff;color:#111}.saved .libmeta{grid-column:1 / -1;font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved .liveflag{font-size:10px;font-weight:800}.saved .liveflag.on{color:var(--tt)}.saved button.active .liveflag.on{color:var(--tt)}.libgroup{display:flex;align-items:center;gap:8px;margin:8px 2px 3px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}.libgroup:after{content:"";height:1px;background:var(--line);flex:1}.libgroup:first-child{margin-top:0}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
+.tester{display:flex;gap:8px;align-items:center;margin:0 0 12px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.workspace{display:grid;grid-template-columns:minmax(220px,290px) minmax(0,1fr);gap:14px;align-items:start}.librarypanel{border:1px solid var(--line);background:var(--card);border-radius:18px;padding:12px;position:sticky;top:72px}.libhead{display:flex;align-items:center;gap:8px;margin:0 0 10px}.libhead strong{font-size:13px}.libhead span{margin-left:auto;color:var(--muted);font-size:11px}.saved{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 190px);overflow-y:auto;overflow-x:hidden;padding:0 3px 0 0}.saved button{width:100%;padding:8px 10px;font-size:12px;display:grid;grid-template-columns:36px minmax(0,1fr) auto;grid-template-rows:auto auto;gap:2px 8px;text-align:left;align-items:center;border-radius:12px}.saved button.active{background:#fff;color:#111}.libavatar{grid-row:1 / span 2;width:34px;height:34px;border-radius:50%;overflow:hidden;background:#303030;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex:none}.libavatar img{width:100%;height:100%;display:block;object-fit:cover}.libwho{min-width:0;display:flex;flex-direction:column;gap:1px}.libname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:750;font-size:12px}.libhandle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;opacity:.65}.saved .libmeta{grid-column:2 / 4;font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved .liveflag{font-size:10px;font-weight:800}.saved .liveflag.on{color:var(--tt)}.saved button.active .liveflag.on{color:var(--tt)}.libgroup{display:flex;align-items:center;gap:8px;margin:8px 2px 3px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}.libgroup:after{content:"";height:1px;background:var(--line);flex:1}.libgroup:first-child{margin-top:0}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
 .cardhead{padding:12px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:800}.badge{background:var(--tt);border-radius:5px;padding:4px 7px;font-size:11px}.sub{margin-left:auto;color:var(--muted);font-size:12px;font-weight:500}
 .body{min-height:480px;display:flex;align-items:center;justify-content:center;background:#111}.status{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px}
 .official{width:100%;padding:10px;display:flex;justify-content:center;overflow:hidden}.official .tiktok-embed{margin:0!important;min-width:0!important;max-width:605px!important;width:100%!important}
@@ -27,7 +27,7 @@ main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-siz
 <body>
 <header><div class="head"><strong>TikTok · LIVE</strong><span id="currentHandleLabel">LIVE @nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
 <main>
-  <p class="note">Dán link TikTok LIVE để test. Link đã lưu sẽ giữ lại trên máy này để bấm test lại nhanh.</p>
+  <p class="note">Dán link TikTok LIVE để mở. Kênh đã chọn, tên và avatar được đồng bộ từ server.</p>
   <div class="tester">
     <input id="liveLinkInput" autocomplete="off" spellcheck="false" placeholder="Dán link TikTok LIVE, ví dụ https://www.tiktok.com/@user/live">
     <button id="testLiveBtn">Mở</button>
@@ -68,6 +68,9 @@ let liveLibraryVersion=-1;
 let liveLibraryItems={};
 let liveLibraryHandles=[];
 let liveLibrarySyncBusy=false;
+let liveIdentityItems={};
+let liveIdentityInflight=new Set();
+let liveIdentityHydrateBusy=false;
 let liveOpenBusy=false;
 let liveSaveBusy=false;
 
@@ -129,6 +132,69 @@ function saveLocalLiveLibrary(){
 }
 function liveLibraryItem(handle){
   return liveLibraryItems[String(handle||'').toLowerCase()]||null;
+}
+function liveIdentityItem(handle){
+  return liveIdentityItems[String(handle||'').toLowerCase()]||null;
+}
+function escapeHtml(value){
+  return String(value??'').replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[ch]);
+}
+function applyCurrentIdentity(handle=HANDLE){
+  handle=parseTikTokHandle(handle);
+  if(!handle)return;
+  const identity=liveIdentityItem(handle)||{};
+  const name=String(identity.nickname||'').trim();
+  const label=document.getElementById('currentHandleLabel');
+  if(label)label.textContent=name?(name+' · @'+handle):('LIVE @'+handle);
+  const info=document.getElementById('liveInfoHandle');
+  if(info)info.textContent=name?(name+' · @'+handle):('@'+handle);
+}
+async function hydrateLiveLibraryIdentities(handles=libraryHandles()){
+  if(liveIdentityHydrateBusy)return;
+  const pending=[...new Set((handles||[]).map(parseTikTokHandle).filter(Boolean))]
+    .filter(handle=>!liveIdentityItem(handle)&&!liveIdentityInflight.has(handle.toLowerCase()));
+  if(!pending.length){
+    applyCurrentIdentity();
+    return;
+  }
+
+  liveIdentityHydrateBusy=true;
+  let cursor=0;
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=pending.length)return;
+      const handle=pending[index];
+      const key=handle.toLowerCase();
+      liveIdentityInflight.add(key);
+      try{
+        const r=await fetch(
+          API+'/tiktok/profile-identity?user='+encodeURIComponent(handle)+'&t='+Date.now(),
+          {cache:'no-store'}
+        );
+        const data=await r.json().catch(()=>({}));
+        if(r.ok&&data?.ok){
+          liveIdentityItems[key]={
+            nickname:String(data.nickname||''),
+            avatar:String(data.avatar||'')
+          };
+        }
+      }catch{}
+      finally{liveIdentityInflight.delete(key)}
+    }
+  };
+
+  try{
+    await Promise.all(Array.from({length:Math.min(4,pending.length)},()=>worker()));
+  }finally{
+    liveIdentityHydrateBusy=false;
+    renderSavedLiveLinks();
+    applyCurrentIdentity();
+    const remaining=libraryHandles().filter(handle=>!liveIdentityItem(handle));
+    if(remaining.length)void hydrateLiveLibraryIdentities(remaining);
+  }
 }
 function liveLibraryAge(row){
   const at=Number(row?.changedAt||row?.confirmedAt||0);
@@ -359,13 +425,20 @@ function renderSavedLiveLinks(){
 
   const rows=(list,isLive)=>list.map(handle=>{
     const row=liveLibraryItem(handle)||{};
+    const identity=liveIdentityItem(handle)||{};
     const active=handle===HANDLE?' active':'';
     const type=String(row.type||'').toUpperCase();
+    const name=String(identity.nickname||'').trim()||('@'+handle);
+    const avatar=String(identity.avatar||'').trim();
     const meta=isLive
       ? ['LIVE',row.ready?type:''].filter(Boolean).join(' · ')
       : 'Không LIVE';
+    const avatarHtml=avatar
+      ? '<span class="libavatar"><img src="'+escapeHtml(avatar)+'" alt="" referrerpolicy="no-referrer"></span>'
+      : '<span class="libavatar">'+escapeHtml(handle.slice(0,1).toUpperCase())+'</span>';
     return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">'+
-      '<span>@'+handle+'</span>'+
+      avatarHtml+
+      '<span class="libwho"><span class="libname">'+escapeHtml(name)+'</span><span class="libhandle">@'+escapeHtml(handle)+'</span></span>'+
       '<span class="liveflag '+(isLive?'on':'')+'">'+(isLive?'●':'○')+'</span>'+
       '<span class="libmeta">'+meta+'</span>'+
       '</button>';
@@ -384,6 +457,7 @@ function renderSavedLiveLinks(){
       const handle=btn.dataset.liveHandle;
       const row=liveLibraryItem(handle);
       setCurrentLive(handle,{playIfReady:false});
+      applyCurrentIdentity(handle);
 
       if(row?.live&&row?.ready&&row?.type&&row?.sourceSig){
         PENDING_HANDLE='';
@@ -398,6 +472,9 @@ function renderSavedLiveLinks(){
       // no browser session, no player reset.
     };
   });
+
+  applyCurrentIdentity();
+  void hydrateLiveLibraryIdentities(handles);
 }
 
 function destroyPlayer({clearVideo=false}={}){
