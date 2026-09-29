@@ -100,7 +100,7 @@ button{cursor:pointer}
 .chtext{min-width:0}
 .chname{font-size:13px;font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chhandle{font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
-.chmeta{font-size:10px;color:#777;margin-top:3px}
+
 .live-dot{color:var(--pink);font-weight:900}
 .row-actions{display:flex;align-items:center;gap:4px}
 .iconbtn{
@@ -263,6 +263,7 @@ let player=null;
 let packageVersion=-1;
 let loadBusy=false;
 let mutationBusy=false;
+let identityBatchBusy=false;
 let identityCache={};
 let toastTimer=0;
 
@@ -367,12 +368,9 @@ function updateCurrentUi(){
     compactCount(identity.heartCount)?compactCount(identity.heartCount)+' thích':'',
     compactCount(identity.latestVideoPlayCount)?compactCount(identity.latestVideoPlayCount)+' xem':''
   ].filter(Boolean).join(' · ');
-  const liveState=row.live
-    ? (row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE')
-    : 'Đang kiểm tra LIVE';
   document.getElementById('nowState').textContent=currentHandle
-    ? liveState+(statsText?' · '+statsText:'')
-    : 'Sẵn sàng';
+    ? statsText
+    : '';
 
   const av=document.getElementById('nowAvatar');
   av.innerHTML=avatar
@@ -407,16 +405,13 @@ function renderList(){
     const id=identityFor(handle)||{};
     const name=String(id.nickname||'').trim()||('@'+handle);
     const avatar=String(id.avatar||'').trim();
-    const liveMeta=row.live
-      ? '<span class="live-dot">● LIVE</span>'+(row.ready&&row.type?' · '+esc(String(row.type).toUpperCase()):'')
-      : 'Không LIVE';
     const stats=identityStatsHtml(id);
     return '<div class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'" role="button" tabindex="0">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span>'+
-      '<span class="channel-stats">'+(stats||'<span>'+liveMeta+'</span>')+'</span>'+
-      '<span class="chmeta">'+liveMeta+'</span></span>'+
-      '<span class="row-actions"><button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
+      (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span>'+
+      '<span class="row-actions">'+(row.live?'<span class="live-dot" title="Đang phát">●</span>':'')+
+      '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
   }).join('');
@@ -446,53 +441,78 @@ function renderList(){
     });
   });
 }
+function cacheIdentityRow(row){
+  const handle=parseHandle(row?.handle||'');
+  if(!handle)return;
+  const key=handle.toLowerCase();
+  identityCache[key]={
+    at:Date.now(),
+    data:{
+      nickname:String(row?.nickname||''),
+      avatar:String(row?.avatar||''),
+      secUid:String(row?.secUid||''),
+      followerCount:Number(row?.followerCount||0),
+      followingCount:Number(row?.followingCount||0),
+      heartCount:Number(row?.heartCount||0),
+      videoCount:Number(row?.videoCount||0),
+      latestVideoId:String(row?.latestVideoId||''),
+      latestVideoPlayCount:Number(row?.latestVideoPlayCount||0),
+      latestVideoDiggCount:Number(row?.latestVideoDiggCount||0),
+      source:String(row?.source||'')
+    }
+  };
+}
 async function hydrateIdentity(handle){
   handle=parseHandle(handle);
   if(!handle)return;
   const key=handle.toLowerCase();
   const cached=identityCache[key];
-  if(cached&&Date.now()-Number(cached.at||0)<12*60*60*1000)return;
+  if(cached&&Date.now()-Number(cached.at||0)<12*60*60*1000&&
+     (cached.data?.nickname||cached.data?.avatar))return;
   try{
-    const data=await apiJson(API+'/tiktok/profile-identity?user='+encodeURIComponent(handle)+'&t='+Date.now());
-    identityCache[key]={
-      at:Date.now(),
-      data:{
-        nickname:String(data.nickname||''),
-        avatar:String(data.avatar||''),
-        secUid:String(data.secUid||''),
-        followerCount:Number(data.followerCount||0),
-        followingCount:Number(data.followingCount||0),
-        heartCount:Number(data.heartCount||0),
-        videoCount:Number(data.videoCount||0),
-        latestVideoId:String(data.latestVideoId||''),
-        latestVideoPlayCount:Number(data.latestVideoPlayCount||0),
-        latestVideoDiggCount:Number(data.latestVideoDiggCount||0),
-        source:String(data.source||'')
-      }
-    };
+    const data=await apiJson(
+      API+'/tiktok/profile-identities?handles='+encodeURIComponent(handle)+'&t='+Date.now()
+    );
+    const row=Array.isArray(data.items)?data.items[0]:null;
+    if(row)cacheIdentityRow(row);
     saveIdentityCache();
     renderList();
     if(handle===currentHandle)updateCurrentUi();
-  }catch{
-    identityCache[key]={at:Date.now(),data:{nickname:'',avatar:'',followerCount:0,heartCount:0,latestVideoPlayCount:0,latestVideoDiggCount:0}};
-    saveIdentityCache();
+  }catch(error){
+    console.warn('identity',handle,error);
   }
 }
 async function hydrateIdentities(){
+  if(identityBatchBusy)return;
   const todo=channels
     .map(x=>String(x.handle||''))
     .filter(handle=>{
       const cached=identityCache[handle.toLowerCase()];
-      return !cached||Date.now()-Number(cached.at||0)>=12*60*60*1000;
+      return !cached||
+        Date.now()-Number(cached.at||0)>=12*60*60*1000||
+        (!cached.data?.nickname&&!cached.data?.avatar);
     });
-  let cursor=0;
-  const worker=async()=>{
-    while(cursor<todo.length){
-      const handle=todo[cursor++];
-      await hydrateIdentity(handle);
+  if(!todo.length)return;
+
+  identityBatchBusy=true;
+  try{
+    for(let start=0;start<todo.length;start+=100){
+      const batch=todo.slice(start,start+100);
+      const data=await apiJson(
+        API+'/tiktok/profile-identities?handles='+encodeURIComponent(batch.join(','))+'&t='+Date.now()
+      );
+      for(const row of Array.isArray(data.items)?data.items:[]){
+        cacheIdentityRow(row);
+      }
+      saveIdentityCache();
+      renderList();
+      updateCurrentUi();
     }
-  };
-  await Promise.all(Array.from({length:Math.min(4,todo.length)},()=>worker()));
+  }catch(error){
+    console.warn('identity batch',error);
+  }finally{
+    identityBatchBusy=false;
+  }
 }
 async function loadChannels({force=false,silent=false}={}){
   if(loadBusy)return;
