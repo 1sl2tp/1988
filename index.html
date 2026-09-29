@@ -1162,22 +1162,57 @@ html.one-col.portrait .player.pip{
 html.one-col .player.pip iframe{border-radius:inherit}
 
 /* PiP interaction in every 1-column layout (mobile + PC).
-   Tap anywhere once to reveal the top move grip.
-   Resize has NO visible handle: drag from any edge. */
+   Drag almost anywhere on the picture; keep the center play/pause zone and the
+   bottom YouTube seek/controls band untouched. Resize still uses the edges. */
 .pip-activate-zone,
+.pip-drag-zone,
 .pip-move-zone,
 .pip-resize-edge{display:none}
 
+/* The old full-surface activation layer intercepted YouTube controls.
+   Keep it disabled: native play/pause/seek must remain directly clickable. */
 html.one-col .player.pip .pip-activate-zone{
+  display:none!important;
+}
+
+html.one-col .player.pip .pip-drag-zone{
   display:block;
   position:absolute;
-  z-index:7;
-  inset:0;
-  touch-action:manipulation;
+  z-index:8;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+  cursor:grab;
   background:transparent;
 }
-html.one-col .player.pip.pip-ui-visible .pip-activate-zone{
-  pointer-events:none;
+html.one-col .player.pip .pip-drag-zone:active{cursor:grabbing}
+
+/* Four transparent move regions leave a center box for the large play/pause
+   control and the bottom 44px for native seek/volume/fullscreen controls. */
+html.one-col .player.pip .pip-drag-top{
+  left:0; right:0; top:0; height:33%;
+}
+html.one-col .player.pip .pip-drag-left{
+  left:0; top:33%; bottom:33%; width:33%;
+}
+html.one-col .player.pip .pip-drag-right{
+  right:0; top:33%; bottom:33%; width:33%;
+}
+html.one-col .player.pip .pip-drag-lower{
+  left:0; right:0; top:67%; bottom:44px;
+}
+
+/* Smoothly snap into/out of a screen edge after the finger is released. */
+html.one-col .player.pip:not(.pip-gesture-active){
+  transition:left .18s cubic-bezier(.2,0,0,1),
+             top .18s cubic-bezier(.2,0,0,1);
+}
+
+/* While docked only a small grab strip remains visible. Do not let an edge
+   resize zone steal the gesture used to pull the PiP back on-screen. */
+html.one-col .player.pip.pip-docked-left .pip-resize-edge,
+html.one-col .player.pip.pip-docked-right .pip-resize-edge{
+  pointer-events:none!important;
 }
 
 html.one-col .player.pip .pip-move-zone{
@@ -2368,6 +2403,10 @@ html.one-col.portrait .player.pip{
       <div class="player" id="player">
         <div id="videoFrame"></div>
         <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
+        <div class="pip-drag-zone pip-drag-top" data-pip-drag="top" aria-hidden="true"></div>
+        <div class="pip-drag-zone pip-drag-left" data-pip-drag="left" aria-hidden="true"></div>
+        <div class="pip-drag-zone pip-drag-right" data-pip-drag="right" aria-hidden="true"></div>
+        <div class="pip-drag-zone pip-drag-lower" data-pip-drag="lower" aria-hidden="true"></div>
         <div class="pip-move-zone" id="pipMoveZone" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-left" data-pip-edge="left" aria-hidden="true"></div>
         <div class="pip-resize-edge pip-resize-right" data-pip-edge="right" aria-hidden="true"></div>
@@ -2427,6 +2466,7 @@ html.one-col.portrait .player.pip{
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
   const pipActivateZone=document.getElementById("pipActivateZone");
+  const pipDragZones=[...document.querySelectorAll("[data-pip-drag]")];
   const pipMoveZone=document.getElementById("pipMoveZone");
   const pipResizeEdges=[...document.querySelectorAll("[data-pip-edge]")];
   const stateEl=document.getElementById("state");
@@ -5733,7 +5773,12 @@ html.one-col.portrait .player.pip{
   function clearMobilePipGestureGeometry(){
     clearPipUiTimer();
     pipGesture=null;
-    player.classList.remove("pip-ui-visible","pip-gesture-active");
+    player.classList.remove(
+      "pip-ui-visible",
+      "pip-gesture-active",
+      "pip-docked-left",
+      "pip-docked-right"
+    );
     for(const prop of ["left","right","top","bottom","width","height"]){
       player.style.removeProperty(prop);
     }
@@ -5753,26 +5798,30 @@ html.one-col.portrait .player.pip{
     );
   }
 
-  function mobilePipBounds(width,height){
+  const PIP_DOCK_REVEAL=34;
+
+  function mobilePipBounds(width,height,{allowDock=false}={}){
     const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
     const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
     const headerBottom=mobileHeaderHidden
       ? 0
       : Math.max(0,Math.round(top.getBoundingClientRect().bottom||0));
     const gap=10;
+    const reveal=Math.max(24,Math.min(PIP_DOCK_REVEAL,width));
     return {
-      minLeft:gap,
-      maxLeft:Math.max(gap,viewportW-width-gap),
+      minLeft:allowDock?-(width-reveal):gap,
+      maxLeft:allowDock?viewportW-reveal:Math.max(gap,viewportW-width-gap),
       minTop:headerBottom+8,
       maxTop:Math.max(headerBottom+8,viewportH-height-gap),
       viewportW,
       viewportH,
-      gap
+      gap,
+      reveal
     };
   }
 
-  function setMobilePipRect(left,topPos,width,height){
-    const bounds=mobilePipBounds(width,height);
+  function setMobilePipRect(left,topPos,width,height,{allowDock=false}={}){
+    const bounds=mobilePipBounds(width,height,{allowDock});
     const x=Math.max(bounds.minLeft,Math.min(bounds.maxLeft,left));
     const y=Math.max(bounds.minTop,Math.min(bounds.maxTop,topPos));
     player.style.setProperty("left",Math.round(x)+"px","important");
@@ -5781,6 +5830,18 @@ html.one-col.portrait .player.pip{
     player.style.setProperty("bottom","auto","important");
     player.style.setProperty("width",Math.round(width)+"px","important");
     player.style.setProperty("height",Math.round(height)+"px","important");
+  }
+
+  function dockMobilePip(side){
+    const rect=player.getBoundingClientRect();
+    if(rect.width<1||rect.height<1)return;
+    const bounds=mobilePipBounds(rect.width,rect.height,{allowDock:true});
+    const left=side==="left"
+      ?-(rect.width-bounds.reveal)
+      :bounds.viewportW-bounds.reveal;
+    player.classList.toggle("pip-docked-left",side==="left");
+    player.classList.toggle("pip-docked-right",side==="right");
+    setMobilePipRect(left,rect.top,rect.width,rect.height,{allowDock:true});
   }
 
   function beginMobilePipGesture(event,mode,edge=""){
@@ -5792,6 +5853,10 @@ html.one-col.portrait .player.pip{
       validMediaAspect(current?.detectedRatio)||
       validMediaAspect(current?.ratio)||
       rect.width/Math.max(1,rect.height);
+
+    if(mode==="move"){
+      player.classList.remove("pip-docked-left","pip-docked-right");
+    }
 
     pipGesture={
       mode,
@@ -5823,7 +5888,7 @@ html.one-col.portrait .player.pip{
     const dy=event.clientY-g.startY;
 
     if(g.mode==="move"){
-      setMobilePipRect(g.left+dx,g.top+dy,g.width,g.height);
+      setMobilePipRect(g.left+dx,g.top+dy,g.width,g.height,{allowDock:true});
       event.preventDefault();
       return;
     }
@@ -5880,19 +5945,39 @@ html.one-col.portrait .player.pip{
     const g=pipGesture;
     if(!g||event.pointerId!==g.pointerId)return;
     try{event.currentTarget.releasePointerCapture(event.pointerId)}catch{}
+
+    const dx=event.clientX-g.startX;
+    const rect=player.getBoundingClientRect();
     pipGesture=null;
     player.classList.remove("pip-gesture-active");
-    showPipUi(1200);
+
+    if(g.mode==="move"&&rect.width>0&&rect.height>0){
+      const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
+      const intent=Math.abs(dx)>=Math.max(28,Math.min(56,g.width*.16));
+      if(intent&&dx<0&&rect.left<=12){
+        dockMobilePip("left");
+      }else if(intent&&dx>0&&rect.right>=viewportW-12){
+        dockMobilePip("right");
+      }else{
+        player.classList.remove("pip-docked-left","pip-docked-right");
+        setMobilePipRect(rect.left,rect.top,rect.width,rect.height);
+      }
+    }
+
+    showPipUi(900);
     event.preventDefault();
     event.stopPropagation();
   }
 
-  pipActivateZone?.addEventListener("pointerdown",event=>{
-    if(!pip||isTwoColumn())return;
-    showPipUi(1800);
-    event.preventDefault();
-    event.stopPropagation();
-  });
+  // Full-surface activation is intentionally disabled. Safe drag zones move
+  // the PiP while the center and bottom remain native YouTube controls.
+  void pipActivateZone;
+
+  for(const zone of pipDragZones){
+    zone.addEventListener("pointerdown",event=>{
+      beginMobilePipGesture(event,"move");
+    });
+  }
 
   pipMoveZone?.addEventListener("pointerdown",event=>{
     beginMobilePipGesture(event,"move");
@@ -5904,7 +5989,7 @@ html.one-col.portrait .player.pip{
     });
   }
 
-  for(const zone of [pipMoveZone,...pipResizeEdges]){
+  for(const zone of [pipMoveZone,...pipDragZones,...pipResizeEdges]){
     zone?.addEventListener("pointermove",updateMobilePipGesture,{passive:false});
     zone?.addEventListener("pointerup",endMobilePipGesture,{passive:false});
     zone?.addEventListener("pointercancel",endMobilePipGesture,{passive:false});
