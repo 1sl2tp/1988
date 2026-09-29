@@ -109,24 +109,11 @@ export function createTikTokLoginRuntime({
 
   async function captureQr(){
     if(!page||page.isClosed())return null;
-    try{
-      const candidates=await page.$$('canvas,img,svg');
-      let best=null;
-      for(const el of candidates){
-        const box=await el.boundingBox().catch(()=>null);
-        if(!box)continue;
-        const w=box.width,h=box.height;
-        if(w<120||h<120||w>520||h>520)continue;
-        if(Math.abs(w-h)>Math.max(55,Math.min(w,h)*.38))continue;
-        const score=w*h;
-        if(!best||score>best.score)best={el,score};
-      }
-      if(best){
-        qr=await best.el.screenshot({type:'png'});
-        return qr;
-      }
-    }catch{}
-    qr=await page.screenshot({type:'png',fullPage:false}).catch(()=>null);
+    qr=await page.screenshot({
+      type:'png',
+      fullPage:false,
+      captureBeyondViewport:false,
+    }).catch(()=>null);
     return qr;
   }
 

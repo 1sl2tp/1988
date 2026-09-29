@@ -865,27 +865,30 @@ const server=http.createServer(async(req,res)=>{
       html(res,403,'<!doctype html><meta charset="utf-8"><p>Link đăng nhập không hợp lệ.</p>');
       return;
     }
-    try{
-      await tiktokQrLogin.start();
-      html(res,200,tiktokLoginHtml(url.searchParams.get('key')||''));
-    }catch(error){
-      html(res,502,'<!doctype html><meta charset="utf-8"><p>Không tạo được QR TikTok. Hãy thử lại sau.</p>');
-    }
+    html(res,200,tiktokLoginHtml(url.searchParams.get('key')||''));
+    void tiktokQrLogin.start().catch(error=>{
+      console.error('[tiktok-login] background start',String(error?.message||error));
+    });
     return;
   }
 
   if(url.pathname==='/login/tiktok/status'){
     if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
-    const state=await tiktokQrLogin.refresh();
-    json(res,200,{ok:true,...state});
+    json(res,200,{ok:true,...tiktokQrLogin.snapshot()});
     return;
   }
 
   if(url.pathname==='/login/tiktok/qr'){
     if(!loginAuthorized(url)){res.writeHead(403,{'cache-control':'no-store'});res.end();return;}
-    await tiktokQrLogin.start();
     const image=tiktokQrLogin.qr();
-    if(!image){res.writeHead(404,{'cache-control':'no-store'});res.end();return;}
+    if(!image){
+      res.writeHead(202,{
+        'cache-control':'no-store',
+        'retry-after':'1'
+      });
+      res.end();
+      return;
+    }
     res.writeHead(200,{
       'content-type':'image/png',
       'cache-control':'no-store',
@@ -897,12 +900,10 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/login/tiktok/restart'){
     if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
-    try{
-      const state=await tiktokQrLogin.start({restart:true});
-      json(res,200,{ok:true,...state});
-    }catch(error){
-      json(res,502,{ok:false,error:String(error?.message||error)});
-    }
+    json(res,202,{ok:true,status:'starting'});
+    void tiktokQrLogin.start({restart:true}).catch(error=>{
+      console.error('[tiktok-login] background restart',String(error?.message||error));
+    });
     return;
   }
 
@@ -1086,6 +1087,9 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
+  void getBrowser()
+    .then(()=>console.log('[collector] browser prewarmed'))
+    .catch(error=>console.warn('[collector] browser prewarm failed',String(error?.message||error)));
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     setTimeout(()=>{void schedulerTick();},8000).unref();
