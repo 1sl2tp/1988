@@ -31,6 +31,7 @@ const tiktokProxyTargets=new Map();
 const tiktokLiveSessions=new Map();
 const tiktokLiveSessionInflight=new Map();
 const tiktokLiveFastSources=new Map();
+const tiktokLiveBadSources=new Map();
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -356,6 +357,51 @@ async function fastTikTokLiveWithYtdlp(handle){
     return null;
   }
 }
+const TIKTOK_BAD_SOURCE_MS=10*60*1000;
+
+function tiktokLiveSourceFingerprint(rawUrl,type=''){
+  try{
+    const u=new URL(String(rawUrl||''));
+    return String(type||'')+'|'+u.hostname.toLowerCase()+'|'+u.pathname;
+  }catch{
+    return String(type||'')+'|'+String(rawUrl||'').split('?')[0];
+  }
+}
+function cleanTikTokBadSources(){
+  const cutoff=Date.now()-TIKTOK_BAD_SOURCE_MS;
+  for(const [handle,map] of tiktokLiveBadSources){
+    if(!(map instanceof Map)){tiktokLiveBadSources.delete(handle);continue}
+    for(const [fingerprint,at] of map){
+      if(Number(at||0)<cutoff)map.delete(fingerprint);
+    }
+    if(!map.size)tiktokLiveBadSources.delete(handle);
+  }
+}
+function markTikTokBadSource(handle,row){
+  if(!row?.url)return;
+  cleanTikTokBadSources();
+  const key=String(handle||'').toLowerCase();
+  let map=tiktokLiveBadSources.get(key);
+  if(!map){map=new Map();tiktokLiveBadSources.set(key,map)}
+  const fingerprint=tiktokLiveSourceFingerprint(row.url,row.type);
+  map.set(fingerprint,Date.now());
+  console.log('[tiktok-source] blacklist',handle,row.type,fingerprint.slice(0,180));
+}
+function isTikTokBadSource(handle,row){
+  if(!row?.url)return false;
+  cleanTikTokBadSources();
+  const map=tiktokLiveBadSources.get(String(handle||'').toLowerCase());
+  return Boolean(map?.has(tiktokLiveSourceFingerprint(row.url,row.type)));
+}
+function clearTikTokBadSource(handle,row){
+  if(!row?.url)return;
+  const key=String(handle||'').toLowerCase();
+  const map=tiktokLiveBadSources.get(key);
+  if(!map)return;
+  map.delete(tiktokLiveSourceFingerprint(row.url,row.type));
+  if(!map.size)tiktokLiveBadSources.delete(key);
+}
+
 function cleanTikTokFastSources(){
   for(const [key,row] of tiktokLiveFastSources){
     if(!row||!tiktokLiveCacheReusable(row))tiktokLiveFastSources.delete(key);
@@ -375,18 +421,20 @@ async function resolveTikTokLiveSource(rawHandle){
   }
 
   const cached=tiktokLiveFastSources.get(key);
-  if(cached&&tiktokLiveCacheReusable(cached)){
+  if(cached&&tiktokLiveCacheReusable(cached)&&!isTikTokBadSource(handle,cached)){
     cached.at=Date.now();
     console.log('[tiktok-cache] fast reuse',handle,cached.type,cached.source||'fast');
     return {...cached,mode:'fast-cache'};
   }
+  if(cached&&isTikTokBadSource(handle,cached))tiktokLiveFastSources.delete(key);
 
   const preflight=await quickTikTokLiveStatus(handle);
   if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
 
-  for(const candidate of (preflight.candidates||[]).slice(0,4)){
+  const candidates=(preflight.candidates||[]).filter(row=>!isTikTokBadSource(handle,row));
+  for(const candidate of candidates.slice(0,10)){
     const valid=await validateTikTokLiveCandidate(handle,candidate);
-    if(valid){
+    if(valid&&!isTikTokBadSource(handle,valid)){
       const row={mode:'fast',handle,type:valid.type,url:valid.url,headers:valid.headers,at:Date.now(),source:'room-api',confirmed:false};
       tiktokLiveFastSources.set(key,row);
       console.log('[tiktok-fast] room-api',handle,row.type);
@@ -421,12 +469,12 @@ async function resolveTikTokCompatibleLiveSource(rawHandle){
   if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
 
   const flvCandidates=(preflight.candidates||[])
-    .filter(row=>row.type==='flv')
+    .filter(row=>row.type==='flv'&&!isTikTokBadSource(handle,row))
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
 
   for(const candidate of flvCandidates.slice(0,6)){
     const valid=await validateTikTokLiveCandidate(handle,candidate);
-    if(valid){
+    if(valid&&!isTikTokBadSource(handle,valid)){
       const row={
         mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
         at:Date.now(),source:'room-api-flv',confirmed:false
@@ -2127,11 +2175,13 @@ const server=http.createServer(async(req,res)=>{
       if(fast&&(!type||fast.type===type)){
         fast.confirmed=true;
         fast.at=Date.now();
+        clearTikTokBadSource(handle,fast);
         marked=true;
       }
       if(browser&&(!type||browser.type===type)){
         browser.confirmed=true;
         browser.at=Date.now();
+        clearTikTokBadSource(handle,browser);
         marked=true;
       }
       console.log('[tiktok-cache] confirmed',handle,type||'any',marked?'yes':'miss');
@@ -2140,8 +2190,14 @@ const server=http.createServer(async(req,res)=>{
     }
 
     if(status==='bad'){
-      if(fast&&(!type||fast.type===type))tiktokLiveFastSources.delete(key);
-      if(browser&&(!type||browser.type===type))await closeTikTokLiveSession(key);
+      if(fast&&(!type||fast.type===type)){
+        markTikTokBadSource(handle,fast);
+        tiktokLiveFastSources.delete(key);
+      }
+      if(browser&&(!type||browser.type===type)){
+        markTikTokBadSource(handle,browser);
+        await closeTikTokLiveSession(key);
+      }
       console.log('[tiktok-cache] evict bad',handle,type||'any');
       json(res,200,{ok:true});
       return;
