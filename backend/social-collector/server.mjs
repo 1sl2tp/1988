@@ -3075,6 +3075,192 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
   }
 }
 
+async function browserTikTokProfileGridVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
+
+  let page=null;
+  try{
+    const browser=await getBrowser();
+    page=await browser.newPage();
+    await page.setViewport({width:1280,height:900,deviceScaleFactor:1});
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5'});
+
+    const stored=await loadSession('tiktok').catch(()=>null);
+    const cookies=cookieParams(stored?.state?.cookies||[]);
+    if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
+
+    await page.goto('https://www.tiktok.com/@'+handle,{
+      waitUntil:'domcontentloaded',
+      timeout:14_000
+    });
+    await sleep(1200);
+
+    const result=await page.evaluate(input=>{
+      const max=Math.max(1,Math.min(20,Number(input.count)||10));
+      const handle=input.handle;
+      const map=new Map();
+
+      const put=(id,patch={})=>{
+        id=String(id||'').trim();
+        if(!/^\d{8,}$/.test(id))return;
+        const prev=map.get(id)||{
+          id,
+          handle,
+          url:'https://www.tiktok.com/@'+handle+'/video/'+id,
+          title:'',
+          createTime:0,
+          duration:0,
+          cover:'',
+          playCount:0,
+          diggCount:0,
+          commentCount:0,
+          shareCount:0,
+          playUrl:'',
+          width:0,
+          height:0
+        };
+        for(const [key,value] of Object.entries(patch||{})){
+          if(value!==undefined&&value!==null&&value!=='')prev[key]=value;
+        }
+        map.set(id,prev);
+      };
+
+      // 1) Visible profile grid is the most robust source of video IDs.
+      for(const a of document.querySelectorAll('a[href*="/video/"]')){
+        const href=String(a.getAttribute('href')||a.href||'');
+        const m=href.match(/\/video\/(\d{8,})/);
+        if(!m)continue;
+        const img=a.querySelector('img');
+        const title=
+          String(a.getAttribute('aria-label')||'').trim()||
+          String(img?.getAttribute('alt')||'').trim()||
+          '';
+        const cover=String(img?.currentSrc||img?.src||'').trim();
+        put(m[1],{title,cover});
+        if(map.size>=max)break;
+      }
+
+      // 2) Enrich from TikTok hydration scripts when available.
+      const parseScript=id=>{
+        const el=document.getElementById(id);
+        if(!el)return null;
+        try{return JSON.parse(el.textContent||'')}catch{return null}
+      };
+      const roots=[
+        parseScript('__UNIVERSAL_DATA_FOR_REHYDRATION__'),
+        parseScript('SIGI_STATE')
+      ].filter(Boolean);
+
+      const seen=new Set();
+      const walk=value=>{
+        if(!value||typeof value!=='object'||seen.has(value))return;
+        seen.add(value);
+        if(Array.isArray(value)){
+          for(const item of value)walk(item);
+          return;
+        }
+
+        const id=String(value?.id||value?.itemId||value?.aweme_id||'');
+        const video=value?.video||{};
+        const stats=value?.stats||value?.statistics||{};
+        if(/^\d{8,}$/.test(id)&&(value?.video||value?.desc||value?.title||value?.aweme_id)){
+          const firstUrl=v=>{
+            if(!v)return '';
+            if(typeof v==='string')return v;
+            if(Array.isArray(v)){
+              for(const x of v){const y=firstUrl(x);if(y)return y;}
+              return '';
+            }
+            if(typeof v==='object'){
+              for(const k of ['urlList','url_list','url','uri']){
+                const y=firstUrl(v[k]);if(y)return y;
+              }
+            }
+            return '';
+          };
+          put(id,{
+            title:String(value?.desc||value?.title||value?.description||'').slice(0,300),
+            createTime:Number(value?.createTime||value?.create_time||0),
+            duration:Number(video?.duration||value?.duration||0),
+            cover:firstUrl(video?.cover||video?.originCover||video?.dynamicCover||value?.cover),
+            playCount:Number(stats?.playCount||stats?.play_count||0),
+            diggCount:Number(stats?.diggCount||stats?.digg_count||0),
+            commentCount:Number(stats?.commentCount||stats?.comment_count||0),
+            shareCount:Number(stats?.shareCount||stats?.share_count||0),
+            playUrl:firstUrl(video?.playAddr||video?.play_addr||video?.downloadAddr||video?.download_addr),
+            width:Number(video?.width||0),
+            height:Number(video?.height||0)
+          });
+        }
+
+        for(const child of Object.values(value))walk(child);
+      };
+      for(const root of roots)walk(root);
+
+      return {
+        title:document.title,
+        videos:[...map.values()].slice(0,max)
+      };
+    },{handle,count});
+
+    const videos=(Array.isArray(result?.videos)?result.videos:[])
+      .map(row=>normalizeTikTokPostItem(handle,{
+        id:row.id,
+        desc:row.title,
+        createTime:row.createTime,
+        duration:row.duration,
+        cover:row.cover,
+        play:row.playUrl,
+        width:row.width,
+        height:row.height,
+        stats:{
+          playCount:row.playCount,
+          diggCount:row.diggCount,
+          commentCount:row.commentCount,
+          shareCount:row.shareCount
+        }
+      }))
+      .filter(Boolean)
+      .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+
+    console.log(
+      '[tiktok-profile-grid]',
+      handle,
+      videos.length?'ok':'miss',
+      'videos='+videos.length,
+      compactText(result?.title||'',80)
+    );
+
+    if(!videos.length){
+      return {known:false,handle,secUid:'',videos:[],error:'profile_grid_no_videos'};
+    }
+
+    return {
+      known:true,
+      handle,
+      secUid:'',
+      videos,
+      latestVideoId:String(videos[0]?.id||''),
+      hasMore:false,
+      cursor:'',
+      source:'browser-profile-grid'
+    };
+  }catch(error){
+    console.warn('[tiktok-profile-grid] failed',handle,compactText(error?.message||error,150));
+    return {
+      known:false,handle,secUid:'',videos:[],
+      error:'profile_grid_'+compactText(error?.message||error,120)
+    };
+  }finally{
+    if(page)await page.close().catch(()=>{});
+  }
+}
+
 async function fetchTikwmChannelVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
@@ -4950,6 +5136,9 @@ const server=http.createServer(async(req,res)=>{
       if(url.searchParams.get('refresh')!=='0'){
         let result=await browserTikTokChannelVideos(handle,current.secUid||'',TIKTOK_VIDEO_PER_CHANNEL);
         if(!result?.known){
+          result=await browserTikTokProfileGridVideos(handle,TIKTOK_VIDEO_PER_CHANNEL);
+        }
+        if(!result?.known){
           result=await fetchTikwmChannelVideos(handle,TIKTOK_VIDEO_PER_CHANNEL);
         }
         if(!result?.known){
@@ -5380,16 +5569,18 @@ server.listen(PORT,'0.0.0.0',()=>{
       return !Array.isArray(row?.videos)||!row.videos.length;
     });
     if(videoProbeHandle){
-      void browserTikTokChannelVideos(videoProbeHandle,'',3).then(result=>{
+      void (async()=>{
+        let result=await browserTikTokChannelVideos(videoProbeHandle,'',3);
+        if(!result?.known)result=await browserTikTokProfileGridVideos(videoProbeHandle,3);
         console.log(
-          '[tiktok-browser-video-selftest]',
+          '[tiktok-video-selftest]',
           videoProbeHandle,
           result?.known?'ok':'miss',
           'videos='+(Array.isArray(result?.videos)?result.videos.length:0),
-          result?.error?compactText(result.error,100):''
+          result?.source||result?.error||''
         );
-      }).catch(error=>{
-        console.log('[tiktok-browser-video-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
+      })().catch(error=>{
+        console.log('[tiktok-video-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
       });
     }
 
