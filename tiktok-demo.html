@@ -34,7 +34,7 @@ main{max-width:1180px;margin:auto;padding:14px}
 .saved button{padding:6px 9px;font-size:12px}
 .toolbar{display:flex;gap:8px;overflow:auto;padding-bottom:2px}
 .toolbar button.active{background:#fff;color:#111;font-weight:700}
-.samples{display:grid;grid-template-columns:1fr;gap:12px;margin:0 0 14px}.sample{border:1px solid var(--line);background:var(--card);border-radius:16px;overflow:hidden}.samplehead{padding:11px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}.samplehead .live{background:var(--tt);padding:4px 7px;border-radius:5px;font-size:11px}.official-wrap{padding:10px;display:flex;justify-content:center;overflow:hidden}.official-wrap .tiktok-embed{margin:0!important;min-width:0!important;max-width:100%!important;width:100%!important}.live-shell{position:relative;aspect-ratio:9/16;max-height:680px;background:#000;margin:auto}.live-shell video{width:100%;height:100%;object-fit:cover;background:#000;display:block}.live-overlay{position:absolute;left:10px;bottom:12px;right:10px;pointer-events:none;text-shadow:0 1px 3px #000}.live-overlay strong{display:block;font-size:15px}.live-overlay span{font-size:12px;color:#eee}.grid{display:grid;grid-template-columns:1fr;gap:12px}
+.samples{display:grid;grid-template-columns:1fr;gap:12px;margin:0 0 14px}.sample{border:1px solid var(--line);background:var(--card);border-radius:16px;overflow:hidden}.samplehead{padding:11px 12px;border-bottom:1px solid var(--line);font-size:13px;font-weight:700;display:flex;align-items:center;gap:8px}.samplehead .live{background:var(--tt);padding:4px 7px;border-radius:5px;font-size:11px}.account-card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}.account-head{display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--line)}.account-head img{width:44px;height:44px;border-radius:50%;object-fit:cover;background:#222}.account-main{min-width:0;flex:1}.account-name{font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.account-handle,.account-bio{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.account-block{padding:12px;border-top:1px solid var(--line)}.account-block:first-of-type{border-top:0}.block-title{font-size:12px;font-weight:800;color:#ddd;margin-bottom:8px;display:flex;align-items:center;gap:7px}.status-chip{font-size:10px;border-radius:999px;padding:4px 7px;background:#2b2b2b}.status-chip.live{background:var(--tt);color:white}.video-list{display:grid;grid-template-columns:1fr;gap:10px}.account-empty{padding:18px;color:var(--muted);font-size:13px;text-align:center}.official-wrap{padding:10px;display:flex;justify-content:center;overflow:hidden}.official-wrap .tiktok-embed{margin:0!important;min-width:0!important;max-width:100%!important;width:100%!important}.live-shell{position:relative;aspect-ratio:9/16;max-height:680px;background:#000;margin:auto}.live-shell video{width:100%;height:100%;object-fit:cover;background:#000;display:block}.live-overlay{position:absolute;left:10px;bottom:12px;right:10px;pointer-events:none;text-shadow:0 1px 3px #000}.live-overlay strong{display:block;font-size:15px}.live-overlay span{font-size:12px;color:#eee}.grid{display:grid;grid-template-columns:1fr;gap:12px}
 .card{display:block;text-decoration:none;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:16px;overflow:hidden;transition:transform .12s ease,border-color .12s ease}
 .card:hover{transform:translateY(-1px);border-color:#4b4b4b}
 .thumb{position:relative;aspect-ratio:9/16;background:#000;overflow:hidden}
@@ -49,7 +49,7 @@ main{max-width:1180px;margin:auto;padding:14px}
 .small{font-size:12px;color:var(--muted);line-height:1.45}
 .skeleton{height:230px;border-radius:16px;background:linear-gradient(90deg,#171717,#222,#171717);background-size:220% 100%;animation:sh 1.1s infinite}
 @keyframes sh{to{background-position:-220% 0}}
-@media(min-width:640px){.samples{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.top{grid-template-columns:1.3fr .7fr;align-items:start}.stats{grid-template-columns:repeat(3,1fr)}}
+@media(min-width:640px){.samples{grid-template-columns:repeat(2,minmax(0,1fr))}.video-list{grid-template-columns:repeat(2,minmax(0,1fr))}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.top{grid-template-columns:1.3fr .7fr;align-items:start}.stats{grid-template-columns:repeat(3,1fr)}}
 @media(min-width:980px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 </style>
 </head>
@@ -79,35 +79,19 @@ main{max-width:1180px;margin:auto;padding:14px}
     </div>
   </section>
 
-  <section class="samples">
-    <article class="sample">
-      <div class="samplehead">Video TikTok · player chính thức</div>
-      <div class="official-wrap">
-        <blockquote class="tiktok-embed"
-          cite="https://www.tiktok.com/@yvesellys/video/7689526045287959826"
-          data-video-id="7689526045287959826"
-          style="max-width:605px;min-width:0;width:100%">
-          <section>
-            <a target="_blank" href="https://www.tiktok.com/@yvesellys">@yvesellys</a>
-          </section>
-        </blockquote>
-      </div>
-    </article>
-    <article class="sample">
-      <div class="samplehead"><span class="live">LIVE</span> TikTok · @tramnhacsuy2k1</div>
-      <div class="live-shell">
-        <video id="sampleLive" controls autoplay muted playsinline preload="metadata"></video>
-        <div class="live-overlay"><strong>@tramnhacsuy2k1</strong><span id="sampleLiveState">Đang lấy luồng LIVE mới nhất…</span></div>
-      </div>
-    </article>
+  <section>
+    <div class="samplehead" style="padding-left:0;border:0">Mẫu phân loại theo tài khoản</div>
+    <div id="accountSamples" class="samples">
+      <div class="skeleton"></div><div class="skeleton"></div>
+    </div>
   </section>
 
   <section class="checker">
     <div class="checkrow">
       <input id="userInput" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Dán link TikTok, @username hoặc nhiều ID">
-      <button id="checkUser">Kiểm tra LIVE</button>
+      <button id="checkUser">Lấy kênh</button>
     </div>
-    <div id="checkMsg" class="checkmsg">Nguồn chắc chắn: kiểm tra từng ID bằng yt-dlp, không cần đăng nhập.</div>
+    <div id="checkMsg" class="checkmsg">Dán link tài khoản TikTok → lấy thông tin kênh → tách LIVE (nếu có) → lấy video mới.</div>
     <div id="savedUsers" class="saved"></div>
   </section>
 
@@ -127,7 +111,6 @@ main{max-width:1180px;margin:auto;padding:14px}
 <script>
 const API='https://one988-tiktok-session.onrender.com';
 const SAMPLE_HANDLES=['tramnhacsuy2k1','_mi_zim'];
-const SAMPLE_LIVE='tramnhacsuy2k1';
 const grid=document.getElementById('grid');
 const serviceDot=document.getElementById('serviceDot');
 const serviceText=document.getElementById('serviceText');
@@ -139,8 +122,10 @@ const shownCount=document.getElementById('shownCount');
 const userInput=document.getElementById('userInput');
 const checkMsg=document.getElementById('checkMsg');
 const savedUsers=document.getElementById('savedUsers');
+const accountSamples=document.getElementById('accountSamples');
 let rows=[],checkedRows=[],mode='live';
 let livePlayers=[];
+let accountPlayers=[];
 let savedHandles=[];
 try{savedHandles=JSON.parse(localStorage.getItem('tiktok-demo-handles')||'[]')}catch{}
 if(!Array.isArray(savedHandles))savedHandles=[];
@@ -212,13 +197,15 @@ function card(row){
   '</article>';
 }
 
-function clearPlayers(){
-  for(const p of livePlayers){
+function destroyPlayers(list){
+  for(const p of list){
     try{p.pause?.();p.unload?.();p.detachMediaElement?.();p.destroy?.();}catch{}
   }
-  livePlayers=[];
+  list.length=0;
 }
-function attachLivePlayer(video,handle,type='hls'){
+function clearPlayers(){destroyPlayers(livePlayers)}
+function clearAccountPlayers(){destroyPlayers(accountPlayers)}
+function attachLivePlayer(video,handle,type='hls',bucket=livePlayers){
   const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&t='+Date.now();
   const play=()=>video.play().catch(()=>{});
   if(type==='hls'){
@@ -234,7 +221,7 @@ function attachLivePlayer(video,handle,type='hls'){
         h.loadSource(proxy);
         h.attachMedia(video);
         h.on(Hls.Events.MANIFEST_PARSED,play);
-        livePlayers.push(h);
+        bucket.push(h);
         return true;
       }catch{}
     }
@@ -245,7 +232,7 @@ function attachLivePlayer(video,handle,type='hls'){
       p.attachMediaElement(video);
       p.load();
       p.on(flvjs.Events.METADATA_ARRIVED,play);
-      livePlayers.push(p);
+      bucket.push(p);
       setTimeout(play,500);
       return true;
     }catch{}
@@ -273,7 +260,7 @@ function mergedRows(){
 }
 function renderSaved(){
   savedUsers.innerHTML=savedHandles.map(h=>'<button data-saved="'+esc(h)+'">@'+esc(h)+'</button>').join('');
-  savedUsers.querySelectorAll('[data-saved]').forEach(b=>b.onclick=()=>{userInput.value='@'+b.dataset.saved;checkHandles([b.dataset.saved])});
+  savedUsers.querySelectorAll('[data-saved]').forEach(b=>b.onclick=()=>{userInput.value='@'+b.dataset.saved;loadAccountSearch(b.dataset.saved)});
 }
 function render(){
   clearPlayers();
@@ -304,77 +291,86 @@ function remember(handles){
   localStorage.setItem('tiktok-demo-handles',JSON.stringify(savedHandles));
   renderSaved();
 }
-async function checkHandles(handles){
-  handles=parseHandles(handles.join(' '));
-  if(!handles.length){checkMsg.textContent='Nhập ít nhất một @username hợp lệ.';return;}
-  remember(handles);
-  document.getElementById('checkUser').disabled=true;
-  let done=0,liveFound=0;
-  for(const handle of handles){
-    checkMsg.textContent='Đang kiểm tra @'+handle+'… '+done+'/'+handles.length;
-    try{
-      const r=await fetch(API+'/tiktok/check-live?user='+encodeURIComponent(handle),{cache:'no-store'});
-      const j=await r.json();
-      if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
-      done++;
-      checkedRows=checkedRows.filter(x=>String(x.handle||'').toLowerCase()!==handle.toLowerCase());
-      const row={
-        id:j.id||('check:'+handle.toLowerCase()),
-        handle,
-        title:j.title||('@'+handle+(j.live?' đang LIVE':' hiện không LIVE')),
-        thumbnail:j.thumbnail||'',
-        url:j.url||('https://www.tiktok.com/@'+handle+'/live'),
-        live:Boolean(j.live),
-        isLive:Boolean(j.live),
-        origin:'yt-dlp',
-        streamUrl:j.streamUrl||'',
-        streamType:j.streamType||''
-      };
-      checkedRows.unshift(row);
-      if(j.live)liveFound++;
-      render();
-    }catch(err){
-      done++;
-      checkedRows=checkedRows.filter(x=>String(x.handle||'').toLowerCase()!==handle.toLowerCase());
-      checkedRows.unshift({
-        id:'check:'+handle.toLowerCase(),
-        handle,
-        title:'@'+handle+' · kiểm tra lỗi',
-        thumbnail:'',
-        url:'https://www.tiktok.com/@'+handle+'/live',
-        live:false,
-        isLive:false,
-        origin:'yt-dlp'
-      });
-      render();
-    }
-  }
-  checkMsg.textContent='Đã kiểm tra '+done+' ID · đang LIVE: '+liveFound+'.';
-  document.getElementById('checkUser').disabled=false;
+function profileVideoEmbed(row){
+  const id=String(row?.id||'');
+  const handle=String(row?.handle||'').replace(/^@/,'');
+  const url=String(row?.url||'');
+  if(!/^\d{8,}$/.test(id)||!url)return '';
+  return '<div class="official-wrap"><blockquote class="tiktok-embed" cite="'+esc(url)+'" data-video-id="'+esc(id)+'" style="max-width:605px;min-width:0;width:100%"><section>'+
+    (handle?'<a target="_blank" href="https://www.tiktok.com/@'+esc(handle)+'">@'+esc(handle)+'</a>':'')+
+    '</section></blockquote></div>';
 }
-document.getElementById('checkUser').onclick=()=>checkHandles(parseHandles(userInput.value));
-userInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();checkHandles(parseHandles(userInput.value));}});
-
-async function loadSampleLive(){
-  const video=document.getElementById('sampleLive');
-  const state=document.getElementById('sampleLiveState');
-  if(!video||!state)return;
-  state.textContent='Đang kiểm tra LIVE…';
+function accountCard(data){
+  const a=data?.account||{};
+  const handle=String(a.handle||'').replace(/^@/,'');
+  const name=String(a.displayName||('@'+handle));
+  const avatar=String(a.avatar||'');
+  const bio=String(a.bio||'');
+  const live=data?.live||null;
+  const videos=Array.isArray(data?.videos)?data.videos.slice(0,3):[];
+  return '<article class="account-card" data-account="'+esc(handle)+'">'+
+    '<div class="account-head">'+
+      (avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':'<div style="width:44px;height:44px;border-radius:50%;background:#222"></div>')+
+      '<div class="account-main"><div class="account-name">'+esc(name)+'</div><div class="account-handle">@'+esc(handle)+'</div>'+
+      (bio?'<div class="account-bio">'+esc(bio)+'</div>':'')+'</div>'+
+      '<a href="'+esc(data.profileUrl||('https://www.tiktok.com/@'+handle))+'" target="_blank" rel="noopener noreferrer" style="color:#fff;font-size:12px">Kênh</a>'+
+    '</div>'+
+    '<div class="account-block"><div class="block-title">LIVE '+(live?'<span class="status-chip live">ĐANG LIVE</span>':'<span class="status-chip">KHÔNG LIVE</span>')+'</div>'+
+      (live?'<div class="live-shell"><video controls autoplay muted playsinline preload="metadata" data-account-live="'+esc(handle)+'" data-account-live-type="'+esc(live.streamType||'hls')+'" poster="'+esc(live.thumbnail||'')+'"></video><div class="live-overlay"><strong>@'+esc(handle)+'</strong><span>'+esc(live.title||'TikTok LIVE')+'</span></div></div>':'<div class="account-empty">Hiện không có phiên LIVE.</div>')+
+    '</div>'+
+    '<div class="account-block"><div class="block-title">VIDEO MỚI <span class="status-chip">'+videos.length+'</span></div>'+
+      (videos.length?'<div class="video-list">'+videos.map(profileVideoEmbed).join('')+'</div>':'<div class="account-empty">Chưa lấy được video mới từ trang kênh.</div>')+
+    '</div>'+
+  '</article>';
+}
+function mountAccountPlayers(root=document){
+  root.querySelectorAll('video[data-account-live]').forEach(video=>{
+    attachLivePlayer(video,video.dataset.accountLive||'',(video.dataset.accountLiveType||'hls').toLowerCase(),accountPlayers);
+  });
+}
+async function fetchAccount(handle){
+  const r=await fetch(API+'/tiktok/profile?user='+encodeURIComponent(handle)+'&limit=3',{cache:'no-store'});
+  const j=await r.json();
+  if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+async function loadExampleAccounts(){
+  clearAccountPlayers();
+  accountSamples.innerHTML='<div class="skeleton"></div><div class="skeleton"></div>';
+  const results=await Promise.all(SAMPLE_HANDLES.map(async handle=>{
+    try{return await fetchAccount(handle)}
+    catch(err){return {ok:false,handle,error:String(err?.message||err)}}
+  }));
+  accountSamples.innerHTML=results.map((x,i)=>x.ok?accountCard(x):
+    '<article class="account-card"><div class="account-head"><div class="account-main"><div class="account-name">@'+esc(SAMPLE_HANDLES[i])+'</div><div class="account-handle">Không lấy được dữ liệu mẫu</div></div></div></article>'
+  ).join('');
+  mountAccountPlayers(accountSamples);
+  refreshTikTokEmbeds();
+}
+async function loadAccountSearch(raw){
+  const handles=parseHandles(String(raw||userInput.value));
+  if(!handles.length){checkMsg.textContent='Dán link tài khoản hoặc nhập @username hợp lệ.';return;}
+  const handle=handles[0];
+  remember([handle]);
+  const button=document.getElementById('checkUser');
+  button.disabled=true;
+  checkMsg.textContent='Đang lấy @'+handle+': thông tin kênh → LIVE → video mới…';
   try{
-    const r=await fetch(API+'/tiktok/check-live?user='+encodeURIComponent(SAMPLE_LIVE),{cache:'no-store'});
-    const j=await r.json();
-    if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
-    if(!j.live){
-      state.textContent='Kênh hiện không LIVE';
-      video.removeAttribute('src');
-      return;
-    }
-    state.textContent='Đang LIVE · '+(j.streamType==='hls'?'HLS':(j.streamType||'luồng trực tiếp'));
-    attachLivePlayer(video,SAMPLE_LIVE,j.streamType||'hls');
+    const data=await fetchAccount(handle);
+    clearAccountPlayers();
+    accountSamples.innerHTML=accountCard(data);
+    mountAccountPlayers(accountSamples);
+    refreshTikTokEmbeds();
+    checkMsg.textContent='@'+handle+' · '+(data.live?'đang LIVE':'không LIVE')+' · '+(data.videos?.length||0)+' video mẫu.';
   }catch(err){
-    state.textContent='Chưa lấy được luồng LIVE';
+    checkMsg.textContent='Không lấy được @'+handle+': '+String(err?.message||err);
+  }finally{
+    button.disabled=false;
   }
 }
+document.getElementById('checkUser').onclick=()=>loadAccountSearch(userInput.value);
+userInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();loadAccountSearch(userInput.value);}});
+
 
 async function load(){
   document.getElementById('refresh').disabled=true;
@@ -406,8 +402,7 @@ async function load(){
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;render()});
 document.getElementById('refresh').onclick=load;
 renderSaved();
-loadSampleLive();
-load().finally(()=>checkHandles(SAMPLE_HANDLES));
+load().finally(loadExampleAccounts);
 </script>
 </body>
 </html>
