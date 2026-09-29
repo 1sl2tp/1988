@@ -133,9 +133,12 @@ function enqueueYtdlp(task){
   ytdlpSerial=run.catch(()=>{});
   return run;
 }
-function execFileText(file,args,{timeout=25000,maxBuffer=4*1024*1024}={}){
+function execFileText(file,args,{timeout=25000,maxBuffer=4*1024*1024,env=null}={}){
   return new Promise((resolve,reject)=>{
-    execFile(file,args,{timeout,maxBuffer,encoding:'utf8'},(error,stdout,stderr)=>{
+    execFile(file,args,{
+      timeout,maxBuffer,encoding:'utf8',
+      ...(env?{env}:null)
+    },(error,stdout,stderr)=>{
       if(error){
         error.stdout=stdout;
         error.stderr=stderr;
@@ -1137,7 +1140,11 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
       const out=await execFileText('python3',[
         'tiktok_stream_extract.py',
         url
-      ],{timeout:24_000,maxBuffer:2*1024*1024});
+      ],{
+        timeout:24_000,
+        maxBuffer:2*1024*1024,
+        env:{...process.env,TIKTOK_COOKIE_HEADER:String(tiktokApiCookieHeader||'')}
+      });
       const data=JSON.parse(String(out||'').trim()||'{}');
       if(!data?.success||!data?.stream_url){
         const note=compactText(data?.error||'stream_not_found',400);
@@ -1687,7 +1694,11 @@ async function fastTikTokLiveWithYtdlp(handle){
     const out=await execFileText('python3',[
       'tiktok_stream_extract.py',
       url
-    ],{timeout:5200,maxBuffer:2*1024*1024});
+    ],{
+      timeout:5200,
+      maxBuffer:2*1024*1024,
+      env:{...process.env,TIKTOK_COOKIE_HEADER:String(tiktokApiCookieHeader||'')}
+    });
     const data=JSON.parse(String(out||'').trim()||'{}');
     if(!data?.success||!data?.stream_url)return null;
     return {
