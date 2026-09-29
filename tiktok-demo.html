@@ -99,6 +99,7 @@ main{max-width:1180px;margin:auto;padding:14px}
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <script>
 const API='https://one988-tiktok-session.onrender.com';
 const SAMPLE_HANDLES=['_mi_zim','tramnhacsuy2k1'];
@@ -136,11 +137,11 @@ function card(row){
   const title=row.title|| (handle?'@'+handle+' đang LIVE':'TikTok LIVE');
   const thumb=row.thumbnail||'';
   const room=row.roomId?('Room '+row.roomId):String(row.id||'');
-  const playable=isLive(row)&&handle&&row.streamType!=='hls';
+  const playable=isLive(row)&&handle&&Boolean(row.streamUrl);
   return '<article class="card">'+
     '<div class="thumb">'+
       (playable
-        ?'<video controls muted autoplay playsinline preload="metadata" poster="'+esc(thumb)+'" data-live-user="'+esc(handle)+'"></video><span class="playhint">LIVE trực tiếp</span>'
+        ?'<video controls muted autoplay playsinline preload="metadata" poster="'+esc(thumb)+'" data-live-user="'+esc(handle)+'" data-live-src="'+esc(row.streamUrl||'')+'" data-live-type="'+esc(row.streamType||'')+'"></video><span class="playhint">LIVE trực tiếp</span>'
         :(thumb?'<img src="'+esc(thumb)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':''))+
       (isLive(row)?'<span class="badge">LIVE</span>':'')+
     '</div>'+
@@ -165,21 +166,57 @@ function clearPlayers(){
 function mountPlayers(){
   document.querySelectorAll('video[data-live-user]').forEach(video=>{
     const handle=video.dataset.liveUser||'';
-    const src=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&t='+Date.now();
-    if(window.flvjs&&flvjs.isSupported()){
-      try{
-        const p=flvjs.createPlayer({type:'flv',isLive:true,url:src},{enableWorker:true,enableStashBuffer:false,stashInitialSize:128});
-        p.attachMediaElement(video);
-        p.load();
-        const play=()=>video.play().catch(()=>{});
-        p.on(flvjs.Events.METADATA_ARRIVED,play);
-        livePlayers.push(p);
-        setTimeout(play,500);
+    const direct=video.dataset.liveSrc||'';
+    const type=(video.dataset.liveType||(/\.m3u8(?:\?|$)/i.test(direct)?'hls':/\.flv(?:\?|$)/i.test(direct)?'flv':'unknown')).toLowerCase();
+    const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&t='+Date.now();
+    const play=()=>video.play().catch(()=>{});
+
+    if(type==='hls'){
+      if(video.canPlayType('application/vnd.apple.mpegurl')){
+        video.src=direct;
+        video.addEventListener('loadedmetadata',play,{once:true});
+        play();
         return;
-      }catch{}
+      }
+      if(window.Hls&&Hls.isSupported()){
+        try{
+          const h=new Hls({lowLatencyMode:true,liveDurationInfinity:true});
+          h.loadSource(direct);
+          h.attachMedia(video);
+          h.on(Hls.Events.MANIFEST_PARSED,play);
+          livePlayers.push(h);
+          return;
+        }catch{}
+      }
     }
-    video.src=src;
-    video.play().catch(()=>{});
+
+    if(window.flvjs&&flvjs.isSupported()){
+      const attachFlv=(src,canFallback)=>{
+        try{
+          const p=flvjs.createPlayer({type:'flv',isLive:true,url:src},{enableWorker:true,enableStashBuffer:false,stashInitialSize:128});
+          p.attachMediaElement(video);
+          p.load();
+          p.on(flvjs.Events.METADATA_ARRIVED,play);
+          if(canFallback){
+            let switched=false;
+            p.on(flvjs.Events.ERROR,()=>{
+              if(switched)return;
+              switched=true;
+              try{p.pause?.();p.unload?.();p.detachMediaElement?.();p.destroy?.();}catch{}
+              attachFlv(proxy,false);
+            });
+          }
+          livePlayers.push(p);
+          setTimeout(play,500);
+          return true;
+        }catch{return false;}
+      };
+      if(attachFlv(direct,true))return;
+    }
+
+    video.src=direct||proxy;
+    video.addEventListener('loadedmetadata',play,{once:true});
+    play();
   });
 }
 function mergedRows(){
