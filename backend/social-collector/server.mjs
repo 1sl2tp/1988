@@ -46,6 +46,7 @@ const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
 let tiktokVideoPackageUpdatedAt=0;
 let tiktokVideoPackageScanPromise=null;
+let tiktokVideoBackgroundCursor=0;
 let tiktokVideoStoreWritePromise=null;
 let tiktokVideoPersistedVersion=-1;
 const TIKTOK_VIDEO_LIBRARY_REFRESH_MS=60_000;
@@ -3431,10 +3432,10 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
       ];
       args.push(target);
 
-      const text=await execTikTokYtdlp(args,{
-        timeout:12_000,
+      const text=await enqueueYtdlp(()=>execTikTokYtdlp(args,{
+        timeout:25_000,
         maxBuffer:8*1024*1024
-      });
+      }));
 
       const rows=String(text||'')
         .split(/\r?\n/)
@@ -3753,7 +3754,7 @@ async function refreshTikTokVideoLibrary(handles=null){
       });
     }
   };
-  await Promise.all(Array.from({length:Math.min(4,due.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(1,due.length)},()=>worker()));
   console.log(
     '[tiktok-video-scan]',
     'total='+target.length,
@@ -3762,6 +3763,17 @@ async function refreshTikTokVideoLibrary(handles=null){
     'unknown='+unknownCount,
     'errors='+JSON.stringify(Object.fromEntries(errorCounts))
   );
+}
+
+function nextTikTokVideoBackgroundBatch(size=4){
+  const list=[...tiktokLiveSelectedHandles];
+  if(!list.length)return [];
+  const out=[];
+  for(let i=0;i<Math.min(size,list.length);i++){
+    out.push(list[(tiktokVideoBackgroundCursor+i)%list.length]);
+  }
+  tiktokVideoBackgroundCursor=(tiktokVideoBackgroundCursor+out.length)%list.length;
+  return out;
 }
 
 function ensureTikTokVideoPackageScan(handles=null){
@@ -5685,12 +5697,12 @@ server.listen(PORT,'0.0.0.0',()=>{
     }
 
     void runTikTokLiveMinuteSweep();
-    setTimeout(()=>{void ensureTikTokVideoPackageScan();},3*60_000).unref();
+    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},3*60_000).unref();
   });
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
   // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
   // the one-minute LIVE-status API sweep.
-  setInterval(()=>{void ensureTikTokVideoPackageScan();},10*60_000).unref();
+  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},10*60_000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
