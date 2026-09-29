@@ -35,6 +35,8 @@ const tiktokLiveBadSources=new Map();
 const tiktokLivePreferBrowser=new Map();
 const tiktokLiveLibrary=new Map();
 const tiktokLiveLibraryRefreshAt=new Map();
+const tiktokLiveSelectedHandles=new Set();
+let tiktokLivePackageScanPromise=null;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
@@ -552,6 +554,25 @@ function queueTikTokLibraryWarm(handle){
     .finally(()=>tiktokLiveLibraryWarmInflight.delete(key));
   tiktokLiveLibraryWarmInflight.set(key,task);
   return true;
+}
+
+
+function registerTikTokLiveSelectedHandles(handles){
+  const next=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
+  if(!next.length)return;
+  tiktokLiveSelectedHandles.clear();
+  for(const handle of next)tiktokLiveSelectedHandles.add(handle);
+}
+function ensureTikTokLivePackageScan(handles=null){
+  const target=(handles&&handles.length)
+    ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
+    : [...tiktokLiveSelectedHandles];
+  if(!target.length)return Promise.resolve();
+  if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
+  tiktokLivePackageScanPromise=refreshTikTokLiveLibrary(target,{warm:false})
+    .catch(error=>console.log('[tiktok-package] scan failed',compactText(error?.message||error,120)))
+    .finally(()=>{tiktokLivePackageScanPromise=null;});
+  return tiktokLivePackageScanPromise;
 }
 
 async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
@@ -2811,8 +2832,8 @@ const server=http.createServer(async(req,res)=>{
       updateTikTokLiveLibrary(handle,{
         live:true,ready:false,status:'live',sourceSig:'',lastSeenAt:Date.now()
       });
-      void refreshTikTokLiveLibrary([handle],{warm:false});
-      console.log('[tiktok-cache] dead source -> refresh FLV',handle,type||'any');
+      void ensureTikTokLivePackageScan([handle]);
+      console.log('[tiktok-cache] dead source -> refresh FLV package',handle,type||'any');
       json(res,200,{ok:true});
       return;
     }
@@ -2827,12 +2848,22 @@ const server=http.createServer(async(req,res)=>{
       .map(normalizeTikTokHandle)
       .filter(Boolean)
       .slice(0,60);
+
+    registerTikTokLiveSelectedHandles(handles);
+
+    let missing=false;
     for(const handle of handles){
       if(!tiktokLiveLibrary.has(handle.toLowerCase())){
+        missing=true;
         updateTikTokLiveLibrary(handle,{status:'unknown'});
       }
     }
-    if(url.searchParams.get('refresh')!=='0')await refreshTikTokLiveLibrary(handles,{warm:false});
+
+    // Server owns the package. UI normally requests refresh=0 and only reads
+    // the current version. On first registration after a restart, build once.
+    if(missing||url.searchParams.get('refresh')==='1'){
+      await ensureTikTokLivePackageScan(handles);
+    }
 
     const clientVersion=Number(url.searchParams.get('v')||-1);
     if(clientVersion===tiktokLiveLibraryVersion){
@@ -3089,6 +3120,7 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
+  setInterval(()=>{void ensureTikTokLivePackageScan();},3000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
