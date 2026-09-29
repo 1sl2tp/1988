@@ -573,9 +573,13 @@ function registerTikTokLiveSelectedHandles(handles){
 
 async function loadTikTokLiveStore(){
   try{
-    const [channelsRes,packageRes]=await Promise.all([
+    const [selectedRes,channelsRes,packageRes]=await Promise.all([
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?selected=eq.true&select=handle,live,stream_type,stream_url,source_sig,checked_at,updated_at&order=handle.asc',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?select=handle&order=handle.asc',
+        {headers:storeHeaders()}
+      ),
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?select=handle,live,stream_type,stream_url,source_sig,checked_at,updated_at',
         {headers:storeHeaders()}
       ),
       fetch(
@@ -583,18 +587,26 @@ async function loadTikTokLiveStore(){
         {headers:storeHeaders()}
       )
     ]);
+    if(!selectedRes.ok)throw new Error('tiktok_selected_read_'+selectedRes.status+':'+await selectedRes.text());
     if(!channelsRes.ok)throw new Error('tiktok_channels_read_'+channelsRes.status+':'+await channelsRes.text());
     if(!packageRes.ok)throw new Error('tiktok_package_read_'+packageRes.status+':'+await packageRes.text());
 
+    const selectedRows=await selectedRes.json();
     const channels=await channelsRes.json();
     const packageRows=await packageRes.json();
+    const channelMap=new Map(
+      (Array.isArray(channels)?channels:[])
+        .map(row=>[String(row?.handle||'').toLowerCase(),row])
+    );
 
     tiktokLiveSelectedHandles.clear();
-    for(const stored of Array.isArray(channels)?channels:[]){
-      const handle=normalizeTikTokHandle(stored?.handle||'');
+    tiktokLiveFastSources.clear();
+    for(const selected of Array.isArray(selectedRows)?selectedRows:[]){
+      const handle=normalizeTikTokHandle(selected?.handle||'');
       if(!handle)continue;
       tiktokLiveSelectedHandles.add(handle);
 
+      const stored=channelMap.get(handle.toLowerCase())||{};
       const type=String(stored?.stream_type||'').toLowerCase();
       const url=String(stored?.stream_url||'');
       const live=Boolean(stored?.live);
@@ -630,7 +642,7 @@ async function loadTikTokLiveStore(){
         type:source?.type||'',
         mode:source?'fast-store':'',
         source:source?'supabase':'',
-        status:live?(source?'live':'live'):'offline',
+        status:live?'live':'offline',
         sourceSig:source?tiktokLibrarySourceSig(source):'',
         lastSeenAt:Date.parse(stored?.checked_at||stored?.updated_at||0)||0,
         expiresAt:source?tiktokStreamExpiresAt(source.url):0
@@ -641,14 +653,13 @@ async function loadTikTokLiveStore(){
     const storedVersion=Number(packageRow?.version||0);
     if(storedVersion>tiktokLiveLibraryVersion)tiktokLiveLibraryVersion=storedVersion;
     tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
-    console.log('[tiktok-store] loaded','channels='+tiktokLiveSelectedHandles.size,'version='+tiktokLiveLibraryVersion);
+    console.log('[tiktok-store] loaded','selected='+tiktokLiveSelectedHandles.size,'version='+tiktokLiveLibraryVersion);
     return true;
   }catch(error){
     console.warn('[tiktok-store] load failed',compactText(error?.message||error,220));
     return false;
   }
 }
-
 function buildTikTokStoredRows(){
   const now=nowIso();
   return [...tiktokLiveSelectedHandles]
@@ -660,7 +671,6 @@ function buildTikTokStoredRows(){
       const usable=live&&source&&source.type==='flv'&&tiktokLiveSourceUsable(source);
       return {
         handle,
-        selected:true,
         live,
         stream_type:usable?'flv':'',
         stream_url:usable?String(source.url||''):'',
