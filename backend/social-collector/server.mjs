@@ -296,106 +296,110 @@ async function proxyTikTokLivePart(req,res,id){
 async function getTikTokProfileSample(rawHandle,limit=6){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
-  const runtime=await openPlatform('tiktok');
-  const {page}=runtime;
-  try{
-    const profileUrl='https://www.tiktok.com/@'+handle;
-    await goto(page,profileUrl,18000);
-    await scroll(page,2);
-    const scraped=await page.evaluate((expectedHandle,limit)=>{
-      const cleanText=value=>String(value||'').replace(/\s+/g,' ').trim();
-      const profile={
-        handle:expectedHandle,
-        displayName:'',
-        avatar:'',
+  const profileUrl='https://www.tiktok.com/@'+handle;
+
+  const profileTask=execFileText('yt-dlp',[
+    '--flat-playlist',
+    '--playlist-end',String(limit),
+    '--dump-json',
+    '--no-warnings',
+    '--socket-timeout','10',
+    '--retries','1',
+    '--extractor-retries','1',
+    profileUrl
+  ],{timeout:25_000,maxBuffer:6*1024*1024})
+    .then(text=>{
+      const entries=String(text||'')
+        .split(/\r?\n/)
+        .map(line=>line.trim())
+        .filter(Boolean)
+        .map(line=>{try{return JSON.parse(line)}catch{return null}})
+        .filter(Boolean);
+      const first=entries[0]||{};
+      const account={
+        handle:String(
+          first.uploader_id||
+          first.channel_id||
+          first.creator_id||
+          handle
+        ).replace(/^@/,''),
+        displayName:String(
+          first.uploader||
+          first.channel||
+          first.creator||
+          ''
+        ),
+        avatar:String(first.thumbnail||''),
         bio:'',
         numericId:''
       };
-      try{
-        const script=document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
-        if(script?.textContent){
-          const data=JSON.parse(script.textContent);
-          const info=data?.__DEFAULT_SCOPE__?.['webapp.user-detail']?.userInfo||{};
-          const user=info.user||{};
-          profile.handle=String(user.uniqueId||expectedHandle).replace(/^@/,'');
-          profile.displayName=String(user.nickname||'');
-          profile.avatar=String(user.avatarLarger||user.avatarMedium||user.avatarThumb||'');
-          profile.bio=String(user.signature||'');
-          profile.numericId=String(user.id||'');
-        }
-      }catch{}
-      if(!profile.displayName){
-        profile.displayName=cleanText(
-          document.querySelector('[data-e2e="user-title"]')?.textContent||
-          document.querySelector('h1')?.textContent
-        );
-      }
-      if(!profile.bio){
-        profile.bio=cleanText(document.querySelector('[data-e2e="user-bio"]')?.textContent);
-      }
-      if(!profile.avatar){
-        const img=document.querySelector('[data-e2e="user-avatar"] img, img[data-e2e="user-avatar"], header img');
-        profile.avatar=String(img?.currentSrc||img?.src||'');
-      }
-
       const videos=[];
       const seen=new Set();
-      for(const a of document.querySelectorAll('a[href*="/video/"]')){
-        const href=String(a.href||a.getAttribute('href')||'');
-        const m=href.match(/tiktok\.com\/@([^/?#]+)\/video\/(\d{8,})/i);
-        if(!m||seen.has(m[2]))continue;
-        seen.add(m[2]);
-        const card=a.closest('[data-e2e],article,div');
-        const img=card?.querySelector('img')||a.querySelector('img');
-        const title=cleanText(
-          a.getAttribute('aria-label')||
-          card?.querySelector('[data-e2e*="desc"],[data-e2e*="title"]')?.textContent||
-          card?.innerText||''
-        ).slice(0,220);
+      for(const row of entries){
+        const id=String(row?.id||row?.video_id||'').trim();
+        if(!/^\d{8,}$/.test(id)||seen.has(id))continue;
+        seen.add(id);
+        const rowHandle=String(
+          row?.uploader_id||
+          row?.channel_id||
+          row?.creator_id||
+          handle
+        ).replace(/^@/,'');
         videos.push({
-          id:m[2],
-          handle:m[1],
-          url:'https://www.tiktok.com/@'+m[1]+'/video/'+m[2],
-          title,
-          thumbnail:String(img?.currentSrc||img?.src||'')
+          id,
+          handle:rowHandle||handle,
+          url:'https://www.tiktok.com/@'+(rowHandle||handle)+'/video/'+id,
+          title:String(row?.title||row?.description||'').slice(0,220),
+          thumbnail:String(row?.thumbnail||'')
         });
         if(videos.length>=limit)break;
       }
-      return {profile,videos};
-    },handle,limit).catch(()=>({profile:{handle},videos:[]}));
+      return {account,videos};
+    })
+    .catch(error=>{
+      console.warn('[tiktok-profile] yt-dlp failed',handle,compactText(error?.stderr||error?.message||error,300));
+      return {
+        account:{handle,displayName:'',avatar:'',bio:'',numericId:''},
+        videos:[]
+      };
+    });
 
-    const live=await checkTikTokLiveWithYtDlp(handle);
-    return {
-      ok:true,
-      type:'account',
-      profileUrl:'https://www.tiktok.com/@'+handle,
-      account:{
-        handle:String(scraped?.profile?.handle||handle).replace(/^@/,''),
-        displayName:String(scraped?.profile?.displayName||''),
-        avatar:String(scraped?.profile?.avatar||''),
-        bio:String(scraped?.profile?.bio||''),
-        numericId:String(scraped?.profile?.numericId||'')
-      },
-      live:live?.live?{
-        type:'live',
-        handle,
-        url:live.url,
-        title:live.title||('@'+handle+' đang LIVE'),
-        thumbnail:live.thumbnail||'',
-        streamUrl:live.streamUrl||'',
-        streamType:live.streamType||''
-      }:null,
-      videos:(Array.isArray(scraped?.videos)?scraped.videos:[]).map(row=>({
-        type:'video',
-        ...row,
-        isLive:false
-      })),
-      checkedAt:nowIso()
-    };
-  }finally{
-    await runtime.close();
-  }
+  const liveTask=checkTikTokLiveWithYtDlp(handle).catch(error=>({
+    ok:true,handle,live:false,url:'https://www.tiktok.com/@'+handle+'/live',
+    title:'',thumbnail:'',streamUrl:'',streamType:'',
+    note:compactText(error?.message||error,200)
+  }));
+
+  const [profile,live]=await Promise.all([profileTask,liveTask]);
+  return {
+    ok:true,
+    type:'account',
+    profileUrl,
+    account:{
+      handle:String(profile?.account?.handle||handle).replace(/^@/,''),
+      displayName:String(profile?.account?.displayName||''),
+      avatar:String(profile?.account?.avatar||''),
+      bio:String(profile?.account?.bio||''),
+      numericId:String(profile?.account?.numericId||'')
+    },
+    live:live?.live?{
+      type:'live',
+      handle,
+      url:live.url,
+      title:live.title||('@'+handle+' đang LIVE'),
+      thumbnail:live.thumbnail||'',
+      streamUrl:live.streamUrl||'',
+      streamType:live.streamType||''
+    }:null,
+    videos:(Array.isArray(profile?.videos)?profile.videos:[]).map(row=>({
+      type:'video',
+      ...row,
+      isLive:false
+    })),
+    checkedAt:nowIso()
+  };
 }
+
 
 function enqueue(task){
   queueDepth+=1;
