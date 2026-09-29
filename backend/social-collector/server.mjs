@@ -58,7 +58,8 @@ const tiktokProfileIdentityCache=new Map();
 const tiktokProfileIdentityInflight=new Map();
 const TIKTOK_PROFILE_IDENTITY_TTL_MS=6*60*60*1000;
 let tiktokLivePersistedVersion=-1;
-const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
+const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
+const TIKTOK_LIVE_STATUS_SWEEP_MS=60_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -820,15 +821,48 @@ function ensureTikTokLivePackageScan(handles=null){
   return tiktokLivePackageScanPromise;
 }
 
-async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
+let tiktokLiveMinuteSweepPromise=null;
+function runTikTokLiveMinuteSweep(){
+  if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
+  tiktokLiveMinuteSweepPromise=(async()=>{
+    // A one-channel add/feedback scan may be in progress. Finish it first,
+    // then still run the complete selected-channel sweep; never skip a minute.
+    if(tiktokLivePackageScanPromise){
+      try{await tiktokLivePackageScanPromise}catch{}
+    }
+    const target=[...tiktokLiveSelectedHandles];
+    if(!target.length)return;
+
+    const before=tiktokLiveLibraryVersion;
+    await refreshTikTokLiveLibrary(target,{warm:false,force:true});
+    const changed=tiktokLiveLibraryVersion!==before;
+
+    if(changed)await persistTikTokLiveStore();
+    console.log(
+      '[tiktok-minute-sweep]',
+      'channels='+target.length,
+      'changed='+(changed?'yes':'no'),
+      'version='+tiktokLiveLibraryVersion
+    );
+  })().catch(error=>{
+    console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
+  }).finally(()=>{
+    tiktokLiveMinuteSweepPromise=null;
+  });
+  return tiktokLiveMinuteSweepPromise;
+}
+
+async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
   const scanStarted=Date.now();
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
   if(!normalized.length)return;
 
   const now=Date.now();
-  const due=normalized.filter(
-    handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS
-  );
+  const due=force
+    ? normalized
+    : normalized.filter(
+        handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS
+      );
   if(!due.length)return;
 
   // One package pass, but do not burst all 31 requests at TikTok at once.
@@ -871,7 +905,12 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     if(flv)scanFlvCount+=1;
 
     if(!isLive){
+      // API explicitly says OFFLINE. Remove every reusable media source so an
+      // old FLV/browser session can never keep this channel looking LIVE.
       tiktokLiveFastSources.delete(key);
+      tiktokLivePreferBrowser.delete(key);
+      tiktokLiveLibraryWarmRetryAt.delete(key);
+      await closeTikTokLiveSession(key).catch(()=>{});
       updateTikTokLiveLibrary(handle,{
         live:false,
         ready:false,
@@ -4353,7 +4392,7 @@ server.listen(PORT,'0.0.0.0',()=>{
     void ensureTikTokLivePackageScan();
     void ensureTikTokVideoPackageScan();
   });
-  setInterval(()=>{void ensureTikTokLivePackageScan();},3000).unref();
+  setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
   setInterval(()=>{void ensureTikTokVideoPackageScan();},60_000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
