@@ -65,3 +65,12 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - `general` blocked channel được áp dụng toàn bộ scope; blocked theo scope vẫn được giữ riêng.
 - Mọi package bắt buộc có channel display name hợp lệ trước khi publish.
 - Pipeline versions: `live-v35`, `non-live-v13`.
+
+
+## 2026-09-29 — Checkpoint kiến trúc hiện tại
+
+- Backup cố định: `backup-2026-09-29-0137-stable` tại commit `15bc1ac91bd57e71aef6bffc9305968902413d62`.
+- Ghi tài liệu đầy đủ tại `docs/PROJECT_CHECKPOINT_2026-09-29.md`.
+- Chốt hướng: server build package; client sync bằng hash + IndexedDB; một Rail media core cho 1 cột/PiP/2 cột; Piped ở backend; package là canonical card data; search local trước/global sau; source selected/blocked theo scope; deep-link metadata tách khỏi stream; download một nguồn GenDownload.
+- Đồng bộ source runtime `yt1988 v32` và `yt1988-getlink v2` ngược vào repo để giảm drift giữa Supabase và GitHub.
+- Ghi nhận rủi ro cần xử lý sau: `index.html` lớn, probe function Supabase còn dư, Piped public không ổn định, PIN quản trị nguồn đang nằm trong frontend.

@@ -28,7 +28,7 @@ const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,HEAD,OPTIONS",
   "access-control-allow-headers": "content-type,range",
-  "access-control-expose-headers": "content-type,content-length,content-range,accept-ranges",
+  "access-control-expose-headers": "content-type,content-length,content-range,accept-ranges,content-disposition",
   "access-control-max-age": "86400",
 };
 
@@ -588,6 +588,7 @@ Deno.serve(async (req) => {
         return json({ ok: false, error: "invalid_media_request" }, 400, 0);
       }
       const kind = kindRaw as "video" | "audio";
+      const wantsDownload = String(url.searchParams.get("download") || "") === "1";
       const path = `/streams/${enc(id)}`;
 
       const orderedBases = [
@@ -650,12 +651,20 @@ Deno.serve(async (req) => {
             preferredUntil = Date.now() + API_TTL_MS;
 
             const headersOut = new Headers(CORS);
-            headersOut.set(
-              "content-type",
+            const resolvedType =
               upstream.headers.get("content-type") ||
-                (kind === "audio" ? "audio/mp4" : "video/mp4"),
-            );
+              (kind === "audio" ? "audio/mp4" : "video/mp4");
+            headersOut.set("content-type", resolvedType);
             headersOut.set("cache-control", "no-store");
+
+            if (wantsDownload) {
+              const type = resolvedType.toLowerCase();
+              const ext =
+                kind === "audio"
+                  ? (type.includes("webm") ? "webm" : type.includes("mpeg") ? "mp3" : "m4a")
+                  : (type.includes("webm") ? "webm" : "mp4");
+              headersOut.set("content-disposition", `attachment; filename="${id}.${ext}"`);
+            }
             headersOut.set("accept-ranges", upstream.headers.get("accept-ranges") || "bytes");
 
             for (const name of ["content-length", "content-range", "etag", "last-modified"]) {
@@ -1042,6 +1051,85 @@ Deno.serve(async (req) => {
       return json({ ok: true, source }, 200, 10);
     }
 
+    if (action === "video_meta") {
+      const id = String(url.searchParams.get("id") || "").trim();
+      if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
+
+      try {
+        const endpoint = new URL("https://www.youtube.com/oembed");
+        endpoint.searchParams.set("url", `https://www.youtube.com/watch?v=${id}`);
+        endpoint.searchParams.set("format", "json");
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1800);
+        const res = await fetch(endpoint, {
+          signal: controller.signal,
+          headers: { accept: "application/json" },
+        });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`oembed_http_${res.status}`);
+
+        const meta: any = await res.json();
+        const title = String(meta?.title || "").trim();
+        let exactVideo: any = null;
+        let relatedStreams: any[] = [];
+
+        if (title) {
+          try {
+            const related = await piped(`/search?q=${enc(title)}&filter=videos`);
+            const items = Array.isArray(related.data?.items) ? related.data.items : [];
+            exactVideo = items.find((row: any) => {
+              const raw = String(row?.url || row?.videoId || row?.id || "");
+              return raw.includes(id);
+            }) || null;
+            relatedStreams = items
+              .filter((row: any) => {
+                const raw = String(row?.url || row?.videoId || row?.id || "");
+                return !raw.includes(id);
+              })
+              .slice(0, 18);
+          } catch {}
+        }
+
+        const enriched = exactVideo || {};
+        return json({
+          ok: true,
+          source: exactVideo ? "youtube-oembed+search-fast" : "youtube-oembed-fast",
+          data: {
+            ...enriched,
+            url: String(enriched?.url || `/watch?v=${id}`),
+            title: String(enriched?.title || title || ""),
+            uploaderName: String(enriched?.uploaderName || meta?.author_name || ""),
+            uploader: String(enriched?.uploaderName || meta?.author_name || ""),
+            uploaderUrl: String(enriched?.uploaderUrl || meta?.author_url || ""),
+            uploaderAvatar: String(enriched?.uploaderAvatar || ""),
+            thumbnail: String(enriched?.thumbnail || meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+            thumbnailUrl: String(enriched?.thumbnail || meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+            views: Number(enriched?.views) || 0,
+            uploadedDate: String(enriched?.uploadedDate || ""),
+            uploadDate: String(enriched?.uploadedDate || ""),
+            uploaded: Number(enriched?.uploaded) || 0,
+            duration: Number(enriched?.duration) || 0,
+            uploaderVerified: enriched?.uploaderVerified === true,
+            isShort: enriched?.isShort === true,
+            description: String(enriched?.shortDescription || ""),
+            relatedStreams,
+          },
+        }, 200, 120);
+      } catch {
+        return json({
+          ok: true,
+          source: "youtube-fast",
+          data: {
+            title: "",
+            uploader: "",
+            thumbnailUrl: `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            relatedStreams: [],
+          },
+        }, 200, 20);
+      }
+    }
+
     if (action === "video") {
       const id = String(url.searchParams.get("id") || "").trim();
       if (!validId(id, "video")) return json({ ok: false, error: "invalid_video" }, 400, 0);
@@ -1074,25 +1162,46 @@ Deno.serve(async (req) => {
         const meta: any = await res.json();
         const title = String(meta?.title || "").trim();
         let relatedStreams: any[] = [];
+        let exactVideo: any = null;
         if (title) {
           try {
             const related = await piped(`/search?q=${enc(title)}&filter=videos`);
-            relatedStreams = (Array.isArray(related.data?.items) ? related.data.items : [])
-              .filter((row: any) => !String(row?.url || "").includes(id))
+            const items = Array.isArray(related.data?.items) ? related.data.items : [];
+            exactVideo = items.find((row: any) => {
+              const raw = String(row?.url || row?.videoId || row?.id || "");
+              return raw.includes(id);
+            }) || null;
+            relatedStreams = items
+              .filter((row: any) => {
+                const raw = String(row?.url || row?.videoId || row?.id || "");
+                return !raw.includes(id);
+              })
               .slice(0, 18);
           } catch {}
         }
+
+        const enriched = exactVideo || {};
         return json({
           ok: true,
-          source: "youtube-oembed",
+          source: exactVideo ? "youtube-oembed+search" : "youtube-oembed",
           data: {
-            title,
-            uploader: String(meta?.author_name || ""),
-            uploaderUrl: String(meta?.author_url || ""),
-            thumbnailUrl: String(meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
-            views: 0,
-            uploadDate: "",
-            description: "",
+            ...enriched,
+            url: String(enriched?.url || `/watch?v=${id}`),
+            title: String(enriched?.title || title || ""),
+            uploaderName: String(enriched?.uploaderName || meta?.author_name || ""),
+            uploader: String(enriched?.uploaderName || meta?.author_name || ""),
+            uploaderUrl: String(enriched?.uploaderUrl || meta?.author_url || ""),
+            uploaderAvatar: String(enriched?.uploaderAvatar || ""),
+            thumbnail: String(enriched?.thumbnail || meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+            thumbnailUrl: String(enriched?.thumbnail || meta?.thumbnail_url || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`),
+            views: Number(enriched?.views) || 0,
+            uploadedDate: String(enriched?.uploadedDate || ""),
+            uploadDate: String(enriched?.uploadedDate || ""),
+            uploaded: Number(enriched?.uploaded) || 0,
+            duration: Number(enriched?.duration) || 0,
+            uploaderVerified: enriched?.uploaderVerified === true,
+            isShort: enriched?.isShort === true,
+            description: String(enriched?.shortDescription || ""),
             relatedStreams,
           },
         }, 200, 120);
