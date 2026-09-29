@@ -956,7 +956,7 @@ async function openVideo(rawHandle,videoId){
   frame.src='about:blank';
   native.hidden=false;
   native.controls=true;
-  native.preload='auto';
+  native.preload='metadata';
   native.removeAttribute('src');
   native.load();
 
@@ -970,28 +970,52 @@ async function openVideo(rawHandle,videoId){
   renderRecentVideos(handle);
   hideSearchResults();
 
-  const stream=String(video.streamUrl||'').trim();
-  if(!stream){
-    showToast('Video chưa có nguồn trong thư viện');
-    return;
-  }
-
-  native.onerror=()=>{
+  native.onerror=async()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
-    showToast('Nguồn video đang được server làm mới');
+    try{
+      const fresh=await apiJson(
+        API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
+        '&id='+encodeURIComponent(video.id)+'&refresh=1&t='+Date.now()
+      );
+      if(seq!==videoOpenSeq)return;
+      const direct=String(fresh?.directUrl||'').trim();
+      if(direct){
+        native.src=direct;
+        native.load();
+        native.play().catch(()=>{});
+        return;
+      }
+    }catch{}
+    showToast('Không mở được nguồn MP4');
   };
   native.onloadedmetadata=()=>{
     if(seq!==videoOpenSeq)return;
     setPlayerShape(native);
     native.play().catch(()=>{});
   };
-  native.src=(/^https?:\/\//i.test(stream)?stream:(API+stream))+
-    (stream.includes('?')?'&':'?')+'t='+Date.now();
-  native.load();
-  native.play().catch(()=>{});
+
+  try{
+    const source=await apiJson(
+      API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
+      '&id='+encodeURIComponent(video.id)+'&t='+Date.now()
+    );
+    if(seq!==videoOpenSeq)return;
+    const direct=String(source?.directUrl||'').trim();
+    if(!direct){
+      showToast('Video chưa có nguồn MP4');
+      return;
+    }
+    // Direct signed TikTok URL: do not append cache-busting params.
+    native.src=direct;
+    native.load();
+    native.play().catch(()=>{});
+  }catch(error){
+    if(seq!==videoOpenSeq)return;
+    showToast('Không lấy được nguồn MP4');
+  }
 }
 
 async function refreshChannelVideos(handle,{silent=true}={}){
