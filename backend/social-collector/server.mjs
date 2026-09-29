@@ -141,12 +141,7 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         flvFormat?'flv':
         /\.flv(?:\?|$)/i.test(streamUrl)?'flv':
         /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':'unknown';
-      const channelId=String(
-        data?.channel_id||
-        data?.channel?.id||
-        (/^\d{6,30}$/.test(String(data?.uploader_id||''))?data.uploader_id:'')||
-        ''
-      );
+      const channelId=String(data?.channel_id||data?.channel?.id||'').trim();
       return {
         ok:true,
         handle,
@@ -353,15 +348,12 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       .filter(Boolean);
     const first=entries[0]||{};
     const account={
-      handle:String(first.uploader_id||first.channel_id||first.creator_id||handle).replace(/^@/,''),
-      displayName:String(first.uploader||first.channel||first.creator||''),
+      handle:String(first.uploader||first.creator||handle).replace(/^@/,''),
+      displayName:String(first.channel||first.uploader||first.creator||''),
       avatar:String(first.thumbnail||''),
       bio:'',
-      numericId:String(
-        (/^\d{6,30}$/.test(String(first.channel_id||''))?first.channel_id:'')||
-        (/^\d{6,30}$/.test(String(first.uploader_id||''))?first.uploader_id:'')||
-        ''
-      )
+      numericId:String(first.uploader_id||''),
+      channelId:String(first.channel_id||'')
     };
     const videos=[];
     const seen=new Set();
@@ -369,12 +361,7 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       const id=String(row?.id||row?.video_id||'').trim();
       if(!/^\d{8,}$/.test(id)||seen.has(id))continue;
       seen.add(id);
-      const rowHandle=String(
-        row?.uploader_id||
-        row?.creator_id||
-        (!/^\d+$/.test(String(row?.channel_id||''))?row?.channel_id:'')||
-        handle
-      ).replace(/^@/,'');
+      const rowHandle=String(row?.uploader||row?.creator||handle).replace(/^@/,'');
       videos.push({
         id,
         handle:rowHandle||handle,
@@ -419,7 +406,7 @@ async function getTikTokProfileSample(rawHandle,limit=6){
 
   // yt-dlp now sometimes requires TikTok's numeric secondary user ID.
   // A LIVE extraction can expose that ID, so retry with tiktokuser:<id>.
-  if((!profile||!profile.videos?.length)&&/^\d{6,30}$/.test(String(live?.channelId||''))){
+  if((!profile||!profile.videos?.length)&&String(live?.channelId||'').length>=8){
     try{
       profile=await loadVideos('tiktokuser:'+live.channelId);
       console.log('[tiktok-profile] numeric user fallback ok',handle,live.channelId,profile.videos.length);
@@ -430,7 +417,7 @@ async function getTikTokProfileSample(rawHandle,limit=6){
 
   if(!profile){
     profile={
-      account:{handle,displayName:'',avatar:'',bio:'',numericId:String(live?.channelId||'')},
+      account:{handle,displayName:'',avatar:'',bio:'',numericId:String(live?.uploaderId||''),channelId:String(live?.channelId||'')},
       videos:[]
     };
   }
@@ -444,7 +431,8 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       displayName:String(profile?.account?.displayName||live?.uploader||''),
       avatar:String(profile?.account?.avatar||live?.thumbnail||''),
       bio:String(profile?.account?.bio||''),
-      numericId:String(profile?.account?.numericId||live?.channelId||'')
+      numericId:String(profile?.account?.numericId||live?.uploaderId||''),
+      channelId:String(profile?.account?.channelId||live?.channelId||'')
     },
     live:live?.live?{
       type:'live',
