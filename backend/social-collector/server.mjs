@@ -334,6 +334,60 @@ async function proxyTikTokLivePart(req,res,id){
   await pipeTikTokTarget(req,res,row.url);
 }
 
+async function fetchTikTokProfileIdentity(handle){
+  const url='https://www.tiktok.com/@'+handle;
+  try{
+    const r=await fetch(url,{
+      redirect:'follow',
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7'
+      },
+      signal:AbortSignal.timeout(15000)
+    });
+    if(!r.ok)throw new Error('profile_http_'+r.status);
+    const html=await r.text();
+
+    const pick=(patterns)=>{
+      for(const re of patterns){
+        const m=html.match(re);
+        if(m?.[1])return String(m[1]).replace(/\\u002F/g,'/').replace(/\\u0026/g,'&');
+      }
+      return '';
+    };
+    const secUid=pick([
+      /"secUid":"([^"]+)"/,
+      /"sec_uid":"([^"]+)"/,
+      /\\"secUid\\":\\"([^"]+)\\"/
+    ]);
+    const userId=pick([
+      /"id":"(\d{6,30})","shortId"/,
+      /"uid":"(\d{6,30})"/,
+      /"userId":"(\d{6,30})"/
+    ]);
+    const nickname=pick([
+      /"nickname":"([^"]+)"/,
+      /\\"nickname\\":\\"([^"]+)\\"/
+    ]);
+    const avatar=pick([
+      /"avatarLarger":"([^"]+)"/,
+      /"avatarMedium":"([^"]+)"/,
+      /\\"avatarLarger\\":\\"([^"]+)\\"/
+    ]);
+    const safeHandle=handle.replace(/[.*+?^$()|[\]\\]/g,'\\$&');
+    const videoId=pick([
+      new RegExp('https?:\\\\/\\\\/www\\\\.tiktok\\\\.com\\\\/@'+safeHandle+'\\\\/video\\\\/(\\\\d{8,})','i'),
+      new RegExp('\\\\/@'+safeHandle+'\\\\/video\\\\/(\\\\d{8,})','i')
+    ]);
+
+    return {secUid,userId,nickname,avatar,videoId};
+  }catch(error){
+    console.warn('[tiktok-profile] html identity failed',handle,compactText(error?.message||error,220));
+    return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
+  }
+}
+
 async function getTikTokProfileSample(rawHandle,limit=6){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
@@ -348,7 +402,7 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       .filter(Boolean);
     const first=entries[0]||{};
     const account={
-      handle:String(first.uploader||first.creator||handle).replace(/^@/,''),
+      handle,
       displayName:String(first.channel||first.uploader||first.creator||''),
       avatar:String(first.thumbnail||''),
       bio:'',
@@ -361,11 +415,10 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       const id=String(row?.id||row?.video_id||'').trim();
       if(!/^\d{8,}$/.test(id)||seen.has(id))continue;
       seen.add(id);
-      const rowHandle=String(row?.uploader||row?.creator||handle).replace(/^@/,'');
       videos.push({
         id,
-        handle:rowHandle||handle,
-        url:'https://www.tiktok.com/@'+(rowHandle||handle)+'/video/'+id,
+        handle,
+        url:'https://www.tiktok.com/@'+handle+'/video/'+id,
         title:String(row?.title||row?.description||'').slice(0,220),
         thumbnail:String(row?.thumbnail||'')
       });
@@ -388,38 +441,48 @@ async function getTikTokProfileSample(rawHandle,limit=6){
     return parseEntries(text);
   };
 
-  const livePromise=checkTikTokLiveWithYtDlp(handle);
+  const [identity,live]=await Promise.all([
+    fetchTikTokProfileIdentity(handle),
+    checkTikTokLiveWithYtDlp(handle).catch(error=>({
+      ok:true,handle,live:false,url:'https://www.tiktok.com/@'+handle+'/live',
+      title:'',thumbnail:'',streamUrl:'',streamType:'',channelId:'',
+      note:compactText(error?.message||error,200)
+    }))
+  ]);
+
   let profile=null;
-  let directError=null;
-  try{
-    profile=await loadVideos(profileUrl);
-  }catch(error){
-    directError=error;
-    console.warn('[tiktok-profile] direct user failed',handle,compactText(error?.stderr||error?.message||error,260));
-  }
+  let profileError='';
+  const sources=[];
+  if(identity?.secUid)sources.push('tiktokuser:'+identity.secUid);
+  sources.push(profileUrl);
+  if(live?.channelId&&live.channelId!==identity?.secUid)sources.push('tiktokuser:'+live.channelId);
 
-  const live=await livePromise.catch(error=>({
-    ok:true,handle,live:false,url:'https://www.tiktok.com/@'+handle+'/live',
-    title:'',thumbnail:'',streamUrl:'',streamType:'',channelId:'',
-    note:compactText(error?.message||error,200)
-  }));
-
-  // yt-dlp now sometimes requires TikTok's numeric secondary user ID.
-  // A LIVE extraction can expose that ID, so retry with tiktokuser:<id>.
-  if((!profile||!profile.videos?.length)&&String(live?.channelId||'').length>=8){
+  for(const source of sources){
     try{
-      profile=await loadVideos('tiktokuser:'+live.channelId);
-      console.log('[tiktok-profile] numeric user fallback ok',handle,live.channelId,profile.videos.length);
+      profile=await loadVideos(source);
+      if(profile?.videos?.length){
+        console.log('[tiktok-profile] videos ok',handle,source,profile.videos.length);
+        break;
+      }
     }catch(error){
-      console.warn('[tiktok-profile] numeric user fallback failed',handle,compactText(error?.stderr||error?.message||error,260));
+      profileError=compactText(error?.stderr||error?.message||error,260);
+      console.warn('[tiktok-profile] source failed',handle,source,profileError);
     }
   }
 
-  if(!profile){
-    profile={
-      account:{handle,displayName:'',avatar:'',bio:'',numericId:String(live?.uploaderId||''),channelId:String(live?.channelId||'')},
-      videos:[]
-    };
+  if(!profile)profile={
+    account:{handle,displayName:'',avatar:'',bio:'',numericId:'',channelId:''},
+    videos:[]
+  };
+
+  if(!profile.videos.length&&identity?.videoId){
+    profile.videos=[{
+      id:identity.videoId,
+      handle,
+      url:'https://www.tiktok.com/@'+handle+'/video/'+identity.videoId,
+      title:'',
+      thumbnail:''
+    }];
   }
 
   return {
@@ -427,12 +490,12 @@ async function getTikTokProfileSample(rawHandle,limit=6){
     type:'account',
     profileUrl,
     account:{
-      handle:String(profile?.account?.handle||handle).replace(/^@/,''),
-      displayName:String(profile?.account?.displayName||live?.uploader||''),
-      avatar:String(profile?.account?.avatar||live?.thumbnail||''),
-      bio:String(profile?.account?.bio||''),
-      numericId:String(profile?.account?.numericId||live?.uploaderId||''),
-      channelId:String(profile?.account?.channelId||live?.channelId||'')
+      handle,
+      displayName:String(identity?.nickname||profile?.account?.displayName||live?.uploader||''),
+      avatar:String(identity?.avatar||profile?.account?.avatar||live?.thumbnail||''),
+      bio:'',
+      numericId:String(identity?.userId||profile?.account?.numericId||live?.uploaderId||''),
+      channelId:String(identity?.secUid||profile?.account?.channelId||live?.channelId||'')
     },
     live:live?.live?{
       type:'live',
@@ -442,14 +505,14 @@ async function getTikTokProfileSample(rawHandle,limit=6){
       thumbnail:live.thumbnail||'',
       streamUrl:live.streamUrl||'',
       streamType:live.streamType||'',
-      channelId:String(live.channelId||'')
+      channelId:String(live.channelId||identity?.secUid||'')
     }:null,
     videos:(Array.isArray(profile?.videos)?profile.videos:[]).map(row=>({
       type:'video',
       ...row,
       isLive:false
     })),
-    profileError:profile?.videos?.length?'':compactText(directError?.stderr||directError?.message||'',180),
+    profileError:profile?.videos?.length?'':profileError,
     checkedAt:nowIso()
   };
 }
