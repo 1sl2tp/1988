@@ -808,6 +808,63 @@ async function persistTikTokLiveStore({force=false}={}){
   return tiktokLiveStoreWritePromise;
 }
 
+const tiktokLiveHotRefreshInflight=new Map();
+
+function tiktokLiveSourceNeedsRefresh(handle){
+  const key=String(handle||'').toLowerCase();
+  const source=currentTikTokLibrarySource(handle);
+  if(!source?.url)return true;
+  if(Date.now()-Number(source.at||0)>=TIKTOK_LIVE_HOT_REFRESH_MS)return true;
+  const expiresAt=tiktokStreamExpiresAt(source.url);
+  if(expiresAt&&expiresAt-Date.now()<TIKTOK_LIVE_HOT_EXPIRY_MARGIN_MS)return true;
+  const row=tiktokLiveLibrary.get(key)||null;
+  if(!row?.sourceSig)return true;
+  return false;
+}
+
+function ensureTikTokHotLiveSource(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return Promise.resolve(false);
+  const key=handle.toLowerCase();
+  if(!tiktokLiveSourceNeedsRefresh(handle))return Promise.resolve(true);
+  if(tiktokLiveHotRefreshInflight.has(key))return tiktokLiveHotRefreshInflight.get(key);
+
+  const task=(async()=>{
+    try{
+      const source=await resolveTikTokLiveSource(handle);
+      publishTikTokLiveSourceNow(handle,source,{
+        mode:String(source.mode||'hot'),
+        source:String(source.source||source.mode||'hot')
+      });
+      await persistTikTokLiveStore();
+      console.log('[tiktok-hot] ready',handle,source.type,source.source||source.mode||'');
+      return true;
+    }catch(error){
+      console.warn('[tiktok-hot] failed',handle,compactText(error?.message||error,140));
+      return false;
+    }
+  })().finally(()=>tiktokLiveHotRefreshInflight.delete(key));
+
+  tiktokLiveHotRefreshInflight.set(key,task);
+  return task;
+}
+
+async function refreshTikTokHotLiveSources(handles){
+  const target=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
+  const due=target.filter(tiktokLiveSourceNeedsRefresh);
+  if(!due.length)return;
+
+  let cursor=0;
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=due.length)return;
+      await ensureTikTokHotLiveSource(due[index]);
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(2,due.length)},()=>worker()));
+}
+
 function ensureTikTokLivePackageScan(handles=null){
   const target=(handles&&handles.length)
     ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
@@ -864,6 +921,7 @@ function runTikTokLiveMinuteSweep(){
     let offline=0;
     let unknown=0;
     const newlyLive=[];
+    const confirmedLive=[];
 
     for(const checkedRow of checked){
       const handle=checkedRow.handle;
@@ -894,8 +952,10 @@ function runTikTokLiveMinuteSweep(){
 
       known+=1;
       const isLive=state.live===true;
-      if(isLive)live+=1;
-      else offline+=1;
+      if(isLive){
+        live+=1;
+        confirmedLive.push(handle);
+      }else offline+=1;
 
       if(Boolean(prev?.live)===isLive){
         // Confirmed state did not change; keep existing source and do not bump
@@ -959,9 +1019,14 @@ function runTikTokLiveMinuteSweep(){
       'version='+tiktokLiveLibraryVersion
     );
 
-    // Resolve FLV only for channels that just became LIVE.
+    // Keep every confirmed LIVE channel hot. Existing fresh sources are
+    // untouched; only missing/aging/near-expiry sources are refreshed.
+    void refreshTikTokHotLiveSources(confirmedLive);
+
+    // Newly-live channels are already included above, but keep the package
+    // scan fallback for cases where status was known before source resolution.
     for(const handle of newlyLive){
-      void ensureTikTokLivePackageScan([handle]);
+      void ensureTikTokHotLiveSource(handle);
     }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
@@ -1156,7 +1221,9 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
 }
 
 
-const TIKTOK_LIVE_REUSE_MS=10*60*1000;
+const TIKTOK_LIVE_REUSE_MS=25*60*1000;
+const TIKTOK_LIVE_HOT_REFRESH_MS=20*60*1000;
+const TIKTOK_LIVE_HOT_EXPIRY_MARGIN_MS=3*60*1000;
 
 function tiktokStreamExpiresAt(rawUrl){
   try{
