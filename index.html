@@ -4255,9 +4255,25 @@ html.one-col.portrait .player.pip{
     menu.style.top=Math.round(top)+"px";
   }
 
+  function revealRowActionMenu(anchor){
+    const menu=ensureRowActionMenu();
+    if(!anchor){
+      menu.hidden=true;
+      return;
+    }
+    // Keep the freshly rendered menu out of paint until its final
+    // coordinates are known. This prevents the one-frame flash at the
+    // previous/default position when opening or switching submenus.
+    menu.style.visibility="hidden";
+    menu.hidden=false;
+    positionRowActionMenu(anchor);
+    menu.style.visibility="";
+  }
+
   function closeRowActionMenu(){
     const menu=ensureRowActionMenu();
     menu.hidden=true;
+    menu.style.visibility="";
     menu.innerHTML="";
     openRowMenuMeta=null;
     openRowMenuAnchor=null;
@@ -4301,8 +4317,7 @@ html.one-col.portrait .player.pip{
       '<div class="row-action-sep"></div>'+
       rowActionButton("download","Tải xuống","download",{disabled:!canDownloadMeta(meta)});
 
-    menu.hidden=false;
-    requestAnimationFrame(()=>positionRowActionMenu(anchor));
+    revealRowActionMenu(anchor);
   }
 
   function showScopePicker(action){
@@ -4320,8 +4335,7 @@ html.one-col.portrait .player.pip{
       ).join("")+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
-    menu.hidden=false;
-    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+    revealRowActionMenu(openRowMenuAnchor);
   }
 
   function canDownloadMeta(meta={}){
@@ -4338,8 +4352,7 @@ html.one-col.portrait .player.pip{
       rowActionButton("download-mp3","Âm thanh","audio",{disabled:!enabled})+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
-    menu.hidden=false;
-    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+    revealRowActionMenu(openRowMenuAnchor);
   }
 
   function downloadUrl(meta={},format="mp4"){
@@ -4361,8 +4374,7 @@ html.one-col.portrait .player.pip{
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
       '<div class="row-action-note">'+escapeHtml(label)+'</div>';
-    menu.hidden=false;
-    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
+    revealRowActionMenu(openRowMenuAnchor);
   }
 
   async function startNativeDownload(meta={},format="mp4"){
