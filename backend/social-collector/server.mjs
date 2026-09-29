@@ -561,6 +561,29 @@ async function warmTikTokLibraryHandle(handle){
     if(tiktokLiveFastSources.get(key)===discoveredHls)tiktokLiveFastSources.delete(key);
   }
 
+  // TikTok's web status API can return LIVE without stream candidates on
+  // Render. Try the lightweight yt-dlp extractor before opening Chromium.
+  try{
+    const ytdlp=await fastTikTokLiveWithYtdlp(handle);
+    if(ytdlp&&['flv','hls'].includes(String(ytdlp.type||'').toLowerCase())){
+      const seeded=seedTikTokFastSource(handle,{
+        stream_url:ytdlp.url,
+        stream_type:ytdlp.type
+      });
+      if(seeded){
+        publishTikTokLiveSourceNow(handle,seeded,{
+          mode:'fast',
+          source:'yt-dlp'
+        });
+        tiktokLiveLibraryWarmRetryAt.delete(key);
+        console.log('[tiktok-library] yt-dlp warm',handle,seeded.type);
+        return true;
+      }
+    }
+  }catch(error){
+    console.log('[tiktok-library] yt-dlp warm failed',handle,compactText(error?.message||error,120));
+  }
+
   // Browser capture is the expensive last resort and only runs for a channel
   // already classified LIVE.
   try{
@@ -963,11 +986,12 @@ function runTikTokLiveMinuteSweep(){
       'version='+tiktokLiveLibraryVersion
     );
 
-    // Prepare FLV for every confirmed LIVE channel that currently has no
-    // reusable source, including rows restored after a Render restart.
+    // Prepare media for every confirmed LIVE channel that currently has no
+    // reusable source, including rows restored after a Render restart. The
+    // warm queue uses API -> yt-dlp -> browser and is capped at 2 workers.
     const needSource=[...new Set([...newlyLive,...liveMissingSource])];
-    if(needSource.length){
-      void ensureTikTokLivePackageScan(needSource);
+    for(const handle of needSource){
+      queueTikTokLibraryWarm(handle);
     }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
@@ -2219,6 +2243,10 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     source=currentTikTokLibrarySource(handle);
     if(!source){
       await refreshTikTokLiveLibrary([handle],{warm:false,force:true});
+      source=currentTikTokLibrarySource(handle);
+    }
+    if(!source){
+      await warmTikTokLibraryHandle(handle).catch(()=>false);
       source=currentTikTokLibrarySource(handle);
     }
     if(!source)source=await resolveTikTokCompatibleLiveSource(handle);
