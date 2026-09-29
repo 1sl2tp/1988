@@ -14,7 +14,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(15,15,15,.94);backdrop-fi
 .head{max-width:900px;margin:auto;padding:12px 16px;display:flex;align-items:center;gap:10px}.head strong{font-size:19px}.head span{color:var(--muted);font-size:13px}.spacer{flex:1}
 button,a.btn{border:0;background:#292929;color:#fff;border-radius:18px;padding:9px 13px;text-decoration:none;font-size:13px;cursor:pointer}
 main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-size:13px;margin:0 0 14px}
-.tester{display:flex;gap:8px;align-items:center;margin:0 0 12px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.workspace{display:grid;grid-template-columns:minmax(220px,290px) minmax(0,1fr);gap:14px;align-items:start}.librarypanel{border:1px solid var(--line);background:var(--card);border-radius:18px;padding:12px;position:sticky;top:72px}.libhead{display:flex;align-items:center;gap:8px;margin:0 0 10px}.libhead strong{font-size:13px}.libhead span{margin-left:auto;color:var(--muted);font-size:11px}.saved{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 190px);overflow-y:auto;overflow-x:hidden;padding:0 3px 0 0}.saved button{width:100%;padding:9px 10px;font-size:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;text-align:left;align-items:center;border-radius:12px}.saved button>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.saved button.active{background:#fff;color:#111}.saved .libmeta{grid-column:1 / -1;font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved .liveflag{font-size:10px;font-weight:800}.saved .liveflag.on{color:var(--tt)}.saved button.active .liveflag.on{color:var(--tt)}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
+.tester{display:flex;gap:8px;align-items:center;margin:0 0 12px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.workspace{display:grid;grid-template-columns:minmax(220px,290px) minmax(0,1fr);gap:14px;align-items:start}.librarypanel{border:1px solid var(--line);background:var(--card);border-radius:18px;padding:12px;position:sticky;top:72px}.libhead{display:flex;align-items:center;gap:8px;margin:0 0 10px}.libhead strong{font-size:13px}.libhead span{margin-left:auto;color:var(--muted);font-size:11px}.saved{display:flex;flex-direction:column;gap:7px;max-height:calc(100vh - 190px);overflow-y:auto;overflow-x:hidden;padding:0 3px 0 0}.saved button{width:100%;padding:9px 10px;font-size:12px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;text-align:left;align-items:center;border-radius:12px}.saved button>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.saved button.active{background:#fff;color:#111}.saved .libmeta{grid-column:1 / -1;font-size:10px;opacity:.7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.saved .liveflag{font-size:10px;font-weight:800}.saved .liveflag.on{color:var(--tt)}.saved button.active .liveflag.on{color:var(--tt)}.libgroup{display:flex;align-items:center;gap:8px;margin:8px 2px 3px;color:var(--muted);font-size:10px;font-weight:800;text-transform:uppercase}.libgroup:after{content:"";height:1px;background:var(--line);flex:1}.libgroup:first-child{margin-top:0}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
 .cardhead{padding:12px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:800}.badge{background:var(--tt);border-radius:5px;padding:4px 7px;font-size:11px}.sub{margin-left:auto;color:var(--muted);font-size:12px;font-weight:500}
 .body{min-height:480px;display:flex;align-items:center;justify-content:center;background:#111}.status{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px}
 .official{width:100%;padding:10px;display:flex;justify-content:center;overflow:hidden}.official .tiktok-embed{margin:0!important;min-width:0!important;max-width:605px!important;width:100%!important}
@@ -260,34 +260,42 @@ function saveCurrentLive(){
 function renderSavedLiveLinks(){
   const root=document.getElementById('savedLiveLinks');
   if(!root)return;
-  const handles=libraryHandles()
-    .sort((a,b)=>{
-      const A=liveLibraryItem(a)||{},B=liveLibraryItem(b)||{};
-      const liveDiff=Number(Boolean(B.live))-Number(Boolean(A.live));
-      if(liveDiff)return liveDiff;
-      const readyDiff=Number(Boolean(B.ready))-Number(Boolean(A.ready));
-      if(readyDiff)return readyDiff;
-      const offlineA=A.status==='offline'?1:0;
-      const offlineB=B.status==='offline'?1:0;
-      if(offlineA!==offlineB)return offlineA-offlineB;
-      const changed=Number(B.changedAt||B.confirmedAt||0)-Number(A.changedAt||A.confirmedAt||0);
-      if(changed)return changed;
-      return a.localeCompare(b);
-    });
-  const liveCount=handles.filter(handle=>liveLibraryItem(handle)?.live).length;
-  const readyCount=handles.filter(handle=>liveLibraryItem(handle)?.ready).length;
-  const summary=document.getElementById('liveLibrarySummary');
-  if(summary)summary.textContent='LIVE '+liveCount+' · sẵn '+readyCount;
+  const handles=libraryHandles();
 
-  root.innerHTML=handles.map(handle=>{
+  const sorter=(a,b)=>{
+    const A=liveLibraryItem(a)||{},B=liveLibraryItem(b)||{};
+    const readyDiff=Number(Boolean(B.ready))-Number(Boolean(A.ready));
+    if(readyDiff)return readyDiff;
+    const flvDiff=Number(String(B.type||'').toLowerCase()==='flv')-Number(String(A.type||'').toLowerCase()==='flv');
+    if(flvDiff)return flvDiff;
+    const changed=Number(B.confirmedAt||B.changedAt||0)-Number(A.confirmedAt||A.changedAt||0);
+    if(changed)return changed;
+    return a.localeCompare(b);
+  };
+
+  const liveHandles=handles.filter(handle=>liveLibraryItem(handle)?.live===true).sort(sorter);
+  const nonLiveHandles=handles.filter(handle=>liveLibraryItem(handle)?.live!==true).sort((a,b)=>{
+    const A=liveLibraryItem(a)||{},B=liveLibraryItem(b)||{};
+    const checkingA=A.status!=='offline'?1:0;
+    const checkingB=B.status!=='offline'?1:0;
+    if(checkingA!==checkingB)return checkingB-checkingA;
+    return sorter(a,b);
+  });
+
+  const readyCount=liveHandles.filter(handle=>liveLibraryItem(handle)?.ready).length;
+  const summary=document.getElementById('liveLibrarySummary');
+  if(summary)summary.textContent='Tổng '+handles.length+' · LIVE '+liveHandles.length+' · sẵn '+readyCount;
+
+  const rows=list=>list.map(handle=>{
     const row=liveLibraryItem(handle);
     const active=handle===HANDLE?' active':'';
     const live=row?.live===true;
     const type=String(row?.type||'').toUpperCase();
-    const age=liveLibraryAge(row);
     const meta=[
-      live?(row?.ready?'LIVE · sẵn':'LIVE · đang chuẩn bị'):(row?.status==='offline'?'không LIVE':'đang kiểm tra'),
-      type
+      live?(row?.ready?'sẵn':'đang chuẩn bị'):(row?.status==='offline'?'không LIVE':'đang kiểm tra'),
+      type,
+      row?.videoCodec?String(row.videoCodec).toUpperCase():'',
+      row?.width&&row?.height?(row.width+'×'+row.height):''
     ].filter(Boolean).join(' · ');
     return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">'+
       '<span>@'+handle+'</span>'+
@@ -295,6 +303,12 @@ function renderSavedLiveLinks(){
       (meta?'<span class="libmeta">'+meta+'</span>':'')+
       '</button>';
   }).join('');
+
+  root.innerHTML=
+    '<div class="libgroup">Đang LIVE · '+liveHandles.length+'</div>'+
+    rows(liveHandles)+
+    '<div class="libgroup">Không LIVE / đang kiểm tra · '+nonLiveHandles.length+'</div>'+
+    rows(nonLiveHandles);
 
   root.querySelectorAll('[data-live-handle]').forEach(btn=>{
     btn.onclick=()=>{
@@ -309,7 +323,7 @@ function renderSavedLiveLinks(){
         PENDING_HANDLE=handle;
         const state=document.getElementById('liveState');
         if(state&&PLAYING_HANDLE){
-          state.textContent='Đang xem @'+PLAYING_HANDLE+' · @'+handle+' đang chuẩn bị ngầm';
+          state.textContent='Đang xem @'+PLAYING_HANDLE+' · @'+handle+' chuẩn bị ngầm';
         }
         void syncLiveLibrary({force:true});
       }
