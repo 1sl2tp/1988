@@ -176,11 +176,54 @@ function cleanTikTokLiveSessions(){
     if(!row||row.at<cutoff)void closeTikTokLiveSession(key);
   }
 }
+
+async function quickTikTokLiveStatus(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,live:false};
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('sourceType','54');
+    endpoint.searchParams.set('uniqueId',handle);
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle+'/live'
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(5500)
+    });
+    if(!r.ok)return {known:false,live:false};
+    const data=await r.json();
+    const status=Number(data?.data?.user?.status??data?.data?.liveRoom?.status);
+    if(Number.isFinite(status)){
+      return {
+        known:true,
+        live:status===2,
+        status,
+        roomId:String(data?.data?.user?.roomId||data?.data?.liveRoom?.roomId||data?.data?.liveRoom?.id||'')
+      };
+    }
+  }catch(error){
+    console.log('[tiktok-session] preflight unknown',handle,compactText(error?.message||error,140));
+  }
+  return {known:false,live:false};
+}
+
 async function captureTikTokLiveSessionOnce(rawHandle){
   cleanTikTokLiveSessions();
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
   console.log('[tiktok-session] start',handle);
+
+  const preflight=await quickTikTokLiveStatus(handle);
+  if(preflight.known&&!preflight.live){
+    console.log('[tiktok-session] offline',handle,'status='+preflight.status);
+    throw new Error('tiktok_not_live');
+  }
+
   const key=handle.toLowerCase();
   const current=tiktokLiveSessions.get(key);
   if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
@@ -197,6 +240,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
   await page.emulateTimezone(TZ).catch(()=>{});
   await page.setCacheEnabled(false).catch(()=>{});
+  await page.setRequestInterception(true).catch(()=>{});
 
   const stored=await loadSession('tiktok');
   const savedCookies=cookieParams(stored?.state?.cookies||[]);
@@ -204,14 +248,17 @@ async function captureTikTokLiveSessionOnce(rawHandle){
 
   let capturedHls=null;
   let capturedFlv=null;
+  let hlsCandidate='';
   let firstMediaAt=0;
   const pendingBodies=new Set();
 
   const remember=(url,type,headers={})=>{
     const next={url:String(url||''),type,headers,at:Date.now()};
     if(type==='hls'){
-      capturedHls=next;
-      console.log('[tiktok-session] capture',handle,'hls',next.url.slice(0,200));
+      if(!capturedHls){
+        capturedHls=next;
+        console.log('[tiktok-session] capture',handle,'hls',next.url.slice(0,200));
+      }
     }else if(type==='flv'&&!capturedFlv){
       capturedFlv=next;
       console.log('[tiktok-session] capture',handle,'flv',next.url.slice(0,200));
@@ -223,14 +270,35 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     try{
       const requestUrl=String(request.url()||'');
       const lower=requestUrl.toLowerCase();
-      if(lower.includes('.m3u8'))remember(requestUrl,'hls',request.headers?.()||{});
-      else if(lower.includes('.flv'))remember(requestUrl,'flv',request.headers?.()||{});
-    }catch{}
+      if(lower.includes('.flv'))remember(requestUrl,'flv',request.headers?.()||{});
+      else if(lower.includes('.m3u8'))hlsCandidate=requestUrl;
+
+      if(request.isInterceptResolutionHandled?.())return;
+      const kind=String(request.resourceType?.()||'');
+      if(['image','font','stylesheet'].includes(kind))request.abort().catch(()=>{});
+      else request.continue().catch(()=>{});
+    }catch{
+      try{
+        if(!request.isInterceptResolutionHandled?.())request.continue().catch(()=>{});
+      }catch{}
+    }
   };
 
   const onResponse=response=>{
     try{
       const responseUrl=String(response.url()||'');
+      const lower=responseUrl.toLowerCase();
+      if(lower.includes('.m3u8')){
+        const status=Number(response.status?.()||0);
+        if(status>=200&&status<400){
+          const req=response.request?.();
+          remember(responseUrl,'hls',req?.headers?.()||{});
+        }else{
+          console.log('[tiktok-session] reject hls',handle,'status='+status,responseUrl.slice(0,160));
+        }
+        return;
+      }
+
       if(!/tiktok\.com|tiktokv\.com|byteoversea\.com|tiktokcdn\.com/i.test(responseUrl))return;
       const headers=response.headers?.()||{};
       const type=String(headers['content-type']||headers['Content-Type']||'');
@@ -244,10 +312,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
           .replace(/\\\//g,'/')
           .replace(/&amp;/g,'&');
         const match=decoded.match(/https?:\/\/[^"'\\\s<>]+\.m3u8(?:\?[^"'\\\s<>]*)?/i)?.[0]||'';
-        if(match&&!capturedHls){
-          remember(match,'hls',{});
-          console.log('[tiktok-session] hls-from-response',handle,responseUrl.slice(0,160));
-        }
+        if(match&&!hlsCandidate)hlsCandidate=match;
       })();
       pendingBodies.add(task);
       task.finally(()=>pendingBodies.delete(task));
@@ -258,36 +323,53 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   page.on('response',onResponse);
 
   try{
-    await page.goto('https://www.tiktok.com/@'+handle+'/live',{
+    const navPromise=page.goto('https://www.tiktok.com/@'+handle+'/live',{
       waitUntil:'domcontentloaded',
-      timeout:22000
-    }).catch(error=>console.warn('[tiktok-session] goto',handle,compactText(error?.message||error,180)));
+      timeout:20000
+    }).catch(error=>{
+      console.warn('[tiktok-session] goto',handle,compactText(error?.message||error,180));
+      return null;
+    });
 
-    for(let i=0;i<22&&!capturedHls;i+=1){
+    const started=Date.now();
+    while(Date.now()-started<18000&&!capturedHls){
       await page.evaluate(()=>{
         for(const video of document.querySelectorAll('video')){
           try{video.muted=true;void video.play?.()}catch{}
         }
       }).catch(()=>{});
+
       if(pendingBodies.size)await Promise.race([
         Promise.allSettled([...pendingBodies]),
-        sleep(250)
+        sleep(180)
       ]).catch(()=>{});
-      if(capturedFlv&&!capturedHls&&firstMediaAt&&Date.now()-firstMediaAt>4500)break;
-      await sleep(650);
+
+      // If TikTok itself chose FLV, do not hold the user for another 20–60 s.
+      // Give HLS only a short chance to appear as a verified 2xx response.
+      if(capturedFlv&&Date.now()-capturedFlv.at>1400)break;
+      await sleep(350);
     }
 
     if(pendingBodies.size)await Promise.race([
       Promise.allSettled([...pendingBodies]),
-      sleep(800)
+      sleep(500)
     ]).catch(()=>{});
 
+    // Do not trust an HLS URL merely found in page JSON. We only use HLS if
+    // the same browser session actually received that playlist successfully.
     const captured=capturedHls||capturedFlv;
-    if(!captured)throw new Error('live_media_not_captured');
+    if(!captured){
+      console.log('[tiktok-session] no-media',handle,hlsCandidate?'unverified-hls':'no-hls');
+      throw new Error(preflight.known&&preflight.live?'live_media_not_captured':'tiktok_not_live_or_blocked');
+    }
+
+    page.off('request',onRequest);
+    page.off('response',onResponse);
 
     const row={handle,page,url:captured.url,type:captured.type,headers:captured.headers,at:Date.now()};
     tiktokLiveSessions.set(key,row);
-    console.log('[tiktok-session] ready',handle,row.type);
+    console.log('[tiktok-session] ready',handle,row.type,'ms='+(Date.now()-started));
+    void navPromise;
     return row;
   }catch(error){
     page.off('request',onRequest);
@@ -296,7 +378,6 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     throw error;
   }
 }
-
 
 async function captureTikTokLiveSession(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
