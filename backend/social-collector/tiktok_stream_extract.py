@@ -170,6 +170,11 @@ def main():
                 or stream_url
             ),
             "title": str(info.get("title") or ""),
+            "thumbnail": str(
+                info.get("thumbnail")
+                or (info.get("thumbnails") or [{}])[-1].get("url")
+                or ""
+            ),
             "uploader": str(info.get("uploader") or ""),
             "id": str(info.get("id") or ""),
             "method": "python_yt_dlp_extract_info",
