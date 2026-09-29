@@ -843,7 +843,7 @@ function runTikTokLiveMinuteSweep(){
         }
       }
     };
-    await Promise.all(Array.from({length:Math.min(6,target.length)},()=>worker()));
+    await Promise.all(Array.from({length:Math.min(10,target.length)},()=>worker()));
 
     let known=0;
     let live=0;
@@ -4178,7 +4178,9 @@ const server=http.createServer(async(req,res)=>{
 
       if(selected){
         if(!reusedLiveSource)void ensureTikTokLivePackageScan([handle]);
-        void ensureTikTokVideoPackageScan([handle]);
+        // Video discovery is non-critical for LIVE playback. Defer it so a
+        // newly added channel cannot compete with the minute LIVE API sweep.
+        setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},30_000).unref();
       }
 
       const liveRow=tiktokLiveLibrary.get(key)||null;
@@ -4519,7 +4521,7 @@ server.listen(PORT,'0.0.0.0',()=>{
   ]).then(async()=>{
     await loadTikTokVideoStore();
     void runTikTokLiveMinuteSweep();
-    void ensureTikTokVideoPackageScan();
+    setTimeout(()=>{void ensureTikTokVideoPackageScan();},3*60_000).unref();
   });
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
   // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
