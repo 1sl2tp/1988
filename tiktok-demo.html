@@ -81,7 +81,7 @@ main{max-width:1180px;margin:auto;padding:14px}
 
   <section class="checker">
     <div class="checkrow">
-      <input id="userInput" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@username hoặc nhiều ID, cách nhau bằng dấu phẩy">
+      <input id="userInput" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Dán link TikTok, @username hoặc nhiều ID">
       <button id="checkUser">Kiểm tra LIVE</button>
     </div>
     <div id="checkMsg" class="checkmsg">Nguồn chắc chắn: kiểm tra từng ID bằng yt-dlp, không cần đăng nhập.</div>
@@ -248,7 +248,12 @@ function render(){
   mountPlayers();
 }
 function parseHandles(text){
-  return [...new Set(String(text||'').split(/[\s,;]+/).map(x=>x.trim().replace(/^@/,'')).filter(x=>/^[A-Za-z0-9._]{2,32}$/.test(x)))].slice(0,20);
+  const raw=String(text||'');
+  const fromUrls=[...raw.matchAll(/tiktok\.com\/@([A-Za-z0-9._]{2,32})/gi)].map(m=>m[1]);
+  const fromTokens=raw.split(/[\s,;]+/)
+    .map(x=>x.trim().replace(/^@/,''))
+    .filter(x=>/^[A-Za-z0-9._]{2,32}$/.test(x));
+  return [...new Set([...fromUrls,...fromTokens])].slice(0,20);
 }
 function remember(handles){
   savedHandles=[...new Set([...handles,...savedHandles])].slice(0,30);
