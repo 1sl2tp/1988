@@ -843,7 +843,7 @@ function runTikTokLiveMinuteSweep(){
         }
       }
     };
-    await Promise.all(Array.from({length:Math.min(10,target.length)},()=>worker()));
+    await Promise.all(Array.from({length:Math.min(8,target.length)},()=>worker()));
 
     let known=0;
     let live=0;
@@ -1395,18 +1395,9 @@ async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null};
 
-  // Minute sweeps only need LIVE/OFFLINE. Do not resolve media URLs, refresh
-  // cookies, start yt-dlp, or open Chromium here.
-  const detail=await quickTikTokLiveDetailStatus(handle,false);
-  if(detail?.known){
-    return {
-      known:true,
-      live:detail.live===true,
-      status:Number(detail.status),
-      source:'live-detail'
-    };
-  }
-
+  // One lightweight API request is enough for almost every account.
+  // TikTok Web uses liveRoom.status=2 for LIVE. A successful response with no
+  // liveRoom/roomId means the account is currently OFFLINE.
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -1423,14 +1414,60 @@ async function quickTikTokLiveStateOnly(rawHandle){
       redirect:'follow',
       signal:AbortSignal.timeout(2200)
     });
-    if(!r.ok)return {known:false,live:false,status:null};
-    const data=await r.json();
-    const liveRoom=data?.data?.liveRoom||null;
-    const status=Number(liveRoom?.status);
-    if(status===2||status===4){
-      return {known:true,live:status===2,status,source:'user-room'};
+    if(r.ok){
+      const data=await r.json();
+      const liveRoom=data?.data?.liveRoom||null;
+      const roomId=String(
+        liveRoom?.roomId||
+        liveRoom?.id||
+        data?.data?.user?.roomId||
+        ''
+      );
+      const status=Number(liveRoom?.status);
+
+      if(Number.isFinite(status)){
+        return {
+          known:true,
+          live:status===2,
+          status,
+          source:'user-room'
+        };
+      }
+
+      if(!liveRoom&&!roomId){
+        return {
+          known:true,
+          live:false,
+          status:4,
+          source:'user-room-empty'
+        };
+      }
+
+      if(roomId){
+        const room=await quickTikTokRoomInfoStatus(handle,roomId);
+        if(room?.known){
+          return {
+            known:true,
+            live:room.live===true,
+            status:Number(room.status),
+            source:'room-info'
+          };
+        }
+      }
     }
   }catch{}
+
+  // Fallback only when the primary status endpoint itself was inconclusive.
+  const detail=await quickTikTokLiveDetailStatus(handle,false);
+  if(detail?.known){
+    return {
+      known:true,
+      live:detail.live===true,
+      status:Number(detail.status),
+      source:'live-detail'
+    };
+  }
+
   return {known:false,live:false,status:null};
 }
 
