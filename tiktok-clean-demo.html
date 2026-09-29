@@ -608,11 +608,9 @@ button{cursor:pointer}
 
 <script>
 const API='https://one988-tiktok-session.onrender.com';
-const IDENTITY_KEY='tiktokCleanIdentityV2';
 const POLL_MS=5000;
 
 let channels=[];
-let videoChannels=[];
 let filterMode='all';
 let mediaMode='live';
 let videoVersion=-1;
@@ -630,13 +628,7 @@ let packageVersion=-1;
 let loadBusy=false;
 let mutationBusy=false;
 let identityBatchBusy=false;
-let identityCache={};
 let toastTimer=0;
-
-try{
-  const raw=JSON.parse(localStorage.getItem(IDENTITY_KEY)||'{}');
-  if(raw&&typeof raw==='object')identityCache=raw;
-}catch{}
 
 function parseHandle(value){
   const raw=String(value||'').trim();
@@ -659,12 +651,12 @@ function compactCount(value){
   if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,'')+'K';
   return String(Math.round(n));
 }
-function identityStatsHtml(id){
+function profileStatsHtml(profile,latestVideo){
   const parts=[];
-  const follower=compactCount(id?.followerCount);
-  const heart=compactCount(id?.heartCount);
-  const views=compactCount(id?.latestVideoPlayCount);
-  const likes=compactCount(id?.latestVideoDiggCount);
+  const follower=compactCount(profile?.followers);
+  const heart=compactCount(profile?.likes);
+  const views=compactCount(latestVideo?.stats?.views);
+  const likes=compactCount(latestVideo?.stats?.likes);
   if(follower)parts.push('<span>'+esc(follower)+' theo dõi</span>');
   if(heart)parts.push('<span>'+esc(heart)+' thích</span>');
   if(views)parts.push('<span class="hot">'+esc(views)+' xem</span>');
@@ -676,17 +668,20 @@ function normalizeSearch(value){
     .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
     .toLowerCase().trim();
 }
-function videoChannelFor(handle){
+function channelFor(handle){
   const key=String(handle||'').toLowerCase();
-  return videoChannels.find(row=>String(row.handle||'').toLowerCase()===key)||null;
+  return channels.find(row=>String(row?.handle||'').toLowerCase()===key)||null;
+}
+function profileFor(handle){
+  return channelFor(handle)?.profile||null;
 }
 function videosFor(handle){
-  const row=videoChannelFor(handle);
+  const row=channelFor(handle);
   return Array.isArray(row?.videos)?row.videos:[];
 }
 function allVideos(){
-  return videoChannels.flatMap(row=>
-    (Array.isArray(row.videos)?row.videos:[]).map(video=>({...video,handle:String(video.handle||row.handle||'')}))
+  return channels.flatMap(row=>
+    (Array.isArray(row?.videos)?row.videos:[]).map(video=>({...video,handle:String(video?.handle||row.handle||'')}))
   );
 }
 function formatDuration(value){
@@ -716,8 +711,8 @@ function formatAgo(value){
 }
 function videoMetaText(video){
   return [
-    compactCount(video?.playCount)?compactCount(video.playCount)+' xem':'',
-    compactCount(video?.diggCount)?compactCount(video.diggCount)+' thích':'',
+    compactCount(video?.stats?.views)?compactCount(video.stats.views)+' xem':'',
+    compactCount(video?.stats?.likes)?compactCount(video.stats.likes)+' thích':'',
     formatAgo(video?.createTime)
   ].filter(Boolean).join(' · ');
 }
@@ -725,22 +720,13 @@ function currentVideoFor(handle,id){
   return videosFor(handle).find(video=>String(video.id||'')===String(id||''))||null;
 }
 function rowPlayable(row){
-  const type=String(row?.type||'').toLowerCase();
-  return Boolean(row?.live&&row?.ready&&row?.sourceSig&&['flv','hls'].includes(type));
+  const live=row?.live||{};
+  const stream=live?.stream||{};
+  const type=String(stream?.type||'').toLowerCase();
+  return Boolean(live?.isLive&&live?.playable&&stream?.sourceSig&&stream?.url&&['flv','hls'].includes(type));
 }
 function rowFor(handle){
-  return channels.find(x=>String(x.handle||'').toLowerCase()===String(handle||'').toLowerCase())||null;
-}
-function identityFor(handle){
-  return identityCache[String(handle||'').toLowerCase()]?.data||null;
-}
-function saveIdentityCache(){
-  try{
-    const entries=Object.entries(identityCache)
-      .sort((a,b)=>Number(b[1]?.at||0)-Number(a[1]?.at||0))
-      .slice(0,80);
-    localStorage.setItem(IDENTITY_KEY,JSON.stringify(Object.fromEntries(entries)));
-  }catch{}
+  return channelFor(handle);
 }
 function showToast(message){
   const el=document.getElementById('toast');
@@ -781,16 +767,17 @@ function setPlayerShape(video){
   else if(ratio>=.88)box.classList.add('square');
 }
 function updateCurrentUi(){
-  const identity=identityFor(currentHandle)||{};
   const row=rowFor(currentHandle)||{};
-  const name=String(identity.nickname||'').trim()||('@'+currentHandle);
-  const avatar=String(identity.avatar||'').trim();
+  const profile=row.profile||{};
+  const latest=Array.isArray(row.videos)?row.videos[0]||{}:{};
+  const name=String(profile.name||'').trim()||('@'+currentHandle);
+  const avatar=String(profile.avatar?.url||profile.avatar?.sourceUrl||'').trim();
   document.getElementById('nowName').textContent=name;
   document.getElementById('nowHandle').textContent=currentHandle?'@'+currentHandle:'';
   const statsText=[
-    compactCount(identity.followerCount)?compactCount(identity.followerCount)+' theo dõi':'',
-    compactCount(identity.heartCount)?compactCount(identity.heartCount)+' thích':'',
-    compactCount(identity.latestVideoPlayCount)?compactCount(identity.latestVideoPlayCount)+' xem':''
+    compactCount(profile.followers)?compactCount(profile.followers)+' theo dõi':'',
+    compactCount(profile.likes)?compactCount(profile.likes)+' thích':'',
+    compactCount(latest?.stats?.views)?compactCount(latest.stats.views)+' xem':''
   ].filter(Boolean).join(' · ');
   document.getElementById('nowState').textContent=currentHandle
     ? (mediaMode==='video'&&currentVideo
@@ -816,8 +803,7 @@ function renderList(){
 
   const sorted=visible.sort((a,b)=>
     Number(rowPlayable(b))-Number(rowPlayable(a))||
-    Number(b.live)-Number(a.live)||
-    Number(b.ready)-Number(a.ready)||
+    Number(Boolean(b?.live?.isLive))-Number(Boolean(a?.live?.isLive))||
     String(a.handle).localeCompare(String(b.handle))
   );
   if(!sorted.length){
@@ -829,11 +815,10 @@ function renderList(){
   const offline=sorted.filter(x=>!rowPlayable(x));
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
-    const id=identityFor(handle)||{};
-    const nickname=String(id.nickname||'').trim();
-    const name=nickname||('@'+handle);
-    const avatar=String(id.avatar||'').trim();
-    const stats=identityStatsHtml(id);
+    const profile=row.profile||{};
+    const name=String(profile.name||'').trim()||('@'+handle);
+    const avatar=String(profile.avatar?.url||profile.avatar?.sourceUrl||'').trim();
+    const stats=profileStatsHtml(profile,row.videos?.[0]);
     return '<div class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'" role="button" tabindex="0">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
@@ -893,7 +878,7 @@ function renderRecentVideos(handle=currentHandle){
   const root=document.getElementById('recentVideos');
   const countEl=document.getElementById('railCount');
   const titleEl=document.getElementById('railTitle');
-  const identity=identityFor(handle)||{};
+  const profile=profileFor(handle)||{};
   const own=videosFor(handle);
   const list=handle
     ? own
@@ -903,21 +888,19 @@ function renderRecentVideos(handle=currentHandle){
         .slice(0,10);
 
   titleEl.textContent=handle
-    ? ((identity.nickname||('@'+handle))+' · video')
+    ? ((profile.name||('@'+handle))+' · video')
     : 'Video mới';
   countEl.textContent=list.length?String(list.length):'';
 
   if(!list.length){
-    root.innerHTML='<div class="rail-empty">'+
-      (handle&&videoLoadBusy.has(handle.toLowerCase())?'Đang tải video…':'Chưa có video gần đây.')+
-      '</div>';
+    root.innerHTML='<div class="rail-empty">Chưa có video gần đây.</div>';
     return;
   }
 
   root.innerHTML=list.map(video=>{
-    const owner=identityFor(video.handle)||{};
+    const owner=profileFor(video.handle)||{};
     const title=String(video.title||'').trim()||'Video TikTok';
-    const cover=String(video.cover||'').trim();
+    const cover=String(video.cover?.url||video.cover?.sourceUrl||'').trim();
     const active=String(video.id||'')===String(currentVideoId||'')?' active':'';
     return '<div class="video-card'+active+'" data-video-id="'+esc(video.id)+'" data-video-handle="'+esc(video.handle)+'">'+
       '<div class="video-thumb">'+
@@ -926,7 +909,7 @@ function renderRecentVideos(handle=currentHandle){
       '</div>'+
       '<div class="video-copy">'+
         '<div class="video-title">'+esc(title)+'</div>'+
-        '<div class="video-owner">'+esc(owner.nickname||('@'+video.handle))+'</div>'+
+        '<div class="video-owner">'+esc(owner.name||('@'+video.handle))+'</div>'+
         '<div class="video-meta">'+esc(videoMetaText(video))+'</div>'+
       '</div>'+
     '</div>';
@@ -938,7 +921,7 @@ function renderRecentVideos(handle=currentHandle){
     });
   });
 }
-async function openVideo(rawHandle,videoId){
+async function openVideo(rawHandle,videoId,retry=true){
   const handle=parseHandle(rawHandle);
   const video=currentVideoFor(handle,videoId);
   if(!handle||!video)return;
@@ -957,6 +940,7 @@ async function openVideo(rawHandle,videoId){
   native.hidden=false;
   native.controls=true;
   native.preload='metadata';
+  native.poster=String(video.cover?.url||video.cover?.sourceUrl||'');
   native.removeAttribute('src');
   native.load();
 
@@ -965,31 +949,37 @@ async function openVideo(rawHandle,videoId){
   document.getElementById('nowState').textContent=
     String(video.title||'').trim()||videoMetaText(video);
   document.getElementById('mediaTitle').textContent=
-    (identityFor(handle)?.nickname||('@'+handle))+' · Video';
+    (profileFor(handle)?.name||('@'+handle))+' · Video';
   renderList();
   renderRecentVideos(handle);
   hideSearchResults();
+
+  const direct=String(video.playback?.url||'').trim();
+  if(!video.playback?.ready||!direct){
+    showToast('MP4 đang được server đồng bộ');
+    return;
+  }
 
   native.onerror=async()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
-    try{
-      const fresh=await apiJson(
-        API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
-        '&id='+encodeURIComponent(video.id)+'&refresh=1&t='+Date.now()
-      );
-      if(seq!==videoOpenSeq)return;
-      const direct=String(fresh?.directUrl||'').trim();
-      if(direct){
-        native.src=direct;
-        native.load();
-        native.play().catch(()=>{});
-        return;
-      }
-    }catch{}
-    showToast('Không mở được nguồn MP4');
+    if(!retry){
+      showToast('Nguồn MP4 đang được server làm mới');
+      return;
+    }
+    const old=direct;
+    libraryVersion=-1;
+    await loadUnifiedLibrary({force:true,silent:true});
+    if(seq!==videoOpenSeq)return;
+    const fresh=currentVideoFor(handle,videoId);
+    const next=String(fresh?.playback?.url||'').trim();
+    if(fresh?.playback?.ready&&next&&next!==old){
+      openVideo(handle,videoId,false);
+    }else{
+      showToast('Nguồn MP4 đang được server làm mới');
+    }
   };
   native.onloadedmetadata=()=>{
     if(seq!==videoOpenSeq)return;
@@ -997,27 +987,10 @@ async function openVideo(rawHandle,videoId){
     native.play().catch(()=>{});
   };
 
-  try{
-    const source=await apiJson(
-      API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
-      '&id='+encodeURIComponent(video.id)+'&t='+Date.now()
-    );
-    if(seq!==videoOpenSeq)return;
-    const direct=String(source?.directUrl||'').trim();
-    if(!direct){
-      showToast('Video chưa có nguồn MP4');
-      return;
-    }
-    // Direct signed TikTok URL: do not append cache-busting params.
-    native.src=direct;
-    native.load();
-    native.play().catch(()=>{});
-  }catch(error){
-    if(seq!==videoOpenSeq)return;
-    showToast('Không lấy được nguồn MP4');
-  }
+  native.src=direct;
+  native.load();
+  native.play().catch(()=>{});
 }
-
 async function refreshChannelVideos(handle,{silent=true}={}){
   // Data extraction is server-side only. UI just re-reads the unified package.
   renderRecentVideos(parseHandle(handle));
@@ -1040,14 +1013,13 @@ function renderSearchResults(value){
     return;
   }
 
-  const channelMatches=channels.filter(row=>{
-    const id=identityFor(row.handle)||{};
-    return normalizeSearch([row.handle,id.nickname].join(' ')).includes(query);
-  }).slice(0,24);
+  const channelMatches=channels.filter(row=>
+    normalizeSearch([row.handle,row.profile?.name].join(' ')).includes(query)
+  ).slice(0,24);
 
   const videoMatches=allVideos().filter(video=>{
-    const id=identityFor(video.handle)||{};
-    return normalizeSearch([video.title,video.handle,id.nickname].join(' ')).includes(query);
+    const profile=profileFor(video.handle)||{};
+    return normalizeSearch([video.title,video.handle,profile.name].join(' ')).includes(query);
   }).sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0)).slice(0,36);
 
   const root=document.getElementById('searchResults');
@@ -1055,26 +1027,26 @@ function renderSearchResults(value){
   root.hidden=false;
 
   const channelsHtml=channelMatches.map(row=>{
-    const id=identityFor(row.handle)||{};
-    const avatar=String(id.avatar||'').trim();
+    const profile=row.profile||{};
+    const avatar=String(profile.avatar?.url||profile.avatar?.sourceUrl||'').trim();
     return '<div class="search-channel" data-search-channel="'+esc(row.handle)+'">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(row.handle.slice(0,1).toUpperCase()))+'</span>'+
-      '<span class="chtext"><span class="chname">'+esc(id.nickname||('@'+row.handle))+'</span>'+
+      '<span class="chtext"><span class="chname">'+esc(profile.name||('@'+row.handle))+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(row.handle)+'</span></span></span>'+
       (rowPlayable(row)?'<span class="live-dot"></span>':'')+
     '</div>';
   }).join('');
 
   const videosHtml=videoMatches.map(video=>{
-    const id=identityFor(video.handle)||{};
-    const cover=String(video.cover||'').trim();
+    const profile=profileFor(video.handle)||{};
+    const cover=String(video.cover?.url||video.cover?.sourceUrl||'').trim();
     return '<div class="search-video" data-search-video="'+esc(video.id)+'" data-search-handle="'+esc(video.handle)+'">'+
       '<div class="search-video-thumb">'+
         (cover?'<img src="'+esc(cover)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+
         (formatDuration(video.duration)?'<span class="video-duration">'+esc(formatDuration(video.duration))+'</span>':'')+
       '</div>'+
       '<div class="search-video-title">'+esc(String(video.title||'').trim()||'Video TikTok')+'</div>'+
-      '<div class="search-video-meta">'+esc((id.nickname||('@'+video.handle))+' · '+videoMetaText(video))+'</div>'+
+      '<div class="search-video-meta">'+esc((profile.name||('@'+video.handle))+' · '+videoMetaText(video))+'</div>'+
     '</div>';
   }).join('');
 
@@ -1088,9 +1060,8 @@ function renderSearchResults(value){
 
   root.querySelectorAll('[data-search-channel]').forEach(el=>{
     el.addEventListener('click',()=>{
-      const handle=el.dataset.searchChannel;
       document.getElementById('addInput').value='';
-      openChannel(handle);
+      openChannel(el.dataset.searchChannel);
     });
   });
   root.querySelectorAll('[data-search-video]').forEach(el=>{
@@ -1122,82 +1093,85 @@ function selectChannel(handle){
 }
 function applyUnifiedLibrary(data){
   const rows=Array.isArray(data?.channels)?data.channels:[];
-  const now=Date.now();
-
   channels=rows.map(ch=>{
+    const handle=String(ch?.handle||'');
+    const profile=ch?.profile||{};
     const live=ch?.live||{};
-    const stream=live?.stream||{};
+    const videos=(Array.isArray(ch?.videos)?ch.videos:[])
+      .map(v=>({
+        id:String(v?.id||''),
+        handle,
+        title:String(v?.title||''),
+        createTime:Number(v?.createTime||0),
+        duration:Number(v?.duration||0),
+        pageUrl:String(v?.pageUrl||''),
+        cover:{
+          url:String(v?.cover?.url||v?.cover?.sourceUrl||''),
+          sourceUrl:String(v?.cover?.sourceUrl||''),
+          storedUrl:String(v?.cover?.storedUrl||''),
+          width:Number(v?.cover?.width||0),
+          height:Number(v?.cover?.height||0)
+        },
+        stats:{
+          views:Number(v?.stats?.views||0),
+          likes:Number(v?.stats?.likes||0),
+          comments:Number(v?.stats?.comments||0),
+          shares:Number(v?.stats?.shares||0),
+          collects:Number(v?.stats?.collects||0)
+        },
+        playback:{
+          type:String(v?.playback?.type||'mp4'),
+          ready:Boolean(v?.playback?.ready),
+          url:String(v?.playback?.url||''),
+          source:String(v?.playback?.source||''),
+          expiresAt:v?.playback?.expiresAt||null,
+          updatedAt:v?.playback?.updatedAt||null
+        }
+      }))
+      .filter(v=>/^\d{8,}$/.test(v.id));
+
     return {
-      handle:String(ch?.handle||''),
-      live:Boolean(live?.isLive),
-      ready:Boolean(live?.playable),
-      type:String(stream?.type||''),
-      sourceSig:String(stream?.sourceSig||''),
-      streamUrl:String(stream?.url||''),
-      status:live?.isLive?(live?.playable?'ready':'live'):'offline',
-      changedAt:Date.parse(live?.updatedAt||live?.checkedAt||0)||0
+      handle,
+      profile:{
+        userId:String(profile?.userId||''),
+        secUid:String(profile?.secUid||''),
+        name:String(profile?.name||''),
+        bio:String(profile?.bio||''),
+        verified:Boolean(profile?.verified),
+        avatar:{
+          url:String(profile?.avatar?.url||profile?.avatar?.sourceUrl||''),
+          sourceUrl:String(profile?.avatar?.sourceUrl||''),
+          storedUrl:String(profile?.avatar?.storedUrl||''),
+          width:Number(profile?.avatar?.width||0),
+          height:Number(profile?.avatar?.height||0)
+        },
+        followers:Number(profile?.followers||0),
+        following:Number(profile?.following||0),
+        likes:Number(profile?.likes||0),
+        videoCount:Number(profile?.videoCount||0),
+        source:String(profile?.source||''),
+        checkedAt:profile?.checkedAt||null
+      },
+      live:{
+        isLive:Boolean(live?.isLive),
+        playable:Boolean(live?.playable),
+        title:String(live?.title||''),
+        cover:{
+          url:String(live?.cover?.url||live?.cover?.sourceUrl||''),
+          sourceUrl:String(live?.cover?.sourceUrl||''),
+          storedUrl:String(live?.cover?.storedUrl||'')
+        },
+        stream:{
+          type:String(live?.stream?.type||''),
+          sourceSig:String(live?.stream?.sourceSig||''),
+          url:String(live?.stream?.url||'')
+        },
+        checkedAt:live?.checkedAt||null,
+        updatedAt:live?.updatedAt||null
+      },
+      videos
     };
   }).filter(row=>parseHandle(row.handle));
-
-  videoChannels=rows.map(ch=>{
-    const videos=(Array.isArray(ch?.videos)?ch.videos:[]).map(v=>({
-      id:String(v?.id||''),
-      handle:String(ch?.handle||''),
-      title:String(v?.title||''),
-      createTime:Number(v?.createTime||0),
-      duration:Number(v?.duration||0),
-      cover:String(v?.cover?.url||v?.cover?.sourceUrl||''),
-      coverSourceUrl:String(v?.cover?.sourceUrl||''),
-      coverStoredUrl:String(v?.cover?.storedUrl||''),
-      playCount:Number(v?.stats?.views||0),
-      diggCount:Number(v?.stats?.likes||0),
-      commentCount:Number(v?.stats?.comments||0),
-      shareCount:Number(v?.stats?.shares||0),
-      collectCount:Number(v?.stats?.collects||0),
-      streamUrl:String(v?.streamUrl||''),
-      pageUrl:String(v?.pageUrl||'')
-    })).filter(v=>/^\d{8,}$/.test(v.id));
-
-    return {
-      handle:String(ch?.handle||''),
-      secUid:String(ch?.profile?.secUid||''),
-      latestVideoId:String(videos?.[0]?.id||''),
-      videos,
-      checkedAt:Date.parse(ch?.profile?.checkedAt||0)||0,
-      status:'ready'
-    };
-  });
-
-  const nextIdentity={};
-  for(const ch of rows){
-    const handle=parseHandle(ch?.handle||'');
-    if(!handle)continue;
-    const p=ch?.profile||{};
-    const latest=Array.isArray(ch?.videos)?ch.videos[0]||{}:{};
-    nextIdentity[handle.toLowerCase()]={
-      at:now,
-      data:{
-        nickname:String(p?.name||''),
-        avatar:String(p?.avatar?.url||p?.avatar?.sourceUrl||''),
-        avatarSourceUrl:String(p?.avatar?.sourceUrl||''),
-        avatarStoredUrl:String(p?.avatar?.storedUrl||''),
-        secUid:String(p?.secUid||''),
-        userId:String(p?.userId||''),
-        bio:String(p?.bio||''),
-        verified:Boolean(p?.verified),
-        followerCount:Number(p?.followers||0),
-        followingCount:Number(p?.following||0),
-        heartCount:Number(p?.likes||0),
-        videoCount:Number(p?.videoCount||0),
-        latestVideoId:String(latest?.id||''),
-        latestVideoPlayCount:Number(latest?.stats?.views||0),
-        latestVideoDiggCount:Number(latest?.stats?.likes||0),
-        source:'library'
-      }
-    };
-  }
-  identityCache=nextIdentity;
-  saveIdentityCache();
 
   libraryVersion=Number(data?.version??libraryVersion);
   packageVersion=libraryVersion;
@@ -1253,26 +1227,9 @@ async function addChannel(){
     });
     input.value='';
 
-    const key=handle.toLowerCase();
-    const index=channels.findIndex(row=>String(row.handle||'').toLowerCase()===key);
-    const next={
-      handle,
-      live:Boolean(data.live),
-      ready:Boolean(data.ready),
-      type:String(data.type||''),
-      sourceSig:String(data.sourceSig||''),
-      status:data.live?'live':'checking',
-      changedAt:Date.now()
-    };
-    if(index>=0)channels[index]={...channels[index],...next};
-    else channels.unshift(next);
-
-    renderList();
-    updateCurrentUi();
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
-
     libraryVersion=-1;
-    void loadUnifiedLibrary({force:true,silent:true});
+    await loadUnifiedLibrary({force:true,silent:true});
   }catch(error){
     showToast('Lưu thất bại, LIVE vẫn đang mở');
     console.warn(error);
@@ -1404,35 +1361,40 @@ function openChannel(rawHandle){
   currentVideoId='';
   currentVideo=null;
   const frame=document.getElementById('videoFrame');
-  if(frame){frame.src='about:blank';}
+  if(frame)frame.src='about:blank';
   setMediaMode('live');
   document.getElementById('overlay').hidden=false;
   updateCurrentUi();
   renderList();
   renderRecentVideos(handle);
-  document.getElementById('mediaTitle').textContent=(identityFor(handle)?.nickname||('@'+handle))+' · LIVE';
 
   const row=rowFor(handle)||{};
-  currentSourceSig=String(row.sourceSig||'');
-  currentType=String(row.type||'').toLowerCase();
+  const profile=row.profile||{};
+  const live=row.live||{};
+  const stream=live.stream||{};
+  document.getElementById('mediaTitle').textContent=(profile.name||('@'+handle))+' · LIVE';
 
-  const packaged=String(row.streamUrl||'').trim();
-  const base=packaged
-    ? (/^https?:\/\//i.test(packaged)?packaged:(API+packaged))
-    : API+'/tiktok/live-stream?user='+encodeURIComponent(handle);
-  if(row.live&&row.ready&&currentSourceSig&&['flv','hls'].includes(currentType)){
-    const url=packaged
-      ? base+(base.includes('?')?'&':'?')+'t='+Date.now()
-      : base+'&source='+encodeURIComponent(currentSourceSig)+'&t='+Date.now();
+  const native=document.getElementById('liveVideo');
+  native.poster=String(live.cover?.url||live.cover?.sourceUrl||'');
+  currentSourceSig=String(stream.sourceSig||'');
+  currentType=String(stream.type||'').toLowerCase();
+
+  const packaged=String(stream.url||'').trim();
+  if(live.isLive&&live.playable&&packaged&&currentSourceSig&&['flv','hls'].includes(currentType)){
+    const base=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
+    const url=base+(base.includes('?')?'&':'?')+'t='+Date.now();
     document.getElementById('nowState').textContent='';
     if(currentType==='hls')attachHls(url,handle);
     else attachFlv(url,handle,currentSourceSig);
     return;
   }
 
-  document.getElementById('nowState').textContent='';
-  const url=base+'&compat=1&t='+Date.now();
-  attachFlv(url,handle,'');
+  destroyPlayer();
+  document.getElementById('nowState').textContent=live.isLive?'LIVE đang đồng bộ nguồn':'';
+  if(live.isLive){
+    libraryVersion=-1;
+    setTimeout(()=>void loadUnifiedLibrary({force:true,silent:true}),800);
+  }
 }
 document.getElementById('addBtn').addEventListener('click',addChannel);
 const searchInput=document.getElementById('addInput');
