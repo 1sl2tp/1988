@@ -265,17 +265,17 @@ function cleanProxyTargets(){
     if(!row||row.at<cutoff)tiktokProxyTargets.delete(key);
   }
 }
-function registerTikTokProxyTarget(targetUrl){
+function registerTikTokProxyTarget(targetUrl,handle=''){
   cleanProxyTargets();
   const key=randomUUID();
-  tiktokProxyTargets.set(key,{url:String(targetUrl||''),at:Date.now()});
+  tiktokProxyTargets.set(key,{url:String(targetUrl||''),handle:String(handle||''),at:Date.now()});
   return key;
 }
-function proxyPathFor(targetUrl){
-  const key=registerTikTokProxyTarget(targetUrl);
+function proxyPathFor(targetUrl,handle=''){
+  const key=registerTikTokProxyTarget(targetUrl,handle);
   return '/tiktok/live-part?id='+encodeURIComponent(key);
 }
-function rewriteHlsManifest(text,baseUrl){
+function rewriteHlsManifest(text,baseUrl,handle=''){
   const absolute=value=>{
     try{return new URL(value,baseUrl).toString();}
     catch{return '';}
@@ -288,11 +288,11 @@ function rewriteHlsManifest(text,baseUrl){
       if(trimmed.startsWith('#')){
         return line.replace(/URI="([^"]+)"/g,(m,uri)=>{
           const target=absolute(uri);
-          return target?'URI="'+proxyPathFor(target)+'"':m;
+          return target?'URI="'+proxyPathFor(target,handle)+'"':m;
         });
       }
       const target=absolute(trimmed);
-      return target?proxyPathFor(target):line;
+      return target?proxyPathFor(target,handle):line;
     })
     .join('\n');
 }
