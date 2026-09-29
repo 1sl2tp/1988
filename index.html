@@ -2253,6 +2253,7 @@ html.one-col.portrait .player.pip{
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
   const MEDIA_API_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+  const GETLINK_API_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-getlink";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4335,22 +4336,20 @@ html.one-col.portrait .player.pip{
       '<div class="row-action-title">Tải xuống</div>'+
       rowActionButton("download-mp4","Video","video",{disabled:!enabled})+
       rowActionButton("download-mp3","Âm thanh","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Tải trực tiếp định dạng media có sẵn.</div>'+
+      '<div class="row-action-note">Cách 1 · lấy link rồi tải trực tiếp.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function directMediaDownloadUrl(meta={},format="mp4"){
+  function primaryDownloadUrl(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
     const kind=String(format||"mp4").toLowerCase()==="mp3"?"audio":"video";
-    const url=new URL(MEDIA_API_URL);
-    url.searchParams.set("action","media");
+    const url=new URL(GETLINK_API_URL);
     url.searchParams.set("id",id);
     url.searchParams.set("kind",kind);
-    url.searchParams.set("download","1");
     url.searchParams.set("_",String(Date.now()));
     return url.toString();
   }
@@ -4368,19 +4367,23 @@ html.one-col.portrait .player.pip{
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=directMediaDownloadUrl(meta,format);
+    const url=primaryDownloadUrl(meta,format);
     if(!url){
       window.alert("Không tìm thấy media để tải.");
       return false;
     }
 
+    // Cách 1: yt.taphoa ID -> YouTube URL -> GenDownload extract ->
+    // Edge Function redirects straight to the selected audio/video stream.
+    // No intermediate getlink URL is shown in the UI.
     const anchor=document.createElement("a");
     anchor.href=url;
     anchor.rel="noopener";
+    anchor.download="";
     anchor.style.display="none";
     document.body.appendChild(anchor);
     anchor.click();
-    window.setTimeout(()=>anchor.remove(),5000);
+    window.setTimeout(()=>anchor.remove(),30000);
     return true;
   }
 
