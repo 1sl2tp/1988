@@ -57,6 +57,7 @@ const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
 let HANDLE=DEFAULT_HANDLE;
 let player=null;
+let liveSoundWanted=false;
 
 function parseTikTokHandle(value){
   const raw=String(value||'').trim();
@@ -113,7 +114,7 @@ function renderSavedLiveLinks(){
     return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">@'+handle+'</button>';
   }).join('');
   root.querySelectorAll('[data-live-handle]').forEach(btn=>{
-    btn.onclick=()=>setCurrentLive(btn.dataset.liveHandle);
+    btn.onclick=()=>{liveSoundWanted=true;setCurrentLive(btn.dataset.liveHandle)};
   });
 }
 
@@ -157,11 +158,25 @@ function attachLive(type,directUrl,allowProxyFallback=true){
   destroyPlayer();
   const box=document.getElementById('liveBox');
   const state=document.getElementById('liveState');
-  box.innerHTML='<div class="livebox"><video id="liveVideo" controls autoplay muted playsinline preload="metadata"></video><div class="liveinfo"><strong>@'+HANDLE+'</strong><span>LIVE trực tiếp</span></div></div>';
+  box.innerHTML='<div class="livebox"><video id="liveVideo" controls autoplay playsinline preload="metadata"></video><div class="liveinfo"><strong>@'+HANDLE+'</strong><span>LIVE trực tiếp</span></div></div>';
   const video=document.getElementById('liveVideo');
   const shell=video.closest('.livebox');
   const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
-  const play=()=>video.play().catch(()=>{});
+  const play=async()=>{
+    video.volume=1;
+    video.muted=!liveSoundWanted;
+    try{
+      await video.play();
+    }catch{
+      // Nếu trình duyệt chặn autoplay có tiếng, vẫn cho LIVE chạy ngay.
+      video.muted=true;
+      try{await video.play()}catch{}
+      if(liveSoundWanted){
+        const suffix=' · chạm loa để bật tiếng';
+        if(!state.textContent.includes('chạm loa'))state.textContent+=suffix;
+      }
+    }
+  };
   let usingProxy=false;
 
   const fitByVideoShape=()=>{
@@ -302,8 +317,9 @@ function load(){
   loadLive();
 }
 
-document.getElementById('reload').onclick=load;
+document.getElementById('reload').onclick=()=>{liveSoundWanted=true;load()};
 document.getElementById('testLiveBtn').onclick=()=>{
+  liveSoundWanted=true;
   const input=document.getElementById('liveLinkInput');
   if(!setCurrentLive(input?.value||''))input?.focus();
 };
@@ -311,6 +327,7 @@ document.getElementById('saveLiveBtn').onclick=saveCurrentLive;
 document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     e.preventDefault();
+    liveSoundWanted=true;
     if(!setCurrentLive(e.currentTarget.value))e.currentTarget.focus();
   }
 });
