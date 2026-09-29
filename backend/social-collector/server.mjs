@@ -38,6 +38,7 @@ const tiktokLiveLibraryRefreshAt=new Map();
 const tiktokLiveSelectedHandles=new Set();
 let tiktokLivePackageScanPromise=null;
 let tiktokLiveStoreWritePromise=null;
+let tiktokApiCookieHeader='';
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
 let tiktokLiveLibraryVersion=0;
@@ -1079,7 +1080,8 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
         'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'application/json,text/plain,*/*',
         'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live'
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       redirect:'follow',
       signal:AbortSignal.timeout(2200)
@@ -1115,7 +1117,8 @@ async function quickTikTokLiveStatus(rawHandle){
         'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'application/json,text/plain,*/*',
         'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live'
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       redirect:'follow',
       signal:AbortSignal.timeout(2500)
@@ -2263,6 +2266,19 @@ poll();
 </script></body></html>`;
 }
 
+function cookieHeaderValue(rows=[]){
+  return (Array.isArray(rows)?rows:[])
+    .filter(row=>row?.name&&row?.value)
+    .map(row=>String(row.name)+'='+String(row.value))
+    .join('; ');
+}
+async function loadTikTokApiCookieHeader(){
+  const row=await loadSession('tiktok').catch(()=>null);
+  tiktokApiCookieHeader=cookieHeaderValue(row?.state?.cookies||[]);
+  console.log('[tiktok-api] cookies='+((row?.state?.cookies||[]).length||0));
+  return tiktokApiCookieHeader;
+}
+
 function cookieParams(rows=[]){
   return rows.map(row=>{
     const out={
@@ -3362,7 +3378,10 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
-  void loadTikTokLiveStore().then(()=>{
+  void Promise.all([
+    loadTikTokApiCookieHeader(),
+    loadTikTokLiveStore()
+  ]).then(()=>{
     void ensureTikTokLivePackageScan();
   });
   setInterval(()=>{void ensureTikTokLivePackageScan();},3000).unref();
