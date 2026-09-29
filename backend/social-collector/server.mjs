@@ -1069,6 +1069,75 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     return null;
   }
 }
+async function quickTikTokLiveDetailStatus(handle){
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api/live/detail/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('uniqueId',handle);
+
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'en-US,en;q=0.9',
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(3000)
+    });
+    if(!r.ok)return {known:false,live:false,status:null,roomId:'',candidates:[]};
+
+    const body=await r.json();
+    const liveData=
+      body?.LiveRoomInfo||
+      body?.data?.LiveRoomInfo||
+      body?.data?.liveRoomInfo||
+      null;
+
+    if(!liveData||typeof liveData!=='object'){
+      return {known:false,live:false,status:null,roomId:'',candidates:[]};
+    }
+
+    const status=Number(liveData?.status);
+    const roomId=String(
+      liveData?.liveRoomId||
+      liveData?.roomId||
+      liveData?.id||
+      ''
+    );
+
+    if(!Number.isFinite(status)){
+      return {known:false,live:false,status:null,roomId,candidates:[]};
+    }
+
+    // User supplied TikTok Web API behavior:
+    // status=2 => LIVE, status=4 => OFFLINE/ended.
+    if(status!==2&&status!==4){
+      return {known:false,live:false,status,roomId,candidates:[]};
+    }
+
+    const live=status===2;
+    const candidates=live
+      ? collectTikTokLiveStreamCandidates(liveData)
+          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
+      : [];
+
+    return {
+      known:true,
+      live,
+      status,
+      roomId,
+      title:String(liveData?.title||''),
+      viewerCount:Number(liveData?.userCount||0),
+      candidates,
+      source:'live-detail'
+    };
+  }catch(error){
+    return {known:false,live:false,status:null,roomId:'',candidates:[]};
+  }
+}
+
 async function quickTikTokRoomInfoStatus(handle,roomId){
   if(!roomId)return {known:true,live:false,status:4,roomId:'',candidates:[]};
   try{
@@ -1107,6 +1176,29 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
 async function quickTikTokLiveStatus(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,candidates:[]};
+
+  // First use the lightweight Web endpoint from the supplied reference code.
+  // It gives a direct LiveRoomInfo.status (2 LIVE / 4 OFFLINE), plus room id,
+  // title and viewer count, without opening Chromium.
+  const detail=await quickTikTokLiveDetailStatus(handle);
+  if(detail?.known){
+    if(!detail.live)return detail;
+
+    if(detail.candidates?.length)return detail;
+
+    // A confirmed LIVE without embedded pull URLs can still provide roomId.
+    // Resolve only the media candidates from room-info; keep the LIVE verdict
+    // from live/detail even if room-info itself is incomplete.
+    if(detail.roomId){
+      const room=await quickTikTokRoomInfoStatus(handle,detail.roomId);
+      if(room?.candidates?.length){
+        return {...detail,candidates:room.candidates};
+      }
+    }
+    return detail;
+  }
+
+  // Fallback for accounts where /api/live/detail is missing or blocked.
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -1129,9 +1221,6 @@ async function quickTikTokLiveStatus(rawHandle){
     const roomStatus=Number(liveRoom?.status);
     const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
 
-    // TikTok LIVE truth comes from liveRoom.status:
-    // 2 = live now, 4 = ended/offline. Do NOT use user.status, and do NOT
-    // infer LIVE merely from stale pull URLs left in an ended room payload.
     if(Number.isFinite(roomStatus)){
       const isLive=roomStatus===2;
       const candidates=isLive
@@ -1143,21 +1232,15 @@ async function quickTikTokLiveStatus(rawHandle){
         live:isLive,
         status:roomStatus,
         roomId,
-        candidates
+        candidates,
+        source:'user-room'
       };
     }
 
-    // No liveRoom at all is a definite non-LIVE result for this lightweight
-    // endpoint. An incomplete room object stays unknown and preserves the
-    // previous package state.
     if(!liveRoom&&!roomId){
-      return {known:true,live:false,status:4,roomId:'',candidates:[]};
+      return {known:true,live:false,status:4,roomId:'',candidates:[],source:'user-room'};
     }
 
-    // TikTok sometimes returns only user.roomId from api-live. In that case,
-    // ask the room-info endpoint for the authoritative room status (2 live,
-    // 4 ended) and the same FLV data. This is still server-side packaging;
-    // UI does nothing.
     if(roomId){
       return await quickTikTokRoomInfoStatus(handle,roomId);
     }
