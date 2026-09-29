@@ -55,7 +55,7 @@ const API='https://one988-tiktok-session.onrender.com';
 const DEFAULT_HANDLE='nhungnhoii205';
 const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
-const RECENT_KEY='tiktokDemoRecentLiveStates';
+const RECENT_KEY='tiktokDemoRecentLiveStatesV2';
 const RECENT_MS=10*60*1000;
 let HANDLE=DEFAULT_HANDLE;
 let player=null;
@@ -117,6 +117,12 @@ function rememberRecentLive(handle,type,mode){
     .slice(0,12);
   localStorage.setItem(RECENT_KEY,JSON.stringify(Object.fromEntries(entries)));
 }
+function forgetRecentLive(handle){
+  const key=String(handle||'').toLowerCase();
+  const data=recentLiveStates();
+  delete data[key];
+  localStorage.setItem(RECENT_KEY,JSON.stringify(data));
+}
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
@@ -177,7 +183,7 @@ function showVideoEmbed(){
   refreshEmbed();
 }
 
-function attachLive(type,directUrl,allowProxyFallback=true){
+function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true){
   destroyPlayer();
   const box=document.getElementById('liveBox');
   const state=document.getElementById('liveState');
@@ -203,10 +209,42 @@ function attachLive(type,directUrl,allowProxyFallback=true){
   };
   let usingProxy=false;
   let usingSegmentProxy=false;
+  let pictureTimer=null;
+  let forcingBrowser=false;
+
+  const clearPictureTimer=()=>{
+    if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
+  };
+
+  const forceBrowserPicture=async()=>{
+    if(!canForceBrowser||forcingBrowser)return;
+    forcingBrowser=true;
+    clearPictureTimer();
+    forgetRecentLive(HANDLE);
+    state.textContent='Có tiếng nhưng chưa có hình · đổi sang luồng tương thích…';
+    try{
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),28000);
+      const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&force=browser&t='+Date.now(),{
+        cache:'no-store',
+        signal:ctrl.signal
+      });
+      clearTimeout(timer);
+      const data=await r.json();
+      if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
+      const nextType=String(data.streamType||'flv').toLowerCase();
+      rememberRecentLive(HANDLE,nextType,'browser');
+      const forced=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&force=browser&t='+Date.now();
+      attachLive(nextType,forced,true,false);
+    }catch(err){
+      state.textContent='LIVE có tiếng nhưng không giải mã được hình';
+    }
+  };
 
   const fitByVideoShape=()=>{
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
     if(!w||!h||!shell)return;
+    clearPictureTimer();
     shell.classList.remove('landscape','portrait','square');
     const ratio=w/h;
     if(ratio>1.12)shell.classList.add('landscape');
@@ -217,6 +255,15 @@ function attachLive(type,directUrl,allowProxyFallback=true){
   };
   video.addEventListener('loadedmetadata',fitByVideoShape);
   video.addEventListener('resize',fitByVideoShape);
+  video.addEventListener('playing',()=>{
+    clearPictureTimer();
+    pictureTimer=setTimeout(()=>{
+      if(!video.videoWidth||!video.videoHeight)void forceBrowserPicture();
+    },4200);
+  });
+  video.addEventListener('loadeddata',()=>{
+    if(video.videoWidth&&video.videoHeight)clearPictureTimer();
+  });
 
   const loadHls=(src)=>{
     if(video.canPlayType('application/vnd.apple.mpegurl')){
