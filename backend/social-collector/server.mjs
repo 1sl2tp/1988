@@ -1876,6 +1876,17 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     source=await resolveTikTokLiveSource(handle);
   }
 
+  // As soon as a real relay source has been resolved, publish it into the
+  // LIVE library. If this channel is already selected, persist the package in
+  // background so UI state becomes LIVE/ready without a second scan.
+  publishTikTokLiveSourceNow(handle,source,{
+    mode:String(source.mode||'relay'),
+    source:String(source.source||source.mode||'relay')
+  });
+  if(tiktokLiveSelectedHandles.has(handle)){
+    void persistTikTokLiveStore({force:true});
+  }
+
   const fast=String(source.mode||'').startsWith('fast');
   await pipeTikTokTarget(req,res,source.url,{
     fallbackType:source.type==='flv'?'video/x-flv':'application/vnd.apple.mpegurl',
@@ -3955,9 +3966,21 @@ const server=http.createServer(async(req,res)=>{
 
       await persistTikTokSelectedMembership(handle,selected);
 
+      let reusedLiveSource=false;
       if(selected){
         tiktokLiveSelectedHandles.add(handle);
-        if(!tiktokLiveLibrary.has(key)){
+
+        // If the user has just opened this channel successfully, reuse the
+        // already-resolved relay source immediately. Do not make Save wait for
+        // another LIVE scan.
+        const current=currentTikTokLibrarySource(handle);
+        if(current&&tiktokLiveSourceUsable(current)&&!isTikTokBadSource(handle,current)){
+          publishTikTokLiveSourceNow(handle,current,{
+            mode:String(current.mode||'relay-cache'),
+            source:String(current.source||current.mode||'relay-cache')
+          });
+          reusedLiveSource=true;
+        }else if(!tiktokLiveLibrary.has(key)){
           updateTikTokLiveLibrary(handle,{
             live:false,
             ready:false,
@@ -3979,14 +4002,20 @@ const server=http.createServer(async(req,res)=>{
       await persistTikTokLiveStore({force:true});
 
       if(selected){
-        void ensureTikTokLivePackageScan([handle]);
+        if(!reusedLiveSource)void ensureTikTokLivePackageScan([handle]);
         void ensureTikTokVideoPackageScan([handle]);
       }
 
+      const liveRow=tiktokLiveLibrary.get(key)||null;
       json(res,200,{
         ok:true,
         handle,
         selected,
+        live:Boolean(liveRow?.live),
+        ready:Boolean(liveRow?.ready),
+        type:String(liveRow?.type||''),
+        sourceSig:String(liveRow?.sourceSig||''),
+        reusedLiveSource,
         total:tiktokLiveSelectedHandles.size,
         version:tiktokLiveLibraryVersion
       });
