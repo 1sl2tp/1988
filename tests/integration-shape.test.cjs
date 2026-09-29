@@ -104,6 +104,16 @@ if(simpleProduction){
   assert.match(html,/player\.classList\.remove\(["']pip["']\)/);
   assert.match(html,/bottom:calc\(10px \+ env\(safe-area-inset-bottom,0px\)\)/);
   assert.match(html,/function mobilePipMinWidth\(/);
+  assert.match(html,/const PIP_DOCK_REVEAL=34/);
+  assert.match(html,/function dockMobilePip\(/);
+  assert.match(html,/data-pip-drag=["']top["']/);
+  assert.match(html,/data-pip-drag=["']left["']/);
+  assert.match(html,/data-pip-drag=["']right["']/);
+  assert.match(html,/data-pip-drag=["']lower["']/);
+  assert.match(html,/pip-docked-left/);
+  assert.match(html,/pip-docked-right/);
+  assert.match(html,/bottom:44px/);
+  assert.match(html,/display:none!important;[\s\S]{0,120}\.player\.pip \.pip-drag-zone/);
   assert.match(html,/function layoutFeedMasonry\(/);
   assert.match(html,/hasTallInlinePortrait/);
   assert.match(html,/rows\.classList\.add\(["']masonry-active["']\)/);
