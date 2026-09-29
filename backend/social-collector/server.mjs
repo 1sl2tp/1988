@@ -2183,7 +2183,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   if(!upstream.ok||!upstream.body){
     console.warn('[tiktok-proxy] upstream failed',upstream.status,String(targetUrl||'').slice(0,180));
     json(res,502,{ok:false,error:'upstream_stream_'+upstream.status});
-    return;
+    return {ok:false,status:Number(upstream.status||0)};
   }
   const contentType=String(upstream.headers.get('content-type')||fallbackType);
   const finalUrl=String(upstream.url||targetUrl);
@@ -2202,7 +2202,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
       'x-accel-buffering':'no'
     });
     res.end(body);
-    return;
+    return {ok:true,status:Number(upstream.status||200)};
   }
   const outHeaders={
     'content-type':contentType,
@@ -2226,6 +2226,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   }finally{
     if(!res.writableEnded)res.end();
   }
+  return {ok:true,status:Number(upstream.status||200)};
 }
 async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig='',compatMode=false){
   const handle=normalizeTikTokHandle(rawHandle);
@@ -2277,12 +2278,36 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
   }
 
   const fast=String(source.mode||'').startsWith('fast');
-  await pipeTikTokTarget(req,res,source.url,{
+  const piped=await pipeTikTokTarget(req,res,source.url,{
     fallbackType:source.type==='flv'?'video/x-flv':'application/vnd.apple.mpegurl',
     handle:fast?'':handle,
     headersOverride:fast?source.headers:null,
     proxySegments
   });
+
+  if(piped?.ok===false&&[403,404,410].includes(Number(piped.status||0))){
+    const key=handle.toLowerCase();
+    markTikTokBadSource(handle,source);
+    if(fast)tiktokLiveFastSources.delete(key);
+    else await closeTikTokLiveSession(key).catch(()=>{});
+
+    tiktokLiveLibraryRefreshAt.delete(key);
+    tiktokLiveLibraryWarmRetryAt.delete(key);
+    updateTikTokLiveLibrary(handle,{
+      live:true,
+      ready:false,
+      type:'',
+      mode:'',
+      source:'',
+      status:'live',
+      sourceSig:'',
+      lastSeenAt:Date.now(),
+      expiresAt:0
+    });
+    void persistTikTokLiveStore({force:true});
+    queueTikTokLibraryWarm(handle);
+    console.log('[tiktok-proxy] invalidated dead source',handle,'status='+piped.status);
+  }
 }
 
 async function proxyTikTokLivePart(req,res,id){
