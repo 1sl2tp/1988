@@ -306,9 +306,11 @@ function liveProxyHeaders(req){
   if(req.headers.range)headers.range=String(req.headers.range);
   return headers;
 }
-async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream'}={}){
+async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle=''}={}){
+  const session=handle?tiktokLiveSessions.get(String(handle).toLowerCase()):null;
+  const headers=session?await liveSessionHeaders(req,session,targetUrl):liveProxyHeaders(req);
   const upstream=await fetch(targetUrl,{
-    headers:liveProxyHeaders(req),
+    headers,
     redirect:'follow'
   });
   if(!upstream.ok||!upstream.body){
@@ -322,7 +324,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   if(isHls){
     const manifest=await upstream.text();
     console.log('[tiktok-proxy] hls',upstream.status,contentType,'bytes='+manifest.length,finalUrl.slice(0,180));
-    const body=rewriteHlsManifest(manifest,finalUrl);
+    const body=rewriteHlsManifest(manifest,finalUrl,handle);
     res.writeHead(200,{
       'content-type':'application/vnd.apple.mpegurl; charset=utf-8',
       'access-control-allow-origin':ORIGIN,
@@ -359,6 +361,19 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
 async function proxyTikTokLive(req,res,rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+  let session=null;
+  try{
+    session=await captureTikTokLiveSession(handle);
+  }catch(error){
+    console.warn('[tiktok-session] capture failed',handle,compactText(error?.message||error,220));
+  }
+  if(session?.url){
+    await pipeTikTokTarget(req,res,session.url,{
+      fallbackType:session.type==='flv'?'video/x-flv':'application/vnd.apple.mpegurl',
+      handle
+    });
+    return;
+  }
   const data=await checkTikTokLiveWithYtDlp(handle);
   if(!data?.live||!data?.streamUrl){
     json(res,404,{ok:false,error:'tiktok_not_live',handle});
@@ -376,7 +391,9 @@ async function proxyTikTokLivePart(req,res,id){
     return;
   }
   row.at=Date.now();
-  await pipeTikTokTarget(req,res,row.url);
+  const session=row.handle?tiktokLiveSessions.get(String(row.handle).toLowerCase()):null;
+  if(session)session.at=Date.now();
+  await pipeTikTokTarget(req,res,row.url,{handle:row.handle||''});
 }
 
 async function fetchTikTokProfileIdentity(handle){
