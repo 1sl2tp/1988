@@ -2029,6 +2029,71 @@ html.one-col .row-action-menu{
   font:400 12px/17px Roboto,Arial,sans-serif;
 }
 
+.download-task{
+  position:fixed;
+  top:76px;
+  right:18px;
+  z-index:1450;
+  width:min(360px,calc(100vw - 24px));
+  padding:12px 14px;
+  border:1px solid var(--yt-border);
+  border-radius:14px;
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-surface-strong)),
+      rgba(var(--header-accent-rgb),var(--ambient-surface-strong))
+    ),
+    var(--yt-surface);
+  color:var(--yt-text);
+  box-shadow:0 12px 34px rgba(0,0,0,.34);
+}
+.download-task[hidden]{display:none!important}
+.download-task-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:8px;
+}
+.download-task-title{
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font:600 13px/18px Roboto,Arial,sans-serif;
+}
+.download-task-status{
+  flex:0 0 auto;
+  color:var(--yt-text-secondary);
+  font:500 11px/16px Roboto,Arial,sans-serif;
+}
+.download-task-track{
+  height:3px;
+  overflow:hidden;
+  border-radius:999px;
+  background:rgba(255,255,255,.13);
+}
+.download-task-bar{
+  width:0;
+  height:100%;
+  border-radius:inherit;
+  background:currentColor;
+  transition:width .16s linear;
+}
+.download-task-meta{
+  margin-top:7px;
+  color:var(--yt-text-secondary);
+  font:400 11px/15px Roboto,Arial,sans-serif;
+}
+@media(max-width:656px){
+  .download-task{
+    top:64px;
+    right:8px;
+    left:8px;
+    width:auto;
+  }
+}
+
 .state{display:none}
 
 
@@ -2252,6 +2317,8 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const DOWNLOAD_RELAY_URL="https://youtube-wasm-relay-1988.taphoa-4ab8161d.workers.dev";
+  const DOWNLOAD_WORKER_URL="./src/download-ffmpeg-worker.js?v=1";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4322,10 +4389,8 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  const COBALT_DIRECT_APIS=[
-    "https://cobaltapi.cjs.nz/",
-    "https://rue-cobalt.xenon.zone/"
-  ];
+  let downloadTaskBusy=false;
+  let downloadTaskHideTimer=0;
 
   function canDownloadMeta(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
@@ -4333,81 +4398,296 @@ html.one-col.portrait .player.pip{
 
   function showDownloadMenu(){
     const meta=openRowMenuMeta||{};
-    const enabled=canDownloadMeta(meta);
+    const enabled=canDownloadMeta(meta)&&!downloadTaskBusy;
     const menu=ensureRowActionMenu();
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
-      rowActionButton("download-mp4","Video MP4 · 720p H.264","video",{disabled:!enabled})+
-      rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Cobalt xử lý trực tiếp trên máy này.</div>'+
+      rowActionButton("download-mp4","Video MP4 · H.264","video",{disabled:!enabled})+
+      rowActionButton("download-mp3","Âm thanh MP3 · 128 kb/s","audio",{disabled:!enabled})+
+      '<div class="row-action-note">GET dữ liệu trước · xong mới tạo file tải xuống.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  async function resolveCobaltInBrowser(meta={},format="mp4"){
+  function ensureDownloadTask(){
+    let box=document.getElementById("downloadTask");
+    if(box)return box;
+
+    box=document.createElement("div");
+    box.id="downloadTask";
+    box.className="download-task";
+    box.hidden=true;
+    box.innerHTML=
+      '<div class="download-task-head">'+
+        '<div class="download-task-title" data-download-task-title>Đang chuẩn bị…</div>'+
+        '<div class="download-task-status" data-download-task-status></div>'+
+      '</div>'+
+      '<div class="download-task-track"><div class="download-task-bar" data-download-task-bar></div></div>'+
+      '<div class="download-task-meta" data-download-task-meta></div>';
+
+    document.body.appendChild(box);
+    return box;
+  }
+
+  function bytesLabel(value){
+    const n=Math.max(0,Number(value)||0);
+    if(n>=1024*1024*1024)return (n/(1024*1024*1024)).toFixed(2)+" GB";
+    if(n>=1024*1024)return (n/(1024*1024)).toFixed(1)+" MB";
+    if(n>=1024)return (n/1024).toFixed(1)+" KB";
+    return Math.round(n)+" B";
+  }
+
+  function setDownloadTask({title,status,progress,meta,done=false}={}){
+    const box=ensureDownloadTask();
+    clearTimeout(downloadTaskHideTimer);
+    box.hidden=false;
+
+    const titleEl=box.querySelector("[data-download-task-title]");
+    const statusEl=box.querySelector("[data-download-task-status]");
+    const bar=box.querySelector("[data-download-task-bar]");
+    const metaEl=box.querySelector("[data-download-task-meta]");
+
+    if(title!==undefined)titleEl.textContent=String(title||"Đang chuẩn bị…");
+    if(status!==undefined)statusEl.textContent=String(status||"");
+    if(meta!==undefined)metaEl.textContent=String(meta||"");
+
+    if(Number.isFinite(Number(progress))){
+      const pct=Math.max(0,Math.min(100,Number(progress)));
+      bar.style.width=pct+"%";
+    }
+
+    if(done){
+      downloadTaskHideTimer=setTimeout(()=>{
+        box.hidden=true;
+        bar.style.width="0%";
+      },2800);
+    }
+  }
+
+  function safeDownloadFilename(title,ext){
+    const base=String(title||"download")
+      .replace(/[\\/:*?"<>|\u0000-\u001f]+/g," ")
+      .replace(/\s+/g," ")
+      .trim()
+      .slice(0,140);
+    return (base||"download")+"."+ext;
+  }
+
+  async function resolveDownloadMedia(meta={}){
     const id=String(meta?.id||"").trim();
-    format=String(format||"mp4").toLowerCase();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
-    if(format!=="mp3"&&format!=="mp4")return "";
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id)){
+      throw new Error("invalid_video");
+    }
 
-    const youtubeUrl="https://www.youtube.com/watch?v="+id;
-    const payload=format==="mp3"
-      ?{
-          url:youtubeUrl,
-          downloadMode:"audio",
-          audioFormat:"mp3",
-          audioBitrate:"128",
-          filenameStyle:"pretty",
-          youtubeVideoCodec:"h264",
-          alwaysProxy:true
-        }
-      :{
-          url:youtubeUrl,
-          downloadMode:"auto",
-          videoQuality:"720",
-          youtubeVideoCodec:"h264",
-          youtubeVideoContainer:"mp4",
-          filenameStyle:"pretty",
-          alwaysProxy:true
-        };
+    const url=
+      DOWNLOAD_RELAY_URL+
+      "/direct/resolve?id="+encodeURIComponent(id)+
+      "&h=720";
 
-    for(const api of COBALT_DIRECT_APIS){
+    let lastError=null;
+    for(let attempt=0;attempt<3;attempt++){
       try{
-        const response=await fetch(api,{
-          method:"POST",
+        const response=await fetch(url,{
+          method:"GET",
           mode:"cors",
           cache:"no-store",
           credentials:"omit",
-          headers:{
-            "accept":"application/json",
-            "content-type":"application/json"
-          },
-          body:JSON.stringify(payload)
+          headers:{"accept":"application/json"}
         });
         const data=await response.json().catch(()=>({}));
-        const url=String(data?.url||"").trim();
-        if(response.ok&&/^https:\/\//i.test(url))return url;
+        if(
+          response.ok&&
+          data?.ok===true&&
+          /^https:\/\//i.test(String(data?.audio?.url||""))&&
+          /^https:\/\//i.test(String(data?.video?.url||""))
+        ){
+          return data;
+        }
+        lastError=new Error(
+          "resolve_http_"+response.status+":"+
+          String(data?.error||"")
+        );
       }catch(error){
-        console.warn("cobalt direct resolve failed",api,error);
+        lastError=error;
+      }
+
+      if(attempt<2){
+        await new Promise(resolve=>setTimeout(resolve,600+attempt*700));
       }
     }
-    return "";
+
+    throw lastError||new Error("resolve_failed");
+  }
+
+  function savePreparedDownload(buffer,mime,filename){
+    const blob=new Blob([buffer],{type:mime||"application/octet-stream"});
+    if(!blob.size)throw new Error("empty_final_file");
+
+    const objectUrl=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=objectUrl;
+    a.download=filename||"download";
+    a.rel="noopener";
+    a.style.display="none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),60000);
+    return blob.size;
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=await resolveCobaltInBrowser(meta,format);
-    if(!url){
-      window.alert("Chưa tạo được file tải xuống.");
-      return false;
-    }
+    format=String(format||"mp4").toLowerCase();
+    if(downloadTaskBusy)return false;
+    if(!canDownloadMeta(meta))return false;
+    if(format!=="mp3"&&format!=="mp4")return false;
 
-    // The tunnel is created by the user's own browser/IP, matching how Cobalt
-    // itself works. Navigating to an attachment URL starts the native browser
-    // download without opening Cobalt's interface.
-    window.location.assign(url);
-    return true;
+    downloadTaskBusy=true;
+    const initialTitle=String(meta?.title||"Video").trim()||"Video";
+    let worker=null;
+
+    try{
+      setDownloadTask({
+        title:initialTitle,
+        status:"Chuẩn bị",
+        progress:2,
+        meta:"Đang lấy thông tin raw từ Cloudflare…"
+      });
+
+      const resolved=await resolveDownloadMedia(meta);
+      const finalTitle=String(resolved?.title||initialTitle).trim()||initialTitle;
+      const expected=
+        Number(resolved?.audio?.contentLength||0)+
+        (format==="mp4"?Number(resolved?.video?.contentLength||0):0);
+
+      setDownloadTask({
+        title:finalTitle,
+        status:"GET",
+        progress:4,
+        meta:expected
+          ?"Chuẩn bị tải "+bytesLabel(expected)
+          :"Đang chuẩn bị dữ liệu…"
+      });
+
+      worker=new Worker(DOWNLOAD_WORKER_URL);
+
+      const result=await new Promise((resolve,reject)=>{
+        const fail=message=>{
+          reject(new Error(String(message||"download_worker_failed")));
+        };
+
+        worker.onerror=event=>{
+          fail(event?.message||"download_worker_crashed");
+        };
+
+        worker.onmessage=event=>{
+          const data=event.data||{};
+
+          if(data.type==="state"){
+            const phase=String(data.phase||"");
+            const baseProgress=
+              phase==="get"?5:
+              phase==="engine"?64:
+              phase==="process"?68:5;
+
+            setDownloadTask({
+              title:finalTitle,
+              status:
+                phase==="get"?"GET":
+                phase==="engine"?"Chuẩn bị":
+                phase==="process"?"Xử lý":"Đang chạy",
+              progress:baseProgress,
+              meta:String(data.message||"")
+            });
+            return;
+          }
+
+          if(data.type==="progress"){
+            const phase=String(data.phase||"");
+            const raw=Math.max(0,Math.min(100,Number(data.percentage||0)));
+
+            if(phase==="get"){
+              const overall=5+raw*.58;
+              const loaded=Number(data.loaded||0);
+              const total=Number(data.total||0);
+              setDownloadTask({
+                title:finalTitle,
+                status:"GET "+Math.round(raw)+"%",
+                progress:overall,
+                meta:total
+                  ?bytesLabel(loaded)+" / "+bytesLabel(total)
+                  :"Đã nhận "+bytesLabel(loaded)
+              });
+            }else if(phase==="process"){
+              const overall=68+raw*.31;
+              setDownloadTask({
+                title:finalTitle,
+                status:"Xử lý "+Math.round(raw)+"%",
+                progress:overall,
+                meta:format==="mp3"
+                  ?"Đang tạo MP3 128 kb/s…"
+                  :"Đang ghép video + âm thanh…"
+              });
+            }
+            return;
+          }
+
+          if(data.type==="result"){
+            resolve(data);
+            return;
+          }
+
+          if(data.type==="error"){
+            fail(data.message);
+          }
+        };
+
+        worker.postMessage({
+          type:"process",
+          mode:format,
+          audio:resolved.audio,
+          video:resolved.video
+        });
+      });
+
+      const buffer=result?.buffer;
+      if(!(buffer instanceof ArrayBuffer)||buffer.byteLength===0){
+        throw new Error("empty_final_file");
+      }
+
+      const filename=safeDownloadFilename(finalTitle,format);
+      const size=savePreparedDownload(
+        buffer,
+        String(result?.mime||""),
+        filename
+      );
+
+      setDownloadTask({
+        title:finalTitle,
+        status:"Xong",
+        progress:100,
+        meta:bytesLabel(size)+" · đã tạo file tải xuống",
+        done:true
+      });
+
+      return true;
+    }catch(error){
+      console.warn("download pipeline failed",error);
+      setDownloadTask({
+        title:initialTitle,
+        status:"Lỗi",
+        progress:0,
+        meta:"Không tạo được file. Thử lại.",
+        done:true
+      });
+      return false;
+    }finally{
+      try{worker?.terminate()}catch{}
+      downloadTaskBusy=false;
+    }
   }
 
   async function writeCardSourceStatus(meta,status,scope){
