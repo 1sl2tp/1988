@@ -347,6 +347,177 @@ button{cursor:pointer}
     width:100%;padding:8px 10px 0
   }
 }
+
+/* LIVE + Video workspace */
+.stage{align-items:stretch;justify-content:center;overflow:hidden;padding:10px 14px 12px}
+.main-shell{
+  width:min(1180px,100%);height:100%;min-height:0;
+  display:flex;flex-direction:column;overflow:hidden
+}
+.media-tabs{
+  flex:0 0 42px;
+  display:flex;align-items:center;gap:6px;
+  border-bottom:1px solid #1d1d1d;
+  padding:0 2px 7px
+}
+.media-tab{
+  height:32px;border:0;border-radius:10px;
+  background:transparent;color:#8f8f8f;
+  padding:0 14px;font-size:12px;font-weight:750
+}
+.media-tab:hover{background:#171717;color:#fff}
+.media-tab.active{background:#fff;color:#000}
+.media-title{
+  min-width:0;margin-left:6px;
+  color:#737373;font-size:11px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.media-workspace{
+  flex:1 1 auto;min-height:0;
+  display:grid;grid-template-columns:minmax(0,1fr) 314px;
+  gap:14px;padding-top:10px;overflow:hidden
+}
+.media-workspace[hidden]{display:none}
+.watch{
+  min-width:0;width:100%;height:100%;min-height:0;
+  display:flex;flex-direction:column;align-items:center;
+  overflow:auto;scrollbar-width:none
+}
+.watch::-webkit-scrollbar{display:none}
+.phone{
+  flex:0 1 auto;
+  width:min(100%,520px);
+  max-height:calc(100dvh - 64px - 42px - 82px);
+  border-radius:18px
+}
+.phone.video-mode{
+  width:min(100%,520px);
+  aspect-ratio:9/16;
+  max-width:520px
+}
+#videoFrame{
+  width:100%;height:100%;border:0;display:block;background:#000
+}
+.video-rail{
+  min-width:0;height:100%;min-height:0;
+  display:flex;flex-direction:column;
+  border-left:1px solid #1d1d1d;
+  padding-left:12px;overflow:hidden
+}
+.rail-head{
+  flex:0 0 auto;
+  display:flex;align-items:center;justify-content:space-between;
+  height:34px;padding:0 2px 7px;
+  color:#e8e8e8;font-size:12px;font-weight:800
+}
+.rail-sub{color:#707070;font-size:10px;font-weight:600}
+.rail-list{
+  flex:1 1 auto;min-height:0;overflow:auto;
+  padding:0 2px 14px 0;scrollbar-width:thin;
+  scrollbar-color:#444 transparent
+}
+.video-card{
+  width:100%;display:grid;
+  grid-template-columns:112px minmax(0,1fr);
+  gap:9px;align-items:start;
+  padding:6px;border-radius:12px;
+  background:transparent;cursor:pointer;
+  transition:background .14s ease
+}
+.video-card:hover{background:#151515}
+.video-card.active{background:#202020}
+.video-thumb{
+  position:relative;width:112px;height:72px;
+  border-radius:9px;overflow:hidden;background:#171717
+}
+.video-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.video-duration{
+  position:absolute;right:4px;bottom:4px;
+  padding:2px 4px;border-radius:4px;
+  background:rgba(0,0,0,.78);color:#fff;
+  font-size:9px;font-weight:700
+}
+.video-copy{min-width:0;padding-top:1px}
+.video-title{
+  color:#f3f3f3;font-size:11.5px;font-weight:700;
+  line-height:1.35;display:-webkit-box;
+  -webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden
+}
+.video-meta{
+  margin-top:4px;color:#777;font-size:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.video-owner{
+  margin-top:3px;color:#929292;font-size:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.rail-empty{
+  padding:22px 10px;color:#666;font-size:11px;text-align:center
+}
+
+/* Search results from selected channels + their recent videos */
+.search-results{
+  flex:1 1 auto;min-height:0;overflow:auto;
+  padding:12px 4px 24px
+}
+.search-results[hidden]{display:none}
+.search-block{margin-bottom:22px}
+.search-heading{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:0 0 9px;color:#e8e8e8;font-size:12px;font-weight:800
+}
+.search-count{color:#6f6f6f;font-size:10px;font-weight:600}
+.search-channels{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:7px
+}
+.search-channel{
+  min-width:0;display:grid;grid-template-columns:42px minmax(0,1fr) auto;
+  gap:9px;align-items:center;padding:8px;
+  border-radius:12px;cursor:pointer
+}
+.search-channel:hover{background:#151515}
+.search-channel .avatar{width:42px;height:42px}
+.search-videos{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+  gap:12px
+}
+.search-video{min-width:0;cursor:pointer}
+.search-video-thumb{
+  position:relative;width:100%;aspect-ratio:16/9;
+  border-radius:12px;overflow:hidden;background:#171717
+}
+.search-video-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.search-video-title{
+  margin-top:7px;color:#efefef;font-size:12px;font-weight:700;
+  line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden
+}
+.search-video-meta{
+  margin-top:4px;color:#777;font-size:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+
+@media(max-width:980px){
+  .media-workspace{grid-template-columns:minmax(0,1fr) 270px;gap:10px}
+  .video-rail{padding-left:9px}
+  .video-card{grid-template-columns:92px minmax(0,1fr);gap:7px}
+  .video-thumb{width:92px;height:60px}
+}
+@media(max-width:760px){
+  .stage{padding:0 0 24px}
+  .main-shell{height:auto;overflow:visible}
+  .media-tabs{padding:7px 10px;position:sticky;top:0;background:#000;z-index:4}
+  .media-workspace{display:block;overflow:visible;padding-top:0}
+  .video-rail{border-left:0;border-top:1px solid #1d1d1d;padding:10px;height:auto;max-height:none}
+  .rail-list{max-height:none;overflow:visible}
+  .video-card{grid-template-columns:112px minmax(0,1fr)}
+  .video-thumb{width:112px;height:72px}
+  .phone,.phone.video-mode{width:100%;max-width:none;border-radius:0}
+  .search-results{overflow:visible;padding:12px 10px 24px}
+  .search-videos{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+}
 </style>
 </head>
 <body>
@@ -378,31 +549,58 @@ button{cursor:pointer}
   </aside>
 
   <main class="stage">
-    <section class="watch">
-      <div class="phone" id="phone">
-        <video id="liveVideo" playsinline preload="metadata"></video>
+    <div class="main-shell">
+      <div class="media-tabs">
+        <button class="media-tab active" data-media-mode="live">LIVE</button>
+        <button class="media-tab" data-media-mode="video">Video</button>
+        <span class="media-title" id="mediaTitle"></span>
       </div>
 
-      <div class="current-info" id="overlay" hidden>
-        <div class="current-avatar" id="nowAvatar">T</div>
-        <div class="current-copy">
-          <div class="now-name" id="nowName">TikTok LIVE</div>
-          <div class="now-handle" id="nowHandle">@handle</div>
-          <div class="now-state" id="nowState">Sẵn sàng</div>
-        </div>
-        <div class="current-actions">
-          <button class="mini-action" id="openTikTokBtn" title="Mở TikTok" disabled>
-            <svg viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
-          </button>
-          <button class="mini-action" id="reloadLiveBtn" title="Mở lại" disabled>
-            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
-          </button>
-          <button class="mini-action" id="deleteCurrentBtn" title="Xoá" disabled>
-            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>
-          </button>
-        </div>
+      <div class="search-results" id="searchResults" hidden></div>
+
+      <div class="media-workspace" id="mediaWorkspace">
+        <section class="watch">
+          <div class="phone" id="phone">
+            <video id="liveVideo" playsinline preload="metadata"></video>
+            <iframe
+              id="videoFrame"
+              hidden
+              allow="autoplay; fullscreen"
+              referrerpolicy="strict-origin-when-cross-origin"
+              title="TikTok video"
+            ></iframe>
+          </div>
+
+          <div class="current-info" id="overlay" hidden>
+            <div class="current-avatar" id="nowAvatar">T</div>
+            <div class="current-copy">
+              <div class="now-name" id="nowName">TikTok LIVE</div>
+              <div class="now-handle" id="nowHandle">@handle</div>
+              <div class="now-state" id="nowState"></div>
+            </div>
+            <div class="current-actions">
+              <button class="mini-action" id="openTikTokBtn" title="Mở TikTok" disabled>
+                <svg viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+              </button>
+              <button class="mini-action" id="reloadLiveBtn" title="Mở lại" disabled>
+                <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
+              </button>
+              <button class="mini-action" id="deleteCurrentBtn" title="Xoá" disabled>
+                <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside class="video-rail">
+          <div class="rail-head">
+            <span id="railTitle">Video gần đây</span>
+            <span class="rail-sub" id="railCount"></span>
+          </div>
+          <div class="rail-list" id="recentVideos"></div>
+        </aside>
       </div>
-    </section>
+    </div>
   </main>
 </div>
 
@@ -414,7 +612,13 @@ const IDENTITY_KEY='tiktokCleanIdentityV2';
 const POLL_MS=5000;
 
 let channels=[];
+let videoChannels=[];
 let filterMode='all';
+let mediaMode='live';
+let videoVersion=-1;
+let currentVideoId='';
+let currentVideo=null;
+let searchQuery='';
 let currentHandle='';
 let currentSourceSig='';
 let currentType='';
@@ -463,6 +667,59 @@ function identityStatsHtml(id){
   if(views)parts.push('<span class="hot">'+esc(views)+' xem</span>');
   if(likes)parts.push('<span class="hot">♥ '+esc(likes)+'</span>');
   return parts.join('<span>·</span>');
+}
+function normalizeSearch(value){
+  return String(value||'')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .toLowerCase().trim();
+}
+function videoChannelFor(handle){
+  const key=String(handle||'').toLowerCase();
+  return videoChannels.find(row=>String(row.handle||'').toLowerCase()===key)||null;
+}
+function videosFor(handle){
+  const row=videoChannelFor(handle);
+  return Array.isArray(row?.videos)?row.videos:[];
+}
+function allVideos(){
+  return videoChannels.flatMap(row=>
+    (Array.isArray(row.videos)?row.videos:[]).map(video=>({...video,handle:String(video.handle||row.handle||'')}))
+  );
+}
+function formatDuration(value){
+  const total=Math.max(0,Math.round(Number(value||0)));
+  if(!total)return '';
+  const m=Math.floor(total/60);
+  const s=String(total%60).padStart(2,'0');
+  return m+':'+s;
+}
+function formatAgo(value){
+  let n=Number(value||0);
+  if(!n)return '';
+  if(n<1e12)n*=1000;
+  const sec=Math.max(1,Math.floor((Date.now()-n)/1000));
+  if(sec<60)return sec+' giây trước';
+  const min=Math.floor(sec/60);
+  if(min<60)return min+' phút trước';
+  const hour=Math.floor(min/60);
+  if(hour<24)return hour+' giờ trước';
+  const day=Math.floor(hour/24);
+  if(day<7)return day+' ngày trước';
+  const week=Math.floor(day/7);
+  if(week<5)return week+' tuần trước';
+  const month=Math.floor(day/30);
+  if(month<12)return month+' tháng trước';
+  return Math.floor(day/365)+' năm trước';
+}
+function videoMetaText(video){
+  return [
+    compactCount(video?.playCount)?compactCount(video.playCount)+' xem':'',
+    compactCount(video?.diggCount)?compactCount(video.diggCount)+' thích':'',
+    formatAgo(video?.createTime)
+  ].filter(Boolean).join(' · ');
+}
+function currentVideoFor(handle,id){
+  return videosFor(handle).find(video=>String(video.id||'')===String(id||''))||null;
 }
 function rowPlayable(row){
   const type=String(row?.type||'').toLowerCase();
@@ -591,12 +848,12 @@ function renderList(){
   root.querySelectorAll('.channel[data-handle]').forEach(el=>{
     el.addEventListener('click',event=>{
       if(event.target.closest('[data-delete]'))return;
-      openChannel(el.dataset.handle);
+      selectChannel(el.dataset.handle);
     });
     el.addEventListener('keydown',event=>{
       if(event.key==='Enter'||event.key===' '){
         event.preventDefault();
-        openChannel(el.dataset.handle);
+        selectChannel(el.dataset.handle);
       }
     });
   });
@@ -607,6 +864,235 @@ function renderList(){
       removeChannel(el.dataset.delete);
     });
   });
+}
+function setMediaMode(mode){
+  mediaMode=mode==='video'?'video':'live';
+  document.querySelectorAll('[data-media-mode]').forEach(btn=>{
+    btn.classList.toggle('active',btn.dataset.mediaMode===mediaMode);
+  });
+  const phone=document.getElementById('phone');
+  const liveVideo=document.getElementById('liveVideo');
+  const frame=document.getElementById('videoFrame');
+  if(mediaMode==='video'){
+    phone.classList.add('video-mode');
+    phone.classList.remove('landscape','square');
+    liveVideo.hidden=true;
+    frame.hidden=false;
+  }else{
+    phone.classList.remove('video-mode');
+    frame.hidden=true;
+    liveVideo.hidden=false;
+  }
+}
+function renderRecentVideos(handle=currentHandle){
+  const root=document.getElementById('recentVideos');
+  const countEl=document.getElementById('railCount');
+  const titleEl=document.getElementById('railTitle');
+  const identity=identityFor(handle)||{};
+  const own=videosFor(handle);
+  const list=own.length
+    ? own
+    : allVideos()
+        .slice()
+        .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+        .slice(0,10);
+
+  titleEl.textContent=own.length
+    ? ((identity.nickname||('@'+handle))+' · video')
+    : 'Video mới';
+  countEl.textContent=list.length?String(list.length):'';
+
+  if(!list.length){
+    root.innerHTML='<div class="rail-empty">Chưa có video gần đây.</div>';
+    return;
+  }
+
+  root.innerHTML=list.map(video=>{
+    const owner=identityFor(video.handle)||{};
+    const title=String(video.title||'').trim()||'Video TikTok';
+    const cover=String(video.cover||'').trim();
+    const active=String(video.id||'')===String(currentVideoId||'')?' active':'';
+    return '<div class="video-card'+active+'" data-video-id="'+esc(video.id)+'" data-video-handle="'+esc(video.handle)+'">'+
+      '<div class="video-thumb">'+
+        (cover?'<img src="'+esc(cover)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+
+        (formatDuration(video.duration)?'<span class="video-duration">'+esc(formatDuration(video.duration))+'</span>':'')+
+      '</div>'+
+      '<div class="video-copy">'+
+        '<div class="video-title">'+esc(title)+'</div>'+
+        '<div class="video-owner">'+esc(owner.nickname||('@'+video.handle))+'</div>'+
+        '<div class="video-meta">'+esc(videoMetaText(video))+'</div>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+
+  root.querySelectorAll('[data-video-id]').forEach(card=>{
+    card.addEventListener('click',()=>{
+      openVideo(card.dataset.videoHandle,card.dataset.videoId);
+    });
+  });
+}
+function openVideo(rawHandle,videoId){
+  const handle=parseHandle(rawHandle);
+  const video=currentVideoFor(handle,videoId);
+  if(!handle||!video)return;
+
+  currentHandle=handle;
+  currentVideoId=String(video.id||'');
+  currentVideo=video;
+  destroyPlayer();
+  setMediaMode('video');
+
+  const frame=document.getElementById('videoFrame');
+  frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
+    '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+
+  document.getElementById('overlay').hidden=false;
+  updateCurrentUi();
+  document.getElementById('nowState').textContent=
+    String(video.title||'').trim()||videoMetaText(video);
+  document.getElementById('mediaTitle').textContent=
+    (identityFor(handle)?.nickname||('@'+handle))+' · Video';
+  renderList();
+  renderRecentVideos(handle);
+  hideSearchResults();
+}
+async function refreshChannelVideos(handle,{silent=true}={}){
+  handle=parseHandle(handle);
+  if(!handle)return;
+  try{
+    const data=await apiJson(
+      API+'/tiktok/channel-videos?user='+encodeURIComponent(handle)+'&refresh=1&t='+Date.now()
+    );
+    const row={
+      handle:String(data.handle||handle),
+      secUid:String(data.secUid||''),
+      latestVideoId:String(data.latestVideoId||''),
+      videos:Array.isArray(data.videos)?data.videos:[],
+      checkedAt:Number(data.checkedAt||0),
+      status:String(data.status||'waiting')
+    };
+    const key=handle.toLowerCase();
+    const i=videoChannels.findIndex(x=>String(x.handle||'').toLowerCase()===key);
+    if(i>=0)videoChannels[i]=row;
+    else videoChannels.push(row);
+    renderRecentVideos(handle);
+    if(searchQuery)renderSearchResults(searchQuery);
+  }catch(error){
+    if(!silent)showToast('Chưa tải được video của @'+handle);
+    console.warn('channel videos',handle,error);
+  }
+}
+async function loadVideoLibrary({force=false,silent=true}={}){
+  try{
+    const v=force?-1:videoVersion;
+    const data=await apiJson(API+'/tiktok/video-library?v='+encodeURIComponent(v)+'&t='+Date.now());
+    if(!data.unchanged&&Array.isArray(data.channels)){
+      videoChannels=data.channels.map(row=>({
+        handle:String(row.handle||''),
+        secUid:String(row.secUid||''),
+        latestVideoId:String(row.latestVideoId||''),
+        videos:Array.isArray(row.videos)?row.videos:[],
+        checkedAt:Number(row.checkedAt||0),
+        status:String(row.status||'waiting')
+      }));
+      videoVersion=Number(data.version??videoVersion);
+      renderRecentVideos(currentHandle);
+      if(searchQuery)renderSearchResults(searchQuery);
+    }
+  }catch(error){
+    if(!silent)showToast('Không tải được danh sách video');
+    console.warn('video library',error);
+  }
+}
+function hideSearchResults(){
+  searchQuery='';
+  document.getElementById('searchResults').hidden=true;
+  document.getElementById('mediaWorkspace').hidden=false;
+}
+function renderSearchResults(value){
+  const query=normalizeSearch(value);
+  searchQuery=query;
+  if(query.length<2){
+    hideSearchResults();
+    return;
+  }
+
+  const channelMatches=channels.filter(row=>{
+    const id=identityFor(row.handle)||{};
+    return normalizeSearch([row.handle,id.nickname].join(' ')).includes(query);
+  }).slice(0,24);
+
+  const videoMatches=allVideos().filter(video=>{
+    const id=identityFor(video.handle)||{};
+    return normalizeSearch([video.title,video.handle,id.nickname].join(' ')).includes(query);
+  }).sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0)).slice(0,36);
+
+  const root=document.getElementById('searchResults');
+  document.getElementById('mediaWorkspace').hidden=true;
+  root.hidden=false;
+
+  const channelsHtml=channelMatches.map(row=>{
+    const id=identityFor(row.handle)||{};
+    const avatar=String(id.avatar||'').trim();
+    return '<div class="search-channel" data-search-channel="'+esc(row.handle)+'">'+
+      '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(row.handle.slice(0,1).toUpperCase()))+'</span>'+
+      '<span class="chtext"><span class="chname">'+esc(id.nickname||('@'+row.handle))+'</span>'+
+      '<span class="chsub"><span class="chhandle">@'+esc(row.handle)+'</span></span></span>'+
+      (rowPlayable(row)?'<span class="live-dot"></span>':'')+
+    '</div>';
+  }).join('');
+
+  const videosHtml=videoMatches.map(video=>{
+    const id=identityFor(video.handle)||{};
+    const cover=String(video.cover||'').trim();
+    return '<div class="search-video" data-search-video="'+esc(video.id)+'" data-search-handle="'+esc(video.handle)+'">'+
+      '<div class="search-video-thumb">'+
+        (cover?'<img src="'+esc(cover)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+
+        (formatDuration(video.duration)?'<span class="video-duration">'+esc(formatDuration(video.duration))+'</span>':'')+
+      '</div>'+
+      '<div class="search-video-title">'+esc(String(video.title||'').trim()||'Video TikTok')+'</div>'+
+      '<div class="search-video-meta">'+esc((id.nickname||('@'+video.handle))+' · '+videoMetaText(video))+'</div>'+
+    '</div>';
+  }).join('');
+
+  root.innerHTML=
+    '<div class="search-block"><div class="search-heading"><span>Kênh</span><span class="search-count">'+channelMatches.length+'</span></div>'+
+      (channelsHtml?'<div class="search-channels">'+channelsHtml+'</div>':'<div class="rail-empty">Không có kênh phù hợp.</div>')+
+    '</div>'+
+    '<div class="search-block"><div class="search-heading"><span>Video</span><span class="search-count">'+videoMatches.length+'</span></div>'+
+      (videosHtml?'<div class="search-videos">'+videosHtml+'</div>':'<div class="rail-empty">Chưa có video phù hợp trong dữ liệu đã tải.</div>')+
+    '</div>';
+
+  root.querySelectorAll('[data-search-channel]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const handle=el.dataset.searchChannel;
+      document.getElementById('addInput').value='';
+      openChannel(handle);
+      void refreshChannelVideos(handle);
+    });
+  });
+  root.querySelectorAll('[data-search-video]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      document.getElementById('addInput').value='';
+      openVideo(el.dataset.searchHandle,el.dataset.searchVideo);
+    });
+  });
+}
+function selectChannel(handle){
+  if(mediaMode==='video'){
+    currentHandle=parseHandle(handle);
+    document.getElementById('overlay').hidden=false;
+    updateCurrentUi();
+    renderList();
+    renderRecentVideos(currentHandle);
+    const list=videosFor(currentHandle);
+    if(list.length)openVideo(currentHandle,list[0].id);
+    void refreshChannelVideos(currentHandle);
+    return;
+  }
+  openChannel(handle);
+  renderRecentVideos(handle);
+  void refreshChannelVideos(handle);
 }
 function cacheIdentityRow(row){
   const handle=parseHandle(row?.handle||'');
@@ -887,10 +1373,18 @@ function openChannel(rawHandle){
   const handle=parseHandle(rawHandle);
   if(!handle)return;
   currentHandle=handle;
+  currentVideoId='';
+  currentVideo=null;
+  const frame=document.getElementById('videoFrame');
+  if(frame){frame.src='about:blank';}
+  setMediaMode('live');
   document.getElementById('overlay').hidden=false;
   updateCurrentUi();
   renderList();
+  renderRecentVideos(handle);
+  document.getElementById('mediaTitle').textContent=(identityFor(handle)?.nickname||('@'+handle))+' · LIVE';
   void hydrateIdentity(handle);
+  void refreshChannelVideos(handle);
 
   const row=rowFor(handle)||{};
   currentSourceSig=String(row.sourceSig||'');
@@ -910,8 +1404,42 @@ function openChannel(rawHandle){
   attachFlv(url,handle,'');
 }
 document.getElementById('addBtn').addEventListener('click',addChannel);
-document.getElementById('addInput').addEventListener('keydown',e=>{
-  if(e.key==='Enter'){e.preventDefault();void addChannel()}
+const searchInput=document.getElementById('addInput');
+searchInput.addEventListener('input',()=>{
+  const raw=searchInput.value.trim();
+  if(!raw){
+    hideSearchResults();
+    return;
+  }
+  if(/^https?:\/\//i.test(raw))return;
+  renderSearchResults(raw);
+});
+searchInput.addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  e.preventDefault();
+  const raw=searchInput.value.trim();
+  if(parseHandle(raw)||/tiktok\.com\/@/i.test(raw)){
+    void addChannel();
+  }else{
+    renderSearchResults(raw);
+  }
+});
+document.querySelectorAll('[data-media-mode]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    const mode=btn.dataset.mediaMode;
+    if(mode==='live'){
+      if(currentHandle)openChannel(currentHandle);
+      else setMediaMode('live');
+      return;
+    }
+    const list=videosFor(currentHandle);
+    if(list.length)openVideo(currentHandle,list[0].id);
+    else{
+      setMediaMode('video');
+      renderRecentVideos(currentHandle);
+      if(currentHandle)void refreshChannelVideos(currentHandle,{silent:false});
+    }
+  });
 });
 document.querySelectorAll('[data-filter]').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -921,20 +1449,33 @@ document.querySelectorAll('[data-filter]').forEach(btn=>{
   });
 });
 document.getElementById('refreshBtn').addEventListener('click',()=>{
-  packageVersion=-1;void loadChannels({force:true});
+  packageVersion=-1;
+  videoVersion=-1;
+  void loadChannels({force:true});
+  void loadVideoLibrary({force:true,silent:false});
+  if(currentHandle)void refreshChannelVideos(currentHandle);
 });
 document.getElementById('openTikTokBtn').addEventListener('click',()=>{
-  if(currentHandle)window.open('https://www.tiktok.com/@'+currentHandle+'/live','_blank','noopener');
+  if(!currentHandle)return;
+  const url=mediaMode==='video'&&currentVideoId
+    ? 'https://www.tiktok.com/@'+currentHandle+'/video/'+currentVideoId
+    : 'https://www.tiktok.com/@'+currentHandle+'/live';
+  window.open(url,'_blank','noopener');
 });
 document.getElementById('reloadLiveBtn').addEventListener('click',()=>{
-  if(currentHandle)openChannel(currentHandle);
+  if(!currentHandle)return;
+  if(mediaMode==='video'&&currentVideoId)openVideo(currentHandle,currentVideoId);
+  else openChannel(currentHandle);
 });
 document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
 
 void loadChannels({force:true});
+void loadVideoLibrary({force:true,silent:true});
+renderRecentVideos('');
 setInterval(()=>void loadChannels({silent:true}),POLL_MS);
+setInterval(()=>void loadVideoLibrary({silent:true}),30000);
 </script>
 </body>
 </html>
