@@ -29,6 +29,7 @@ const lastRuns=new Map();
 const tiktokLiveCheckCache=new Map();
 const tiktokProxyTargets=new Map();
 const tiktokLiveSessions=new Map();
+const tiktokLiveSessionInflight=new Map();
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -175,7 +176,7 @@ function cleanTikTokLiveSessions(){
     if(!row||row.at<cutoff)void closeTikTokLiveSession(key);
   }
 }
-async function captureTikTokLiveSession(rawHandle){
+async function captureTikTokLiveSessionOnce(rawHandle){
   cleanTikTokLiveSessions();
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
@@ -293,6 +294,30 @@ async function captureTikTokLiveSession(rawHandle){
     page.off('response',onResponse);
     await page.close().catch(()=>{});
     throw error;
+  }
+}
+
+
+async function captureTikTokLiveSession(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+  const key=handle.toLowerCase();
+
+  const current=tiktokLiveSessions.get(key);
+  if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
+    current.at=Date.now();
+    return current;
+  }
+
+  const pending=tiktokLiveSessionInflight.get(key);
+  if(pending)return pending;
+
+  const task=captureTikTokLiveSessionOnce(handle);
+  tiktokLiveSessionInflight.set(key,task);
+  try{
+    return await task;
+  }finally{
+    if(tiktokLiveSessionInflight.get(key)===task)tiktokLiveSessionInflight.delete(key);
   }
 }
 
