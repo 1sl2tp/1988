@@ -619,6 +619,7 @@ let videoVersion=-1;
 let currentVideoId='';
 let currentVideo=null;
 let searchQuery='';
+const videoLoadBusy=new Set();
 let currentHandle='';
 let currentSourceSig='';
 let currentType='';
@@ -879,7 +880,7 @@ function setMediaMode(mode){
     phone.classList.add('video-mode');
     phone.classList.remove('landscape','square');
     liveVideo.hidden=true;
-    frame.hidden=false;
+    frame.hidden=true;
   }else{
     phone.classList.remove('video-mode');
     frame.hidden=true;
@@ -892,20 +893,22 @@ function renderRecentVideos(handle=currentHandle){
   const titleEl=document.getElementById('railTitle');
   const identity=identityFor(handle)||{};
   const own=videosFor(handle);
-  const list=own.length
+  const list=handle
     ? own
     : allVideos()
         .slice()
         .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
         .slice(0,10);
 
-  titleEl.textContent=own.length
+  titleEl.textContent=handle
     ? ((identity.nickname||('@'+handle))+' · video')
     : 'Video mới';
   countEl.textContent=list.length?String(list.length):'';
 
   if(!list.length){
-    root.innerHTML='<div class="rail-empty">Chưa có video gần đây.</div>';
+    root.innerHTML='<div class="rail-empty">'+
+      (handle&&videoLoadBusy.has(handle.toLowerCase())?'Đang tải video…':'Chưa có video gần đây.')+
+      '</div>';
     return;
   }
 
@@ -945,8 +948,34 @@ function openVideo(rawHandle,videoId){
   setMediaMode('video');
 
   const frame=document.getElementById('videoFrame');
-  frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
-    '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+  const native=document.getElementById('liveVideo');
+  const playUrl=String(video.playUrl||'').trim();
+
+  if(playUrl){
+    frame.hidden=true;
+    frame.src='about:blank';
+    native.hidden=false;
+    native.controls=true;
+    native.preload='auto';
+    native.src=playUrl;
+    native.onloadedmetadata=()=>{
+      setPlayerShape(native);
+      native.play().catch(()=>{});
+    };
+    native.onerror=()=>{
+      native.hidden=true;
+      frame.hidden=false;
+      frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
+        '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+    };
+    native.load();
+    native.play().catch(()=>{});
+  }else{
+    native.hidden=true;
+    frame.hidden=false;
+    frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
+      '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+  }
 
   document.getElementById('overlay').hidden=false;
   updateCurrentUi();
@@ -961,6 +990,10 @@ function openVideo(rawHandle,videoId){
 async function refreshChannelVideos(handle,{silent=true}={}){
   handle=parseHandle(handle);
   if(!handle)return;
+  const key=handle.toLowerCase();
+  if(videoLoadBusy.has(key))return;
+  videoLoadBusy.add(key);
+  renderRecentVideos(handle);
   try{
     const data=await apiJson(
       API+'/tiktok/channel-videos?user='+encodeURIComponent(handle)+'&refresh=1&t='+Date.now()
@@ -985,6 +1018,9 @@ async function refreshChannelVideos(handle,{silent=true}={}){
   }catch(error){
     if(!silent)showToast('Chưa tải được video của @'+handle);
     console.warn('channel videos',handle,error);
+  }finally{
+    videoLoadBusy.delete(key);
+    renderRecentVideos(handle);
   }
 }
 async function loadVideoLibrary({force=false,silent=true}={}){
@@ -1085,13 +1121,17 @@ function renderSearchResults(value){
 function selectChannel(handle){
   if(mediaMode==='video'){
     currentHandle=parseHandle(handle);
+    currentVideoId='';
+    currentVideo=null;
+    document.getElementById('videoFrame').src='about:blank';
     document.getElementById('overlay').hidden=false;
     updateCurrentUi();
     renderList();
     renderRecentVideos(currentHandle);
     const list=videosFor(currentHandle);
     if(list.length)openVideo(currentHandle,list[0].id);
-    void refreshChannelVideos(currentHandle);
+    else setMediaMode('video');
+    void refreshChannelVideos(currentHandle,{silent:false});
     return;
   }
   openChannel(handle);
