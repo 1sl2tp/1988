@@ -2928,7 +2928,7 @@ async function fetchTikwmChannelVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL)
     tikwmVideoLastAt=Date.now();
 
     try{
-      const endpoint=new URL('https://www.tikwm.com/api/user/posts');
+      const endpoint=new URL('https://tikwm.com/api/user/posts');
       endpoint.searchParams.set('unique_id',handle);
       endpoint.searchParams.set('count',String(Math.max(1,Math.min(10,Number(count)||10))));
       endpoint.searchParams.set('cursor','0');
@@ -4982,42 +4982,16 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(missing.length){
-        const fallback=[];
-        let cursor=0;
-        const tikwmWorker=async()=>{
-          while(true){
-            const index=cursor++;
-            if(index>=missing.length)return;
-            const handle=missing[index];
-            const key=handle.toLowerCase();
-            try{
-              const row=await fetchTikwmProfileIdentity(handle);
-              if(row&&(row.nickname||row.avatar)){
-                items.set(key,row);
-                tiktokProfileIdentityCache.set(key,{at:Date.now(),data:row});
-              }else{
-                fallback.push(handle);
-              }
-            }catch{
-              fallback.push(handle);
-            }
-          }
-        };
-        await Promise.all(Array.from({length:Math.min(5,missing.length)},()=>tikwmWorker()));
-
-        if(fallback.length){
-          const browserRows=await browserTikTokProfileIdentities(fallback);
-          for(const handle of fallback){
-            const key=handle.toLowerCase();
-            const row=browserRows.get(key);
-            if(row)items.set(key,row);
-          }
+        const browserRows=await browserTikTokProfileIdentities(missing);
+        for(const handle of missing){
+          const key=handle.toLowerCase();
+          const row=browserRows.get(key);
+          if(row)items.set(key,row);
         }
         console.log(
           '[tiktok-profile-batch]',
           'total='+missing.length,
-          'tikwm='+(missing.length-fallback.length),
-          'fallback='+fallback.length
+          'browser='+browserRows.size
         );
       }
 
@@ -5240,6 +5214,24 @@ server.listen(PORT,'0.0.0.0',()=>{
     loadTikTokLiveStore()
   ]).then(async()=>{
     await loadTikTokVideoStore();
+
+    const videoProbeHandle=[...tiktokLiveSelectedHandles].find(handle=>{
+      const row=tiktokVideoLibrary.get(handle.toLowerCase());
+      return !Array.isArray(row?.videos)||!row.videos.length;
+    });
+    if(videoProbeHandle){
+      void fetchTikwmChannelVideos(videoProbeHandle,3).then(result=>{
+        console.log(
+          '[tikwm-video-selftest]',
+          videoProbeHandle,
+          result?.known?'ok':'miss',
+          'videos='+(Array.isArray(result?.videos)?result.videos.length:0),
+          result?.error?compactText(result.error,100):''
+        );
+      }).catch(error=>{
+        console.log('[tikwm-video-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
+      });
+    }
 
     const probeHandle=[...tiktokLiveSelectedHandles][0]||'aoelinhfbi.official';
     try{
