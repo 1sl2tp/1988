@@ -274,17 +274,19 @@ function renderSavedLiveLinks(){
   };
 
   const liveHandles=handles.filter(handle=>liveLibraryItem(handle)?.live===true).sort(sorter);
-  const nonLiveHandles=handles.filter(handle=>liveLibraryItem(handle)?.live!==true).sort((a,b)=>{
-    const A=liveLibraryItem(a)||{},B=liveLibraryItem(b)||{};
-    const checkingA=A.status!=='offline'?1:0;
-    const checkingB=B.status!=='offline'?1:0;
-    if(checkingA!==checkingB)return checkingB-checkingA;
-    return sorter(a,b);
-  });
+  const offlineHandles=handles.filter(handle=>liveLibraryItem(handle)?.status==='offline').sort(sorter);
+  const checkingHandles=handles.filter(handle=>{
+    const row=liveLibraryItem(handle);
+    return row?.live!==true&&row?.status!=='offline';
+  }).sort(sorter);
 
   const readyCount=liveHandles.filter(handle=>liveLibraryItem(handle)?.ready).length;
   const summary=document.getElementById('liveLibrarySummary');
-  if(summary)summary.textContent='Tổng '+handles.length+' · LIVE '+liveHandles.length+' · sẵn '+readyCount;
+  if(summary)summary.textContent=
+    'Tổng '+handles.length+
+    ' · LIVE '+liveHandles.length+
+    ' · không LIVE '+offlineHandles.length+
+    ' · sẵn '+readyCount;
 
   const rows=list=>list.map(handle=>{
     const row=liveLibraryItem(handle);
@@ -304,11 +306,11 @@ function renderSavedLiveLinks(){
       '</button>';
   }).join('');
 
+  const group=(title,list)=>'<div class="libgroup">'+title+' · '+list.length+'</div>'+rows(list);
   root.innerHTML=
-    '<div class="libgroup">Đang LIVE · '+liveHandles.length+'</div>'+
-    rows(liveHandles)+
-    '<div class="libgroup">Không LIVE / đang kiểm tra · '+nonLiveHandles.length+'</div>'+
-    rows(nonLiveHandles);
+    group('Đang LIVE',liveHandles)+
+    group('Không LIVE',offlineHandles)+
+    (checkingHandles.length?group('Đang kiểm tra',checkingHandles):'');
 
   root.querySelectorAll('[data-live-handle]').forEach(btn=>{
     btn.onclick=()=>{
