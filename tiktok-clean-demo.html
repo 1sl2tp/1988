@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>TikTok LIVE · Clean Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#000;
+  --panel:#0f0f0f;
+  --panel2:#171717;
+  --line:#2a2a2a;
+  --text:#fff;
+  --muted:#9b9b9b;
+  --pink:#fe2c55;
+  --cyan:#25f4ee;
+  --chip:#242424;
+  --ok:#20d67b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+body{min-height:100vh;padding-bottom:env(safe-area-inset-bottom)}
+button,input{font:inherit}
+button{cursor:pointer}
+.topbar{
+  position:sticky;top:0;z-index:30;height:64px;
+  display:flex;align-items:center;gap:18px;
+  padding:0 20px;background:rgba(0,0,0,.94);
+  backdrop-filter:blur(14px);border-bottom:1px solid var(--line)
+}
+.brand{display:flex;align-items:center;gap:10px;font-size:20px;font-weight:850;white-space:nowrap}
+.brandmark{position:relative;width:25px;height:29px;display:inline-block}
+.brandmark:before,.brandmark:after,.brandmark i{
+  content:"";position:absolute;inset:2px 7px 3px 7px;border:4px solid #fff;border-top:0;border-radius:3px 3px 8px 8px
+}
+.brandmark:before{transform:translate(-2px,1px);border-color:var(--cyan)}
+.brandmark:after{transform:translate(2px,-1px);border-color:var(--pink)}
+.brandmark i{z-index:2;border-color:#fff}
+.addbar{
+  margin-left:auto;width:min(680px,72vw);
+  display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px
+}
+.addbar input{
+  min-width:0;height:40px;border:1px solid var(--line);
+  border-radius:9px;background:#161616;color:#fff;padding:0 13px;outline:none
+}
+.addbar input:focus{border-color:#555}
+.primary{
+  border:0;border-radius:8px;background:var(--pink);color:#fff;
+  padding:0 17px;height:40px;font-weight:750
+}
+.primary:disabled{opacity:.55;cursor:default}
+
+.app{
+  display:grid;grid-template-columns:330px minmax(0,1fr);
+  min-height:calc(100vh - 64px)
+}
+.sidebar{
+  border-right:1px solid var(--line);background:#050505;
+  min-height:calc(100vh - 64px);padding:14px 10px 18px;
+  position:sticky;top:64px;height:calc(100vh - 64px);overflow:hidden
+}
+.sidehead{display:flex;align-items:center;gap:8px;padding:2px 8px 10px}
+.sidehead strong{font-size:14px}
+.summary{margin-left:auto;color:var(--muted);font-size:11px}
+.toolbar{display:flex;gap:7px;padding:0 8px 11px}
+.tool{
+  border:1px solid var(--line);background:var(--chip);color:#fff;
+  border-radius:8px;padding:7px 10px;font-size:12px
+}
+.tool.active{background:#fff;color:#000;border-color:#fff}
+.list{
+  height:calc(100% - 78px);overflow:auto;padding:0 4px 80px;
+  scrollbar-width:thin
+}
+.group{
+  display:flex;align-items:center;gap:8px;
+  padding:9px 6px 5px;color:#777;font-size:10px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase
+}
+.group:after{content:"";height:1px;background:#1f1f1f;flex:1}
+.channel{
+  width:100%;border:0;background:transparent;color:inherit;
+  display:grid;grid-template-columns:46px minmax(0,1fr) auto;
+  gap:9px;align-items:center;text-align:left;padding:9px 7px;
+  border-radius:10px;position:relative
+}
+.channel:hover{background:#171717}
+.channel.active{background:#232323}
+.avatar{
+  width:44px;height:44px;border-radius:50%;overflow:hidden;
+  background:#252525;display:grid;place-items:center;
+  font-weight:800;font-size:15px;box-shadow:0 0 0 1px #2e2e2e inset
+}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.chtext{min-width:0}
+.chname{font-size:13px;font-weight:760;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chhandle{font-size:11px;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.chmeta{font-size:10px;color:#777;margin-top:3px}
+.live-dot{color:var(--pink);font-weight:900}
+.row-actions{display:flex;align-items:center;gap:4px}
+.iconbtn{
+  border:0;background:transparent;color:#aaa;width:30px;height:30px;border-radius:50%;
+  display:grid;place-items:center;padding:0
+}
+.iconbtn:hover{background:#303030;color:#fff}
+.iconbtn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8}
+
+.stage{
+  min-width:0;padding:22px 28px 50px;
+  display:flex;align-items:flex-start;justify-content:center;
+  background:
+    radial-gradient(circle at 50% 12%,rgba(254,44,85,.07),transparent 34%),
+    #000
+}
+.watch{
+  width:min(100%,760px);display:grid;
+  grid-template-columns:minmax(280px,450px) 72px;
+  gap:14px;align-items:end;justify-content:center
+}
+.phone{
+  position:relative;width:100%;aspect-ratio:9/16;max-height:calc(100vh - 108px);
+  background:#090909;border-radius:14px;overflow:hidden;
+  box-shadow:0 0 0 1px #222,0 18px 60px rgba(0,0,0,.42)
+}
+.phone.landscape{aspect-ratio:16/9;max-width:720px;align-self:center}
+.phone.square{aspect-ratio:1/1;max-width:620px}
+.phone video{width:100%;height:100%;display:block;object-fit:contain;background:#000}
+.empty{
+  position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;color:#777;text-align:center;padding:24px
+}
+.empty strong{color:#ddd;font-size:17px}
+.empty span{font-size:13px;max-width:290px;line-height:1.45}
+.overlay{
+  position:absolute;left:0;right:0;bottom:0;padding:72px 16px 16px;
+  background:linear-gradient(transparent,rgba(0,0,0,.82));
+  pointer-events:none
+}
+.live-badge{
+  display:inline-flex;align-items:center;gap:5px;background:var(--pink);
+  border-radius:4px;padding:4px 7px;font-size:11px;font-weight:850;margin-bottom:8px
+}
+.live-badge:before{content:"";width:6px;height:6px;border-radius:50%;background:#fff}
+.now-name{font-weight:800;font-size:16px;text-shadow:0 1px 3px #000}
+.now-handle{font-size:12px;color:#ddd;margin-top:2px;text-shadow:0 1px 3px #000}
+.now-state{font-size:11px;color:#bbb;margin-top:6px}
+.actions{display:flex;flex-direction:column;align-items:center;gap:13px;padding-bottom:10px}
+.action{
+  width:48px;height:48px;border:0;border-radius:50%;
+  display:grid;place-items:center;background:#232323;color:#fff
+}
+.action:hover{background:#333}
+.action.danger:hover{background:#4a131d;color:#fff}
+.action svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:1.8}
+.action-label{font-size:10px;color:#aaa;margin-top:-8px;text-align:center}
+.avatar-large{
+  width:52px;height:52px;border-radius:50%;overflow:hidden;background:#262626;
+  display:grid;place-items:center;font-weight:850;border:1px solid #383838
+}
+.avatar-large img{width:100%;height:100%;object-fit:cover}
+.add-plus{
+  width:20px;height:20px;border-radius:50%;background:var(--pink);
+  display:grid;place-items:center;font-weight:900;font-size:15px;margin-top:-19px;z-index:2
+}
+.toast{
+  position:fixed;left:50%;bottom:28px;z-index:100;
+  transform:translate(-50%,18px);opacity:0;pointer-events:none;
+  background:#242424;color:#fff;border:1px solid #3a3a3a;
+  padding:10px 14px;border-radius:8px;font-size:12px;
+  transition:.16s ease
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.spinner{
+  width:18px;height:18px;border:2px solid #444;border-top-color:#fff;border-radius:50%;
+  animation:spin .75s linear infinite
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:820px){
+  .topbar{height:auto;min-height:58px;padding:9px 12px;gap:10px;flex-wrap:wrap}
+  .brand{font-size:17px}
+  .addbar{order:2;width:100%;margin:0}
+  .app{display:block}
+  .sidebar{position:static;height:auto;min-height:0;border-right:0;border-bottom:1px solid var(--line);padding-bottom:8px}
+  .list{height:auto;max-height:37vh;padding-bottom:8px}
+  .stage{padding:14px 10px 34px}
+  .watch{grid-template-columns:minmax(0,1fr) 58px;gap:8px}
+  .phone{max-height:none}
+  .actions{gap:10px}
+  .action{width:44px;height:44px}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="brandmark"><i></i></span><span>TikTok LIVE</span></div>
+  <div class="addbar">
+    <input id="addInput" autocomplete="off" spellcheck="false" placeholder="Dán link TikTok hoặc nhập @handle">
+    <button class="primary" id="addBtn">Thêm kênh</button>
+  </div>
+</header>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidehead">
+      <strong>Kênh đã chọn</strong>
+      <span class="summary" id="summary">Đang tải…</span>
+    </div>
+    <div class="toolbar">
+      <button class="tool active" data-filter="all">Tất cả</button>
+      <button class="tool" data-filter="live">LIVE</button>
+      <button class="tool" id="refreshBtn">Làm mới</button>
+    </div>
+    <div class="list" id="channelList"></div>
+  </aside>
+
+  <main class="stage">
+    <section class="watch">
+      <div class="phone" id="phone">
+        <video id="liveVideo" playsinline controls preload="metadata"></video>
+        <div class="empty" id="empty">
+          <strong>Chọn một kênh</strong>
+          <span>Bấm vào kênh bên trái để mở LIVE. Nếu package đã có FLV sẽ dùng ngay.</span>
+        </div>
+        <div class="overlay" id="overlay" hidden>
+          <div class="live-badge">LIVE</div>
+          <div class="now-name" id="nowName">TikTok LIVE</div>
+          <div class="now-handle" id="nowHandle">@handle</div>
+          <div class="now-state" id="nowState">Sẵn sàng</div>
+        </div>
+      </div>
+
+      <div class="actions">
+        <div class="avatar-large" id="nowAvatar">T</div>
+        <div class="add-plus">+</div>
+
+        <button class="action" id="openTikTokBtn" title="Mở TikTok" disabled>
+          <svg viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+        </button>
+        <div class="action-label">TikTok</div>
+
+        <button class="action" id="reloadLiveBtn" title="Mở lại LIVE" disabled>
+          <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
+        </button>
+        <div class="action-label">Mở lại</div>
+
+        <button class="action danger" id="deleteCurrentBtn" title="Xoá kênh" disabled>
+          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
+        </button>
+        <div class="action-label">Xoá</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API='https://one988-tiktok-session.onrender.com';
+const IDENTITY_KEY='tiktokCleanIdentityV1';
+const POLL_MS=12000;
+
+let channels=[];
+let filterMode='all';
+let currentHandle='';
+let currentSourceSig='';
+let currentType='';
+let player=null;
+let packageVersion=-1;
+let loadBusy=false;
+let mutationBusy=false;
+let identityCache={};
+let toastTimer=0;
+
+try{
+  const raw=JSON.parse(localStorage.getItem(IDENTITY_KEY)||'{}');
+  if(raw&&typeof raw==='object')identityCache=raw;
+}catch{}
+
+function parseHandle(value){
+  const raw=String(value||'').trim();
+  if(!raw)return '';
+  const direct=raw.replace(/^@/,'');
+  if(/^[A-Za-z0-9._]{2,32}$/.test(direct))return direct;
+  const m=raw.match(/tiktok\.com\/@([A-Za-z0-9._]{2,32})(?:\/live)?/i);
+  return m?.[1]||'';
+}
+function esc(value){
+  return String(value??'').replace(/[&<>"']/g,ch=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[ch]);
+}
+function rowFor(handle){
+  return channels.find(x=>String(x.handle||'').toLowerCase()===String(handle||'').toLowerCase())||null;
+}
+function identityFor(handle){
+  return identityCache[String(handle||'').toLowerCase()]?.data||null;
+}
+function saveIdentityCache(){
+  try{
+    const entries=Object.entries(identityCache)
+      .sort((a,b)=>Number(b[1]?.at||0)-Number(a[1]?.at||0))
+      .slice(0,80);
+    localStorage.setItem(IDENTITY_KEY,JSON.stringify(Object.fromEntries(entries)));
+  }catch{}
+}
+function showToast(message){
+  const el=document.getElementById('toast');
+  el.textContent=String(message||'');
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove('show'),1800);
+}
+async function apiJson(url,options={}){
+  const r=await fetch(url,{cache:'no-store',...options});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(data?.error||('HTTP '+r.status));
+  return data;
+}
+function destroyPlayer(){
+  try{
+    player?.pause?.();
+    player?.unload?.();
+    player?.detachMediaElement?.();
+    player?.destroy?.();
+  }catch{}
+  player=null;
+  const video=document.getElementById('liveVideo');
+  try{
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+  }catch{}
+}
+function setPlayerShape(video){
+  const box=document.getElementById('phone');
+  const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
+  box.classList.remove('landscape','square');
+  if(!w||!h)return;
+  const ratio=w/h;
+  if(ratio>1.12)box.classList.add('landscape');
+  else if(ratio>=.88)box.classList.add('square');
+}
+function updateCurrentUi(){
+  const identity=identityFor(currentHandle)||{};
+  const row=rowFor(currentHandle)||{};
+  const name=String(identity.nickname||'').trim()||('@'+currentHandle);
+  const avatar=String(identity.avatar||'').trim();
+  document.getElementById('nowName').textContent=name;
+  document.getElementById('nowHandle').textContent=currentHandle?'@'+currentHandle:'';
+  document.getElementById('nowState').textContent=currentHandle
+    ? (row.live?(row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE · đang lấy FLV'):'Đang kiểm tra LIVE')
+    : 'Sẵn sàng';
+
+  const av=document.getElementById('nowAvatar');
+  av.innerHTML=avatar
+    ? '<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">'
+    : esc((currentHandle||'T').slice(0,1).toUpperCase());
+
+  const enabled=Boolean(currentHandle);
+  document.getElementById('openTikTokBtn').disabled=!enabled;
+  document.getElementById('reloadLiveBtn').disabled=!enabled;
+  document.getElementById('deleteCurrentBtn').disabled=!enabled;
+}
+function renderList(){
+  const root=document.getElementById('channelList');
+  const visible=filterMode==='live'?channels.filter(x=>x.live):channels.slice();
+  const liveCount=channels.filter(x=>x.live).length;
+  document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' LIVE';
+
+  const sorted=visible.sort((a,b)=>
+    Number(b.live)-Number(a.live)||
+    Number(b.ready)-Number(a.ready)||
+    String(a.handle).localeCompare(String(b.handle))
+  );
+  if(!sorted.length){
+    root.innerHTML='<div style="padding:22px 10px;color:#777;font-size:12px">Chưa có kênh.</div>';
+    return;
+  }
+
+  const live=sorted.filter(x=>x.live);
+  const offline=sorted.filter(x=>!x.live);
+  const makeRows=list=>list.map(row=>{
+    const handle=String(row.handle||'');
+    const id=identityFor(handle)||{};
+    const name=String(id.nickname||'').trim()||('@'+handle);
+    const avatar=String(id.avatar||'').trim();
+    const meta=row.live
+      ? '<span class="live-dot">● LIVE</span>'+(row.ready&&row.type?' · '+esc(String(row.type).toUpperCase()):'')
+      : 'Không LIVE';
+    return '<button class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'">'+
+      '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
+      '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span><span class="chmeta">'+meta+'</span></span>'+
+      '<span class="row-actions"><button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
+      '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
+      '</button>';
+  }).join('');
+
+  let html='';
+  if(live.length)html+='<div class="group">Đang LIVE · '+live.length+'</div>'+makeRows(live);
+  if(offline.length)html+='<div class="group">Không LIVE · '+offline.length+'</div>'+makeRows(offline);
+  root.innerHTML=html;
+
+  root.querySelectorAll('.channel[data-handle]').forEach(el=>{
+    el.addEventListener('click',event=>{
+      if(event.target.closest('[data-delete]'))return;
+      openChannel(el.dataset.handle);
+    });
+  });
+  root.querySelectorAll('[data-delete]').forEach(el=>{
+    el.addEventListener('click',event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      removeChannel(el.dataset.delete);
+    });
+  });
+}
+async function hydrateIdentity(handle){
+  handle=parseHandle(handle);
+  if(!handle)return;
+  const key=handle.toLowerCase();
+  const cached=identityCache[key];
+  if(cached&&Date.now()-Number(cached.at||0)<12*60*60*1000)return;
+  try{
+    const data=await apiJson(API+'/tiktok/profile-identity?user='+encodeURIComponent(handle)+'&t='+Date.now());
+    identityCache[key]={
+      at:Date.now(),
+      data:{nickname:String(data.nickname||''),avatar:String(data.avatar||'')}
+    };
+    saveIdentityCache();
+    renderList();
+    if(handle===currentHandle)updateCurrentUi();
+  }catch{
+    identityCache[key]={at:Date.now(),data:{nickname:'',avatar:''}};
+    saveIdentityCache();
+  }
+}
+async function hydrateIdentities(){
+  const todo=channels
+    .map(x=>String(x.handle||''))
+    .filter(handle=>{
+      const cached=identityCache[handle.toLowerCase()];
+      return !cached||Date.now()-Number(cached.at||0)>=12*60*60*1000;
+    });
+  let cursor=0;
+  const worker=async()=>{
+    while(cursor<todo.length){
+      const handle=todo[cursor++];
+      await hydrateIdentity(handle);
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(4,todo.length)},()=>worker()));
+}
+async function loadChannels({force=false,silent=false}={}){
+  if(loadBusy)return;
+  loadBusy=true;
+  try{
+    const v=force?-1:packageVersion;
+    const data=await apiJson(API+'/tiktok/live-library?v='+encodeURIComponent(v)+'&t='+Date.now());
+    if(!data.unchanged&&Array.isArray(data.items)){
+      channels=data.items.map(row=>({
+        handle:String(row.handle||''),
+        live:Boolean(row.live),
+        ready:Boolean(row.ready),
+        type:String(row.type||''),
+        sourceSig:String(row.sourceSig||''),
+        status:String(row.status||''),
+        changedAt:Number(row.changedAt||0)
+      })).filter(x=>parseHandle(x.handle));
+      packageVersion=Number(data.version??packageVersion);
+      renderList();
+      updateCurrentUi();
+      void hydrateIdentities();
+    }
+  }catch(error){
+    if(!silent)showToast('Không tải được danh sách');
+    console.warn(error);
+  }finally{
+    loadBusy=false;
+  }
+}
+async function addChannel(){
+  if(mutationBusy)return;
+  const input=document.getElementById('addInput');
+  const handle=parseHandle(input.value);
+  if(!handle){
+    input.focus();
+    showToast('Link hoặc @handle chưa đúng');
+    return;
+  }
+  mutationBusy=true;
+  const btn=document.getElementById('addBtn');
+  btn.disabled=true;btn.textContent='Đang thêm…';
+  try{
+    const data=await apiJson(API+'/tiktok/selected-channel',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({handle,selected:true})
+    });
+    input.value='';
+    showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
+    packageVersion=-1;
+    await loadChannels({force:true});
+    void hydrateIdentity(handle);
+    openChannel(handle);
+  }catch(error){
+    showToast('Thêm thất bại: '+String(error.message||error));
+  }finally{
+    mutationBusy=false;
+    btn.disabled=false;btn.textContent='Thêm kênh';
+  }
+}
+async function removeChannel(rawHandle){
+  const handle=parseHandle(rawHandle);
+  if(!handle||mutationBusy)return;
+  if(!confirm('Xoá @'+handle+' khỏi danh sách?'))return;
+  mutationBusy=true;
+  try{
+    await apiJson(API+'/tiktok/selected-channel',{
+      method:'POST',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({handle,selected:false})
+    });
+    if(handle===currentHandle){
+      currentHandle='';currentSourceSig='';currentType='';
+      destroyPlayer();
+      document.getElementById('overlay').hidden=true;
+      document.getElementById('empty').hidden=false;
+      updateCurrentUi();
+    }
+    packageVersion=-1;
+    await loadChannels({force:true});
+    showToast('Đã xoá @'+handle);
+  }catch(error){
+    showToast('Xoá thất bại: '+String(error.message||error));
+  }finally{
+    mutationBusy=false;
+  }
+}
+function attachFlv(url,handle,knownSig=''){
+  const video=document.getElementById('liveVideo');
+  destroyPlayer();
+  const p=flvjs.createPlayer(
+    {type:'flv',isLive:true,url},
+    {enableStashBuffer:true,stashInitialSize:384*1024,lazyLoad:false}
+  );
+  p.attachMediaElement(video);
+  p.load();
+  p.on(flvjs.Events.METADATA_ARRIVED,()=>{
+    setPlayerShape(video);
+    video.play().catch(()=>{});
+  });
+  p.on(flvjs.Events.ERROR,()=>{
+    document.getElementById('nowState').textContent='Không mở được FLV';
+  });
+  player=p;
+  video.onplaying=()=>{
+    setPlayerShape(video);
+    document.getElementById('nowState').textContent='LIVE · FLV';
+    fetch(
+      API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
+      {cache:'no-store'}
+    ).catch(()=>{}).finally(()=>{
+      setTimeout(()=>loadChannels({force:true,silent:true}),500);
+    });
+  };
+}
+function attachHls(url,handle){
+  const video=document.getElementById('liveVideo');
+  destroyPlayer();
+  if(video.canPlayType('application/vnd.apple.mpegurl')){
+    video.src=url;
+    video.onloadedmetadata=()=>{setPlayerShape(video);video.play().catch(()=>{})};
+    video.onplaying=()=>{
+      document.getElementById('nowState').textContent='LIVE · HLS';
+      fetch(API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=hls&t='+Date.now(),{cache:'no-store'}).catch(()=>{});
+    };
+    return;
+  }
+  if(window.Hls&&Hls.isSupported()){
+    const h=new Hls({lowLatencyMode:true,enableWorker:true,backBufferLength:20,maxBufferLength:16});
+    h.loadSource(url);h.attachMedia(video);
+    h.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
+    h.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)document.getElementById('nowState').textContent='Không mở được HLS'});
+    player=h;
+  }
+}
+function openChannel(rawHandle){
+  const handle=parseHandle(rawHandle);
+  if(!handle)return;
+  currentHandle=handle;
+  document.getElementById('empty').hidden=true;
+  document.getElementById('overlay').hidden=false;
+  updateCurrentUi();
+  renderList();
+  void hydrateIdentity(handle);
+
+  const row=rowFor(handle)||{};
+  currentSourceSig=String(row.sourceSig||'');
+  currentType=String(row.type||'').toLowerCase();
+
+  const base=API+'/tiktok/live-stream?user='+encodeURIComponent(handle);
+  if(row.live&&row.ready&&currentSourceSig&&['flv','hls'].includes(currentType)){
+    const url=base+'&source='+encodeURIComponent(currentSourceSig)+'&t='+Date.now();
+    document.getElementById('nowState').textContent='Mở nguồn '+currentType.toUpperCase()+' đã chuẩn bị…';
+    if(currentType==='hls')attachHls(url,handle);
+    else attachFlv(url,handle,currentSourceSig);
+    return;
+  }
+
+  document.getElementById('nowState').textContent='Đang lấy FLV trực tiếp…';
+  const url=base+'&compat=1&t='+Date.now();
+  attachFlv(url,handle,'');
+}
+document.getElementById('addBtn').addEventListener('click',addChannel);
+document.getElementById('addInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){e.preventDefault();void addChannel()}
+});
+document.querySelectorAll('[data-filter]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    filterMode=btn.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach(x=>x.classList.toggle('active',x===btn));
+    renderList();
+  });
+});
+document.getElementById('refreshBtn').addEventListener('click',()=>{
+  packageVersion=-1;void loadChannels({force:true});
+});
+document.getElementById('openTikTokBtn').addEventListener('click',()=>{
+  if(currentHandle)window.open('https://www.tiktok.com/@'+currentHandle+'/live','_blank','noopener');
+});
+document.getElementById('reloadLiveBtn').addEventListener('click',()=>{
+  if(currentHandle)openChannel(currentHandle);
+});
+document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
+  if(currentHandle)void removeChannel(currentHandle);
+});
+
+void loadChannels({force:true});
+setInterval(()=>void loadChannels({silent:true}),POLL_MS);
+</script>
+</body>
+</html>
