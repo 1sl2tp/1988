@@ -180,7 +180,7 @@ html,body{
 }
 html{
   overflow-y:scroll;
-  scrollbar-width:auto;
+  scrollbar-width:thin;
   scrollbar-color:#717171 transparent;
 }
 body{
@@ -216,15 +216,15 @@ html.two-col body{
   background-attachment:fixed;
 }
 html::-webkit-scrollbar{
-  width:12px;
+  width:10px;
 }
 html::-webkit-scrollbar-track{
   background:transparent;
 }
 html::-webkit-scrollbar-thumb{
-  min-height:40px;
+  min-height:26px;
   border:2px solid transparent;
-  border-radius:8px;
+  border-radius:999px;
   background-clip:content-box;
   background-color:#717171;
 }
@@ -1644,7 +1644,8 @@ html.two-col .info{
   inset:-12px;
   z-index:0;
   pointer-events:none;
-  border-radius:16px;
+  /* 12px thumbnail radius + 12px outer halo = parallel 24px curve. */
+  border-radius:24px;
   background-color:transparent;
   transition:
     background-color .16s cubic-bezier(.2,0,0,1),
