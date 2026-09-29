@@ -790,7 +790,9 @@ function updateCurrentUi(){
     compactCount(identity.latestVideoPlayCount)?compactCount(identity.latestVideoPlayCount)+' xem':''
   ].filter(Boolean).join(' · ');
   document.getElementById('nowState').textContent=currentHandle
-    ? statsText
+    ? (mediaMode==='video'&&currentVideo
+        ? (String(currentVideo.title||'').trim()||videoMetaText(currentVideo))
+        : statsText)
     : '';
 
   const av=document.getElementById('nowAvatar');
@@ -976,6 +978,9 @@ async function refreshChannelVideos(handle,{silent=true}={}){
     if(i>=0)videoChannels[i]=row;
     else videoChannels.push(row);
     renderRecentVideos(handle);
+    if(mediaMode==='video'&&currentHandle.toLowerCase()===handle.toLowerCase()&&!currentVideoId&&row.videos[0]){
+      openVideo(handle,row.videos[0].id);
+    }
     if(searchQuery)renderSearchResults(searchQuery);
   }catch(error){
     if(!silent)showToast('Chưa tải được video của @'+handle);
@@ -1068,7 +1073,6 @@ function renderSearchResults(value){
       const handle=el.dataset.searchChannel;
       document.getElementById('addInput').value='';
       openChannel(handle);
-      void refreshChannelVideos(handle);
     });
   });
   root.querySelectorAll('[data-search-video]').forEach(el=>{
@@ -1091,8 +1095,6 @@ function selectChannel(handle){
     return;
   }
   openChannel(handle);
-  renderRecentVideos(handle);
-  void refreshChannelVideos(handle);
 }
 function cacheIdentityRow(row){
   const handle=parseHandle(row?.handle||'');
