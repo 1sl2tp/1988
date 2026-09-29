@@ -297,6 +297,10 @@ function identityStatsHtml(id){
   if(likes)parts.push('<span class="hot">♥ '+esc(likes)+'</span>');
   return parts.join('<span>·</span>');
 }
+function rowPlayable(row){
+  const type=String(row?.type||'').toLowerCase();
+  return Boolean(row?.live&&row?.ready&&row?.sourceSig&&['flv','hls'].includes(type));
+}
 function rowFor(handle){
   return channels.find(x=>String(x.handle||'').toLowerCase()===String(handle||'').toLowerCase())||null;
 }
@@ -377,11 +381,12 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  const visible=filterMode==='live'?channels.filter(x=>x.live):channels.slice();
-  const liveCount=channels.filter(x=>x.live).length;
+  const visible=filterMode==='live'?channels.filter(rowPlayable):channels.slice();
+  const liveCount=channels.filter(rowPlayable).length;
   document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
 
   const sorted=visible.sort((a,b)=>
+    Number(rowPlayable(b))-Number(rowPlayable(a))||
     Number(b.live)-Number(a.live)||
     Number(b.ready)-Number(a.ready)||
     String(a.handle).localeCompare(String(b.handle))
@@ -391,8 +396,8 @@ function renderList(){
     return;
   }
 
-  const live=sorted.filter(x=>x.live);
-  const offline=sorted.filter(x=>!x.live);
+  const live=sorted.filter(rowPlayable);
+  const offline=sorted.filter(x=>!rowPlayable(x));
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const id=identityFor(handle)||{};
@@ -404,7 +409,7 @@ function renderList(){
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+(nickname?'<span class="chhandle">@'+esc(handle)+'</span>':'')+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span>'+
-      '<span class="row-actions">'+(row.live?'<span class="live-dot" title="Đang phát">●</span>':'')+
+      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-dot" title="Đang phát">●</span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
