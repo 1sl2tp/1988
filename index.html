@@ -6652,6 +6652,11 @@ html.one-col.portrait .player.pip{
   syncHeaderScrollState();
   syncMobileHeaderVisibility(true);
 
+  // Establish empty/full media layout BEFORE creating the YouTube iframe.
+  // On desktop root with no video id this prevents even a single frame of
+  // pinned empty MAIN from appearing.
+  layout();
+
   // One-column/mobile: warm the real YouTube iframe off-screen, never in the
   // display:none MAIN column. Two-column keeps the normal MAIN host.
   if(!isTwoColumn()&&playerWarmHost){
