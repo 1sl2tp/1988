@@ -716,6 +716,7 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
       }
     );
     if(!r.ok)throw new Error('tiktok_selected_write_'+r.status+':'+await r.text());
+    void queueTikTokCanonicalSync([handle]);
     return true;
   }
 
@@ -727,6 +728,14 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
     }
   );
   if(!r.ok)throw new Error('tiktok_selected_delete_'+r.status+':'+await r.text());
+  if(tiktokCanonicalLoaded){
+    const row=tiktokCanonicalChannels.get(handle.toLowerCase());
+    if(row){
+      row.selected=false;
+      row.updated_at=nowIso();
+      void upsertTikTokCanonicalRows([row],[]).then(()=>persistTikTokCanonicalPackage()).catch(()=>{});
+    }
+  }
   return true;
 }
 
@@ -890,6 +899,7 @@ async function persistTikTokLiveStore({force=false}={}){
 
     tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
     console.log('[tiktok-store] saved','channels='+rows.length,'live='+liveCount,'version='+tiktokLiveLibraryVersion);
+    void queueTikTokCanonicalSync(rows.map(row=>row.handle));
     return true;
   })().catch(error=>{
     console.warn('[tiktok-store] save failed',compactText(error?.message||error,220));
@@ -3805,6 +3815,7 @@ async function persistTikTokVideoStore({force=false}={}){
 
     tiktokVideoPersistedVersion=tiktokVideoPackageVersion;
     console.log('[tiktok-video-store] saved','channels='+rows.length,'videos='+payload.videoCount,'version='+tiktokVideoPackageVersion);
+    void queueTikTokCanonicalSync(rows.map(row=>row.handle));
     return true;
   })().catch(error=>{
     console.warn('[tiktok-video-store] save failed',compactText(error?.message||error,220));
@@ -5940,6 +5951,7 @@ const server=http.createServer(async(req,res)=>{
             status:'ready'
           });
           await persistTikTokVideoStore();
+          void queueTikTokCanonicalSync([handle]);
         }
       }
       const row=tiktokVideoLibrary.get(key)||current;
