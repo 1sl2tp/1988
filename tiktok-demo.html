@@ -322,15 +322,34 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       confirmGood();
     }
   });
+  video.addEventListener('ended',()=>{
+    const d=Number(video.duration||0);
+    const t=Number(video.currentTime||0);
+    confirmedGood=false;
+    forgetRecentLive(HANDLE);
+    sendLiveFeedback('bad',type);
+    state.textContent='Phiên LIVE đã dừng'+(Number.isFinite(d)&&d>0?' ở '+Math.round(d)+'s':'')+' · tạo phiên mới…';
+    void recoverPicture(type==='hls'?proxyAll:src,true);
+  });
+  video.addEventListener('stalled',()=>{
+    if(Number(video.currentTime||0)>0.6&&Date.now()-lastProgressAt>3500){
+      confirmedGood=false;
+      forgetRecentLive(HANDLE);
+      sendLiveFeedback('bad',type);
+      state.textContent='Phiên LIVE bị đứng · tạo phiên mới…';
+      void recoverPicture(type==='hls'?proxyAll:src,true);
+    }
+  });
   const stallTimer=setInterval(()=>{
     if(!document.body.contains(video)){
       clearInterval(stallTimer);
       return;
     }
-    if(confirmedGood&&!video.paused&&!video.ended&&Date.now()-lastProgressAt>6500){
+    if(confirmedGood&&!video.paused&&Date.now()-lastProgressAt>6500){
       confirmedGood=false;
       forgetRecentLive(HANDLE);
       sendLiveFeedback('bad',type);
+      state.textContent=video.ended?'Phiên LIVE đã kết thúc · tạo phiên mới…':'Phiên LIVE bị đứng · tạo phiên mới…';
       void recoverPicture(type==='hls'?proxyAll:src,true);
     }
   },1800);
