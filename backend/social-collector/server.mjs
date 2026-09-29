@@ -825,25 +825,111 @@ let tiktokLiveMinuteSweepPromise=null;
 function runTikTokLiveMinuteSweep(){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
-    // A one-channel add/feedback scan may be in progress. Finish it first,
-    // then still run the complete selected-channel sweep; never skip a minute.
-    if(tiktokLivePackageScanPromise){
-      try{await tiktokLivePackageScanPromise}catch{}
-    }
     const target=[...tiktokLiveSelectedHandles];
     if(!target.length)return;
 
     const before=tiktokLiveLibraryVersion;
-    await refreshTikTokLiveLibrary(target,{warm:false,force:true});
-    const changed=tiktokLiveLibraryVersion!==before;
+    const checked=new Array(target.length);
+    let cursor=0;
+    const worker=async()=>{
+      while(true){
+        const index=cursor++;
+        if(index>=target.length)return;
+        const handle=target[index];
+        try{
+          checked[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
+        }catch{
+          checked[index]={handle,state:{known:false,live:false,status:null}};
+        }
+      }
+    };
+    await Promise.all(Array.from({length:Math.min(6,target.length)},()=>worker()));
 
+    let known=0;
+    let live=0;
+    let offline=0;
+    let unknown=0;
+    const newlyLive=[];
+
+    for(const {handle,state} of checked){
+      const key=handle.toLowerCase();
+      const prev=tiktokLiveLibrary.get(key)||null;
+      if(!state?.known){
+        unknown+=1;
+        continue;
+      }
+
+      known+=1;
+      const isLive=state.live===true;
+      if(isLive)live+=1;
+      else offline+=1;
+
+      if(Boolean(prev?.live)===isLive){
+        // Confirmed state did not change; keep existing source and do not bump
+        // package version. lastSeenAt is telemetry only.
+        updateTikTokLiveLibrary(handle,{lastSeenAt:Date.now()});
+        continue;
+      }
+
+      if(!isLive){
+        tiktokLiveFastSources.delete(key);
+        tiktokLivePreferBrowser.delete(key);
+        tiktokLiveLibraryWarmRetryAt.delete(key);
+        await closeTikTokLiveSession(key).catch(()=>{});
+        updateTikTokLiveLibrary(handle,{
+          live:false,
+          ready:false,
+          type:'',
+          mode:'',
+          source:'',
+          status:'offline',
+          sourceSig:'',
+          videoCodec:'',
+          audioCodec:'',
+          width:0,
+          height:0,
+          lastSeenAt:Date.now(),
+          expiresAt:0
+        });
+        continue;
+      }
+
+      // OFFLINE -> LIVE: publish the state immediately. Media preparation is
+      // scheduled only for this channel after the lightweight status sweep.
+      updateTikTokLiveLibrary(handle,{
+        live:true,
+        ready:false,
+        type:'',
+        mode:'',
+        source:'',
+        status:'live',
+        sourceSig:'',
+        lastSeenAt:Date.now(),
+        expiresAt:0
+      });
+      tiktokLiveLibraryRefreshAt.delete(key);
+      newlyLive.push(handle);
+    }
+
+    const changed=tiktokLiveLibraryVersion!==before;
     if(changed)await persistTikTokLiveStore();
+
     console.log(
       '[tiktok-minute-sweep]',
       'channels='+target.length,
+      'known='+known,
+      'live='+live,
+      'offline='+offline,
+      'unknown='+unknown,
       'changed='+(changed?'yes':'no'),
+      'newLive='+newlyLive.length,
       'version='+tiktokLiveLibraryVersion
     );
+
+    // Resolve FLV only for channels that just became LIVE.
+    for(const handle of newlyLive){
+      void ensureTikTokLivePackageScan([handle]);
+    }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
   }).finally(()=>{
@@ -1284,6 +1370,49 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
   }catch(error){
     return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
   }
+}
+
+async function quickTikTokLiveStateOnly(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,live:false,status:null};
+
+  // Minute sweeps only need LIVE/OFFLINE. Do not resolve media URLs, refresh
+  // cookies, start yt-dlp, or open Chromium here.
+  const detail=await quickTikTokLiveDetailStatus(handle,false);
+  if(detail?.known){
+    return {
+      known:true,
+      live:detail.live===true,
+      status:Number(detail.status),
+      source:'live-detail'
+    };
+  }
+
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('sourceType','54');
+    endpoint.searchParams.set('uniqueId',handle);
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(2200)
+    });
+    if(!r.ok)return {known:false,live:false,status:null};
+    const data=await r.json();
+    const liveRoom=data?.data?.liveRoom||null;
+    const status=Number(liveRoom?.status);
+    if(status===2||status===4){
+      return {known:true,live:status===2,status,source:'user-room'};
+    }
+  }catch{}
+  return {known:false,live:false,status:null};
 }
 
 async function quickTikTokLiveStatus(rawHandle){
@@ -4389,11 +4518,13 @@ server.listen(PORT,'0.0.0.0',()=>{
     loadTikTokLiveStore()
   ]).then(async()=>{
     await loadTikTokVideoStore();
-    void ensureTikTokLivePackageScan();
+    void runTikTokLiveMinuteSweep();
     void ensureTikTokVideoPackageScan();
   });
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
-  setInterval(()=>{void ensureTikTokVideoPackageScan();},60_000).unref();
+  // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
+  // the one-minute LIVE-status API sweep.
+  setInterval(()=>{void ensureTikTokVideoPackageScan();},10*60_000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
