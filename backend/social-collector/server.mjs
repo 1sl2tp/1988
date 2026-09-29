@@ -164,6 +164,24 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
 }
 
 
+const TIKTOK_LIVE_REUSE_MS=10*60*1000;
+
+function tiktokStreamExpiresAt(rawUrl){
+  try{
+    const value=new URL(String(rawUrl||'')).searchParams.get('expire');
+    const n=Number(value||0);
+    if(!Number.isFinite(n)||n<=0)return 0;
+    return n>10_000_000_000?n:n*1000;
+  }catch{return 0}
+}
+function tiktokLiveSourceUsable(row,maxAge=TIKTOK_LIVE_REUSE_MS){
+  if(!row?.url||!row?.at)return false;
+  if(Date.now()-Number(row.at)>maxAge)return false;
+  const expiresAt=tiktokStreamExpiresAt(row.url);
+  if(expiresAt&&expiresAt-Date.now()<60_000)return false;
+  return true;
+}
+
 async function closeTikTokLiveSession(handle){
   const key=String(handle||'').toLowerCase();
   const row=tiktokLiveSessions.get(key);
@@ -172,9 +190,8 @@ async function closeTikTokLiveSession(handle){
   try{await row.page?.close?.();}catch{}
 }
 function cleanTikTokLiveSessions(){
-  const cutoff=Date.now()-3*60*1000;
   for(const [key,row] of tiktokLiveSessions){
-    if(!row||row.at<cutoff)void closeTikTokLiveSession(key);
+    if(!row||!tiktokLiveSourceUsable(row))void closeTikTokLiveSession(key);
   }
 }
 
@@ -306,9 +323,8 @@ async function fastTikTokLiveWithYtdlp(handle){
   }
 }
 function cleanTikTokFastSources(){
-  const cutoff=Date.now()-45_000;
   for(const [key,row] of tiktokLiveFastSources){
-    if(!row||row.at<cutoff)tiktokLiveFastSources.delete(key);
+    if(!row||!tiktokLiveSourceUsable(row))tiktokLiveFastSources.delete(key);
   }
 }
 async function resolveTikTokLiveSource(rawHandle){
@@ -318,13 +334,18 @@ async function resolveTikTokLiveSource(rawHandle){
   const key=handle.toLowerCase();
 
   const browserSession=tiktokLiveSessions.get(key);
-  if(browserSession&&browserSession.page&&!browserSession.page.isClosed()&&Date.now()-browserSession.at<90_000){
+  if(browserSession&&browserSession.page&&!browserSession.page.isClosed()&&tiktokLiveSourceUsable(browserSession)){
     browserSession.at=Date.now();
-    return {mode:'browser',handle,type:browserSession.type,url:browserSession.url,at:browserSession.at};
+    console.log('[tiktok-cache] browser reuse',handle,browserSession.type);
+    return {mode:'browser-cache',handle,type:browserSession.type,url:browserSession.url,at:browserSession.at,source:'browser-cache'};
   }
 
   const cached=tiktokLiveFastSources.get(key);
-  if(cached&&Date.now()-cached.at<45_000)return cached;
+  if(cached&&tiktokLiveSourceUsable(cached)){
+    cached.at=Date.now();
+    console.log('[tiktok-cache] fast reuse',handle,cached.type,cached.source||'fast');
+    return {...cached,mode:'fast-cache'};
+  }
 
   const preflight=await quickTikTokLiveStatus(handle);
   if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
@@ -368,8 +389,9 @@ async function captureTikTokLiveSessionOnce(rawHandle){
 
   const key=handle.toLowerCase();
   const current=tiktokLiveSessions.get(key);
-  if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
+  if(current&&current.page&&!current.page.isClosed()&&tiktokLiveSourceUsable(current)){
     current.at=Date.now();
+    console.log('[tiktok-cache] session reuse',handle,current.type);
     return current;
   }
   if(current)await closeTikTokLiveSession(key);
