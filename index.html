@@ -4381,6 +4381,8 @@ html.one-col.portrait .player.pip{
           alwaysProxy:false
         };
 
+    let tunnelFallback=null;
+
     for(const api of COBALT_DIRECT_APIS){
       try{
         const response=await fetch(api,{
@@ -4398,13 +4400,21 @@ html.one-col.portrait .player.pip{
         const status=String(data?.status||"").trim();
         const url=String(data?.url||"").trim();
         const filename=String(data?.filename||"").trim();
-        if(
-          response.ok&&
-          (status==="tunnel"||status==="redirect")&&
-          /^https:\/\//i.test(url)
-        ){
+
+        if(response.ok&&status==="redirect"&&/^https:\/\//i.test(url)){
           return {status,url,filename};
         }
+
+        if(
+          response.ok&&
+          status==="tunnel"&&
+          /^https:\/\//i.test(url)&&
+          !tunnelFallback
+        ){
+          tunnelFallback={status,url,filename};
+          continue;
+        }
+
         if(status==="error"){
           console.warn("cobalt resolve error",api,data?.error||data);
         }
@@ -4412,7 +4422,8 @@ html.one-col.portrait .player.pip{
         console.warn("cobalt direct resolve failed",api,error);
       }
     }
-    return null;
+
+    return tunnelFallback;
   }
 
   function triggerBrowserDownload(file={}){
