@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import {execFile} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
@@ -26,6 +27,7 @@ let queueDepth=0;
 const memorySnapshots=new Map();
 const lastRuns=new Map();
 const tiktokLiveCheckCache=new Map();
+const tiktokProxyTargets=new Map();
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -132,10 +134,10 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         String(f?.protocol||'').toLowerCase().includes('m3u8')||
         /\.m3u8(?:\?|$)/i.test(String(f?.url||''))
       )||null;
-      const selected=flvFormat||hlsFormat||null;
-      const streamUrl=String(selected?.url||data?.url||data?.manifest_url||'');
-      const streamType=flvFormat?'flv':
-        hlsFormat?'hls':
+      const selected=hlsFormat||flvFormat||null;
+      const streamUrl=String(selected?.url||data?.manifest_url||data?.url||'');
+      const streamType=hlsFormat?'hls':
+        flvFormat?'flv':
         /\.flv(?:\?|$)/i.test(streamUrl)?'flv':
         /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':'unknown';
       return {
@@ -173,31 +175,81 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
   return value;
 }
 
-async function proxyTikTokLive(req,res,rawHandle){
-  const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-  const data=await checkTikTokLiveWithYtDlp(handle);
-  if(!data?.live||!data?.streamUrl){
-    json(res,404,{ok:false,error:'tiktok_not_live',handle});
-    return;
+function cleanProxyTargets(){
+  const cutoff=Date.now()-3*60*1000;
+  for(const [key,row] of tiktokProxyTargets){
+    if(!row||row.at<cutoff)tiktokProxyTargets.delete(key);
   }
-  if(data.streamType==='hls'){
-    json(res,415,{ok:false,error:'hls_proxy_not_enabled',handle});
-    return;
-  }
+}
+function registerTikTokProxyTarget(targetUrl){
+  cleanProxyTargets();
+  const key=randomUUID();
+  tiktokProxyTargets.set(key,{url:String(targetUrl||''),at:Date.now()});
+  return key;
+}
+function proxyPathFor(targetUrl){
+  const key=registerTikTokProxyTarget(targetUrl);
+  return '/tiktok/live-part?id='+encodeURIComponent(key);
+}
+function rewriteHlsManifest(text,baseUrl){
+  const absolute=value=>{
+    try{return new URL(value,baseUrl).toString();}
+    catch{return '';}
+  };
+  return String(text||'')
+    .split(/\r?\n/)
+    .map(line=>{
+      const trimmed=line.trim();
+      if(!trimmed)return line;
+      if(trimmed.startsWith('#')){
+        return line.replace(/URI="([^"]+)"/g,(m,uri)=>{
+          const target=absolute(uri);
+          return target?'URI="'+proxyPathFor(target)+'"':m;
+        });
+      }
+      const target=absolute(trimmed);
+      return target?proxyPathFor(target):line;
+    })
+    .join('\n');
+}
+function liveProxyHeaders(req){
   const headers={
     'user-agent':String(req.headers['user-agent']||'Mozilla/5.0'),
     'referer':'https://www.tiktok.com/',
+    'origin':'https://www.tiktok.com',
     'accept':'*/*'
   };
   if(req.headers.range)headers.range=String(req.headers.range);
-  const upstream=await fetch(data.streamUrl,{headers,redirect:'follow'});
+  return headers;
+}
+async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream'}={}){
+  const upstream=await fetch(targetUrl,{
+    headers:liveProxyHeaders(req),
+    redirect:'follow'
+  });
   if(!upstream.ok||!upstream.body){
-    json(res,502,{ok:false,error:'upstream_stream_'+upstream.status,handle});
+    json(res,502,{ok:false,error:'upstream_stream_'+upstream.status});
+    return;
+  }
+  const contentType=String(upstream.headers.get('content-type')||fallbackType);
+  const finalUrl=String(upstream.url||targetUrl);
+  const isHls=/mpegurl|m3u8/i.test(contentType)||/\.m3u8(?:\?|$)/i.test(finalUrl);
+  if(isHls){
+    const manifest=await upstream.text();
+    const body=rewriteHlsManifest(manifest,finalUrl);
+    res.writeHead(200,{
+      'content-type':'application/vnd.apple.mpegurl; charset=utf-8',
+      'access-control-allow-origin':ORIGIN,
+      'access-control-allow-methods':'GET,OPTIONS',
+      'access-control-allow-headers':'range',
+      'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
+      'cache-control':'no-store'
+    });
+    res.end(body);
     return;
   }
   const outHeaders={
-    'content-type':upstream.headers.get('content-type')||'video/x-flv',
+    'content-type':contentType,
     'access-control-allow-origin':ORIGIN,
     'access-control-allow-methods':'GET,OPTIONS',
     'access-control-allow-headers':'range',
@@ -217,6 +269,28 @@ async function proxyTikTokLive(req,res,rawHandle){
   }finally{
     if(!res.writableEnded)res.end();
   }
+}
+async function proxyTikTokLive(req,res,rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+  const data=await checkTikTokLiveWithYtDlp(handle);
+  if(!data?.live||!data?.streamUrl){
+    json(res,404,{ok:false,error:'tiktok_not_live',handle});
+    return;
+  }
+  await pipeTikTokTarget(req,res,data.streamUrl,{
+    fallbackType:data.streamType==='flv'?'video/x-flv':'application/octet-stream'
+  });
+}
+async function proxyTikTokLivePart(req,res,id){
+  cleanProxyTargets();
+  const row=tiktokProxyTargets.get(String(id||''));
+  if(!row?.url){
+    json(res,404,{ok:false,error:'expired_live_part'});
+    return;
+  }
+  row.at=Date.now();
+  await pipeTikTokTarget(req,res,row.url);
 }
 
 function enqueue(task){
@@ -1286,6 +1360,16 @@ const server=http.createServer(async(req,res)=>{
       }
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-part'&&req.method==='GET'){
+    try{
+      await proxyTikTokLivePart(req,res,url.searchParams.get('id')||'');
+    }catch(error){
+      if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
+      else if(!res.writableEnded)res.end();
     }
     return;
   }
