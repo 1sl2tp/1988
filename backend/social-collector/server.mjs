@@ -555,6 +555,7 @@ function queueTikTokLibraryWarm(handle){
 }
 
 async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
+  const scanStarted=Date.now();
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
   if(!normalized.length)return;
 
@@ -575,6 +576,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     }
   }));
 
+  let scanLiveCount=0;
+  let scanFlvCount=0;
   for(const {handle,status} of checked){
     const key=handle.toLowerCase();
     const candidates=Array.isArray(status?.candidates)?status.candidates:[];
@@ -583,6 +586,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
 
     const isLive=Boolean(status?.live||status?.status===2||flv);
+    if(isLive)scanLiveCount+=1;
+    if(flv)scanFlvCount+=1;
 
     if(!isLive){
       tiktokLiveFastSources.delete(key);
@@ -642,6 +647,15 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
       lastSeenAt:Date.now()
     });
   }
+
+  console.log(
+    '[tiktok-scan]',
+    'total='+normalized.length,
+    'due='+due.length,
+    'live='+scanLiveCount,
+    'flv='+scanFlvCount,
+    'ms='+(Date.now()-scanStarted)
+  );
 }
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
