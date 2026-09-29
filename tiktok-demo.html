@@ -26,7 +26,7 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
 <body>
 <header><div class="head"><strong>TikTok · mẫu</strong><span>1 video + LIVE @nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
 <main>
-  <p class="note">Video dùng cố định một mẫu; LIVE đang phát trực tiếp URL .m3u8 đã lấy được của @nhungnhoii205 để kiểm chứng player.</p>
+  <p class="note">Video dùng cố định một mẫu; LIVE đi qua proxy để gắn Referer/User-Agent và mở CORS trước khi HLS.js phát.</p>
   <section class="grid">
     <article class="card">
       <div class="cardhead">VIDEO MẪU <span class="sub" id="videoState">Đang tìm…</span></div>
@@ -171,7 +171,8 @@ async function loadLive(){
   destroyPlayer();
   document.getElementById('liveState').textContent='Đang mở .m3u8 trực tiếp…';
   document.getElementById('liveBox').innerHTML='<div class="status">Đang phát link .m3u8 bạn vừa lấy được…</div>';
-  attachLive('hls',MANUAL_LIVE_M3U8,false);
+  const proxied=API+'/tiktok/hls-proxy?url='+encodeURIComponent(MANUAL_LIVE_M3U8)+'&t='+Date.now();
+  attachLive('hls',proxied,false);
 }
 
 function load(){
