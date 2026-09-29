@@ -216,20 +216,20 @@ html.two-col body{
   background-attachment:fixed;
 }
 html::-webkit-scrollbar{
-  width:10px;
+  width:16px;
 }
 html::-webkit-scrollbar-track{
   background:transparent;
 }
 html::-webkit-scrollbar-thumb{
-  min-height:26px;
-  border:2px solid transparent;
+  min-height:18px;
+  border:4px solid transparent;
   border-radius:999px;
   background-clip:content-box;
   background-color:#717171;
 }
 html::-webkit-scrollbar-thumb:hover{
-  background-color:#909090;
+  background-color:#8a8a8a;
   background-clip:content-box;
 }
 html::-webkit-scrollbar-corner{
@@ -3505,7 +3505,9 @@ html.one-col.portrait .player.pip{
 
     if(!isTwoColumn()){
       const feedW=Math.max(1,viewportW-(pageEdge*2));
-      const cols=chooseCardColumns(feedW,cardGap);
+      // Mobile + the smallest mini-web width are always one vertical list.
+      // Only wider one-column layouts may split into multiple card columns.
+      const cols=viewportW<=720?1:chooseCardColumns(feedW,cardGap);
       root.style.setProperty("--feed-cols",String(cols));
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
