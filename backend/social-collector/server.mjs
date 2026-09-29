@@ -334,22 +334,36 @@ function rewriteHlsManifest(text,baseUrl,handle=''){
     try{return new URL(value,baseUrl).toString();}
     catch{return '';}
   };
+  const isPlaylist=value=>/\.m3u8(?:\?|$)/i.test(String(value||''));
+  const viaProxy=value=>proxyPathFor(value,handle);
+
   return String(text||'')
     .split(/\r?\n/)
     .map(line=>{
       const trimmed=line.trim();
       if(!trimmed)return line;
+
       if(trimmed.startsWith('#')){
         return line.replace(/URI="([^"]+)"/g,(m,uri)=>{
           const target=absolute(uri);
-          return target?'URI="'+proxyPathFor(target,handle)+'"':m;
+          if(!target)return m;
+          // Keep nested playlists and tiny encryption keys on the relay so
+          // they retain the TikTok browser-session headers. Media payloads
+          // (.ts/.m4s/.mp4 init) go straight to TikTok CDN.
+          const mustProxy=isPlaylist(target)||/^#EXT-X-(?:SESSION-)?KEY/i.test(trimmed);
+          return 'URI="'+(mustProxy?viaProxy(target):target)+'"';
         });
       }
+
       const target=absolute(trimmed);
-      return target?proxyPathFor(target,handle):line;
+      if(!target)return line;
+      // Only playlist files stay on our relay. Segments download directly
+      // from TikTok CDN to avoid routing video bandwidth through the proxy.
+      return isPlaylist(target)?viaProxy(target):target;
     })
     .join('\n');
 }
+
 function liveProxyHeaders(req){
   const headers={
     'user-agent':String(req.headers['user-agent']||'Mozilla/5.0'),
