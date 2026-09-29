@@ -235,11 +235,15 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     forcingBrowser=true;
     clearPictureTimer();
     forgetRecentLive(HANDLE);
-    state.textContent='LIVE chưa có hình · đổi sang FLV tương thích…';
+    const forceBrowser=type==='flv';
+    state.textContent=forceBrowser
+      ?'FLV chưa chạy · lấy lại trong cùng phiên TikTok…'
+      :'LIVE chưa có hình · đổi sang luồng tương thích…';
     try{
       const ctrl=new AbortController();
       const timer=setTimeout(()=>ctrl.abort(),28000);
-      const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&compat=1&t='+Date.now(),{
+      const mode=forceBrowser?'&force=browser':'&compat=1';
+      const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+mode+'&t='+Date.now(),{
         cache:'no-store',
         signal:ctrl.signal
       });
@@ -247,11 +251,11 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       const data=await r.json();
       if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
       const nextType=String(data.streamType||'flv').toLowerCase();
-      rememberRecentLive(HANDLE,nextType,'compat');
-      const next=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+      rememberRecentLive(HANDLE,nextType,forceBrowser?'browser':'compat');
+      const next=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+(forceBrowser?'&force=browser':'')+'&t='+Date.now();
       attachLive(nextType,next,true,false);
     }catch(err){
-      state.textContent='LIVE có tiếng nhưng chưa lấy được hình tương thích';
+      state.textContent='LIVE chưa lấy được luồng có hình';
     }
   };
 
@@ -357,10 +361,15 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     return;
   }
   if(type==='flv'&&window.flvjs&&flvjs.isSupported()){
-    const p=flvjs.createPlayer({type:'flv',isLive:true,url:src},{enableStashBuffer:true,stashInitialSize:768*1024});
+    const p=flvjs.createPlayer(
+      {type:'flv',isLive:true,url:src},
+      {enableStashBuffer:true,stashInitialSize:512*1024,lazyLoad:false}
+    );
     p.attachMediaElement(video);
+    armPictureTimer(src,5000);
     p.load();
-    p.on(flvjs.Events.METADATA_ARRIVED,()=>{armPictureTimer(src,5500);fitByVideoShape();play()});
+    p.on(flvjs.Events.METADATA_ARRIVED,()=>{fitByVideoShape();play()});
+    p.on(flvjs.Events.ERROR,()=>{void recoverPicture(src)});
     player=p;
     state.textContent='Đang LIVE · FLV';
     return;
@@ -394,15 +403,10 @@ async function loadLive(){
   const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
 
   const recent=recentLiveState(HANDLE);
-  if(recent){
-    state.textContent='Mở lại LIVE gần nhất · cache';
-    box.innerHTML='<div class="status">Đang mở lại luồng gần nhất đã lấy cho @'+HANDLE+'…</div>';
-    attachLive(String(recent.type||'hls').toLowerCase(),relay,true);
-    return;
-  }
-
-  state.textContent='Đang tìm LIVE nhanh…';
-  box.innerHTML='<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
+  state.textContent=recent?'Đang mở lại LIVE gần nhất…':'Đang tìm LIVE nhanh…';
+  box.innerHTML=recent
+    ?'<div class="status">Đang xác nhận lại luồng đã nhớ của @'+HANDLE+'…</div>'
+    :'<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
   let timer=null;
   let ticker=null;
   try{
@@ -410,7 +414,7 @@ async function loadLive(){
     const started=Date.now();
     ticker=setInterval(()=>{
       const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
-      state.textContent=sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s';
+      state.textContent=recent?'Đang mở lại LIVE gần nhất… '+sec+'s':(sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s');
     },1000);
     timer=setTimeout(()=>ctrl.abort(),30000);
     const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
