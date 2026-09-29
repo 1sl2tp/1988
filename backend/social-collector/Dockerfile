@@ -26,8 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxfixes3 \
     libxkbcommon0 \
     libxrandr2 \
+    python3 \
+    python3-pip \
     xdg-utils \
  && rm -rf /var/lib/apt/lists/*
+
+RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
 
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
