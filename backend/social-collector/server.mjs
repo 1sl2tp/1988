@@ -2,6 +2,9 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import {execFile} from 'node:child_process';
 import {randomUUID,createHash} from 'node:crypto';
+import {writeFile,unlink} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
@@ -72,6 +75,41 @@ let tiktokLiveLibraryRefreshCursor=0;
 let ytdlpSerial=Promise.resolve();
 let tikwmVideoSerial=Promise.resolve();
 let tikwmVideoLastAt=0;
+
+async function execTikTokYtdlp(args,options={}){
+  let cookieFile='';
+  try{
+    let finalArgs=[...(args||[])];
+    if(tiktokApiCookieHeader){
+      const rows=String(tiktokApiCookieHeader)
+        .split(';')
+        .map(part=>part.trim())
+        .filter(Boolean)
+        .map(part=>{
+          const i=part.indexOf('=');
+          if(i<=0)return '';
+          const name=part.slice(0,i).trim();
+          const value=part.slice(i+1).trim();
+          if(!name)return '';
+          return ['.tiktok.com','TRUE','/','TRUE','2147483647',name,value].join('\t');
+        })
+        .filter(Boolean);
+      if(rows.length){
+        cookieFile=join(tmpdir(),'tiktok-ytdlp-'+randomUUID()+'.txt');
+        await writeFile(
+          cookieFile,
+          '# Netscape HTTP Cookie File\n'+rows.join('\n')+'\n',
+          {encoding:'utf8',mode:0o600}
+        );
+        const target=finalArgs.pop();
+        finalArgs.push('--cookies',cookieFile,target);
+      }
+    }
+    return await execFileText('yt-dlp',finalArgs,options);
+  }finally{
+    if(cookieFile)await unlink(cookieFile).catch(()=>{});
+  }
+}
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function nowIso(){return new Date().toISOString();}
@@ -3391,12 +3429,9 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
         '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         '--add-header','Referer:https://www.tiktok.com/@'+handle
       ];
-      if(tiktokApiCookieHeader){
-        args.push('--add-header','Cookie:'+String(tiktokApiCookieHeader));
-      }
       args.push(target);
 
-      const text=await execFileText('yt-dlp',args,{
+      const text=await execTikTokYtdlp(args,{
         timeout:12_000,
         maxBuffer:8*1024*1024
       });
