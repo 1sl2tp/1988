@@ -82,6 +82,10 @@ if(simpleProduction){
   assert.match(html,/function showPlayerAsPip\(/);
   assert.match(html,/classList\.add\(["']inline-overlay["']\)/);
   assert.match(html,/MAIN stage is the permanent player home/);
+  assert.match(html,/@media\(max-width:999px\)\{[\s\S]{0,420}\.media-col\{[\s\S]{0,220}position:absolute!important/);
+  assert.doesNotMatch(html,/@media\(max-width:999px\)\{[\s\S]{0,420}\.media-col\{[\s\S]{0,220}position:fixed!important/);
+  assert.match(html,/\.player\.inline-overlay:not\(\.pip\)[\s\S]{0,420}pointer-events:auto!important/);
+  assert.match(html,/\.player\.pip\{[\s\S]{0,420}pointer-events:auto!important/);
   assert.match(html,/void ensureYoutubePlayer\(\);/);
   assert.match(html,/onError\(event\)/);
   assert.match(html,/youtube_embed_error/);
