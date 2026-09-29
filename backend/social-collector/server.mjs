@@ -226,6 +226,8 @@ function tiktokLibraryMaterial(row){
     String(row?.source||''),
     String(row?.status||''),
     String(row?.sourceSig||''),
+    String(row?.title||''),
+    String(row?.thumbnail||''),
     String(row?.videoCodec||''),
     String(row?.audioCodec||''),
     Number(row?.width||0),
@@ -244,6 +246,8 @@ function publicTikTokLibraryItem(row){
     source:String(row.source||''),
     status:String(row.status||'unknown'),
     sourceSig:String(row.sourceSig||''),
+    title:String(row.title||''),
+    thumbnail:String(row.thumbnail||''),
     videoCodec:String(row.videoCodec||''),
     audioCodec:String(row.audioCodec||''),
     width:Number(row.width||0),
@@ -263,7 +267,7 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   const now=Date.now();
   const prev=tiktokLiveLibrary.get(key)||{
     handle,live:false,ready:false,type:'',mode:'',source:'',
-    status:'unknown',sourceSig:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
+    status:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
   };
   const next={...prev,...patch,handle};
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
@@ -640,6 +644,7 @@ async function warmTikTokLibraryHandle(handle){
           title:String(ytdlp.title||''),
           thumbnail:String(ytdlp.thumbnail||'')
         });
+        void queueTikTokCanonicalSync([handle]);
         tiktokLiveLibraryWarmRetryAt.delete(key);
         console.log('[tiktok-library] yt-dlp warm',handle,seeded.type);
         return true;
