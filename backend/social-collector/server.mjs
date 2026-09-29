@@ -2655,6 +2655,8 @@ async function fetchTikTokProfileIdentity(rawHandle){
       userId:String(detail?.userId||scraped?.userId||''),
       nickname:String(official?.nickname||detail?.nickname||scraped?.nickname||''),
       avatar:String(official?.avatar||detail?.avatar||scraped?.avatar||''),
+      bio:String(detail?.bio||scraped?.bio||''),
+      verified:Boolean(detail?.verified??scraped?.verified??false),
       videoId:String(scraped?.videoId||''),
       followerCount:Number(official?.followerCount||detail?.followerCount||scraped?.followerCount||0),
       followingCount:Number(official?.followingCount||detail?.followingCount||scraped?.followingCount||0),
@@ -2835,6 +2837,8 @@ async function fetchTikwmProfileIdentity(rawHandle){
       userId:String(user?.id||user?.uid||user?.userId||''),
       nickname,
       avatar,
+      bio:String(user?.signature||user?.bio||''),
+      verified:Boolean(user?.verified),
       followerCount:Number(stats?.followerCount||stats?.follower_count||user?.follower_count||0),
       followingCount:Number(stats?.followingCount||stats?.following_count||user?.following_count||0),
       heartCount:Number(stats?.heartCount||stats?.heart||stats?.diggCount||user?.total_favorited||0),
@@ -2881,6 +2885,8 @@ async function fetchTikTokUserDetail(handle){
       userId:String(user?.id||user?.uid||''),
       nickname:String(user?.nickname||''),
       avatar:firstTikTokAssetUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb),
+      bio:String(user?.signature||''),
+      verified:Boolean(user?.verified),
       followerCount:Number(stats?.followerCount||stats?.follower_count||0),
       followingCount:Number(stats?.followingCount||stats?.following_count||0),
       heartCount:Number(stats?.heartCount||stats?.heart||0),
@@ -2927,6 +2933,7 @@ function normalizeTikTokPostItem(handle,row){
     diggCount:Number(stats?.diggCount||stats?.digg_count||0),
     commentCount:Number(stats?.commentCount||stats?.comment_count||0),
     shareCount:Number(stats?.shareCount||stats?.share_count||0),
+    collectCount:Number(stats?.collectCount||stats?.collect_count||stats?.bookmarkCount||0),
     playUrl:firstTikTokAssetUrl(
       row?.play||
       row?.playUrl||
