@@ -2028,6 +2028,35 @@ html.one-col .row-action-menu{
   color:var(--yt-text-secondary);
   font:400 12px/17px Roboto,Arial,sans-serif;
 }
+.row-download-progress{
+  height:3px;
+  margin:2px 10px 9px;
+  overflow:hidden;
+  border-radius:999px;
+  background:rgba(255,255,255,.12);
+}
+.row-download-progress > span{
+  display:block;
+  width:38%;
+  height:100%;
+  border-radius:inherit;
+  background:currentColor;
+  color:var(--yt-text);
+  animation:row-download-sweep .9s ease-in-out infinite;
+}
+.row-download-progress.ready > span{
+  width:100%;
+  animation:none;
+}
+.row-download-progress.error > span{
+  width:100%;
+  opacity:.35;
+  animation:none;
+}
+@keyframes row-download-sweep{
+  from{transform:translateX(-110%)}
+  to{transform:translateX(360%)}
+}
 
 .state{display:none}
 
@@ -4362,37 +4391,72 @@ html.one-col.portrait .player.pip{
     const url=new URL(GETLINK_API_URL);
     url.searchParams.set("id",id);
     url.searchParams.set("kind",kind);
+    url.searchParams.set("json","1");
     url.searchParams.set("_",String(Date.now()));
     return url.toString();
   }
 
-  function showDownloadPending(format="mp4"){
+  function showDownloadPending(format="mp4",state="loading"){
     const menu=ensureRowActionMenu();
-    const label=String(format||"mp4").toLowerCase()==="mp3"
-      ?"Đang lấy âm thanh…"
-      :"Đang lấy video…";
+    const audio=String(format||"mp4").toLowerCase()==="mp3";
+    const label=state==="ready"
+      ?"Đã lấy link · bắt đầu tải…"
+      :state==="error"
+        ?"Không lấy được file. Thử lại."
+        :(audio?"Đang lấy âm thanh…":"Đang lấy video…");
+    const progressClass=state==="ready"
+      ?" ready"
+      :state==="error"
+        ?" error"
+        :"";
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
-      '<div class="row-action-note">'+escapeHtml(label)+'</div>';
+      '<div class="row-action-note">'+escapeHtml(label)+'</div>'+
+      '<div class="row-download-progress'+progressClass+'" aria-hidden="true"><span></span></div>'+
+      (state==="error"
+        ?'<div class="row-action-sep"></div>'+rowActionButton("back-main","Quay lại","back")
+        :"");
     revealRowActionMenu(openRowMenuAnchor);
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=downloadUrl(meta,format);
-    if(!url){
-      window.alert("Không tìm thấy media để tải.");
+    const resolverUrl=downloadUrl(meta,format);
+    if(!resolverUrl){
+      showDownloadPending(format,"error");
       return false;
     }
 
-    const anchor=document.createElement("a");
-    anchor.href=url;
-    anchor.rel="noopener";
-    anchor.download="";
-    anchor.style.display="none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(()=>anchor.remove(),30000);
-    return true;
+    try{
+      const response=await fetch(resolverUrl,{
+        method:"GET",
+        mode:"cors",
+        cache:"no-store",
+        credentials:"omit",
+        headers:{"accept":"application/json"}
+      });
+      const data=await response.json().catch(()=>null);
+      const directUrl=String(data?.url||"").trim();
+      if(!response.ok||!data?.ok||!/^https:\/\//i.test(directUrl)){
+        throw new Error(String(data?.error||"download_resolve_failed"));
+      }
+
+      showDownloadPending(format,"ready");
+
+      const anchor=document.createElement("a");
+      anchor.href=directUrl;
+      anchor.rel="noopener";
+      anchor.download="";
+      anchor.style.display="none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      window.setTimeout(()=>anchor.remove(),30000);
+      window.setTimeout(()=>closeRowActionMenu(),1200);
+      return true;
+    }catch(error){
+      console.warn("download resolve failed",error);
+      showDownloadPending(format,"error");
+      return false;
+    }
   }
 
   async function writeCardSourceStatus(meta,status,scope){
@@ -6233,12 +6297,12 @@ html.one-col.portrait .player.pip{
       }
       if(kind==="download-mp4"){
         showDownloadPending("mp4");
-        void startNativeDownload(meta,"mp4").finally(()=>closeRowActionMenu());
+        void startNativeDownload(meta,"mp4");
         return;
       }
       if(kind==="download-mp3"){
         showDownloadPending("mp3");
-        void startNativeDownload(meta,"mp3").finally(()=>closeRowActionMenu());
+        void startNativeDownload(meta,"mp3");
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
