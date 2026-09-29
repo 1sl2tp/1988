@@ -36,6 +36,14 @@ const tiktokLivePreferBrowser=new Map();
 const tiktokLiveLibrary=new Map();
 const tiktokLiveLibraryRefreshAt=new Map();
 const tiktokLiveSelectedHandles=new Set();
+const tiktokVideoLibrary=new Map();
+const tiktokVideoRefreshAt=new Map();
+let tiktokVideoPackageVersion=0;
+let tiktokVideoPackageUpdatedAt=0;
+let tiktokVideoPackageScanPromise=null;
+let tiktokVideoStoreWritePromise=null;
+let tiktokVideoPersistedVersion=-1;
+const TIKTOK_VIDEO_LIBRARY_REFRESH_MS=60_000;
 let tiktokLivePackageScanPromise=null;
 let tiktokLiveStoreWritePromise=null;
 let tiktokApiCookieHeader='';
@@ -1852,7 +1860,8 @@ async function fetchTikTokProfileIdentity(handle){
       headers:{
         'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7'
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       signal:AbortSignal.timeout(15000)
     });
@@ -1896,6 +1905,325 @@ async function fetchTikTokProfileIdentity(handle){
     console.warn('[tiktok-profile] html identity failed',handle,compactText(error?.message||error,220));
     return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
   }
+}
+
+
+function firstTikTokAssetUrl(value){
+  if(!value)return '';
+  if(typeof value==='string')return value;
+  if(Array.isArray(value)){
+    for(const item of value){
+      const url=firstTikTokAssetUrl(item);
+      if(url)return url;
+    }
+    return '';
+  }
+  if(typeof value==='object'){
+    for(const key of ['urlList','url_list','url','uri']){
+      const url=firstTikTokAssetUrl(value[key]);
+      if(url)return url;
+    }
+  }
+  return '';
+}
+
+function normalizeTikTokPostItem(handle,row){
+  const id=String(row?.id||row?.itemId||row?.aweme_id||'').trim();
+  if(!/^\d{8,}$/.test(id))return null;
+  const stats=row?.stats||row?.statistics||{};
+  const video=row?.video||{};
+  return {
+    id,
+    handle,
+    url:'https://www.tiktok.com/@'+handle+'/video/'+id,
+    title:String(row?.desc||row?.title||row?.description||'').slice(0,300),
+    createTime:Number(row?.createTime||row?.create_time||0),
+    duration:Number(video?.duration||row?.duration||0),
+    cover:firstTikTokAssetUrl(video?.cover||video?.originCover||video?.dynamicCover||row?.cover),
+    playCount:Number(stats?.playCount||stats?.play_count||0),
+    diggCount:Number(stats?.diggCount||stats?.digg_count||0),
+    commentCount:Number(stats?.commentCount||stats?.comment_count||0),
+    shareCount:Number(stats?.shareCount||stats?.share_count||0)
+  };
+}
+
+function tiktokVideoMaterial(row){
+  return JSON.stringify([
+    String(row?.secUid||''),
+    (Array.isArray(row?.videos)?row.videos:[]).map(video=>[
+      String(video?.id||''),
+      String(video?.title||''),
+      Number(video?.createTime||0)
+    ])
+  ]);
+}
+
+function updateTikTokVideoLibrary(rawHandle,patch={}){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return false;
+  const key=handle.toLowerCase();
+  const now=Date.now();
+  const prev=tiktokVideoLibrary.get(key)||{
+    handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,changedAt:0,status:'unknown'
+  };
+  const next={...prev,...patch,handle};
+  next.videos=Array.isArray(next.videos)?next.videos.slice(0,5):[];
+  next.latestVideoId=String(next.videos?.[0]?.id||next.latestVideoId||'');
+  const changed=tiktokVideoMaterial(prev)!==tiktokVideoMaterial(next);
+  if(changed){
+    next.changedAt=now;
+    tiktokVideoPackageVersion+=1;
+    tiktokVideoPackageUpdatedAt=now;
+  }
+  tiktokVideoLibrary.set(key,next);
+  return changed;
+}
+
+async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
+
+  let secUid=String(knownSecUid||'').trim();
+  if(!secUid){
+    const identity=await fetchTikTokProfileIdentity(handle);
+    secUid=String(identity?.secUid||'').trim();
+  }
+  if(!secUid){
+    return {known:false,handle,secUid:'',videos:[],error:'missing_secuid'};
+  }
+
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api/post/item_list/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('count','5');
+    endpoint.searchParams.set('secUid',secUid);
+
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle,
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(5000)
+    });
+    if(!r.ok){
+      return {known:false,handle,secUid,videos:[],error:'http_'+r.status};
+    }
+
+    const body=await r.json();
+    const rawItems=
+      (Array.isArray(body?.itemList)&&body.itemList)||
+      (Array.isArray(body?.item_list)&&body.item_list)||
+      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
+      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
+      (Array.isArray(body?.items)&&body.items)||
+      null;
+
+    if(!Array.isArray(rawItems)){
+      return {known:false,handle,secUid,videos:[],error:'item_list_missing'};
+    }
+
+    const videos=rawItems
+      .map(row=>normalizeTikTokPostItem(handle,row))
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+      .slice(0,5);
+
+    return {
+      known:true,
+      handle,
+      secUid,
+      videos,
+      latestVideoId:String(videos?.[0]?.id||''),
+      hasMore:Boolean(body?.hasMore??body?.has_more),
+      cursor:String(body?.cursor??body?.data?.cursor??'')
+    };
+  }catch(error){
+    return {
+      known:false,handle,secUid,videos:[],
+      error:compactText(error?.message||error,160)
+    };
+  }
+}
+
+async function loadTikTokVideoStore(){
+  try{
+    const [channelsRes,packageRes]=await Promise.all([
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_channels?select=handle,sec_uid,latest_video_id,videos,checked_at,updated_at',
+        {headers:storeHeaders()}
+      ),
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_package?package_key=eq.latest&select=version,payload,updated_at&limit=1',
+        {headers:storeHeaders()}
+      )
+    ]);
+    if(!channelsRes.ok)throw new Error('tiktok_video_channels_read_'+channelsRes.status+':'+await channelsRes.text());
+    if(!packageRes.ok)throw new Error('tiktok_video_package_read_'+packageRes.status+':'+await packageRes.text());
+
+    const rows=await channelsRes.json();
+    const packageRows=await packageRes.json();
+    const storedMap=new Map(
+      (Array.isArray(rows)?rows:[])
+        .map(row=>[String(row?.handle||'').toLowerCase(),row])
+    );
+
+    tiktokVideoLibrary.clear();
+    for(const handle of tiktokLiveSelectedHandles){
+      const stored=storedMap.get(handle.toLowerCase())||{};
+      const videos=Array.isArray(stored?.videos)?stored.videos:[];
+      tiktokVideoLibrary.set(handle.toLowerCase(),{
+        handle,
+        secUid:String(stored?.sec_uid||''),
+        latestVideoId:String(stored?.latest_video_id||videos?.[0]?.id||''),
+        videos:videos.slice(0,5),
+        checkedAt:Date.parse(stored?.checked_at||stored?.updated_at||0)||0,
+        changedAt:0,
+        status:videos.length?'ready':'waiting'
+      });
+    }
+
+    const packageRow=Array.isArray(packageRows)?packageRows[0]:null;
+    tiktokVideoPackageVersion=Number(packageRow?.version||0);
+    tiktokVideoPersistedVersion=tiktokVideoPackageVersion;
+    tiktokVideoPackageUpdatedAt=Date.parse(packageRow?.updated_at||0)||0;
+    console.log('[tiktok-video-store] loaded','channels='+tiktokVideoLibrary.size,'version='+tiktokVideoPackageVersion);
+    return true;
+  }catch(error){
+    console.warn('[tiktok-video-store] load failed',compactText(error?.message||error,220));
+    return false;
+  }
+}
+
+function buildTikTokVideoStoredRows(){
+  const now=nowIso();
+  return [...tiktokLiveSelectedHandles]
+    .map(handle=>{
+      const row=tiktokVideoLibrary.get(handle.toLowerCase())||{
+        handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0
+      };
+      return {
+        handle,
+        sec_uid:String(row.secUid||''),
+        latest_video_id:String(row.latestVideoId||row?.videos?.[0]?.id||''),
+        videos:Array.isArray(row.videos)?row.videos.slice(0,5):[],
+        checked_at:row.checkedAt?new Date(Number(row.checkedAt)).toISOString():null,
+        updated_at:now
+      };
+    })
+    .sort((a,b)=>a.handle.localeCompare(b.handle));
+}
+
+async function persistTikTokVideoStore({force=false}={}){
+  if(!force&&tiktokVideoPersistedVersion===tiktokVideoPackageVersion)return true;
+  if(tiktokVideoStoreWritePromise)return tiktokVideoStoreWritePromise;
+
+  tiktokVideoStoreWritePromise=(async()=>{
+    const rows=buildTikTokVideoStoredRows();
+    const payload={
+      channels:rows.map(row=>({
+        handle:row.handle,
+        secUid:row.sec_uid,
+        latestVideoId:row.latest_video_id,
+        videos:row.videos
+      })),
+      total:rows.length,
+      videoCount:rows.reduce((sum,row)=>sum+row.videos.length,0)
+    };
+    const now=nowIso();
+
+    const [channelsRes,packageRes]=await Promise.all([
+      rows.length?fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_channels?on_conflict=handle',
+        {
+          method:'POST',
+          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+          body:JSON.stringify(rows)
+        }
+      ):Promise.resolve({ok:true,status:204,text:async()=>''}),
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_video_package?on_conflict=package_key',
+        {
+          method:'POST',
+          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+          body:JSON.stringify([{
+            package_key:'latest',
+            version:tiktokVideoPackageVersion,
+            payload,
+            updated_at:now
+          }])
+        }
+      )
+    ]);
+
+    if(!channelsRes.ok)throw new Error('tiktok_video_channels_write_'+channelsRes.status+':'+await channelsRes.text());
+    if(!packageRes.ok)throw new Error('tiktok_video_package_write_'+packageRes.status+':'+await packageRes.text());
+
+    tiktokVideoPersistedVersion=tiktokVideoPackageVersion;
+    console.log('[tiktok-video-store] saved','channels='+rows.length,'videos='+payload.videoCount,'version='+tiktokVideoPackageVersion);
+    return true;
+  })().catch(error=>{
+    console.warn('[tiktok-video-store] save failed',compactText(error?.message||error,220));
+    return false;
+  }).finally(()=>{
+    tiktokVideoStoreWritePromise=null;
+  });
+
+  return tiktokVideoStoreWritePromise;
+}
+
+async function refreshTikTokVideoLibrary(handles=null){
+  const target=(handles&&handles.length)
+    ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
+    : [...tiktokLiveSelectedHandles];
+  if(!target.length)return;
+
+  const now=Date.now();
+  const due=target.filter(
+    handle=>now-Number(tiktokVideoRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_VIDEO_LIBRARY_REFRESH_MS
+  );
+  if(!due.length)return;
+
+  let cursor=0;
+  let okCount=0;
+  let unknownCount=0;
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=due.length)return;
+      const handle=due[index];
+      const key=handle.toLowerCase();
+      tiktokVideoRefreshAt.set(key,Date.now());
+      const current=tiktokVideoLibrary.get(key)||{};
+      const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
+      if(!result?.known){
+        unknownCount+=1;
+        continue;
+      }
+      okCount+=1;
+      updateTikTokVideoLibrary(handle,{
+        secUid:result.secUid,
+        latestVideoId:result.latestVideoId,
+        videos:result.videos,
+        checkedAt:Date.now(),
+        status:'ready'
+      });
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(6,due.length)},()=>worker()));
+  console.log('[tiktok-video-scan]','total='+target.length,'due='+due.length,'ok='+okCount,'unknown='+unknownCount);
+}
+
+function ensureTikTokVideoPackageScan(handles=null){
+  if(tiktokVideoPackageScanPromise)return tiktokVideoPackageScanPromise;
+  tiktokVideoPackageScanPromise=refreshTikTokVideoLibrary(handles)
+    .then(()=>persistTikTokVideoStore())
+    .catch(error=>console.log('[tiktok-video-package] scan failed',compactText(error?.message||error,160)))
+    .finally(()=>{tiktokVideoPackageScanPromise=null;});
+  return tiktokVideoPackageScanPromise;
 }
 
 async function getTikTokProfileSample(rawHandle,limit=6){
@@ -3262,6 +3590,48 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/video-library'&&req.method==='GET'){
+    if(url.searchParams.get('refresh')==='1'){
+      await ensureTikTokVideoPackageScan();
+    }
+
+    const clientVersion=Number(url.searchParams.get('v')||-1);
+    if(clientVersion===tiktokVideoPackageVersion){
+      json(res,200,{
+        ok:true,
+        unchanged:true,
+        version:tiktokVideoPackageVersion,
+        updatedAt:tiktokVideoPackageUpdatedAt
+      });
+      return;
+    }
+
+    const channels=[...tiktokLiveSelectedHandles]
+      .map(handle=>{
+        const row=tiktokVideoLibrary.get(handle.toLowerCase())||{};
+        return {
+          handle,
+          secUid:String(row.secUid||''),
+          latestVideoId:String(row.latestVideoId||''),
+          videos:Array.isArray(row.videos)?row.videos.slice(0,5):[],
+          checkedAt:Number(row.checkedAt||0),
+          status:String(row.status||'waiting')
+        };
+      })
+      .sort((a,b)=>Number(b.videos?.[0]?.createTime||0)-Number(a.videos?.[0]?.createTime||0)||a.handle.localeCompare(b.handle));
+
+    json(res,200,{
+      ok:true,
+      unchanged:false,
+      version:tiktokVideoPackageVersion,
+      updatedAt:tiktokVideoPackageUpdatedAt,
+      total:channels.length,
+      videoCount:channels.reduce((sum,row)=>sum+row.videos.length,0),
+      channels
+    });
+    return;
+  }
+
   if(url.pathname==='/tiktok/live-library'&&req.method==='GET'){
     const handles=String(url.searchParams.get('handles')||'')
       .split(',')
@@ -3534,10 +3904,13 @@ server.listen(PORT,'0.0.0.0',()=>{
   void Promise.all([
     loadTikTokApiCookieHeader(),
     loadTikTokLiveStore()
-  ]).then(()=>{
+  ]).then(async()=>{
+    await loadTikTokVideoStore();
     void ensureTikTokLivePackageScan();
+    void ensureTikTokVideoPackageScan();
   });
   setInterval(()=>{void ensureTikTokLivePackageScan();},3000).unref();
+  setInterval(()=>{void ensureTikTokVideoPackageScan();},60_000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
