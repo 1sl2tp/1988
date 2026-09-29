@@ -367,8 +367,11 @@ function updateCurrentUi(){
     compactCount(identity.heartCount)?compactCount(identity.heartCount)+' thích':'',
     compactCount(identity.latestVideoPlayCount)?compactCount(identity.latestVideoPlayCount)+' xem':''
   ].filter(Boolean).join(' · ');
+  const liveState=row.live
+    ? (row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE')
+    : 'Đang kiểm tra LIVE';
   document.getElementById('nowState').textContent=currentHandle
-    ? ((row.live?(row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE':'Đang kiểm tra LIVE'))+(statsText?' · '+statsText:''))
+    ? liveState+(statsText?' · '+statsText:'')
     : 'Sẵn sàng';
 
   const av=document.getElementById('nowAvatar');
