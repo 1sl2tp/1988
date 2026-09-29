@@ -498,6 +498,12 @@ async function addChannel(){
     showToast('Link hoặc @handle chưa đúng');
     return;
   }
+
+  // Open uses the exact same path as clicking a channel in the list.
+  // Saving and package refresh happen in parallel and never block playback.
+  openChannel(handle);
+  void hydrateIdentity(handle);
+
   mutationBusy=true;
   const btn=document.getElementById('addBtn');
   btn.disabled=true;btn.textContent='Đang thêm…';
@@ -508,13 +514,30 @@ async function addChannel(){
       body:JSON.stringify({handle,selected:true})
     });
     input.value='';
+
+    const key=handle.toLowerCase();
+    const index=channels.findIndex(row=>String(row.handle||'').toLowerCase()===key);
+    const next={
+      handle,
+      live:Boolean(data.live),
+      ready:Boolean(data.ready),
+      type:String(data.type||''),
+      sourceSig:String(data.sourceSig||''),
+      status:data.live?'live':'checking',
+      changedAt:Date.now()
+    };
+    if(index>=0)channels[index]={...channels[index],...next};
+    else channels.unshift(next);
+
+    renderList();
+    updateCurrentUi();
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
+
     packageVersion=-1;
-    await loadChannels({force:true});
-    void hydrateIdentity(handle);
-    openChannel(handle);
+    void loadChannels({force:true,silent:true});
   }catch(error){
-    showToast('Thêm thất bại: '+String(error.message||error));
+    showToast('Lưu thất bại, LIVE vẫn đang mở');
+    console.warn(error);
   }finally{
     mutationBusy=false;
     btn.disabled=false;btn.textContent='Thêm kênh';
@@ -547,12 +570,20 @@ async function removeChannel(rawHandle){
     mutationBusy=false;
   }
 }
-function attachFlv(url,handle,knownSig=''){
+function attachFlv(url,handle,knownSig='',allowFallback=true){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
+  let failed=false;
   const p=flvjs.createPlayer(
     {type:'flv',isLive:true,url},
-    {enableStashBuffer:true,stashInitialSize:384*1024,lazyLoad:false}
+    {
+      enableStashBuffer:false,
+      stashInitialSize:64*1024,
+      lazyLoad:false,
+      autoCleanupSourceBuffer:true,
+      autoCleanupMaxBackwardDuration:30,
+      autoCleanupMinBackwardDuration:12
+    }
   );
   p.attachMediaElement(video);
   p.load();
@@ -561,17 +592,29 @@ function attachFlv(url,handle,knownSig=''){
     video.play().catch(()=>{});
   });
   p.on(flvjs.Events.ERROR,()=>{
+    if(failed)return;
+    failed=true;
+
+    // A prepared package source may have just expired. Fall back once to the
+    // direct compatible relay instead of making the user click again.
+    if(allowFallback&&knownSig&&handle===currentHandle){
+      document.getElementById('nowState').textContent='Đổi sang FLV trực tiếp…';
+      const direct=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&compat=1&t='+Date.now();
+      setTimeout(()=>attachFlv(direct,handle,'',false),0);
+      return;
+    }
     document.getElementById('nowState').textContent='Không mở được FLV';
   });
   player=p;
   video.onplaying=()=>{
+    failed=true;
     setPlayerShape(video);
     document.getElementById('nowState').textContent='LIVE · FLV';
     fetch(
       API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
       {cache:'no-store'}
     ).catch(()=>{}).finally(()=>{
-      setTimeout(()=>loadChannels({force:true,silent:true}),500);
+      setTimeout(()=>loadChannels({force:true,silent:true}),300);
     });
   };
 }
