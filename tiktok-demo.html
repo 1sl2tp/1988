@@ -14,7 +14,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(15,15,15,.94);backdrop-fi
 .head{max-width:900px;margin:auto;padding:12px 16px;display:flex;align-items:center;gap:10px}.head strong{font-size:19px}.head span{color:var(--muted);font-size:13px}.spacer{flex:1}
 button,a.btn{border:0;background:#292929;color:#fff;border-radius:18px;padding:9px 13px;text-decoration:none;font-size:13px;cursor:pointer}
 main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size:13px;margin:0 0 14px}
-.tester{display:flex;gap:8px;align-items:center;margin:0 0 10px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.saved{display:flex;gap:7px;overflow-x:auto;padding:0 0 14px;scrollbar-width:none}.saved::-webkit-scrollbar{display:none}.saved button{flex:0 0 auto;padding:7px 10px;font-size:12px}.saved button.active{background:#fff;color:#111}
+.tester{display:flex;gap:8px;align-items:center;margin:0 0 10px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.libhead{display:flex;align-items:center;gap:8px;margin:2px 0 8px}.libhead strong{font-size:13px}.libhead span{margin-left:auto;color:var(--muted);font-size:11px}.saved{display:flex;gap:7px;overflow-x:auto;padding:0 0 14px;scrollbar-width:none}.saved::-webkit-scrollbar{display:none}.saved button{flex:0 0 auto;padding:7px 10px;font-size:12px;display:flex;align-items:center;gap:6px}.saved button.active{background:#fff;color:#111}.saved .libmeta{font-size:10px;opacity:.7}.saved .liveflag{font-size:9px;font-weight:800}.saved .liveflag.on{color:var(--tt)}
 .grid{display:grid;grid-template-columns:1fr;gap:14px}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
 .cardhead{padding:12px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:800}.badge{background:var(--tt);border-radius:5px;padding:4px 7px;font-size:11px}.sub{margin-left:auto;color:var(--muted);font-size:12px;font-weight:500}
 .body{min-height:480px;display:flex;align-items:center;justify-content:center;background:#111}.status{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px}
@@ -34,6 +34,7 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
     <button id="testLiveBtn">Test</button>
     <button id="saveLiveBtn">Lưu</button>
   </div>
+  <div class="libhead"><strong>Thư viện LIVE</strong><span id="liveLibrarySummary">Đang dùng cache…</span></div>
   <div id="savedLiveLinks" class="saved"></div>
   <section class="grid">
     <article class="card">
@@ -56,10 +57,15 @@ const DEFAULT_HANDLE='nhungnhoii205';
 const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
 const RECENT_KEY='tiktokDemoRecentLiveStatesV2';
+const LIVE_LIBRARY_KEY='tiktokDemoLiveLibraryV1';
 const RECENT_MS=10*60*1000;
+const LIVE_LIBRARY_POLL_MS=5000;
 let HANDLE=DEFAULT_HANDLE;
 let player=null;
 let liveSoundWanted=false;
+let liveLibraryVersion=-1;
+let liveLibraryItems={};
+let liveLibrarySyncBusy=false;
 
 function parseTikTokHandle(value){
   const raw=String(value||'').trim();
@@ -72,6 +78,102 @@ function parseTikTokHandle(value){
 function liveUrlFor(handle){
   return 'https://www.tiktok.com/@'+handle+'/live';
 }
+function loadLocalLiveLibrary(){
+  try{
+    const data=JSON.parse(localStorage.getItem(LIVE_LIBRARY_KEY)||'{}');
+    liveLibraryVersion=Number(data?.version??-1);
+    const rows=Array.isArray(data?.items)?data.items:[];
+    liveLibraryItems=Object.fromEntries(
+      rows.filter(row=>parseTikTokHandle(row?.handle||''))
+        .map(row=>[String(row.handle).toLowerCase(),row])
+    );
+  }catch{
+    liveLibraryVersion=-1;
+    liveLibraryItems={};
+  }
+}
+function saveLocalLiveLibrary(){
+  const payload={
+    version:liveLibraryVersion,
+    items:Object.values(liveLibraryItems)
+  };
+  const next=JSON.stringify(payload);
+  if(localStorage.getItem(LIVE_LIBRARY_KEY)!==next){
+    localStorage.setItem(LIVE_LIBRARY_KEY,next);
+  }
+}
+function liveLibraryItem(handle){
+  const key=String(handle||'').toLowerCase();
+  const row=liveLibraryItems[key];
+  if(row)return row;
+  const recent=recentLiveState(handle);
+  return recent?{
+    handle,
+    live:true,
+    ready:true,
+    type:String(recent.type||''),
+    mode:String(recent.mode||'cache'),
+    status:'local-cache',
+    changedAt:Number(recent.at||0),
+    confirmedAt:Number(recent.at||0)
+  }:null;
+}
+function liveLibraryAge(row){
+  const at=Number(row?.changedAt||row?.confirmedAt||0);
+  if(!at)return '';
+  const age=Date.now()-at;
+  if(age<2*60*1000)return 'mới';
+  if(age<10*60*1000)return 'gần';
+  return 'cũ';
+}
+function libraryHandles(){
+  return [...new Set([
+    HANDLE,
+    ...savedLiveLinks().map(parseTikTokHandle)
+  ].filter(Boolean))].slice(0,20);
+}
+async function syncLiveLibrary({force=false}={}){
+  if(liveLibrarySyncBusy)return;
+  const handles=libraryHandles();
+  if(!handles.length)return;
+  liveLibrarySyncBusy=true;
+  try{
+    const v=force?-1:liveLibraryVersion;
+    const r=await fetch(
+      API+'/tiktok/live-library?handles='+encodeURIComponent(handles.join(','))+
+      '&refresh=1&v='+encodeURIComponent(v)+'&t='+Date.now(),
+      {cache:'no-store'}
+    );
+    const data=await r.json();
+    if(!r.ok||!data?.ok)return;
+    if(data.unchanged){
+      const summary=document.getElementById('liveLibrarySummary');
+      if(summary)summary.textContent='Cache · không đổi · v'+String(data.version??liveLibraryVersion);
+      return;
+    }
+    if(Array.isArray(data.items)){
+      liveLibraryItems=Object.fromEntries(
+        data.items.map(row=>[String(row.handle||'').toLowerCase(),row])
+      );
+      liveLibraryVersion=Number(data.version??liveLibraryVersion);
+      saveLocalLiveLibrary();
+      renderSavedLiveLinks();
+    }
+  }catch{}
+  finally{liveLibrarySyncBusy=false}
+}
+function openLiveFromLibrary(row){
+  if(!row?.type)return false;
+  const state=document.getElementById('liveState');
+  const box=document.getElementById('liveBox');
+  const age=liveLibraryAge(row);
+  state.textContent='Mở cache · '+String(row.type).toUpperCase()+(age?' · '+age:'');
+  box.innerHTML='<div class="status">Mở ngay nguồn LIVE đã có trong thư viện…</div>';
+  const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+  attachLive(String(row.type).toLowerCase(),relay,true);
+  return true;
+}
+
 function setCurrentLive(value,{reload=true}={}){
   const handle=parseTikTokHandle(value);
   if(!handle)return false;
@@ -87,7 +189,13 @@ function setCurrentLive(value,{reload=true}={}){
   const open=document.getElementById('liveOpen');
   if(open)open.href=url;
   renderSavedLiveLinks();
-  if(reload)loadLive();
+  if(reload){
+    const cached=liveLibraryItem(handle);
+    if(!(cached?.live&&cached?.ready&&cached?.type&&openLiveFromLibrary(cached))){
+      loadLive();
+    }
+    void syncLiveLibrary();
+  }
   return true;
 }
 function savedLiveLinks(){
@@ -128,7 +236,9 @@ function sendLiveFeedback(status,type){
     '&status='+encodeURIComponent(status)+
     '&type='+encodeURIComponent(String(type||'').toLowerCase())+
     '&t='+Date.now();
-  fetch(url,{cache:'no-store'}).catch(()=>{});
+  fetch(url,{cache:'no-store'})
+    .then(()=>setTimeout(()=>{void syncLiveLibrary({force:true})},180))
+    .catch(()=>{});
 }
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
@@ -139,18 +249,47 @@ function saveCurrentLive(){
   localStorage.setItem(SAVED_KEY,JSON.stringify(next));
   setCurrentLive(url,{reload:false});
   renderSavedLiveLinks();
+  void syncLiveLibrary({force:true});
 }
 function renderSavedLiveLinks(){
   const root=document.getElementById('savedLiveLinks');
   if(!root)return;
-  const rows=savedLiveLinks();
-  root.innerHTML=rows.map(url=>{
-    const handle=parseTikTokHandle(url);
+  const urls=savedLiveLinks();
+  const handles=[...new Set([HANDLE,...urls.map(parseTikTokHandle)].filter(Boolean))];
+  const liveCount=handles.filter(handle=>liveLibraryItem(handle)?.live).length;
+  const readyCount=handles.filter(handle=>liveLibraryItem(handle)?.ready).length;
+  const summary=document.getElementById('liveLibrarySummary');
+  if(summary)summary.textContent='LIVE '+liveCount+' · sẵn '+readyCount+' · cache v'+Math.max(0,liveLibraryVersion);
+
+  root.innerHTML=handles.map(handle=>{
+    const row=liveLibraryItem(handle);
     const active=handle===HANDLE?' active':'';
-    return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">@'+handle+'</button>';
+    const live=row?.live===true;
+    const type=String(row?.type||'').toUpperCase();
+    const age=liveLibraryAge(row);
+    const meta=[
+      live?(row?.ready?'LIVE':'đang sống'):(row?.status==='offline'?'offline':'cache'),
+      type,
+      age
+    ].filter(Boolean).join(' · ');
+    return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">'+
+      '<span>@'+handle+'</span>'+
+      '<span class="liveflag '+(live?'on':'')+'">'+(live?'●':'○')+'</span>'+
+      (meta?'<span class="libmeta">'+meta+'</span>':'')+
+      '</button>';
   }).join('');
+
   root.querySelectorAll('[data-live-handle]').forEach(btn=>{
-    btn.onclick=()=>{liveSoundWanted=true;setCurrentLive(btn.dataset.liveHandle)};
+    btn.onclick=()=>{
+      liveSoundWanted=true;
+      const handle=btn.dataset.liveHandle;
+      const row=liveLibraryItem(handle);
+      setCurrentLive(handle,{reload:false});
+      if(!(row?.live&&row?.ready&&row?.type&&openLiveFromLibrary(row))){
+        loadLive();
+      }
+      void syncLiveLibrary();
+    };
   });
 }
 
@@ -466,11 +605,19 @@ async function loadVideo(){
   }
 }
 
-async function loadLive(){
+async function loadLive({forceResolve=false}={}){
   destroyPlayer();
   const state=document.getElementById('liveState');
   const box=document.getElementById('liveBox');
   const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+
+  if(!forceResolve){
+    const library=liveLibraryItem(HANDLE);
+    if(library?.live&&library?.ready&&library?.type){
+      openLiveFromLibrary(library);
+      return;
+    }
+  }
 
   const recent=recentLiveState(HANDLE);
   state.textContent=recent?'Đang kiểm tra LIVE gần nhất…':'Đang tìm LIVE nhanh…';
@@ -510,7 +657,12 @@ function load(){
   loadLive();
 }
 
-document.getElementById('reload').onclick=()=>{liveSoundWanted=true;load()};
+document.getElementById('reload').onclick=()=>{
+  liveSoundWanted=true;
+  loadVideo();
+  loadLive({forceResolve:true});
+  void syncLiveLibrary({force:true});
+};
 document.getElementById('testLiveBtn').onclick=()=>{
   liveSoundWanted=true;
   const input=document.getElementById('liveLinkInput');
@@ -527,7 +679,10 @@ document.getElementById('testLiveBtn').onclick=()=>{
   }
   if(!setCurrentLive(input?.value||''))input?.focus();
 };
-document.getElementById('saveLiveBtn').onclick=saveCurrentLive;
+document.getElementById('saveLiveBtn').onclick=()=>{
+  saveCurrentLive();
+  void syncLiveLibrary({force:true});
+};
 document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     e.preventDefault();
@@ -536,9 +691,12 @@ document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
   }
 });
 
+loadLocalLiveLibrary();
 const savedCurrent=localStorage.getItem(CURRENT_KEY)||liveUrlFor(DEFAULT_HANDLE);
 setCurrentLive(savedCurrent,{reload:false});
 renderSavedLiveLinks();
+void syncLiveLibrary({force:true});
+setInterval(()=>{void syncLiveLibrary()},LIVE_LIBRARY_POLL_MS);
 load();
 </script>
 </body>
