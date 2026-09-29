@@ -1,8 +1,9 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import {execFile} from 'node:child_process';
+import {createReadStream} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
-import {writeFile,unlink} from 'node:fs/promises';
+import {writeFile,unlink,stat,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import chromium from '@sparticuz/chromium';
@@ -44,6 +45,10 @@ const tiktokLiveSelectedHandles=new Set();
 const tiktokVideoLibrary=new Map();
 const tiktokVideoSourceCache=new Map();
 const tiktokVideoSourceInflight=new Map();
+const tiktokVideoFileCache=new Map();
+const tiktokVideoFileInflight=new Map();
+const TIKTOK_VIDEO_FILE_CACHE_DIR=join(tmpdir(),'yt1988-tiktok-mp4');
+const TIKTOK_VIDEO_FILE_TTL_MS=30*60*1000;
 const TIKTOK_VIDEO_SOURCE_TTL_MS=12*60*1000;
 const TIKTOK_VIDEO_SOURCE_WARM_BATCH=4;
 let tiktokVideoSourceWarmCursor=0;
@@ -3608,6 +3613,98 @@ async function enrichNextTikTokCanonicalVideo(){
   }
 }
 
+async function downloadTikTokVideoFile(rawHandle,rawId,{force=false}={}){
+  const handle=normalizeTikTokHandle(rawHandle);
+  const id=String(rawId||'').trim();
+  if(!handle||!/^[0-9]{8,}$/.test(id))throw new Error('invalid_tiktok_video');
+  const key=handle.toLowerCase()+':'+id;
+  if(force){
+    const prev=tiktokVideoFileCache.get(key);
+    tiktokVideoFileCache.delete(key);
+    if(prev?.path)void unlink(prev.path).catch(()=>{});
+  }
+  const cached=tiktokVideoFileCache.get(key);
+  if(cached?.path&&Date.now()-Number(cached.at||0)<TIKTOK_VIDEO_FILE_TTL_MS){
+    try{
+      const info=await stat(cached.path);
+      if(info.size>1024)return {...cached,size:info.size};
+    }catch{}
+    tiktokVideoFileCache.delete(key);
+  }
+  const inflight=tiktokVideoFileInflight.get(key);
+  if(inflight)return inflight;
+
+  const task=(async()=>{
+    await mkdir(TIKTOK_VIDEO_FILE_CACHE_DIR,{recursive:true});
+    const path=join(TIKTOK_VIDEO_FILE_CACHE_DIR,handle.replace(/[^A-Za-z0-9._-]/g,'_')+'-'+id+'-'+Date.now()+'.mp4');
+    const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
+    try{
+      await enqueueYtdlp(()=>execTikTokYtdlp([
+        '--no-playlist',
+        '--no-warnings',
+        '--socket-timeout','10',
+        '--retries','2',
+        '--extractor-retries','1',
+        '--format','best[ext=mp4]/best',
+        '--output',path,
+        '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        '--add-header','Referer:https://www.tiktok.com/@'+handle,
+        pageUrl
+      ],{timeout:60_000,maxBuffer:4*1024*1024}));
+      const info=await stat(path);
+      if(info.size<=1024)throw new Error('tiktok_video_file_empty');
+      const row={at:Date.now(),handle,id,path,size:info.size,source:'yt-dlp-file'};
+      tiktokVideoFileCache.set(key,row);
+      console.log('[tiktok-video-file]',handle,id,'ready','bytes='+info.size);
+      return row;
+    }catch(error){
+      await unlink(path).catch(()=>{});
+      throw error;
+    }
+  })().finally(()=>tiktokVideoFileInflight.delete(key));
+
+  tiktokVideoFileInflight.set(key,task);
+  return task;
+}
+
+async function serveTikTokVideoFile(req,res,file){
+  const info=await stat(file.path);
+  const size=Number(info.size||file.size||0);
+  if(!size)throw new Error('tiktok_video_file_empty');
+  let start=0;
+  let end=size-1;
+  let status=200;
+  const rawRange=String(req.headers.range||'').trim();
+  const match=rawRange.match(/^bytes=(\d*)-(\d*)$/i);
+  if(match){
+    if(match[1])start=Math.min(size-1,Math.max(0,Number(match[1])||0));
+    if(match[2])end=Math.min(size-1,Math.max(start,Number(match[2])||0));
+    status=206;
+  }
+  const length=end-start+1;
+  const headers={
+    'content-type':'video/mp4',
+    'content-length':String(length),
+    'accept-ranges':'bytes',
+    'access-control-allow-origin':ORIGIN,
+    'access-control-allow-methods':'GET,OPTIONS',
+    'access-control-allow-headers':'range',
+    'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
+    'cache-control':'private, max-age=300',
+    'x-accel-buffering':'no'
+  };
+  if(status===206)headers['content-range']='bytes '+start+'-'+end+'/'+size;
+  res.writeHead(status,headers);
+  await new Promise((resolve,reject)=>{
+    const stream=createReadStream(file.path,{start,end});
+    stream.on('error',reject);
+    stream.on('end',resolve);
+    req.on('close',()=>stream.destroy());
+    stream.pipe(res,{end:true});
+  });
+  return {ok:true,status};
+}
+
 async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
   const handle=normalizeTikTokHandle(rawHandle);
   const id=String(rawId||'').trim();
@@ -3711,7 +3808,7 @@ async function warmTikTokVideoSources(limit=TIKTOK_VIDEO_SOURCE_WARM_BATCH){
     let ok=0;
     for(const row of candidates){
       try{
-        await resolveTikTokVideoSource(row.handle,row.video_id);
+        await downloadTikTokVideoFile(row.handle,row.video_id);
         ok+=1;
       }catch(error){
         console.log('[tiktok-video-warm] failed',row.handle,row.video_id,compactText(error?.message||error,100));
@@ -6373,26 +6470,14 @@ const server=http.createServer(async(req,res)=>{
         json(res,400,{ok:false,error:'invalid_tiktok_video'});
         return;
       }
-      let source=await resolveTikTokVideoSource(handle,id);
-      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source='+String(source.source||'cache'));
-      let piped=await pipeTikTokTarget(req,res,source.url,{
-        fallbackType:'video/mp4',
-        handle:'',
-        headersOverride:source.headers,
-        deferError:true
-      });
-      if(piped?.ok===false&&!res.headersSent){
-        const key=handle.toLowerCase()+':'+id;
-        tiktokVideoSourceCache.delete(key);
-        source=await resolveTikTokVideoSource(handle,id,{force:true});
-        piped=await pipeTikTokTarget(req,res,source.url,{
-          fallbackType:'video/mp4',
-          handle:'',
-          headersOverride:source.headers
-        });
-      }
-      if(piped?.ok===false&&!res.headersSent){
-        json(res,502,{ok:false,error:'video_source_failed'});
+      let file=await downloadTikTokVideoFile(handle,id);
+      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source=file');
+      try{
+        await serveTikTokVideoFile(req,res,file);
+      }catch(error){
+        if(res.headersSent)throw error;
+        file=await downloadTikTokVideoFile(handle,id,{force:true});
+        await serveTikTokVideoFile(req,res,file);
       }
     }catch(error){
       console.warn('[tiktok-video-stream] failed',compactText(error?.stderr||error?.message||error,220));
