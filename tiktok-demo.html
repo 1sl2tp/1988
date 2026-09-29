@@ -151,7 +151,7 @@ async function syncLiveLibrary({force=false}={}){
     const v=force?-1:liveLibraryVersion;
     const r=await fetch(
       API+'/tiktok/live-library?handles='+encodeURIComponent(handles.join(','))+
-      '&refresh=1&v='+encodeURIComponent(v)+'&t='+Date.now(),
+      '&refresh=0&v='+encodeURIComponent(v)+'&t='+Date.now(),
       {cache:'no-store'}
     );
     const data=await r.json();
@@ -385,16 +385,8 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
     (sourceSig?'&source='+encodeURIComponent(sourceSig):'')+'&t='+Date.now();
   const proxyAll=proxy+'&segments=proxy';
 
-  let pictureTimer=null;
-  let confirmedGood=false;
-  let lastProgressAt=Date.now();
-  let lastProgressTime=0;
-  let progressStartedAt=0;
   let usingSegmentProxy=false;
-
-  const clearPictureTimer=()=>{
-    if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
-  };
+  let failedOnce=false;
   const play=async()=>{
     video.volume=1;
     video.muted=!liveSoundWanted;
@@ -406,25 +398,24 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
     }
   };
   const markBad=()=>{
-    if(PLAYING_HANDLE!==streamHandle)return;
-    sendLiveFeedback('bad',type,streamHandle);
+    if(failedOnce||PLAYING_HANDLE!==streamHandle)return;
+    failedOnce=true;
     PENDING_HANDLE=streamHandle;
-    if(state)state.textContent='Nguồn LIVE đổi · đang chuẩn bị nguồn mới ngầm';
-    void syncLiveLibrary({force:true});
-  };
-  const confirmGood=()=>{
-    if(confirmedGood||PLAYING_HANDLE!==streamHandle)return;
-    const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
-    const stableMs=progressStartedAt?Date.now()-progressStartedAt:0;
-    if(w>0&&h>0&&lastProgressTime>0.6&&stableMs>=8000){
-      confirmedGood=true;
-      sendLiveFeedback('ok',type,streamHandle);
-    }
+    if(state)state.textContent='LIVE · đang lấy FLV mới';
+
+    // UI does not classify or probe anything. It only reports a real media
+    // failure; the server refreshes its package and publishes a fresh FLV.
+    fetch(
+      API+'/tiktok/live-feedback?user='+encodeURIComponent(streamHandle)+
+      '&status=bad&type='+encodeURIComponent(type)+'&t='+Date.now(),
+      {cache:'no-store'}
+    ).catch(()=>{}).finally(()=>{
+      setTimeout(()=>{void syncLiveLibrary({force:true})},250);
+    });
   };
   const fitByVideoShape=()=>{
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
     if(!w||!h)return;
-    clearPictureTimer();
     shell.classList.remove('landscape','portrait','square');
     const ratio=w/h;
     if(ratio>1.12)shell.classList.add('landscape');
@@ -432,53 +423,20 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
     else shell.classList.add('square');
     shell.style.aspectRatio=w+' / '+h;
     if(state&&PLAYING_HANDLE===streamHandle)state.textContent='LIVE · '+type.toUpperCase()+' · '+w+'×'+h;
-    confirmGood();
-  };
-  const armPictureTimer=(ms=5500)=>{
-    clearPictureTimer();
-    pictureTimer=setTimeout(()=>{
-      if(PLAYING_HANDLE!==streamHandle)return;
-      const hasPicture=Boolean(video.videoWidth&&video.videoHeight);
-      const progressed=Number(video.currentTime||0)>0.15;
-      if(!hasPicture||!progressed)markBad();
-    },ms);
   };
 
   video.onloadedmetadata=()=>{fitByVideoShape();void play()};
   video.onresize=fitByVideoShape;
   video.onloadeddata=()=>{fitByVideoShape();void play()};
-  video.onplaying=()=>{fitByVideoShape()};
-  video.ontimeupdate=()=>{
-    if(PLAYING_HANDLE!==streamHandle)return;
-    const t=Number(video.currentTime||0);
-    if(t>lastProgressTime+0.12){
-      if(!progressStartedAt)progressStartedAt=Date.now();
-      lastProgressTime=t;
-      lastProgressAt=Date.now();
-      confirmGood();
-    }
-  };
+  video.onplaying=fitByVideoShape;
+  video.ontimeupdate=null;
+  video.onstalled=null;
+  video.onerror=markBad;
   video.onended=markBad;
-  video.onstalled=()=>{
-    if(Number(video.currentTime||0)>0.6&&Date.now()-lastProgressAt>3500)markBad();
-  };
-  video.onerror=()=>markBad();
-
-  const stallTimer=setInterval(()=>{
-    if(PLAYING_HANDLE!==streamHandle||!document.body.contains(video)){
-      clearInterval(stallTimer);
-      return;
-    }
-    if(lastProgressTime>0.6&&!video.paused&&Date.now()-lastProgressAt>6500){
-      clearInterval(stallTimer);
-      markBad();
-    }
-  },1800);
 
   const loadHls=src=>{
     if(video.canPlayType('application/vnd.apple.mpegurl')){
       video.src=src;
-      armPictureTimer();
       void play();
       return;
     }
@@ -496,7 +454,7 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
       });
       h.loadSource(src);
       h.attachMedia(video);
-      h.on(Hls.Events.MANIFEST_PARSED,()=>{armPictureTimer();void play()});
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{void play()});
       h.on(Hls.Events.FRAG_BUFFERED,fitByVideoShape);
       h.on(Hls.Events.ERROR,(_,d)=>{
         if(
@@ -516,7 +474,6 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
       return;
     }
     video.src=src;
-    armPictureTimer();
     void play();
   };
 
@@ -541,7 +498,6 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
   }
 
   video.src=src;
-  armPictureTimer();
   void play();
 }
 
@@ -599,8 +555,9 @@ const savedCurrent=localStorage.getItem(CURRENT_KEY)||liveUrlFor(DEFAULT_HANDLE)
 setCurrentLive(savedCurrent,{playIfReady:false});
 renderSavedLiveLinks();
 void syncLiveLibrary({force:true});
-// Temporary: one library scan on load only. Repeated UI polling is disabled
-// while the backend LIVE/FLV classifier is being verified.
+// UI only checks whether the server package version changed. It does not
+// classify channels, probe sources, or run media health timers.
+setInterval(()=>{void syncLiveLibrary()},LIVE_LIBRARY_POLL_MS);
 
 load();
 </script>
