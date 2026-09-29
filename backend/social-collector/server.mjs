@@ -2197,6 +2197,7 @@ function liveProxyHeaders(req){
   return headers;
 }
 async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',proxySegments=false,headersOverride=null}={}){
+  try{res.socket?.setNoDelay?.(true)}catch{}
   const session=handle?tiktokLiveSessions.get(String(handle).toLowerCase()):null;
   const headers=headersOverride||(
     session?await liveSessionHeaders(req,session,targetUrl):liveProxyHeaders(req)
@@ -2223,7 +2224,8 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
       'access-control-allow-methods':'GET,OPTIONS',
       'access-control-allow-headers':'range',
       'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
-      'cache-control':'no-store'
+      'cache-control':'no-store',
+      'x-accel-buffering':'no'
     });
     res.end(body);
     return;
@@ -2234,7 +2236,8 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
     'access-control-allow-methods':'GET,OPTIONS',
     'access-control-allow-headers':'range',
     'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
-    'cache-control':'no-store'
+    'cache-control':'no-store',
+    'x-accel-buffering':'no'
   };
   for(const key of ['content-length','content-range','accept-ranges']){
     const value=upstream.headers.get(key);
