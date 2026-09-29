@@ -888,6 +888,86 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok-info'){
+    try{
+      const session=await loadSession('tiktok');
+      const cookies=cookieParams(session?.state?.cookies||[]);
+      const browser=await getBrowser();
+      const page=await browser.newPage();
+      try{
+        if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
+        await page.setViewport({width:1280,height:900,deviceScaleFactor:1});
+        await page.setUserAgent(
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+        );
+        await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+        await page.goto('https://www.tiktok.com/foryou?lang=vi-VN&region=VN',{
+          waitUntil:'domcontentloaded',
+          timeout:20000
+        }).catch(()=>{});
+        await sleep(1200);
+
+        const account=await page.evaluate(()=>{
+          const body=String(document.body?.innerText||'').replace(/\s+/g,' ').trim();
+          const profileAnchor=[...document.querySelectorAll('a[href^="/@"]')]
+            .find(a=>a.querySelector('img')||/profile|hồ sơ|trang cá nhân/i.test(String(a.textContent||'')));
+          const href=String(profileAnchor?.getAttribute('href')||'');
+          const m=href.match(/^\/@([^/?#]+)/);
+          const username=m?m[1]:null;
+          return {
+            username,
+            profileUrl:username?('https://www.tiktok.com/@'+username):null,
+            loggedIn:Boolean(username)||!/Log in|Đăng nhập/i.test(body.slice(0,1200))
+          };
+        }).catch(()=>({username:null,profileUrl:null,loggedIn:false}));
+
+        await page.goto('https://www.tiktok.com/live?lang=vi-VN&region=VN',{
+          waitUntil:'domcontentloaded',
+          timeout:20000
+        }).catch(()=>{});
+        await sleep(1400);
+        for(let i=0;i<3;i+=1){
+          await page.evaluate(()=>window.scrollBy(0,Math.max(700,innerHeight*.8))).catch(()=>{});
+          await sleep(450);
+        }
+
+        const lives=await page.evaluate(()=>{
+          const out=[]; const seen=new Set();
+          for(const a of document.querySelectorAll('a[href]')){
+            const href=String(a.href||'');
+            const m=href.match(/tiktok\.com\/@([^/?#]+)\/live/i);
+            if(!m)continue;
+            const id=m[1];
+            if(seen.has(id))continue;
+            seen.add(id);
+            const card=a.closest('[data-e2e],article,div');
+            const text=String(card?.innerText||a.innerText||'').replace(/\s+/g,' ').trim();
+            out.push({
+              id,
+              url:'https://www.tiktok.com/@'+id+'/live',
+              title:text.slice(0,160)
+            });
+            if(out.length>=5)break;
+          }
+          return out;
+        }).catch(()=>[]);
+
+        json(res,200,{
+          ok:true,
+          account,
+          liveCount:lives.length,
+          lives
+        });
+      }finally{
+        await page.close().catch(()=>{});
+      }
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/status'){
     const snapshots={};
     for(const p of PLATFORMS){
