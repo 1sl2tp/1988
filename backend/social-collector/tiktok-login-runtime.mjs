@@ -346,6 +346,7 @@ export function createTikTokLoginRuntime({
 
   async function start({restart=false}={}){
     if(restart)await close();
+
     if(page&&!page.isClosed()){
       if(!qr&&state.status!=='success')await captureQr();
       return snapshot();
@@ -353,39 +354,47 @@ export function createTikTokLoginRuntime({
 
     set({status:'starting',username:null,userId:null,error:null});
     qr=null;
-    const browser=await getBrowser();
-    page=await browser.newPage();
-    await page.setViewport({width:900,height:760,deviceScaleFactor:2});
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
-      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
-    await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(()=>{});
 
-    if(!restart&&await restoreSavedSession())return snapshot();
+    try{
+      logger.info?.('[tiktok-login] start browser page');
+      const browser=await getBrowser();
+      page=await browser.newPage();
 
-    await close();
-    page=await browser.newPage();
-    await page.setViewport({width:900,height:760,deviceScaleFactor:2});
-    await page.setUserAgent(
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
-      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
-    await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(()=>{});
-    await attachNetwork();
+      await page.setViewport({width:900,height:760,deviceScaleFactor:2});
+      await page.setUserAgent(
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+      );
+      await page.setExtraHTTPHeaders({
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'
+      });
+      await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(()=>{});
 
-    await page.goto('https://www.tiktok.com/login/qrcode?lang=vi-VN',{
-      waitUntil:'domcontentloaded',
-      timeout:30000,
-    });
-    await sleep(1800);
-    await captureQr();
-    set({status:'waiting_qr',error:null});
-    return snapshot();
+      await attachNetwork();
+
+      logger.info?.('[tiktok-login] open qr page');
+      await page.goto('https://www.tiktok.com/login/qrcode?lang=vi-VN',{
+        waitUntil:'domcontentloaded',
+        timeout:20000,
+      }).catch(error=>{
+        logger.warn?.('[tiktok-login] qr page navigation',String(error?.message||error));
+      });
+
+      await sleep(1800);
+
+      const image=await captureQr();
+      if(!image)throw new Error('tiktok_qr_capture_failed');
+
+      set({status:'waiting_qr',error:null});
+      logger.info?.('[tiktok-login] qr ready');
+      return snapshot();
+    }catch(error){
+      set({status:'error',error:String(error?.message||error)});
+      logger.error?.('[tiktok-login] start failed',String(error?.stack||error?.message||error));
+      await close().catch(()=>{});
+      throw error;
+    }
   }
-
   async function refresh(){
     if(state.status==='waiting_qr'||state.status==='scanned'||state.status==='confirming'){
       await pollCapturedCheck();
