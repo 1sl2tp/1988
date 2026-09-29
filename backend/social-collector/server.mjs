@@ -2091,11 +2091,11 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle){
       '--playlist-end','5',
       '--dump-json',
       '--no-warnings',
-      '--socket-timeout','8',
+      '--socket-timeout','4',
       '--retries','0',
       '--extractor-retries','0',
       'https://www.tiktok.com/@'+handle
-    ],{timeout:18_000,maxBuffer:6*1024*1024});
+    ],{timeout:7_000,maxBuffer:6*1024*1024});
 
     const rows=String(text||'')
       .split(/\r?\n/)
@@ -2387,7 +2387,7 @@ async function refreshTikTokVideoLibrary(handles=null){
       });
     }
   };
-  await Promise.all(Array.from({length:Math.min(2,due.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(4,due.length)},()=>worker()));
   console.log(
     '[tiktok-video-scan]',
     'total='+target.length,
