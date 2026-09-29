@@ -2028,34 +2028,13 @@ html.one-col .row-action-menu{
   color:var(--yt-text-secondary);
   font:400 12px/17px Roboto,Arial,sans-serif;
 }
-.row-download-progress{
-  height:3px;
-  margin:2px 10px 9px;
-  overflow:hidden;
-  border-radius:999px;
-  background:rgba(255,255,255,.12);
+.row-action-item.download-busy{
+  grid-template-columns:24px minmax(0,1fr) auto;
 }
-.row-download-progress > span{
-  display:block;
-  width:38%;
-  height:100%;
-  border-radius:inherit;
-  background:currentColor;
-  color:var(--yt-text);
-  animation:row-download-sweep .9s ease-in-out infinite;
-}
-.row-download-progress.ready > span{
-  width:100%;
-  animation:none;
-}
-.row-download-progress.error > span{
-  width:100%;
-  opacity:.35;
-  animation:none;
-}
-@keyframes row-download-sweep{
-  from{transform:translateX(-110%)}
-  to{transform:translateX(360%)}
+.row-action-status{
+  color:var(--yt-text-secondary);
+  font:400 12px/16px Roboto,Arial,sans-serif;
+  white-space:nowrap;
 }
 
 .state{display:none}
@@ -4396,33 +4375,32 @@ html.one-col.portrait .player.pip{
     return url.toString();
   }
 
-  function showDownloadPending(format="mp4",state="loading"){
+  function setDownloadRowStatus(format="mp4",status=""){
     const menu=ensureRowActionMenu();
-    const audio=String(format||"mp4").toLowerCase()==="mp3";
-    const label=state==="ready"
-      ?"Đã lấy link · bắt đầu tải…"
-      :state==="error"
-        ?"Không lấy được file. Thử lại."
-        :(audio?"Đang lấy âm thanh…":"Đang lấy video…");
-    const progressClass=state==="ready"
-      ?" ready"
-      :state==="error"
-        ?" error"
-        :"";
-    menu.innerHTML=
-      '<div class="row-action-title">Tải xuống</div>'+
-      '<div class="row-action-note">'+escapeHtml(label)+'</div>'+
-      '<div class="row-download-progress'+progressClass+'" aria-hidden="true"><span></span></div>'+
-      (state==="error"
-        ?'<div class="row-action-sep"></div>'+rowActionButton("back-main","Quay lại","back")
-        :"");
-    revealRowActionMenu(openRowMenuAnchor);
+    const action=String(format||"mp4").toLowerCase()==="mp3"
+      ?"download-mp3"
+      :"download-mp4";
+    const button=menu.querySelector('[data-row-action="'+action+'"]');
+    if(!button)return;
+    button.classList.toggle("download-busy",Boolean(status));
+    let statusEl=button.querySelector(".row-action-status");
+    if(status){
+      if(!statusEl){
+        statusEl=document.createElement("span");
+        statusEl.className="row-action-status";
+        button.appendChild(statusEl);
+      }
+      statusEl.textContent=status;
+    }else{
+      statusEl?.remove();
+    }
   }
 
   async function startNativeDownload(meta={},format="mp4"){
     const resolverUrl=downloadUrl(meta,format);
     if(!resolverUrl){
-      showDownloadPending(format,"error");
+      setDownloadRowStatus(format,"");
+      window.alert("Không tìm thấy media để tải.");
       return false;
     }
 
@@ -4440,8 +4418,6 @@ html.one-col.portrait .player.pip{
         throw new Error(String(data?.error||"download_resolve_failed"));
       }
 
-      showDownloadPending(format,"ready");
-
       const anchor=document.createElement("a");
       anchor.href=directUrl;
       anchor.rel="noopener";
@@ -4454,7 +4430,8 @@ html.one-col.portrait .player.pip{
       return true;
     }catch(error){
       console.warn("download resolve failed",error);
-      showDownloadPending(format,"error");
+      setDownloadRowStatus(format,"");
+      window.alert("Không lấy được file. Thử lại.");
       return false;
     }
   }
@@ -6296,12 +6273,12 @@ html.one-col.portrait .player.pip{
         return;
       }
       if(kind==="download-mp4"){
-        showDownloadPending("mp4");
+        setDownloadRowStatus("mp4","Đang tải…");
         void startNativeDownload(meta,"mp4");
         return;
       }
       if(kind==="download-mp3"){
-        showDownloadPending("mp3");
+        setDownloadRowStatus("mp3","Đang tải…");
         void startNativeDownload(meta,"mp3");
         return;
       }
