@@ -8,17 +8,13 @@ const ORIGIN=String(process.env.ALLOW_ORIGIN||'https://yt.taphoa.xyz');
 const SUPABASE_URL=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
 const SUPABASE_KEY=String(process.env.SUPABASE_PUBLISHABLE_KEY||'');
 const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
+const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
 const TZ='Asia/Ho_Chi_Minh';
 
-const PLATFORMS=new Set(['tiktok','youtube','facebook','news']);
-const BROWSER_PLATFORMS=new Set(['tiktok','youtube','facebook']);
-const intervals={
-  tiktok:2*60*1000,
-  youtube:3*60*1000,
-  facebook:7*60*1000,
-  news:3*60*1000,
-};
+const PLATFORMS=new Set(['tiktok']);
+const BROWSER_PLATFORMS=new Set(['tiktok']);
+const intervals={tiktok:2*60*1000};
 
 chromium.setGraphicsMode=false;
 
@@ -204,6 +200,140 @@ async function getBrowser(){
   }
   return browser;
 }
+let tiktokLoginPage=null;
+let tiktokLoginQr=null;
+let tiktokLoginStatus='idle';
+let tiktokLoginError='';
+let tiktokLoginUpdatedAt=0;
+
+function loginAuthorized(url){
+  return Boolean(LOGIN_TOKEN)&&String(url.searchParams.get('key')||'')===LOGIN_TOKEN;
+}
+function html(res,status,body){
+  res.writeHead(status,{
+    'content-type':'text/html; charset=utf-8',
+    'cache-control':'no-store',
+    'x-frame-options':'DENY',
+    'referrer-policy':'no-referrer',
+  });
+  res.end(body);
+}
+async function closeTikTokLogin(){
+  const page=tiktokLoginPage;
+  tiktokLoginPage=null;
+  if(page)await page.close().catch(()=>{});
+}
+async function refreshTikTokLogin({capture=true}={}){
+  const page=tiktokLoginPage;
+  if(!page||page.isClosed()){
+    if(tiktokLoginStatus!=='success')tiktokLoginStatus='idle';
+    return;
+  }
+  try{
+    const cookies=await page.cookies('https://www.tiktok.com/');
+    const loggedIn=cookies.some(cookie=>
+      ['sessionid','sessionid_ss','sid_tt'].includes(String(cookie?.name||'').toLowerCase())
+      && String(cookie?.value||'').length>8
+    );
+    if(loggedIn){
+      await saveSession('tiktok',{cookies:cookieParams(cookies)});
+      tiktokLoginStatus='success';
+      tiktokLoginError='';
+      tiktokLoginQr=null;
+      tiktokLoginUpdatedAt=Date.now();
+      setTimeout(()=>{void closeTikTokLogin();},1500).unref();
+      return;
+    }
+    tiktokLoginStatus='waiting';
+    if(capture){
+      tiktokLoginQr=await page.screenshot({type:'png',fullPage:false}).catch(()=>null);
+    }
+    tiktokLoginUpdatedAt=Date.now();
+  }catch(error){
+    tiktokLoginStatus='error';
+    tiktokLoginError=String(error?.message||error);
+    tiktokLoginUpdatedAt=Date.now();
+  }
+}
+async function startTikTokLogin({restart=false}={}){
+  if(restart)await closeTikTokLogin();
+  if(tiktokLoginPage&&!tiktokLoginPage.isClosed()){
+    await refreshTikTokLogin({capture:true});
+    return;
+  }
+
+  tiktokLoginStatus='starting';
+  tiktokLoginError='';
+  tiktokLoginQr=null;
+  tiktokLoginUpdatedAt=Date.now();
+
+  const browser=await getBrowser();
+  const page=await browser.newPage();
+  tiktokLoginPage=page;
+  await page.setViewport({width:900,height:760,deviceScaleFactor:2});
+  await page.setUserAgent(
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+  );
+  await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+  await page.emulateTimezone(TZ).catch(()=>{});
+  await page.goto('https://www.tiktok.com/login/qrcode?lang=vi-VN',{
+    waitUntil:'domcontentloaded',
+    timeout:30000
+  });
+  await sleep(2200);
+  await refreshTikTokLogin({capture:true});
+}
+function tiktokLoginHtml(key){
+  const safeKey=JSON.stringify(String(key||''));
+  return `<!doctype html>
+<html lang="vi"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Đăng nhập TikTok · 1988</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;padding:18px;background:#0f0f0f;color:#f1f1f1;font-family:Arial,sans-serif}
+.card{width:min(520px,100%);padding:18px;border:1px solid #303030;border-radius:18px;background:#181818;text-align:center}
+h1{font-size:20px;margin:0 0 8px}p{font-size:14px;line-height:1.45;color:#aaa;margin:0 0 12px}
+.qr{width:100%;max-height:560px;overflow:hidden;border-radius:14px;background:#fff}
+.qr img{display:block;width:100%;height:auto}
+.status{margin:12px 0;min-height:20px;font-size:14px}.ok{color:#62d26f}.err{color:#ff6b6b}
+button{border:0;border-radius:18px;padding:9px 15px;background:#2f2f2f;color:#fff;cursor:pointer}
+</style></head><body><div class="card">
+<h1>Đăng nhập TikTok cho 1988</h1>
+<p>Mở TikTok trên điện thoại, quét QR trong ảnh và xác nhận đăng nhập.</p>
+<div class="qr" id="qr"><span>Đang tạo QR…</span></div>
+<div class="status" id="status">Đang khởi tạo…</div>
+<button id="restart">Tạo QR mới</button>
+</div><script>
+const key=${safeKey},qr=document.getElementById('qr'),status=document.getElementById('status');
+async function poll(){
+  try{
+    const r=await fetch('/login/tiktok/status?key='+encodeURIComponent(key)+'&_='+Date.now(),{cache:'no-store'});
+    const j=await r.json();
+    if(j.status==='success'){
+      status.className='status ok';
+      status.textContent='Đã đăng nhập và lưu phiên TikTok.';
+      qr.innerHTML='<div style="padding:60px;color:#111;font-size:36px">✓</div>';
+      return;
+    }
+    status.className=j.status==='error'?'status err':'status';
+    status.textContent=j.status==='error'?(j.error||'Có lỗi'):(j.status==='starting'?'Đang tạo QR…':'Đang chờ quét QR…');
+    qr.innerHTML='<img alt="TikTok QR" src="/login/tiktok/qr?key='+encodeURIComponent(key)+'&_='+Date.now()+'">';
+  }catch{
+    status.className='status err';
+    status.textContent='Chưa kết nối được Render.';
+  }
+  setTimeout(poll,2000);
+}
+document.getElementById('restart').onclick=async()=>{
+  status.className='status';status.textContent='Đang tạo QR mới…';
+  await fetch('/login/tiktok/restart?key='+encodeURIComponent(key),{cache:'no-store'});
+};
+poll();
+</script></body></html>`;
+}
+
 function cookieParams(rows=[]){
   return rows.map(row=>{
     const out={
@@ -552,7 +682,7 @@ async function collect(platform){
 }
 async function collectAll(){
   const out={};
-  for(const platform of ['tiktok','youtube','facebook','news']){
+  for(const platform of ['tiktok']){
     try{out[platform]=await collect(platform);}
     catch(error){out[platform]={platform,error:String(error?.message||error)};}
   }
@@ -574,7 +704,7 @@ async function getSnapshot(platform){
 async function schedulerTick(){
   if(!AUTO_COLLECT)return;
   const now=Date.now();
-  for(const platform of ['tiktok','youtube','facebook','news']){
+  for(const platform of ['tiktok']){
     const last=lastRuns.get(platform);
     const lastAt=Date.parse(last?.finishedAt||last?.startedAt||0)||0;
     if(now-lastAt<intervals[platform])continue;
@@ -599,6 +729,55 @@ const server=http.createServer(async(req,res)=>{
       lastRuns:Object.fromEntries(lastRuns),
       now:nowIso(),
     });
+    return;
+  }
+
+  if(url.pathname==='/login/tiktok'){
+    if(!loginAuthorized(url)){
+      html(res,403,'<!doctype html><meta charset="utf-8"><p>Link đăng nhập không hợp lệ.</p>');
+      return;
+    }
+    try{
+      await startTikTokLogin();
+      html(res,200,tiktokLoginHtml(url.searchParams.get('key')||''));
+    }catch(error){
+      tiktokLoginStatus='error';
+      tiktokLoginError=String(error?.message||error);
+      html(res,502,'<!doctype html><meta charset="utf-8"><p>Không tạo được QR TikTok. Hãy thử lại sau.</p>');
+    }
+    return;
+  }
+
+  if(url.pathname==='/login/tiktok/status'){
+    if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
+    await refreshTikTokLogin({capture:false});
+    json(res,200,{ok:true,status:tiktokLoginStatus,error:tiktokLoginError||null,updatedAt:tiktokLoginUpdatedAt||null});
+    return;
+  }
+
+  if(url.pathname==='/login/tiktok/qr'){
+    if(!loginAuthorized(url)){res.writeHead(403,{'cache-control':'no-store'});res.end();return;}
+    await refreshTikTokLogin({capture:true});
+    if(!tiktokLoginQr){res.writeHead(404,{'cache-control':'no-store'});res.end();return;}
+    res.writeHead(200,{
+      'content-type':'image/png',
+      'cache-control':'no-store',
+      'content-length':String(tiktokLoginQr.length)
+    });
+    res.end(tiktokLoginQr);
+    return;
+  }
+
+  if(url.pathname==='/login/tiktok/restart'){
+    if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
+    try{
+      await startTikTokLogin({restart:true});
+      json(res,200,{ok:true,status:tiktokLoginStatus});
+    }catch(error){
+      tiktokLoginStatus='error';
+      tiktokLoginError=String(error?.message||error);
+      json(res,502,{ok:false,error:tiktokLoginError});
+    }
     return;
   }
 
@@ -665,7 +844,7 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
-  const sessionMatch=url.pathname.match(/^\/session\/(tiktok|youtube|facebook)$/);
+  const sessionMatch=url.pathname.match(/^\/session\/(tiktok)$/);
   if(sessionMatch){
     if(!authorized(req)){
       json(res,401,{ok:false,error:'unauthorized'});
