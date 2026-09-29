@@ -795,14 +795,13 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
       .filter(row=>row?.type==='flv'&&!isTikTokBadSource(handle,row))
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
 
-    const hasSignal=Boolean(status?.known||status?.live||candidates.length);
-    if(!hasSignal){
-      // Timeout/error is UNKNOWN, never OFFLINE. Keep the last package state.
+    if(!status?.known){
+      // Timeout/incomplete response is UNKNOWN, never OFFLINE.
       scanUnknownCount+=1;
       continue;
     }
 
-    const isLive=Boolean(status?.live||status?.status===2||flv);
+    const isLive=status?.live===true;
     if(isLive)scanLiveCount+=1;
     if(flv)scanFlvCount+=1;
 
@@ -1089,19 +1088,35 @@ async function quickTikTokLiveStatus(rawHandle){
     });
     if(!r.ok)return {known:false,live:false,candidates:[]};
     const data=await r.json();
-    const status=Number(data?.data?.user?.status??data?.data?.liveRoom?.status);
-    const candidates=collectTikTokLiveStreamCandidates(data?.data?.liveRoom||data?.data||{})
-      .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
-    if(Number.isFinite(status)){
+    const liveRoom=data?.data?.liveRoom||null;
+    const roomStatus=Number(liveRoom?.status);
+    const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
+
+    // TikTok LIVE truth comes from liveRoom.status:
+    // 2 = live now, 4 = ended/offline. Do NOT use user.status, and do NOT
+    // infer LIVE merely from stale pull URLs left in an ended room payload.
+    if(Number.isFinite(roomStatus)){
+      const isLive=roomStatus===2;
+      const candidates=isLive
+        ? collectTikTokLiveStreamCandidates(liveRoom)
+            .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
+        : [];
       return {
         known:true,
-        live:status===2,
-        status,
-        roomId:String(data?.data?.user?.roomId||data?.data?.liveRoom?.roomId||data?.data?.liveRoom?.id||''),
+        live:isLive,
+        status:roomStatus,
+        roomId,
         candidates
       };
     }
-    return {known:false,live:Boolean(candidates.length),candidates};
+
+    // No liveRoom at all is a definite non-LIVE result for this lightweight
+    // endpoint. An incomplete room object stays unknown and preserves the
+    // previous package state.
+    if(!liveRoom&&!roomId){
+      return {known:true,live:false,status:4,roomId:'',candidates:[]};
+    }
+    return {known:false,live:false,status:null,roomId,candidates:[]};
   }catch(error){
     console.log('[tiktok-session] preflight unknown',handle,compactText(error?.message||error,140));
   }
