@@ -238,11 +238,11 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
   };
 
-  const recoverPicture=async(currentSrc='')=>{
+  const recoverPicture=async(currentSrc='',force=false)=>{
     if(forcingBrowser)return;
     forgetRecentLive(HANDLE);
     sendLiveFeedback('bad',type);
-    if((video.videoWidth&&video.videoHeight)&&Number(video.currentTime||0)>0.6)return;
+    if(!force&&(video.videoWidth&&video.videoHeight)&&Number(video.currentTime||0)>0.6)return;
 
     // First recovery: keep the same HLS but relay every segment. This handles
     // CDN/CORS failures without reopening the TikTok session.
@@ -331,7 +331,7 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       confirmedGood=false;
       forgetRecentLive(HANDLE);
       sendLiveFeedback('bad',type);
-      void recoverPicture(type==='hls'?proxyAll:src);
+      void recoverPicture(type==='hls'?proxyAll:src,true);
     }
   },1800);
 
@@ -490,6 +490,17 @@ document.getElementById('reload').onclick=()=>{liveSoundWanted=true;load()};
 document.getElementById('testLiveBtn').onclick=()=>{
   liveSoundWanted=true;
   const input=document.getElementById('liveLinkInput');
+  const nextHandle=parseTikTokHandle(input?.value||'');
+  const currentVideo=document.getElementById('liveVideo');
+  if(nextHandle&&nextHandle===HANDLE&&currentVideo){
+    const hasPicture=Boolean(currentVideo.videoWidth&&currentVideo.videoHeight);
+    const progressed=Number(currentVideo.currentTime||0)>0.6;
+    if(!hasPicture||!progressed){
+      forgetRecentLive(HANDLE);
+      const currentType=/FLV/i.test(document.getElementById('liveState')?.textContent||'')?'flv':'hls';
+      sendLiveFeedback('bad',currentType);
+    }
+  }
   if(!setCurrentLive(input?.value||''))input?.focus();
 };
 document.getElementById('saveLiveBtn').onclick=saveCurrentLive;
