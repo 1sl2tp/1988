@@ -1852,6 +1852,30 @@ async function proxyTikTokLivePart(req,res,id){
   });
 }
 
+function findTikTokUserObject(value,handle,depth=0){
+  if(!value||depth>12)return null;
+  if(Array.isArray(value)){
+    for(const item of value){
+      const found=findTikTokUserObject(item,handle,depth+1);
+      if(found)return found;
+    }
+    return null;
+  }
+  if(typeof value!=='object')return null;
+
+  const uniqueId=String(value?.uniqueId||value?.unique_id||'');
+  const secUid=String(value?.secUid||value?.sec_uid||'');
+  if(secUid&&(!uniqueId||uniqueId.toLowerCase()===String(handle||'').toLowerCase())){
+    return value;
+  }
+
+  for(const child of Object.values(value)){
+    const found=findTikTokUserObject(child,handle,depth+1);
+    if(found)return found;
+  }
+  return null;
+}
+
 async function fetchTikTokProfileIdentity(handle){
   const url='https://www.tiktok.com/@'+handle;
   try{
@@ -1867,6 +1891,46 @@ async function fetchTikTokProfileIdentity(handle){
     });
     if(!r.ok)throw new Error('profile_http_'+r.status);
     const html=await r.text();
+
+    const parseScriptJson=id=>{
+      const escaped=id.replace(/[.*+?^$(){}|[\]\\]/g,'\\$&');
+      const re=new RegExp('<script[^>]+id=["\\']'+escaped+'["\\'][^>]*>([\\s\\S]*?)<\\/script>','i');
+      const m=html.match(re);
+      if(!m?.[1])return null;
+      try{return JSON.parse(m[1])}catch{return null}
+    };
+
+    let user=null;
+    const hydration=parseScriptJson('__UNIVERSAL_DATA_FOR_REHYDRATION__');
+    if(hydration){
+      const scope=hydration?.__DEFAULT_SCOPE__||{};
+      user=
+        scope?.['webapp.user-detail']?.userInfo?.user||
+        scope?.['webapp.user-detail']?.user||
+        findTikTokUserObject(scope?.['webapp.user-detail'],handle)||
+        findTikTokUserObject(hydration,handle);
+    }
+
+    if(!user){
+      const sigi=parseScriptJson('SIGI_STATE');
+      if(sigi)user=findTikTokUserObject(sigi,handle);
+    }
+
+    if(user){
+      const avatar=firstTikTokAssetUrl(
+        user?.avatarLarger||
+        user?.avatarMedium||
+        user?.avatarThumb||
+        user?.avatarUri
+      );
+      return {
+        secUid:String(user?.secUid||user?.sec_uid||''),
+        userId:String(user?.id||user?.uid||user?.userId||''),
+        nickname:String(user?.nickname||user?.nickName||''),
+        avatar,
+        videoId:''
+      };
+    }
 
     const pick=(patterns)=>{
       for(const re of patterns){
@@ -1906,7 +1970,6 @@ async function fetchTikTokProfileIdentity(handle){
     return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
   }
 }
-
 
 async function fetchTikTokUserDetail(handle){
   try{
@@ -2020,12 +2083,12 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
   let secUid=String(knownSecUid||'').trim();
   if(!secUid){
-    const detail=await fetchTikTokUserDetail(handle);
-    secUid=String(detail?.secUid||'').trim();
-  }
-  if(!secUid){
     const identity=await fetchTikTokProfileIdentity(handle);
     secUid=String(identity?.secUid||'').trim();
+  }
+  if(!secUid){
+    const detail=await fetchTikTokUserDetail(handle);
+    secUid=String(detail?.secUid||'').trim();
   }
   if(!secUid){
     return {known:false,handle,secUid:'',videos:[],error:'missing_secuid'};
@@ -2035,6 +2098,8 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
     const endpoint=new URL('https://www.tiktok.com/api/post/item_list/');
     endpoint.searchParams.set('aid','1988');
     endpoint.searchParams.set('count','5');
+    endpoint.searchParams.set('cursor','0');
+    endpoint.searchParams.set('from_page','user');
     endpoint.searchParams.set('secUid',secUid);
 
     const r=await fetch(endpoint,{
