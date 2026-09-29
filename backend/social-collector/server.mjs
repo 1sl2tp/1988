@@ -864,6 +864,7 @@ function runTikTokLiveMinuteSweep(){
     let offline=0;
     let unknown=0;
     const newlyLive=[];
+    const liveMissingSource=[];
 
     for(const checkedRow of checked){
       const handle=checkedRow.handle;
@@ -894,8 +895,11 @@ function runTikTokLiveMinuteSweep(){
 
       known+=1;
       const isLive=state.live===true;
-      if(isLive)live+=1;
-      else offline+=1;
+      if(isLive){
+        live+=1;
+        const currentSource=currentTikTokLibrarySource(handle);
+        if(!currentSource)liveMissingSource.push(handle);
+      }else offline+=1;
 
       if(Boolean(prev?.live)===isLive){
         // Confirmed state did not change; keep existing source and do not bump
@@ -959,10 +963,11 @@ function runTikTokLiveMinuteSweep(){
       'version='+tiktokLiveLibraryVersion
     );
 
-    // Resolve media only when a channel becomes LIVE. Existing LIVE channels
-    // keep their validated cached source until the normal cache lifetime ends.
-    for(const handle of newlyLive){
-      void ensureTikTokLivePackageScan([handle]);
+    // Prepare FLV for every confirmed LIVE channel that currently has no
+    // reusable source, including rows restored after a Render restart.
+    const needSource=[...new Set([...newlyLive,...liveMissingSource])];
+    if(needSource.length){
+      void ensureTikTokLivePackageScan(needSource);
     }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
@@ -2208,7 +2213,15 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     const session=await captureTikTokLiveSession(handle);
     source={mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
   }else if(compatMode){
-    source=await resolveTikTokCompatibleLiveSource(handle);
+    // The selected channel may be LIVE while its persisted package has no
+    // reusable FLV (for example just after a Render restart). Do one fast API
+    // pass first; this is much cheaper and more reliable than opening Chromium.
+    source=currentTikTokLibrarySource(handle);
+    if(!source){
+      await refreshTikTokLiveLibrary([handle],{warm:false,force:true});
+      source=currentTikTokLibrarySource(handle);
+    }
+    if(!source)source=await resolveTikTokCompatibleLiveSource(handle);
   }else{
     source=await resolveTikTokLiveSource(handle);
   }
