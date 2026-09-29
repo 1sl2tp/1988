@@ -5404,6 +5404,7 @@ html.one-col.portrait .player.pip{
       if(activeInlineId){
         const activeCard=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
         if(activeCard)attachPlayerToCard(activeCard,{floating:wasFloating});
+        else if(!isTwoColumn())showPlayerAsPip();
       }
       observeRowThumbQuality(rows);
       applyRenderedCardTints(rows);
@@ -5425,6 +5426,8 @@ html.one-col.portrait .player.pip{
       const card=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
       if(card){
         attachPlayerToCard(card,{floating:wasFloating});
+      }else if(!isTwoColumn()){
+        showPlayerAsPip();
       }
     }else if(!isTwoColumn()){
       const routedId=routeVideoId();
@@ -5872,7 +5875,7 @@ html.one-col.portrait .player.pip{
        landscape follows width, portrait follows height. */
 
     if(two){
-      if(inlineVideoId||player.parentNode!==stage){
+      if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
         returnPlayerToMainStage();
       }else{
         pip=false;
