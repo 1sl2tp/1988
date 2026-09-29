@@ -54,7 +54,8 @@ function json(res,status,data){
     'content-type':'application/json; charset=utf-8',
     'access-control-allow-origin':ORIGIN,
     'access-control-allow-methods':'GET,POST,OPTIONS',
-    'access-control-allow-headers':'content-type,x-collector-token',
+    'access-control-allow-headers':'content-type,x-collector-token,range',
+    'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
     'cache-control':'no-store',
   });
   res.end(JSON.stringify(data));
@@ -121,13 +122,22 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         data?.was_live===true||
         String(data?.live_status||'').toLowerCase()==='is_live'
       );
-      const streamUrl=String(
-        data?.url||
-        data?.manifest_url||
-        data?.formats?.find?.(f=>String(f?.protocol||'').includes('m3u8'))?.url||
-        data?.formats?.find?.(f=>/flv/i.test(String(f?.ext||'')))?.url||
-        ''
-      );
+      const formats=Array.isArray(data?.formats)?data.formats:[];
+      const flvFormat=formats.find(f=>
+        String(f?.ext||'').toLowerCase()==='flv'||
+        /flv/i.test(String(f?.format_id||''))||
+        /\.flv(?:\?|$)/i.test(String(f?.url||''))
+      )||null;
+      const hlsFormat=formats.find(f=>
+        String(f?.protocol||'').toLowerCase().includes('m3u8')||
+        /\.m3u8(?:\?|$)/i.test(String(f?.url||''))
+      )||null;
+      const selected=flvFormat||hlsFormat||null;
+      const streamUrl=String(selected?.url||data?.url||data?.manifest_url||'');
+      const streamType=flvFormat?'flv':
+        hlsFormat?'hls':
+        /\.flv(?:\?|$)/i.test(streamUrl)?'flv':
+        /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':'unknown';
       return {
         ok:true,
         handle,
@@ -138,6 +148,7 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         uploader:String(data?.uploader||data?.uploader_id||handle),
         id:String(data?.id||''),
         streamUrl:live?streamUrl:'',
+        streamType:live?streamType:'',
         checkedAt:nowIso()
       };
     }catch(error){
@@ -160,6 +171,52 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
   });
   tiktokLiveCheckCache.set(handle.toLowerCase(),{at:Date.now(),value});
   return value;
+}
+
+async function proxyTikTokLive(req,res,rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+  const data=await checkTikTokLiveWithYtDlp(handle);
+  if(!data?.live||!data?.streamUrl){
+    json(res,404,{ok:false,error:'tiktok_not_live',handle});
+    return;
+  }
+  if(data.streamType==='hls'){
+    json(res,415,{ok:false,error:'hls_proxy_not_enabled',handle});
+    return;
+  }
+  const headers={
+    'user-agent':String(req.headers['user-agent']||'Mozilla/5.0'),
+    'referer':'https://www.tiktok.com/',
+    'accept':'*/*'
+  };
+  if(req.headers.range)headers.range=String(req.headers.range);
+  const upstream=await fetch(data.streamUrl,{headers,redirect:'follow'});
+  if(!upstream.ok||!upstream.body){
+    json(res,502,{ok:false,error:'upstream_stream_'+upstream.status,handle});
+    return;
+  }
+  const outHeaders={
+    'content-type':upstream.headers.get('content-type')||'video/x-flv',
+    'access-control-allow-origin':ORIGIN,
+    'access-control-allow-methods':'GET,OPTIONS',
+    'access-control-allow-headers':'range',
+    'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
+    'cache-control':'no-store'
+  };
+  for(const key of ['content-length','content-range','accept-ranges']){
+    const value=upstream.headers.get(key);
+    if(value)outHeaders[key]=value;
+  }
+  res.writeHead(upstream.status,outHeaders);
+  try{
+    for await(const chunk of upstream.body){
+      if(res.destroyed)break;
+      if(!res.write(Buffer.from(chunk)))await new Promise(resolve=>res.once('drain',resolve));
+    }
+  }finally{
+    if(!res.writableEnded)res.end();
+  }
 }
 
 function enqueue(task){
@@ -1229,6 +1286,16 @@ const server=http.createServer(async(req,res)=>{
       }
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
+    try{
+      await proxyTikTokLive(req,res,url.searchParams.get('user')||'');
+    }catch(error){
+      if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
+      else if(!res.writableEnded)res.end();
     }
     return;
   }
