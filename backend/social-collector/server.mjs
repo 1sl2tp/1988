@@ -213,6 +213,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
     redirect:'follow'
   });
   if(!upstream.ok||!upstream.body){
+    console.warn('[tiktok-proxy] upstream failed',upstream.status,String(targetUrl||'').slice(0,180));
     json(res,502,{ok:false,error:'upstream_stream_'+upstream.status});
     return;
   }
@@ -221,6 +222,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   const isHls=/mpegurl|m3u8/i.test(contentType)||/\.m3u8(?:\?|$)/i.test(finalUrl);
   if(isHls){
     const manifest=await upstream.text();
+    console.log('[tiktok-proxy] hls',upstream.status,contentType,'bytes='+manifest.length,finalUrl.slice(0,180));
     const body=rewriteHlsManifest(manifest,finalUrl);
     res.writeHead(200,{
       'content-type':'application/vnd.apple.mpegurl; charset=utf-8',
