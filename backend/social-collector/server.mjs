@@ -5888,6 +5888,27 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/library'&&req.method==='GET'){
+    try{
+      await loadTikTokCanonicalStore();
+      const payload=buildTikTokCanonicalPackage();
+      const clientVersion=Number(url.searchParams.get('v')||-1);
+      if(clientVersion===Number(payload.version||0)){
+        json(res,200,{
+          ok:true,
+          unchanged:true,
+          version:payload.version,
+          generatedAt:payload.generatedAt
+        });
+        return;
+      }
+      json(res,200,{ok:true,unchanged:false,...payload});
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
@@ -6362,6 +6383,12 @@ server.listen(PORT,'0.0.0.0',()=>{
     loadTikTokLiveStore()
   ]).then(async()=>{
     await loadTikTokVideoStore();
+    await loadTikTokCanonicalStore();
+    await syncTikTokCanonicalLibrary([...tiktokLiveSelectedHandles],{mirror:false});
+    void refreshTikTokCanonicalProfileBatch(20).catch(error=>{
+      console.log('[tiktok-library] initial profile batch failed',compactText(error?.message||error,120));
+    });
+    void mirrorTikTokCanonicalImages(10).catch(()=>{});
 
     const videoProbeHandle=[...tiktokLiveSelectedHandles].find(handle=>{
       const row=tiktokVideoLibrary.get(handle.toLowerCase());
@@ -6405,6 +6432,11 @@ server.listen(PORT,'0.0.0.0',()=>{
   // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
   // the one-minute LIVE-status API sweep.
   setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},10*60_000).unref();
+  // Canonical profile refresh is intentionally slow: 20 selected channels per
+  // 10 minutes. UI never waits for this job; it only reads the package.
+  setInterval(()=>{void refreshTikTokCanonicalProfileBatch(20);},10*60_000).unref();
+  // Mirror raw avatar/live/video images without resizing or deleting old files.
+  setInterval(()=>{void mirrorTikTokCanonicalImages(10);},5*60_000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
