@@ -1138,7 +1138,8 @@ html.one-col .player.pip{
   transform:none !important;
   inset:auto !important;
   right:10px !important;
-  top:calc(var(--visible-top-boundary,var(--top-boundary)) + 8px) !important;
+  top:auto !important;
+  bottom:calc(10px + env(safe-area-inset-bottom,0px)) !important;
   border-radius:var(--floating-radius);
   background:transparent;
   box-shadow:var(--yt-floating-shadow);
@@ -3446,28 +3447,62 @@ html.one-col.portrait .player.pip{
     root.style.setProperty("--bottom-gap",bottomGap+"px");
     root.style.setProperty("--current-full-h",fullH+"px");
 
-    // PiP keeps the existing visual size policy. Rail only changes how the
-    // native YouTube source is built/cropped inside that viewport.
+    // PiP default SIZE follows the viewport; resize MIN is separate.
+    // This avoids opening every phone at the hard minimum while still keeping
+    // the same lower drag limit: landscape 170px, portrait 120px wide.
     const viewportW=Math.max(
       1,
       Math.round(document.documentElement.clientWidth || innerWidth || 1)
     );
-    // Mobile opens PiP at the SAME Library minimum SIZE as web:
-    // landscape min width = 170px, portrait min width = 120px.
-    // Do not let very tall portrait ratios become narrower than the web minimum.
     const mobilePip=viewportW<=656;
-    const mobileAvailableW=Math.max(1,viewportW-20);
-    const mobileLandscapeMinW=Math.min(170,mobileAvailableW);
-    const mobilePortraitMinW=Math.min(120,mobileAvailableW);
+    const availableW=Math.max(1,viewportW-20);
+    const availableH=Math.max(1,viewportH-20);
 
-    const pipLandscapeW=mobilePip
-      ? mobileLandscapeMinW
-      : Math.max(170,Math.min(280,Math.round(viewportW*.46)));
-    const pipPortraitH=mobilePip
-      ? Math.max(1,Math.round(mobilePortraitMinW/mediaRatio))
-      : Math.max(240,Math.min(420,Math.round(fullH*.50)));
+    const landscapeDragMin=Math.min(
+      170,
+      availableW,
+      Math.max(1,Math.round(availableH*Math.max(1,mediaRatio)))
+    );
+    const portraitDragMin=Math.min(
+      120,
+      availableW,
+      Math.max(1,Math.round(availableH*Math.max(.34,mediaRatio)))
+    );
 
-    root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
+    const landscapeTarget=Math.round(viewportW*(mobilePip?.54:.36));
+    const landscapeDefaultMin=mobilePip?190:240;
+    const landscapeDefaultMax=mobilePip?300:360;
+    const landscapeFitMax=Math.max(
+      1,
+      Math.min(availableW,Math.round(availableH*Math.max(1,mediaRatio)))
+    );
+    const pipLandscapeW=Math.max(
+      Math.min(landscapeDragMin,landscapeFitMax),
+      Math.min(
+        landscapeFitMax,
+        landscapeDefaultMax,
+        Math.max(landscapeDefaultMin,landscapeTarget)
+      )
+    );
+
+    const portraitTarget=Math.round(viewportW*(mobilePip?.38:.24));
+    const portraitDefaultMin=mobilePip?136:160;
+    const portraitDefaultMax=mobilePip?190:220;
+    const portraitFitMax=Math.max(
+      1,
+      Math.min(availableW,Math.round(availableH*Math.max(.34,mediaRatio)))
+    );
+    const pipPortraitW=Math.max(
+      Math.min(portraitDragMin,portraitFitMax),
+      Math.min(
+        portraitFitMax,
+        portraitDefaultMax,
+        Math.max(portraitDefaultMin,portraitTarget)
+      )
+    );
+    const pipPortraitH=Math.max(1,Math.round(pipPortraitW/Math.max(.34,mediaRatio)));
+
+    root.style.setProperty("--pip-landscape-w",Math.round(pipLandscapeW)+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
 
     const pageW=viewportW;
@@ -5700,7 +5735,17 @@ html.one-col.portrait .player.pip{
   }
 
   function mobilePipMinWidth(ratio){
-    return ratio<1?120:170;
+    const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
+    const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
+    const base=ratio<1?120:170;
+    return Math.max(
+      1,
+      Math.min(
+        base,
+        viewportW-20,
+        (viewportH-18)*Math.max(.34,ratio)
+      )
+    );
   }
 
   function mobilePipBounds(width,height){
