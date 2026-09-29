@@ -107,27 +107,60 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
 
   const url='https://www.tiktok.com/@'+handle+'/live';
   const value=await enqueueYtdlp(async()=>{
+    // Fast path: for a currently LIVE account, yt-dlp -g usually returns the
+    // actual HLS/FLV URL without waiting for the full metadata JSON.
+    try{
+      const raw=await execFileText('yt-dlp',[
+        '-g',
+        '--no-warnings',
+        '--socket-timeout','10',
+        '--retries','1',
+        '--extractor-retries','1',
+        url
+      ],{timeout:18_000,maxBuffer:1024*1024});
+      const urls=String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x));
+      const streamUrl=urls.find(x=>/\.m3u8(?:\?|$)/i.test(x))||
+        urls.find(x=>/\.flv(?:\?|$)/i.test(x))||
+        urls[0]||'';
+      if(streamUrl){
+        const streamType=/\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':
+          /\.flv(?:\?|$)/i.test(streamUrl)?'flv':'unknown';
+        const out={
+          ok:true,handle,live:true,url,
+          title:'@'+handle+' đang LIVE',
+          thumbnail:'',uploader:handle,uploaderId:'',channelId:'',id:'',
+          streamUrl,streamType,checkedAt:nowIso(),note:'direct_stream'
+        };
+        console.log('[tiktok-live] direct stream ok',handle,streamType);
+        return out;
+      }
+    }catch(fastError){
+      console.log('[tiktok-live] direct stream miss',handle,compactText(fastError?.stderr||fastError?.message||fastError,180));
+    }
+
+    // Metadata path is mainly used to distinguish an offline account from an
+    // extraction error, and to capture title/thumbnail when available.
     try{
       const out=await execFileText('yt-dlp',[
         '--dump-single-json',
         '--skip-download',
         '--no-playlist',
         '--no-warnings',
-        '--socket-timeout','12',
+        '--socket-timeout','10',
         '--retries','1',
         '--extractor-retries','1',
         url
-      ],{timeout:25_000});
+      ],{timeout:20_000});
       const data=JSON.parse(out);
       const formats=Array.isArray(data?.formats)?data.formats:[];
+      const hlsFormat=formats.find(f=>
+        String(f?.protocol||'').toLowerCase().includes('m3u8')||
+        /\.m3u8(?:\?|$)/i.test(String(f?.url||''))
+      )||null;
       const flvFormat=formats.find(f=>
         String(f?.ext||'').toLowerCase()==='flv'||
         /flv/i.test(String(f?.format_id||''))||
         /\.flv(?:\?|$)/i.test(String(f?.url||''))
-      )||null;
-      const hlsFormat=formats.find(f=>
-        String(f?.protocol||'').toLowerCase().includes('m3u8')||
-        /\.m3u8(?:\?|$)/i.test(String(f?.url||''))
       )||null;
       const selected=hlsFormat||flvFormat||null;
       const streamUrl=String(selected?.url||data?.manifest_url||data?.url||'');
@@ -139,14 +172,11 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
       );
       const streamType=hlsFormat?'hls':
         flvFormat?'flv':
-        /\.flv(?:\?|$)/i.test(streamUrl)?'flv':
-        /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':'unknown';
+        /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':
+        /\.flv(?:\?|$)/i.test(streamUrl)?'flv':'unknown';
       const channelId=String(data?.channel_id||data?.channel?.id||'').trim();
       return {
-        ok:true,
-        handle,
-        live,
-        url,
+        ok:true,handle,live,url,
         title:String(data?.title||''),
         thumbnail:String(data?.thumbnail||''),
         uploader:String(data?.uploader||data?.uploader_id||handle),
@@ -157,58 +187,13 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         streamType:live?streamType:'',
         checkedAt:nowIso()
       };
-    }catch(primaryError){
-      // Some TikTok LIVE pages fail metadata extraction while yt-dlp can still
-      // return the direct media URL. Try the simple -g path used by TikTok.
-      try{
-        const raw=await execFileText('yt-dlp',[
-          '-g',
-          '--no-warnings',
-          '--socket-timeout','12',
-          '--retries','1',
-          '--extractor-retries','1',
-          url
-        ],{timeout:22_000,maxBuffer:1024*1024});
-        const urls=String(raw||'').split(/\r?\n/).map(x=>x.trim()).filter(x=>/^https?:\/\//i.test(x));
-        const streamUrl=urls.find(x=>/\.m3u8(?:\?|$)/i.test(x))||
-          urls.find(x=>/\.flv(?:\?|$)/i.test(x))||
-          urls[0]||'';
-        if(streamUrl){
-          const streamType=/\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':
-            /\.flv(?:\?|$)/i.test(streamUrl)?'flv':'unknown';
-          console.log('[tiktok-live] direct stream fallback ok',handle,streamType);
-          return {
-            ok:true,handle,live:true,url,title:'@'+handle+' đang LIVE',
-            thumbnail:'',uploader:handle,uploaderId:'',channelId:'',id:'',
-            streamUrl,streamType,checkedAt:nowIso(),note:'direct_stream_fallback'
-          };
-        }
-      }catch(fallbackError){
-        console.warn(
-          '[tiktok-live] failed',
-          handle,
-          compactText(primaryError?.stderr||primaryError?.message||primaryError,220),
-          '| fallback:',
-          compactText(fallbackError?.stderr||fallbackError?.message||fallbackError,220)
-        );
-      }
-      const message=compactText(primaryError?.stderr||primaryError?.message||primaryError,500);
+    }catch(error){
+      const message=compactText(error?.stderr||error?.message||error,500);
       const notLive=/not live|isn't live|is not live|offline|not currently live|video unavailable/i.test(message);
       return {
-        ok:true,
-        handle,
-        live:false,
-        url,
-        title:'',
-        thumbnail:'',
-        uploader:handle,
-        uploaderId:'',
-        channelId:'',
-        id:'',
-        streamUrl:'',
-        streamType:'',
-        checkedAt:nowIso(),
-        note:notLive?'not_live':(message||'check_failed')
+        ok:true,handle,live:false,url,title:'',thumbnail:'',uploader:handle,
+        uploaderId:'',channelId:'',id:'',streamUrl:'',streamType:'',
+        checkedAt:nowIso(),note:notLive?'not_live':(message||'check_failed')
       };
     }
   });
@@ -1605,6 +1590,27 @@ const server=http.createServer(async(req,res)=>{
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/profile-identity'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+      const identity=await fetchTikTokProfileIdentity(handle);
+      console.log('[tiktok-identity]',handle,'video='+(identity.videoId||'none'),'sec='+(identity.secUid?'yes':'no'));
+      json(res,200,{
+        ok:true,
+        handle,
+        profileUrl:'https://www.tiktok.com/@'+handle,
+        videoId:String(identity.videoId||''),
+        videoUrl:identity.videoId?'https://www.tiktok.com/@'+handle+'/video/'+identity.videoId:'',
+        nickname:String(identity.nickname||''),
+        avatar:String(identity.avatar||'')
+      });
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
     }
     return;
   }
