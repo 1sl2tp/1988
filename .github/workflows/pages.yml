@@ -36,6 +36,8 @@ jobs:
           node --check src/app.js
           node --check src/yt-local.js
           node --check backend/social-collector/server.mjs
+          node --check backend/tiktok-browser/server.mjs
+          node --check backend/tiktok-browser/social-hub.mjs
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
