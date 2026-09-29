@@ -4295,28 +4295,34 @@ function buildTikTokCanonicalPackage(){
     videoCount:channels.reduce((sum,x)=>sum+x.videos.length,0)
   };
 }
+async function fetchTikTokCanonicalPages(path,{pageSize=1000,maxRows=50000}={}){
+  const all=[];
+  for(let offset=0;offset<maxRows;offset+=pageSize){
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/'+path,
+      {headers:storeHeaders({range:offset+'-'+(offset+pageSize-1)})}
+    );
+    if(!r.ok)throw new Error('tiktok_library_page_read_'+r.status+':'+compactText(await r.text(),140));
+    const rows=await r.json();
+    if(!Array.isArray(rows)||!rows.length)break;
+    all.push(...rows);
+    if(rows.length<pageSize)break;
+  }
+  return all;
+}
+
 async function loadTikTokCanonicalStore(){
   if(tiktokCanonicalLoaded)return true;
   if(tiktokCanonicalLoadPromise)return tiktokCanonicalLoadPromise;
   tiktokCanonicalLoadPromise=(async()=>{
-    const [channelsRes,videosRes,packageRes]=await Promise.all([
-      fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_channels?select=*&order=handle.asc',
-        {headers:storeHeaders({range:'0-9999'})}
-      ),
-      fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_videos?select=*&order=create_time.desc',
-        {headers:storeHeaders({range:'0-19999'})}
-      ),
+    const [channelRows,videoRows,packageRes]=await Promise.all([
+      fetchTikTokCanonicalPages('yt1988_tiktok_channels?select=*&order=handle.asc',{maxRows:5000}),
+      fetchTikTokCanonicalPages('yt1988_tiktok_videos?select=*&order=create_time.desc',{maxRows:50000}),
       fetch(
         SUPABASE_URL+'/rest/v1/yt1988_tiktok_library_package?package_key=eq.library&select=version,payload,updated_at&limit=1',
         {headers:storeHeaders()}
       )
     ]);
-    if(!channelsRes.ok)throw new Error('tiktok_library_channels_read_'+channelsRes.status);
-    if(!videosRes.ok)throw new Error('tiktok_library_videos_read_'+videosRes.status);
-    const channelRows=await channelsRes.json();
-    const videoRows=await videosRes.json();
     const packageRows=packageRes.ok?await packageRes.json():[];
     tiktokCanonicalChannels.clear();
     tiktokCanonicalVideos.clear();
