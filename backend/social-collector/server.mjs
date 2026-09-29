@@ -4264,7 +4264,23 @@ function buildTikTokCanonicalPackage(){
     .sort((a,b)=>Number(b.live.isLive)-Number(a.live.isLive)||a.handle.localeCompare(b.handle));
 
   const material={schema:'tiktok-library-v1',channels};
-  const hash=createHash('sha1').update(JSON.stringify(material)).digest('hex');
+  const versionMaterial={
+    schema:material.schema,
+    channels:channels.map(ch=>({
+      handle:ch.handle,
+      profile:{
+        ...ch.profile,
+        checkedAt:undefined
+      },
+      live:{
+        ...ch.live,
+        checkedAt:undefined,
+        updatedAt:undefined
+      },
+      videos:ch.videos
+    }))
+  };
+  const hash=createHash('sha1').update(JSON.stringify(versionMaterial)).digest('hex');
   if(hash!==tiktokCanonicalMaterialHash){
     tiktokCanonicalMaterialHash=hash;
     tiktokCanonicalPackageVersion+=1;
@@ -4535,10 +4551,17 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
       if(next.live){
         const source=currentTikTokLibrarySource(handle);
         if(source?.url){
-          next.live_stream_type=String(source.type||'');
-          next.live_stream_url=String(source.url||'');
-          next.live_source_sig=tiktokLibrarySourceSig(source);
-          next.live_updated_at=nowIso();
+          const nextType=String(source.type||'');
+          const nextUrl=String(source.url||'');
+          const nextSig=tiktokLibrarySourceSig(source);
+          const streamChanged=
+            nextType!==String(prev.live_stream_type||'')||
+            nextUrl!==String(prev.live_stream_url||'')||
+            nextSig!==String(prev.live_source_sig||'');
+          next.live_stream_type=nextType;
+          next.live_stream_url=nextUrl;
+          next.live_source_sig=nextSig;
+          if(streamChanged)next.live_updated_at=nowIso();
         }else{
           next.live_stream_type='';
           next.live_stream_url='';
@@ -5879,9 +5902,17 @@ const server=http.createServer(async(req,res)=>{
 
       if(selected){
         if(!reusedLiveSource)void ensureTikTokLivePackageScan([handle]);
-        // Video discovery is non-critical for LIVE playback. Defer it so a
-        // newly added channel cannot compete with the minute LIVE API sweep.
-        setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},30_000).unref();
+        setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
+        setTimeout(()=>{
+          void (async()=>{
+            const profile=await fetchTikTokProfileIdentity(handle).catch(()=>null);
+            const profiles=new Map();
+            if(profile)profiles.set(handle.toLowerCase(),profile);
+            await syncTikTokCanonicalLibrary([handle],{profiles,mirror:true});
+          })().catch(error=>{
+            console.log('[tiktok-library] new channel profile failed',handle,compactText(error?.message||error,100));
+          });
+        },500).unref();
       }
 
       const liveRow=tiktokLiveLibrary.get(key)||null;
@@ -6442,12 +6473,12 @@ server.listen(PORT,'0.0.0.0',()=>{
     }
 
     void runTikTokLiveMinuteSweep();
-    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},3*60_000).unref();
+    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},60_000).unref();
   });
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
   // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
   // the one-minute LIVE-status API sweep.
-  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},10*60_000).unref();
+  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},3*60_000).unref();
   // Canonical profile refresh is intentionally slow: 20 selected channels per
   // 10 minutes. UI never waits for this job; it only reads the package.
   setInterval(()=>{void refreshTikTokCanonicalProfileBatch(20);},10*60_000).unref();
