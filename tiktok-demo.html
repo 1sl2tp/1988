@@ -55,7 +55,6 @@ main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-siz
 <script>
 const API='https://one988-tiktok-session.onrender.com';
 const DEFAULT_HANDLE='nhungnhoii205';
-const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
 const LIVE_LIBRARY_KEY='tiktokDemoLiveLibraryV2';
 const LIVE_LIBRARY_POLL_MS=5000;
@@ -67,6 +66,7 @@ let player=null;
 let liveSoundWanted=false;
 let liveLibraryVersion=-1;
 let liveLibraryItems={};
+let liveLibraryHandles=[];
 let liveLibrarySyncBusy=false;
 
 function parseTikTokHandle(value){
@@ -82,14 +82,24 @@ function liveUrlFor(handle){
 }
 function loadLocalLiveLibrary(){
   try{
-    // Remove the pre-library cache system. It must never participate in
-    // source selection again.
+    // One-time migration: fold all old local memory into the single LIVE library.
+    let legacyHandles=[];
+    try{
+      const legacy=JSON.parse(localStorage.getItem('tiktokDemoSavedLiveLinks')||'[]');
+      if(Array.isArray(legacy))legacyHandles=legacy.map(parseTikTokHandle).filter(Boolean);
+    }catch{}
+    localStorage.removeItem('tiktokDemoSavedLiveLinks');
     localStorage.removeItem('tiktokDemoRecentLiveStatesV2');
     localStorage.removeItem('tiktokDemoRecentLiveStates');
     localStorage.removeItem('tiktokDemoLiveLibraryV1');
 
     const data=JSON.parse(localStorage.getItem(LIVE_LIBRARY_KEY)||'{}');
     liveLibraryVersion=Number(data?.version??-1);
+    liveLibraryHandles=[...new Set([
+      ...(Array.isArray(data?.handles)?data.handles:[]),
+      ...legacyHandles
+    ].map(parseTikTokHandle).filter(Boolean))].slice(0,60);
+
     const rows=Array.isArray(data?.items)?data.items:[];
     liveLibraryItems=Object.fromEntries(
       rows.filter(row=>parseTikTokHandle(row?.handle||''))
@@ -101,11 +111,13 @@ function loadLocalLiveLibrary(){
   }catch{
     liveLibraryVersion=-1;
     liveLibraryItems={};
+    liveLibraryHandles=[];
   }
 }
 function saveLocalLiveLibrary(){
   const payload={
     version:liveLibraryVersion,
+    handles:liveLibraryHandles,
     items:Object.values(liveLibraryItems)
   };
   const next=JSON.stringify(payload);
@@ -127,8 +139,8 @@ function liveLibraryAge(row){
 function libraryHandles(){
   return [...new Set([
     HANDLE,
-    ...savedLiveLinks().map(parseTikTokHandle)
-  ].filter(Boolean))].slice(0,60);
+    ...liveLibraryHandles
+  ].map(parseTikTokHandle).filter(Boolean))].slice(0,60);
 }
 async function syncLiveLibrary({force=false}={}){
   if(liveLibrarySyncBusy)return;
@@ -234,40 +246,21 @@ function setCurrentLive(value,{playIfReady=true}={}){
   return true;
 }
 
-function savedLiveLinks(){
-  try{
-    const arr=JSON.parse(localStorage.getItem(SAVED_KEY)||'[]');
-    return Array.isArray(arr)?arr.filter(x=>parseTikTokHandle(x)).slice(0,60):[];
-  }catch{return []}
-}
-
-function sendLiveFeedback(status,type,handle=PLAYING_HANDLE||HANDLE){
-  if(!handle)return;
-  const url=API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+
-    '&status='+encodeURIComponent(status)+
-    '&type='+encodeURIComponent(String(type||'').toLowerCase())+
-    '&t='+Date.now();
-  fetch(url,{cache:'no-store'})
-    .then(()=>setTimeout(()=>{void syncLiveLibrary({force:true})},180))
-    .catch(()=>{});
-}
 
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
   if(!handle)return;
-  const url=liveUrlFor(handle);
-  const next=[url,...savedLiveLinks().filter(x=>parseTikTokHandle(x)!==handle)].slice(0,60);
-  localStorage.setItem(SAVED_KEY,JSON.stringify(next));
-  setCurrentLive(url,{playIfReady:false});
+  liveLibraryHandles=[handle,...liveLibraryHandles.filter(x=>x!==handle)].slice(0,60);
+  saveLocalLiveLibrary();
+  setCurrentLive(handle,{playIfReady:false});
   renderSavedLiveLinks();
   void syncLiveLibrary({force:true});
 }
 function renderSavedLiveLinks(){
   const root=document.getElementById('savedLiveLinks');
   if(!root)return;
-  const urls=savedLiveLinks();
-  const handles=[...new Set([HANDLE,...urls.map(parseTikTokHandle)].filter(Boolean))]
+  const handles=libraryHandles()
     .sort((a,b)=>{
       const A=liveLibraryItem(a)||{},B=liveLibraryItem(b)||{};
       const liveDiff=Number(Boolean(B.live))-Number(Boolean(A.live));
