@@ -489,7 +489,6 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
       {enableStashBuffer:true,stashInitialSize:512*1024,lazyLoad:false}
     );
     p.attachMediaElement(video);
-    armPictureTimer(5000);
     p.load();
     p.on(flvjs.Events.METADATA_ARRIVED,()=>{fitByVideoShape();void play()});
     p.on(flvjs.Events.ERROR,()=>markBad());
@@ -513,8 +512,8 @@ async function loadLive(){
   const state=document.getElementById('liveState');
   if(state){
     state.textContent=PLAYING_HANDLE
-      ?'Đang xem @'+PLAYING_HANDLE+' · chuẩn bị @'+HANDLE+' ngầm'
-      :'Đang chuẩn bị thư viện LIVE ngầm';
+      ?'Đang xem @'+PLAYING_HANDLE
+      :'Đang chờ gói LIVE từ server';
   }
   void syncLiveLibrary({force:true});
 }
