@@ -4349,8 +4349,8 @@ html.one-col.portrait .player.pip{
   async function resolveCobaltInBrowser(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
     format=String(format||"mp4").toLowerCase();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
-    if(format!=="mp3"&&format!=="mp4")return "";
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+    if(format!=="mp3"&&format!=="mp4")return null;
 
     const youtubeUrl="https://www.youtube.com/watch?v="+id;
     const payload=format==="mp3"
@@ -4361,6 +4361,7 @@ html.one-col.portrait .player.pip{
           audioBitrate:"128",
           filenameStyle:"pretty",
           youtubeVideoCodec:"h264",
+          localProcessing:"disabled",
           alwaysProxy:true
         }
       :{
@@ -4370,6 +4371,7 @@ html.one-col.portrait .player.pip{
           youtubeVideoCodec:"h264",
           youtubeVideoContainer:"mp4",
           filenameStyle:"pretty",
+          localProcessing:"disabled",
           alwaysProxy:true
         };
 
@@ -4387,27 +4389,62 @@ html.one-col.portrait .player.pip{
           body:JSON.stringify(payload)
         });
         const data=await response.json().catch(()=>({}));
+        const status=String(data?.status||"").trim();
         const url=String(data?.url||"").trim();
-        if(response.ok&&/^https:\/\//i.test(url))return url;
+        const filename=String(data?.filename||"").trim();
+        if(
+          response.ok&&
+          (status==="tunnel"||status==="redirect")&&
+          /^https:\/\//i.test(url)
+        ){
+          return {status,url,filename};
+        }
+        if(status==="error"){
+          console.warn("cobalt resolve error",api,data?.error||data);
+        }
       }catch(error){
         console.warn("cobalt direct resolve failed",api,error);
       }
     }
-    return "";
+    return null;
+  }
+
+  function triggerBrowserDownload(file={}){
+    const url=String(file?.url||"").trim();
+    if(!/^https:\/\//i.test(url))return false;
+
+    // Cobalt has already produced the real attachment URL. Keep it invisible
+    // and hand it straight back to the current web page's native downloader.
+    const anchor=document.createElement("a");
+    anchor.href=url;
+    anchor.download=String(file?.filename||"").trim();
+    anchor.rel="noopener";
+    anchor.style.display="none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.setTimeout(()=>anchor.remove(),1500);
+    return true;
+  }
+
+  function showDownloadPending(format="mp4"){
+    const menu=ensureRowActionMenu();
+    const label=String(format||"mp4").toLowerCase()==="mp3"
+      ?"Đang chuẩn bị MP3…"
+      :"Đang chuẩn bị MP4…";
+    menu.innerHTML=
+      '<div class="row-action-title">Tải xuống</div>'+
+      '<div class="row-action-note">'+escapeHtml(label)+'</div>';
+    menu.hidden=false;
+    requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=await resolveCobaltInBrowser(meta,format);
-    if(!url){
+    const file=await resolveCobaltInBrowser(meta,format);
+    if(!file){
       window.alert("Chưa tạo được file tải xuống.");
       return false;
     }
-
-    // The tunnel is created by the user's own browser/IP, matching how Cobalt
-    // itself works. Navigating to an attachment URL starts the native browser
-    // download without opening Cobalt's interface.
-    window.location.assign(url);
-    return true;
+    return triggerBrowserDownload(file);
   }
 
   async function writeCardSourceStatus(meta,status,scope){
@@ -6247,13 +6284,13 @@ html.one-col.portrait .player.pip{
         return;
       }
       if(kind==="download-mp4"){
-        closeRowActionMenu();
-        startNativeDownload(meta,"mp4");
+        showDownloadPending("mp4");
+        void startNativeDownload(meta,"mp4").finally(()=>closeRowActionMenu());
         return;
       }
       if(kind==="download-mp3"){
-        closeRowActionMenu();
-        startNativeDownload(meta,"mp3");
+        showDownloadPending("mp3");
+        void startNativeDownload(meta,"mp3").finally(()=>closeRowActionMenu());
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
