@@ -74,3 +74,14 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
 - Chốt hướng: server build package; client sync bằng hash + IndexedDB; một Rail media core cho 1 cột/PiP/2 cột; Piped ở backend; package là canonical card data; search local trước/global sau; source selected/blocked theo scope; deep-link metadata tách khỏi stream; download một nguồn GenDownload.
 - Đồng bộ source runtime `yt1988 v32` và `yt1988-getlink v2` ngược vào repo để giảm drift giữa Supabase và GitHub.
 - Ghi nhận rủi ro cần xử lý sau: `index.html` lớn, probe function Supabase còn dư, Piped public không ổn định, PIN quản trị nguồn đang nằm trong frontend.
+
+
+## 2026-09-29 — Live lấy YouTube regional làm nguồn chính
+
+- Đổi pipeline Live từ keyword-first sang YouTube-reference-first.
+- Nguồn 1: `yt1988?action=trending&region=VN` để tham chiếu các live mà YouTube/Piped regional VN đang đẩy lên.
+- Nguồn 2: kênh đã chọn, kiểm tra live riêng theo channel.
+- Nguồn 3: keyword chỉ bổ sung các nhóm như ca nhạc, bolero, radio, thể thao, bóng đá, thời sự, tin tức, game, sự kiện, 24/7.
+- Vẫn giữ blocked source, blacklist keyword, lọc tiếng Việt và dedupe sau khi gộp.
+- Test production: package Live tăng từ 7 lên 20 video ngay ở refresh đầu tiên; refresh OK.
+- Runtime: `yt1988-refresh v64`, `LIVE_PIPELINE_VERSION=live-v42`.
