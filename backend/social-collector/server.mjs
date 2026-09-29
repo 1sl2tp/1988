@@ -32,6 +32,7 @@ const tiktokLiveSessions=new Map();
 const tiktokLiveSessionInflight=new Map();
 const tiktokLiveFastSources=new Map();
 const tiktokLiveBadSources=new Map();
+const tiktokLivePreferBrowser=new Map();
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -402,6 +403,21 @@ function clearTikTokBadSource(handle,row){
   if(!map.size)tiktokLiveBadSources.delete(key);
 }
 
+function cleanTikTokPreferBrowser(){
+  const now=Date.now();
+  for(const [key,until] of tiktokLivePreferBrowser){
+    if(Number(until||0)<=now)tiktokLivePreferBrowser.delete(key);
+  }
+}
+function preferTikTokBrowser(handle,ms=10*60*1000){
+  cleanTikTokPreferBrowser();
+  tiktokLivePreferBrowser.set(String(handle||'').toLowerCase(),Date.now()+ms);
+}
+function shouldPreferTikTokBrowser(handle){
+  cleanTikTokPreferBrowser();
+  return Number(tiktokLivePreferBrowser.get(String(handle||'').toLowerCase())||0)>Date.now();
+}
+
 function cleanTikTokFastSources(){
   for(const [key,row] of tiktokLiveFastSources){
     if(!row||!tiktokLiveCacheReusable(row))tiktokLiveFastSources.delete(key);
@@ -427,6 +443,12 @@ async function resolveTikTokLiveSource(rawHandle){
     return {...cached,mode:'fast-cache'};
   }
   if(cached&&isTikTokBadSource(handle,cached))tiktokLiveFastSources.delete(key);
+
+  if(shouldPreferTikTokBrowser(handle)){
+    console.log('[tiktok-source] prefer browser',handle);
+    const session=await captureTikTokLiveSession(handle);
+    return {mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-preferred'};
+  }
 
   const preflight=await quickTikTokLiveStatus(handle);
   if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
@@ -498,13 +520,16 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   if(!handle)throw new Error('invalid_tiktok_handle');
   console.log('[tiktok-session] start',handle);
 
-  const preflight=await quickTikTokLiveStatus(handle);
-  if(preflight.known&&!preflight.live){
-    console.log('[tiktok-session] offline',handle,'status='+preflight.status);
-    throw new Error('tiktok_not_live');
-  }
-
   const key=handle.toLowerCase();
+  if(!shouldPreferTikTokBrowser(handle)){
+    const preflight=await quickTikTokLiveStatus(handle);
+    if(preflight.known&&!preflight.live){
+      console.log('[tiktok-session] offline',handle,'status='+preflight.status);
+      throw new Error('tiktok_not_live');
+    }
+  }else{
+    console.log('[tiktok-session] skip preflight',handle);
+  }
   const current=tiktokLiveSessions.get(key);
   if(current&&current.page&&!current.page.isClosed()&&tiktokLiveCacheReusable(current)){
     current.at=Date.now();
@@ -666,7 +691,7 @@ async function captureTikTokLiveSession(rawHandle){
   const key=handle.toLowerCase();
 
   const current=tiktokLiveSessions.get(key);
-  if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
+  if(current&&current.page&&!current.page.isClosed()&&tiktokLiveCacheReusable(current)){
     current.at=Date.now();
     return current;
   }
@@ -2198,7 +2223,8 @@ const server=http.createServer(async(req,res)=>{
         markTikTokBadSource(handle,browser);
         await closeTikTokLiveSession(key);
       }
-      console.log('[tiktok-cache] evict bad',handle,type||'any');
+      preferTikTokBrowser(handle);
+      console.log('[tiktok-cache] evict bad',handle,type||'any','prefer-browser');
       json(res,200,{ok:true});
       return;
     }
