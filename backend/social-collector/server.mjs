@@ -201,20 +201,60 @@ async function captureTikTokLiveSession(rawHandle){
   const savedCookies=cookieParams(stored?.state?.cookies||[]);
   if(savedCookies.length)await page.setCookie(...savedCookies).catch(()=>{});
 
-  let captured=null;
+  let capturedHls=null;
+  let capturedFlv=null;
+  let firstMediaAt=0;
+  const pendingBodies=new Set();
+
+  const remember=(url,type,headers={})=>{
+    const next={url:String(url||''),type,headers,at:Date.now()};
+    if(type==='hls'){
+      capturedHls=next;
+      console.log('[tiktok-session] capture',handle,'hls',next.url.slice(0,200));
+    }else if(type==='flv'&&!capturedFlv){
+      capturedFlv=next;
+      console.log('[tiktok-session] capture',handle,'flv',next.url.slice(0,200));
+    }
+    if(!firstMediaAt)firstMediaAt=Date.now();
+  };
+
   const onRequest=request=>{
     try{
       const requestUrl=String(request.url()||'');
       const lower=requestUrl.toLowerCase();
-      const type=lower.includes('.m3u8')?'hls':lower.includes('.flv')?'flv':'';
-      if(!type)return;
-      const headers=request.headers?.()||{};
-      const next={url:requestUrl,type,headers,at:Date.now()};
-      if(!captured||type==='hls'||captured.type!=='hls')captured=next;
-      console.log('[tiktok-session] capture',handle,type,requestUrl.slice(0,200));
+      if(lower.includes('.m3u8'))remember(requestUrl,'hls',request.headers?.()||{});
+      else if(lower.includes('.flv'))remember(requestUrl,'flv',request.headers?.()||{});
     }catch{}
   };
+
+  const onResponse=response=>{
+    try{
+      const responseUrl=String(response.url()||'');
+      if(!/tiktok\.com|tiktokv\.com|byteoversea\.com|tiktokcdn\.com/i.test(responseUrl))return;
+      const headers=response.headers?.()||{};
+      const type=String(headers['content-type']||headers['Content-Type']||'');
+      if(type&&!/json|text|javascript/i.test(type))return;
+      const task=(async()=>{
+        const text=await response.text().catch(()=>null);
+        if(!text||text.length>3_000_000)return;
+        const decoded=String(text)
+          .replace(/\\u002F/g,'/')
+          .replace(/\\u0026/g,'&')
+          .replace(/\\\//g,'/')
+          .replace(/&amp;/g,'&');
+        const match=decoded.match(/https?:\/\/[^"'\\\s<>]+\.m3u8(?:\?[^"'\\\s<>]*)?/i)?.[0]||'';
+        if(match&&!capturedHls){
+          remember(match,'hls',{});
+          console.log('[tiktok-session] hls-from-response',handle,responseUrl.slice(0,160));
+        }
+      })();
+      pendingBodies.add(task);
+      task.finally(()=>pendingBodies.delete(task));
+    }catch{}
+  };
+
   page.on('request',onRequest);
+  page.on('response',onResponse);
 
   try{
     await page.goto('https://www.tiktok.com/@'+handle+'/live',{
@@ -222,15 +262,26 @@ async function captureTikTokLiveSession(rawHandle){
       timeout:22000
     }).catch(error=>console.warn('[tiktok-session] goto',handle,compactText(error?.message||error,180)));
 
-    for(let i=0;i<14&&!captured;i+=1){
+    for(let i=0;i<22&&!capturedHls;i+=1){
       await page.evaluate(()=>{
         for(const video of document.querySelectorAll('video')){
           try{video.muted=true;void video.play?.()}catch{}
         }
       }).catch(()=>{});
-      await sleep(800);
+      if(pendingBodies.size)await Promise.race([
+        Promise.allSettled([...pendingBodies]),
+        sleep(250)
+      ]).catch(()=>{});
+      if(capturedFlv&&!capturedHls&&firstMediaAt&&Date.now()-firstMediaAt>4500)break;
+      await sleep(650);
     }
 
+    if(pendingBodies.size)await Promise.race([
+      Promise.allSettled([...pendingBodies]),
+      sleep(800)
+    ]).catch(()=>{});
+
+    const captured=capturedHls||capturedFlv;
     if(!captured)throw new Error('live_media_not_captured');
 
     const row={handle,page,url:captured.url,type:captured.type,headers:captured.headers,at:Date.now()};
@@ -239,10 +290,12 @@ async function captureTikTokLiveSession(rawHandle){
     return row;
   }catch(error){
     page.off('request',onRequest);
+    page.off('response',onResponse);
     await page.close().catch(()=>{});
     throw error;
   }
 }
+
 async function liveSessionHeaders(req,row,targetUrl){
   const headers={};
   for(const [name,value] of Object.entries(row?.headers||{})){
