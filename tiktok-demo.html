@@ -162,6 +162,7 @@ function attachLive(type,directUrl,allowProxyFallback=true){
   const video=document.getElementById('liveVideo');
   const shell=video.closest('.livebox');
   const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+  const proxyAll=proxy+'&segments=proxy';
   const play=async()=>{
     video.volume=1;
     video.muted=!liveSoundWanted;
@@ -178,6 +179,7 @@ function attachLive(type,directUrl,allowProxyFallback=true){
     }
   };
   let usingProxy=false;
+  let usingSegmentProxy=false;
 
   const fitByVideoShape=()=>{
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
@@ -198,7 +200,11 @@ function attachLive(type,directUrl,allowProxyFallback=true){
       video.src=src;
       video.addEventListener('loadedmetadata',play,{once:true});
       video.addEventListener('error',()=>{
-        if(allowProxyFallback&&!usingProxy&&src!==proxy){usingProxy=true;loadHls(proxy)}
+        if(allowProxyFallback&&!usingSegmentProxy&&src!==proxyAll){
+          usingSegmentProxy=true;
+          state.textContent='Đang LIVE · HLS · fallback relay';
+          loadHls(proxyAll);
+        }
       },{once:true});
       play();
       state.textContent='Đang LIVE · HLS';
@@ -207,21 +213,34 @@ function attachLive(type,directUrl,allowProxyFallback=true){
     if(window.Hls&&Hls.isSupported()){
       try{player?.destroy?.()}catch{}
       const h=new Hls({
-        lowLatencyMode:false,
+        lowLatencyMode:true,
         enableWorker:true,
         startFragPrefetch:true,
         backBufferLength:30,
-        maxBufferLength:30,
-        maxMaxBufferLength:60,
-        liveSyncDurationCount:4,
-        liveMaxLatencyDurationCount:8,
-        maxLiveSyncPlaybackRate:1.15
+        maxBufferLength:20,
+        maxMaxBufferLength:40,
+        liveSyncDurationCount:3,
+        liveMaxLatencyDurationCount:10,
+        maxLiveSyncPlaybackRate:1.12
       });
       h.loadSource(src);
       h.attachMedia(video);
       h.on(Hls.Events.MANIFEST_PARSED,play);
       h.on(Hls.Events.FRAG_BUFFERED,fitByVideoShape);
       h.on(Hls.Events.ERROR,(_,d)=>{
+        const directSegmentError=Boolean(
+          d?.frag?.url&&
+          /tiktokcdn.com|tiktokv.com|byteoversea.com/i.test(String(d.frag.url))&&
+          d.type===Hls.ErrorTypes.NETWORK_ERROR
+        );
+        if(allowProxyFallback&&directSegmentError&&!usingSegmentProxy&&src!==proxyAll){
+          usingSegmentProxy=true;
+          state.textContent='Đang LIVE · HLS · fallback segment relay';
+          try{h.destroy()}catch{}
+          player=null;
+          loadHls(proxyAll);
+          return;
+        }
         if(d.fatal&&allowProxyFallback&&!usingProxy&&src!==proxy){
           usingProxy=true;
           try{h.destroy()}catch{}
@@ -281,8 +300,8 @@ async function loadLive(){
   destroyPlayer();
   const state=document.getElementById('liveState');
   const box=document.getElementById('liveBox');
-  state.textContent='Đang mở phiên trình duyệt TikTok…';
-  box.innerHTML='<div class="status">Đang mở LIVE trong một phiên trình duyệt và giữ nguyên header/session…</div>';
+  state.textContent='Đang tìm LIVE nhanh…';
+  box.innerHTML='<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
   let timer=null;
   let ticker=null;
   try{
@@ -290,7 +309,7 @@ async function loadLive(){
     const started=Date.now();
     ticker=setInterval(()=>{
       const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
-      state.textContent='Đang mở phiên TikTok… '+sec+'s';
+      state.textContent=sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s';
     },1000);
     timer=setTimeout(()=>ctrl.abort(),30000);
     const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
@@ -301,8 +320,8 @@ async function loadLive(){
     if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
     const type=String(data.streamType||'').toLowerCase()||'hls';
     const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
-    state.textContent='Đang LIVE · '+type.toUpperCase()+' · session';
-    attachLive(type,relay,false);
+    state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+String(data.mode||'session');
+    attachLive(type,relay,true);
   }catch(err){
     state.textContent=err?.name==='AbortError'?'Hết thời gian chờ LIVE':'Lỗi phiên LIVE';
     box.innerHTML='<div class="status">'+(String(err?.message||err).includes('tiktok_not_live')?'Kênh này hiện không có LIVE hoặc TikTok không cho mở phiên.':'Không tạo được phiên LIVE: '+String(err?.message||err))+'</div>';
