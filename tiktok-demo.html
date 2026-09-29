@@ -30,7 +30,7 @@ main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-siz
   <p class="note">Dán link TikTok LIVE để test. Link đã lưu sẽ giữ lại trên máy này để bấm test lại nhanh.</p>
   <div class="tester">
     <input id="liveLinkInput" autocomplete="off" spellcheck="false" placeholder="Dán link TikTok LIVE, ví dụ https://www.tiktok.com/@user/live">
-    <button id="testLiveBtn">Test</button>
+    <button id="testLiveBtn">Mở</button>
     <button id="saveLiveBtn">Lưu</button>
   </div>
   <section class="workspace">
@@ -160,7 +160,7 @@ async function syncLiveLibrary({force=false}={}){
       renderSavedLiveLinks();
     }else{
       const summary=document.getElementById('liveLibrarySummary');
-      if(summary)summary.textContent='Cache · không đổi · v'+String(data.version??liveLibraryVersion);
+      if(summary)summary.textContent='Không đổi · LIVE '+Object.values(liveLibraryItems).filter(x=>x?.live).length;
     }
 
     if(PENDING_HANDLE){
@@ -200,8 +200,7 @@ function openLiveFromLibrary(row,handle=row?.handle||HANDLE){
   const age=liveLibraryAge(row);
   const state=document.getElementById('liveState');
   if(state)state.textContent='LIVE · '+String(row.type).toUpperCase()+
-    (row.width&&row.height?' · '+row.width+'×'+row.height:'')+
-    (age?' · '+age:'');
+    (row.width&&row.height?' · '+row.width+'×'+row.height:'');
 
   const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+
     '&source='+encodeURIComponent(row.sourceSig)+'&t='+Date.now();
@@ -317,7 +316,7 @@ function renderSavedLiveLinks(){
   const liveCount=handles.filter(handle=>liveLibraryItem(handle)?.live).length;
   const readyCount=handles.filter(handle=>liveLibraryItem(handle)?.ready).length;
   const summary=document.getElementById('liveLibrarySummary');
-  if(summary)summary.textContent='LIVE '+liveCount+' · sẵn '+readyCount+' · cache v'+Math.max(0,liveLibraryVersion);
+  if(summary)summary.textContent='LIVE '+liveCount+' · sẵn '+readyCount;
 
   root.innerHTML=handles.map(handle=>{
     const row=liveLibraryItem(handle);
@@ -326,9 +325,8 @@ function renderSavedLiveLinks(){
     const type=String(row?.type||'').toUpperCase();
     const age=liveLibraryAge(row);
     const meta=[
-      live?(row?.ready?'LIVE':'đang sống'):(row?.status==='offline'?'offline':'cache'),
-      type,
-      age
+      live?(row?.ready?'LIVE · sẵn':'LIVE · đang chuẩn bị'):(row?.status==='offline'?'không LIVE':'đang kiểm tra'),
+      type
     ].filter(Boolean).join(' · ');
     return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">'+
       '<span>@'+handle+'</span>'+
@@ -342,11 +340,18 @@ function renderSavedLiveLinks(){
       liveSoundWanted=true;
       const handle=btn.dataset.liveHandle;
       const row=liveLibraryItem(handle);
-      setCurrentLive(handle,{reload:false});
-      if(!(row?.live&&row?.ready&&row?.type&&openLiveFromLibrary(row))){
-        loadLive();
+      setCurrentLive(handle,{playIfReady:false});
+      if(row?.live&&row?.ready&&row?.type&&row?.sourceSig){
+        PENDING_HANDLE='';
+        openLiveFromLibrary(row,handle);
+      }else{
+        PENDING_HANDLE=handle;
+        const state=document.getElementById('liveState');
+        if(state&&PLAYING_HANDLE){
+          state.textContent='Đang xem @'+PLAYING_HANDLE+' · @'+handle+' đang chuẩn bị ngầm';
+        }
+        void syncLiveLibrary({force:true});
       }
-      void syncLiveLibrary();
     };
   });
 }
