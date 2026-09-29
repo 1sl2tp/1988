@@ -329,14 +329,25 @@ function mountAccountPlayers(root=document){
   });
 }
 async function fetchAccount(handle){
-  const r=await fetch(API+'/tiktok/profile?user='+encodeURIComponent(handle)+'&limit=3',{cache:'no-store'});
-  const j=await r.json();
-  if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
-  return j;
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(),30000);
+  try{
+    const r=await fetch(API+'/tiktok/profile?user='+encodeURIComponent(handle)+'&limit=3',{
+      cache:'no-store',
+      signal:ctrl.signal
+    });
+    const j=await r.json();
+    if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
+    return j;
+  }finally{
+    clearTimeout(timer);
+  }
 }
 async function loadExampleAccounts(){
   clearAccountPlayers();
-  accountSamples.innerHTML='<div class="skeleton"></div><div class="skeleton"></div>';
+  accountSamples.innerHTML=SAMPLE_HANDLES.map(handle=>
+    '<article class="account-card"><div class="account-head"><div style="width:44px;height:44px;border-radius:50%;background:#222"></div><div class="account-main"><div class="account-name">@'+esc(handle)+'</div><div class="account-handle">Đang lấy kênh → LIVE → video mới…</div></div></div><div class="account-block"><div class="account-empty">Đang phân loại dữ liệu TikTok…</div></div></article>'
+  ).join('');
   const results=await Promise.all(SAMPLE_HANDLES.map(async handle=>{
     try{return await fetchAccount(handle)}
     catch(err){return {ok:false,handle,error:String(err?.message||err)}}
