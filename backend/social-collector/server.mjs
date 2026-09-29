@@ -898,8 +898,9 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   console.log('[tiktok-session] start',handle);
 
   const key=handle.toLowerCase();
+  let preflight={known:false,live:false,status:null};
   if(!shouldPreferTikTokBrowser(handle)){
-    const preflight=await quickTikTokLiveStatus(handle);
+    preflight=await quickTikTokLiveStatus(handle);
     if(preflight.known&&!preflight.live){
       console.log('[tiktok-session] offline',handle,'status='+preflight.status);
       throw new Error('tiktok_not_live');
@@ -1015,7 +1016,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     });
 
     const started=Date.now();
-    while(Date.now()-started<18000&&!capturedFlv){
+    while(Date.now()-started<12000&&!capturedFlv){
       await page.evaluate(()=>{
         for(const video of document.querySelectorAll('video')){
           try{video.muted=true;void video.play?.()}catch{}
@@ -1029,7 +1030,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
 
       // Browser fallback is our compatibility path: give TikTok a few seconds
       // to expose FLV/H.264 even when an HLS URL appears first.
-      if(capturedHls&&!capturedFlv&&Date.now()-capturedHls.at>4500)break;
+      if(capturedHls&&!capturedFlv&&Date.now()-capturedHls.at>2500)break;
       await sleep(350);
     }
 
