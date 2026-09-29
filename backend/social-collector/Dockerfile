@@ -44,6 +44,7 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY server.mjs ./
 COPY tiktok-login-runtime.mjs ./
 COPY tiktok_stream_extract.py ./
+COPY tiktok_live_batch_check.py ./
 
 EXPOSE 10000
 
