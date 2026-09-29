@@ -2299,19 +2299,32 @@ async function fetchTikTokProfileIdentityScraped(handle){
     };
 
     let user=null;
+    let stats=null;
     const hydration=parseScriptJson('__UNIVERSAL_DATA_FOR_REHYDRATION__');
     if(hydration){
       const scope=hydration?.__DEFAULT_SCOPE__||{};
+      const detailScope=scope?.['webapp.user-detail']||null;
       user=
-        scope?.['webapp.user-detail']?.userInfo?.user||
-        scope?.['webapp.user-detail']?.user||
-        findTikTokUserObject(scope?.['webapp.user-detail'],handle)||
+        detailScope?.userInfo?.user||
+        detailScope?.user||
+        findTikTokUserObject(detailScope,handle)||
         findTikTokUserObject(hydration,handle);
+      stats=
+        detailScope?.userInfo?.stats||
+        detailScope?.stats||
+        null;
     }
 
     if(!user){
       const sigi=parseScriptJson('SIGI_STATE');
-      if(sigi)user=findTikTokUserObject(sigi,handle);
+      if(sigi){
+        user=findTikTokUserObject(sigi,handle);
+        const uid=String(user?.id||user?.uid||'');
+        stats=
+          sigi?.UserModule?.stats?.[handle]||
+          sigi?.UserModule?.stats?.[uid]||
+          null;
+      }
     }
 
     if(user){
@@ -2326,6 +2339,10 @@ async function fetchTikTokProfileIdentityScraped(handle){
         userId:String(user?.id||user?.uid||user?.userId||''),
         nickname:String(user?.nickname||user?.nickName||''),
         avatar,
+        followerCount:Number(stats?.followerCount||stats?.follower_count||0),
+        followingCount:Number(stats?.followingCount||stats?.following_count||0),
+        heartCount:Number(stats?.heartCount||stats?.heart||stats?.diggCount||0),
+        videoCount:Number(stats?.videoCount||stats?.video_count||0),
         videoId:''
       };
     }
@@ -2362,7 +2379,11 @@ async function fetchTikTokProfileIdentityScraped(handle){
       new RegExp('\\\\/@'+safeHandle+'\\\\/video\\\\/(\\\\d{8,})','i')
     ]);
 
-    return {secUid,userId,nickname,avatar,videoId};
+    const followerCount=Number(pick([/"followerCount":(\d+)/,/"follower_count":(\d+)/])||0);
+    const followingCount=Number(pick([/"followingCount":(\d+)/,/"following_count":(\d+)/])||0);
+    const heartCount=Number(pick([/"heartCount":(\d+)/,/"heart":(\d+)/])||0);
+    const videoCount=Number(pick([/"videoCount":(\d+)/,/"video_count":(\d+)/])||0);
+    return {secUid,userId,nickname,avatar,videoId,followerCount,followingCount,heartCount,videoCount};
   }catch(error){
     console.warn('[tiktok-profile] html identity failed',handle,compactText(error?.message||error,220));
     return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
@@ -2447,7 +2468,7 @@ async function fetchTikTokOfficialProfileIdentity(handle){
 
 async function fetchTikTokProfileIdentity(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle)return {secUid:'',userId:'',nickname:'',avatar:'',videoId:'',source:'none'};
+  if(!handle)return {secUid:'',userId:'',nickname:'',avatar:'',videoId:'',followerCount:0,followingCount:0,heartCount:0,videoCount:0,source:'none'};
   const key=handle.toLowerCase();
   const cached=tiktokProfileIdentityCache.get(key);
   if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_PROFILE_IDENTITY_TTL_MS){
@@ -2474,6 +2495,10 @@ async function fetchTikTokProfileIdentity(rawHandle){
       nickname:String(official?.nickname||detail?.nickname||scraped?.nickname||''),
       avatar:String(official?.avatar||detail?.avatar||scraped?.avatar||''),
       videoId:String(scraped?.videoId||''),
+      followerCount:Number(detail?.followerCount||scraped?.followerCount||0),
+      followingCount:Number(detail?.followingCount||scraped?.followingCount||0),
+      heartCount:Number(detail?.heartCount||scraped?.heartCount||0),
+      videoCount:Number(detail?.videoCount||scraped?.videoCount||0),
       source:official?'official':(detail?'user-detail':'profile')
     };
     tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
@@ -2502,17 +2527,25 @@ async function fetchTikTokUserDetail(handle){
     });
     if(!r.ok)return null;
     const body=await r.json();
+    const info=body?.userInfo||body?.data?.userInfo||null;
     const user=
-      body?.userInfo?.user||
-      body?.data?.userInfo?.user||
+      info?.user||
       body?.data?.user||
+      null;
+    const stats=
+      info?.stats||
+      body?.data?.stats||
       null;
     if(!user)return null;
     return {
       secUid:String(user?.secUid||user?.sec_uid||''),
       userId:String(user?.id||user?.uid||''),
       nickname:String(user?.nickname||''),
-      avatar:firstTikTokAssetUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb)
+      avatar:firstTikTokAssetUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb),
+      followerCount:Number(stats?.followerCount||stats?.follower_count||0),
+      followingCount:Number(stats?.followingCount||stats?.following_count||0),
+      heartCount:Number(stats?.heartCount||stats?.heart||0),
+      videoCount:Number(stats?.videoCount||stats?.video_count||0)
     };
   }catch{
     return null;
@@ -4509,7 +4542,13 @@ const server=http.createServer(async(req,res)=>{
         videoId:String(identity.videoId||''),
         videoUrl:identity.videoId?'https://www.tiktok.com/@'+handle+'/video/'+identity.videoId:'',
         nickname:String(identity.nickname||''),
-        avatar:String(identity.avatar||'')
+        avatar:String(identity.avatar||''),
+        secUid:String(identity.secUid||''),
+        followerCount:Number(identity.followerCount||0),
+        followingCount:Number(identity.followingCount||0),
+        heartCount:Number(identity.heartCount||0),
+        videoCount:Number(identity.videoCount||0),
+        source:String(identity.source||'')
       });
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
