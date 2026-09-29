@@ -1,5 +1,7 @@
 import base64
+import hashlib
 import html
+import json
 import os
 import re
 import time
@@ -9,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, send_file, stream_with_context
 import requests
 import yt_dlp
 import imageio_ffmpeg
@@ -24,6 +26,10 @@ TIKTOK_CACHE_TTL = 5 * 60
 YTDLP_BLOCK_TTL = 15 * 60
 PIPED_EDGE = "https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988"
 COOKIE_PATH = Path("/tmp/1988-ytdlp-cookies.txt")
+DOWNLOAD_JOB_ROOT = Path("/tmp/1988-download-jobs")
+DOWNLOAD_JOB_TTL = 60 * 60
+DOWNLOAD_JOB_ACTIVE_TTL = 30 * 60
+DOWNLOAD_JOB_ROOT.mkdir(parents=True, exist_ok=True)
 
 _cache = {}
 _tiktok_cache = {}
@@ -742,6 +748,407 @@ def media_response(video_id, kind):
         "error": f"{kind}_proxy_failed",
         "detail": str(last_error)[:400],
     }), 502
+
+
+
+def _download_job_id(video_id, download_format):
+    raw = f"{download_format}:{video_id}".encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()[:24]
+
+
+def _download_job_state_path(job_id):
+    return DOWNLOAD_JOB_ROOT / f"{job_id}.json"
+
+
+def _download_job_lock_path(job_id):
+    return DOWNLOAD_JOB_ROOT / f"{job_id}.lock"
+
+
+def _download_job_final_path(job_id, download_format):
+    return DOWNLOAD_JOB_ROOT / f"{job_id}.{download_format}"
+
+
+def _download_job_now():
+    return int(time.time())
+
+
+def _download_job_read(job_id):
+    path = _download_job_state_path(job_id)
+    try:
+        data = json.loads(path.read_text("utf-8"))
+        if not isinstance(data, dict):
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _download_job_write(job_id, patch):
+    path = _download_job_state_path(job_id)
+    current = _download_job_read(job_id) or {}
+    current.update(dict(patch or {}))
+    current["jobId"] = job_id
+    current["updatedAt"] = _download_job_now()
+
+    temp = DOWNLOAD_JOB_ROOT / (
+        f".{job_id}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
+    temp.write_text(
+        json.dumps(current, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    os.replace(temp, path)
+    return current
+
+
+def _download_job_cleanup():
+    now = time.time()
+    try:
+        for path in DOWNLOAD_JOB_ROOT.iterdir():
+            try:
+                age = now - path.stat().st_mtime
+            except Exception:
+                continue
+
+            ttl = DOWNLOAD_JOB_ACTIVE_TTL if path.suffix == ".lock" else DOWNLOAD_JOB_TTL
+            if age <= ttl:
+                continue
+
+            try:
+                path.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _download_job_public(state):
+    if not isinstance(state, dict):
+        return None
+
+    payload = {
+        "jobId": str(state.get("jobId") or ""),
+        "id": str(state.get("id") or ""),
+        "format": str(state.get("format") or ""),
+        "status": str(state.get("status") or "queued"),
+        "phase": str(state.get("phase") or ""),
+        "progress": int(state.get("progress") or 0),
+        "downloadedBytes": int(state.get("downloadedBytes") or 0),
+        "totalBytes": int(state.get("totalBytes") or 0),
+        "size": int(state.get("size") or 0),
+        "title": str(state.get("title") or ""),
+        "error": str(state.get("error") or ""),
+        "createdAt": int(state.get("createdAt") or 0),
+        "updatedAt": int(state.get("updatedAt") or 0),
+    }
+
+    if payload["status"] == "ready":
+        payload["downloadUrl"] = (
+            f"/download/file/{payload['jobId']}"
+        )
+    else:
+        payload["downloadUrl"] = ""
+
+    return payload
+
+
+def _download_job_opts(video_id, download_format, job_id, progress_hook, post_hook):
+    output_template = str(DOWNLOAD_JOB_ROOT / f"{job_id}.%(ext)s")
+
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "socket_timeout": 25,
+        "retries": 5,
+        "fragment_retries": 5,
+        "continuedl": True,
+        "overwrites": True,
+        "concurrent_fragment_downloads": 4,
+        "outtmpl": output_template,
+        "progress_hooks": [progress_hook],
+        "postprocessor_hooks": [post_hook],
+        "ffmpeg_location": _ffmpeg_exe(),
+        "geo_bypass": True,
+    }
+
+    clients = _player_clients()
+    if clients:
+        opts["extractor_args"] = {
+            "youtube": {
+                "player_client": clients,
+            }
+        }
+
+    proxy = _proxy_url()
+    if proxy:
+        opts["proxy"] = proxy
+
+    cookiefile = _cookiefile()
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+
+    impersonate = (os.environ.get("YTDLP_IMPERSONATE") or "").strip()
+    if impersonate:
+        opts["impersonate"] = impersonate
+
+    if download_format == "mp3":
+        opts["format"] = (
+            "bestaudio[ext=m4a]/"
+            "bestaudio[acodec^=mp4a]/"
+            "bestaudio/best"
+        )
+        opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "128",
+        }]
+    else:
+        opts["format"] = (
+            "bestvideo[ext=mp4][vcodec^=avc1][height<=720]+"
+            "bestaudio[ext=m4a]/"
+            "best[ext=mp4][vcodec^=avc1][height<=720]/"
+            "bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/"
+            "best[ext=mp4][height<=720]/best"
+        )
+        opts["merge_output_format"] = "mp4"
+
+    return opts
+
+
+def _download_job_find_file(job_id, download_format):
+    expected = _download_job_final_path(job_id, download_format)
+    if expected.exists() and expected.is_file() and expected.stat().st_size > 0:
+        return expected
+
+    candidates = []
+    for path in DOWNLOAD_JOB_ROOT.glob(f"{job_id}.*"):
+        if not path.is_file():
+            continue
+        if path.suffix in (".json", ".lock", ".part", ".ytdl", ".tmp"):
+            continue
+        try:
+            size = path.stat().st_size
+        except Exception:
+            continue
+        if size <= 0:
+            continue
+        candidates.append((size, path))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    chosen = candidates[0][1]
+
+    if download_format == "mp4" and chosen.suffix.lower() != ".mp4":
+        return None
+    if download_format == "mp3" and chosen.suffix.lower() != ".mp3":
+        return None
+
+    return chosen
+
+
+def _download_job_run(job_id, video_id, download_format, requested_title=""):
+    lock_path = _download_job_lock_path(job_id)
+    created_at = _download_job_now()
+
+    def update(**patch):
+        return _download_job_write(job_id, patch)
+
+    def progress_hook(data):
+        status = str((data or {}).get("status") or "")
+        if status == "downloading":
+            downloaded = int((data or {}).get("downloaded_bytes") or 0)
+            total = int(
+                (data or {}).get("total_bytes")
+                or (data or {}).get("total_bytes_estimate")
+                or 0
+            )
+            if total > 0:
+                progress = max(
+                    2,
+                    min(88, int((downloaded / total) * 86) + 2),
+                )
+            else:
+                progress = 8
+
+            update(
+                status="processing",
+                phase="download",
+                progress=progress,
+                downloadedBytes=downloaded,
+                totalBytes=total,
+            )
+        elif status == "finished":
+            update(
+                status="processing",
+                phase="postprocess",
+                progress=90,
+            )
+
+    def post_hook(data):
+        status = str((data or {}).get("status") or "")
+        if status == "started":
+            update(
+                status="processing",
+                phase="postprocess",
+                progress=92,
+            )
+        elif status == "finished":
+            update(
+                status="processing",
+                phase="finalize",
+                progress=98,
+            )
+
+    try:
+        update(
+            id=video_id,
+            format=download_format,
+            title=requested_title,
+            status="processing",
+            phase="resolve",
+            progress=1,
+            downloadedBytes=0,
+            totalBytes=0,
+            error="",
+            createdAt=created_at,
+        )
+
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        opts = _download_job_opts(
+            video_id,
+            download_format,
+            job_id,
+            progress_hook,
+            post_hook,
+        )
+
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+        final_path = _download_job_find_file(job_id, download_format)
+        if not final_path:
+            raise RuntimeError(f"final_{download_format}_missing")
+
+        size = int(final_path.stat().st_size)
+        if size <= 0:
+            raise RuntimeError("final_file_empty")
+
+        title = str(
+            (info or {}).get("title")
+            or requested_title
+            or video_id
+        ).strip()
+
+        update(
+            title=title,
+            status="ready",
+            phase="ready",
+            progress=100,
+            size=size,
+            downloadedBytes=size,
+            totalBytes=size,
+            file=str(final_path),
+            error="",
+        )
+    except Exception as exc:
+        app.logger.exception(
+            "download job failed %s %s",
+            video_id,
+            download_format,
+        )
+        update(
+            status="error",
+            phase="error",
+            progress=0,
+            error=str(exc)[:500],
+        )
+    finally:
+        try:
+            lock_path.unlink()
+        except Exception:
+            pass
+
+
+def _download_job_start(video_id, download_format, title=""):
+    _download_job_cleanup()
+
+    job_id = _download_job_id(video_id, download_format)
+    state = _download_job_read(job_id)
+    now = _download_job_now()
+    final_path = _download_job_final_path(job_id, download_format)
+
+    if state:
+        status = str(state.get("status") or "")
+        updated = int(state.get("updatedAt") or 0)
+
+        if (
+            status == "ready"
+            and final_path.exists()
+            and final_path.is_file()
+            and final_path.stat().st_size > 0
+            and now - updated < DOWNLOAD_JOB_TTL
+        ):
+            return state
+
+        if (
+            status in ("queued", "processing")
+            and now - updated < DOWNLOAD_JOB_ACTIVE_TTL
+        ):
+            return state
+
+    lock_path = _download_job_lock_path(job_id)
+    try:
+        fd = os.open(
+            lock_path,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        os.write(fd, str(os.getpid()).encode("ascii"))
+        os.close(fd)
+    except FileExistsError:
+        try:
+            if time.time() - lock_path.stat().st_mtime > DOWNLOAD_JOB_ACTIVE_TTL:
+                lock_path.unlink()
+                return _download_job_start(video_id, download_format, title)
+        except Exception:
+            pass
+        return _download_job_read(job_id) or {
+            "jobId": job_id,
+            "id": video_id,
+            "format": download_format,
+            "status": "queued",
+            "phase": "queued",
+            "progress": 0,
+            "title": title,
+            "createdAt": now,
+            "updatedAt": now,
+        }
+
+    state = _download_job_write(job_id, {
+        "id": video_id,
+        "format": download_format,
+        "title": title,
+        "status": "queued",
+        "phase": "queued",
+        "progress": 0,
+        "downloadedBytes": 0,
+        "totalBytes": 0,
+        "size": 0,
+        "error": "",
+        "createdAt": now,
+    })
+
+    thread = threading.Thread(
+        target=_download_job_run,
+        args=(job_id, video_id, download_format, title),
+        daemon=True,
+        name=f"download-{job_id}",
+    )
+    thread.start()
+    return state
 
 
 def download_mp4_response(video_id, title=""):
@@ -1576,6 +1983,108 @@ def resolve():
             "kind": kind,
             "detail": str(exc)[:400],
         }), 502
+
+
+@app.route("/download/prepare", methods=["GET", "POST", "OPTIONS"])
+def download_prepare():
+    if request.method == "OPTIONS":
+        return cors(Response(status=204))
+
+    body = request.get_json(silent=True) if request.method == "POST" else {}
+    body = body if isinstance(body, dict) else {}
+
+    video_id = str(
+        body.get("id")
+        or request.args.get("id")
+        or request.args.get("v")
+        or ""
+    ).strip()
+    download_format = str(
+        body.get("format")
+        or request.args.get("format")
+        or "mp4"
+    ).strip().lower()
+    title = str(
+        body.get("title")
+        or request.args.get("title")
+        or ""
+    ).strip()
+
+    if not valid_id(video_id):
+        return cors(jsonify({"ok": False, "error": "invalid_video"})), 400
+    if download_format not in ("mp3", "mp4"):
+        return cors(jsonify({"ok": False, "error": "invalid_download_format"})), 400
+
+    state = _download_job_start(
+        video_id,
+        download_format,
+        title,
+    )
+    data = _download_job_public(state) or {}
+    data["statusUrl"] = f"/download/status?job={data.get('jobId', '')}"
+
+    return cors(jsonify({
+        "ok": True,
+        "data": data,
+    }))
+
+
+@app.route("/download/status", methods=["GET", "OPTIONS"])
+def download_status():
+    if request.method == "OPTIONS":
+        return cors(Response(status=204))
+
+    job_id = (request.args.get("job") or "").strip()
+    if not re.fullmatch(r"[a-f0-9]{24}", job_id):
+        return cors(jsonify({"ok": False, "error": "invalid_job"})), 400
+
+    state = _download_job_read(job_id)
+    if not state:
+        return cors(jsonify({"ok": False, "error": "job_not_found"})), 404
+
+    return cors(jsonify({
+        "ok": True,
+        "data": _download_job_public(state),
+    }))
+
+
+@app.route("/download/file/<job_id>", methods=["GET", "HEAD", "OPTIONS"])
+def download_job_file(job_id):
+    if request.method == "OPTIONS":
+        return cors(Response(status=204))
+
+    if not re.fullmatch(r"[a-f0-9]{24}", str(job_id or "")):
+        return cors(jsonify({"ok": False, "error": "invalid_job"})), 400
+
+    state = _download_job_read(job_id)
+    if not state or str(state.get("status") or "") != "ready":
+        return cors(jsonify({"ok": False, "error": "job_not_ready"})), 409
+
+    download_format = str(state.get("format") or "").lower()
+    if download_format not in ("mp3", "mp4"):
+        return cors(jsonify({"ok": False, "error": "invalid_job_format"})), 500
+
+    path = _download_job_final_path(job_id, download_format)
+    if not path.exists() or not path.is_file() or path.stat().st_size <= 0:
+        return cors(jsonify({"ok": False, "error": "job_file_missing"})), 404
+
+    title = str(state.get("title") or state.get("id") or job_id)
+    mime = "audio/mpeg" if download_format == "mp3" else "video/mp4"
+    filename = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", title)
+    filename = re.sub(r"\s+", " ", filename).strip(" .")[:120]
+    filename = f"{filename or job_id}.{download_format}"
+
+    response = send_file(
+        path,
+        mimetype=mime,
+        as_attachment=True,
+        download_name=filename,
+        conditional=True,
+        max_age=0,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-1988-Download"] = f"job-{download_format}"
+    return cors(response)
 
 
 @app.route("/download", methods=["GET", "HEAD", "OPTIONS"])
