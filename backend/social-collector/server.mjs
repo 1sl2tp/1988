@@ -1543,6 +1543,31 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/hls-proxy'&&req.method==='GET'){
+    try{
+      const raw=String(url.searchParams.get('url')||'').trim();
+      let target;
+      try{target=new URL(raw);}catch{target=null;}
+      const host=String(target?.hostname||'').toLowerCase();
+      const allowed=Boolean(
+        target?.protocol==='https:'&&(
+          host==='tiktokcdn.com'||host.endsWith('.tiktokcdn.com')||
+          host==='tiktokv.com'||host.endsWith('.tiktokv.com')||
+          host==='byteoversea.com'||host.endsWith('.byteoversea.com')
+        )
+      );
+      if(!allowed){json(res,400,{ok:false,error:'invalid_tiktok_cdn_url'});return;}
+      console.log('[tiktok-hls-proxy]',host,target.pathname.slice(0,140));
+      await pipeTikTokTarget(req,res,target.toString(),{
+        fallbackType:'application/vnd.apple.mpegurl'
+      });
+    }catch(error){
+      if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
+      else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
     try{
       await proxyTikTokLive(req,res,url.searchParams.get('user')||'');
