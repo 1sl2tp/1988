@@ -269,6 +269,11 @@ async function refreshTikTokLogin({capture=true}={}){
     const loggedIn=state.strongCookie || (state.leftLogin && state.ui.hasProfile);
     if(loggedIn){
       await saveSession('tiktok',{cookies:cookieParams(state.cookies)});
+      setTimeout(()=>{
+        void enqueue(()=>collect('tiktok')).catch(error=>
+          console.warn('[tiktok-login] post-login collect',String(error?.message||error))
+        );
+      },1200).unref();
       tiktokLoginStatus='success';
       tiktokLoginError='';
       tiktokLoginQr=null;
@@ -404,8 +409,7 @@ function cookieParams(rows=[]){
 }
 async function openPlatform(platform){
   const browser=await getBrowser();
-  const context=await browser.createBrowserContext();
-  const page=await context.newPage();
+  const page=await browser.newPage();
   await page.setUserAgent(
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
     'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
@@ -432,7 +436,6 @@ async function openPlatform(platform){
   });
 
   return {
-    context,
     page,
     async close(){
       try{
@@ -441,7 +444,7 @@ async function openPlatform(platform){
       }catch(error){
         console.warn('[session] export failed',platform,String(error?.message||error));
       }
-      await context.close().catch(()=>{});
+      await page.close().catch(()=>{});
     }
   };
 }
@@ -457,6 +460,38 @@ async function goto(page,url,timeout=18000){
     console.warn('[page] goto',url,String(error?.message||error));
   });
   await sleep(1200);
+}
+
+async function readTikTokCurrentAccount(page){
+  return page.evaluate(()=>{
+    const profileSelectors=[
+      '[data-e2e="profile-icon"]',
+      '[data-e2e="nav-profile"]',
+      'a[href^="/@"][aria-label*="rofile" i]',
+      'a[href^="/@"][aria-label*="ồ sơ" i]'
+    ];
+    let handle='';
+    for(const selector of profileSelectors){
+      const el=document.querySelector(selector);
+      const anchor=el?.closest?.('a[href]')||el;
+      const href=String(anchor?.getAttribute?.('href')||anchor?.href||'');
+      const m=href.match(/\/@([^/?#]+)/);
+      if(m){handle=m[1];break;}
+    }
+
+    let numericId='';
+    try{
+      const script=document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
+      if(script?.textContent){
+        const data=JSON.parse(script.textContent);
+        const user=data?.__DEFAULT_SCOPE__?.['webapp.user-detail']?.userInfo?.user;
+        if(!handle&&user?.uniqueId)handle=String(user.uniqueId);
+        if(user?.id)numericId=String(user.id);
+      }
+    }catch{}
+
+    return {handle,numericId};
+  }).catch(()=>({handle:'',numericId:''}));
 }
 
 async function collectTikTok(){
@@ -512,11 +547,30 @@ async function collectTikTok(){
       isLive:Boolean(row.live),
       collectedAt:nowIso(),
     }));
+
+    // Read the signed-in profile from a normal TikTok page after the feed pass.
+    await goto(page,'https://www.tiktok.com/foryou?lang=vi-VN&region=VN',16000);
+    const account=await readTikTokCurrentAccount(page);
+    const liveSample=unique.filter(row=>row.isLive).slice(0,6).map(row=>({
+      id:row.id,
+      handle:row.handle,
+      url:row.url,
+      title:row.title
+    }));
+    console.log(
+      '[tiktok-sample]',
+      'account='+(account.handle?'@'+account.handle:'unknown'),
+      'uid='+(account.numericId||'unknown'),
+      'live='+liveSample.map(x=>'@'+x.handle).join(',')
+    );
+
     return {
       platform:'tiktok',
+      account,
       sessionRestored:Boolean((await loadSession('tiktok'))?.state?.cookies?.length),
       count:unique.length,
       liveCount:unique.filter(row=>row.isLive).length,
+      liveSample,
       items:unique,
     };
   }finally{
