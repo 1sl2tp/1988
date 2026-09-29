@@ -1587,6 +1587,37 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/api/get-m3u8'&&req.method==='GET'){
+    try{
+      const raw=String(url.searchParams.get('url')||'').trim();
+      let handle=normalizeTikTokHandle(raw);
+      if(!handle){
+        const m=raw.match(/tiktok\.com\/@([A-Za-z0-9._]{2,32})\/live/i);
+        handle=normalizeTikTokHandle(m?.[1]||'');
+      }
+      if(!handle){json(res,400,{success:false,error:'invalid_tiktok_live_url'});return;}
+      const data=await checkTikTokLiveWithYtDlp(handle);
+      if(!data?.live||!data?.streamUrl){
+        json(res,404,{success:false,error:data?.note||'not_live',handle});
+        return;
+      }
+      json(res,200,{
+        success:true,
+        handle,
+        title:data.title||'',
+        uploader:data.uploader||handle,
+        stream_type:data.streamType||'',
+        stream_url:data.streamUrl,
+        m3u8:data.streamType==='hls'?data.streamUrl:'',
+        flv:data.streamType==='flv'?data.streamUrl:'',
+        checked_at:data.checkedAt||nowIso()
+      });
+    }catch(error){
+      json(res,502,{success:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/check-live'&&req.method==='GET'){
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
