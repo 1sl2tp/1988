@@ -293,6 +293,110 @@ async function proxyTikTokLivePart(req,res,id){
   await pipeTikTokTarget(req,res,row.url);
 }
 
+async function getTikTokProfileSample(rawHandle,limit=6){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+  const runtime=await openPlatform('tiktok');
+  const {page}=runtime;
+  try{
+    const profileUrl='https://www.tiktok.com/@'+handle;
+    await goto(page,profileUrl,18000);
+    await scroll(page,2);
+    const scraped=await page.evaluate((expectedHandle,limit)=>{
+      const cleanText=value=>String(value||'').replace(/\s+/g,' ').trim();
+      const profile={
+        handle:expectedHandle,
+        displayName:'',
+        avatar:'',
+        bio:'',
+        numericId:''
+      };
+      try{
+        const script=document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
+        if(script?.textContent){
+          const data=JSON.parse(script.textContent);
+          const info=data?.__DEFAULT_SCOPE__?.['webapp.user-detail']?.userInfo||{};
+          const user=info.user||{};
+          profile.handle=String(user.uniqueId||expectedHandle).replace(/^@/,'');
+          profile.displayName=String(user.nickname||'');
+          profile.avatar=String(user.avatarLarger||user.avatarMedium||user.avatarThumb||'');
+          profile.bio=String(user.signature||'');
+          profile.numericId=String(user.id||'');
+        }
+      }catch{}
+      if(!profile.displayName){
+        profile.displayName=cleanText(
+          document.querySelector('[data-e2e="user-title"]')?.textContent||
+          document.querySelector('h1')?.textContent
+        );
+      }
+      if(!profile.bio){
+        profile.bio=cleanText(document.querySelector('[data-e2e="user-bio"]')?.textContent);
+      }
+      if(!profile.avatar){
+        const img=document.querySelector('[data-e2e="user-avatar"] img, img[data-e2e="user-avatar"], header img');
+        profile.avatar=String(img?.currentSrc||img?.src||'');
+      }
+
+      const videos=[];
+      const seen=new Set();
+      for(const a of document.querySelectorAll('a[href*="/video/"]')){
+        const href=String(a.href||a.getAttribute('href')||'');
+        const m=href.match(/tiktok\.com\/@([^/?#]+)\/video\/(\d{8,})/i);
+        if(!m||seen.has(m[2]))continue;
+        seen.add(m[2]);
+        const card=a.closest('[data-e2e],article,div');
+        const img=card?.querySelector('img')||a.querySelector('img');
+        const title=cleanText(
+          a.getAttribute('aria-label')||
+          card?.querySelector('[data-e2e*="desc"],[data-e2e*="title"]')?.textContent||
+          card?.innerText||''
+        ).slice(0,220);
+        videos.push({
+          id:m[2],
+          handle:m[1],
+          url:'https://www.tiktok.com/@'+m[1]+'/video/'+m[2],
+          title,
+          thumbnail:String(img?.currentSrc||img?.src||'')
+        });
+        if(videos.length>=limit)break;
+      }
+      return {profile,videos};
+    },handle,limit).catch(()=>({profile:{handle},videos:[]}));
+
+    const live=await checkTikTokLiveWithYtDlp(handle);
+    return {
+      ok:true,
+      type:'account',
+      profileUrl:'https://www.tiktok.com/@'+handle,
+      account:{
+        handle:String(scraped?.profile?.handle||handle).replace(/^@/,''),
+        displayName:String(scraped?.profile?.displayName||''),
+        avatar:String(scraped?.profile?.avatar||''),
+        bio:String(scraped?.profile?.bio||''),
+        numericId:String(scraped?.profile?.numericId||'')
+      },
+      live:live?.live?{
+        type:'live',
+        handle,
+        url:live.url,
+        title:live.title||('@'+handle+' đang LIVE'),
+        thumbnail:live.thumbnail||'',
+        streamUrl:live.streamUrl||'',
+        streamType:live.streamType||''
+      }:null,
+      videos:(Array.isArray(scraped?.videos)?scraped.videos:[]).map(row=>({
+        type:'video',
+        ...row,
+        isLive:false
+      })),
+      checkedAt:nowIso()
+    };
+  }finally{
+    await runtime.close();
+  }
+}
+
 function enqueue(task){
   queueDepth+=1;
   const run=serial.then(task,task);
@@ -1380,6 +1484,19 @@ const server=http.createServer(async(req,res)=>{
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/profile'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+      const limit=clamp(url.searchParams.get('limit')||6,1,12);
+      const data=await getTikTokProfileSample(handle,limit);
+      json(res,200,data);
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
     }
     return;
   }
