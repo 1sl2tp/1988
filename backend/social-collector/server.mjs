@@ -72,6 +72,8 @@ const tiktokCanonicalPendingHandles=new Set();
 const tiktokCanonicalVideoEnrichRetryAt=new Map();
 let tiktokCanonicalVideoEnrichBusy=false;
 let tiktokCanonicalSyncPromise=null;
+let tiktokCanonicalMp4RefreshSerial=Promise.resolve();
+let tiktokCanonicalMp4Cursor=0;
 
 const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
@@ -3708,6 +3710,31 @@ async function serveTikTokVideoFile(req,res,file){
   return {ok:true,status};
 }
 
+function tiktokVideoSourceReusable(row){
+  if(!row?.url||!row?.at)return false;
+  if(Date.now()-Number(row.at||0)>=TIKTOK_VIDEO_SOURCE_TTL_MS)return false;
+  const expiresAt=tiktokStreamExpiresAt(row.url);
+  if(expiresAt&&expiresAt-Date.now()<60_000)return false;
+  return true;
+}
+async function persistTikTokCanonicalMp4Source(source){
+  if(!source?.handle||!source?.id||!isDirectTikTokMediaUrl(source.url))return false;
+  if(!tiktokCanonicalLoaded)return false;
+  const row=tiktokCanonicalVideos.get(String(source.id));
+  if(!row||String(row.handle||'').toLowerCase()!==String(source.handle||'').toLowerCase())return false;
+  const expiresAt=tiktokStreamExpiresAt(source.url)||Date.now()+10*60_000;
+  if(row.mp4_url===source.url&&canonicalMp4Usable(row,90_000))return true;
+  row.mp4_url=String(source.url||'');
+  row.mp4_expires_at=new Date(expiresAt).toISOString();
+  row.mp4_source=String(source.source||'yt-dlp');
+  row.mp4_updated_at=nowIso();
+  row.updated_at=nowIso();
+  tiktokCanonicalVideos.set(String(row.video_id),row);
+  await upsertTikTokCanonicalRows([], [row]);
+  await persistTikTokCanonicalPackage();
+  console.log('[tiktok-mp4-library]',source.handle,source.id,'saved',row.mp4_source);
+  return true;
+}
 async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
   const handle=normalizeTikTokHandle(rawHandle);
   const id=String(rawId||'').trim();
@@ -3716,7 +3743,8 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
   const key=handle.toLowerCase()+':'+id;
   if(force)tiktokVideoSourceCache.delete(key);
   const cached=tiktokVideoSourceCache.get(key);
-  if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_VIDEO_SOURCE_TTL_MS&&cached.url){
+  if(cached&&tiktokVideoSourceReusable(cached)){
+    if(tiktokCanonicalLoaded)void persistTikTokCanonicalMp4Source(cached).catch(()=>{});
     return cached;
   }
 
@@ -3780,6 +3808,9 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
       source:'yt-dlp'
     };
     tiktokVideoSourceCache.set(key,data);
+    await persistTikTokCanonicalMp4Source(data).catch(error=>{
+      console.log('[tiktok-mp4-library] save failed',handle,id,compactText(error?.message||error,120));
+    });
     console.log('[tiktok-video-source]',handle,id,'ok',data.ext,data.width+'x'+data.height);
     return data;
   })().finally(()=>tiktokVideoSourceInflight.delete(key));
@@ -3811,7 +3842,7 @@ async function warmTikTokVideoSources(limit=TIKTOK_VIDEO_SOURCE_WARM_BATCH){
     let ok=0;
     for(const row of candidates){
       try{
-        await downloadTikTokVideoFile(row.handle,row.video_id);
+        await resolveTikTokVideoSource(row.handle,row.video_id,{force:!canonicalMp4Usable(row,2*60_000)});
         ok+=1;
       }catch(error){
         console.log('[tiktok-video-warm] failed',row.handle,row.video_id,compactText(error?.message||error,100));
@@ -3822,6 +3853,42 @@ async function warmTikTokVideoSources(limit=TIKTOK_VIDEO_SOURCE_WARM_BATCH){
   };
   const task=tiktokVideoSourceWarmSerial.then(run,run);
   tiktokVideoSourceWarmSerial=task.catch(()=>{});
+  return task;
+}
+
+async function refreshTikTokCanonicalMp4Batch(limit=4,handles=null){
+  if(!await loadTikTokCanonicalStore())return false;
+  const selected=handles&&handles.length
+    ? new Set(handles.map(x=>String(x).toLowerCase()))
+    : new Set([...tiktokLiveSelectedHandles].map(x=>String(x).toLowerCase()));
+  const rows=[...tiktokCanonicalVideos.values()]
+    .filter(row=>selected.has(String(row.handle||'').toLowerCase()))
+    .sort((a,b)=>Number(b.create_time||0)-Number(a.create_time||0));
+  if(!rows.length)return false;
+  const candidates=[];
+  for(let step=0;step<rows.length&&candidates.length<Math.max(1,limit);step++){
+    const index=(tiktokCanonicalMp4Cursor+step)%rows.length;
+    const row=rows[index];
+    if(canonicalMp4Usable(row,2*60_000))continue;
+    candidates.push(row);
+  }
+  tiktokCanonicalMp4Cursor=(tiktokCanonicalMp4Cursor+Math.max(1,candidates.length))%rows.length;
+  if(!candidates.length)return true;
+  const run=async()=>{
+    let ok=0;
+    for(const row of candidates){
+      try{
+        await resolveTikTokVideoSource(row.handle,row.video_id,{force:true});
+        ok+=1;
+      }catch(error){
+        console.log('[tiktok-mp4-refresh] failed',row.handle,row.video_id,compactText(error?.stderr||error?.message||error,120));
+      }
+    }
+    console.log('[tiktok-mp4-refresh] batch','ok='+ok,'total='+candidates.length);
+    return ok>0;
+  };
+  const task=tiktokCanonicalMp4RefreshSerial.then(run,run);
+  tiktokCanonicalMp4RefreshSerial=task.catch(()=>{});
   return task;
 }
 
@@ -4479,10 +4546,32 @@ function canonicalVideoDefault(handle,id){
     comment_count:0,
     share_count:0,
     collect_count:0,
+    mp4_url:'',
+    mp4_expires_at:null,
+    mp4_source:'',
+    mp4_updated_at:null,
     first_seen_at:nowIso(),
     metrics_updated_at:null,
     updated_at:nowIso()
   };
+}
+function isDirectTikTokMediaUrl(value){
+  const url=String(value||'').trim();
+  if(!/^https?:\/\//i.test(url))return false;
+  if(/tiktok\.com\/@[^/]+\/video\//i.test(url))return false;
+  return true;
+}
+function canonicalMp4ExpiryMs(row){
+  const explicit=row?.mp4_expires_at?Date.parse(row.mp4_expires_at):0;
+  if(Number.isFinite(explicit)&&explicit>0)return explicit;
+  const fromUrl=tiktokStreamExpiresAt(row?.mp4_url||'');
+  return Number(fromUrl||0);
+}
+function canonicalMp4Usable(row,minRemainMs=60_000){
+  const url=String(row?.mp4_url||'').trim();
+  if(!isDirectTikTokMediaUrl(url))return false;
+  const expiresAt=canonicalMp4ExpiryMs(row);
+  return !expiresAt||expiresAt-Date.now()>minRemainMs;
 }
 function canonicalMergeVideo(handle,video){
   const id=String(video?.id||video?.video_id||'').trim();
@@ -4502,6 +4591,15 @@ function canonicalMergeVideo(handle,video){
   }
   if(Number(video?.width||0)>0)next.width=Math.round(Number(video.width));
   if(Number(video?.height||0)>0)next.height=Math.round(Number(video.height));
+
+  const directMp4=String(video?.mp4Url||video?.mp4_url||video?.playback?.url||video?.playUrl||'').trim();
+  if(isDirectTikTokMediaUrl(directMp4)){
+    const expiresAt=tiktokStreamExpiresAt(directMp4)||Date.now()+10*60_000;
+    next.mp4_url=directMp4;
+    next.mp4_expires_at=new Date(expiresAt).toISOString();
+    next.mp4_source=canonicalText(video?.mp4Source||video?.mp4_source||video?.playback?.source,'yt-dlp');
+    next.mp4_updated_at=nowIso();
+  }
 
   const statsChanged=[
     ['play_count',video?.playCount??video?.play_count],
@@ -4546,7 +4644,14 @@ function canonicalPackageVideo(row){
       shares:Number(row.share_count||0),
       collects:Number(row.collect_count||0)
     },
-    streamUrl:'/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
+    playback:{
+      type:'mp4',
+      ready:canonicalMp4Usable(row),
+      url:canonicalMp4Usable(row)?String(row.mp4_url||''):'',
+      source:String(row.mp4_source||''),
+      expiresAt:row.mp4_expires_at||null,
+      updatedAt:row.mp4_updated_at||null
+    }
   };
 }
 function buildTikTokCanonicalPackage(){
@@ -4619,13 +4724,14 @@ function buildTikTokCanonicalPackage(){
     .sort((a,b)=>Number(b.live.isLive)-Number(a.live.isLive)||a.handle.localeCompare(b.handle));
 
   const material={
-    schema:'tiktok-library-v2',
+    schema:'tiktok-library-v3',
     recentVideoLimit:TIKTOK_LIBRARY_RECENT_VIDEOS,
     retention:{
       channels:'persistent-until-unselected',
       videos:'append-only-by-video-id',
       liveStream:'replace-or-clear-only',
-      images:'original-by-content-hash-never-delete'
+      images:'original-by-content-hash-never-delete',
+      videoPlayback:'refreshable-signed-mp4-kept-in-library'
     },
     channels
   };
@@ -4959,6 +5065,7 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
 
   await upsertTikTokCanonicalRows(channelRows,videoRows);
   await persistTikTokCanonicalPackage();
+  void refreshTikTokCanonicalMp4Batch(Math.min(6,Math.max(2,target.length)),target).catch(()=>{});
   if(mirror)void mirrorTikTokCanonicalImages(6);
   console.log('[tiktok-library] synced','channels='+channelRows.length,'videos='+videoRows.length,'version='+tiktokCanonicalPackageVersion);
   return true;
@@ -6504,6 +6611,7 @@ const server=http.createServer(async(req,res)=>{
         height:source.height,
         duration:source.duration,
         directUrl:String(source.url||''),
+        expiresAt:tiktokStreamExpiresAt(source.url)?new Date(tiktokStreamExpiresAt(source.url)).toISOString():null,
         source:String(source.source||'yt-dlp'),
         stream:
           '/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
