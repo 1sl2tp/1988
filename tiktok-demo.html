@@ -14,6 +14,7 @@ header{position:sticky;top:0;z-index:5;background:rgba(15,15,15,.94);backdrop-fi
 .head{max-width:900px;margin:auto;padding:12px 16px;display:flex;align-items:center;gap:10px}.head strong{font-size:19px}.head span{color:var(--muted);font-size:13px}.spacer{flex:1}
 button,a.btn{border:0;background:#292929;color:#fff;border-radius:18px;padding:9px 13px;text-decoration:none;font-size:13px;cursor:pointer}
 main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size:13px;margin:0 0 14px}
+.tester{display:flex;gap:8px;align-items:center;margin:0 0 10px}.tester input{min-width:0;flex:1;border:1px solid var(--line);background:#111;color:#fff;border-radius:18px;padding:10px 13px;outline:none}.tester input:focus{border-color:#555}.saved{display:flex;gap:7px;overflow-x:auto;padding:0 0 14px;scrollbar-width:none}.saved::-webkit-scrollbar{display:none}.saved button{flex:0 0 auto;padding:7px 10px;font-size:12px}.saved button.active{background:#fff;color:#111}
 .grid{display:grid;grid-template-columns:1fr;gap:14px}.card{border:1px solid var(--line);background:var(--card);border-radius:18px;overflow:hidden}
 .cardhead{padding:12px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:800}.badge{background:var(--tt);border-radius:5px;padding:4px 7px;font-size:11px}.sub{margin-left:auto;color:var(--muted);font-size:12px;font-weight:500}
 .body{min-height:480px;display:flex;align-items:center;justify-content:center;background:#111}.status{padding:30px 20px;text-align:center;color:var(--muted);font-size:13px}
@@ -25,9 +26,15 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
 </style>
 </head>
 <body>
-<header><div class="head"><strong>TikTok · mẫu</strong><span>1 video + LIVE @nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
+<header><div class="head"><strong>TikTok · mẫu</strong><span id="currentHandleLabel">1 video + LIVE @nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
 <main>
-  <p class="note">Video dùng cố định một mẫu; LIVE mở trong một phiên trình duyệt TikTok, rồi relay giữ nguyên User-Agent/Referer/Range/session.</p>
+  <p class="note">Dán link TikTok LIVE để test. Link đã lưu sẽ giữ lại trên máy này để bấm test lại nhanh.</p>
+  <div class="tester">
+    <input id="liveLinkInput" autocomplete="off" spellcheck="false" placeholder="Dán link TikTok LIVE, ví dụ https://www.tiktok.com/@user/live">
+    <button id="testLiveBtn">Test</button>
+    <button id="saveLiveBtn">Lưu</button>
+  </div>
+  <div id="savedLiveLinks" class="saved"></div>
   <section class="grid">
     <article class="card">
       <div class="cardhead">VIDEO MẪU <span class="sub" id="videoState">Đang tìm…</span></div>
@@ -37,7 +44,7 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
     <article class="card">
       <div class="cardhead"><span class="badge">LIVE</span> PHIÊN LIVE <span class="sub" id="liveState">Đang kiểm tra…</span></div>
       <div class="body" id="liveBox"><div class="status">Đang lấy luồng LIVE…</div></div>
-      <div class="foot"><span>@nhungnhoii205/live</span><a class="btn" href="https://www.tiktok.com/@nhungnhoii205/live" target="_blank" rel="noopener noreferrer">Mở TikTok</a></div>
+      <div class="foot"><span id="liveFootText">@nhungnhoii205/live</span><a class="btn" id="liveOpen" href="https://www.tiktok.com/@nhungnhoii205/live" target="_blank" rel="noopener noreferrer">Mở TikTok</a></div>
     </article>
   </section>
 </main>
@@ -45,8 +52,70 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
 <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 <script>
 const API='https://one988-tiktok-session.onrender.com';
-const HANDLE='nhungnhoii205';
+const DEFAULT_HANDLE='nhungnhoii205';
+const SAVED_KEY='tiktokDemoSavedLiveLinks';
+const CURRENT_KEY='tiktokDemoCurrentLiveLink';
+let HANDLE=DEFAULT_HANDLE;
 let player=null;
+
+function parseTikTokHandle(value){
+  const raw=String(value||'').trim();
+  if(!raw)return '';
+  const direct=raw.replace(/^@/,'');
+  if(/^[A-Za-z0-9._]{2,32}$/.test(direct))return direct;
+  const m=raw.match(/tiktok\.com\/@([A-Za-z0-9._]{2,32})(?:\/live)?/i);
+  return m?.[1]||'';
+}
+function liveUrlFor(handle){
+  return 'https://www.tiktok.com/@'+handle+'/live';
+}
+function setCurrentLive(value,{reload=true}={}){
+  const handle=parseTikTokHandle(value);
+  if(!handle)return false;
+  HANDLE=handle;
+  const url=liveUrlFor(handle);
+  localStorage.setItem(CURRENT_KEY,url);
+  const input=document.getElementById('liveLinkInput');
+  if(input)input.value=url;
+  const label=document.getElementById('currentHandleLabel');
+  if(label)label.textContent='1 video + LIVE @'+handle;
+  const foot=document.getElementById('liveFootText');
+  if(foot)foot.textContent='@'+handle+'/live';
+  const open=document.getElementById('liveOpen');
+  if(open)open.href=url;
+  renderSavedLiveLinks();
+  if(reload)loadLive();
+  return true;
+}
+function savedLiveLinks(){
+  try{
+    const arr=JSON.parse(localStorage.getItem(SAVED_KEY)||'[]');
+    return Array.isArray(arr)?arr.filter(x=>parseTikTokHandle(x)).slice(0,12):[];
+  }catch{return []}
+}
+function saveCurrentLive(){
+  const input=document.getElementById('liveLinkInput');
+  const handle=parseTikTokHandle(input?.value||'');
+  if(!handle)return;
+  const url=liveUrlFor(handle);
+  const next=[url,...savedLiveLinks().filter(x=>parseTikTokHandle(x)!==handle)].slice(0,12);
+  localStorage.setItem(SAVED_KEY,JSON.stringify(next));
+  setCurrentLive(url,{reload:false});
+  renderSavedLiveLinks();
+}
+function renderSavedLiveLinks(){
+  const root=document.getElementById('savedLiveLinks');
+  if(!root)return;
+  const rows=savedLiveLinks();
+  root.innerHTML=rows.map(url=>{
+    const handle=parseTikTokHandle(url);
+    const active=handle===HANDLE?' active':'';
+    return '<button class="'+active.trim()+'" data-live-handle="'+handle+'">@'+handle+'</button>';
+  }).join('');
+  root.querySelectorAll('[data-live-handle]').forEach(btn=>{
+    btn.onclick=()=>setCurrentLive(btn.dataset.liveHandle);
+  });
+}
 
 function destroyPlayer(){
   try{player?.pause?.();player?.unload?.();player?.detachMediaElement?.();player?.destroy?.()}catch{}
@@ -225,6 +294,21 @@ function load(){
 }
 
 document.getElementById('reload').onclick=load;
+document.getElementById('testLiveBtn').onclick=()=>{
+  const input=document.getElementById('liveLinkInput');
+  if(!setCurrentLive(input?.value||''))input?.focus();
+};
+document.getElementById('saveLiveBtn').onclick=saveCurrentLive;
+document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.preventDefault();
+    if(!setCurrentLive(e.currentTarget.value))e.currentTarget.focus();
+  }
+});
+
+const savedCurrent=localStorage.getItem(CURRENT_KEY)||liveUrlFor(DEFAULT_HANDLE);
+setCurrentLive(savedCurrent,{reload:false});
+renderSavedLiveLinks();
 load();
 </script>
 </body>
