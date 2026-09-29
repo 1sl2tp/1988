@@ -1068,6 +1068,40 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     return null;
   }
 }
+async function quickTikTokRoomInfoStatus(handle,roomId){
+  if(!roomId)return {known:true,live:false,status:4,roomId:'',candidates:[]};
+  try{
+    const endpoint=new URL('https://webcast.tiktok.com/webcast/room/info/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('room_id',String(roomId));
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle+'/live'
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(2200)
+    });
+    if(!r.ok)return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
+    const body=await r.json();
+    const room=body?.data||body?.room||null;
+    const status=Number(room?.status);
+    if(!Number.isFinite(status)){
+      return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
+    }
+    const live=status===2;
+    const candidates=live
+      ? collectTikTokLiveStreamCandidates(room)
+          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
+      : [];
+    return {known:true,live,status,roomId:String(roomId),candidates};
+  }catch(error){
+    return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
+  }
+}
+
 async function quickTikTokLiveStatus(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,candidates:[]};
@@ -1116,6 +1150,15 @@ async function quickTikTokLiveStatus(rawHandle){
     if(!liveRoom&&!roomId){
       return {known:true,live:false,status:4,roomId:'',candidates:[]};
     }
+
+    // TikTok sometimes returns only user.roomId from api-live. In that case,
+    // ask the room-info endpoint for the authoritative room status (2 live,
+    // 4 ended) and the same FLV data. This is still server-side packaging;
+    // UI does nothing.
+    if(roomId){
+      return await quickTikTokRoomInfoStatus(handle,roomId);
+    }
+
     return {known:false,live:false,status:null,roomId,candidates:[]};
   }catch(error){
     console.log('[tiktok-session] preflight unknown',handle,compactText(error?.message||error,140));
