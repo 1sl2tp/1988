@@ -41,6 +41,7 @@ let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 let tiktokLiveLibrarySaveTimer=null;
 let tiktokLiveLibraryWarmPromise=null;
+let tiktokLiveLibraryRefreshCursor=0;
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -241,14 +242,29 @@ async function loadTikTokLiveLibrary(){
   }
 }
 async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
-  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,20);
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
   if(!normalized.length)return;
+
+  // UI can grow vertically to many accounts. Check only a small rotating batch
+  // on each poll so adding accounts does not make one request wait for all of
+  // TikTok. Unchanged rows stay entirely in cache.
+  const now=Date.now();
+  const selected=[];
+  let scanned=0;
+  let cursor=tiktokLiveLibraryRefreshCursor%normalized.length;
+  while(scanned<normalized.length&&selected.length<5){
+    const handle=normalized[cursor];
+    const last=Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0);
+    if(now-last>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)selected.push(handle);
+    cursor=(cursor+1)%normalized.length;
+    scanned+=1;
+  }
+  tiktokLiveLibraryRefreshCursor=cursor;
+
   let warmHandle='';
-  for(const handle of normalized){
+  for(const handle of selected){
     const key=handle.toLowerCase();
     const prev=tiktokLiveLibrary.get(key);
-    const last=Number(tiktokLiveLibraryRefreshAt.get(key)||0);
-    if(Date.now()-last<TIKTOK_LIVE_LIBRARY_REFRESH_MS)continue;
     tiktokLiveLibraryRefreshAt.set(key,Date.now());
     if(!prev)updateTikTokLiveLibrary(handle,{status:'unknown'});
 
@@ -296,6 +312,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     })().finally(()=>{tiktokLiveLibraryWarmPromise=null;});
   }
 }
+
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
@@ -2455,7 +2472,7 @@ const server=http.createServer(async(req,res)=>{
       .split(',')
       .map(normalizeTikTokHandle)
       .filter(Boolean)
-      .slice(0,20);
+      .slice(0,60);
     for(const handle of handles){
       if(!tiktokLiveLibrary.has(handle.toLowerCase())){
         updateTikTokLiveLibrary(handle,{status:'unknown'});
