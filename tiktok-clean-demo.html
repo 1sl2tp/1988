@@ -657,16 +657,35 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
   });
   player=p;
   video.onplaying=()=>{
-    failed=true;
-    video.controls=true;
-    setPlayerShape(video);
-    updateCurrentUi();
-    fetch(
-      API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
-      {cache:'no-store'}
-    ).catch(()=>{}).finally(()=>{
-      setTimeout(()=>loadChannels({force:true,silent:true}),300);
-    });
+    setTimeout(()=>{
+      if(handle!==currentHandle)return;
+      const hasPicture=Number(video.videoWidth||0)>0&&Number(video.videoHeight||0)>0;
+      if(!hasPicture){
+        if(failed)return;
+        failed=true;
+        fetch(
+          API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=bad&type=flv&t='+Date.now(),
+          {cache:'no-store'}
+        ).catch(()=>{}).finally(()=>{
+          if(allowFallback&&handle===currentHandle){
+            const direct=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&compat=1&t='+Date.now();
+            setTimeout(()=>attachFlv(direct,handle,'',false),250);
+          }
+        });
+        return;
+      }
+
+      failed=true;
+      video.controls=true;
+      setPlayerShape(video);
+      updateCurrentUi();
+      fetch(
+        API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
+        {cache:'no-store'}
+      ).catch(()=>{}).finally(()=>{
+        setTimeout(()=>loadChannels({force:true,silent:true}),300);
+      });
+    },900);
   };
 }
 function attachHls(url,handle){
