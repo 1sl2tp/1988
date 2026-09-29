@@ -277,7 +277,7 @@ async function loadLive(){
       const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
       state.textContent='Đang mở phiên TikTok… '+sec+'s';
     },1000);
-    timer=setTimeout(()=>ctrl.abort(),65000);
+    timer=setTimeout(()=>ctrl.abort(),30000);
     const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
       cache:'no-store',
       signal:ctrl.signal
@@ -290,7 +290,7 @@ async function loadLive(){
     attachLive(type,relay,false);
   }catch(err){
     state.textContent=err?.name==='AbortError'?'Hết thời gian chờ LIVE':'Lỗi phiên LIVE';
-    box.innerHTML='<div class="status">Không tạo được phiên LIVE: '+String(err?.message||err)+'</div>';
+    box.innerHTML='<div class="status">'+(String(err?.message||err).includes('tiktok_not_live')?'Kênh này hiện không có LIVE hoặc TikTok không cho mở phiên.':'Không tạo được phiên LIVE: '+String(err?.message||err))+'</div>';
   }finally{
     if(timer)clearTimeout(timer);
     if(ticker)clearInterval(ticker);
