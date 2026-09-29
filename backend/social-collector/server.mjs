@@ -42,6 +42,7 @@ const tiktokLiveLibrary=new Map();
 const tiktokLiveLibraryRefreshAt=new Map();
 const tiktokLiveSelectedHandles=new Set();
 const tiktokVideoLibrary=new Map();
+const tiktokVideoSourceCache=new Map();
 const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
 let tiktokVideoPackageUpdatedAt=0;
@@ -3393,6 +3394,75 @@ async function fetchTikwmChannelVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL)
   return task;
 }
 
+async function resolveTikTokVideoSource(rawHandle,rawId){
+  const handle=normalizeTikTokHandle(rawHandle);
+  const id=String(rawId||'').trim();
+  if(!handle||!/^\d{8,}$/.test(id))throw new Error('invalid_tiktok_video');
+
+  const key=handle.toLowerCase()+':'+id;
+  const cached=tiktokVideoSourceCache.get(key);
+  if(cached&&Date.now()-Number(cached.at||0)<20*60_000&&cached.url){
+    return cached;
+  }
+
+  const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
+  const args=[
+    '--dump-single-json',
+    '--no-playlist',
+    '--no-warnings',
+    '--socket-timeout','8',
+    '--retries','1',
+    '--extractor-retries','1',
+    '--format','best[ext=mp4]/best',
+    '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+    '--add-header','Referer:https://www.tiktok.com/@'+handle,
+    pageUrl
+  ];
+
+  const text=await enqueueYtdlp(()=>execTikTokYtdlp(args,{
+    timeout:30_000,
+    maxBuffer:12*1024*1024
+  }));
+  const row=JSON.parse(String(text||'{}'));
+
+  const requested=Array.isArray(row?.requested_downloads)?row.requested_downloads[0]:null;
+  const url=String(
+    requested?.url||
+    row?.url||
+    row?.requested_formats?.find?.(x=>x?.url)?.url||
+    ''
+  ).trim();
+  if(!url)throw new Error('tiktok_video_no_media_url');
+
+  const headers={
+    ...(requested?.http_headers||row?.http_headers||{}),
+    'user-agent':
+      String((requested?.http_headers||row?.http_headers||{})['User-Agent']||
+             (requested?.http_headers||row?.http_headers||{})['user-agent']||
+             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'),
+    'referer':
+      String((requested?.http_headers||row?.http_headers||{})['Referer']||
+             (requested?.http_headers||row?.http_headers||{})['referer']||
+             'https://www.tiktok.com/@'+handle)
+  };
+
+  const data={
+    at:Date.now(),
+    handle,
+    id,
+    url,
+    ext:String(requested?.ext||row?.ext||'mp4'),
+    mime:String(requested?.protocol||row?.protocol||''),
+    headers,
+    width:Number(requested?.width||row?.width||0),
+    height:Number(requested?.height||row?.height||0),
+    duration:Number(row?.duration||0)
+  };
+  tiktokVideoSourceCache.set(key,data);
+  console.log('[tiktok-video-source]',handle,id,'ok',data.ext,data.width+'x'+data.height);
+  return data;
+}
+
 async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
@@ -5227,6 +5297,50 @@ const server=http.createServer(async(req,res)=>{
     }catch(error){
       console.warn('[tiktok-selected] write failed',compactText(error?.message||error,220));
       json(res,500,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      const id=String(url.searchParams.get('id')||'').trim();
+      if(!handle||!/^\d{8,}$/.test(id)){
+        json(res,400,{ok:false,error:'invalid_tiktok_video'});
+        return;
+      }
+      const source=await resolveTikTokVideoSource(handle,id);
+      await pipeTikTokTarget(req,res,source.url,{
+        fallbackType:'video/mp4',
+        handle:'',
+        headersOverride:source.headers
+      });
+    }catch(error){
+      console.warn('[tiktok-video-stream] failed',compactText(error?.stderr||error?.message||error,220));
+      if(!res.headersSent)json(res,502,{ok:false,error:'video_source_failed'});
+      else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/video-source'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      const id=String(url.searchParams.get('id')||'').trim();
+      const source=await resolveTikTokVideoSource(handle,id);
+      json(res,200,{
+        ok:true,
+        handle:source.handle,
+        id:source.id,
+        width:source.width,
+        height:source.height,
+        duration:source.duration,
+        stream:
+          '/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
+          '&id='+encodeURIComponent(source.id)
+      });
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
     }
     return;
   }
