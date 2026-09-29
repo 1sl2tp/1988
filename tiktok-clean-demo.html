@@ -111,62 +111,59 @@ button{cursor:pointer}
 .iconbtn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8}
 
 .stage{
-  min-width:0;padding:22px 28px 50px;
+  min-width:0;padding:16px 18px 40px;
   display:flex;align-items:flex-start;justify-content:center;
-  background:
-    radial-gradient(circle at 50% 12%,rgba(254,44,85,.07),transparent 34%),
-    #000
+  background:#000
 }
 .watch{
-  width:min(100%,760px);display:grid;
-  grid-template-columns:minmax(280px,450px) 72px;
-  gap:14px;align-items:end;justify-content:center
+  width:min(100%,760px);
+  display:flex;flex-direction:column;align-items:center;
+  gap:0
 }
 .phone{
-  position:relative;width:100%;aspect-ratio:9/16;max-height:calc(100vh - 108px);
-  background:#090909;border-radius:14px;overflow:hidden;
-  box-shadow:0 0 0 1px #222,0 18px 60px rgba(0,0,0,.42)
+  position:relative;width:100%;aspect-ratio:9/16;max-height:calc(100vh - 122px);
+  background:#000;overflow:hidden
 }
-.phone.landscape{aspect-ratio:16/9;max-width:720px;align-self:center}
-.phone.square{aspect-ratio:1/1;max-width:620px}
+.phone.landscape{aspect-ratio:16/9;max-width:760px;align-self:center}
+.phone.square{aspect-ratio:1/1;max-width:680px}
 .phone video{width:100%;height:100%;display:block;object-fit:contain;background:#000}
 .empty{
   position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:10px;color:#777;text-align:center;padding:24px
+  gap:8px;color:#777;text-align:center;padding:24px
 }
-.empty strong{color:#ddd;font-size:17px}
-.empty span{font-size:13px;max-width:290px;line-height:1.45}
-.overlay{
-  position:absolute;left:0;right:0;bottom:0;padding:72px 16px 16px;
-  background:linear-gradient(transparent,rgba(0,0,0,.82));
-  pointer-events:none
+.empty strong{color:#ddd;font-size:16px}
+.empty span{font-size:12px;max-width:290px;line-height:1.45}
+.current-info{
+  width:100%;min-height:62px;
+  display:grid;grid-template-columns:42px minmax(0,1fr) auto;
+  gap:10px;align-items:center;
+  padding:9px 2px 0
 }
-.live-badge{
-  display:inline-flex;align-items:center;gap:5px;background:var(--pink);
-  border-radius:4px;padding:4px 7px;font-size:11px;font-weight:850;margin-bottom:8px
+.current-info[hidden]{display:none}
+.current-avatar{
+  width:40px;height:40px;border-radius:50%;overflow:hidden;background:#202020;
+  display:grid;place-items:center;font-weight:800;font-size:13px
 }
-.live-badge:before{content:"";width:6px;height:6px;border-radius:50%;background:#fff}
-.now-name{font-weight:800;font-size:16px;text-shadow:0 1px 3px #000}
-.now-handle{font-size:12px;color:#ddd;margin-top:2px;text-shadow:0 1px 3px #000}
-.now-state{font-size:11px;color:#bbb;margin-top:6px}
-.actions{display:flex;flex-direction:column;align-items:center;gap:13px;padding-bottom:10px}
-.action{
-  width:48px;height:48px;border:0;border-radius:50%;
-  display:grid;place-items:center;background:#232323;color:#fff
+.current-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.current-copy{min-width:0}
+.now-name{font-size:13px;font-weight:780;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-handle{font-size:11px;color:#8d8d8d;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now-state{font-size:10px;color:#737373;margin-top:3px}
+.current-actions{display:flex;align-items:center;gap:4px}
+.mini-action{
+  border:0;background:transparent;color:#aaa;
+  min-width:30px;height:30px;border-radius:7px;
+  display:grid;place-items:center;padding:0
 }
-.action:hover{background:#333}
-.action.danger:hover{background:#4a131d;color:#fff}
-.action svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:1.8}
-.action-label{font-size:10px;color:#aaa;margin-top:-8px;text-align:center}
-.avatar-large{
-  width:52px;height:52px;border-radius:50%;overflow:hidden;background:#262626;
-  display:grid;place-items:center;font-weight:850;border:1px solid #383838
+.mini-action:hover{background:#1d1d1d;color:#fff}
+.mini-action:disabled{opacity:.35}
+.mini-action svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.8}
+.channel-stats{
+  display:flex;gap:6px;align-items:center;flex-wrap:wrap;
+  margin-top:3px;color:#777;font-size:10px;line-height:1.2
 }
-.avatar-large img{width:100%;height:100%;object-fit:cover}
-.add-plus{
-  width:20px;height:20px;border-radius:50%;background:var(--pink);
-  display:grid;place-items:center;font-weight:900;font-size:15px;margin-top:-19px;z-index:2
-}
+.channel-stats span{white-space:nowrap}
+.channel-stats .hot{color:#aaa}
 .toast{
   position:fixed;left:50%;bottom:28px;z-index:100;
   transform:translate(-50%,18px);opacity:0;pointer-events:none;
@@ -187,11 +184,10 @@ button{cursor:pointer}
   .app{display:block}
   .sidebar{position:static;height:auto;min-height:0;border-right:0;border-bottom:1px solid var(--line);padding-bottom:8px}
   .list{height:auto;max-height:37vh;padding-bottom:8px}
-  .stage{padding:14px 10px 34px}
-  .watch{grid-template-columns:minmax(0,1fr) 58px;gap:8px}
+  .stage{padding:8px 0 30px}
   .phone{max-height:none}
-  .actions{gap:10px}
-  .action{width:44px;height:44px}
+  .current-info{padding:8px 10px 0}
+  .current-actions{gap:1px}
 }
 </style>
 </head>
@@ -224,34 +220,28 @@ button{cursor:pointer}
         <video id="liveVideo" playsinline controls preload="metadata"></video>
         <div class="empty" id="empty">
           <strong>Chọn một kênh</strong>
-          <span>Bấm vào kênh bên trái để mở LIVE. Nếu package đã có FLV sẽ dùng ngay.</span>
+          <span>Bấm vào danh sách để mở LIVE.</span>
         </div>
-        <div class="overlay" id="overlay" hidden>
-          <div class="live-badge">LIVE</div>
+      </div>
+
+      <div class="current-info" id="overlay" hidden>
+        <div class="current-avatar" id="nowAvatar">T</div>
+        <div class="current-copy">
           <div class="now-name" id="nowName">TikTok LIVE</div>
           <div class="now-handle" id="nowHandle">@handle</div>
           <div class="now-state" id="nowState">Sẵn sàng</div>
         </div>
-      </div>
-
-      <div class="actions">
-        <div class="avatar-large" id="nowAvatar">T</div>
-        <div class="add-plus">+</div>
-
-        <button class="action" id="openTikTokBtn" title="Mở TikTok" disabled>
-          <svg viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
-        </button>
-        <div class="action-label">TikTok</div>
-
-        <button class="action" id="reloadLiveBtn" title="Mở lại LIVE" disabled>
-          <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
-        </button>
-        <div class="action-label">Mở lại</div>
-
-        <button class="action danger" id="deleteCurrentBtn" title="Xoá kênh" disabled>
-          <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg>
-        </button>
-        <div class="action-label">Xoá</div>
+        <div class="current-actions">
+          <button class="mini-action" id="openTikTokBtn" title="Mở TikTok" disabled>
+            <svg viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+          </button>
+          <button class="mini-action" id="reloadLiveBtn" title="Mở lại" disabled>
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
+          </button>
+          <button class="mini-action" id="deleteCurrentBtn" title="Xoá" disabled>
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>
+          </button>
+        </div>
       </div>
     </section>
   </main>
@@ -261,7 +251,7 @@ button{cursor:pointer}
 
 <script>
 const API='https://one988-tiktok-session.onrender.com';
-const IDENTITY_KEY='tiktokCleanIdentityV1';
+const IDENTITY_KEY='tiktokCleanIdentityV2';
 const POLL_MS=5000;
 
 let channels=[];
@@ -293,6 +283,26 @@ function esc(value){
   return String(value??'').replace(/[&<>"']/g,ch=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   })[ch]);
+}
+function compactCount(value){
+  const n=Number(value||0);
+  if(!Number.isFinite(n)||n<=0)return '';
+  if(n>=1e9)return (n/1e9).toFixed(n>=1e10?0:1).replace(/\.0$/,'')+'B';
+  if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,'')+'M';
+  if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,'')+'K';
+  return String(Math.round(n));
+}
+function identityStatsHtml(id){
+  const parts=[];
+  const follower=compactCount(id?.followerCount);
+  const heart=compactCount(id?.heartCount);
+  const views=compactCount(id?.latestVideoPlayCount);
+  const likes=compactCount(id?.latestVideoDiggCount);
+  if(follower)parts.push('<span>'+esc(follower)+' theo dõi</span>');
+  if(heart)parts.push('<span>'+esc(heart)+' thích</span>');
+  if(views)parts.push('<span class="hot">'+esc(views)+' xem</span>');
+  if(likes)parts.push('<span class="hot">♥ '+esc(likes)+'</span>');
+  return parts.join('<span>·</span>');
 }
 function rowFor(handle){
   return channels.find(x=>String(x.handle||'').toLowerCase()===String(handle||'').toLowerCase())||null;
@@ -352,8 +362,13 @@ function updateCurrentUi(){
   const avatar=String(identity.avatar||'').trim();
   document.getElementById('nowName').textContent=name;
   document.getElementById('nowHandle').textContent=currentHandle?'@'+currentHandle:'';
+  const statsText=[
+    compactCount(identity.followerCount)?compactCount(identity.followerCount)+' theo dõi':'',
+    compactCount(identity.heartCount)?compactCount(identity.heartCount)+' thích':'',
+    compactCount(identity.latestVideoPlayCount)?compactCount(identity.latestVideoPlayCount)+' xem':''
+  ].filter(Boolean).join(' · ');
   document.getElementById('nowState').textContent=currentHandle
-    ? (row.live?(row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE · đang lấy FLV'):'Đang kiểm tra LIVE')
+    ? ((row.live?(row.ready&&row.type?'LIVE · '+String(row.type).toUpperCase():'LIVE':'Đang kiểm tra LIVE'))+(statsText?' · '+statsText:''))
     : 'Sẵn sàng';
 
   const av=document.getElementById('nowAvatar');
@@ -389,12 +404,15 @@ function renderList(){
     const id=identityFor(handle)||{};
     const name=String(id.nickname||'').trim()||('@'+handle);
     const avatar=String(id.avatar||'').trim();
-    const meta=row.live
+    const liveMeta=row.live
       ? '<span class="live-dot">● LIVE</span>'+(row.ready&&row.type?' · '+esc(String(row.type).toUpperCase()):'')
       : 'Không LIVE';
+    const stats=identityStatsHtml(id);
     return '<div class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'" role="button" tabindex="0">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
-      '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span><span class="chmeta">'+meta+'</span></span>'+
+      '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span>'+
+      '<span class="channel-stats">'+(stats||'<span>'+liveMeta+'</span>')+'</span>'+
+      '<span class="chmeta">'+liveMeta+'</span></span>'+
       '<span class="row-actions"><button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
@@ -435,13 +453,25 @@ async function hydrateIdentity(handle){
     const data=await apiJson(API+'/tiktok/profile-identity?user='+encodeURIComponent(handle)+'&t='+Date.now());
     identityCache[key]={
       at:Date.now(),
-      data:{nickname:String(data.nickname||''),avatar:String(data.avatar||'')}
+      data:{
+        nickname:String(data.nickname||''),
+        avatar:String(data.avatar||''),
+        secUid:String(data.secUid||''),
+        followerCount:Number(data.followerCount||0),
+        followingCount:Number(data.followingCount||0),
+        heartCount:Number(data.heartCount||0),
+        videoCount:Number(data.videoCount||0),
+        latestVideoId:String(data.latestVideoId||''),
+        latestVideoPlayCount:Number(data.latestVideoPlayCount||0),
+        latestVideoDiggCount:Number(data.latestVideoDiggCount||0),
+        source:String(data.source||'')
+      }
     };
     saveIdentityCache();
     renderList();
     if(handle===currentHandle)updateCurrentUi();
   }catch{
-    identityCache[key]={at:Date.now(),data:{nickname:'',avatar:''}};
+    identityCache[key]={at:Date.now(),data:{nickname:'',avatar:'',followerCount:0,heartCount:0,latestVideoPlayCount:0,latestVideoDiggCount:0}};
     saveIdentityCache();
   }
 }
