@@ -93,7 +93,9 @@ function uniq(items,keyFn,max=80){
 function json(res,status,data){
   res.writeHead(status,{
     'content-type':'application/json; charset=utf-8',
-    'access-control-allow-origin':ORIGIN,
+    // Public media/package APIs do not use browser credentials. Keep CORS
+    // permissive here; state-changing TikTok routes still validate Origin.
+    'access-control-allow-origin':'*',
     'access-control-allow-methods':'GET,POST,OPTIONS',
     'access-control-allow-headers':'content-type,x-collector-token,range',
     'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
@@ -105,9 +107,14 @@ function authorized(req){
   return Boolean(COLLECTOR_TOKEN)&&String(req.headers['x-collector-token']||'')===COLLECTOR_TOKEN;
 }
 function trustedTikTokUiMutation(req){
-  const origin=String(req.headers.origin||'').replace(/\/$/,'');
-  const allowed=String(ORIGIN||'').replace(/\/$/,'');
-  return authorized(req)||Boolean(origin&&allowed&&origin===allowed);
+  const origin=String(req.headers.origin||'').replace(/\/$/,'').toLowerCase();
+  const configured=String(ORIGIN||'').replace(/\/$/,'').toLowerCase();
+  const allowed=new Set([
+    configured,
+    'https://yt.taphoa.xyz',
+    'https://www.yt.taphoa.xyz'
+  ].filter(Boolean));
+  return authorized(req)||Boolean(origin&&allowed.has(origin));
 }
 async function readJson(req,maxBytes=1024*1024){
   let size=0;
