@@ -514,10 +514,160 @@ async function readTikTokCurrentAccount(page){
   }).catch(()=>({handle:'',numericId:''}));
 }
 
+function firstText(...values){
+  for(const value of values){
+    const text=String(value??'').trim();
+    if(text)return text;
+  }
+  return '';
+}
+function firstNumericId(...values){
+  for(const value of values){
+    const text=String(value??'').trim();
+    if(/^\d{6,30}$/.test(text))return text;
+  }
+  return '';
+}
+function imageUrl(value){
+  if(!value)return '';
+  if(typeof value==='string')return /^https?:\/\//i.test(value)?value:'';
+  if(Array.isArray(value)){
+    for(const item of value){
+      const found=imageUrl(item);
+      if(found)return found;
+    }
+    return '';
+  }
+  if(typeof value==='object'){
+    return imageUrl(
+      value.url_list||
+      value.urlList||
+      value.urls||
+      value.url||
+      value.uri
+    );
+  }
+  return '';
+}
+function liveRoomFromObject(node){
+  if(!node||typeof node!=='object'||Array.isArray(node))return null;
+
+  const owner=node.owner||node.user||node.author||node.anchor||node.host||null;
+  const handle=firstText(
+    owner?.unique_id,owner?.uniqueId,owner?.sec_uid&&owner?.display_id,
+    node.unique_id,node.uniqueId,node.owner_unique_id,node.ownerUniqueId
+  ).replace(/^@/,'');
+  const roomId=firstNumericId(
+    node.room_id,node.roomId,node.room_id_str,node.roomIdStr,
+    node?.room?.id,node?.room?.room_id,node?.room?.roomId
+  );
+  const streamLike=Boolean(
+    node.stream_url||node.streamUrl||node.stream_data||node.streamData||
+    node.pull_data||node.pullData||node.hls_pull_url||node.hlsPullUrl||
+    node.live_room_mode||node.liveRoomMode
+  );
+  const liveFlag=Boolean(
+    node.is_live===true||node.isLive===true||
+    String(node.live_status??node.liveStatus??'')==='1'||
+    String(node.status??'')==='2'||
+    String(node.room_status??node.roomStatus??'')==='2'||
+    streamLike
+  );
+
+  if(!roomId&&!handle)return null;
+  if(!liveFlag&&!streamLike)return null;
+
+  const title=firstText(
+    node.title,node.room_title,node.roomTitle,node.description,
+    node?.room?.title,
+    handle?('@'+handle+' đang LIVE'):'TikTok LIVE'
+  );
+  const thumbnail=imageUrl(
+    node.cover||node.room_cover||node.roomCover||
+    node.background||node?.room?.cover||
+    owner?.avatar_larger||owner?.avatarLarger||owner?.avatar_medium||owner?.avatarMedium
+  );
+  const url=firstText(
+    node.share_url,node.shareUrl,node.web_url,node.webUrl,
+    handle?('https://www.tiktok.com/@'+handle+'/live'):''
+  );
+
+  return {
+    id:roomId?('room:'+roomId):(handle?('live:'+handle.toLowerCase()):''),
+    roomId,
+    handle,
+    title,
+    thumbnail,
+    url,
+    live:true,
+    origin:'network'
+  };
+}
+function collectLiveRoomsFromJson(payload,max=120){
+  const out=[];
+  const seenObjects=new Set();
+  const seenKeys=new Set();
+  const walk=(value,depth=0)=>{
+    if(out.length>=max||depth>9||value==null)return;
+    if(Array.isArray(value)){
+      for(const item of value)walk(item,depth+1);
+      return;
+    }
+    if(typeof value!=='object')return;
+    if(seenObjects.has(value))return;
+    seenObjects.add(value);
+
+    const room=liveRoomFromObject(value);
+    if(room?.id&&!seenKeys.has(room.id)){
+      seenKeys.add(room.id);
+      out.push(room);
+    }
+    for(const child of Object.values(value))walk(child,depth+1);
+  };
+  walk(payload,0);
+  return out;
+}
+async function attachTikTokLiveNetworkCollector(page,rows){
+  const pending=new Set();
+  const handler=response=>{
+    try{
+      const url=String(response.url()||'');
+      if(!/tiktok\.com|tiktokv\.com|byteoversea\.com/i.test(url))return;
+      if(!/live|room|recommend|feed|webcast|aweme/i.test(url))return;
+      const task=(async()=>{
+        const headers=response.headers?.()||{};
+        const type=String(headers['content-type']||headers['Content-Type']||'');
+        if(type&&!/json|text/i.test(type))return;
+        const text=await response.text().catch(()=>null);
+        if(!text||text.length>8_000_000)return;
+        let data;
+        try{data=JSON.parse(text);}catch{return;}
+        const found=collectLiveRoomsFromJson(data,100);
+        if(found.length){
+          rows.push(...found);
+          console.log('[tiktok-live-network]',found.length,url.slice(0,180));
+        }
+      })();
+      pending.add(task);
+      task.finally(()=>pending.delete(task));
+    }catch{}
+  };
+  page.on('response',handler);
+  return {
+    async flush(){
+      if(pending.size)await Promise.allSettled([...pending]);
+    },
+    detach(){
+      page.off('response',handler);
+    }
+  };
+}
+
 async function collectTikTok(){
   const runtime=await openPlatform('tiktok');
   const {page}=runtime;
   const rows=[];
+  const network=await attachTikTokLiveNetworkCollector(page,rows);
   try{
     for(const url of [
       'https://www.tiktok.com/foryou?lang=vi-VN&region=VN',
@@ -558,9 +708,12 @@ async function collectTikTok(){
         return out;
       }).catch(()=>[]);
       rows.push(...found);
+      await network.flush();
     }
+    await sleep(900);
+    await network.flush();
 
-    const unique=uniq(rows,row=>row.id||row.url,80).map(row=>({
+    const unique=uniq(rows,row=>row.roomId||row.id||row.url,120).map(row=>({
       platform:'tiktok',
       ...row,
       sourceName:'@'+String(row.handle||''),
@@ -594,6 +747,7 @@ async function collectTikTok(){
       items:unique,
     };
   }finally{
+    network.detach();
     await runtime.close();
   }
 }
