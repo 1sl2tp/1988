@@ -43,6 +43,11 @@ const tiktokLiveLibraryRefreshAt=new Map();
 const tiktokLiveSelectedHandles=new Set();
 const tiktokVideoLibrary=new Map();
 const tiktokVideoSourceCache=new Map();
+const tiktokVideoSourceInflight=new Map();
+const TIKTOK_VIDEO_SOURCE_TTL_MS=12*60*1000;
+const TIKTOK_VIDEO_SOURCE_WARM_BATCH=4;
+let tiktokVideoSourceWarmCursor=0;
+let tiktokVideoSourceWarmSerial=Promise.resolve();
 const TIKTOK_LIBRARY_RECENT_VIDEOS=10;
 const TIKTOK_ORIGINAL_BUCKET='tiktok-originals';
 const tiktokCanonicalChannels=new Map();
@@ -2282,7 +2287,7 @@ function liveProxyHeaders(req){
   if(req.headers.range)headers.range=String(req.headers.range);
   return headers;
 }
-async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',proxySegments=false,headersOverride=null}={}){
+async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',proxySegments=false,headersOverride=null,deferError=false}={}){
   try{res.socket?.setNoDelay?.(true)}catch{}
   const session=handle?tiktokLiveSessions.get(String(handle).toLowerCase()):null;
   const headers=headersOverride||(
@@ -2294,7 +2299,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   });
   if(!upstream.ok||!upstream.body){
     console.warn('[tiktok-proxy] upstream failed',upstream.status,String(targetUrl||'').slice(0,180));
-    json(res,502,{ok:false,error:'upstream_stream_'+upstream.status});
+    if(!deferError)json(res,502,{ok:false,error:'upstream_stream_'+upstream.status});
     return {ok:false,status:Number(upstream.status||0)};
   }
   const contentType=String(upstream.headers.get('content-type')||fallbackType);
@@ -2988,6 +2993,35 @@ function normalizeTikTokPostItem(handle,row){
   };
 }
 
+function seedTikTokVideoSource(rawHandle,video){
+  const handle=normalizeTikTokHandle(rawHandle);
+  const id=String(video?.id||video?.video_id||'').trim();
+  const url=String(video?.playUrl||video?.play_url||'').trim();
+  if(!handle||!/^[0-9]{8,}$/.test(id)||!/^https?:\/\//i.test(url))return false;
+  // Flat playlist rows can contain the TikTok webpage URL; only cache real media/CDN URLs.
+  if(/tiktok\.com\/@[^/]+\/video\//i.test(url))return false;
+  const key=handle.toLowerCase()+':'+id;
+  const prev=tiktokVideoSourceCache.get(key);
+  if(prev?.url===url&&Date.now()-Number(prev.at||0)<TIKTOK_VIDEO_SOURCE_TTL_MS)return true;
+  tiktokVideoSourceCache.set(key,{
+    at:Date.now(),
+    handle,
+    id,
+    url,
+    ext:'mp4',
+    mime:'',
+    headers:{
+      'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+      'referer':'https://www.tiktok.com/@'+handle
+    },
+    width:Number(video?.width||0),
+    height:Number(video?.height||0),
+    duration:Number(video?.duration||0),
+    source:'library-play-url'
+  });
+  return true;
+}
+
 function tiktokVideoMaterial(row){
   return JSON.stringify([
     String(row?.secUid||''),
@@ -3570,74 +3604,121 @@ async function enrichNextTikTokCanonicalVideo(){
   }
 }
 
-async function resolveTikTokVideoSource(rawHandle,rawId){
+async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
   const handle=normalizeTikTokHandle(rawHandle);
   const id=String(rawId||'').trim();
-  if(!handle||!/^\d{8,}$/.test(id))throw new Error('invalid_tiktok_video');
+  if(!handle||!/^[0-9]{8,}$/.test(id))throw new Error('invalid_tiktok_video');
 
   const key=handle.toLowerCase()+':'+id;
+  if(force)tiktokVideoSourceCache.delete(key);
   const cached=tiktokVideoSourceCache.get(key);
-  if(cached&&Date.now()-Number(cached.at||0)<20*60_000&&cached.url){
+  if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_VIDEO_SOURCE_TTL_MS&&cached.url){
     return cached;
   }
 
-  const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
-  const args=[
-    '--dump-single-json',
-    '--no-playlist',
-    '--no-warnings',
-    '--socket-timeout','8',
-    '--retries','1',
-    '--extractor-retries','1',
-    '--format','best[ext=mp4]/best',
-    '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-    '--add-header','Referer:https://www.tiktok.com/@'+handle,
-    pageUrl
-  ];
+  const existing=tiktokVideoSourceInflight.get(key);
+  if(existing)return existing;
 
-  const text=await enqueueYtdlp(()=>execTikTokYtdlp(args,{
-    timeout:30_000,
-    maxBuffer:12*1024*1024
-  }));
-  const row=JSON.parse(String(text||'{}'));
-  void mergeDetailedTikTokVideoMetadata(handle,id,row,{persist:true});
+  const task=(async()=>{
+    const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
+    const args=[
+      '--dump-single-json',
+      '--no-playlist',
+      '--no-warnings',
+      '--socket-timeout','8',
+      '--retries','1',
+      '--extractor-retries','1',
+      '--format','best[ext=mp4]/best',
+      '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+      '--add-header','Referer:https://www.tiktok.com/@'+handle,
+      pageUrl
+    ];
 
-  const requested=Array.isArray(row?.requested_downloads)?row.requested_downloads[0]:null;
-  const url=String(
-    requested?.url||
-    row?.url||
-    row?.requested_formats?.find?.(x=>x?.url)?.url||
-    ''
-  ).trim();
-  if(!url)throw new Error('tiktok_video_no_media_url');
+    const out=await enqueueYtdlp(()=>execTikTokYtdlp(args,{
+      timeout:30_000,
+      maxBuffer:12*1024*1024
+    }));
+    const row=JSON.parse(String(out||'{}'));
+    void mergeDetailedTikTokVideoMetadata(handle,id,row,{persist:true});
 
-  const headers={
-    ...(requested?.http_headers||row?.http_headers||{}),
-    'user-agent':
-      String((requested?.http_headers||row?.http_headers||{})['User-Agent']||
-             (requested?.http_headers||row?.http_headers||{})['user-agent']||
-             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'),
-    'referer':
-      String((requested?.http_headers||row?.http_headers||{})['Referer']||
-             (requested?.http_headers||row?.http_headers||{})['referer']||
-             'https://www.tiktok.com/@'+handle)
+    const requested=Array.isArray(row?.requested_downloads)?row.requested_downloads[0]:null;
+    const url=String(
+      requested?.url||
+      row?.url||
+      row?.requested_formats?.find?.(x=>x?.url)?.url||
+      ''
+    ).trim();
+    if(!url)throw new Error('tiktok_video_no_media_url');
+
+    const headers={
+      ...(requested?.http_headers||row?.http_headers||{}),
+      'user-agent':
+        String((requested?.http_headers||row?.http_headers||{})['User-Agent']||
+               (requested?.http_headers||row?.http_headers||{})['user-agent']||
+               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'),
+      'referer':
+        String((requested?.http_headers||row?.http_headers||{})['Referer']||
+               (requested?.http_headers||row?.http_headers||{})['referer']||
+               'https://www.tiktok.com/@'+handle)
+    };
+
+    const data={
+      at:Date.now(),
+      handle,
+      id,
+      url,
+      ext:String(requested?.ext||row?.ext||'mp4'),
+      mime:String(requested?.protocol||row?.protocol||''),
+      headers,
+      width:Number(requested?.width||row?.width||0),
+      height:Number(requested?.height||row?.height||0),
+      duration:Number(row?.duration||0),
+      source:'yt-dlp'
+    };
+    tiktokVideoSourceCache.set(key,data);
+    console.log('[tiktok-video-source]',handle,id,'ok',data.ext,data.width+'x'+data.height);
+    return data;
+  })().finally(()=>tiktokVideoSourceInflight.delete(key));
+
+  tiktokVideoSourceInflight.set(key,task);
+  return task;
+}
+
+async function warmTikTokVideoSources(limit=TIKTOK_VIDEO_SOURCE_WARM_BATCH){
+  if(!await loadTikTokCanonicalStore())return false;
+  const rows=[...tiktokCanonicalVideos.values()]
+    .filter(row=>tiktokLiveSelectedHandles.has(String(row.handle||'')))
+    .sort((a,b)=>Number(b.create_time||0)-Number(a.create_time||0));
+  if(!rows.length)return false;
+
+  const candidates=[];
+  for(let step=0;step<rows.length&&candidates.length<Math.max(1,limit);step++){
+    const index=(tiktokVideoSourceWarmCursor+step)%rows.length;
+    const row=rows[index];
+    const key=String(row.handle||'').toLowerCase()+':'+String(row.video_id||'');
+    const cached=tiktokVideoSourceCache.get(key);
+    if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_VIDEO_SOURCE_TTL_MS)continue;
+    candidates.push(row);
+  }
+  tiktokVideoSourceWarmCursor=(tiktokVideoSourceWarmCursor+Math.max(1,candidates.length))%rows.length;
+  if(!candidates.length)return true;
+
+  const run=async()=>{
+    let ok=0;
+    for(const row of candidates){
+      try{
+        await resolveTikTokVideoSource(row.handle,row.video_id);
+        ok+=1;
+      }catch(error){
+        console.log('[tiktok-video-warm] failed',row.handle,row.video_id,compactText(error?.message||error,100));
+      }
+    }
+    console.log('[tiktok-video-warm] batch','ok='+ok,'total='+candidates.length);
+    return ok>0;
   };
-
-  const data={
-    at:Date.now(),
-    handle,
-    id,
-    url,
-    ext:String(requested?.ext||row?.ext||'mp4'),
-    mime:String(requested?.protocol||row?.protocol||''),
-    headers,
-    width:Number(requested?.width||row?.width||0),
-    height:Number(requested?.height||row?.height||0),
-    duration:Number(row?.duration||0)
-  };
-  tiktokVideoSourceCache.set(key,data);
-  console.log('[tiktok-video-source]',handle,id,'ok',data.ext,data.width+'x'+data.height);
-  return data;
+  const task=tiktokVideoSourceWarmSerial.then(run,run);
+  tiktokVideoSourceWarmSerial=task.catch(()=>{});
+  return task;
 }
 
 async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
@@ -4763,6 +4844,7 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
     const videoRow=tiktokVideoLibrary.get(key)||null;
     if(videoRow?.secUid)next.sec_uid=canonicalText(videoRow.secUid,next.sec_uid);
     for(const video of Array.isArray(videoRow?.videos)?videoRow.videos:[]){
+      seedTikTokVideoSource(handle,video);
       const merged=canonicalMergeVideo(handle,video);
       if(merged)videoRows.push(merged);
     }
@@ -6287,12 +6369,26 @@ const server=http.createServer(async(req,res)=>{
         json(res,400,{ok:false,error:'invalid_tiktok_video'});
         return;
       }
-      const source=await resolveTikTokVideoSource(handle,id);
-      await pipeTikTokTarget(req,res,source.url,{
+      let source=await resolveTikTokVideoSource(handle,id);
+      let piped=await pipeTikTokTarget(req,res,source.url,{
         fallbackType:'video/mp4',
         handle:'',
-        headersOverride:source.headers
+        headersOverride:source.headers,
+        deferError:true
       });
+      if(piped?.ok===false&&!res.headersSent){
+        const key=handle.toLowerCase()+':'+id;
+        tiktokVideoSourceCache.delete(key);
+        source=await resolveTikTokVideoSource(handle,id,{force:true});
+        piped=await pipeTikTokTarget(req,res,source.url,{
+          fallbackType:'video/mp4',
+          handle:'',
+          headersOverride:source.headers
+        });
+      }
+      if(piped?.ok===false&&!res.headersSent){
+        json(res,502,{ok:false,error:'video_source_failed'});
+      }
     }catch(error){
       console.warn('[tiktok-video-stream] failed',compactText(error?.stderr||error?.message||error,220));
       if(!res.headersSent)json(res,502,{ok:false,error:'video_source_failed'});
@@ -6759,6 +6855,7 @@ server.listen(PORT,'0.0.0.0',()=>{
       console.log('[tiktok-library] metadata bootstrap failed',compactText(error?.message||error,120));
     });
     void mirrorTikTokCanonicalImages(20).catch(()=>{});
+    setTimeout(()=>{void warmTikTokVideoSources(6);},2500).unref();
     setTimeout(()=>{void enrichNextTikTokCanonicalVideo();},20_000).unref();
 
     const videoProbeHandle=[...tiktokLiveSelectedHandles].find(handle=>{
@@ -6809,6 +6906,9 @@ server.listen(PORT,'0.0.0.0',()=>{
   // Mirror raw avatar/live/video images byte-for-byte. Objects are content-addressed,
   // never resized and never deleted when the source image later changes.
   setInterval(()=>{void mirrorTikTokCanonicalImages(20);},2*60_000).unref();
+  // Keep recent video playback URLs hot on the server. UI only reads/plays the
+  // packaged stream route and never performs extraction itself.
+  setInterval(()=>{void warmTikTokVideoSources();},90_000).unref();
   // Enrich one recent video at a time with full yt-dlp metadata. This gradually
   // fills covers/likes/comments/shares without making UI requests do extraction.
   setInterval(()=>{void enrichNextTikTokCanonicalVideo();},60_000).unref();
