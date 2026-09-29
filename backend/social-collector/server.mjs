@@ -3354,66 +3354,125 @@ async function fetchTikwmChannelVideos(rawHandle,count=TIKTOK_VIDEO_PER_CHANNEL)
   return task;
 }
 
-async function fetchTikTokChannelVideosYtdlp(rawHandle){
+async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
-  try{
-    const text=await execFileText('yt-dlp',[
-      '--flat-playlist',
-      '--playlist-end',String(TIKTOK_VIDEO_PER_CHANNEL),
-      '--dump-json',
-      '--no-warnings',
-      '--socket-timeout','4',
-      '--retries','0',
-      '--extractor-retries','0',
-      'https://www.tiktok.com/@'+handle
-    ],{timeout:7_000,maxBuffer:6*1024*1024});
 
-    const rows=String(text||'')
-      .split(/\r?\n/)
-      .map(line=>line.trim())
-      .filter(Boolean)
-      .map(line=>{try{return JSON.parse(line)}catch{return null}})
-      .filter(Boolean);
-
-    const first=rows[0]||{};
-    const secUid=String(first?.channel_id||first?.channelId||'');
-    const videos=rows
-      .map(row=>normalizeTikTokPostItem(handle,{
-        id:row?.id||row?.video_id,
-        desc:row?.title||row?.description,
-        createTime:row?.timestamp||row?.release_timestamp||0,
-        video:{duration:row?.duration||0,cover:row?.thumbnail||''},
-        stats:{
-          playCount:row?.view_count||0,
-          diggCount:row?.like_count||0,
-          commentCount:row?.comment_count||0,
-          shareCount:row?.repost_count||0
-        }
-      }))
-      .filter(Boolean)
-      .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
-
-    if(!videos.length){
-      return {known:false,handle,secUid,videos:[],error:'ytdlp_no_videos'};
-    }
-
-    return {
-      known:true,
-      handle,
-      secUid,
-      videos,
-      latestVideoId:String(videos[0]?.id||''),
-      hasMore:false,
-      cursor:'',
-      source:'yt-dlp-profile'
-    };
-  }catch(error){
-    return {
-      known:false,handle,secUid:'',videos:[],
-      error:'ytdlp_'+compactText(error?.stderr||error?.message||error,120)
-    };
+  let secUid=String(knownSecUid||'').trim();
+  if(!secUid){
+    try{
+      const identity=await fetchTikwmProfileIdentity(handle);
+      secUid=String(identity?.secUid||'').trim();
+    }catch{}
   }
+  if(!secUid){
+    try{
+      const scraped=await fetchTikTokProfileIdentityScraped(handle);
+      secUid=String(scraped?.secUid||'').trim();
+    }catch{}
+  }
+
+  const targets=[
+    ...(secUid?['tiktokuser:'+secUid]:[]),
+    'https://www.tiktok.com/@'+handle
+  ];
+
+  let lastError='';
+  for(const target of targets){
+    try{
+      const args=[
+        '--flat-playlist',
+        '--playlist-end',String(TIKTOK_VIDEO_PER_CHANNEL),
+        '--dump-json',
+        '--no-warnings',
+        '--socket-timeout','6',
+        '--retries','1',
+        '--extractor-retries','1',
+        '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        '--add-header','Referer:https://www.tiktok.com/@'+handle
+      ];
+      if(tiktokApiCookieHeader){
+        args.push('--add-header','Cookie:'+String(tiktokApiCookieHeader));
+      }
+      args.push(target);
+
+      const text=await execFileText('yt-dlp',args,{
+        timeout:12_000,
+        maxBuffer:8*1024*1024
+      });
+
+      const rows=String(text||'')
+        .split(/\r?\n/)
+        .map(line=>line.trim())
+        .filter(Boolean)
+        .map(line=>{try{return JSON.parse(line)}catch{return null}})
+        .filter(Boolean);
+
+      if(!secUid){
+        const first=rows[0]||{};
+        secUid=String(first?.channel_id||first?.channelId||'').trim();
+      }
+
+      const videos=rows
+        .map(row=>normalizeTikTokPostItem(handle,{
+          id:row?.id||row?.video_id,
+          desc:row?.title||row?.description,
+          createTime:row?.timestamp||row?.release_timestamp||0,
+          duration:row?.duration||0,
+          cover:row?.thumbnail||'',
+          play:row?.url||row?.webpage_url||'',
+          width:row?.width||0,
+          height:row?.height||0,
+          stats:{
+            playCount:row?.view_count||0,
+            diggCount:row?.like_count||0,
+            commentCount:row?.comment_count||0,
+            shareCount:row?.repost_count||0
+          }
+        }))
+        .filter(Boolean)
+        .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+
+      if(videos.length){
+        console.log(
+          '[tiktok-ytdlp-videos]',
+          handle,
+          'ok',
+          'videos='+videos.length,
+          target.startsWith('tiktokuser:')?'tiktokuser':'profile'
+        );
+        return {
+          known:true,
+          handle,
+          secUid,
+          videos,
+          latestVideoId:String(videos[0]?.id||''),
+          hasMore:false,
+          cursor:'',
+          source:target.startsWith('tiktokuser:')?'yt-dlp-tiktokuser':'yt-dlp-profile'
+        };
+      }
+
+      lastError='ytdlp_no_videos';
+    }catch(error){
+      lastError=compactText(error?.stderr||error?.message||error,180);
+      console.log(
+        '[tiktok-ytdlp-videos]',
+        handle,
+        'miss',
+        target.startsWith('tiktokuser:')?'tiktokuser':'profile',
+        lastError
+      );
+    }
+  }
+
+  return {
+    known:false,
+    handle,
+    secUid,
+    videos:[],
+    error:'ytdlp_'+(lastError||'no_videos')
+  };
 }
 
 async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
@@ -3421,16 +3480,21 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
 
   let secUid=String(knownSecUid||'').trim();
+
+  // yt-dlp is the primary extractor for profile video lists.
+  const ytdlp=await fetchTikTokChannelVideosYtdlp(handle,secUid);
+  if(ytdlp?.known)return ytdlp;
+  secUid=String(ytdlp?.secUid||secUid||'').trim();
+
+  // TikTok web API is only a fallback now.
   if(!secUid){
-    const identity=await fetchTikTokProfileIdentity(handle);
-    secUid=String(identity?.secUid||'').trim();
+    try{
+      const identity=await fetchTikTokProfileIdentity(handle);
+      secUid=String(identity?.secUid||'').trim();
+    }catch{}
   }
   if(!secUid){
-    const detail=await fetchTikTokUserDetail(handle);
-    secUid=String(detail?.secUid||'').trim();
-  }
-  if(!secUid){
-    return await fetchTikTokChannelVideosYtdlp(handle);
+    return ytdlp;
   }
 
   try{
@@ -3443,7 +3507,7 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
     const r=await fetch(endpoint,{
       headers:{
-        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'application/json,text/plain,*/*',
         'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
         'referer':'https://www.tiktok.com/@'+handle,
@@ -3452,9 +3516,7 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
       redirect:'follow',
       signal:AbortSignal.timeout(5000)
     });
-    if(!r.ok){
-      return await fetchTikTokChannelVideosYtdlp(handle);
-    }
+    if(!r.ok)return ytdlp;
 
     const body=await r.json();
     const rawItems=
@@ -3464,16 +3526,15 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
       (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
       (Array.isArray(body?.items)&&body.items)||
       null;
-
-    if(!Array.isArray(rawItems)){
-      return await fetchTikTokChannelVideosYtdlp(handle);
-    }
+    if(!Array.isArray(rawItems))return ytdlp;
 
     const videos=rawItems
       .map(row=>normalizeTikTokPostItem(handle,row))
       .filter(Boolean)
       .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
       .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+
+    if(!videos.length)return ytdlp;
 
     return {
       known:true,
@@ -3482,13 +3543,11 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
       videos,
       latestVideoId:String(videos?.[0]?.id||''),
       hasMore:Boolean(body?.hasMore??body?.has_more),
-      cursor:String(body?.cursor??body?.data?.cursor??'')
+      cursor:String(body?.cursor??body?.data?.cursor??''),
+      source:'tiktok-web-api-fallback'
     };
-  }catch(error){
-    return {
-      known:false,handle,secUid,videos:[],
-      error:compactText(error?.message||error,160)
-    };
+  }catch{
+    return ytdlp;
   }
 }
 
@@ -5134,16 +5193,7 @@ const server=http.createServer(async(req,res)=>{
         handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
       };
       if(url.searchParams.get('refresh')!=='0'){
-        let result=await browserTikTokChannelVideos(handle,current.secUid||'',TIKTOK_VIDEO_PER_CHANNEL);
-        if(!result?.known){
-          result=await browserTikTokProfileGridVideos(handle,TIKTOK_VIDEO_PER_CHANNEL);
-        }
-        if(!result?.known){
-          result=await fetchTikwmChannelVideos(handle,TIKTOK_VIDEO_PER_CHANNEL);
-        }
-        if(!result?.known){
-          result=await fetchTikTokChannelVideos(handle,current.secUid||'');
-        }
+        const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
         if(result?.known){
           updateTikTokVideoLibrary(handle,{
             secUid:result.secUid||current.secUid||'',
@@ -5569,21 +5619,18 @@ server.listen(PORT,'0.0.0.0',()=>{
       return !Array.isArray(row?.videos)||!row.videos.length;
     });
     if(videoProbeHandle){
-      void (async()=>{
-        let result=await browserTikTokChannelVideos(videoProbeHandle,'',3);
-        if(!result?.known)result=await browserTikTokProfileGridVideos(videoProbeHandle,3);
+      void fetchTikTokChannelVideosYtdlp(videoProbeHandle,'').then(result=>{
         console.log(
-          '[tiktok-video-selftest]',
+          '[tiktok-ytdlp-selftest]',
           videoProbeHandle,
           result?.known?'ok':'miss',
           'videos='+(Array.isArray(result?.videos)?result.videos.length:0),
           result?.source||result?.error||''
         );
-      })().catch(error=>{
-        console.log('[tiktok-video-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
+      }).catch(error=>{
+        console.log('[tiktok-ytdlp-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
       });
     }
-
     const probeHandle=[...tiktokLiveSelectedHandles][0]||'aoelinhfbi.official';
     try{
       const probe=await fetchTikTokOfficialProfileIdentity(probeHandle);
