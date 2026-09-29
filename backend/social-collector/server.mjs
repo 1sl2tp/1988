@@ -522,6 +522,12 @@ function seedTikTokFastSource(handle,row){
 
 async function findPreferredTikTokFlv(handle,excludeSig=''){
   const status=await quickTikTokLiveStatus(handle);
+  if(status?.title||status?.thumbnail){
+    updateTikTokLiveLibrary(handle,{
+      title:String(status.title||''),
+      thumbnail:String(status.thumbnail||'')
+    });
+  }
   if(status.known&&!status.live)return null;
   const candidates=(status.candidates||[])
     .filter(row=>row.type==='flv'&&!isTikTokBadSource(handle,row)&&(!excludeSig||tiktokLibrarySourceSig(row)!==excludeSig))
@@ -1489,6 +1495,14 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
       status,
       roomId,
       title:String(liveData?.title||''),
+      thumbnail:firstTikTokAssetUrl(
+        liveData?.cover||
+        liveData?.roomCover||
+        liveData?.room_cover||
+        liveData?.background||
+        liveData?.owner?.avatarLarger||
+        liveData?.owner?.avatar_larger
+      ),
       viewerCount:Number(liveData?.userCount||0),
       candidates,
       source:'live-detail'
