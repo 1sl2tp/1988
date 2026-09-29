@@ -1660,6 +1660,29 @@ html.two-col .info{
   background-color:rgba(var(--card-accent-rgb),var(--card-press-alpha));
   transform:scale(.985);
 }
+/* In one-column mode the three-dot button lives inside .row, so pressing it
+   also makes the whole card match :active. The card halo extends 12px beyond
+   the row and was the visible flash above/below the card. Keep card press
+   feedback for normal card clicks, but freeze the halo when pressing menu. */
+@media(hover:hover){
+  html.one-col .row:has(.row-menu:active)::before{
+    background-color:rgba(var(--card-accent-rgb),var(--card-hover-alpha));
+    transform:none;
+    transition:none;
+  }
+}
+@media(hover:none){
+  html.one-col .row:has(.row-menu:active)::before{
+    background-color:transparent;
+    transform:none;
+    transition:none;
+  }
+}
+html.one-col .row.selected:has(.row-menu:active)::before{
+  background-color:rgba(var(--card-accent-rgb),var(--card-selected-alpha));
+  transform:none;
+  transition:none;
+}
 .row.selected::before{
   background-color:rgba(var(--card-accent-rgb),var(--card-selected-alpha));
 }
@@ -6167,6 +6190,11 @@ html.one-col.portrait .player.pip{
   videoMenu?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
+    const menu=ensureRowActionMenu();
+    if(!menu.hidden&&openRowMenuAnchor===videoMenu){
+      closeRowActionMenu();
+      return;
+    }
     showMainRowActionMenu(currentMeta||{},videoMenu);
   });
 
@@ -6217,6 +6245,13 @@ html.one-col.portrait .player.pip{
     if(menu){
       event.preventDefault();
       event.stopPropagation();
+
+      const rowActionMenu=ensureRowActionMenu();
+      if(!rowActionMenu.hidden&&openRowMenuAnchor===menu){
+        closeRowActionMenu();
+        return;
+      }
+
       const id=String(card.dataset.videoId||"").trim();
       const selectedMeta=
         feedMetas.find(meta=>meta?.id===id)||
