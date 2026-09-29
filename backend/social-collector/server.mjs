@@ -3742,6 +3742,26 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
 
   const key=handle.toLowerCase()+':'+id;
   if(force)tiktokVideoSourceCache.delete(key);
+  if(!force&&tiktokCanonicalLoaded){
+    const stored=tiktokCanonicalVideos.get(id);
+    if(stored&&String(stored.handle||'').toLowerCase()===handle.toLowerCase()&&canonicalMp4Usable(stored)){
+      const data={
+        at:Date.now(),
+        handle,
+        id,
+        url:String(stored.mp4_url||''),
+        ext:'mp4',
+        mime:'',
+        headers:{},
+        width:Number(stored.width||0),
+        height:Number(stored.height||0),
+        duration:Number(stored.duration||0),
+        source:String(stored.mp4_source||'library')
+      };
+      tiktokVideoSourceCache.set(key,data);
+      return data;
+    }
+  }
   const cached=tiktokVideoSourceCache.get(key);
   if(cached&&tiktokVideoSourceReusable(cached)){
     if(tiktokCanonicalLoaded)void persistTikTokCanonicalMp4Source(cached).catch(()=>{});
@@ -4804,7 +4824,25 @@ async function loadTikTokCanonicalStore(){
     for(const row of Array.isArray(videoRows)?videoRows:[]){
       const id=String(row?.video_id||'');
       const handle=normalizeTikTokHandle(row?.handle||'');
-      if(/^\d{8,}$/.test(id)&&handle)tiktokCanonicalVideos.set(id,{...canonicalVideoDefault(handle,id),...row,video_id:id,handle});
+      if(/^\d{8,}$/.test(id)&&handle){
+        const canonical={...canonicalVideoDefault(handle,id),...row,video_id:id,handle};
+        tiktokCanonicalVideos.set(id,canonical);
+        if(canonicalMp4Usable(canonical)){
+          tiktokVideoSourceCache.set(handle.toLowerCase()+':'+id,{
+            at:Date.now(),
+            handle,
+            id,
+            url:String(canonical.mp4_url||''),
+            ext:'mp4',
+            mime:'',
+            headers:{},
+            width:Number(canonical.width||0),
+            height:Number(canonical.height||0),
+            duration:Number(canonical.duration||0),
+            source:String(canonical.mp4_source||'library')
+          });
+        }
+      }
     }
     const pkg=Array.isArray(packageRows)?packageRows[0]:null;
     tiktokCanonicalPackageVersion=Number(pkg?.version||0);
