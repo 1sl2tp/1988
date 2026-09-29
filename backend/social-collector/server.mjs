@@ -1505,10 +1505,13 @@ async function browserTikTokLiveStates(handles){
     const cookies=cookieParams(stored?.state?.cookies||[]);
     if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
 
-    await page.goto('https://www.tiktok.com/',{
+    // Use a static same-origin document. The TikTok SPA can self-navigate
+    // during startup and destroy the JS execution context mid-sweep.
+    await page.goto('https://www.tiktok.com/robots.txt',{
       waitUntil:'domcontentloaded',
       timeout:10_000
     }).catch(()=>{});
+    await sleep(250);
 
     const rows=await page.evaluate(async list=>{
       const result=new Array(list.length);
