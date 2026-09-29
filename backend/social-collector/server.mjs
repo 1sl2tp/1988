@@ -404,6 +404,41 @@ async function resolveTikTokLiveSource(rawHandle){
   return {mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
 }
 
+async function resolveTikTokCompatibleLiveSource(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+  const key=handle.toLowerCase();
+
+  // Discard any fast HLS that produced audio/no picture on the client.
+  tiktokLiveFastSources.delete(key);
+
+  const preflight=await quickTikTokLiveStatus(handle);
+  if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
+
+  const flvCandidates=(preflight.candidates||[])
+    .filter(row=>row.type==='flv')
+    .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
+
+  for(const candidate of flvCandidates.slice(0,6)){
+    const valid=await validateTikTokLiveCandidate(handle,candidate);
+    if(valid){
+      const row={
+        mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
+        at:Date.now(),source:'room-api-flv'
+      };
+      tiktokLiveFastSources.set(key,row);
+      console.log('[tiktok-compat] flv',handle);
+      return row;
+    }
+  }
+
+  const session=await captureTikTokLiveSession(handle);
+  return {
+    mode:'browser',handle,type:session.type,url:session.url,
+    at:session.at,source:'browser-session'
+  };
+}
+
 async function captureTikTokLiveSessionOnce(rawHandle){
   cleanTikTokLiveSessions();
   const handle=normalizeTikTokHandle(rawHandle);
@@ -2078,11 +2113,14 @@ const server=http.createServer(async(req,res)=>{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
       const forceBrowser=url.searchParams.get('force')==='browser';
+      const compatMode=url.searchParams.get('compat')==='1';
       let source;
       if(forceBrowser){
         tiktokLiveFastSources.delete(handle.toLowerCase());
         const session=await captureTikTokLiveSession(handle);
         source={mode:'browser',type:session.type,source:'browser-session',at:session.at};
+      }else if(compatMode){
+        source=await resolveTikTokCompatibleLiveSource(handle);
       }else{
         source=await resolveTikTokLiveSource(handle);
       }
