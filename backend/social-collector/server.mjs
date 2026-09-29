@@ -636,6 +636,10 @@ async function warmTikTokLibraryHandle(handle){
           mode:'fast',
           source:'yt-dlp'
         });
+        updateTikTokLiveLibrary(handle,{
+          title:String(ytdlp.title||''),
+          thumbnail:String(ytdlp.thumbnail||'')
+        });
         tiktokLiveLibraryWarmRetryAt.delete(key);
         console.log('[tiktok-library] yt-dlp warm',handle,seeded.type);
         return true;
@@ -1239,7 +1243,7 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         live:true,
         url,
         title:String(data.title||('@'+handle+' đang LIVE')),
-        thumbnail:'',
+        thumbnail:String(data.thumbnail||''),
         uploader:String(data.uploader||handle),
         uploaderId:'',
         channelId:'',
@@ -1776,6 +1780,8 @@ async function fastTikTokLiveWithYtdlp(handle){
     return {
       url:String(data.stream_url),
       type:String(data.stream_type||(/\.m3u8(?:\?|$)/i.test(data.stream_url)?'hls':'flv')).toLowerCase(),
+      title:String(data.title||''),
+      thumbnail:String(data.thumbnail||''),
       path:'yt-dlp:'+String(data?.selected?.format_id||data?.method||'fast')
     };
   }catch(error){
