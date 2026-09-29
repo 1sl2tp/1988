@@ -24,9 +24,9 @@ main{max-width:900px;margin:auto;padding:16px}.note{color:var(--muted);font-size
 </style>
 </head>
 <body>
-<header><div class="head"><strong>TikTok · mẫu</strong><span>@nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
+<header><div class="head"><strong>TikTok · mẫu</strong><span>1 video + LIVE @nhungnhoii205</span><div class="spacer"></div><button id="reload">Làm mới</button></div></header>
 <main>
-  <p class="note">Chỉ 2 thứ: một video đã đăng của @nhungnhoii205 và phiên LIVE hiện tại của cùng tài khoản.</p>
+  <p class="note">Video dùng cố định một mẫu; LIVE lấy luồng thật của @nhungnhoii205 bằng Python + yt-dlp rồi phát HLS.</p>
   <section class="grid">
     <article class="card">
       <div class="cardhead">VIDEO MẪU <span class="sub" id="videoState">Đang tìm…</span></div>
@@ -58,22 +58,31 @@ function refreshEmbed(){
   s.src='https://www.tiktok.com/embed.js?ts='+Date.now();
   document.body.appendChild(s);
 }
-function showVideo(row){
+const SAMPLE_VIDEO='https://www.tiktok.com/@yvesellys/video/7689526045287959826';
+
+function showVideoMp4(src){
   const box=document.getElementById('videoBox');
   const state=document.getElementById('videoState');
   const id=document.getElementById('videoId');
   const open=document.getElementById('videoOpen');
-  if(!row?.id||!row?.url){
-    state.textContent='Chưa lấy được';
-    box.innerHTML='<div class="status">Chưa tìm được video mẫu của tài khoản này.</div>';
-    id.textContent='—';open.style.display='none';return;
-  }
-  state.textContent='Đã lấy';
-  id.textContent='ID '+row.id;
-  open.href=row.url;open.style.display='';
-  box.innerHTML='<div class="official"><blockquote class="tiktok-embed" cite="'+row.url+'" data-video-id="'+row.id+'" style="max-width:605px;min-width:0;width:100%"><section><a target="_blank" href="https://www.tiktok.com/@'+HANDLE+'">@'+HANDLE+'</a></section></blockquote></div>';
+  state.textContent='Đã mở';
+  id.textContent='MP4 mẫu';
+  open.href=SAMPLE_VIDEO;open.style.display='';
+  box.innerHTML='<div class="livebox"><video id="sampleVideo" controls autoplay muted playsinline preload="metadata" src="'+src+'"></video></div>';
+  document.getElementById('sampleVideo')?.play().catch(()=>{});
+}
+function showVideoEmbed(){
+  const box=document.getElementById('videoBox');
+  const state=document.getElementById('videoState');
+  const id=document.getElementById('videoId');
+  const open=document.getElementById('videoOpen');
+  state.textContent='TikTok embed';
+  id.textContent='ID 7689526045287959826';
+  open.href=SAMPLE_VIDEO;open.style.display='';
+  box.innerHTML='<div class="official"><blockquote class="tiktok-embed" cite="'+SAMPLE_VIDEO+'" data-video-id="7689526045287959826" style="max-width:605px;min-width:0;width:100%"><section><a target="_blank" href="https://www.tiktok.com/@yvesellys">@yvesellys</a></section></blockquote></div>';
   refreshEmbed();
 }
+
 function attachLive(type){
   destroyPlayer();
   const box=document.getElementById('liveBox');
@@ -100,39 +109,22 @@ function attachLive(type){
   }
   video.src=src;video.addEventListener('loadedmetadata',play,{once:true});play();state.textContent='Đang LIVE';
 }
-function showCreatorFallback(){
-  const box=document.getElementById('videoBox');
-  const state=document.getElementById('videoState');
-  const id=document.getElementById('videoId');
-  const open=document.getElementById('videoOpen');
-  const profile='https://www.tiktok.com/@'+HANDLE;
-  state.textContent='Video của kênh';
-  id.textContent='TikTok chính thức';
-  open.href=profile;open.style.display='';
-  box.innerHTML='<div class="official"><blockquote class="tiktok-embed" cite="'+profile+'" data-unique-id="'+HANDLE+'" data-embed-type="creator" style="max-width:720px;min-width:288px;width:100%"><section><a target="_blank" href="'+profile+'">@'+HANDLE+'</a></section></blockquote></div>';
-  refreshEmbed();
-}
 async function loadVideo(){
-  document.getElementById('videoState').textContent='Đang tìm…';
-  document.getElementById('videoBox').innerHTML='<div class="status">Đang lấy 1 video của kênh…</div>';
+  document.getElementById('videoState').textContent='Đang lấy MP4…';
+  document.getElementById('videoBox').innerHTML='<div class="status">Đang lấy video mẫu…</div>';
   try{
-    const ctrl=new AbortController();
-    const timer=setTimeout(()=>ctrl.abort(),18000);
-    const r=await fetch(API+'/tiktok/profile-identity?user='+HANDLE,{cache:'no-store',signal:ctrl.signal});
-    clearTimeout(timer);
+    const r=await fetch('https://www.tikwm.com/api/?url='+encodeURIComponent(SAMPLE_VIDEO),{cache:'no-store'});
     const data=await r.json();
-    if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
-    if(data.videoId&&data.videoUrl){
-      showVideo({id:data.videoId,url:data.videoUrl});
+    if(data?.code===0&&data?.data?.play){
+      showVideoMp4(data.data.play);
       return;
     }
-    // TikTok's official creator embed is the reliable fallback. It exposes
-    // the creator's recent videos even when the page does not reveal a post ID.
-    showCreatorFallback();
+    showVideoEmbed();
   }catch(err){
-    showCreatorFallback();
+    showVideoEmbed();
   }
 }
+
 async function loadLive(){
   destroyPlayer();
   document.getElementById('liveState').textContent='Đang kiểm tra…';
