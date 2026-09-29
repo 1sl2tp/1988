@@ -12,6 +12,8 @@ const SUPABASE_URL=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
 const SUPABASE_KEY=String(process.env.SUPABASE_PUBLISHABLE_KEY||'');
 const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
 const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
+const TIKTOK_CLIENT_KEY=String(process.env.TIKTOK_CLIENT_KEY||'');
+const TIKTOK_CLIENT_SECRET=String(process.env.TIKTOK_CLIENT_SECRET||'');
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
 const TZ='Asia/Ho_Chi_Minh';
 
@@ -49,6 +51,12 @@ let tiktokLiveStoreWritePromise=null;
 let tiktokApiCookieHeader='';
 let tiktokApiCookieRefreshAt=0;
 let tiktokApiCookieRefreshPromise=null;
+let tiktokClientAccessToken='';
+let tiktokClientAccessTokenExpiresAt=0;
+let tiktokOfficialIdentityDisabledUntil=0;
+const tiktokProfileIdentityCache=new Map();
+const tiktokProfileIdentityInflight=new Map();
+const TIKTOK_PROFILE_IDENTITY_TTL_MS=6*60*60*1000;
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
 let tiktokLiveLibraryVersion=0;
@@ -1917,7 +1925,7 @@ function findTikTokUserObject(value,handle,depth=0){
   return null;
 }
 
-async function fetchTikTokProfileIdentity(handle){
+async function fetchTikTokProfileIdentityScraped(handle){
   const url='https://www.tiktok.com/@'+handle;
   try{
     const r=await fetch(url,{
@@ -2015,6 +2023,115 @@ async function fetchTikTokProfileIdentity(handle){
     console.warn('[tiktok-profile] html identity failed',handle,compactText(error?.message||error,220));
     return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
   }
+}
+
+async function getTikTokClientAccessToken(){
+  if(!TIKTOK_CLIENT_KEY||!TIKTOK_CLIENT_SECRET)return '';
+  if(tiktokOfficialIdentityDisabledUntil>Date.now())return '';
+  if(tiktokClientAccessToken&&tiktokClientAccessTokenExpiresAt>Date.now()+60_000){
+    return tiktokClientAccessToken;
+  }
+
+  try{
+    const body=new URLSearchParams({
+      client_key:TIKTOK_CLIENT_KEY,
+      client_secret:TIKTOK_CLIENT_SECRET,
+      grant_type:'client_credentials'
+    });
+    const r=await fetch('https://open.tiktokapis.com/v2/oauth/token/',{
+      method:'POST',
+      headers:{'content-type':'application/x-www-form-urlencoded'},
+      body,
+      signal:AbortSignal.timeout(7000)
+    });
+    const data=await r.json().catch(()=>({}));
+    const token=String(data?.access_token||'');
+    if(!r.ok||!token){
+      if([400,401,403,429].includes(r.status)){
+        tiktokOfficialIdentityDisabledUntil=Date.now()+10*60*1000;
+      }
+      throw new Error('tiktok_client_token_'+r.status+':'+compactText(data?.error_description||data?.error||'',120));
+    }
+    tiktokClientAccessToken=token;
+    tiktokClientAccessTokenExpiresAt=Date.now()+Math.max(60,Number(data?.expires_in||7200))*1000;
+    return token;
+  }catch(error){
+    console.warn('[tiktok-official] client token unavailable',compactText(error?.message||error,180));
+    return '';
+  }
+}
+
+async function fetchTikTokOfficialProfileIdentity(handle){
+  if(tiktokOfficialIdentityDisabledUntil>Date.now())return null;
+  const token=await getTikTokClientAccessToken();
+  if(!token)return null;
+
+  try{
+    const r=await fetch(
+      'https://open.tiktokapis.com/v2/research/user/info/?fields=display_name,avatar_url',
+      {
+        method:'POST',
+        headers:{
+          authorization:'Bearer '+token,
+          'content-type':'application/json'
+        },
+        body:JSON.stringify({username:handle}),
+        signal:AbortSignal.timeout(7000)
+      }
+    );
+    const body=await r.json().catch(()=>({}));
+    if(!r.ok){
+      if([401,403].includes(r.status)){
+        // Client credentials are valid, but arbitrary profile lookup requires
+        // Research API access. Back off and use the public-profile fallback.
+        tiktokOfficialIdentityDisabledUntil=Date.now()+30*60*1000;
+      }
+      console.warn('[tiktok-official] identity unavailable',handle,r.status,compactText(body?.error?.message||body?.error||'',140));
+      return null;
+    }
+
+    const row=body?.data?.user||body?.data||body?.user||{};
+    const nickname=String(row?.display_name||row?.displayName||'');
+    const avatar=String(row?.avatar_url||row?.avatarUrl||'');
+    if(!nickname&&!avatar)return null;
+    return {nickname,avatar,source:'official'};
+  }catch(error){
+    console.warn('[tiktok-official] identity failed',handle,compactText(error?.message||error,140));
+    return null;
+  }
+}
+
+async function fetchTikTokProfileIdentity(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {secUid:'',userId:'',nickname:'',avatar:'',videoId:'',source:'none'};
+  const key=handle.toLowerCase();
+  const cached=tiktokProfileIdentityCache.get(key);
+  if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_PROFILE_IDENTITY_TTL_MS){
+    return {...cached.data};
+  }
+  if(tiktokProfileIdentityInflight.has(key)){
+    return tiktokProfileIdentityInflight.get(key);
+  }
+
+  const task=(async()=>{
+    const [official,scraped]=await Promise.all([
+      fetchTikTokOfficialProfileIdentity(handle).catch(()=>null),
+      fetchTikTokProfileIdentityScraped(handle)
+    ]);
+    const data={
+      secUid:String(scraped?.secUid||''),
+      userId:String(scraped?.userId||''),
+      nickname:String(official?.nickname||scraped?.nickname||''),
+      avatar:String(official?.avatar||scraped?.avatar||''),
+      videoId:String(scraped?.videoId||''),
+      source:official?'official':'profile'
+    };
+    tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
+    return {...data};
+  })().finally(()=>tiktokProfileIdentityInflight.delete(key));
+
+  tiktokProfileIdentityInflight.set(key,task);
+  return task;
 }
 
 async function fetchTikTokUserDetail(handle){
