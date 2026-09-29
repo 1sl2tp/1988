@@ -845,6 +845,20 @@ function runTikTokLiveMinuteSweep(){
     };
     await Promise.all(Array.from({length:Math.min(8,target.length)},()=>worker()));
 
+    // Server-side Web API can be rate-limited by TikTok. Resolve only UNKNOWN
+    // rows through the same API from one real tiktok.com browser context.
+    const unknownHandles=checked
+      .filter(row=>!row?.state?.known)
+      .map(row=>row.handle);
+    if(unknownHandles.length){
+      const browserStates=await browserTikTokLiveStates(unknownHandles);
+      for(const row of checked){
+        if(row?.state?.known)continue;
+        const fallback=browserStates.get(String(row.handle||'').toLowerCase());
+        if(fallback?.known)row.state=fallback;
+      }
+    }
+
     let known=0;
     let live=0;
     let offline=0;
@@ -1469,6 +1483,91 @@ async function quickTikTokLiveStateOnly(rawHandle){
   }
 
   return {known:false,live:false,status:null};
+}
+
+async function browserTikTokLiveStates(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,100);
+  const out=new Map();
+  if(!normalized.length)return out;
+
+  let page=null;
+  try{
+    const browser=await getBrowser();
+    page=await browser.newPage();
+    await page.setViewport({width:1100,height:760,deviceScaleFactor:1});
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+
+    const stored=await loadSession('tiktok').catch(()=>null);
+    const cookies=cookieParams(stored?.state?.cookies||[]);
+    if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
+
+    await page.goto('https://www.tiktok.com/',{
+      waitUntil:'domcontentloaded',
+      timeout:10_000
+    }).catch(()=>{});
+
+    const rows=await page.evaluate(async list=>{
+      const result=new Array(list.length);
+      let cursor=0;
+      const worker=async()=>{
+        while(true){
+          const index=cursor++;
+          if(index>=list.length)return;
+          const handle=list[index];
+          try{
+            const url='/api-live/user/room?aid=1988&sourceType=54&uniqueId='+encodeURIComponent(handle);
+            const r=await fetch(url,{
+              method:'GET',
+              credentials:'include',
+              headers:{accept:'application/json,text/plain,*/*'}
+            });
+            if(!r.ok){
+              result[index]={handle,known:false,live:false,status:null,http:r.status};
+              continue;
+            }
+            const data=await r.json();
+            const room=data?.data?.liveRoom||null;
+            const roomId=String(room?.roomId||room?.id||data?.data?.user?.roomId||'');
+            const status=Number(room?.status);
+            if(Number.isFinite(status)){
+              result[index]={handle,known:true,live:status===2,status};
+            }else if(!room&&!roomId){
+              result[index]={handle,known:true,live:false,status:4};
+            }else{
+              result[index]={handle,known:false,live:false,status:null};
+            }
+          }catch(error){
+            result[index]={handle,known:false,live:false,status:null,error:String(error?.message||error||'fetch_failed')};
+          }
+        }
+      };
+      await Promise.all(Array.from({length:Math.min(6,list.length)},()=>worker()));
+      return result;
+    },normalized);
+
+    let known=0;
+    for(const row of Array.isArray(rows)?rows:[]){
+      const handle=normalizeTikTokHandle(row?.handle||'');
+      if(!handle)continue;
+      if(row?.known)known+=1;
+      out.set(handle.toLowerCase(),{
+        known:Boolean(row?.known),
+        live:Boolean(row?.live),
+        status:Number.isFinite(Number(row?.status))?Number(row.status):null,
+        source:'browser-user-room'
+      });
+    }
+    console.log('[tiktok-browser-status]','total='+normalized.length,'known='+known,'unknown='+(normalized.length-known));
+  }catch(error){
+    console.warn('[tiktok-browser-status] failed',compactText(error?.message||error,180));
+  }finally{
+    if(page)await page.close().catch(()=>{});
+  }
+  return out;
 }
 
 async function quickTikTokLiveStatus(rawHandle){
