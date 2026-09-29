@@ -221,12 +221,16 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
   let confirmedGood=false;
   let lastProgressAt=Date.now();
   let lastProgressTime=0;
+  let progressStartedAt=0;
 
   const confirmGood=()=>{
     if(confirmedGood)return;
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
     const t=Number(video.currentTime||0);
-    if(w>0&&h>0&&t>0.6){
+    // A source that only plays 5–7 seconds is not a reusable LIVE source.
+    // Require sustained progress before saving it as "good".
+    const stableMs=progressStartedAt?Date.now()-progressStartedAt:0;
+    if(w>0&&h>0&&t>0.6&&stableMs>=8000){
       confirmedGood=true;
       rememberRecentLive(HANDLE,type,'confirmed');
       sendLiveFeedback('ok',type);
@@ -317,6 +321,7 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
   video.addEventListener('timeupdate',()=>{
     const t=Number(video.currentTime||0);
     if(t>lastProgressTime+0.12){
+      if(!progressStartedAt)progressStartedAt=Date.now();
       lastProgressTime=t;
       lastProgressAt=Date.now();
       confirmGood();
@@ -345,7 +350,7 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       clearInterval(stallTimer);
       return;
     }
-    if(confirmedGood&&!video.paused&&Date.now()-lastProgressAt>6500){
+    if(lastProgressTime>0.6&&!video.paused&&Date.now()-lastProgressAt>6500){
       confirmedGood=false;
       forgetRecentLive(HANDLE);
       sendLiveFeedback('bad',type);
