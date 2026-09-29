@@ -69,11 +69,12 @@ def choose_stream(info):
 
     def score(row):
         s = 0
-        # Browser-friendly transport first.
-        if row["kind"] == "hls":
-            s += 10000
-        elif row["kind"] == "flv":
-            s += 5000
+        # LIVE library preference: FLV first because it has proven more stable
+        # for the current browser/relay path. HLS remains the fallback.
+        if row["kind"] == "flv":
+            s += 12000
+        elif row["kind"] == "hls":
+            s += 8000
         elif row["kind"] == "mp4":
             s += 3000
 
