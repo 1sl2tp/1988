@@ -1686,6 +1686,23 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/live-session'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+      const session=await captureTikTokLiveSession(handle);
+      json(res,200,{
+        ok:true,
+        handle,
+        streamType:session.type,
+        capturedAt:new Date(session.at).toISOString()
+      });
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
     try{
       await proxyTikTokLive(req,res,url.searchParams.get('user')||'');
