@@ -180,8 +180,8 @@ html,body{
 }
 html{
   overflow-y:scroll;
-  scrollbar-width:thin;
-  scrollbar-color:hsl(0 0% 67%) transparent;
+  scrollbar-width:auto;
+  scrollbar-color:#717171 transparent;
 }
 body{
   min-height:100vh;
@@ -216,7 +216,7 @@ html.two-col body{
   background-attachment:fixed;
 }
 html::-webkit-scrollbar{
-  width:8px;
+  width:12px;
 }
 html::-webkit-scrollbar-track{
   background:transparent;
@@ -224,12 +224,12 @@ html::-webkit-scrollbar-track{
 html::-webkit-scrollbar-thumb{
   min-height:40px;
   border:2px solid transparent;
-  border-radius:6px;
+  border-radius:8px;
   background-clip:content-box;
-  background-color:hsl(0 0% 67%);
+  background-color:#717171;
 }
 html::-webkit-scrollbar-thumb:hover{
-  background-color:#bdbdbd;
+  background-color:#909090;
   background-clip:content-box;
 }
 html::-webkit-scrollbar-corner{
@@ -1694,7 +1694,7 @@ html.one-col .row.selected:has(.row-menu:active)::before{
   width:100%;
   aspect-ratio:16/9;
   overflow:hidden;
-  border-radius:8px;
+  border-radius:12px;
   background:var(--yt-thumb-bg);
 }
 .row-thumb img{
@@ -1757,13 +1757,28 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   font:500 12px/16px Roboto,Arial,sans-serif;
 }
 .duration-badge.live{
+  min-height:20px;
+  gap:3px;
+  padding:1px 5px;
   background:#f00;
-  font-weight:600;
+  font:600 12px/16px Roboto,Arial,sans-serif;
+}
+.duration-badge.live svg{
+  width:14px;
+  height:14px;
+  flex:0 0 14px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
 }
 .row-details{
+  width:100%;
+  box-sizing:border-box;
   display:grid;
   grid-template-columns:36px minmax(0,1fr) 32px;
-  gap:10px;
+  column-gap:10px;
   align-items:start;
   padding:var(--card-meta-gap) 0 0;
 }
@@ -1839,10 +1854,43 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   font:600 13px/36px Roboto,Arial,sans-serif;
   text-align:center;
 }
-.row-copy{min-width:0;padding:0}
+.row.live-card .row-avatar-shell::before,
+.row.live-card .row-avatar-shell::after{
+  display:none;
+}
+.row.live-card .row-avatar{
+  box-shadow:0 0 0 2px #f00;
+}
+.row-live-avatar-badge{
+  position:absolute;
+  z-index:3;
+  left:50%;
+  bottom:-6px;
+  width:18px;
+  height:12px;
+  margin-left:-9px;
+  display:grid;
+  place-items:center;
+  border:2px solid var(--yt-bg);
+  border-radius:7px;
+  background:#f00;
+  color:#fff;
+  pointer-events:none;
+}
+.row-live-avatar-badge svg{
+  width:10px;
+  height:10px;
+  fill:none;
+  stroke:currentColor;
+  stroke-width:1.8;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.row-copy{min-width:0;width:100%;padding:0}
 .row-title{
+  width:100%;
   color:var(--yt-text);
-  font:500 16px/21px Roboto,"Arial",sans-serif;
+  font:500 16px/22px Roboto,"Arial",sans-serif;
   display:-webkit-box;
   -webkit-line-clamp:2;
   -webkit-box-orient:vertical;
@@ -1851,13 +1899,14 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
 .row-meta{
   margin-top:2px;
   color:var(--yt-text-secondary);
-  font:400 14px/19px Roboto,"Arial",sans-serif;
+  font:400 14px/20px Roboto,"Arial",sans-serif;
 }
 .row-meta-line{
+  width:100%;
   min-width:0;
   display:flex;
   align-items:center;
-  gap:10px;
+  gap:6px;
   overflow:hidden;
   white-space:nowrap;
 }
@@ -1908,7 +1957,7 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
 .info-facts{
   display:inline-flex;
   align-items:center;
-  gap:10px;
+  gap:6px;
   min-width:0;
 }
 .fact-views-group{
@@ -1931,8 +1980,8 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   border:0;
   border-radius:50%;
   background:transparent;
-  color:#f1f1f1;
-  opacity:0;
+  color:var(--yt-text);
+  opacity:1;
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
@@ -4030,9 +4079,13 @@ html.one-col.portrait .player.pip{
     const time=String(meta.publishedLabel || (meta.isLive?"Đang trực tiếp":"")).trim();
     const pieces=[];
     if(views){
-      pieces.push('<span class="fact-views-group">'+viewsPlayIconMarkup()+'<span class="fact-views">'+escapeHtml(views)+'</span></span>');
+      if(meta.isLive){
+        pieces.push('<span class="fact-views">'+escapeHtml(views)+'</span>');
+      }else{
+        pieces.push('<span class="fact-views-group">'+viewsPlayIconMarkup()+'<span class="fact-views">'+escapeHtml(views)+'</span></span>');
+      }
     }
-    if(time)pieces.push('<span class="fact-time">'+escapeHtml(time)+'</span>');
+    if(time&&(!meta.isLive||!views))pieces.push('<span class="fact-time">'+escapeHtml(time)+'</span>');
     return pieces.join("");
   }
 
@@ -4088,13 +4141,24 @@ html.one-col.portrait .player.pip{
     }
   }
 
+  function liveBroadcastIconMarkup(className=""){
+    return '<svg'+(className?' class="'+escapeHtml(className)+'"':'')+' viewBox="0 0 16 16" aria-hidden="true" focusable="false">'+
+      '<circle cx="8" cy="8" r="1.7" fill="currentColor" stroke="none"></circle>'+
+      '<path d="M5.25 5.25a3.9 3.9 0 0 0 0 5.5M10.75 5.25a3.9 3.9 0 0 1 0 5.5"></path>'+
+      '<path d="M3.25 3.25a6.7 6.7 0 0 0 0 9.5M12.75 3.25a6.7 6.7 0 0 1 0 9.5"></path>'+
+    '</svg>';
+  }
+
   function avatarMarkup(meta,eager=false){
     const avatar=meta.sourceAvatar || "";
+    const liveBadge=meta.isLive
+      ?'<span class="row-live-avatar-badge">'+liveBroadcastIconMarkup()+'</span>'
+      :"";
     if(avatar){
-      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
+      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+liveBadge+'</span>';
     }
     const letter=(meta.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
-    return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
+    return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span>'+liveBadge+'</span>';
   }
 
   function youtubeThumbUrl(id,name){
@@ -4539,16 +4603,18 @@ html.one-col.portrait .player.pip{
     const thumb=baseThumb;
 
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
-    const badgeClass=meta.isLive ? "duration-badge live" : "duration-badge";
+    const durationMarkup=meta.isLive
+      ?'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>'
+      :(duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"");
     const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
     const factsMarkup=compactFactsMarkup(meta);
     const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
-      '<article class="row'+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+      '<article class="row'+(meta.isLive?' live-card':'')+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
           '<img src="'+escapeHtml(thumb)+'" data-thumb-base="'+escapeHtml(baseThumb)+'" data-thumb-fallback-stage="0" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
-          (duration?'<span class="'+badgeClass+'">'+escapeHtml(duration)+'</span>':"")+
+          durationMarkup+
         '</div>'+
         '<div class="row-details">'+
           avatarMarkup(meta,index<6)+
