@@ -196,9 +196,22 @@ function cleanTikTokLiveSessions(){
 }
 
 function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
-  if(value==null||depth>12||out.length>80)return out;
+  if(value==null||depth>14||out.length>120)return out;
+
   if(typeof value==='string'){
-    const text=value.replace(/\\u002F/g,'/').replace(/\\u0026/g,'&').replace(/\\\//g,'/');
+    const raw=String(value);
+    const trimmed=raw.trim();
+
+    // TikTok often nests stream_data as a JSON string. Parse it so paths keep
+    // useful markers such as streamData/hevcStreamData and FULL_HD1/HD1.
+    if((trimmed.startsWith('{')&&trimmed.endsWith('}'))||(trimmed.startsWith('[')&&trimmed.endsWith(']'))){
+      try{
+        const parsed=JSON.parse(trimmed);
+        collectTikTokLiveStreamCandidates(parsed,out,path,depth+1);
+      }catch{}
+    }
+
+    const text=raw.replace(/\\u002F/g,'/').replace(/\\u0026/g,'&').replace(/\\\//g,'/');
     const re=/https?:\/\/[^"'\\\s<>]+?\.(?:m3u8|flv)(?:\?[^"'\\\s<>]*)?/ig;
     for(const match of text.matchAll(re)){
       const url=String(match[0]||'').replace(/&amp;/g,'&');
@@ -207,10 +220,12 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
     }
     return out;
   }
+
   if(Array.isArray(value)){
     value.forEach((item,index)=>collectTikTokLiveStreamCandidates(item,out,path+'['+index+']',depth+1));
     return out;
   }
+
   if(typeof value==='object'){
     for(const [key,child] of Object.entries(value)){
       collectTikTokLiveStreamCandidates(child,out,path?path+'.'+key:key,depth+1);
@@ -220,15 +235,29 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
 }
 function rankTikTokLiveCandidate(row){
   const text=(String(row?.path||'')+' '+String(row?.url||'')).toLowerCase();
-  let score=row?.type==='hls'?1000:600;
-  if(/full[_ -]?hd|origin|uhd|1080/.test(text))score+=300;
-  else if(/\bhd\b|_hd|720/.test(text))score+=180;
-  else if(/\bsd\b|540|480/.test(text))score+=80;
-  if(/h264|avc/.test(text))score+=120;
-  if(/hevc|h265/.test(text))score-=80;
-  if(/backup|bak/.test(text))score-=20;
+  let score=0;
+
+  // Compatibility before raw resolution. A decoded H.264/AVC picture is more
+  // important than selecting a higher HEVC tier that may play audio only.
+  if(/hevcstreamdata|hevc|h265|hvc1|hev1/.test(text))score-=5000;
+  if(/(^|[._])streamdata([._]|$)|h264|avc|avc1/.test(text))score+=2500;
+
+  if(row?.type==='hls')score+=800;
+  else if(row?.type==='flv')score+=700;
+
+  if(/full[_ -]?hd1|full_hd1/.test(text))score+=600;
+  else if(/(^|[._])hd1([._]|$)|_hd1/.test(text))score+=500;
+  else if(/full[_ -]?hd|1080/.test(text))score+=350;
+  else if(/(^|[._])hd([._]|$)|_hd|720/.test(text))score+=250;
+  else if(/sd|540|480/.test(text))score+=120;
+
+  // TikTok's UHD/HEVC variants are the common "audio but black video" case in
+  // Chromium, so don't let resolution alone beat an AVC/FLV stream.
+  if(/uhd/.test(text))score-=250;
+  if(/backup|bak/.test(text))score-=30;
   return score;
 }
+
 async function validateTikTokLiveCandidate(handle,row,headers=null){
   const url=String(row?.url||'');
   const type=String(row?.type||'').toLowerCase();
@@ -496,7 +525,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     });
 
     const started=Date.now();
-    while(Date.now()-started<18000&&!capturedHls){
+    while(Date.now()-started<18000&&!capturedFlv){
       await page.evaluate(()=>{
         for(const video of document.querySelectorAll('video')){
           try{video.muted=true;void video.play?.()}catch{}
@@ -508,9 +537,9 @@ async function captureTikTokLiveSessionOnce(rawHandle){
         sleep(180)
       ]).catch(()=>{});
 
-      // If TikTok itself chose FLV, do not hold the user for another 20–60 s.
-      // Give HLS only a short chance to appear as a verified 2xx response.
-      if(capturedFlv&&Date.now()-capturedFlv.at>1400)break;
+      // Browser fallback is our compatibility path: give TikTok a few seconds
+      // to expose FLV/H.264 even when an HLS URL appears first.
+      if(capturedHls&&!capturedFlv&&Date.now()-capturedHls.at>4500)break;
       await sleep(350);
     }
 
@@ -521,7 +550,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
 
     // Do not trust an HLS URL merely found in page JSON. We only use HLS if
     // the same browser session actually received that playlist successfully.
-    const captured=capturedHls||capturedFlv;
+    const captured=capturedFlv||capturedHls;
     if(!captured){
       console.log('[tiktok-session] no-media',handle,hlsCandidate?'unverified-hls':'no-hls');
       throw new Error(preflight.known&&preflight.live?'live_media_not_captured':'tiktok_not_live_or_blocked');
@@ -703,13 +732,24 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
     if(!res.writableEnded)res.end();
   }
 }
-async function proxyTikTokLive(req,res,rawHandle){
+async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-  const proxySegments=/[?&]segments=proxy(?:&|$)/i.test(String(req.url||''));
-  const source=await resolveTikTokLiveSource(handle);
-  const fast=source.mode==='fast';
 
+  const proxySegments=/[?&]segments=proxy(?:&|$)/i.test(String(req.url||''));
+  let source;
+
+  if(forceBrowser){
+    // Drop any fast source that produced audio without picture and capture
+    // again from the real TikTok browser session.
+    tiktokLiveFastSources.delete(handle.toLowerCase());
+    const session=await captureTikTokLiveSession(handle);
+    source={mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
+  }else{
+    source=await resolveTikTokLiveSource(handle);
+  }
+
+  const fast=String(source.mode||'').startsWith('fast');
   await pipeTikTokTarget(req,res,source.url,{
     fallbackType:source.type==='flv'?'video/x-flv':'application/vnd.apple.mpegurl',
     handle:fast?'':handle,
@@ -2028,7 +2068,15 @@ const server=http.createServer(async(req,res)=>{
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-      const source=await resolveTikTokLiveSource(handle);
+      const forceBrowser=url.searchParams.get('force')==='browser';
+      let source;
+      if(forceBrowser){
+        tiktokLiveFastSources.delete(handle.toLowerCase());
+        const session=await captureTikTokLiveSession(handle);
+        source={mode:'browser',type:session.type,source:'browser-session',at:session.at};
+      }else{
+        source=await resolveTikTokLiveSource(handle);
+      }
       json(res,200,{
         ok:true,
         handle,
@@ -2045,7 +2093,7 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
     try{
-      await proxyTikTokLive(req,res,url.searchParams.get('user')||'');
+      await proxyTikTokLive(req,res,url.searchParams.get('user')||'',url.searchParams.get('force')==='browser');
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
