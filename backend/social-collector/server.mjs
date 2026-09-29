@@ -2694,6 +2694,63 @@ async function browserTikTokProfileIdentities(handles){
   return out;
 }
 
+async function fetchTikwmProfileIdentity(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return null;
+  try{
+    const body=new URLSearchParams({unique_id:handle});
+    const r=await fetch('https://www.tikwm.com/api/user/info/',{
+      method:'POST',
+      headers:{
+        'content-type':'application/x-www-form-urlencoded',
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5'
+      },
+      body,
+      redirect:'follow',
+      signal:AbortSignal.timeout(8000)
+    });
+    if(!r.ok){
+      console.log('[tikwm-profile]',handle,'http='+r.status);
+      return null;
+    }
+    const json=await r.json();
+    if(Number(json?.code)!==0){
+      console.log('[tikwm-profile]',handle,'code='+String(json?.code||'unknown'),compactText(json?.msg||'',100));
+      return null;
+    }
+    const data=json?.data||{};
+    const info=data?.userInfo||{};
+    const user=info?.user||data?.user||{};
+    const stats=info?.stats||data?.stats||{};
+    const nickname=String(user?.nickname||user?.nickName||'');
+    const avatar=firstTikTokAssetUrl(
+      user?.avatarLarger||
+      user?.avatarMedium||
+      user?.avatarThumb||
+      user?.avatar_300x300||
+      user?.avatar_168x168
+    );
+    if(!nickname&&!avatar)return null;
+    return {
+      secUid:String(user?.secUid||user?.sec_uid||''),
+      userId:String(user?.id||user?.uid||user?.userId||''),
+      nickname,
+      avatar,
+      followerCount:Number(stats?.followerCount||stats?.follower_count||user?.follower_count||0),
+      followingCount:Number(stats?.followingCount||stats?.following_count||user?.following_count||0),
+      heartCount:Number(stats?.heartCount||stats?.heart||stats?.diggCount||user?.total_favorited||0),
+      videoCount:Number(stats?.videoCount||stats?.video_count||user?.aweme_count||0),
+      videoId:'',
+      source:'tikwm'
+    };
+  }catch(error){
+    console.log('[tikwm-profile]',handle,'failed',compactText(error?.message||error,120));
+    return null;
+  }
+}
+
 async function fetchTikTokUserDetail(handle){
   try{
     const endpoint=new URL('https://www.tiktok.com/api/user/detail/');
@@ -4740,29 +4797,17 @@ const server=http.createServer(async(req,res)=>{
       if(missing.length){
         const fallback=[];
         let cursor=0;
-        const officialWorker=async()=>{
+        const tikwmWorker=async()=>{
           while(true){
             const index=cursor++;
             if(index>=missing.length)return;
             const handle=missing[index];
             const key=handle.toLowerCase();
             try{
-              const official=await fetchTikTokOfficialProfileIdentity(handle);
-              if(official&&(official.nickname||official.avatar)){
-                const data={
-                  secUid:'',
-                  userId:'',
-                  nickname:String(official.nickname||''),
-                  avatar:String(official.avatar||''),
-                  followerCount:Number(official.followerCount||0),
-                  followingCount:Number(official.followingCount||0),
-                  heartCount:Number(official.heartCount||0),
-                  videoCount:Number(official.videoCount||0),
-                  videoId:'',
-                  source:'official'
-                };
-                items.set(key,data);
-                tiktokProfileIdentityCache.set(key,{at:Date.now(),data});
+              const row=await fetchTikwmProfileIdentity(handle);
+              if(row&&(row.nickname||row.avatar)){
+                items.set(key,row);
+                tiktokProfileIdentityCache.set(key,{at:Date.now(),data:row});
               }else{
                 fallback.push(handle);
               }
@@ -4771,7 +4816,7 @@ const server=http.createServer(async(req,res)=>{
             }
           }
         };
-        await Promise.all(Array.from({length:Math.min(4,missing.length)},()=>officialWorker()));
+        await Promise.all(Array.from({length:Math.min(5,missing.length)},()=>tikwmWorker()));
 
         if(fallback.length){
           const browserRows=await browserTikTokProfileIdentities(fallback);
@@ -4784,7 +4829,7 @@ const server=http.createServer(async(req,res)=>{
         console.log(
           '[tiktok-profile-batch]',
           'total='+missing.length,
-          'official='+(missing.length-fallback.length),
+          'tikwm='+(missing.length-fallback.length),
           'fallback='+fallback.length
         );
       }
