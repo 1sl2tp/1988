@@ -4676,6 +4676,44 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/channel-videos'&&req.method==='GET'){
+    const handle=normalizeTikTokHandle(url.searchParams.get('user')||url.searchParams.get('handle')||'');
+    if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+    try{
+      const key=handle.toLowerCase();
+      const current=tiktokVideoLibrary.get(key)||{
+        handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
+      };
+      if(url.searchParams.get('refresh')!=='0'){
+        const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
+        if(result?.known){
+          updateTikTokVideoLibrary(handle,{
+            secUid:result.secUid,
+            latestVideoId:result.latestVideoId,
+            videos:result.videos,
+            checkedAt:Date.now(),
+            status:'ready'
+          });
+          await persistTikTokVideoStore();
+        }
+      }
+      const row=tiktokVideoLibrary.get(key)||current;
+      json(res,200,{
+        ok:true,
+        handle,
+        secUid:String(row.secUid||''),
+        latestVideoId:String(row.latestVideoId||''),
+        videos:Array.isArray(row.videos)?row.videos.slice(0,TIKTOK_VIDEO_PER_CHANNEL):[],
+        checkedAt:Number(row.checkedAt||0),
+        status:String(row.status||'waiting'),
+        version:tiktokVideoPackageVersion
+      });
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/video-library'&&req.method==='GET'){
     if(url.searchParams.get('refresh')==='1'){
       await ensureTikTokVideoPackageScan();
