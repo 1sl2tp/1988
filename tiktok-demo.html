@@ -100,32 +100,66 @@ function attachLive(type){
   }
   video.src=src;video.addEventListener('loadedmetadata',play,{once:true});play();state.textContent='Đang LIVE';
 }
-async function load(){
-  destroyPlayer();
+function showCreatorFallback(){
+  const box=document.getElementById('videoBox');
+  const state=document.getElementById('videoState');
+  const id=document.getElementById('videoId');
+  const open=document.getElementById('videoOpen');
+  const profile='https://www.tiktok.com/@'+HANDLE;
+  state.textContent='Video của kênh';
+  id.textContent='TikTok chính thức';
+  open.href=profile;open.style.display='';
+  box.innerHTML='<div class="official"><blockquote class="tiktok-embed" cite="'+profile+'" data-unique-id="'+HANDLE+'" data-embed-type="creator" style="max-width:720px;min-width:288px;width:100%"><section><a target="_blank" href="'+profile+'">@'+HANDLE+'</a></section></blockquote></div>';
+  refreshEmbed();
+}
+async function loadVideo(){
   document.getElementById('videoState').textContent='Đang tìm…';
-  document.getElementById('liveState').textContent='Đang kiểm tra…';
   document.getElementById('videoBox').innerHTML='<div class="status">Đang lấy 1 video của kênh…</div>';
-  document.getElementById('liveBox').innerHTML='<div class="status">Đang lấy luồng LIVE…</div>';
   try{
-    const ctrl=new AbortController();const timer=setTimeout(()=>ctrl.abort(),50000);
-    const r=await fetch(API+'/tiktok/profile?user='+HANDLE+'&limit=1',{cache:'no-store',signal:ctrl.signal});
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),18000);
+    const r=await fetch(API+'/tiktok/profile-identity?user='+HANDLE,{cache:'no-store',signal:ctrl.signal});
     clearTimeout(timer);
     const data=await r.json();
     if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
-    showVideo(data.videos?.[0]);
-    if(data.live){
-      attachLive((data.live.streamType||'hls').toLowerCase());
-    }else{
-      document.getElementById('liveState').textContent='Không LIVE';
-      document.getElementById('liveBox').innerHTML='<div class="status">TikTok hiện không trả về phiên LIVE cho tài khoản này.</div>';
+    if(data.videoId&&data.videoUrl){
+      showVideo({id:data.videoId,url:data.videoUrl});
+      return;
     }
+    // TikTok's official creator embed is the reliable fallback. It exposes
+    // the creator's recent videos even when the page does not reveal a post ID.
+    showCreatorFallback();
   }catch(err){
-    document.getElementById('videoState').textContent='Lỗi';
-    document.getElementById('liveState').textContent='Lỗi';
-    document.getElementById('videoBox').innerHTML='<div class="status">Không lấy được video mẫu.</div>';
-    document.getElementById('liveBox').innerHTML='<div class="status">Không lấy được LIVE.</div>';
+    showCreatorFallback();
   }
 }
+async function loadLive(){
+  destroyPlayer();
+  document.getElementById('liveState').textContent='Đang kiểm tra…';
+  document.getElementById('liveBox').innerHTML='<div class="status">Đang lấy luồng LIVE…</div>';
+  try{
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),26000);
+    const r=await fetch(API+'/tiktok/check-live?user='+HANDLE+'&t='+Date.now(),{cache:'no-store',signal:ctrl.signal});
+    clearTimeout(timer);
+    const data=await r.json();
+    if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
+    if(data.live&&data.streamUrl){
+      attachLive((data.streamType||'hls').toLowerCase());
+      return;
+    }
+    document.getElementById('liveState').textContent='Không LIVE';
+    document.getElementById('liveBox').innerHTML='<div class="status">TikTok hiện không trả về phiên LIVE cho tài khoản này.</div>';
+  }catch(err){
+    document.getElementById('liveState').textContent='Lỗi lấy LIVE';
+    document.getElementById('liveBox').innerHTML='<div class="status">Chưa lấy được luồng LIVE. Bấm Làm mới để thử lại.</div>';
+  }
+}
+function load(){
+  loadVideo();
+  loadLive();
+}
+
 document.getElementById('reload').onclick=load;
 load();
 </script>
