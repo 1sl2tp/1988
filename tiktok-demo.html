@@ -599,7 +599,9 @@ const savedCurrent=localStorage.getItem(CURRENT_KEY)||liveUrlFor(DEFAULT_HANDLE)
 setCurrentLive(savedCurrent,{playIfReady:false});
 renderSavedLiveLinks();
 void syncLiveLibrary({force:true});
-setInterval(()=>{void syncLiveLibrary()},LIVE_LIBRARY_POLL_MS);
+// Temporary: one library scan on load only. Repeated UI polling is disabled
+// while the backend LIVE/FLV classifier is being verified.
+
 load();
 </script>
 </body>
