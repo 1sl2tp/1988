@@ -2,6 +2,7 @@ import http from 'node:http';
 import { URL } from 'node:url';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
+import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
 
 const PORT=Math.max(1,Number(process.env.PORT)||10000);
 const ORIGIN=String(process.env.ALLOW_ORIGIN||'https://yt.taphoa.xyz');
@@ -115,8 +116,10 @@ async function saveSession(platform,state){
       }
     );
     if(!r.ok)throw new Error('session_write_'+r.status+':'+await r.text());
+    return true;
   }catch(error){
     console.warn('[store] save session failed',platform,String(error?.message||error));
+    return false;
   }
 }
 async function loadSnapshot(platform){
@@ -371,7 +374,12 @@ async function poll(){
       return;
     }
     status.className=j.status==='error'?'status err':'status';
-    status.textContent=j.status==='error'?(j.error||'Có lỗi'):(j.status==='starting'?'Đang tạo QR…':'Đang chờ bạn quét QR và xác nhận trên TikTok…');
+    if(j.status==='error')status.textContent=j.error||'Có lỗi';
+    else if(j.status==='starting')status.textContent='Đang tạo QR…';
+    else if(j.status==='scanned')status.textContent='Đã quét QR — hãy xác nhận đăng nhập trên TikTok…';
+    else if(j.status==='confirming')status.textContent='Đã xác nhận — đang lưu phiên TikTok…';
+    else if(j.status==='expired')status.textContent='QR đã hết hạn — bấm Tạo QR mới.';
+    else status.textContent='Đang chờ bạn quét QR và xác nhận trên TikTok…';
     if(!qrLoaded)loadQr(false);
   }catch{
     status.className='status err';
@@ -407,6 +415,15 @@ function cookieParams(rows=[]){
     return out;
   }).filter(row=>row.name&&row.domain);
 }
+const tiktokQrLogin=createTikTokLoginRuntime({
+  getBrowser,
+  loadSession,
+  saveSession,
+  normalizeCookies:cookieParams,
+  sleep,
+  logger:console,
+});
+
 async function openPlatform(platform){
   const browser=await getBrowser();
   const page=await browser.newPage();
@@ -834,6 +851,7 @@ const server=http.createServer(async(req,res)=>{
       queueDepth,
       autoCollect:AUTO_COLLECT,
       lastRuns:Object.fromEntries(lastRuns),
+      login:tiktokQrLogin.snapshot(),
       now:nowIso(),
     });
     return;
@@ -845,11 +863,9 @@ const server=http.createServer(async(req,res)=>{
       return;
     }
     try{
-      await startTikTokLogin();
+      await tiktokQrLogin.start();
       html(res,200,tiktokLoginHtml(url.searchParams.get('key')||''));
     }catch(error){
-      tiktokLoginStatus='error';
-      tiktokLoginError=String(error?.message||error);
       html(res,502,'<!doctype html><meta charset="utf-8"><p>Không tạo được QR TikTok. Hãy thử lại sau.</p>');
     }
     return;
@@ -857,33 +873,32 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/login/tiktok/status'){
     if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
-    await refreshTikTokLogin({capture:false});
-    json(res,200,{ok:true,status:tiktokLoginStatus,error:tiktokLoginError||null,updatedAt:tiktokLoginUpdatedAt||null});
+    const state=await tiktokQrLogin.refresh();
+    json(res,200,{ok:true,...state});
     return;
   }
 
   if(url.pathname==='/login/tiktok/qr'){
     if(!loginAuthorized(url)){res.writeHead(403,{'cache-control':'no-store'});res.end();return;}
-    await refreshTikTokLogin({capture:true});
-    if(!tiktokLoginQr){res.writeHead(404,{'cache-control':'no-store'});res.end();return;}
+    await tiktokQrLogin.start();
+    const image=tiktokQrLogin.qr();
+    if(!image){res.writeHead(404,{'cache-control':'no-store'});res.end();return;}
     res.writeHead(200,{
       'content-type':'image/png',
       'cache-control':'no-store',
-      'content-length':String(tiktokLoginQr.length)
+      'content-length':String(image.length)
     });
-    res.end(tiktokLoginQr);
+    res.end(image);
     return;
   }
 
   if(url.pathname==='/login/tiktok/restart'){
     if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
     try{
-      await startTikTokLogin({restart:true});
-      json(res,200,{ok:true,status:tiktokLoginStatus});
+      const state=await tiktokQrLogin.start({restart:true});
+      json(res,200,{ok:true,...state});
     }catch(error){
-      tiktokLoginStatus='error';
-      tiktokLoginError=String(error?.message||error);
-      json(res,502,{ok:false,error:tiktokLoginError});
+      json(res,502,{ok:false,error:String(error?.message||error)});
     }
     return;
   }
@@ -1076,6 +1091,7 @@ server.listen(PORT,'0.0.0.0',()=>{
 });
 
 const shutdown=async()=>{
+  try{await tiktokQrLogin.close();}catch{}
   try{
     const browser=await browserPromise;
     await browser?.close?.();
