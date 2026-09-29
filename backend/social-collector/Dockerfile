@@ -31,7 +31,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils \
  && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --no-cache-dir --break-system-packages yt-dlp
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+ && pip3 install --no-cache-dir --break-system-packages "yt-dlp @ git+https://github.com/CasualYT31/yt-dlp.git@6c5dd4c2e6036bb753993c6da92377f25b16bb5b" \
+ && apt-get purge -y git \
+ && apt-get autoremove -y \
+ && rm -rf /var/lib/apt/lists/*
 
 COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
