@@ -33,7 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y --no-install-recommends git \
- && pip3 install --no-cache-dir --break-system-packages "yt-dlp @ git+https://github.com/CasualYT31/yt-dlp.git@6c5dd4c2e6036bb753993c6da92377f25b16bb5b" \
+ && pip3 install --no-cache-dir --break-system-packages "yt-dlp @ git+https://github.com/yt-dlp/yt-dlp.git@c7fb478" \
+ && yt-dlp --version \
  && apt-get purge -y git \
  && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
