@@ -4336,14 +4336,13 @@ html.one-col.portrait .player.pip{
       '<div class="row-action-title">Tải xuống</div>'+
       rowActionButton("download-mp4","Video","video",{disabled:!enabled})+
       rowActionButton("download-mp3","Âm thanh","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Cách 1 · lấy link rồi tải trực tiếp.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  function primaryDownloadUrl(meta={},format="mp4"){
+  function downloadUrl(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
     const kind=String(format||"mp4").toLowerCase()==="mp3"?"audio":"video";
@@ -4367,15 +4366,12 @@ html.one-col.portrait .player.pip{
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const url=primaryDownloadUrl(meta,format);
+    const url=downloadUrl(meta,format);
     if(!url){
       window.alert("Không tìm thấy media để tải.");
       return false;
     }
 
-    // Cách 1: yt.taphoa ID -> YouTube URL -> GenDownload extract ->
-    // Edge Function redirects straight to the selected audio/video stream.
-    // No intermediate getlink URL is shown in the UI.
     const anchor=document.createElement("a");
     anchor.href=url;
     anchor.rel="noopener";
