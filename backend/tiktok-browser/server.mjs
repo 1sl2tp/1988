@@ -3,704 +3,719 @@ import { URL } from 'node:url';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 
-const PORT = Number(process.env.PORT || 10000);
-const ORIGIN = process.env.ALLOW_ORIGIN || 'https://yt.taphoa.xyz';
+const PORT=Math.max(1,Number(process.env.PORT)||10000);
+const ORIGIN=String(process.env.ALLOW_ORIGIN||'https://yt.taphoa.xyz');
+const SUPABASE_URL=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
+const SUPABASE_KEY=String(process.env.SUPABASE_PUBLISHABLE_KEY||'');
+const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
+const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
+const TZ='Asia/Ho_Chi_Minh';
 
-chromium.setGraphicsMode = false;
+const PLATFORMS=new Set(['tiktok','youtube','facebook','news']);
+const BROWSER_PLATFORMS=new Set(['tiktok','youtube','facebook']);
+const intervals={
+  tiktok:2*60*1000,
+  youtube:3*60*1000,
+  facebook:7*60*1000,
+  news:3*60*1000,
+};
 
-let browserPromise = null;
-const cache = new Map();
-const warmFeeds = new Map();
-const refreshInFlight = new Map();
+chromium.setGraphicsMode=false;
 
-function json(res, status, data) {
-  res.writeHead(status, {
-    'content-type': 'application/json; charset=utf-8',
-    'access-control-allow-origin': ORIGIN,
-    'access-control-allow-methods': 'GET,OPTIONS',
-    'access-control-allow-headers': 'content-type',
-    'cache-control': 'no-store',
+let browserPromise=null;
+let serial=Promise.resolve();
+let queueDepth=0;
+const memorySnapshots=new Map();
+const lastRuns=new Map();
+
+function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+function nowIso(){return new Date().toISOString();}
+function compactText(value,max=500){
+  return String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
+}
+function clamp(value,min,max){
+  return Math.max(min,Math.min(max,Number(value)||0));
+}
+function uniq(items,keyFn,max=80){
+  const seen=new Set();
+  const out=[];
+  for(const item of Array.isArray(items)?items:[]){
+    if(!item)continue;
+    const key=String(keyFn(item)||'');
+    if(!key||seen.has(key))continue;
+    seen.add(key);
+    out.push(item);
+    if(out.length>=max)break;
+  }
+  return out;
+}
+function json(res,status,data){
+  res.writeHead(status,{
+    'content-type':'application/json; charset=utf-8',
+    'access-control-allow-origin':ORIGIN,
+    'access-control-allow-methods':'GET,POST,OPTIONS',
+    'access-control-allow-headers':'content-type,x-collector-token',
+    'cache-control':'no-store',
   });
   res.end(JSON.stringify(data));
 }
+function authorized(req){
+  return Boolean(COLLECTOR_TOKEN)&&String(req.headers['x-collector-token']||'')===COLLECTOR_TOKEN;
+}
+async function readJson(req,maxBytes=1024*1024){
+  let size=0;
+  const chunks=[];
+  for await(const chunk of req){
+    size+=chunk.length;
+    if(size>maxBytes)throw new Error('body_too_large');
+    chunks.push(chunk);
+  }
+  if(!chunks.length)return {};
+  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+}
+function enqueue(task){
+  queueDepth+=1;
+  const run=serial.then(task,task);
+  serial=run.catch(()=>{}).finally(()=>{queueDepth=Math.max(0,queueDepth-1);});
+  return run;
+}
 
-async function getBrowser() {
-  if (!browserPromise) {
-    // Assign the promise before awaiting Chromium extraction. Multiple feed
-    // warmers must share one extraction/launch or Render can hit ETXTBSY.
-    browserPromise = (async () => {
-      const executablePath = await chromium.executablePath();
-      const args = await puppeteer.defaultArgs({
-        args: [
+function storeHeaders(extra={}){
+  if(!SUPABASE_URL||!SUPABASE_KEY||!COLLECTOR_TOKEN)throw new Error('store_not_configured');
+  return {
+    apikey:SUPABASE_KEY,
+    authorization:'Bearer '+SUPABASE_KEY,
+    'x-collector-token':COLLECTOR_TOKEN,
+    'content-type':'application/json',
+    ...extra,
+  };
+}
+async function loadSession(platform){
+  if(!BROWSER_PLATFORMS.has(platform))return null;
+  try{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_social_sessions?platform=eq.'+
+      encodeURIComponent(platform)+'&select=state,updated_at&limit=1',
+      {headers:storeHeaders()}
+    );
+    if(!r.ok)throw new Error('session_read_'+r.status);
+    const rows=await r.json();
+    const row=Array.isArray(rows)?rows[0]:null;
+    return row||null;
+  }catch(error){
+    console.warn('[store] load session failed',platform,String(error?.message||error));
+    return null;
+  }
+}
+async function saveSession(platform,state){
+  if(!BROWSER_PLATFORMS.has(platform))return;
+  try{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_social_sessions?on_conflict=platform',
+      {
+        method:'POST',
+        headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+        body:JSON.stringify([{platform,state,updated_at:nowIso()}])
+      }
+    );
+    if(!r.ok)throw new Error('session_write_'+r.status+':'+await r.text());
+  }catch(error){
+    console.warn('[store] save session failed',platform,String(error?.message||error));
+  }
+}
+async function loadSnapshot(platform){
+  try{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_social_snapshots?platform=eq.'+
+      encodeURIComponent(platform)+
+      '&select=payload,status,collected_at,updated_at&limit=1',
+      {headers:storeHeaders()}
+    );
+    if(!r.ok)throw new Error('snapshot_read_'+r.status);
+    const rows=await r.json();
+    const row=Array.isArray(rows)?rows[0]:null;
+    if(row?.payload)memorySnapshots.set(platform,{
+      payload:row.payload,
+      status:row.status||'ok',
+      collectedAt:row.collected_at||row.updated_at||null
+    });
+    return row||null;
+  }catch(error){
+    console.warn('[store] load snapshot failed',platform,String(error?.message||error));
+    return null;
+  }
+}
+async function saveSnapshot(platform,payload,status='ok'){
+  const collectedAt=nowIso();
+  memorySnapshots.set(platform,{payload,status,collectedAt});
+  try{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_social_snapshots?on_conflict=platform',
+      {
+        method:'POST',
+        headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+        body:JSON.stringify([{
+          platform,payload,status,collected_at:collectedAt,updated_at:collectedAt
+        }])
+      }
+    );
+    if(!r.ok)throw new Error('snapshot_write_'+r.status+':'+await r.text());
+  }catch(error){
+    console.warn('[store] save snapshot failed',platform,String(error?.message||error));
+  }
+}
+
+async function getBrowser(){
+  if(!browserPromise){
+    browserPromise=(async()=>{
+      const executablePath=await chromium.executablePath();
+      const args=await puppeteer.defaultArgs({
+        args:[
           ...chromium.args,
           '--lang=vi-VN,vi',
           '--disable-dev-shm-usage',
           '--no-first-run',
           '--no-default-browser-check',
         ],
-        headless: 'shell',
+        headless:'shell',
       });
-
       return puppeteer.launch({
-        args,
         executablePath,
-        headless: 'shell',
-        defaultViewport: {
-          width: 1365,
-          height: 900,
-          deviceScaleFactor: 1,
-          isMobile: false,
-          hasTouch: false,
-          isLandscape: true,
+        args,
+        headless:'shell',
+        defaultViewport:{
+          width:1365,
+          height:900,
+          deviceScaleFactor:1,
+          isMobile:false,
+          hasTouch:false,
+          isLandscape:true,
         },
       });
-    })().catch((error) => {
-      browserPromise = null;
+    })().catch(error=>{
+      browserPromise=null;
       throw error;
     });
   }
-
-  const browser = await browserPromise;
-  if (!browser.connected) {
-    browserPromise = null;
+  const browser=await browserPromise;
+  if(!browser.connected){
+    browserPromise=null;
     return getBrowser();
   }
   return browser;
 }
-
-async function newTikTokPage() {
-  const browser = await getBrowser();
-  const page = await browser.newPage();
+function cookieParams(rows=[]){
+  return rows.map(row=>{
+    const out={
+      name:String(row?.name||''),
+      value:String(row?.value||''),
+      domain:String(row?.domain||''),
+      path:String(row?.path||'/'),
+      secure:Boolean(row?.secure),
+      httpOnly:Boolean(row?.httpOnly),
+    };
+    if(Number.isFinite(Number(row?.expires))&&Number(row.expires)>0)out.expires=Number(row.expires);
+    if(['Strict','Lax','None'].includes(row?.sameSite))out.sameSite=row.sameSite;
+    return out;
+  }).filter(row=>row.name&&row.domain);
+}
+async function openPlatform(platform){
+  const browser=await getBrowser();
+  const context=await browser.createBrowserContext();
+  const page=await context.newPage();
   await page.setUserAgent(
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+    'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
   );
-  await page.setExtraHTTPHeaders({
-    'accept-language': 'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4',
-  });
-  await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(() => {});
+  await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+  await page.emulateTimezone(TZ).catch(()=>{});
+
+  const stored=await loadSession(platform);
+  const cookies=cookieParams(stored?.state?.cookies||[]);
+  if(cookies.length){
+    await page.setCookie(...cookies).catch(error=>{
+      console.warn('[session] restore failed',platform,String(error?.message||error));
+    });
+  }
+
   await page.setRequestInterception(true);
-  page.on('request', (request) => {
-    const type = request.resourceType();
-    if (type === 'font' || type === 'media') {
-      request.abort().catch(() => {});
-    } else {
-      request.continue().catch(() => {});
+  page.on('request',request=>{
+    const type=request.resourceType();
+    if(type==='font'||type==='media'){
+      request.abort().catch(()=>{});
+    }else{
+      request.continue().catch(()=>{});
     }
   });
-  return page;
+
+  return {
+    context,
+    page,
+    async close(){
+      try{
+        const current=await page.cookies();
+        if(current.length)await saveSession(platform,{cookies:current});
+      }catch(error){
+        console.warn('[session] export failed',platform,String(error?.message||error));
+      }
+      await context.close().catch(()=>{});
+    }
+  };
 }
 
-function uniqueRows(rows, max = 60) {
-  const seen = new Set();
-  const out = [];
-  for (const row of rows) {
-    const id = String(row?.id || '');
-    const handle = String(row?.handle || '');
-    const key = id ? id : 'live:' + handle.toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-    if (out.length >= max) break;
+async function scroll(page,passes=4){
+  for(let i=0;i<passes;i+=1){
+    await page.evaluate(()=>window.scrollBy(0,Math.max(window.innerHeight,850))).catch(()=>{});
+    await sleep(550);
+  }
+}
+async function goto(page,url,timeout=18000){
+  await page.goto(url,{waitUntil:'domcontentloaded',timeout}).catch(error=>{
+    console.warn('[page] goto',url,String(error?.message||error));
+  });
+  await sleep(1200);
+}
+
+async function collectTikTok(){
+  const runtime=await openPlatform('tiktok');
+  const {page}=runtime;
+  const rows=[];
+  try{
+    for(const url of [
+      'https://www.tiktok.com/foryou?lang=vi-VN&region=VN',
+      'https://www.tiktok.com/live?lang=vi-VN&region=VN',
+    ]){
+      await goto(page,url,16000);
+      await scroll(page,4);
+      const found=await page.evaluate(()=>{
+        const out=[];
+        for(const a of document.querySelectorAll('a[href]')){
+          const href=String(a.href||'');
+          const liveMatch=href.match(/tiktok\.com\/@([^/?#]+)\/live/i);
+          const videoMatch=href.match(/tiktok\.com\/@([^/?#]+)\/video\/(\d{12,24})/i);
+          const card=a.closest('[data-e2e],article,div');
+          const text=String(card?.innerText||a.innerText||'').replace(/\s+/g,' ').trim();
+          const img=card?.querySelector('img');
+          const thumbnail=String(img?.currentSrc||img?.src||'');
+          if(liveMatch){
+            out.push({
+              id:'live:'+liveMatch[1].toLowerCase(),
+              handle:liveMatch[1],
+              title:text.slice(0,300)||('@'+liveMatch[1]+' đang LIVE'),
+              thumbnail,
+              url:'https://www.tiktok.com/@'+liveMatch[1]+'/live',
+              live:true
+            });
+          }else if(videoMatch){
+            out.push({
+              id:videoMatch[2],
+              handle:videoMatch[1],
+              title:text.slice(0,300),
+              thumbnail,
+              url:'https://www.tiktok.com/@'+videoMatch[1]+'/video/'+videoMatch[2],
+              live:/\bLIVE\b|TRỰC TIẾP/i.test(text)
+            });
+          }
+        }
+        return out;
+      }).catch(()=>[]);
+      rows.push(...found);
+    }
+
+    const unique=uniq(rows,row=>row.id||row.url,80).map(row=>({
+      platform:'tiktok',
+      ...row,
+      sourceName:'@'+String(row.handle||''),
+      isLive:Boolean(row.live),
+      collectedAt:nowIso(),
+    }));
+    return {
+      platform:'tiktok',
+      sessionRestored:Boolean((await loadSession('tiktok'))?.state?.cookies?.length),
+      count:unique.length,
+      liveCount:unique.filter(row=>row.isLive).length,
+      items:unique,
+    };
+  }finally{
+    await runtime.close();
+  }
+}
+
+async function youtubeRows(page,origin){
+  return page.evaluate((originLabel)=>{
+    const out=[];
+    const cards=document.querySelectorAll(
+      'ytd-rich-item-renderer,ytd-video-renderer,ytd-grid-video-renderer,ytd-compact-video-renderer'
+    );
+    for(const card of cards){
+      const a=card.querySelector('a#video-title-link,a#video-title,a[href^="/watch?v="]');
+      const href=String(a?.href||'');
+      const m=href.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+      if(!m)continue;
+      const title=String(a?.getAttribute('title')||a?.textContent||'').replace(/\s+/g,' ').trim();
+      const source=String(
+        card.querySelector('ytd-channel-name a,#channel-name a,a.yt-simple-endpoint.style-scope.yt-formatted-string')?.textContent||''
+      ).replace(/\s+/g,' ').trim();
+      const meta=String(card.innerText||'').replace(/\s+/g,' ').trim();
+      const img=card.querySelector('img');
+      out.push({
+        id:m[1],
+        url:'https://www.youtube.com/watch?v='+m[1],
+        title,
+        sourceName:source,
+        thumbnail:String(img?.currentSrc||img?.src||''),
+        isLive:/TRỰC TIẾP|ĐANG PHÁT TRỰC TIẾP|LIVE NOW|\bLIVE\b/i.test(meta),
+        meta:meta.slice(0,500),
+        origin:originLabel
+      });
+    }
+    return out;
+  },origin).catch(()=>[]);
+}
+async function collectYouTube(){
+  const runtime=await openPlatform('youtube');
+  const {page}=runtime;
+  const rows=[];
+  try{
+    for(const [origin,url] of [
+      ['home','https://www.youtube.com/'],
+      ['subscriptions','https://www.youtube.com/feed/subscriptions'],
+    ]){
+      await goto(page,url,18000);
+      await scroll(page,3);
+      rows.push(...await youtubeRows(page,origin));
+    }
+    const unique=uniq(rows,row=>row.id,100).map(row=>({
+      platform:'youtube',
+      ...row,
+      collectedAt:nowIso(),
+    }));
+    return {
+      platform:'youtube',
+      count:unique.length,
+      liveCount:unique.filter(row=>row.isLive).length,
+      items:unique
+    };
+  }finally{
+    await runtime.close();
+  }
+}
+
+async function facebookRows(page,origin){
+  return page.evaluate((originLabel)=>{
+    const out=[];
+    const seen=new Set();
+    for(const a of document.querySelectorAll('a[href]')){
+      const href=String(a.href||'');
+      if(!/facebook\.com\//i.test(href))continue;
+      if(!/(\/videos\/|\/live\/|watch\/\?v=|watch\/live)/i.test(href))continue;
+      const article=a.closest('[role="article"]')||a.closest('div');
+      const text=String(article?.innerText||a.innerText||'').replace(/\s+/g,' ').trim();
+      const img=article?.querySelector('img');
+      const clean=href.split('#')[0];
+      if(seen.has(clean))continue;
+      seen.add(clean);
+      out.push({
+        id:clean,
+        url:clean,
+        title:text.slice(0,400),
+        sourceName:'',
+        thumbnail:String(img?.currentSrc||img?.src||''),
+        isLive:/đang phát trực tiếp|trực tiếp|\blive\b/i.test(text),
+        origin:originLabel
+      });
+      if(out.length>=80)break;
+    }
+    return out;
+  },origin).catch(()=>[]);
+}
+async function collectFacebook(){
+  const runtime=await openPlatform('facebook');
+  const {page}=runtime;
+  const rows=[];
+  try{
+    for(const [origin,url] of [
+      ['home','https://www.facebook.com/'],
+      ['live','https://www.facebook.com/watch/live/'],
+    ]){
+      await goto(page,url,20000);
+      await scroll(page,3);
+      rows.push(...await facebookRows(page,origin));
+    }
+    const unique=uniq(rows,row=>row.id,100).map(row=>({
+      platform:'facebook',
+      ...row,
+      collectedAt:nowIso(),
+    }));
+    return {
+      platform:'facebook',
+      count:unique.length,
+      liveCount:unique.filter(row=>row.isLive).length,
+      items:unique
+    };
+  }finally{
+    await runtime.close();
+  }
+}
+
+const RSS=[
+  ['vnexpress','https://vnexpress.net/rss/tin-moi-nhat.rss'],
+  ['dantri','https://dantri.com.vn/rss/home.rss'],
+  ['tuoitre','https://tuoitre.vn/rss/tin-moi-nhat.rss'],
+  ['vietnamnet','https://vietnamnet.vn/rss/tin-moi-nhat.rss'],
+  ['thanhnien','https://thanhnien.vn/rss/home.rss'],
+];
+function xmlText(value=''){
+  return String(value)
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1')
+    .replace(/<[^>]+>/g,' ')
+    .replace(/&amp;/g,'&')
+    .replace(/&lt;/g,'<')
+    .replace(/&gt;/g,'>')
+    .replace(/&quot;/g,'"')
+    .replace(/&#39;/g,"'")
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function tag(block,name){
+  const m=String(block).match(new RegExp('<'+name+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+name+'>','i'));
+  return m?xmlText(m[1]):'';
+}
+async function collectNews(){
+  const rows=[];
+  for(const [source,url] of RSS){
+    try{
+      const r=await fetch(url,{headers:{'user-agent':'Mozilla/5.0 1988-news/1.0'}});
+      if(!r.ok)continue;
+      const xml=await r.text();
+      const items=xml.match(/<item(?:\s[^>]*)?>[\s\S]*?<\/item>/gi)||[];
+      for(const item of items.slice(0,18)){
+        const link=tag(item,'link');
+        const title=tag(item,'title');
+        if(!link||!title)continue;
+        rows.push({
+          platform:'news',
+          id:link,
+          url:link,
+          title,
+          sourceName:source,
+          description:tag(item,'description').slice(0,500),
+          publishedAt:tag(item,'pubDate'),
+          isLive:false,
+          collectedAt:nowIso(),
+        });
+      }
+    }catch(error){
+      console.warn('[news] rss failed',source,String(error?.message||error));
+    }
+  }
+  const unique=uniq(rows,row=>row.url,100);
+  return {platform:'news',count:unique.length,liveCount:0,items:unique};
+}
+
+const collectors={
+  tiktok:collectTikTok,
+  youtube:collectYouTube,
+  facebook:collectFacebook,
+  news:collectNews,
+};
+
+async function collect(platform){
+  if(!PLATFORMS.has(platform))throw new Error('invalid_platform');
+  const started=Date.now();
+  lastRuns.set(platform,{status:'running',startedAt:nowIso()});
+  try{
+    const payload=await collectors[platform]();
+    await saveSnapshot(platform,payload,'ok');
+    lastRuns.set(platform,{
+      status:'ok',
+      startedAt:lastRuns.get(platform)?.startedAt||nowIso(),
+      finishedAt:nowIso(),
+      ms:Date.now()-started,
+      count:Number(payload?.count||0),
+      liveCount:Number(payload?.liveCount||0),
+    });
+    console.log('[collect]',platform,'count='+Number(payload?.count||0),'live='+Number(payload?.liveCount||0),'ms='+(Date.now()-started));
+    return payload;
+  }catch(error){
+    const message=String(error?.message||error);
+    lastRuns.set(platform,{
+      status:'error',
+      startedAt:lastRuns.get(platform)?.startedAt||nowIso(),
+      finishedAt:nowIso(),
+      ms:Date.now()-started,
+      error:message,
+    });
+    console.error('[collect]',platform,message);
+    throw error;
+  }
+}
+async function collectAll(){
+  const out={};
+  for(const platform of ['tiktok','youtube','facebook','news']){
+    try{out[platform]=await collect(platform);}
+    catch(error){out[platform]={platform,error:String(error?.message||error)};}
   }
   return out;
 }
 
-
-function rowFromTikTokItem(item) {
-  if (!item || typeof item !== 'object') return null;
-  const id = String(item.id || item.itemId || item.aweme_id || '');
-  const author = item.author || item.authorInfo || item.user || {};
-  const handle = String(author.uniqueId || author.unique_id || author.secUid || item.authorName || '');
-  if (!/^\d{12,24}$/.test(id) || !handle) return null;
-
-  const stats = item.stats || item.statsV2 || item.statistics || {};
-  const video = item.video || {};
+async function getSnapshot(platform){
+  const memory=memorySnapshots.get(platform);
+  if(memory)return memory;
+  const stored=await loadSnapshot(platform);
+  if(!stored)return null;
   return {
-    id,
-    handle,
-    url: 'https://www.tiktok.com/@' + handle + '/video/' + id,
-    title: String(item.desc || item.description || item.title || ''),
-    thumbnail: String(
-      video.cover || video.originCover || video.dynamicCover ||
-      video?.cover?.urlList?.[0] || video?.originCover?.urlList?.[0] || ''
-    ),
-    timestamp: Number(item.createTime || item.create_time || 0) || Number(BigInt(id) >> 32n),
-    viewCount: Number(stats.playCount || stats.play_count || stats.viewCount || 0),
-    likeCount: Number(stats.diggCount || stats.digg_count || stats.likeCount || 0),
-    commentCount: Number(stats.commentCount || stats.comment_count || 0),
-    shareCount: Number(stats.shareCount || stats.share_count || 0),
-    live: false,
+    payload:stored.payload||null,
+    status:stored.status||null,
+    collectedAt:stored.collected_at||stored.updated_at||null
   };
 }
 
-function rowsFromTikTokPayload(payload, max = 80) {
-  const rows = [];
-  const seenObjects = new Set();
+async function schedulerTick(){
+  if(!AUTO_COLLECT)return;
+  const now=Date.now();
+  for(const platform of ['tiktok','youtube','facebook','news']){
+    const last=lastRuns.get(platform);
+    const lastAt=Date.parse(last?.finishedAt||last?.startedAt||0)||0;
+    if(now-lastAt<intervals[platform])continue;
+    await enqueue(()=>collect(platform)).catch(()=>{});
+  }
+}
 
-  function walk(value, depth = 0) {
-    if (rows.length >= max || depth > 9 || value == null) return;
-    if (typeof value !== 'object') return;
-    if (seenObjects.has(value)) return;
-    seenObjects.add(value);
+const server=http.createServer(async(req,res)=>{
+  if(req.method==='OPTIONS'){
+    json(res,204,{});
+    return;
+  }
+  const url=new URL(req.url||'/','http://localhost');
 
-    const row = rowFromTikTokItem(value);
-    if (row) rows.push(row);
+  if(url.pathname==='/health'){
+    json(res,200,{
+      ok:true,
+      service:'1988-social-collector',
+      browser:Boolean(browserPromise),
+      queueDepth,
+      autoCollect:AUTO_COLLECT,
+      lastRuns:Object.fromEntries(lastRuns),
+      now:nowIso(),
+    });
+    return;
+  }
 
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item, depth + 1);
+  if(url.pathname==='/status'){
+    const snapshots={};
+    for(const p of PLATFORMS){
+      const row=await getSnapshot(p);
+      snapshots[p]=row?{
+        status:row.status,
+        collectedAt:row.collectedAt,
+        count:Number(row.payload?.count||0),
+        liveCount:Number(row.payload?.liveCount||0),
+      }:null;
+    }
+    json(res,200,{ok:true,snapshots,lastRuns:Object.fromEntries(lastRuns)});
+    return;
+  }
+
+  if(url.pathname==='/feed'&&req.method==='GET'){
+    const platform=String(url.searchParams.get('platform')||'all').toLowerCase();
+    const limit=clamp(url.searchParams.get('limit')||80,1,200);
+    if(platform==='all'){
+      const data={};
+      for(const p of PLATFORMS){
+        const row=await getSnapshot(p);
+        data[p]=row?.payload
+          ?{...row.payload,items:(row.payload.items||[]).slice(0,limit)}
+          :null;
+      }
+      json(res,200,{ok:true,data});
       return;
     }
-
-    for (const child of Object.values(value)) {
-      walk(child, depth + 1);
-      if (rows.length >= max) break;
+    if(!PLATFORMS.has(platform)){
+      json(res,400,{ok:false,error:'invalid_platform'});
+      return;
     }
-  }
-
-  walk(payload);
-  return uniqueRows(rows, max);
-}
-
-async function universalRows(page, max = 80) {
-  const payload = await page.evaluate(() => {
-    const selectors = [
-      '#__UNIVERSAL_DATA_FOR_REHYDRATION__',
-      '#SIGI_STATE',
-      'script[id*="UNIVERSAL"]',
-      'script[id*="SIGI"]',
-    ];
-    for (const selector of selectors) {
-      const node = document.querySelector(selector);
-      const text = node?.textContent || '';
-      if (!text) continue;
-      try { return JSON.parse(text); } catch {}
-    }
-    return null;
-  }).catch(() => null);
-  return rowsFromTikTokPayload(payload, max);
-}
-
-function captureTikTokResponses(page, max = 80) {
-  const rows = [];
-  const pending = new Set();
-
-  const handler = (response) => {
-    const url = response.url();
-    if (!/(?:\/api\/.*(?:item|recommend|feed)|\/aweme\/v1\/feed)/i.test(url)) return;
-    const task = response.json()
-      .then((payload) => {
-        rows.push(...rowsFromTikTokPayload(payload, max));
-      })
-      .catch(() => {})
-      .finally(() => pending.delete(task));
-    pending.add(task);
-  };
-
-  page.on('response', handler);
-
-  return {
-    async collect() {
-      if (pending.size) await Promise.allSettled([...pending]);
-      return uniqueRows(rows, max);
-    },
-    stop() {
-      page.off('response', handler);
-    },
-  };
-}
-
-async function logTikTokPageDebug(page, label) {
-  const info = await page.evaluate(() => ({
-    title: document.title,
-    href: location.href,
-    anchors: document.querySelectorAll('a').length,
-    videoAnchors: document.querySelectorAll('a[href*="/video/"]').length,
-    body: String(document.body?.innerText || '').replace(/\s+/g, ' ').slice(0, 180),
-  })).catch(() => null);
-  console.log('page:debug', label, JSON.stringify(info));
-}
-
-function parseVideoHref(href) {
-  const match = String(href || '').match(/https?:\/\/(?:www\.)?tiktok\.com\/@([^/?#]+)\/video\/(\d{12,24})/i);
-  if (!match) return null;
-  return {
-    id: match[2],
-    handle: match[1],
-    url: 'https://www.tiktok.com/@' + match[1] + '/video/' + match[2],
-    live: false,
-  };
-}
-
-async function collectVideoLinks(page, max = 60) {
-  const rows = await page.evaluate(() => {
-    const found = [];
-    for (const anchor of document.querySelectorAll('a[href*="/video/"]')) {
-      const href = anchor.href;
-      const text = String(anchor.innerText || anchor.getAttribute('aria-label') || '').trim();
-      found.push({ href, text: text.slice(0, 500) });
-    }
-    return found;
-  }).catch(() => []);
-
-  return uniqueRows(rows.map((row) => {
-    const parsed = parseVideoHref(row.href);
-    if (!parsed) return null;
-    return {
-      ...parsed,
-      title: row.text || '',
-      timestamp: Number(BigInt(parsed.id) >> 32n),
-    };
-  }).filter(Boolean), max);
-}
-
-async function scrollFeed(page, passes = 7) {
-  for (let i = 0; i < passes; i += 1) {
-    await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 900)));
-    await new Promise((resolve) => setTimeout(resolve, 650));
-  }
-}
-
-async function tryRecommendApi(page, max = 60) {
-  const payload = await page.evaluate(async () => {
-    const root = document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
-    let app = {};
-    if (root?.textContent) {
-      try {
-        const parsed = JSON.parse(root.textContent);
-        app = parsed?.__DEFAULT_SCOPE__?.['webapp.app-context'] || {};
-      } catch {}
-    }
-
-    const params = new URLSearchParams({
-      aid: '1988',
-      app_name: 'tiktok_web',
-      device_platform: 'web_pc',
-      count: '30',
-      from_page: 'fyp',
-      priority_region: 'VN',
-      region: 'VN',
-      browser_language: 'vi-VN',
-      app_language: 'vi-VN',
-      browser_platform: 'MacIntel',
-      browser_name: 'Mozilla',
-      browser_online: 'true',
-      cookie_enabled: 'true',
-      screen_width: String(screen.width || 1365),
-      screen_height: String(screen.height || 900),
-      device_id: String(app?.wid || ''),
-      odinId: String(app?.odinId || ''),
-      WebIdLastTime: String(app?.webIdCreatedTime || ''),
+    const row=await getSnapshot(platform);
+    json(res,200,{
+      ok:true,
+      platform,
+      status:row?.status||null,
+      collectedAt:row?.collectedAt||null,
+      data:row?.payload
+        ?{...row.payload,items:(row.payload.items||[]).slice(0,limit)}
+        :null
     });
+    return;
+  }
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 8000);
-    try {
-      const response = await fetch('/api/recommend/item_list/?' + params.toString(), {
-        credentials: 'include',
-        signal: controller.signal,
+  if(url.pathname==='/collect'&&req.method==='POST'){
+    if(!authorized(req)){
+      json(res,401,{ok:false,error:'unauthorized'});
+      return;
+    }
+    const platform=String(url.searchParams.get('platform')||'all').toLowerCase();
+    try{
+      const data=platform==='all'
+        ?await enqueue(collectAll)
+        :await enqueue(()=>collect(platform));
+      json(res,200,{ok:true,data});
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  const sessionMatch=url.pathname.match(/^\/session\/(tiktok|youtube|facebook)$/);
+  if(sessionMatch){
+    if(!authorized(req)){
+      json(res,401,{ok:false,error:'unauthorized'});
+      return;
+    }
+    const platform=sessionMatch[1];
+    if(req.method==='GET'){
+      const row=await loadSession(platform);
+      const cookies=Array.isArray(row?.state?.cookies)?row.state.cookies:[];
+      json(res,200,{
+        ok:true,
+        platform,
+        exists:cookies.length>0,
+        cookieCount:cookies.length,
+        updatedAt:row?.updated_at||null
       });
-      const text = await response.text();
-      if (!text) return null;
-      return JSON.parse(text);
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timer);
+      return;
     }
-  }).catch(() => null);
-
-  const items = payload?.itemList || payload?.item_list || [];
-  return uniqueRows(items.map((item) => {
-    const author = item?.author || {};
-    const stats = item?.stats || item?.statsV2 || {};
-    const video = item?.video || {};
-    const id = String(item?.id || '');
-    const handle = String(author?.uniqueId || '');
-    if (!/^\d{12,24}$/.test(id) || !handle) return null;
-    return {
-      id,
-      handle,
-      url: 'https://www.tiktok.com/@' + handle + '/video/' + id,
-      title: String(item?.desc || ''),
-      thumbnail: String(video?.cover || video?.originCover || video?.dynamicCover || ''),
-      timestamp: Number(item?.createTime || 0) || Number(BigInt(id) >> 32n),
-      viewCount: Number(stats?.playCount || stats?.play_count || 0),
-      likeCount: Number(stats?.diggCount || stats?.digg_count || 0),
-      commentCount: Number(stats?.commentCount || stats?.comment_count || 0),
-      shareCount: Number(stats?.shareCount || stats?.share_count || 0),
-      live: false,
-    };
-  }).filter(Boolean), max);
-}
-
-async function collectRecommend(max = 60) {
-  const page = await newTikTokPage();
-  const capture = captureTikTokResponses(page, max);
-  try {
-    await page.goto('https://www.tiktok.com/foryou?lang=vi-VN&region=VN', {
-      waitUntil: 'domcontentloaded',
-      timeout: 14000,
-    }).catch(() => null);
-
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-
-    const initial = uniqueRows([
-      ...(await capture.collect()),
-      ...(await universalRows(page, max)),
-    ], max);
-    if (initial.length >= 5) {
-      console.log('recommend:initial', initial.length);
-      return initial;
-    }
-
-    const apiRows = await tryRecommendApi(page, max);
-    if (apiRows.length >= 5) {
-      console.log('recommend:same-origin-api', apiRows.length);
-      return uniqueRows([...initial, ...apiRows], max);
-    }
-
-    await scrollFeed(page, 5);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-
-    const rows = uniqueRows([
-      ...initial,
-      ...apiRows,
-      ...(await capture.collect()),
-      ...(await universalRows(page, max)),
-      ...(await collectVideoLinks(page, max)),
-    ], max);
-
-    console.log('recommend:collected', rows.length);
-    if (!rows.length) await logTikTokPageDebug(page, 'recommend');
-    return rows;
-  } finally {
-    capture.stop();
-    await page.close().catch(() => {});
-  }
-}
-
-async function collectExplore(max = 60) {
-  const page = await newTikTokPage();
-  const capture = captureTikTokResponses(page, max);
-  try {
-    await page.goto('https://www.tiktok.com/explore?lang=vi-VN&region=VN', {
-      waitUntil: 'domcontentloaded',
-      timeout: 14000,
-    }).catch(() => null);
-    await new Promise((resolve) => setTimeout(resolve, 2200));
-
-    await scrollFeed(page, 5);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    const rows = uniqueRows([
-      ...(await capture.collect()),
-      ...(await universalRows(page, max)),
-      ...(await collectVideoLinks(page, max)),
-    ], max);
-
-    console.log('explore:collected', rows.length);
-    if (!rows.length) await logTikTokPageDebug(page, 'explore');
-    return rows;
-  } finally {
-    capture.stop();
-    await page.close().catch(() => {});
-  }
-}
-
-async function collectProfile(handle, max = 12) {
-  if (!/^[A-Za-z0-9._-]{2,64}$/.test(handle)) return [];
-  const page = await newTikTokPage();
-  try {
-    await page.goto('https://www.tiktok.com/@' + encodeURIComponent(handle) + '?lang=vi-VN', {
-      waitUntil: 'domcontentloaded',
-      timeout: 30000,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    await scrollFeed(page, 4);
-    return await collectVideoLinks(page, max);
-  } finally {
-    await page.close().catch(() => {});
-  }
-}
-
-async function collectFollowing(handles, max = 60) {
-  const unique = [...new Set(handles.filter((value) => /^[A-Za-z0-9._-]{2,64}$/.test(value)))].slice(0, 20);
-  if (!unique.length) return [];
-
-  const batches = [];
-  for (let i = 0; i < unique.length; i += 4) {
-    batches.push(unique.slice(i, i + 4));
-  }
-
-  const rows = [];
-  for (const batch of batches) {
-    const results = await Promise.allSettled(batch.map((handle) => collectProfile(handle, 10)));
-    for (const result of results) {
-      if (result.status === 'fulfilled') rows.push(...result.value);
-    }
-    if (rows.length >= max) break;
-  }
-
-  return uniqueRows(rows, max).sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
-}
-
-async function getLiveInfo(handle) {
-  const referer = 'https://www.tiktok.com/@' + handle + '/live';
-  try {
-    const url = new URL('https://www.tiktok.com/api-live/user/room');
-    url.searchParams.set('aid', '1988');
-    url.searchParams.set('sourceType', '54');
-    url.searchParams.set('uniqueId', handle);
-
-    const response = await fetch(url, {
-      headers: {
-        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/153 Safari/537.36',
-        'referer': referer,
-        'accept-language': 'vi-VN,vi;q=0.9,en;q=0.5',
-      },
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    const room = data?.data?.liveRoom;
-    if (!room || Number(room.status) === 4) return null;
-
-    let streamUrl = '';
-    const raw = room?.streamData?.pull_data?.stream_data;
-    if (raw) {
-      try {
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        const variants = Object.values(parsed?.data || {});
-        variants.sort((a, b) => {
-          const av = Number(JSON.parse(a?.main?.sdk_params || '{}')?.vbitrate || 0);
-          const bv = Number(JSON.parse(b?.main?.sdk_params || '{}')?.vbitrate || 0);
-          return bv - av;
-        });
-        streamUrl = String(variants?.[0]?.main?.flv || '');
-      } catch {}
-    }
-
-    return {
-      id: String(room.streamId || handle),
-      handle,
-      title: String(room.title || ('@' + handle + ' đang LIVE')),
-      thumbnail: '',
-      timestamp: Math.floor(Date.now() / 1000),
-      viewCount: Number(room?.user_count || room?.viewerCount || 0),
-      live: true,
-      streamUrl,
-      url: referer,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function collectLive(max = 30) {
-  const page = await newTikTokPage();
-  try {
-    await page.goto('https://www.tiktok.com/live?lang=vi-VN&region=VN', {
-      waitUntil: 'domcontentloaded',
-      timeout: 14000,
-    }).catch(() => null);
-    await new Promise((resolve) => setTimeout(resolve, 1800));
-    await scrollFeed(page, 5);
-
-    const handles = await page.evaluate(() => {
-      const set = new Set();
-      for (const anchor of document.querySelectorAll('a[href*="/live"], a[href^="/@"]')) {
-        const href = anchor.href || '';
-        let match = href.match(/tiktok\.com\/@([^/?#]+)\/live/i);
-        if (match) {
-          set.add(match[1]);
-          continue;
-        }
-        const text = String(anchor.closest('div')?.innerText || '').toUpperCase();
-        match = href.match(/tiktok\.com\/@([^/?#]+)(?:$|[?#])/i);
-        if (match && text.includes('LIVE')) set.add(match[1]);
+    if(req.method==='POST'){
+      try{
+        const body=await readJson(req);
+        const cookies=cookieParams(body?.cookies||body?.state?.cookies||[]);
+        await saveSession(platform,{cookies});
+        json(res,200,{ok:true,platform,cookieCount:cookies.length});
+      }catch(error){
+        json(res,400,{ok:false,error:String(error?.message||error)});
       }
-      return [...set];
-    }).catch(() => []);
-
-    const results = await Promise.allSettled(handles.slice(0, 40).map(getLiveInfo));
-    return uniqueRows(results
-      .filter((result) => result.status === 'fulfilled' && result.value)
-      .map((result) => result.value), max);
-  } finally {
-    await page.close().catch(() => {});
-  }
-}
-
-function cached(key, ttlMs) {
-  const row = cache.get(key);
-  if (row && Date.now() - row.at < ttlMs) return row.value;
-  return null;
-}
-
-function putCache(key, value) {
-  cache.set(key, { at: Date.now(), value });
-  if (cache.size > 30) {
-    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
-    if (oldest) cache.delete(oldest);
-  }
-}
-
-
-async function refreshPublicFeed(mode) {
-  if (!['recommend', 'explore', 'live'].includes(mode)) return [];
-  if (refreshInFlight.has(mode)) return refreshInFlight.get(mode);
-
-  const task = (async () => {
-    const started = Date.now();
-    let items = [];
-    try {
-      if (mode === 'recommend') items = await collectRecommend(70);
-      else if (mode === 'explore') items = await collectExplore(70);
-      else items = await collectLive(40);
-
-      if (items.length) {
-        warmFeeds.set(mode, { at: Date.now(), items });
-        console.log('prefetch:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
-      } else {
-        console.log('prefetch:empty', mode, 'ms=' + (Date.now() - started));
-      }
-      return items;
-    } catch (error) {
-      console.error('prefetch:failed', mode, error?.message || error);
-      return [];
-    } finally {
-      refreshInFlight.delete(mode);
+      return;
     }
-  })();
-
-  refreshInFlight.set(mode, task);
-  return task;
-}
-
-function publicFeedCache(mode, limit) {
-  const row = warmFeeds.get(mode);
-  if (!row?.items?.length) return null;
-  const maxAge = mode === 'live' ? 2 * 60 * 1000 : 8 * 60 * 1000;
-  if (Date.now() - row.at > maxAge) {
-    void refreshPublicFeed(mode);
-  }
-  return row.items.slice(0, limit);
-}
-
-async function withTimeout(promise, ms, fallback = []) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((resolve) => {
-        timer = setTimeout(() => resolve(fallback), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function feed(mode, handles, limit) {
-  const started = Date.now();
-  console.log('feed:start', mode, 'handles=' + handles.length, 'limit=' + limit);
-
-  if (['recommend', 'explore', 'live'].includes(mode)) {
-    let items = publicFeedCache(mode, limit);
-    if (!items) {
-      items = await withTimeout(refreshPublicFeed(mode), 30000, []);
-      items = items.slice(0, limit);
-    }
-
-    const value = {
-      items,
-      sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
-      mode,
-      warming: items.length === 0 && refreshInFlight.has(mode),
-    };
-    console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
-    return value;
   }
 
-  if (mode === 'following') {
-    const cacheKey = mode + ':' + handles.join(',') + ':' + limit;
-    const hit = cached(cacheKey, 90_000);
-    if (hit) return hit;
-
-    const items = await withTimeout(collectFollowing(handles, limit), 30000, []);
-    const value = {
-      items,
-      sources: [...new Set(items.map((item) => item.handle).filter(Boolean))],
-      mode,
-    };
-    putCache(cacheKey, value);
-    console.log('feed:done', mode, 'items=' + items.length, 'ms=' + (Date.now() - started));
-    return value;
-  }
-
-  throw new Error('unsupported_mode');
-}
-
-const server = http.createServer(async (req, res) => {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'access-control-allow-origin': ORIGIN,
-      'access-control-allow-methods': 'GET,OPTIONS',
-      'access-control-allow-headers': 'content-type',
-    });
-    res.end();
-    return;
-  }
-
-  const url = new URL(req.url || '/', 'http://localhost');
-  if (url.pathname === '/health') {
-    json(res, 200, { ok: true, browser: Boolean(browserPromise) });
-    return;
-  }
-
-  if (url.pathname === '/feed') {
-    const mode = String(url.searchParams.get('mode') || 'recommend');
-    const handles = String(url.searchParams.get('handles') || '')
-      .split(',')
-      .map((value) => value.trim().replace(/^@/, ''))
-      .filter(Boolean);
-    const limit = Math.max(1, Math.min(Number(url.searchParams.get('limit') || 50), 80));
-
-    try {
-      const data = await feed(mode, handles, limit);
-      json(res, 200, { ok: true, data });
-    } catch (error) {
-      browserPromise = null;
-      json(res, 502, {
-        ok: false,
-        error: String(error?.message || error || 'feed_failed'),
-      });
-    }
-    return;
-  }
-
-  json(res, 404, { ok: false, error: 'not_found' });
+  json(res,404,{ok:false,error:'not_found'});
 });
 
-server.listen(PORT, '0.0.0.0', () => {
-  console.log('1988 TikTok browser service listening on', PORT);
-  void getBrowser()
-    .then(async () => {
-      console.log('chromium:warm');
-      // Warm serially. One browser is enough; parallel page launches on a free
-      // instance waste CPU/RAM and previously caused Chromium extraction races.
-      await refreshPublicFeed('recommend');
-      await refreshPublicFeed('explore');
-      await refreshPublicFeed('live');
-    })
-    .catch((error) => console.error('chromium:warm-failed', error?.message || error));
-
-  setInterval(() => {
-    void refreshPublicFeed('recommend');
-    void refreshPublicFeed('explore');
-  }, 5 * 60 * 1000).unref();
-
-  setInterval(() => {
-    void refreshPublicFeed('live');
-  }, 60 * 1000).unref();
+server.listen(PORT,'0.0.0.0',()=>{
+  console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
+  for(const platform of PLATFORMS)void loadSnapshot(platform);
+  if(AUTO_COLLECT){
+    setTimeout(()=>{void schedulerTick();},8000).unref();
+    setInterval(()=>{void schedulerTick();},30000).unref();
+  }
 });
+
+const shutdown=async()=>{
+  try{
+    const browser=await browserPromise;
+    await browser?.close?.();
+  }catch{}
+  server.close(()=>process.exit(0));
+  setTimeout(()=>process.exit(0),3000).unref();
+};
+process.on('SIGTERM',shutdown);
+process.on('SIGINT',shutdown);
