@@ -39,7 +39,9 @@ const TIKTOK_LIVE_LIBRARY_REFRESH_MS=15_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
+const tiktokLiveLibraryWarmRetryAt=new Map();
 const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=2;
+const TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS=30_000;
 let tiktokLiveLibraryRefreshCursor=0;
 let ytdlpSerial=Promise.resolve();
 
@@ -319,6 +321,47 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source=''}={}){
   console.log('[tiktok-library] media reject',handle,row.type,probe.error||'probe_failed');
   return false;
 }
+
+async function batchTikTokLiveFallback(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
+  if(!normalized.length)return new Map();
+  try{
+    const out=await execFileText(
+      'python3',
+      ['tiktok_live_batch_check.py',...normalized],
+      {timeout:11_000,maxBuffer:4*1024*1024}
+    );
+    const rows=JSON.parse(String(out||'[]'));
+    const map=new Map();
+    for(const row of Array.isArray(rows)?rows:[]){
+      const handle=normalizeTikTokHandle(row?.username||'');
+      if(handle)map.set(handle.toLowerCase(),row);
+    }
+    return map;
+  }catch(error){
+    console.log('[tiktok-library] batch fallback failed',compactText(error?.message||error,140));
+    return new Map();
+  }
+}
+function seedTikTokFastSource(handle,row){
+  const url=String(row?.stream_url||'');
+  const type=String(row?.stream_type||'').toLowerCase();
+  if(!/^https?:\/\//i.test(url)||!['flv','hls'].includes(type))return null;
+  const baseHeaders={
+    'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'accept':'*/*',
+    'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+    'referer':'https://www.tiktok.com/@'+handle+'/live',
+    'origin':'https://www.tiktok.com'
+  };
+  const source={
+    mode:'fast',handle,type,url,headers:baseHeaders,
+    at:Date.now(),source:'batch-yt-dlp',confirmed:false
+  };
+  tiktokLiveFastSources.set(handle.toLowerCase(),source);
+  return source;
+}
+
 async function findPreferredTikTokFlv(handle){
   const status=await quickTikTokLiveStatus(handle);
   if(status.known&&!status.live)return null;
@@ -338,48 +381,87 @@ async function findPreferredTikTokFlv(handle){
 }
 async function warmTikTokLibraryHandle(handle){
   const key=String(handle||'').toLowerCase();
-  const current=currentTikTokLibrarySource(handle);
+  const now=Date.now();
+  const retryAt=Number(tiktokLiveLibraryWarmRetryAt.get(key)||0);
+  if(retryAt>now)return false;
 
-  // Stable FLV already wins. Re-probe only periodically.
+  let current=currentTikTokLibrarySource(handle);
+
+  // Stable FLV already wins. Periodic ffprobe only refreshes health; it does
+  // not change library version when the source itself is unchanged.
   if(current?.confirmed&&current.type==='flv'){
-    if(Date.now()-Number(current.lastProbeAt||0)<30_000){
+    if(now-Number(current.lastProbeAt||0)<30_000){
       noteTikTokLibrarySource(handle,current,{ready:true,status:'ready',mode:current.mode||'cache',source:current.source||'cache'});
       return true;
     }
-    return confirmTikTokLibrarySource(handle,current,{mode:current.mode||'cache',source:current.source||'cache'});
+    const ok=await confirmTikTokLibrarySource(handle,current,{mode:current.mode||'cache',source:current.source||'cache'});
+    if(!ok)tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
+    return ok;
   }
 
-  // If current source is stable HLS, keep it playing. Probe an FLV candidate
-  // separately and only replace the library record after FLV passes ffprobe.
+  // If a newly discovered source is already present, validate it before doing
+  // another extraction. A FLV candidate gets first chance.
+  if(current&&!current.confirmed&&current.type==='flv'){
+    if(await confirmTikTokLibrarySource(handle,current,{mode:current.mode||'fast',source:current.source||'discovered'})){
+      tiktokLiveLibraryWarmRetryAt.delete(key);
+      return true;
+    }
+    if(tiktokLiveFastSources.get(key)===current)tiktokLiveFastSources.delete(key);
+    current=null;
+  }
+
+  // A verified HLS is safe to keep. Look for FLV in the background, but never
+  // touch the current player until the FLV has passed ffprobe.
   if(current?.confirmed&&current.type==='hls'){
     const flv=await findPreferredTikTokFlv(handle).catch(()=>null);
     if(flv&&await confirmTikTokLibrarySource(handle,flv,{mode:'fast',source:'room-api-flv'})){
       tiktokLiveFastSources.set(key,flv);
+      tiktokLiveLibraryWarmRetryAt.delete(key);
       console.log('[tiktok-library] upgraded',handle,'hls->flv');
       return true;
     }
-    if(Date.now()-Number(current.lastProbeAt||0)>=30_000){
-      return confirmTikTokLibrarySource(handle,current,{mode:current.mode||'cache',source:current.source||'cache'});
+    if(now-Number(current.lastProbeAt||0)>=30_000){
+      const ok=await confirmTikTokLibrarySource(handle,current,{mode:current.mode||'cache',source:current.source||'cache'});
+      if(!ok)tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
+      return ok;
     }
     return true;
   }
 
-  // No confirmed source: FLV first. Only then fall back to browser capture/HLS.
+  // Unconfirmed HLS can be used only after we fail to find FLV.
+  const discoveredHls=current&&!current.confirmed&&current.type==='hls'?current:null;
+
   const flv=await findPreferredTikTokFlv(handle).catch(()=>null);
   if(flv){
     if(await confirmTikTokLibrarySource(handle,flv,{mode:'fast',source:'room-api-flv'})){
       tiktokLiveFastSources.set(key,flv);
+      tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
   }
 
+  if(discoveredHls){
+    if(await confirmTikTokLibrarySource(handle,discoveredHls,{mode:discoveredHls.mode||'fast',source:discoveredHls.source||'discovered'})){
+      tiktokLiveLibraryWarmRetryAt.delete(key);
+      return true;
+    }
+    if(tiktokLiveFastSources.get(key)===discoveredHls)tiktokLiveFastSources.delete(key);
+  }
+
+  // Browser capture is the expensive last resort and only runs for a channel
+  // already classified LIVE.
   try{
     const session=await captureTikTokLiveSession(handle);
-    if(await confirmTikTokLibrarySource(handle,session,{mode:'browser',source:'browser-session'}))return true;
+    if(await confirmTikTokLibrarySource(handle,session,{mode:'browser',source:'browser-session'})){
+      tiktokLiveLibraryWarmRetryAt.delete(key);
+      return true;
+    }
     await closeTikTokLiveSession(key);
   }catch(error){
     console.log('[tiktok-library] browser warm failed',handle,compactText(error?.message||error,120));
   }
+
+  tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
   return false;
 }
 function queueTikTokLibraryWarm(handle){
@@ -400,46 +482,64 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   if(!normalized.length)return;
 
   const now=Date.now();
-  const selected=[];
-  let scanned=0;
-  let cursor=tiktokLiveLibraryRefreshCursor%normalized.length;
-  while(scanned<normalized.length&&selected.length<6){
-    const handle=normalized[cursor];
-    const last=Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0);
-    if(now-last>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)selected.push(handle);
-    cursor=(cursor+1)%normalized.length;
-    scanned+=1;
-  }
-  tiktokLiveLibraryRefreshCursor=cursor;
+  const due=normalized
+    .filter(handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)
+    .slice(0,10);
 
-  // Status checks run in parallel; one slow TikTok account no longer blocks
-  // the whole vertical library.
-  const checked=await Promise.all(selected.map(async handle=>{
+  if(!due.length)return;
+
+  // First pass: TikTok room API for all due channels in parallel.
+  const checked=await Promise.all(due.map(async handle=>{
     tiktokLiveLibraryRefreshAt.set(handle.toLowerCase(),Date.now());
-    if(!tiktokLiveLibrary.has(handle.toLowerCase()))updateTikTokLiveLibrary(handle,{status:'unknown'});
+    if(!tiktokLiveLibrary.has(handle.toLowerCase()))updateTikTokLiveLibrary(handle,{status:'checking'});
     try{
       return {handle,status:await quickTikTokLiveStatus(handle)};
     }catch(error){
-      return {handle,status:null,error};
+      return {handle,status:{known:false,live:false,candidates:[]},error};
     }
   }));
+
+  // Only ambiguous channels use yt-dlp, also in one parallel batch (5 workers).
+  const ambiguous=checked
+    .filter(x=>!x.status?.known&&!x.status?.live&&!(x.status?.candidates||[]).length)
+    .map(x=>x.handle);
+  const fallback=ambiguous.length?await batchTikTokLiveFallback(ambiguous):new Map();
 
   const warmQueue=[];
   for(const result of checked){
     const handle=result.handle;
-    const status=result.status;
-    if(!status){
-      console.log('[tiktok-library] refresh miss',handle,compactText(result.error?.message||result.error,100));
-      continue;
+    const key=handle.toLowerCase();
+    const status=result.status||{known:false,live:false,candidates:[]};
+    const fb=fallback.get(key);
+
+    let classified='unknown';
+    let live=false;
+
+    if(status.known){
+      live=Boolean(status.live);
+      classified=live?'live':'offline';
+    }else if(status.live||(status.candidates||[]).length){
+      live=true;
+      classified='live';
+    }else if(fb?.status==='LIVE'){
+      live=true;
+      classified='live';
+      seedTikTokFastSource(handle,fb);
+    }else if(fb?.status==='OFFLINE'){
+      live=false;
+      classified='offline';
     }
-    if(status.known&&!status.live){
+
+    if(classified==='offline'){
       updateTikTokLiveLibrary(handle,{
         live:false,ready:false,status:'offline',sourceSig:'',
         videoCodec:'',audioCodec:'',width:0,height:0,lastSeenAt:Date.now()
       });
+      tiktokLiveLibraryWarmRetryAt.delete(key);
       continue;
     }
-    if(status.live||status.candidates?.length){
+
+    if(classified==='live'){
       const sourceRow=currentTikTokLibrarySource(handle);
       if(sourceRow?.confirmed){
         noteTikTokLibrarySource(handle,sourceRow,{
@@ -447,8 +547,6 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
           mode:sourceRow.mode||'cache',
           source:sourceRow.source||'cache'
         });
-        // FLV is preferred. Even a working HLS is checked for a verified FLV
-        // replacement in background without touching the active player.
         if(warm&&(sourceRow.type!=='flv'||Date.now()-Number(sourceRow.lastProbeAt||0)>=30_000)){
           warmQueue.push(handle);
         }
@@ -458,14 +556,20 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
         });
         if(warm)warmQueue.push(handle);
       }
+      continue;
     }
+
+    // Do not call an ambiguous channel offline. Keep it in a separate group,
+    // but it will be retried on the next due cycle.
+    updateTikTokLiveLibrary(handle,{
+      live:false,ready:false,status:'checking',lastSeenAt:Date.now()
+    });
   }
 
   for(const handle of warmQueue){
-    if(!queueTikTokLibraryWarm(handle))break;
+    queueTikTokLibraryWarm(handle);
   }
 }
-
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
@@ -612,8 +716,8 @@ function rankTikTokLiveCandidate(row){
   if(/hevcstreamdata|hevc|h265|hvc1|hev1/.test(text))score-=5000;
   if(/(^|[._])streamdata([._]|$)|h264|avc|avc1/.test(text))score+=2500;
 
-  if(row?.type==='hls')score+=800;
-  else if(row?.type==='flv')score+=700;
+  if(row?.type==='flv')score+=1000;
+  else if(row?.type==='hls')score+=800;
 
   if(/full[_ -]?hd1|full_hd1/.test(text))score+=600;
   else if(/(^|[._])hd1([._]|$)|_hd1/.test(text))score+=500;
@@ -2640,7 +2744,7 @@ const server=http.createServer(async(req,res)=>{
         updateTikTokLiveLibrary(handle,{status:'unknown'});
       }
     }
-    if(url.searchParams.get('refresh')!=='0')void refreshTikTokLiveLibrary(handles,{warm:true});
+    if(url.searchParams.get('refresh')!=='0')await refreshTikTokLiveLibrary(handles,{warm:true});
 
     const clientVersion=Number(url.searchParams.get('v')||-1);
     if(clientVersion===tiktokLiveLibraryVersion){
