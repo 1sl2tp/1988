@@ -123,6 +123,13 @@ function forgetRecentLive(handle){
   delete data[key];
   localStorage.setItem(RECENT_KEY,JSON.stringify(data));
 }
+function sendLiveFeedback(status,type){
+  const url=API+'/tiktok/live-feedback?user='+encodeURIComponent(HANDLE)+
+    '&status='+encodeURIComponent(status)+
+    '&type='+encodeURIComponent(String(type||'').toLowerCase())+
+    '&t='+Date.now();
+  fetch(url,{cache:'no-store'}).catch(()=>{});
+}
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
@@ -211,13 +218,31 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
   let usingSegmentProxy=false;
   let pictureTimer=null;
   let forcingBrowser=false;
+  let confirmedGood=false;
+  let lastProgressAt=Date.now();
+  let lastProgressTime=0;
+
+  const confirmGood=()=>{
+    if(confirmedGood)return;
+    const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
+    const t=Number(video.currentTime||0);
+    if(w>0&&h>0&&t>0.6){
+      confirmedGood=true;
+      rememberRecentLive(HANDLE,type,'confirmed');
+      sendLiveFeedback('ok',type);
+    }
+  };
+
 
   const clearPictureTimer=()=>{
     if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
   };
 
   const recoverPicture=async(currentSrc='')=>{
-    if((video.videoWidth&&video.videoHeight)||forcingBrowser)return;
+    if(forcingBrowser)return;
+    forgetRecentLive(HANDLE);
+    sendLiveFeedback('bad',type);
+    if((video.videoWidth&&video.videoHeight)&&Number(video.currentTime||0)>0.6)return;
 
     // First recovery: keep the same HLS but relay every segment. This handles
     // CDN/CORS failures without reopening the TikTok session.
@@ -279,6 +304,7 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     else shell.classList.add('square');
     shell.style.aspectRatio=w+' / '+h;
     state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+w+'×'+h;
+    confirmGood();
   };
   video.addEventListener('loadedmetadata',fitByVideoShape);
   video.addEventListener('resize',fitByVideoShape);
@@ -288,6 +314,26 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
   video.addEventListener('loadeddata',()=>{
     if(video.videoWidth&&video.videoHeight)clearPictureTimer();
   });
+  video.addEventListener('timeupdate',()=>{
+    const t=Number(video.currentTime||0);
+    if(t>lastProgressTime+0.12){
+      lastProgressTime=t;
+      lastProgressAt=Date.now();
+      confirmGood();
+    }
+  });
+  const stallTimer=setInterval(()=>{
+    if(!document.body.contains(video)){
+      clearInterval(stallTimer);
+      return;
+    }
+    if(confirmedGood&&!video.paused&&!video.ended&&Date.now()-lastProgressAt>6500){
+      confirmedGood=false;
+      forgetRecentLive(HANDLE);
+      sendLiveFeedback('bad',type);
+      void recoverPicture(type==='hls'?proxyAll:src);
+    }
+  },1800);
 
   const loadHls=(src)=>{
     if(video.canPlayType('application/vnd.apple.mpegurl')){
@@ -403,9 +449,9 @@ async function loadLive(){
   const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
 
   const recent=recentLiveState(HANDLE);
-  state.textContent=recent?'Đang mở lại LIVE gần nhất…':'Đang tìm LIVE nhanh…';
+  state.textContent=recent?'Đang kiểm tra LIVE gần nhất…':'Đang tìm LIVE nhanh…';
   box.innerHTML=recent
-    ?'<div class="status">Đang xác nhận lại luồng đã nhớ của @'+HANDLE+'…</div>'
+    ?'<div class="status">Đang kiểm tra lại luồng gần nhất của @'+HANDLE+'…</div>'
     :'<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
   let timer=null;
   let ticker=null;
@@ -414,7 +460,7 @@ async function loadLive(){
     const started=Date.now();
     ticker=setInterval(()=>{
       const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
-      state.textContent=recent?'Đang mở lại LIVE gần nhất… '+sec+'s':(sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s');
+      state.textContent=recent?'Đang kiểm tra LIVE gần nhất… '+sec+'s':(sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s');
     },1000);
     timer=setTimeout(()=>ctrl.abort(),30000);
     const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
@@ -424,7 +470,6 @@ async function loadLive(){
     const data=await r.json();
     if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
     const type=String(data.streamType||'').toLowerCase()||'hls';
-    rememberRecentLive(HANDLE,type,data.mode||'session');
     state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+String(data.mode||'session');
     attachLive(type,relay,true);
   }catch(err){
