@@ -106,12 +106,13 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
   if(cached&&Date.now()-cached.at<20_000)return cached.value;
 
   const url='https://www.tiktok.com/@'+handle+'/live';
+  console.log('[tiktok-live-python] start',handle);
   const value=await enqueueYtdlp(async()=>{
     try{
       const out=await execFileText('python3',[
         'tiktok_stream_extract.py',
         url
-      ],{timeout:30_000,maxBuffer:2*1024*1024});
+      ],{timeout:24_000,maxBuffer:2*1024*1024});
       const data=JSON.parse(String(out||'').trim()||'{}');
       if(!data?.success||!data?.stream_url){
         const note=compactText(data?.error||'stream_not_found',400);
@@ -1698,13 +1699,15 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
-  void getBrowser()
-    .then(()=>console.log('[collector] browser prewarmed'))
-    .catch(error=>console.warn('[collector] browser prewarm failed',String(error?.message||error)));
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
+    void getBrowser()
+      .then(()=>console.log('[collector] browser prewarmed'))
+      .catch(error=>console.warn('[collector] browser prewarm failed',String(error?.message||error)));
     setTimeout(()=>{void schedulerTick();},8000).unref();
     setInterval(()=>{void schedulerTick();},30000).unref();
+  }else{
+    console.log('[collector] background browser collection disabled');
   }
 });
 
