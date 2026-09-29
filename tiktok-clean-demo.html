@@ -1289,12 +1289,19 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
     if(failed)return;
     failed=true;
 
-    // A prepared package source may have just expired. Fall back once to the
-    // direct compatible relay instead of making the user click again.
+    // LIVE playback is package-driven. On failure, only re-read the library;
+    // server is responsible for refreshing/replacing the stream URL.
     if(allowFallback&&knownSig&&handle===currentHandle){
-      document.getElementById('nowState').textContent='';
-      const direct=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&compat=1&t='+Date.now();
-      setTimeout(()=>attachFlv(direct,handle,'',false),0);
+      document.getElementById('nowState').textContent='LIVE đang làm mới nguồn';
+      libraryVersion=-1;
+      setTimeout(async()=>{
+        await loadUnifiedLibrary({force:true,silent:true});
+        if(handle!==currentHandle)return;
+        const fresh=rowFor(handle);
+        const next=String(fresh?.live?.stream?.url||'');
+        const nextSig=String(fresh?.live?.stream?.sourceSig||'');
+        if(fresh?.live?.playable&&next&&nextSig&&nextSig!==knownSig)openChannel(handle);
+      },500);
       return;
     }
     document.getElementById('nowState').textContent='';
@@ -1312,8 +1319,14 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
           {cache:'no-store'}
         ).catch(()=>{}).finally(()=>{
           if(allowFallback&&handle===currentHandle){
-            const direct=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&compat=1&t='+Date.now();
-            setTimeout(()=>attachFlv(direct,handle,'',false),250);
+            libraryVersion=-1;
+            setTimeout(async()=>{
+              await loadUnifiedLibrary({force:true,silent:true});
+              if(handle!==currentHandle)return;
+              const fresh=rowFor(handle);
+              const nextSig=String(fresh?.live?.stream?.sourceSig||'');
+              if(fresh?.live?.playable&&nextSig&&nextSig!==knownSig)openChannel(handle);
+            },500);
           }
         });
         return;
