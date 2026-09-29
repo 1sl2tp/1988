@@ -40,7 +40,12 @@ main{max-width:1100px;margin:auto;padding:16px}.note{color:var(--muted);font-siz
     </aside>
     <article class="card">
       <div class="cardhead"><span class="badge">LIVE</span> PHIÊN LIVE <span class="sub" id="liveState">Đang kiểm tra…</span></div>
-      <div class="body" id="liveBox"><div class="status">Đang lấy luồng LIVE…</div></div>
+      <div class="body" id="liveBox">
+        <div class="livebox" id="liveShell">
+          <video id="liveVideo" controls playsinline preload="metadata"></video>
+          <div class="liveinfo"><strong id="liveInfoHandle">@nhungnhoii205</strong><span>LIVE trực tiếp</span></div>
+        </div>
+      </div>
       <div class="foot"><span id="liveFootText">@nhungnhoii205/live</span><a class="btn" id="liveOpen" href="https://www.tiktok.com/@nhungnhoii205/live" target="_blank" rel="noopener noreferrer">Mở TikTok</a></div>
     </article>
   </section>
@@ -57,6 +62,9 @@ const LIVE_LIBRARY_KEY='tiktokDemoLiveLibraryV1';
 const RECENT_MS=10*60*1000;
 const LIVE_LIBRARY_POLL_MS=5000;
 let HANDLE=DEFAULT_HANDLE;
+let PLAYING_HANDLE='';
+let PENDING_HANDLE='';
+let PLAYING_SOURCE_SIG='';
 let player=null;
 let liveSoundWanted=false;
 let liveLibraryVersion=-1;
@@ -142,35 +150,67 @@ async function syncLiveLibrary({force=false}={}){
     );
     const data=await r.json();
     if(!r.ok||!data?.ok)return;
-    if(data.unchanged){
-      const summary=document.getElementById('liveLibrarySummary');
-      if(summary)summary.textContent='Cache · không đổi · v'+String(data.version??liveLibraryVersion);
-      return;
-    }
-    if(Array.isArray(data.items)){
+
+    if(!data.unchanged&&Array.isArray(data.items)){
       liveLibraryItems=Object.fromEntries(
         data.items.map(row=>[String(row.handle||'').toLowerCase(),row])
       );
       liveLibraryVersion=Number(data.version??liveLibraryVersion);
       saveLocalLiveLibrary();
       renderSavedLiveLinks();
+    }else{
+      const summary=document.getElementById('liveLibrarySummary');
+      if(summary)summary.textContent='Cache · không đổi · v'+String(data.version??liveLibraryVersion);
+    }
+
+    if(PENDING_HANDLE){
+      const pending=liveLibraryItem(PENDING_HANDLE);
+      if(pending?.live&&pending?.ready&&pending?.type&&pending?.sourceSig){
+        const handle=PENDING_HANDLE;
+        PENDING_HANDLE='';
+        openLiveFromLibrary(pending,handle);
+      }
+    }else if(!PLAYING_HANDLE){
+      const first=Object.values(liveLibraryItems)
+        .filter(row=>row?.live&&row?.ready&&row?.type&&row?.sourceSig)
+        .sort((a,b)=>Number(b.confirmedAt||0)-Number(a.confirmedAt||0))[0];
+      if(first)openLiveFromLibrary(first,first.handle);
     }
   }catch{}
   finally{liveLibrarySyncBusy=false}
 }
-function openLiveFromLibrary(row){
-  if(!row?.type)return false;
-  const state=document.getElementById('liveState');
-  const box=document.getElementById('liveBox');
+
+function openLiveFromLibrary(row,handle=row?.handle||HANDLE){
+  handle=parseTikTokHandle(handle);
+  if(!handle||!row?.ready||!row?.type||!row?.sourceSig)return false;
+  HANDLE=handle;
+  PLAYING_HANDLE=handle;
+  PLAYING_SOURCE_SIG=String(row.sourceSig||'');
+  localStorage.setItem(CURRENT_KEY,liveUrlFor(handle));
+
+  const label=document.getElementById('currentHandleLabel');
+  if(label)label.textContent='LIVE @'+handle;
+  const foot=document.getElementById('liveFootText');
+  if(foot)foot.textContent='@'+handle+'/live';
+  const open=document.getElementById('liveOpen');
+  if(open)open.href=liveUrlFor(handle);
+  const info=document.getElementById('liveInfoHandle');
+  if(info)info.textContent='@'+handle;
+
   const age=liveLibraryAge(row);
-  state.textContent='Mở cache · '+String(row.type).toUpperCase()+(age?' · '+age:'');
-  box.innerHTML='<div class="status">Mở ngay nguồn LIVE đã có trong thư viện…</div>';
-  const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
-  attachLive(String(row.type).toLowerCase(),relay,true);
+  const state=document.getElementById('liveState');
+  if(state)state.textContent='LIVE · '+String(row.type).toUpperCase()+
+    (row.width&&row.height?' · '+row.width+'×'+row.height:'')+
+    (age?' · '+age:'');
+
+  const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+
+    '&source='+encodeURIComponent(row.sourceSig)+'&t='+Date.now();
+  attachLive(String(row.type).toLowerCase(),relay,true,false,handle,row.sourceSig);
+  renderSavedLiveLinks();
   return true;
 }
 
-function setCurrentLive(value,{reload=true}={}){
+function setCurrentLive(value,{playIfReady=true}={}){
   const handle=parseTikTokHandle(value);
   if(!handle)return false;
   HANDLE=handle;
@@ -185,15 +225,22 @@ function setCurrentLive(value,{reload=true}={}){
   const open=document.getElementById('liveOpen');
   if(open)open.href=url;
   renderSavedLiveLinks();
-  if(reload){
-    const cached=liveLibraryItem(handle);
-    if(!(cached?.live&&cached?.ready&&cached?.type&&openLiveFromLibrary(cached))){
-      loadLive();
-    }
-    void syncLiveLibrary();
+
+  const row=liveLibraryItem(handle);
+  if(playIfReady&&row?.live&&row?.ready&&row?.type&&row?.sourceSig){
+    PENDING_HANDLE='';
+    openLiveFromLibrary(row,handle);
+  }else if(playIfReady){
+    // Do not touch the current player. The library prepares this channel in
+    // the background and auto-switches only after audio+video are confirmed.
+    PENDING_HANDLE=handle;
+    const state=document.getElementById('liveState');
+    if(state&&PLAYING_HANDLE)state.textContent='Đang xem @'+PLAYING_HANDLE+' · chuẩn bị @'+handle+' ngầm';
+    void syncLiveLibrary({force:true});
   }
   return true;
 }
+
 function savedLiveLinks(){
   try{
     const arr=JSON.parse(localStorage.getItem(SAVED_KEY)||'[]');
@@ -227,8 +274,9 @@ function forgetRecentLive(handle){
   delete data[key];
   localStorage.setItem(RECENT_KEY,JSON.stringify(data));
 }
-function sendLiveFeedback(status,type){
-  const url=API+'/tiktok/live-feedback?user='+encodeURIComponent(HANDLE)+
+function sendLiveFeedback(status,type,handle=PLAYING_HANDLE||HANDLE){
+  if(!handle)return;
+  const url=API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+
     '&status='+encodeURIComponent(status)+
     '&type='+encodeURIComponent(String(type||'').toLowerCase())+
     '&t='+Date.now();
@@ -236,6 +284,7 @@ function sendLiveFeedback(status,type){
     .then(()=>setTimeout(()=>{void syncLiveLibrary({force:true})},180))
     .catch(()=>{});
 }
+
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
@@ -243,7 +292,7 @@ function saveCurrentLive(){
   const url=liveUrlFor(handle);
   const next=[url,...savedLiveLinks().filter(x=>parseTikTokHandle(x)!==handle)].slice(0,60);
   localStorage.setItem(SAVED_KEY,JSON.stringify(next));
-  setCurrentLive(url,{reload:false});
+  setCurrentLive(url,{playIfReady:false});
   renderSavedLiveLinks();
   void syncLiveLibrary({force:true});
 }
@@ -302,10 +351,19 @@ function renderSavedLiveLinks(){
   });
 }
 
-function destroyPlayer(){
+function destroyPlayer({clearVideo=false}={}){
   try{player?.pause?.();player?.unload?.();player?.detachMediaElement?.();player?.destroy?.()}catch{}
   player=null;
+  if(clearVideo){
+    const video=document.getElementById('liveVideo');
+    try{
+      video?.pause?.();
+      video?.removeAttribute?.('src');
+      video?.load?.();
+    }catch{}
+  }
 }
+
 function refreshEmbed(){
   document.querySelectorAll('script[data-tt-refresh]').forEach(x=>x.remove());
   const s=document.createElement('script');
@@ -339,116 +397,66 @@ function showVideoEmbed(){
   refreshEmbed();
 }
 
-function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true){
-  destroyPlayer();
-  const box=document.getElementById('liveBox');
-  const state=document.getElementById('liveState');
-  box.innerHTML='<div class="livebox"><video id="liveVideo" controls autoplay playsinline preload="metadata"></video><div class="liveinfo"><strong>@'+HANDLE+'</strong><span>LIVE trực tiếp</span></div></div>';
+function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false,liveHandle=HANDLE,sourceSig=''){
   const video=document.getElementById('liveVideo');
-  const shell=video.closest('.livebox');
-  const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+  const shell=document.getElementById('liveShell');
+  const state=document.getElementById('liveState');
+  const info=document.getElementById('liveInfoHandle');
+  if(!video||!shell)return;
+
+  const streamHandle=parseTikTokHandle(liveHandle)||HANDLE;
+  if(info)info.textContent='@'+streamHandle;
+
+  // One and only one media element. We destroy only the decoder/loader for the
+  // previous stream at the moment a prevalidated replacement is ready.
+  destroyPlayer({clearVideo:false});
+  try{video.pause()}catch{}
+
+  const proxy=API+'/tiktok/live-stream?user='+encodeURIComponent(streamHandle)+
+    (sourceSig?'&source='+encodeURIComponent(sourceSig):'')+'&t='+Date.now();
   const proxyAll=proxy+'&segments=proxy';
+
+  let pictureTimer=null;
+  let confirmedGood=false;
+  let lastProgressAt=Date.now();
+  let lastProgressTime=0;
+  let progressStartedAt=0;
+  let usingSegmentProxy=false;
+
+  const clearPictureTimer=()=>{
+    if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
+  };
   const play=async()=>{
     video.volume=1;
     video.muted=!liveSoundWanted;
     try{
       await video.play();
     }catch{
-      // Nếu trình duyệt chặn autoplay có tiếng, vẫn cho LIVE chạy ngay.
       video.muted=true;
       try{await video.play()}catch{}
-      if(liveSoundWanted){
-        const suffix=' · chạm loa để bật tiếng';
-        if(!state.textContent.includes('chạm loa'))state.textContent+=suffix;
-      }
     }
   };
-  let usingProxy=false;
-  let usingSegmentProxy=false;
-  let pictureTimer=null;
-  let forcingBrowser=false;
-  let confirmedGood=false;
-  let lastProgressAt=Date.now();
-  let lastProgressTime=0;
-  let progressStartedAt=0;
-
+  const markBad=()=>{
+    if(PLAYING_HANDLE!==streamHandle)return;
+    forgetRecentLive(streamHandle);
+    sendLiveFeedback('bad',type,streamHandle);
+    PENDING_HANDLE=streamHandle;
+    if(state)state.textContent='Nguồn LIVE đổi · đang chuẩn bị nguồn mới ngầm';
+    void syncLiveLibrary({force:true});
+  };
   const confirmGood=()=>{
-    if(confirmedGood)return;
+    if(confirmedGood||PLAYING_HANDLE!==streamHandle)return;
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
-    const t=Number(video.currentTime||0);
-    // A source that only plays 5–7 seconds is not a reusable LIVE source.
-    // Require sustained progress before saving it as "good".
     const stableMs=progressStartedAt?Date.now()-progressStartedAt:0;
-    if(w>0&&h>0&&t>0.6&&stableMs>=8000){
+    if(w>0&&h>0&&lastProgressTime>0.6&&stableMs>=8000){
       confirmedGood=true;
-      rememberRecentLive(HANDLE,type,'confirmed');
-      sendLiveFeedback('ok',type);
+      rememberRecentLive(streamHandle,type,'confirmed');
+      sendLiveFeedback('ok',type,streamHandle);
     }
   };
-
-
-  const clearPictureTimer=()=>{
-    if(pictureTimer){clearTimeout(pictureTimer);pictureTimer=null}
-  };
-
-  const recoverPicture=async(currentSrc='',force=false)=>{
-    if(forcingBrowser)return;
-    forgetRecentLive(HANDLE);
-    sendLiveFeedback('bad',type);
-    if(!force&&(video.videoWidth&&video.videoHeight)&&Number(video.currentTime||0)>0.6)return;
-
-    // First recovery: keep the same HLS but relay every segment. This handles
-    // CDN/CORS failures without reopening the TikTok session.
-    if(type==='hls'&&allowProxyFallback&&!usingSegmentProxy&&currentSrc!==proxyAll){
-      usingSegmentProxy=true;
-      clearPictureTimer();
-      state.textContent='LIVE chưa có hình · thử relay segment…';
-      try{player?.destroy?.()}catch{}
-      player=null;
-      loadHls(proxyAll);
-      return;
-    }
-
-    if(!canForceBrowser)return;
-    forcingBrowser=true;
-    clearPictureTimer();
-    forgetRecentLive(HANDLE);
-    const forceBrowser=type==='flv';
-    state.textContent=forceBrowser
-      ?'FLV chưa chạy · lấy lại trong cùng phiên TikTok…'
-      :'LIVE chưa có hình · đổi sang luồng tương thích…';
-    try{
-      const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),28000);
-      const mode=forceBrowser?'&force=browser':'&compat=1';
-      const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+mode+'&t='+Date.now(),{
-        cache:'no-store',
-        signal:ctrl.signal
-      });
-      clearTimeout(timer);
-      const data=await r.json();
-      if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
-      const nextType=String(data.streamType||'flv').toLowerCase();
-      rememberRecentLive(HANDLE,nextType,forceBrowser?'browser':'compat');
-      const next=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+(forceBrowser?'&force=browser':'')+'&t='+Date.now();
-      attachLive(nextType,next,true,false);
-    }catch(err){
-      state.textContent='LIVE chưa lấy được luồng có hình';
-    }
-  };
-
-  const armPictureTimer=(currentSrc,ms=5000)=>{
-    clearPictureTimer();
-    pictureTimer=setTimeout(()=>{
-      const hasPicture=Boolean(video.videoWidth&&video.videoHeight);
-      const progressed=Number(video.currentTime||0)>0.15;
-      if(!hasPicture||!progressed)void recoverPicture(currentSrc);
-    },ms);
-  };
-
   const fitByVideoShape=()=>{
     const w=Number(video.videoWidth||0),h=Number(video.videoHeight||0);
-    if(!w||!h||!shell)return;
+    if(!w||!h)return;
     clearPictureTimer();
     shell.classList.remove('landscape','portrait','square');
     const ratio=w/h;
@@ -456,18 +464,25 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     else if(ratio<0.88)shell.classList.add('portrait');
     else shell.classList.add('square');
     shell.style.aspectRatio=w+' / '+h;
-    state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+w+'×'+h;
+    if(state&&PLAYING_HANDLE===streamHandle)state.textContent='LIVE · '+type.toUpperCase()+' · '+w+'×'+h;
     confirmGood();
   };
-  video.addEventListener('loadedmetadata',fitByVideoShape);
-  video.addEventListener('resize',fitByVideoShape);
-  video.addEventListener('playing',()=>{
-    if(video.videoWidth&&video.videoHeight)clearPictureTimer();
-  });
-  video.addEventListener('loadeddata',()=>{
-    if(video.videoWidth&&video.videoHeight)clearPictureTimer();
-  });
-  video.addEventListener('timeupdate',()=>{
+  const armPictureTimer=(ms=5500)=>{
+    clearPictureTimer();
+    pictureTimer=setTimeout(()=>{
+      if(PLAYING_HANDLE!==streamHandle)return;
+      const hasPicture=Boolean(video.videoWidth&&video.videoHeight);
+      const progressed=Number(video.currentTime||0)>0.15;
+      if(!hasPicture||!progressed)markBad();
+    },ms);
+  };
+
+  video.onloadedmetadata=()=>{fitByVideoShape();void play()};
+  video.onresize=fitByVideoShape;
+  video.onloadeddata=()=>{fitByVideoShape();void play()};
+  video.onplaying=()=>{fitByVideoShape()};
+  video.ontimeupdate=()=>{
+    if(PLAYING_HANDLE!==streamHandle)return;
     const t=Number(video.currentTime||0);
     if(t>lastProgressTime+0.12){
       if(!progressStartedAt)progressStartedAt=Date.now();
@@ -475,57 +490,32 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       lastProgressAt=Date.now();
       confirmGood();
     }
-  });
-  video.addEventListener('ended',()=>{
-    const d=Number(video.duration||0);
-    const t=Number(video.currentTime||0);
-    confirmedGood=false;
-    forgetRecentLive(HANDLE);
-    sendLiveFeedback('bad',type);
-    state.textContent='Phiên LIVE đã dừng'+(Number.isFinite(d)&&d>0?' ở '+Math.round(d)+'s':'')+' · tạo phiên mới…';
-    void recoverPicture(type==='hls'?proxyAll:src,true);
-  });
-  video.addEventListener('stalled',()=>{
-    if(Number(video.currentTime||0)>0.6&&Date.now()-lastProgressAt>3500){
-      confirmedGood=false;
-      forgetRecentLive(HANDLE);
-      sendLiveFeedback('bad',type);
-      state.textContent='Phiên LIVE bị đứng · tạo phiên mới…';
-      void recoverPicture(type==='hls'?proxyAll:src,true);
-    }
-  });
+  };
+  video.onended=markBad;
+  video.onstalled=()=>{
+    if(Number(video.currentTime||0)>0.6&&Date.now()-lastProgressAt>3500)markBad();
+  };
+  video.onerror=()=>markBad();
+
   const stallTimer=setInterval(()=>{
-    if(!document.body.contains(video)){
+    if(PLAYING_HANDLE!==streamHandle||!document.body.contains(video)){
       clearInterval(stallTimer);
       return;
     }
     if(lastProgressTime>0.6&&!video.paused&&Date.now()-lastProgressAt>6500){
-      confirmedGood=false;
-      forgetRecentLive(HANDLE);
-      sendLiveFeedback('bad',type);
-      state.textContent=video.ended?'Phiên LIVE đã kết thúc · tạo phiên mới…':'Phiên LIVE bị đứng · tạo phiên mới…';
-      void recoverPicture(type==='hls'?proxyAll:src,true);
+      clearInterval(stallTimer);
+      markBad();
     }
   },1800);
 
-  const loadHls=(src)=>{
+  const loadHls=src=>{
     if(video.canPlayType('application/vnd.apple.mpegurl')){
       video.src=src;
-      armPictureTimer(src,5500);
-      video.addEventListener('loadedmetadata',play,{once:true});
-      video.addEventListener('error',()=>{
-        if(allowProxyFallback&&!usingSegmentProxy&&src!==proxyAll){
-          usingSegmentProxy=true;
-          state.textContent='Đang LIVE · HLS · fallback relay';
-          loadHls(proxyAll);
-        }
-      },{once:true});
-      play();
-      state.textContent='Đang LIVE · HLS';
+      armPictureTimer();
+      void play();
       return;
     }
     if(window.Hls&&Hls.isSupported()){
-      try{player?.destroy?.()}catch{}
       const h=new Hls({
         lowLatencyMode:true,
         enableWorker:true,
@@ -539,39 +529,28 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
       });
       h.loadSource(src);
       h.attachMedia(video);
-      h.on(Hls.Events.MANIFEST_PARSED,()=>{armPictureTimer(src,5500);play()});
+      h.on(Hls.Events.MANIFEST_PARSED,()=>{armPictureTimer();void play()});
       h.on(Hls.Events.FRAG_BUFFERED,fitByVideoShape);
       h.on(Hls.Events.ERROR,(_,d)=>{
-        const directSegmentError=Boolean(
-          d?.frag?.url&&
-          /tiktokcdn.com|tiktokv.com|byteoversea.com|realcrius.com/i.test(String(d.frag.url))&&
+        if(
+          allowProxyFallback&&
+          !usingSegmentProxy&&
           d.type===Hls.ErrorTypes.NETWORK_ERROR
-        );
-        if(allowProxyFallback&&directSegmentError&&!usingSegmentProxy&&src!==proxyAll){
+        ){
           usingSegmentProxy=true;
-          state.textContent='Đang LIVE · HLS · fallback segment relay';
           try{h.destroy()}catch{}
           player=null;
           loadHls(proxyAll);
           return;
         }
-        if(d.fatal&&allowProxyFallback&&!usingProxy&&src!==proxy){
-          usingProxy=true;
-          try{h.destroy()}catch{}
-          player=null;
-          loadHls(proxy);
-        }else if(d.fatal){
-          state.textContent='Lỗi phát LIVE';
-        }
+        if(d.fatal)markBad();
       });
       player=h;
-      state.textContent='Đang LIVE · HLS';
       return;
     }
     video.src=src;
-    video.addEventListener('loadedmetadata',play,{once:true});
-    play();
-    state.textContent='Đang LIVE';
+    armPictureTimer();
+    void play();
   };
 
   const src=directUrl||proxy;
@@ -579,90 +558,42 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=true)
     loadHls(src);
     return;
   }
+
   if(type==='flv'&&window.flvjs&&flvjs.isSupported()){
     const p=flvjs.createPlayer(
       {type:'flv',isLive:true,url:src},
       {enableStashBuffer:true,stashInitialSize:512*1024,lazyLoad:false}
     );
     p.attachMediaElement(video);
-    armPictureTimer(src,5000);
+    armPictureTimer(5000);
     p.load();
-    p.on(flvjs.Events.METADATA_ARRIVED,()=>{fitByVideoShape();play()});
-    p.on(flvjs.Events.ERROR,()=>{void recoverPicture(src)});
+    p.on(flvjs.Events.METADATA_ARRIVED,()=>{fitByVideoShape();void play()});
+    p.on(flvjs.Events.ERROR,()=>markBad());
     player=p;
-    state.textContent='Đang LIVE · FLV';
     return;
   }
+
   video.src=src;
-  video.addEventListener('loadedmetadata',play,{once:true});
-  play();
-  state.textContent='Đang LIVE';
+  armPictureTimer();
+  void play();
 }
 
-async function loadVideo(){
-  if(SAMPLE_VIDEO_LOCKED)return;
-  document.getElementById('videoState')?.textContent='Đang lấy MP4…';
-  const videoBox=document.getElementById('videoBox');
-  if(!videoBox)return;
-  videoBox.innerHTML='<div class="status">Đang lấy video mẫu…</div>';
-  try{
-    const r=await fetch('https://www.tikwm.com/api/?url='+encodeURIComponent(SAMPLE_VIDEO),{cache:'no-store'});
-    const data=await r.json();
-    if(data?.code===0&&data?.data?.play){
-      showVideoMp4(data.data.play);
-      return;
-    }
-    showVideoEmbed();
-  }catch(err){
-    showVideoEmbed();
+async function loadVideo(){return;}
+
+async function loadLive(){
+  const row=liveLibraryItem(HANDLE);
+  if(row?.live&&row?.ready&&row?.type&&row?.sourceSig){
+    openLiveFromLibrary(row,HANDLE);
+    return;
   }
-}
-
-async function loadLive({forceResolve=false}={}){
-  destroyPlayer();
+  PENDING_HANDLE=HANDLE;
   const state=document.getElementById('liveState');
-  const box=document.getElementById('liveBox');
-  const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
-
-  if(!forceResolve){
-    const library=liveLibraryItem(HANDLE);
-    if(library?.live&&library?.ready&&library?.type){
-      openLiveFromLibrary(library);
-      return;
-    }
+  if(state){
+    state.textContent=PLAYING_HANDLE
+      ?'Đang xem @'+PLAYING_HANDLE+' · chuẩn bị @'+HANDLE+' ngầm'
+      :'Đang chuẩn bị thư viện LIVE ngầm';
   }
-
-  const recent=recentLiveState(HANDLE);
-  state.textContent=recent?'Đang kiểm tra LIVE gần nhất…':'Đang tìm LIVE nhanh…';
-  box.innerHTML=recent
-    ?'<div class="status">Đang kiểm tra lại luồng gần nhất của @'+HANDLE+'…</div>'
-    :'<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
-  let timer=null;
-  let ticker=null;
-  try{
-    const ctrl=new AbortController();
-    const started=Date.now();
-    ticker=setInterval(()=>{
-      const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
-      state.textContent=recent?'Đang kiểm tra LIVE gần nhất… '+sec+'s':(sec<7?'Đang thử LIVE nhanh… '+sec+'s':'Đang mở phiên TikTok… '+sec+'s');
-    },1000);
-    timer=setTimeout(()=>ctrl.abort(),45000);
-    const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
-      cache:'no-store',
-      signal:ctrl.signal
-    });
-    const data=await r.json();
-    if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
-    const type=String(data.streamType||'').toLowerCase()||'hls';
-    state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+String(data.mode||'session');
-    attachLive(type,relay,true);
-  }catch(err){
-    state.textContent=err?.name==='AbortError'?'LIVE phản hồi quá chậm · thử lại':'Lỗi phiên LIVE';
-    box.innerHTML='<div class="status">'+(err?.name==='AbortError'?'TikTok chưa trả luồng kịp. Bấm Test lại, lần sau sẽ ưu tiên phiên trình duyệt đã biết là ổn.':(String(err?.message||err).includes('tiktok_not_live')?'Kênh này hiện không có LIVE hoặc TikTok không cho mở phiên.':'Không tạo được phiên LIVE: '+String(err?.message||err)))+'</div>';
-  }finally{
-    if(timer)clearTimeout(timer);
-    if(ticker)clearInterval(ticker);
-  }
+  void syncLiveLibrary({force:true});
 }
 
 function load(){
@@ -671,40 +602,34 @@ function load(){
 
 document.getElementById('reload').onclick=()=>{
   liveSoundWanted=true;
-  loadLive({forceResolve:true});
+  PENDING_HANDLE=HANDLE;
   void syncLiveLibrary({force:true});
 };
 document.getElementById('testLiveBtn').onclick=()=>{
   liveSoundWanted=true;
   const input=document.getElementById('liveLinkInput');
-  const nextHandle=parseTikTokHandle(input?.value||'');
-  const currentVideo=document.getElementById('liveVideo');
-  if(nextHandle&&nextHandle===HANDLE&&currentVideo){
-    const hasPicture=Boolean(currentVideo.videoWidth&&currentVideo.videoHeight);
-    const progressed=Number(currentVideo.currentTime||0)>0.6;
-    if(!hasPicture||!progressed){
-      forgetRecentLive(HANDLE);
-      const currentType=/FLV/i.test(document.getElementById('liveState')?.textContent||'')?'flv':'hls';
-      sendLiveFeedback('bad',currentType);
-    }
-  }
-  if(!setCurrentLive(input?.value||''))input?.focus();
+  const handle=parseTikTokHandle(input?.value||'');
+  if(!handle){input?.focus();return}
+  setCurrentLive(handle,{playIfReady:true});
 };
 document.getElementById('saveLiveBtn').onclick=()=>{
   saveCurrentLive();
+  PENDING_HANDLE=HANDLE;
   void syncLiveLibrary({force:true});
 };
 document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     e.preventDefault();
     liveSoundWanted=true;
-    if(!setCurrentLive(e.currentTarget.value))e.currentTarget.focus();
+    const handle=parseTikTokHandle(e.currentTarget.value);
+    if(handle)setCurrentLive(handle,{playIfReady:true});
+    else e.currentTarget.focus();
   }
 });
 
 loadLocalLiveLibrary();
 const savedCurrent=localStorage.getItem(CURRENT_KEY)||liveUrlFor(DEFAULT_HANDLE);
-setCurrentLive(savedCurrent,{reload:false});
+setCurrentLive(savedCurrent,{playIfReady:false});
 renderSavedLiveLinks();
 void syncLiveLibrary({force:true});
 setInterval(()=>{void syncLiveLibrary()},LIVE_LIBRARY_POLL_MS);
