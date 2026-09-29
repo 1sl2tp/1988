@@ -230,20 +230,54 @@ async function refreshTikTokLogin({capture=true}={}){
     return;
   }
   try{
-    const cookies=await page.cookies('https://www.tiktok.com/');
-    const loggedIn=cookies.some(cookie=>
-      ['sessionid','sessionid_ss','sid_tt'].includes(String(cookie?.name||'').toLowerCase())
-      && String(cookie?.value||'').length>8
-    );
+    const strongCookieNames=new Set([
+      'sessionid','sessionid_ss','sid_tt','sid_guard','uid_tt','uid_tt_ss'
+    ]);
+    const readState=async()=>{
+      const cookies=await page.cookies('https://www.tiktok.com/');
+      const ui=await page.evaluate(()=>{
+        const text=String(document.body?.innerText||'').replace(/\s+/g,' ').trim();
+        const url=location.href;
+        const hasProfile=Boolean(
+          document.querySelector('[data-e2e="profile-icon"],[data-e2e="nav-profile"],a[href^="/@"] img')
+        );
+        const confirmed=/login successful|successfully logged in|đăng nhập thành công|đã đăng nhập|xác nhận đăng nhập thành công/i.test(text);
+        return {url,hasProfile,confirmed,text:text.slice(0,900)};
+      }).catch(()=>({url:page.url(),hasProfile:false,confirmed:false,text:''}));
+      const strongCookie=cookies.some(cookie=>
+        strongCookieNames.has(String(cookie?.name||'').toLowerCase())
+        && String(cookie?.value||'').length>8
+      );
+      const leftLogin=!/\/login(?:\/|\?|$)/i.test(String(ui.url||''));
+      return {cookies,ui,strongCookie,leftLogin};
+    };
+
+    let state=await readState();
+
+    // TikTok sometimes leaves the QR page visible after the phone says success.
+    // When the page itself reports confirmation, force one normal TikTok
+    // navigation so Chromium receives the authenticated web session cookies.
+    if(!state.strongCookie && state.ui.confirmed){
+      await page.goto('https://www.tiktok.com/foryou?lang=vi-VN',{
+        waitUntil:'domcontentloaded',
+        timeout:20000
+      }).catch(()=>{});
+      await sleep(1200);
+      state=await readState();
+    }
+
+    const loggedIn=state.strongCookie || (state.leftLogin && state.ui.hasProfile);
     if(loggedIn){
-      await saveSession('tiktok',{cookies:cookieParams(cookies)});
+      await saveSession('tiktok',{cookies:cookieParams(state.cookies)});
       tiktokLoginStatus='success';
       tiktokLoginError='';
       tiktokLoginQr=null;
       tiktokLoginUpdatedAt=Date.now();
+      console.log('[tiktok-login] authenticated cookies='+state.cookies.length);
       setTimeout(()=>{void closeTikTokLogin();},1500).unref();
       return;
     }
+
     tiktokLoginStatus='waiting';
     if(capture){
       tiktokLoginQr=await page.screenshot({type:'png',fullPage:false}).catch(()=>null);
