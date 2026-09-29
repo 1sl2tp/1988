@@ -5441,11 +5441,15 @@ html.one-col.portrait .player.pip{
     // Keep the selected card/list DOM and the provisional meta already supplied
     // by the package/search result. Rebuilding rows here caused a visible flash.
     try{
-      if(!window.YT1988_API?.video || !window.MediaMeta?.video){
+      const videoMetaApi=window.YT1988_API?.videoMeta||window.YT1988_API?.video;
+      if(!videoMetaApi || !window.MediaMeta?.video){
         throw new Error("app data helpers unavailable");
       }
 
-      const payload=await window.YT1988_API.video(requestedId);
+      // Deep-link/F5 only needs metadata here. Use the fast metadata endpoint
+      // which skips slow stream probing and goes straight to oEmbed + exact-ID
+      // search enrichment. Player loading continues independently.
+      const payload=await videoMetaApi(requestedId);
       if(request!==metaRequest||String(current?.id||"")!==requestedId)return;
 
       const row=dataRow(payload);
