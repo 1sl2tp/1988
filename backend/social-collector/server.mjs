@@ -4405,21 +4405,23 @@ async function mirrorTikTokOriginalImage(sourceUrl,kind,handle,id=''){
   const path=parts.join('/');
   const encoded=parts.map(encodeURIComponent).join('/');
   const upload=await fetch(
-    SUPABASE_URL+'/storage/v1/object/'+encodeURIComponent(TIKTOK_ORIGINAL_BUCKET)+'/'+encoded,
+    SUPABASE_URL+'/functions/v1/tiktok-image-store',
     {
       method:'POST',
       headers:{
-        apikey:SUPABASE_KEY,
-        authorization:'Bearer '+SUPABASE_KEY,
         'x-collector-token':COLLECTOR_TOKEN,
-        'content-type':mime,
-        'x-upsert':'true'
+        'x-object-path':path,
+        'content-type':mime
       },
-      body:bytes
+      body:bytes,
+      signal:AbortSignal.timeout(15_000)
     }
   );
-  if(!upload.ok)throw new Error('image_store_'+upload.status+':'+compactText(await upload.text(),120));
-  return SUPABASE_URL+'/storage/v1/object/public/'+encodeURIComponent(TIKTOK_ORIGINAL_BUCKET)+'/'+encoded;
+  if(!upload.ok)throw new Error('image_store_'+upload.status+':'+compactText(await upload.text(),160));
+  const saved=await upload.json();
+  return String(saved?.url||(
+    SUPABASE_URL+'/storage/v1/object/public/'+encodeURIComponent(TIKTOK_ORIGINAL_BUCKET)+'/'+encoded
+  ));
 }
 async function mirrorTikTokCanonicalImages(limit=6){
   if(!tiktokCanonicalLoaded)return;
