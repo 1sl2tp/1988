@@ -268,20 +268,20 @@ async function loadLive(){
   const box=document.getElementById('liveBox');
   state.textContent='Đang mở phiên trình duyệt TikTok…';
   box.innerHTML='<div class="status">Đang mở LIVE trong một phiên trình duyệt và giữ nguyên header/session…</div>';
+  let timer=null;
+  let ticker=null;
   try{
     const ctrl=new AbortController();
     const started=Date.now();
-    const ticker=setInterval(()=>{
+    ticker=setInterval(()=>{
       const sec=Math.max(0,Math.floor((Date.now()-started)/1000));
       state.textContent='Đang mở phiên TikTok… '+sec+'s';
     },1000);
-    const timer=setTimeout(()=>ctrl.abort(),65000);
+    timer=setTimeout(()=>ctrl.abort(),65000);
     const r=await fetch(API+'/tiktok/live-session?user='+encodeURIComponent(HANDLE)+'&t='+Date.now(),{
       cache:'no-store',
       signal:ctrl.signal
     });
-    clearTimeout(timer);
-    clearInterval(ticker);
     const data=await r.json();
     if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
     const type=String(data.streamType||'').toLowerCase()||'hls';
@@ -291,6 +291,9 @@ async function loadLive(){
   }catch(err){
     state.textContent=err?.name==='AbortError'?'Hết thời gian chờ LIVE':'Lỗi phiên LIVE';
     box.innerHTML='<div class="status">Không tạo được phiên LIVE: '+String(err?.message||err)+'</div>';
+  }finally{
+    if(timer)clearTimeout(timer);
+    if(ticker)clearInterval(ticker);
   }
 }
 
