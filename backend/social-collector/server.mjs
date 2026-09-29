@@ -1842,7 +1842,7 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
     if(!res.writableEnded)res.end();
   }
 }
-async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''){
+async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig='',compatMode=false){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
 
@@ -1862,6 +1862,8 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     tiktokLiveFastSources.delete(handle.toLowerCase());
     const session=await captureTikTokLiveSession(handle);
     source={mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
+  }else if(compatMode){
+    source=await resolveTikTokCompatibleLiveSource(handle);
   }else{
     source=await resolveTikTokLiveSource(handle);
   }
@@ -3997,7 +3999,8 @@ const server=http.createServer(async(req,res)=>{
         req,res,
         url.searchParams.get('user')||'',
         url.searchParams.get('force')==='browser',
-        url.searchParams.get('source')||''
+        url.searchParams.get('source')||'',
+        url.searchParams.get('compat')==='1'
       );
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
