@@ -1290,6 +1290,23 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
     padding:0 var(--feed-edge-gap);
   }
 
+  /* No selected video on desktop: do not pin an empty YouTube MAIN.
+     Feed owns the full width until a real video id is selected. */
+  html.two-col.media-empty main{
+    grid-template-columns:minmax(0,1fr);
+    grid-template-areas:"feed";
+    gap:0;
+  }
+  html.two-col.media-empty .media-col{
+    display:none!important;
+  }
+  html.two-col.media-empty .rows{
+    padding-top:20px;
+  }
+  html.two-col.media-empty .feed-head{
+    display:none!important;
+  }
+
   html.two-col .rows{
     grid-area:feed;
     min-width:0;
@@ -1381,11 +1398,12 @@ html.one-col .player.pip.pip-ui-visible .pip-resize-top{
   }
 }
 .info{
-  padding:12px 16px 16px;
+  padding:10px 16px 16px;
   border-bottom:0;
   container-type:inline-size;
   container-name:media-card;
 }
+.info[hidden]{display:none!important}
 html.one-col .info{
   background:
     linear-gradient(
@@ -1402,15 +1420,32 @@ html.two-col .info{
       rgba(var(--header-accent-rgb),0) 94%
     );
 }
-.info-details{
-  display:grid;
-  grid-template-columns:36px minmax(0,1fr) 32px;
+.info-title{
+  margin:0 0 10px;
+  color:var(--yt-text);
+  font:600 18px/24px Roboto,"Arial",sans-serif;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.info-toolbar{
+  min-width:0;
+  display:flex;
+  align-items:center;
   gap:10px;
-  align-items:start;
+}
+.info-channel{
+  min-width:0;
+  flex:1 1 auto;
+  display:grid;
+  grid-template-columns:40px minmax(0,1fr);
+  column-gap:10px;
+  align-items:center;
 }
 .info-avatar{
-  width:36px;
-  height:36px;
+  width:40px;
+  height:40px;
   border-radius:50%;
   object-fit:cover;
   background:var(--yt-avatar-bg);
@@ -1419,68 +1454,116 @@ html.two-col .info{
   display:grid;
   place-items:center;
   color:var(--yt-text-secondary);
-  font:600 13px/36px Roboto,Arial,sans-serif;
+  font:600 13px/40px Roboto,Arial,sans-serif;
   text-align:center;
 }
-.info-copy{min-width:0;padding:0}
-.info-title{
-  color:var(--yt-text);
-  font:500 16px/21px Roboto,"Arial",sans-serif;
-  display:-webkit-box;
-  -webkit-line-clamp:2;
-  -webkit-box-orient:vertical;
-  overflow:hidden;
-}
-.info-meta{
-  margin-top:2px;
-  color:var(--yt-text-secondary);
-  font:400 14px/19px Roboto,"Arial",sans-serif;
-}
-.info-meta-line{
-  min-width:0;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  overflow:hidden;
-  white-space:nowrap;
-}
+.info-channel-copy{min-width:0}
 .info-source{
-  flex:0 1 auto;
+  display:block;
   min-width:0;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
+  color:var(--yt-text);
+  font:500 14px/19px Roboto,"Arial",sans-serif;
 }
 .info-facts{
-  flex:0 0 auto;
+  display:flex;
   min-width:0;
+  margin-top:1px;
+  gap:6px;
   overflow:hidden;
   white-space:nowrap;
+  color:var(--yt-text-secondary);
+  font:400 12px/17px Roboto,"Arial",sans-serif;
 }
-.info-meta-sep{display:none!important;}
-.info-meta-sep[hidden]{
-  display:none!important;
+.info-meta-sep{display:none!important}
+.info-actions{
+  min-width:0;
+  flex:0 1 auto;
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:8px;
+  overflow:hidden;
 }
-.info-meta-line:empty{display:none}
+.info-action{
+  display:none;
+  min-width:0;
+  height:36px;
+  padding:0 14px;
+  border:0;
+  border-radius:18px;
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-control))
+    ),
+    var(--yt-chip-bg);
+  color:var(--yt-text);
+  align-items:center;
+  gap:7px;
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  white-space:nowrap;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.info-action:hover{
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover)),
+      rgba(var(--header-accent-rgb),var(--ambient-control-hover))
+    ),
+    var(--yt-chip-hover);
+}
+.info-action:active{background:var(--yt-chip-press)}
+.info-action .row-action-icon{
+  width:20px;
+  height:20px;
+  flex:0 0 20px;
+}
+.info-action .row-action-icon svg{
+  width:20px;
+  height:20px;
+}
 .info-menu{
-  width:32px;
-  height:32px;
-  margin-top:-5px;
+  flex:0 0 40px;
+  width:40px;
+  height:40px;
   padding:0;
   display:grid;
   place-items:center;
   border:0;
   border-radius:50%;
-  background:transparent;
+  background:
+    linear-gradient(
+      rgba(var(--header-accent-rgb),var(--ambient-control)),
+      rgba(var(--header-accent-rgb),var(--ambient-control))
+    ),
+    var(--yt-chip-bg);
   color:var(--yt-icon);
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
 .info-menu svg{width:24px;height:24px;fill:currentColor}
-.info-menu:hover{background:linear-gradient(rgba(var(--header-accent-rgb),var(--ambient-control-hover)),rgba(var(--header-accent-rgb),var(--ambient-control-hover))),var(--yt-hover)}
-.info-menu:active{background:var(--yt-press)}
+.info-menu:hover{background:linear-gradient(rgba(var(--header-accent-rgb),var(--ambient-control-hover)),rgba(var(--header-accent-rgb),var(--ambient-control-hover))),var(--yt-chip-hover)}
+.info-menu:active{background:var(--yt-chip-press)}
+@container media-card (min-width:560px){
+  .info-action.quick-view,
+  .info-action.quick-download{display:inline-flex}
+}
+@container media-card (min-width:740px){
+  .info-action.quick-select{display:inline-flex}
+}
+@container media-card (min-width:900px){
+  .info-action.quick-block{display:inline-flex}
+  .info-title{font-size:20px;line-height:28px}
+}
 @media(max-width:656px){
-  .info{padding:12px 12px 16px}
+  .info{padding:10px 12px 14px}
+  .info-title{font-size:16px;line-height:22px;margin-bottom:8px}
+  .info-actions{display:none}
+  .info-menu{width:36px;height:36px;flex-basis:36px}
 }
 .rows{
   position:relative;
@@ -2302,21 +2385,22 @@ html.one-col.portrait .player.pip{
         <div class="pip-resize-edge pip-resize-corner pip-resize-top-right" data-pip-edge="top-right" aria-hidden="true"></div>
       </div>
     </section>
-    <div class="info" id="videoInfo">
-      <div class="info-details">
-        <span id="videoAvatarSlot"></span>
-        <div class="info-copy">
-          <div class="info-title" id="videoTitle"></div>
-          <div class="info-meta info-meta-line" id="videoMetaLine">
+    <div class="info" id="videoInfo" hidden>
+      <div class="info-title" id="videoTitle"></div>
+      <div class="info-toolbar">
+        <div class="info-channel">
+          <span id="videoAvatarSlot"></span>
+          <div class="info-channel-copy">
             <span class="info-source" id="videoSource"></span>
-            <span class="info-meta-sep" id="videoMetaSep">·</span>
             <span class="info-facts" id="videoFacts"></span>
           </div>
         </div>
+        <div class="info-actions" id="videoQuickActions"></div>
         <button class="info-menu" id="videoMenu" aria-label="Thao tác khác" title="Thao tác khác">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Zm0 6a2 2 0 100 4 2 2 0 000-4Z"></path></svg>
         </button>
       </div>
+      <span id="videoMetaSep" hidden></span>
       <span id="layoutHint" hidden></span>
     </div>
   </div>
@@ -2357,10 +2441,12 @@ html.one-col.portrait .player.pip{
   const pipMoveZone=document.getElementById("pipMoveZone");
   const pipResizeEdges=[...document.querySelectorAll("[data-pip-edge]")];
   const stateEl=document.getElementById("state");
+  const videoInfo=document.getElementById("videoInfo");
   const titleEl=document.getElementById("videoTitle");
   const videoAvatarSlot=document.getElementById("videoAvatarSlot");
   const videoSourceEl=document.getElementById("videoSource");
   const videoFactsEl=document.getElementById("videoFacts");
+  const videoQuickActions=document.getElementById("videoQuickActions");
   const videoMetaSep=document.getElementById("videoMetaSep");
   const videoMenu=document.getElementById("videoMenu");
   const layoutHint=document.getElementById("layoutHint");
@@ -3207,7 +3293,7 @@ html.one-col.portrait .player.pip{
       kind,
       ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
       detectedRatio:resolvedAspect,
-      label:meta?.title||"Video"
+      label:meta?.title||""
     };
     applyMediaLayoutSelection(kind,{relayout:true});
     if(history==="push"){
@@ -3423,6 +3509,11 @@ html.one-col.portrait .player.pip{
       root.style.setProperty("--feed-cols",String(cols));
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
+      const hasSelectedMedia=/^[A-Za-z0-9_-]{11}$/.test(String(current?.id||""));
+      if(!hasSelectedMedia){
+        root.style.setProperty("--feed-cols",String(chooseCardColumns(contentW,cardGap)));
+        return;
+      }
 
       // Desktop 2-column order is MEDIA LEFT + FEED RIGHT. Keep the existing
       // width family; only the visual order changes. Media still fits by the REAL
@@ -4090,6 +4181,33 @@ html.one-col.portrait .player.pip{
     return pieces.join("");
   }
 
+  function infoActionButton(action,label,icon,className=""){
+    return '<button class="info-action '+escapeHtml(className)+'" type="button" data-info-action="'+escapeHtml(action)+'">'+
+      menuIcon(icon)+'<span>'+escapeHtml(label)+'</span></button>';
+  }
+
+  function renderInfoQuickActions(meta={}){
+    if(!videoQuickActions)return;
+    const sourceId=validSourceId(meta?.sourceId);
+    const scope=feedMode==="package"?String(activePackageScope||""):"";
+    const scopeLabel=scope?currentFeedLabel():"";
+    const status=scope?directSourceStatus(sourceId,scope):"normal";
+    const selectLabel=scope
+      ?(status==="selected"?"Bỏ chọn khỏi "+scopeLabel:"Chọn vào "+scopeLabel)
+      :"Chọn vào nguồn…";
+    const blockLabel=scope
+      ?(status==="blocked"?"Bỏ chặn khỏi "+scopeLabel:"Chặn khỏi "+scopeLabel)
+      :"Chặn trong nguồn…";
+
+    videoQuickActions.innerHTML=
+      infoActionButton("view-channel","Xem kênh","channel","quick-view")+
+      (hasSourceAdminAccess()
+        ?infoActionButton("select-source",selectLabel,"select","quick-select")+
+         infoActionButton("block-source",blockLabel,"block","quick-block")
+        :"")+
+      infoActionButton("download","Tải xuống","download","quick-download");
+  }
+
   function renderCurrentInfo(){
     if(currentMeta&&!currentMeta.sourceAvatar&&currentMeta.sourceId){
       const identity=localSourceIdentity(currentMeta.sourceId);
@@ -4102,18 +4220,26 @@ html.one-col.portrait .player.pip{
     }
 
     const meta=currentMeta||{};
-    const title=meta.title||current.label||"";
-    const source=meta.sourceName||"";
-    const facts=[
-      meta.viewsLabel,
-      meta.publishedLabel || (meta.isLive?"Đang trực tiếp":"")
-    ].filter(Boolean).join(" • ");
+    const title=String(meta.title||"").trim();
+    const source=String(meta.sourceName||"").trim();
+    const hasRealMeta=Boolean(String(meta.id||"").trim()&&title);
+
+    if(videoInfo)videoInfo.hidden=!hasRealMeta;
+    if(!hasRealMeta){
+      titleEl.textContent="";
+      videoSourceEl.textContent="";
+      videoFactsEl.textContent="";
+      videoQuickActions?.replaceChildren();
+      videoAvatarSlot.replaceChildren();
+      return;
+    }
 
     titleEl.textContent=title;
     videoSourceEl.innerHTML=
       escapeHtml(source)+(meta.verified?verifiedBadgeMarkup():"");
     videoFactsEl.innerHTML=compactFactsMarkup(meta);
-    if(videoMetaSep)videoMetaSep.hidden=!(source&&facts);
+    renderInfoQuickActions(meta);
+    if(videoMetaSep)videoMetaSep.hidden=true;
     syncVideoDocumentIdentity({push:false});
 
     const avatar=String(meta.sourceAvatar||"").trim();
@@ -4129,8 +4255,8 @@ html.one-col.portrait .player.pip{
         next.src=avatar;
         videoAvatarSlot.replaceChildren(next);
       }
-    }else{
-      const letter=(source||"1988").trim().slice(0,1).toUpperCase()||"1";
+    }else if(source){
+      const letter=source.slice(0,1).toUpperCase();
       if(existingAvatar?.classList?.contains("placeholder")){
         if(existingAvatar.textContent!==letter)existingAvatar.textContent=letter;
       }else{
@@ -4139,6 +4265,8 @@ html.one-col.portrait .player.pip{
         next.textContent=letter;
         videoAvatarSlot.replaceChildren(next);
       }
+    }else{
+      videoAvatarSlot.replaceChildren();
     }
   }
 
@@ -5765,6 +5893,7 @@ html.one-col.portrait .player.pip{
     root.classList.toggle("two-col",two);
     root.classList.toggle("portrait",portrait);
     root.classList.toggle("landscape",!portrait);
+    root.classList.toggle("media-empty",two&&!/^[A-Za-z0-9_-]{11}$/.test(String(current?.id||"")));
 
     /* CSS owns all geometry:
        landscape follows width, portrait follows height. */
@@ -6362,7 +6491,48 @@ html.one-col.portrait .player.pip{
       schedulePip();
     }
   });
+  function runPrimaryVideoAction(kind,meta={},anchor=null){
+    kind=String(kind||"");
+    if(kind==="view-channel"){
+      closeRowActionMenu();
+      void openChannelInApp(meta);
+      return true;
+    }
+    if(kind==="download"){
+      openRowMenuMeta=meta||{};
+      openRowMenuAnchor=anchor||videoMenu||null;
+      showDownloadMenu();
+      return true;
+    }
+    if(kind==="select-source"||kind==="block-source"){
+      openRowMenuMeta=meta||{};
+      openRowMenuAnchor=anchor||videoMenu||null;
+      const wanted=kind==="select-source"?"selected":"blocked";
+      if(feedMode==="package"&&activePackageScope){
+        const currentStatus=directSourceStatus(meta.sourceId,activePackageScope);
+        const nextStatus=currentStatus===wanted?"normal":wanted;
+        void writeCardSourceStatus(meta,nextStatus,activePackageScope).then(()=>renderCurrentInfo());
+      }else{
+        showScopePicker(wanted);
+      }
+      return true;
+    }
+    return false;
+  }
+
   document.addEventListener("click",event=>{
+    const infoAction=event.target.closest?.("[data-info-action]");
+    if(infoAction&&videoInfo?.contains(infoAction)){
+      event.preventDefault();
+      event.stopPropagation();
+      runPrimaryVideoAction(
+        String(infoAction.dataset.infoAction||""),
+        currentMeta||{},
+        infoAction
+      );
+      return;
+    }
+
     const action=event.target.closest?.("[data-row-action]");
     if(action&&ensureRowActionMenu().contains(action)){
       event.preventDefault();
@@ -6374,13 +6544,8 @@ html.one-col.portrait .player.pip{
         showMainRowActionMenu(meta,openRowMenuAnchor);
         return;
       }
-      if(kind==="view-channel"){
-        closeRowActionMenu();
-        void openChannelInApp(meta);
-        return;
-      }
-      if(kind==="download"){
-        showDownloadMenu();
+      if(kind==="view-channel"||kind==="download"){
+        runPrimaryVideoAction(kind,meta,openRowMenuAnchor);
         return;
       }
       if(kind==="download-mp4"){
@@ -6394,14 +6559,7 @@ html.one-col.portrait .player.pip{
         return;
       }
       if(kind==="select-source"||kind==="block-source"){
-        const wanted=kind==="select-source"?"selected":"blocked";
-        if(feedMode==="package"&&activePackageScope){
-          const currentStatus=directSourceStatus(meta.sourceId,activePackageScope);
-          const nextStatus=currentStatus===wanted?"normal":wanted;
-          void writeCardSourceStatus(meta,nextStatus,activePackageScope);
-        }else{
-          showScopePicker(wanted);
-        }
+        runPrimaryVideoAction(kind,meta,openRowMenuAnchor);
         return;
       }
     }
