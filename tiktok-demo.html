@@ -55,6 +55,8 @@ const API='https://one988-tiktok-session.onrender.com';
 const DEFAULT_HANDLE='nhungnhoii205';
 const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
+const RECENT_KEY='tiktokDemoRecentLiveStates';
+const RECENT_MS=10*60*1000;
 let HANDLE=DEFAULT_HANDLE;
 let player=null;
 let liveSoundWanted=false;
@@ -93,6 +95,27 @@ function savedLiveLinks(){
     const arr=JSON.parse(localStorage.getItem(SAVED_KEY)||'[]');
     return Array.isArray(arr)?arr.filter(x=>parseTikTokHandle(x)).slice(0,12):[];
   }catch{return []}
+}
+function recentLiveStates(){
+  try{
+    const data=JSON.parse(localStorage.getItem(RECENT_KEY)||'{}');
+    return data&&typeof data==='object'?data:{};
+  }catch{return {}}
+}
+function recentLiveState(handle){
+  const row=recentLiveStates()[String(handle||'').toLowerCase()];
+  if(!row||!row.at||Date.now()-Number(row.at)>RECENT_MS)return null;
+  return row;
+}
+function rememberRecentLive(handle,type,mode){
+  const key=String(handle||'').toLowerCase();
+  if(!key)return;
+  const data=recentLiveStates();
+  data[key]={type:String(type||'hls').toLowerCase(),mode:String(mode||'cache'),at:Date.now()};
+  const entries=Object.entries(data)
+    .sort((a,b)=>Number(b[1]?.at||0)-Number(a[1]?.at||0))
+    .slice(0,12);
+  localStorage.setItem(RECENT_KEY,JSON.stringify(Object.fromEntries(entries)));
 }
 function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
@@ -300,6 +323,16 @@ async function loadLive(){
   destroyPlayer();
   const state=document.getElementById('liveState');
   const box=document.getElementById('liveBox');
+  const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+
+  const recent=recentLiveState(HANDLE);
+  if(recent){
+    state.textContent='Mở lại LIVE gần nhất · cache';
+    box.innerHTML='<div class="status">Đang mở lại luồng gần nhất đã lấy cho @'+HANDLE+'…</div>';
+    attachLive(String(recent.type||'hls').toLowerCase(),relay,true);
+    return;
+  }
+
   state.textContent='Đang tìm LIVE nhanh…';
   box.innerHTML='<div class="status">Đang thử link nhanh; nếu không được mới mở phiên trình duyệt TikTok…</div>';
   let timer=null;
@@ -319,7 +352,7 @@ async function loadLive(){
     const data=await r.json();
     if(!r.ok||!data.ok)throw new Error(data.error||('HTTP '+r.status));
     const type=String(data.streamType||'').toLowerCase()||'hls';
-    const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(HANDLE)+'&t='+Date.now();
+    rememberRecentLive(HANDLE,type,data.mode||'session');
     state.textContent='Đang LIVE · '+type.toUpperCase()+' · '+String(data.mode||'session');
     attachLive(type,relay,true);
   }catch(err){
