@@ -249,7 +249,7 @@ html.one-col body{min-height:220vh}
 @media(max-width:999px){
   .media-col{
     display:block!important;
-    position:fixed!important;
+    position:absolute!important;
     left:-10000px!important;
     top:0!important;
     width:320px!important;
@@ -257,12 +257,16 @@ html.one-col body{min-height:220vh}
     max-width:none!important;
     margin:0!important;
     overflow:visible!important;
+    z-index:auto!important;
+    isolation:auto!important;
+    contain:none!important;
     pointer-events:none!important;
   }
 }
 
 /* One-column inline playback is a viewport-fixed overlay aligned to the card.
-   Keeping it fixed lets the player escape its off-screen MAIN home cleanly. */
+   The off-screen MAIN home must NOT create a stacking context; otherwise the
+   fixed player cannot rise above feed cards even with a large child z-index. */
 html.one-col .player.inline-overlay:not(.pip){
   position:fixed!important;
   inset:auto!important;
@@ -270,7 +274,7 @@ html.one-col .player.inline-overlay:not(.pip){
   top:var(--inline-player-top)!important;
   width:var(--inline-player-w)!important;
   height:var(--inline-player-h)!important;
-  z-index:40!important;
+  z-index:2147482000!important;
   opacity:1!important;
   pointer-events:auto!important;
   border-radius:var(--floating-radius)!important;
@@ -1134,12 +1138,13 @@ html.one-col.portrait .player{
 /* PIP keeps the real media ratio and has no extra black gutter. */
 html.one-col .player.pip{
   position:fixed !important;
-  z-index:2147483000;
+  z-index:2147483000!important;
   transform:none !important;
   inset:auto !important;
   right:10px !important;
   top:auto !important;
   bottom:calc(10px + env(safe-area-inset-bottom,0px)) !important;
+  pointer-events:auto!important;
   border-radius:var(--floating-radius);
   background:transparent;
   box-shadow:var(--yt-floating-shadow);
