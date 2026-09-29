@@ -2517,6 +2517,127 @@ async function fetchTikTokProfileIdentity(rawHandle){
   return task;
 }
 
+async function browserTikTokProfileIdentities(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,120);
+  const out=new Map();
+  if(!normalized.length)return out;
+
+  let page=null;
+  try{
+    const browser=await getBrowser();
+    page=await browser.newPage();
+    await page.setViewport({width:1000,height:700,deviceScaleFactor:1});
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+
+    const stored=await loadSession('tiktok').catch(()=>null);
+    const cookies=cookieParams(stored?.state?.cookies||[]);
+    if(cookies.length)await page.setCookie(...cookies).catch(()=>{});
+
+    await page.goto('https://www.tiktok.com/robots.txt',{
+      waitUntil:'domcontentloaded',
+      timeout:10_000
+    }).catch(()=>{});
+    await sleep(250);
+
+    const rows=await page.evaluate(async list=>{
+      const result=new Array(list.length);
+      let cursor=0;
+      const firstUrl=value=>{
+        if(!value)return '';
+        if(typeof value==='string')return value;
+        if(Array.isArray(value)){
+          for(const item of value){
+            const url=firstUrl(item);
+            if(url)return url;
+          }
+          return '';
+        }
+        if(typeof value==='object'){
+          for(const key of ['urlList','url_list','url','uri']){
+            const url=firstUrl(value[key]);
+            if(url)return url;
+          }
+        }
+        return '';
+      };
+      const worker=async()=>{
+        while(true){
+          const index=cursor++;
+          if(index>=list.length)return;
+          const handle=list[index];
+          try{
+            const url='/api/user/detail/?aid=1988&uniqueId='+encodeURIComponent(handle);
+            const r=await fetch(url,{
+              method:'GET',
+              credentials:'include',
+              headers:{accept:'application/json,text/plain,*/*'}
+            });
+            if(!r.ok){
+              result[index]={handle,ok:false,http:r.status};
+              continue;
+            }
+            const body=await r.json();
+            const info=body?.userInfo||body?.data?.userInfo||null;
+            const user=info?.user||body?.data?.user||null;
+            const stats=info?.stats||body?.data?.stats||null;
+            if(!user){
+              result[index]={handle,ok:false};
+              continue;
+            }
+            result[index]={
+              handle,
+              ok:true,
+              secUid:String(user?.secUid||user?.sec_uid||''),
+              userId:String(user?.id||user?.uid||''),
+              nickname:String(user?.nickname||''),
+              avatar:firstUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb),
+              followerCount:Number(stats?.followerCount||stats?.follower_count||0),
+              followingCount:Number(stats?.followingCount||stats?.following_count||0),
+              heartCount:Number(stats?.heartCount||stats?.heart||0),
+              videoCount:Number(stats?.videoCount||stats?.video_count||0)
+            };
+          }catch(error){
+            result[index]={handle,ok:false,error:String(error?.message||error||'profile_failed')};
+          }
+        }
+      };
+      await Promise.all(Array.from({length:Math.min(5,list.length)},()=>worker()));
+      return result;
+    },normalized);
+
+    let okCount=0;
+    for(const row of Array.isArray(rows)?rows:[]){
+      const handle=normalizeTikTokHandle(row?.handle||'');
+      if(!handle||!row?.ok)continue;
+      const data={
+        secUid:String(row.secUid||''),
+        userId:String(row.userId||''),
+        nickname:String(row.nickname||''),
+        avatar:String(row.avatar||''),
+        followerCount:Number(row.followerCount||0),
+        followingCount:Number(row.followingCount||0),
+        heartCount:Number(row.heartCount||0),
+        videoCount:Number(row.videoCount||0),
+        videoId:'',
+        source:'browser-user-detail'
+      };
+      out.set(handle.toLowerCase(),data);
+      tiktokProfileIdentityCache.set(handle.toLowerCase(),{at:Date.now(),data});
+      okCount+=1;
+    }
+    console.log('[tiktok-browser-profile]','total='+normalized.length,'ok='+okCount,'miss='+(normalized.length-okCount));
+  }catch(error){
+    console.warn('[tiktok-browser-profile] failed',compactText(error?.message||error,180));
+  }finally{
+    if(page)await page.close().catch(()=>{});
+  }
+  return out;
+}
+
 async function fetchTikTokUserDetail(handle){
   try{
     const endpoint=new URL('https://www.tiktok.com/api/user/detail/');
@@ -4533,6 +4654,64 @@ const server=http.createServer(async(req,res)=>{
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/profile-identities'&&req.method==='GET'){
+    try{
+      const handles=[...new Set(
+        String(url.searchParams.get('handles')||'')
+          .split(',')
+          .map(normalizeTikTokHandle)
+          .filter(Boolean)
+      )].slice(0,120);
+      if(!handles.length){json(res,200,{ok:true,items:[]});return;}
+
+      const items=new Map();
+      const missing=[];
+      for(const handle of handles){
+        const key=handle.toLowerCase();
+        const cached=tiktokProfileIdentityCache.get(key);
+        if(cached&&Date.now()-Number(cached.at||0)<TIKTOK_PROFILE_IDENTITY_TTL_MS&&
+           (cached.data?.nickname||cached.data?.avatar)){
+          items.set(key,{...cached.data});
+        }else{
+          missing.push(handle);
+        }
+      }
+
+      if(missing.length){
+        const browserRows=await browserTikTokProfileIdentities(missing);
+        for(const handle of missing){
+          const key=handle.toLowerCase();
+          const row=browserRows.get(key);
+          if(row)items.set(key,row);
+        }
+      }
+
+      const payload=handles.map(handle=>{
+        const identity=items.get(handle.toLowerCase())||{};
+        const videoRow=tiktokVideoLibrary.get(handle.toLowerCase())||null;
+        const latestVideo=Array.isArray(videoRow?.videos)?videoRow.videos[0]||null:null;
+        return {
+          handle,
+          nickname:String(identity.nickname||''),
+          avatar:String(identity.avatar||''),
+          secUid:String(identity.secUid||''),
+          followerCount:Number(identity.followerCount||0),
+          followingCount:Number(identity.followingCount||0),
+          heartCount:Number(identity.heartCount||0),
+          videoCount:Number(identity.videoCount||0),
+          latestVideoId:String(latestVideo?.id||''),
+          latestVideoPlayCount:Number(latestVideo?.playCount||0),
+          latestVideoDiggCount:Number(latestVideo?.diggCount||0),
+          source:String(identity.source||'')
+        };
+      });
+      json(res,200,{ok:true,items:payload});
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
     }
     return;
   }
