@@ -2229,6 +2229,7 @@ async function refreshTikTokVideoLibrary(handles=null){
   let cursor=0;
   let okCount=0;
   let unknownCount=0;
+  const errorCounts=new Map();
   const worker=async()=>{
     while(true){
       const index=cursor++;
@@ -2240,6 +2241,8 @@ async function refreshTikTokVideoLibrary(handles=null){
       const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
       if(!result?.known){
         unknownCount+=1;
+        const reason=String(result?.error||'unknown').slice(0,80);
+        errorCounts.set(reason,Number(errorCounts.get(reason)||0)+1);
         continue;
       }
       okCount+=1;
@@ -2253,7 +2256,14 @@ async function refreshTikTokVideoLibrary(handles=null){
     }
   };
   await Promise.all(Array.from({length:Math.min(6,due.length)},()=>worker()));
-  console.log('[tiktok-video-scan]','total='+target.length,'due='+due.length,'ok='+okCount,'unknown='+unknownCount);
+  console.log(
+    '[tiktok-video-scan]',
+    'total='+target.length,
+    'due='+due.length,
+    'ok='+okCount,
+    'unknown='+unknownCount,
+    'errors='+JSON.stringify(Object.fromEntries(errorCounts))
+  );
 }
 
 function ensureTikTokVideoPackageScan(handles=null){
