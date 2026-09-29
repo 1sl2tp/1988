@@ -2922,6 +2922,20 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
 
+  let resolvedSecUid=String(knownSecUid||'').trim();
+  if(!resolvedSecUid){
+    try{
+      const identity=await fetchTikwmProfileIdentity(handle);
+      resolvedSecUid=String(identity?.secUid||'').trim();
+    }catch{}
+  }
+  if(!resolvedSecUid){
+    try{
+      const scraped=await fetchTikTokProfileIdentityScraped(handle);
+      resolvedSecUid=String(scraped?.secUid||'').trim();
+    }catch{}
+  }
+
   let page=null;
   try{
     const browser=await getBrowser();
@@ -3011,7 +3025,7 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
       }
     },{
       handle,
-      secUid:String(knownSecUid||''),
+      secUid:resolvedSecUid,
       count:Number(count)||TIKTOK_VIDEO_PER_CHANNEL
     });
 
@@ -3034,7 +3048,7 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
       return {
         known:false,
         handle,
-        secUid:String(payload?.secUid||knownSecUid||''),
+        secUid:String(payload?.secUid||resolvedSecUid||''),
         videos:[],
         error:'browser_'+String(payload?.error||'no_videos')
       };
@@ -3043,7 +3057,7 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
     return {
       known:true,
       handle,
-      secUid:String(payload?.secUid||knownSecUid||''),
+      secUid:String(payload?.secUid||resolvedSecUid||''),
       videos,
       latestVideoId:String(videos[0]?.id||''),
       hasMore:Boolean(payload?.hasMore),
@@ -3053,7 +3067,7 @@ async function browserTikTokChannelVideos(rawHandle,knownSecUid='',count=TIKTOK_
   }catch(error){
     console.warn('[tiktok-browser-videos] failed',handle,compactText(error?.message||error,150));
     return {
-      known:false,handle,secUid:String(knownSecUid||''),videos:[],
+      known:false,handle,secUid:String(resolvedSecUid||''),videos:[],
       error:'browser_'+compactText(error?.message||error,120)
     };
   }finally{
