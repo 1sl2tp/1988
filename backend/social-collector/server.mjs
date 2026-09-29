@@ -55,6 +55,9 @@ let tiktokCanonicalPackageUpdatedAt=0;
 let tiktokCanonicalMaterialHash='';
 let tiktokCanonicalProfileCursor=0;
 let tiktokCanonicalImageSerial=Promise.resolve();
+let tiktokCanonicalMetaSerial=Promise.resolve();
+let tiktokCanonicalMetaLastAt=0;
+let tiktokCanonicalMetaBusy=false;
 const tiktokCanonicalPendingHandles=new Set();
 let tiktokCanonicalSyncPromise=null;
 
@@ -4615,24 +4618,141 @@ function queueTikTokCanonicalSync(handles=null){
   }).finally(()=>{tiktokCanonicalSyncPromise=null;});
   return tiktokCanonicalSyncPromise;
 }
+async function fetchTikTokMetaBundle(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return null;
+  const run=async()=>{
+    const wait=Math.max(0,1400-(Date.now()-tiktokCanonicalMetaLastAt));
+    if(wait)await sleep(wait);
+    tiktokCanonicalMetaLastAt=Date.now();
+    const r=await fetch(
+      SUPABASE_URL+'/functions/v1/tiktok-meta-bundle',
+      {
+        method:'POST',
+        headers:{
+          'content-type':'application/json',
+          'x-collector-token':COLLECTOR_TOKEN
+        },
+        body:JSON.stringify({handle,count:TIKTOK_LIBRARY_RECENT_VIDEOS}),
+        signal:AbortSignal.timeout(20_000)
+      }
+    );
+    if(!r.ok)throw new Error('tiktok_meta_bundle_'+r.status+':'+compactText(await r.text(),120));
+    return await r.json();
+  };
+  const task=tiktokCanonicalMetaSerial.then(run,run);
+  tiktokCanonicalMetaSerial=task.catch(()=>{});
+  return task;
+}
+function parseTikTokMetaProfile(bundle){
+  const root=bundle?.profile?.data||{};
+  if(Number(root?.code)!==0)return null;
+  const data=root?.data||{};
+  const info=data?.userInfo||{};
+  const user=info?.user||data?.user||{};
+  const stats=info?.stats||data?.stats||{};
+  const nickname=String(user?.nickname||user?.nickName||'').trim();
+  const avatar=firstTikTokAssetUrl(
+    user?.avatarLarger||
+    user?.avatarMedium||
+    user?.avatarThumb||
+    user?.avatar_300x300||
+    user?.avatar_168x168
+  );
+  if(!nickname&&!avatar&&!Object.keys(stats).length)return null;
+  return {
+    userId:String(user?.id||user?.uid||user?.userId||''),
+    secUid:String(user?.secUid||user?.sec_uid||''),
+    nickname,
+    avatar,
+    bio:String(user?.signature||user?.bio||''),
+    verified:Boolean(user?.verified),
+    followerCount:Number(stats?.followerCount||stats?.follower_count||0),
+    followingCount:Number(stats?.followingCount||stats?.following_count||0),
+    heartCount:Number(stats?.heartCount||stats?.heart||stats?.diggCount||0),
+    videoCount:Number(stats?.videoCount||stats?.video_count||0),
+    source:'tikwm-edge'
+  };
+}
+function mergeTikTokMetaPosts(handle,bundle){
+  const root=bundle?.posts?.data||{};
+  if(Number(root?.code)!==0)return 0;
+  const data=root?.data||{};
+  const rows=
+    (Array.isArray(data?.videos)&&data.videos)||
+    (Array.isArray(data?.items)&&data.items)||
+    [];
+  let changed=0;
+  for(const row of rows.slice(0,TIKTOK_LIBRARY_RECENT_VIDEOS)){
+    const id=String(row?.id||row?.video_id||row?.aweme_id||'').trim();
+    if(!/^\d{8,}$/.test(id))continue;
+    // TikWM supplements metadata only. yt-dlp remains the discovery source.
+    if(!tiktokCanonicalVideos.has(id))continue;
+    const merged=canonicalMergeVideo(handle,{
+      id,
+      title:row?.title||row?.desc||row?.description||'',
+      createTime:row?.create_time||row?.createTime||0,
+      duration:row?.duration||0,
+      cover:row?.cover||row?.origin_cover||row?.ai_dynamic_cover||'',
+      width:row?.width||0,
+      height:row?.height||0,
+      playCount:row?.play_count||row?.playCount||0,
+      diggCount:row?.digg_count||row?.diggCount||0,
+      commentCount:row?.comment_count||row?.commentCount||0,
+      shareCount:row?.share_count||row?.shareCount||0,
+      collectCount:row?.collect_count||row?.collectCount||row?.bookmark_count||0
+    });
+    if(merged)changed+=1;
+  }
+  return changed;
+}
 async function refreshTikTokCanonicalProfileBatch(size=20){
-  if(!await loadTikTokCanonicalStore())return;
+  if(tiktokCanonicalMetaBusy)return false;
+  if(!await loadTikTokCanonicalStore())return false;
   const list=[...tiktokLiveSelectedHandles];
-  if(!list.length)return;
+  if(!list.length)return false;
   const batch=[];
   for(let i=0;i<Math.min(size,list.length);i++){
     batch.push(list[(tiktokCanonicalProfileCursor+i)%list.length]);
   }
   tiktokCanonicalProfileCursor=(tiktokCanonicalProfileCursor+batch.length)%list.length;
-  const profiles=await browserTikTokProfileIdentities(batch).catch(()=>new Map());
-  for(const handle of batch){
-    const key=handle.toLowerCase();
-    if(profiles.has(key))continue;
-    const cached=tiktokProfileIdentityCache.get(key)?.data;
-    if(cached&&(cached.nickname||cached.avatar))profiles.set(key,cached);
+
+  tiktokCanonicalMetaBusy=true;
+  try{
+    const profiles=new Map();
+    let postRows=0;
+    let ok=0;
+    for(const handle of batch){
+      try{
+        const bundle=await fetchTikTokMetaBundle(handle);
+        const profile=parseTikTokMetaProfile(bundle);
+        if(profile){
+          profiles.set(handle.toLowerCase(),profile);
+          tiktokProfileIdentityCache.set(handle.toLowerCase(),{at:Date.now(),data:profile});
+          ok+=1;
+        }
+        postRows+=mergeTikTokMetaPosts(handle,bundle);
+      }catch(error){
+        console.log('[tiktok-meta] failed',handle,compactText(error?.message||error,120));
+      }
+    }
+    await syncTikTokCanonicalLibrary(batch,{profiles,mirror:true});
+    console.log('[tiktok-meta] batch','channels='+batch.length,'profiles='+ok,'videos='+postRows);
+    return true;
+  }finally{
+    tiktokCanonicalMetaBusy=false;
   }
-  await syncTikTokCanonicalLibrary(batch,{profiles,mirror:true});
 }
+async function bootstrapTikTokCanonicalMeta(){
+  if(!await loadTikTokCanonicalStore())return;
+  const total=tiktokLiveSelectedHandles.size;
+  const rounds=Math.ceil(total/20);
+  for(let i=0;i<rounds;i++){
+    await refreshTikTokCanonicalProfileBatch(20);
+    await sleep(1200);
+  }
+}
+
 
 async function loadSession(platform){
   if(!BROWSER_PLATFORMS.has(platform))return null;
@@ -6438,8 +6558,8 @@ server.listen(PORT,'0.0.0.0',()=>{
     await loadTikTokVideoStore();
     await loadTikTokCanonicalStore();
     await syncTikTokCanonicalLibrary([...tiktokLiveSelectedHandles],{mirror:false});
-    void refreshTikTokCanonicalProfileBatch(20).catch(error=>{
-      console.log('[tiktok-library] initial profile batch failed',compactText(error?.message||error,120));
+    void bootstrapTikTokCanonicalMeta().catch(error=>{
+      console.log('[tiktok-library] metadata bootstrap failed',compactText(error?.message||error,120));
     });
     void mirrorTikTokCanonicalImages(10).catch(()=>{});
 
