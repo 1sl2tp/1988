@@ -733,8 +733,9 @@ async function persistTikTokLiveStore({force=false}={}){
 }
 
 function ensureTikTokLivePackageScan(handles=null){
-  if(handles?.length)registerTikTokLiveSelectedHandles(handles);
-  const target=[...tiktokLiveSelectedHandles];
+  const target=(handles&&handles.length)
+    ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
+    : [...tiktokLiveSelectedHandles];
   if(!target.length)return Promise.resolve();
   if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
   tiktokLivePackageScanPromise=refreshTikTokLiveLibrary(target,{warm:false})
@@ -3014,16 +3015,9 @@ const server=http.createServer(async(req,res)=>{
       .filter(Boolean)
       .slice(0,60);
 
-    const added=registerTikTokLiveSelectedHandles(handles);
-    if(added){
-      for(const handle of handles){
-        if(!tiktokLiveLibrary.has(handle.toLowerCase()))updateTikTokLiveLibrary(handle,{status:'unknown'});
-      }
-      void persistTikTokLiveStore({force:true});
-    }
-
-    // UI only reads the server-owned package. A forced refresh is still
-    // available for explicit admin actions, but normal polling never scans.
+    // Supabase is the source of truth for the selected-channel list.
+    // UI-supplied handles are ignored here so opening a browser cannot mutate
+    // the package membership or make the list grow accidentally.
     if(url.searchParams.get('refresh')==='1'){
       await ensureTikTokLivePackageScan();
     }
