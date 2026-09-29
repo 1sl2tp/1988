@@ -125,7 +125,7 @@ def main():
     opts = {
         "quiet": True,
         "no_warnings": True,
-        "format": "best",
+        "format": "FULL_HD1/HD1/best",
         "socket_timeout": 8,
         "retries": 0,
         "extractor_retries": 0,
