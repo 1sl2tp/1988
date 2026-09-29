@@ -522,14 +522,17 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   const now=Date.now();
   const due=normalized
     .filter(handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)
-    .slice(0,20);
+    .slice(0,60);
 
   if(!due.length)return;
 
-  // First pass: TikTok room API for all due channels in parallel.
+  // Stage 1: scan the whole due list in parallel with the lightweight room
+  // status endpoint. Mark LIVE accounts, skip non-LIVE immediately. Only after
+  // this full pass do we prepare media for the marked LIVE accounts.
   const checked=await Promise.all(due.map(async handle=>{
     tiktokLiveLibraryRefreshAt.set(handle.toLowerCase(),Date.now());
-    if(!tiktokLiveLibrary.has(handle.toLowerCase()))updateTikTokLiveLibrary(handle,{status:'checking'});
+    // Stage 1 does not mutate the row while checking. Keep the current UI
+    // state until the lightweight LIVE/not-LIVE result arrives.
     try{
       return {handle,status:await quickTikTokLiveStatus(handle)};
     }catch(error){
