@@ -213,7 +213,7 @@ button{cursor:pointer}
   <main class="stage">
     <section class="watch">
       <div class="phone" id="phone">
-        <video id="liveVideo" playsinline autoplay preload="auto"></video>
+        <video id="liveVideo" playsinline preload="metadata"></video>
       </div>
 
       <div class="current-info" id="overlay" hidden>
@@ -627,21 +627,16 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
   const p=flvjs.createPlayer(
     {type:'flv',isLive:true,url},
     {
-      enableWorker:true,
       enableStashBuffer:false,
-      stashInitialSize:32*1024,
+      stashInitialSize:64*1024,
       lazyLoad:false,
-      deferLoadAfterSourceOpen:false,
       autoCleanupSourceBuffer:true,
-      autoCleanupMaxBackwardDuration:18,
-      autoCleanupMinBackwardDuration:6
+      autoCleanupMaxBackwardDuration:30,
+      autoCleanupMinBackwardDuration:12
     }
   );
   p.attachMediaElement(video);
   p.load();
-  // Prime playback inside the user's click activation. The promise may stay
-  // pending until MSE has data, which is exactly what we want.
-  video.play().catch(()=>{});
   p.on(flvjs.Events.METADATA_ARRIVED,()=>{
     setPlayerShape(video);
     video.play().catch(()=>{});
