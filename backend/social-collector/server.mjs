@@ -96,6 +96,11 @@ function json(res,status,data){
 function authorized(req){
   return Boolean(COLLECTOR_TOKEN)&&String(req.headers['x-collector-token']||'')===COLLECTOR_TOKEN;
 }
+function trustedTikTokUiMutation(req){
+  const origin=String(req.headers.origin||'').replace(/\/$/,'');
+  const allowed=String(ORIGIN||'').replace(/\/$/,'');
+  return authorized(req)||Boolean(origin&&allowed&&origin===allowed);
+}
 async function readJson(req,maxBytes=1024*1024){
   let size=0;
   const chunks=[];
@@ -580,6 +585,40 @@ function registerTikTokLiveSelectedHandles(handles){
     }
   }
   return changed;
+}
+
+function touchTikTokLivePackage(){
+  tiktokLiveLibraryVersion+=1;
+  tiktokLiveLibraryUpdatedAt=Date.now();
+  tiktokLivePersistedVersion=-1;
+}
+
+async function persistTikTokSelectedMembership(rawHandle,selected=true){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+
+  if(selected){
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?on_conflict=handle',
+      {
+        method:'POST',
+        headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+        body:JSON.stringify([{handle}])
+      }
+    );
+    if(!r.ok)throw new Error('tiktok_selected_write_'+r.status+':'+await r.text());
+    return true;
+  }
+
+  const r=await fetch(
+    SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=eq.'+encodeURIComponent(handle),
+    {
+      method:'DELETE',
+      headers:storeHeaders({prefer:'return=minimal'})
+    }
+  );
+  if(!r.ok)throw new Error('tiktok_selected_delete_'+r.status+':'+await r.text());
+  return true;
 }
 
 async function loadTikTokLiveStore(){
@@ -3768,6 +3807,68 @@ const server=http.createServer(async(req,res)=>{
     }
 
     json(res,400,{ok:false,error:'invalid_status'});
+    return;
+  }
+
+  if(url.pathname==='/tiktok/selected-channel'&&req.method==='POST'){
+    if(!trustedTikTokUiMutation(req)){
+      json(res,403,{ok:false,error:'forbidden'});
+      return;
+    }
+
+    try{
+      const body=await readJson(req,4096);
+      const handle=normalizeTikTokHandle(body?.handle||body?.user||'');
+      if(!handle){
+        json(res,400,{ok:false,error:'invalid_tiktok_handle'});
+        return;
+      }
+
+      const selected=body?.selected!==false&&String(body?.action||'save').toLowerCase()!=='remove';
+      const key=handle.toLowerCase();
+      const had=tiktokLiveSelectedHandles.has(handle);
+
+      await persistTikTokSelectedMembership(handle,selected);
+
+      if(selected){
+        tiktokLiveSelectedHandles.add(handle);
+        if(!tiktokLiveLibrary.has(key)){
+          updateTikTokLiveLibrary(handle,{
+            live:false,
+            ready:false,
+            status:'checking',
+            sourceSig:'',
+            lastSeenAt:0
+          });
+        }
+      }else{
+        tiktokLiveSelectedHandles.delete(handle);
+        tiktokLiveFastSources.delete(key);
+        tiktokLiveLibrary.delete(key);
+        tiktokVideoLibrary.delete(key);
+        tiktokLiveLibraryRefreshAt.delete(key);
+        tiktokVideoRefreshAt.delete(key);
+      }
+
+      if(had!==selected)touchTikTokLivePackage();
+      await persistTikTokLiveStore({force:true});
+
+      if(selected){
+        void ensureTikTokLivePackageScan([handle]);
+        void ensureTikTokVideoPackageScan([handle]);
+      }
+
+      json(res,200,{
+        ok:true,
+        handle,
+        selected,
+        total:tiktokLiveSelectedHandles.size,
+        version:tiktokLiveLibraryVersion
+      });
+    }catch(error){
+      console.warn('[tiktok-selected] write failed',compactText(error?.message||error,220));
+      json(res,500,{ok:false,error:String(error?.message||error)});
+    }
     return;
   }
 
