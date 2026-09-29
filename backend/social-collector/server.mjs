@@ -540,6 +540,19 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     }
 
     if(classified==='live'){
+      // Reuse the FLV candidate already returned by the room-status request.
+      // This avoids running the same TikTok lookup again during media warm-up.
+      if(!currentTikTokLibrarySource(handle)){
+        const flvCandidate=(status.candidates||[])
+          .filter(row=>row?.type==='flv'&&!isTikTokBadSource(handle,row))
+          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
+        if(flvCandidate){
+          seedTikTokFastSource(handle,{
+            stream_url:flvCandidate.url,
+            stream_type:'flv'
+          });
+        }
+      }
       const sourceRow=currentTikTokLibrarySource(handle);
       if(sourceRow?.confirmed){
         noteTikTokLibrarySource(handle,sourceRow,{
