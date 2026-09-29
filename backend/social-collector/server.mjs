@@ -127,6 +127,10 @@ function tiktokLibraryMaterial(row){
     String(row?.source||''),
     String(row?.status||''),
     String(row?.sourceSig||''),
+    String(row?.videoCodec||''),
+    String(row?.audioCodec||''),
+    Number(row?.width||0),
+    Number(row?.height||0),
     Number(row?.expiresAt||0)
   ]);
 }
@@ -141,6 +145,11 @@ function publicTikTokLibraryItem(row){
     source:String(row.source||''),
     status:String(row.status||'unknown'),
     sourceSig:String(row.sourceSig||''),
+    videoCodec:String(row.videoCodec||''),
+    audioCodec:String(row.audioCodec||''),
+    width:Number(row.width||0),
+    height:Number(row.height||0),
+    lastProbeAt:Number(row.lastProbeAt||0),
     changedAt:Number(row.changedAt||0),
     confirmedAt:Number(row.confirmedAt||0),
     lastSeenAt:Number(row.lastSeenAt||0),
@@ -162,7 +171,7 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   const now=Date.now();
   const prev=tiktokLiveLibrary.get(key)||{
     handle,live:false,ready:false,type:'',mode:'',source:'',
-    status:'unknown',sourceSig:'',changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
+    status:'unknown',sourceSig:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
   };
   const next={...prev,...patch,handle};
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
@@ -190,7 +199,7 @@ function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status
   const expiresAt=tiktokStreamExpiresAt(row.url);
   return updateTikTokLiveLibrary(handle,{
     live:true,
-    ready:confirmed||tiktokLiveCacheReusable(row),
+    ready:confirmed,
     type:String(row.type||''),
     mode:String(mode||row.mode||''),
     source:String(source||row.source||''),
@@ -241,18 +250,195 @@ async function loadTikTokLiveLibrary(){
     console.warn('[tiktok-library] load failed',compactText(error?.message||error,160));
   }
 }
+
+async function tiktokSourceHeaders(handle,row){
+  const headers={};
+  for(const [name,value] of Object.entries(row?.headers||{})){
+    const key=String(name||'').toLowerCase();
+    if(!key||key.startsWith(':')||['host','content-length','connection','accept-encoding','range'].includes(key))continue;
+    headers[key]=String(value);
+  }
+  headers['user-agent']=headers['user-agent']||'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+  headers.referer=headers.referer||'https://www.tiktok.com/@'+handle+'/live';
+  headers.origin=headers.origin||'https://www.tiktok.com';
+  headers.accept=headers.accept||'*/*';
+
+  if(row?.page&&!row.page.isClosed?.()){
+    const cookies=await row.page.cookies(row.url).catch(()=>[]);
+    if(cookies.length)headers.cookie=cookies.map(x=>x.name+'='+x.value).join('; ');
+  }
+  return headers;
+}
+function ffprobeHeaderBlock(headers={}){
+  return Object.entries(headers)
+    .filter(([name,value])=>name&&value!=null&&String(value)!=='')
+    .map(([name,value])=>String(name)+': '+String(value))
+    .join('\r\n')+'\r\n';
+}
+async function probeTikTokLiveSource(handle,row){
+  if(!row?.url)return {ok:false,error:'missing_url'};
+  const headers=await tiktokSourceHeaders(handle,row);
+  const args=[
+    '-v','error',
+    '-rw_timeout','6000000',
+    '-analyzeduration','5000000',
+    '-probesize','5000000',
+    '-headers',ffprobeHeaderBlock(headers),
+    '-show_entries','stream=codec_type,codec_name,width,height',
+    '-of','json',
+    String(row.url)
+  ];
+  try{
+    const out=await execFileText('ffprobe',args,{timeout:8500,maxBuffer:2*1024*1024});
+    const data=JSON.parse(String(out||'{}'));
+    const streams=Array.isArray(data?.streams)?data.streams:[];
+    const video=streams.find(s=>s?.codec_type==='video'&&Number(s?.width||0)>0&&Number(s?.height||0)>0);
+    const audio=streams.find(s=>s?.codec_type==='audio');
+    const videoCodec=String(video?.codec_name||'').toLowerCase();
+    const audioCodec=String(audio?.codec_name||'').toLowerCase();
+    const compatibleVideo=Boolean(video)&&!/(hevc|h265)/i.test(videoCodec);
+    return {
+      ok:Boolean(compatibleVideo&&audio),
+      hasVideo:Boolean(video),
+      hasAudio:Boolean(audio),
+      videoCodec,
+      audioCodec,
+      width:Number(video?.width||0),
+      height:Number(video?.height||0),
+      error:compatibleVideo&&audio?'':'missing_or_incompatible_media'
+    };
+  }catch(error){
+    // ffprobe can be killed after it has already emitted stream metadata.
+    const raw=String(error?.stdout||'').trim();
+    if(raw){
+      try{
+        const data=JSON.parse(raw);
+        const streams=Array.isArray(data?.streams)?data.streams:[];
+        const video=streams.find(s=>s?.codec_type==='video'&&Number(s?.width||0)>0&&Number(s?.height||0)>0);
+        const audio=streams.find(s=>s?.codec_type==='audio');
+        const videoCodec=String(video?.codec_name||'').toLowerCase();
+        const audioCodec=String(audio?.codec_name||'').toLowerCase();
+        const compatibleVideo=Boolean(video)&&!/(hevc|h265)/i.test(videoCodec);
+        if(compatibleVideo&&audio){
+          return {
+            ok:true,hasVideo:true,hasAudio:true,videoCodec,audioCodec,
+            width:Number(video?.width||0),height:Number(video?.height||0),error:''
+          };
+        }
+      }catch{}
+    }
+    return {ok:false,error:compactText(error?.message||error,140),hasVideo:false,hasAudio:false,videoCodec:'',audioCodec:'',width:0,height:0};
+  }
+}
+function findTikTokLiveSourceBySig(handle,sourceSig){
+  const key=String(handle||'').toLowerCase();
+  const sig=String(sourceSig||'');
+  if(!sig)return null;
+  const browser=tiktokLiveSessions.get(key);
+  if(browser&&!browser.page?.isClosed?.()&&tiktokLiveCacheReusable(browser)&&tiktokLibrarySourceSig(browser)===sig)return browser;
+  const fast=tiktokLiveFastSources.get(key);
+  if(fast&&tiktokLiveCacheReusable(fast)&&!isTikTokBadSource(handle,fast)&&tiktokLibrarySourceSig(fast)===sig)return fast;
+  return null;
+}
+async function confirmTikTokLibrarySource(handle,row,{mode='',source=''}={}){
+  if(!row?.url)return false;
+  const probe=await probeTikTokLiveSource(handle,row);
+  row.lastProbeAt=Date.now();
+  if(probe.ok){
+    row.confirmed=true;
+    row.at=Date.now();
+    row.videoCodec=probe.videoCodec;
+    row.audioCodec=probe.audioCodec;
+    row.width=probe.width;
+    row.height=probe.height;
+    clearTikTokBadSource(handle,row);
+    updateTikTokLiveLibrary(handle,{
+      live:true,ready:true,
+      type:String(row.type||''),
+      mode:String(mode||row.mode||''),
+      source:String(source||row.source||''),
+      status:'ready',
+      sourceSig:tiktokLibrarySourceSig(row),
+      videoCodec:probe.videoCodec,
+      audioCodec:probe.audioCodec,
+      width:probe.width,
+      height:probe.height,
+      lastProbeAt:row.lastProbeAt,
+      confirmedAt:Date.now(),
+      lastSeenAt:Date.now(),
+      expiresAt:tiktokStreamExpiresAt(row.url)
+    });
+    console.log('[tiktok-library] media ready',handle,row.type,probe.videoCodec+'+'+probe.audioCodec,probe.width+'x'+probe.height);
+    return true;
+  }
+
+  row.confirmed=false;
+  markTikTokBadSource(handle,row);
+  preferTikTokBrowser(handle,2*60*1000);
+  updateTikTokLiveLibrary(handle,{
+    live:true,ready:false,status:'warming',
+    type:String(row.type||''),
+    mode:String(mode||row.mode||''),
+    source:String(source||row.source||''),
+    sourceSig:'',
+    videoCodec:'',
+    audioCodec:'',
+    width:0,height:0,
+    lastProbeAt:Date.now(),
+    lastSeenAt:Date.now()
+  });
+  console.log('[tiktok-library] media reject',handle,row.type,probe.error||'probe_failed');
+  return false;
+}
+async function warmTikTokLibraryHandle(handle){
+  const key=String(handle||'').toLowerCase();
+  let source=currentTikTokLibrarySource(handle);
+
+  if(source&&source.confirmed&&Date.now()-Number(source.lastProbeAt||0)<25_000){
+    updateTikTokLiveLibrary(handle,{live:true,ready:true,status:'ready',lastSeenAt:Date.now()},{persist:false});
+    return true;
+  }
+
+  if(source){
+    const ok=await confirmTikTokLibrarySource(handle,source,{
+      mode:source.mode||'cache',
+      source:source.source||'cache'
+    });
+    if(ok)return true;
+    if(tiktokLiveFastSources.get(key)===source)tiktokLiveFastSources.delete(key);
+    if(tiktokLiveSessions.get(key)===source)await closeTikTokLiveSession(key);
+  }
+
+  // Background preparation prefers FLV/H.264 compatibility. This is the
+  // expensive step and happens before the user clicks the channel.
+  for(let attempt=0;attempt<2;attempt+=1){
+    try{
+      const resolved=await resolveTikTokCompatibleLiveSource(handle);
+      source=currentTikTokLibrarySource(handle)||resolved;
+      if(await confirmTikTokLibrarySource(handle,source,{
+        mode:resolved.mode||'compat',
+        source:resolved.source||'compat'
+      }))return true;
+      if(tiktokLiveFastSources.get(key)===source)tiktokLiveFastSources.delete(key);
+      if(tiktokLiveSessions.get(key)===source)await closeTikTokLiveSession(key);
+      preferTikTokBrowser(handle,2*60*1000);
+    }catch(error){
+      console.log('[tiktok-library] warm attempt failed',handle,compactText(error?.message||error,120));
+      break;
+    }
+  }
+  return false;
+}
+
 async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
   if(!normalized.length)return;
 
-  // UI can grow vertically to many accounts. Check only a small rotating batch
-  // on each poll so adding accounts does not make one request wait for all of
-  // TikTok. Unchanged rows stay entirely in cache.
   const now=Date.now();
   const selected=[];
   let scanned=0;
   let cursor=tiktokLiveLibraryRefreshCursor%normalized.length;
-  while(scanned<normalized.length&&selected.length<5){
+  while(scanned<normalized.length&&selected.length<4){
     const handle=normalized[cursor];
     const last=Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0);
     if(now-last>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)selected.push(handle);
@@ -272,20 +458,23 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
       const status=await quickTikTokLiveStatus(handle);
       if(status.known&&!status.live){
         updateTikTokLiveLibrary(handle,{
-          live:false,ready:false,status:'offline',lastSeenAt:Date.now()
+          live:false,ready:false,status:'offline',sourceSig:'',
+          videoCodec:'',audioCodec:'',width:0,height:0,lastSeenAt:Date.now()
         });
         continue;
       }
       if(status.live||status.candidates?.length){
         const sourceRow=currentTikTokLibrarySource(handle);
-        if(sourceRow){
+        if(sourceRow?.confirmed){
           noteTikTokLibrarySource(handle,sourceRow,{
-            ready:Boolean(sourceRow.confirmed),
-            status:sourceRow.confirmed?'ready':'warm'
+            ready:true,status:'ready',
+            mode:sourceRow.mode||'cache',
+            source:sourceRow.source||'cache'
           });
+          if(Date.now()-Number(sourceRow.lastProbeAt||0)>=25_000&&!warmHandle)warmHandle=handle;
         }else{
           updateTikTokLiveLibrary(handle,{
-            live:true,ready:false,status:'live',lastSeenAt:Date.now()
+            live:true,ready:false,status:'warming',lastSeenAt:Date.now()
           });
           if(warm&&!warmHandle)warmHandle=handle;
         }
@@ -296,20 +485,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   }
 
   if(warmHandle&&!tiktokLiveLibraryWarmPromise){
-    tiktokLiveLibraryWarmPromise=(async()=>{
-      try{
-        const source=await resolveTikTokLiveSource(warmHandle);
-        const row=currentTikTokLibrarySource(warmHandle)||source;
-        noteTikTokLibrarySource(warmHandle,row,{
-          mode:source.mode||'',
-          source:source.source||'',
-          ready:Boolean(row?.confirmed),
-          status:row?.confirmed?'ready':'warm'
-        });
-      }catch(error){
-        console.log('[tiktok-library] warm failed',warmHandle,compactText(error?.message||error,120));
-      }
-    })().finally(()=>{tiktokLiveLibraryWarmPromise=null;});
+    tiktokLiveLibraryWarmPromise=warmTikTokLibraryHandle(warmHandle)
+      .finally(()=>{tiktokLiveLibraryWarmPromise=null;});
   }
 }
 
@@ -1078,14 +1255,21 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
     if(!res.writableEnded)res.end();
   }
 }
-async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false){
+async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
 
   const proxySegments=/[?&]segments=proxy(?:&|$)/i.test(String(req.url||''));
   let source;
 
-  if(forceBrowser){
+  if(sourceSig){
+    source=findTikTokLiveSourceBySig(handle,sourceSig);
+    if(!source||!source.confirmed){
+      json(res,410,{ok:false,error:'cached_live_source_expired'});
+      return;
+    }
+    source.at=Date.now();
+  }else if(forceBrowser){
     // Drop any fast source that produced audio without picture and capture
     // again from the real TikTok browser session.
     tiktokLiveFastSources.delete(handle.toLowerCase());
@@ -2434,7 +2618,7 @@ const server=http.createServer(async(req,res)=>{
         marked=true;
       }
       const good=currentTikTokLibrarySource(handle);
-      if(good)noteTikTokLibrarySource(handle,good,{
+      if(good&&good.confirmed)noteTikTokLibrarySource(handle,good,{
         ready:true,
         status:'ready',
         mode:good===browser?'browser-cache':'fast-cache',
@@ -2458,6 +2642,10 @@ const server=http.createServer(async(req,res)=>{
       updateTikTokLiveLibrary(handle,{
         live:true,ready:false,status:'stale',lastSeenAt:Date.now()
       });
+      if(!tiktokLiveLibraryWarmPromise){
+        tiktokLiveLibraryWarmPromise=warmTikTokLibraryHandle(handle)
+          .finally(()=>{tiktokLiveLibraryWarmPromise=null;});
+      }
       console.log('[tiktok-cache] evict bad',handle,type||'any','prefer-browser');
       json(res,200,{ok:true});
       return;
@@ -2545,7 +2733,12 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
     try{
-      await proxyTikTokLive(req,res,url.searchParams.get('user')||'',url.searchParams.get('force')==='browser');
+      await proxyTikTokLive(
+        req,res,
+        url.searchParams.get('user')||'',
+        url.searchParams.get('force')==='browser',
+        url.searchParams.get('source')||''
+      );
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
       else if(!res.writableEnded)res.end();
