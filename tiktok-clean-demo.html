@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <title>TikTok LIVE · Clean Demo</title>
+<link rel="preconnect" href="https://one988-tiktok-session.onrender.com" crossorigin>
+<link rel="dns-prefetch" href="//one988-tiktok-session.onrender.com">
 <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
 <style>
@@ -211,7 +213,7 @@ button{cursor:pointer}
   <main class="stage">
     <section class="watch">
       <div class="phone" id="phone">
-        <video id="liveVideo" playsinline preload="metadata"></video>
+        <video id="liveVideo" playsinline autoplay preload="auto"></video>
       </div>
 
       <div class="current-info" id="overlay" hidden>
@@ -525,7 +527,11 @@ async function loadChannels({force=false,silent=false}={}){
       packageVersion=Number(data.version??packageVersion);
       renderList();
       updateCurrentUi();
-      void hydrateIdentities();
+      if('requestIdleCallback' in window){
+        requestIdleCallback(()=>void hydrateIdentities(),{timeout:2500});
+      }else{
+        setTimeout(()=>void hydrateIdentities(),1800);
+      }
     }
   }catch(error){
     if(!silent)showToast('Không tải được danh sách');
@@ -621,16 +627,21 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
   const p=flvjs.createPlayer(
     {type:'flv',isLive:true,url},
     {
+      enableWorker:true,
       enableStashBuffer:false,
-      stashInitialSize:64*1024,
+      stashInitialSize:32*1024,
       lazyLoad:false,
+      deferLoadAfterSourceOpen:false,
       autoCleanupSourceBuffer:true,
-      autoCleanupMaxBackwardDuration:30,
-      autoCleanupMinBackwardDuration:12
+      autoCleanupMaxBackwardDuration:18,
+      autoCleanupMinBackwardDuration:6
     }
   );
   p.attachMediaElement(video);
   p.load();
+  // Prime playback inside the user's click activation. The promise may stay
+  // pending until MSE has data, which is exactly what we want.
+  video.play().catch(()=>{});
   p.on(flvjs.Events.METADATA_ARRIVED,()=>{
     setPlayerShape(video);
     video.play().catch(()=>{});
@@ -642,19 +653,19 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
     // A prepared package source may have just expired. Fall back once to the
     // direct compatible relay instead of making the user click again.
     if(allowFallback&&knownSig&&handle===currentHandle){
-      document.getElementById('nowState').textContent='Đổi sang FLV trực tiếp…';
+      document.getElementById('nowState').textContent='';
       const direct=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&compat=1&t='+Date.now();
       setTimeout(()=>attachFlv(direct,handle,'',false),0);
       return;
     }
-    document.getElementById('nowState').textContent='Không mở được FLV';
+    document.getElementById('nowState').textContent='';
   });
   player=p;
   video.onplaying=()=>{
     failed=true;
     video.controls=true;
     setPlayerShape(video);
-    document.getElementById('nowState').textContent='LIVE · FLV';
+    updateCurrentUi();
     fetch(
       API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
       {cache:'no-store'}
@@ -671,7 +682,7 @@ function attachHls(url,handle){
     video.onloadedmetadata=()=>{setPlayerShape(video);video.play().catch(()=>{})};
     video.onplaying=()=>{
       video.controls=true;
-      document.getElementById('nowState').textContent='LIVE · HLS';
+      updateCurrentUi();
       fetch(API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=hls&t='+Date.now(),{cache:'no-store'}).catch(()=>{});
     };
     return;
@@ -681,7 +692,7 @@ function attachHls(url,handle){
     h.loadSource(url);h.attachMedia(video);
     h.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
     video.onplaying=()=>{video.controls=true;setPlayerShape(video)};
-    h.on(Hls.Events.ERROR,(_,d)=>{if(d.fatal)document.getElementById('nowState').textContent='Không mở được HLS'});
+    h.on(Hls.Events.ERROR,()=>{});
     player=h;
   }
 }
@@ -701,13 +712,13 @@ function openChannel(rawHandle){
   const base=API+'/tiktok/live-stream?user='+encodeURIComponent(handle);
   if(row.live&&row.ready&&currentSourceSig&&['flv','hls'].includes(currentType)){
     const url=base+'&source='+encodeURIComponent(currentSourceSig)+'&t='+Date.now();
-    document.getElementById('nowState').textContent='Mở nguồn '+currentType.toUpperCase()+' đã chuẩn bị…';
+    document.getElementById('nowState').textContent='';
     if(currentType==='hls')attachHls(url,handle);
     else attachFlv(url,handle,currentSourceSig);
     return;
   }
 
-  document.getElementById('nowState').textContent='Đang lấy FLV trực tiếp…';
+  document.getElementById('nowState').textContent='';
   const url=base+'&compat=1&t='+Date.now();
   attachFlv(url,handle,'');
 }
