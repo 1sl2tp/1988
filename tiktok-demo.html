@@ -57,9 +57,7 @@ const API='https://one988-tiktok-session.onrender.com';
 const DEFAULT_HANDLE='nhungnhoii205';
 const SAVED_KEY='tiktokDemoSavedLiveLinks';
 const CURRENT_KEY='tiktokDemoCurrentLiveLink';
-const RECENT_KEY='tiktokDemoRecentLiveStatesV2';
-const LIVE_LIBRARY_KEY='tiktokDemoLiveLibraryV1';
-const RECENT_MS=10*60*1000;
+const LIVE_LIBRARY_KEY='tiktokDemoLiveLibraryV2';
 const LIVE_LIBRARY_POLL_MS=5000;
 let HANDLE=DEFAULT_HANDLE;
 let PLAYING_HANDLE='';
@@ -84,12 +82,21 @@ function liveUrlFor(handle){
 }
 function loadLocalLiveLibrary(){
   try{
+    // Remove the pre-library cache system. It must never participate in
+    // source selection again.
+    localStorage.removeItem('tiktokDemoRecentLiveStatesV2');
+    localStorage.removeItem('tiktokDemoRecentLiveStates');
+    localStorage.removeItem('tiktokDemoLiveLibraryV1');
+
     const data=JSON.parse(localStorage.getItem(LIVE_LIBRARY_KEY)||'{}');
     liveLibraryVersion=Number(data?.version??-1);
     const rows=Array.isArray(data?.items)?data.items:[];
     liveLibraryItems=Object.fromEntries(
       rows.filter(row=>parseTikTokHandle(row?.handle||''))
-        .map(row=>[String(row.handle).toLowerCase(),row])
+        .map(row=>[
+          String(row.handle).toLowerCase(),
+          {...row,ready:false,status:row?.live?'checking':String(row?.status||'unknown'),sourceSig:''}
+        ])
     );
   }catch{
     liveLibraryVersion=-1;
@@ -107,20 +114,7 @@ function saveLocalLiveLibrary(){
   }
 }
 function liveLibraryItem(handle){
-  const key=String(handle||'').toLowerCase();
-  const row=liveLibraryItems[key];
-  if(row)return row;
-  const recent=recentLiveState(handle);
-  return recent?{
-    handle,
-    live:true,
-    ready:true,
-    type:String(recent.type||''),
-    mode:String(recent.mode||'cache'),
-    status:'local-cache',
-    changedAt:Number(recent.at||0),
-    confirmedAt:Number(recent.at||0)
-  }:null;
+  return liveLibraryItems[String(handle||'').toLowerCase()]||null;
 }
 function liveLibraryAge(row){
   const at=Number(row?.changedAt||row?.confirmedAt||0);
@@ -246,33 +240,7 @@ function savedLiveLinks(){
     return Array.isArray(arr)?arr.filter(x=>parseTikTokHandle(x)).slice(0,60):[];
   }catch{return []}
 }
-function recentLiveStates(){
-  try{
-    const data=JSON.parse(localStorage.getItem(RECENT_KEY)||'{}');
-    return data&&typeof data==='object'?data:{};
-  }catch{return {}}
-}
-function recentLiveState(handle){
-  const row=recentLiveStates()[String(handle||'').toLowerCase()];
-  if(!row||!row.at||Date.now()-Number(row.at)>RECENT_MS)return null;
-  return row;
-}
-function rememberRecentLive(handle,type,mode){
-  const key=String(handle||'').toLowerCase();
-  if(!key)return;
-  const data=recentLiveStates();
-  data[key]={type:String(type||'hls').toLowerCase(),mode:String(mode||'cache'),at:Date.now()};
-  const entries=Object.entries(data)
-    .sort((a,b)=>Number(b[1]?.at||0)-Number(a[1]?.at||0))
-    .slice(0,12);
-  localStorage.setItem(RECENT_KEY,JSON.stringify(Object.fromEntries(entries)));
-}
-function forgetRecentLive(handle){
-  const key=String(handle||'').toLowerCase();
-  const data=recentLiveStates();
-  delete data[key];
-  localStorage.setItem(RECENT_KEY,JSON.stringify(data));
-}
+
 function sendLiveFeedback(status,type,handle=PLAYING_HANDLE||HANDLE){
   if(!handle)return;
   const url=API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+
@@ -443,7 +411,6 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
   };
   const markBad=()=>{
     if(PLAYING_HANDLE!==streamHandle)return;
-    forgetRecentLive(streamHandle);
     sendLiveFeedback('bad',type,streamHandle);
     PENDING_HANDLE=streamHandle;
     if(state)state.textContent='Nguồn LIVE đổi · đang chuẩn bị nguồn mới ngầm';
@@ -455,7 +422,6 @@ function attachLive(type,directUrl,allowProxyFallback=true,canForceBrowser=false
     const stableMs=progressStartedAt?Date.now()-progressStartedAt:0;
     if(w>0&&h>0&&lastProgressTime>0.6&&stableMs>=8000){
       confirmedGood=true;
-      rememberRecentLive(streamHandle,type,'confirmed');
       sendLiveFeedback('ok',type,streamHandle);
     }
   };
