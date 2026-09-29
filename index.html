@@ -1777,15 +1777,15 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   width:100%;
   box-sizing:border-box;
   display:grid;
-  grid-template-columns:36px minmax(0,1fr) 32px;
-  column-gap:10px;
+  grid-template-columns:40px minmax(0,1fr) 32px;
+  column-gap:12px;
   align-items:start;
   padding:var(--card-meta-gap) 0 0;
 }
 .row-avatar-shell{
   position:relative;
-  width:36px;
-  height:36px;
+  width:40px;
+  height:40px;
   display:block;
   border-radius:50%;
   isolation:isolate;
@@ -1841,8 +1841,8 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
 .row-avatar{
   position:relative;
   z-index:1;
-  width:36px;
-  height:36px;
+  width:40px;
+  height:40px;
   border-radius:50%;
   object-fit:cover;
   background:var(--yt-avatar-bg);
@@ -1851,7 +1851,7 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   display:grid;
   place-items:center;
   color:var(--yt-text-secondary);
-  font:600 13px/36px Roboto,Arial,sans-serif;
+  font:600 13px/40px Roboto,Arial,sans-serif;
   text-align:center;
 }
 .row.live-card .row-avatar-shell::before,
@@ -1866,9 +1866,9 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   z-index:3;
   left:50%;
   bottom:-6px;
-  width:18px;
-  height:12px;
-  margin-left:-9px;
+  width:20px;
+  height:13px;
+  margin-left:-10px;
   display:grid;
   place-items:center;
   border:2px solid var(--yt-bg);
@@ -1911,16 +1911,16 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   white-space:nowrap;
 }
 .row-source{
-  flex:0 1 auto;
-  min-width:0;
-  overflow:hidden;
-  text-overflow:ellipsis;
+  flex:0 0 auto;
+  min-width:max-content;
+  overflow:visible;
+  text-overflow:clip;
   white-space:nowrap;
 }
 .row-facts{
   flex:0 0 auto;
-  min-width:0;
-  overflow:hidden;
+  min-width:max-content;
+  overflow:visible;
   white-space:nowrap;
 }
 .row-meta-sep{display:none!important;}
@@ -1981,7 +1981,7 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   border-radius:50%;
   background:transparent;
   color:var(--yt-text);
-  opacity:1;
+  opacity:0;
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
 }
