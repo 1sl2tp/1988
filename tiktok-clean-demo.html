@@ -616,6 +616,7 @@ let videoChannels=[];
 let filterMode='all';
 let mediaMode='live';
 let videoVersion=-1;
+let libraryVersion=-1;
 let currentVideoId='';
 let currentVideo=null;
 let videoOpenSeq=0;
@@ -969,103 +970,39 @@ async function openVideo(rawHandle,videoId){
   renderRecentVideos(handle);
   hideSearchResults();
 
-  const fallbackEmbed=()=>{
+  const stream=String(video.streamUrl||'').trim();
+  if(!stream){
+    showToast('Video chưa có nguồn trong thư viện');
+    return;
+  }
+
+  native.onerror=()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
-    native.hidden=true;
-    frame.hidden=false;
-    frame.src='https://www.tiktok.com/player/v1/'+encodeURIComponent(currentVideoId)+
-      '?autoplay=1&controls=1&progress_bar=1&play_button=1&volume_control=1&fullscreen_button=1&timestamp=1&loop=0&rel=0';
+    showToast('Nguồn video đang được server làm mới');
   };
-
-  try{
-    const data=await apiJson(
-      API+'/tiktok/video-source?user='+encodeURIComponent(handle)+
-      '&id='+encodeURIComponent(currentVideoId)+
-      '&t='+Date.now()
-    );
+  native.onloadedmetadata=()=>{
     if(seq!==videoOpenSeq)return;
-    const stream=String(data.stream||'').trim();
-    if(!stream)throw new Error('missing_video_stream');
-
-    native.hidden=false;
-    frame.hidden=true;
-    frame.src='about:blank';
-    native.onerror=fallbackEmbed;
-    native.onloadedmetadata=()=>{
-      if(seq!==videoOpenSeq)return;
-      setPlayerShape(native);
-      native.play().catch(()=>{});
-    };
-    native.src=API+stream+(stream.includes('?')?'&':'?')+'t='+Date.now();
-    native.load();
+    setPlayerShape(native);
     native.play().catch(()=>{});
-  }catch(error){
-    console.warn('video source',handle,currentVideoId,error);
-    fallbackEmbed();
-  }
+  };
+  native.src=(/^https?:\/\//i.test(stream)?stream:(API+stream))+
+    (stream.includes('?')?'&':'?')+'t='+Date.now();
+  native.load();
+  native.play().catch(()=>{});
 }
 
 async function refreshChannelVideos(handle,{silent=true}={}){
-  handle=parseHandle(handle);
-  if(!handle)return;
-  const key=handle.toLowerCase();
-  if(videoLoadBusy.has(key))return;
-  videoLoadBusy.add(key);
-  renderRecentVideos(handle);
-  try{
-    const data=await apiJson(
-      API+'/tiktok/channel-videos?user='+encodeURIComponent(handle)+'&refresh=1&t='+Date.now()
-    );
-    const row={
-      handle:String(data.handle||handle),
-      secUid:String(data.secUid||''),
-      latestVideoId:String(data.latestVideoId||''),
-      videos:Array.isArray(data.videos)?data.videos:[],
-      checkedAt:Number(data.checkedAt||0),
-      status:String(data.status||'waiting')
-    };
-    const key=handle.toLowerCase();
-    const i=videoChannels.findIndex(x=>String(x.handle||'').toLowerCase()===key);
-    if(i>=0)videoChannels[i]=row;
-    else videoChannels.push(row);
-    renderRecentVideos(handle);
-    if(mediaMode==='video'&&currentHandle.toLowerCase()===handle.toLowerCase()&&!currentVideoId&&row.videos[0]){
-      openVideo(handle,row.videos[0].id);
-    }
-    if(searchQuery)renderSearchResults(searchQuery);
-  }catch(error){
-    if(!silent)showToast('Chưa tải được video của @'+handle);
-    console.warn('channel videos',handle,error);
-  }finally{
-    videoLoadBusy.delete(key);
-    renderRecentVideos(handle);
-  }
+  // Data extraction is server-side only. UI just re-reads the unified package.
+  renderRecentVideos(parseHandle(handle));
+  return loadUnifiedLibrary({force:true,silent});
 }
 async function loadVideoLibrary({force=false,silent=true}={}){
-  try{
-    const v=force?-1:videoVersion;
-    const data=await apiJson(API+'/tiktok/video-library?v='+encodeURIComponent(v)+'&t='+Date.now());
-    if(!data.unchanged&&Array.isArray(data.channels)){
-      videoChannels=data.channels.map(row=>({
-        handle:String(row.handle||''),
-        secUid:String(row.secUid||''),
-        latestVideoId:String(row.latestVideoId||''),
-        videos:Array.isArray(row.videos)?row.videos:[],
-        checkedAt:Number(row.checkedAt||0),
-        status:String(row.status||'waiting')
-      }));
-      videoVersion=Number(data.version??videoVersion);
-      renderRecentVideos(currentHandle);
-      if(searchQuery)renderSearchResults(searchQuery);
-    }
-  }catch(error){
-    if(!silent)showToast('Không tải được danh sách video');
-    console.warn('video library',error);
-  }
+  return loadUnifiedLibrary({force,silent});
 }
+
 function hideSearchResults(){
   searchQuery='';
   document.getElementById('searchResults').hidden=true;
@@ -1151,117 +1088,122 @@ function selectChannel(handle){
     renderRecentVideos(currentHandle);
     const list=videosFor(currentHandle);
     if(list.length)openVideo(currentHandle,list[0].id);
-    else setMediaMode('video');
-    void refreshChannelVideos(currentHandle,{silent:false});
+    else{
+      setMediaMode('video');
+      showToast('Kênh này chưa có video trong thư viện');
+    }
     return;
   }
   openChannel(handle);
 }
-function cacheIdentityRow(row){
-  const handle=parseHandle(row?.handle||'');
-  if(!handle)return;
-  const key=handle.toLowerCase();
-  identityCache[key]={
-    at:Date.now(),
-    data:{
-      nickname:String(row?.nickname||''),
-      avatar:String(row?.avatar||''),
-      secUid:String(row?.secUid||''),
-      followerCount:Number(row?.followerCount||0),
-      followingCount:Number(row?.followingCount||0),
-      heartCount:Number(row?.heartCount||0),
-      videoCount:Number(row?.videoCount||0),
-      latestVideoId:String(row?.latestVideoId||''),
-      latestVideoPlayCount:Number(row?.latestVideoPlayCount||0),
-      latestVideoDiggCount:Number(row?.latestVideoDiggCount||0),
-      source:String(row?.source||'')
-    }
-  };
-}
-async function hydrateIdentity(handle){
-  handle=parseHandle(handle);
-  if(!handle)return;
-  const key=handle.toLowerCase();
-  const cached=identityCache[key];
-  if(cached&&Date.now()-Number(cached.at||0)<12*60*60*1000&&
-     (cached.data?.nickname||cached.data?.avatar))return;
-  try{
-    const data=await apiJson(
-      API+'/tiktok/profile-identities?handles='+encodeURIComponent(handle)+'&t='+Date.now()
-    );
-    const row=Array.isArray(data.items)?data.items[0]:null;
-    if(row)cacheIdentityRow(row);
-    saveIdentityCache();
-    renderList();
-    if(handle===currentHandle)updateCurrentUi();
-  }catch(error){
-    console.warn('identity',handle,error);
-  }
-}
-async function hydrateIdentities(){
-  if(identityBatchBusy)return;
-  const todo=channels
-    .map(x=>String(x.handle||''))
-    .filter(handle=>{
-      const cached=identityCache[handle.toLowerCase()];
-      return !cached||
-        Date.now()-Number(cached.at||0)>=12*60*60*1000||
-        (!cached.data?.nickname&&!cached.data?.avatar);
-    });
-  if(!todo.length)return;
+function applyUnifiedLibrary(data){
+  const rows=Array.isArray(data?.channels)?data.channels:[];
+  const now=Date.now();
 
-  identityBatchBusy=true;
-  try{
-    for(let start=0;start<todo.length;start+=100){
-      const batch=todo.slice(start,start+100);
-      const data=await apiJson(
-        API+'/tiktok/profile-identities?handles='+encodeURIComponent(batch.join(','))+'&t='+Date.now()
-      );
-      for(const row of Array.isArray(data.items)?data.items:[]){
-        cacheIdentityRow(row);
+  channels=rows.map(ch=>{
+    const live=ch?.live||{};
+    const stream=live?.stream||{};
+    return {
+      handle:String(ch?.handle||''),
+      live:Boolean(live?.isLive),
+      ready:Boolean(live?.playable),
+      type:String(stream?.type||''),
+      sourceSig:String(stream?.sourceSig||''),
+      streamUrl:String(stream?.url||''),
+      status:live?.isLive?(live?.playable?'ready':'live'):'offline',
+      changedAt:Date.parse(live?.updatedAt||live?.checkedAt||0)||0
+    };
+  }).filter(row=>parseHandle(row.handle));
+
+  videoChannels=rows.map(ch=>{
+    const videos=(Array.isArray(ch?.videos)?ch.videos:[]).map(v=>({
+      id:String(v?.id||''),
+      handle:String(ch?.handle||''),
+      title:String(v?.title||''),
+      createTime:Number(v?.createTime||0),
+      duration:Number(v?.duration||0),
+      cover:String(v?.cover?.url||v?.cover?.sourceUrl||''),
+      coverSourceUrl:String(v?.cover?.sourceUrl||''),
+      coverStoredUrl:String(v?.cover?.storedUrl||''),
+      playCount:Number(v?.stats?.views||0),
+      diggCount:Number(v?.stats?.likes||0),
+      commentCount:Number(v?.stats?.comments||0),
+      shareCount:Number(v?.stats?.shares||0),
+      collectCount:Number(v?.stats?.collects||0),
+      streamUrl:String(v?.streamUrl||''),
+      pageUrl:String(v?.pageUrl||'')
+    })).filter(v=>/^\d{8,}$/.test(v.id));
+
+    return {
+      handle:String(ch?.handle||''),
+      secUid:String(ch?.profile?.secUid||''),
+      latestVideoId:String(videos?.[0]?.id||''),
+      videos,
+      checkedAt:Date.parse(ch?.profile?.checkedAt||0)||0,
+      status:'ready'
+    };
+  });
+
+  const nextIdentity={};
+  for(const ch of rows){
+    const handle=parseHandle(ch?.handle||'');
+    if(!handle)continue;
+    const p=ch?.profile||{};
+    const latest=Array.isArray(ch?.videos)?ch.videos[0]||{}:{};
+    nextIdentity[handle.toLowerCase()]={
+      at:now,
+      data:{
+        nickname:String(p?.name||''),
+        avatar:String(p?.avatar?.url||p?.avatar?.sourceUrl||''),
+        avatarSourceUrl:String(p?.avatar?.sourceUrl||''),
+        avatarStoredUrl:String(p?.avatar?.storedUrl||''),
+        secUid:String(p?.secUid||''),
+        userId:String(p?.userId||''),
+        bio:String(p?.bio||''),
+        verified:Boolean(p?.verified),
+        followerCount:Number(p?.followers||0),
+        followingCount:Number(p?.following||0),
+        heartCount:Number(p?.likes||0),
+        videoCount:Number(p?.videoCount||0),
+        latestVideoId:String(latest?.id||''),
+        latestVideoPlayCount:Number(latest?.stats?.views||0),
+        latestVideoDiggCount:Number(latest?.stats?.likes||0),
+        source:'library'
       }
-      saveIdentityCache();
-      renderList();
-      updateCurrentUi();
-    }
-  }catch(error){
-    console.warn('identity batch',error);
-  }finally{
-    identityBatchBusy=false;
+    };
   }
+  identityCache=nextIdentity;
+  saveIdentityCache();
+
+  libraryVersion=Number(data?.version??libraryVersion);
+  packageVersion=libraryVersion;
+  videoVersion=libraryVersion;
+
+  renderList();
+  renderRecentVideos(currentHandle);
+  updateCurrentUi();
+  if(searchQuery)renderSearchResults(searchQuery);
 }
-async function loadChannels({force=false,silent=false}={}){
+async function loadUnifiedLibrary({force=false,silent=false}={}){
   if(loadBusy)return;
   loadBusy=true;
   try{
-    const v=force?-1:packageVersion;
-    const data=await apiJson(API+'/tiktok/live-library?v='+encodeURIComponent(v)+'&t='+Date.now());
-    if(!data.unchanged&&Array.isArray(data.items)){
-      channels=data.items.map(row=>({
-        handle:String(row.handle||''),
-        live:Boolean(row.live),
-        ready:Boolean(row.ready),
-        type:String(row.type||''),
-        sourceSig:String(row.sourceSig||''),
-        status:String(row.status||''),
-        changedAt:Number(row.changedAt||0)
-      })).filter(x=>parseHandle(x.handle));
-      packageVersion=Number(data.version??packageVersion);
-      renderList();
-      updateCurrentUi();
-      if('requestIdleCallback' in window){
-        requestIdleCallback(()=>void hydrateIdentities(),{timeout:2500});
-      }else{
-        setTimeout(()=>void hydrateIdentities(),1800);
-      }
-    }
+    const v=force?-1:libraryVersion;
+    const data=await apiJson(API+'/tiktok/library?v='+encodeURIComponent(v)+'&t='+Date.now());
+    if(!data.unchanged)applyUnifiedLibrary(data);
   }catch(error){
-    if(!silent)showToast('Không tải được danh sách');
-    console.warn(error);
+    if(!silent)showToast('Không tải được thư viện TikTok');
+    console.warn('tiktok library',error);
   }finally{
     loadBusy=false;
   }
 }
+async function hydrateIdentity(){ return; }
+async function hydrateIdentities(){ return; }
+async function loadChannels({force=false,silent=false}={}){
+  return loadUnifiedLibrary({force,silent});
+}
+
 async function addChannel(){
   if(mutationBusy)return;
   const input=document.getElementById('addInput');
@@ -1275,7 +1217,6 @@ async function addChannel(){
   // Open uses the exact same path as clicking a channel in the list.
   // Saving and package refresh happen in parallel and never block playback.
   openChannel(handle);
-  void hydrateIdentity(handle);
 
   mutationBusy=true;
   const btn=document.getElementById('addBtn');
@@ -1306,8 +1247,8 @@ async function addChannel(){
     updateCurrentUi();
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
 
-    packageVersion=-1;
-    void loadChannels({force:true,silent:true});
+    libraryVersion=-1;
+    void loadUnifiedLibrary({force:true,silent:true});
   }catch(error){
     showToast('Lưu thất bại, LIVE vẫn đang mở');
     console.warn(error);
@@ -1333,8 +1274,8 @@ async function removeChannel(rawHandle){
       document.getElementById('overlay').hidden=true;
       updateCurrentUi();
     }
-    packageVersion=-1;
-    await loadChannels({force:true});
+    libraryVersion=-1;
+    await loadUnifiedLibrary({force:true});
     showToast('Đã xoá @'+handle);
   }catch(error){
     showToast('Xoá thất bại: '+String(error.message||error));
@@ -1405,7 +1346,7 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
         API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
         {cache:'no-store'}
       ).catch(()=>{}).finally(()=>{
-        setTimeout(()=>loadChannels({force:true,silent:true}),300);
+        setTimeout(()=>loadUnifiedLibrary({force:true,silent:true}),300);
       });
     },900);
   };
@@ -1446,16 +1387,19 @@ function openChannel(rawHandle){
   renderList();
   renderRecentVideos(handle);
   document.getElementById('mediaTitle').textContent=(identityFor(handle)?.nickname||('@'+handle))+' · LIVE';
-  void hydrateIdentity(handle);
-  void refreshChannelVideos(handle);
 
   const row=rowFor(handle)||{};
   currentSourceSig=String(row.sourceSig||'');
   currentType=String(row.type||'').toLowerCase();
 
-  const base=API+'/tiktok/live-stream?user='+encodeURIComponent(handle);
+  const packaged=String(row.streamUrl||'').trim();
+  const base=packaged
+    ? (/^https?:\/\//i.test(packaged)?packaged:(API+packaged))
+    : API+'/tiktok/live-stream?user='+encodeURIComponent(handle);
   if(row.live&&row.ready&&currentSourceSig&&['flv','hls'].includes(currentType)){
-    const url=base+'&source='+encodeURIComponent(currentSourceSig)+'&t='+Date.now();
+    const url=packaged
+      ? base+(base.includes('?')?'&':'?')+'t='+Date.now()
+      : base+'&source='+encodeURIComponent(currentSourceSig)+'&t='+Date.now();
     document.getElementById('nowState').textContent='';
     if(currentType==='hls')attachHls(url,handle);
     else attachFlv(url,handle,currentSourceSig);
@@ -1500,7 +1444,7 @@ document.querySelectorAll('[data-media-mode]').forEach(btn=>{
     else{
       setMediaMode('video');
       renderRecentVideos(currentHandle);
-      if(currentHandle)void refreshChannelVideos(currentHandle,{silent:false});
+      if(currentHandle)showToast('Kênh này chưa có video trong thư viện');
     }
   });
 });
@@ -1512,11 +1456,8 @@ document.querySelectorAll('[data-filter]').forEach(btn=>{
   });
 });
 document.getElementById('refreshBtn').addEventListener('click',()=>{
-  packageVersion=-1;
-  videoVersion=-1;
-  void loadChannels({force:true});
-  void loadVideoLibrary({force:true,silent:false});
-  if(currentHandle)void refreshChannelVideos(currentHandle);
+  libraryVersion=-1;
+  void loadUnifiedLibrary({force:true});
 });
 document.getElementById('openTikTokBtn').addEventListener('click',()=>{
   if(!currentHandle)return;
@@ -1534,11 +1475,9 @@ document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
 
-void loadChannels({force:true});
-void loadVideoLibrary({force:true,silent:true});
+void loadUnifiedLibrary({force:true});
 renderRecentVideos('');
-setInterval(()=>void loadChannels({silent:true}),POLL_MS);
-setInterval(()=>void loadVideoLibrary({silent:true}),30000);
+setInterval(()=>void loadUnifiedLibrary({silent:true}),POLL_MS);
 </script>
 </body>
 </html>
