@@ -50,7 +50,7 @@ const tiktokVideoFileInflight=new Map();
 const TIKTOK_VIDEO_FILE_CACHE_DIR=join(tmpdir(),'yt1988-tiktok-mp4');
 const TIKTOK_VIDEO_FILE_TTL_MS=30*60*1000;
 const TIKTOK_VIDEO_SOURCE_TTL_MS=12*60*1000;
-const TIKTOK_VIDEO_SOURCE_WARM_BATCH=4;
+const TIKTOK_VIDEO_SOURCE_WARM_BATCH=1;
 let tiktokVideoSourceWarmCursor=0;
 let tiktokVideoSourceWarmSerial=Promise.resolve();
 const TIKTOK_LIBRARY_RECENT_VIDEOS=10;
@@ -3639,7 +3639,10 @@ async function downloadTikTokVideoFile(rawHandle,rawId,{force=false}={}){
     const path=join(TIKTOK_VIDEO_FILE_CACHE_DIR,handle.replace(/[^A-Za-z0-9._-]/g,'_')+'-'+id+'-'+Date.now()+'.mp4');
     const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
     try{
-      await enqueueYtdlp(()=>execTikTokYtdlp([
+      // Playback downloads must not wait behind background discovery jobs.
+      // execTikTokYtdlp is safe to run independently because each invocation
+      // gets its own temporary cookie file.
+      await execTikTokYtdlp([
         '--no-playlist',
         '--no-warnings',
         '--socket-timeout','10',
@@ -3650,7 +3653,7 @@ async function downloadTikTokVideoFile(rawHandle,rawId,{force=false}={}){
         '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         '--add-header','Referer:https://www.tiktok.com/@'+handle,
         pageUrl
-      ],{timeout:60_000,maxBuffer:4*1024*1024}));
+      ],{timeout:60_000,maxBuffer:4*1024*1024});
       const info=await stat(path);
       if(info.size<=1024)throw new Error('tiktok_video_file_empty');
       const row={at:Date.now(),handle,id,path,size:info.size,source:'yt-dlp-file'};
@@ -6945,7 +6948,7 @@ server.listen(PORT,'0.0.0.0',()=>{
       console.log('[tiktok-library] metadata bootstrap failed',compactText(error?.message||error,120));
     });
     void mirrorTikTokCanonicalImages(20).catch(()=>{});
-    setTimeout(()=>{void warmTikTokVideoSources(6);},2500).unref();
+    setTimeout(()=>{void warmTikTokVideoSources(1);},15_000).unref();
     setTimeout(()=>{void enrichNextTikTokCanonicalVideo();},20_000).unref();
 
     const videoProbeHandle=[...tiktokLiveSelectedHandles].find(handle=>{
@@ -6998,7 +7001,7 @@ server.listen(PORT,'0.0.0.0',()=>{
   setInterval(()=>{void mirrorTikTokCanonicalImages(20);},2*60_000).unref();
   // Keep recent video playback URLs hot on the server. UI only reads/plays the
   // packaged stream route and never performs extraction itself.
-  setInterval(()=>{void warmTikTokVideoSources();},90_000).unref();
+  setInterval(()=>{void warmTikTokVideoSources();},3*60_000).unref();
   // Enrich one recent video at a time with full yt-dlp metadata. This gradually
   // fills covers/likes/comments/shares without making UI requests do extraction.
   setInterval(()=>{void enrichNextTikTokCanonicalVideo();},60_000).unref();
