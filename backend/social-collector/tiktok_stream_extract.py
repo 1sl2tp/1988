@@ -26,30 +26,92 @@ def choose_stream(info):
     info = info or {}
     candidates = []
 
+    def add(url, kind="", fmt=None, source=""):
+        url = str(url or "")
+        if not url:
+            return
+        fmt = fmt or {}
+        protocol = str(fmt.get("protocol") or "").lower()
+        ext = str(fmt.get("ext") or "").lower()
+        vcodec = str(fmt.get("vcodec") or fmt.get("video_codec") or "").lower()
+        acodec = str(fmt.get("acodec") or fmt.get("audio_codec") or "").lower()
+        format_id = str(fmt.get("format_id") or "")
+        height = int(fmt.get("height") or 0)
+        tbr = float(fmt.get("tbr") or 0)
+        if not kind:
+            if "m3u8" in protocol or ".m3u8" in url.lower():
+                kind = "hls"
+            elif ext == "flv" or ".flv" in url.lower():
+                kind = "flv"
+            else:
+                kind = detect_type(url)
+        candidates.append({
+            "url": url,
+            "kind": kind,
+            "vcodec": vcodec,
+            "acodec": acodec,
+            "format_id": format_id,
+            "height": height,
+            "tbr": tbr,
+            "source": source,
+        })
+
     manifest = str(info.get("manifest_url") or "")
     if manifest:
-        candidates.append(("hls" if ".m3u8" in manifest.lower() else detect_type(manifest), manifest))
+        add(manifest, "hls" if ".m3u8" in manifest.lower() else detect_type(manifest), source="manifest_url")
 
     direct = str(info.get("url") or "")
     if direct:
-        candidates.append((detect_type(direct), direct))
+        add(direct, source="direct_url")
 
     for fmt in info.get("formats") or []:
-        url = str(fmt.get("url") or "")
-        if not url:
-            continue
-        protocol = str(fmt.get("protocol") or "").lower()
-        ext = str(fmt.get("ext") or "").lower()
-        kind = "hls" if ("m3u8" in protocol or ".m3u8" in url.lower()) else (
-            "flv" if (ext == "flv" or ".flv" in url.lower()) else detect_type(url)
-        )
-        candidates.append((kind, url))
+        add(fmt.get("url"), fmt=fmt, source="format")
 
-    for wanted in ("hls", "flv", "mp4", "unknown"):
-        for kind, url in candidates:
-            if kind == wanted and url:
-                return url, kind
-    return "", ""
+    def score(row):
+        s = 0
+        # Browser-friendly transport first.
+        if row["kind"] == "hls":
+            s += 10000
+        elif row["kind"] == "flv":
+            s += 5000
+        elif row["kind"] == "mp4":
+            s += 3000
+
+        # Critical: Chrome/Safari compatibility. Prefer AVC/H.264 and avoid HEVC
+        # unless it is the only available stream.
+        vc = row["vcodec"]
+        if any(x in vc for x in ("avc", "h264", "avc1")):
+            s += 4000
+        elif any(x in vc for x in ("hevc", "h265", "hev1", "hvc1")):
+            s -= 3000
+        elif vc in ("", "none"):
+            s += 300
+
+        # Prefer normal main video qualities over audio-only or odd variants.
+        fid = row["format_id"].lower()
+        if "audio" in fid or "ao" == fid:
+            s -= 5000
+        if row["height"]:
+            s += min(row["height"], 1080)
+        s += min(int(row["tbr"] or 0), 3000) / 10
+        if row["source"] == "format":
+            s += 200
+        return s
+
+    candidates.sort(key=score, reverse=True)
+    best = candidates[0] if candidates else None
+    if not best:
+        return "", "", {}
+
+    return best["url"], best["kind"], {
+        "vcodec": best["vcodec"],
+        "acodec": best["acodec"],
+        "format_id": best["format_id"],
+        "height": best["height"],
+        "tbr": best["tbr"],
+        "source": best["source"],
+        "candidate_count": len(candidates),
+    }
 
 def main():
     if len(sys.argv) < 2:
@@ -75,7 +137,7 @@ def main():
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(target_url, download=False) or {}
 
-        stream_url, stream_type = choose_stream(info)
+        stream_url, stream_type, selected = choose_stream(info)
         if not stream_url:
             print(json.dumps({
                 "success": False,
@@ -99,6 +161,7 @@ def main():
             "uploader": str(info.get("uploader") or ""),
             "id": str(info.get("id") or ""),
             "method": "python_yt_dlp_extract_info",
+            "selected": selected,
         }, ensure_ascii=False))
     except ExtractTimeout:
         print(json.dumps({"success": False, "error": "extract_timeout"}, ensure_ascii=False))
