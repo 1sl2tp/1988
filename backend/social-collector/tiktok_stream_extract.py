@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import signal
 import sys
 import yt_dlp
@@ -123,6 +124,15 @@ def main():
     signal.signal(signal.SIGALRM, _alarm_handler)
     signal.alarm(18)
 
+    cookie_header = str(os.environ.get("TIKTOK_COOKIE_HEADER") or "").strip()
+    http_headers = {
+        "User-Agent": UA,
+        "Referer": target_url,
+        "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+    }
+    if cookie_header:
+        http_headers["Cookie"] = cookie_header
+
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -131,6 +141,7 @@ def main():
         "retries": 0,
         "extractor_retries": 0,
         "user_agent": UA,
+        "http_headers": http_headers,
         "noplaylist": True,
     }
 
