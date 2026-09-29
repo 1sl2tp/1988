@@ -766,25 +766,41 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   );
   if(!due.length)return;
 
-  // One lightweight pass over the whole selected-channel list.
-  // LIVE classification and FLV selection happen in the same request.
-  const checked=await Promise.all(due.map(async handle=>{
-    tiktokLiveLibraryRefreshAt.set(handle.toLowerCase(),Date.now());
-    try{
-      return {handle,status:await quickTikTokLiveStatus(handle)};
-    }catch(error){
-      return {handle,status:{known:false,live:false,candidates:[]}};
+  // One package pass, but do not burst all 31 requests at TikTok at once.
+  // A small worker pool is still fast and avoids false OFFLINE results caused by timeouts.
+  const checked=new Array(due.length);
+  let scanCursor=0;
+  const worker=async()=>{
+    while(true){
+      const index=scanCursor++;
+      if(index>=due.length)return;
+      const handle=due[index];
+      tiktokLiveLibraryRefreshAt.set(handle.toLowerCase(),Date.now());
+      try{
+        checked[index]={handle,status:await quickTikTokLiveStatus(handle)};
+      }catch(error){
+        checked[index]={handle,status:{known:false,live:false,candidates:[]}};
+      }
     }
-  }));
+  };
+  await Promise.all(Array.from({length:Math.min(8,due.length)},()=>worker()));
 
   let scanLiveCount=0;
   let scanFlvCount=0;
+  let scanUnknownCount=0;
   for(const {handle,status} of checked){
     const key=handle.toLowerCase();
     const candidates=Array.isArray(status?.candidates)?status.candidates:[];
     const flv=candidates
       .filter(row=>row?.type==='flv'&&!isTikTokBadSource(handle,row))
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
+
+    const hasSignal=Boolean(status?.known||status?.live||candidates.length);
+    if(!hasSignal){
+      // Timeout/error is UNKNOWN, never OFFLINE. Keep the last package state.
+      scanUnknownCount+=1;
+      continue;
+    }
 
     const isLive=Boolean(status?.live||status?.status===2||flv);
     if(isLive)scanLiveCount+=1;
@@ -851,6 +867,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     'due='+due.length,
     'live='+scanLiveCount,
     'flv='+scanFlvCount,
+    'unknown='+scanUnknownCount,
     'ms='+(Date.now()-scanStarted)
   );
 }
@@ -1068,7 +1085,7 @@ async function quickTikTokLiveStatus(rawHandle){
         'referer':'https://www.tiktok.com/@'+handle+'/live'
       },
       redirect:'follow',
-      signal:AbortSignal.timeout(1200)
+      signal:AbortSignal.timeout(2500)
     });
     if(!r.ok)return {known:false,live:false,candidates:[]};
     const data=await r.json();
