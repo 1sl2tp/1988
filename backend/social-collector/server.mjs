@@ -28,6 +28,7 @@ const memorySnapshots=new Map();
 const lastRuns=new Map();
 const tiktokLiveCheckCache=new Map();
 const tiktokProxyTargets=new Map();
+const tiktokLiveSessions=new Map();
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
