@@ -241,45 +241,30 @@ html.one-col body{
 }
 html.one-col body{min-height:220vh}
 
-/* One-column no longer keeps a waiting MAIN player above the feed.
-   Playback starts only inside the card the user selects.
-   The media-query guard also applies BEFORE JS adds the one-col class, so the
-   old empty MAIN info/menu cannot flash as a stray vertical ellipsis. */
-html.one-col .media-col{
-  display:none!important;
-}
+/* One media core, one permanent DOM home.
+   MAIN 2-column (.stage) remains the player's real parent at all times.
+   In one-column/mobile the media column is parked off-screen but stays rendered,
+   so the YouTube iframe remains alive/ready. Inline and PiP are only CSS views
+   of that same player; the iframe is never reparented while playing. */
 @media(max-width:999px){
   .media-col{
-    display:none!important;
+    display:block!important;
+    position:fixed!important;
+    left:-10000px!important;
+    top:0!important;
+    width:320px!important;
+    height:180px!important;
+    max-width:none!important;
+    margin:0!important;
+    overflow:visible!important;
+    pointer-events:none!important;
   }
 }
 
-/* iPhone/PWA first-tap playback needs the YouTube iframe READY before the tap.
-   Park the SAME player off-screen in one-column mode instead of inside the
-   display:none MAIN column. It stays renderable, but never visible or clickable. */
-.player-warm-host{
-  position:static;
-  width:0;
-  height:0;
-  overflow:visible;
-}
-
-/* iOS/Safari fallback path: never reparent a live YouTube iframe.
-   Reparenting with appendChild reloads the iframe there and loses the tap
-   activation that is required for first-tap playback. */
-html.one-col .player.warm-idle{
-  position:absolute!important;
-  inset:auto!important;
-  left:-10000px!important;
-  top:0!important;
-  width:320px!important;
-  height:180px!important;
-  opacity:.001!important;
-  pointer-events:none!important;
-  transform:none!important;
-}
+/* One-column inline playback is a viewport-fixed overlay aligned to the card.
+   Keeping it fixed lets the player escape its off-screen MAIN home cleanly. */
 html.one-col .player.inline-overlay:not(.pip){
-  position:absolute!important;
+  position:fixed!important;
   inset:auto!important;
   left:var(--inline-player-left)!important;
   top:var(--inline-player-top)!important;
@@ -1153,7 +1138,8 @@ html.one-col .player.pip{
   transform:none !important;
   inset:auto !important;
   right:10px !important;
-  top:calc(var(--visible-top-boundary,var(--top-boundary)) + 8px) !important;
+  top:auto !important;
+  bottom:calc(10px + env(safe-area-inset-bottom,0px)) !important;
   border-radius:var(--floating-radius);
   background:transparent;
   box-shadow:var(--yt-floating-shadow);
@@ -2408,7 +2394,6 @@ html.one-col.portrait .player.pip{
   <div class="rows" id="rows"></div>
 </main>
 
-<div class="player-warm-host" id="playerWarmHost" aria-hidden="true"></div>
 <div class="state" id="state"></div>
 
 <script src="./src/api.js"></script>
@@ -2436,7 +2421,6 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
-  const playerWarmHost=document.getElementById("playerWarmHost");
   const pipActivateZone=document.getElementById("pipActivateZone");
   const pipMoveZone=document.getElementById("pipMoveZone");
   const pipResizeEdges=[...document.querySelectorAll("[data-pip-edge]")];
@@ -2678,11 +2662,6 @@ html.one-col.portrait .player.pip{
   let ytPlayerReady=false;
   let pendingVideoId="";
   let youtubeApiPromise=null;
-
-  // Element.moveBefore() preserves iframe browsing state; appendChild() does
-  // not on iOS Safari/PWA. When unavailable, keep the player top-level forever.
-  const canPreservePlayerMove=
-    typeof document.body?.moveBefore==="function";
 
   // Server owns media aspect by video id; YouTube videoContentRect only
   // confirms/corrects the server cache after playback.
@@ -3468,28 +3447,62 @@ html.one-col.portrait .player.pip{
     root.style.setProperty("--bottom-gap",bottomGap+"px");
     root.style.setProperty("--current-full-h",fullH+"px");
 
-    // PiP keeps the existing visual size policy. Rail only changes how the
-    // native YouTube source is built/cropped inside that viewport.
+    // PiP default SIZE follows the viewport; resize MIN is separate.
+    // This avoids opening every phone at the hard minimum while still keeping
+    // the same lower drag limit: landscape 170px, portrait 120px wide.
     const viewportW=Math.max(
       1,
       Math.round(document.documentElement.clientWidth || innerWidth || 1)
     );
-    // Mobile opens PiP at the SAME Library minimum SIZE as web:
-    // landscape min width = 170px, portrait min width = 120px.
-    // Do not let very tall portrait ratios become narrower than the web minimum.
     const mobilePip=viewportW<=656;
-    const mobileAvailableW=Math.max(1,viewportW-20);
-    const mobileLandscapeMinW=Math.min(170,mobileAvailableW);
-    const mobilePortraitMinW=Math.min(120,mobileAvailableW);
+    const availableW=Math.max(1,viewportW-20);
+    const availableH=Math.max(1,viewportH-20);
 
-    const pipLandscapeW=mobilePip
-      ? mobileLandscapeMinW
-      : Math.max(170,Math.min(280,Math.round(viewportW*.46)));
-    const pipPortraitH=mobilePip
-      ? Math.max(1,Math.round(mobilePortraitMinW/mediaRatio))
-      : Math.max(240,Math.min(420,Math.round(fullH*.50)));
+    const landscapeDragMin=Math.min(
+      170,
+      availableW,
+      Math.max(1,Math.round(availableH*Math.max(1,mediaRatio)))
+    );
+    const portraitDragMin=Math.min(
+      120,
+      availableW,
+      Math.max(1,Math.round(availableH*Math.max(.34,mediaRatio)))
+    );
 
-    root.style.setProperty("--pip-landscape-w",pipLandscapeW+"px");
+    const landscapeTarget=Math.round(viewportW*(mobilePip ? .54 : .36));
+    const landscapeDefaultMin=mobilePip?190:240;
+    const landscapeDefaultMax=mobilePip?300:360;
+    const landscapeFitMax=Math.max(
+      1,
+      Math.min(availableW,Math.round(availableH*Math.max(1,mediaRatio)))
+    );
+    const pipLandscapeW=Math.max(
+      Math.min(landscapeDragMin,landscapeFitMax),
+      Math.min(
+        landscapeFitMax,
+        landscapeDefaultMax,
+        Math.max(landscapeDefaultMin,landscapeTarget)
+      )
+    );
+
+    const portraitTarget=Math.round(viewportW*(mobilePip ? .38 : .24));
+    const portraitDefaultMin=mobilePip?136:160;
+    const portraitDefaultMax=mobilePip?190:220;
+    const portraitFitMax=Math.max(
+      1,
+      Math.min(availableW,Math.round(availableH*Math.max(.34,mediaRatio)))
+    );
+    const pipPortraitW=Math.max(
+      Math.min(portraitDragMin,portraitFitMax),
+      Math.min(
+        portraitFitMax,
+        portraitDefaultMax,
+        Math.max(portraitDefaultMin,portraitTarget)
+      )
+    );
+    const pipPortraitH=Math.max(1,Math.round(pipPortraitW/Math.max(.34,mediaRatio)));
+
+    root.style.setProperty("--pip-landscape-w",Math.round(pipLandscapeW)+"px");
     root.style.setProperty("--pip-portrait-h",pipPortraitH+"px");
 
     const pageW=viewportW;
@@ -5409,13 +5422,6 @@ html.one-col.portrait .player.pip{
 
     const activeInlineId=inlineVideoId;
     const wasFloating=!!pip && !!activeInlineId;
-    const playerWasInRows=!!player.closest(".row-thumb");
-
-    // Detach the same player before rows.innerHTML replaces its host card.
-    // Modern browsers use moveBefore() when available to preserve iframe state.
-    if(playerWasInRows){
-      movePlayerNode(stage);
-    }
 
     // A feed render is authoritative. Never re-apply stale search text here;
     // otherwise clicking a source can load correctly but all new cards stay hidden.
@@ -5433,6 +5439,7 @@ html.one-col.portrait .player.pip{
       if(activeInlineId){
         const activeCard=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
         if(activeCard)attachPlayerToCard(activeCard,{floating:wasFloating});
+        else if(!isTwoColumn())showPlayerAsPip();
       }
       observeRowThumbQuality(rows);
       applyRenderedCardTints(rows);
@@ -5454,6 +5461,8 @@ html.one-col.portrait .player.pip{
       const card=rows.querySelector('.row[data-video-id="'+activeInlineId+'"]');
       if(card){
         attachPlayerToCard(card,{floating:wasFloating});
+      }else if(!isTwoColumn()){
+        showPlayerAsPip();
       }
     }else if(!isTwoColumn()){
       const routedId=routeVideoId();
@@ -5726,7 +5735,17 @@ html.one-col.portrait .player.pip{
   }
 
   function mobilePipMinWidth(ratio){
-    return ratio<1?120:170;
+    const viewportW=Math.max(1,document.documentElement.clientWidth||innerWidth||1);
+    const viewportH=Math.max(1,document.documentElement.clientHeight||innerHeight||1);
+    const base=ratio<1?120:170;
+    return Math.max(
+      1,
+      Math.min(
+        base,
+        viewportW-20,
+        (viewportH-18)*Math.max(.34,ratio)
+      )
+    );
   }
 
   function mobilePipBounds(width,height){
@@ -5901,7 +5920,7 @@ html.one-col.portrait .player.pip{
        landscape follows width, portrait follows height. */
 
     if(two){
-      if(inlineVideoId||player.parentNode!==stage){
+      if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
         returnPlayerToMainStage();
       }else{
         pip=false;
@@ -5915,7 +5934,7 @@ html.one-col.portrait .player.pip{
       const routedId=routeVideoId();
       const currentId=String(current?.id||"").trim();
       let attached=false;
-      if(routedId&&currentId&&routedId===currentId){
+      if(currentId&&(!routedId||routedId===currentId)){
         const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
         if(card){
           inlineVideoId=currentId;
@@ -5923,7 +5942,12 @@ html.one-col.portrait .player.pip{
         }
       }
       if(!attached){
-        parkPlayerWarm();
+        if(/^[A-Za-z0-9_-]{11}$/.test(currentId)){
+          inlineVideoId=currentId;
+          showPlayerAsPip();
+        }else{
+          parkPlayerAtMainHome();
+        }
       }
     }
 
@@ -5933,21 +5957,8 @@ html.one-col.portrait .player.pip{
     renderCurrentInfo();
   }
 
-  function movePlayerNode(parent){
-    if(!parent||player.parentNode===parent)return;
-    try{
-      if(typeof parent.moveBefore==="function"){
-        parent.moveBefore(player,null);
-      }else{
-        parent.appendChild(player);
-      }
-    }catch{
-      parent.appendChild(player);
-    }
-  }
-
   function useStableInlineOverlay(){
-    return !canPreservePlayerMove && !isTwoColumn();
+    return !isTwoColumn();
   }
 
   function clearInlinePlayerGeometry(){
@@ -5963,30 +5974,28 @@ html.one-col.portrait .player.pip{
     if(!host||!host.isConnected)return false;
 
     const rect=host.getBoundingClientRect();
-    const pageX=Number(window.scrollX)||0;
-    const pageY=pageScrollY();
-
-    player.style.setProperty("--inline-player-left",Math.round(rect.left+pageX)+"px");
-    player.style.setProperty("--inline-player-top",Math.round(rect.top+pageY)+"px");
+    player.style.setProperty("--inline-player-left",Math.round(rect.left)+"px");
+    player.style.setProperty("--inline-player-top",Math.round(rect.top)+"px");
     player.style.setProperty("--inline-player-w",Math.max(1,Math.round(rect.width))+"px");
     player.style.setProperty("--inline-player-h",Math.max(1,Math.round(rect.height))+"px");
     return true;
   }
 
-  function parkPlayerWarm(){
-    if(!playerWarmHost)return false;
-
-    // This move is safe before YT.Player is created. After that, iOS/Safari
-    // remains in this host and only CSS geometry changes.
-    if(player.parentNode!==playerWarmHost){
-      if(ytPlayer&&!canPreservePlayerMove)return false;
-      movePlayerNode(playerWarmHost);
-    }
-
+  function parkPlayerAtMainHome(){
     player.classList.remove("pip","inline-overlay");
-    player.classList.add("warm-idle");
+    stage.classList.remove("pip-host");
     clearInlinePlayerGeometry();
     clearMobilePipGestureGeometry();
+    pip=false;
+    return true;
+  }
+
+  function showPlayerAsPip(){
+    player.classList.remove("inline-overlay");
+    player.classList.add("pip");
+    stage.classList.add("pip-host");
+    clearInlinePlayerGeometry();
+    pip=true;
     return true;
   }
 
@@ -6011,37 +6020,16 @@ html.one-col.portrait .player.pip{
     thumb.classList.add("inline-playing");
     thumb.classList.toggle("pip-floating",!!floating);
 
-    player.classList.remove("warm-idle");
-
-    if(useStableInlineOverlay()){
-      // Critical iPhone/PWA path: do not move the iframe after it becomes ready.
-      if(player.parentNode!==playerWarmHost){
-        if(!ytPlayer){
-          movePlayerNode(playerWarmHost);
-        }
-      }
-
-      player.classList.toggle("pip",!!floating);
-      player.classList.toggle("inline-overlay",!floating);
-      if(floating){
-        clearInlinePlayerGeometry();
-      }else{
-        syncInlinePlayerOverlay(thumb);
-      }
+    stage.classList.add("pip-host");
+    if(floating){
+      showPlayerAsPip();
     }else{
-      // Browsers with state-preserving moveBefore() keep the existing path.
-      if(floating){
-        movePlayerNode(document.body);
-      }else{
-        movePlayerNode(thumb);
-      }
-      player.classList.remove("inline-overlay");
-      player.classList.toggle("pip",!!floating);
+      player.classList.remove("pip");
+      player.classList.add("inline-overlay");
+      syncInlinePlayerOverlay(thumb);
+      pip=false;
+      clearMobilePipGestureGeometry();
     }
-
-    stage.classList.remove("pip-host");
-    if(!floating)clearMobilePipGestureGeometry();
-    pip=!!floating;
     scheduleFeedMasonry();
     return true;
   }
@@ -6049,14 +6037,10 @@ html.one-col.portrait .player.pip{
   function returnPlayerToMainStage(){
     clearInlineCardClasses();
     inlineVideoId="";
-    player.classList.remove("pip","inline-overlay","warm-idle");
+    player.classList.remove("pip","inline-overlay");
     stage.classList.remove("pip-host");
     clearInlinePlayerGeometry();
     clearMobilePipGestureGeometry();
-
-    // Two-column MAIN still owns the stage. A one-column idle player is parked
-    // warm instead by syncPip/layout.
-    movePlayerNode(stage);
     pip=false;
     scheduleFeedMasonry();
   }
@@ -6070,11 +6054,10 @@ html.one-col.portrait .player.pip{
 
   function syncPip(){
     if(isTwoColumn()){
-      if(inlineVideoId||player.parentNode!==stage){
+      if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
         returnPlayerToMainStage();
-      }else if(pip){
-        pip=false;
-        player.classList.remove("pip");
+      }else{
+        stage.classList.remove("pip-host");
         clearMobilePipGestureGeometry();
       }
       paintText();
@@ -6085,9 +6068,13 @@ html.one-col.portrait .player.pip{
     const host=inlineCard?.querySelector(".row-thumb")||null;
 
     // After a one-column card is selected, THAT thumbnail is the playback home.
-    // The same player becomes PiP only while that exact frame is outside view.
+    // The same player becomes PiP whenever that frame is not currently usable.
     if(inlineVideoId){
-      if(!host)return;
+      if(!host||!host.isConnected){
+        showPlayerAsPip();
+        paintText();
+        return;
+      }
 
       const rect=host.getBoundingClientRect();
       const headerBottom=Math.max(0,Math.round(top.getBoundingClientRect().bottom||0));
@@ -6102,49 +6089,36 @@ html.one-col.portrait .player.pip{
       const hostVisible=visiblePixels>4;
 
       if(hostVisible){
-        if(pip){
-          host.classList.remove("pip-floating");
-          player.classList.remove("pip");
-          clearMobilePipGestureGeometry();
-
-          if(useStableInlineOverlay()){
-            player.classList.add("inline-overlay");
-            syncInlinePlayerOverlay(host);
-          }else{
-            movePlayerNode(host);
-          }
-          pip=false;
-        }else if(useStableInlineOverlay()){
-          syncInlinePlayerOverlay(host);
-        }
+        host.classList.remove("pip-floating");
+        player.classList.remove("pip");
+        player.classList.add("inline-overlay");
+        stage.classList.add("pip-host");
+        syncInlinePlayerOverlay(host);
+        pip=false;
+        clearMobilePipGestureGeometry();
       }else{
-        if(!pip){
-          host.classList.add("pip-floating");
-
-          if(useStableInlineOverlay()){
-            player.classList.remove("inline-overlay");
-            clearInlinePlayerGeometry();
-          }else{
-            movePlayerNode(document.body);
-          }
-
-          player.classList.add("pip");
-          pip=true;
-        }
+        host.classList.add("pip-floating");
+        showPlayerAsPip();
       }
       paintText();
       return;
     }
 
-    // No one-column card has been selected yet: keep the SAME player
-    // warm off-screen so iPhone/PWA receives a ready iframe before the first tap.
-    if(pip){
-      pip=false;
-      player.classList.remove("pip");
-      clearMobilePipGestureGeometry();
+    const currentId=String(current?.id||"").trim();
+    if(/^[A-Za-z0-9_-]{11}$/.test(currentId)){
+      const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
+      if(card){
+        inlineVideoId=currentId;
+        attachPlayerToCard(card,{floating:false});
+      }else{
+        inlineVideoId=currentId;
+        showPlayerAsPip();
+      }
+      paintText();
+      return;
     }
-    stage.classList.remove("pip-host");
-    parkPlayerWarm();
+
+    parkPlayerAtMainHome();
     return;
   }
 
@@ -6659,11 +6633,9 @@ html.one-col.portrait .player.pip{
   // pinned empty MAIN from appearing.
   layout();
 
-  // One-column/mobile: warm the real YouTube iframe off-screen, never in the
-  // display:none MAIN column. Two-column keeps the normal MAIN host.
-  if(!isTwoColumn()&&playerWarmHost){
-    parkPlayerWarm();
-  }
+  // MAIN stage is the permanent player home. In one-column/mobile the
+  // media column is merely parked off-screen, so the iframe stays renderable.
+  parkPlayerAtMainHome();
 
   // Start API/player creation as early as possible. No video is selected here,
   // so this cannot autoplay or resurrect the old waiting MAIN.
