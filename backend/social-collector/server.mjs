@@ -6494,7 +6494,8 @@ const server=http.createServer(async(req,res)=>{
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       const id=String(url.searchParams.get('id')||'').trim();
-      const source=await resolveTikTokVideoSource(handle,id);
+      const force=url.searchParams.get('refresh')==='1';
+      const source=await resolveTikTokVideoSource(handle,id,{force});
       json(res,200,{
         ok:true,
         handle:source.handle,
@@ -6502,6 +6503,8 @@ const server=http.createServer(async(req,res)=>{
         width:source.width,
         height:source.height,
         duration:source.duration,
+        directUrl:String(source.url||''),
+        source:String(source.source||'yt-dlp'),
         stream:
           '/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
           '&id='+encodeURIComponent(source.id)
