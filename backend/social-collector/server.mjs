@@ -307,6 +307,20 @@ button{border:0;border-radius:18px;padding:9px 15px;background:#2f2f2f;color:#ff
 <button id="restart">Tạo QR mới</button>
 </div><script>
 const key=${safeKey},qr=document.getElementById('qr'),status=document.getElementById('status');
+let qrLoaded=false;
+function loadQr(force=false){
+  if(qrLoaded&&!force)return;
+  qrLoaded=true;
+  const img=new Image();
+  img.alt='TikTok QR';
+  img.onload=()=>{qr.replaceChildren(img);};
+  img.onerror=()=>{
+    qrLoaded=false;
+    qr.innerHTML='<span>Chưa lấy được QR, đang thử lại…</span>';
+    setTimeout(()=>loadQr(false),1200);
+  };
+  img.src='/login/tiktok/qr?key='+encodeURIComponent(key)+'&_='+Date.now();
+}
 async function poll(){
   try{
     const r=await fetch('/login/tiktok/status?key='+encodeURIComponent(key)+'&_='+Date.now(),{cache:'no-store'});
@@ -318,8 +332,8 @@ async function poll(){
       return;
     }
     status.className=j.status==='error'?'status err':'status';
-    status.textContent=j.status==='error'?(j.error||'Có lỗi'):(j.status==='starting'?'Đang tạo QR…':'Đang chờ quét QR…');
-    qr.innerHTML='<img alt="TikTok QR" src="/login/tiktok/qr?key='+encodeURIComponent(key)+'&_='+Date.now()+'">';
+    status.textContent=j.status==='error'?(j.error||'Có lỗi'):(j.status==='starting'?'Đang tạo QR…':'Đang chờ bạn quét QR và xác nhận trên TikTok…');
+    if(!qrLoaded)loadQr(false);
   }catch{
     status.className='status err';
     status.textContent='Chưa kết nối được Render.';
@@ -327,9 +341,14 @@ async function poll(){
   setTimeout(poll,2000);
 }
 document.getElementById('restart').onclick=async()=>{
-  status.className='status';status.textContent='Đang tạo QR mới…';
+  status.className='status';
+  status.textContent='Đang tạo QR mới…';
+  qrLoaded=false;
+  qr.innerHTML='<span>Đang tạo QR mới…</span>';
   await fetch('/login/tiktok/restart?key='+encodeURIComponent(key),{cache:'no-store'});
+  setTimeout(()=>loadQr(true),900);
 };
+loadQr(false);
 poll();
 </script></body></html>`;
 }
