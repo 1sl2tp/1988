@@ -179,6 +179,7 @@ async function captureTikTokLiveSession(rawHandle){
   cleanTikTokLiveSessions();
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
+  console.log('[tiktok-session] start',handle);
   const key=handle.toLowerCase();
   const current=tiktokLiveSessions.get(key);
   if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
