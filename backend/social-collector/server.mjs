@@ -639,6 +639,14 @@ function rewriteHlsManifest(text,baseUrl,handle='',proxySegments=false){
     catch{return '';}
   };
   const isPlaylist=value=>/\.m3u8(?:\?|$)/i.test(String(value||''));
+  const directMediaHost=value=>{
+    try{
+      const host=new URL(value).hostname.toLowerCase();
+      return host==='tiktokcdn.com'||host.endsWith('.tiktokcdn.com')||
+        host==='tiktokv.com'||host.endsWith('.tiktokv.com')||
+        host==='byteoversea.com'||host.endsWith('.byteoversea.com');
+    }catch{return false}
+  };
   const viaProxy=value=>proxyPathFor(value,handle,proxySegments);
 
   return String(text||'')
@@ -651,19 +659,20 @@ function rewriteHlsManifest(text,baseUrl,handle='',proxySegments=false){
         return line.replace(/URI="([^"]+)"/g,(m,uri)=>{
           const target=absolute(uri);
           if(!target)return m;
-          // Keep nested playlists and tiny encryption keys on the relay so
-          // they retain the TikTok browser-session headers. Media payloads
-          // (.ts/.m4s/.mp4 init) go straight to TikTok CDN.
-          const mustProxy=proxySegments||isPlaylist(target)||/^#EXT-X-(?:SESSION-)?KEY/i.test(trimmed);
+          // Playlist/key stay on relay. Media segments go direct only when
+          // they are on a TikTok CDN host that browsers can request safely.
+          // Alternate hosts such as realcrius.com remain on relay.
+          const mustProxy=proxySegments||isPlaylist(target)||
+            /^#EXT-X-(?:SESSION-)?KEY/i.test(trimmed)||
+            !directMediaHost(target);
           return 'URI="'+(mustProxy?viaProxy(target):target)+'"';
         });
       }
 
       const target=absolute(trimmed);
       if(!target)return line;
-      // Only playlist files stay on our relay. Segments download directly
-      // from TikTok CDN to avoid routing video bandwidth through the proxy.
-      return (proxySegments||isPlaylist(target))?viaProxy(target):target;
+      const mustProxy=proxySegments||isPlaylist(target)||!directMediaHost(target);
+      return mustProxy?viaProxy(target):target;
     })
     .join('\n');
 }
