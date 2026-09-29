@@ -392,12 +392,12 @@ function renderList(){
     const meta=row.live
       ? '<span class="live-dot">● LIVE</span>'+(row.ready&&row.type?' · '+esc(String(row.type).toUpperCase()):'')
       : 'Không LIVE';
-    return '<button class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'">'+
+    return '<div class="channel '+(handle===currentHandle?'active':'')+'" data-handle="'+esc(handle)+'" role="button" tabindex="0">'+
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(name)+'</span><span class="chhandle">@'+esc(handle)+'</span><span class="chmeta">'+meta+'</span></span>'+
       '<span class="row-actions"><button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
-      '</button>';
+      '</div>';
   }).join('');
 
   let html='';
@@ -409,6 +409,12 @@ function renderList(){
     el.addEventListener('click',event=>{
       if(event.target.closest('[data-delete]'))return;
       openChannel(el.dataset.handle);
+    });
+    el.addEventListener('keydown',event=>{
+      if(event.key==='Enter'||event.key===' '){
+        event.preventDefault();
+        openChannel(el.dataset.handle);
+      }
     });
   });
   root.querySelectorAll('[data-delete]').forEach(el=>{
