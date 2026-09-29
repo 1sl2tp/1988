@@ -40,6 +40,7 @@ let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
 const tiktokLiveLibraryWarmRetryAt=new Map();
+const tiktokLiveStatusFallbackInflight=new Set();
 const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=2;
 const TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS=30_000;
 let tiktokLiveLibraryRefreshCursor=0;
@@ -323,13 +324,13 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source=''}={}){
 }
 
 async function batchTikTokLiveFallback(handles){
-  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,5);
   if(!normalized.length)return new Map();
   try{
     const out=await execFileText(
       'python3',
       ['tiktok_live_batch_check.py',...normalized],
-      {timeout:11_000,maxBuffer:4*1024*1024}
+      {timeout:10_500,maxBuffer:4*1024*1024}
     );
     const rows=JSON.parse(String(out||'[]'));
     const map=new Map();
@@ -343,6 +344,43 @@ async function batchTikTokLiveFallback(handles){
     return new Map();
   }
 }
+function queueTikTokStatusFallback(handles){
+  const fresh=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))]
+    .filter(handle=>!tiktokLiveStatusFallbackInflight.has(handle.toLowerCase()))
+    .slice(0,5);
+  if(!fresh.length)return;
+
+  fresh.forEach(handle=>tiktokLiveStatusFallbackInflight.add(handle.toLowerCase()));
+  void (async()=>{
+    const result=await batchTikTokLiveFallback(fresh);
+    for(const handle of fresh){
+      const key=handle.toLowerCase();
+      const row=result.get(key);
+      if(row?.status==='LIVE'){
+        seedTikTokFastSource(handle,row);
+        updateTikTokLiveLibrary(handle,{
+          live:true,ready:false,status:'warming',lastSeenAt:Date.now()
+        });
+        queueTikTokLibraryWarm(handle);
+      }else if(row?.status==='OFFLINE'){
+        updateTikTokLiveLibrary(handle,{
+          live:false,ready:false,status:'offline',sourceSig:'',
+          videoCodec:'',audioCodec:'',width:0,height:0,lastSeenAt:Date.now()
+        });
+        tiktokLiveLibraryWarmRetryAt.delete(key);
+      }else{
+        updateTikTokLiveLibrary(handle,{
+          live:false,ready:false,status:'checking',lastSeenAt:Date.now()
+        });
+      }
+    }
+  })().catch(error=>{
+    console.log('[tiktok-library] async status fallback failed',compactText(error?.message||error,140));
+  }).finally(()=>{
+    fresh.forEach(handle=>tiktokLiveStatusFallbackInflight.delete(handle.toLowerCase()));
+  });
+}
+
 function seedTikTokFastSource(handle,row){
   const url=String(row?.stream_url||'');
   const type=String(row?.stream_type||'').toLowerCase();
@@ -499,18 +537,17 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     }
   }));
 
-  // Only ambiguous channels use yt-dlp, also in one parallel batch (5 workers).
+  // Ambiguous channels are handed to yt-dlp in the background. The API
+  // response is not held open while those checks run.
   const ambiguous=checked
     .filter(x=>!x.status?.known&&!x.status?.live&&!(x.status?.candidates||[]).length)
     .map(x=>x.handle);
-  const fallback=ambiguous.length?await batchTikTokLiveFallback(ambiguous):new Map();
 
   const warmQueue=[];
   for(const result of checked){
     const handle=result.handle;
     const key=handle.toLowerCase();
     const status=result.status||{known:false,live:false,candidates:[]};
-    const fb=fallback.get(key);
 
     let classified='unknown';
     let live=false;
@@ -521,13 +558,6 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     }else if(status.live||(status.candidates||[]).length){
       live=true;
       classified='live';
-    }else if(fb?.status==='LIVE'){
-      live=true;
-      classified='live';
-      seedTikTokFastSource(handle,fb);
-    }else if(fb?.status==='OFFLINE'){
-      live=false;
-      classified='offline';
     }
 
     if(classified==='offline'){
@@ -582,6 +612,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   for(const handle of warmQueue){
     queueTikTokLibraryWarm(handle);
   }
+  if(ambiguous.length)queueTikTokStatusFallback(ambiguous);
 }
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
@@ -797,7 +828,7 @@ async function quickTikTokLiveStatus(rawHandle){
         'referer':'https://www.tiktok.com/@'+handle+'/live'
       },
       redirect:'follow',
-      signal:AbortSignal.timeout(4500)
+      signal:AbortSignal.timeout(2500)
     });
     if(!r.ok)return {known:false,live:false,candidates:[]};
     const data=await r.json();
