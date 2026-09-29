@@ -161,6 +161,104 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
   return value;
 }
 
+
+async function closeTikTokLiveSession(handle){
+  const key=String(handle||'').toLowerCase();
+  const row=tiktokLiveSessions.get(key);
+  if(!row)return;
+  tiktokLiveSessions.delete(key);
+  try{await row.page?.close?.();}catch{}
+}
+function cleanTikTokLiveSessions(){
+  const cutoff=Date.now()-3*60*1000;
+  for(const [key,row] of tiktokLiveSessions){
+    if(!row||row.at<cutoff)void closeTikTokLiveSession(key);
+  }
+}
+async function captureTikTokLiveSession(rawHandle){
+  cleanTikTokLiveSessions();
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+  const key=handle.toLowerCase();
+  const current=tiktokLiveSessions.get(key);
+  if(current&&current.page&&!current.page.isClosed()&&Date.now()-current.at<90_000){
+    current.at=Date.now();
+    return current;
+  }
+  if(current)await closeTikTokLiveSession(key);
+
+  const browser=await getBrowser();
+  const page=await browser.newPage();
+  await page.setViewport({width:1280,height:900,deviceScaleFactor:1});
+  const ua='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+  await page.setUserAgent(ua);
+  await page.setExtraHTTPHeaders({'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'});
+  await page.emulateTimezone(TZ).catch(()=>{});
+  await page.setCacheEnabled(false).catch(()=>{});
+
+  const stored=await loadSession('tiktok');
+  const savedCookies=cookieParams(stored?.state?.cookies||[]);
+  if(savedCookies.length)await page.setCookie(...savedCookies).catch(()=>{});
+
+  let captured=null;
+  const onRequest=request=>{
+    try{
+      const requestUrl=String(request.url()||'');
+      const lower=requestUrl.toLowerCase();
+      const type=lower.includes('.m3u8')?'hls':lower.includes('.flv')?'flv':'';
+      if(!type)return;
+      const headers=request.headers?.()||{};
+      const next={url:requestUrl,type,headers,at:Date.now()};
+      if(!captured||type==='hls'||captured.type!=='hls')captured=next;
+      console.log('[tiktok-session] capture',handle,type,requestUrl.slice(0,200));
+    }catch{}
+  };
+  page.on('request',onRequest);
+
+  try{
+    await page.goto('https://www.tiktok.com/@'+handle+'/live',{
+      waitUntil:'domcontentloaded',
+      timeout:22000
+    }).catch(error=>console.warn('[tiktok-session] goto',handle,compactText(error?.message||error,180)));
+
+    for(let i=0;i<14&&!captured;i+=1){
+      await page.evaluate(()=>{
+        for(const video of document.querySelectorAll('video')){
+          try{video.muted=true;void video.play?.()}catch{}
+        }
+      }).catch(()=>{});
+      await sleep(800);
+    }
+
+    if(!captured)throw new Error('live_media_not_captured');
+
+    const row={handle,page,url:captured.url,type:captured.type,headers:captured.headers,at:Date.now()};
+    tiktokLiveSessions.set(key,row);
+    console.log('[tiktok-session] ready',handle,row.type);
+    return row;
+  }catch(error){
+    page.off('request',onRequest);
+    await page.close().catch(()=>{});
+    throw error;
+  }
+}
+async function liveSessionHeaders(req,row,targetUrl){
+  const headers={};
+  for(const [name,value] of Object.entries(row?.headers||{})){
+    const key=String(name||'').toLowerCase();
+    if(!key||key.startsWith(':')||['host','content-length','connection','accept-encoding'].includes(key))continue;
+    headers[key]=String(value);
+  }
+  headers['user-agent']=headers['user-agent']||'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+  headers.referer=headers.referer||'https://www.tiktok.com/@'+row.handle+'/live';
+  headers.origin=headers.origin||'https://www.tiktok.com';
+  headers.accept=headers.accept||'*/*';
+  const cookies=await row.page.cookies(targetUrl).catch(()=>[]);
+  if(cookies.length)headers.cookie=cookies.map(x=>x.name+'='+x.value).join('; ');
+  if(req.headers.range)headers.range=String(req.headers.range);
+  return headers;
+}
+
 function cleanProxyTargets(){
   const cutoff=Date.now()-3*60*1000;
   for(const [key,row] of tiktokProxyTargets){
