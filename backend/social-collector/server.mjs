@@ -37,6 +37,8 @@ const tiktokLiveLibrary=new Map();
 const tiktokLiveLibraryRefreshAt=new Map();
 const tiktokLiveSelectedHandles=new Set();
 let tiktokLivePackageScanPromise=null;
+let tiktokLiveStoreWritePromise=null;
+let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
@@ -559,17 +561,184 @@ function queueTikTokLibraryWarm(handle){
 
 function registerTikTokLiveSelectedHandles(handles){
   const next=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
-  if(!next.length)return;
-  tiktokLiveSelectedHandles.clear();
-  for(const handle of next)tiktokLiveSelectedHandles.add(handle);
+  let changed=false;
+  for(const handle of next){
+    if(!tiktokLiveSelectedHandles.has(handle)){
+      tiktokLiveSelectedHandles.add(handle);
+      changed=true;
+    }
+  }
+  return changed;
 }
+
+async function loadTikTokLiveStore(){
+  try{
+    const [channelsRes,packageRes]=await Promise.all([
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?selected=eq.true&select=handle,live,stream_type,stream_url,source_sig,checked_at,updated_at&order=handle.asc',
+        {headers:storeHeaders()}
+      ),
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_package?package_key=eq.live&select=version,payload,updated_at&limit=1',
+        {headers:storeHeaders()}
+      )
+    ]);
+    if(!channelsRes.ok)throw new Error('tiktok_channels_read_'+channelsRes.status+':'+await channelsRes.text());
+    if(!packageRes.ok)throw new Error('tiktok_package_read_'+packageRes.status+':'+await packageRes.text());
+
+    const channels=await channelsRes.json();
+    const packageRows=await packageRes.json();
+
+    tiktokLiveSelectedHandles.clear();
+    for(const stored of Array.isArray(channels)?channels:[]){
+      const handle=normalizeTikTokHandle(stored?.handle||'');
+      if(!handle)continue;
+      tiktokLiveSelectedHandles.add(handle);
+
+      const type=String(stored?.stream_type||'').toLowerCase();
+      const url=String(stored?.stream_url||'');
+      const live=Boolean(stored?.live);
+      let source=null;
+
+      if(live&&type==='flv'&&/^https?:\/\//i.test(url)){
+        source={
+          mode:'fast-store',
+          handle,
+          type:'flv',
+          url,
+          headers:{
+            'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'accept':'*/*',
+            'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+            'referer':'https://www.tiktok.com/@'+handle+'/live',
+            'origin':'https://www.tiktok.com'
+          },
+          at:Date.parse(stored?.checked_at||stored?.updated_at||0)||Date.now(),
+          source:'supabase',
+          confirmed:false
+        };
+        if(tiktokLiveSourceUsable(source)){
+          tiktokLiveFastSources.set(handle.toLowerCase(),source);
+        }else{
+          source=null;
+        }
+      }
+
+      updateTikTokLiveLibrary(handle,{
+        live,
+        ready:Boolean(source),
+        type:source?.type||'',
+        mode:source?'fast-store':'',
+        source:source?'supabase':'',
+        status:live?(source?'live':'live'):'offline',
+        sourceSig:source?tiktokLibrarySourceSig(source):'',
+        lastSeenAt:Date.parse(stored?.checked_at||stored?.updated_at||0)||0,
+        expiresAt:source?tiktokStreamExpiresAt(source.url):0
+      });
+    }
+
+    const packageRow=Array.isArray(packageRows)?packageRows[0]:null;
+    const storedVersion=Number(packageRow?.version||0);
+    if(storedVersion>tiktokLiveLibraryVersion)tiktokLiveLibraryVersion=storedVersion;
+    tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
+    console.log('[tiktok-store] loaded','channels='+tiktokLiveSelectedHandles.size,'version='+tiktokLiveLibraryVersion);
+    return true;
+  }catch(error){
+    console.warn('[tiktok-store] load failed',compactText(error?.message||error,220));
+    return false;
+  }
+}
+
+function buildTikTokStoredRows(){
+  const now=nowIso();
+  return [...tiktokLiveSelectedHandles]
+    .map(handle=>{
+      const key=handle.toLowerCase();
+      const item=tiktokLiveLibrary.get(key)||{};
+      const source=currentTikTokLibrarySource(handle);
+      const live=Boolean(item.live);
+      const usable=live&&source&&source.type==='flv'&&tiktokLiveSourceUsable(source);
+      return {
+        handle,
+        selected:true,
+        live,
+        stream_type:usable?'flv':'',
+        stream_url:usable?String(source.url||''):'',
+        source_sig:usable?tiktokLibrarySourceSig(source):'',
+        checked_at:item.lastSeenAt?new Date(Number(item.lastSeenAt)).toISOString():now,
+        updated_at:now
+      };
+    })
+    .sort((a,b)=>a.handle.localeCompare(b.handle));
+}
+
+async function persistTikTokLiveStore({force=false}={}){
+  if(!force&&tiktokLivePersistedVersion===tiktokLiveLibraryVersion)return true;
+  if(tiktokLiveStoreWritePromise)return tiktokLiveStoreWritePromise;
+
+  tiktokLiveStoreWritePromise=(async()=>{
+    const rows=buildTikTokStoredRows();
+    const liveCount=rows.filter(row=>row.live).length;
+    const payload={
+      items:rows.map(row=>({
+        handle:row.handle,
+        live:row.live,
+        link:row.stream_url,
+        type:row.stream_type
+      })),
+      total:rows.length,
+      live:liveCount,
+      offline:rows.length-liveCount
+    };
+    const now=nowIso();
+
+    const [channelsRes,packageRes]=await Promise.all([
+      rows.length?fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?on_conflict=handle',
+        {
+          method:'POST',
+          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+          body:JSON.stringify(rows)
+        }
+      ):Promise.resolve({ok:true,status:204,text:async()=>''}),
+      fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_package?on_conflict=package_key',
+        {
+          method:'POST',
+          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+          body:JSON.stringify([{
+            package_key:'live',
+            version:tiktokLiveLibraryVersion,
+            payload,
+            updated_at:now
+          }])
+        }
+      )
+    ]);
+
+    if(!channelsRes.ok)throw new Error('tiktok_channels_write_'+channelsRes.status+':'+await channelsRes.text());
+    if(!packageRes.ok)throw new Error('tiktok_package_write_'+packageRes.status+':'+await packageRes.text());
+
+    tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
+    console.log('[tiktok-store] saved','channels='+rows.length,'live='+liveCount,'version='+tiktokLiveLibraryVersion);
+    return true;
+  })().catch(error=>{
+    console.warn('[tiktok-store] save failed',compactText(error?.message||error,220));
+    return false;
+  }).finally(()=>{
+    tiktokLiveStoreWritePromise=null;
+  });
+
+  return tiktokLiveStoreWritePromise;
+}
+
 function ensureTikTokLivePackageScan(handles=null){
-  const target=(handles&&handles.length)
-    ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
-    : [...tiktokLiveSelectedHandles];
+  if(handles?.length)registerTikTokLiveSelectedHandles(handles);
+  const target=[...tiktokLiveSelectedHandles];
   if(!target.length)return Promise.resolve();
   if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
   tiktokLivePackageScanPromise=refreshTikTokLiveLibrary(target,{warm:false})
+    .then(()=>persistTikTokLiveStore())
     .catch(error=>console.log('[tiktok-package] scan failed',compactText(error?.message||error,120)))
     .finally(()=>{tiktokLivePackageScanPromise=null;});
   return tiktokLivePackageScanPromise;
@@ -634,12 +803,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     // transport. The player is the health check. If it dies, feedback below
     // discards it and this same fast scan fetches a fresh FLV URL.
     if(flv){
-      const current=tiktokLiveFastSources.get(key);
-      const chosenSig=tiktokLibrarySourceSig(flv);
-      const currentSig=current?tiktokLibrarySourceSig(current):'';
-
-      let row=current;
-      if(!current||currentSig!==chosenSig||!tiktokLiveSourceUsable(current)){
+      let row=tiktokLiveFastSources.get(key);
+      if(!row||!tiktokLiveSourceUsable(row)||isTikTokBadSource(handle,row)){
         row=seedTikTokFastSource(handle,{
           stream_url:flv.url,
           stream_type:'flv'
@@ -648,8 +813,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
 
       if(row){
         publishTikTokLiveSourceNow(handle,row,{
-          mode:'fast',
-          source:'room-api-flv'
+          mode:String(row.mode||'fast'),
+          source:String(row.source||'room-api-flv')
         });
       }
       continue;
@@ -2849,20 +3014,18 @@ const server=http.createServer(async(req,res)=>{
       .filter(Boolean)
       .slice(0,60);
 
-    registerTikTokLiveSelectedHandles(handles);
-
-    let missing=false;
-    for(const handle of handles){
-      if(!tiktokLiveLibrary.has(handle.toLowerCase())){
-        missing=true;
-        updateTikTokLiveLibrary(handle,{status:'unknown'});
+    const added=registerTikTokLiveSelectedHandles(handles);
+    if(added){
+      for(const handle of handles){
+        if(!tiktokLiveLibrary.has(handle.toLowerCase()))updateTikTokLiveLibrary(handle,{status:'unknown'});
       }
+      void persistTikTokLiveStore({force:true});
     }
 
-    // Server owns the package. UI normally requests refresh=0 and only reads
-    // the current version. On first registration after a restart, build once.
-    if(missing||url.searchParams.get('refresh')==='1'){
-      await ensureTikTokLivePackageScan(handles);
+    // UI only reads the server-owned package. A forced refresh is still
+    // available for explicit admin actions, but normal polling never scans.
+    if(url.searchParams.get('refresh')==='1'){
+      await ensureTikTokLivePackageScan();
     }
 
     const clientVersion=Number(url.searchParams.get('v')||-1);
@@ -2875,7 +3038,7 @@ const server=http.createServer(async(req,res)=>{
       return;
     }
 
-    const wanted=handles.length?new Set(handles.map(x=>x.toLowerCase())):null;
+    const wanted=tiktokLiveSelectedHandles.size?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase())):null;
     const items=[...tiktokLiveLibrary.values()]
       .filter(row=>!wanted||wanted.has(String(row.handle||'').toLowerCase()))
       .map(publicTikTokLibraryItem)
@@ -3120,6 +3283,9 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
+  void loadTikTokLiveStore().then(()=>{
+    void ensureTikTokLivePackageScan();
+  });
   setInterval(()=>{void ensureTikTokLivePackageScan();},3000).unref();
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
