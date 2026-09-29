@@ -522,7 +522,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
   const now=Date.now();
   const due=normalized
     .filter(handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS)
-    .slice(0,10);
+    .slice(0,20);
 
   if(!due.length)return;
 
@@ -537,12 +537,10 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
     }
   }));
 
-  // Ambiguous channels are handed to yt-dlp in the background. The API
-  // response is not held open while those checks run.
-  const ambiguous=checked
-    .filter(x=>!x.status?.known&&!x.status?.live&&!(x.status?.candidates||[]).length)
-    .map(x=>x.handle);
-
+  // Stage 1 is only classification. If TikTok does not positively report
+  // LIVE in this pass, skip expensive extraction entirely and retry on a later
+  // cycle. This keeps the list fast and prevents non-LIVE accounts from ever
+  // reaching yt-dlp / ffprobe / Chromium.
   const warmQueue=[];
   for(const result of checked){
     const handle=result.handle;
@@ -602,17 +600,27 @@ async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
       continue;
     }
 
-    // Do not call an ambiguous channel offline. Keep it in a separate group,
-    // but it will be retried on the next due cycle.
-    updateTikTokLiveLibrary(handle,{
-      live:false,ready:false,status:'checking',lastSeenAt:Date.now()
-    });
+    // No positive LIVE signal => skip it immediately for this cycle.
+    // Keep the prior confirmed LIVE source only if one is still actively valid;
+    // otherwise show as not LIVE and retry on the next lightweight scan.
+    const existing=currentTikTokLibrarySource(handle);
+    if(existing?.confirmed&&tiktokLiveCacheReusable(existing)){
+      noteTikTokLibrarySource(handle,existing,{
+        ready:true,status:'ready',
+        mode:existing.mode||'cache',
+        source:existing.source||'cache'
+      });
+    }else{
+      updateTikTokLiveLibrary(handle,{
+        live:false,ready:false,status:'offline',sourceSig:'',
+        videoCodec:'',audioCodec:'',width:0,height:0,lastSeenAt:Date.now()
+      });
+    }
   }
 
   for(const handle of warmQueue){
     queueTikTokLibraryWarm(handle);
   }
-  if(ambiguous.length)queueTikTokStatusFallback(ambiguous);
 }
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
@@ -828,7 +836,7 @@ async function quickTikTokLiveStatus(rawHandle){
         'referer':'https://www.tiktok.com/@'+handle+'/live'
       },
       redirect:'follow',
-      signal:AbortSignal.timeout(2500)
+      signal:AbortSignal.timeout(1800)
     });
     if(!r.ok)return {known:false,live:false,candidates:[]};
     const data=await r.json();
