@@ -25,6 +25,13 @@ main{max-width:1180px;margin:auto;padding:14px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .stat{padding:12px;border:1px solid var(--line);border-radius:15px;background:var(--card)}
 .stat strong{display:block;font-size:21px;line-height:1.15}.stat span{font-size:12px;color:var(--muted)}
+.checker{margin:0 0 14px;padding:12px;border:1px solid var(--line);border-radius:16px;background:var(--card)}
+.checkrow{display:flex;gap:8px;align-items:center}
+.checkrow input{min-width:0;flex:1;border:1px solid #3a3a3a;background:#101010;color:#fff;border-radius:14px;padding:10px 12px;font-size:14px;outline:none}
+.checkrow input:focus{border-color:#777}
+.checkmsg{margin-top:8px;min-height:18px;font-size:13px;color:var(--muted)}
+.saved{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.saved button{padding:6px 9px;font-size:12px}
 .toolbar{display:flex;gap:8px;overflow:auto;padding-bottom:2px}
 .toolbar button.active{background:#fff;color:#111;font-weight:700}
 .grid{display:grid;grid-template-columns:1fr;gap:12px}
@@ -70,6 +77,15 @@ main{max-width:1180px;margin:auto;padding:14px}
     </div>
   </section>
 
+  <section class="checker">
+    <div class="checkrow">
+      <input id="userInput" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@username hoặc nhiều ID, cách nhau bằng dấu phẩy">
+      <button id="checkUser">Kiểm tra LIVE</button>
+    </div>
+    <div id="checkMsg" class="checkmsg">Nguồn chắc chắn: kiểm tra từng ID bằng yt-dlp, không cần đăng nhập.</div>
+    <div id="savedUsers" class="saved"></div>
+  </section>
+
   <div class="toolbar">
     <button class="active" data-mode="live">Đang LIVE</button>
     <button data-mode="all">Tất cả</button>
@@ -90,7 +106,13 @@ const accountText=document.getElementById('accountText');
 const totalCount=document.getElementById('totalCount');
 const liveCount=document.getElementById('liveCount');
 const shownCount=document.getElementById('shownCount');
-let rows=[],mode='live';
+const userInput=document.getElementById('userInput');
+const checkMsg=document.getElementById('checkMsg');
+const savedUsers=document.getElementById('savedUsers');
+let rows=[],checkedRows=[],mode='live';
+let savedHandles=[];
+try{savedHandles=JSON.parse(localStorage.getItem('tiktok-demo-handles')||'[]')}catch{}
+if(!Array.isArray(savedHandles))savedHandles=[];
 
 function esc(v=''){
   return String(v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
@@ -123,9 +145,24 @@ function card(row){
     '</div>'+
   '</a>';
 }
+function mergedRows(){
+  const all=[...checkedRows,...rows],out=[],seen=new Set();
+  for(const row of all){
+    const key=String(row.roomId||row.id||row.handle||row.url||'').toLowerCase();
+    if(!key||seen.has(key))continue;
+    seen.add(key);out.push(row);
+  }
+  return out;
+}
+function renderSaved(){
+  savedUsers.innerHTML=savedHandles.map(h=>'<button data-saved="'+esc(h)+'">@'+esc(h)+'</button>').join('');
+  savedUsers.querySelectorAll('[data-saved]').forEach(b=>b.onclick=()=>{userInput.value='@'+b.dataset.saved;checkHandles([b.dataset.saved])});
+}
 function render(){
-  const list=mode==='live'?rows.filter(isLive):rows;
+  const all=mergedRows();
+  const list=mode==='live'?all.filter(isLive):all;
   shownCount.textContent=String(list.length);
+  liveCount.textContent=String(all.filter(isLive).length);
   document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===mode));
   if(!list.length){
     grid.innerHTML='<div class="empty">Chưa có dữ liệu '+(mode==='live'?'LIVE':'TikTok')+' trong snapshot hiện tại.<br><span class="small">Khi collector lấy được dữ liệu mới, card sẽ xuất hiện ở đây.</span></div>';
@@ -133,6 +170,63 @@ function render(){
   }
   grid.innerHTML=list.map(card).join('');
 }
+function parseHandles(text){
+  return [...new Set(String(text||'').split(/[\s,;]+/).map(x=>x.trim().replace(/^@/,'')).filter(x=>/^[A-Za-z0-9._]{2,32}$/.test(x)))].slice(0,20);
+}
+function remember(handles){
+  savedHandles=[...new Set([...handles,...savedHandles])].slice(0,30);
+  localStorage.setItem('tiktok-demo-handles',JSON.stringify(savedHandles));
+  renderSaved();
+}
+async function checkHandles(handles){
+  handles=parseHandles(handles.join(' '));
+  if(!handles.length){checkMsg.textContent='Nhập ít nhất một @username hợp lệ.';return;}
+  remember(handles);
+  document.getElementById('checkUser').disabled=true;
+  let done=0,liveFound=0;
+  for(const handle of handles){
+    checkMsg.textContent='Đang kiểm tra @'+handle+'… '+done+'/'+handles.length;
+    try{
+      const r=await fetch(API+'/tiktok/check-live?user='+encodeURIComponent(handle),{cache:'no-store'});
+      const j=await r.json();
+      if(!r.ok||!j.ok)throw new Error(j.error||('HTTP '+r.status));
+      done++;
+      checkedRows=checkedRows.filter(x=>String(x.handle||'').toLowerCase()!==handle.toLowerCase());
+      const row={
+        id:j.id||('check:'+handle.toLowerCase()),
+        handle,
+        title:j.title||('@'+handle+(j.live?' đang LIVE':' hiện không LIVE')),
+        thumbnail:j.thumbnail||'',
+        url:j.url||('https://www.tiktok.com/@'+handle+'/live'),
+        live:Boolean(j.live),
+        isLive:Boolean(j.live),
+        origin:'yt-dlp'
+      };
+      checkedRows.unshift(row);
+      if(j.live)liveFound++;
+      render();
+    }catch(err){
+      done++;
+      checkedRows=checkedRows.filter(x=>String(x.handle||'').toLowerCase()!==handle.toLowerCase());
+      checkedRows.unshift({
+        id:'check:'+handle.toLowerCase(),
+        handle,
+        title:'@'+handle+' · kiểm tra lỗi',
+        thumbnail:'',
+        url:'https://www.tiktok.com/@'+handle+'/live',
+        live:false,
+        isLive:false,
+        origin:'yt-dlp'
+      });
+      render();
+    }
+  }
+  checkMsg.textContent='Đã kiểm tra '+done+' ID · đang LIVE: '+liveFound+'.';
+  document.getElementById('checkUser').disabled=false;
+}
+document.getElementById('checkUser').onclick=()=>checkHandles(parseHandles(userInput.value));
+userInput.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();checkHandles(parseHandles(userInput.value));}});
+
 async function load(){
   document.getElementById('refresh').disabled=true;
   try{
@@ -145,7 +239,7 @@ async function load(){
     const data=f.data||{};
     rows=Array.isArray(data.items)?data.items:[];
     totalCount.textContent=String(data.count??rows.length);
-    liveCount.textContent=String(data.liveCount??rows.filter(isLive).length);
+    liveCount.textContent=String(mergedRows().filter(isLive).length);
     snapshotText.textContent='Snapshot: '+timeText(f.collectedAt||data.collectedAt);
     const account=data.account||{};
     accountText.textContent='Tài khoản: '+(account.handle?'@'+account.handle:(account.username?'@'+account.username:'chưa nhận'));
@@ -162,6 +256,7 @@ async function load(){
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;render()});
 document.getElementById('refresh').onclick=load;
+renderSaved();
 load();
 </script>
 </body>

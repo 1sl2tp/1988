@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { URL } from 'node:url';
+import {execFile} from 'node:child_process';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
@@ -24,6 +25,8 @@ let serial=Promise.resolve();
 let queueDepth=0;
 const memorySnapshots=new Map();
 const lastRuns=new Map();
+const tiktokLiveCheckCache=new Map();
+let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function nowIso(){return new Date().toISOString();}
@@ -70,6 +73,95 @@ async function readJson(req,maxBytes=1024*1024){
   if(!chunks.length)return {};
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
+function enqueueYtdlp(task){
+  const run=ytdlpSerial.then(task,task);
+  ytdlpSerial=run.catch(()=>{});
+  return run;
+}
+function execFileText(file,args,{timeout=25000,maxBuffer=4*1024*1024}={}){
+  return new Promise((resolve,reject)=>{
+    execFile(file,args,{timeout,maxBuffer,encoding:'utf8'},(error,stdout,stderr)=>{
+      if(error){
+        error.stdout=stdout;
+        error.stderr=stderr;
+        reject(error);
+        return;
+      }
+      resolve(String(stdout||''));
+    });
+  });
+}
+function normalizeTikTokHandle(value){
+  const handle=String(value||'').trim().replace(/^@/,'');
+  return /^[A-Za-z0-9._]{2,32}$/.test(handle)?handle:'';
+}
+async function checkTikTokLiveWithYtDlp(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)throw new Error('invalid_tiktok_handle');
+
+  const cached=tiktokLiveCheckCache.get(handle.toLowerCase());
+  if(cached&&Date.now()-cached.at<60_000)return cached.value;
+
+  const url='https://www.tiktok.com/@'+handle+'/live';
+  const value=await enqueueYtdlp(async()=>{
+    try{
+      const out=await execFileText('yt-dlp',[
+        '--dump-single-json',
+        '--skip-download',
+        '--no-playlist',
+        '--no-warnings',
+        '--socket-timeout','12',
+        '--retries','1',
+        '--extractor-retries','1',
+        url
+      ],{timeout:25_000});
+      const data=JSON.parse(out);
+      const live=Boolean(
+        data?.is_live===true||
+        data?.was_live===true||
+        String(data?.live_status||'').toLowerCase()==='is_live'
+      );
+      const streamUrl=String(
+        data?.url||
+        data?.manifest_url||
+        data?.formats?.find?.(f=>String(f?.protocol||'').includes('m3u8'))?.url||
+        data?.formats?.find?.(f=>/flv/i.test(String(f?.ext||'')))?.url||
+        ''
+      );
+      return {
+        ok:true,
+        handle,
+        live,
+        url,
+        title:String(data?.title||''),
+        thumbnail:String(data?.thumbnail||''),
+        uploader:String(data?.uploader||data?.uploader_id||handle),
+        id:String(data?.id||''),
+        streamUrl:live?streamUrl:'',
+        checkedAt:nowIso()
+      };
+    }catch(error){
+      const message=compactText(error?.stderr||error?.message||error,500);
+      const notLive=/not live|isn't live|is not live|offline|not currently live|unable to extract|video unavailable/i.test(message);
+      return {
+        ok:true,
+        handle,
+        live:false,
+        url,
+        title:'',
+        thumbnail:'',
+        uploader:handle,
+        id:'',
+        streamUrl:'',
+        checkedAt:nowIso(),
+        note:notLive?'not_live':message||'check_failed'
+      };
+    }
+  });
+  tiktokLiveCheckCache.set(handle.toLowerCase(),{at:Date.now(),value});
+  return value;
+}
+
 function enqueue(task){
   queueDepth+=1;
   const run=serial.then(task,task);
@@ -1135,6 +1227,18 @@ const server=http.createServer(async(req,res)=>{
       }finally{
         await page.close().catch(()=>{});
       }
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/check-live'&&req.method==='GET'){
+    try{
+      const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+      if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
+      const data=await checkTikTokLiveWithYtDlp(handle);
+      json(res,200,data);
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
     }
