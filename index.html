@@ -2252,6 +2252,7 @@ html.one-col.portrait .player.pip{
   const SOURCE_STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
   const VIDEO_META_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-video-meta";
+  const MEDIA_API_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -4322,17 +4323,6 @@ html.one-col.portrait .player.pip{
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  const COBALT_DIRECT_APIS=[
-    "https://cobalt-alpha.wolfy.love/",
-    "https://nuko-c.meowing.de/",
-    "https://apicobalt.mgytr.top/",
-    "https://bergung-api.hoffnungfuerdiezukunft.net/",
-    "https://melon.clxxped.lol/",
-    "https://grapefruit.clxxped.lol/",
-    "https://api.cobalt.rpkiinval.id/",
-    "https://api.qwkuns.me/"
-  ];
-
   function canDownloadMeta(meta={}){
     return /^[A-Za-z0-9_-]{11}$/.test(String(meta?.id||"").trim());
   }
@@ -4343,111 +4333,33 @@ html.one-col.portrait .player.pip{
     const menu=ensureRowActionMenu();
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
-      rowActionButton("download-mp4","Video MP4 · 720p H.264","video",{disabled:!enabled})+
-      rowActionButton("download-mp3","Âm thanh MP3","audio",{disabled:!enabled})+
-      '<div class="row-action-note">Cobalt xử lý trực tiếp trên máy này.</div>'+
+      rowActionButton("download-mp4","Video","video",{disabled:!enabled})+
+      rowActionButton("download-mp3","Âm thanh","audio",{disabled:!enabled})+
+      '<div class="row-action-note">Tải trực tiếp định dạng media có sẵn.</div>'+
       '<div class="row-action-sep"></div>'+
       rowActionButton("back-main","Quay lại","back");
     menu.hidden=false;
     requestAnimationFrame(()=>positionRowActionMenu(openRowMenuAnchor));
   }
 
-  async function resolveCobaltInBrowser(meta={},format="mp4"){
+  function directMediaDownloadUrl(meta={},format="mp4"){
     const id=String(meta?.id||"").trim();
-    format=String(format||"mp4").toLowerCase();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
-    if(format!=="mp3"&&format!=="mp4")return null;
-
-    const youtubeUrl="https://www.youtube.com/watch?v="+id;
-    const payload=format==="mp3"
-      ?{
-          url:youtubeUrl,
-          downloadMode:"audio",
-          audioFormat:"mp3",
-          audioBitrate:"128",
-          filenameStyle:"pretty",
-          youtubeVideoCodec:"h264",
-          localProcessing:"disabled",
-          alwaysProxy:false
-        }
-      :{
-          url:youtubeUrl,
-          downloadMode:"auto",
-          videoQuality:"720",
-          youtubeVideoCodec:"h264",
-          youtubeVideoContainer:"mp4",
-          filenameStyle:"pretty",
-          localProcessing:"disabled",
-          alwaysProxy:false
-        };
-
-    let tunnelFallback=null;
-
-    for(const api of COBALT_DIRECT_APIS){
-      try{
-        const response=await fetch(api,{
-          method:"POST",
-          mode:"cors",
-          cache:"no-store",
-          credentials:"omit",
-          headers:{
-            "accept":"application/json",
-            "content-type":"application/json"
-          },
-          body:JSON.stringify(payload)
-        });
-        const data=await response.json().catch(()=>({}));
-        const status=String(data?.status||"").trim();
-        const url=String(data?.url||"").trim();
-        const filename=String(data?.filename||"").trim();
-
-        if(response.ok&&status==="redirect"&&/^https:\/\//i.test(url)){
-          return {status,url,filename};
-        }
-
-        if(
-          response.ok&&
-          status==="tunnel"&&
-          /^https:\/\//i.test(url)&&
-          !tunnelFallback
-        ){
-          tunnelFallback={status,url,filename};
-          continue;
-        }
-
-        if(status==="error"){
-          console.warn("cobalt resolve error",api,data?.error||data);
-        }
-      }catch(error){
-        console.warn("cobalt direct resolve failed",api,error);
-      }
-    }
-
-    return tunnelFallback;
-  }
-
-  function triggerBrowserDownload(file={}){
-    const url=String(file?.url||"").trim();
-    if(!/^https:\/\//i.test(url))return false;
-
-    // Cobalt has already produced the real attachment URL. Keep it invisible
-    // and hand it straight back to the current web page's native downloader.
-    const anchor=document.createElement("a");
-    anchor.href=url;
-    anchor.download=String(file?.filename||"").trim();
-    anchor.rel="noopener";
-    anchor.style.display="none";
-    document.body.appendChild(anchor);
-    anchor.click();
-    window.setTimeout(()=>anchor.remove(),1500);
-    return true;
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return "";
+    const kind=String(format||"mp4").toLowerCase()==="mp3"?"audio":"video";
+    const url=new URL(MEDIA_API_URL);
+    url.searchParams.set("action","media");
+    url.searchParams.set("id",id);
+    url.searchParams.set("kind",kind);
+    url.searchParams.set("download","1");
+    url.searchParams.set("_",String(Date.now()));
+    return url.toString();
   }
 
   function showDownloadPending(format="mp4"){
     const menu=ensureRowActionMenu();
     const label=String(format||"mp4").toLowerCase()==="mp3"
-      ?"Đang chuẩn bị MP3…"
-      :"Đang chuẩn bị MP4…";
+      ?"Đang lấy âm thanh…"
+      :"Đang lấy video…";
     menu.innerHTML=
       '<div class="row-action-title">Tải xuống</div>'+
       '<div class="row-action-note">'+escapeHtml(label)+'</div>';
@@ -4456,12 +4368,20 @@ html.one-col.portrait .player.pip{
   }
 
   async function startNativeDownload(meta={},format="mp4"){
-    const file=await resolveCobaltInBrowser(meta,format);
-    if(!file){
-      window.alert("Chưa tạo được file tải xuống.");
+    const url=directMediaDownloadUrl(meta,format);
+    if(!url){
+      window.alert("Không tìm thấy media để tải.");
       return false;
     }
-    return triggerBrowserDownload(file);
+
+    const anchor=document.createElement("a");
+    anchor.href=url;
+    anchor.rel="noopener";
+    anchor.style.display="none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    window.setTimeout(()=>anchor.remove(),5000);
+    return true;
   }
 
   async function writeCardSourceStatus(meta,status,scope){
