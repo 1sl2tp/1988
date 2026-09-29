@@ -1908,6 +1908,41 @@ async function fetchTikTokProfileIdentity(handle){
 }
 
 
+async function fetchTikTokUserDetail(handle){
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api/user/detail/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('uniqueId',handle);
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle,
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(4000)
+    });
+    if(!r.ok)return null;
+    const body=await r.json();
+    const user=
+      body?.userInfo?.user||
+      body?.data?.userInfo?.user||
+      body?.data?.user||
+      null;
+    if(!user)return null;
+    return {
+      secUid:String(user?.secUid||user?.sec_uid||''),
+      userId:String(user?.id||user?.uid||''),
+      nickname:String(user?.nickname||''),
+      avatar:firstTikTokAssetUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb)
+    };
+  }catch{
+    return null;
+  }
+}
+
 function firstTikTokAssetUrl(value){
   if(!value)return '';
   if(typeof value==='string')return value;
@@ -1984,6 +2019,10 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
 
   let secUid=String(knownSecUid||'').trim();
+  if(!secUid){
+    const detail=await fetchTikTokUserDetail(handle);
+    secUid=String(detail?.secUid||'').trim();
+  }
   if(!secUid){
     const identity=await fetchTikTokProfileIdentity(handle);
     secUid=String(identity?.secUid||'').trim();
