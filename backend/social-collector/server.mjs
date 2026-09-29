@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { URL } from 'node:url';
 import {execFile} from 'node:child_process';
-import {randomUUID} from 'node:crypto';
+import {randomUUID,createHash} from 'node:crypto';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
@@ -33,6 +33,14 @@ const tiktokLiveSessionInflight=new Map();
 const tiktokLiveFastSources=new Map();
 const tiktokLiveBadSources=new Map();
 const tiktokLivePreferBrowser=new Map();
+const tiktokLiveLibrary=new Map();
+const tiktokLiveLibraryRefreshAt=new Map();
+const TIKTOK_LIVE_LIBRARY_SNAPSHOT='tiktok_live_library';
+const TIKTOK_LIVE_LIBRARY_REFRESH_MS=15_000;
+let tiktokLiveLibraryVersion=0;
+let tiktokLiveLibraryUpdatedAt=0;
+let tiktokLiveLibrarySaveTimer=null;
+let tiktokLiveLibraryWarmPromise=null;
 let ytdlpSerial=Promise.resolve();
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
@@ -102,6 +110,191 @@ function execFileText(file,args,{timeout=25000,maxBuffer=4*1024*1024}={}){
 function normalizeTikTokHandle(value){
   const handle=String(value||'').trim().replace(/^@/,'');
   return /^[A-Za-z0-9._]{2,32}$/.test(handle)?handle:'';
+}
+
+function tiktokLibrarySourceSig(row){
+  if(!row?.url)return '';
+  const raw=tiktokLiveSourceFingerprint(row.url,row.type||'');
+  return createHash('sha1').update(raw).digest('hex').slice(0,12);
+}
+function tiktokLibraryMaterial(row){
+  return JSON.stringify([
+    Boolean(row?.live),
+    Boolean(row?.ready),
+    String(row?.type||''),
+    String(row?.mode||''),
+    String(row?.source||''),
+    String(row?.status||''),
+    String(row?.sourceSig||''),
+    Number(row?.expiresAt||0)
+  ]);
+}
+function publicTikTokLibraryItem(row){
+  if(!row)return null;
+  return {
+    handle:String(row.handle||''),
+    live:Boolean(row.live),
+    ready:Boolean(row.ready),
+    type:String(row.type||''),
+    mode:String(row.mode||''),
+    source:String(row.source||''),
+    status:String(row.status||'unknown'),
+    sourceSig:String(row.sourceSig||''),
+    changedAt:Number(row.changedAt||0),
+    confirmedAt:Number(row.confirmedAt||0),
+    lastSeenAt:Number(row.lastSeenAt||0),
+    expiresAt:Number(row.expiresAt||0)
+  };
+}
+function scheduleTikTokLibrarySave(){
+  if(tiktokLiveLibrarySaveTimer)return;
+  tiktokLiveLibrarySaveTimer=setTimeout(()=>{
+    tiktokLiveLibrarySaveTimer=null;
+    void persistTikTokLiveLibrary();
+  },1200);
+  tiktokLiveLibrarySaveTimer.unref?.();
+}
+function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return false;
+  const key=handle.toLowerCase();
+  const now=Date.now();
+  const prev=tiktokLiveLibrary.get(key)||{
+    handle,live:false,ready:false,type:'',mode:'',source:'',
+    status:'unknown',sourceSig:'',changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
+  };
+  const next={...prev,...patch,handle};
+  if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
+  const changed=tiktokLibraryMaterial(prev)!==tiktokLibraryMaterial(next);
+  if(changed){
+    next.changedAt=now;
+    tiktokLiveLibraryVersion+=1;
+    tiktokLiveLibraryUpdatedAt=now;
+  }
+  tiktokLiveLibrary.set(key,next);
+  if(changed&&options.persist!==false)scheduleTikTokLibrarySave();
+  return changed;
+}
+function currentTikTokLibrarySource(handle){
+  const key=String(handle||'').toLowerCase();
+  const browser=tiktokLiveSessions.get(key);
+  if(browser&&browser.page&&!browser.page.isClosed()&&tiktokLiveCacheReusable(browser))return browser;
+  const fast=tiktokLiveFastSources.get(key);
+  if(fast&&tiktokLiveCacheReusable(fast)&&!isTikTokBadSource(handle,fast))return fast;
+  return null;
+}
+function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status=''}={}){
+  if(!row?.url)return false;
+  const confirmed=ready==null?Boolean(row.confirmed):Boolean(ready);
+  const expiresAt=tiktokStreamExpiresAt(row.url);
+  return updateTikTokLiveLibrary(handle,{
+    live:true,
+    ready:confirmed||tiktokLiveCacheReusable(row),
+    type:String(row.type||''),
+    mode:String(mode||row.mode||''),
+    source:String(source||row.source||''),
+    status:String(status||(confirmed?'ready':'warm')),
+    sourceSig:tiktokLibrarySourceSig(row),
+    confirmedAt:confirmed?Date.now():Number(tiktokLiveLibrary.get(String(handle).toLowerCase())?.confirmedAt||0),
+    lastSeenAt:Date.now(),
+    expiresAt
+  });
+}
+async function persistTikTokLiveLibrary(){
+  try{
+    const items=[...tiktokLiveLibrary.values()]
+      .map(publicTikTokLibraryItem)
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.ready)-Number(a.ready)||a.handle.localeCompare(b.handle));
+    await saveSnapshot(TIKTOK_LIVE_LIBRARY_SNAPSHOT,{
+      version:tiktokLiveLibraryVersion,
+      updatedAt:tiktokLiveLibraryUpdatedAt,
+      items
+    },'ok');
+    console.log('[tiktok-library] saved',items.length,'v='+tiktokLiveLibraryVersion);
+  }catch(error){
+    console.warn('[tiktok-library] save failed',compactText(error?.message||error,160));
+  }
+}
+async function loadTikTokLiveLibrary(){
+  try{
+    const row=await loadSnapshot(TIKTOK_LIVE_LIBRARY_SNAPSHOT);
+    const payload=row?.payload||{};
+    const items=Array.isArray(payload.items)?payload.items:[];
+    for(const item of items){
+      const handle=normalizeTikTokHandle(item?.handle||'');
+      if(!handle)continue;
+      // A persisted record survives service restart, but its live media session
+      // does not. Keep the history/type while marking it stale until rewarmed.
+      tiktokLiveLibrary.set(handle.toLowerCase(),{
+        ...item,
+        handle,
+        ready:false,
+        status:item?.live?'stale':String(item?.status||'offline')
+      });
+    }
+    tiktokLiveLibraryVersion=Math.max(Number(payload.version||0),items.length?1:0);
+    tiktokLiveLibraryUpdatedAt=Number(payload.updatedAt||Date.parse(row?.updated_at||'')||0);
+    console.log('[tiktok-library] loaded',items.length,'v='+tiktokLiveLibraryVersion);
+  }catch(error){
+    console.warn('[tiktok-library] load failed',compactText(error?.message||error,160));
+  }
+}
+async function refreshTikTokLiveLibrary(handles,{warm=true}={}){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,20);
+  if(!normalized.length)return;
+  let warmHandle='';
+  for(const handle of normalized){
+    const key=handle.toLowerCase();
+    const prev=tiktokLiveLibrary.get(key);
+    const last=Number(tiktokLiveLibraryRefreshAt.get(key)||0);
+    if(Date.now()-last<TIKTOK_LIVE_LIBRARY_REFRESH_MS)continue;
+    tiktokLiveLibraryRefreshAt.set(key,Date.now());
+    if(!prev)updateTikTokLiveLibrary(handle,{status:'unknown'});
+
+    try{
+      const status=await quickTikTokLiveStatus(handle);
+      if(status.known&&!status.live){
+        updateTikTokLiveLibrary(handle,{
+          live:false,ready:false,status:'offline',lastSeenAt:Date.now()
+        });
+        continue;
+      }
+      if(status.live||status.candidates?.length){
+        const sourceRow=currentTikTokLibrarySource(handle);
+        if(sourceRow){
+          noteTikTokLibrarySource(handle,sourceRow,{
+            ready:Boolean(sourceRow.confirmed),
+            status:sourceRow.confirmed?'ready':'warm'
+          });
+        }else{
+          updateTikTokLiveLibrary(handle,{
+            live:true,ready:false,status:'live',lastSeenAt:Date.now()
+          });
+          if(warm&&!warmHandle)warmHandle=handle;
+        }
+      }
+    }catch(error){
+      console.log('[tiktok-library] refresh miss',handle,compactText(error?.message||error,100));
+    }
+  }
+
+  if(warmHandle&&!tiktokLiveLibraryWarmPromise){
+    tiktokLiveLibraryWarmPromise=(async()=>{
+      try{
+        const source=await resolveTikTokLiveSource(warmHandle);
+        const row=currentTikTokLibrarySource(warmHandle)||source;
+        noteTikTokLibrarySource(warmHandle,row,{
+          mode:source.mode||'',
+          source:source.source||'',
+          ready:Boolean(row?.confirmed),
+          status:row?.confirmed?'ready':'warm'
+        });
+      }catch(error){
+        console.log('[tiktok-library] warm failed',warmHandle,compactText(error?.message||error,120));
+      }
+    })().finally(()=>{tiktokLiveLibraryWarmPromise=null;});
+  }
 }
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
@@ -462,7 +655,10 @@ async function resolveTikTokLiveSource(rawHandle){
   }
 
   const preflight=await quickTikTokLiveStatus(handle);
-  if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
+  if(preflight.known&&!preflight.live){
+    updateTikTokLiveLibrary(handle,{live:false,ready:false,status:'offline',lastSeenAt:Date.now()});
+    throw new Error('tiktok_not_live');
+  }
 
   const candidates=(preflight.candidates||[]).filter(row=>!isTikTokBadSource(handle,row));
   for(const candidate of candidates.slice(0,10)){
@@ -2220,6 +2416,13 @@ const server=http.createServer(async(req,res)=>{
         clearTikTokBadSource(handle,browser);
         marked=true;
       }
+      const good=currentTikTokLibrarySource(handle);
+      if(good)noteTikTokLibrarySource(handle,good,{
+        ready:true,
+        status:'ready',
+        mode:good===browser?'browser-cache':'fast-cache',
+        source:good.source||''
+      });
       console.log('[tiktok-cache] confirmed',handle,type||'any',marked?'yes':'miss');
       json(res,200,{ok:true,confirmed:marked});
       return;
@@ -2235,12 +2438,54 @@ const server=http.createServer(async(req,res)=>{
         await closeTikTokLiveSession(key);
       }
       preferTikTokBrowser(handle);
+      updateTikTokLiveLibrary(handle,{
+        live:true,ready:false,status:'stale',lastSeenAt:Date.now()
+      });
       console.log('[tiktok-cache] evict bad',handle,type||'any','prefer-browser');
       json(res,200,{ok:true});
       return;
     }
 
     json(res,400,{ok:false,error:'invalid_status'});
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-library'&&req.method==='GET'){
+    const handles=String(url.searchParams.get('handles')||'')
+      .split(',')
+      .map(normalizeTikTokHandle)
+      .filter(Boolean)
+      .slice(0,20);
+    for(const handle of handles){
+      if(!tiktokLiveLibrary.has(handle.toLowerCase())){
+        updateTikTokLiveLibrary(handle,{status:'unknown'});
+      }
+    }
+    if(url.searchParams.get('refresh')!=='0')void refreshTikTokLiveLibrary(handles,{warm:true});
+
+    const clientVersion=Number(url.searchParams.get('v')||-1);
+    if(clientVersion===tiktokLiveLibraryVersion){
+      json(res,200,{
+        ok:true,unchanged:true,
+        version:tiktokLiveLibraryVersion,
+        updatedAt:tiktokLiveLibraryUpdatedAt
+      });
+      return;
+    }
+
+    const wanted=handles.length?new Set(handles.map(x=>x.toLowerCase())):null;
+    const items=[...tiktokLiveLibrary.values()]
+      .filter(row=>!wanted||wanted.has(String(row.handle||'').toLowerCase()))
+      .map(publicTikTokLibraryItem)
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.ready)-Number(a.ready)||Number(b.changedAt)-Number(a.changedAt));
+
+    json(res,200,{
+      ok:true,unchanged:false,
+      version:tiktokLiveLibraryVersion,
+      updatedAt:tiktokLiveLibraryUpdatedAt,
+      items
+    });
     return;
   }
 
@@ -2260,6 +2505,13 @@ const server=http.createServer(async(req,res)=>{
       }else{
         source=await resolveTikTokLiveSource(handle);
       }
+      const libraryRow=currentTikTokLibrarySource(handle);
+      if(libraryRow)noteTikTokLibrarySource(handle,libraryRow,{
+        mode:source.mode||'',
+        source:source.source||source.mode,
+        ready:Boolean(libraryRow.confirmed),
+        status:libraryRow.confirmed?'ready':'warm'
+      });
       json(res,200,{
         ok:true,
         handle,
@@ -2462,6 +2714,7 @@ const server=http.createServer(async(req,res)=>{
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
   for(const platform of PLATFORMS)void loadSnapshot(platform);
+  void loadTikTokLiveLibrary();
   if(AUTO_COLLECT){
     void getBrowser()
       .then(()=>console.log('[collector] browser prewarmed'))
