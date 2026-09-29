@@ -363,7 +363,18 @@ const TIKTOK_BAD_SOURCE_MS=10*60*1000;
 function tiktokLiveSourceFingerprint(rawUrl,type=''){
   try{
     const u=new URL(String(rawUrl||''));
-    return String(type||'')+'|'+u.hostname.toLowerCase()+'|'+u.pathname;
+    const kind=String(type||'').toLowerCase();
+    // FLV validity is session-specific. The same stream path can work again
+    // immediately with a fresh TikTok _session_id, so never blacklist the
+    // whole FLV path.
+    if(kind==='flv'){
+      const sid=u.searchParams.get('_session_id')||u.searchParams.get('session_id')||'';
+      const sign=u.searchParams.get('sign')||'';
+      return kind+'|'+u.hostname.toLowerCase()+'|'+u.pathname+'|'+(sid||sign||u.search);
+    }
+    // HLS failures are commonly variant/codec-specific, so path-level memory
+    // is useful for rotating away from a bad rendition.
+    return kind+'|'+u.hostname.toLowerCase()+'|'+u.pathname;
   }catch{
     return String(type||'')+'|'+String(rawUrl||'').split('?')[0];
   }
