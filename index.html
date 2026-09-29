@@ -3469,7 +3469,7 @@ html.one-col.portrait .player.pip{
       Math.max(1,Math.round(availableH*Math.max(.34,mediaRatio)))
     );
 
-    const landscapeTarget=Math.round(viewportW*(mobilePip?.54:.36));
+    const landscapeTarget=Math.round(viewportW*(mobilePip ? .54 : .36));
     const landscapeDefaultMin=mobilePip?190:240;
     const landscapeDefaultMax=mobilePip?300:360;
     const landscapeFitMax=Math.max(
@@ -3485,7 +3485,7 @@ html.one-col.portrait .player.pip{
       )
     );
 
-    const portraitTarget=Math.round(viewportW*(mobilePip?.38:.24));
+    const portraitTarget=Math.round(viewportW*(mobilePip ? .38 : .24));
     const portraitDefaultMin=mobilePip?136:160;
     const portraitDefaultMax=mobilePip?190:220;
     const portraitFitMax=Math.max(
