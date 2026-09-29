@@ -68,6 +68,8 @@ let liveLibraryVersion=-1;
 let liveLibraryItems={};
 let liveLibraryHandles=[];
 let liveLibrarySyncBusy=false;
+let liveOpenBusy=false;
+let liveSaveBusy=false;
 
 function parseTikTokHandle(value){
   const raw=String(value||'').trim();
@@ -253,16 +255,123 @@ function setCurrentLive(value,{playIfReady=true}={}){
   return true;
 }
 
+async function openCurrentLive(value){
+  const handle=parseTikTokHandle(value);
+  if(!handle)return false;
 
-function saveCurrentLive(){
+  setCurrentLive(handle,{playIfReady:false});
+  liveSoundWanted=true;
+
+  const cached=liveLibraryItem(handle);
+  if(cached?.live&&cached?.ready&&cached?.type&&cached?.sourceSig){
+    PENDING_HANDLE='';
+    return openLiveFromLibrary(cached,handle);
+  }
+
+  if(liveOpenBusy)return false;
+  liveOpenBusy=true;
+  const button=document.getElementById('testLiveBtn');
+  const state=document.getElementById('liveState');
+  if(button){
+    button.disabled=true;
+    button.textContent='Đang mở…';
+  }
+  if(state)state.textContent='Đang mở @'+handle+'…';
+
+  const controller=typeof AbortController==='function'?new AbortController():null;
+  const timer=setTimeout(()=>controller?.abort(),30000);
+
+  try{
+    const r=await fetch(
+      API+'/tiktok/live-session?user='+encodeURIComponent(handle)+'&t='+Date.now(),
+      {cache:'no-store',signal:controller?.signal}
+    );
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||!data?.ok||!data?.streamType){
+      throw new Error(data?.error||'not_live');
+    }
+
+    PLAYING_HANDLE=handle;
+    PLAYING_SOURCE_SIG='';
+    PENDING_HANDLE='';
+    const type=String(data.streamType||'').toLowerCase();
+    const relay=API+'/tiktok/live-stream?user='+encodeURIComponent(handle)+'&t='+Date.now();
+    attachLive(type,relay,true,false,handle,'');
+    renderSavedLiveLinks();
+    return true;
+  }catch(error){
+    PENDING_HANDLE='';
+    const message=String(error?.name==='AbortError'?'timeout':error?.message||error);
+    if(state){
+      state.textContent=PLAYING_HANDLE&&PLAYING_HANDLE!==handle
+        ?'@'+handle+' chưa mở được · vẫn xem @'+PLAYING_HANDLE
+        :'@'+handle+' chưa LIVE hoặc chưa lấy được nguồn';
+    }
+    console.warn('open TikTok channel failed',handle,message);
+    return false;
+  }finally{
+    clearTimeout(timer);
+    liveOpenBusy=false;
+    if(button){
+      button.disabled=false;
+      button.textContent='Mở';
+    }
+  }
+}
+
+async function saveCurrentLive(){
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
-  if(!handle)return;
-  liveLibraryHandles=[handle,...liveLibraryHandles.filter(x=>x!==handle)].slice(0,60);
-  saveLocalLiveLibrary();
-  setCurrentLive(handle,{playIfReady:false});
-  renderSavedLiveLinks();
-  void syncLiveLibrary({force:true});
+  if(!handle){
+    input?.focus();
+    return false;
+  }
+  if(liveSaveBusy)return false;
+
+  liveSaveBusy=true;
+  const button=document.getElementById('saveLiveBtn');
+  const summary=document.getElementById('liveLibrarySummary');
+  if(button){
+    button.disabled=true;
+    button.textContent='Đang lưu…';
+  }
+  if(summary)summary.textContent='Đang lưu @'+handle+'…';
+
+  try{
+    const r=await fetch(API+'/tiktok/selected-channel',{
+      method:'POST',
+      cache:'no-store',
+      headers:{'content-type':'application/json'},
+      body:JSON.stringify({handle,selected:true})
+    });
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok||!data?.ok)throw new Error(data?.error||('save_'+r.status));
+
+    liveLibraryHandles=[handle,...liveLibraryHandles.filter(x=>x.toLowerCase()!==handle.toLowerCase())].slice(0,60);
+    setCurrentLive(handle,{playIfReady:false});
+    saveLocalLiveLibrary();
+
+    // Server/Supabase is authoritative. Fetch a full package immediately so
+    // the just-saved channel cannot be overwritten by an older local mirror.
+    liveLibraryVersion=-1;
+    await syncLiveLibrary({force:true});
+
+    if(button)button.textContent='Đã lưu';
+    setTimeout(()=>{
+      if(button&&!liveSaveBusy)button.textContent='Lưu';
+    },900);
+    return true;
+  }catch(error){
+    if(summary)summary.textContent='Lưu thất bại · thử lại';
+    console.warn('save TikTok channel failed',handle,error);
+    return false;
+  }finally{
+    liveSaveBusy=false;
+    if(button){
+      button.disabled=false;
+      if(button.textContent!=='Đã lưu')button.textContent='Lưu';
+    }
+  }
 }
 function renderSavedLiveLinks(){
   const root=document.getElementById('savedLiveLinks');
@@ -531,27 +640,22 @@ function load(){
 
 document.getElementById('reload').onclick=()=>{
   liveSoundWanted=true;
-  PENDING_HANDLE=HANDLE;
-  void syncLiveLibrary({force:true});
+  void openCurrentLive(HANDLE);
 };
 document.getElementById('testLiveBtn').onclick=()=>{
-  liveSoundWanted=true;
   const input=document.getElementById('liveLinkInput');
   const handle=parseTikTokHandle(input?.value||'');
   if(!handle){input?.focus();return}
-  setCurrentLive(handle,{playIfReady:true});
+  void openCurrentLive(handle);
 };
 document.getElementById('saveLiveBtn').onclick=()=>{
-  saveCurrentLive();
-  PENDING_HANDLE=HANDLE;
-  void syncLiveLibrary({force:true});
+  void saveCurrentLive();
 };
 document.getElementById('liveLinkInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'){
     e.preventDefault();
-    liveSoundWanted=true;
     const handle=parseTikTokHandle(e.currentTarget.value);
-    if(handle)setCurrentLive(handle,{playIfReady:true});
+    if(handle)void openCurrentLive(handle);
     else e.currentTarget.focus();
   }
 });
