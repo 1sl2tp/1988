@@ -39,6 +39,8 @@ const tiktokLiveSelectedHandles=new Set();
 let tiktokLivePackageScanPromise=null;
 let tiktokLiveStoreWritePromise=null;
 let tiktokApiCookieHeader='';
+let tiktokApiCookieRefreshAt=0;
+let tiktokApiCookieRefreshPromise=null;
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=3_000;
 let tiktokLiveLibraryVersion=0;
@@ -1069,7 +1071,7 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     return null;
   }
 }
-async function quickTikTokLiveDetailStatus(handle){
+async function quickTikTokLiveDetailStatus(handle,retry=true){
   try{
     const endpoint=new URL('https://www.tiktok.com/api/live/detail/');
     endpoint.searchParams.set('aid','1988');
@@ -1086,7 +1088,13 @@ async function quickTikTokLiveDetailStatus(handle){
       redirect:'follow',
       signal:AbortSignal.timeout(3000)
     });
-    if(!r.ok)return {known:false,live:false,status:null,roomId:'',candidates:[]};
+    if(!r.ok){
+      if(retry&&(r.status===401||r.status===403||r.status===429)){
+        await refreshTikTokApiCookieHeader({force:true});
+        return quickTikTokLiveDetailStatus(handle,false);
+      }
+      return {known:false,live:false,status:null,roomId:'',candidates:[]};
+    }
 
     const body=await r.json();
     const liveData=
@@ -1096,6 +1104,10 @@ async function quickTikTokLiveDetailStatus(handle){
       null;
 
     if(!liveData||typeof liveData!=='object'){
+      if(retry){
+        await refreshTikTokApiCookieHeader({force:true});
+        return quickTikTokLiveDetailStatus(handle,false);
+      }
       return {known:false,live:false,status:null,roomId:'',candidates:[]};
     }
 
@@ -2355,11 +2367,69 @@ function cookieHeaderValue(rows=[]){
     .map(row=>String(row.name)+'='+String(row.value))
     .join('; ');
 }
+function mergeTikTokCookiePairs(header='',setCookies=[]){
+  const jar=new Map();
+  for(const part of String(header||'').split(';')){
+    const i=part.indexOf('=');
+    if(i<=0)continue;
+    jar.set(part.slice(0,i).trim(),part.slice(i+1).trim());
+  }
+  for(const raw of Array.isArray(setCookies)?setCookies:[]){
+    const first=String(raw||'').split(';',1)[0];
+    const i=first.indexOf('=');
+    if(i<=0)continue;
+    jar.set(first.slice(0,i).trim(),first.slice(i+1).trim());
+  }
+  return [...jar.entries()].map(([k,v])=>k+'='+v).join('; ');
+}
+
+async function refreshTikTokApiCookieHeader({force=false}={}){
+  if(tiktokApiCookieRefreshPromise)return tiktokApiCookieRefreshPromise;
+  if(!force&&tiktokApiCookieHeader&&Date.now()-tiktokApiCookieRefreshAt<10*60*1000){
+    return tiktokApiCookieHeader;
+  }
+
+  tiktokApiCookieRefreshPromise=(async()=>{
+    const row=await loadSession('tiktok').catch(()=>null);
+    const saved=cookieHeaderValue(row?.state?.cookies||[]);
+    let header=saved;
+
+    // Bootstrap the same first-party web session TikTok itself uses.
+    // The homepage response supplies/refreshes ttwid; then the internal LIVE
+    // API request reuses that cookie jar instead of behaving like a stateless bot.
+    try{
+      const r=await fetch('https://www.tiktok.com/',{
+        headers:{
+          'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          ...(saved?{'cookie':saved}:{})
+        },
+        redirect:'follow',
+        signal:AbortSignal.timeout(5000)
+      });
+      const setCookies=typeof r.headers?.getSetCookie==='function'
+        ? r.headers.getSetCookie()
+        : [];
+      header=mergeTikTokCookiePairs(saved,setCookies);
+    }catch(error){
+      console.log('[tiktok-api] cookie bootstrap failed',compactText(error?.message||error,120));
+    }
+
+    tiktokApiCookieHeader=header;
+    tiktokApiCookieRefreshAt=Date.now();
+    const names=new Set(
+      String(header||'').split(';').map(x=>x.trim().split('=',1)[0]).filter(Boolean)
+    );
+    console.log('[tiktok-api] cookie bootstrap','count='+names.size,'ttwid='+(names.has('ttwid')?'yes':'no'));
+    return header;
+  })().finally(()=>{tiktokApiCookieRefreshPromise=null});
+
+  return tiktokApiCookieRefreshPromise;
+}
+
 async function loadTikTokApiCookieHeader(){
-  const row=await loadSession('tiktok').catch(()=>null);
-  tiktokApiCookieHeader=cookieHeaderValue(row?.state?.cookies||[]);
-  console.log('[tiktok-api] cookies='+((row?.state?.cookies||[]).length||0));
-  return tiktokApiCookieHeader;
+  return refreshTikTokApiCookieHeader({force:true});
 }
 
 function cookieParams(rows=[]){
