@@ -107,11 +107,12 @@ const TIKTOK_LIVE_STATUS_SWEEP_MS=60_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
-const tiktokLiveLibraryWarmPending=[];
-const tiktokLiveLibraryWarmPendingSet=new Set();
+const tiktokLiveLibraryWarmBatchPending=new Set();
+let tiktokLiveLibraryWarmBatchTimer=null;
+let tiktokLiveLibraryWarmBatchPromise=null;
 const tiktokLiveLibraryWarmRetryAt=new Map();
 const tiktokLiveStatusFallbackInflight=new Set();
-const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=2;
+const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=4;
 const TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS=30_000;
 let tiktokLiveLibraryRefreshCursor=0;
 let ytdlpSerial=Promise.resolve();
@@ -749,47 +750,120 @@ async function warmTikTokLibraryHandle(handle){
   tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
   return false;
 }
-function drainTikTokLibraryWarmQueue(){
-  while(
-    tiktokLiveLibraryWarmInflight.size<TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY&&
-    tiktokLiveLibraryWarmPending.length
-  ){
-    const handle=tiktokLiveLibraryWarmPending.shift();
-    const key=String(handle||'').toLowerCase();
-    tiktokLiveLibraryWarmPendingSet.delete(key);
-    if(!handle||tiktokLiveLibraryWarmInflight.has(key))continue;
+async function resolveTikTokLiveSourceBatch(handles){
+  const requested=[...new Set(
+    (handles||[]).map(normalizeTikTokHandle).filter(Boolean)
+  )];
+  const targets=requested.filter(handle=>{
+    const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
+    return Boolean(row.live)&&!Boolean(row.playable);
+  });
+  if(!targets.length)return {total:0,ready:0,failed:0};
 
-    const task=warmTikTokLibraryHandle(handle)
-      .catch(error=>{
-        console.log('[tiktok-library] warm failed',handle,compactText(error?.message||error,120));
-        return false;
-      })
-      .finally(()=>{
-        tiktokLiveLibraryWarmInflight.delete(key);
-        drainTikTokLibraryWarmQueue();
-      });
-
-    tiktokLiveLibraryWarmInflight.set(key,task);
+  // If a previous batch is still running, merge these handles into the next
+  // immediate batch instead of creating isolated per-channel work.
+  if(tiktokLiveLibraryWarmBatchPromise){
+    for(const handle of targets)tiktokLiveLibraryWarmBatchPending.add(handle);
+    return tiktokLiveLibraryWarmBatchPromise;
   }
+
+  const run=async currentTargets=>{
+    const started=Date.now();
+    let cursor=0;
+    let ready=0;
+    let failed=0;
+
+    console.log(
+      '[tiktok-live-link-batch] start',
+      'channels='+currentTargets.length,
+      currentTargets.join(',')
+    );
+
+    const worker=async()=>{
+      while(true){
+        const index=cursor++;
+        if(index>=currentTargets.length)return;
+        const handle=currentTargets[index];
+        const key=handle.toLowerCase();
+        const row=tiktokLiveLibrary.get(key)||{};
+        if(!row.live||row.playable)continue;
+
+        let ok=false;
+        try{
+          ok=await warmTikTokLibraryHandle(handle);
+        }catch(error){
+          console.log(
+            '[tiktok-live-link-batch] failed',
+            handle,
+            compactText(error?.message||error,120)
+          );
+        }
+
+        const fresh=tiktokLiveLibrary.get(key)||{};
+        if(ok&&fresh.live&&fresh.playable)ready+=1;
+        else failed+=1;
+      }
+    };
+
+    await Promise.all(
+      Array.from(
+        {length:Math.min(TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY,currentTargets.length)},
+        ()=>worker()
+      )
+    );
+
+    await persistTikTokLiveStore({force:true}).catch(()=>{});
+    console.log(
+      '[tiktok-live-link-batch] done',
+      'channels='+currentTargets.length,
+      'ready='+ready,
+      'failed='+failed,
+      'ms='+(Date.now()-started)
+    );
+    return {total:currentTargets.length,ready,failed};
+  };
+
+  tiktokLiveLibraryWarmBatchPromise=(async()=>{
+    let aggregate={total:0,ready:0,failed:0};
+    let current=targets;
+    while(current.length){
+      const result=await run(current);
+      aggregate={
+        total:aggregate.total+result.total,
+        ready:aggregate.ready+result.ready,
+        failed:aggregate.failed+result.failed
+      };
+      current=[...tiktokLiveLibraryWarmBatchPending];
+      tiktokLiveLibraryWarmBatchPending.clear();
+      current=current.filter(handle=>{
+        const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
+        return Boolean(row.live)&&!Boolean(row.playable);
+      });
+    }
+    return aggregate;
+  })().finally(()=>{
+    tiktokLiveLibraryWarmBatchPromise=null;
+  });
+
+  return tiktokLiveLibraryWarmBatchPromise;
 }
+
 function queueTikTokLibraryWarm(handle){
   handle=normalizeTikTokHandle(handle);
   if(!handle)return false;
-  const key=handle.toLowerCase();
+  const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
+  if(!row.live||row.playable)return true;
 
-  if(tiktokLiveLibraryWarmInflight.has(key)||tiktokLiveLibraryWarmPendingSet.has(key)){
-    return true;
+  tiktokLiveLibraryWarmBatchPending.add(handle);
+  if(!tiktokLiveLibraryWarmBatchTimer){
+    tiktokLiveLibraryWarmBatchTimer=setTimeout(()=>{
+      tiktokLiveLibraryWarmBatchTimer=null;
+      const batch=[...tiktokLiveLibraryWarmBatchPending];
+      tiktokLiveLibraryWarmBatchPending.clear();
+      void resolveTikTokLiveSourceBatch(batch);
+    },50);
+    tiktokLiveLibraryWarmBatchTimer.unref?.();
   }
-
-  tiktokLiveLibraryWarmPending.push(handle);
-  tiktokLiveLibraryWarmPendingSet.add(key);
-  console.log(
-    '[tiktok-library] enqueue',
-    handle,
-    'pending='+tiktokLiveLibraryWarmPending.length,
-    'running='+tiktokLiveLibraryWarmInflight.size
-  );
-  drainTikTokLibraryWarmQueue();
   return true;
 }
 
@@ -1254,12 +1328,15 @@ function runTikTokLiveMinuteSweep(){
       'version='+tiktokLiveLibraryVersion
     );
 
-    // Prepare media for every confirmed LIVE channel that currently has no
-    // reusable source, including rows restored after a Render restart. The
-    // warm queue uses API -> yt-dlp -> browser and is capped at 2 workers.
-    const needSource=[...new Set([...newlyLive,...liveMissingSource])];
-    for(const handle of needSource){
-      queueTikTokLibraryWarm(handle);
+    // One action per sweep: collect every confirmed LIVE channel without a
+    // usable stream and resolve all of them together. This prevents a newly
+    // detected LIVE channel from being omitted because another resolver is busy.
+    const needSource=[...tiktokLiveLibrary.values()]
+      .filter(row=>Boolean(row?.live)&&!Boolean(row?.playable))
+      .map(row=>String(row.handle||''))
+      .filter(Boolean);
+    if(needSource.length){
+      await resolveTikTokLiveSourceBatch(needSource);
     }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
@@ -1427,6 +1504,16 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     'unknown='+scanUnknownCount,
     'ms='+(Date.now()-scanStarted)
   );
+
+  if(warm){
+    const needSource=normalized.filter(handle=>{
+      const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
+      return Boolean(row.live)&&!Boolean(row.playable);
+    });
+    if(needSource.length){
+      await resolveTikTokLiveSourceBatch(needSource);
+    }
+  }
 }
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
