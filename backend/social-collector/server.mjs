@@ -673,7 +673,7 @@ async function warmTikTokLibraryHandle(handle){
 
   let current=currentTikTokLibrarySource(handle);
 
-  // LIVE playback is FLV-only. Never reuse HLS as a playable source.
+  // LIVE playback is FLV-only. Never reuse any non-FLV source.
   if(current&&String(current.type||'').toLowerCase()!=='flv'){
     tiktokLiveFastSources.delete(key);
     await closeTikTokLiveSession(key).catch(()=>{});
@@ -1100,8 +1100,8 @@ function buildTikTokStoredRows(){
       const source=currentTikTokLibrarySource(handle);
       const sourceType=String(source?.type||'').toLowerCase();
       const live=Boolean(item.live);
-      // Canonical LIVE playback is FLV-only. HLS or a detected LIVE
-      // without a validated FLV remains internal/pending and is never published
+      // Canonical LIVE playback is FLV-only. A detected LIVE without a
+      // validated FLV remains internal/pending and is never published
       // as a playable LIVE channel.
       const playable=Boolean(
         live&&source?.url&&sourceType==='flv'&&tiktokLiveSourceUsable(source)
@@ -1642,11 +1642,10 @@ async function checkTikTokLiveWithYtDlp(rawHandle){
         };
       }
       const streamUrl=String(data.stream_url||'');
-      const streamType=String(data.stream_type||(
-        /\.m3u8(?:\?|$)/i.test(streamUrl)?'hls':
-        /\.flv(?:\?|$)/i.test(streamUrl)?'flv':'unknown'
-      )).toLowerCase();
-      console.log('[tiktok-live-python]',handle,streamType,streamUrl.includes('.m3u8')?'m3u8':'other');
+      const streamType=String(
+        data.stream_type||(/\.flv(?:\?|$)/i.test(streamUrl)?'flv':'unknown')
+      ).toLowerCase();
+      console.log('[tiktok-live-python]',handle,streamType);
       return {
         ok:true,
         handle,
@@ -2440,7 +2439,7 @@ async function fastTikTokLiveWithYtdlp(handle){
     if(!data?.success||!data?.stream_url)return null;
     const streamUrl=String(data.stream_url||'');
     const streamType=String(data.stream_type||'').toLowerCase();
-    // FLV-only pipeline: never relabel HLS or another transport as FLV.
+    // FLV-only pipeline: never relabel another transport as FLV.
     if(streamType!=='flv'&&!/\.flv(?:\?|$)/i.test(streamUrl))return null;
     return {
       url:streamUrl,
@@ -2714,7 +2713,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
       sleep(500)
     ]).catch(()=>{});
 
-    // FLV-only playback. HLS observations are diagnostics only.
+    // FLV-only playback. Non-FLV observations are ignored.
     const captured=capturedFlv;
     if(!captured){
       console.log('[tiktok-session] no-flv',handle,'no-media');
