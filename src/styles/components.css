@@ -1,0 +1,13 @@
+.btn,.tool,.primary,.mini-action,.media-tab,.theme-toggle{
+  -webkit-tap-highlight-color:transparent;
+  transition:background .14s ease,border-color .14s ease,color .14s ease,opacity .14s ease,transform .08s ease
+}
+.btn:active,.tool:active,.primary:active,.mini-action:active,.media-tab:active,.theme-toggle:active{transform:scale(.97)}
+.theme-toggle{
+  width:40px;height:40px;border:1px solid var(--border);border-radius:50%;
+  display:grid;place-items:center;background:var(--surface-1);color:var(--text)
+}
+.theme-toggle:hover{background:var(--surface-hover)}
+.theme-toggle svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.avatar,.current-avatar{background:var(--surface-3);color:var(--text)}
+.toast{box-shadow:var(--shadow-floating)}
