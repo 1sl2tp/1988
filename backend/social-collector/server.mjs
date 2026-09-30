@@ -8059,7 +8059,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/tiktok/live-now'&&req.method==='GET'){
     // Never expose an uninitialized empty snapshot. The first realtime read
     // waits for one complete TikTok API check of the selected channels.
-    if(!tiktokRealtimeLiveCheckedAt&&!TIKTOK_UPDATES_PAUSED){
+    if(!tiktokRealtimeLiveCheckedAt&&!TIKTOK_UPDATES_PAUSED&&AUTO_COLLECT){
       await runTikTokLiveMinuteSweep();
     }
 
@@ -8499,6 +8499,18 @@ server.listen(PORT,'0.0.0.0',()=>{
     await loadTikTokVideoStore();
     const canonicalReady=await loadTikTokCanonicalStore();
 
+    // Preview mode: make persisted FLV/MP4 available for playback, but do not
+    // start any recurring TikTok collector, profile, image, LIVE or MP4 jobs.
+    if(!AUTO_COLLECT){
+      console.log(
+        '[tiktok-preview] ready',
+        'channels='+tiktokCanonicalChannels.size,
+        'videos='+tiktokCanonicalVideos.size,
+        'live='+tiktokRealtimeLiveHandles.size
+      );
+      return;
+    }
+
     // Startup must be read-mostly. Do not re-sync every selected channel, run
     // full metadata bootstrap, repair every missing video, or full-resync all
     // media after each deploy. Incremental workers below handle small batches.
@@ -8511,13 +8523,15 @@ server.listen(PORT,'0.0.0.0',()=>{
     void runTikTokLiveMinuteSweep();
     setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},90_000).unref();
   });
-  setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
-  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
-  setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},60_000).unref();
-  setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},30*60_000).unref();
-  setInterval(()=>{void mirrorTikTokCanonicalImages(6);},5*60_000).unref();
-  setInterval(()=>{void warmTikTokVideoSources(1);},5*60_000).unref();
-  setInterval(()=>{void enrichNextTikTokCanonicalVideo();},3*60_000).unref();
+  if(AUTO_COLLECT){
+    setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
+    setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
+    setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},60_000).unref();
+    setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},30*60_000).unref();
+    setInterval(()=>{void mirrorTikTokCanonicalImages(6);},5*60_000).unref();
+    setInterval(()=>{void warmTikTokVideoSources(1);},5*60_000).unref();
+    setInterval(()=>{void enrichNextTikTokCanonicalVideo();},3*60_000).unref();
+  }
 
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
