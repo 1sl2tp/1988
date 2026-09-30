@@ -505,13 +505,15 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  // UI contract: a channel appears as LIVE only after FLV is verified/playable.
-  const liveRows=channels.filter(rowPlayable);
+  // LIVE visibility and FLV playability are separate. Every channel
+  // detected LIVE must remain visible even while its FLV is still resolving.
+  const liveRows=channels.filter(rowLiveDetected);
   const visible=filterMode==='live'?liveRows:channels.slice();
   const liveCount=liveRows.length;
   document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang LIVE';
 
   const sorted=visible.sort((a,b)=>
+    Number(rowLiveDetected(b))-Number(rowLiveDetected(a))||
     Number(rowPlayable(b))-Number(rowPlayable(a))||
     String(a.handle).localeCompare(String(b.handle))
   );
@@ -520,8 +522,8 @@ function renderList(){
     return;
   }
 
-  const live=sorted.filter(rowPlayable);
-  const offline=sorted.filter(row=>!rowPlayable(row));
+  const live=sorted.filter(rowLiveDetected);
+  const offline=sorted.filter(row=>!rowLiveDetected(row));
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const profile=row.profile||{};
@@ -533,7 +535,13 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-pill" title="Đang LIVE">LIVE</span>':'')+'</span>'+
+      '<span class="row-actions">'+
+      (rowPlayable(row)
+        ? '<span class="live-pill" title="LIVE · FLV sẵn sàng">LIVE</span>'
+        : (rowLiveDetected(row)
+            ? '<span class="live-pill live-pending" title="LIVE · đang lấy FLV">LIVE · LINK</span>'
+            : ''))+
+      '</span>'+
       '</div>';
   }).join('');
 
