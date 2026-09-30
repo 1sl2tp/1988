@@ -725,7 +725,7 @@ function rowPlayable(row){
   const live=row?.live||{};
   const stream=live?.stream||{};
   const type=String(stream?.type||'').toLowerCase();
-  return Boolean(live?.isLive&&live?.playable&&stream?.sourceSig&&stream?.url&&['flv','hls'].includes(type));
+  return Boolean(live?.isLive&&live?.playable&&stream?.sourceSig&&stream?.url&&type==='flv');
 }
 function rowFor(handle){
   return channelFor(handle);
@@ -799,14 +799,13 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  const liveRows=channels.filter(row=>Boolean(row?.live?.isLive));
+  const liveRows=channels.filter(rowPlayable);
   const visible=filterMode==='live'?liveRows:channels.slice();
   const liveCount=liveRows.length;
   document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
 
   const sorted=visible.sort((a,b)=>
     Number(rowPlayable(b))-Number(rowPlayable(a))||
-    Number(Boolean(b?.live?.isLive))-Number(Boolean(a?.live?.isLive))||
     String(a.handle).localeCompare(String(b.handle))
   );
   if(!sorted.length){
@@ -814,8 +813,8 @@ function renderList(){
     return;
   }
 
-  const live=sorted.filter(row=>Boolean(row?.live?.isLive));
-  const offline=sorted.filter(row=>!row?.live?.isLive);
+  const live=sorted.filter(rowPlayable);
+  const offline=sorted.filter(row=>!rowPlayable(row));
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const profile=row.profile||{};
@@ -827,7 +826,7 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(row?.live?.isLive?'<span class="live-dot" title="'+(rowPlayable(row)?'Đang phát':'Đang LIVE · chờ nguồn')+'"></span>':'')+
+      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-dot" title="Đang phát"></span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
@@ -1252,8 +1251,6 @@ function applyLiveLibrary(data){
     if(beforeLive&&!now.isLive){
       destroyPlayer();
       document.getElementById('nowState').textContent='';
-    }else if(now.isLive&&!now.playable){
-      document.getElementById('nowState').textContent='LIVE đang đồng bộ nguồn';
     }else if(now.isLive&&now.playable&&(!beforePlayable||beforeSig!==nowSig)){
       openChannel(currentHandle);
     }
@@ -1383,7 +1380,7 @@ async function removeChannel(rawHandle){
     mutationBusy=false;
   }
 }
-function attachFlv(url,handle,knownSig='',allowFallback=true){
+function attachFlv(url,handle){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
   let failed=false;
@@ -1407,63 +1404,18 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
   p.on(flvjs.Events.ERROR,()=>{
     if(failed)return;
     failed=true;
-
-    // LIVE playback is package-driven. On failure, only re-read the library;
-    // server is responsible for refreshing/replacing the stream URL.
-    if(allowFallback&&knownSig&&handle===currentHandle){
-      document.getElementById('nowState').textContent='LIVE đang làm mới nguồn';
-      liveVersion=-1;
-      setTimeout(async()=>{
-        await loadLiveLibrary({force:true,silent:true});
-        if(handle!==currentHandle)return;
-        const fresh=rowFor(handle);
-        const next=String(fresh?.live?.stream?.url||'');
-        const nextSig=String(fresh?.live?.stream?.sourceSig||'');
-        if(fresh?.live?.playable&&next&&nextSig&&nextSig!==knownSig)openChannel(handle);
-      },500);
-      return;
-    }
+    destroyPlayer();
     document.getElementById('nowState').textContent='';
   });
   player=p;
   video.onplaying=()=>{
-    setTimeout(()=>{
-      if(handle!==currentHandle)return;
-      const hasPicture=Number(video.videoWidth||0)>0&&Number(video.videoHeight||0)>0;
-      if(!hasPicture){
-        if(failed)return;
-        failed=true;
-        fetch(
-          API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=bad&type=flv&t='+Date.now(),
-          {cache:'no-store'}
-        ).catch(()=>{}).finally(()=>{
-          if(allowFallback&&handle===currentHandle){
-            liveVersion=-1;
-            setTimeout(async()=>{
-              await loadLiveLibrary({force:true,silent:true});
-              if(handle!==currentHandle)return;
-              const fresh=rowFor(handle);
-              const nextSig=String(fresh?.live?.stream?.sourceSig||'');
-              if(fresh?.live?.playable&&nextSig&&nextSig!==knownSig)openChannel(handle);
-            },500);
-          }
-        });
-        return;
-      }
-
-      failed=true;
-      video.controls=true;
-      setPlayerShape(video);
-      updateCurrentUi();
-      fetch(
-        API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
-        {cache:'no-store'}
-      ).catch(()=>{}).finally(()=>{
-        setTimeout(()=>loadLiveLibrary({force:true,silent:true}),300);
-      });
-    },900);
+    if(handle!==currentHandle)return;
+    video.controls=true;
+    setPlayerShape(video);
+    updateCurrentUi();
   };
 }
+
 function openChannel(rawHandle){
   const handle=parseHandle(rawHandle);
   if(!handle)return;
@@ -1494,16 +1446,12 @@ function openChannel(rawHandle){
     const base=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
     const url=base+(base.includes('?')?'&':'?')+'t='+Date.now();
     document.getElementById('nowState').textContent='';
-    attachFlv(url,handle,currentSourceSig);
+    attachFlv(url,handle);
     return;
   }
 
   destroyPlayer();
-  document.getElementById('nowState').textContent=live.isLive?'LIVE đang đồng bộ nguồn':'';
-  if(live.isLive){
-    liveVersion=-1;
-    setTimeout(()=>void loadLiveLibrary({force:true,silent:true}),800);
-  }
+  document.getElementById('nowState').textContent='';
 }
 document.getElementById('addBtn').addEventListener('click',addChannel);
 const searchInput=document.getElementById('addInput');
