@@ -4936,22 +4936,46 @@ async function upsertTikTokCanonicalRows(channelRows=[],videoRows=[]){
   await Promise.all(tasks);
 }
 async function persistTikTokCanonicalPackage(){
-  const payload=buildTikTokCanonicalPackage();
-  const r=await fetch(
-    SUPABASE_URL+'/rest/v1/yt1988_tiktok_library_package?on_conflict=package_key',
-    {
-      method:'POST',
-      headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
-      body:JSON.stringify([{
-        package_key:'library',
-        version:tiktokCanonicalPackageVersion,
-        payload,
-        updated_at:nowIso()
-      }])
+  const write=async()=>{
+    // Build at execution time, not queue time, so concurrent updates collapse
+    // into the newest package instead of fighting over the same singleton row.
+    const payload=buildTikTokCanonicalPackage();
+    let lastError='';
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const r=await fetch(
+          SUPABASE_URL+'/rest/v1/yt1988_tiktok_library_package?on_conflict=package_key',
+          {
+            method:'POST',
+            headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+            body:JSON.stringify([{
+              package_key:'library',
+              version:tiktokCanonicalPackageVersion,
+              payload,
+              updated_at:nowIso()
+            }]),
+            signal:AbortSignal.timeout(15_000)
+          }
+        );
+        if(r.ok)return payload;
+        lastError='tiktok_library_package_write_'+r.status+':'+compactText(await r.text(),180);
+      }catch(error){
+        lastError=compactText(error?.message||error,180);
+      }
+      if(attempt<2)await sleep(attempt===0?300:900);
     }
-  );
-  if(!r.ok)throw new Error('tiktok_library_package_write_'+r.status+':'+await r.text());
-  return payload;
+    // The in-memory canonical package remains valid and /tiktok/library can
+    // still serve it. Never crash the collector because durable package write
+    // is temporarily locked/timed out; the next canonical change retries it.
+    console.warn('[tiktok-library] package persist deferred',lastError);
+    return payload;
+  };
+
+  const run=(tiktokCanonicalWritePromise||Promise.resolve()).then(write,write);
+  tiktokCanonicalWritePromise=run.catch(()=>null).finally(()=>{
+    if(tiktokCanonicalWritePromise===run)tiktokCanonicalWritePromise=null;
+  });
+  return run;
 }
 async function mirrorTikTokOriginalImage(sourceUrl,kind,handle,id=''){
   const source=String(sourceUrl||'').trim();
