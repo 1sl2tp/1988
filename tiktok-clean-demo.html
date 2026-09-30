@@ -240,6 +240,51 @@ function videoMetaText(video){
 function currentVideoFor(handle,id){
   return videosFor(handle).find(video=>String(video.id||'')===String(id||''))||null;
 }
+function readyVideosFor(handle){
+  return videosFor(handle)
+    .filter(video=>video?.playback?.ready&&video?.playback?.url)
+    .slice()
+    .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0));
+}
+function adjacentReadyVideo(direction){
+  if(mediaMode!=='video'||!currentHandle||!currentVideoId)return null;
+  const list=readyVideosFor(currentHandle);
+  if(list.length<2)return null;
+  const index=list.findIndex(video=>String(video.id||'')===String(currentVideoId||''));
+  if(index<0)return null;
+  const next=index+(direction>0?1:-1);
+  return next>=0&&next<list.length?list[next]:null;
+}
+function warmVideoHint(video){
+  if(!video?.handle||!video?.id)return;
+  const url=API+'/tiktok/video-warm?user='+encodeURIComponent(video.handle)+'&id='+encodeURIComponent(video.id);
+  fetch(url,{cache:'no-store',keepalive:true}).catch(()=>{});
+}
+function warmNextVideo(){
+  const next=adjacentReadyVideo(1);
+  if(next)warmVideoHint(next);
+}
+function syncMediaUrl(mode,handle,id=''){
+  try{
+    const url=new URL(location.href);
+    url.searchParams.set('mode',mode);
+    url.searchParams.set('user',handle);
+    if(mode==='video'&&id)url.searchParams.set('id',id);
+    else url.searchParams.delete('id');
+    history.replaceState(null,'',url);
+  }catch{}
+}
+function stepVideo(direction){
+  const next=adjacentReadyVideo(direction);
+  if(!next)return false;
+  const phone=document.getElementById('phone');
+  phone?.classList.add(direction>0?'swipe-next':'swipe-prev');
+  setTimeout(()=>{
+    phone?.classList.remove('swipe-next','swipe-prev');
+    openVideo(next.handle,next.id);
+  },90);
+  return true;
+}
 function rowLiveDetected(row){
   return liveNowHandles.has(String(row?.handle||'').toLowerCase());
 }
@@ -456,6 +501,7 @@ async function openVideo(rawHandle,videoId,retry=true){
   currentHandle=handle;
   currentVideoId=String(video.id||'');
   currentVideo=video;
+  syncMediaUrl('video',handle,currentVideoId);
   destroyPlayer();
   setMediaMode('video');
 
@@ -507,6 +553,7 @@ async function openVideo(rawHandle,videoId,retry=true){
   };
   native.onplaying=()=>{
     if(seq!==videoOpenSeq)return;
+    warmNextVideo();
   };
 
   native.src=src;
@@ -986,6 +1033,7 @@ function openChannel(rawHandle){
   currentHandle=handle;
   currentVideoId='';
   currentVideo=null;
+  syncMediaUrl('live',handle);
   setMediaMode('live');
   document.getElementById('overlay').hidden=false;
   updateCurrentUi();
@@ -1055,6 +1103,69 @@ document.querySelectorAll('[data-media-mode]').forEach(btn=>{
     }
   });
 });
+const swipeSurface=document.getElementById('phone');
+let swipeStartX=0;
+let swipeStartY=0;
+let swipeLastX=0;
+let swipeLastY=0;
+let swipeTracking=false;
+let swipeLocked=false;
+
+function swipeCanStart(event){
+  if(mediaMode!=='video'||!currentVideoId)return false;
+  const touch=event.touches?.[0];
+  if(!touch)return false;
+  const rect=swipeSurface.getBoundingClientRect();
+  const localY=touch.clientY-rect.top;
+  // Keep the native progress/volume/fullscreen controls usable.
+  if(localY>rect.height-72)return false;
+  return true;
+}
+swipeSurface?.addEventListener('touchstart',event=>{
+  if(event.touches?.length!==1||!swipeCanStart(event))return;
+  const touch=event.touches[0];
+  swipeStartX=swipeLastX=touch.clientX;
+  swipeStartY=swipeLastY=touch.clientY;
+  swipeTracking=true;
+  swipeLocked=false;
+},{passive:true});
+swipeSurface?.addEventListener('touchmove',event=>{
+  if(!swipeTracking||event.touches?.length!==1)return;
+  const touch=event.touches[0];
+  swipeLastX=touch.clientX;
+  swipeLastY=touch.clientY;
+  const dx=swipeLastX-swipeStartX;
+  const dy=swipeLastY-swipeStartY;
+  if(!swipeLocked&&Math.abs(dy)>10&&Math.abs(dy)>Math.abs(dx)*1.2)swipeLocked=true;
+  if(swipeLocked)event.preventDefault();
+},{passive:false});
+swipeSurface?.addEventListener('touchend',()=>{
+  if(!swipeTracking)return;
+  swipeTracking=false;
+  const dx=swipeLastX-swipeStartX;
+  const dy=swipeLastY-swipeStartY;
+  const vertical=Math.abs(dy)>=54&&Math.abs(dy)>Math.abs(dx)*1.25;
+  swipeLocked=false;
+  if(!vertical)return;
+  // TikTok convention: swipe up -> next; swipe down -> previous.
+  stepVideo(dy<0?1:-1);
+},{passive:true});
+swipeSurface?.addEventListener('touchcancel',()=>{
+  swipeTracking=false;
+  swipeLocked=false;
+},{passive:true});
+
+// Desktop/tablet keyboard parity for quick review.
+document.addEventListener('keydown',event=>{
+  if(mediaMode!=='video'||!currentVideoId)return;
+  if(event.target?.matches?.('input,textarea,[contenteditable="true"]'))return;
+  if(event.key==='ArrowDown'){
+    if(stepVideo(1))event.preventDefault();
+  }else if(event.key==='ArrowUp'){
+    if(stepVideo(-1))event.preventDefault();
+  }
+});
+
 document.querySelectorAll('[data-filter]').forEach(btn=>{
   btn.addEventListener('click',()=>{
     filterMode=btn.dataset.filter;
