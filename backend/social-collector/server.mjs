@@ -1178,44 +1178,28 @@ function ensureTikTokLivePackageScan(handles=null){
     : [...tiktokLiveSelectedHandles];
   if(!target.length)return Promise.resolve();
 
-  // Newly added/specific channels have their own priority lane. They must
-  // never wait behind or get swallowed by the global 163-channel scan.
+  // A targeted call (for example ADD CHANNEL) is only a trigger into the
+  // normal LIVE checker. It has no separate LIVE/FLV rules of its own.
+  // It runs independently from the global sweep so a new handle is checked now.
   if(targeted){
     return Promise.all(target.map(handle=>{
       const key=handle.toLowerCase();
       const running=tiktokLivePriorityScanPromises.get(key);
       if(running)return running;
 
-      // A previously failed/old scan must not throttle a freshly-added channel.
+      // New/explicit checks bypass stale throttles, but still use the exact
+      // same refreshTikTokLiveLibrary -> FLV resolver definition as all checks.
       tiktokLiveLibraryRefreshAt.delete(key);
       tiktokLiveLibraryWarmRetryAt.delete(key);
 
       const job=(async()=>{
-        console.log('[tiktok-live-priority] start',handle);
-
-        // 1) Check this handle immediately, independently from the global scan.
-        await refreshTikTokLiveLibrary([handle],{warm:false,force:true});
-
-        // 2) If LIVE was confirmed but no ready FLV was published by the API
-        // pass, resolve FLV immediately for this handle only.
-        let row=tiktokLiveLibrary.get(key)||{};
-        if(row.live&&!row.playable){
-          await warmTikTokLibraryHandle(handle).catch(error=>{
-            console.log(
-              '[tiktok-live-priority] flv failed',
-              handle,
-              compactText(error?.message||error,120)
-            );
-            return false;
-          });
-        }
-
-        // 3) Publish the result immediately. UI only reads the completed
-        // package; unresolved LIVE state stays server-internal.
+        console.log('[tiktok-live-check] targeted start',handle);
+        await refreshTikTokLiveLibrary([handle],{warm:true,force:true});
         await persistTikTokLiveStore({force:true});
-        row=tiktokLiveLibrary.get(key)||{};
+
+        const row=tiktokLiveLibrary.get(key)||{};
         console.log(
-          '[tiktok-live-priority] done',
+          '[tiktok-live-check] targeted done',
           handle,
           'live='+Boolean(row.live),
           'playable='+Boolean(row.playable),
@@ -7292,7 +7276,7 @@ const server=http.createServer(async(req,res)=>{
 
       if(selected){
         if(!reusedLiveSource){
-          console.log('[tiktok-selected] priority live check',handle);
+          console.log('[tiktok-selected] trigger live check',handle);
           void ensureTikTokLivePackageScan([handle]);
         }
         setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
