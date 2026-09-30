@@ -18,6 +18,7 @@ const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
 const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
 const TIKTOK_CLIENT_KEY=String(process.env.TIKTOK_CLIENT_KEY||'');
 const TIKTOK_CLIENT_SECRET=String(process.env.TIKTOK_CLIENT_SECRET||'');
+const APIFY_TOKEN=String(process.env.APIFY_TOKEN||'').trim();
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
 const TZ='Asia/Ho_Chi_Minh';
 
@@ -1292,26 +1293,73 @@ function runTikTokLiveMinuteSweep(){
         try{
           checked[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
         }catch{
-          checked[index]={handle,state:{known:false,live:false,status:null,source:'error'}};
+          checked[index]={
+            handle,
+            state:{known:false,live:false,status:null,source:'tiktok-error'}
+          };
         }
       }
     };
-    await Promise.all(Array.from({length:Math.min(8,target.length||1)},()=>worker()));
+    await Promise.all(
+      Array.from({length:Math.min(8,target.length||1)},()=>worker())
+    );
+
+    // Stage 2 sees only handles for which TikTok did not return status 2/4.
+    const unresolved=checked
+      .filter(row=>!row?.state?.known)
+      .map(row=>row.handle);
+
+    const apifyStates=await checkTikTokLiveWithApify(unresolved);
+    for(const row of checked){
+      if(row?.state?.known)continue;
+      const fallback=apifyStates.get(String(row.handle||'').toLowerCase());
+      if(fallback?.known)row.state=fallback;
+    }
 
     const nextLive=new Set();
     const checkedAt=Date.now();
+    let tiktokResolved=0;
+    let apifyResolved=0;
+    let unknown=0;
 
     for(const {handle,state} of checked){
-      const isLive=Boolean(state?.known&&state?.live===true);
       const key=handle.toLowerCase();
+      const isKnown=Boolean(state?.known);
+      const isLive=Boolean(isKnown&&state?.live===true);
+
+      if(isKnown&&state?.source==='apify')apifyResolved+=1;
+      else if(isKnown)tiktokResolved+=1;
+      else unknown+=1;
+
       if(isLive)nextLive.add(key);
 
-      // This row is only a current server-side view used by playback metadata.
-      // LIVE membership itself is owned by tiktokRealtimeLiveHandles below.
+      if(!isKnown){
+        updateTikTokLiveLibrary(handle,{
+          live:false,
+          status:'unknown',
+          probeState:'unknown',
+          ready:false,
+          playable:false,
+          liveCheckSource:String(state?.source||'unknown'),
+          type:'',
+          mode:'',
+          source:'',
+          sourceSig:'',
+          videoCodec:'',
+          audioCodec:'',
+          width:0,
+          height:0,
+          expiresAt:0,
+          lastSeenAt:checkedAt
+        });
+        continue;
+      }
+
       updateTikTokLiveLibrary(handle,{
         live:isLive,
         status:isLive?'live':'offline',
         probeState:isLive?'live':'offline',
+        liveCheckSource:String(state?.source||''),
         ready:isLive?Boolean(tiktokLiveLibrary.get(key)?.ready):false,
         playable:isLive?Boolean(tiktokLiveLibrary.get(key)?.playable):false,
         ...(isLive?{}:{
@@ -1329,7 +1377,7 @@ function runTikTokLiveMinuteSweep(){
       });
     }
 
-    // Atomic current snapshot. No previous state, no transition history.
+    // Atomic current snapshot only; no previous-state decision is involved.
     tiktokRealtimeLiveHandles=nextLive;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
@@ -1337,6 +1385,10 @@ function runTikTokLiveMinuteSweep(){
       '[tiktok-live-current]',
       'channels='+target.length,
       'live='+nextLive.size,
+      'tiktokResolved='+tiktokResolved,
+      'apifyRequested='+unresolved.length,
+      'apifyResolved='+apifyResolved,
+      'unknown='+unknown,
       'checkedAt='+checkedAt
     );
   })().catch(error=>{
@@ -2061,87 +2113,132 @@ async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
-  const checkOnce=async()=>{
-    try{
-      const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
-      endpoint.searchParams.set('aid','1988');
-      endpoint.searchParams.set('sourceType','54');
-      endpoint.searchParams.set('uniqueId',handle);
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('sourceType','54');
+    endpoint.searchParams.set('uniqueId',handle);
 
-      const r=await fetch(endpoint,{
-        headers:{
-          'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-          'accept':'application/json,text/plain,*/*',
-          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-          'referer':'https://www.tiktok.com/@'+handle+'/live'
-        },
-        redirect:'follow',
-        signal:AbortSignal.timeout(5000)
-      });
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle+'/live'
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(5000)
+    });
 
-      if(!r.ok){
-        return {
+    if(!r.ok){
+      return {known:false,live:false,status:null,source:'tiktok-http-'+r.status};
+    }
+
+    const data=await r.json();
+    const rawStatus=data?.data?.liveRoom?.status;
+    const hasStatus=rawStatus!==undefined&&rawStatus!==null&&rawStatus!=='';
+    const status=hasStatus?Number(rawStatus):NaN;
+
+    if(status===2){
+      return {known:true,live:true,status:2,source:'tiktok-user-room'};
+    }
+    if(status===4){
+      return {known:true,live:false,status:4,source:'tiktok-user-room'};
+    }
+
+    const apiCode=Number(data?.statusCode);
+    const message=String(data?.message||'').trim().toLowerCase();
+    return {
+      known:false,
+      live:false,
+      status:Number.isFinite(status)?status:null,
+      source:apiCode===19881007||message==='user_not_found'
+        ?'tiktok-user-not-found'
+        :(apiCode===10001||message.includes('service unavailable')
+          ?'tiktok-service-unavailable'
+          :'tiktok-no-status')
+    };
+  }catch(error){
+    return {known:false,live:false,status:null,source:'tiktok-error'};
+  }
+}
+
+async function checkTikTokLiveWithApify(rawHandles){
+  const handles=[...new Set(
+    (rawHandles||[]).map(normalizeTikTokHandle).filter(Boolean)
+  )];
+  const out=new Map();
+  if(!handles.length||!APIFY_TOKEN)return out;
+
+  try{
+    const endpoint=
+      'https://api.apify.com/v2/acts/UnseenUser~tiktok-live-status-scraper/'+
+      'run-sync-get-dataset-items?format=json&clean=true';
+
+    const r=await fetch(endpoint,{
+      method:'POST',
+      headers:{
+        'authorization':'Bearer '+APIFY_TOKEN,
+        'content-type':'application/json',
+        'accept':'application/json'
+      },
+      body:JSON.stringify({
+        handles,
+        include_stream_urls:false
+      }),
+      signal:AbortSignal.timeout(60_000)
+    });
+
+    if(!r.ok){
+      console.warn('[tiktok-live-apify] http='+r.status);
+      return out;
+    }
+
+    const rows=await r.json().catch(()=>[]);
+    for(const row of Array.isArray(rows)?rows:[]){
+      const handle=normalizeTikTokHandle(
+        row?.handle||
+        row?.unique_id||
+        row?._metadata?.input_identifier||
+        ''
+      );
+      if(!handle)continue;
+
+      const key=handle.toLowerCase();
+      if(row?.error){
+        out.set(key,{
           known:false,
           live:false,
           status:null,
-          retryable:r.status===429||r.status>=500,
-          source:'user-room-http-'+r.status
-        };
+          source:'apify-error'
+        });
+        continue;
       }
 
-      const data=await r.json();
-      const rawStatus=data?.data?.liveRoom?.status;
-      const hasStatus=rawStatus!==undefined&&rawStatus!==null&&rawStatus!=='';
-      const status=hasStatus?Number(rawStatus):NaN;
-
-      if(Number.isFinite(status)){
-        return {
+      if(typeof row?.is_live==='boolean'){
+        out.set(key,{
           known:true,
-          live:status===2,
-          status,
-          retryable:false,
-          source:'user-room'
-        };
+          live:row.is_live===true,
+          status:row.is_live===true?2:4,
+          source:'apify'
+        });
       }
-
-      const apiCode=Number(data?.statusCode);
-      const message=String(data?.message||'').toLowerCase();
-
-      if(apiCode===19881007||message==='user_not_found'){
-        return {
-          known:true,
-          live:false,
-          status:null,
-          retryable:false,
-          source:'user-not-found'
-        };
-      }
-
-      return {
-        known:false,
-        live:false,
-        status:null,
-        retryable:apiCode===10001||message.includes('service unavailable'),
-        source:'user-room-no-status'
-      };
-    }catch(error){
-      return {
-        known:false,
-        live:false,
-        status:null,
-        retryable:true,
-        source:'user-room-error'
-      };
     }
-  };
 
-  let result=null;
-  for(let retry=0;retry<3;retry+=1){
-    result=await checkOnce();
-    if(result?.known||!result?.retryable)break;
-    if(retry<2)await sleep(180*(retry+1));
+    console.log(
+      '[tiktok-live-apify]',
+      'requested='+handles.length,
+      'resolved='+[...out.values()].filter(x=>x.known).length,
+      'live='+[...out.values()].filter(x=>x.known&&x.live).length
+    );
+  }catch(error){
+    console.warn(
+      '[tiktok-live-apify] failed',
+      compactText(error?.message||error,160)
+    );
   }
-  return result||{known:false,live:false,status:null,source:'user-room-error'};
+
+  return out;
 }
 
 async function browserTikTokLiveStates(handles){
@@ -7284,9 +7381,13 @@ const server=http.createServer(async(req,res)=>{
       if(selected){
         // ADD CHANNEL asks TikTok API for the current value only.
         console.log('[tiktok-selected] check current TikTok LIVE',handle);
-        const liveState=await quickTikTokLiveStateOnly(handle).catch(()=>({
-          known:false,live:false,status:null,source:'api-error'
+        let liveState=await quickTikTokLiveStateOnly(handle).catch(()=>({
+          known:false,live:false,status:null,source:'tiktok-error'
         }));
+        if(!liveState?.known){
+          const fallback=await checkTikTokLiveWithApify([handle]);
+          liveState=fallback.get(handle.toLowerCase())||liveState;
+        }
         const isLive=Boolean(liveState?.known&&liveState.live===true);
         const checkedAt=Date.now();
 
