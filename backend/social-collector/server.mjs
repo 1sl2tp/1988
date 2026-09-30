@@ -760,7 +760,6 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
       }
     );
     if(!r.ok)throw new Error('tiktok_selected_write_'+r.status+':'+await r.text());
-    void queueTikTokCanonicalSync([handle]);
     return true;
   }
 
@@ -772,14 +771,6 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
     }
   );
   if(!r.ok)throw new Error('tiktok_selected_delete_'+r.status+':'+await r.text());
-  if(tiktokCanonicalLoaded){
-    const row=tiktokCanonicalChannels.get(handle.toLowerCase());
-    if(row){
-      row.selected=false;
-      row.updated_at=nowIso();
-      void upsertTikTokCanonicalRows([row],[]).then(()=>persistTikTokCanonicalPackage()).catch(()=>{});
-    }
-  }
   return true;
 }
 
@@ -4728,7 +4719,9 @@ function canonicalPackageVideo(row){
     playback:{
       type:'mp4',
       ready:canonicalMp4Usable(row),
-      url:canonicalMp4Usable(row)?String(row.mp4_url||''):'',
+      url:canonicalMp4Usable(row)
+        ? '/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
+        : '',
       source:String(row.mp4_source||''),
       expiresAt:row.mp4_expires_at||null,
       updatedAt:row.mp4_updated_at||null
@@ -6663,11 +6656,13 @@ const server=http.createServer(async(req,res)=>{
       const key=handle.toLowerCase();
       const had=tiktokLiveSelectedHandles.has(handle);
 
-      await persistTikTokSelectedMembership(handle,selected);
+      // Control plane owns state transitions. Change RAM first so every
+      // subsequent scan/canonical sync sees the new membership immediately.
+      if(selected)tiktokLiveSelectedHandles.add(handle);
+      else tiktokLiveSelectedHandles.delete(handle);
 
       let reusedLiveSource=false;
       if(selected){
-        tiktokLiveSelectedHandles.add(handle);
 
         // If the user has just opened this channel successfully, reuse the
         // already-resolved relay source immediately. Do not make Save wait for
@@ -6689,7 +6684,6 @@ const server=http.createServer(async(req,res)=>{
           });
         }
       }else{
-        tiktokLiveSelectedHandles.delete(handle);
         tiktokLiveFastSources.delete(key);
         tiktokLiveLibrary.delete(key);
         tiktokVideoLibrary.delete(key);
@@ -6698,7 +6692,31 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(had!==selected)touchTikTokLivePackage();
+
+      try{
+        await persistTikTokSelectedMembership(handle,selected);
+      }catch(error){
+        // Roll RAM membership back if durable selection write fails.
+        if(had)tiktokLiveSelectedHandles.add(handle);
+        else tiktokLiveSelectedHandles.delete(handle);
+        throw error;
+      }
+
       await persistTikTokLiveStore({force:true});
+
+      // Rebuild this handle immediately. Do not wait for a background timer.
+      if(tiktokCanonicalLoaded){
+        const existing=tiktokCanonicalChannels.get(key);
+        if(existing&&!selected){
+          existing.selected=false;
+          existing.updated_at=nowIso();
+          tiktokCanonicalChannels.set(key,existing);
+          await upsertTikTokCanonicalRows([existing],[]);
+          await persistTikTokCanonicalPackage();
+        }else if(selected){
+          await syncTikTokCanonicalLibrary([handle],{mirror:false});
+        }
+      }
 
       if(selected){
         if(!reusedLiveSource)void ensureTikTokLivePackageScan([handle]);
@@ -6752,6 +6770,48 @@ const server=http.createServer(async(req,res)=>{
       json(res,200,{ok:true,unchanged:false,...payload});
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/video-prepare'&&req.method==='POST'){
+    if(!trustedTikTokUiMutation(req)){
+      json(res,403,{ok:false,error:'forbidden'});
+      return;
+    }
+    try{
+      const body=await readJson(req,4096);
+      const handle=normalizeTikTokHandle(body?.handle||body?.user||'');
+      const id=String(body?.id||body?.videoId||'').trim();
+      if(!handle||!/^[0-9]{8,}$/.test(id)){
+        json(res,400,{ok:false,error:'invalid_tiktok_video'});
+        return;
+      }
+      const row=tiktokCanonicalVideos.get(id);
+      if(!row||String(row.handle||'').toLowerCase()!==handle.toLowerCase()){
+        json(res,404,{ok:false,error:'video_not_in_library'});
+        return;
+      }
+
+      const source=await resolveTikTokVideoSource(handle,id,{force:!canonicalMp4Usable(row,90_000)});
+      const fresh=tiktokCanonicalVideos.get(id)||row;
+      const ready=canonicalMp4Usable(fresh);
+      if(ready)await persistTikTokCanonicalPackage();
+
+      json(res,200,{
+        ok:true,
+        action:'video-prepare',
+        handle,
+        id,
+        ready,
+        stream:ready
+          ? '/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
+          : '',
+        version:tiktokCanonicalPackageVersion
+      });
+    }catch(error){
+      console.warn('[tiktok-video-prepare] failed',compactText(error?.stderr||error?.message||error,220));
+      json(res,502,{ok:false,error:'video_prepare_failed'});
     }
     return;
   }
