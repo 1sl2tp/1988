@@ -1381,6 +1381,7 @@ function runTikTokLiveMinuteSweep(){
         if(index>=target.length)return;
         const handle=target[index];
         try{
+          await sleep(180);
           first[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
         }catch{
           first[index]={
@@ -1390,7 +1391,7 @@ function runTikTokLiveMinuteSweep(){
         }
       }
     };
-    await Promise.all(Array.from({length:Math.min(8,target.length||1)},()=>worker()));
+    await Promise.all(Array.from({length:Math.min(3,target.length||1)},()=>worker()));
 
     // Pass 2: cross-check EVERY handle that was not positively LIVE.
     // A single OFFLINE answer is not enough to hide a possible LIVE.
@@ -1407,13 +1408,14 @@ function runTikTokLiveMinuteSweep(){
         const index=verifyIndexes[p];
         const handle=first[index].handle;
         try{
+          await sleep(220);
           detailByIndex.set(index,await quickTikTokLiveDetailStatus(handle));
         }catch{
           detailByIndex.set(index,{known:false,live:false,status:null,source:'tiktok-detail-error'});
         }
       }
     };
-    await Promise.all(Array.from({length:Math.min(6,verifyIndexes.length||1)},()=>verifyWorker()));
+    await Promise.all(Array.from({length:Math.min(3,verifyIndexes.length||1)},()=>verifyWorker()));
 
     function evidenceFor(index){
       const out=[];
@@ -2553,6 +2555,7 @@ async function browserTikTokLiveStates(handles){
           if(index>=list.length)return;
           const handle=list[index];
           try{
+            await new Promise(resolve=>setTimeout(resolve,180));
             const url='/api-live/user/room?aid=1988&sourceType=54&uniqueId='+encodeURIComponent(handle);
             const controller=new AbortController();
             const timer=setTimeout(()=>controller.abort(),3500);
@@ -2587,7 +2590,7 @@ async function browserTikTokLiveStates(handles){
           }
         }
       };
-      await Promise.all(Array.from({length:Math.min(6,list.length)},()=>worker()));
+      await Promise.all(Array.from({length:Math.min(2,list.length)},()=>worker()));
       return result;
     },normalized);
 
@@ -6954,7 +6957,11 @@ function mergeTikTokCookiePairs(header='',setCookies=[]){
 
 async function refreshTikTokApiCookieHeader({force=false}={}){
   if(tiktokApiCookieRefreshPromise)return tiktokApiCookieRefreshPromise;
-  if(!force&&tiktokApiCookieHeader&&Date.now()-tiktokApiCookieRefreshAt<10*60*1000){
+  const cookieAge=Date.now()-Number(tiktokApiCookieRefreshAt||0);
+  if(tiktokApiCookieHeader&&(
+    (!force&&cookieAge<10*60*1000)||
+    (force&&cookieAge<30_000)
+  )){
     return tiktokApiCookieHeader;
   }
 
@@ -8763,7 +8770,13 @@ server.listen(PORT,'0.0.0.0',()=>{
         'live='+tiktokRealtimeLiveHandles.size
       );
 
-      // One-time LIVE discovery for preview only. Recheck only the handles that
+      // LIVE status is the realtime control plane for the viewer. It must keep
+      // refreshing even when heavyweight profile/video collection is disabled.
+      void runTikTokLiveMinuteSweep();
+      setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
+
+      // Warm previously confirmed LIVE handles immediately while the full
+      // selected-channel sweep runs through the same single-flight state machine. Recheck only the handles that
       // were previously LIVE in the persisted package, then warm current LIVE
       // handles. This avoids a 171-channel recurring sweep.
       if(TIKTOK_PREVIEW_DISCOVER_LIVE){
