@@ -32,7 +32,7 @@ jobs:
           assert one.get('ok'), one
           assert one.get('live') is True, 'KNOWN LIVE @longgiatien was not detected'
 
-          allst=get('/tiktok/live-statuses?refresh=1&t='+str(int(time.time())),240)
+          allst=get('/tiktok/live-statuses?refresh=all&t='+str(int(time.time())),540)
           print('TOTAL',allst.get('total'),'COUNTS',json.dumps(allst.get('counts') or {},ensure_ascii=False,sort_keys=True))
           row=next((x for x in allst.get('items',[]) if str(x.get('handle','')).lower()==H),None)
           print('LONGGIATIEN',json.dumps(row,ensure_ascii=False,sort_keys=True))
