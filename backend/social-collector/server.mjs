@@ -987,7 +987,7 @@ async function loadTikTokLiveStore(){
       const live=Boolean(stored?.live);
       let source=null;
 
-      if(live&&['flv','hls'].includes(type)&&/^https?:\/\//i.test(url)){
+      if(live&&type==='flv'&&/^https?:\/\//i.test(url)){
         source={
           mode:'fast-store',
           handle,
