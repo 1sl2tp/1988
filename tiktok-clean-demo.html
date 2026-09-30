@@ -304,6 +304,29 @@ function stepVideo(direction){
   },90);
   return true;
 }
+function adjacentPlayableLive(direction){
+  const list=channels.filter(row=>rowPlayable(row));
+  if(list.length<2)return null;
+  const index=list.findIndex(row=>String(row?.handle||'').toLowerCase()===String(currentHandle||'').toLowerCase());
+  if(index<0)return list[0]||null;
+  const next=index+(direction>0?1:-1);
+  return next>=0&&next<list.length?list[next]:null;
+}
+function stepLive(direction){
+  const next=adjacentPlayableLive(direction);
+  const handle=parseHandle(next?.handle||'');
+  if(!handle||handle.toLowerCase()===String(currentHandle||'').toLowerCase())return false;
+  const phone=document.getElementById('phone');
+  phone?.classList.add(direction>0?'swipe-next':'swipe-prev');
+  setTimeout(()=>{
+    phone?.classList.remove('swipe-next','swipe-prev');
+    openChannel(handle);
+  },90);
+  return true;
+}
+function stepCurrentMedia(direction){
+  return mediaMode==='video'?stepVideo(direction):stepLive(direction);
+}
 function rowLiveDetected(row){
   return liveNowHandles.has(String(row?.handle||'').toLowerCase());
 }
@@ -1226,7 +1249,8 @@ let swipeTracking=false;
 let swipeLocked=false;
 
 function swipeCanStart(event){
-  if(mediaMode!=='video'||!currentVideoId)return false;
+  if(mediaMode==='video'&&!currentVideoId)return false;
+  if(mediaMode==='live'&&!currentHandle)return false;
   const touch=event.touches?.[0];
   if(!touch)return false;
   if(event.target?.closest?.('.media-controls'))return false;
@@ -1263,21 +1287,44 @@ swipeSurface?.addEventListener('touchend',()=>{
   swipeLocked=false;
   if(!vertical)return;
   // TikTok convention: swipe up -> next; swipe down -> previous.
-  stepVideo(dy<0?1:-1);
+  // Applies to both saved videos and currently playable LIVE channels.
+  stepCurrentMedia(dy<0?1:-1);
 },{passive:true});
 swipeSurface?.addEventListener('touchcancel',()=>{
   swipeTracking=false;
   swipeLocked=false;
 },{passive:true});
 
+// Trackpad / mouse-wheel parity for narrow desktop windows: scrolling directly
+// over the media behaves like a TikTok vertical swipe without moving the page.
+let mediaWheelLockedUntil=0;
+swipeSurface?.addEventListener('wheel',event=>{
+  if(event.target?.closest?.('.media-controls'))return;
+  if(mediaMode==='video'&&!currentVideoId)return;
+  if(mediaMode==='live'&&!currentHandle)return;
+  const now=Date.now();
+  if(now<mediaWheelLockedUntil){
+    event.preventDefault();
+    return;
+  }
+  const dx=Number(event.deltaX||0);
+  const dy=Number(event.deltaY||0);
+  if(Math.abs(dy)<28||Math.abs(dy)<=Math.abs(dx)*1.2)return;
+  if(stepCurrentMedia(dy>0?1:-1)){
+    event.preventDefault();
+    mediaWheelLockedUntil=now+420;
+  }
+},{passive:false});
+
 // Desktop/tablet keyboard parity for quick review.
 document.addEventListener('keydown',event=>{
-  if(mediaMode!=='video'||!currentVideoId)return;
+  if(mediaMode==='video'&&!currentVideoId)return;
+  if(mediaMode==='live'&&!currentHandle)return;
   if(event.target?.matches?.('input,textarea,[contenteditable="true"]'))return;
   if(event.key==='ArrowDown'){
-    if(stepVideo(1))event.preventDefault();
+    if(stepCurrentMedia(1))event.preventDefault();
   }else if(event.key==='ArrowUp'){
-    if(stepVideo(-1))event.preventDefault();
+    if(stepCurrentMedia(-1))event.preventDefault();
   }
 });
 
