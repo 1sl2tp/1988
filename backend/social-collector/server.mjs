@@ -74,6 +74,12 @@ let tiktokCanonicalVideoEnrichBusy=false;
 let tiktokCanonicalSyncPromise=null;
 let tiktokCanonicalMp4RefreshSerial=Promise.resolve();
 let tiktokCanonicalMp4Cursor=0;
+let tiktokFullResyncPromise=null;
+let tiktokFullResyncState={
+  running:false,startedAt:0,finishedAt:0,
+  phase:'idle',channelsTotal:0,channelsDone:0,
+  videosTotal:0,videosReady:0,errors:0
+};
 
 const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
@@ -4252,6 +4258,141 @@ async function persistTikTokVideoStore({force=false}={}){
   return tiktokVideoStoreWritePromise;
 }
 
+async function refreshAllTikTokChannelProfiles(handles){
+  const profiles=new Map();
+  let done=0;
+  let errors=0;
+  for(const handle of handles){
+    try{
+      const profile=await fetchTikwmProfileIdentity(handle);
+      if(profile){
+        const key=handle.toLowerCase();
+        const cached=tiktokProfileIdentityCache.get(key)?.data||{};
+        const merged=mergeTikTokProfileData(handle,cached,profile);
+        tiktokProfileIdentityCache.set(key,{at:Date.now(),data:merged});
+        profiles.set(key,merged);
+      }else{
+        errors+=1;
+      }
+    }catch{
+      errors+=1;
+    }
+    done+=1;
+    tiktokFullResyncState.channelsDone=done;
+  }
+  return {profiles,errors};
+}
+
+async function refreshAllTikTokMp4Sources(handles){
+  const wanted=new Set(handles.map(x=>String(x).toLowerCase()));
+  const rows=[...tiktokCanonicalVideos.values()]
+    .filter(row=>wanted.has(String(row.handle||'').toLowerCase()))
+    .sort((a,b)=>
+      String(a.handle||'').localeCompare(String(b.handle||''))||
+      Number(b.create_time||0)-Number(a.create_time||0)
+    );
+  tiktokFullResyncState.videosTotal=rows.length;
+  let ready=0;
+  let errors=0;
+  for(const row of rows){
+    try{
+      await resolveTikTokVideoSource(
+        row.handle,
+        row.video_id,
+        {force:!canonicalMp4Usable(row,5*60_000)}
+      );
+      if(canonicalMp4Usable(tiktokCanonicalVideos.get(String(row.video_id))||row,60_000))ready+=1;
+    }catch(error){
+      errors+=1;
+      console.log(
+        '[tiktok-full-resync] mp4 failed',
+        row.handle,row.video_id,
+        compactText(error?.stderr||error?.message||error,100)
+      );
+    }
+    tiktokFullResyncState.videosReady=ready;
+    tiktokFullResyncState.errors+=errors?0:0;
+  }
+  return {total:rows.length,ready,errors};
+}
+
+async function fullResyncTikTokSelectedData(){
+  if(tiktokFullResyncPromise)return tiktokFullResyncPromise;
+  const run=async()=>{
+    const handles=[...tiktokLiveSelectedHandles];
+    if(!handles.length)return false;
+
+    tiktokFullResyncState={
+      running:true,
+      startedAt:Date.now(),
+      finishedAt:0,
+      phase:'profiles',
+      channelsTotal:handles.length,
+      channelsDone:0,
+      videosTotal:0,
+      videosReady:0,
+      errors:0
+    };
+    console.log('[tiktok-full-resync] start','channels='+handles.length);
+
+    // 1) Refresh channel/profile metadata for every selected channel.
+    const profileResult=await refreshAllTikTokChannelProfiles(handles);
+    tiktokFullResyncState.errors+=profileResult.errors;
+
+    // 2) Force a fresh video-list scan for every selected channel.
+    tiktokFullResyncState.phase='video-lists';
+    for(const handle of handles)tiktokVideoRefreshAt.delete(handle.toLowerCase());
+    await refreshTikTokVideoLibrary(handles);
+    await persistTikTokVideoStore({force:true});
+
+    // 3) Merge profile + video list into one canonical library immediately.
+    tiktokFullResyncState.phase='canonical';
+    await syncTikTokCanonicalLibrary(handles,{
+      profiles:profileResult.profiles,
+      mirror:false
+    });
+
+    // 4) Refresh LIVE/non-LIVE state independently from canonical media data.
+    tiktokFullResyncState.phase='live';
+    await runTikTokLiveMinuteSweep().catch(()=>{});
+    await persistTikTokLiveStore({force:true}).catch(()=>{});
+
+    // 5) Fill playback metadata server-side for every canonical video.
+    tiktokFullResyncState.phase='mp4';
+    const mp4=await refreshAllTikTokMp4Sources(handles);
+    tiktokFullResyncState.errors+=mp4.errors;
+
+    // 6) Persist one final unified package and mirror images in background.
+    tiktokFullResyncState.phase='package';
+    await syncTikTokCanonicalLibrary(handles,{profiles:profileResult.profiles,mirror:false});
+    await persistTikTokCanonicalPackage();
+    void mirrorTikTokCanonicalImages(40).catch(()=>{});
+
+    tiktokFullResyncState.running=false;
+    tiktokFullResyncState.phase='done';
+    tiktokFullResyncState.finishedAt=Date.now();
+    console.log(
+      '[tiktok-full-resync] done',
+      'channels='+handles.length,
+      'videos='+mp4.total,
+      'ready='+mp4.ready,
+      'errors='+tiktokFullResyncState.errors
+    );
+    return true;
+  };
+  tiktokFullResyncPromise=run()
+    .catch(error=>{
+      tiktokFullResyncState.running=false;
+      tiktokFullResyncState.phase='error';
+      tiktokFullResyncState.finishedAt=Date.now();
+      tiktokFullResyncState.errors+=1;
+      console.warn('[tiktok-full-resync] failed',compactText(error?.message||error,180));
+      return false;
+    })
+    .finally(()=>{tiktokFullResyncPromise=null;});
+  return tiktokFullResyncPromise;
+}
+
 async function refreshTikTokVideoLibrary(handles=null){
   const target=(handles&&handles.length)
     ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
@@ -6782,47 +6923,6 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
-  if(url.pathname==='/tiktok/video-prepare'&&req.method==='POST'){
-    if(!trustedTikTokUiMutation(req)){
-      json(res,403,{ok:false,error:'forbidden'});
-      return;
-    }
-    try{
-      const body=await readJson(req,4096);
-      const handle=normalizeTikTokHandle(body?.handle||body?.user||'');
-      const id=String(body?.id||body?.videoId||'').trim();
-      if(!handle||!/^[0-9]{8,}$/.test(id)){
-        json(res,400,{ok:false,error:'invalid_tiktok_video'});
-        return;
-      }
-      const row=tiktokCanonicalVideos.get(id);
-      if(!row||String(row.handle||'').toLowerCase()!==handle.toLowerCase()){
-        json(res,404,{ok:false,error:'video_not_in_library'});
-        return;
-      }
-
-      const source=await resolveTikTokVideoSource(handle,id,{force:!canonicalMp4Usable(row,90_000)});
-      const fresh=tiktokCanonicalVideos.get(id)||row;
-      const ready=canonicalMp4Usable(fresh);
-      if(ready)await persistTikTokCanonicalPackage();
-
-      json(res,200,{
-        ok:true,
-        action:'video-prepare',
-        handle,
-        id,
-        ready,
-        stream:ready
-          ? '/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
-          : '',
-        version:tiktokCanonicalPackageVersion
-      });
-    }catch(error){
-      console.warn('[tiktok-video-prepare] failed',compactText(error?.stderr||error?.message||error,220));
-      json(res,502,{ok:false,error:'video_prepare_failed'});
-    }
-    return;
-  }
 
   if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
     try{
@@ -7228,7 +7328,12 @@ const server=http.createServer(async(req,res)=>{
         liveCount:Number(row.payload?.liveCount||0),
       }:null;
     }
-    json(res,200,{ok:true,snapshots,lastRuns:Object.fromEntries(lastRuns)});
+    json(res,200,{
+      ok:true,
+      snapshots,
+      lastRuns:Object.fromEntries(lastRuns),
+      tiktokFullResync:{...tiktokFullResyncState}
+    });
     return;
   }
 
@@ -7329,6 +7434,9 @@ server.listen(PORT,'0.0.0.0',()=>{
     });
     void mirrorTikTokCanonicalImages(20).catch(()=>{});
     setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(8);},1200).unref();
+    // Full server-owned refresh of all selected TikTok channels. UI never
+    // triggers extraction; it only observes package version changes.
+    setTimeout(()=>{void fullResyncTikTokSelectedData();},3000).unref();
     setTimeout(()=>{void warmTikTokVideoSources(1);},15_000).unref();
     setTimeout(()=>{void enrichNextTikTokCanonicalVideo();},20_000).unref();
 
