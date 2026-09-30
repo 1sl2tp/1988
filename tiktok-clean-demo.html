@@ -1464,28 +1464,6 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
     },900);
   };
 }
-function attachHls(url,handle){
-  const video=document.getElementById('liveVideo');
-  destroyPlayer();
-  if(video.canPlayType('application/vnd.apple.mpegurl')){
-    video.src=url;
-    video.onloadedmetadata=()=>{setPlayerShape(video);video.play().catch(()=>{})};
-    video.onplaying=()=>{
-      video.controls=true;
-      updateCurrentUi();
-      fetch(API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=hls&t='+Date.now(),{cache:'no-store'}).catch(()=>{});
-    };
-    return;
-  }
-  if(window.Hls&&Hls.isSupported()){
-    const h=new Hls({lowLatencyMode:true,enableWorker:true,backBufferLength:20,maxBufferLength:16});
-    h.loadSource(url);h.attachMedia(video);
-    h.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
-    video.onplaying=()=>{video.controls=true;setPlayerShape(video)};
-    h.on(Hls.Events.ERROR,()=>{});
-    player=h;
-  }
-}
 function openChannel(rawHandle){
   const handle=parseHandle(rawHandle);
   if(!handle)return;
@@ -1512,12 +1490,11 @@ function openChannel(rawHandle){
   currentType=String(stream.type||'').toLowerCase();
 
   const packaged=String(stream.url||'').trim();
-  if(live.isLive&&live.playable&&packaged&&currentSourceSig&&['flv','hls'].includes(currentType)){
+  if(live.isLive&&live.playable&&packaged&&currentSourceSig&&currentType==='flv'){
     const base=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
     const url=base+(base.includes('?')?'&':'?')+'t='+Date.now();
     document.getElementById('nowState').textContent='';
-    if(currentType==='hls')attachHls(url,handle);
-    else attachFlv(url,handle,currentSourceSig);
+    attachFlv(url,handle,currentSourceSig);
     return;
   }
 
