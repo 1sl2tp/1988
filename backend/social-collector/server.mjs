@@ -2126,8 +2126,12 @@ async function fastTikTokLiveWithYtdlp(handle){
     });
     const data=JSON.parse(String(out||'').trim()||'{}');
     if(!data?.success||!data?.stream_url)return null;
+    const streamUrl=String(data.stream_url||'');
+    const streamType=String(data.stream_type||'').toLowerCase();
+    // FLV-only pipeline: never relabel HLS or another transport as FLV.
+    if(streamType!=='flv'&&!/\.flv(?:\?|$)/i.test(streamUrl))return null;
     return {
-      url:String(data.stream_url),
+      url:streamUrl,
       type:'flv',
       title:String(data.title||''),
       thumbnail:String(data.thumbnail||''),
