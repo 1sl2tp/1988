@@ -1,0 +1,39 @@
+name: Audit Edge Function fanout once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/audit-edge-fanout-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clone all app repos and audit cron/function fanout
+        shell: bash
+        run: |
+          set -e
+          mkdir work && cd work
+          for r in 1988 getlink chat taphoaxyz; do
+            git clone -q --depth 200 "https://github.com/1sl2tp/$r.git" "$r"
+          done
+
+          echo "=== CRON DEFINITIONS ==="
+          grep -RInE --include='*.sql' 'cron\.schedule|schedule\s*:=|net\.http_post|http_post|functions/v1/' .             | grep -v '/.git/' | head -n 800 || true
+
+          echo "=== EDGE FUNCTION -> EDGE FUNCTION CALLS ==="
+          grep -RInE --include='*.ts' --include='*.js' --include='*.mjs' 'functions/v1/|supabase\.functions\.invoke|functions\.invoke\(' .             | grep -v '/.git/' | head -n 1200 || true
+
+          echo "=== FAST TIMERS / POLLING ==="
+          grep -RInE --include='*.ts' --include='*.js' --include='*.mjs' --include='*.html' 'setInterval|setTimeout|[0-9]+\s*\*\s*1000|60000|30000|15000|10000|5000|1000' .             | grep -v '/.git/' | grep -Ei 'refresh|sync|scan|poll|invoke|fetch|function|cron|edge|update' | head -n 1000 || true
+
+          echo "=== COMMITS SEP24-26 ==="
+          for r in 1988 getlink chat taphoaxyz; do
+            echo "--- $r"
+            git -C "$r" log --since='2026-09-24 00:00:00 +0700' --until='2026-09-27 00:00:00 +0700'               --date=iso --pretty='%h %ad %s' --all | head -n 200
+          done
