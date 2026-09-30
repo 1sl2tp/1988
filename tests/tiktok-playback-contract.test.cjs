@@ -39,4 +39,18 @@ assert.match(warm,/confirmTikTokLibrarySource\(/,'LIVE background warm must veri
 assert.match(warm,/attempt<4/,'LIVE warm must try fallback FLV candidates');
 
 assert.match(videoRoute,/serveTikTokVideoFile\(/,'MP4 route must serve warmed local file with Range support');
+
+assert.match(html,/function stepVideo\(direction\)/,'TikTok video swipe navigator missing');
+assert.match(html,/touchstart/,'TikTok mobile swipe start handler missing');
+assert.match(html,/touchmove/,'TikTok mobile swipe move handler missing');
+assert.match(html,/touchend/,'TikTok mobile swipe end handler missing');
+assert.match(html,/warmNextVideo\(\)/,'TikTok next-video rolling warm missing');
+
+const warmRouteStart=server.indexOf("if(url.pathname==='/tiktok/video-warm'");
+const warmRouteEnd=server.indexOf("if(url.pathname==='/tiktok/video-stream'",warmRouteStart);
+assert.ok(warmRouteStart>=0&&warmRouteEnd>warmRouteStart,'video-warm route missing');
+const warmRoute=server.slice(warmRouteStart,warmRouteEnd);
+assert.match(warmRoute,/downloadTikTokVideoFile\(/,'video-warm must prepare local MP4 fallback');
+assert.match(warmRoute,/json\(res,202/,'video-warm must return immediately while warming');
+
 console.log('tiktok-playback-contract: assertions passed');
