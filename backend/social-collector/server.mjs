@@ -7323,20 +7323,10 @@ const server=http.createServer(async(req,res)=>{
       if(selected)tiktokLiveSelectedHandles.add(handle);
       else tiktokLiveSelectedHandles.delete(existingHandle||handle);
 
-      let reusedLiveSource=false;
       if(selected){
-
-        // If the user has just opened this channel successfully, reuse the
-        // already-resolved relay source immediately. Do not make Save wait for
-        // another LIVE scan.
-        const current=currentTikTokLibrarySource(handle);
-        if(current&&tiktokLiveSourceUsable(current)&&!isTikTokBadSource(handle,current)){
-          publishTikTokLiveSourceNow(handle,current,{
-            mode:String(current.mode||'relay-cache'),
-            source:String(current.source||current.mode||'relay-cache')
-          });
-          reusedLiveSource=true;
-        }else if(!tiktokLiveLibrary.has(key)){
+        // ADD CHANNEL does not own LIVE/FLV logic. It only marks the channel as
+        // selected, then invokes the existing shared LIVE checker below.
+        if(!tiktokLiveLibrary.has(key)){
           updateTikTokLiveLibrary(handle,{
             live:false,
             ready:false,
@@ -7381,10 +7371,12 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(selected){
-        if(!reusedLiveSource){
-          console.log('[tiktok-selected] trigger live check',handle);
-          void ensureTikTokLivePackageScan([handle]);
-        }
+        // This action is only a trigger into the fixed LIVE/FLV definition.
+        // Always run the shared checker for the newly-added handle and wait for
+        // its result; no reuse/shortcut/private source-selection rules here.
+        console.log('[tiktok-selected] trigger live check',handle);
+        await ensureTikTokLivePackageScan([handle]);
+
         setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
         setTimeout(()=>{
           void (async()=>{
@@ -7407,7 +7399,6 @@ const server=http.createServer(async(req,res)=>{
         ready:Boolean(liveRow?.ready),
         type:String(liveRow?.type||''),
         sourceSig:String(liveRow?.sourceSig||''),
-        reusedLiveSource,
         total:tiktokLiveSelectedHandles.size,
         version:tiktokLiveLibraryVersion
       });
