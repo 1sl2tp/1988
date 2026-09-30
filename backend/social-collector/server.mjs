@@ -7904,6 +7904,32 @@ const server=http.createServer(async(req,res)=>{
   }
 
 
+  if(url.pathname==='/tiktok/video-warm'&&req.method==='GET'){
+    const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
+    const id=String(url.searchParams.get('id')||'').trim();
+    if(!handle||!/^[0-9]{8,}$/.test(id)){
+      json(res,400,{ok:false,error:'invalid_tiktok_video'});
+      return;
+    }
+
+    const key=handle.toLowerCase()+':'+id;
+    const cachedFile=tiktokVideoFileCache.get(key);
+    if(cachedFile?.path){
+      json(res,200,{ok:true,ready:true,source:'file-cache'});
+      return;
+    }
+
+    // This endpoint is only a hint. It must return immediately; the browser
+    // never waits for yt-dlp/file download before continuing playback.
+    queueTikTokVideoPriorityWarm(handle,id,{force:false});
+    void downloadTikTokVideoFile(handle,id,{force:false})
+      .then(file=>console.log('[tiktok-video-warm]',handle,id,'ready','bytes='+Number(file?.size||0)))
+      .catch(error=>console.log('[tiktok-video-warm]',handle,id,'failed',compactText(error?.message||error,120)));
+
+    json(res,202,{ok:true,ready:false,queued:true});
+    return;
+  }
+
   if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
