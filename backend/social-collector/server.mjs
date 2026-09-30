@@ -19,6 +19,9 @@ const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
 const TIKTOK_CLIENT_KEY=String(process.env.TIKTOK_CLIENT_KEY||'');
 const TIKTOK_CLIENT_SECRET=String(process.env.TIKTOK_CLIENT_SECRET||'');
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
+// Emergency freeze: keep persisted TikTok data readable while stopping all
+// TikTok refresh/extraction/write traffic so the shared Supabase project can recover.
+const TIKTOK_UPDATES_PAUSED=String(process.env.TIKTOK_UPDATES_PAUSED||'1')!=='0';
 const TZ='Asia/Ho_Chi_Minh';
 
 const PLATFORMS=new Set(['tiktok']);
@@ -120,6 +123,31 @@ let tikwmApiSerial=Promise.resolve();
 let tikwmApiLastAt=0;
 let tiktokProfileBackfillBusy=false;
 let tiktokProfileBackfillCursor=0;
+let tiktokFrozenLibraryPackage=null;
+let tiktokFrozenLibraryLoadedAt=0;
+
+async function loadTikTokFrozenLibraryPackage({force=false}={}){
+  if(tiktokFrozenLibraryPackage&&!force)return tiktokFrozenLibraryPackage;
+  const r=await fetch(
+    SUPABASE_URL+'/rest/v1/yt1988_tiktok_library_package?package_key=eq.library&select=version,payload,updated_at&limit=1',
+    {
+      headers:storeHeaders(),
+      signal:AbortSignal.timeout(12000)
+    }
+  );
+  if(!r.ok)throw new Error('tiktok_frozen_package_read_'+r.status+':'+compactText(await r.text(),140));
+  const rows=await r.json();
+  const row=Array.isArray(rows)?rows[0]:null;
+  if(!row||!row.payload)throw new Error('tiktok_frozen_package_missing');
+  const payload=row.payload&&typeof row.payload==='object'?row.payload:{};
+  tiktokFrozenLibraryPackage={
+    ...payload,
+    version:Number(row.version??payload.version??0),
+    generatedAt:String(payload.generatedAt||row.updated_at||nowIso())
+  };
+  tiktokFrozenLibraryLoadedAt=Date.now();
+  return tiktokFrozenLibraryPackage;
+}
 
 function enqueueTikwmApi(task){
   const run=tikwmApiSerial.then(async()=>{
@@ -931,6 +959,7 @@ function touchTikTokLivePackage(){
 }
 
 async function persistTikTokSelectedMembership(rawHandle,selected=true){
+  if(TIKTOK_UPDATES_PAUSED)throw new Error('tiktok_updates_paused');
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
 
@@ -5015,6 +5044,7 @@ function buildTikTokVideoStoredRows(){
 }
 
 async function persistTikTokVideoStore({force=false}={}){
+  if(TIKTOK_UPDATES_PAUSED)return true;
   if(!force&&tiktokVideoPersistedVersion===tiktokVideoPackageVersion)return true;
   if(tiktokVideoStoreWritePromise)return tiktokVideoStoreWritePromise;
 
@@ -7793,21 +7823,24 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/tiktok/library'&&req.method==='GET'){
     try{
-      await loadTikTokCanonicalStore();
-      const payload=buildTikTokCanonicalPackage();
+      const payload=TIKTOK_UPDATES_PAUSED
+        ?await loadTikTokFrozenLibraryPackage()
+        :(await loadTikTokCanonicalStore(),buildTikTokCanonicalPackage());
       const clientVersion=Number(url.searchParams.get('v')||-1);
       if(clientVersion===Number(payload.version||0)){
         json(res,200,{
           ok:true,
           unchanged:true,
+          paused:TIKTOK_UPDATES_PAUSED,
           version:payload.version,
           generatedAt:payload.generatedAt
         });
         return;
       }
-      json(res,200,{ok:true,unchanged:false,...payload});
+      json(res,200,{ok:true,unchanged:false,paused:TIKTOK_UPDATES_PAUSED,...payload});
     }catch(error){
-      json(res,502,{ok:false,error:String(error?.message||error)});
+      // Never fall back to a full canonical table scan while paused.
+      json(res,502,{ok:false,paused:TIKTOK_UPDATES_PAUSED,error:String(error?.message||error)});
     }
     return;
   }
@@ -7976,7 +8009,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/tiktok/live-now'&&req.method==='GET'){
     // Never expose an uninitialized empty snapshot. The first realtime read
     // waits for one complete TikTok API check of the selected channels.
-    if(!tiktokRealtimeLiveCheckedAt){
+    if(!tiktokRealtimeLiveCheckedAt&&!TIKTOK_UPDATES_PAUSED){
       await runTikTokLiveMinuteSweep();
     }
 
@@ -8384,7 +8417,31 @@ const server=http.createServer(async(req,res)=>{
 });
 
 server.listen(PORT,'0.0.0.0',()=>{
-  console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT);
+  console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
+
+  if(TIKTOK_UPDATES_PAUSED){
+    // Read-only recovery mode: one small persisted package read, no canonical
+    // table scans, no LIVE/video/profile refresh loops, no mirror/write loops.
+    void Promise.all([
+      loadTikTokApiCookieHeader(),
+      loadTikTokLiveStore(),
+      loadTikTokFrozenLibraryPackage()
+    ]).then(()=>{
+      console.log(
+        '[tiktok-freeze] ready',
+        'channels='+Number(tiktokFrozenLibraryPackage?.total||tiktokFrozenLibraryPackage?.channels?.length||0),
+        'videos='+Number(tiktokFrozenLibraryPackage?.videoCount||0),
+        'version='+Number(tiktokFrozenLibraryPackage?.version||0)
+      );
+    }).catch(error=>{
+      console.warn('[tiktok-freeze] load failed',compactText(error?.message||error,160));
+    });
+
+    for(const platform of PLATFORMS)void loadSnapshot(platform);
+    console.log('[collector] TikTok background updates paused');
+    return;
+  }
+
   void Promise.all([
     loadTikTokApiCookieHeader(),
     loadTikTokLiveStore()
@@ -8397,8 +8454,6 @@ server.listen(PORT,'0.0.0.0',()=>{
     });
     void mirrorTikTokCanonicalImages(20).catch(()=>{});
     setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(8);},1200).unref();
-    // Full server-owned refresh of all selected TikTok channels. UI never
-    // triggers extraction; it only observes package version changes.
     setTimeout(()=>{void repairTikTokIncompleteVideoData();},3000).unref();
     setTimeout(()=>{void fullResyncTikTokSelectedData();},90_000).unref();
     setTimeout(()=>{void warmTikTokVideoSources(1);},15_000).unref();
@@ -8421,6 +8476,7 @@ server.listen(PORT,'0.0.0.0',()=>{
         console.log('[tiktok-ytdlp-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
       });
     }
+
     const probeHandle=[...tiktokLiveSelectedHandles][0]||'aoelinhfbi.official';
     try{
       const probe=await fetchTikTokOfficialProfileIdentity(probeHandle);
@@ -8442,24 +8498,15 @@ server.listen(PORT,'0.0.0.0',()=>{
     void runTikTokLiveMinuteSweep();
     setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},60_000).unref();
   });
+
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
-  // Video discovery is heavier (yt-dlp/profile extraction). Keep it away from
-  // the one-minute LIVE-status API sweep.
   setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},3*60_000).unref();
-  // Fill missing canonical profile metadata through a single rate-limited
-  // server queue. UI never calls profile providers itself.
   setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(8);},12_000).unref();
-  // Periodic deeper metadata refresh remains separate from the fast backfill.
   setInterval(()=>{void refreshTikTokCanonicalProfileBatch(20);},10*60_000).unref();
-  // Mirror raw avatar/live/video images byte-for-byte. Objects are content-addressed,
-  // never resized and never deleted when the source image later changes.
   setInterval(()=>{void mirrorTikTokCanonicalImages(20);},2*60_000).unref();
-  // Keep recent video playback URLs hot on the server. UI only reads/plays the
-  // packaged stream route and never performs extraction itself.
   setInterval(()=>{void warmTikTokVideoSources();},3*60_000).unref();
-  // Enrich one recent video at a time with full yt-dlp metadata. This gradually
-  // fills covers/likes/comments/shares without making UI requests do extraction.
   setInterval(()=>{void enrichNextTikTokCanonicalVideo();},60_000).unref();
+
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
     void getBrowser()
