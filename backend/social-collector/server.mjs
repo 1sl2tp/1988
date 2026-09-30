@@ -3321,6 +3321,12 @@ async function fetchTikTokProfileIdentityScraped(handle){
       /"uid":"(\d{6,30})"/,
       /"userId":"(\d{6,30})"/
     ]);
+    const roomId=pick([
+      /"roomId":"?(\d{8,30})"?/,
+      /"room_id":"?(\d{8,30})"?/,
+      /"liveRoomId":"?(\d{8,30})"?/,
+      /\\"roomId\\":\\"?(\d{8,30})/
+    ]);
     const nickname=pick([
       /"nickname":"([^"]+)"/,
       /\\"nickname\\":\\"([^"]+)\\"/
