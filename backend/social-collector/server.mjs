@@ -359,7 +359,7 @@ function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status
   if(!row?.url)return false;
   const key=String(handle||'').toLowerCase();
   const current=tiktokLiveLibrary.get(key)||{};
-  const live=Boolean(current.live);
+  const live=tiktokRealtimeLiveHandles.has(key)||Boolean(current.live);
   const confirmed=live&&(ready==null?Boolean(row.confirmed):Boolean(ready));
   const expiresAt=tiktokStreamExpiresAt(row.url);
   return updateTikTokLiveLibrary(handle,{
@@ -378,7 +378,7 @@ function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status
 function publishTikTokLiveSourceNow(handle,row,{mode='',source=''}={}){
   if(!row?.url)return false;
   const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-  const live=Boolean(current.live);
+  const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
   return updateTikTokLiveLibrary(handle,{
     ready:live,
     playable:live,
@@ -514,7 +514,7 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
     row.height=probe.height;
     clearTikTokBadSource(handle,row);
     const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-    const live=Boolean(current.live);
+    const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
     updateTikTokLiveLibrary(handle,{
       ready:live,playable:live,
       type:live?String(row.type||''):'',
@@ -643,6 +643,7 @@ function seedTikTokFastSource(handle,row){
 }
 
 async function findPreferredTikTokFlv(handle,excludeSig=''){
+  const key=String(handle||'').toLowerCase();
   const status=await quickTikTokLiveStatus(handle);
   if(status?.title||status?.thumbnail){
     updateTikTokLiveLibrary(handle,{
@@ -650,7 +651,7 @@ async function findPreferredTikTokFlv(handle,excludeSig=''){
       thumbnail:String(status.thumbnail||'')
     });
   }
-  if(status.known&&!status.live)return null;
+  if(status.known&&!status.live&&!tiktokRealtimeLiveHandles.has(key))return null;
   const candidates=(status.candidates||[])
     .filter(row=>row.type==='flv'&&!isTikTokBadSource(handle,row)&&(!excludeSig||tiktokLibrarySourceSig(row)!==excludeSig))
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
@@ -777,8 +778,9 @@ async function resolveTikTokLiveSourceBatch(handles){
     (handles||[]).map(normalizeTikTokHandle).filter(Boolean)
   )];
   const targets=requested.filter(handle=>{
-    const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
-    return Boolean(row.live)&&!Boolean(row.playable);
+    const key=handle.toLowerCase();
+    const row=tiktokLiveLibrary.get(key)||{};
+    return tiktokRealtimeLiveHandles.has(key)&&!Boolean(row.playable);
   });
   if(!targets.length)return {total:0,ready:0,failed:0};
 
@@ -808,7 +810,7 @@ async function resolveTikTokLiveSourceBatch(handles){
         const handle=currentTargets[index];
         const key=handle.toLowerCase();
         const row=tiktokLiveLibrary.get(key)||{};
-        if(!row.live||row.playable)continue;
+        if(!tiktokRealtimeLiveHandles.has(key)||row.playable)continue;
 
         let ok=false;
         try{
@@ -822,7 +824,7 @@ async function resolveTikTokLiveSourceBatch(handles){
         }
 
         const fresh=tiktokLiveLibrary.get(key)||{};
-        if(ok&&fresh.live&&fresh.playable)ready+=1;
+        if(ok&&tiktokRealtimeLiveHandles.has(key)&&fresh.playable)ready+=1;
         else failed+=1;
       }
     };
@@ -858,8 +860,9 @@ async function resolveTikTokLiveSourceBatch(handles){
       current=[...tiktokLiveLibraryWarmBatchPending];
       tiktokLiveLibraryWarmBatchPending.clear();
       current=current.filter(handle=>{
-        const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
-        return Boolean(row.live)&&!Boolean(row.playable);
+        const key=handle.toLowerCase();
+        const row=tiktokLiveLibrary.get(key)||{};
+        return tiktokRealtimeLiveHandles.has(key)&&!Boolean(row.playable);
       });
     }
     return aggregate;
@@ -873,8 +876,9 @@ async function resolveTikTokLiveSourceBatch(handles){
 function queueTikTokLibraryWarm(handle){
   handle=normalizeTikTokHandle(handle);
   if(!handle)return false;
-  const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
-  if(!row.live||row.playable)return true;
+  const key=handle.toLowerCase();
+  const row=tiktokLiveLibrary.get(key)||{};
+  if(!tiktokRealtimeLiveHandles.has(key)||row.playable)return true;
 
   tiktokLiveLibraryWarmBatchPending.add(handle);
   if(!tiktokLiveLibraryWarmBatchTimer){
@@ -1281,6 +1285,7 @@ function runTikTokLiveMinuteSweep(){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
     const target=[...tiktokLiveSelectedHandles];
+    const wanted=new Set(target.map(handle=>handle.toLowerCase()));
     const checked=new Array(target.length);
     let cursor=0;
 
@@ -1303,7 +1308,7 @@ function runTikTokLiveMinuteSweep(){
       Array.from({length:Math.min(8,target.length||1)},()=>worker())
     );
 
-    // Second pass: only retry handles where TikTok did not return status 2/4.
+    // Only unresolved handles get the second TikTok endpoint.
     const unresolvedIndexes=[];
     for(let i=0;i<checked.length;i+=1){
       if(!checked[i]?.state?.known)unresolvedIndexes.push(i);
@@ -1317,9 +1322,6 @@ function runTikTokLiveMinuteSweep(){
         const index=unresolvedIndexes[retryIndex];
         const handle=checked[index].handle;
         try{
-          // Second TikTok check uses a different Web endpoint. This prevents
-          // a transient 403/no-status from user/room from making a real LIVE
-          // channel disappear from the current UI snapshot.
           const retryState=await quickTikTokLiveDetailStatus(handle);
           if(retryState?.known){
             checked[index].state={
@@ -1327,11 +1329,6 @@ function runTikTokLiveMinuteSweep(){
               live:retryState.live===true,
               status:Number(retryState.status),
               source:'tiktok-live-detail'
-            };
-          }else{
-            checked[index].state={
-              ...checked[index].state,
-              source:String(retryState?.source||checked[index].state?.source||'tiktok-unknown')
             };
           }
         }catch{}
@@ -1341,75 +1338,77 @@ function runTikTokLiveMinuteSweep(){
       Array.from({length:Math.min(4,unresolvedIndexes.length||1)},()=>retryWorker())
     );
 
-    const nextLive=new Set();
+    // Detection is additive. TikTok API may discover LIVE, but it never
+    // removes an already discovered LIVE handle. Manual channel removal is
+    // handled separately by the selected-channel route.
+    const nextLive=new Set(
+      [...tiktokRealtimeLiveHandles].filter(handle=>wanted.has(handle))
+    );
     const checkedAt=Date.now();
-    let resolved=0;
+    let foundNow=0;
     let unknown=0;
 
     for(const {handle,state} of checked){
       const key=handle.toLowerCase();
-      const isKnown=Boolean(state?.known);
-      const isLive=Boolean(isKnown&&state?.live===true);
+      const detected=Boolean(state?.known&&state?.live===true);
+      const alreadyLive=nextLive.has(key);
 
-      if(isKnown)resolved+=1;
-      else unknown+=1;
-
-      if(isLive)nextLive.add(key);
-
-      if(!isKnown){
+      if(detected){
+        if(!alreadyLive)foundNow+=1;
+        nextLive.add(key);
         updateTikTokLiveLibrary(handle,{
-          live:false,
-          status:'unknown',
-          probeState:'unknown',
-          ready:false,
-          playable:false,
-          liveCheckSource:String(state?.source||'unknown'),
-          type:'',
-          mode:'',
-          source:'',
-          sourceSig:'',
-          videoCodec:'',
-          audioCodec:'',
-          width:0,
-          height:0,
-          expiresAt:0,
+          live:true,
+          status:'live',
+          probeState:'live',
+          liveCheckSource:String(state?.source||'tiktok-api'),
           lastSeenAt:checkedAt
         });
         continue;
       }
 
-      updateTikTokLiveLibrary(handle,{
-        live:isLive,
-        status:isLive?'live':'offline',
-        probeState:isLive?'live':'offline',
-        liveCheckSource:String(state?.source||''),
-        ready:isLive?Boolean(tiktokLiveLibrary.get(key)?.ready):false,
-        playable:isLive?Boolean(tiktokLiveLibrary.get(key)?.playable):false,
-        ...(isLive?{}:{
-          type:'',
-          mode:'',
-          source:'',
-          sourceSig:'',
-          videoCodec:'',
-          audioCodec:'',
-          width:0,
-          height:0,
-          expiresAt:0
-        }),
-        lastSeenAt:checkedAt
-      });
+      if(!state?.known)unknown+=1;
+
+      // Once LIVE has been discovered, API status 4/403/NULL is diagnostic
+      // only. It must not clear LIVE or its FLV source.
+      if(alreadyLive){
+        updateTikTokLiveLibrary(handle,{
+          live:true,
+          status:'live',
+          probeState:'live',
+          liveCheckSource:String(state?.source||'tiktok-api'),
+          lastSeenAt:checkedAt
+        });
+      }else{
+        updateTikTokLiveLibrary(handle,{
+          live:false,
+          status:state?.known?'offline':'unknown',
+          probeState:state?.known?'offline':'unknown',
+          liveCheckSource:String(state?.source||'tiktok-api'),
+          lastSeenAt:checkedAt
+        });
+      }
     }
 
     tiktokRealtimeLiveHandles=nextLive;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
+    // Same realtime LIVE branch immediately starts FLV getlink. Failure to get
+    // a link does not remove LIVE; the UI can show LIVE while playable=false.
+    const liveHandles=[...nextLive];
+    if(liveHandles.length){
+      void resolveTikTokLiveSourceBatch(liveHandles).catch(error=>{
+        console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
+      });
+    }
+
     console.log(
       '[tiktok-live-current]',
       'channels='+target.length,
       'live='+nextLive.size,
+      'foundNow='+foundNow,
       'retryRequested='+unresolvedIndexes.length,
-      'resolved='+resolved,
       'unknown='+unknown,
+      'getlink='+liveHandles.length,
       'checkedAt='+checkedAt
     );
   })().catch(error=>{
@@ -1481,31 +1480,22 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     if(flv)scanFlvCount+=1;
 
     if(!isLive){
-      // API explicitly says OFFLINE. Remove every reusable media source so an
-      // old FLV/browser session can never keep this channel looking LIVE.
-      tiktokLiveFastSources.delete(key);
-      tiktokLivePreferBrowser.delete(key);
-      tiktokLiveLibraryWarmRetryAt.delete(key);
-      await closeTikTokLiveSession(key).catch(()=>{});
-      updateTikTokLiveLibrary(handle,{
-        live:false,
-        ready:false,
-        playable:false,
-        probeState:'offline',
-        stateChangedAt:changedState?nowState:Number(prev.stateChangedAt||0),
-        lastKnownAt:nowState,
-        type:'',
-        mode:'',
-        source:'',
-        status:'offline',
-        sourceSig:'',
-        videoCodec:'',
-        audioCodec:'',
-        width:0,
-        height:0,
-        lastSeenAt:Date.now(),
-        expiresAt:0
-      });
+      if(tiktokRealtimeLiveHandles.has(key)){
+        // TikTok API is discovery-only after LIVE has been found.
+        updateTikTokLiveLibrary(handle,{
+          live:true,
+          status:'live',
+          probeState:'live',
+          lastSeenAt:Date.now()
+        });
+      }else{
+        updateTikTokLiveLibrary(handle,{
+          live:false,
+          status:'offline',
+          probeState:'offline',
+          lastSeenAt:Date.now()
+        });
+      }
       continue;
     }
 
@@ -2499,8 +2489,7 @@ async function resolveTikTokLiveSource(rawHandle){
   tiktokLiveFastSources.delete(key);
 
   const preflight=await quickTikTokLiveStatus(handle);
-  if(preflight.known&&!preflight.live){
-    updateTikTokLiveLibrary(handle,{live:false,ready:false,playable:false,status:'offline',lastSeenAt:Date.now()});
+  if(preflight.known&&!preflight.live&&!tiktokRealtimeLiveHandles.has(key)){
     throw new Error('tiktok_not_live');
   }
 
@@ -2547,7 +2536,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   let preflight={known:false,live:false,status:null};
   if(!shouldPreferTikTokBrowser(handle)){
     preflight=await quickTikTokLiveStatus(handle);
-    if(preflight.known&&!preflight.live){
+    if(preflight.known&&!preflight.live&&!tiktokRealtimeLiveHandles.has(key)){
       console.log('[tiktok-session] offline',handle,'status='+preflight.status);
       throw new Error('tiktok_not_live');
     }
@@ -7341,23 +7330,28 @@ const server=http.createServer(async(req,res)=>{
         const isLive=Boolean(liveState?.known&&liveState.live===true);
         const checkedAt=Date.now();
 
-        if(isLive)tiktokRealtimeLiveHandles.add(key);
-        else tiktokRealtimeLiveHandles.delete(key);
+        if(isLive){
+          tiktokRealtimeLiveHandles.add(key);
+          updateTikTokLiveLibrary(handle,{
+            live:true,
+            status:'live',
+            probeState:'live',
+            liveCheckSource:String(liveState?.source||'tiktok-api'),
+            lastSeenAt:checkedAt
+          });
+          void resolveTikTokLiveSourceBatch([handle]).catch(error=>{
+            console.warn('[tiktok-live-getlink] add failed',handle,compactText(error?.message||error,120));
+          });
+        }else if(!tiktokRealtimeLiveHandles.has(key)){
+          updateTikTokLiveLibrary(handle,{
+            live:false,
+            status:liveState?.known?'offline':'unknown',
+            probeState:liveState?.known?'offline':'unknown',
+            liveCheckSource:String(liveState?.source||'tiktok-api'),
+            lastSeenAt:checkedAt
+          });
+        }
         tiktokRealtimeLiveCheckedAt=checkedAt;
-
-        updateTikTokLiveLibrary(handle,{
-          live:isLive,
-          ready:false,
-          playable:false,
-          type:'',
-          mode:'',
-          source:'',
-          status:isLive?'live':'offline',
-          probeState:isLive?'live':'offline',
-          sourceSig:'',
-          lastSeenAt:checkedAt,
-          expiresAt:0
-        });
 
 
         setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
