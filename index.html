@@ -4199,10 +4199,16 @@ html.one-col.portrait .player.pip{
     setTimeout(()=>{ void syncPreparedPackages(scopes); },0);
   }
 
+  // Manifest polling must stay cheap: Edge Function invocations are billed
+  // per request. A 5s loop alone exceeds the Free monthly quota for one
+  // continuously open tab. Packages are immutable-by-hash, so one minute plus
+  // an immediate visibility refresh preserves freshness without hammering
+  // Supabase during normal use or an outage.
+  const PACKAGE_MANIFEST_POLL_MS=60_000;
   setInterval(()=>{
     if(document.hidden)return;
     void syncPreparedPackages([],{refreshManifest:true});
-  },5000);
+  },PACKAGE_MANIFEST_POLL_MS);
 
   document.addEventListener("visibilitychange",()=>{
     if(document.visibilityState==="visible"){
