@@ -18,6 +18,9 @@ const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
 const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
 const TIKTOK_CLIENT_KEY=String(process.env.TIKTOK_CLIENT_KEY||'');
 const TIKTOK_CLIENT_SECRET=String(process.env.TIKTOK_CLIENT_SECRET||'');
+const TIKTOK_PREVIEW_WARM_HANDLES=String(process.env.TIKTOK_PREVIEW_WARM_HANDLES||'')
+  .split(',').map(x=>x.trim()).filter(Boolean);
+const TIKTOK_PREVIEW_VIDEO=String(process.env.TIKTOK_PREVIEW_VIDEO||'').trim();
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
 // Emergency freeze: keep persisted TikTok data readable while stopping all
 // TikTok refresh/extraction/write traffic so the shared Supabase project can recover.
@@ -4498,7 +4501,8 @@ function lookupTikTokVideoSourceFast(rawHandle,rawId){
         headers:{
           'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
           'referer':'https://www.tiktok.com/@'+handle,
-          'accept':'*/*'
+          'accept':'*/*',
+          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
         },
         width:Number(stored.width||0),
         height:Number(stored.height||0),
@@ -4584,7 +4588,8 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
         headers:{
           'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
           'referer':'https://www.tiktok.com/@'+handle,
-          'accept':'*/*'
+          'accept':'*/*',
+          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
         },
         width:Number(stored.width||0),
         height:Number(stored.height||0),
@@ -4644,7 +4649,8 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
       'referer':
         String((requested?.http_headers||row?.http_headers||{})['Referer']||
                (requested?.http_headers||row?.http_headers||{})['referer']||
-               'https://www.tiktok.com/@'+handle)
+               'https://www.tiktok.com/@'+handle),
+      ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
     };
 
     const data={
@@ -7905,42 +7911,61 @@ const server=http.createServer(async(req,res)=>{
         json(res,400,{ok:false,error:'invalid_tiktok_video'});
         return;
       }
+      const key=handle.toLowerCase()+':'+id;
+
+      // Fastest/reliable path on TikTok: an already-warmed local MP4 file.
+      const cachedFile=tiktokVideoFileCache.get(key);
+      if(cachedFile?.path){
+        try{
+          await serveTikTokVideoFile(req,res,cachedFile);
+          console.log('[tiktok-video-stream]',handle,id,'source=file-cache');
+          return;
+        }catch{
+          tiktokVideoFileCache.delete(key);
+        }
+      }
 
       const source=lookupTikTokVideoSourceFast(handle,id);
-      if(!source){
-        queueTikTokVideoPriorityWarm(handle,id,{force:false});
-        res.setHeader('retry-after','1');
-        json(res,425,{ok:false,error:'video_source_warming'});
-        return;
-      }
+      if(source){
+        const piped=await pipeTikTokTarget(
+          req,res,source.url,{
+            fallbackType:'video/mp4',
+            headersOverride:source.headers||null,
+            deferError:true
+          }
+        ).catch(()=>({ok:false,status:0}));
 
-      const piped=await pipeTikTokTarget(
-        req,res,source.url,{
-          fallbackType:'video/mp4',
-          headersOverride:source.headers||null,
-          deferError:true
+        if(piped?.ok){
+          console.log(
+            '[tiktok-video-stream]',
+            handle,id,
+            'range='+String(req.headers.range||'full'),
+            'source=hot-'+String(source.source||'cache')
+          );
+          return;
         }
-      ).catch(()=>({ok:false,status:0}));
 
-      if(piped?.ok){
-        console.log(
-          '[tiktok-video-stream]',
-          handle,id,
-          'range='+String(req.headers.range||'full'),
-          'source=hot-'+String(source.source||'cache')
-        );
-        return;
+        // TikTok direct MP4 URLs often return 403 outside yt-dlp's own request
+        // context. Fall back to a local yt-dlp file on the same Render host.
+        if([0,401,403,404,410].includes(Number(piped?.status||0))){
+          try{
+            const file=await downloadTikTokVideoFile(handle,id,{force:false});
+            await serveTikTokVideoFile(req,res,file);
+            console.log('[tiktok-video-stream]',handle,id,'source=file-fallback');
+            return;
+          }catch(error){
+            console.log('[tiktok-video-file] fallback failed',handle,id,compactText(error?.message||error,120));
+          }
+        }
       }
 
-      // Signed URL unexpectedly expired/dead. Do not make the click wait for
-      // yt-dlp: refresh in background and fail fast so UI can keep poster.
-      queueTikTokVideoPriorityWarm(handle,id,{force:true});
-      if(!res.headersSent){
-        res.setHeader('retry-after','1');
-        json(res,502,{ok:false,error:'video_source_refreshing'});
-      }else if(!res.writableEnded){
-        res.end();
+      // No usable source yet: prepare both direct source and local file.
+      if(!TIKTOK_UPDATES_PAUSED){
+        queueTikTokVideoPriorityWarm(handle,id,{force:true});
+        void downloadTikTokVideoFile(handle,id,{force:false}).catch(()=>{});
       }
+      res.setHeader('retry-after','2');
+      json(res,425,{ok:false,error:'video_source_warming'});
     }catch(error){
       console.warn('[tiktok-video-stream] failed',compactText(error?.message||error,220));
       if(!res.headersSent)json(res,502,{ok:false,error:'video_source_failed'});
@@ -8508,6 +8533,26 @@ server.listen(PORT,'0.0.0.0',()=>{
         'videos='+tiktokCanonicalVideos.size,
         'live='+tiktokRealtimeLiveHandles.size
       );
+
+      // One-time targeted warm for preview/testing only. No recurring loops.
+      if(TIKTOK_PREVIEW_WARM_HANDLES.length){
+        const handles=TIKTOK_PREVIEW_WARM_HANDLES
+          .map(normalizeTikTokHandle).filter(Boolean).slice(0,4);
+        void Promise.allSettled(handles.map(async handle=>{
+          const ok=await warmTikTokLibraryHandle(handle);
+          console.log('[tiktok-preview-live]',handle,ok?'ready':'failed');
+          return ok;
+        }));
+      }
+
+      if(TIKTOK_PREVIEW_VIDEO){
+        const m=TIKTOK_PREVIEW_VIDEO.match(/^([A-Za-z0-9._]{2,32}):(\d{8,})$/);
+        if(m){
+          void downloadTikTokVideoFile(m[1],m[2],{force:true})
+            .then(file=>console.log('[tiktok-preview-video]',m[1],m[2],'ready','bytes='+Number(file?.size||0)))
+            .catch(error=>console.log('[tiktok-preview-video]',m[1],m[2],'failed',compactText(error?.message||error,120)));
+        }
+      }
       return;
     }
 
