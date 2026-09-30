@@ -283,32 +283,47 @@ function tiktokLibraryMaterial(row){
 }
 function publicTikTokLibraryItem(row){
   if(!row)return null;
+  const detectedLive=Boolean(row.live);
+  const probeState=String(row.probeState||'unknown');
+  const type=String(row.type||'').toLowerCase();
+  const sourceSig=String(row.sourceSig||'');
+  const playableLive=Boolean(
+    detectedLive&&
+    (row.playable??row.ready)&&
+    type==='flv'&&
+    sourceSig
+  );
   return {
     handle:String(row.handle||''),
-    live:Boolean(row.live),
-    ready:Boolean(row.ready),
-    type:String(row.type||''),
-    mode:String(row.mode||''),
-    source:String(row.source||''),
-    status:String(row.status||'unknown'),
-    probeState:String(row.probeState||'unknown'),
-    playable:Boolean(row.playable??row.ready),
-    sourceSig:String(row.sourceSig||''),
-    streamUrl:Boolean(row.live&&(row.playable??row.ready)&&row.sourceSig)
+    // Public LIVE means "can be played now", not merely "TikTok reported LIVE".
+    // Detection is kept separately so the server can continue resolving FLV.
+    live:playableLive,
+    detectedLive,
+    ready:playableLive,
+    type:playableLive?'flv':'',
+    mode:playableLive?String(row.mode||''):'',
+    source:playableLive?String(row.source||''):'',
+    status:playableLive
+      ? 'ready'
+      : (probeState==='live'?'pending_link':(probeState==='unknown'?'unknown':'offline')),
+    probeState,
+    playable:playableLive,
+    sourceSig:playableLive?sourceSig:'',
+    streamUrl:playableLive
       ? '/tiktok/live-stream?user='+encodeURIComponent(String(row.handle||''))+
-        '&source='+encodeURIComponent(String(row.sourceSig||''))
+        '&source='+encodeURIComponent(sourceSig)
       : '',
     title:String(row.title||''),
     thumbnail:String(row.thumbnail||''),
-    videoCodec:String(row.videoCodec||''),
-    audioCodec:String(row.audioCodec||''),
-    width:Number(row.width||0),
-    height:Number(row.height||0),
+    videoCodec:playableLive?String(row.videoCodec||''):'',
+    audioCodec:playableLive?String(row.audioCodec||''):'',
+    width:playableLive?Number(row.width||0):0,
+    height:playableLive?Number(row.height||0):0,
     lastProbeAt:Number(row.lastProbeAt||0),
     changedAt:Number(row.changedAt||0),
     confirmedAt:Number(row.confirmedAt||0),
     lastSeenAt:Number(row.lastSeenAt||0),
-    expiresAt:Number(row.expiresAt||0)
+    expiresAt:playableLive?Number(row.expiresAt||0):0
   };
 }
 
@@ -1085,8 +1100,11 @@ function buildTikTokStoredRows(){
       const source=currentTikTokLibrarySource(handle);
       const sourceType=String(source?.type||'').toLowerCase();
       const live=Boolean(item.live);
+      // Canonical LIVE playback is FLV-only. HLS or a detected LIVE
+      // without a validated FLV remains internal/pending and is never published
+      // as a playable LIVE channel.
       const playable=Boolean(
-        live&&source?.url&&['flv','hls'].includes(sourceType)&&tiktokLiveSourceUsable(source)
+        live&&source?.url&&sourceType==='flv'&&tiktokLiveSourceUsable(source)
       );
       return {
         handle,
@@ -1111,23 +1129,45 @@ async function persistTikTokLiveStore({force=false}={}){
 
   tiktokLiveStoreWritePromise=(async()=>{
     const rows=buildTikTokStoredRows();
-    const liveCount=rows.filter(row=>row.live).length;
+    const isPublishedLive=row=>Boolean(
+      row.live&&
+      row.playable&&
+      String(row.stream_type||'').toLowerCase()==='flv'&&
+      String(row.stream_url||'')&&
+      String(row.source_sig||'')
+    );
+    const liveCount=rows.filter(isPublishedLive).length;
+    const detectedLiveCount=rows.filter(row=>row.probe_state==='live').length;
+    const pendingLinkCount=rows.filter(
+      row=>row.probe_state==='live'&&!isPublishedLive(row)
+    ).length;
+    const staleLiveUnknownCount=rows.filter(
+      row=>row.live&&row.probe_state==='unknown'
+    ).length;
     const payload={
-      items:rows.map(row=>({
-        handle:row.handle,
-        live:row.live,
-        probeState:row.probe_state,
-        playable:row.playable,
-        link:row.stream_url,
-        type:row.stream_type,
-        sourceSig:row.source_sig,
-        stateChangedAt:row.state_changed_at,
-        checkedAt:row.checked_at
-      })),
+      items:rows.map(row=>{
+        const publishedLive=isPublishedLive(row);
+        return {
+          handle:row.handle,
+          // Package/UI LIVE is intentionally strict: only a validated FLV.
+          live:publishedLive,
+          detectedLive:Boolean(row.live),
+          probeState:row.probe_state,
+          playable:publishedLive,
+          link:publishedLive?row.stream_url:'',
+          type:publishedLive?'flv':'',
+          sourceSig:publishedLive?row.source_sig:'',
+          stateChangedAt:row.state_changed_at,
+          checkedAt:row.checked_at
+        };
+      }),
       total:rows.length,
       live:liveCount,
-      playable:rows.filter(row=>row.playable).length,
-      offline:rows.length-liveCount
+      playable:liveCount,
+      detectedLive:detectedLiveCount,
+      pendingLink:pendingLinkCount,
+      staleLiveUnknown:staleLiveUnknownCount,
+      offline:rows.filter(row=>row.probe_state==='offline').length
     };
     const now=nowIso();
 
@@ -1159,7 +1199,15 @@ async function persistTikTokLiveStore({force=false}={}){
     if(!packageRes.ok)throw new Error('tiktok_package_write_'+packageRes.status+':'+await packageRes.text());
 
     tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
-    console.log('[tiktok-store] saved','channels='+rows.length,'live='+liveCount,'playable='+rows.filter(row=>row.playable).length,'version='+tiktokLiveLibraryVersion);
+    console.log(
+      '[tiktok-store] saved',
+      'channels='+rows.length,
+      'live='+liveCount,
+      'detectedLive='+detectedLiveCount,
+      'pendingLink='+pendingLinkCount,
+      'staleLiveUnknown='+staleLiveUnknownCount,
+      'version='+tiktokLiveLibraryVersion
+    );
     return true;
   })().catch(error=>{
     console.warn('[tiktok-store] save failed',compactText(error?.message||error,220));
@@ -7582,10 +7630,25 @@ const server=http.createServer(async(req,res)=>{
       .filter(Boolean)
       .sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.ready)-Number(a.ready)||Number(b.changedAt)-Number(a.changedAt));
 
+    const liveCount=items.filter(item=>item.live).length;
+    const detectedLiveCount=items.filter(item=>item.probeState==='live').length;
+    const pendingLinkCount=items.filter(
+      item=>item.probeState==='live'&&!item.live
+    ).length;
+    const staleLiveUnknownCount=items.filter(
+      item=>item.detectedLive&&item.probeState==='unknown'
+    ).length;
+
     json(res,200,{
       ok:true,unchanged:false,
       version:tiktokLiveLibraryVersion,
       updatedAt:tiktokLiveLibraryUpdatedAt,
+      total:items.length,
+      live:liveCount,
+      playable:liveCount,
+      detectedLive:detectedLiveCount,
+      pendingLink:pendingLinkCount,
+      staleLiveUnknown:staleLiveUnknownCount,
       items
     });
     return;
