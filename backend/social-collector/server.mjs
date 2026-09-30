@@ -7284,8 +7284,7 @@ const server=http.createServer(async(req,res)=>{
         ready:Boolean(liveRow?.ready),
         type:String(liveRow?.type||''),
         sourceSig:String(liveRow?.sourceSig||''),
-        total:tiktokLiveSelectedHandles.size,
-        version:tiktokLiveLibraryVersion
+        total:tiktokLiveSelectedHandles.size
       });
     }catch(error){
       console.warn('[tiktok-selected] write failed',compactText(error?.message||error,220));
@@ -7513,61 +7512,41 @@ const server=http.createServer(async(req,res)=>{
 
 
   if(url.pathname==='/tiktok/live-library'&&req.method==='GET'){
-    const handles=String(url.searchParams.get('handles')||'')
-      .split(',')
-      .map(normalizeTikTokHandle)
-      .filter(Boolean)
-      .slice(0,60);
+    // Compatibility route only. LIVE has no package/version/history semantics.
+    const wanted=tiktokLiveSelectedHandles.size
+      ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
+      :new Set();
 
-    // Supabase is the source of truth for the selected-channel list.
-    // UI-supplied handles are ignored here so opening a browser cannot mutate
-    // the package membership or make the list grow accidentally.
-    if(url.searchParams.get('refresh')==='1'){
-      // UI refresh must use the locked TikTok API-only LIVE detector.
-      // Do not invoke FLV/media/package discovery here.
-      await runTikTokLiveMinuteSweep();
-    }
+    const handles=[...tiktokRealtimeLiveHandles]
+      .filter(handle=>wanted.has(handle))
+      .sort((a,b)=>a.localeCompare(b));
 
-    const clientVersion=Number(url.searchParams.get('v')||-1);
-    if(clientVersion===tiktokLiveLibraryVersion){
-      json(res,200,{
-        ok:true,unchanged:true,
-        version:tiktokLiveLibraryVersion,
-        updatedAt:tiktokLiveLibraryUpdatedAt
-      });
-      return;
-    }
-
-    const wanted=tiktokLiveSelectedHandles.size?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase())):null;
-    const items=[...tiktokLiveLibrary.values()]
-      .filter(row=>!wanted||wanted.has(String(row.handle||'').toLowerCase()))
-      .map(publicTikTokLibraryItem)
-      .filter(Boolean)
-      .sort((a,b)=>Number(b.live)-Number(a.live)||Number(b.ready)-Number(a.ready)||Number(b.changedAt)-Number(a.changedAt));
-
-    const liveCount=items.filter(item=>item.live).length;
-    const detectedLiveCount=items.filter(item=>item.probeState==='live').length;
-    const pendingLinkCount=items.filter(
-      item=>item.probeState==='live'&&!item.live
-    ).length;
-    const staleLiveUnknownCount=items.filter(
-      item=>item.detectedLive&&item.probeState==='unknown'
-    ).length;
+    const items=handles.map(handle=>{
+      const row=tiktokLiveLibrary.get(handle)||{};
+      const item=publicTikTokLibraryItem({...row,handle,live:true,probeState:'live',status:'live'});
+      return item||{
+        handle,
+        live:true,
+        detectedLive:true,
+        probeState:'live',
+        playable:false,
+        type:'',
+        sourceSig:'',
+        streamUrl:''
+      };
+    });
 
     json(res,200,{
-      ok:true,unchanged:false,
-      version:tiktokLiveLibraryVersion,
-      updatedAt:tiktokLiveLibraryUpdatedAt,
-      total:items.length,
-      live:liveCount,
-      playable:liveCount,
-      detectedLive:detectedLiveCount,
-      pendingLink:pendingLinkCount,
-      staleLiveUnknown:staleLiveUnknownCount,
+      ok:true,
+      realtime:true,
+      checkedAt:tiktokRealtimeLiveCheckedAt,
+      total:wanted.size,
+      live:handles.length,
       items
     });
     return;
   }
+
 
   if(url.pathname==='/tiktok/live-session'&&req.method==='GET'){
     try{
