@@ -1,0 +1,22 @@
+name: Check TikTok LIVE status endpoint once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/check-tiktok-live-status-endpoint-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check endpoint
+        shell: bash
+        run: |
+          set +e
+          curl -i -sS --max-time 45 "https://one988-tiktok-session.onrender.com/tiktok/live-statuses?t=$(date +%s)" | head -c 12000
+          echo
