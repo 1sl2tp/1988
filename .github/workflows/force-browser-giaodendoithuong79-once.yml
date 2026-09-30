@@ -29,6 +29,9 @@ jobs:
           try:
               s,h,b=read(BASE+'/tiktok/live-session?user='+H+'&force=browser',55)
               print('CAPTURE',s,b.decode('utf-8','ignore')[:2000])
+          except urllib.error.HTTPError as e:
+              body=e.read().decode('utf-8','ignore')
+              print('CAPTURE_HTTP_ERROR',e.code,body[:4000])
           except Exception as e:
               print('CAPTURE_ERROR',repr(e))
           try:
