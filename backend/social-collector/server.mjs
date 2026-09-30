@@ -7305,11 +7305,63 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(selected){
-        // This action is only a trigger into the fixed LIVE/FLV definition.
-        // Always run the shared checker for the newly-added handle and wait for
-        // its result; no reuse/shortcut/private source-selection rules here.
-        console.log('[tiktok-selected] trigger live check',handle);
-        await ensureTikTokLivePackageScan([handle]);
+        // ADD CHANNEL only invokes the fixed TikTok API LIVE check.
+        // No FLV lookup, no browser status fallback, no media/playable condition.
+        console.log('[tiktok-selected] trigger TikTok API live check',handle);
+        const liveState=await quickTikTokLiveStateOnly(handle).catch(()=>({
+          known:false,live:false,status:null,source:'api-error'
+        }));
+        const nowLive=Date.now();
+        const currentLive=tiktokLiveLibrary.get(key)||{};
+
+        if(liveState?.known&&liveState.live===true){
+          updateTikTokLiveLibrary(handle,{
+            live:true,
+            ready:false,
+            playable:false,
+            type:'',
+            mode:'',
+            source:'',
+            status:'live',
+            probeState:'live',
+            sourceSig:'',
+            stateChangedAt:Boolean(currentLive.live)!==true?nowLive:Number(currentLive.stateChangedAt||0),
+            lastKnownAt:nowLive,
+            lastSeenAt:nowLive,
+            expiresAt:0
+          });
+        }else if(liveState?.known){
+          updateTikTokLiveLibrary(handle,{
+            live:false,
+            ready:false,
+            playable:false,
+            type:'',
+            mode:'',
+            source:'',
+            status:'offline',
+            probeState:'offline',
+            sourceSig:'',
+            stateChangedAt:Boolean(currentLive.live)!==false?nowLive:Number(currentLive.stateChangedAt||0),
+            lastKnownAt:nowLive,
+            lastSeenAt:nowLive,
+            expiresAt:0
+          });
+        }else{
+          updateTikTokLiveLibrary(handle,{
+            live:false,
+            ready:false,
+            playable:false,
+            type:'',
+            mode:'',
+            source:'',
+            status:'unknown',
+            probeState:'unknown',
+            sourceSig:'',
+            lastSeenAt:nowLive,
+            expiresAt:0
+          });
+        }
+        await persistTikTokLiveStore({force:true});
 
         setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
         setTimeout(()=>{
