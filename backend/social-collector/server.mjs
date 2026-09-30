@@ -3154,7 +3154,10 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
       source=candidate;
     }
   }else if(sourceSig){
-    source=findTikTokLiveSourceBySig(handle,sourceSig);
+    // sourceSig versions the package, but the route itself stays reconnectable:
+    // if that exact FLV expired, use the newly verified hot source for the same
+    // handle rather than forcing the browser to rediscover media.
+    source=findTikTokLiveSourceBySig(handle,sourceSig)||currentTikTokLibrarySource(handle);
   }else{
     source=currentTikTokLibrarySource(handle);
   }
