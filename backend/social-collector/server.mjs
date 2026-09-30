@@ -2438,11 +2438,37 @@ async function captureTikTokLiveSessionOnce(rawHandle){
       sleep(500)
     ]).catch(()=>{});
 
-    // Do not trust an HLS URL merely found in page JSON. We only use HLS if
-    // the same browser session actually received that playlist successfully.
-    const captured=capturedFlv||capturedHls;
+    // Prefer media actually requested by the page. If TikTok exposed an HLS
+    // URL only inside page JSON, validate that candidate immediately with the
+    // same browser cookies/headers before rejecting it.
+    let captured=capturedFlv||capturedHls;
+    if(!captured&&hlsCandidate){
+      const cookies=await page.cookies(hlsCandidate).catch(()=>[]);
+      const browserHeaders={
+        'user-agent':ua,
+        'accept':'*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4',
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        'origin':'https://www.tiktok.com',
+        ...(cookies.length?{cookie:cookies.map(x=>x.name+'='+x.value).join('; ')}:{})
+      };
+      const validated=await validateTikTokLiveCandidate(
+        handle,
+        {url:hlsCandidate,type:'hls',headers:browserHeaders},
+        browserHeaders
+      ).catch(()=>null);
+      if(validated){
+        captured={
+          url:validated.url,
+          type:'hls',
+          headers:validated.headers||browserHeaders,
+          at:Date.now()
+        };
+        console.log('[tiktok-session] validated-json-hls',handle,captured.url.slice(0,200));
+      }
+    }
     if(!captured){
-      console.log('[tiktok-session] no-media',handle,hlsCandidate?'unverified-hls':'no-hls');
+      console.log('[tiktok-session] no-media',handle,hlsCandidate?'invalid-hls':'no-hls');
       throw new Error(preflight.known&&preflight.live?'live_media_not_captured':'tiktok_not_live_or_blocked');
     }
 
