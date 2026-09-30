@@ -1109,10 +1109,13 @@ function buildTikTokStoredRows(){
       return {
         handle,
         selected:true,
-        live,
+        // Persisted/public LIVE means playable FLV only. A TikTok LIVE
+        // detection without a usable FLV is kept only in probe_state so it can
+        // be retried, but it is not retained as a LIVE row.
+        live:playable,
         probe_state:String(item.probeState||'unknown'),
         playable,
-        stream_type:playable?sourceType:'',
+        stream_type:playable?'flv':'',
         stream_url:playable?String(source.url||''):'',
         source_sig:playable?tiktokLibrarySourceSig(source):'',
         state_changed_at:item.stateChangedAt?new Date(Number(item.stateChangedAt)).toISOString():null,
