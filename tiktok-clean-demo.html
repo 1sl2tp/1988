@@ -1414,7 +1414,7 @@ function attachFlv(url,handle){
   destroyPlayer();
   let failed=false;
   const p=flvjs.createPlayer(
-    {type:'flv',isLive:true,url},
+    {type:'flv',isLive:true,url,cors:true,withCredentials:false},
     {
       enableStashBuffer:false,
       stashInitialSize:64*1024,
@@ -1424,11 +1424,31 @@ function attachFlv(url,handle){
       autoCleanupMinBackwardDuration:12
     }
   );
+  const startPlayback=()=>{
+    if(failed||handle!==currentHandle)return;
+    try{
+      const pending=p.play();
+      if(pending&&typeof pending.catch==='function'){
+        pending.catch(()=>video.play().catch(()=>{}));
+      }
+    }catch{
+      video.play().catch(()=>{});
+    }
+  };
   p.attachMediaElement(video);
   p.load();
+
+  // Start while openChannel is still inside the user's click gesture.
+  // Waiting only for METADATA_ARRIVED can lose autoplay permission or leave
+  // Chrome stuck at the first frame even though the HTTP-FLV stream is valid.
+  startPlayback();
+  p.on(flvjs.Events.MEDIA_INFO,()=>{
+    setPlayerShape(video);
+    startPlayback();
+  });
   p.on(flvjs.Events.METADATA_ARRIVED,()=>{
     setPlayerShape(video);
-    video.play().catch(()=>{});
+    startPlayback();
   });
   p.on(flvjs.Events.ERROR,()=>{
     if(failed)return;
