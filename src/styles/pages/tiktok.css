@@ -302,3 +302,12 @@
   .current-avatar{width:38px;height:38px}
   .current-info{grid-template-columns:38px minmax(0,1fr) auto}
 }
+
+/* TikTok-style vertical video navigation. */
+.phone.video-mode{touch-action:pan-x}
+.phone video{transition:transform .12s ease,opacity .12s ease}
+.phone.swipe-next video{transform:translateY(-16px);opacity:.72}
+.phone.swipe-prev video{transform:translateY(16px);opacity:.72}
+@media(pointer:fine){
+  .phone.video-mode{touch-action:auto}
+}
