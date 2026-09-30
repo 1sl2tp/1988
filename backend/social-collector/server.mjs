@@ -3958,13 +3958,15 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
   for(const target of targets){
     try{
       const args=[
-        '--flat-playlist',
+        // Full entries, not flat playlist: one channel scan must return the
+        // actual recent videos with thumbnails/stats/dimensions/playback URL.
         '--playlist-end',String(TIKTOK_VIDEO_PER_CHANNEL),
         '--dump-json',
         '--no-warnings',
-        '--socket-timeout','6',
+        '--socket-timeout','8',
         '--retries','1',
         '--extractor-retries','1',
+        '--format','best[ext=mp4]/best',
         '--user-agent','Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         '--add-header','Referer:https://www.tiktok.com/@'+handle
       ];
@@ -3999,9 +4001,9 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
           createTime:row?.timestamp||row?.release_timestamp||0,
           duration:row?.duration||0,
           cover:firstTikTokAssetUrl(row?.thumbnail||row?.thumbnails||''),
-          play:row?.url||row?.webpage_url||'',
-          width:row?.width||0,
-          height:row?.height||0,
+          play:row?.url||row?.requested_downloads?.[0]?.url||'',
+          width:row?.width||row?.requested_downloads?.[0]?.width||0,
+          height:row?.height||row?.requested_downloads?.[0]?.height||0,
           stats:{
             playCount:row?.view_count||0,
             diggCount:row?.like_count||0,
@@ -4311,7 +4313,6 @@ async function refreshAllTikTokMp4Sources(handles){
       );
     }
     tiktokFullResyncState.videosReady=ready;
-    tiktokFullResyncState.errors+=errors?0:0;
   }
   return {total:rows.length,ready,errors};
 }
@@ -4335,17 +4336,20 @@ async function fullResyncTikTokSelectedData(){
     };
     console.log('[tiktok-full-resync] start','channels='+handles.length);
 
-    // 1) Refresh channel/profile metadata for every selected channel.
-    const profileResult=await refreshAllTikTokChannelProfiles(handles);
-    tiktokFullResyncState.errors+=profileResult.errors;
-
-    // 2) Force a fresh video-list scan for every selected channel.
+    // 1) Force a fresh full-video scan for every selected channel first.
+    // This is the primary data refresh and already carries video metadata+MP4.
     tiktokFullResyncState.phase='video-lists';
     for(const handle of handles)tiktokVideoRefreshAt.delete(handle.toLowerCase());
     await refreshTikTokVideoLibrary(handles);
     await persistTikTokVideoStore({force:true});
 
-    // 3) Merge profile + video list into one canonical library immediately.
+    // 2) Refresh channel/profile metadata for every selected channel.
+    tiktokFullResyncState.phase='profiles';
+    tiktokFullResyncState.channelsDone=0;
+    const profileResult=await refreshAllTikTokChannelProfiles(handles);
+    tiktokFullResyncState.errors+=profileResult.errors;
+
+    // 3) Merge profile + fully extracted video rows into canonical immediately.
     tiktokFullResyncState.phase='canonical';
     await syncTikTokCanonicalLibrary(handles,{
       profiles:profileResult.profiles,
