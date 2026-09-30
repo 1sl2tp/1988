@@ -762,7 +762,7 @@ function queueTikTokLibraryWarm(handle){
 
 
 function registerTikTokLiveSelectedHandles(handles){
-  const next=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
+  const next=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
   let changed=false;
   for(const handle of next){
     if(!tiktokLiveSelectedHandles.has(handle)){
@@ -785,33 +785,95 @@ async function persistTikTokSelectedMembership(rawHandle,selected=true){
 
   if(selected){
     const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_channels?on_conflict=handle',
+      {
+        method:'POST',
+        headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+        body:JSON.stringify([{handle,selected:true,updated_at:nowIso()}])
+      }
+    );
+    if(!r.ok)throw new Error('tiktok_membership_write_'+r.status+':'+await r.text());
+  }else{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_channels?handle=eq.'+encodeURIComponent(handle),
+      {
+        method:'PATCH',
+        headers:storeHeaders({prefer:'return=minimal'}),
+        body:JSON.stringify({selected:false,updated_at:nowIso()})
+      }
+    );
+    if(!r.ok)throw new Error('tiktok_membership_delete_'+r.status+':'+await r.text());
+  }
+
+  // Compatibility mirror only. Nothing reads this table as membership anymore.
+  if(selected){
+    void fetch(
       SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?on_conflict=handle',
       {
         method:'POST',
         headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
         body:JSON.stringify([{handle}])
       }
-    );
-    if(!r.ok)throw new Error('tiktok_selected_write_'+r.status+':'+await r.text());
-    return true;
+    ).catch(()=>{});
+  }else{
+    void fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=eq.'+encodeURIComponent(handle),
+      {method:'DELETE',headers:storeHeaders({prefer:'return=minimal'})}
+    ).catch(()=>{});
   }
-
-  const r=await fetch(
-    SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=eq.'+encodeURIComponent(handle),
-    {
-      method:'DELETE',
-      headers:storeHeaders({prefer:'return=minimal'})
-    }
-  );
-  if(!r.ok)throw new Error('tiktok_selected_delete_'+r.status+':'+await r.text());
   return true;
+}
+
+async function reconcileTikTokManagedMembership(){
+  const handles=[...tiktokLiveSelectedHandles];
+  const wanted=new Set(handles.map(h=>h.toLowerCase()));
+  try{
+    const r=await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?select=handle,selected',
+      {headers:storeHeaders()}
+    );
+    if(r.ok){
+      const rows=await r.json();
+      const turnOff=(Array.isArray(rows)?rows:[])
+        .filter(row=>row?.selected===true&&!wanted.has(String(row?.handle||'').toLowerCase()))
+        .map(row=>String(row.handle||''))
+        .filter(Boolean);
+      for(const handle of turnOff){
+        await fetch(
+          SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?handle=eq.'+encodeURIComponent(handle),
+          {
+            method:'PATCH',
+            headers:storeHeaders({prefer:'return=minimal'}),
+            body:JSON.stringify({selected:false,updated_at:nowIso()})
+          }
+        ).catch(()=>{});
+      }
+    }
+    // Compatibility table is rebuilt from the canonical managed set.
+    await fetch(
+      SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?handle=not.is.null',
+      {method:'DELETE',headers:storeHeaders({prefer:'return=minimal'})}
+    ).catch(()=>{});
+    if(handles.length){
+      await fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?on_conflict=handle',
+        {
+          method:'POST',
+          headers:storeHeaders({prefer:'resolution=merge-duplicates,return=minimal'}),
+          body:JSON.stringify(handles.map(handle=>({handle})))
+        }
+      ).catch(()=>{});
+    }
+  }catch(error){
+    console.warn('[tiktok-membership] reconcile failed',compactText(error?.message||error,160));
+  }
 }
 
 async function loadTikTokLiveStore(){
   try{
     const [selectedRes,channelsRes,packageRes]=await Promise.all([
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_selected?select=handle&order=handle.asc',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_channels?selected=eq.true&select=handle&order=handle.asc',
         {headers:storeHeaders()}
       ),
       fetch(
@@ -823,7 +885,7 @@ async function loadTikTokLiveStore(){
         {headers:storeHeaders()}
       )
     ]);
-    if(!selectedRes.ok)throw new Error('tiktok_selected_read_'+selectedRes.status+':'+await selectedRes.text());
+    if(!selectedRes.ok)throw new Error('tiktok_membership_read_'+selectedRes.status+':'+await selectedRes.text());
     if(!channelsRes.ok)throw new Error('tiktok_channels_read_'+channelsRes.status+':'+await channelsRes.text());
     if(!packageRes.ok)throw new Error('tiktok_package_read_'+packageRes.status+':'+await packageRes.text());
 
@@ -893,7 +955,8 @@ async function loadTikTokLiveStore(){
     const storedVersion=Number(packageRow?.version||0);
     if(storedVersion>tiktokLiveLibraryVersion)tiktokLiveLibraryVersion=storedVersion;
     tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
-    console.log('[tiktok-store] loaded','selected='+tiktokLiveSelectedHandles.size,'version='+tiktokLiveLibraryVersion);
+    console.log('[tiktok-store] loaded','managed='+tiktokLiveSelectedHandles.size,'version='+tiktokLiveLibraryVersion);
+    void reconcileTikTokManagedMembership();
     return true;
   }catch(error){
     console.warn('[tiktok-store] load failed',compactText(error?.message||error,220));
@@ -914,6 +977,7 @@ function buildTikTokStoredRows(){
       );
       return {
         handle,
+        selected:true,
         live,
         probe_state:String(item.probeState||'unknown'),
         playable,
