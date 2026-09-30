@@ -2061,40 +2061,87 @@ async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
-  // Locked LIVE definition: read TikTok user/room directly.
-  // status=2 => LIVE. No browser, FLV, yt-dlp, package history or voting.
-  try{
-    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
-    endpoint.searchParams.set('aid','1988');
-    endpoint.searchParams.set('sourceType','54');
-    endpoint.searchParams.set('uniqueId',handle);
+  const checkOnce=async()=>{
+    try{
+      const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+      endpoint.searchParams.set('aid','1988');
+      endpoint.searchParams.set('sourceType','54');
+      endpoint.searchParams.set('uniqueId',handle);
 
-    const r=await fetch(endpoint,{
-      headers:{
-        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-        'accept':'application/json,text/plain,*/*',
-        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live'
-      },
-      redirect:'follow',
-      signal:AbortSignal.timeout(4000)
-    });
+      const r=await fetch(endpoint,{
+        headers:{
+          'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+          'accept':'application/json,text/plain,*/*',
+          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+          'referer':'https://www.tiktok.com/@'+handle+'/live'
+        },
+        redirect:'follow',
+        signal:AbortSignal.timeout(5000)
+      });
 
-    if(!r.ok){
-      return {known:false,live:false,status:null,source:'user-room-http-'+r.status};
+      if(!r.ok){
+        return {
+          known:false,
+          live:false,
+          status:null,
+          retryable:r.status===429||r.status>=500,
+          source:'user-room-http-'+r.status
+        };
+      }
+
+      const data=await r.json();
+      const rawStatus=data?.data?.liveRoom?.status;
+      const hasStatus=rawStatus!==undefined&&rawStatus!==null&&rawStatus!=='';
+      const status=hasStatus?Number(rawStatus):NaN;
+
+      if(Number.isFinite(status)){
+        return {
+          known:true,
+          live:status===2,
+          status,
+          retryable:false,
+          source:'user-room'
+        };
+      }
+
+      const apiCode=Number(data?.statusCode);
+      const message=String(data?.message||'').toLowerCase();
+
+      if(apiCode===19881007||message==='user_not_found'){
+        return {
+          known:true,
+          live:false,
+          status:null,
+          retryable:false,
+          source:'user-not-found'
+        };
+      }
+
+      return {
+        known:false,
+        live:false,
+        status:null,
+        retryable:apiCode===10001||message.includes('service unavailable'),
+        source:'user-room-no-status'
+      };
+    }catch(error){
+      return {
+        known:false,
+        live:false,
+        status:null,
+        retryable:true,
+        source:'user-room-error'
+      };
     }
+  };
 
-    const data=await r.json();
-    const status=Number(data?.data?.liveRoom?.status);
-    return {
-      known:true,
-      live:status===2,
-      status:Number.isFinite(status)?status:null,
-      source:'user-room'
-    };
-  }catch(error){
-    return {known:false,live:false,status:null,source:'user-room-error'};
+  let result=null;
+  for(let retry=0;retry<3;retry+=1){
+    result=await checkOnce();
+    if(result?.known||!result?.retryable)break;
+    if(retry<2)await sleep(180*(retry+1));
   }
+  return result||{known:false,live:false,status:null,source:'user-room-error'};
 }
 
 async function browserTikTokLiveStates(handles){
