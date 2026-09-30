@@ -1855,11 +1855,26 @@ function upsertTikTokFlvCandidate(out,row){
   return out;
 }
 
+function isTikTokFlvSemanticKey(rawKey){
+  const normalized=String(rawKey||'')
+    .replace(/([a-z0-9])([A-Z])/g,'$1_$2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,'');
+  return new Set([
+    'flv','flvurl','flvpull','flvpullurl',
+    'pullflv','pullflvurl','streamflv','streamflvurl',
+    'flvstream','flvstreamurl'
+  ]).has(normalized);
+}
+
 function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
   if(value==null||depth>20||out.length>320)return out;
 
   const pathLower=String(path||'').toLowerCase();
-  const pathIsFlv=/(^|[._\[\]])flv(?:_|[.\[\]]|$)|flv[_-]?pull|pull[_-]?flv|stream[_-]?flv/.test(pathLower);
+  const pathCompact=pathLower.replace(/[^a-z0-9]+/g,'');
+  const pathIsFlv=
+    /(^|[._\[\]])flv(?:_|[.\[\]]|$)|flv[_-]?pull|pull[_-]?flv|stream[_-]?flv/.test(pathLower)||
+    /flvpull(?:url)?|pullflv(?:url)?|streamflv(?:url)?|flvstream(?:url)?|flvurl/.test(pathCompact);
 
   if(typeof value==='string'){
     const variants=decodeTikTokLiveText(value);
@@ -1867,14 +1882,17 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
     for(const raw of variants){
       const trimmed=String(raw||'').trim();
 
+      let structured=false;
       if(
         (trimmed.startsWith('{')&&trimmed.endsWith('}'))||
         (trimmed.startsWith('[')&&trimmed.endsWith(']'))
       ){
         try{
           collectTikTokLiveStreamCandidates(JSON.parse(trimmed),out,path,depth+1);
+          structured=true;
         }catch{}
       }
+      if(structured)continue;
 
       // Explicit .flv is only one representation.
       const explicit=/https?:\/\/[^"'\\\s<>]+?\.flv(?:\?[^"'\\\s<>]*)?/ig;
@@ -1912,7 +1930,7 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
     // Canonical structured case from TikTok:
     // stream_data.data.<quality>.main.flv + main.sdk_params
     for(const [key,child] of Object.entries(value)){
-      const semantic=/^(?:flv|flv[_-]?url|flv[_-]?pull(?:[_-]?url)?|pull[_-]?flv(?:[_-]?url)?|stream[_-]?flv(?:[_-]?url)?)$/i.test(key);
+      const semantic=isTikTokFlvSemanticKey(key);
       if(semantic&&typeof child==='string'){
         const url=normalizeTikTokHttpUrl(child);
         if(url)upsertTikTokFlvCandidate(out,{

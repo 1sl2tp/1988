@@ -33,16 +33,20 @@ def choose_stream(info):
         vcodec = str(fmt.get("vcodec") or fmt.get("video_codec") or "").lower()
         acodec = str(fmt.get("acodec") or fmt.get("audio_codec") or "").lower()
         format_id = str(fmt.get("format_id") or "")
+        width = int(fmt.get("width") or 0)
         height = int(fmt.get("height") or 0)
         tbr = float(fmt.get("tbr") or 0)
+        container = str(fmt.get("container") or "").lower()
 
         if not kind:
-            if ext == "flv" or ".flv" in url.lower():
+            if ext == "flv" or container == "flv" or ".flv" in url.lower():
                 kind = "flv"
-            elif "m3u8" in protocol or ".m3u8" in url.lower():
-                kind = "hls"
             else:
                 kind = detect_type(url)
+
+        # Canonical pipeline is FLV-only.
+        if kind != "flv":
+            return
 
         candidates.append({
             "url": url,
@@ -50,6 +54,7 @@ def choose_stream(info):
             "vcodec": vcodec,
             "acodec": acodec,
             "format_id": format_id,
+            "width": width,
             "height": height,
             "tbr": tbr,
             "source": source,
@@ -68,13 +73,9 @@ def choose_stream(info):
 
     def score(row):
         s = 0
-        # Prefer FLV for this project. HLS is kept as fallback.
+        # Canonical TikTok LIVE transport is FLV only.
         if row["kind"] == "flv":
             s += 12000
-        elif row["kind"] == "hls":
-            s += 8000
-        elif row["kind"] == "mp4":
-            s += 3000
 
         vc = row["vcodec"]
         if any(x in vc for x in ("avc", "h264", "avc1")):
@@ -103,6 +104,7 @@ def choose_stream(info):
         "vcodec": best["vcodec"],
         "acodec": best["acodec"],
         "format_id": best["format_id"],
+        "width": best["width"],
         "height": best["height"],
         "tbr": best["tbr"],
         "source": best["source"],
