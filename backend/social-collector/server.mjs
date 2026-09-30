@@ -717,6 +717,7 @@ async function warmTikTokLibraryHandle(handle){
     }
   }
 
+  // Sources 1-3: live/detail -> room/info -> user/room.
   const flv=await findPreferredTikTokFlv(handle).catch(()=>null);
   if(flv&&await confirmTikTokLibrarySource(handle,flv,{
     mode:'fast',source:'room-api-flv'
@@ -727,34 +728,9 @@ async function warmTikTokLibraryHandle(handle){
     return true;
   }
 
-  // yt-dlp fallback is accepted only when it returns FLV.
-  try{
-    const ytdlp=await fastTikTokLiveWithYtdlp(handle);
-    if(ytdlp&&String(ytdlp.type||'').toLowerCase()==='flv'){
-      const seeded=seedTikTokFastSource(handle,{
-        stream_url:ytdlp.url,
-        stream_type:'flv'
-      });
-      if(seeded){
-        publishTikTokLiveSourceNow(handle,seeded,{
-          mode:'fast',
-          source:'yt-dlp-flv'
-        });
-        updateTikTokLiveLibrary(handle,{
-          title:String(ytdlp.title||''),
-          thumbnail:String(ytdlp.thumbnail||'')
-        });
-        void persistTikTokLiveStore({force:true});
-        tiktokLiveLibraryWarmRetryAt.delete(key);
-        console.log('[tiktok-library] yt-dlp FLV',handle);
-        return true;
-      }
-    }
-  }catch(error){
-    console.log('[tiktok-library] yt-dlp FLV failed',handle,compactText(error?.message||error,120));
-  }
-
-  // Browser fallback may inspect the page, but only captured FLV is accepted.
+  // Source 4: real TikTok browser. Capture direct .flv requests and scan
+  // JSON/text/javascript response bodies with the same deep FLV collector.
+  let browserError='';
   try{
     const session=await captureTikTokLiveSession(handle);
     if(session?.type==='flv'&&await confirmTikTokLibrarySource(handle,session,{
@@ -764,14 +740,53 @@ async function warmTikTokLibraryHandle(handle){
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
+    browserError='browser_flv_not_valid';
     await closeTikTokLiveSession(key).catch(()=>{});
   }catch(error){
-    console.log('[tiktok-library] browser FLV failed',handle,compactText(error?.message||error,120));
+    browserError=compactText(error?.message||error,120);
+    console.log('[tiktok-library] browser FLV failed',handle,browserError);
   }
 
+  // Source 5: yt-dlp is the final fallback, FLV only.
+  let ytdlpError='';
+  try{
+    const ytdlp=await fastTikTokLiveWithYtdlp(handle);
+    if(ytdlp&&String(ytdlp.type||'').toLowerCase()==='flv'){
+      const seeded=seedTikTokFastSource(handle,{
+        stream_url:ytdlp.url,
+        stream_type:'flv'
+      });
+      if(seeded&&await confirmTikTokLibrarySource(handle,seeded,{
+        mode:'fast',source:'yt-dlp-flv'
+      })){
+        updateTikTokLiveLibrary(handle,{
+          title:String(ytdlp.title||''),
+          thumbnail:String(ytdlp.thumbnail||'')
+        });
+        void persistTikTokLiveStore({force:true});
+        tiktokLiveLibraryWarmRetryAt.delete(key);
+        console.log('[tiktok-library] yt-dlp FLV',handle);
+        return true;
+      }
+      ytdlpError='yt_dlp_flv_not_valid';
+    }else{
+      ytdlpError='yt_dlp_no_flv';
+    }
+  }catch(error){
+    ytdlpError=compactText(error?.message||error,120);
+    console.log('[tiktok-library] yt-dlp FLV failed',handle,ytdlpError);
+  }
+
+  console.log(
+    '[tiktok-live-resolve-miss]',
+    handle,
+    'browser='+String(browserError||'none'),
+    'ytdlp='+String(ytdlpError||'none')
+  );
   tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
   return false;
 }
+
 async function resolveTikTokLiveSourceBatch(handles){
   const requested=[...new Set(
     (handles||[]).map(normalizeTikTokHandle).filter(Boolean)
@@ -1281,160 +1296,22 @@ function runTikTokLiveMinuteSweep(){
     const target=[...tiktokLiveSelectedHandles];
     if(!target.length)return;
 
-    const before=tiktokLiveLibraryVersion;
-    const checked=new Array(target.length);
-    let cursor=0;
-    const worker=async()=>{
-      while(true){
-        const index=cursor++;
-        if(index>=target.length)return;
-        const handle=target[index];
-        try{
-          checked[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
-        }catch{
-          checked[index]={handle,state:{known:false,live:false,status:null}};
-        }
-      }
-    };
-    await Promise.all(Array.from({length:Math.min(8,target.length)},()=>worker()));
+    // There is only one LIVE definition. The periodic sweep and ADD CHANNEL
+    // both run refreshTikTokLiveLibrary(); ADD CHANNEL merely scopes it to one
+    // handle. Force here prevents a stale throttle from creating a second rule.
+    await refreshTikTokLiveLibrary(target,{warm:true,force:true});
+    await persistTikTokLiveStore({force:true});
 
-    // Server-side Web API can be rate-limited by TikTok. Resolve only UNKNOWN
-    // rows through the same API from one real tiktok.com browser context.
-    const unknownHandles=checked
-      .filter(row=>!row?.state?.known)
-      .map(row=>row.handle);
-    if(unknownHandles.length){
-      const browserStates=await browserTikTokLiveStates(unknownHandles);
-      for(const row of checked){
-        if(row?.state?.known)continue;
-        const fallback=browserStates.get(String(row.handle||'').toLowerCase());
-        if(fallback?.known)row.state=fallback;
-      }
-    }
-
-    let known=0;
-    let live=0;
-    let offline=0;
-    let unknown=0;
-    const newlyLive=[];
-    const liveMissingSource=[];
-
-    for(const checkedRow of checked){
-      const handle=checkedRow.handle;
-      const key=handle.toLowerCase();
-      const prev=tiktokLiveLibrary.get(key)||null;
-      let state=checkedRow.state;
-
-      // Only a previously confirmed LIVE channel gets one deeper verification
-      // when the cheap probe is UNKNOWN. UNKNOWN itself never means OFFLINE.
-      if(!state?.known&&prev?.live){
-        try{
-          const verify=await quickTikTokLiveStatus(handle);
-          if(verify?.known){
-            state={
-              known:true,
-              live:verify.live===true,
-              status:Number(verify.status),
-              source:'live-verify'
-            };
-          }
-        }catch{}
-      }
-
-      if(!state?.known){
-        unknown+=1;
-        updateTikTokLiveLibrary(handle,{
-          probeState:'unknown',
-          lastSeenAt:Date.now()
-        });
-        continue;
-      }
-
-      known+=1;
-      const isLive=state.live===true;
-      const now=Date.now();
-      if(isLive)live+=1;
-      else offline+=1;
-
-      const changedState=Boolean(prev?.live)!==isLive;
-
-      if(!isLive){
-        // Confirmed LIVE -> OFFLINE (or already OFFLINE): clear every stream
-        // immediately. This branch owns LIVE state only; no video/library work.
-        tiktokLiveFastSources.delete(key);
-        tiktokLivePreferBrowser.delete(key);
-        tiktokLiveLibraryWarmRetryAt.delete(key);
-        await closeTikTokLiveSession(key).catch(()=>{});
-        updateTikTokLiveLibrary(handle,{
-          live:false,
-          ready:false,
-          playable:false,
-          type:'',
-          mode:'',
-          source:'',
-          status:'offline',
-          probeState:'offline',
-          sourceSig:'',
-          videoCodec:'',
-          audioCodec:'',
-          width:0,
-          height:0,
-          stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
-          lastKnownAt:now,
-          lastSeenAt:now,
-          expiresAt:0
-        });
-        continue;
-      }
-
-      // Confirmed OFFLINE -> LIVE changes state immediately. Stream discovery
-      // is a second step and does not control whether the channel is LIVE.
-      const currentSource=currentTikTokLibrarySource(handle);
-      const playable=Boolean(currentSource&&tiktokLiveSourceUsable(currentSource));
-      updateTikTokLiveLibrary(handle,{
-        live:true,
-        ready:playable,
-        playable,
-        type:playable?String(currentSource.type||''):'',
-        mode:playable?String(currentSource.mode||''):'',
-        source:playable?String(currentSource.source||''):'',
-        status:'live',
-        probeState:'live',
-        sourceSig:playable?tiktokLibrarySourceSig(currentSource):'',
-        stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
-        lastKnownAt:now,
-        lastSeenAt:now,
-        expiresAt:playable?tiktokStreamExpiresAt(currentSource.url):0
-      });
-
-      if(!playable)liveMissingSource.push(handle);
-      if(changedState)newlyLive.push(handle);
-    }
-    const changed=tiktokLiveLibraryVersion!==before;
-    if(changed)await persistTikTokLiveStore();
-
+    const rows=target.map(handle=>tiktokLiveLibrary.get(handle.toLowerCase())||{});
     console.log(
       '[tiktok-minute-sweep]',
       'channels='+target.length,
-      'known='+known,
-      'live='+live,
-      'offline='+offline,
-      'unknown='+unknown,
-      'changed='+(changed?'yes':'no'),
-      'newLive='+newlyLive.length,
+      'live='+rows.filter(row=>row.probeState==='live').length,
+      'playable='+rows.filter(row=>row.live&&row.playable&&String(row.type||'').toLowerCase()==='flv').length,
+      'pending='+rows.filter(row=>row.probeState==='live'&&!row.playable).length,
+      'unknown='+rows.filter(row=>row.probeState==='unknown').length,
       'version='+tiktokLiveLibraryVersion
     );
-
-    // One action per sweep: collect every confirmed LIVE channel without a
-    // usable stream and resolve all of them together. This prevents a newly
-    // detected LIVE channel from being omitted because another resolver is busy.
-    const needSource=[...tiktokLiveLibrary.values()]
-      .filter(row=>Boolean(row?.live)&&!Boolean(row?.playable))
-      .map(row=>String(row.handle||''))
-      .filter(Boolean);
-    if(needSource.length){
-      await resolveTikTokLiveSourceBatch(needSource);
-    }
   })().catch(error=>{
     console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
   }).finally(()=>{
@@ -1474,6 +1351,30 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     }
   };
   await Promise.all(Array.from({length:Math.min(8,due.length)},()=>worker()));
+
+  // Direct TikTok Web APIs can return UNKNOWN because of rate limits/session
+  // variance. Use the browser-backed same-origin status check as the common
+  // fallback for both periodic scans and ADD CHANNEL.
+  const unknownHandles=checked
+    .filter(row=>!row?.status?.known)
+    .map(row=>row.handle);
+  if(unknownHandles.length){
+    const browserStates=await browserTikTokLiveStates(unknownHandles);
+    for(const row of checked){
+      if(row?.status?.known)continue;
+      const fallback=browserStates.get(String(row.handle||'').toLowerCase());
+      if(fallback?.known){
+        row.status={
+          known:true,
+          live:fallback.live===true,
+          status:Number(fallback.status),
+          roomId:'',
+          candidates:[],
+          source:'browser-user-room'
+        };
+      }
+    }
+  }
 
   let scanLiveCount=0;
   let scanFlvCount=0;
@@ -2330,32 +2231,7 @@ async function browserTikTokLiveStates(handles){
   return out;
 }
 
-async function quickTikTokLiveStatus(rawHandle){
-  const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle)return {known:false,live:false,candidates:[]};
-
-  // First use the lightweight Web endpoint from the supplied reference code.
-  // It gives a direct LiveRoomInfo.status (2 LIVE / 4 OFFLINE), plus room id,
-  // title and viewer count, without opening Chromium.
-  const detail=await quickTikTokLiveDetailStatus(handle);
-  if(detail?.known){
-    if(!detail.live)return detail;
-
-    if(detail.candidates?.length)return detail;
-
-    // A confirmed LIVE without embedded pull URLs can still provide roomId.
-    // Resolve only the media candidates from room-info; keep the LIVE verdict
-    // from live/detail even if room-info itself is incomplete.
-    if(detail.roomId){
-      const room=await quickTikTokRoomInfoStatus(handle,detail.roomId);
-      if(room?.candidates?.length){
-        return {...detail,candidates:room.candidates};
-      }
-    }
-    return detail;
-  }
-
-  // Fallback for accounts where /api/live/detail is missing or blocked.
+async function quickTikTokUserRoomStatus(handle){
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -2372,26 +2248,26 @@ async function quickTikTokLiveStatus(rawHandle){
       redirect:'follow',
       signal:AbortSignal.timeout(2500)
     });
-    if(!r.ok)return {known:false,live:false,candidates:[]};
+    if(!r.ok)return {known:false,live:false,status:null,roomId:'',candidates:[],source:'user-room'};
     const data=await r.json();
     const liveRoom=data?.data?.liveRoom||null;
     const roomStatus=Number(liveRoom?.status);
     const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
 
     if(Number.isFinite(roomStatus)){
-      const isLive=roomStatus===2;
-      const candidates=isLive
+      const live=roomStatus===2;
+      const candidates=live
         ? collectTikTokLiveStreamCandidates(liveRoom)
             .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
         : [];
-      if(isLive&&!candidates.length){
+      if(live&&!candidates.length){
         console.log(
           '[tiktok-flv-miss]',
           handle,
           'source=user-room',
           'paths='+summarizeTikTokFlvPaths(liveRoom).slice(0,16).join(',')
         );
-      }else if(isLive&&candidates.length){
+      }else if(live&&candidates.length){
         console.log(
           '[tiktok-flv-found]',
           handle,
@@ -2400,30 +2276,83 @@ async function quickTikTokLiveStatus(rawHandle){
           'top='+String(candidates[0]?.path||'')
         );
       }
-      return {
-        known:true,
-        live:isLive,
-        status:roomStatus,
-        roomId,
-        candidates,
-        source:'user-room'
-      };
+      return {known:true,live,status:roomStatus,roomId,candidates,source:'user-room'};
     }
 
     if(!liveRoom&&!roomId){
-      return {known:true,live:false,status:4,roomId:'',candidates:[],source:'user-room'};
+      return {known:true,live:false,status:4,roomId:'',candidates:[],source:'user-room-empty'};
     }
 
     if(roomId){
-      return await quickTikTokRoomInfoStatus(handle,roomId);
+      const room=await quickTikTokRoomInfoStatus(handle,roomId);
+      if(room?.known)return {...room,source:'user-room>room-info'};
     }
-
-    return {known:false,live:false,status:null,roomId,candidates:[]};
   }catch(error){
-    console.log('[tiktok-session] preflight unknown',handle,compactText(error?.message||error,140));
+    console.log('[tiktok-session] user-room unknown',handle,compactText(error?.message||error,120));
   }
-  return {known:false,live:false,candidates:[]};
+  return {known:false,live:false,status:null,roomId:'',candidates:[],source:'user-room'};
 }
+
+async function quickTikTokLiveStatus(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return {known:false,live:false,status:null,roomId:'',candidates:[],source:'invalid'};
+
+  // One shared definition for every caller:
+  // live/detail -> room/info -> user/room.
+  // Browser JSON/text/script and yt-dlp are media fallbacks in
+  // warmTikTokLibraryHandle(), in that order.
+  const detail=await quickTikTokLiveDetailStatus(handle);
+  if(detail?.known&&!detail.live)return detail;
+
+  let confirmedLive=detail?.known&&detail?.live?detail:null;
+  if(confirmedLive?.candidates?.length)return confirmedLive;
+
+  if(confirmedLive?.roomId){
+    const room=await quickTikTokRoomInfoStatus(handle,confirmedLive.roomId);
+    if(room?.known&&room?.live&&room?.candidates?.length){
+      return {
+        ...confirmedLive,
+        roomId:String(room.roomId||confirmedLive.roomId||''),
+        candidates:room.candidates,
+        source:'live-detail>room-info'
+      };
+    }
+  }
+
+  const userRoom=await quickTikTokUserRoomStatus(handle);
+  if(userRoom?.known&&userRoom?.live){
+    if(userRoom.candidates?.length){
+      return {
+        ...(confirmedLive||{}),
+        ...userRoom,
+        title:String(confirmedLive?.title||''),
+        thumbnail:String(confirmedLive?.thumbnail||''),
+        viewerCount:Number(confirmedLive?.viewerCount||0),
+        source:confirmedLive?'live-detail>room-info>user-room':'user-room'
+      };
+    }
+    return confirmedLive
+      ? {
+          ...confirmedLive,
+          roomId:String(confirmedLive.roomId||userRoom.roomId||''),
+          source:'live-detail>room-info>user-room',
+          candidates:[]
+        }
+      : userRoom;
+  }
+
+  // A higher-priority endpoint already confirmed LIVE. A lower-priority
+  // inconclusive/offline response must not erase that verdict.
+  if(confirmedLive)return {
+    ...confirmedLive,
+    source:'live-detail>room-info>user-room',
+    candidates:[]
+  };
+
+  if(userRoom?.known)return userRoom;
+  return {known:false,live:false,status:null,roomId:'',candidates:[],source:'unknown'};
+}
+
 async function fastTikTokLiveWithYtdlp(handle){
   const url='https://www.tiktok.com/@'+handle+'/live';
   try{
