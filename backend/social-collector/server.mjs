@@ -1636,7 +1636,6 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
     for(const raw of variants){
       const trimmed=String(raw||'').trim();
 
-      // Recursively parse nested stream_data / pull_data JSON strings.
       if(
         (trimmed.startsWith('{')&&trimmed.endsWith('}'))||
         (trimmed.startsWith('[')&&trimmed.endsWith(']'))
@@ -1646,8 +1645,8 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
         }catch{}
       }
 
-      // Accept both normal URLs and escaped/decoded TikTok CDN URLs.
-      const re=/https?:\/\/[^"'\\\s<>]+?\.(?:flv|m3u8)(?:\?[^"'\\\s<>]*)?/ig;
+      // FLV-only. We intentionally ignore HLS/m3u8 everywhere in LIVE.
+      const re=/https?:\/\/[^"'\\\s<>]+?\.flv(?:\?[^"'\\\s<>]*)?/ig;
       for(const match of trimmed.matchAll(re)){
         let url=String(match[0]||'')
           .replace(/&amp;/gi,'&')
@@ -1655,9 +1654,8 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
           .replace(/\\u002F/gi,'/')
           .replace(/\\\//g,'/');
         try{url=decodeURIComponent(url)}catch{}
-        const type=/\.m3u8(?:\?|$)/i.test(url)?'hls':'flv';
         if(url&&!out.some(row=>row.url===url)){
-          out.push({url,type,path});
+          out.push({url,type:'flv',path});
         }
       }
     }
@@ -1700,7 +1698,6 @@ function rankTikTokLiveCandidate(row){
   if(/(^|[._])streamdata([._]|$)|h264|avc|avc1/.test(text))score+=2500;
 
   if(row?.type==='flv')score+=1000;
-  else if(row?.type==='hls')score+=800;
 
   if(/full[_ -]?hd1|full_hd1/.test(text))score+=600;
   else if(/(^|[._])hd1([._]|$)|_hd1/.test(text))score+=500;
@@ -1718,7 +1715,7 @@ function rankTikTokLiveCandidate(row){
 async function validateTikTokLiveCandidate(handle,row,headers=null){
   const url=String(row?.url||'');
   const type=String(row?.type||'').toLowerCase();
-  if(!/^https?:\/\//i.test(url)||!['hls','flv'].includes(type))return null;
+  if(!/^https?:\/\//i.test(url)||type!=='flv')return null;
   const baseHeaders={
     'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
     'accept':'*/*',
@@ -1728,17 +1725,6 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     ...(headers||{})
   };
   try{
-    if(type==='hls'){
-      const r=await fetch(url,{
-        headers:baseHeaders,
-        redirect:'follow',
-        signal:AbortSignal.timeout(2800)
-      });
-      if(!r.ok)return null;
-      const text=await r.text();
-      if(!/#EXTM3U/i.test(text))return null;
-      return {...row,url:String(r.url||url),type:'hls',headers:baseHeaders,validatedAt:Date.now()};
-    }
     const r=await fetch(url,{
       headers:{...baseHeaders,range:'bytes=0-2047'},
       redirect:'follow',
@@ -1751,6 +1737,7 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     return null;
   }
 }
+
 async function quickTikTokLiveDetailStatus(handle,retry=true){
   try{
     const endpoint=new URL('https://www.tiktok.com/api/live/detail/');
@@ -2142,7 +2129,7 @@ async function fastTikTokLiveWithYtdlp(handle){
     if(!data?.success||!data?.stream_url)return null;
     return {
       url:String(data.stream_url),
-      type:String(data.stream_type||(/\.m3u8(?:\?|$)/i.test(data.stream_url)?'hls':'flv')).toLowerCase(),
+      type:'flv',
       title:String(data.title||''),
       thumbnail:String(data.thumbnail||''),
       path:'yt-dlp:'+String(data?.selected?.format_id||data?.method||'fast')
@@ -2363,20 +2350,13 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   const savedCookies=cookieParams(stored?.state?.cookies||[]);
   if(savedCookies.length)await page.setCookie(...savedCookies).catch(()=>{});
 
-  let capturedHls=null;
   let capturedFlv=null;
-  let hlsCandidate='';
   let firstMediaAt=0;
   const pendingBodies=new Set();
 
   const remember=(url,type,headers={})=>{
     const next={url:String(url||''),type,headers,at:Date.now()};
-    if(type==='hls'){
-      if(!capturedHls){
-        capturedHls=next;
-        console.log('[tiktok-session] capture',handle,'hls',next.url.slice(0,200));
-      }
-    }else if(type==='flv'&&!capturedFlv){
+    if(type==='flv'&&!capturedFlv){
       capturedFlv=next;
       console.log('[tiktok-session] capture',handle,'flv',next.url.slice(0,200));
     }
@@ -2388,7 +2368,6 @@ async function captureTikTokLiveSessionOnce(rawHandle){
       const requestUrl=String(request.url()||'');
       const lower=requestUrl.toLowerCase();
       if(lower.includes('.flv'))remember(requestUrl,'flv',request.headers?.()||{});
-      else if(lower.includes('.m3u8'))hlsCandidate=requestUrl;
 
       if(request.isInterceptResolutionHandled?.())return;
       const kind=String(request.resourceType?.()||'');
@@ -2405,17 +2384,6 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     try{
       const responseUrl=String(response.url()||'');
       const lower=responseUrl.toLowerCase();
-      if(lower.includes('.m3u8')){
-        const status=Number(response.status?.()||0);
-        if(status>=200&&status<400){
-          const req=response.request?.();
-          remember(responseUrl,'hls',req?.headers?.()||{});
-        }else{
-          console.log('[tiktok-session] reject hls',handle,'status='+status,responseUrl.slice(0,160));
-        }
-        return;
-      }
-
       if(!/tiktok\.com|tiktokv\.com|byteoversea\.com|tiktokcdn\.com/i.test(responseUrl))return;
       const headers=response.headers?.()||{};
       const type=String(headers['content-type']||headers['Content-Type']||'');
@@ -2423,19 +2391,13 @@ async function captureTikTokLiveSessionOnce(rawHandle){
       const task=(async()=>{
         const text=await response.text().catch(()=>null);
         if(!text||text.length>3_000_000)return;
-        const media=collectTikTokLiveStreamCandidates(text,[],'browser-response');
-        const flv=media
-          .filter(row=>row.type==='flv')
-          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
-        const hls=media
-          .filter(row=>row.type==='hls')
+        const flv=collectTikTokLiveStreamCandidates(text,[],'browser-response')
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
 
         if(flv&&!capturedFlv){
           remember(flv.url,'flv',{});
           console.log('[tiktok-session] payload-flv',handle,flv.path||'');
         }
-        if(hls&&!hlsCandidate)hlsCandidate=hls.url;
       })();
       pendingBodies.add(task);
       task.finally(()=>pendingBodies.delete(task));
@@ -2467,9 +2429,6 @@ async function captureTikTokLiveSessionOnce(rawHandle){
         sleep(180)
       ]).catch(()=>{});
 
-      // Browser fallback is our compatibility path: give TikTok a few seconds
-      // to expose FLV/H.264 even when an HLS URL appears first.
-      if(capturedHls&&!capturedFlv&&Date.now()-capturedHls.at>2500)break;
       await sleep(350);
     }
 
@@ -2481,7 +2440,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     // FLV-only playback. HLS observations are diagnostics only.
     const captured=capturedFlv;
     if(!captured){
-      console.log('[tiktok-session] no-flv',handle,hlsCandidate?'hls-only':'no-media');
+      console.log('[tiktok-session] no-flv',handle,'no-media');
       throw new Error(preflight.known&&preflight.live?'live_flv_not_captured':'tiktok_not_live_or_blocked');
     }
 
@@ -2733,7 +2692,7 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
 
   const fast=String(source.mode||'').startsWith('fast');
   const piped=await pipeTikTokTarget(req,res,source.url,{
-    fallbackType:source.type==='flv'?'video/x-flv':'application/vnd.apple.mpegurl',
+    fallbackType:'video/x-flv',
     handle:fast?'':handle,
     headersOverride:fast?source.headers:null,
     proxySegments
