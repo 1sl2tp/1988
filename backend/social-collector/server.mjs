@@ -6420,20 +6420,51 @@ async function bootstrapTikTokCanonicalMeta(){
 
 async function loadSession(platform){
   if(!BROWSER_PLATFORMS.has(platform))return null;
-  try{
-    const r=await fetch(
-      SUPABASE_URL+'/rest/v1/yt1988_social_sessions?platform=eq.'+
-      encodeURIComponent(platform)+'&select=state,updated_at&limit=1',
-      {headers:storeHeaders()}
-    );
-    if(!r.ok)throw new Error('session_read_'+r.status);
-    const rows=await r.json();
-    const row=Array.isArray(rows)?rows[0]:null;
-    return row||null;
-  }catch(error){
-    console.warn('[store] load session failed',platform,String(error?.message||error));
-    return null;
+
+  let lastError=null;
+  for(let attempt=0;attempt<4;attempt+=1){
+    try{
+      const r=await fetch(
+        SUPABASE_URL+'/rest/v1/yt1988_social_sessions?platform=eq.'+
+        encodeURIComponent(platform)+'&select=state,updated_at&limit=1',
+        {
+          headers:storeHeaders(),
+          signal:AbortSignal.timeout(7000)
+        }
+      );
+
+      // Session reads are idempotent. A transient Supabase/PostgREST 5xx must
+      // never be interpreted as "there is no TikTok login", especially during
+      // a fresh Render deploy when losing cookies breaks restricted LIVE rooms.
+      if(!r.ok){
+        const error=new Error('session_read_'+r.status);
+        lastError=error;
+        if(r.status>=500&&attempt<3){
+          await sleep([350,800,1600][attempt]||1600);
+          continue;
+        }
+        throw error;
+      }
+
+      const rows=await r.json();
+      const row=Array.isArray(rows)?rows[0]:null;
+      return row||null;
+    }catch(error){
+      lastError=error;
+      const retryable=
+        /abort|timeout|fetch|network|socket|econn|session_read_5\d\d/i.test(
+          String(error?.message||error)
+        );
+      if(retryable&&attempt<3){
+        await sleep([350,800,1600][attempt]||1600);
+        continue;
+      }
+      break;
+    }
   }
+
+  console.warn('[store] load session failed',platform,String(lastError?.message||lastError||'unknown'));
+  return null;
 }
 async function saveSession(platform,state){
   if(!BROWSER_PLATFORMS.has(platform))return;
@@ -6789,12 +6820,26 @@ async function refreshTikTokApiCookieHeader({force=false}={}){
       console.log('[tiktok-api] cookie bootstrap failed',compactText(error?.message||error,120));
     }
 
-    tiktokApiCookieHeader=header;
-    tiktokApiCookieRefreshAt=Date.now();
+    // Never cache an empty cookie result for ten minutes. A transient store
+    // failure on boot should be retried on the next LIVE check, not treated as
+    // an anonymous TikTok session.
+    if(header){
+      tiktokApiCookieHeader=header;
+      tiktokApiCookieRefreshAt=Date.now();
+    }else{
+      tiktokApiCookieRefreshAt=0;
+    }
+
     const names=new Set(
       String(header||'').split(';').map(x=>x.trim().split('=',1)[0]).filter(Boolean)
     );
-    console.log('[tiktok-api] cookie bootstrap','count='+names.size,'ttwid='+(names.has('ttwid')?'yes':'no'));
+    console.log(
+      '[tiktok-api] cookie bootstrap',
+      'count='+names.size,
+      'ttwid='+(names.has('ttwid')?'yes':'no'),
+      'session='+(names.has('sessionid')||names.has('sessionid_ss')||names.has('sid_tt')?'yes':'no'),
+      'idc='+(names.has('tt-target-idc')?'yes':'no')
+    );
     return header;
   })().finally(()=>{tiktokApiCookieRefreshPromise=null});
 
