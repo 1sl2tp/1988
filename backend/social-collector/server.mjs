@@ -7588,7 +7588,9 @@ const server=http.createServer(async(req,res)=>{
     // UI-supplied handles are ignored here so opening a browser cannot mutate
     // the package membership or make the list grow accidentally.
     if(url.searchParams.get('refresh')==='1'){
-      await ensureTikTokLivePackageScan();
+      // UI refresh must use the locked TikTok API-only LIVE detector.
+      // Do not invoke FLV/media/package discovery here.
+      await runTikTokLiveMinuteSweep();
     }
 
     const clientVersion=Number(url.searchParams.get('v')||-1);
