@@ -29,7 +29,7 @@ assert.ok(videoStart>=0&&videoEnd>videoStart,'video-stream route missing');
 const videoRoute=server.slice(videoStart,videoEnd);
 assert.match(videoRoute,/lookupTikTokVideoSourceFast\(/);
 assert.ok(!videoRoute.includes('resolveTikTokVideoSource('),'MP4 click path must not resolve with yt-dlp');
-assert.ok(!videoRoute.includes('downloadTikTokVideoFile('),'MP4 click path must not download file fallback');
+assert.match(videoRoute,/downloadTikTokVideoFile\(/,'MP4 route must have reliable local-file fallback when TikTok CDN rejects direct proxy');
 assert.match(videoRoute,/queueTikTokVideoPriorityWarm\(/);
 
 const warmStart=server.indexOf("async function warmTikTokLibraryHandle(");
@@ -38,4 +38,5 @@ const warm=server.slice(warmStart,warmEnd);
 assert.match(warm,/confirmTikTokLibrarySource\(/,'LIVE background warm must verify FLV');
 assert.match(warm,/attempt<4/,'LIVE warm must try fallback FLV candidates');
 
+assert.match(videoRoute,/serveTikTokVideoFile\(/,'MP4 route must serve warmed local file with Range support');
 console.log('tiktok-playback-contract: assertions passed');
