@@ -1,0 +1,54 @@
+name: Probe live APIs once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-live-apis-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import requests, time
+          base='https://gcnoahqsrquxkwkjbuxy.supabase.co'
+          key='sb_publishable_UY3gfQ9MsntDFCUJ_uV0UA__eTYXz_w'
+          h={'apikey':key,'Authorization':'Bearer '+key}
+          s=requests.Session()
+          s.headers['User-Agent']='Mozilla/5.0'
+
+          def call(name,method,url,headers=None,**kwargs):
+              t=time.time()
+              try:
+                  r=s.request(method,url,headers=headers,timeout=20,**kwargs)
+                  print(name,'status='+str(r.status_code),'sec='+str(round(time.time()-t,3)),
+                        'type='+str(r.headers.get('content-type','')),
+                        'body='+r.text[:240].replace('\n',' '))
+              except Exception as e:
+                  print(name,'ERROR','sec='+str(round(time.time()-t,3)),repr(e))
+
+          call('AUTH_FAKE_LOGIN','POST',base+'/auth/v1/token?grant_type=password',
+               headers={**h,'Content-Type':'application/json'},
+               json={'email':'probe-do-not-exist-1988@example.invalid','password':'not-real'})
+
+          for name,path in [
+              ('REST_CHAT','/rest/v1/v21_messages?select=id&limit=1'),
+              ('REST_SALES','/rest/v1/taphoa_products?select=id&limit=1'),
+              ('REST_YOUTUBE','/rest/v1/yt1988_packages?select=scope,version&limit=1'),
+              ('REST_GETLINK','/rest/v1/getlink_links?select=id&limit=1')
+          ]:
+              call(name,'GET',base+path,headers=h)
+
+          call('GETLINK_GROUPS','GET',base+'/functions/v1/getlink-api/api/library?view=groups',headers={'apikey':key})
+          call('GETLINK_SEARCH','GET',base+'/functions/v1/getlink-api/api/library?view=search&limit=5&include_hidden=1',headers={'apikey':key})
+          call('YT_HOME','GET',base+'/functions/v1/yt1988?action=home')
+          call('YT_PACKAGES','GET',base+'/functions/v1/yt1988-packages?scope=latest')
+          PY
