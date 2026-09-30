@@ -797,8 +797,9 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  const visible=filterMode==='live'?channels.filter(rowPlayable):channels.slice();
-  const liveCount=channels.filter(rowPlayable).length;
+  const liveRows=channels.filter(row=>Boolean(row?.live?.isLive&&row?.live?.playable&&rowPlayable(row)));
+  const visible=filterMode==='live'?liveRows:channels.slice();
+  const liveCount=liveRows.length;
   document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
 
   const sorted=visible.sort((a,b)=>
@@ -923,7 +924,7 @@ function renderRecentVideos(handle=currentHandle){
 }
 async function openVideo(rawHandle,videoId,retry=true){
   const handle=parseHandle(rawHandle);
-  const video=currentVideoFor(handle,videoId);
+  let video=currentVideoFor(handle,videoId);
   if(!handle||!video)return;
 
   const seq=++videoOpenSeq;
@@ -954,40 +955,70 @@ async function openVideo(rawHandle,videoId,retry=true){
   renderRecentVideos(handle);
   hideSearchResults();
 
-  const direct=String(video.playback?.url||'').trim();
-  if(!video.playback?.ready||!direct){
-    showToast('MP4 đang được server đồng bộ');
-    return;
+  let stream=String(video.playback?.url||'').trim();
+
+  // Media preparation is a control-plane command. The UI never extracts or
+  // constructs a TikTok CDN URL; it asks the server to prepare this one video,
+  // then re-reads the canonical data package.
+  if(!video.playback?.ready||!stream){
+    document.getElementById('nowState').textContent='Đang chuẩn bị video…';
+    try{
+      await apiJson(API+'/tiktok/video-prepare',{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({handle,id:String(video.id||'')})
+      });
+      if(seq!==videoOpenSeq)return;
+      libraryVersion=-1;
+      await loadUnifiedLibrary({force:true,silent:true});
+      if(seq!==videoOpenSeq)return;
+      video=currentVideoFor(handle,videoId);
+      currentVideo=video;
+      stream=String(video?.playback?.url||'').trim();
+      if(!video?.playback?.ready||!stream){
+        showToast('Server chưa tạo được nguồn phát');
+        return;
+      }
+    }catch(error){
+      if(seq===videoOpenSeq)showToast('Không chuẩn bị được video');
+      return;
+    }
   }
 
+  const src=/^https?:\/\//i.test(stream)?stream:(API+stream);
   native.onerror=async()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
     if(!retry){
-      showToast('Nguồn MP4 đang được server làm mới');
+      showToast('Nguồn video chưa sẵn sàng');
       return;
     }
-    const old=direct;
-    libraryVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
-    if(seq!==videoOpenSeq)return;
-    const fresh=currentVideoFor(handle,videoId);
-    const next=String(fresh?.playback?.url||'').trim();
-    if(fresh?.playback?.ready&&next&&next!==old){
+    try{
+      await apiJson(API+'/tiktok/video-prepare',{
+        method:'POST',
+        headers:{'content-type':'application/json'},
+        body:JSON.stringify({handle,id:String(videoId),refresh:true})
+      });
+      if(seq!==videoOpenSeq)return;
+      libraryVersion=-1;
+      await loadUnifiedLibrary({force:true,silent:true});
+      if(seq!==videoOpenSeq)return;
       openVideo(handle,videoId,false);
-    }else{
-      showToast('Nguồn MP4 đang được server làm mới');
+    }catch{
+      if(seq===videoOpenSeq)showToast('Nguồn video đang được làm mới');
     }
   };
   native.onloadedmetadata=()=>{
     if(seq!==videoOpenSeq)return;
     setPlayerShape(native);
+    document.getElementById('nowState').textContent=
+      String(currentVideo?.title||'').trim()||videoMetaText(currentVideo);
     native.play().catch(()=>{});
   };
 
-  native.src=direct;
+  native.src=src+(src.includes('?')?'&':'?')+'t='+Date.now();
   native.load();
   native.play().catch(()=>{});
 }
@@ -1202,6 +1233,33 @@ async function loadChannels({force=false,silent=false}={}){
   return loadUnifiedLibrary({force,silent});
 }
 
+function optimisticChannel(handle){
+  const key=String(handle||'').toLowerCase();
+  let row=channels.find(x=>String(x?.handle||'').toLowerCase()===key);
+  if(row)return row;
+  row={
+    handle,
+    profile:{
+      userId:'',secUid:'',name:'@'+handle,bio:'',verified:false,
+      avatar:{url:'',sourceUrl:'',storedUrl:'',width:0,height:0},
+      followers:0,following:0,likes:0,videoCount:0,source:'',checkedAt:null
+    },
+    live:{
+      isLive:false,playable:false,title:'',
+      cover:{url:'',sourceUrl:'',storedUrl:''},
+      stream:{type:'',sourceSig:'',url:''},
+      checkedAt:null,updatedAt:null
+    },
+    videos:[]
+  };
+  channels.unshift(row);
+  return row;
+}
+function optimisticRemove(handle){
+  const key=String(handle||'').toLowerCase();
+  channels=channels.filter(row=>String(row?.handle||'').toLowerCase()!==key);
+}
+
 async function addChannel(){
   if(mutationBusy)return;
   const input=document.getElementById('addInput');
@@ -1212,9 +1270,13 @@ async function addChannel(){
     return;
   }
 
-  // Open uses the exact same path as clicking a channel in the list.
-  // Saving and package refresh happen in parallel and never block playback.
-  openChannel(handle);
+  // Control-plane action: reflect intent in UI immediately, then persist and
+  // re-read the canonical package returned by the server.
+  optimisticChannel(handle);
+  currentHandle=handle;
+  renderList();
+  renderRecentVideos(handle);
+  updateCurrentUi();
 
   mutationBusy=true;
   const btn=document.getElementById('addBtn');
@@ -1230,8 +1292,12 @@ async function addChannel(){
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
     libraryVersion=-1;
     await loadUnifiedLibrary({force:true,silent:true});
+    if(currentHandle===handle)openChannel(handle);
   }catch(error){
-    showToast('Lưu thất bại, LIVE vẫn đang mở');
+    // Reconcile optimistic UI with durable data on failure.
+    libraryVersion=-1;
+    await loadUnifiedLibrary({force:true,silent:true});
+    showToast('Lưu kênh thất bại');
     console.warn(error);
   }finally{
     mutationBusy=false;
@@ -1243,22 +1309,28 @@ async function removeChannel(rawHandle){
   if(!handle||mutationBusy)return;
   if(!confirm('Xoá @'+handle+' khỏi danh sách?'))return;
   mutationBusy=true;
+  const wasCurrent=handle===currentHandle;
+  optimisticRemove(handle);
+  if(wasCurrent){
+    currentHandle='';currentSourceSig='';currentType='';
+    destroyPlayer();
+    document.getElementById('overlay').hidden=true;
+    updateCurrentUi();
+  }
+  renderList();
+  renderRecentVideos(currentHandle);
   try{
     await apiJson(API+'/tiktok/selected-channel',{
       method:'POST',
       headers:{'content-type':'application/json'},
       body:JSON.stringify({handle,selected:false})
     });
-    if(handle===currentHandle){
-      currentHandle='';currentSourceSig='';currentType='';
-      destroyPlayer();
-      document.getElementById('overlay').hidden=true;
-      updateCurrentUi();
-    }
     libraryVersion=-1;
-    await loadUnifiedLibrary({force:true});
+    await loadUnifiedLibrary({force:true,silent:true});
     showToast('Đã xoá @'+handle);
   }catch(error){
+    libraryVersion=-1;
+    await loadUnifiedLibrary({force:true,silent:true});
     showToast('Xoá thất bại: '+String(error.message||error));
   }finally{
     mutationBusy=false;
