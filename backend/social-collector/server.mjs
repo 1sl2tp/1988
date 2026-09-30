@@ -266,6 +266,8 @@ function tiktokLibraryMaterial(row){
     String(row?.mode||''),
     String(row?.source||''),
     String(row?.status||''),
+    String(row?.probeState||'unknown'),
+    Boolean(row?.playable),
     String(row?.sourceSig||''),
     String(row?.title||''),
     String(row?.thumbnail||''),
@@ -286,6 +288,8 @@ function publicTikTokLibraryItem(row){
     mode:String(row.mode||''),
     source:String(row.source||''),
     status:String(row.status||'unknown'),
+    probeState:String(row.probeState||'unknown'),
+    playable:Boolean(row.playable??row.ready),
     sourceSig:String(row.sourceSig||''),
     title:String(row.title||''),
     thumbnail:String(row.thumbnail||''),
@@ -307,8 +311,8 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   const key=handle.toLowerCase();
   const now=Date.now();
   const prev=tiktokLiveLibrary.get(key)||{
-    handle,live:false,ready:false,type:'',mode:'',source:'',
-    status:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,confirmedAt:0,lastSeenAt:0,expiresAt:0
+    handle,live:false,ready:false,playable:false,type:'',mode:'',source:'',
+    status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0
   };
   const next={...prev,...patch,handle};
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
@@ -336,6 +340,7 @@ function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status
   return updateTikTokLiveLibrary(handle,{
     live:true,
     ready:confirmed,
+    playable:confirmed,
     type:String(row.type||''),
     mode:String(mode||row.mode||''),
     source:String(source||row.source||''),
@@ -352,6 +357,7 @@ function publishTikTokLiveSourceNow(handle,row,{mode='',source=''}={}){
   return updateTikTokLiveLibrary(handle,{
     live:true,
     ready:true,
+    playable:true,
     type:String(row.type||''),
     mode:String(mode||row.mode||'fast'),
     source:String(source||row.source||'room-api'),
@@ -788,7 +794,7 @@ async function loadTikTokLiveStore(){
         {headers:storeHeaders()}
       ),
       fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?select=handle,live,stream_type,stream_url,source_sig,checked_at,updated_at',
+        SUPABASE_URL+'/rest/v1/yt1988_tiktok_live_channels?select=handle,live,probe_state,playable,stream_type,stream_url,source_sig,state_changed_at,last_known_at,checked_at,updated_at',
         {headers:storeHeaders()}
       ),
       fetch(
@@ -848,11 +854,15 @@ async function loadTikTokLiveStore(){
       updateTikTokLiveLibrary(handle,{
         live,
         ready:Boolean(source),
+        playable:Boolean(stored?.playable&&source),
         type:source?.type||'',
         mode:source?'fast-store':'',
         source:source?'supabase':'',
         status:live?'live':'offline',
+        probeState:String(stored?.probe_state||'unknown'),
         sourceSig:source?tiktokLibrarySourceSig(source):'',
+        stateChangedAt:Date.parse(stored?.state_changed_at||0)||0,
+        lastKnownAt:Date.parse(stored?.last_known_at||0)||0,
         lastSeenAt:Date.parse(stored?.checked_at||stored?.updated_at||0)||0,
         expiresAt:source?tiktokStreamExpiresAt(source.url):0
       });
@@ -877,23 +887,26 @@ function buildTikTokStoredRows(){
       const item=tiktokLiveLibrary.get(key)||{};
       const source=currentTikTokLibrarySource(handle);
       const sourceType=String(source?.type||'').toLowerCase();
-      const detected=Boolean(item.live);
-      const usable=Boolean(
-        detected&&source?.url&&['flv','hls'].includes(sourceType)&&tiktokLiveSourceUsable(source)
+      const live=Boolean(item.live);
+      const playable=Boolean(
+        live&&source?.url&&['flv','hls'].includes(sourceType)&&tiktokLiveSourceUsable(source)
       );
       return {
         handle,
-        live:usable,
-        stream_type:usable?sourceType:'',
-        stream_url:usable?String(source.url||''):'',
-        source_sig:usable?tiktokLibrarySourceSig(source):'',
+        live,
+        probe_state:String(item.probeState||'unknown'),
+        playable,
+        stream_type:playable?sourceType:'',
+        stream_url:playable?String(source.url||''):'',
+        source_sig:playable?tiktokLibrarySourceSig(source):'',
+        state_changed_at:item.stateChangedAt?new Date(Number(item.stateChangedAt)).toISOString():null,
+        last_known_at:item.lastKnownAt?new Date(Number(item.lastKnownAt)).toISOString():null,
         checked_at:item.lastSeenAt?new Date(Number(item.lastSeenAt)).toISOString():now,
         updated_at:now
       };
     })
     .sort((a,b)=>a.handle.localeCompare(b.handle));
 }
-
 async function persistTikTokLiveStore({force=false}={}){
   if(!force&&tiktokLivePersistedVersion===tiktokLiveLibraryVersion)return true;
   if(tiktokLiveStoreWritePromise)return tiktokLiveStoreWritePromise;
@@ -905,11 +918,17 @@ async function persistTikTokLiveStore({force=false}={}){
       items:rows.map(row=>({
         handle:row.handle,
         live:row.live,
+        probeState:row.probe_state,
+        playable:row.playable,
         link:row.stream_url,
-        type:row.stream_type
+        type:row.stream_type,
+        sourceSig:row.source_sig,
+        stateChangedAt:row.state_changed_at,
+        checkedAt:row.checked_at
       })),
       total:rows.length,
       live:liveCount,
+      playable:rows.filter(row=>row.playable).length,
       offline:rows.length-liveCount
     };
     const now=nowIso();
@@ -942,8 +961,7 @@ async function persistTikTokLiveStore({force=false}={}){
     if(!packageRes.ok)throw new Error('tiktok_package_write_'+packageRes.status+':'+await packageRes.text());
 
     tiktokLivePersistedVersion=tiktokLiveLibraryVersion;
-    console.log('[tiktok-store] saved','channels='+rows.length,'live='+liveCount,'version='+tiktokLiveLibraryVersion);
-    void queueTikTokCanonicalSync(rows.map(row=>row.handle));
+    console.log('[tiktok-store] saved','channels='+rows.length,'live='+liveCount,'playable='+rows.filter(row=>row.playable).length,'version='+tiktokLiveLibraryVersion);
     return true;
   })().catch(error=>{
     console.warn('[tiktok-store] save failed',compactText(error?.message||error,220));
@@ -1019,8 +1037,8 @@ function runTikTokLiveMinuteSweep(){
       const prev=tiktokLiveLibrary.get(key)||null;
       let state=checkedRow.state;
 
-      // A stale LIVE row is the only case where UNKNOWN is dangerous. Give
-      // just those channels one deeper API fallback before preserving LIVE.
+      // Only a previously confirmed LIVE channel gets one deeper verification
+      // when the cheap probe is UNKNOWN. UNKNOWN itself never means OFFLINE.
       if(!state?.known&&prev?.live){
         try{
           const verify=await quickTikTokLiveStatus(handle);
@@ -1037,25 +1055,24 @@ function runTikTokLiveMinuteSweep(){
 
       if(!state?.known){
         unknown+=1;
+        updateTikTokLiveLibrary(handle,{
+          probeState:'unknown',
+          lastSeenAt:Date.now()
+        });
         continue;
       }
 
       known+=1;
       const isLive=state.live===true;
-      if(isLive){
-        live+=1;
-        const currentSource=currentTikTokLibrarySource(handle);
-        if(!currentSource)liveMissingSource.push(handle);
-      }else offline+=1;
+      const now=Date.now();
+      if(isLive)live+=1;
+      else offline+=1;
 
-      if(Boolean(prev?.live)===isLive){
-        // Confirmed state did not change; keep existing source and do not bump
-        // package version. lastSeenAt is telemetry only.
-        updateTikTokLiveLibrary(handle,{lastSeenAt:Date.now()});
-        continue;
-      }
+      const changedState=Boolean(prev?.live)!==isLive;
 
       if(!isLive){
+        // Confirmed LIVE -> OFFLINE (or already OFFLINE): clear every stream
+        // immediately. This branch owns LIVE state only; no video/library work.
         tiktokLiveFastSources.delete(key);
         tiktokLivePreferBrowser.delete(key);
         tiktokLiveLibraryWarmRetryAt.delete(key);
@@ -1063,38 +1080,48 @@ function runTikTokLiveMinuteSweep(){
         updateTikTokLiveLibrary(handle,{
           live:false,
           ready:false,
+          playable:false,
           type:'',
           mode:'',
           source:'',
           status:'offline',
+          probeState:'offline',
           sourceSig:'',
           videoCodec:'',
           audioCodec:'',
           width:0,
           height:0,
-          lastSeenAt:Date.now(),
+          stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
+          lastKnownAt:now,
+          lastSeenAt:now,
           expiresAt:0
         });
         continue;
       }
 
-      // OFFLINE -> LIVE: publish the state immediately. Media preparation is
-      // scheduled only for this channel after the lightweight status sweep.
+      // Confirmed OFFLINE -> LIVE changes state immediately. Stream discovery
+      // is a second step and does not control whether the channel is LIVE.
+      const currentSource=currentTikTokLibrarySource(handle);
+      const playable=Boolean(currentSource&&tiktokLiveSourceUsable(currentSource));
       updateTikTokLiveLibrary(handle,{
         live:true,
-        ready:false,
-        type:'',
-        mode:'',
-        source:'',
+        ready:playable,
+        playable,
+        type:playable?String(currentSource.type||''):'',
+        mode:playable?String(currentSource.mode||''):'',
+        source:playable?String(currentSource.source||''):'',
         status:'live',
-        sourceSig:'',
-        lastSeenAt:Date.now(),
-        expiresAt:0
+        probeState:'live',
+        sourceSig:playable?tiktokLibrarySourceSig(currentSource):'',
+        stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
+        lastKnownAt:now,
+        lastSeenAt:now,
+        expiresAt:playable?tiktokStreamExpiresAt(currentSource.url):0
       });
-      tiktokLiveLibraryRefreshAt.delete(key);
-      newlyLive.push(handle);
-    }
 
+      if(!playable)liveMissingSource.push(handle);
+      if(changedState)newlyLive.push(handle);
+    }
     const changed=tiktokLiveLibraryVersion!==before;
     if(changed)await persistTikTokLiveStore();
 
@@ -1187,6 +1214,9 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       updateTikTokLiveLibrary(handle,{
         live:false,
         ready:false,
+        playable:false,
+        probeState:'offline',
+        lastKnownAt:Date.now(),
         type:'',
         mode:'',
         source:'',
@@ -1242,6 +1272,9 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     updateTikTokLiveLibrary(handle,{
       live:true,
       ready:false,
+      playable:false,
+      probeState:'live',
+      lastKnownAt:Date.now(),
       type:'',
       mode:'',
       source:'',
