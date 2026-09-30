@@ -87,7 +87,6 @@
   display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:999px;
   background:var(--live);color:var(--live-text);font-size:9px;font-weight:900;letter-spacing:.04em
 }
-.live-pill.pending{background:var(--surface-3);color:var(--live);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--live) 38%,transparent)}
 .live-dot{width:9px;height:9px;border-radius:50%;background:var(--live);display:block;flex:0 0 auto}
 .iconbtn{border:0;background:transparent;color:var(--text-muted);width:30px;height:30px;border-radius:9px;display:grid;place-items:center;padding:0;opacity:.38}
 .channel:hover .iconbtn,.channel.active .iconbtn{opacity:.95}
@@ -133,12 +132,6 @@
 .phone.square{width:min(100%,640px);max-width:640px;aspect-ratio:1/1}
 .phone.video-mode{width:min(100%,540px);max-width:540px}
 .phone video{width:100%;height:100%;display:block;object-fit:contain;background:var(--media-bg)}
-.media-empty{
-  position:absolute;inset:0;display:grid;place-items:center;padding:28px;text-align:center;
-  color:#c4c4c4;font-size:13px;font-weight:650;background:linear-gradient(180deg,rgba(0,0,0,.22),rgba(0,0,0,.5));
-  pointer-events:none
-}
-.media-empty[hidden]{display:none}
 
 .current-info{
   width:min(100%,540px);min-height:62px;display:grid;
@@ -172,12 +165,10 @@
 .video-card[data-ready="false"]{opacity:.68}
 .video-thumb{position:relative;width:124px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:var(--thumb-bg)}
 .video-thumb img{width:100%;height:100%;object-fit:cover;display:block}
-.video-duration,.video-ready{
+.video-duration{
   position:absolute;right:5px;bottom:5px;padding:2px 5px;border-radius:5px;
   background:var(--overlay-bg);color:#fff;font-size:9px;font-weight:800
 }
-.video-ready{left:5px;right:auto;color:var(--accent-alt)}
-.video-card[data-ready="false"] .video-ready{color:#ffd166}
 .video-copy{min-width:0;padding-top:1px}
 .video-title{color:var(--text);font-size:11.5px;font-weight:760;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .video-owner{margin-top:4px;color:var(--text-muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
