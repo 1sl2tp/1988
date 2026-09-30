@@ -131,6 +131,23 @@ let tikwmApiSerial=Promise.resolve();
 let tikwmApiLastAt=0;
 let tiktokProfileBackfillBusy=false;
 let tiktokProfileBackfillCursor=0;
+
+// TikTok status endpoints rate-limit bursty scans very aggressively. All
+// server-side LIVE status requests share one small global gate so an exhaustive
+// scan can cover every selected channel without turning most answers into 403.
+let tiktokStatusRequestGate=Promise.resolve();
+let tiktokStatusRequestLastAt=0;
+const TIKTOK_STATUS_MIN_GAP_MS=320;
+async function paceTikTokStatusRequest(){
+  const task=tiktokStatusRequestGate.then(async()=>{
+    const wait=Math.max(0,TIKTOK_STATUS_MIN_GAP_MS-(Date.now()-tiktokStatusRequestLastAt));
+    if(wait)await sleep(wait);
+    tiktokStatusRequestLastAt=Date.now();
+  });
+  tiktokStatusRequestGate=task.catch(()=>{});
+  return task;
+}
+
 let tiktokFrozenLibraryPackage=null;
 let tiktokFrozenLibraryLoadedAt=0;
 
@@ -2298,6 +2315,7 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
 }
 
 async function quickTikTokLiveDetailStatus(handle,retry=true,roomId=''){
+  await paceTikTokStatusRequest();
   try{
     const endpoint=new URL('https://www.tiktok.com/api/live/detail/');
     endpoint.searchParams.set('aid','1988');
@@ -2404,6 +2422,7 @@ async function quickTikTokLiveDetailStatus(handle,retry=true,roomId=''){
 
 async function quickTikTokRoomInfoStatus(handle,roomId){
   if(!roomId)return {known:true,live:false,status:4,roomId:'',candidates:[]};
+  await paceTikTokStatusRequest();
   try{
     const endpoint=new URL('https://webcast.tiktok.com/webcast/room/info');
     endpoint.searchParams.set('aid','1988');
@@ -2459,6 +2478,7 @@ async function quickTikTokLiveStateOnly(rawHandle,retry=true){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
+  await paceTikTokStatusRequest();
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -2555,7 +2575,7 @@ async function browserTikTokLiveStates(handles){
           if(index>=list.length)return;
           const handle=list[index];
           try{
-            await new Promise(resolve=>setTimeout(resolve,180));
+            await new Promise(resolve=>setTimeout(resolve,320));
             const url='/api-live/user/room?aid=1988&sourceType=54&uniqueId='+encodeURIComponent(handle);
             const controller=new AbortController();
             const timer=setTimeout(()=>controller.abort(),3500);
@@ -2590,7 +2610,7 @@ async function browserTikTokLiveStates(handles){
           }
         }
       };
-      await Promise.all(Array.from({length:Math.min(2,list.length)},()=>worker()));
+      await Promise.all(Array.from({length:Math.min(1,list.length)},()=>worker()));
       return result;
     },normalized);
 
@@ -8775,42 +8795,11 @@ server.listen(PORT,'0.0.0.0',()=>{
       void runTikTokLiveMinuteSweep();
       setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
 
-      // Warm previously confirmed LIVE handles immediately while the full
-      // selected-channel sweep runs through the same single-flight state machine. Recheck only the handles that
-      // were previously LIVE in the persisted package, then warm current LIVE
-      // handles. This avoids a 171-channel recurring sweep.
+      // The exhaustive sweep above owns LIVE discovery. Do not run a second
+      // 18/171-channel status burst here; that duplicate traffic was one cause
+      // of TikTok 403s and missing LIVE channels.
       if(TIKTOK_PREVIEW_DISCOVER_LIVE){
-        void (async()=>{
-          const previous=[...tiktokRealtimeLiveHandles];
-          const checked=new Array(previous.length);
-          let cursor=0;
-          const worker=async()=>{
-            while(true){
-              const index=cursor++;
-              if(index>=previous.length)return;
-              const handle=previous[index];
-              checked[index]={handle,state:await quickTikTokLiveStateOnly(handle).catch(()=>({known:false,live:false}))};
-            }
-          };
-          await Promise.all(Array.from({length:Math.min(8,previous.length||1)},()=>worker()));
-
-          const current=checked
-            .filter(row=>row?.state?.known&&row.state.live===true)
-            .map(row=>row.handle);
-          tiktokRealtimeLiveHandles=new Set(current.map(x=>x.toLowerCase()));
-          tiktokRealtimeLiveCheckedAt=Date.now();
-          console.log('[tiktok-preview-current-live]','checked='+previous.length,'live='+current.length,current.join(','));
-
-          for(const handle of current.slice(0,6)){
-            try{
-              const ok=await warmTikTokLibraryHandle(handle);
-              console.log('[tiktok-preview-live]',handle,ok?'ready':'failed');
-              if(ok)break;
-            }catch(error){
-              console.log('[tiktok-preview-live]',handle,'failed',compactText(error?.message||error,100));
-            }
-          }
-        })().catch(error=>console.log('[tiktok-preview-current-live] failed',compactText(error?.message||error,120)));
+        console.log('[tiktok-preview-current-live] exhaustive sweep owns discovery');
       }else if(TIKTOK_PREVIEW_WARM_HANDLES.length){
         const handles=TIKTOK_PREVIEW_WARM_HANDLES
           .map(normalizeTikTokHandle).filter(Boolean).slice(0,4);
