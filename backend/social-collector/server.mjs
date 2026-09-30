@@ -3527,15 +3527,7 @@ async function mergeDetailedTikTokVideoMetadata(handle,id,row,{persist=true}={})
     const cached=tiktokProfileIdentityCache.get(key)?.data||{};
     tiktokProfileIdentityCache.set(key,{
       at:Date.now(),
-      data:{
-        ...cached,
-        ...profile,
-        nickname:profile.nickname||cached.nickname||'',
-        avatar:profile.avatar||cached.avatar||'',
-        secUid:profile.secUid||cached.secUid||'',
-        userId:profile.userId||cached.userId||'',
-        followerCount:profile.followerCount||cached.followerCount||0
-      }
+      data:mergeTikTokProfileData(handle,cached,profile)
     });
   }
 
@@ -4478,6 +4470,39 @@ function canonicalEpochSeconds(value){
   if(n>10_000_000_000)n=Math.floor(n/1000);
   return Math.floor(n);
 }
+function canonicalProfileName(value,handle,prev=''){
+  const name=String(value||'').trim();
+  const old=String(prev||'').trim();
+  if(!name)return old;
+  const clean=name.replace(/^@/,'').toLowerCase();
+  const key=String(handle||'').replace(/^@/,'').toLowerCase();
+  // yt-dlp frequently reports the handle as uploader/channel. Treat that as a
+  // fallback label, not a real display name that may overwrite richer metadata.
+  if(clean===key&&old&&old.replace(/^@/,'').toLowerCase()!==key)return old;
+  return name;
+}
+function mergeTikTokProfileData(handle,base={},incoming={}){
+  const key=String(handle||'').toLowerCase();
+  const source=String(incoming?.source||base?.source||'');
+  const incomingName=String(incoming?.nickname||'').trim();
+  const name=canonicalProfileName(incomingName,handle,base?.nickname||'');
+  const avatar=String(incoming?.avatar||'').trim()||String(base?.avatar||'');
+  return {
+    ...base,
+    ...incoming,
+    nickname:name,
+    avatar,
+    secUid:String(incoming?.secUid||'').trim()||String(base?.secUid||''),
+    userId:String(incoming?.userId||'').trim()||String(base?.userId||''),
+    bio:String(incoming?.bio||'').trim()||String(base?.bio||''),
+    verified:Boolean(incoming?.verified)||Boolean(base?.verified),
+    followerCount:canonicalCount(incoming?.followerCount,base?.followerCount),
+    followingCount:canonicalCount(incoming?.followingCount,base?.followingCount),
+    heartCount:canonicalCount(incoming?.heartCount,base?.heartCount),
+    videoCount:canonicalCount(incoming?.videoCount,base?.videoCount),
+    source
+  };
+}
 function tiktokProfileFromYtdlpRow(handle,row,source='yt-dlp'){
   if(!row||typeof row!=='object')return null;
   const nickname=String(
@@ -4621,18 +4646,25 @@ function canonicalMergeVideo(handle,video){
     next.mp4_updated_at=nowIso();
   }
 
-  const statsChanged=[
+  let statsChanged=false;
+  for(const [key,value] of [
     ['play_count',video?.playCount??video?.play_count],
     ['digg_count',video?.diggCount??video?.digg_count],
     ['comment_count',video?.commentCount??video?.comment_count],
     ['share_count',video?.shareCount??video?.share_count],
     ['collect_count',video?.collectCount??video?.collect_count]
-  ].some(([key,value])=>{
+  ]){
     const n=Number(value);
-    if(!Number.isFinite(n)||n<=0)return false;
-    next[key]=Math.round(n);
-    return true;
-  });
+    if(!Number.isFinite(n)||n<0)continue;
+    // Zero is valid only when we have no prior measurement. Never let a poorer
+    // metadata source erase an already-known positive counter.
+    if(n===0&&Number(next[key]||0)>0)continue;
+    const rounded=Math.round(n);
+    if(rounded!==Number(next[key]||0)){
+      next[key]=rounded;
+      statsChanged=true;
+    }
+  }
   if(statsChanged)next.metrics_updated_at=nowIso();
   next.updated_at=nowIso();
   tiktokCanonicalVideos.set(id,next);
@@ -5037,7 +5069,7 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
     if(cached){
       next.user_id=canonicalText(cached.userId,prev.user_id);
       next.sec_uid=canonicalText(cached.secUid,prev.sec_uid);
-      next.display_name=canonicalText(cached.nickname,prev.display_name);
+      next.display_name=canonicalProfileName(cached.nickname,handle,prev.display_name);
       next.bio=canonicalText(cached.bio,prev.bio);
       if(cached.verified!==undefined&&cached.verified!==null)next.verified=Boolean(cached.verified);
       const avatar=String(cached.avatar||'').trim();
@@ -5049,7 +5081,17 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
       next.following_count=canonicalCount(cached.followingCount,prev.following_count);
       next.heart_count=canonicalCount(cached.heartCount,prev.heart_count);
       next.video_count=canonicalCount(cached.videoCount,prev.video_count);
-      next.profile_source=canonicalText(cached.source,prev.profile_source);
+      const incomingSource=String(cached.source||'');
+      const prevSource=String(prev.profile_source||'');
+      const incomingWeak=/^yt-dlp(?:-video|-profile|-tiktokuser)?$/i.test(incomingSource);
+      const prevRich=Boolean(
+        prev.avatar_source_url||
+        prev.follower_count||
+        prev.following_count||
+        prev.heart_count||
+        (prev.display_name&&String(prev.display_name).toLowerCase()!==handle.toLowerCase())
+      );
+      if(!incomingWeak||!prevRich)next.profile_source=canonicalText(incomingSource,prevSource);
       next.profile_checked_at=nowIso();
     }
 
@@ -5235,8 +5277,11 @@ async function refreshTikTokCanonicalProfileBatch(size=20){
         const bundle=await fetchTikTokMetaBundle(handle);
         const profile=parseTikTokMetaProfile(bundle);
         if(profile){
-          profiles.set(handle.toLowerCase(),profile);
-          tiktokProfileIdentityCache.set(handle.toLowerCase(),{at:Date.now(),data:profile});
+          const key=handle.toLowerCase();
+          const cached=tiktokProfileIdentityCache.get(key)?.data||{};
+          const mergedProfile=mergeTikTokProfileData(handle,cached,profile);
+          profiles.set(key,mergedProfile);
+          tiktokProfileIdentityCache.set(key,{at:Date.now(),data:mergedProfile});
           ok+=1;
         }
         postRows+=mergeTikTokMetaPosts(handle,bundle);
@@ -5252,8 +5297,10 @@ async function refreshTikTokCanonicalProfileBatch(size=20){
         const key=handle.toLowerCase();
         const profile=browserProfiles.get(key);
         if(!profile)continue;
-        profiles.set(key,profile);
-        tiktokProfileIdentityCache.set(key,{at:Date.now(),data:profile});
+        const cached=tiktokProfileIdentityCache.get(key)?.data||{};
+        const mergedProfile=mergeTikTokProfileData(handle,cached,profile);
+        profiles.set(key,mergedProfile);
+        tiktokProfileIdentityCache.set(key,{at:Date.now(),data:mergedProfile});
         ok+=1;
       }
     }
