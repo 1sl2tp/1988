@@ -40,8 +40,8 @@ def choose_stream(info):
                 kind = "flv"
             else:
                 kind = detect_type(url)
-        # TikTok LIVE playback is FLV-only. Ignore HLS/MP4 at extraction time
-        # so no downstream code can accidentally promote them to LIVE media.
+        # TikTok LIVE playback is FLV-only. Ignore every non-FLV candidate
+        # so no downstream code can accidentally promote it to LIVE media.
         if kind != "flv":
             return
         candidates.append({
