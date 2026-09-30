@@ -28,7 +28,7 @@ def wait_statuses():
     last = None
     for i in range(32):
         try:
-            data = get_json(f"/tiktok/live-statuses?refresh=1&t={int(time.time())}", timeout=30)
+            data = get_json(f"/tiktok/live-statuses?refresh=all&t={int(time.time())}", timeout=540)
             last = data
             if data.get("ok") and data.get("exhaustive") and isinstance(data.get("items"), list):
                 return data
