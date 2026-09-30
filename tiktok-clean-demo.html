@@ -418,7 +418,7 @@ function renderRecentVideos(handle=currentHandle){
   countEl.textContent=list.length?String(list.length):'';
 
   if(!list.length){
-    root.innerHTML='<div class="rail-empty">Không có video MP4 sẵn sàng.</div>';
+    root.innerHTML='';
     return;
   }
 
@@ -487,7 +487,6 @@ async function openVideo(rawHandle,videoId,retry=true){
     native.removeAttribute('src');
     native.load();
     if(!retry){
-      showToast('Nguồn video đang được làm mới');
       return;
     }
 
@@ -579,7 +578,7 @@ function renderSearchResults(value){
       (channelsHtml?'<div class="search-channels">'+channelsHtml+'</div>':'<div class="rail-empty">Không có kênh phù hợp.</div>')+
     '</div>'+
     '<div class="search-block"><div class="search-heading"><span>Video</span><span class="search-count">'+videoMatches.length+'</span></div>'+
-      (videosHtml?'<div class="search-videos">'+videosHtml+'</div>':'<div class="rail-empty">Chưa có video phù hợp trong dữ liệu đã tải.</div>')+
+      (videosHtml?'<div class="search-videos">'+videosHtml+'</div>':'')+
     '</div>';
 
   root.querySelectorAll('[data-search-channel]').forEach(el=>{
@@ -608,7 +607,7 @@ function selectChannel(handle){
     if(list.length)openVideo(currentHandle,list[0].id);
     else{
       setMediaMode('video');
-      showToast('Kênh này chưa có video trong thư viện');
+      return;
     }
     return;
   }
@@ -1052,7 +1051,7 @@ document.querySelectorAll('[data-media-mode]').forEach(btn=>{
     else{
       setMediaMode('video');
       renderRecentVideos(currentHandle);
-      if(currentHandle)showToast('Kênh này chưa có video trong thư viện');
+      return;
     }
   });
 });
