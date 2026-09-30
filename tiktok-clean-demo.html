@@ -799,7 +799,7 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  const liveRows=channels.filter(row=>Boolean(row?.live?.isLive&&row?.live?.playable&&rowPlayable(row)));
+  const liveRows=channels.filter(row=>Boolean(row?.live?.isLive));
   const visible=filterMode==='live'?liveRows:channels.slice();
   const liveCount=liveRows.length;
   document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
@@ -814,8 +814,8 @@ function renderList(){
     return;
   }
 
-  const live=sorted.filter(rowPlayable);
-  const offline=sorted.filter(x=>!rowPlayable(x));
+  const live=sorted.filter(row=>Boolean(row?.live?.isLive));
+  const offline=sorted.filter(row=>!row?.live?.isLive);
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const profile=row.profile||{};
@@ -827,7 +827,7 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-dot" title="Đang phát"></span>':'')+
+      '<span class="row-actions">'+(row?.live?.isLive?'<span class="live-dot" title="'+(rowPlayable(row)?'Đang phát':'Đang LIVE · chờ nguồn')+'"></span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
@@ -1203,6 +1203,12 @@ async function loadUnifiedLibrary({force=false,silent=false}={}){
 }
 function applyLiveLibrary(data){
   const items=Array.isArray(data?.items)?data.items:[];
+  // LIVE is an overlay on the canonical channel list. If LIVE arrives before
+  // the base list during startup, do not consume its version and lose state.
+  if(!channels.length&&items.length){
+    liveVersion=-1;
+    return false;
+  }
   const beforeCurrent=currentHandle?channelFor(currentHandle)?.live||null:null;
   const beforeSig=String(beforeCurrent?.stream?.sourceSig||'');
   const beforeLive=Boolean(beforeCurrent?.isLive);
@@ -1252,6 +1258,7 @@ function applyLiveLibrary(data){
       openChannel(currentHandle);
     }
   }
+  return true;
 }
 async function loadLiveLibrary({force=false,silent=true}={}){
   if(liveLoadBusy)return;
@@ -1328,10 +1335,8 @@ async function addChannel(){
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
     libraryVersion=-1;
     liveVersion=-1;
-    await Promise.all([
-      loadUnifiedLibrary({force:true,silent:true}),
-      loadLiveLibrary({force:true,silent:true})
-    ]);
+    await loadUnifiedLibrary({force:true,silent:true});
+    await loadLiveLibrary({force:true,silent:true});
     if(currentHandle===handle)openChannel(handle);
   }catch(error){
     // Reconcile optimistic UI with durable data on failure.
@@ -1367,10 +1372,8 @@ async function removeChannel(rawHandle){
     });
     libraryVersion=-1;
     liveVersion=-1;
-    await Promise.all([
-      loadUnifiedLibrary({force:true,silent:true}),
-      loadLiveLibrary({force:true,silent:true})
-    ]);
+    await loadUnifiedLibrary({force:true,silent:true});
+    await loadLiveLibrary({force:true,silent:true});
     showToast('Đã xoá @'+handle);
   }catch(error){
     libraryVersion=-1;
@@ -1573,10 +1576,10 @@ document.querySelectorAll('[data-filter]').forEach(btn=>{
 document.getElementById('refreshBtn').addEventListener('click',()=>{
   libraryVersion=-1;
   liveVersion=-1;
-  void Promise.all([
-    loadUnifiedLibrary({force:true}),
-    loadLiveLibrary({force:true,silent:true})
-  ]);
+  void (async()=>{
+    await loadUnifiedLibrary({force:true});
+    await loadLiveLibrary({force:true,silent:true});
+  })();
 });
 document.getElementById('openTikTokBtn').addEventListener('click',()=>{
   if(!currentHandle)return;
@@ -1594,10 +1597,10 @@ document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
 
-void Promise.all([
-  loadUnifiedLibrary({force:true}),
-  loadLiveLibrary({force:true,silent:true})
-]);
+void (async()=>{
+  await loadUnifiedLibrary({force:true});
+  await loadLiveLibrary({force:true,silent:true});
+})();
 renderRecentVideos('');
 setInterval(()=>void loadUnifiedLibrary({silent:true}),POLL_MS);
 setInterval(()=>void loadLiveLibrary({silent:true}),POLL_MS);
