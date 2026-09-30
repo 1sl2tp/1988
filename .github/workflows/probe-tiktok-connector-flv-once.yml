@@ -24,7 +24,7 @@ jobs:
           npm init -y >/dev/null 2>&1
           npm install --silent tiktok-live-connector@latest
           cat > probe.mjs <<'JS'
-          import { TikTokLiveConnection } from 'tiktok-live-connector';
+          import { TikTokLiveConnection, RouteConfig } from 'tiktok-live-connector';
 
           const handle='giaodendoithuong79';
           const roomId='7691194439160531764';
@@ -87,7 +87,32 @@ jobs:
           }
 
           try{
-            const info=await conn.fetchRoomInfo(roomId);
+            let info=await conn.fetchRoomInfo(roomId);
+            console.log('DIRECT_JSON',JSON.stringify(info).slice(0,4000));
+            try{
+              const provider=await RouteConfig.fetchRoomInfoFromProvider({
+                webClient:conn.webClient,
+                apiClient:conn.apiClient,
+                roomId
+              });
+              console.log('PROVIDER_JSON',JSON.stringify(provider).slice(0,12000));
+              if(provider&&typeof provider==='object'){
+                const candidate=provider.data||provider.room||provider;
+                if(candidate&&Object.keys(candidate).length)info=candidate;
+              }
+            }catch(e){
+              console.log('PROVIDER_ERROR',e?.stack||String(e));
+            }
+            try{
+              const providerId=await RouteConfig.fetchRoomIdFromProvider({
+                webClient:conn.webClient,
+                apiClient:conn.apiClient,
+                uniqueId:handle
+              });
+              console.log('PROVIDER_ROOM_ID',JSON.stringify(providerId));
+            }catch(e){
+              console.log('PROVIDER_ID_ERROR',e?.stack||String(e));
+            }
             console.log('ROOM_STATUS',info?.status,'ROOM_ID',info?.id||info?.room_id||'');
             for(const [p,v] of walk(info)){
               console.log('PATH',p,'VAL',v);
