@@ -68,6 +68,24 @@
         <section class="watch">
           <div class="phone" id="phone">
             <video id="liveVideo" playsinline preload="metadata"></video>
+            <div class="media-controls" id="mediaControls">
+              <button type="button" class="media-control-btn" id="mediaPlayBtn" aria-label="Phát hoặc tạm dừng">
+                <svg viewBox="0 0 24 24" class="icon-play"><path d="M8 5v14l11-7z"/></svg>
+                <svg viewBox="0 0 24 24" class="icon-pause"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>
+              </button>
+              <span class="media-time" id="mediaCurrentTime">0:00</span>
+              <label class="media-seek-wrap" id="mediaSeekWrap">
+                <input id="mediaSeek" class="media-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Tua video">
+              </label>
+              <span class="media-time media-duration" id="mediaDuration">0:00</span>
+              <span class="media-live-chip" id="mediaLiveChip" hidden><i></i>LIVE</span>
+              <button type="button" class="media-control-btn" id="mediaMuteBtn" aria-label="Bật tắt âm thanh">
+                <svg viewBox="0 0 24 24"><path d="M4 10v4h4l5 4V6L8 10H4z"/><path d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11"/></svg>
+              </button>
+              <button type="button" class="media-control-btn" id="mediaFullBtn" aria-label="Toàn màn hình">
+                <svg viewBox="0 0 24 24"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"/></svg>
+              </button>
+            </div>
           </div>
 
           <div class="current-info" id="overlay" hidden>
@@ -135,6 +153,7 @@ let loadBusy=false;
 let mutationBusy=false;
 let identityBatchBusy=false;
 let toastTimer=0;
+let mediaSeeking=false;
 const THEME_KEY='tiktok-theme-v1';
 function syncThemeUi(){
   const theme=document.documentElement.dataset.theme==='light'?'light':'dark';
@@ -335,6 +354,100 @@ function setPlayerShape(video){
   if(ratio>1.12)box.classList.add('landscape');
   else if(ratio>=.88)box.classList.add('square');
 }
+function mediaClock(value){
+  const total=Math.max(0,Math.floor(Number(value)||0));
+  const h=Math.floor(total/3600);
+  const m=Math.floor((total%3600)/60);
+  const s=String(total%60).padStart(2,'0');
+  return h?String(h)+':'+String(m).padStart(2,'0')+':'+s:String(m)+':'+s;
+}
+function syncMediaControls(){
+  const video=document.getElementById('liveVideo');
+  const controls=document.getElementById('mediaControls');
+  const seek=document.getElementById('mediaSeek');
+  const current=document.getElementById('mediaCurrentTime');
+  const duration=document.getElementById('mediaDuration');
+  const liveChip=document.getElementById('mediaLiveChip');
+  const seekWrap=document.getElementById('mediaSeekWrap');
+  if(!video||!controls||!seek)return;
+
+  const isLive=mediaMode==='live';
+  controls.dataset.mode=isLive?'live':'video';
+  liveChip.hidden=!isLive;
+  seekWrap.hidden=isLive;
+  current.hidden=isLive;
+  duration.hidden=isLive;
+
+  if(!isLive){
+    const d=Number(video.duration||0);
+    const t=Number(video.currentTime||0);
+    current.textContent=mediaClock(t);
+    duration.textContent=mediaClock(d);
+    if(!mediaSeeking){
+      seek.value=d>0?String(Math.max(0,Math.min(1000,Math.round(t/d*1000)))):'0';
+    }
+    seek.style.setProperty('--seek-progress',(Number(seek.value||0)/10)+'%');
+  }
+
+  controls.classList.toggle('is-paused',video.paused);
+  controls.classList.toggle('is-muted',video.muted||video.volume===0);
+}
+function installMediaControls(){
+  const video=document.getElementById('liveVideo');
+  const play=document.getElementById('mediaPlayBtn');
+  const mute=document.getElementById('mediaMuteBtn');
+  const full=document.getElementById('mediaFullBtn');
+  const seek=document.getElementById('mediaSeek');
+  const phone=document.getElementById('phone');
+  if(!video||!play||!mute||!full||!seek||!phone)return;
+
+  play.addEventListener('click',event=>{
+    event.stopPropagation();
+    if(video.paused)video.play().catch(()=>{});
+    else video.pause();
+  });
+  mute.addEventListener('click',event=>{
+    event.stopPropagation();
+    video.muted=!video.muted;
+    syncMediaControls();
+  });
+  full.addEventListener('click',event=>{
+    event.stopPropagation();
+    if(document.fullscreenElement)document.exitFullscreen?.();
+    else phone.requestFullscreen?.();
+  });
+
+  seek.addEventListener('pointerdown',()=>{mediaSeeking=true});
+  seek.addEventListener('input',()=>{
+    if(mediaMode!=='video')return;
+    const d=Number(video.duration||0);
+    if(!(d>0))return;
+    seek.style.setProperty('--seek-progress',(Number(seek.value||0)/10)+'%');
+    document.getElementById('mediaCurrentTime').textContent=
+      mediaClock(d*Number(seek.value||0)/1000);
+  });
+  const commitSeek=()=>{
+    if(mediaMode!=='video'){mediaSeeking=false;return;}
+    const d=Number(video.duration||0);
+    if(d>0)video.currentTime=d*Number(seek.value||0)/1000;
+    mediaSeeking=false;
+    syncMediaControls();
+  };
+  seek.addEventListener('change',commitSeek);
+  seek.addEventListener('pointerup',commitSeek);
+
+  // A simple tap on the video toggles play/pause; controls remain fixed.
+  video.addEventListener('click',()=>{
+    if(video.paused)video.play().catch(()=>{});
+    else video.pause();
+  });
+  for(const name of ['timeupdate','durationchange','loadedmetadata','play','pause','volumechange','ended']){
+    video.addEventListener(name,syncMediaControls);
+  }
+  document.addEventListener('fullscreenchange',syncMediaControls);
+  syncMediaControls();
+}
+
 function updateCurrentUi(){
   const row=rowFor(currentHandle)||{};
   const profile=row.profile||{};
@@ -442,6 +555,7 @@ function setMediaMode(mode){
   if(mediaMode==='video')phone.classList.remove('landscape','square');
   const media=document.getElementById('liveVideo');
   media.hidden=false;
+  syncMediaControls();
 }
 function renderRecentVideos(handle=currentHandle){
   const root=document.getElementById('recentVideos');
@@ -507,7 +621,7 @@ async function openVideo(rawHandle,videoId,retry=true){
 
   const native=document.getElementById('liveVideo');
   native.hidden=false;
-  native.controls=true;
+  native.controls=false;
   native.preload='metadata';
   native.poster=String(video.cover?.url||video.cover?.sourceUrl||'');
   native.removeAttribute('src');
@@ -1021,7 +1135,7 @@ function attachFlv(url,handle,retryCount=0){
   player=p;
   video.onplaying=()=>{
     if(handle!==currentHandle)return;
-    video.controls=true;
+    video.controls=false;
     setPlayerShape(video);
     updateCurrentUi();
   };
@@ -1048,7 +1162,7 @@ function openChannel(rawHandle){
 
   const native=document.getElementById('liveVideo');
   native.hidden=false;
-  native.controls=true;
+  native.controls=false;
   native.poster=String(live.cover?.url||live.cover?.sourceUrl||'');
   currentSourceSig=String(stream.sourceSig||'');
   currentType=String(stream.type||'').toLowerCase();
@@ -1115,10 +1229,11 @@ function swipeCanStart(event){
   if(mediaMode!=='video'||!currentVideoId)return false;
   const touch=event.touches?.[0];
   if(!touch)return false;
+  if(event.target?.closest?.('.media-controls'))return false;
   const rect=swipeSurface.getBoundingClientRect();
   const localY=touch.clientY-rect.top;
-  // Keep the native progress/volume/fullscreen controls usable.
-  if(localY>rect.height-72)return false;
+  // Bottom custom controls own this fixed strip.
+  if(localY>rect.height-44)return false;
   return true;
 }
 swipeSurface?.addEventListener('touchstart',event=>{
@@ -1195,6 +1310,8 @@ document.getElementById('reloadLiveBtn').addEventListener('click',()=>{
 document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
+
+installMediaControls();
 
 async function openRequestedMedia(){
   const params=new URLSearchParams(location.search);
