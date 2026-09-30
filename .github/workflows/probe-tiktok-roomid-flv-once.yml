@@ -1,0 +1,49 @@
+name: Probe TikTok room-id FLV once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tiktok-roomid-flv-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe yt-dlp by room id
+        shell: bash
+        run: |
+          python3 -m pip install -q -U yt-dlp
+          python3 - <<'PY'
+          import yt_dlp, urllib.request, urllib.parse
+          RID='7691194439160531764'
+          U='https://m.tiktok.com/share/live/'+RID+'/?language=en'
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+          try:
+              with yt_dlp.YoutubeDL({'quiet':True,'no_warnings':True,'skip_download':True,'socket_timeout':12,'retries':0,'extractor_retries':0,'user_agent':UA,'noplaylist':True}) as ydl:
+                  info=ydl.extract_info(U,download=False) or {}
+              print('INFO','id=',info.get('id'),'live=',info.get('is_live'),'status=',info.get('live_status'),'uploader=',info.get('uploader'))
+              rows=[]
+              for f in info.get('formats') or []:
+                  u=str(f.get('url') or '')
+                  if str(f.get('ext') or '').lower()=='flv' or str(f.get('format_id') or '').lower().startswith(('flv-','rtmp-')):
+                      rows.append(f)
+              print('FLV_COUNT',len(rows))
+              for i,f in enumerate(rows[:12],1):
+                  u=str(f.get('url') or '')
+                  p=urllib.parse.urlsplit(u)
+                  print('FLV',i,'id=',f.get('format_id'),'vc=',f.get('vcodec'),'tbr=',f.get('tbr'),'host=',p.hostname,'path=',p.path[-100:])
+                  try:
+                      req=urllib.request.Request(u,headers={'User-Agent':UA,'Referer':U,'Origin':'https://www.tiktok.com','Range':'bytes=0-262143','Accept':'*/*'})
+                      with urllib.request.urlopen(req,timeout=15) as r:
+                          b=r.read(262144)
+                          print('PROBE',i,'http=',r.status,'type=',r.headers.get('content-type'),'bytes=',len(b),'head=',b[:3])
+                  except Exception as e:
+                      print('PROBE_ERR',i,repr(e))
+          except Exception as e:
+              print('EXTRACT_ERR',repr(e))
+          PY
