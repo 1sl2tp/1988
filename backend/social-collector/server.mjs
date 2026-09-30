@@ -7476,6 +7476,12 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/live-now'&&req.method==='GET'){
+    // Never expose an uninitialized empty snapshot. The first realtime read
+    // waits for one complete TikTok API check of the selected channels.
+    if(!tiktokRealtimeLiveCheckedAt){
+      await runTikTokLiveMinuteSweep();
+    }
+
     const wanted=tiktokLiveSelectedHandles.size
       ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
       :new Set();
@@ -7513,6 +7519,9 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/tiktok/live-library'&&req.method==='GET'){
     // Compatibility route only. LIVE has no package/version/history semantics.
+    if(!tiktokRealtimeLiveCheckedAt){
+      await runTikTokLiveMinuteSweep();
+    }
     const wanted=tiktokLiveSelectedHandles.size
       ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
       :new Set();
