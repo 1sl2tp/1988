@@ -2453,7 +2453,7 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
   }
 }
 
-async function quickTikTokLiveStateOnly(rawHandle){
+async function quickTikTokLiveStateOnly(rawHandle,retry=true){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
@@ -2468,13 +2468,18 @@ async function quickTikTokLiveStateOnly(rawHandle){
         'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'application/json,text/plain,*/*',
         'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live'
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       redirect:'follow',
       signal:AbortSignal.timeout(5000)
     });
 
     if(!r.ok){
+      if(retry&&(r.status===401||r.status===403||r.status===429)){
+        await refreshTikTokApiCookieHeader({force:true}).catch(()=>{});
+        return quickTikTokLiveStateOnly(handle,false);
+      }
       return {known:false,live:false,status:null,source:'tiktok-http-'+r.status};
     }
 
@@ -2484,10 +2489,10 @@ async function quickTikTokLiveStateOnly(rawHandle){
     const status=hasStatus?Number(rawStatus):NaN;
 
     if(status===2){
-      return {known:true,live:true,status:2,source:'tiktok-user-room'};
+      return {known:true,live:true,status:2,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
     }
     if(status===4){
-      return {known:true,live:false,status:4,source:'tiktok-user-room'};
+      return {known:true,live:false,status:4,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
     }
 
     const apiCode=Number(data?.statusCode);
@@ -2503,6 +2508,10 @@ async function quickTikTokLiveStateOnly(rawHandle){
           :'tiktok-no-status')
     };
   }catch(error){
+    if(retry){
+      await refreshTikTokApiCookieHeader({force:true}).catch(()=>{});
+      return quickTikTokLiveStateOnly(handle,false);
+    }
     return {known:false,live:false,status:null,source:'tiktok-error'};
   }
 }
@@ -8573,6 +8582,22 @@ const server=http.createServer(async(req,res)=>{
 
       const live=hasLive();
       const offlineConfirmed=!live&&offlineCount()>=2;
+      const checkedAt=Date.now();
+
+      if(live){
+        const key=handle.toLowerCase();
+        tiktokRealtimeLiveHandles.add(key);
+        tiktokRealtimeStatusByHandle.set(key,{
+          handle,known:true,live:true,offlineConfirmed:false,retained:false,
+          checkedAt,evidence
+        });
+        updateTikTokLiveLibrary(handle,{
+          live:true,status:'live',probeState:'live',
+          liveCheckSource:String(evidence.find(x=>x.known&&x.live)?.source||'multi-source'),
+          lastSeenAt:checkedAt
+        });
+      }
+
       json(res,200,{
         ok:true,
         handle,
