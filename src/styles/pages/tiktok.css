@@ -591,7 +591,21 @@
 .manage-name strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
 .manage-live{
   flex:0 0 auto;height:19px;display:inline-flex;align-items:center;padding:0 6px;border-radius:6px;
-  background:var(--live-soft);color:var(--live);font-size:8px;font-weight:900
+  background:var(--live-soft);color:var(--live);font-size:8px;font-weight:900;white-space:nowrap
+}
+.manage-live.state-live_ready{background:var(--live);color:#fff}
+.manage-live.state-live_verifying_flv,
+.manage-live.state-live_resolving_flv,
+.manage-live.state-live_unverified{
+  background:var(--live-soft);color:var(--live);
+  border:1px solid color-mix(in srgb,var(--live) 35%,var(--border))
+}
+.manage-live.state-offline{
+  background:var(--surface-2);color:var(--text-subtle);border:1px solid var(--border-soft)
+}
+.manage-live.state-unknown,
+.manage-live.state-checking{
+  background:var(--surface-2);color:var(--text-muted);border:1px dashed var(--border-strong)
 }
 .manage-meta{
   margin-top:4px;color:var(--text-muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
