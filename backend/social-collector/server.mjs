@@ -1317,9 +1317,23 @@ function runTikTokLiveMinuteSweep(){
         const index=unresolvedIndexes[retryIndex];
         const handle=checked[index].handle;
         try{
-          const retryState=await quickTikTokLiveStateOnly(handle);
-          if(retryState?.known)checked[index].state=retryState;
-          else checked[index].state=retryState||checked[index].state;
+          // Second TikTok check uses a different Web endpoint. This prevents
+          // a transient 403/no-status from user/room from making a real LIVE
+          // channel disappear from the current UI snapshot.
+          const retryState=await quickTikTokLiveDetailStatus(handle);
+          if(retryState?.known){
+            checked[index].state={
+              known:true,
+              live:retryState.live===true,
+              status:Number(retryState.status),
+              source:'tiktok-live-detail'
+            };
+          }else{
+            checked[index].state={
+              ...checked[index].state,
+              source:String(retryState?.source||checked[index].state?.source||'tiktok-unknown')
+            };
+          }
         }catch{}
       }
     };
@@ -7314,7 +7328,15 @@ const server=http.createServer(async(req,res)=>{
           known:false,live:false,status:null,source:'tiktok-error'
         }));
         if(!liveState?.known){
-          liveState=await quickTikTokLiveStateOnly(handle).catch(()=>liveState);
+          const detailState=await quickTikTokLiveDetailStatus(handle).catch(()=>null);
+          if(detailState?.known){
+            liveState={
+              known:true,
+              live:detailState.live===true,
+              status:Number(detailState.status),
+              source:'tiktok-live-detail'
+            };
+          }
         }
         const isLive=Boolean(liveState?.known&&liveState.live===true);
         const checkedAt=Date.now();
@@ -7569,16 +7591,25 @@ const server=http.createServer(async(req,res)=>{
     const items=handles.map(handle=>{
       const row=tiktokLiveLibrary.get(handle)||{};
       const item=publicTikTokLibraryItem({...row,handle,live:true,probeState:'live',status:'live'});
-      return item||{
-        handle,
-        live:true,
-        detectedLive:true,
-        probeState:'live',
-        playable:false,
-        type:'',
-        sourceSig:'',
-        streamUrl:''
-      };
+      return item
+        ?{
+            ...item,
+            live:true,
+            detectedLive:true,
+            probeState:'live',
+            status:item.playable?'ready':'live'
+          }
+        :{
+            handle,
+            live:true,
+            detectedLive:true,
+            probeState:'live',
+            status:'live',
+            playable:false,
+            type:'',
+            sourceSig:'',
+            streamUrl:''
+          };
     });
 
     json(res,200,{
@@ -7609,16 +7640,25 @@ const server=http.createServer(async(req,res)=>{
     const items=handles.map(handle=>{
       const row=tiktokLiveLibrary.get(handle)||{};
       const item=publicTikTokLibraryItem({...row,handle,live:true,probeState:'live',status:'live'});
-      return item||{
-        handle,
-        live:true,
-        detectedLive:true,
-        probeState:'live',
-        playable:false,
-        type:'',
-        sourceSig:'',
-        streamUrl:''
-      };
+      return item
+        ?{
+            ...item,
+            live:true,
+            detectedLive:true,
+            probeState:'live',
+            status:item.playable?'ready':'live'
+          }
+        :{
+            handle,
+            live:true,
+            detectedLive:true,
+            probeState:'live',
+            status:'live',
+            playable:false,
+            type:'',
+            sourceSig:'',
+            streamUrl:''
+          };
     });
 
     json(res,200,{
