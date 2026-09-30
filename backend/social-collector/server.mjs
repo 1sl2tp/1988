@@ -1284,6 +1284,7 @@ function runTikTokLiveMinuteSweep(){
     const before=tiktokLiveLibraryVersion;
     const checked=new Array(target.length);
     let cursor=0;
+
     const worker=async()=>{
       while(true){
         const index=cursor++;
@@ -1292,151 +1293,86 @@ function runTikTokLiveMinuteSweep(){
         try{
           checked[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
         }catch{
-          checked[index]={handle,state:{known:false,live:false,status:null}};
+          checked[index]={handle,state:{known:false,live:false,status:null,source:'error'}};
         }
       }
     };
     await Promise.all(Array.from({length:Math.min(8,target.length)},()=>worker()));
 
-    // Server-side Web API can be rate-limited by TikTok. Resolve only UNKNOWN
-    // rows through the same API from one real tiktok.com browser context.
-    const unknownHandles=checked
-      .filter(row=>!row?.state?.known)
-      .map(row=>row.handle);
-    if(unknownHandles.length){
-      const browserStates=await browserTikTokLiveStates(unknownHandles);
-      for(const row of checked){
-        if(row?.state?.known)continue;
-        const fallback=browserStates.get(String(row.handle||'').toLowerCase());
-        if(fallback?.known)row.state=fallback;
-      }
-    }
-
-    let known=0;
     let live=0;
     let offline=0;
     let unknown=0;
-    const newlyLive=[];
-    const liveMissingSource=[];
 
-    for(const checkedRow of checked){
-      const handle=checkedRow.handle;
+    for(const {handle,state} of checked){
       const key=handle.toLowerCase();
-      const prev=tiktokLiveLibrary.get(key)||null;
-      let state=checkedRow.state;
-
-      // Only a previously confirmed LIVE channel gets one deeper verification
-      // when the cheap probe is UNKNOWN. UNKNOWN itself never means OFFLINE.
-      if(!state?.known&&prev?.live){
-        try{
-          const verify=await quickTikTokLiveStatus(handle);
-          if(verify?.known){
-            state={
-              known:true,
-              live:verify.live===true,
-              status:Number(verify.status),
-              source:'live-verify'
-            };
-          }
-        }catch{}
-      }
+      const prev=tiktokLiveLibrary.get(key)||{};
+      const now=Date.now();
 
       if(!state?.known){
         unknown+=1;
         updateTikTokLiveLibrary(handle,{
-          probeState:'unknown',
-          lastSeenAt:Date.now()
-        });
-        continue;
-      }
-
-      known+=1;
-      const isLive=state.live===true;
-      const now=Date.now();
-      if(isLive)live+=1;
-      else offline+=1;
-
-      const changedState=Boolean(prev?.live)!==isLive;
-
-      if(!isLive){
-        // Confirmed LIVE -> OFFLINE (or already OFFLINE): clear every stream
-        // immediately. This branch owns LIVE state only; no video/library work.
-        tiktokLiveFastSources.delete(key);
-        tiktokLivePreferBrowser.delete(key);
-        tiktokLiveLibraryWarmRetryAt.delete(key);
-        await closeTikTokLiveSession(key).catch(()=>{});
-        updateTikTokLiveLibrary(handle,{
           live:false,
+          status:'unknown',
+          probeState:'unknown',
           ready:false,
           playable:false,
           type:'',
           mode:'',
           source:'',
-          status:'offline',
-          probeState:'offline',
           sourceSig:'',
-          videoCodec:'',
-          audioCodec:'',
-          width:0,
-          height:0,
-          stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
-          lastKnownAt:now,
-          lastSeenAt:now,
-          expiresAt:0
+          lastSeenAt:now
         });
         continue;
       }
 
-      // Confirmed OFFLINE -> LIVE changes state immediately. Stream discovery
-      // is a second step and does not control whether the channel is LIVE.
-      const currentSource=currentTikTokLibrarySource(handle);
-      const playable=Boolean(currentSource&&tiktokLiveSourceUsable(currentSource));
+      if(state.live===true){
+        live+=1;
+        updateTikTokLiveLibrary(handle,{
+          live:true,
+          status:'live',
+          probeState:'live',
+          stateChangedAt:Boolean(prev.live)!==true?now:Number(prev.stateChangedAt||0),
+          lastKnownAt:now,
+          lastSeenAt:now
+        });
+        continue;
+      }
+
+      offline+=1;
       updateTikTokLiveLibrary(handle,{
-        live:true,
-        ready:playable,
-        playable,
-        type:playable?String(currentSource.type||''):'',
-        mode:playable?String(currentSource.mode||''):'',
-        source:playable?String(currentSource.source||''):'',
-        status:'live',
-        probeState:'live',
-        sourceSig:playable?tiktokLibrarySourceSig(currentSource):'',
-        stateChangedAt:changedState?now:Number(prev?.stateChangedAt||0),
+        live:false,
+        ready:false,
+        playable:false,
+        type:'',
+        mode:'',
+        source:'',
+        status:'offline',
+        probeState:'offline',
+        sourceSig:'',
+        videoCodec:'',
+        audioCodec:'',
+        width:0,
+        height:0,
+        stateChangedAt:Boolean(prev.live)!==false?now:Number(prev.stateChangedAt||0),
         lastKnownAt:now,
         lastSeenAt:now,
-        expiresAt:playable?tiktokStreamExpiresAt(currentSource.url):0
+        expiresAt:0
       });
-
-      if(!playable)liveMissingSource.push(handle);
-      if(changedState)newlyLive.push(handle);
     }
+
     const changed=tiktokLiveLibraryVersion!==before;
-    if(changed)await persistTikTokLiveStore();
+    if(changed)await persistTikTokLiveStore({force:true});
 
     console.log(
-      '[tiktok-minute-sweep]',
+      '[tiktok-minute-live-api-only]',
       'channels='+target.length,
-      'known='+known,
       'live='+live,
       'offline='+offline,
       'unknown='+unknown,
-      'changed='+(changed?'yes':'no'),
-      'newLive='+newlyLive.length,
       'version='+tiktokLiveLibraryVersion
     );
-
-    // One action per sweep: collect every confirmed LIVE channel without a
-    // usable stream and resolve all of them together. This prevents a newly
-    // detected LIVE channel from being omitted because another resolver is busy.
-    const needSource=[...tiktokLiveLibrary.values()]
-      .filter(row=>Boolean(row?.live)&&!Boolean(row?.playable))
-      .map(row=>String(row.handle||''))
-      .filter(Boolean);
-    if(needSource.length){
-      await resolveTikTokLiveSourceBatch(needSource);
-    }
   })().catch(error=>{
-    console.warn('[tiktok-minute-sweep] failed',compactText(error?.message||error,160));
+    console.warn('[tiktok-minute-live-api-only] failed',compactText(error?.message||error,160));
   }).finally(()=>{
     tiktokLiveMinuteSweepPromise=null;
   });
@@ -2156,82 +2092,80 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
 
 async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle)return {known:false,live:false,status:null};
+  if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
-  // One lightweight API request is enough for almost every account.
-  // TikTok Web uses liveRoom.status=2 for LIVE. A successful response with no
-  // liveRoom/roomId means the account is currently OFFLINE.
-  try{
-    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
-    endpoint.searchParams.set('aid','1988');
-    endpoint.searchParams.set('sourceType','54');
-    endpoint.searchParams.set('uniqueId',handle);
-    const r=await fetch(endpoint,{
-      headers:{
-        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-        'accept':'application/json,text/plain,*/*',
-        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live',
-        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
-      },
-      redirect:'follow',
-      signal:AbortSignal.timeout(2200)
-    });
-    if(r.ok){
+  // LIVE detection is API-only. FLV/playable/browser do not participate.
+  // Ask both TikTok status APIs. Any explicit status=2 wins immediately.
+  // OFFLINE is accepted only when both APIs explicitly agree; otherwise keep
+  // UNKNOWN so a partial/rate-limited response cannot hide a real LIVE.
+  const userRoomPromise=(async()=>{
+    try{
+      const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+      endpoint.searchParams.set('aid','1988');
+      endpoint.searchParams.set('sourceType','54');
+      endpoint.searchParams.set('uniqueId',handle);
+      const r=await fetch(endpoint,{
+        headers:{
+          'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+          'accept':'application/json,text/plain,*/*',
+          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+          'referer':'https://www.tiktok.com/@'+handle+'/live',
+          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+        },
+        redirect:'follow',
+        signal:AbortSignal.timeout(3000)
+      });
+      if(!r.ok)return {known:false,live:false,status:null,source:'user-room-http-'+r.status};
       const data=await r.json();
       const liveRoom=data?.data?.liveRoom||null;
-      const roomId=String(
-        liveRoom?.roomId||
-        liveRoom?.id||
-        data?.data?.user?.roomId||
-        ''
-      );
       const status=Number(liveRoom?.status);
-
       if(Number.isFinite(status)){
-        return {
-          known:true,
-          live:status===2,
-          status,
-          source:'user-room'
-        };
+        return {known:true,live:status===2,status,source:'user-room'};
       }
-
+      // Empty payload is only an OFFLINE vote, never a final verdict by itself.
+      const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
       if(!liveRoom&&!roomId){
-        return {
-          known:true,
-          live:false,
-          status:4,
-          source:'user-room-empty'
-        };
+        return {known:true,live:false,status:4,source:'user-room-empty'};
       }
-
-      if(roomId){
-        const room=await quickTikTokRoomInfoStatus(handle,roomId);
-        if(room?.known){
-          return {
-            known:true,
-            live:room.live===true,
-            status:Number(room.status),
-            source:'room-info'
-          };
-        }
-      }
+      return {known:false,live:false,status:null,source:'user-room-unknown'};
+    }catch(error){
+      return {known:false,live:false,status:null,source:'user-room-error'};
     }
-  }catch{}
+  })();
 
-  // Fallback only when the primary status endpoint itself was inconclusive.
-  const detail=await quickTikTokLiveDetailStatus(handle,false);
-  if(detail?.known){
+  const [userRoom,detail]=await Promise.all([
+    userRoomPromise,
+    quickTikTokLiveDetailStatus(handle,false)
+  ]);
+
+  const votes=[userRoom,detail];
+  const liveVote=votes.find(row=>row?.known&&row?.live===true&&Number(row?.status)===2);
+  if(liveVote){
     return {
       known:true,
-      live:detail.live===true,
-      status:Number(detail.status),
-      source:'live-detail'
+      live:true,
+      status:2,
+      source:[...new Set(votes.filter(x=>x?.known&&x?.live).map(x=>String(x.source||'')))].filter(Boolean).join('+')||String(liveVote.source||'tiktok-api')
     };
   }
 
-  return {known:false,live:false,status:null};
+  const explicit=votes.filter(row=>row?.known);
+  const offlineVotes=explicit.filter(row=>row?.live===false);
+  if(explicit.length===2&&offlineVotes.length===2){
+    return {
+      known:true,
+      live:false,
+      status:4,
+      source:'tiktok-api-agree-offline'
+    };
+  }
+
+  return {
+    known:false,
+    live:false,
+    status:null,
+    source:'tiktok-api-inconclusive'
+  };
 }
 
 async function browserTikTokLiveStates(handles){
