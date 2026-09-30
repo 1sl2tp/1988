@@ -451,10 +451,7 @@ async function openVideo(rawHandle,videoId,retry=true){
   destroyPlayer();
   setMediaMode('video');
 
-  const frame=document.getElementById('videoFrame');
   const native=document.getElementById('liveVideo');
-  frame.hidden=true;
-  frame.src='about:blank';
   native.hidden=false;
   native.controls=true;
   native.preload='metadata';
@@ -994,6 +991,8 @@ function openChannel(rawHandle){
   document.getElementById('mediaTitle').textContent=(profile.name||('@'+handle))+' · LIVE';
 
   const native=document.getElementById('liveVideo');
+  native.hidden=false;
+  native.controls=true;
   native.poster=String(live.cover?.url||live.cover?.sourceUrl||'');
   currentSourceSig=String(stream.sourceSig||'');
   currentType=String(stream.type||'').toLowerCase();
@@ -1078,9 +1077,34 @@ document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
 
+async function openRequestedMedia(){
+  const params=new URLSearchParams(location.search);
+  const mode=String(params.get('mode')||'').toLowerCase();
+  const handle=parseHandle(params.get('user')||'');
+  const id=String(params.get('id')||'').trim();
+  if(!handle)return;
+
+  if(mode==='video'&&id){
+    const video=currentVideoFor(handle,id);
+    if(video){
+      openVideo(handle,id);
+      return;
+    }
+  }
+
+  if(mode==='live'){
+    const row=channelFor(handle);
+    if(row){
+      openChannel(handle);
+      return;
+    }
+  }
+}
+
 void (async()=>{
   await loadUnifiedLibrary({force:true});
   await loadLiveNow({silent:true});
+  await openRequestedMedia();
 })();
 renderRecentVideos('');
 setInterval(()=>{if(!document.hidden)void loadUnifiedLibrary({silent:true})},PACKAGE_POLL_MS);
