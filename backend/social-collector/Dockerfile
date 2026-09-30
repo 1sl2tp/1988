@@ -43,6 +43,7 @@ COPY package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 COPY server.mjs ./
+RUN node --check server.mjs
 COPY tiktok-login-runtime.mjs ./
 COPY tiktok_stream_extract.py ./
 COPY tiktok_live_batch_check.py ./
