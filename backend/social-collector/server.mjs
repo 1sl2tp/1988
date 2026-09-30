@@ -107,6 +107,8 @@ const TIKTOK_LIVE_STATUS_SWEEP_MS=60_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
+const tiktokLiveLibraryWarmPending=[];
+const tiktokLiveLibraryWarmPendingSet=new Set();
 const tiktokLiveLibraryWarmRetryAt=new Map();
 const tiktokLiveStatusFallbackInflight=new Set();
 const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=2;
@@ -747,19 +749,49 @@ async function warmTikTokLibraryHandle(handle){
   tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
   return false;
 }
+function drainTikTokLibraryWarmQueue(){
+  while(
+    tiktokLiveLibraryWarmInflight.size<TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY&&
+    tiktokLiveLibraryWarmPending.length
+  ){
+    const handle=tiktokLiveLibraryWarmPending.shift();
+    const key=String(handle||'').toLowerCase();
+    tiktokLiveLibraryWarmPendingSet.delete(key);
+    if(!handle||tiktokLiveLibraryWarmInflight.has(key))continue;
+
+    const task=warmTikTokLibraryHandle(handle)
+      .catch(error=>{
+        console.log('[tiktok-library] warm failed',handle,compactText(error?.message||error,120));
+        return false;
+      })
+      .finally(()=>{
+        tiktokLiveLibraryWarmInflight.delete(key);
+        drainTikTokLibraryWarmQueue();
+      });
+
+    tiktokLiveLibraryWarmInflight.set(key,task);
+  }
+}
 function queueTikTokLibraryWarm(handle){
   handle=normalizeTikTokHandle(handle);
   if(!handle)return false;
   const key=handle.toLowerCase();
-  if(tiktokLiveLibraryWarmInflight.has(key))return true;
-  if(tiktokLiveLibraryWarmInflight.size>=TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY)return false;
-  const task=warmTikTokLibraryHandle(handle)
-    .catch(error=>console.log('[tiktok-library] warm failed',handle,compactText(error?.message||error,120)))
-    .finally(()=>tiktokLiveLibraryWarmInflight.delete(key));
-  tiktokLiveLibraryWarmInflight.set(key,task);
+
+  if(tiktokLiveLibraryWarmInflight.has(key)||tiktokLiveLibraryWarmPendingSet.has(key)){
+    return true;
+  }
+
+  tiktokLiveLibraryWarmPending.push(handle);
+  tiktokLiveLibraryWarmPendingSet.add(key);
+  console.log(
+    '[tiktok-library] enqueue',
+    handle,
+    'pending='+tiktokLiveLibraryWarmPending.length,
+    'running='+tiktokLiveLibraryWarmInflight.size
+  );
+  drainTikTokLibraryWarmQueue();
   return true;
 }
-
 
 function registerTikTokLiveSelectedHandles(handles){
   const next=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
