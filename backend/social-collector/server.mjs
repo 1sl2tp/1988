@@ -114,7 +114,8 @@ const tiktokProfileIdentityInflight=new Map();
 const TIKTOK_PROFILE_IDENTITY_TTL_MS=6*60*60*1000;
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
-const TIKTOK_LIVE_STATUS_SWEEP_MS=60_000;
+const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
+const TIKTOK_LIVE_DISCOVERY_BATCH=12;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -1377,17 +1378,45 @@ function ensureTikTokLivePackageScan(handles=null){
 }
 
 let tiktokLiveMinuteSweepPromise=null;
+let tiktokLiveDiscoveryCursor=0;
 let tiktokRealtimeLiveHandles=new Set();
 // Current scan evidence for every selected handle. This is intentionally
 // separate from the playable FLV library so "LIVE detected" is never hidden
 // merely because media resolution is still pending.
 let tiktokRealtimeStatusByHandle=new Map();
 let tiktokRealtimeLiveCheckedAt=0;
-function runTikTokLiveMinuteSweep(){
+function runTikTokLiveMinuteSweep({targetHandles=null}={}){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
-    const target=[...tiktokLiveSelectedHandles];
-    const wanted=new Set(target.map(handle=>handle.toLowerCase()));
+    const selected=[...tiktokLiveSelectedHandles];
+    const wanted=new Set(selected.map(handle=>handle.toLowerCase()));
+
+    let target;
+    if(Array.isArray(targetHandles)){
+      target=[...new Set(targetHandles.map(normalizeTikTokHandle).filter(Boolean))]
+        .filter(handle=>wanted.has(handle.toLowerCase()));
+    }else{
+      // Production scan: current LIVE channels are priority, while non-LIVE
+      // channels rotate in a small batch. This avoids the 171-channel burst
+      // that made TikTok return 403 for almost everything.
+      const livePriority=selected.filter(handle=>tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
+      const discovery=selected.filter(handle=>!tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
+      const picked=[];
+      if(discovery.length){
+        const take=Math.min(TIKTOK_LIVE_DISCOVERY_BATCH,discovery.length);
+        for(let i=0;i<take;i+=1){
+          picked.push(discovery[(tiktokLiveDiscoveryCursor+i)%discovery.length]);
+        }
+        tiktokLiveDiscoveryCursor=(tiktokLiveDiscoveryCursor+take)%discovery.length;
+      }
+      target=[...new Set([...livePriority,...picked])];
+    }
+
+    if(!target.length){
+      tiktokRealtimeLiveCheckedAt=Date.now();
+      return;
+    }
+
     const first=new Array(target.length);
     let cursor=0;
 
@@ -1473,7 +1502,9 @@ function runTikTokLiveMinuteSweep(){
     const nextLive=new Set(
       [...tiktokRealtimeLiveHandles].filter(handle=>wanted.has(handle))
     );
-    const nextStatuses=new Map();
+    const nextStatuses=new Map(
+      [...tiktokRealtimeStatusByHandle.entries()].filter(([handle])=>wanted.has(handle))
+    );
     const checkedAt=Date.now();
     let foundNow=0;
     let unknown=0;
@@ -1564,7 +1595,7 @@ function runTikTokLiveMinuteSweep(){
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
     // Every current/retained LIVE immediately enters the shared FLV resolver.
-    const liveHandles=[...nextLive];
+    const liveHandles=target.filter(handle=>nextLive.has(handle.toLowerCase()));
     if(liveHandles.length){
       void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:true})
         .then(()=>resolveTikTokLiveSourceBatch(liveHandles))
@@ -1575,7 +1606,8 @@ function runTikTokLiveMinuteSweep(){
 
     console.log(
       '[tiktok-live-current]',
-      'channels='+target.length,
+      'selected='+selected.length,
+      'checked='+target.length,
       'live='+nextLive.size,
       'foundNow='+foundNow,
       'offlineConfirmed='+offlineConfirmedCount,
@@ -1584,12 +1616,25 @@ function runTikTokLiveMinuteSweep(){
       'getlink='+liveHandles.length,
       'checkedAt='+checkedAt
     );
+    void persistTikTokLiveStore().catch(error=>{
+      console.warn('[tiktok-live-current] persist failed',compactText(error?.message||error,120));
+    });
   })().catch(error=>{
     console.warn('[tiktok-live-current] failed',compactText(error?.message||error,160));
   }).finally(()=>{
     tiktokLiveMinuteSweepPromise=null;
   });
   return tiktokLiveMinuteSweepPromise;
+}
+
+async function runTikTokLiveAuditSweep(){
+  const selected=[...tiktokLiveSelectedHandles];
+  if(!selected.length)return;
+  const chunkSize=TIKTOK_LIVE_DISCOVERY_BATCH;
+  for(let i=0;i<selected.length;i+=chunkSize){
+    await runTikTokLiveMinuteSweep({targetHandles:selected.slice(i,i+chunkSize)});
+    if(i+chunkSize<selected.length)await sleep(700);
+  }
 }
 
 async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
@@ -8213,13 +8258,15 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/live-statuses'&&req.method==='GET'){
-    const force=url.searchParams.get('refresh')==='1';
+    const refreshMode=String(url.searchParams.get('refresh')||'');
+    const force=refreshMode==='1'||refreshMode==='all';
     const stale=Date.now()-Number(tiktokRealtimeLiveCheckedAt||0)>70_000;
-    if(!TIKTOK_UPDATES_PAUSED&&(
-      force||
-      (AUTO_COLLECT&&(stale||!tiktokRealtimeLiveCheckedAt))
-    )){
-      await runTikTokLiveMinuteSweep();
+    if(!TIKTOK_UPDATES_PAUSED){
+      if(refreshMode==='all'){
+        await runTikTokLiveAuditSweep();
+      }else if(force||(AUTO_COLLECT&&(stale||!tiktokRealtimeLiveCheckedAt))){
+        await runTikTokLiveMinuteSweep();
+      }
     }
 
     const handles=[...tiktokLiveSelectedHandles].sort((a,b)=>a.localeCompare(b));
