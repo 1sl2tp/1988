@@ -3761,7 +3761,11 @@ async function resolveTikTokVideoSource(rawHandle,rawId,{force=false}={}){
         url:String(stored.mp4_url||''),
         ext:'mp4',
         mime:'',
-        headers:{},
+        headers:{
+          'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
+          'referer':'https://www.tiktok.com/@'+handle,
+          'accept':'*/*'
+        },
         width:Number(stored.width||0),
         height:Number(stored.height||0),
         duration:Number(stored.duration||0),
@@ -4889,7 +4893,11 @@ async function loadTikTokCanonicalStore(){
             url:String(canonical.mp4_url||''),
             ext:'mp4',
             mime:'',
-            headers:{},
+            headers:{
+              'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
+              'referer':'https://www.tiktok.com/@'+handle,
+              'accept':'*/*'
+            },
             width:Number(canonical.width||0),
             height:Number(canonical.height||0),
             duration:Number(canonical.duration||0),
@@ -6820,19 +6828,36 @@ const server=http.createServer(async(req,res)=>{
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       const id=String(url.searchParams.get('id')||'').trim();
-      if(!handle||!/^\d{8,}$/.test(id)){
+      if(!handle||!/^[0-9]{8,}$/.test(id)){
         json(res,400,{ok:false,error:'invalid_tiktok_video'});
         return;
       }
-      let file=await downloadTikTokVideoFile(handle,id);
-      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source=file');
-      try{
-        await serveTikTokVideoFile(req,res,file);
-      }catch(error){
-        if(res.headersSent)throw error;
-        file=await downloadTikTokVideoFile(handle,id,{force:true});
-        await serveTikTokVideoFile(req,res,file);
-      }
+
+      // Fast path: relay the prepared yt-dlp source immediately with the exact
+      // media headers + browser Range. No full-file predownload before play.
+      let source=await resolveTikTokVideoSource(handle,id);
+      let piped=await pipeTikTokTarget(req,res,source.url,{
+        fallbackType:'video/mp4',
+        headersOverride:source.headers,
+        deferError:true
+      });
+      if(piped?.ok)return;
+
+      // Signed TikTok URLs expire. Refresh once on the server and retry in the
+      // same browser request; UI never needs to know the CDN URL changed.
+      source=await resolveTikTokVideoSource(handle,id,{force:true});
+      piped=await pipeTikTokTarget(req,res,source.url,{
+        fallbackType:'video/mp4',
+        headersOverride:source.headers,
+        deferError:true
+      });
+      if(piped?.ok)return;
+
+      // Last-resort compatibility path: yt-dlp downloads a local file and we
+      // serve byte ranges from disk.
+      let file=await downloadTikTokVideoFile(handle,id,{force:true});
+      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source=file-fallback');
+      await serveTikTokVideoFile(req,res,file);
     }catch(error){
       console.warn('[tiktok-video-stream] failed',compactText(error?.stderr||error?.message||error,220));
       if(!res.headersSent)json(res,502,{ok:false,error:'video_source_failed'});
