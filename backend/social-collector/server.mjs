@@ -654,6 +654,7 @@ async function warmTikTokLibraryHandle(handle){
   if(flv){
     if(await confirmTikTokLibrarySource(handle,flv,{mode:'fast',source:'room-api-flv'})){
       tiktokLiveFastSources.set(key,flv);
+      void persistTikTokLiveStore({force:true});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
@@ -661,6 +662,7 @@ async function warmTikTokLibraryHandle(handle){
 
   if(discoveredHls){
     if(await confirmTikTokLibrarySource(handle,discoveredHls,{mode:discoveredHls.mode||'fast',source:discoveredHls.source||'discovered'})){
+      void persistTikTokLiveStore({force:true});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
@@ -685,7 +687,7 @@ async function warmTikTokLibraryHandle(handle){
           title:String(ytdlp.title||''),
           thumbnail:String(ytdlp.thumbnail||'')
         });
-        void queueTikTokCanonicalSync([handle]);
+        void persistTikTokLiveStore({force:true});
         tiktokLiveLibraryWarmRetryAt.delete(key);
         console.log('[tiktok-library] yt-dlp warm',handle,seeded.type);
         return true;
@@ -700,6 +702,7 @@ async function warmTikTokLibraryHandle(handle){
   try{
     const session=await captureTikTokLiveSession(handle);
     if(await confirmTikTokLibrarySource(handle,session,{mode:'browser',source:'browser-session'})){
+      void persistTikTokLiveStore({force:true});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
@@ -821,11 +824,11 @@ async function loadTikTokLiveStore(){
       const live=Boolean(stored?.live);
       let source=null;
 
-      if(live&&type==='flv'&&/^https?:\/\//i.test(url)){
+      if(live&&['flv','hls'].includes(type)&&/^https?:\/\//i.test(url)){
         source={
           mode:'fast-store',
           handle,
-          type:'flv',
+          type,
           url,
           headers:{
             'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -876,12 +879,15 @@ function buildTikTokStoredRows(){
       const key=handle.toLowerCase();
       const item=tiktokLiveLibrary.get(key)||{};
       const source=currentTikTokLibrarySource(handle);
-      const live=Boolean(item.live);
-      const usable=live&&source&&source.type==='flv'&&tiktokLiveSourceUsable(source);
+      const sourceType=String(source?.type||'').toLowerCase();
+      const detected=Boolean(item.live);
+      const usable=Boolean(
+        detected&&source?.url&&['flv','hls'].includes(sourceType)&&tiktokLiveSourceUsable(source)
+      );
       return {
         handle,
-        live,
-        stream_type:usable?'flv':'',
+        live:usable,
+        stream_type:usable?sourceType:'',
         stream_url:usable?String(source.url||''):'',
         source_sig:usable?tiktokLibrarySourceSig(source):'',
         checked_at:item.lastSeenAt?new Date(Number(item.lastSeenAt)).toISOString():now,
@@ -5107,7 +5113,17 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
 
     const liveRow=tiktokLiveLibrary.get(key)||null;
     if(liveRow){
-      next.live=Boolean(liveRow.live);
+      const source=liveRow.live?currentTikTokLibrarySource(handle):null;
+      const sourceType=String(source?.type||'').toLowerCase();
+      const sourceUsable=Boolean(
+        liveRow.live&&
+        source?.url&&
+        ['flv','hls'].includes(sourceType)&&
+        tiktokLiveSourceUsable(source)
+      );
+      // Canonical/UI-facing LIVE means playable now. Detection/UNKNOWN state
+      // stays internal in tiktokLiveLibrary and must never leak as a fake LIVE.
+      next.live=sourceUsable;
       next.live_checked_at=liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():nowIso();
       if(liveRow.title)next.live_title=String(liveRow.title);
       const liveCover=String(liveRow.thumbnail||liveRow.cover||'').trim();
@@ -5115,25 +5131,18 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
         next.live_cover_source_url=liveCover;
         next.live_cover_stored_url='';
       }
-      if(next.live){
-        const source=currentTikTokLibrarySource(handle);
-        if(source?.url){
-          const nextType=String(source.type||'');
-          const nextUrl=String(source.url||'');
-          const nextSig=tiktokLibrarySourceSig(source);
-          const streamChanged=
-            nextType!==String(prev.live_stream_type||'')||
-            nextUrl!==String(prev.live_stream_url||'')||
-            nextSig!==String(prev.live_source_sig||'');
-          next.live_stream_type=nextType;
-          next.live_stream_url=nextUrl;
-          next.live_source_sig=nextSig;
-          if(streamChanged)next.live_updated_at=nowIso();
-        }else{
-          next.live_stream_type='';
-          next.live_stream_url='';
-          next.live_source_sig='';
-        }
+      if(sourceUsable){
+        const nextType=sourceType;
+        const nextUrl=String(source.url||'');
+        const nextSig=tiktokLibrarySourceSig(source);
+        const streamChanged=
+          nextType!==String(prev.live_stream_type||'')||
+          nextUrl!==String(prev.live_stream_url||'')||
+          nextSig!==String(prev.live_source_sig||'');
+        next.live_stream_type=nextType;
+        next.live_stream_url=nextUrl;
+        next.live_source_sig=nextSig;
+        if(streamChanged)next.live_updated_at=nowIso();
       }else{
         next.live_stream_type='';
         next.live_stream_url='';
