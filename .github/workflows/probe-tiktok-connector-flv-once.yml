@@ -1,0 +1,122 @@
+name: Probe TikTok connector FLV once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tiktok-connector-flv-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Probe room info with TikTok Live Connector
+        shell: bash
+        run: |
+          mkdir -p /tmp/tlc && cd /tmp/tlc
+          npm init -y >/dev/null 2>&1
+          npm install --silent tiktok-live-connector@latest
+          cat > probe.mjs <<'JS'
+          import { TikTokLiveConnection } from 'tiktok-live-connector';
+
+          const handle='giaodendoithuong79';
+          const roomId='7691194439160531764';
+          const conn=new TikTokLiveConnection(handle,{
+            fetchRoomInfoOnConnect:false,
+            enableExtendedGiftInfo:false,
+          });
+
+          function walk(value,path='',out=[]){
+            if(value==null||out.length>300)return out;
+            if(Array.isArray(value)){
+              value.forEach((v,i)=>walk(v, path+'['+i+']', out));
+            }else if(typeof value==='object'){
+              for(const [k,v] of Object.entries(value)){
+                const p=path?path+'.'+k:k;
+                if(/flv|stream|pull|sdk/i.test(p)){
+                  const s=typeof v==='string'?v:JSON.stringify(v);
+                  out.push([p,s.slice(0,500)]);
+                }
+                walk(v,p,out);
+              }
+            }
+            return out;
+          }
+
+          async function inspect(url){
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),12000);
+            try{
+              const r=await fetch(url,{
+                headers:{
+                  'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36',
+                  'referer':'https://www.tiktok.com/@'+handle+'/live',
+                  'origin':'https://www.tiktok.com',
+                  'range':'bytes=0-262143',
+                  'accept':'*/*'
+                },
+                redirect:'follow',
+                signal:controller.signal
+              });
+              const b=new Uint8Array(await r.arrayBuffer());
+              let video=false,audio=false;
+              if(b.length>=13&&b[0]===0x46&&b[1]===0x4c&&b[2]===0x56){
+                let off=((b[5]<<24)>>>0)+(b[6]<<16)+(b[7]<<8)+b[8]+4;
+                let tags=0;
+                while(off+11<=b.length&&tags<64){
+                  const typ=b[off];
+                  const size=(b[off+1]<<16)|(b[off+2]<<8)|b[off+3];
+                  if(typ===9)video=true;
+                  if(typ===8)audio=true;
+                  const next=off+11+size+4;
+                  if(next<=off||next>b.length)break;
+                  off=next; tags++;
+                  if(video&&audio)break;
+                }
+              }
+              return {status:r.status,type:r.headers.get('content-type'),bytes:b.length,head:String.fromCharCode(...b.slice(0,3)),video,audio};
+            }catch(e){ return {error:String(e?.message||e)}; }
+            finally{clearTimeout(timer);}
+          }
+
+          try{
+            const info=await conn.fetchRoomInfo(roomId);
+            console.log('ROOM_STATUS',info?.status,'ROOM_ID',info?.id||info?.room_id||'');
+            for(const [p,v] of walk(info)){
+              console.log('PATH',p,'VAL',v);
+            }
+            const urls=[];
+            function add(v,label){
+              if(typeof v==='string'&&/^https?:\/\//.test(v)&&!urls.some(x=>x.url===v)) urls.push({label,url:v});
+            }
+            const su=info?.stream_url||info?.streamUrl||{};
+            const flv=su?.flv_pull_url||su?.flvPullUrl||{};
+            if(typeof flv==='object')for(const [k,v] of Object.entries(flv))add(v,'flv_pull_url.'+k);
+            add(su?.rtmp_pull_url||su?.rtmpPullUrl,'rtmp_pull_url');
+            const raw=su?.live_core_sdk_data?.pull_data?.stream_data||su?.liveCoreSdkData?.pullData?.streamData||'';
+            if(raw){
+              let x=raw; try{if(typeof x==='string')x=JSON.parse(x)}catch{}
+              const data=x?.data||{};
+              for(const [q,row] of Object.entries(data)){
+                add(row?.main?.flv,'stream_data.'+q+'.main.flv');
+                add(row?.backup?.flv,'stream_data.'+q+'.backup.flv');
+              }
+            }
+            console.log('FLV_URLS',urls.length);
+            for(let i=0;i<Math.min(urls.length,12);i++){
+              const x=urls[i];
+              const u=new URL(x.url);
+              console.log('CAND',i+1,x.label,u.hostname,u.pathname.slice(-100),JSON.stringify(await inspect(x.url)));
+            }
+          }catch(e){
+            console.log('ERROR',e?.stack||String(e));
+          }
+          JS
+          node probe.mjs
