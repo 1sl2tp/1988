@@ -1175,7 +1175,7 @@ function runTikTokLiveMinuteSweep(){
 
 async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
   const scanStarted=Date.now();
-  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,60);
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
   if(!normalized.length)return;
 
   const now=Date.now();
@@ -1216,12 +1216,20 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
 
     if(!status?.known){
-      // Timeout/incomplete response is UNKNOWN, never OFFLINE.
+      // Timeout/incomplete response is UNKNOWN: preserve last confirmed
+      // LIVE/OFFLINE state and only record the probe result.
       scanUnknownCount+=1;
+      updateTikTokLiveLibrary(handle,{
+        probeState:'unknown',
+        lastSeenAt:Date.now()
+      });
       continue;
     }
 
     const isLive=status?.live===true;
+    const prev=tiktokLiveLibrary.get(key)||{};
+    const nowState=Date.now();
+    const changedState=Boolean(prev.live)!==isLive;
     if(isLive)scanLiveCount+=1;
     if(flv)scanFlvCount+=1;
 
@@ -1237,7 +1245,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
         ready:false,
         playable:false,
         probeState:'offline',
-        lastKnownAt:Date.now(),
+        stateChangedAt:changedState?nowState:Number(prev.stateChangedAt||0),
+        lastKnownAt:nowState,
         type:'',
         mode:'',
         source:'',
@@ -1252,6 +1261,17 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       });
       continue;
     }
+
+    // Confirmed LIVE state is published before stream preparation. Source
+    // availability is independent from LIVE/OFFLINE detection.
+    updateTikTokLiveLibrary(handle,{
+      live:true,
+      probeState:'live',
+      status:'live',
+      stateChangedAt:changedState?nowState:Number(prev.stateChangedAt||0),
+      lastKnownAt:nowState,
+      lastSeenAt:nowState
+    });
 
     // LIVE: validate only the selected FLV candidate before publishing it.
     // This is a tiny ranged request (2 KB), not a full ffprobe. TikTok can
@@ -1291,11 +1311,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     // TikTok says LIVE but did not return FLV in this pass. Keep it marked
     // LIVE, but do not start yt-dlp/ffprobe/browser fallbacks.
     updateTikTokLiveLibrary(handle,{
-      live:true,
       ready:false,
       playable:false,
-      probeState:'live',
-      lastKnownAt:Date.now(),
       type:'',
       mode:'',
       source:'',
