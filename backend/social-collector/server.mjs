@@ -8179,7 +8179,10 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/tiktok/live-statuses'&&req.method==='GET'){
     const force=url.searchParams.get('refresh')==='1';
     const stale=Date.now()-Number(tiktokRealtimeLiveCheckedAt||0)>70_000;
-    if((force||stale||!tiktokRealtimeLiveCheckedAt)&&!TIKTOK_UPDATES_PAUSED&&AUTO_COLLECT){
+    if(!TIKTOK_UPDATES_PAUSED&&(
+      force||
+      (AUTO_COLLECT&&(stale||!tiktokRealtimeLiveCheckedAt))
+    )){
       await runTikTokLiveMinuteSweep();
     }
 
@@ -8528,14 +8531,59 @@ const server=http.createServer(async(req,res)=>{
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-      const state=await quickTikTokLiveStateOnly(handle);
+
+      const evidence=[];
+      const a=await quickTikTokLiveStateOnly(handle).catch(()=>({
+        known:false,live:false,status:null,source:'tiktok-error'
+      }));
+      evidence.push({
+        source:String(a?.source||'user-room'),
+        known:Boolean(a?.known),
+        live:Boolean(a?.live),
+        status:Number.isFinite(Number(a?.status))?Number(a.status):null
+      });
+
+      if(!a?.live){
+        const b=await quickTikTokLiveDetailStatus(handle).catch(()=>({
+          known:false,live:false,status:null,source:'tiktok-detail-error'
+        }));
+        evidence.push({
+          source:String(b?.source||'live-detail'),
+          known:Boolean(b?.known),
+          live:Boolean(b?.live),
+          status:Number.isFinite(Number(b?.status))?Number(b.status):null
+        });
+      }
+
+      const hasLive=()=>evidence.some(x=>x.known&&x.live);
+      const offlineCount=()=>evidence.filter(x=>x.known&&!x.live).length;
+
+      if(!hasLive()&&offlineCount()<2){
+        const rows=await browserTikTokLiveStates([handle]).catch(()=>new Map());
+        const b=rows.get(handle.toLowerCase());
+        if(b){
+          evidence.push({
+            source:String(b.source||'browser-user-room'),
+            known:Boolean(b.known),
+            live:Boolean(b.live),
+            status:Number.isFinite(Number(b.status))?Number(b.status):null
+          });
+        }
+      }
+
+      const live=hasLive();
+      const offlineConfirmed=!live&&offlineCount()>=2;
       json(res,200,{
         ok:true,
         handle,
-        live:Boolean(state?.known&&state?.live===true),
-        known:Boolean(state?.known),
-        status:Number.isFinite(Number(state?.status))?Number(state.status):null,
-        source:String(state?.source||'tiktok-api'),
+        live,
+        known:live||offlineConfirmed,
+        offlineConfirmed,
+        status:live?2:(offlineConfirmed?4:null),
+        source:live
+          ? String(evidence.find(x=>x.known&&x.live)?.source||'multi-source')
+          : (offlineConfirmed?'multi-source-offline':'multi-source-unknown'),
+        evidence,
         checked_at:nowIso()
       });
     }catch(error){
