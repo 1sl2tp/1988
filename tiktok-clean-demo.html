@@ -1310,23 +1310,29 @@ async function addChannel(){
     return;
   }
 
-  // Control-plane action: reflect intent in UI immediately, then persist and
-  // re-read the canonical package returned by the server.
-  optimisticChannel(handle);
-  currentHandle=handle;
-  renderList();
-  renderRecentVideos(handle);
-  updateCurrentUi();
+  // Duplicate means true no-op: no request, no optimistic row, no toast.
+  if(channelFor(handle))return;
 
   mutationBusy=true;
   const btn=document.getElementById('addBtn');
-  btn.disabled=true;btn.textContent='Đang thêm…';
+  btn.disabled=true;btn.textContent='Đang kiểm tra…';
   try{
+    // Server is authoritative: it verifies that this is a real TikTok channel
+    // before changing membership. Only then may the UI reflect the new row.
     const data=await apiJson(API+'/tiktok/selected-channel',{
       method:'POST',
       headers:{'content-type':'application/json'},
       body:JSON.stringify({handle,selected:true})
     });
+
+    // A duplicate discovered by the server is also a strict no-op.
+    if(data?.duplicate||data?.unchanged)return;
+
+    optimisticChannel(handle);
+    currentHandle=handle;
+    renderList();
+    renderRecentVideos(handle);
+    updateCurrentUi();
     input.value='';
 
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
@@ -1336,7 +1342,14 @@ async function addChannel(){
     await loadLiveLibrary({force:true,silent:true});
     if(currentHandle===handle)openChannel(handle);
   }catch(error){
-    // Reconcile optimistic UI with durable data on failure.
+    if(String(error?.message||'')==='tiktok_channel_not_found'){
+      input.focus();
+      showToast('Không tìm thấy kênh TikTok');
+      return;
+    }
+
+    // A transport/server failure may happen after the durable write; reconcile
+    // from the canonical package without inventing an optimistic channel.
     libraryVersion=-1;
     await loadUnifiedLibrary({force:true,silent:true});
     showToast('Lưu kênh thất bại');
