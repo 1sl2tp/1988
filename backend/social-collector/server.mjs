@@ -2475,28 +2475,28 @@ async function quickTikTokLiveStatus(rawHandle){
   const key=handle.toLowerCase();
   const keepMedia=tiktokRealtimeLiveHandles.has(key);
 
-  // First use the lightweight Web endpoint from the supplied reference code.
-  // It gives a direct LiveRoomInfo.status (2 LIVE / 4 OFFLINE), plus room id,
-  // title and viewer count, without opening Chromium.
+  // Status and media are separate. A source may confirm LIVE without carrying
+  // any stream URLs; in that case continue through every media source.
   const detail=await quickTikTokLiveDetailStatus(handle);
-  if(detail?.known){
-    if(!detail.live&&!keepMedia)return detail;
+  if(detail?.known&&!detail.live&&!keepMedia)return detail;
 
-    if(detail.candidates?.length)return detail;
+  const confirmedLive=detail?.known&&detail?.live===true?detail:null;
+  if(confirmedLive?.candidates?.length)return confirmedLive;
 
-    // A confirmed LIVE without embedded pull URLs can still provide roomId.
-    // Resolve only the media candidates from room-info; keep the LIVE verdict
-    // from live/detail even if room-info itself is incomplete.
-    if(detail.roomId){
-      const room=await quickTikTokRoomInfoStatus(handle,detail.roomId);
-      if(room?.candidates?.length){
-        return {...detail,candidates:room.candidates};
-      }
+  if(confirmedLive?.roomId){
+    const room=await quickTikTokRoomInfoStatus(handle,confirmedLive.roomId).catch(()=>null);
+    if(room?.candidates?.length){
+      return {
+        ...confirmedLive,
+        roomId:String(room.roomId||confirmedLive.roomId||''),
+        candidates:room.candidates,
+        source:'live-detail>room-info'
+      };
     }
-    return detail;
   }
 
-  // Fallback for accounts where /api/live/detail is missing or blocked.
+  // user/room can confirm LIVE while omitting streamData. Never stop there:
+  // resolve media from roomId and profile-hydration roomId before giving up.
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -2513,90 +2513,131 @@ async function quickTikTokLiveStatus(rawHandle){
       redirect:'follow',
       signal:AbortSignal.timeout(2500)
     });
-    if(!r.ok)return {known:false,live:false,candidates:[]};
-    const data=await r.json();
-    const liveRoom=data?.data?.liveRoom||null;
-    const roomStatus=Number(liveRoom?.status);
-    const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
 
-    if(Number.isFinite(roomStatus)){
-      const isLive=roomStatus===2;
-      let candidates=(isLive||keepMedia)
-        ? collectTikTokLiveStreamCandidates(liveRoom)
-            .filter(isTikTokVideoFlvCandidate)
-            .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
-        : [];
-      let mediaSource='user-room';
+    if(r.ok){
+      const data=await r.json();
+      const liveRoom=data?.data?.liveRoom||null;
+      const roomStatus=Number(liveRoom?.status);
+      const roomId=String(
+        liveRoom?.roomId||
+        liveRoom?.id||
+        data?.data?.user?.roomId||
+        ''
+      );
 
-      // Some LIVE accounts (notably guest/co-host style rooms) return status=2
-      // and roomId here but omit streamData entirely. Do not stop at the status
-      // response: resolve media by roomId, exactly as TikTok LIVE extractors do.
-      if((isLive||keepMedia)&&!candidates.length){
-        const roomIds=[];
-        if(roomId)roomIds.push(String(roomId));
+      if(Number.isFinite(roomStatus)){
+        const isLive=roomStatus===2;
+        let candidates=(isLive||keepMedia||Boolean(confirmedLive))
+          ? collectTikTokLiveStreamCandidates(liveRoom)
+              .filter(isTikTokVideoFlvCandidate)
+              .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
+          : [];
+        let mediaSource='user-room';
 
-        // TikTok guest/co-host LIVE can expose status=2 on user/room while the
-        // usable stream belongs to a roomId embedded in the profile hydration.
-        const profile=await fetchTikTokProfileIdentityScraped(handle).catch(()=>null);
-        const profileRoomId=String(profile?.roomId||'');
-        if(profileRoomId&&!roomIds.includes(profileRoomId))roomIds.unshift(profileRoomId);
-
-        for(const mediaRoomId of roomIds){
-          const room=await quickTikTokRoomInfoStatus(handle,mediaRoomId).catch(()=>null);
-          if(room?.candidates?.length){
-            candidates=room.candidates;
-            mediaSource='user-room>profile-room>room-info';
-            break;
+        if((isLive||keepMedia||confirmedLive)&&!candidates.length){
+          const roomIds=[];
+          if(roomId)roomIds.push(roomId);
+          if(confirmedLive?.roomId&&!roomIds.includes(String(confirmedLive.roomId))){
+            roomIds.push(String(confirmedLive.roomId));
           }
 
-          const byRoom=await quickTikTokLiveDetailStatus(handle,false,mediaRoomId).catch(()=>null);
-          if(byRoom?.candidates?.length){
-            candidates=byRoom.candidates;
-            mediaSource='user-room>profile-room>live-detail-room';
-            break;
+          const profile=await fetchTikTokProfileIdentityScraped(handle).catch(()=>null);
+          const profileRoomId=String(profile?.roomId||'');
+          if(profileRoomId&&!roomIds.includes(profileRoomId))roomIds.unshift(profileRoomId);
+
+          for(const mediaRoomId of roomIds){
+            const room=await quickTikTokRoomInfoStatus(handle,mediaRoomId).catch(()=>null);
+            if(room?.candidates?.length){
+              candidates=room.candidates;
+              mediaSource='user-room>profile-room>room-info';
+              break;
+            }
+
+            const byRoom=await quickTikTokLiveDetailStatus(handle,false,mediaRoomId).catch(()=>null);
+            if(byRoom?.candidates?.length){
+              candidates=byRoom.candidates;
+              mediaSource='user-room>profile-room>live-detail-room';
+              break;
+            }
           }
         }
+
+        if(candidates.length){
+          console.log(
+            '[tiktok-flv-found]',
+            handle,
+            'source='+mediaSource,
+            'count='+candidates.length,
+            'top='+String(candidates[0]?.path||'')
+          );
+          if(confirmedLive){
+            return {
+              ...confirmedLive,
+              roomId:String(confirmedLive.roomId||roomId||''),
+              candidates,
+              source:mediaSource
+            };
+          }
+          return {
+            known:true,
+            live:isLive,
+            status:roomStatus,
+            roomId,
+            candidates,
+            source:mediaSource
+          };
+        }
+
+        if(isLive||confirmedLive){
+          console.log(
+            '[tiktok-flv-miss]',
+            handle,
+            'source='+mediaSource,
+            'roomId='+String(roomId||confirmedLive?.roomId||''),
+            'paths='+summarizeTikTokFlvPaths(liveRoom).slice(0,16).join(',')
+          );
+        }
+
+        // A higher-priority endpoint already confirmed LIVE. A lower-priority
+        // status response must not erase it merely because media is absent.
+        if(confirmedLive){
+          return {
+            ...confirmedLive,
+            roomId:String(confirmedLive.roomId||roomId||''),
+            candidates:[],
+            source:'live-detail>room-info>user-room>profile-room'
+          };
+        }
+
+        return {
+          known:true,
+          live:isLive,
+          status:roomStatus,
+          roomId,
+          candidates:[],
+          source:'user-room'
+        };
       }
 
-      if(isLive&&!candidates.length){
-        console.log(
-          '[tiktok-flv-miss]',
-          handle,
-          'source='+mediaSource,
-          'roomId='+roomId,
-          'paths='+summarizeTikTokFlvPaths(liveRoom).slice(0,16).join(',')
-        );
-      }else if((isLive||keepMedia)&&candidates.length){
-        console.log(
-          '[tiktok-flv-found]',
-          handle,
-          'source='+mediaSource,
-          'count='+candidates.length,
-          'top='+String(candidates[0]?.path||'')
-        );
+      if(!liveRoom&&!roomId){
+        if(confirmedLive)return confirmedLive;
+        return {known:true,live:false,status:4,roomId:'',candidates:[],source:'user-room'};
       }
-      return {
-        known:true,
-        live:isLive,
-        status:roomStatus,
-        roomId,
-        candidates,
-        source:mediaSource
-      };
-    }
 
-    if(!liveRoom&&!roomId){
-      return {known:true,live:false,status:4,roomId:'',candidates:[],source:'user-room'};
+      if(roomId){
+        const room=await quickTikTokRoomInfoStatus(handle,roomId);
+        if(room?.candidates?.length){
+          return confirmedLive
+            ? {...confirmedLive,candidates:room.candidates,source:'user-room>room-info'}
+            : room;
+        }
+      }
     }
-
-    if(roomId){
-      return await quickTikTokRoomInfoStatus(handle,roomId);
-    }
-
-    return {known:false,live:false,status:null,roomId,candidates:[]};
   }catch(error){
     console.log('[tiktok-session] preflight unknown',handle,compactText(error?.message||error,140));
   }
+
+  if(confirmedLive)return confirmedLive;
   return {known:false,live:false,candidates:[]};
 }
 async function fastTikTokLiveWithYtdlp(handle){
