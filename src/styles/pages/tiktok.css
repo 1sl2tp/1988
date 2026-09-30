@@ -270,13 +270,31 @@
   .media-tab{height:32px;padding:0 12px}
   .media-title{display:none}
   .media-workspace{display:block;overflow:visible;padding-top:0}
-  .watch{height:auto;overflow:visible}
-  .phone,.phone.video-mode,.phone.landscape,.phone.square{
-    width:100%;max-width:none;max-height:none;border-radius:0;box-shadow:none
+  .watch{
+    height:auto;overflow:visible;align-items:center;padding-top:8px
   }
-  .current-info,.phone.landscape + .current-info,.phone.square + .current-info{
-    width:100%;padding:9px 10px 10px;border-bottom:1px solid var(--border-soft)
+  /* Keep portrait media narrow and stable like TikTok instead of stretching it
+     to the full narrow-window width. This also keeps the bottom controls in a
+     predictable place and prevents a 9:16 LIVE from becoming excessively tall. */
+  .phone,.phone.video-mode{
+    width:min(calc(100% - 16px),380px);max-width:380px;max-height:none;
+    aspect-ratio:9/16;border-radius:14px;
+    box-shadow:0 0 0 1px var(--border-soft)
   }
+  .phone.landscape{
+    width:min(calc(100% - 16px),720px);max-width:720px;max-height:none;
+    aspect-ratio:16/9;border-radius:12px
+  }
+  .phone.square{
+    width:min(calc(100% - 16px),520px);max-width:520px;max-height:none;
+    aspect-ratio:1/1;border-radius:12px
+  }
+  .current-info{
+    width:min(calc(100% - 16px),380px);
+    padding:9px 4px 10px;border-bottom:1px solid var(--border-soft)
+  }
+  .phone.landscape + .current-info{width:min(calc(100% - 16px),720px)}
+  .phone.square + .current-info{width:min(calc(100% - 16px),520px)}
   .current-actions{gap:1px}
   .video-rail{height:auto;max-height:none;border:0;padding:10px}
   .rail-head{height:32px;padding-left:2px}
