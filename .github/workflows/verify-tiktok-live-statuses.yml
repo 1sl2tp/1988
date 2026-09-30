@@ -1,0 +1,94 @@
+name: Verify TikTok LIVE status coverage
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/social-collector/server.mjs"
+      - "tiktok-settings.html"
+      - "tiktok-clean-demo.html"
+      - ".github/workflows/verify-tiktok-live-statuses.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Wait for LIVE status endpoint and verify exhaustive coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://one988-tiktok-session.onrender.com"
+
+          ok=0
+          for i in $(seq 1 32); do
+            if curl -fsS --max-time 25 "$API/tiktok/live-statuses?refresh=1&t=$(date +%s)" -o /tmp/statuses.json; then
+              if python3 - <<'PY'
+import json
+p=json.load(open('/tmp/statuses.json'))
+raise SystemExit(0 if p.get('ok') and p.get('exhaustive') and isinstance(p.get('items'),list) else 1)
+PY
+              then
+                ok=1
+                break
+              fi
+            fi
+            echo "Waiting for backend deploy/status scan ($i/32)..."
+            sleep 15
+          done
+          test "$ok" = 1
+
+          curl -fsS --max-time 25 "$API/tiktok/library?v=-1&t=$(date +%s)" -o /tmp/library.json
+
+          python3 - <<'PY'
+import json, sys
+lib=json.load(open('/tmp/library.json'))
+st=json.load(open('/tmp/statuses.json'))
+
+channels=lib.get('channels') or []
+items=st.get('items') or []
+lib_handles=[str(x.get('handle') or '').lower() for x in channels if x.get('handle')]
+status_handles=[str(x.get('handle') or '').lower() for x in items if x.get('handle')]
+
+allowed={
+  'live_ready',
+  'live_verifying_flv',
+  'live_resolving_flv',
+  'live_unverified',
+  'offline',
+  'unknown',
+  'checking',
+}
+
+missing=sorted(set(lib_handles)-set(status_handles))
+extra=sorted(set(status_handles)-set(lib_handles))
+dupes=sorted({h for h in status_handles if status_handles.count(h)>1})
+bad=[x for x in items if x.get('state') not in allowed]
+
+print('LIBRARY_TOTAL',len(lib_handles))
+print('STATUS_TOTAL',len(status_handles))
+print('COUNTS',json.dumps(st.get('counts') or {},ensure_ascii=False,sort_keys=True))
+print('MISSING',missing)
+print('EXTRA',extra)
+print('DUPLICATES',dupes)
+print('BAD_STATES',[(x.get('handle'),x.get('state')) for x in bad])
+
+for target in ['longgiatien','giaodendoithuong79','ongbodien']:
+    row=next((x for x in items if str(x.get('handle') or '').lower()==target),None)
+    if row:
+        print('TARGET',target,json.dumps(row,ensure_ascii=False,sort_keys=True))
+    else:
+        print('TARGET',target,'NOT_SELECTED')
+
+assert len(lib_handles)==len(set(lib_handles)), 'duplicate handles in library'
+assert len(status_handles)==len(set(status_handles)), 'duplicate handles in statuses'
+assert not missing, f'missing selected handles in status endpoint: {missing[:20]}'
+assert not extra, f'extra handles in status endpoint: {extra[:20]}'
+assert not bad, f'unrecognized states: {bad[:20]}'
+assert len(lib_handles)==len(status_handles), 'status endpoint is not exhaustive'
+print('PASS exhaustive selected-channel LIVE coverage')
+PY
