@@ -2161,11 +2161,12 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
   };
 }
 
-async function quickTikTokLiveDetailStatus(handle,retry=true){
+async function quickTikTokLiveDetailStatus(handle,retry=true,roomId=''){
   try{
     const endpoint=new URL('https://www.tiktok.com/api/live/detail/');
     endpoint.searchParams.set('aid','1988');
-    endpoint.searchParams.set('uniqueId',handle);
+    if(roomId)endpoint.searchParams.set('roomID',String(roomId));
+    else endpoint.searchParams.set('uniqueId',handle);
 
     const r=await fetch(endpoint,{
       headers:{
@@ -2180,7 +2181,7 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
     if(!r.ok){
       if(retry&&(r.status===401||r.status===403||r.status===429)){
         await refreshTikTokApiCookieHeader({force:true});
-        return quickTikTokLiveDetailStatus(handle,false);
+        return quickTikTokLiveDetailStatus(handle,false,roomId);
       }
       return {known:false,live:false,status:null,roomId:'',candidates:[]};
     }
@@ -2195,7 +2196,7 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
     if(!liveData||typeof liveData!=='object'){
       if(retry){
         await refreshTikTokApiCookieHeader({force:true});
-        return quickTikTokLiveDetailStatus(handle,false);
+        return quickTikTokLiveDetailStatus(handle,false,roomId);
       }
       return {known:false,live:false,status:null,roomId:'',candidates:[]};
     }
@@ -2268,7 +2269,7 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
 async function quickTikTokRoomInfoStatus(handle,roomId){
   if(!roomId)return {known:true,live:false,status:4,roomId:'',candidates:[]};
   try{
-    const endpoint=new URL('https://webcast.tiktok.com/webcast/room/info/');
+    const endpoint=new URL('https://webcast.tiktok.com/webcast/room/info');
     endpoint.searchParams.set('aid','1988');
     endpoint.searchParams.set('room_id',String(roomId));
     const r=await fetch(endpoint,{
@@ -2520,23 +2521,43 @@ async function quickTikTokLiveStatus(rawHandle){
 
     if(Number.isFinite(roomStatus)){
       const isLive=roomStatus===2;
-      const candidates=(isLive||keepMedia)
+      let candidates=(isLive||keepMedia)
         ? collectTikTokLiveStreamCandidates(liveRoom)
             .filter(isTikTokVideoFlvCandidate)
             .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
         : [];
+      let mediaSource='user-room';
+
+      // Some LIVE accounts (notably guest/co-host style rooms) return status=2
+      // and roomId here but omit streamData entirely. Do not stop at the status
+      // response: resolve media by roomId, exactly as TikTok LIVE extractors do.
+      if((isLive||keepMedia)&&!candidates.length&&roomId){
+        const room=await quickTikTokRoomInfoStatus(handle,roomId).catch(()=>null);
+        if(room?.candidates?.length){
+          candidates=room.candidates;
+          mediaSource='user-room>room-info';
+        }else{
+          const byRoom=await quickTikTokLiveDetailStatus(handle,false,roomId).catch(()=>null);
+          if(byRoom?.candidates?.length){
+            candidates=byRoom.candidates;
+            mediaSource='user-room>room-info>live-detail-room';
+          }
+        }
+      }
+
       if(isLive&&!candidates.length){
         console.log(
           '[tiktok-flv-miss]',
           handle,
-          'source=user-room',
+          'source='+mediaSource,
+          'roomId='+roomId,
           'paths='+summarizeTikTokFlvPaths(liveRoom).slice(0,16).join(',')
         );
-      }else if(isLive&&candidates.length){
+      }else if((isLive||keepMedia)&&candidates.length){
         console.log(
           '[tiktok-flv-found]',
           handle,
-          'source=user-room',
+          'source='+mediaSource,
           'count='+candidates.length,
           'top='+String(candidates[0]?.path||'')
         );
@@ -2547,7 +2568,7 @@ async function quickTikTokLiveStatus(rawHandle){
         status:roomStatus,
         roomId,
         candidates,
-        source:'user-room'
+        source:mediaSource
       };
     }
 
