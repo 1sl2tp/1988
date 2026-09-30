@@ -2094,78 +2094,66 @@ async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
-  // LIVE detection is API-only. FLV/playable/browser do not participate.
-  // Ask both TikTok status APIs. Any explicit status=2 wins immediately.
-  // OFFLINE is accepted only when both APIs explicitly agree; otherwise keep
-  // UNKNOWN so a partial/rate-limited response cannot hide a real LIVE.
-  const userRoomPromise=(async()=>{
-    try{
-      const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
-      endpoint.searchParams.set('aid','1988');
-      endpoint.searchParams.set('sourceType','54');
-      endpoint.searchParams.set('uniqueId',handle);
-      const r=await fetch(endpoint,{
-        headers:{
-          'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
-          'accept':'application/json,text/plain,*/*',
-          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-          'referer':'https://www.tiktok.com/@'+handle+'/live',
-          ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
-        },
-        redirect:'follow',
-        signal:AbortSignal.timeout(3000)
-      });
-      if(!r.ok)return {known:false,live:false,status:null,source:'user-room-http-'+r.status};
-      const data=await r.json();
-      const liveRoom=data?.data?.liveRoom||null;
-      const status=Number(liveRoom?.status);
-      if(Number.isFinite(status)){
-        return {known:true,live:status===2,status,source:'user-room'};
-      }
-      // Empty payload is only an OFFLINE vote, never a final verdict by itself.
-      const roomId=String(liveRoom?.roomId||liveRoom?.id||data?.data?.user?.roomId||'');
-      if(!liveRoom&&!roomId){
-        return {known:true,live:false,status:4,source:'user-room-empty'};
-      }
-      return {known:false,live:false,status:null,source:'user-room-unknown'};
-    }catch(error){
-      return {known:false,live:false,status:null,source:'user-room-error'};
+  // Locked LIVE definition: use TikTok's user/room API only.
+  // No browser, no FLV, no yt-dlp, no secondary API voting.
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('sourceType','54');
+    endpoint.searchParams.set('uniqueId',handle);
+
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(4000)
+    });
+
+    if(!r.ok){
+      return {known:false,live:false,status:null,source:'user-room-http-'+r.status};
     }
-  })();
 
-  const [userRoom,detail]=await Promise.all([
-    userRoomPromise,
-    quickTikTokLiveDetailStatus(handle,false)
-  ]);
+    const data=await r.json();
+    const liveRoom=data?.data?.liveRoom||null;
+    const liveStatus=Number(liveRoom?.status);
+    if(Number.isFinite(liveStatus)){
+      return {
+        known:true,
+        live:liveStatus===2,
+        status:liveStatus,
+        source:'user-room'
+      };
+    }
 
-  const votes=[userRoom,detail];
-  const liveVote=votes.find(row=>row?.known&&row?.live===true&&Number(row?.status)===2);
-  if(liveVote){
-    return {
-      known:true,
-      live:true,
-      status:2,
-      source:[...new Set(votes.filter(x=>x?.known&&x?.live).map(x=>String(x.source||'')))].filter(Boolean).join('+')||String(liveVote.source||'tiktok-api')
-    };
+    const userStatus=Number(data?.data?.user?.status);
+    const roomId=String(data?.data?.user?.roomId||'');
+    if(roomId&&userStatus===2){
+      return {
+        known:true,
+        live:true,
+        status:2,
+        source:'user-room-user-status'
+      };
+    }
+
+    if(!liveRoom&&!roomId){
+      return {
+        known:true,
+        live:false,
+        status:4,
+        source:'user-room-empty'
+      };
+    }
+
+    return {known:false,live:false,status:null,source:'user-room-unknown'};
+  }catch(error){
+    return {known:false,live:false,status:null,source:'user-room-error'};
   }
-
-  const explicit=votes.filter(row=>row?.known);
-  const offlineVotes=explicit.filter(row=>row?.live===false);
-  if(explicit.length===2&&offlineVotes.length===2){
-    return {
-      known:true,
-      live:false,
-      status:4,
-      source:'tiktok-api-agree-offline'
-    };
-  }
-
-  return {
-    known:false,
-    live:false,
-    status:null,
-    source:'tiktok-api-inconclusive'
-  };
 }
 
 async function browserTikTokLiveStates(handles){
