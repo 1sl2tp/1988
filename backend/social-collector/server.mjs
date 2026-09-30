@@ -7823,8 +7823,16 @@ const server=http.createServer(async(req,res)=>{
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-      const data=await checkTikTokLiveWithYtDlp(handle);
-      json(res,200,data);
+      const state=await quickTikTokLiveStateOnly(handle);
+      json(res,200,{
+        ok:true,
+        handle,
+        live:Boolean(state?.known&&state?.live===true),
+        known:Boolean(state?.known),
+        status:Number.isFinite(Number(state?.status))?Number(state.status):null,
+        source:String(state?.source||'tiktok-api'),
+        checked_at:nowIso()
+      });
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
     }
