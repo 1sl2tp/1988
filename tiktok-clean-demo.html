@@ -615,8 +615,8 @@ let filterMode='all';
 let mediaMode='live';
 let videoVersion=-1;
 let libraryVersion=-1;
-let liveVersion=-1;
-let liveLoadBusy=false;
+let liveNowHandles=new Set();
+let liveNowBusy=false;
 let currentVideoId='';
 let currentVideo=null;
 let videoOpenSeq=0;
@@ -722,8 +722,7 @@ function currentVideoFor(handle,id){
   return videosFor(handle).find(video=>String(video.id||'')===String(id||''))||null;
 }
 function rowLiveDetected(row){
-  const live=row?.live||{};
-  return String(live?.probeState||'').toLowerCase()==='live'||Boolean(live?.isLive);
+  return liveNowHandles.has(String(row?.handle||'').toLowerCase());
 }
 function rowPlayable(row){
   const live=row?.live||{};
@@ -1207,32 +1206,43 @@ async function loadUnifiedLibrary({force=false,silent=false}={}){
     loadBusy=false;
   }
 }
-function applyLiveLibrary(data){
+function applyLiveNow(data){
   const items=Array.isArray(data?.items)?data.items:[];
-  // LIVE is an overlay on the canonical channel list. If LIVE arrives before
-  // the base list during startup, do not consume its version and lose state.
-  if(!channels.length&&items.length){
-    liveVersion=-1;
-    return false;
-  }
-  const beforeCurrent=currentHandle?channelFor(currentHandle)?.live||null:null;
-  const beforeSig=String(beforeCurrent?.stream?.sourceSig||'');
-  const beforeLive=Boolean(beforeCurrent?.isLive);
-  const beforePlayable=Boolean(beforeCurrent?.playable);
+  const beforeRow=currentHandle?channelFor(currentHandle):null;
+  const beforeLive=beforeRow?rowLiveDetected(beforeRow):false;
+  const beforePlayable=Boolean(beforeRow&&rowPlayable(beforeRow));
+  const beforeSig=String(beforeRow?.live?.stream?.sourceSig||'');
 
+  const byHandle=new Map();
   for(const item of items){
-    const handle=String(item?.handle||'');
-    const row=channelFor(handle);
-    if(!row)continue;
+    const handle=String(item?.handle||'').toLowerCase();
+    if(handle)byHandle.set(handle,item);
+  }
+  liveNowHandles=new Set(byHandle.keys());
+
+  // LIVE state comes only from the current server snapshot.
+  // Channel/video metadata still comes from the unified package.
+  for(const row of channels){
+    const key=String(row?.handle||'').toLowerCase();
+    const item=byHandle.get(key);
+    if(!item){
+      row.live={
+        ...(row.live||emptyLiveState()),
+        isLive:false,
+        playable:false,
+        probeState:'offline',
+        stream:{type:'',sourceSig:'',url:''}
+      };
+      continue;
+    }
+
     const sourceSig=String(item?.sourceSig||'');
     const streamUrl=String(item?.streamUrl||'');
-    const probeState=String(item?.probeState||'unknown');
-    const detectedLive=probeState.toLowerCase()==='live'||Boolean(item?.detectedLive)||Boolean(item?.live);
-    const playable=Boolean(detectedLive&&item?.playable&&sourceSig&&streamUrl);
+    const playable=Boolean(item?.playable&&sourceSig&&streamUrl);
     row.live={
-      isLive:detectedLive,
+      isLive:true,
       playable,
-      probeState,
+      probeState:'live',
       title:String(item?.title||''),
       cover:{
         url:String(item?.thumbnail||''),
@@ -1244,44 +1254,39 @@ function applyLiveLibrary(data){
         sourceSig:playable?sourceSig:'',
         url:playable?streamUrl:''
       },
-      checkedAt:Number(item?.lastSeenAt||0)||null,
+      checkedAt:Number(item?.lastSeenAt||data?.checkedAt||0)||null,
       updatedAt:Number(item?.changedAt||0)||null
     };
   }
 
-  liveVersion=Number(data?.version??liveVersion);
   renderList();
   updateCurrentUi();
   if(searchQuery)renderSearchResults(searchQuery);
 
   if(currentHandle&&mediaMode==='live'){
-    const now=channelFor(currentHandle)?.live||emptyLiveState();
-    const nowSig=String(now.stream?.sourceSig||'');
-    if(beforeLive&&!now.isLive){
+    const nowRow=channelFor(currentHandle);
+    const nowLive=nowRow?rowLiveDetected(nowRow):false;
+    const nowPlayable=Boolean(nowRow&&rowPlayable(nowRow));
+    const nowSig=String(nowRow?.live?.stream?.sourceSig||'');
+    if(beforeLive&&!nowLive){
       destroyPlayer();
       document.getElementById('nowState').textContent='';
-    }else if(now.isLive&&now.playable&&(!beforePlayable||beforeSig!==nowSig)){
+    }else if(nowLive&&nowPlayable&&(!beforePlayable||beforeSig!==nowSig)){
       openChannel(currentHandle);
     }
   }
-  return true;
 }
-async function loadLiveLibrary({force=false,silent=true}={}){
-  if(liveLoadBusy)return;
-  liveLoadBusy=true;
+async function loadLiveNow({silent=true}={}){
+  if(liveNowBusy)return;
+  liveNowBusy=true;
   try{
-    const v=force?-1:liveVersion;
-    const data=await apiJson(
-      API+'/tiktok/live-library?v='+encodeURIComponent(v)+
-      (force?'&refresh=1':'')+
-      '&t='+Date.now()
-    );
-    if(!data.unchanged)applyLiveLibrary(data);
+    const data=await apiJson(API+'/tiktok/live-now?t='+Date.now());
+    applyLiveNow(data);
   }catch(error){
     if(!silent)showToast('Không tải được trạng thái LIVE');
-    console.warn('tiktok live library',error);
+    console.warn('tiktok live realtime',error);
   }finally{
-    liveLoadBusy=false;
+    liveNowBusy=false;
   }
 }
 
@@ -1350,9 +1355,8 @@ async function addChannel(){
 
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
     libraryVersion=-1;
-    liveVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
-    await loadLiveLibrary({force:true,silent:true});
+        await loadUnifiedLibrary({force:true,silent:true});
+    await loadLiveNow({silent:true});
     if(currentHandle===handle)openChannel(handle);
   }catch(error){
     if(String(error?.message||'')==='tiktok_channel_not_found'){
@@ -1394,9 +1398,8 @@ async function removeChannel(rawHandle){
       body:JSON.stringify({handle,selected:false})
     });
     libraryVersion=-1;
-    liveVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
-    await loadLiveLibrary({force:true,silent:true});
+        await loadUnifiedLibrary({force:true,silent:true});
+    await loadLiveNow({silent:true});
     showToast('Đã xoá @'+handle);
   }catch(error){
     libraryVersion=-1;
@@ -1526,10 +1529,9 @@ document.querySelectorAll('[data-filter]').forEach(btn=>{
 });
 document.getElementById('refreshBtn').addEventListener('click',()=>{
   libraryVersion=-1;
-  liveVersion=-1;
-  void (async()=>{
+    void (async()=>{
     await loadUnifiedLibrary({force:true});
-    await loadLiveLibrary({force:true,silent:true});
+    await loadLiveNow({silent:true});
   })();
 });
 document.getElementById('openTikTokBtn').addEventListener('click',()=>{
@@ -1550,11 +1552,11 @@ document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
 
 void (async()=>{
   await loadUnifiedLibrary({force:true});
-  await loadLiveLibrary({force:true,silent:true});
+  await loadLiveNow({silent:true});
 })();
 renderRecentVideos('');
 setInterval(()=>void loadUnifiedLibrary({silent:true}),POLL_MS);
-setInterval(()=>void loadLiveLibrary({silent:true}),POLL_MS);
+setInterval(()=>void loadLiveNow({silent:true}),POLL_MS);
 </script>
 </body>
 </html>
