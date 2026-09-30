@@ -1629,6 +1629,9 @@ function decodeTikTokLiveText(value){
 function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
   if(value==null||depth>18||out.length>240)return out;
 
+  const pathLower=String(path||'').toLowerCase();
+  const pathIsFlv=/(^|[._\[\]])flv(?:_|[.\[\]]|$)|flv[_-]?pull|pull[_-]?flv|stream[_-]?flv/.test(pathLower);
+
   if(typeof value==='string'){
     const variants=decodeTikTokLiveText(value);
 
@@ -1644,9 +1647,9 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
         }catch{}
       }
 
-      // FLV-only. We intentionally ignore HLS/m3u8 everywhere in LIVE.
-      const re=/https?:\/\/[^"'\\\s<>]+?\.flv(?:\?[^"'\\\s<>]*)?/ig;
-      for(const match of trimmed.matchAll(re)){
+      // Primary case: explicit .flv URL.
+      const explicit=/https?:\/\/[^"'\\\s<>]+?\.flv(?:\?[^"'\\\s<>]*)?/ig;
+      for(const match of trimmed.matchAll(explicit)){
         let url=String(match[0]||'')
           .replace(/&amp;/gi,'&')
           .replace(/\\u0026/gi,'&')
@@ -1654,7 +1657,25 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
           .replace(/\\\//g,'/');
         try{url=decodeURIComponent(url)}catch{}
         if(url&&!out.some(row=>row.url===url)){
-          out.push({url,type:'flv',path});
+          out.push({url,type:'flv',path,reason:'url-extension'});
+        }
+      }
+
+      // TikTok also returns FLV in semantic fields such as flv_pull_url,
+      // main.flv, backup.flv, etc. Those CDN URLs do not always end in .flv.
+      // If the payload path itself declares FLV, accept HTTP(S) URLs from it.
+      if(pathIsFlv){
+        const generic=/https?:\/\/[^"'\\\s<>]+/ig;
+        for(const match of trimmed.matchAll(generic)){
+          let url=String(match[0]||'')
+            .replace(/&amp;/gi,'&')
+            .replace(/\\u0026/gi,'&')
+            .replace(/\\u002F/gi,'/')
+            .replace(/\\\//g,'/');
+          try{url=decodeURIComponent(url)}catch{}
+          if(/^https?:\/\//i.test(url)&&!out.some(row=>row.url===url)){
+            out.push({url,type:'flv',path,reason:'flv-field'});
+          }
         }
       }
     }
@@ -1679,6 +1700,29 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
     }
   }
   return out;
+}
+
+function summarizeTikTokFlvPaths(value,path='',depth=0,out=new Set()){
+  if(value==null||depth>14||out.size>=40)return [...out];
+  const p=String(path||'');
+  const lower=p.toLowerCase();
+  if(/flv|pull_data|stream_data|stream_url|live_core_sdk/.test(lower))out.add(p);
+  if(Array.isArray(value)){
+    value.slice(0,20).forEach((item,index)=>summarizeTikTokFlvPaths(item,p+'['+index+']',depth+1,out));
+  }else if(typeof value==='object'){
+    for(const [key,child] of Object.entries(value)){
+      summarizeTikTokFlvPaths(child,p?p+'.'+key:key,depth+1,out);
+      if(out.size>=40)break;
+    }
+  }else if(typeof value==='string'){
+    for(const decoded of decodeTikTokLiveText(value)){
+      const t=String(decoded||'').trim();
+      if((t.startsWith('{')&&t.endsWith('}'))||(t.startsWith('[')&&t.endsWith(']'))){
+        try{summarizeTikTokFlvPaths(JSON.parse(t),p,depth+1,out)}catch{}
+      }
+    }
+  }
+  return [...out];
 }
 
 function collectTikTokFlvCandidates(value,path=''){
@@ -1800,6 +1844,22 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
       ? collectTikTokLiveStreamCandidates(liveData)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
       : [];
+    if(live&&!candidates.length){
+      console.log(
+        '[tiktok-flv-miss]',
+        handle,
+        'source=live-detail',
+        'paths='+summarizeTikTokFlvPaths(liveData).slice(0,16).join(',')
+      );
+    }else if(live&&candidates.length){
+      console.log(
+        '[tiktok-flv-found]',
+        handle,
+        'source=live-detail',
+        'count='+candidates.length,
+        'top='+String(candidates[0]?.path||'')
+      );
+    }
 
     return {
       known:true,
@@ -1853,6 +1913,22 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
       ? collectTikTokLiveStreamCandidates(room)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
       : [];
+    if(live&&!candidates.length){
+      console.log(
+        '[tiktok-flv-miss]',
+        handle,
+        'source=room-info',
+        'paths='+summarizeTikTokFlvPaths(room).slice(0,16).join(',')
+      );
+    }else if(live&&candidates.length){
+      console.log(
+        '[tiktok-flv-found]',
+        handle,
+        'source=room-info',
+        'count='+candidates.length,
+        'top='+String(candidates[0]?.path||'')
+      );
+    }
     return {known:true,live,status,roomId:String(roomId),candidates};
   }catch(error){
     return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
@@ -2089,6 +2165,22 @@ async function quickTikTokLiveStatus(rawHandle){
         ? collectTikTokLiveStreamCandidates(liveRoom)
             .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
         : [];
+      if(isLive&&!candidates.length){
+        console.log(
+          '[tiktok-flv-miss]',
+          handle,
+          'source=user-room',
+          'paths='+summarizeTikTokFlvPaths(liveRoom).slice(0,16).join(',')
+        );
+      }else if(isLive&&candidates.length){
+        console.log(
+          '[tiktok-flv-found]',
+          handle,
+          'source=user-room',
+          'count='+candidates.length,
+          'top='+String(candidates[0]?.path||'')
+        );
+      }
       return {
         known:true,
         live:isLive,
