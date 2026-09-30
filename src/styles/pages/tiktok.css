@@ -281,6 +281,9 @@
     aspect-ratio:9/16;border-radius:14px;
     box-shadow:0 0 0 1px var(--border-soft)
   }
+  /* TikTok-style portrait viewport: fill the media box, do not expose
+     black side bars when the source ratio is a little narrower/wider. */
+  .phone:not(.landscape):not(.square) video{object-fit:cover}
   .phone.landscape{
     width:min(calc(100% - 16px),720px);max-width:720px;max-height:none;
     aspect-ratio:16/9;border-radius:12px
@@ -322,12 +325,12 @@
 }
 
 /* TikTok-style vertical video navigation. */
-.phone.video-mode{touch-action:pan-x}
+.phone{touch-action:pan-x}
 .phone video{transition:transform .12s ease,opacity .12s ease}
 .phone.swipe-next video{transform:translateY(-16px);opacity:.72}
 .phone.swipe-prev video{transform:translateY(16px);opacity:.72}
 @media(pointer:fine){
-  .phone.video-mode{touch-action:auto}
+  .phone{touch-action:auto}
 }
 
 /* Fixed compact media controls: overlay only, never changes media height. */
