@@ -496,7 +496,7 @@ function findTikTokLiveSourceBySig(handle,sourceSig){
   const browser=tiktokLiveSessions.get(key);
   if(browser&&!browser.page?.isClosed?.()&&tiktokLiveCacheReusable(browser)&&tiktokLibrarySourceSig(browser)===sig)return browser;
   const fast=tiktokLiveFastSources.get(key);
-  // Fast FLV/HLS may be opened before ffprobe finishes. Validation is a
+  // Fast FLV may be opened before ffprobe finishes. Validation is a
   // background health check, not a gate in front of playback.
   if(fast&&tiktokLiveSourceUsable(fast)&&!isTikTokBadSource(handle,fast)&&tiktokLibrarySourceSig(fast)===sig)return fast;
   return null;
@@ -1109,10 +1109,9 @@ function buildTikTokStoredRows(){
       return {
         handle,
         selected:true,
-        // Persisted/public LIVE means playable FLV only. A TikTok LIVE
-        // detection without a usable FLV is kept only in probe_state so it can
-        // be retried, but it is not retained as a LIVE row.
-        live:playable,
+        // Keep TikTok's detected LIVE state internally. Public/UI LIVE is
+        // derived separately and requires a validated FLV.
+        live,
         probe_state:String(item.probeState||'unknown'),
         playable,
         stream_type:playable?'flv':'',
@@ -5847,7 +5846,7 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
       const sourceUsable=Boolean(
         liveRow.live&&
         source?.url&&
-        ['flv','hls'].includes(sourceType)&&
+        sourceType==='flv'&&
         tiktokLiveSourceUsable(source)
       );
       // Canonical/UI-facing LIVE means playable now. Detection/UNKNOWN state
