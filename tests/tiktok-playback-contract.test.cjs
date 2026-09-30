@@ -53,4 +53,10 @@ const warmRoute=server.slice(warmRouteStart,warmRouteEnd);
 assert.match(warmRoute,/downloadTikTokVideoFile\(/,'video-warm must prepare local MP4 fallback');
 assert.match(warmRoute,/json\(res,202/,'video-warm must return immediately while warming');
 
+
+assert.match(html,/id="mediaSeek"/,'TikTok fixed seek bar missing');
+assert.match(html,/function syncMediaControls\(\)/,'TikTok media controls sync missing');
+assert.match(html,/installMediaControls\(\)/,'TikTok custom controls installation missing');
+assert.ok(!html.includes('controls=true'),'TikTok must not re-enable jumping native controls');
+
 console.log('tiktok-playback-contract: assertions passed');
