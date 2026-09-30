@@ -538,7 +538,7 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
   if(!preserveOnFailure){
     markTikTokBadSource(handle,row);
     const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-    const live=Boolean(current.live);
+    const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
     updateTikTokLiveLibrary(handle,{
       ready:false,playable:false,status:live?'warming':'offline',
       type:live?String(row.type||''):'',
@@ -590,6 +590,7 @@ function queueTikTokStatusFallback(handles){
       const now=Date.now();
       if(row?.status==='LIVE'){
         const changed=!Boolean(prev.live);
+        tiktokRealtimeLiveHandles.add(key);
         seedTikTokFastSource(handle,row);
         updateTikTokLiveLibrary(handle,{
           live:true,ready:false,playable:false,
@@ -599,16 +600,21 @@ function queueTikTokStatusFallback(handles){
         });
         queueTikTokLibraryWarm(handle);
       }else if(row?.status==='OFFLINE'){
-        const changed=Boolean(prev.live);
-        tiktokLiveFastSources.delete(key);
-        updateTikTokLiveLibrary(handle,{
-          live:false,ready:false,playable:false,
-          status:'offline',probeState:'offline',sourceSig:'',
-          videoCodec:'',audioCodec:'',width:0,height:0,
-          stateChangedAt:changed?now:Number(prev.stateChangedAt||0),
-          lastKnownAt:now,lastSeenAt:now
-        });
-        tiktokLiveLibraryWarmRetryAt.delete(key);
+        if(tiktokRealtimeLiveHandles.has(key)){
+          updateTikTokLiveLibrary(handle,{
+            live:true,
+            status:'live',
+            probeState:'live',
+            lastSeenAt:now
+          });
+        }else{
+          updateTikTokLiveLibrary(handle,{
+            live:false,
+            status:'offline',
+            probeState:'offline',
+            lastSeenAt:now
+          });
+        }
       }else{
         updateTikTokLiveLibrary(handle,{
           probeState:'unknown',
@@ -1030,6 +1036,7 @@ async function loadTikTokLiveStore(){
     );
 
     tiktokLiveSelectedHandles.clear();
+    tiktokRealtimeLiveHandles.clear();
     tiktokLiveFastSources.clear();
     for(const selected of Array.isArray(selectedRows)?selectedRows:[]){
       const handle=normalizeTikTokHandle(selected?.handle||'');
@@ -1040,6 +1047,7 @@ async function loadTikTokLiveStore(){
       const type=String(stored?.stream_type||'').toLowerCase();
       const url=String(stored?.stream_url||'');
       const live=Boolean(stored?.live);
+      if(live)tiktokRealtimeLiveHandles.add(handle.toLowerCase());
       let source=null;
 
       if(live&&type==='flv'&&/^https?:\/\//i.test(url)){
@@ -1499,6 +1507,8 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       continue;
     }
 
+    // Any TikTok LIVE detection is additive: publish to realtime immediately.
+    tiktokRealtimeLiveHandles.add(key);
     // Confirmed LIVE state is published before stream preparation. Source
     // availability is independent from LIVE/OFFLINE detection.
     updateTikTokLiveLibrary(handle,{
@@ -1557,6 +1567,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       sourceSig:'',
       lastSeenAt:Date.now()
     });
+    queueTikTokLibraryWarm(handle);
   }
 
   console.log(
