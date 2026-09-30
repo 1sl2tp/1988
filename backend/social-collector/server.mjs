@@ -7210,12 +7210,69 @@ const server=http.createServer(async(req,res)=>{
 
       const selected=body?.selected!==false&&String(body?.action||'save').toLowerCase()!=='remove';
       const key=handle.toLowerCase();
-      const had=tiktokLiveSelectedHandles.has(handle);
+      const existingHandle=[...tiktokLiveSelectedHandles]
+        .find(item=>String(item||'').toLowerCase()===key)||'';
+      const had=Boolean(existingHandle);
 
-      // Control plane owns state transitions. Change RAM first so every
-      // subsequent scan/canonical sync sees the new membership immediately.
+      // Membership mutations are idempotent. Re-adding the same channel is a
+      // strict no-op so it cannot create duplicate work, duplicate rows or a
+      // second scan just because casing/input format differs.
+      if(selected&&had){
+        const liveRow=tiktokLiveLibrary.get(key)||null;
+        json(res,200,{
+          ok:true,
+          handle:existingHandle,
+          selected:true,
+          duplicate:true,
+          unchanged:true,
+          live:Boolean(liveRow?.live),
+          ready:Boolean(liveRow?.ready),
+          type:String(liveRow?.type||''),
+          sourceSig:String(liveRow?.sourceSig||''),
+          total:tiktokLiveSelectedHandles.size,
+          version:tiktokLiveLibraryVersion
+        });
+        return;
+      }
+      if(!selected&&!had){
+        json(res,200,{
+          ok:true,
+          handle,
+          selected:false,
+          unchanged:true,
+          total:tiktokLiveSelectedHandles.size,
+          version:tiktokLiveLibraryVersion
+        });
+        return;
+      }
+
+      // Never persist an arbitrary syntactically-valid handle. Verify the
+      // exact TikTok account first; use the browser-backed user-detail lookup
+      // only as a fallback when the direct public endpoint cannot verify it.
+      if(selected){
+        let identity=await fetchTikTokUserDetail(handle).catch(()=>null);
+        if(!identity?.secUid&&!identity?.userId){
+          const profiles=await browserTikTokProfileIdentities([handle]).catch(()=>new Map());
+          identity=profiles.get(key)||null;
+        }
+        if(!identity?.secUid&&!identity?.userId){
+          json(res,404,{ok:false,error:'tiktok_channel_not_found',handle});
+          return;
+        }
+        tiktokProfileIdentityCache.set(key,{
+          at:Date.now(),
+          data:{
+            ...identity,
+            videoId:String(identity?.videoId||''),
+            source:String(identity?.source||'validated-user-detail')
+          }
+        });
+      }
+
+      // Control plane owns state transitions. Change RAM only after validation
+      // so invalid names never appear in the selected package even briefly.
       if(selected)tiktokLiveSelectedHandles.add(handle);
-      else tiktokLiveSelectedHandles.delete(handle);
+      else tiktokLiveSelectedHandles.delete(existingHandle||handle);
 
       let reusedLiveSource=false;
       if(selected){
@@ -7253,7 +7310,7 @@ const server=http.createServer(async(req,res)=>{
         await persistTikTokSelectedMembership(handle,selected);
       }catch(error){
         // Roll RAM membership back if durable selection write fails.
-        if(had)tiktokLiveSelectedHandles.add(handle);
+        if(had)tiktokLiveSelectedHandles.add(existingHandle||handle);
         else tiktokLiveSelectedHandles.delete(handle);
         throw error;
       }
