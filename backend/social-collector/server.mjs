@@ -1737,7 +1737,7 @@ async function quickTikTokLiveStateOnly(rawHandle){
 }
 
 async function browserTikTokLiveStates(handles){
-  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,100);
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
   const out=new Map();
   if(!normalized.length)return out;
 
@@ -1774,11 +1774,19 @@ async function browserTikTokLiveStates(handles){
           const handle=list[index];
           try{
             const url='/api-live/user/room?aid=1988&sourceType=54&uniqueId='+encodeURIComponent(handle);
-            const r=await fetch(url,{
-              method:'GET',
-              credentials:'include',
-              headers:{accept:'application/json,text/plain,*/*'}
-            });
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),3500);
+            let r;
+            try{
+              r=await fetch(url,{
+                method:'GET',
+                credentials:'include',
+                headers:{accept:'application/json,text/plain,*/*'},
+                signal:controller.signal
+              });
+            }finally{
+              clearTimeout(timer);
+            }
             if(!r.ok){
               result[index]={handle,known:false,live:false,status:null,http:r.status};
               continue;
