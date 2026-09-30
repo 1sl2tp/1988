@@ -2531,16 +2531,29 @@ async function quickTikTokLiveStatus(rawHandle){
       // Some LIVE accounts (notably guest/co-host style rooms) return status=2
       // and roomId here but omit streamData entirely. Do not stop at the status
       // response: resolve media by roomId, exactly as TikTok LIVE extractors do.
-      if((isLive||keepMedia)&&!candidates.length&&roomId){
-        const room=await quickTikTokRoomInfoStatus(handle,roomId).catch(()=>null);
-        if(room?.candidates?.length){
-          candidates=room.candidates;
-          mediaSource='user-room>room-info';
-        }else{
-          const byRoom=await quickTikTokLiveDetailStatus(handle,false,roomId).catch(()=>null);
+      if((isLive||keepMedia)&&!candidates.length){
+        const roomIds=[];
+        if(roomId)roomIds.push(String(roomId));
+
+        // TikTok guest/co-host LIVE can expose status=2 on user/room while the
+        // usable stream belongs to a roomId embedded in the profile hydration.
+        const profile=await fetchTikTokProfileIdentityScraped(handle).catch(()=>null);
+        const profileRoomId=String(profile?.roomId||'');
+        if(profileRoomId&&!roomIds.includes(profileRoomId))roomIds.unshift(profileRoomId);
+
+        for(const mediaRoomId of roomIds){
+          const room=await quickTikTokRoomInfoStatus(handle,mediaRoomId).catch(()=>null);
+          if(room?.candidates?.length){
+            candidates=room.candidates;
+            mediaSource='user-room>profile-room>room-info';
+            break;
+          }
+
+          const byRoom=await quickTikTokLiveDetailStatus(handle,false,mediaRoomId).catch(()=>null);
           if(byRoom?.candidates?.length){
             candidates=byRoom.candidates;
-            mediaSource='user-room>room-info>live-detail-room';
+            mediaSource='user-room>profile-room>live-detail-room';
+            break;
           }
         }
       }
@@ -3147,6 +3160,7 @@ async function fetchTikTokProfileIdentityScraped(handle){
       return {
         secUid:String(user?.secUid||user?.sec_uid||''),
         userId:String(user?.id||user?.uid||user?.userId||''),
+        roomId:String(user?.roomId||user?.room_id||''),
         nickname:String(user?.nickname||user?.nickName||''),
         avatar,
         followerCount:Number(stats?.followerCount||stats?.follower_count||0),
@@ -3193,10 +3207,10 @@ async function fetchTikTokProfileIdentityScraped(handle){
     const followingCount=Number(pick([/"followingCount":(\d+)/,/"following_count":(\d+)/])||0);
     const heartCount=Number(pick([/"heartCount":(\d+)/,/"heart":(\d+)/])||0);
     const videoCount=Number(pick([/"videoCount":(\d+)/,/"video_count":(\d+)/])||0);
-    return {secUid,userId,nickname,avatar,videoId,followerCount,followingCount,heartCount,videoCount};
+    return {secUid,userId,roomId,nickname,avatar,videoId,followerCount,followingCount,heartCount,videoCount};
   }catch(error){
     console.warn('[tiktok-profile] html identity failed',handle,compactText(error?.message||error,220));
-    return {secUid:'',userId:'',nickname:'',avatar:'',videoId:''};
+    return {secUid:'',userId:'',roomId:'',nickname:'',avatar:'',videoId:''};
   }
 }
 
