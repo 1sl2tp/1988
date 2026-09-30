@@ -58,6 +58,7 @@
       <div class="media-tabs">
         <button class="media-tab active" data-media-mode="live">LIVE</button>
         <button class="media-tab" data-media-mode="video">Video</button>
+        <span class="media-kind-badge" id="mediaKindBadge" data-kind="live">LIVE · FLV</span>
         <span class="media-title" id="mediaTitle"></span>
       </div>
 
@@ -67,6 +68,7 @@
         <section class="watch">
           <div class="phone" id="phone">
             <video id="liveVideo" playsinline preload="metadata"></video>
+            <div class="media-empty" id="mediaEmpty">Chọn một kênh để xem LIVE hoặc Video</div>
           </div>
 
           <div class="current-info" id="overlay" hidden>
@@ -251,6 +253,13 @@ function rowPlayable(row){
 function rowFor(handle){
   return channelFor(handle);
 }
+function setMediaEmpty(message=''){
+  const el=document.getElementById('mediaEmpty');
+  if(!el)return;
+  const text=String(message||'').trim();
+  el.textContent=text;
+  el.hidden=!text;
+}
 function showToast(message){
   const el=document.getElementById('toast');
   el.textContent=String(message||'');
@@ -304,8 +313,10 @@ function updateCurrentUi(){
   ].filter(Boolean).join(' · ');
   document.getElementById('nowState').textContent=currentHandle
     ? (mediaMode==='video'&&currentVideo
-        ? (String(currentVideo.title||'').trim()||videoMetaText(currentVideo))
-        : statsText)
+        ? [String(currentVideo.title||'').trim(),videoMetaText(currentVideo)].filter(Boolean).join(' · ')
+        : (rowLiveDetected(row)
+            ? ((rowPlayable(row)?'LIVE · FLV sẵn sàng':'LIVE · đang chuẩn bị FLV')+(statsText?' · '+statsText:''))
+            : statsText))
     : '';
 
   const av=document.getElementById('nowAvatar');
@@ -350,7 +361,7 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(rowLiveDetected(row)?'<span class="live-dot" title="'+(rowPlayable(row)?'Đang LIVE · có FLV':'Đang LIVE · chưa có FLV')+'"></span>':'')+
+      '<span class="row-actions">'+(rowLiveDetected(row)?'<span class="live-pill '+(rowPlayable(row)?'':'pending')+'" title="'+(rowPlayable(row)?'Đang LIVE · FLV sẵn sàng':'Đang LIVE · đang chuẩn bị FLV')+'">'+(rowPlayable(row)?'LIVE':'LIVE…')+'</span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
@@ -386,6 +397,11 @@ function setMediaMode(mode){
   document.querySelectorAll('[data-media-mode]').forEach(btn=>{
     btn.classList.toggle('active',btn.dataset.mediaMode===mediaMode);
   });
+  const badge=document.getElementById('mediaKindBadge');
+  if(badge){
+    badge.dataset.kind=mediaMode;
+    badge.textContent=mediaMode==='video'?'VIDEO · MP4':'LIVE · FLV';
+  }
   const phone=document.getElementById('phone');
   phone.classList.toggle('video-mode',mediaMode==='video');
   if(mediaMode==='video')phone.classList.remove('landscape','square');
@@ -423,6 +439,7 @@ function renderRecentVideos(handle=currentHandle){
     return '<div class="video-card'+active+'" data-ready="'+(video.playback?.ready?'true':'false')+'" data-video-id="'+esc(video.id)+'" data-video-handle="'+esc(video.handle)+'">'+
       '<div class="video-thumb">'+
         (cover?'<img src="'+esc(cover)+'" alt="" loading="lazy" referrerpolicy="no-referrer">':'')+
+        '<span class="video-ready">'+(video.playback?.ready?'MP4':'Đợi')+'</span>'+
         (formatDuration(video.duration)?'<span class="video-duration">'+esc(formatDuration(video.duration))+'</span>':'')+
       '</div>'+
       '<div class="video-copy">'+
@@ -452,6 +469,7 @@ async function openVideo(rawHandle,videoId,retry=true){
   setMediaMode('video');
 
   const native=document.getElementById('liveVideo');
+  setMediaEmpty('');
   native.hidden=false;
   native.controls=true;
   native.preload='metadata';
@@ -471,7 +489,8 @@ async function openVideo(rawHandle,videoId,retry=true){
 
   const stream=String(video.playback?.url||'').trim();
   if(!video.playback?.ready||!stream){
-    showToast('Video chưa được server đồng bộ');
+    setMediaEmpty('Video đang được server chuẩn bị MP4');
+    showToast('Video đang được server chuẩn bị');
     return;
   }
 
@@ -500,6 +519,10 @@ async function openVideo(rawHandle,videoId,retry=true){
     if(seq!==videoOpenSeq)return;
     setPlayerShape(native);
     native.play().catch(()=>{});
+  };
+  native.onplaying=()=>{
+    if(seq!==videoOpenSeq)return;
+    setMediaEmpty('');
   };
 
   native.src=src;
@@ -548,7 +571,7 @@ function renderSearchResults(value){
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(row.handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(profile.name||('@'+row.handle))+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(row.handle)+'</span></span></span>'+
-      (rowLiveDetected(row)?'<span class="live-dot"></span>':'')+
+      (rowLiveDetected(row)?'<span class="live-pill '+(rowPlayable(row)?'':'pending')+'">'+(rowPlayable(row)?'LIVE':'LIVE…')+'</span>':'')+
     '</div>';
   }).join('');
 
@@ -914,6 +937,7 @@ async function removeChannel(rawHandle){
 function attachFlv(url,handle,retryCount=0){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
+  setMediaEmpty('Đang nối LIVE…');
   let failed=false;
   const p=flvjs.createPlayer(
     {type:'flv',isLive:true,url,cors:true,withCredentials:false},
@@ -956,6 +980,7 @@ function attachFlv(url,handle,retryCount=0){
     if(failed)return;
     failed=true;
     destroyPlayer();
+    setMediaEmpty(retryCount<1?'Đang nối lại LIVE…':'LIVE đang đổi nguồn FLV');
     document.getElementById('nowState').textContent='';
     if(retryCount<1&&handle===currentHandle&&mediaMode==='live'){
       setTimeout(()=>{
@@ -966,6 +991,7 @@ function attachFlv(url,handle,retryCount=0){
   player=p;
   video.onplaying=()=>{
     if(handle!==currentHandle)return;
+    setMediaEmpty('');
     video.controls=true;
     setPlayerShape(video);
     updateCurrentUi();
@@ -991,6 +1017,7 @@ function openChannel(rawHandle){
   document.getElementById('mediaTitle').textContent=(profile.name||('@'+handle))+' · LIVE';
 
   const native=document.getElementById('liveVideo');
+  setMediaEmpty('');
   native.hidden=false;
   native.controls=true;
   native.poster=String(live.cover?.url||live.cover?.sourceUrl||'');
@@ -1007,7 +1034,10 @@ function openChannel(rawHandle){
   }
 
   destroyPlayer();
-  document.getElementById('nowState').textContent='';
+  setMediaEmpty(rowLiveDetected(row)
+    ? 'LIVE đang chuẩn bị nguồn FLV'
+    : 'Kênh hiện không LIVE · chọn Video để xem MP4');
+  updateCurrentUi();
 }
 document.getElementById('addBtn').addEventListener('click',addChannel);
 const searchInput=document.getElementById('addInput');
