@@ -15,12 +15,8 @@ def _alarm_handler(signum, frame):
 
 def detect_type(url):
     value = str(url or "").lower()
-    if ".m3u8" in value:
-        return "hls"
     if ".flv" in value:
         return "flv"
-    if ".mp4" in value:
-        return "mp4"
     return "unknown"
 
 def choose_stream(info):
@@ -40,12 +36,14 @@ def choose_stream(info):
         height = int(fmt.get("height") or 0)
         tbr = float(fmt.get("tbr") or 0)
         if not kind:
-            if "m3u8" in protocol or ".m3u8" in url.lower():
-                kind = "hls"
-            elif ext == "flv" or ".flv" in url.lower():
+            if ext == "flv" or ".flv" in url.lower():
                 kind = "flv"
             else:
                 kind = detect_type(url)
+        # TikTok LIVE playback is FLV-only. Ignore HLS/MP4 at extraction time
+        # so no downstream code can accidentally promote them to LIVE media.
+        if kind != "flv":
+            return
         candidates.append({
             "url": url,
             "kind": kind,
@@ -58,8 +56,8 @@ def choose_stream(info):
         })
 
     manifest = str(info.get("manifest_url") or "")
-    if manifest:
-        add(manifest, "hls" if ".m3u8" in manifest.lower() else detect_type(manifest), source="manifest_url")
+    if manifest and ".flv" in manifest.lower():
+        add(manifest, "flv", source="manifest_url")
 
     direct = str(info.get("url") or "")
     if direct:
@@ -70,14 +68,9 @@ def choose_stream(info):
 
     def score(row):
         s = 0
-        # LIVE library preference: FLV first because it has proven more stable
-        # for the current browser/relay path. HLS remains the fallback.
+        # FLV is the only accepted TikTok LIVE transport.
         if row["kind"] == "flv":
             s += 12000
-        elif row["kind"] == "hls":
-            s += 8000
-        elif row["kind"] == "mp4":
-            s += 3000
 
         # Critical: Chrome/Safari compatibility. Prefer AVC/H.264 and avoid HEVC
         # unless it is the only available stream.
@@ -162,7 +155,6 @@ def main():
             "success": True,
             "stream_url": stream_url,
             "stream_type": stream_type,
-            "m3u8": stream_url if stream_type == "hls" else "",
             "flv": stream_url if stream_type == "flv" else "",
             "is_live": bool(
                 info.get("is_live")
