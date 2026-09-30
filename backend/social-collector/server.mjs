@@ -3727,6 +3727,13 @@ function tiktokVideoSourceReusable(row){
 }
 async function persistTikTokCanonicalMp4Source(source){
   if(!source?.handle||!source?.id||!isDirectTikTokMediaUrl(source.url))return false;
+  const ext=String(source?.ext||'').toLowerCase();
+  const width=Number(source?.width||0);
+  const height=Number(source?.height||0);
+  if(ext!=='mp4'||width<=0||height<=0){
+    console.log('[tiktok-mp4-library] reject non-video',source?.handle,source?.id,ext,width+'x'+height);
+    return false;
+  }
   if(!tiktokCanonicalLoaded)return false;
   const row=tiktokCanonicalVideos.get(String(source.id));
   if(!row||String(row.handle||'').toLowerCase()!==String(source.handle||'').toLowerCase())return false;
@@ -3736,6 +3743,9 @@ async function persistTikTokCanonicalMp4Source(source){
   row.mp4_expires_at=new Date(expiresAt).toISOString();
   row.mp4_source=String(source.source||'yt-dlp');
   row.mp4_updated_at=nowIso();
+  if(width>0)row.width=Math.round(width);
+  if(height>0)row.height=Math.round(height);
+  if(Number(source?.duration||0)>0)row.duration=Math.round(Number(source.duration));
   row.updated_at=nowIso();
   tiktokCanonicalVideos.set(String(row.video_id),row);
   await upsertTikTokCanonicalRows([], [row]);
@@ -4631,6 +4641,9 @@ function canonicalMp4ExpiryMs(row){
 function canonicalMp4Usable(row,minRemainMs=60_000){
   const url=String(row?.mp4_url||'').trim();
   if(!isDirectTikTokMediaUrl(url))return false;
+  // Canonical MP4 means an actual video frame source. Audio-only/photo posts
+  // must never be exposed to the <video> player as ready MP4.
+  if(Number(row?.width||0)<=0||Number(row?.height||0)<=0)return false;
   const expiresAt=canonicalMp4ExpiryMs(row);
   return !expiresAt||expiresAt-Date.now()>minRemainMs;
 }
