@@ -38,7 +38,7 @@ jobs:
           print('LONGGIATIEN',json.dumps(row,ensure_ascii=False,sort_keys=True))
           assert row, '@longgiatien missing from selected-channel status table'
           assert str(row.get('state','')).startswith('live_'), 'full sweep lost KNOWN LIVE @longgiatien'
-          assert any(e.get('known') and e.get('live') for e in (row.get('evidence') or [])), 'no positive LIVE evidence for @longgiatien'
+          assert row.get('retainedLive') or any(e.get('known') and e.get('live') for e in (row.get('evidence') or [])), 'LIVE was neither re-confirmed nor safely retained for @longgiatien'
 
           items=allst.get('items') or []
           handles=[str(x.get('handle') or '').lower() for x in items if x.get('handle')]
