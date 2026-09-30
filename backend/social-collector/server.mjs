@@ -337,6 +337,18 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
     status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0
   };
   const next={...prev,...patch,handle};
+
+  // HARD LOCK: once a handle has been discovered LIVE, ordinary API/package/
+  // getlink paths are not allowed to turn it OFF. Only the explicit channel
+  // removal control-plane path removes it from tiktokRealtimeLiveHandles.
+  if(tiktokRealtimeLiveHandles.has(key)&&options.allowLiveRemoval!==true){
+    next.live=true;
+    next.probeState='live';
+    if(!next.playable&&['offline','unknown','checking','warming'].includes(String(next.status||''))){
+      next.status='live';
+    }
+  }
+
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
   const changed=tiktokLibraryMaterial(prev)!==tiktokLibraryMaterial(next);
   if(changed){
@@ -352,7 +364,7 @@ function currentTikTokLibrarySource(handle){
   const browser=tiktokLiveSessions.get(key);
   if(browser&&browser.page&&!browser.page.isClosed()&&tiktokLiveCacheReusable(browser))return browser;
   const fast=tiktokLiveFastSources.get(key);
-  if(fast&&tiktokLiveSourceUsable(fast)&&!isTikTokBadSource(handle,fast))return fast;
+  if(fast&&tiktokLiveSourceUsable(fast))return fast;
   return null;
 }
 function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status=''}={}){
@@ -498,7 +510,7 @@ function findTikTokLiveSourceBySig(handle,sourceSig){
   const fast=tiktokLiveFastSources.get(key);
   // Fast FLV may be opened before ffprobe finishes. Validation is a
   // background health check, not a gate in front of playback.
-  if(fast&&tiktokLiveSourceUsable(fast)&&!isTikTokBadSource(handle,fast)&&tiktokLibrarySourceSig(fast)===sig)return fast;
+  if(fast&&tiktokLiveSourceUsable(fast)&&tiktokLibrarySourceSig(fast)===sig)return fast;
   return null;
 }
 async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserveOnFailure=false}={}){
@@ -661,8 +673,7 @@ async function findPreferredTikTokFlv(handle,excludeSig=''){
 
   const candidates=(status.candidates||[])
     .filter(row=>
-      row?.type==='flv'&&
-      /^https?:\/\//i.test(String(row?.url||''))&&
+      isTikTokVideoFlvCandidate(row)&&
       (!excludeSig||tiktokLibrarySourceSig(row)!==excludeSig)
     )
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
@@ -1081,10 +1092,11 @@ function buildTikTokStoredRows(){
       const item=tiktokLiveLibrary.get(key)||{};
       const source=currentTikTokLibrarySource(handle);
       const sourceType=String(source?.type||'').toLowerCase();
-      const live=Boolean(item.live);
-      // Canonical LIVE playback is FLV-only. A detected LIVE without a
-      // validated FLV remains internal/pending and is never published
-      // as a playable LIVE channel.
+      // HARD LOCK persistence: realtime LIVE is authoritative for detected LIVE.
+      // A later API result cannot make persistence forget a discovered LIVE.
+      const live=tiktokRealtimeLiveHandles.has(key)||Boolean(item.live);
+      // Canonical LIVE playback is FLV-only. A detected LIVE without an FLV
+      // remains LIVE/pending and is never removed by API status.
       const playable=Boolean(
         live&&source?.url&&sourceType==='flv'&&tiktokLiveSourceUsable(source)
       );
@@ -1094,7 +1106,7 @@ function buildTikTokStoredRows(){
         // Keep TikTok's detected LIVE state internally. Public/UI LIVE is
         // derived separately and requires a validated FLV.
         live,
-        probe_state:String(item.probeState||'unknown'),
+        probe_state:live?'live':String(item.probeState||'unknown'),
         playable,
         stream_type:playable?'flv':'',
         stream_url:playable?String(source.url||''):'',
@@ -1436,7 +1448,7 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     const key=handle.toLowerCase();
     const candidates=Array.isArray(status?.candidates)?status.candidates:[];
     const flv=candidates
-      .filter(row=>row?.type==='flv'&&!isTikTokBadSource(handle,row))
+      .filter(isTikTokVideoFlvCandidate)
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
 
     if(!status?.known){
@@ -1615,11 +1627,13 @@ function tiktokStreamExpiresAt(rawUrl){
   }catch{return 0}
 }
 function tiktokLiveSourceUsable(row,maxAge=TIKTOK_LIVE_REUSE_MS){
-  if(!row?.url||!row?.at)return false;
-  if(Date.now()-Number(row.at)>maxAge)return false;
-  const expiresAt=tiktokStreamExpiresAt(row.url);
-  if(expiresAt&&expiresAt-Date.now()<60_000)return false;
-  return true;
+  // LOCKED GETLINK PHASE: presence of an FLV URL is enough to keep it in data.
+  // Expiry/health/removal belongs to the later dedicated link-check stage.
+  return Boolean(
+    row?.url&&
+    String(row?.type||'').toLowerCase()==='flv'&&
+    /^https?:\/\//i.test(String(row.url||''))
+  );
 }
 function tiktokLiveCacheReusable(row){
   if(!tiktokLiveSourceUsable(row))return false;
@@ -1783,6 +1797,19 @@ function collectTikTokFlvCandidates(value,path=''){
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
 }
 
+function isTikTokVideoFlvCandidate(row){
+  const url=String(row?.url||'');
+  const path=String(row?.path||'');
+  if(String(row?.type||'').toLowerCase()!=='flv'||!/^https?:\/\//i.test(url))return false;
+
+  const text=(path+' '+url).toLowerCase();
+  // TikTok exposes dedicated audio-only FLV under data.ao/main and via
+  // only_audio=1. Never publish those as video LIVE.
+  if(/[?&]only_audio=(?:1|true)(?:&|$)/i.test(url))return false;
+  if(/(^|[._\[\]/-])ao(?:[._\[\]/-]|$)|audio[_-]?only|only[_-]?audio/.test(text))return false;
+  return true;
+}
+
 function rankTikTokLiveCandidate(row){
   const text=(String(row?.path||'')+' '+String(row?.url||'')).toLowerCase();
   let score=0;
@@ -1792,6 +1819,7 @@ function rankTikTokLiveCandidate(row){
   if(/hevcstreamdata|hevc|h265|hvc1|hev1/.test(text))score-=5000;
   if(/(^|[._])streamdata([._]|$)|h264|avc|avc1/.test(text))score+=2500;
 
+  if(!isTikTokVideoFlvCandidate(row))return -100000;
   if(row?.type==='flv')score+=1000;
 
   if(/full[_ -]?hd1|full_hd1/.test(text))score+=600;
@@ -1984,8 +2012,10 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
     }
 
     const live=status===2;
-    const candidates=live
+    const keepMedia=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase());
+    const candidates=(live||keepMedia)
       ? collectTikTokLiveStreamCandidates(liveData)
+          .filter(isTikTokVideoFlvCandidate)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
       : [];
     if(live&&!candidates.length){
@@ -2053,8 +2083,10 @@ async function quickTikTokRoomInfoStatus(handle,roomId){
       return {known:false,live:false,status:null,roomId:String(roomId),candidates:[]};
     }
     const live=status===2;
-    const candidates=live
+    const keepMedia=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase());
+    const candidates=(live||keepMedia)
       ? collectTikTokLiveStreamCandidates(room)
+          .filter(isTikTokVideoFlvCandidate)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
       : [];
     if(live&&!candidates.length){
@@ -2232,13 +2264,15 @@ async function browserTikTokLiveStates(handles){
 async function quickTikTokLiveStatus(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,candidates:[]};
+  const key=handle.toLowerCase();
+  const keepMedia=tiktokRealtimeLiveHandles.has(key);
 
   // First use the lightweight Web endpoint from the supplied reference code.
   // It gives a direct LiveRoomInfo.status (2 LIVE / 4 OFFLINE), plus room id,
   // title and viewer count, without opening Chromium.
   const detail=await quickTikTokLiveDetailStatus(handle);
   if(detail?.known){
-    if(!detail.live)return detail;
+    if(!detail.live&&!keepMedia)return detail;
 
     if(detail.candidates?.length)return detail;
 
@@ -2279,8 +2313,9 @@ async function quickTikTokLiveStatus(rawHandle){
 
     if(Number.isFinite(roomStatus)){
       const isLive=roomStatus===2;
-      const candidates=isLive
+      const candidates=(isLive||keepMedia)
         ? collectTikTokLiveStreamCandidates(liveRoom)
+            .filter(isTikTokVideoFlvCandidate)
             .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))
         : [];
       if(isLive&&!candidates.length){
@@ -2422,8 +2457,9 @@ function shouldPreferTikTokBrowser(handle){
 }
 
 function cleanTikTokFastSources(){
+  // Do not age-out or blacklist FLV during the locked getlink phase.
   for(const [key,row] of tiktokLiveFastSources){
-    if(!row||!tiktokLiveSourceUsable(row)||isTikTokBadSource(key,row)){
+    if(!row||!tiktokLiveSourceUsable(row)){
       tiktokLiveFastSources.delete(key);
     }
   }
@@ -2434,55 +2470,51 @@ async function resolveTikTokLiveSource(rawHandle){
   if(!handle)throw new Error('invalid_tiktok_handle');
   const key=handle.toLowerCase();
 
-  const browserSession=tiktokLiveSessions.get(key);
-  if(browserSession&&browserSession.type==='flv'&&browserSession.page&&!browserSession.page.isClosed()&&tiktokLiveCacheReusable(browserSession)){
-    browserSession.at=Date.now();
-    return {mode:'browser-cache',handle,type:'flv',url:browserSession.url,at:browserSession.at,source:'browser-cache'};
-  }
-
   const cached=tiktokLiveFastSources.get(key);
-  if(cached&&cached.type==='flv'&&tiktokLiveCacheReusable(cached)&&!isTikTokBadSource(handle,cached)){
+  if(cached&&isTikTokVideoFlvCandidate(cached)){
     cached.at=Date.now();
-    return {...cached,type:'flv',mode:'fast-cache'};
+    return {...cached,type:'flv',mode:cached.mode||'fast-cache'};
   }
-  tiktokLiveFastSources.delete(key);
 
   const preflight=await quickTikTokLiveStatus(handle);
   if(preflight.known&&!preflight.live&&!tiktokRealtimeLiveHandles.has(key)){
     throw new Error('tiktok_not_live');
   }
 
-  const candidates=(preflight.candidates||[])
-    .filter(row=>row?.type==='flv'&&!isTikTokBadSource(handle,row))
-    .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
-  for(const candidate of candidates.slice(0,10)){
-    const valid=await validateTikTokLiveCandidate(handle,candidate);
-    if(valid){
-      const row={
-        mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
-        at:Date.now(),source:'room-api-flv',confirmed:false
-      };
-      tiktokLiveFastSources.set(key,row);
-      return row;
-    }
+  const candidate=(preflight.candidates||[])
+    .filter(isTikTokVideoFlvCandidate)
+    .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
+  if(candidate){
+    const row={
+      mode:'fast',handle,type:'flv',
+      url:String(candidate.url||''),
+      headers:candidate.headers||{},
+      at:Date.now(),source:'room-api-flv',confirmed:false
+    };
+    tiktokLiveFastSources.set(key,row);
+    return row;
   }
 
   const ytdlp=await fastTikTokLiveWithYtdlp(handle).catch(()=>null);
-  if(ytdlp&&String(ytdlp.type||'').toLowerCase()==='flv'){
-    const valid=await validateTikTokLiveCandidate(handle,{...ytdlp,type:'flv'});
-    if(valid){
-      const row={
-        mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
-        at:Date.now(),source:'yt-dlp-flv',confirmed:false
-      };
-      tiktokLiveFastSources.set(key,row);
-      return row;
-    }
+  if(ytdlp&&isTikTokVideoFlvCandidate({...ytdlp,type:'flv'})){
+    const row={
+      mode:'fast',handle,type:'flv',url:String(ytdlp.url||''),
+      headers:ytdlp.headers||{},at:Date.now(),
+      source:'yt-dlp-flv',confirmed:false
+    };
+    tiktokLiveFastSources.set(key,row);
+    return row;
   }
 
   const session=await captureTikTokLiveSession(handle);
-  if(session?.type!=='flv')throw new Error('tiktok_live_flv_not_found');
-  return {mode:'browser',handle,type:'flv',url:session.url,at:session.at,source:'browser-flv'};
+  if(!isTikTokVideoFlvCandidate(session))throw new Error('tiktok_live_flv_not_found');
+  const row={
+    mode:'fast',handle,type:'flv',url:String(session.url||''),
+    headers:session.headers||{},at:Date.now(),
+    source:'browser-flv',confirmed:false
+  };
+  tiktokLiveFastSources.set(key,row);
+  return row;
 }
 
 async function captureTikTokLiveSessionOnce(rawHandle){
@@ -2541,7 +2573,9 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     try{
       const requestUrl=String(request.url()||'');
       const lower=requestUrl.toLowerCase();
-      if(lower.includes('.flv'))remember(requestUrl,'flv',request.headers?.()||{});
+      if(lower.includes('.flv')&&isTikTokVideoFlvCandidate({url:requestUrl,type:'flv',path:'browser-request'})){
+        remember(requestUrl,'flv',request.headers?.()||{});
+      }
 
       if(request.isInterceptResolutionHandled?.())return;
       const kind=String(request.resourceType?.()||'');
@@ -2566,6 +2600,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
         const text=await response.text().catch(()=>null);
         if(!text||text.length>3_000_000)return;
         const flv=collectTikTokLiveStreamCandidates(text,[],'browser-response')
+          .filter(isTikTokVideoFlvCandidate)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
 
         if(flv&&!capturedFlv){
@@ -2780,28 +2815,9 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
   });
 
   if(piped?.ok===false&&[403,404,410].includes(Number(piped.status||0))){
-    const key=handle.toLowerCase();
-    markTikTokBadSource(handle,source);
-    if(fast)tiktokLiveFastSources.delete(key);
-    else await closeTikTokLiveSession(key).catch(()=>{});
-
-    tiktokLiveLibraryRefreshAt.delete(key);
-    tiktokLiveLibraryWarmRetryAt.delete(key);
-    const current=tiktokLiveLibrary.get(key)||{};
-    updateTikTokLiveLibrary(handle,{
-      ready:false,
-      playable:false,
-      type:'',
-      mode:'',
-      source:'',
-      status:current.live?'live':'offline',
-      sourceSig:'',
-      lastSeenAt:Date.now(),
-      expiresAt:0
-    });
-    void persistTikTokLiveStore({force:true});
-    queueTikTokLibraryWarm(handle);
-    console.log('[tiktok-proxy] invalidated dead source',handle,'status='+piped.status);
+    // LOCKED GETLINK PHASE: playback failure is diagnostic only.
+    // Do not remove LIVE, do not blacklist, and do not erase the FLV yet.
+    console.log('[tiktok-proxy] FLV relay failed',handle,'status='+piped.status);
   }
 }
 
