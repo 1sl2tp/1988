@@ -615,6 +615,8 @@ let filterMode='all';
 let mediaMode='live';
 let videoVersion=-1;
 let libraryVersion=-1;
+let liveVersion=-1;
+let liveLoadBusy=false;
 let currentVideoId='';
 let currentVideo=null;
 let videoOpenSeq=0;
@@ -1096,12 +1098,26 @@ function selectChannel(handle){
   }
   openChannel(handle);
 }
+function emptyLiveState(){
+  return {
+    isLive:false,
+    playable:false,
+    probeState:'unknown',
+    title:'',
+    cover:{url:'',sourceUrl:'',storedUrl:''},
+    stream:{type:'',sourceSig:'',url:''},
+    checkedAt:null,
+    updatedAt:null
+  };
+}
 function applyUnifiedLibrary(data){
   const rows=Array.isArray(data?.channels)?data.channels:[];
+  const previousLive=new Map(
+    channels.map(row=>[String(row?.handle||'').toLowerCase(),row?.live||emptyLiveState()])
+  );
   channels=rows.map(ch=>{
     const handle=String(ch?.handle||'');
     const profile=ch?.profile||{};
-    const live=ch?.live||{};
     const videos=(Array.isArray(ch?.videos)?ch.videos:[])
       .map(v=>({
         id:String(v?.id||''),
@@ -1157,23 +1173,7 @@ function applyUnifiedLibrary(data){
         source:String(profile?.source||''),
         checkedAt:profile?.checkedAt||null
       },
-      live:{
-        isLive:Boolean(live?.isLive),
-        playable:Boolean(live?.playable),
-        title:String(live?.title||''),
-        cover:{
-          url:String(live?.cover?.url||live?.cover?.sourceUrl||''),
-          sourceUrl:String(live?.cover?.sourceUrl||''),
-          storedUrl:String(live?.cover?.storedUrl||'')
-        },
-        stream:{
-          type:String(live?.stream?.type||''),
-          sourceSig:String(live?.stream?.sourceSig||''),
-          url:String(live?.stream?.url||'')
-        },
-        checkedAt:live?.checkedAt||null,
-        updatedAt:live?.updatedAt||null
-      },
+      live:previousLive.get(handle.toLowerCase())||emptyLiveState(),
       videos
     };
   }).filter(row=>parseHandle(row.handle));
@@ -1201,6 +1201,73 @@ async function loadUnifiedLibrary({force=false,silent=false}={}){
     loadBusy=false;
   }
 }
+function applyLiveLibrary(data){
+  const items=Array.isArray(data?.items)?data.items:[];
+  const beforeCurrent=currentHandle?channelFor(currentHandle)?.live||null:null;
+  const beforeSig=String(beforeCurrent?.stream?.sourceSig||'');
+  const beforeLive=Boolean(beforeCurrent?.isLive);
+  const beforePlayable=Boolean(beforeCurrent?.playable);
+
+  for(const item of items){
+    const handle=String(item?.handle||'');
+    const row=channelFor(handle);
+    if(!row)continue;
+    const sourceSig=String(item?.sourceSig||'');
+    const streamUrl=String(item?.streamUrl||'');
+    const playable=Boolean(item?.live&&item?.playable&&sourceSig&&streamUrl);
+    row.live={
+      isLive:Boolean(item?.live),
+      playable,
+      probeState:String(item?.probeState||'unknown'),
+      title:String(item?.title||''),
+      cover:{
+        url:String(item?.thumbnail||''),
+        sourceUrl:String(item?.thumbnail||''),
+        storedUrl:''
+      },
+      stream:{
+        type:playable?String(item?.type||''):'',
+        sourceSig:playable?sourceSig:'',
+        url:playable?streamUrl:''
+      },
+      checkedAt:Number(item?.lastSeenAt||0)||null,
+      updatedAt:Number(item?.changedAt||0)||null
+    };
+  }
+
+  liveVersion=Number(data?.version??liveVersion);
+  renderList();
+  updateCurrentUi();
+  if(searchQuery)renderSearchResults(searchQuery);
+
+  if(currentHandle&&mediaMode==='live'){
+    const now=channelFor(currentHandle)?.live||emptyLiveState();
+    const nowSig=String(now.stream?.sourceSig||'');
+    if(beforeLive&&!now.isLive){
+      destroyPlayer();
+      document.getElementById('nowState').textContent='';
+    }else if(now.isLive&&!now.playable){
+      document.getElementById('nowState').textContent='LIVE đang đồng bộ nguồn';
+    }else if(now.isLive&&now.playable&&(!beforePlayable||beforeSig!==nowSig)){
+      openChannel(currentHandle);
+    }
+  }
+}
+async function loadLiveLibrary({force=false,silent=true}={}){
+  if(liveLoadBusy)return;
+  liveLoadBusy=true;
+  try{
+    const v=force?-1:liveVersion;
+    const data=await apiJson(API+'/tiktok/live-library?v='+encodeURIComponent(v)+'&t='+Date.now());
+    if(!data.unchanged)applyLiveLibrary(data);
+  }catch(error){
+    if(!silent)showToast('Không tải được trạng thái LIVE');
+    console.warn('tiktok live library',error);
+  }finally{
+    liveLoadBusy=false;
+  }
+}
+
 async function hydrateIdentity(){ return; }
 async function hydrateIdentities(){ return; }
 async function loadChannels({force=false,silent=false}={}){
@@ -1218,12 +1285,7 @@ function optimisticChannel(handle){
       avatar:{url:'',sourceUrl:'',storedUrl:'',width:0,height:0},
       followers:0,following:0,likes:0,videoCount:0,source:'',checkedAt:null
     },
-    live:{
-      isLive:false,playable:false,title:'',
-      cover:{url:'',sourceUrl:'',storedUrl:''},
-      stream:{type:'',sourceSig:'',url:''},
-      checkedAt:null,updatedAt:null
-    },
+    live:emptyLiveState(),
     videos:[]
   };
   channels.unshift(row);
@@ -1265,7 +1327,11 @@ async function addChannel(){
 
     showToast(data.live?'Đã thêm · LIVE':'Đã thêm kênh');
     libraryVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
+    liveVersion=-1;
+    await Promise.all([
+      loadUnifiedLibrary({force:true,silent:true}),
+      loadLiveLibrary({force:true,silent:true})
+    ]);
     if(currentHandle===handle)openChannel(handle);
   }catch(error){
     // Reconcile optimistic UI with durable data on failure.
@@ -1300,7 +1366,11 @@ async function removeChannel(rawHandle){
       body:JSON.stringify({handle,selected:false})
     });
     libraryVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
+    liveVersion=-1;
+    await Promise.all([
+      loadUnifiedLibrary({force:true,silent:true}),
+      loadLiveLibrary({force:true,silent:true})
+    ]);
     showToast('Đã xoá @'+handle);
   }catch(error){
     libraryVersion=-1;
@@ -1339,9 +1409,9 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
     // server is responsible for refreshing/replacing the stream URL.
     if(allowFallback&&knownSig&&handle===currentHandle){
       document.getElementById('nowState').textContent='LIVE đang làm mới nguồn';
-      libraryVersion=-1;
+      liveVersion=-1;
       setTimeout(async()=>{
-        await loadUnifiedLibrary({force:true,silent:true});
+        await loadLiveLibrary({force:true,silent:true});
         if(handle!==currentHandle)return;
         const fresh=rowFor(handle);
         const next=String(fresh?.live?.stream?.url||'');
@@ -1365,9 +1435,9 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
           {cache:'no-store'}
         ).catch(()=>{}).finally(()=>{
           if(allowFallback&&handle===currentHandle){
-            libraryVersion=-1;
+            liveVersion=-1;
             setTimeout(async()=>{
-              await loadUnifiedLibrary({force:true,silent:true});
+              await loadLiveLibrary({force:true,silent:true});
               if(handle!==currentHandle)return;
               const fresh=rowFor(handle);
               const nextSig=String(fresh?.live?.stream?.sourceSig||'');
@@ -1386,7 +1456,7 @@ function attachFlv(url,handle,knownSig='',allowFallback=true){
         API+'/tiktok/live-feedback?user='+encodeURIComponent(handle)+'&status=ok&type=flv&t='+Date.now(),
         {cache:'no-store'}
       ).catch(()=>{}).finally(()=>{
-        setTimeout(()=>loadUnifiedLibrary({force:true,silent:true}),300);
+        setTimeout(()=>loadLiveLibrary({force:true,silent:true}),300);
       });
     },900);
   };
@@ -1451,8 +1521,8 @@ function openChannel(rawHandle){
   destroyPlayer();
   document.getElementById('nowState').textContent=live.isLive?'LIVE đang đồng bộ nguồn':'';
   if(live.isLive){
-    libraryVersion=-1;
-    setTimeout(()=>void loadUnifiedLibrary({force:true,silent:true}),800);
+    liveVersion=-1;
+    setTimeout(()=>void loadLiveLibrary({force:true,silent:true}),800);
   }
 }
 document.getElementById('addBtn').addEventListener('click',addChannel);
@@ -1502,7 +1572,11 @@ document.querySelectorAll('[data-filter]').forEach(btn=>{
 });
 document.getElementById('refreshBtn').addEventListener('click',()=>{
   libraryVersion=-1;
-  void loadUnifiedLibrary({force:true});
+  liveVersion=-1;
+  void Promise.all([
+    loadUnifiedLibrary({force:true}),
+    loadLiveLibrary({force:true,silent:true})
+  ]);
 });
 document.getElementById('openTikTokBtn').addEventListener('click',()=>{
   if(!currentHandle)return;
@@ -1520,9 +1594,13 @@ document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
   if(currentHandle)void removeChannel(currentHandle);
 });
 
-void loadUnifiedLibrary({force:true});
+void Promise.all([
+  loadUnifiedLibrary({force:true}),
+  loadLiveLibrary({force:true,silent:true})
+]);
 renderRecentVideos('');
 setInterval(()=>void loadUnifiedLibrary({silent:true}),POLL_MS);
+setInterval(()=>void loadLiveLibrary({silent:true}),POLL_MS);
 </script>
 </body>
 </html>
