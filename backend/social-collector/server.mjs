@@ -1361,125 +1361,192 @@ function ensureTikTokLivePackageScan(handles=null){
 
 let tiktokLiveMinuteSweepPromise=null;
 let tiktokRealtimeLiveHandles=new Set();
+// Current scan evidence for every selected handle. This is intentionally
+// separate from the playable FLV library so "LIVE detected" is never hidden
+// merely because media resolution is still pending.
+let tiktokRealtimeStatusByHandle=new Map();
 let tiktokRealtimeLiveCheckedAt=0;
 function runTikTokLiveMinuteSweep(){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
     const target=[...tiktokLiveSelectedHandles];
     const wanted=new Set(target.map(handle=>handle.toLowerCase()));
-    const checked=new Array(target.length);
+    const first=new Array(target.length);
     let cursor=0;
 
+    // Pass 1: fast user/room status for every selected channel.
     const worker=async()=>{
       while(true){
         const index=cursor++;
         if(index>=target.length)return;
         const handle=target[index];
         try{
-          checked[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
+          first[index]={handle,state:await quickTikTokLiveStateOnly(handle)};
         }catch{
-          checked[index]={
+          first[index]={
             handle,
             state:{known:false,live:false,status:null,source:'tiktok-error'}
           };
         }
       }
     };
-    await Promise.all(
-      Array.from({length:Math.min(8,target.length||1)},()=>worker())
-    );
+    await Promise.all(Array.from({length:Math.min(8,target.length||1)},()=>worker()));
 
-    // Only unresolved handles get the second TikTok endpoint.
-    const unresolvedIndexes=[];
-    for(let i=0;i<checked.length;i+=1){
-      if(!checked[i]?.state?.known)unresolvedIndexes.push(i);
+    // Pass 2: cross-check EVERY handle that was not positively LIVE.
+    // A single OFFLINE answer is not enough to hide a possible LIVE.
+    const detailByIndex=new Map();
+    const verifyIndexes=[];
+    for(let i=0;i<first.length;i+=1){
+      if(!first[i]?.state?.live)verifyIndexes.push(i);
     }
-
-    let retryCursor=0;
-    const retryWorker=async()=>{
+    let verifyCursor=0;
+    const verifyWorker=async()=>{
       while(true){
-        const retryIndex=retryCursor++;
-        if(retryIndex>=unresolvedIndexes.length)return;
-        const index=unresolvedIndexes[retryIndex];
-        const handle=checked[index].handle;
+        const p=verifyCursor++;
+        if(p>=verifyIndexes.length)return;
+        const index=verifyIndexes[p];
+        const handle=first[index].handle;
         try{
-          const retryState=await quickTikTokLiveDetailStatus(handle);
-          if(retryState?.known){
-            checked[index].state={
-              known:true,
-              live:retryState.live===true,
-              status:Number(retryState.status),
-              source:'tiktok-live-detail'
-            };
-          }
-        }catch{}
+          detailByIndex.set(index,await quickTikTokLiveDetailStatus(handle));
+        }catch{
+          detailByIndex.set(index,{known:false,live:false,status:null,source:'tiktok-detail-error'});
+        }
       }
     };
-    await Promise.all(
-      Array.from({length:Math.min(4,unresolvedIndexes.length||1)},()=>retryWorker())
-    );
+    await Promise.all(Array.from({length:Math.min(6,verifyIndexes.length||1)},()=>verifyWorker()));
 
-    // Detection is additive. TikTok API may discover LIVE, but it never
-    // removes an already discovered LIVE handle. Manual channel removal is
-    // handled separately by the selected-channel route.
+    function evidenceFor(index){
+      const out=[];
+      const a=first[index]?.state;
+      if(a)out.push({
+        source:String(a.source||'user-room'),
+        known:Boolean(a.known),
+        live:Boolean(a.live),
+        status:Number.isFinite(Number(a.status))?Number(a.status):null
+      });
+      const b=detailByIndex.get(index);
+      if(b)out.push({
+        source:String(b.source||'live-detail'),
+        known:Boolean(b.known),
+        live:Boolean(b.live),
+        status:Number.isFinite(Number(b.status))?Number(b.status):null
+      });
+      return out;
+    }
+    function resolvedFromEvidence(evidence){
+      if(evidence.some(x=>x.known&&x.live))return {known:true,live:true,offlineConfirmed:false};
+      const offline=evidence.filter(x=>x.known&&!x.live).length;
+      if(offline>=2)return {known:true,live:false,offlineConfirmed:true};
+      return {known:false,live:false,offlineConfirmed:false};
+    }
+
+    // Pass 3: only unresolved/conflicting handles use a browser-authenticated
+    // batch fallback. This keeps the sweep cheap while closing the gaps that
+    // used to make some genuine LIVE channels disappear.
+    const unresolved=[];
+    for(let i=0;i<target.length;i+=1){
+      if(!resolvedFromEvidence(evidenceFor(i)).known)unresolved.push(target[i]);
+    }
+    const browserStates=unresolved.length
+      ? await browserTikTokLiveStates(unresolved).catch(()=>new Map())
+      : new Map();
+
     const nextLive=new Set(
       [...tiktokRealtimeLiveHandles].filter(handle=>wanted.has(handle))
     );
+    const nextStatuses=new Map();
     const checkedAt=Date.now();
     let foundNow=0;
     let unknown=0;
+    let offlineConfirmedCount=0;
+    let retainedUnknown=0;
 
-    for(const {handle,state} of checked){
+    for(let i=0;i<target.length;i+=1){
+      const handle=target[i];
       const key=handle.toLowerCase();
-      const detected=Boolean(state?.known&&state?.live===true);
-      const alreadyLive=nextLive.has(key);
+      const evidence=evidenceFor(i);
+      const browser=browserStates.get(key);
+      if(browser){
+        evidence.push({
+          source:String(browser.source||'browser-user-room'),
+          known:Boolean(browser.known),
+          live:Boolean(browser.live),
+          status:Number.isFinite(Number(browser.status))?Number(browser.status):null
+        });
+      }
 
-      if(detected){
+      const resolved=resolvedFromEvidence(evidence);
+      const alreadyLive=nextLive.has(key);
+      const liveSource=evidence.find(x=>x.known&&x.live)?.source||'';
+      const offlineSources=evidence.filter(x=>x.known&&!x.live).map(x=>x.source);
+
+      if(resolved.live){
         if(!alreadyLive)foundNow+=1;
         nextLive.add(key);
+        nextStatuses.set(key,{
+          handle,known:true,live:true,offlineConfirmed:false,retained:false,
+          checkedAt,evidence
+        });
         updateTikTokLiveLibrary(handle,{
           live:true,
           status:'live',
           probeState:'live',
-          liveCheckSource:String(state?.source||'tiktok-api'),
+          liveCheckSource:liveSource||'tiktok-api',
           lastSeenAt:checkedAt
         });
         continue;
       }
 
-      if(!state?.known)unknown+=1;
-
-      // Once LIVE has been discovered, API status 4/403/NULL is diagnostic
-      // only. It must not clear LIVE or its FLV source.
-      if(alreadyLive){
+      if(resolved.offlineConfirmed){
+        offlineConfirmedCount+=1;
+        // Two independent OFFLINE confirmations may clear the realtime view.
+        // This is the only automatic removal path; UNKNOWN never removes LIVE.
+        nextLive.delete(key);
+        nextStatuses.set(key,{
+          handle,known:true,live:false,offlineConfirmed:true,retained:false,
+          checkedAt,evidence
+        });
         updateTikTokLiveLibrary(handle,{
-          live:true,
-          status:'live',
-          probeState:'live',
-          liveCheckSource:String(state?.source||'tiktok-api'),
+          live:false,ready:false,playable:false,type:'',mode:'',source:'',
+          status:'offline',probeState:'offline',sourceSig:'',
+          liveCheckSource:offlineSources.join('+')||'multi-source',
           lastSeenAt:checkedAt
+        },{allowLiveRemoval:true});
+        continue;
+      }
+
+      unknown+=1;
+      if(alreadyLive){
+        retainedUnknown+=1;
+        // Inconclusive scans retain the previous LIVE so a temporary TikTok
+        // API failure cannot make a genuine stream disappear.
+        nextStatuses.set(key,{
+          handle,known:false,live:true,offlineConfirmed:false,retained:true,
+          checkedAt,evidence
+        });
+        updateTikTokLiveLibrary(handle,{
+          live:true,status:'live',probeState:'live',
+          liveCheckSource:'retained-after-unknown',lastSeenAt:checkedAt
         });
       }else{
+        nextStatuses.set(key,{
+          handle,known:false,live:false,offlineConfirmed:false,retained:false,
+          checkedAt,evidence
+        });
         updateTikTokLiveLibrary(handle,{
-          live:false,
-          status:state?.known?'offline':'unknown',
-          probeState:state?.known?'offline':'unknown',
-          liveCheckSource:String(state?.source||'tiktok-api'),
-          lastSeenAt:checkedAt
+          live:false,status:'unknown',probeState:'unknown',
+          liveCheckSource:'multi-source-unknown',lastSeenAt:checkedAt
         });
       }
     }
 
     tiktokRealtimeLiveHandles=nextLive;
+    tiktokRealtimeStatusByHandle=nextStatuses;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
-    // Same realtime LIVE branch immediately starts FLV getlink. Failure to get
-    // a link does not remove LIVE; the UI can show LIVE while playable=false.
+    // Every current/retained LIVE immediately enters the shared FLV resolver.
     const liveHandles=[...nextLive];
     if(liveHandles.length){
-      // FLV refresh is independent from LIVE removal. Re-read structured
-      // TikTok media every minute so a newer sign/quality can replace an older
-      // source, then run heavier fallbacks only for handles still missing FLV.
       void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:true})
         .then(()=>resolveTikTokLiveSourceBatch(liveHandles))
         .catch(error=>{
@@ -1492,8 +1559,9 @@ function runTikTokLiveMinuteSweep(){
       'channels='+target.length,
       'live='+nextLive.size,
       'foundNow='+foundNow,
-      'retryRequested='+unresolvedIndexes.length,
+      'offlineConfirmed='+offlineConfirmedCount,
       'unknown='+unknown,
+      'retainedUnknown='+retainedUnknown,
       'getlink='+liveHandles.length,
       'checkedAt='+checkedAt
     );
@@ -8104,6 +8172,67 @@ const server=http.createServer(async(req,res)=>{
       total:channels.length,
       videoCount:channels.reduce((sum,row)=>sum+row.videos.length,0),
       channels
+    });
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-statuses'&&req.method==='GET'){
+    const force=url.searchParams.get('refresh')==='1';
+    const stale=Date.now()-Number(tiktokRealtimeLiveCheckedAt||0)>70_000;
+    if((force||stale||!tiktokRealtimeLiveCheckedAt)&&!TIKTOK_UPDATES_PAUSED&&AUTO_COLLECT){
+      await runTikTokLiveMinuteSweep();
+    }
+
+    const handles=[...tiktokLiveSelectedHandles].sort((a,b)=>a.localeCompare(b));
+    const items=handles.map(handle=>{
+      const key=handle.toLowerCase();
+      const row=tiktokLiveLibrary.get(key)||{};
+      const scan=tiktokRealtimeStatusByHandle.get(key)||null;
+      const retained=tiktokRealtimeLiveHandles.has(key);
+      const playable=Boolean(
+        retained&&row.playable&&String(row.type||'').toLowerCase()==='flv'&&String(row.sourceSig||'')
+      );
+      const hasCandidate=Boolean(currentTikTokLibrarySource(handle));
+
+      let state='checking';
+      if(scan?.live){
+        if(playable)state='live_ready';
+        else if(hasCandidate||String(row.status||'')==='warming')state='live_verifying_flv';
+        else state='live_resolving_flv';
+      }else if(scan?.offlineConfirmed){
+        state='offline';
+      }else if(scan?.retained){
+        state=playable?'live_ready':'live_unverified';
+      }else if(scan?.checkedAt){
+        state='unknown';
+      }
+
+      return {
+        handle,
+        state,
+        detectedLive:Boolean(scan?.live),
+        retainedLive:Boolean(scan?.retained),
+        playable,
+        type:playable?'flv':'',
+        sourceSig:playable?String(row.sourceSig||''):'',
+        internalStatus:String(row.status||''),
+        probeState:String(row.probeState||'unknown'),
+        liveCheckSource:String(row.liveCheckSource||''),
+        checkedAt:Number(scan?.checkedAt||tiktokRealtimeLiveCheckedAt||0),
+        lastSeenAt:Number(row.lastSeenAt||0),
+        evidence:Array.isArray(scan?.evidence)?scan.evidence:[]
+      };
+    });
+
+    const counts={};
+    for(const item of items)counts[item.state]=(counts[item.state]||0)+1;
+    json(res,200,{
+      ok:true,
+      exhaustive:true,
+      checkedAt:tiktokRealtimeLiveCheckedAt,
+      total:items.length,
+      counts,
+      items
     });
     return;
   }
