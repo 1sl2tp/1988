@@ -33,7 +33,6 @@ let queueDepth=0;
 const memorySnapshots=new Map();
 const lastRuns=new Map();
 const tiktokLiveCheckCache=new Map();
-const tiktokProxyTargets=new Map();
 const tiktokLiveSessions=new Map();
 const tiktokLiveSessionInflight=new Map();
 const tiktokLiveFastSources=new Map();
@@ -2153,9 +2152,7 @@ function tiktokLiveSourceFingerprint(rawUrl,type=''){
       const sign=u.searchParams.get('sign')||'';
       return kind+'|'+u.hostname.toLowerCase()+'|'+u.pathname+'|'+(sid||sign||u.search);
     }
-    // HLS failures are commonly variant/codec-specific, so path-level memory
-    // is useful for rotating away from a bad rendition.
-    return kind+'|'+u.hostname.toLowerCase()+'|'+u.pathname;
+    return kind+'|'+u.hostname.toLowerCase()+'|'+u.pathname+'|'+u.search;
   }catch{
     return String(type||'')+'|'+String(rawUrl||'').split('?')[0];
   }
@@ -2273,42 +2270,6 @@ async function resolveTikTokLiveSource(rawHandle){
   const session=await captureTikTokLiveSession(handle);
   if(session?.type!=='flv')throw new Error('tiktok_live_flv_not_found');
   return {mode:'browser',handle,type:'flv',url:session.url,at:session.at,source:'browser-flv'};
-}
-
-async function resolveTikTokCompatibleLiveSource(rawHandle){
-  const handle=normalizeTikTokHandle(rawHandle);
-  if(!handle)throw new Error('invalid_tiktok_handle');
-  const key=handle.toLowerCase();
-
-  // Discard any fast HLS that produced audio/no picture on the client.
-  tiktokLiveFastSources.delete(key);
-
-  const preflight=await quickTikTokLiveStatus(handle);
-  if(preflight.known&&!preflight.live)throw new Error('tiktok_not_live');
-
-  const flvCandidates=(preflight.candidates||[])
-    .filter(row=>row.type==='flv'&&!isTikTokBadSource(handle,row))
-    .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
-
-  for(const candidate of flvCandidates.slice(0,6)){
-    const valid=await validateTikTokLiveCandidate(handle,candidate);
-    if(valid&&!isTikTokBadSource(handle,valid)){
-      const row={
-        mode:'fast',handle,type:'flv',url:valid.url,headers:valid.headers,
-        at:Date.now(),source:'room-api-flv',confirmed:false
-      };
-      tiktokLiveFastSources.set(key,row);
-      console.log('[tiktok-compat] flv',handle);
-      return row;
-    }
-  }
-
-  const session=await captureTikTokLiveSession(handle);
-  if(session?.type!=='flv')throw new Error('tiktok_live_flv_not_found');
-  return {
-    mode:'browser',handle,type:'flv',url:session.url,
-    at:session.at,source:'browser-flv'
-  };
 }
 
 async function captureTikTokLiveSessionOnce(rawHandle){
@@ -2500,71 +2461,6 @@ async function liveSessionHeaders(req,row,targetUrl){
   return headers;
 }
 
-function cleanProxyTargets(){
-  const cutoff=Date.now()-3*60*1000;
-  for(const [key,row] of tiktokProxyTargets){
-    if(!row||row.at<cutoff)tiktokProxyTargets.delete(key);
-  }
-}
-function registerTikTokProxyTarget(targetUrl,handle='',proxySegments=false){
-  cleanProxyTargets();
-  const key=randomUUID();
-  tiktokProxyTargets.set(key,{
-    url:String(targetUrl||''),
-    handle:String(handle||''),
-    proxySegments:Boolean(proxySegments),
-    at:Date.now()
-  });
-  return key;
-}
-function proxyPathFor(targetUrl,handle='',proxySegments=false){
-  const key=registerTikTokProxyTarget(targetUrl,handle,proxySegments);
-  return '/tiktok/live-part?id='+encodeURIComponent(key);
-}
-function rewriteHlsManifest(text,baseUrl,handle='',proxySegments=false){
-  const absolute=value=>{
-    try{return new URL(value,baseUrl).toString();}
-    catch{return '';}
-  };
-  const isPlaylist=value=>/\.m3u8(?:\?|$)/i.test(String(value||''));
-  const directMediaHost=value=>{
-    try{
-      const host=new URL(value).hostname.toLowerCase();
-      return host==='tiktokcdn.com'||host.endsWith('.tiktokcdn.com')||
-        host==='tiktokv.com'||host.endsWith('.tiktokv.com')||
-        host==='byteoversea.com'||host.endsWith('.byteoversea.com');
-    }catch{return false}
-  };
-  const viaProxy=value=>proxyPathFor(value,handle,proxySegments);
-
-  return String(text||'')
-    .split(/\r?\n/)
-    .map(line=>{
-      const trimmed=line.trim();
-      if(!trimmed)return line;
-
-      if(trimmed.startsWith('#')){
-        return line.replace(/URI="([^"]+)"/g,(m,uri)=>{
-          const target=absolute(uri);
-          if(!target)return m;
-          // Playlist/key stay on relay. Media segments go direct only when
-          // they are on a TikTok CDN host that browsers can request safely.
-          // Alternate hosts such as realcrius.com remain on relay.
-          const mustProxy=proxySegments||isPlaylist(target)||
-            /^#EXT-X-(?:SESSION-)?KEY/i.test(trimmed)||
-            !directMediaHost(target);
-          return 'URI="'+(mustProxy?viaProxy(target):target)+'"';
-        });
-      }
-
-      const target=absolute(trimmed);
-      if(!target)return line;
-      const mustProxy=proxySegments||isPlaylist(target)||!directMediaHost(target);
-      return mustProxy?viaProxy(target):target;
-    })
-    .join('\n');
-}
-
 function liveProxyHeaders(req){
   const headers={
     'user-agent':String(req.headers['user-agent']||'Mozilla/5.0'),
@@ -2575,7 +2471,7 @@ function liveProxyHeaders(req){
   if(req.headers.range)headers.range=String(req.headers.range);
   return headers;
 }
-async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',proxySegments=false,headersOverride=null,deferError=false}={}){
+async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/octet-stream',handle='',headersOverride=null,deferError=false}={}){
   try{res.socket?.setNoDelay?.(true)}catch{}
   const session=handle?tiktokLiveSessions.get(String(handle).toLowerCase()):null;
   const headers=headersOverride
@@ -2596,23 +2492,6 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   }
   const contentType=String(upstream.headers.get('content-type')||fallbackType);
   const finalUrl=String(upstream.url||targetUrl);
-  const isHls=/mpegurl|m3u8/i.test(contentType)||/\.m3u8(?:\?|$)/i.test(finalUrl);
-  if(isHls){
-    const manifest=await upstream.text();
-    console.log('[tiktok-proxy] hls',upstream.status,contentType,'bytes='+manifest.length,finalUrl.slice(0,180));
-    const body=rewriteHlsManifest(manifest,finalUrl,handle,proxySegments);
-    res.writeHead(200,{
-      'content-type':'application/vnd.apple.mpegurl; charset=utf-8',
-      'access-control-allow-origin':ORIGIN,
-      'access-control-allow-methods':'GET,OPTIONS',
-      'access-control-allow-headers':'range',
-      'access-control-expose-headers':'content-length,content-range,accept-ranges,content-type',
-      'cache-control':'no-store',
-      'x-accel-buffering':'no'
-    });
-    res.end(body);
-    return {ok:true,status:Number(upstream.status||200)};
-  }
   const outHeaders={
     'content-type':contentType,
     'access-control-allow-origin':ORIGIN,
@@ -2637,11 +2516,10 @@ async function pipeTikTokTarget(req,res,targetUrl,{fallbackType='application/oct
   }
   return {ok:true,status:Number(upstream.status||200)};
 }
-async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig='',compatMode=false){
+async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
 
-  const proxySegments=/[?&]segments=proxy(?:&|$)/i.test(String(req.url||''));
   let source;
 
   if(sourceSig){
@@ -2657,22 +2535,13 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     tiktokLiveFastSources.delete(handle.toLowerCase());
     const session=await captureTikTokLiveSession(handle);
     source={mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
-  }else if(compatMode){
-    // The selected channel may be LIVE while its persisted package has no
-    // reusable FLV (for example just after a Render restart). Do one fast API
-    // pass first; this is much cheaper and more reliable than opening Chromium.
+  }else{
     source=currentTikTokLibrarySource(handle);
-    if(!source){
-      await refreshTikTokLiveLibrary([handle],{warm:false,force:true});
-      source=currentTikTokLibrarySource(handle);
-    }
     if(!source){
       await warmTikTokLibraryHandle(handle).catch(()=>false);
       source=currentTikTokLibrarySource(handle);
     }
-    if(!source)source=await resolveTikTokCompatibleLiveSource(handle);
-  }else{
-    source=await resolveTikTokLiveSource(handle);
+    if(!source)source=await resolveTikTokLiveSource(handle);
   }
 
   if(String(source?.type||'').toLowerCase()!=='flv'){
@@ -2694,8 +2563,7 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
   const piped=await pipeTikTokTarget(req,res,source.url,{
     fallbackType:'video/x-flv',
     handle:fast?'':handle,
-    headersOverride:fast?source.headers:null,
-    proxySegments
+    headersOverride:fast?source.headers:null
   });
 
   if(piped?.ok===false&&[403,404,410].includes(Number(piped.status||0))){
@@ -2724,21 +2592,6 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
   }
 }
 
-async function proxyTikTokLivePart(req,res,id){
-  cleanProxyTargets();
-  const row=tiktokProxyTargets.get(String(id||''));
-  if(!row?.url){
-    json(res,404,{ok:false,error:'expired_live_part'});
-    return;
-  }
-  row.at=Date.now();
-  const session=row.handle?tiktokLiveSessions.get(String(row.handle).toLowerCase()):null;
-  if(session)session.at=Date.now();
-  await pipeTikTokTarget(req,res,row.url,{
-    handle:row.handle||'',
-    proxySegments:Boolean(row.proxySegments)
-  });
-}
 
 function findTikTokUserObject(value,handle,depth=0){
   if(!value||depth>12)return null;
@@ -6497,7 +6350,7 @@ function liveRoomFromObject(node){
   );
   const streamLike=Boolean(
     node.stream_url||node.streamUrl||node.stream_data||node.streamData||
-    node.pull_data||node.pullData||node.hls_pull_url||node.hlsPullUrl||
+    node.pull_data||node.pullData||
     node.live_room_mode||node.liveRoomMode
   );
   const liveFlag=Boolean(
@@ -7075,41 +6928,6 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
-  if(url.pathname==='/tiktok/live-part'&&req.method==='GET'){
-    try{
-      await proxyTikTokLivePart(req,res,url.searchParams.get('id')||'');
-    }catch(error){
-      if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
-      else if(!res.writableEnded)res.end();
-    }
-    return;
-  }
-
-  if(url.pathname==='/tiktok/hls-proxy'&&req.method==='GET'){
-    try{
-      const raw=String(url.searchParams.get('url')||'').trim();
-      let target;
-      try{target=new URL(raw);}catch{target=null;}
-      const host=String(target?.hostname||'').toLowerCase();
-      const allowed=Boolean(
-        target?.protocol==='https:'&&(
-          host==='tiktokcdn.com'||host.endsWith('.tiktokcdn.com')||
-          host==='tiktokv.com'||host.endsWith('.tiktokv.com')||
-          host==='byteoversea.com'||host.endsWith('.byteoversea.com')
-        )
-      );
-      if(!allowed){json(res,400,{ok:false,error:'invalid_tiktok_cdn_url'});return;}
-      console.log('[tiktok-hls-proxy]',host,target.pathname.slice(0,140));
-      await pipeTikTokTarget(req,res,target.toString(),{
-        fallbackType:'application/vnd.apple.mpegurl'
-      });
-    }catch(error){
-      if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
-      else if(!res.writableEnded)res.end();
-    }
-    return;
-  }
-
   if(url.pathname==='/tiktok/live-feedback'&&req.method==='GET'){
     const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
     const status=String(url.searchParams.get('status')||'').toLowerCase();
@@ -7509,14 +7327,11 @@ const server=http.createServer(async(req,res)=>{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
       const forceBrowser=url.searchParams.get('force')==='browser';
-      const compatMode=url.searchParams.get('compat')==='1';
       let source;
       if(forceBrowser){
         tiktokLiveFastSources.delete(handle.toLowerCase());
         const session=await captureTikTokLiveSession(handle);
         source={mode:'browser',type:session.type,source:'browser-session',at:session.at};
-      }else if(compatMode){
-        source=await resolveTikTokCompatibleLiveSource(handle);
       }else{
         source=await resolveTikTokLiveSource(handle);
       }
@@ -7547,8 +7362,7 @@ const server=http.createServer(async(req,res)=>{
         req,res,
         url.searchParams.get('user')||'',
         url.searchParams.get('force')==='browser',
-        url.searchParams.get('source')||'',
-        url.searchParams.get('compat')==='1'
+        url.searchParams.get('source')||''
       );
     }catch(error){
       if(!res.headersSent)json(res,502,{ok:false,error:String(error?.message||error)});
@@ -7686,8 +7500,7 @@ const server=http.createServer(async(req,res)=>{
         uploader:data.uploader||handle,
         stream_type:data.streamType||'',
         stream_url:data.streamUrl,
-        m3u8:data.streamType==='hls'?data.streamUrl:'',
-        flv:data.streamType==='flv'?data.streamUrl:'',
+        flv:data.streamUrl||'',
         checked_at:data.checkedAt||nowIso()
       });
     }catch(error){
