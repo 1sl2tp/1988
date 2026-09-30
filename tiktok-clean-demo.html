@@ -721,11 +721,15 @@ function videoMetaText(video){
 function currentVideoFor(handle,id){
   return videosFor(handle).find(video=>String(video.id||'')===String(id||''))||null;
 }
+function rowLiveDetected(row){
+  const live=row?.live||{};
+  return String(live?.probeState||'').toLowerCase()==='live'||Boolean(live?.isLive);
+}
 function rowPlayable(row){
   const live=row?.live||{};
   const stream=live?.stream||{};
   const type=String(stream?.type||'').toLowerCase();
-  return Boolean(live?.isLive&&live?.playable&&stream?.sourceSig&&stream?.url&&type==='flv');
+  return Boolean(rowLiveDetected(row)&&live?.playable&&stream?.sourceSig&&stream?.url&&type==='flv');
 }
 function rowFor(handle){
   return channelFor(handle);
@@ -799,12 +803,15 @@ function updateCurrentUi(){
 }
 function renderList(){
   const root=document.getElementById('channelList');
-  const liveRows=channels.filter(rowPlayable);
+  // For now, "Đang phát" means TikTok LIVE detection only. A missing FLV must
+  // not hide the channel while we verify the LIVE detector.
+  const liveRows=channels.filter(rowLiveDetected);
   const visible=filterMode==='live'?liveRows:channels.slice();
   const liveCount=liveRows.length;
-  document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang phát';
+  document.getElementById('summary').textContent=channels.length+' kênh · '+liveCount+' đang LIVE';
 
   const sorted=visible.sort((a,b)=>
+    Number(rowLiveDetected(b))-Number(rowLiveDetected(a))||
     Number(rowPlayable(b))-Number(rowPlayable(a))||
     String(a.handle).localeCompare(String(b.handle))
   );
@@ -813,8 +820,8 @@ function renderList(){
     return;
   }
 
-  const live=sorted.filter(rowPlayable);
-  const offline=sorted.filter(row=>!rowPlayable(row));
+  const live=sorted.filter(rowLiveDetected);
+  const offline=sorted.filter(row=>!rowLiveDetected(row));
   const makeRows=list=>list.map(row=>{
     const handle=String(row.handle||'');
     const profile=row.profile||{};
@@ -826,7 +833,7 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-dot" title="Đang phát"></span>':'')+
+      '<span class="row-actions">'+(rowLiveDetected(row)?'<span class="live-dot" title="'+(rowPlayable(row)?'Đang LIVE · có FLV':'Đang LIVE · chưa có FLV')+'"></span>':'')+
       '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
       '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
       '</div>';
@@ -1039,7 +1046,7 @@ function renderSearchResults(value){
       '<span class="avatar">'+(avatar?'<img src="'+esc(avatar)+'" alt="" referrerpolicy="no-referrer">':esc(row.handle.slice(0,1).toUpperCase()))+'</span>'+
       '<span class="chtext"><span class="chname">'+esc(profile.name||('@'+row.handle))+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(row.handle)+'</span></span></span>'+
-      (rowPlayable(row)?'<span class="live-dot"></span>':'')+
+      (rowLiveDetected(row)?'<span class="live-dot"></span>':'')+
     '</div>';
   }).join('');
 
@@ -1219,11 +1226,13 @@ function applyLiveLibrary(data){
     if(!row)continue;
     const sourceSig=String(item?.sourceSig||'');
     const streamUrl=String(item?.streamUrl||'');
-    const playable=Boolean(item?.live&&item?.playable&&sourceSig&&streamUrl);
+    const probeState=String(item?.probeState||'unknown');
+    const detectedLive=probeState.toLowerCase()==='live'||Boolean(item?.detectedLive)||Boolean(item?.live);
+    const playable=Boolean(detectedLive&&item?.playable&&sourceSig&&streamUrl);
     row.live={
-      isLive:Boolean(item?.live),
+      isLive:detectedLive,
       playable,
-      probeState:String(item?.probeState||'unknown'),
+      probeState,
       title:String(item?.title||''),
       cover:{
         url:String(item?.thumbnail||''),
