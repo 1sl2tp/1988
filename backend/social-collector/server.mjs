@@ -6932,63 +6932,6 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
-  if(url.pathname==='/tiktok/live-feedback'&&req.method==='GET'){
-    const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
-    const status=String(url.searchParams.get('status')||'').toLowerCase();
-    const type=String(url.searchParams.get('type')||'').toLowerCase();
-    if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
-    const key=handle.toLowerCase();
-    const fast=tiktokLiveFastSources.get(key);
-    const browser=tiktokLiveSessions.get(key);
-
-    if(status==='ok'){
-      let marked=false;
-      if(fast&&(!type||fast.type===type)){
-        fast.confirmed=true;
-        fast.at=Date.now();
-        clearTikTokBadSource(handle,fast);
-        marked=true;
-      }
-      if(browser&&(!type||browser.type===type)){
-        browser.confirmed=true;
-        browser.at=Date.now();
-        clearTikTokBadSource(handle,browser);
-        marked=true;
-      }
-      const good=currentTikTokLibrarySource(handle);
-      if(good&&good.confirmed)noteTikTokLibrarySource(handle,good,{
-        ready:true,
-        status:'ready',
-        mode:good===browser?'browser-cache':'fast-cache',
-        source:good.source||''
-      });
-      console.log('[tiktok-cache] confirmed',handle,type||'any',marked?'yes':'miss');
-      json(res,200,{ok:true,confirmed:marked});
-      return;
-    }
-
-    if(status==='bad'){
-      if(fast&&(!type||fast.type===type)){
-        markTikTokBadSource(handle,fast);
-        tiktokLiveFastSources.delete(key);
-      }
-      if(browser&&(!type||browser.type===type)){
-        await closeTikTokLiveSession(key);
-      }
-      tiktokLiveLibraryRefreshAt.delete(key);
-      updateTikTokLiveLibrary(handle,{
-        live:true,ready:false,status:'live',sourceSig:'',lastSeenAt:Date.now()
-      });
-      void ensureTikTokLivePackageScan([handle]);
-      console.log('[tiktok-cache] dead source -> refresh FLV package',handle,type||'any');
-      json(res,200,{ok:true});
-      return;
-    }
-
-    json(res,400,{ok:false,error:'invalid_status'});
-    return;
-  }
-
   if(url.pathname==='/tiktok/selected-channel'&&req.method==='POST'){
     if(!trustedTikTokUiMutation(req)){
       json(res,403,{ok:false,error:'forbidden'});
