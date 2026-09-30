@@ -28,27 +28,31 @@
       <span class="search-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
       </span>
-      <input id="addInput" autocomplete="off" spellcheck="false" placeholder="Tìm hoặc dán link TikTok">
+      <input id="addInput" autocomplete="off" spellcheck="false" placeholder="Tìm kênh hoặc video">
     </div>
   </div>
   <div class="top-actions">
     <button class="theme-toggle" id="themeToggle" title="Đổi giao diện" aria-label="Đổi giao diện">
       <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/></svg>
     </button>
-    <button class="primary" id="addBtn">Thêm kênh</button>
+    <a class="settings-link" href="./tiktok-settings.html" title="Cài đặt" aria-label="Cài đặt">
+      <svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19 13.5v-3l-2-.6a7 7 0 0 0-.7-1.7l1-1.8-2.1-2.1-1.8 1a7 7 0 0 0-1.7-.7L11.1 2h-3l-.6 2a7 7 0 0 0-1.7.7l-1.8-1L1.9 5.8l1 1.8a7 7 0 0 0-.7 1.7l-2 .6v3l2 .6a7 7 0 0 0 .7 1.7l-1 1.8 2.1 2.1 1.8-1a7 7 0 0 0 1.7.7l.6 2h3l.6-2a7 7 0 0 0 1.7-.7l1.8 1 2.1-2.1-1-1.8a7 7 0 0 0 .7-1.7l2-.6Z"/></svg>
+    </a>
   </div>
 </header>
 
 <div class="app">
   <aside class="sidebar">
     <div class="sidehead">
-      <strong>Kênh đã chọn</strong>
+      <strong>Kênh</strong>
       <span class="summary" id="summary">Đang tải…</span>
     </div>
     <div class="toolbar">
       <button class="tool active" data-filter="all">Tất cả</button>
       <button class="tool" data-filter="live">Đang phát</button>
-      <button class="tool" id="refreshBtn">Làm mới</button>
+      <button class="tool tool-icon" id="refreshBtn" title="Làm mới" aria-label="Làm mới">
+        <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
+      </button>
     </div>
     <div class="list" id="channelList"></div>
   </aside>
@@ -102,16 +106,13 @@
               <button class="mini-action" id="reloadLiveBtn" title="Mở lại" disabled>
                 <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0 1 5"/><path d="M20 4v7h-7"/></svg>
               </button>
-              <button class="mini-action" id="deleteCurrentBtn" title="Xoá" disabled>
-                <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg>
-              </button>
             </div>
           </div>
         </section>
 
         <aside class="video-rail">
           <div class="rail-head">
-            <span id="railTitle">Video gần đây</span>
+            <span id="railTitle">Danh sách video</span>
             <span class="rail-sub" id="railCount"></span>
           </div>
           <div class="rail-list" id="recentVideos"></div>
@@ -500,7 +501,8 @@ function updateCurrentUi(){
   const enabled=Boolean(currentHandle);
   document.getElementById('openTikTokBtn').disabled=!enabled;
   document.getElementById('reloadLiveBtn').disabled=!enabled;
-  document.getElementById('deleteCurrentBtn').disabled=!enabled;
+  const deleteBtn=document.getElementById('deleteCurrentBtn');
+  if(deleteBtn)deleteBtn.disabled=!enabled;
 }
 function renderList(){
   const root=document.getElementById('channelList');
@@ -532,9 +534,7 @@ function renderList(){
       '<span class="chtext"><span class="chname">'+esc(name)+'</span>'+
       '<span class="chsub"><span class="chhandle">@'+esc(handle)+'</span>'+
       (stats?'<span class="channel-stats">'+stats+'</span>':'')+'</span></span>'+
-      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-pill" title="Đang LIVE">LIVE</span>':'')+
-      '<button type="button" class="iconbtn" data-delete="'+esc(handle)+'" title="Xoá">'+
-      '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13"/></svg></button></span>'+
+      '<span class="row-actions">'+(rowPlayable(row)?'<span class="live-pill" title="Đang LIVE">LIVE</span>':'')+'</span>'+
       '</div>';
   }).join('');
 
@@ -544,22 +544,12 @@ function renderList(){
   root.innerHTML=html;
 
   root.querySelectorAll('.channel[data-handle]').forEach(el=>{
-    el.addEventListener('click',event=>{
-      if(event.target.closest('[data-delete]'))return;
-      selectChannel(el.dataset.handle);
-    });
+    el.addEventListener('click',()=>selectChannel(el.dataset.handle));
     el.addEventListener('keydown',event=>{
       if(event.key==='Enter'||event.key===' '){
         event.preventDefault();
         selectChannel(el.dataset.handle);
       }
-    });
-  });
-  root.querySelectorAll('[data-delete]').forEach(el=>{
-    el.addEventListener('click',event=>{
-      event.preventDefault();
-      event.stopPropagation();
-      removeChannel(el.dataset.delete);
     });
   });
 }
@@ -1027,7 +1017,7 @@ async function addChannel(){
 
   mutationBusy=true;
   const btn=document.getElementById('addBtn');
-  btn.disabled=true;btn.textContent='Đang kiểm tra…';
+  if(btn){btn.disabled=true;btn.textContent='Đang kiểm tra…';}
   try{
     // Server is authoritative: it verifies that this is a real TikTok channel
     // before changing membership. Only then may the UI reflect the new row.
@@ -1067,7 +1057,7 @@ async function addChannel(){
     console.warn(error);
   }finally{
     mutationBusy=false;
-    btn.disabled=false;btn.textContent='Thêm kênh';
+    if(btn){btn.disabled=false;btn.textContent='Thêm kênh';}
   }
 }
 async function removeChannel(rawHandle){
@@ -1202,7 +1192,6 @@ function openChannel(rawHandle){
   destroyPlayer();
   updateCurrentUi();
 }
-document.getElementById('addBtn').addEventListener('click',addChannel);
 const searchInput=document.getElementById('addInput');
 searchInput.addEventListener('input',()=>{
   const raw=searchInput.value.trim();
@@ -1217,11 +1206,7 @@ searchInput.addEventListener('keydown',e=>{
   if(e.key!=='Enter')return;
   e.preventDefault();
   const raw=searchInput.value.trim();
-  if(parseHandle(raw)||/tiktok\.com\/@/i.test(raw)){
-    void addChannel();
-  }else{
-    renderSearchResults(raw);
-  }
+  if(raw)renderSearchResults(raw);
 });
 document.querySelectorAll('[data-media-mode]').forEach(btn=>{
   btn.addEventListener('click',()=>{
@@ -1353,9 +1338,6 @@ document.getElementById('reloadLiveBtn').addEventListener('click',()=>{
   if(!currentHandle)return;
   if(mediaMode==='video'&&currentVideoId)openVideo(currentHandle,currentVideoId);
   else openChannel(currentHandle);
-});
-document.getElementById('deleteCurrentBtn').addEventListener('click',()=>{
-  if(currentHandle)void removeChannel(currentHandle);
 });
 
 installMediaControls();
