@@ -64,6 +64,9 @@ let tiktokCanonicalLoadPromise=null;
 let tiktokCanonicalWritePromise=null;
 let tiktokCanonicalPackageVersion=0;
 let tiktokCanonicalPackageUpdatedAt=0;
+let tiktokCanonicalPersistedVersion=-1;
+let tiktokCanonicalLoadFailedAt=0;
+const TIKTOK_CANONICAL_LOAD_RETRY_MS=60_000;
 let tiktokCanonicalMaterialHash='';
 let tiktokCanonicalProfileCursor=0;
 let tiktokCanonicalImageSerial=Promise.resolve();
@@ -1181,6 +1184,7 @@ function buildTikTokStoredRows(){
     .sort((a,b)=>a.handle.localeCompare(b.handle));
 }
 async function persistTikTokLiveStore({force=false}={}){
+  if(TIKTOK_UPDATES_PAUSED)return true;
   if(!force&&tiktokLivePersistedVersion===tiktokLiveLibraryVersion)return true;
   if(tiktokLiveStoreWritePromise)return tiktokLiveStoreWritePromise;
 
@@ -5868,7 +5872,10 @@ async function fetchTikTokCanonicalPages(path,{pageSize=1000,maxRows=50000}={}){
   for(let offset=0;offset<maxRows;offset+=pageSize){
     const r=await fetch(
       SUPABASE_URL+'/rest/v1/'+path,
-      {headers:storeHeaders({range:offset+'-'+(offset+pageSize-1)})}
+      {
+        headers:storeHeaders({range:offset+'-'+(offset+pageSize-1)}),
+        signal:AbortSignal.timeout(12_000)
+      }
     );
     if(!r.ok)throw new Error('tiktok_library_page_read_'+r.status+':'+compactText(await r.text(),140));
     const rows=await r.json();
@@ -5882,6 +5889,9 @@ async function fetchTikTokCanonicalPages(path,{pageSize=1000,maxRows=50000}={}){
 async function loadTikTokCanonicalStore(){
   if(tiktokCanonicalLoaded)return true;
   if(tiktokCanonicalLoadPromise)return tiktokCanonicalLoadPromise;
+  if(tiktokCanonicalLoadFailedAt&&Date.now()-tiktokCanonicalLoadFailedAt<TIKTOK_CANONICAL_LOAD_RETRY_MS){
+    return false;
+  }
   tiktokCanonicalLoadPromise=(async()=>{
     const [channelRows,videoRows,packageRes]=await Promise.all([
       fetchTikTokCanonicalPages('yt1988_tiktok_channels?select=*&order=handle.asc',{maxRows:5000}),
@@ -5927,19 +5937,23 @@ async function loadTikTokCanonicalStore(){
     }
     const pkg=Array.isArray(packageRows)?packageRows[0]:null;
     tiktokCanonicalPackageVersion=Number(pkg?.version||0);
+    tiktokCanonicalPersistedVersion=tiktokCanonicalPackageVersion;
     tiktokCanonicalPackageUpdatedAt=pkg?.updated_at?Date.parse(pkg.updated_at):0;
+    tiktokCanonicalLoadFailedAt=0;
     tiktokCanonicalMaterialHash='';
     tiktokCanonicalLoaded=true;
     buildTikTokCanonicalPackage();
     console.log('[tiktok-library] loaded','channels='+tiktokCanonicalChannels.size,'videos='+tiktokCanonicalVideos.size,'version='+tiktokCanonicalPackageVersion);
     return true;
   })().catch(error=>{
+    tiktokCanonicalLoadFailedAt=Date.now();
     console.warn('[tiktok-library] load failed',compactText(error?.message||error,180));
     return false;
   }).finally(()=>{tiktokCanonicalLoadPromise=null;});
   return tiktokCanonicalLoadPromise;
 }
 async function upsertTikTokCanonicalRows(channelRows=[],videoRows=[]){
+  if(TIKTOK_UPDATES_PAUSED)return true;
   const tasks=[];
   if(channelRows.length){
     tasks.push(fetch(
@@ -5969,10 +5983,14 @@ async function upsertTikTokCanonicalRows(channelRows=[],videoRows=[]){
   await Promise.all(tasks);
 }
 async function persistTikTokCanonicalPackage(){
+  if(TIKTOK_UPDATES_PAUSED){
+    return tiktokFrozenLibraryPackage||buildTikTokCanonicalPackage();
+  }
   const write=async()=>{
     // Build at execution time, not queue time, so concurrent updates collapse
     // into the newest package instead of fighting over the same singleton row.
     const payload=buildTikTokCanonicalPackage();
+    if(tiktokCanonicalPersistedVersion===tiktokCanonicalPackageVersion)return payload;
     let lastError='';
     for(let attempt=0;attempt<3;attempt++){
       try{
@@ -5990,7 +6008,12 @@ async function persistTikTokCanonicalPackage(){
             signal:AbortSignal.timeout(15_000)
           }
         );
-        if(r.ok)return payload;
+        if(r.ok){
+          tiktokCanonicalPersistedVersion=tiktokCanonicalPackageVersion;
+          tiktokFrozenLibraryPackage=payload;
+          tiktokFrozenLibraryLoadedAt=Date.now();
+          return payload;
+        }
         lastError='tiktok_library_package_write_'+r.status+':'+compactText(await r.text(),180);
       }catch(error){
         lastError=compactText(error?.message||error,180);
@@ -6124,6 +6147,7 @@ async function mirrorTikTokCanonicalImages(limit=6){
   return tiktokCanonicalImageSerial;
 }
 async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=false}={}){
+  if(TIKTOK_UPDATES_PAUSED)return false;
   if(!await loadTikTokCanonicalStore())return false;
   const target=(handles&&handles.length)
     ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
@@ -8447,65 +8471,27 @@ server.listen(PORT,'0.0.0.0',()=>{
     loadTikTokLiveStore()
   ]).then(async()=>{
     await loadTikTokVideoStore();
-    await loadTikTokCanonicalStore();
-    await syncTikTokCanonicalLibrary([...tiktokLiveSelectedHandles],{mirror:false});
-    void bootstrapTikTokCanonicalMeta().catch(error=>{
-      console.log('[tiktok-library] metadata bootstrap failed',compactText(error?.message||error,120));
-    });
-    void mirrorTikTokCanonicalImages(20).catch(()=>{});
-    setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(8);},1200).unref();
-    setTimeout(()=>{void repairTikTokIncompleteVideoData();},3000).unref();
-    setTimeout(()=>{void fullResyncTikTokSelectedData();},90_000).unref();
-    setTimeout(()=>{void warmTikTokVideoSources(1);},15_000).unref();
-    setTimeout(()=>{void enrichNextTikTokCanonicalVideo();},20_000).unref();
+    const canonicalReady=await loadTikTokCanonicalStore();
 
-    const videoProbeHandle=[...tiktokLiveSelectedHandles].find(handle=>{
-      const row=tiktokVideoLibrary.get(handle.toLowerCase());
-      return !Array.isArray(row?.videos)||!row.videos.length;
-    });
-    if(videoProbeHandle){
-      void fetchTikTokChannelVideosYtdlp(videoProbeHandle,'').then(result=>{
-        console.log(
-          '[tiktok-ytdlp-selftest]',
-          videoProbeHandle,
-          result?.known?'ok':'miss',
-          'videos='+(Array.isArray(result?.videos)?result.videos.length:0),
-          result?.source||result?.error||''
-        );
-      }).catch(error=>{
-        console.log('[tiktok-ytdlp-selftest]',videoProbeHandle,'failed',compactText(error?.message||error,100));
-      });
-    }
-
-    const probeHandle=[...tiktokLiveSelectedHandles][0]||'aoelinhfbi.official';
-    try{
-      const probe=await fetchTikTokOfficialProfileIdentity(probeHandle);
-      console.log(
-        '[tiktok-official-selftest]',
-        probeHandle,
-        probe?.nickname?'nickname=yes':'nickname=no',
-        probe?.avatar?'avatar=yes':'avatar=no'
-      );
-    }catch(error){
-      console.log(
-        '[tiktok-official-selftest]',
-        probeHandle,
-        'failed',
-        compactText(error?.message||error,160)
-      );
+    // Startup must be read-mostly. Do not re-sync every selected channel, run
+    // full metadata bootstrap, repair every missing video, or full-resync all
+    // media after each deploy. Incremental workers below handle small batches.
+    if(canonicalReady){
+      setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},30_000).unref();
+      setTimeout(()=>{void mirrorTikTokCanonicalImages(4);},45_000).unref();
+      setTimeout(()=>{void warmTikTokVideoSources(1);},60_000).unref();
     }
 
     void runTikTokLiveMinuteSweep();
-    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},60_000).unref();
+    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},90_000).unref();
   });
-
   setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
-  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(4));},3*60_000).unref();
-  setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(8);},12_000).unref();
-  setInterval(()=>{void refreshTikTokCanonicalProfileBatch(20);},10*60_000).unref();
-  setInterval(()=>{void mirrorTikTokCanonicalImages(20);},2*60_000).unref();
-  setInterval(()=>{void warmTikTokVideoSources();},3*60_000).unref();
-  setInterval(()=>{void enrichNextTikTokCanonicalVideo();},60_000).unref();
+  setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
+  setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},60_000).unref();
+  setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},30*60_000).unref();
+  setInterval(()=>{void mirrorTikTokCanonicalImages(6);},5*60_000).unref();
+  setInterval(()=>{void warmTikTokVideoSources(1);},5*60_000).unref();
+  setInterval(()=>{void enrichNextTikTokCanonicalVideo();},3*60_000).unref();
 
   for(const platform of PLATFORMS)void loadSnapshot(platform);
   if(AUTO_COLLECT){
