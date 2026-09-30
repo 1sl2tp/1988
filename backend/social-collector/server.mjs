@@ -90,6 +90,7 @@ let tiktokVideoPersistedVersion=-1;
 const TIKTOK_VIDEO_LIBRARY_REFRESH_MS=60_000;
 const TIKTOK_VIDEO_PER_CHANNEL=10;
 let tiktokLivePackageScanPromise=null;
+const tiktokLivePriorityScanPromises=new Map();
 let tiktokLiveStoreWritePromise=null;
 let tiktokApiCookieHeader='';
 let tiktokApiCookieRefreshAt=0;
@@ -1171,10 +1172,66 @@ async function persistTikTokLiveStore({force=false}={}){
 }
 
 function ensureTikTokLivePackageScan(handles=null){
-  const target=(handles&&handles.length)
+  const targeted=Boolean(handles&&handles.length);
+  const target=targeted
     ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
     : [...tiktokLiveSelectedHandles];
   if(!target.length)return Promise.resolve();
+
+  // Newly added/specific channels have their own priority lane. They must
+  // never wait behind or get swallowed by the global 163-channel scan.
+  if(targeted){
+    return Promise.all(target.map(handle=>{
+      const key=handle.toLowerCase();
+      const running=tiktokLivePriorityScanPromises.get(key);
+      if(running)return running;
+
+      // A previously failed/old scan must not throttle a freshly-added channel.
+      tiktokLiveLibraryRefreshAt.delete(key);
+      tiktokLiveLibraryWarmRetryAt.delete(key);
+
+      const job=(async()=>{
+        console.log('[tiktok-live-priority] start',handle);
+
+        // 1) Check this handle immediately, independently from the global scan.
+        await refreshTikTokLiveLibrary([handle],{warm:false,force:true});
+
+        // 2) If LIVE was confirmed but no ready FLV was published by the API
+        // pass, resolve FLV immediately for this handle only.
+        let row=tiktokLiveLibrary.get(key)||{};
+        if(row.live&&!row.playable){
+          await warmTikTokLibraryHandle(handle).catch(error=>{
+            console.log(
+              '[tiktok-live-priority] flv failed',
+              handle,
+              compactText(error?.message||error,120)
+            );
+            return false;
+          });
+        }
+
+        // 3) Publish the result immediately. UI only reads the completed
+        // package; unresolved LIVE state stays server-internal.
+        await persistTikTokLiveStore({force:true});
+        row=tiktokLiveLibrary.get(key)||{};
+        console.log(
+          '[tiktok-live-priority] done',
+          handle,
+          'live='+Boolean(row.live),
+          'playable='+Boolean(row.playable),
+          'type='+String(row.type||'')
+        );
+        return row;
+      })().finally(()=>{
+        tiktokLivePriorityScanPromises.delete(key);
+      });
+
+      tiktokLivePriorityScanPromises.set(key,job);
+      return job;
+    }));
+  }
+
+  // Background/global package refresh remains single-flight.
   if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
   tiktokLivePackageScanPromise=refreshTikTokLiveLibrary(target,{warm:false})
     .then(()=>persistTikTokLiveStore())
@@ -7234,7 +7291,10 @@ const server=http.createServer(async(req,res)=>{
       }
 
       if(selected){
-        if(!reusedLiveSource)void ensureTikTokLivePackageScan([handle]);
+        if(!reusedLiveSource){
+          console.log('[tiktok-selected] priority live check',handle);
+          void ensureTikTokLivePackageScan([handle]);
+        }
         setTimeout(()=>{void ensureTikTokVideoPackageScan([handle]);},1500).unref();
         setTimeout(()=>{
           void (async()=>{
