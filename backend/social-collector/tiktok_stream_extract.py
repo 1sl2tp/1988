@@ -33,10 +33,12 @@ def choose_stream(info):
         vcodec = str(fmt.get("vcodec") or fmt.get("video_codec") or "").lower()
         acodec = str(fmt.get("acodec") or fmt.get("audio_codec") or "").lower()
         format_id = str(fmt.get("format_id") or "")
+        width = int(fmt.get("width") or 0)
         height = int(fmt.get("height") or 0)
         tbr = float(fmt.get("tbr") or 0)
+        container = str(fmt.get("container") or "").lower()
         if not kind:
-            if ext == "flv" or ".flv" in url.lower():
+            if ext == "flv" or container == "flv" or ".flv" in url.lower():
                 kind = "flv"
             else:
                 kind = detect_type(url)
@@ -50,6 +52,7 @@ def choose_stream(info):
             "vcodec": vcodec,
             "acodec": acodec,
             "format_id": format_id,
+            "width": width,
             "height": height,
             "tbr": tbr,
             "source": source,
@@ -102,6 +105,7 @@ def choose_stream(info):
         "vcodec": best["vcodec"],
         "acodec": best["acodec"],
         "format_id": best["format_id"],
+        "width": best["width"],
         "height": best["height"],
         "tbr": best["tbr"],
         "source": best["source"],

@@ -278,6 +278,9 @@ function tiktokLibraryMaterial(row){
     String(row?.audioCodec||''),
     Number(row?.width||0),
     Number(row?.height||0),
+    String(row?.quality||''),
+    Number(row?.bitrate||0),
+    String(row?.flvPath||''),
     Number(row?.expiresAt||0)
   ]);
 }
@@ -319,6 +322,9 @@ function publicTikTokLibraryItem(row){
     audioCodec:playableLive?String(row.audioCodec||''):'',
     width:playableLive?Number(row.width||0):0,
     height:playableLive?Number(row.height||0):0,
+    quality:playableLive?String(row.quality||''):'',
+    bitrate:playableLive?Number(row.bitrate||0):0,
+    flvPath:playableLive?String(row.flvPath||''):'',
     lastProbeAt:Number(row.lastProbeAt||0),
     changedAt:Number(row.changedAt||0),
     confirmedAt:Number(row.confirmedAt||0),
@@ -334,7 +340,7 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   const now=Date.now();
   const prev=tiktokLiveLibrary.get(key)||{
     handle,live:false,ready:false,playable:false,type:'',mode:'',source:'',
-    status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0
+    status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,quality:'',bitrate:0,flvPath:'',lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0
   };
   const next={...prev,...patch,handle};
 
@@ -399,6 +405,12 @@ function publishTikTokLiveSourceNow(handle,row,{mode='',source=''}={}){
     source:live?String(source||row.source||'room-api'):'',
     status:live?'live':'offline',
     sourceSig:live?tiktokLibrarySourceSig(row):'',
+    videoCodec:live?normalizeTikTokCodec(row.videoCodec||''):'',
+    width:live?Number(row.width||0):0,
+    height:live?Number(row.height||0):0,
+    quality:live?String(row.quality||''):'',
+    bitrate:live?Number(row.bitrate||0):0,
+    flvPath:live?String(row.flvPath||row.path||''):'',
     lastSeenAt:Date.now(),
     expiresAt:live?tiktokStreamExpiresAt(row.url):0
   });
@@ -654,7 +666,13 @@ function seedTikTokFastSource(handle,row){
   };
   const source={
     mode:'fast',handle,type,url,headers:baseHeaders,
-    at:Date.now(),source:'batch-yt-dlp',confirmed:false
+    at:Date.now(),source:String(row?.source||'batch-yt-dlp'),confirmed:false,
+    videoCodec:normalizeTikTokCodec(row?.videoCodec||row?.vcodec||''),
+    width:Number(row?.width||0),
+    height:Number(row?.height||0),
+    quality:String(row?.quality||row?.format_id||''),
+    bitrate:Number(row?.bitrate||row?.tbr||0),
+    flvPath:String(row?.path||'')
   };
   tiktokLiveFastSources.set(handle.toLowerCase(),source);
   return source;
@@ -684,7 +702,13 @@ async function findPreferredTikTokFlv(handle,excludeSig=''){
     mode:'fast',handle,type:'flv',
     url:String(candidate.url||''),
     headers:candidate.headers||{},
-    at:Date.now(),source:'room-api-flv',confirmed:false
+    at:Date.now(),source:'room-api-flv',confirmed:false,
+    videoCodec:normalizeTikTokCodec(candidate.videoCodec||''),
+    width:Number(candidate.width||0),
+    height:Number(candidate.height||0),
+    quality:String(candidate.quality||''),
+    bitrate:Number(candidate.bitrate||0),
+    flvPath:String(candidate.path||'')
   };
 }
 async function warmTikTokLibraryHandle(handle){
@@ -718,7 +742,14 @@ async function warmTikTokLibraryHandle(handle){
     if(ytdlp?.url&&String(ytdlp.type||'').toLowerCase()==='flv'){
       const seeded=seedTikTokFastSource(handle,{
         stream_url:ytdlp.url,
-        stream_type:'flv'
+        stream_type:'flv',
+        source:'yt-dlp-flv',
+        videoCodec:ytdlp.videoCodec,
+        width:ytdlp.width,
+        height:ytdlp.height,
+        quality:ytdlp.quality,
+        bitrate:ytdlp.bitrate,
+        path:ytdlp.path
       });
       if(seeded){
         publishTikTokLiveSourceNow(handle,seeded,{mode:'fast',source:'yt-dlp-flv'});
@@ -1386,9 +1417,14 @@ function runTikTokLiveMinuteSweep(){
     // a link does not remove LIVE; the UI can show LIVE while playable=false.
     const liveHandles=[...nextLive];
     if(liveHandles.length){
-      void resolveTikTokLiveSourceBatch(liveHandles).catch(error=>{
-        console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
-      });
+      // FLV refresh is independent from LIVE removal. Re-read structured
+      // TikTok media every minute so a newer sign/quality can replace an older
+      // source, then run heavier fallbacks only for handles still missing FLV.
+      void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:true})
+        .then(()=>resolveTikTokLiveSourceBatch(liveHandles))
+        .catch(error=>{
+          console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
+        });
     }
 
     console.log(
@@ -1469,36 +1505,26 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     if(isLive)scanLiveCount+=1;
     if(flv)scanFlvCount+=1;
 
-    if(!isLive){
-      if(tiktokRealtimeLiveHandles.has(key)){
-        // TikTok API is discovery-only after LIVE has been found.
-        updateTikTokLiveLibrary(handle,{
-          live:true,
-          status:'live',
-          probeState:'live',
-          lastSeenAt:Date.now()
-        });
-      }else{
-        updateTikTokLiveLibrary(handle,{
-          live:false,
-          status:'offline',
-          probeState:'offline',
-          lastSeenAt:Date.now()
-        });
-      }
+    const lockedLive=tiktokRealtimeLiveHandles.has(key);
+    if(!isLive&&!lockedLive){
+      updateTikTokLiveLibrary(handle,{
+        live:false,
+        status:'offline',
+        probeState:'offline',
+        lastSeenAt:Date.now()
+      });
       continue;
     }
 
-    // Any TikTok LIVE detection is additive: publish to realtime immediately.
-    tiktokRealtimeLiveHandles.add(key);
-    // Confirmed LIVE state is published before stream preparation. Source
-    // availability is independent from LIVE/OFFLINE detection.
+    // Detection is additive. Once locked LIVE, later API status only supplies
+    // fresh media candidates; it never owns removal.
+    if(isLive)tiktokRealtimeLiveHandles.add(key);
     updateTikTokLiveLibrary(handle,{
       live:true,
       probeState:'live',
       status:'live',
-      stateChangedAt:changedState?nowState:Number(prev.stateChangedAt||0),
-      lastKnownAt:nowState,
+      stateChangedAt:isLive&&changedState?nowState:Number(prev.stateChangedAt||0),
+      lastKnownAt:isLive?nowState:Number(prev.lastKnownAt||0),
       lastSeenAt:nowState
     });
 
@@ -1506,7 +1532,14 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
     if(flv){
       const row=seedTikTokFastSource(handle,{
         stream_url:String(flv.url||''),
-        stream_type:'flv'
+        stream_type:'flv',
+        source:'room-api-flv',
+        videoCodec:flv.videoCodec,
+        width:flv.width,
+        height:flv.height,
+        quality:flv.quality,
+        bitrate:flv.bitrate,
+        path:flv.path
       });
       if(row){
         publishTikTokLiveSourceNow(handle,row,{mode:'fast',source:'room-api-flv'});
@@ -1655,12 +1688,11 @@ function cleanTikTokLiveSessions(){
 }
 
 function decodeTikTokLiveText(value){
-  let text=String(value||'');
-  const variants=new Set([text]);
+  const variants=new Set([String(value||'')]);
 
-  // TikTok can return stream_data as JSON strings, unicode escapes, escaped
-  // slashes and URL-encoded values. Decode repeatedly, but keep it bounded.
-  for(let round=0;round<3;round+=1){
+  // TikTok nests stream_data as escaped/URL-encoded JSON. Decode repeatedly
+  // into canonical text before interpreting FLV fields.
+  for(let round=0;round<4;round+=1){
     const current=[...variants];
     let changed=false;
     for(const raw of current){
@@ -1688,12 +1720,143 @@ function decodeTikTokLiveText(value){
     }
     if(!changed)break;
   }
-
   return [...variants];
 }
 
+function parseTikTokJsonObject(value){
+  if(value&&typeof value==='object'&&!Array.isArray(value))return value;
+  for(const raw of decodeTikTokLiveText(value)){
+    const text=String(raw||'').trim();
+    if(!text.startsWith('{')||!text.endsWith('}'))continue;
+    try{
+      const parsed=JSON.parse(text);
+      if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))return parsed;
+    }catch{}
+  }
+  return {};
+}
+
+function normalizeTikTokCodec(value){
+  const text=String(value||'').toLowerCase();
+  if(/avc|h264|avc1/.test(text))return 'h264';
+  if(/hevc|h265|hev1|hvc1/.test(text))return 'h265';
+  return text;
+}
+
+function parseTikTokResolution(value){
+  const text=String(value||'');
+  const match=text.match(/(\d{2,5})\s*[xX*]\s*(\d{2,5})/);
+  if(!match)return {width:0,height:0};
+  return {width:Number(match[1]||0),height:Number(match[2]||0)};
+}
+
+function tikTokQualityFromPath(path){
+  const parts=String(path||'')
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter(Boolean);
+  for(let i=parts.length-1;i>=0;i-=1){
+    const p=parts[i];
+    if([
+      'origin','original','uhd','full_hd1','full_hd','fhd',
+      'hd1','hd','sd','ld','ld5','sd5','sd5b','hd5','ao'
+    ].includes(p))return p;
+  }
+  return '';
+}
+
+function parseTikTokStreamMeta(node,path=''){
+  const sdk=parseTikTokJsonObject(
+    node?.sdk_params||
+    node?.sdkParams||
+    node?.sdk_param||
+    node?.sdkParam||
+    ''
+  );
+
+  const resolution=
+    sdk?.resolution||
+    node?.resolution||
+    node?.video_resolution||
+    node?.videoResolution||
+    '';
+  const parsed=parseTikTokResolution(resolution);
+
+  const width=Number(node?.width||sdk?.width||parsed.width||0);
+  const height=Number(node?.height||sdk?.height||parsed.height||0);
+  const bitrate=Math.max(
+    Number(sdk?.v_rtbitrate||0),
+    Number(sdk?.vbitrate||0),
+    Number(sdk?.bitrate||0),
+    Number(node?.v_rtbitrate||0),
+    Number(node?.vbitrate||0),
+    Number(node?.bitrate||0)
+  );
+  const videoCodec=normalizeTikTokCodec(
+    sdk?.VCodec||
+    sdk?.vcodec||
+    sdk?.v_codec||
+    sdk?.codec||
+    node?.VCodec||
+    node?.vcodec||
+    node?.v_codec||
+    ''
+  );
+
+  const lower=String(path||'').toLowerCase();
+  const sourceFamily=/hevcstreamdata|h265|hevc/.test(lower)
+    ?'hevc'
+    :(/streamdata|stream_data/.test(lower)?'standard':'');
+
+  return {
+    videoCodec,
+    width,
+    height,
+    bitrate,
+    quality:tikTokQualityFromPath(path),
+    sourceFamily
+  };
+}
+
+function normalizeTikTokHttpUrl(raw){
+  const candidates=decodeTikTokLiveText(raw);
+  for(const text of candidates){
+    const match=String(text||'').match(/https?:\/\/[^"'\\\s<>]+/i);
+    if(!match)continue;
+    let url=String(match[0]||'')
+      .replace(/&amp;/gi,'&')
+      .replace(/\\u0026/gi,'&')
+      .replace(/\\u002F/gi,'/')
+      .replace(/\\\//g,'/');
+    try{url=decodeURIComponent(url)}catch{}
+    if(/^https?:\/\//i.test(url))return url;
+  }
+  return '';
+}
+
+function upsertTikTokFlvCandidate(out,row){
+  const url=String(row?.url||'');
+  if(!/^https?:\/\//i.test(url))return out;
+  const next={...row,url,type:'flv'};
+  const found=out.findIndex(item=>String(item?.url||'')===url);
+  if(found<0){
+    out.push(next);
+    return out;
+  }
+  const prev=out[found]||{};
+  out[found]={
+    ...prev,
+    ...Object.fromEntries(
+      Object.entries(next).filter(([,value])=>
+        value!==''&&value!==null&&value!==undefined&&value!==0
+      )
+    )
+  };
+  return out;
+}
+
 function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
-  if(value==null||depth>18||out.length>240)return out;
+  if(value==null||depth>20||out.length>320)return out;
 
   const pathLower=String(path||'').toLowerCase();
   const pathIsFlv=/(^|[._\[\]])flv(?:_|[.\[\]]|$)|flv[_-]?pull|pull[_-]?flv|stream[_-]?flv/.test(pathLower);
@@ -1713,36 +1876,24 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
         }catch{}
       }
 
-      // Primary case: explicit .flv URL.
+      // Explicit .flv is only one representation.
       const explicit=/https?:\/\/[^"'\\\s<>]+?\.flv(?:\?[^"'\\\s<>]*)?/ig;
       for(const match of trimmed.matchAll(explicit)){
-        let url=String(match[0]||'')
-          .replace(/&amp;/gi,'&')
-          .replace(/\\u0026/gi,'&')
-          .replace(/\\u002F/gi,'/')
-          .replace(/\\\//g,'/');
-        try{url=decodeURIComponent(url)}catch{}
-        if(url&&!out.some(row=>row.url===url)){
-          out.push({url,type:'flv',path,reason:'url-extension'});
-        }
+        const url=normalizeTikTokHttpUrl(match[0]);
+        if(url)upsertTikTokFlvCandidate(out,{
+          url,type:'flv',path,reason:'url-extension',
+          ...parseTikTokStreamMeta({},path)
+        });
       }
 
-      // TikTok also returns FLV in semantic fields such as flv_pull_url,
-      // main.flv, backup.flv, etc. Those CDN URLs do not always end in .flv.
-      // If the payload path itself declares FLV, accept HTTP(S) URLs from it.
+      // Semantic FLV field: flv_pull_url/main.flv/etc may contain a URL with
+      // no ".flv" suffix. The field meaning, not the suffix, defines transport.
       if(pathIsFlv){
-        const generic=/https?:\/\/[^"'\\\s<>]+/ig;
-        for(const match of trimmed.matchAll(generic)){
-          let url=String(match[0]||'')
-            .replace(/&amp;/gi,'&')
-            .replace(/\\u0026/gi,'&')
-            .replace(/\\u002F/gi,'/')
-            .replace(/\\\//g,'/');
-          try{url=decodeURIComponent(url)}catch{}
-          if(/^https?:\/\//i.test(url)&&!out.some(row=>row.url===url)){
-            out.push({url,type:'flv',path,reason:'flv-field'});
-          }
-        }
+        const url=normalizeTikTokHttpUrl(trimmed);
+        if(url)upsertTikTokFlvCandidate(out,{
+          url,type:'flv',path,reason:'flv-field',
+          ...parseTikTokStreamMeta({},path)
+        });
       }
     }
     return out;
@@ -1756,6 +1907,24 @@ function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
   }
 
   if(typeof value==='object'){
+    const meta=parseTikTokStreamMeta(value,path);
+
+    // Canonical structured case from TikTok:
+    // stream_data.data.<quality>.main.flv + main.sdk_params
+    for(const [key,child] of Object.entries(value)){
+      const semantic=/^(?:flv|flv[_-]?url|flv[_-]?pull(?:[_-]?url)?|pull[_-]?flv(?:[_-]?url)?|stream[_-]?flv(?:[_-]?url)?)$/i.test(key);
+      if(semantic&&typeof child==='string'){
+        const url=normalizeTikTokHttpUrl(child);
+        if(url)upsertTikTokFlvCandidate(out,{
+          url,
+          type:'flv',
+          path:path?path+'.'+key:key,
+          reason:'structured-flv-field',
+          ...meta
+        });
+      }
+    }
+
     for(const [key,child] of Object.entries(value)){
       collectTikTokLiveStreamCandidates(
         child,
@@ -1802,36 +1971,56 @@ function isTikTokVideoFlvCandidate(row){
   const path=String(row?.path||'');
   if(String(row?.type||'').toLowerCase()!=='flv'||!/^https?:\/\//i.test(url))return false;
 
-  const text=(path+' '+url).toLowerCase();
-  // TikTok exposes dedicated audio-only FLV under data.ao/main and via
-  // only_audio=1. Never publish those as video LIVE.
+  const text=(path+' '+String(row?.quality||'')+' '+url).toLowerCase();
   if(/[?&]only_audio=(?:1|true)(?:&|$)/i.test(url))return false;
   if(/(^|[._\[\]/-])ao(?:[._\[\]/-]|$)|audio[_-]?only|only[_-]?audio/.test(text))return false;
   return true;
 }
 
 function rankTikTokLiveCandidate(row){
-  const text=(String(row?.path||'')+' '+String(row?.url||'')).toLowerCase();
-  let score=0;
+  if(!isTikTokVideoFlvCandidate(row))return -1_000_000_000;
 
-  // Compatibility before raw resolution. A decoded H.264/AVC picture is more
-  // important than selecting a higher HEVC tier that may play audio only.
-  if(/hevcstreamdata|hevc|h265|hvc1|hev1/.test(text))score-=5000;
-  if(/(^|[._])streamdata([._]|$)|h264|avc|avc1/.test(text))score+=2500;
+  const text=(
+    String(row?.path||'')+' '+
+    String(row?.quality||'')+' '+
+    String(row?.videoCodec||'')+' '+
+    String(row?.url||'')
+  ).toLowerCase();
 
-  if(!isTikTokVideoFlvCandidate(row))return -100000;
-  if(row?.type==='flv')score+=1000;
+  const codec=normalizeTikTokCodec(row?.videoCodec||'');
+  const width=Number(row?.width||0);
+  const height=Number(row?.height||0);
+  const bitrate=Number(row?.bitrate||0);
+  const quality=String(row?.quality||'').toLowerCase();
 
-  if(/full[_ -]?hd1|full_hd1/.test(text))score+=600;
-  else if(/(^|[._])hd1([._]|$)|_hd1/.test(text))score+=500;
-  else if(/full[_ -]?hd|1080/.test(text))score+=350;
-  else if(/(^|[._])hd([._]|$)|_hd|720/.test(text))score+=250;
-  else if(/sd|540|480/.test(text))score+=120;
+  let score=100_000;
 
-  // TikTok's UHD/HEVC variants are the common "audio but black video" case in
-  // Chromium, so don't let resolution alone beat an AVC/FLV stream.
-  if(/uhd/.test(text))score-=250;
-  if(/backup|bak/.test(text))score-=30;
+  // Compatibility is the first criterion. flv.js/browser playback strongly
+  // prefers AVC/H.264. HEVC remains available only if no AVC candidate exists.
+  if(codec==='h264'||/h264|avc|avc1/.test(text))score+=1_000_000;
+  else if(codec==='h265'||/hevcstreamdata|hevc|h265|hvc1|hev1/.test(text))score+=0;
+  else score+=400_000;
+
+  if(String(row?.sourceFamily||'')==='standard')score+=20_000;
+  if(String(row?.sourceFamily||'')==='hevc')score-=20_000;
+
+  // Within the same compatibility class, choose the highest real quality.
+  const pixels=width>0&&height>0?width*height:0;
+  score+=Math.min(250_000,Math.floor(pixels/8));
+  score+=Math.min(80_000,Math.floor(bitrate/25));
+
+  const qualityScore={
+    original:100_000,origin:100_000,uhd:90_000,
+    full_hd1:85_000,full_hd:80_000,fhd:80_000,
+    hd1:70_000,hd5:68_000,hd:65_000,
+    sd5b:50_000,sd5:48_000,sd:45_000,
+    ld5:25_000,ld:20_000
+  };
+  score+=Number(qualityScore[quality]||0);
+
+  if(/\.main\.flv|[._]main[._]/.test(text))score+=10_000;
+  if(/backup|bak/.test(text))score-=10_000;
+
   return score;
 }
 
@@ -2380,7 +2569,12 @@ async function fastTikTokLiveWithYtdlp(handle){
       type:'flv',
       title:String(data.title||''),
       thumbnail:String(data.thumbnail||''),
-      path:'yt-dlp:'+String(data?.selected?.format_id||data?.method||'fast')
+      path:'yt-dlp:'+String(data?.selected?.format_id||data?.method||'fast'),
+      videoCodec:normalizeTikTokCodec(data?.selected?.vcodec||''),
+      width:Number(data?.selected?.width||0),
+      height:Number(data?.selected?.height||0),
+      quality:String(data?.selected?.format_id||''),
+      bitrate:Number(data?.selected?.tbr||0)*1000
     };
   }catch(error){
     console.log('[tiktok-fast] yt-dlp miss',handle,compactText(error?.message||error,120));
