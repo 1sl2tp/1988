@@ -51,13 +51,14 @@ def main():
     extra = sorted(set(status_handles) - set(lib_handles))
     dupes = sorted({h for h in status_handles if status_handles.count(h) > 1})
     bad = [x for x in items if x.get("state") not in ALLOWED]
+    still_checking = [(x.get("handle"), x.get("state")) for x in items if x.get("state") == "checking"]
     weak_offline = []
     weak_live = []
     no_evidence = []
     for x in items:
         ev = x.get("evidence") or []
         state = x.get("state")
-        if state not in ("checking",) and not ev:
+        if not ev:
             no_evidence.append((x.get("handle"), state))
         if state == "offline":
             off = [e for e in ev if e.get("known") and not e.get("live")]
@@ -74,6 +75,7 @@ def main():
     print("EXTRA", extra)
     print("DUPLICATES", dupes)
     print("BAD_STATES", [(x.get("handle"), x.get("state")) for x in bad])
+    print("STILL_CHECKING", still_checking[:20])
     print("NO_EVIDENCE", no_evidence[:20])
     print("WEAK_OFFLINE", weak_offline[:20])
     print("WEAK_LIVE", weak_live[:20])
@@ -88,6 +90,7 @@ def main():
     assert not extra, f"extra handles in status endpoint: {extra[:20]}"
     assert not dupes, f"duplicate handles in status endpoint: {dupes[:20]}"
     assert not bad, f"unrecognized states: {bad[:20]}"
+    assert not still_checking, f"forced scan left handles unscanned: {still_checking[:20]}"
     assert not no_evidence, f"status rows missing scan evidence: {no_evidence[:20]}"
     assert not weak_offline, f"offline rows without two-source confirmation: {weak_offline[:20]}"
     assert not weak_live, f"live rows without positive evidence/retention: {weak_live[:20]}"
