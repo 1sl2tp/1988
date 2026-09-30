@@ -1,0 +1,67 @@
+name: Probe giaodendoithuong79 room once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-giaodendoithuong79-room-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe TikTok room identity
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re, urllib.request
+          HANDLE='giaodendoithuong79'
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+
+          def get(url, accept='application/json,text/plain,*/*'):
+              req=urllib.request.Request(url,headers={
+                  'User-Agent':UA,
+                  'Referer':'https://www.tiktok.com/@'+HANDLE+'/live',
+                  'Accept':accept,
+                  'Accept-Language':'vi-VN,vi;q=0.9,en;q=0.5'
+              })
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  return r.read()
+
+          # profile HTML
+          try:
+              raw=get('https://www.tiktok.com/@'+HANDLE,'text/html,*/*').decode('utf-8','ignore')
+              ids=[]
+              for key in ['roomId','room_id','liveRoomId']:
+                  for m in re.finditer(key+r'[^0-9]{0,20}([0-9]{8,30})',raw):
+                      if m.group(1) not in ids: ids.append(m.group(1))
+              print('PROFILE_IDS',ids[:20])
+          except Exception as e:
+              print('PROFILE_ERROR',repr(e))
+              ids=[]
+
+          # live/detail by handle
+          try:
+              d=json.loads(get('https://www.tiktok.com/api/live/detail/?aid=1988&uniqueId='+HANDLE))
+              live=d.get('LiveRoomInfo') or (d.get('data') or {}).get('LiveRoomInfo') or (d.get('data') or {}).get('liveRoomInfo') or {}
+              rid=str(live.get('liveRoomId') or live.get('roomId') or live.get('id') or '')
+              print('DETAIL_STATUS',live.get('status'),'RID',rid,'KEYS',sorted(list(live.keys()))[:80])
+              s=json.dumps(live,ensure_ascii=False)
+              print('DETAIL_HAS_FLV',('flv' in s.lower()),'DETAIL_HAS_STREAM',('stream' in s.lower()))
+              if rid and rid not in ids: ids.insert(0,rid)
+          except Exception as e:
+              print('DETAIL_ERROR',repr(e))
+
+          for rid in ids[:10]:
+              try:
+                  d=json.loads(get('https://webcast.tiktok.com/webcast/room/info?aid=1988&room_id='+rid))
+                  room=d.get('data') or d.get('room') or {}
+                  s=json.dumps(room,ensure_ascii=False)
+                  print('ROOM',rid,'STATUS',room.get('status'),'HAS_FLV',('flv' in s.lower()),'HAS_STREAM',('stream' in s.lower()),'KEYS',sorted(list(room.keys()))[:80])
+              except Exception as e:
+                  print('ROOM_ERROR',rid,repr(e))
+          PY
