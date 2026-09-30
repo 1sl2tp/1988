@@ -93,7 +93,7 @@ jobs:
               const provider=await RouteConfig.fetchRoomInfoFromProvider({
                 webClient:conn.webClient,
                 apiClient:conn.apiClient,
-                roomId
+                uniqueId:handle
               });
               console.log('PROVIDER_JSON',JSON.stringify(provider).slice(0,12000));
               if(provider&&typeof provider==='object'){
