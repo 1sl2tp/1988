@@ -607,6 +607,10 @@ button{cursor:pointer}
 <div class="toast" id="toast"></div>
 
 <script>
+const TIKTOK_MAINTENANCE=true;
+if(TIKTOK_MAINTENANCE){
+  document.body.innerHTML='<main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#0f0f0f;color:#f1f1f1;font:16px/1.5 Arial,sans-serif"><section style="max-width:520px;text-align:center"><h1 style="margin:0 0 10px;font-size:24px">TikTok tạm dừng</h1><p style="margin:0;color:#aaa">Đang tạm ngắt LIVE, video và cập nhật dữ liệu để bảo trì Supabase.</p></section></main>';
+}else{
 const API='https://one988-tiktok-session.onrender.com';
 const POLL_MS=5000;
 
@@ -1577,6 +1581,7 @@ void (async()=>{
 renderRecentVideos('');
 setInterval(()=>void loadUnifiedLibrary({silent:true}),POLL_MS);
 setInterval(()=>void loadLiveNow({silent:true}),POLL_MS);
+}
 </script>
 </body>
 </html>
