@@ -5290,7 +5290,25 @@ async function refreshTikTokCanonicalProfileBatch(size=20){
       }
     }
 
-    const missing=batch.filter(handle=>!profiles.has(handle.toLowerCase()));
+    // The edge bundle/browser can be unavailable or blocked. For profile
+    // metadata only, use TikWM as a server-side fallback. Playback stays yt-dlp.
+    let missing=batch.filter(handle=>!profiles.has(handle.toLowerCase()));
+    for(const handle of missing){
+      try{
+        const profile=await fetchTikwmProfileIdentity(handle);
+        if(profile){
+          const key=handle.toLowerCase();
+          const cached=tiktokProfileIdentityCache.get(key)?.data||{};
+          const mergedProfile=mergeTikTokProfileData(handle,cached,profile);
+          profiles.set(key,mergedProfile);
+          tiktokProfileIdentityCache.set(key,{at:Date.now(),data:mergedProfile});
+          ok+=1;
+        }
+      }catch{}
+      await sleep(250);
+    }
+
+    missing=batch.filter(handle=>!profiles.has(handle.toLowerCase()));
     if(missing.length){
       const browserProfiles=await browserTikTokProfileIdentities(missing).catch(()=>new Map());
       for(const handle of missing){
