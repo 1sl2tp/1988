@@ -18,7 +18,6 @@ const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
 const LOGIN_TOKEN=String(process.env.LOGIN_TOKEN||'');
 const TIKTOK_CLIENT_KEY=String(process.env.TIKTOK_CLIENT_KEY||'');
 const TIKTOK_CLIENT_SECRET=String(process.env.TIKTOK_CLIENT_SECRET||'');
-const APIFY_TOKEN=String(process.env.APIFY_TOKEN||'').trim();
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
 const TZ='Asia/Ho_Chi_Minh';
 
@@ -1304,22 +1303,33 @@ function runTikTokLiveMinuteSweep(){
       Array.from({length:Math.min(8,target.length||1)},()=>worker())
     );
 
-    // Stage 2 sees only handles for which TikTok did not return status 2/4.
-    const unresolved=checked
-      .filter(row=>!row?.state?.known)
-      .map(row=>row.handle);
-
-    const apifyStates=await checkTikTokLiveWithApify(unresolved);
-    for(const row of checked){
-      if(row?.state?.known)continue;
-      const fallback=apifyStates.get(String(row.handle||'').toLowerCase());
-      if(fallback?.known)row.state=fallback;
+    // Second pass: only retry handles where TikTok did not return status 2/4.
+    const unresolvedIndexes=[];
+    for(let i=0;i<checked.length;i+=1){
+      if(!checked[i]?.state?.known)unresolvedIndexes.push(i);
     }
+
+    let retryCursor=0;
+    const retryWorker=async()=>{
+      while(true){
+        const retryIndex=retryCursor++;
+        if(retryIndex>=unresolvedIndexes.length)return;
+        const index=unresolvedIndexes[retryIndex];
+        const handle=checked[index].handle;
+        try{
+          const retryState=await quickTikTokLiveStateOnly(handle);
+          if(retryState?.known)checked[index].state=retryState;
+          else checked[index].state=retryState||checked[index].state;
+        }catch{}
+      }
+    };
+    await Promise.all(
+      Array.from({length:Math.min(4,unresolvedIndexes.length||1)},()=>retryWorker())
+    );
 
     const nextLive=new Set();
     const checkedAt=Date.now();
-    let tiktokResolved=0;
-    let apifyResolved=0;
+    let resolved=0;
     let unknown=0;
 
     for(const {handle,state} of checked){
@@ -1327,8 +1337,7 @@ function runTikTokLiveMinuteSweep(){
       const isKnown=Boolean(state?.known);
       const isLive=Boolean(isKnown&&state?.live===true);
 
-      if(isKnown&&state?.source==='apify')apifyResolved+=1;
-      else if(isKnown)tiktokResolved+=1;
+      if(isKnown)resolved+=1;
       else unknown+=1;
 
       if(isLive)nextLive.add(key);
@@ -1377,7 +1386,6 @@ function runTikTokLiveMinuteSweep(){
       });
     }
 
-    // Atomic current snapshot only; no previous-state decision is involved.
     tiktokRealtimeLiveHandles=nextLive;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
@@ -1385,9 +1393,8 @@ function runTikTokLiveMinuteSweep(){
       '[tiktok-live-current]',
       'channels='+target.length,
       'live='+nextLive.size,
-      'tiktokResolved='+tiktokResolved,
-      'apifyRequested='+unresolved.length,
-      'apifyResolved='+apifyResolved,
+      'retryRequested='+unresolvedIndexes.length,
+      'resolved='+resolved,
       'unknown='+unknown,
       'checkedAt='+checkedAt
     );
@@ -2161,84 +2168,6 @@ async function quickTikTokLiveStateOnly(rawHandle){
   }catch(error){
     return {known:false,live:false,status:null,source:'tiktok-error'};
   }
-}
-
-async function checkTikTokLiveWithApify(rawHandles){
-  const handles=[...new Set(
-    (rawHandles||[]).map(normalizeTikTokHandle).filter(Boolean)
-  )];
-  const out=new Map();
-  if(!handles.length||!APIFY_TOKEN)return out;
-
-  try{
-    const endpoint=
-      'https://api.apify.com/v2/acts/UnseenUser~tiktok-live-status-scraper/'+
-      'run-sync-get-dataset-items?format=json&clean=true';
-
-    const r=await fetch(endpoint,{
-      method:'POST',
-      headers:{
-        'authorization':'Bearer '+APIFY_TOKEN,
-        'content-type':'application/json',
-        'accept':'application/json'
-      },
-      body:JSON.stringify({
-        handles,
-        include_stream_urls:false
-      }),
-      signal:AbortSignal.timeout(60_000)
-    });
-
-    if(!r.ok){
-      console.warn('[tiktok-live-apify] http='+r.status);
-      return out;
-    }
-
-    const rows=await r.json().catch(()=>[]);
-    for(const row of Array.isArray(rows)?rows:[]){
-      const handle=normalizeTikTokHandle(
-        row?.handle||
-        row?.unique_id||
-        row?._metadata?.input_identifier||
-        ''
-      );
-      if(!handle)continue;
-
-      const key=handle.toLowerCase();
-      if(row?.error){
-        out.set(key,{
-          known:false,
-          live:false,
-          status:null,
-          source:'apify-error'
-        });
-        continue;
-      }
-
-      if(typeof row?.is_live==='boolean'){
-        out.set(key,{
-          known:true,
-          live:row.is_live===true,
-          status:row.is_live===true?2:4,
-          source:'apify'
-        });
-      }
-    }
-
-    console.log(
-      '[tiktok-live-apify]',
-      'requested='+handles.length,
-      'resolved='+[...out.values()].filter(x=>x.known).length,
-      'live='+[...out.values()].filter(x=>x.known&&x.live).length
-    );
-  }catch(error){
-    console.warn(
-      '[tiktok-live-apify] failed',
-      compactText(error?.message||error,160)
-    );
-  }
-
-  return out;
 }
 
 async function browserTikTokLiveStates(handles){
@@ -7385,8 +7314,7 @@ const server=http.createServer(async(req,res)=>{
           known:false,live:false,status:null,source:'tiktok-error'
         }));
         if(!liveState?.known){
-          const fallback=await checkTikTokLiveWithApify([handle]);
-          liveState=fallback.get(handle.toLowerCase())||liveState;
+          liveState=await quickTikTokLiveStateOnly(handle).catch(()=>liveState);
         }
         const isLive=Boolean(liveState?.known&&liveState.live===true);
         const checkedAt=Date.now();
