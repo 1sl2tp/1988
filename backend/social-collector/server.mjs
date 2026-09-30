@@ -1948,7 +1948,6 @@ async function quickTikTokLiveDetailStatus(handle,retry=true){
         'accept':'application/json,text/plain,*/*',
         'accept-language':'en-US,en;q=0.9',
         'referer':'https://www.tiktok.com/@'+handle+'/live',
-        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       redirect:'follow',
       signal:AbortSignal.timeout(3000)
@@ -2094,8 +2093,8 @@ async function quickTikTokLiveStateOnly(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,live:false,status:null,source:'invalid'};
 
-  // Locked LIVE definition: use TikTok's user/room API only.
-  // No browser, no FLV, no yt-dlp, no secondary API voting.
+  // Locked LIVE definition: read TikTok user/room directly.
+  // status=2 => LIVE. No browser, FLV, yt-dlp, package history or voting.
   try{
     const endpoint=new URL('https://www.tiktok.com/api-live/user/room');
     endpoint.searchParams.set('aid','1988');
@@ -2107,8 +2106,7 @@ async function quickTikTokLiveStateOnly(rawHandle){
         'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
         'accept':'application/json,text/plain,*/*',
         'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
-        'referer':'https://www.tiktok.com/@'+handle+'/live',
-        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+        'referer':'https://www.tiktok.com/@'+handle+'/live'
       },
       redirect:'follow',
       signal:AbortSignal.timeout(4000)
@@ -2119,38 +2117,13 @@ async function quickTikTokLiveStateOnly(rawHandle){
     }
 
     const data=await r.json();
-    const liveRoom=data?.data?.liveRoom||null;
-    const liveStatus=Number(liveRoom?.status);
-    if(Number.isFinite(liveStatus)){
-      return {
-        known:true,
-        live:liveStatus===2,
-        status:liveStatus,
-        source:'user-room'
-      };
-    }
-
-    const userStatus=Number(data?.data?.user?.status);
-    const roomId=String(data?.data?.user?.roomId||'');
-    if(roomId&&userStatus===2){
-      return {
-        known:true,
-        live:true,
-        status:2,
-        source:'user-room-user-status'
-      };
-    }
-
-    if(!liveRoom&&!roomId){
-      return {
-        known:true,
-        live:false,
-        status:4,
-        source:'user-room-empty'
-      };
-    }
-
-    return {known:false,live:false,status:null,source:'user-room-unknown'};
+    const status=Number(data?.data?.liveRoom?.status);
+    return {
+      known:true,
+      live:status===2,
+      status:Number.isFinite(status)?status:null,
+      source:'user-room'
+    };
   }catch(error){
     return {known:false,live:false,status:null,source:'user-room-error'};
   }
@@ -7561,6 +7534,31 @@ const server=http.createServer(async(req,res)=>{
       total:channels.length,
       videoCount:channels.reduce((sum,row)=>sum+row.videos.length,0),
       channels
+    });
+    return;
+  }
+
+  if(url.pathname==='/tiktok/live-now'&&req.method==='GET'){
+    const wanted=tiktokLiveSelectedHandles.size
+      ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
+      :new Set();
+
+    const items=[...tiktokLiveLibrary.values()]
+      .filter(row=>
+        wanted.has(String(row?.handle||'').toLowerCase())&&
+        row?.live===true
+      )
+      .map(publicTikTokLibraryItem)
+      .filter(Boolean)
+      .sort((a,b)=>String(a.handle||'').localeCompare(String(b.handle||'')));
+
+    json(res,200,{
+      ok:true,
+      realtime:true,
+      checkedAt:Date.now(),
+      total:wanted.size,
+      live:items.length,
+      items
     });
     return;
   }
