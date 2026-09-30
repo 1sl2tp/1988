@@ -479,28 +479,24 @@ async function openVideo(rawHandle,videoId,retry=true){
   }
 
   const src=/^https?:\/\//i.test(stream)?stream:(API+stream);
-  native.onerror=async()=>{
+  native.onerror=()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
     if(!retry){
-      showToast('Nguồn video chưa sẵn sàng');
+      showToast('Nguồn video đang được làm mới');
       return;
     }
 
-    // UI never prepares/extracts video. It only re-reads the package in case
-    // the server has already refreshed the playback source in the meantime.
-    libraryVersion=-1;
-    await loadUnifiedLibrary({force:true,silent:true});
-    if(seq!==videoOpenSeq)return;
-    const fresh=currentVideoFor(handle,videoId);
-    const next=String(fresh?.playback?.url||'').trim();
-    if(fresh?.playback?.ready&&next){
-      openVideo(handle,videoId,false);
-    }else{
-      showToast('Server đang đồng bộ nguồn video');
-    }
+    // Stable playback route: the server refreshes an expired MP4 in the
+    // background. Retry the same URL once; do not reload the whole package.
+    setTimeout(()=>{
+      if(seq!==videoOpenSeq||mediaMode!=='video')return;
+      native.src=src;
+      native.load();
+      native.play().catch(()=>{});
+    },1200);
   };
 
   native.onloadedmetadata=()=>{
@@ -918,7 +914,7 @@ async function removeChannel(rawHandle){
     mutationBusy=false;
   }
 }
-function attachFlv(url,handle){
+function attachFlv(url,handle,retryCount=0){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
   let failed=false;
@@ -964,6 +960,11 @@ function attachFlv(url,handle){
     failed=true;
     destroyPlayer();
     document.getElementById('nowState').textContent='';
+    if(retryCount<1&&handle===currentHandle&&mediaMode==='live'){
+      setTimeout(()=>{
+        if(handle===currentHandle&&mediaMode==='live')attachFlv(url,handle,retryCount+1);
+      },900);
+    }
   });
   player=p;
   video.onplaying=()=>{
