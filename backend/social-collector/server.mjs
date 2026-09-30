@@ -2879,10 +2879,25 @@ async function captureTikTokLiveSessionOnce(rawHandle){
   const onResponse=response=>{
     try{
       const responseUrl=String(response.url()||'');
-      const lower=responseUrl.toLowerCase();
       if(!/tiktok\.com|tiktokv\.com|byteoversea\.com|tiktokcdn\.com/i.test(responseUrl))return;
       const headers=response.headers?.()||{};
-      const type=String(headers['content-type']||headers['Content-Type']||'');
+      const type=String(headers['content-type']||headers['Content-Type']||'').toLowerCase();
+
+      // TikTok FLV URLs do not always end in ".flv". The browser/network
+      // response itself is authoritative: if TikTok serves video/x-flv, keep
+      // that URL as FLV even when the path is opaque or extensionless.
+      if(/(?:video|application)\/(?:x-)?flv/.test(type)){
+        const requestHeaders=response.request?.()?.headers?.()||{};
+        if(!capturedFlv){
+          remember(responseUrl,'flv',requestHeaders);
+          console.log('[tiktok-session] response-flv',handle,responseUrl.slice(0,200));
+        }
+        return;
+      }
+
+      // Structured TikTok API responses may carry semantic FLV fields
+      // (main.flv, flv_pull_url, stream_flv_url...) whose URL also has no
+      // ".flv" suffix. Parse those text/JSON payloads recursively.
       if(type&&!/json|text|javascript/i.test(type))return;
       const task=(async()=>{
         const text=await response.text().catch(()=>null);
@@ -2892,7 +2907,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
 
         if(flv&&!capturedFlv){
-          remember(flv.url,'flv',{});
+          remember(flv.url,'flv',response.request?.()?.headers?.()||{});
           console.log('[tiktok-session] payload-flv',handle,flv.path||'');
         }
       })();
