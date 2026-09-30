@@ -1271,7 +1271,11 @@ async function loadLiveLibrary({force=false,silent=true}={}){
   liveLoadBusy=true;
   try{
     const v=force?-1:liveVersion;
-    const data=await apiJson(API+'/tiktok/live-library?v='+encodeURIComponent(v)+'&t='+Date.now());
+    const data=await apiJson(
+      API+'/tiktok/live-library?v='+encodeURIComponent(v)+
+      (force?'&refresh=1':'')+
+      '&t='+Date.now()
+    );
     if(!data.unchanged)applyLiveLibrary(data);
   }catch(error){
     if(!silent)showToast('Không tải được trạng thái LIVE');
