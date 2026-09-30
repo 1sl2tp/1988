@@ -97,7 +97,7 @@
 const API='https://one988-tiktok-session.onrender.com';
 const THEME_KEY='tiktok-theme-v1';
 let channels=[];
-let liveHandles=new Set();
+let statusByHandle=new Map();
 let inputTimer=0;
 let previewSeq=0;
 let busy=false;
@@ -162,8 +162,22 @@ function channelProfile(row){
     videoCount:Number(p.videoCount||0)
   };
 }
+function statusFor(handle){
+  return statusByHandle.get(String(handle||'').toLowerCase())||{state:'checking'};
+}
 function isLive(handle){
-  return liveHandles.has(String(handle||'').toLowerCase());
+  return String(statusFor(handle).state||'').startsWith('live_');
+}
+function statusLabel(state){
+  return ({
+    live_ready:'LIVE · FLV',
+    live_verifying_flv:'LIVE · kiểm FLV',
+    live_resolving_flv:'LIVE · tìm FLV',
+    live_unverified:'LIVE · chưa xác minh',
+    offline:'Offline',
+    unknown:'Không xác định',
+    checking:'Đang kiểm tra'
+  })[String(state||'')]||String(state||'Đang kiểm tra');
 }
 function selected(handle){
   const key=String(handle||'').toLowerCase();
@@ -185,7 +199,11 @@ function render(){
   rows.sort((a,b)=>Number(isLive(b.handle))-Number(isLive(a.handle))||channelProfile(a).name.localeCompare(channelProfile(b).name,'vi'));
 
   document.getElementById('channelCount').textContent=String(channels.length);
-  document.getElementById('manageSummary').textContent=(q?rows.length+' kết quả · ':'')+liveHandles.size+' đang LIVE';
+  const liveCount=channels.filter(row=>isLive(row.handle)).length;
+  const unknownCount=channels.filter(row=>['unknown','checking'].includes(statusFor(row.handle).state)).length;
+  document.getElementById('manageSummary').textContent=
+    (q?rows.length+' kết quả · ':'')+
+    liveCount+' LIVE'+(unknownCount?' · '+unknownCount+' chưa xác định':'');
 
   if(!rows.length){
     root.innerHTML='<div class="manage-empty">'+(q?'Không có kênh phù hợp.':'Chưa có kênh đã chọn.')+'</div>';
@@ -206,7 +224,7 @@ function render(){
     return '<div class="manage-row" data-handle="'+esc(handle)+'">'+
       '<div class="manage-avatar">'+avatar+'</div>'+
       '<div class="manage-copy"><div class="manage-name"><strong>'+esc(p.name)+'</strong>'+
-      (isLive(handle)?'<span class="manage-live">LIVE</span>':'')+
+      '<span class="manage-live state-'+esc(statusFor(handle).state)+'">'+esc(statusLabel(statusFor(handle).state))+'</span>'+
       '</div><div class="manage-meta">'+esc(meta)+'</div></div>'+
       '<div class="manage-actions">'+
       '<a class="manage-open" href="./tiktok-clean-demo.html?mode='+(isLive(handle)?'live':'video')+'&user='+encodeURIComponent(handle)+'" title="Mở ở trang xem">'+
@@ -222,14 +240,16 @@ function render(){
 }
 async function loadAll({silent=false}={}){
   try{
-    const [library,live]=await Promise.all([
+    const [library,statuses]=await Promise.all([
       apiJson(API+'/tiktok/library?v=-1&t='+Date.now()),
-      apiJson(API+'/tiktok/live-now?t='+Date.now())
+      apiJson(API+'/tiktok/live-statuses?t='+Date.now())
     ]);
     channels=Array.isArray(library?.channels)?library.channels:[];
-    liveHandles=new Set((Array.isArray(live?.items)?live.items:[])
-      .filter(item=>item?.playable&&String(item?.type||'').toLowerCase()==='flv'&&item?.streamUrl)
-      .map(item=>String(item?.handle||'').toLowerCase()).filter(Boolean));
+    statusByHandle=new Map(
+      (Array.isArray(statuses?.items)?statuses.items:[])
+        .map(item=>[String(item?.handle||'').toLowerCase(),item])
+        .filter(([handle])=>Boolean(handle))
+    );
     render();
   }catch(error){
     if(!silent)showToast('Không tải được danh sách kênh');
@@ -319,7 +339,7 @@ async function removeChannel(handle){
       body:JSON.stringify({handle,selected:false})
     });
     channels=channels.filter(row=>String(row?.handle||'').toLowerCase()!==handle.toLowerCase());
-    liveHandles.delete(handle.toLowerCase());
+    statusByHandle.delete(handle.toLowerCase());
     render();
     showToast('Đã xoá @'+handle);
   }catch(error){
