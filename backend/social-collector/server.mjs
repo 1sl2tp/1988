@@ -692,6 +692,7 @@ async function findPreferredTikTokFlv(handle,excludeSig=''){
   const candidates=(status.candidates||[])
     .filter(row=>
       isTikTokVideoFlvCandidate(row)&&
+      !isTikTokBadSource(handle,row)&&
       (!excludeSig||tiktokLibrarySourceSig(row)!==excludeSig)
     )
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
@@ -2769,7 +2770,7 @@ async function resolveTikTokLiveSource(rawHandle){
   }
 
   const candidate=(preflight.candidates||[])
-    .filter(isTikTokVideoFlvCandidate)
+    .filter(row=>isTikTokVideoFlvCandidate(row)&&!isTikTokBadSource(handle,row))
     .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
   if(candidate){
     const row={
@@ -3065,11 +3066,9 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     }
     source.at=Date.now();
   }else if(forceBrowser){
-    // Drop any fast source that produced audio without picture and capture
-    // again from the real TikTok browser session.
     tiktokLiveFastSources.delete(handle.toLowerCase());
     const session=await captureTikTokLiveSession(handle);
-    source={mode:'browser',handle,type:session.type,url:session.url,at:session.at,source:'browser-session'};
+    source={mode:'browser',handle,type:session.type,url:session.url,headers:session.headers||{},at:session.at,source:'browser-session'};
   }else{
     source=currentTikTokLibrarySource(handle);
     if(!source){
@@ -3083,31 +3082,109 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
     throw new Error('tiktok_live_flv_required');
   }
 
-  // As soon as a real relay source has been resolved, publish it into the
-  // LIVE library. If this channel is already selected, persist the package in
-  // background so UI state becomes LIVE/ready without a second scan.
-  publishTikTokLiveSourceNow(handle,source,{
-    mode:String(source.mode||'relay'),
-    source:String(source.source||source.mode||'relay')
-  });
-  if(tiktokLiveSelectedHandles.has(handle)){
-    void persistTikTokLiveStore({force:true});
+  // Playback is the final truth for FLV selection. TikTok commonly exposes
+  // several semantic FLV fields/qualities (main, backup, HD1, FULL_HD1, ...).
+  // A high-ranked URL can be stale while another FLV from the same room works.
+  // Verify only when somebody actually opens the LIVE, then fall through to
+  // the next ranked FLV without making the minute sweep slower.
+  const attempted=new Set();
+  let lastError='tiktok_live_flv_not_playable';
+
+  for(let attempt=0;attempt<4;attempt+=1){
+    if(!source?.url||String(source.type||'').toLowerCase()!=='flv')break;
+
+    const sig=tiktokLibrarySourceSig(source);
+    if(sig&&attempted.has(sig))break;
+    if(sig)attempted.add(sig);
+
+    const probe=await probeTikTokFlvBytes(
+      handle,
+      source,
+      source.headers&&Object.keys(source.headers).length?source.headers:null
+    );
+
+    if(probe?.ok){
+      source={
+        ...source,
+        url:String(probe.url||source.url||''),
+        headers:probe.headers||source.headers||{},
+        flvVerified:true,
+        hasVideo:Boolean(probe.hasVideo),
+        hasAudio:Boolean(probe.hasAudio),
+        validatedAt:Date.now(),
+        at:Date.now()
+      };
+      clearTikTokBadSource(handle,source);
+
+      if(String(source.mode||'').startsWith('fast')){
+        tiktokLiveFastSources.set(handle.toLowerCase(),source);
+      }
+      publishTikTokLiveSourceNow(handle,source,{
+        mode:String(source.mode||'relay'),
+        source:String(source.source||source.mode||'relay')
+      });
+      if(tiktokLiveSelectedHandles.has(handle)){
+        void persistTikTokLiveStore({force:true});
+      }
+
+      const fast=String(source.mode||'').startsWith('fast');
+      const piped=await pipeTikTokTarget(req,res,source.url,{
+        fallbackType:'video/x-flv',
+        handle:fast?'':handle,
+        headersOverride:fast?source.headers:null,
+        deferError:true
+      });
+      if(piped?.ok)return;
+
+      lastError='upstream_stream_'+Number(piped?.status||0);
+      markTikTokBadSource(handle,source);
+      console.log(
+        '[tiktok-proxy] verified FLV relay failed',
+        handle,
+        'attempt='+(attempt+1),
+        'status='+Number(piped?.status||0),
+        'path='+String(source.flvPath||source.path||'')
+      );
+    }else{
+      lastError=String(probe?.error||'invalid_flv');
+      markTikTokBadSource(handle,source);
+      console.log(
+        '[tiktok-proxy] FLV candidate rejected',
+        handle,
+        'attempt='+(attempt+1),
+        'error='+lastError,
+        'path='+String(source.flvPath||source.path||'')
+      );
+    }
+
+    // Do not let a dead cached FLV win again on the next attempt.
+    const key=handle.toLowerCase();
+    const cached=tiktokLiveFastSources.get(key);
+    if(cached&&isTikTokBadSource(handle,cached))tiktokLiveFastSources.delete(key);
+
+    const exclude=tiktokLibrarySourceSig(source);
+    const next=await findPreferredTikTokFlv(handle,exclude).catch(()=>null);
+    if(!next?.url)break;
+    source=next;
   }
 
-  const fast=String(source.mode||'').startsWith('fast');
-  const piped=await pipeTikTokTarget(req,res,source.url,{
-    fallbackType:'video/x-flv',
-    handle:fast?'':handle,
-    headersOverride:fast?source.headers:null
+  // Keep LIVE locked. A failed FLV only means this set of media URLs did not
+  // work; it must never turn the channel OFF or delete it from the LIVE list.
+  updateTikTokLiveLibrary(handle,{
+    live:true,
+    status:'live',
+    probeState:'live',
+    ready:false,
+    playable:false,
+    lastSeenAt:Date.now()
   });
 
-  if(piped?.ok===false&&[403,404,410].includes(Number(piped.status||0))){
-    // LOCKED GETLINK PHASE: playback failure is diagnostic only.
-    // Do not remove LIVE, do not blacklist, and do not erase the FLV yet.
-    console.log('[tiktok-proxy] FLV relay failed',handle,'status='+piped.status);
+  if(!res.headersSent){
+    json(res,502,{ok:false,error:lastError});
+  }else if(!res.writableEnded){
+    res.end();
   }
 }
-
 
 function findTikTokUserObject(value,handle,depth=0){
   if(!value||depth>12)return null;
