@@ -291,6 +291,10 @@ function publicTikTokLibraryItem(row){
     probeState:String(row.probeState||'unknown'),
     playable:Boolean(row.playable??row.ready),
     sourceSig:String(row.sourceSig||''),
+    streamUrl:Boolean(row.live&&(row.playable??row.ready)&&row.sourceSig)
+      ? '/tiktok/live-stream?user='+encodeURIComponent(String(row.handle||''))+
+        '&source='+encodeURIComponent(String(row.sourceSig||''))
+      : '',
     title:String(row.title||''),
     thumbnail:String(row.thumbnail||''),
     videoCodec:String(row.videoCodec||''),
@@ -335,39 +339,40 @@ function currentTikTokLibrarySource(handle){
 }
 function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status=''}={}){
   if(!row?.url)return false;
-  const confirmed=ready==null?Boolean(row.confirmed):Boolean(ready);
+  const key=String(handle||'').toLowerCase();
+  const current=tiktokLiveLibrary.get(key)||{};
+  const live=Boolean(current.live);
+  const confirmed=live&&(ready==null?Boolean(row.confirmed):Boolean(ready));
   const expiresAt=tiktokStreamExpiresAt(row.url);
   return updateTikTokLiveLibrary(handle,{
-    live:true,
     ready:confirmed,
     playable:confirmed,
-    type:String(row.type||''),
-    mode:String(mode||row.mode||''),
-    source:String(source||row.source||''),
-    status:String(status||(confirmed?'ready':'warm')),
-    sourceSig:tiktokLibrarySourceSig(row),
-    confirmedAt:confirmed?Date.now():Number(tiktokLiveLibrary.get(String(handle).toLowerCase())?.confirmedAt||0),
+    type:confirmed?String(row.type||''):'',
+    mode:confirmed?String(mode||row.mode||''):'',
+    source:confirmed?String(source||row.source||''):'',
+    status:live?String(status||(confirmed?'ready':'live')):'offline',
+    sourceSig:confirmed?tiktokLibrarySourceSig(row):'',
+    confirmedAt:confirmed?Date.now():Number(current?.confirmedAt||0),
     lastSeenAt:Date.now(),
-    expiresAt
+    expiresAt:confirmed?expiresAt:0
   });
 }
-
 function publishTikTokLiveSourceNow(handle,row,{mode='',source=''}={}){
   if(!row?.url)return false;
+  const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
+  const live=Boolean(current.live);
   return updateTikTokLiveLibrary(handle,{
-    live:true,
-    ready:true,
-    playable:true,
-    type:String(row.type||''),
-    mode:String(mode||row.mode||'fast'),
-    source:String(source||row.source||'room-api'),
-    status:'live',
-    sourceSig:tiktokLibrarySourceSig(row),
+    ready:live,
+    playable:live,
+    type:live?String(row.type||''):'',
+    mode:live?String(mode||row.mode||'fast'):'',
+    source:live?String(source||row.source||'room-api'):'',
+    status:live?'live':'offline',
+    sourceSig:live?tiktokLibrarySourceSig(row):'',
     lastSeenAt:Date.now(),
-    expiresAt:tiktokStreamExpiresAt(row.url)
+    expiresAt:live?tiktokStreamExpiresAt(row.url):0
   });
 }
-
 
 async function tiktokSourceHeaders(handle,row){
   const headers={};
@@ -454,13 +459,15 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
     row.width=probe.width;
     row.height=probe.height;
     clearTikTokBadSource(handle,row);
+    const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
+    const live=Boolean(current.live);
     updateTikTokLiveLibrary(handle,{
-      live:true,ready:true,
-      type:String(row.type||''),
+      ready:live,playable:live,
+      type:live?String(row.type||''):'',
       mode:String(mode||row.mode||''),
       source:String(source||row.source||''),
-      status:'ready',
-      sourceSig:tiktokLibrarySourceSig(row),
+      status:live?'ready':'offline',
+      sourceSig:live?tiktokLibrarySourceSig(row):'',
       videoCodec:probe.videoCodec,
       audioCodec:probe.audioCodec,
       width:probe.width,
@@ -476,9 +483,11 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
   row.confirmed=false;
   if(!preserveOnFailure){
     markTikTokBadSource(handle,row);
+    const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
+    const live=Boolean(current.live);
     updateTikTokLiveLibrary(handle,{
-      live:true,ready:false,status:'warming',
-      type:String(row.type||''),
+      ready:false,playable:false,status:live?'warming':'offline',
+      type:live?String(row.type||''):'',
       mode:String(mode||row.mode||''),
       source:String(source||row.source||''),
       sourceSig:'',
@@ -523,21 +532,33 @@ function queueTikTokStatusFallback(handles){
     for(const handle of fresh){
       const key=handle.toLowerCase();
       const row=result.get(key);
+      const prev=tiktokLiveLibrary.get(key)||{};
+      const now=Date.now();
       if(row?.status==='LIVE'){
+        const changed=!Boolean(prev.live);
         seedTikTokFastSource(handle,row);
         updateTikTokLiveLibrary(handle,{
-          live:true,ready:false,status:'warming',lastSeenAt:Date.now()
+          live:true,ready:false,playable:false,
+          status:'live',probeState:'live',
+          stateChangedAt:changed?now:Number(prev.stateChangedAt||0),
+          lastKnownAt:now,lastSeenAt:now
         });
         queueTikTokLibraryWarm(handle);
       }else if(row?.status==='OFFLINE'){
+        const changed=Boolean(prev.live);
+        tiktokLiveFastSources.delete(key);
         updateTikTokLiveLibrary(handle,{
-          live:false,ready:false,status:'offline',sourceSig:'',
-          videoCodec:'',audioCodec:'',width:0,height:0,lastSeenAt:Date.now()
+          live:false,ready:false,playable:false,
+          status:'offline',probeState:'offline',sourceSig:'',
+          videoCodec:'',audioCodec:'',width:0,height:0,
+          stateChangedAt:changed?now:Number(prev.stateChangedAt||0),
+          lastKnownAt:now,lastSeenAt:now
         });
         tiktokLiveLibraryWarmRetryAt.delete(key);
       }else{
         updateTikTokLiveLibrary(handle,{
-          live:false,ready:false,status:'checking',lastSeenAt:Date.now()
+          probeState:'unknown',
+          lastSeenAt:now
         });
       }
     }
@@ -2475,13 +2496,14 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
 
     tiktokLiveLibraryRefreshAt.delete(key);
     tiktokLiveLibraryWarmRetryAt.delete(key);
+    const current=tiktokLiveLibrary.get(key)||{};
     updateTikTokLiveLibrary(handle,{
-      live:true,
       ready:false,
+      playable:false,
       type:'',
       mode:'',
       source:'',
-      status:'live',
+      status:current.live?'live':'offline',
       sourceSig:'',
       lastSeenAt:Date.now(),
       expiresAt:0
