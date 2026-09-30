@@ -1589,44 +1589,107 @@ function cleanTikTokLiveSessions(){
   }
 }
 
-function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
-  if(value==null||depth>14||out.length>120)return out;
+function decodeTikTokLiveText(value){
+  let text=String(value||'');
+  const variants=new Set([text]);
 
-  if(typeof value==='string'){
-    const raw=String(value);
-    const trimmed=raw.trim();
+  // TikTok can return stream_data as JSON strings, unicode escapes, escaped
+  // slashes and URL-encoded values. Decode repeatedly, but keep it bounded.
+  for(let round=0;round<3;round+=1){
+    const current=[...variants];
+    let changed=false;
+    for(const raw of current){
+      const decoded=String(raw)
+        .replace(/\\u002F/gi,'/')
+        .replace(/\\u0026/gi,'&')
+        .replace(/\\u003A/gi,':')
+        .replace(/\\u003D/gi,'=')
+        .replace(/\\\//g,'/')
+        .replace(/&amp;/gi,'&');
+      if(decoded&&!variants.has(decoded)){variants.add(decoded);changed=true}
 
-    // TikTok often nests stream_data as a JSON string. Parse it so paths keep
-    // useful markers such as streamData/hevcStreamData and FULL_HD1/HD1.
-    if((trimmed.startsWith('{')&&trimmed.endsWith('}'))||(trimmed.startsWith('[')&&trimmed.endsWith(']'))){
       try{
-        const parsed=JSON.parse(trimmed);
-        collectTikTokLiveStreamCandidates(parsed,out,path,depth+1);
+        const uri=decodeURIComponent(decoded);
+        if(uri&&!variants.has(uri)){variants.add(uri);changed=true}
+      }catch{}
+
+      try{
+        const parsed=JSON.parse(decoded);
+        if(typeof parsed==='string'&&!variants.has(parsed)){
+          variants.add(parsed);
+          changed=true;
+        }
       }catch{}
     }
+    if(!changed)break;
+  }
 
-    const text=raw.replace(/\\u002F/g,'/').replace(/\\u0026/g,'&').replace(/\\\//g,'/');
-    const re=/https?:\/\/[^"'\\\s<>]+?\.(?:m3u8|flv)(?:\?[^"'\\\s<>]*)?/ig;
-    for(const match of text.matchAll(re)){
-      const url=String(match[0]||'').replace(/&amp;/g,'&');
-      const type=/\.m3u8(?:\?|$)/i.test(url)?'hls':'flv';
-      if(url&&!out.some(row=>row.url===url))out.push({url,type,path});
+  return [...variants];
+}
+
+function collectTikTokLiveStreamCandidates(value,out=[],path='',depth=0){
+  if(value==null||depth>18||out.length>240)return out;
+
+  if(typeof value==='string'){
+    const variants=decodeTikTokLiveText(value);
+
+    for(const raw of variants){
+      const trimmed=String(raw||'').trim();
+
+      // Recursively parse nested stream_data / pull_data JSON strings.
+      if(
+        (trimmed.startsWith('{')&&trimmed.endsWith('}'))||
+        (trimmed.startsWith('[')&&trimmed.endsWith(']'))
+      ){
+        try{
+          collectTikTokLiveStreamCandidates(JSON.parse(trimmed),out,path,depth+1);
+        }catch{}
+      }
+
+      // Accept both normal URLs and escaped/decoded TikTok CDN URLs.
+      const re=/https?:\/\/[^"'\\\s<>]+?\.(?:flv|m3u8)(?:\?[^"'\\\s<>]*)?/ig;
+      for(const match of trimmed.matchAll(re)){
+        let url=String(match[0]||'')
+          .replace(/&amp;/gi,'&')
+          .replace(/\\u0026/gi,'&')
+          .replace(/\\u002F/gi,'/')
+          .replace(/\\\//g,'/');
+        try{url=decodeURIComponent(url)}catch{}
+        const type=/\.m3u8(?:\?|$)/i.test(url)?'hls':'flv';
+        if(url&&!out.some(row=>row.url===url)){
+          out.push({url,type,path});
+        }
+      }
     }
     return out;
   }
 
   if(Array.isArray(value)){
-    value.forEach((item,index)=>collectTikTokLiveStreamCandidates(item,out,path+'['+index+']',depth+1));
+    value.forEach((item,index)=>
+      collectTikTokLiveStreamCandidates(item,out,path+'['+index+']',depth+1)
+    );
     return out;
   }
 
   if(typeof value==='object'){
     for(const [key,child] of Object.entries(value)){
-      collectTikTokLiveStreamCandidates(child,out,path?path+'.'+key:key,depth+1);
+      collectTikTokLiveStreamCandidates(
+        child,
+        out,
+        path?path+'.'+key:key,
+        depth+1
+      );
     }
   }
   return out;
 }
+
+function collectTikTokFlvCandidates(value,path=''){
+  return collectTikTokLiveStreamCandidates(value,[],path)
+    .filter(row=>row?.type==='flv')
+    .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a));
+}
+
 function rankTikTokLiveCandidate(row){
   const text=(String(row?.path||'')+' '+String(row?.url||'')).toLowerCase();
   let score=0;
@@ -2360,13 +2423,19 @@ async function captureTikTokLiveSessionOnce(rawHandle){
       const task=(async()=>{
         const text=await response.text().catch(()=>null);
         if(!text||text.length>3_000_000)return;
-        const decoded=String(text)
-          .replace(/\\u002F/g,'/')
-          .replace(/\\u0026/g,'&')
-          .replace(/\\\//g,'/')
-          .replace(/&amp;/g,'&');
-        const match=decoded.match(/https?:\/\/[^"'\\\s<>]+\.m3u8(?:\?[^"'\\\s<>]*)?/i)?.[0]||'';
-        if(match&&!hlsCandidate)hlsCandidate=match;
+        const media=collectTikTokLiveStreamCandidates(text,[],'browser-response');
+        const flv=media
+          .filter(row=>row.type==='flv')
+          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
+        const hls=media
+          .filter(row=>row.type==='hls')
+          .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
+
+        if(flv&&!capturedFlv){
+          remember(flv.url,'flv',{});
+          console.log('[tiktok-session] payload-flv',handle,flv.path||'');
+        }
+        if(hls&&!hlsCandidate)hlsCandidate=hls.url;
       })();
       pendingBodies.add(task);
       task.finally(()=>pendingBodies.delete(task));
