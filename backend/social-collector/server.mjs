@@ -3707,9 +3707,30 @@ async function serveTikTokVideoFile(req,res,file){
   res.writeHead(status,headers);
   await new Promise((resolve,reject)=>{
     const stream=createReadStream(file.path,{start,end});
-    stream.on('error',reject);
-    stream.on('end',resolve);
-    req.on('close',()=>stream.destroy());
+    let settled=false;
+    const finish=()=>{
+      if(settled)return;
+      settled=true;
+      res.off('close',onClose);
+      resolve();
+    };
+    const fail=error=>{
+      if(settled)return;
+      settled=true;
+      res.off('close',onClose);
+      reject(error);
+    };
+    const onClose=()=>{
+      // Only abort when the response/client connection actually closes.
+      // req.close can fire after the request body is complete and was
+      // prematurely killing valid MP4 range streams.
+      if(!res.writableEnded){
+        try{stream.destroy();}catch{}
+      }
+    };
+    stream.on('error',fail);
+    stream.on('end',finish);
+    res.on('close',onClose);
     stream.pipe(res,{end:true});
   });
   return {ok:true,status};
@@ -6937,30 +6958,16 @@ const server=http.createServer(async(req,res)=>{
         return;
       }
 
-      // Fast path: relay the prepared yt-dlp source immediately with the exact
-      // media headers + browser Range. No full-file predownload before play.
-      let source=await resolveTikTokVideoSource(handle,id);
-      let piped=await pipeTikTokTarget(req,res,source.url,{
-        fallbackType:'video/mp4',
-        headersOverride:source.headers,
-        deferError:true
-      });
-      if(piped?.ok)return;
-
-      // Signed TikTok URLs expire. Refresh once on the server and retry in the
-      // same browser request; UI never needs to know the CDN URL changed.
-      source=await resolveTikTokVideoSource(handle,id,{force:true});
-      piped=await pipeTikTokTarget(req,res,source.url,{
-        fallbackType:'video/mp4',
-        headersOverride:source.headers,
-        deferError:true
-      });
-      if(piped?.ok)return;
-
-      // Last-resort compatibility path: yt-dlp downloads a local file and we
-      // serve byte ranges from disk.
-      let file=await downloadTikTokVideoFile(handle,id,{force:true});
-      console.log('[tiktok-video-stream]',handle,id,'range='+String(req.headers.range||'full'),'source=file-fallback');
+      // TikTok's signed CDN URLs consistently return 403 when re-fetched by
+      // the Render server. yt-dlp itself can fetch the media, so serve the
+      // server-owned cached file directly with proper byte ranges.
+      const file=await downloadTikTokVideoFile(handle,id);
+      console.log(
+        '[tiktok-video-stream]',
+        handle,id,
+        'range='+String(req.headers.range||'full'),
+        'source=file'
+      );
       await serveTikTokVideoFile(req,res,file);
     }catch(error){
       console.warn('[tiktok-video-stream] failed',compactText(error?.stderr||error?.message||error,220));
