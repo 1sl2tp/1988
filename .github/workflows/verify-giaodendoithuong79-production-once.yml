@@ -28,6 +28,14 @@ jobs:
                   return r.status,r.headers,r.read()
 
           try:
+              s0,h0,b0=get(B+'/tiktok-info',55)
+              print('TIKTOK_INFO',s0,b0.decode('utf-8','ignore')[:4000])
+          except urllib.error.HTTPError as e:
+              print('TIKTOK_INFO_HTTP',e.code,e.read().decode('utf-8','ignore')[:2000])
+          except Exception as e:
+              print('TIKTOK_INFO_ERR',repr(e))
+
+          try:
               s,h,b=get(B+'/tiktok/live-session?user='+H+'&force=browser')
               print('CAPTURE',s,b.decode('utf-8','ignore')[:1500])
           except urllib.error.HTTPError as e:
