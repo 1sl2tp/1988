@@ -278,7 +278,11 @@ function tiktokLibraryMaterial(row){
     String(row?.audioCodec||''),
     Number(row?.width||0),
     Number(row?.height||0),
-    Number(row?.expiresAt||0)
+    Number(row?.expiresAt||0),
+    String(row?.flvStage||''),
+    String(row?.flvError||''),
+    Number(row?.flvCandidateCount||0),
+    Number(row?.flvCheckedAt||0)
   ]);
 }
 function publicTikTokLibraryItem(row){
@@ -323,7 +327,11 @@ function publicTikTokLibraryItem(row){
     changedAt:Number(row.changedAt||0),
     confirmedAt:Number(row.confirmedAt||0),
     lastSeenAt:Number(row.lastSeenAt||0),
-    expiresAt:playableLive?Number(row.expiresAt||0):0
+    expiresAt:playableLive?Number(row.expiresAt||0):0,
+    flvStage:String(row.flvStage||''),
+    flvError:String(row.flvError||''),
+    flvCandidateCount:Number(row.flvCandidateCount||0),
+    flvCheckedAt:Number(row.flvCheckedAt||0)
   };
 }
 
@@ -334,7 +342,8 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   const now=Date.now();
   const prev=tiktokLiveLibrary.get(key)||{
     handle,live:false,ready:false,playable:false,type:'',mode:'',source:'',
-    status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0
+    status:'unknown',probeState:'unknown',sourceSig:'',title:'',thumbnail:'',videoCodec:'',audioCodec:'',width:0,height:0,lastProbeAt:0,changedAt:now,stateChangedAt:0,lastKnownAt:0,confirmedAt:0,lastSeenAt:0,expiresAt:0,
+    flvStage:'',flvError:'',flvCandidateCount:0,flvCheckedAt:0
   };
   const next={...prev,...patch,handle};
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
@@ -686,12 +695,14 @@ async function warmTikTokLibraryHandle(handle){
         ready:true,status:'ready',
         mode:current.mode||'cache',source:current.source||'cache'
       });
+      updateTikTokLiveLibrary(handle,{flvStage:'cache-flv',flvError:'',flvCheckedAt:Date.now()});
       return true;
     }
     const ok=await confirmTikTokLibrarySource(handle,current,{
       mode:current.mode||'cache',source:current.source||'cache'
     });
     if(ok){
+      updateTikTokLiveLibrary(handle,{flvStage:'cache-flv',flvError:'',flvCheckedAt:Date.now()});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
@@ -712,6 +723,7 @@ async function warmTikTokLibraryHandle(handle){
       mode:'fast',source:'room-api-flv'
     })){
       tiktokLiveFastSources.set(key,replacement);
+      updateTikTokLiveLibrary(handle,{flvStage:'api-flv',flvError:'',flvCheckedAt:Date.now()});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
     }
@@ -723,6 +735,7 @@ async function warmTikTokLibraryHandle(handle){
     mode:'fast',source:'room-api-flv'
   })){
     tiktokLiveFastSources.set(key,flv);
+    updateTikTokLiveLibrary(handle,{flvStage:'api-flv',flvError:'',flvCheckedAt:Date.now()});
     void persistTikTokLiveStore({force:true});
     tiktokLiveLibraryWarmRetryAt.delete(key);
     return true;
@@ -736,6 +749,7 @@ async function warmTikTokLibraryHandle(handle){
     if(session?.type==='flv'&&await confirmTikTokLibrarySource(handle,session,{
       mode:'browser',source:'browser-flv'
     })){
+      updateTikTokLiveLibrary(handle,{flvStage:'browser-flv',flvError:'',flvCheckedAt:Date.now()});
       void persistTikTokLiveStore({force:true});
       tiktokLiveLibraryWarmRetryAt.delete(key);
       return true;
@@ -761,7 +775,10 @@ async function warmTikTokLibraryHandle(handle){
       })){
         updateTikTokLiveLibrary(handle,{
           title:String(ytdlp.title||''),
-          thumbnail:String(ytdlp.thumbnail||'')
+          thumbnail:String(ytdlp.thumbnail||''),
+          flvStage:'yt-dlp-flv',
+          flvError:'',
+          flvCheckedAt:Date.now()
         });
         void persistTikTokLiveStore({force:true});
         tiktokLiveLibraryWarmRetryAt.delete(key);
@@ -777,11 +794,19 @@ async function warmTikTokLibraryHandle(handle){
     console.log('[tiktok-library] yt-dlp FLV failed',handle,ytdlpError);
   }
 
+  const finalError=[
+    browserError?('browser:'+browserError):'',
+    ytdlpError?('ytdlp:'+ytdlpError):''
+  ].filter(Boolean).join(' | ')||'flv_not_found';
+  updateTikTokLiveLibrary(handle,{
+    flvStage:'failed',
+    flvError:finalError,
+    flvCheckedAt:Date.now()
+  });
   console.log(
     '[tiktok-live-resolve-miss]',
     handle,
-    'browser='+String(browserError||'none'),
-    'ytdlp='+String(ytdlpError||'none')
+    finalError
   );
   tiktokLiveLibraryWarmRetryAt.set(key,Date.now()+TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS);
   return false;
@@ -1164,6 +1189,7 @@ async function persistTikTokLiveStore({force=false}={}){
     const payload={
       items:rows.map(row=>{
         const publishedLive=isPublishedLive(row);
+        const liveItem=tiktokLiveLibrary.get(String(row.handle||'').toLowerCase())||{};
         return {
           handle:row.handle,
           // Package/UI LIVE is intentionally strict: only a validated FLV.
@@ -1175,7 +1201,11 @@ async function persistTikTokLiveStore({force=false}={}){
           type:publishedLive?'flv':'',
           sourceSig:publishedLive?row.source_sig:'',
           stateChangedAt:row.state_changed_at,
-          checkedAt:row.checked_at
+          checkedAt:row.checked_at,
+          flvStage:String(liveItem.flvStage||''),
+          flvError:String(liveItem.flvError||''),
+          flvCandidateCount:Number(liveItem.flvCandidateCount||0),
+          flvCheckedAt:liveItem.flvCheckedAt?new Date(Number(liveItem.flvCheckedAt)).toISOString():null
         };
       }),
       total:rows.length,
@@ -1392,7 +1422,11 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       scanUnknownCount+=1;
       updateTikTokLiveLibrary(handle,{
         probeState:'unknown',
-        lastSeenAt:Date.now()
+        lastSeenAt:Date.now(),
+        flvStage:'status-unknown',
+        flvError:'status_unknown',
+        flvCandidateCount:0,
+        flvCheckedAt:Date.now()
       });
       continue;
     }
@@ -1428,7 +1462,11 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
         width:0,
         height:0,
         lastSeenAt:Date.now(),
-        expiresAt:0
+        expiresAt:0,
+        flvStage:'offline',
+        flvError:'',
+        flvCandidateCount:0,
+        flvCheckedAt:Date.now()
       });
       continue;
     }
@@ -1441,7 +1479,11 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       status:'live',
       stateChangedAt:changedState?nowState:Number(prev.stateChangedAt||0),
       lastKnownAt:nowState,
-      lastSeenAt:nowState
+      lastSeenAt:nowState,
+      flvStage:candidates.length?'api-candidate':'api-no-flv',
+      flvError:candidates.length?'':'no_api_flv',
+      flvCandidateCount:candidates.length,
+      flvCheckedAt:nowState
     });
 
     // LIVE: validate only the selected FLV candidate before publishing it.
@@ -1456,6 +1498,12 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
         if(current&&String(current.url||'')===String(flv.url||'')){
           tiktokLiveFastSources.delete(key);
         }
+        updateTikTokLiveLibrary(handle,{
+          flvStage:'api-candidate-invalid',
+          flvError:'candidate_rejected',
+          flvCandidateCount:candidates.length,
+          flvCheckedAt:Date.now()
+        });
         console.log('[tiktok-scan] rejected dead FLV',handle);
       }else{
         let row=tiktokLiveFastSources.get(key);
@@ -1473,6 +1521,12 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
           publishTikTokLiveSourceNow(handle,row,{
             mode:String(row.mode||'fast'),
             source:String(row.source||'room-api-flv')
+          });
+          updateTikTokLiveLibrary(handle,{
+            flvStage:'api-flv',
+            flvError:'',
+            flvCandidateCount:candidates.length,
+            flvCheckedAt:Date.now()
           });
           continue;
         }
