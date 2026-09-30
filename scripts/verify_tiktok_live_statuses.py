@@ -51,6 +51,21 @@ def main():
     extra = sorted(set(status_handles) - set(lib_handles))
     dupes = sorted({h for h in status_handles if status_handles.count(h) > 1})
     bad = [x for x in items if x.get("state") not in ALLOWED]
+    weak_offline = []
+    weak_live = []
+    no_evidence = []
+    for x in items:
+        ev = x.get("evidence") or []
+        state = x.get("state")
+        if state not in ("checking",) and not ev:
+            no_evidence.append((x.get("handle"), state))
+        if state == "offline":
+            off = [e for e in ev if e.get("known") and not e.get("live")]
+            if len(off) < 2:
+                weak_offline.append((x.get("handle"), len(off), ev))
+        if str(state).startswith("live_") and not x.get("retainedLive"):
+            if not any(e.get("known") and e.get("live") for e in ev):
+                weak_live.append((x.get("handle"), state, ev))
 
     print("LIBRARY_TOTAL", len(lib_handles))
     print("STATUS_TOTAL", len(status_handles))
@@ -59,6 +74,9 @@ def main():
     print("EXTRA", extra)
     print("DUPLICATES", dupes)
     print("BAD_STATES", [(x.get("handle"), x.get("state")) for x in bad])
+    print("NO_EVIDENCE", no_evidence[:20])
+    print("WEAK_OFFLINE", weak_offline[:20])
+    print("WEAK_LIVE", weak_live[:20])
 
     for target in ("longgiatien", "giaodendoithuong79", "ongbodien"):
         row = next((x for x in items if str(x.get("handle") or "").lower() == target), None)
@@ -70,6 +88,9 @@ def main():
     assert not extra, f"extra handles in status endpoint: {extra[:20]}"
     assert not dupes, f"duplicate handles in status endpoint: {dupes[:20]}"
     assert not bad, f"unrecognized states: {bad[:20]}"
+    assert not no_evidence, f"status rows missing scan evidence: {no_evidence[:20]}"
+    assert not weak_offline, f"offline rows without two-source confirmation: {weak_offline[:20]}"
+    assert not weak_live, f"live rows without positive evidence/retention: {weak_live[:20]}"
     assert len(lib_handles) == len(status_handles), "status endpoint is not exhaustive"
     print("PASS exhaustive selected-channel LIVE coverage")
 
