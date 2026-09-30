@@ -401,42 +401,78 @@ function ffprobeHeaderBlock(headers={}){
 }
 async function probeTikTokLiveSource(handle,row){
   if(!row?.url)return {ok:false,error:'missing_url'};
+
   const headers=await tiktokSourceHeaders(handle,row);
+  const transport=await probeTikTokFlvBytes(handle,row,headers);
+  if(!transport.ok){
+    return {
+      ok:false,
+      error:transport.error||'invalid_flv',
+      hasVideo:Boolean(transport.hasVideo),
+      hasAudio:Boolean(transport.hasAudio),
+      videoCodec:'',
+      audioCodec:'',
+      width:0,
+      height:0
+    };
+  }
+
+  let videoCodec='';
+  let audioCodec='';
+  let width=0;
+  let height=0;
+
+  // Optional enrichment only. Some TikTok CDN/token combinations are playable
+  // over HTTP but ffprobe cannot reopen them with identical semantics.
   try{
     const out=await execFileText('ffprobe',[
       '-v','error',
-      '-rw_timeout','6000000',
-      '-analyzeduration','4500000',
-      '-probesize','4000000',
+      '-rw_timeout','4500000',
+      '-analyzeduration','2500000',
+      '-probesize','2000000',
       '-headers',ffprobeHeaderBlock(headers),
       '-show_entries','stream=codec_type,codec_name,width,height',
       '-of','json',
       String(row.url)
-    ],{timeout:8000,maxBuffer:2*1024*1024});
+    ],{timeout:6500,maxBuffer:2*1024*1024});
     const data=JSON.parse(String(out||'{}'));
     const streams=Array.isArray(data?.streams)?data.streams:[];
-    const video=streams.find(s=>s?.codec_type==='video'&&Number(s?.width||0)>0&&Number(s?.height||0)>0);
-    const audio=streams.find(s=>s?.codec_type==='audio');
-    const videoCodec=String(video?.codec_name||'').toLowerCase();
-    const audioCodec=String(audio?.codec_name||'').toLowerCase();
-    const compatibleVideo=Boolean(video)&&!/(hevc|h265)/i.test(videoCodec);
-    return {
-      ok:Boolean(compatibleVideo&&audio),
-      hasVideo:Boolean(video),
-      hasAudio:Boolean(audio),
-      videoCodec,
-      audioCodec,
-      width:Number(video?.width||0),
-      height:Number(video?.height||0),
-      error:compatibleVideo&&audio?'':'missing_or_incompatible_media'
-    };
+    const video=streams.find(x=>x?.codec_type==='video'&&Number(x?.width||0)>0&&Number(x?.height||0)>0);
+    const audio=streams.find(x=>x?.codec_type==='audio');
+    videoCodec=String(video?.codec_name||'').toLowerCase();
+    audioCodec=String(audio?.codec_name||'').toLowerCase();
+    width=Number(video?.width||0);
+    height=Number(video?.height||0);
+
+    // If ffprobe positively identifies HEVC, reject because the current player
+    // target is H.264/AVC FLV. Absence of ffprobe metadata is not a rejection.
+    if(/hevc|h265/i.test(videoCodec)){
+      return {
+        ok:false,error:'hevc_not_supported',
+        hasVideo:true,hasAudio:Boolean(audio),
+        videoCodec,audioCodec,width,height
+      };
+    }
   }catch(error){
-    return {
-      ok:false,error:compactText(error?.message||error,140),
-      hasVideo:false,hasAudio:false,videoCodec:'',audioCodec:'',width:0,height:0
-    };
+    console.log(
+      '[tiktok-library] ffprobe optional miss',
+      handle,
+      compactText(error?.message||error,120)
+    );
   }
+
+  return {
+    ok:true,
+    hasVideo:true,
+    hasAudio:Boolean(transport.hasAudio),
+    videoCodec,
+    audioCodec,
+    width,
+    height,
+    error:''
+  };
 }
+
 function findTikTokLiveSourceBySig(handle,sourceSig){
   const key=String(handle||'').toLowerCase();
   const sig=String(sourceSig||'');
@@ -1755,10 +1791,43 @@ function rankTikTokLiveCandidate(row){
   return score;
 }
 
-async function validateTikTokLiveCandidate(handle,row,headers=null){
+function inspectFlvBytes(buffer){
+  const bytes=Buffer.isBuffer(buffer)?buffer:Buffer.from(buffer||[]);
+  if(bytes.length<13||bytes[0]!==0x46||bytes[1]!==0x4c||bytes[2]!==0x56){
+    return {ok:false,hasVideo:false,hasAudio:false,error:'invalid_flv_header'};
+  }
+
+  let offset=Number(bytes.readUInt32BE(5)||9);
+  if(!Number.isFinite(offset)||offset<9)offset=9;
+  offset+=4; // PreviousTagSize0
+
+  let hasVideo=false;
+  let hasAudio=false;
+  let tags=0;
+  while(offset+11<=bytes.length&&tags<64){
+    const tagType=bytes[offset];
+    const dataSize=(bytes[offset+1]<<16)|(bytes[offset+2]<<8)|bytes[offset+3];
+    if(tagType===9)hasVideo=true;
+    else if(tagType===8)hasAudio=true;
+    tags+=1;
+    const next=offset+11+dataSize+4;
+    if(next<=offset||next>bytes.length)break;
+    offset=next;
+    if(hasVideo&&hasAudio)break;
+  }
+
+  return {
+    ok:hasVideo,
+    hasVideo,
+    hasAudio,
+    error:hasVideo?'':'flv_without_video_tag'
+  };
+}
+
+async function probeTikTokFlvBytes(handle,row,headers=null){
   const url=String(row?.url||'');
-  const type=String(row?.type||'').toLowerCase();
-  if(!/^https?:\/\//i.test(url)||type!=='flv')return null;
+  if(!/^https?:\/\//i.test(url))return {ok:false,error:'missing_url',hasVideo:false,hasAudio:false};
+
   const baseHeaders={
     'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
     'accept':'*/*',
@@ -1767,18 +1836,78 @@ async function validateTikTokLiveCandidate(handle,row,headers=null){
     'origin':'https://www.tiktok.com',
     ...(headers||{})
   };
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3500);
+  let reader=null;
   try{
     const r=await fetch(url,{
-      headers:{...baseHeaders,range:'bytes=0-2047'},
+      headers:{...baseHeaders,range:'bytes=0-262143'},
       redirect:'follow',
-      signal:AbortSignal.timeout(2800)
+      signal:controller.signal
     });
-    const ok=r.ok||r.status===206;
-    try{await r.body?.cancel?.()}catch{}
-    return ok?{...row,url:String(r.url||url),type:'flv',headers:baseHeaders,validatedAt:Date.now()}:null;
-  }catch{
-    return null;
+    if(!(r.ok||r.status===206)||!r.body){
+      return {ok:false,error:'http_'+r.status,hasVideo:false,hasAudio:false};
+    }
+
+    reader=r.body.getReader();
+    const chunks=[];
+    let total=0;
+    while(total<262144){
+      const part=await reader.read();
+      if(part.done)break;
+      if(part.value?.length){
+        chunks.push(Buffer.from(part.value));
+        total+=part.value.length;
+      }
+      if(total>=65536){
+        const current=inspectFlvBytes(Buffer.concat(chunks,total));
+        if(current.hasVideo&&(current.hasAudio||total>=131072)){
+          return {
+            ...current,
+            url:String(r.url||url),
+            headers:baseHeaders,
+            bytes:total
+          };
+        }
+      }
+    }
+    const inspected=inspectFlvBytes(Buffer.concat(chunks,total));
+    return {
+      ...inspected,
+      url:String(r.url||url),
+      headers:baseHeaders,
+      bytes:total
+    };
+  }catch(error){
+    return {
+      ok:false,
+      error:compactText(error?.message||error,120),
+      hasVideo:false,
+      hasAudio:false
+    };
+  }finally{
+    clearTimeout(timer);
+    try{await reader?.cancel?.()}catch{}
   }
+}
+
+async function validateTikTokLiveCandidate(handle,row,headers=null){
+  const url=String(row?.url||'');
+  const type=String(row?.type||'').toLowerCase();
+  if(!/^https?:\/\//i.test(url)||type!=='flv')return null;
+  const probe=await probeTikTokFlvBytes(handle,row,headers);
+  if(!probe.ok)return null;
+  return {
+    ...row,
+    url:String(probe.url||url),
+    type:'flv',
+    headers:probe.headers||headers||{},
+    flvVerified:true,
+    hasVideo:Boolean(probe.hasVideo),
+    hasAudio:Boolean(probe.hasAudio),
+    validatedAt:Date.now()
+  };
 }
 
 async function quickTikTokLiveDetailStatus(handle,retry=true){
