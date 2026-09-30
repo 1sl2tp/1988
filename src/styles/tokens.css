@@ -33,6 +33,18 @@
   --safe-bottom:env(safe-area-inset-bottom,0px);
   --header-h:64px;
   --content-max:1600px;
+  --sidebar-w:310px;
+  --rail-w:330px;
+  --topbar-h:64px;
+  --control-h:40px;
+  --thumb-bg:#171717;
+  --overlay-bg:rgba(0,0,0,.72);
+  --glass-bg:rgba(18,18,18,.86);
+  --live-text:#fff;
+  --line:var(--border-soft);
+  --muted:var(--text-muted);
+  --pink:var(--accent);
+  --cyan:var(--accent-alt);
 }
 html[data-theme="light"]{
   color-scheme:light;
@@ -57,4 +69,8 @@ html[data-theme="light"]{
   --scroll-thumb-hover:#999;
   --shadow-card:0 8px 30px rgba(0,0,0,.08);
   --shadow-floating:0 14px 44px rgba(0,0,0,.16);
+  --thumb-bg:#efefef;
+  --overlay-bg:rgba(0,0,0,.72);
+  --glass-bg:rgba(255,255,255,.88);
+  --live-text:#fff;
 }
