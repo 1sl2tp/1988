@@ -6550,7 +6550,7 @@ function buildTikTokCanonicalPackage(){
       channels:'persistent-until-unselected',
       videos:'append-only-by-video-id',
       liveStream:'replace-or-clear-only',
-      images:'original-by-content-hash-never-delete',
+      images:'current-reference-only-with-orphan-cleanup',
       videoPlayback:'refreshable-signed-mp4-kept-in-library'
     },
     channels
@@ -6801,6 +6801,28 @@ async function mirrorTikTokOriginalImage(sourceUrl,kind,handle,id=''){
     SUPABASE_URL+'/storage/v1/object/public/'+encodeURIComponent(TIKTOK_ORIGINAL_BUCKET)+'/'+encoded
   ));
 }
+async function cleanupTikTokOriginalStorage(){
+  if(!SUPABASE_URL||!COLLECTOR_TOKEN)return 0;
+  try{
+    const r=await fetch(SUPABASE_URL+'/functions/v1/tiktok-image-store',{
+      method:'POST',
+      headers:{
+        'x-collector-token':COLLECTOR_TOKEN,
+        'x-cleanup':'orphans'
+      },
+      signal:AbortSignal.timeout(30_000)
+    });
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(String(data?.error||('cleanup_http_'+r.status)));
+    const deleted=Number(data?.deleted||0);
+    if(deleted)console.log('[tiktok-storage] orphan cleanup','deleted='+deleted);
+    return deleted;
+  }catch(error){
+    console.warn('[tiktok-storage] orphan cleanup failed',compactText(error?.message||error,160));
+    return 0;
+  }
+}
+
 async function mirrorTikTokCanonicalImages(limit=6){
   if(!tiktokCanonicalLoaded)return;
   const jobs=[];
@@ -9396,6 +9418,9 @@ const server=http.createServer(async(req,res)=>{
 
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
+
+  setTimeout(()=>{void cleanupTikTokOriginalStorage();},2*60_000).unref();
+  setInterval(()=>{void cleanupTikTokOriginalStorage();},6*60*60_000).unref();
 
   if(TIKTOK_UPDATES_PAUSED){
     // Read-only recovery mode: one small persisted package read, no canonical
