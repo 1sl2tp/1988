@@ -2933,6 +2933,179 @@ html.one-col.portrait .player.pip{
   const aspectPrimePending=new Map();
   const aspectCorrectionSent=new Map();
   const sourceIdentityCache=new Map();
+  const channelDirectoryPending=new Map();
+  const channelDirectorySentSig=new Map();
+  let channelDirectoryFlushTimer=0;
+  let channelDirectoryFlushPromise=null;
+
+  function channelDirectorySignature(row={}){
+    return [
+      String(row?.name||"").trim(),
+      String(row?.thumbnailUrl||"").trim(),
+      String(row?.subscribers||"").trim()
+    ].join("\u001f");
+  }
+
+  function applyChannelDirectoryLocal(row={}){
+    const id=String(row?.id||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+    if(!sourceStateRemote||typeof sourceStateRemote!=="object")sourceStateRemote={};
+    if(!sourceStateRemote.avatars||typeof sourceStateRemote.avatars!=="object"){
+      sourceStateRemote.avatars={};
+    }
+    if(!Array.isArray(sourceStateRemote.customSources)){
+      sourceStateRemote.customSources=[];
+    }
+
+    let current=sourceStateRemote.customSources.find(
+      item=>String(item?.id||"").trim()===id
+    );
+    if(!current){
+      current={id,name:"",thumbnailUrl:"",subscribers:""};
+      sourceStateRemote.customSources.push(current);
+    }
+
+    const name=String(row?.name||"").trim();
+    const thumbnailUrl=String(row?.thumbnailUrl||"").trim();
+    const subscribers=String(row?.subscribers||"").trim();
+
+    if(name)current.name=name;
+    if(thumbnailUrl){
+      current.thumbnailUrl=thumbnailUrl;
+      sourceStateRemote.avatars[id]=thumbnailUrl;
+    }
+    if(subscribers)current.subscribers=subscribers;
+
+    const known=sourceIdentityCache.get(id)||{};
+    sourceIdentityCache.set(id,{
+      sourceName:name||String(known.sourceName||"").trim(),
+      sourceAvatar:thumbnailUrl||String(known.sourceAvatar||"").trim()
+    });
+    return true;
+  }
+
+  function primeChannelDirectoryFromState(remote={}){
+    const rows=Array.isArray(remote?.customSources)?remote.customSources:[];
+    for(const row of rows){
+      const id=String(row?.id||"").trim();
+      if(!/^UC[A-Za-z0-9_-]+$/.test(id))continue;
+      const normalized={
+        id,
+        name:String(row?.name||"").trim(),
+        thumbnailUrl:String(
+          remote?.avatars?.[id]||
+          row?.thumbnailUrl||
+          ""
+        ).trim(),
+        subscribers:String(row?.subscribers||"").trim()
+      };
+      const sig=channelDirectorySignature(normalized);
+      channelDirectorySentSig.set(id,sig);
+      const pending=channelDirectoryPending.get(id);
+      if(pending&&channelDirectorySignature(pending)===sig){
+        channelDirectoryPending.delete(id);
+      }
+    }
+  }
+
+  function queueYoutubeChannelDirectory(meta={},source="metadata"){
+    const provider=String(meta?.provider||"youtube").toLowerCase();
+    if(provider!=="youtube")return false;
+
+    const id=String(meta?.sourceId||"").trim();
+    if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+
+    const row={
+      id,
+      name:String(meta?.sourceName||"").replace(/\s+/g," ").trim().slice(0,180),
+      thumbnailUrl:String(meta?.sourceAvatar||"").trim().slice(0,1000),
+      subscribers:String(
+        meta?.sourceSubscribers||
+        meta?.subscribers||
+        meta?.subscriberCount||
+        ""
+      ).replace(/\s+/g," ").trim().slice(0,120),
+      source:String(source||"metadata").replace(/\s+/g," ").trim().slice(0,80)
+    };
+    if(!row.name&&!row.thumbnailUrl&&!row.subscribers)return false;
+
+    applyChannelDirectoryLocal(row);
+
+    const sig=channelDirectorySignature(row);
+    if(channelDirectorySentSig.get(id)===sig)return true;
+
+    const previous=channelDirectoryPending.get(id)||{};
+    const merged={
+      id,
+      name:row.name||String(previous.name||""),
+      thumbnailUrl:row.thumbnailUrl||String(previous.thumbnailUrl||""),
+      subscribers:row.subscribers||String(previous.subscribers||""),
+      source:row.source||String(previous.source||"metadata")
+    };
+    channelDirectoryPending.set(id,merged);
+
+    clearTimeout(channelDirectoryFlushTimer);
+    channelDirectoryFlushTimer=setTimeout(()=>{
+      void flushYoutubeChannelDirectory();
+    },900);
+    return true;
+  }
+
+  async function flushYoutubeChannelDirectory(){
+    if(channelDirectoryFlushPromise)return channelDirectoryFlushPromise;
+    const batch=[...channelDirectoryPending.values()].slice(0,80);
+    if(!batch.length)return false;
+
+    for(const row of batch)channelDirectoryPending.delete(row.id);
+
+    channelDirectoryFlushPromise=(async()=>{
+      try{
+        const response=await fetch(SOURCE_STATE_URL,{
+          method:"POST",
+          cache:"no-store",
+          keepalive:true,
+          headers:{
+            "content-type":"application/json",
+            "x-1988-pin":SOURCE_ADMIN_PIN
+          },
+          body:JSON.stringify({
+            op:"upsert_channels",
+            channels:batch
+          })
+        });
+        if(!response.ok)throw new Error("channel_directory_"+response.status);
+        const payload=await response.json().catch(()=>({}));
+        if(payload?.ok!==true)throw new Error("channel_directory_write_failed");
+
+        for(const row of batch){
+          channelDirectorySentSig.set(row.id,channelDirectorySignature(row));
+        }
+        return true;
+      }catch(_){
+        for(const row of batch){
+          const existing=channelDirectoryPending.get(row.id)||{};
+          channelDirectoryPending.set(row.id,{
+            id:row.id,
+            name:String(existing.name||row.name||""),
+            thumbnailUrl:String(existing.thumbnailUrl||row.thumbnailUrl||""),
+            subscribers:String(existing.subscribers||row.subscribers||""),
+            source:String(existing.source||row.source||"metadata")
+          });
+        }
+        return false;
+      }finally{
+        channelDirectoryFlushPromise=null;
+        if(channelDirectoryPending.size){
+          clearTimeout(channelDirectoryFlushTimer);
+          channelDirectoryFlushTimer=setTimeout(()=>{
+            void flushYoutubeChannelDirectory();
+          },2500);
+        }
+      }
+    })();
+    return channelDirectoryFlushPromise;
+  }
 
   function validMediaAspect(value){
     const ratio=Number(value)||0;
@@ -4067,7 +4240,7 @@ html.one-col.portrait .player.pip{
           :0
       )
     );
-    return {
+    const normalized={
       ...meta,
       verified:cardVerified(row),
       isShort,
@@ -4097,6 +4270,9 @@ html.one-col.portrait .player.pip{
         isShort,
       _aspectSource:String(row?.aspectSource||row?._aspectSource||"")
     };
+
+    queueYoutubeChannelDirectory(normalized,"video-metadata");
+    return normalized;
   }
 
   function mergeSelectedMeta(base={},supplemental={}){
@@ -4735,7 +4911,7 @@ html.one-col.portrait .player.pip{
     // Cloudflare is authoritative only for "what is LIVE now".
     // Keep edge metadata when it exists, but do not manufacture blank/default
     // fields that would overwrite the richer package/source metadata below.
-    return {
+    const normalized={
       id,
       provider:"youtube",
       title:String(item?.title||item?.videoTitle||"").trim(),
@@ -4762,6 +4938,8 @@ html.one-col.portrait .player.pip{
       _liveItem:String(item?.itemType||item?.liveItem||""),
       checkedAt:Number(item?.checkedAt||0)
     };
+    queueYoutubeChannelDirectory(normalized,"live-edge");
+    return normalized;
   }
 
   function youtubeLiveSourceBlocked(sourceId=""){
@@ -6602,6 +6780,7 @@ html.one-col.portrait .player.pip{
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
         sourceStateRemote=remote;
         sourceIdentityCache.clear();
+        primeChannelDirectoryFromState(remote);
 
         // The feed may have painted from IndexedDB before source-state arrived.
         // Force one repaint so newly available channel avatars replace letter
