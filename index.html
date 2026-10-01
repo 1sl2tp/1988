@@ -6574,7 +6574,14 @@ html.one-col.portrait .player.pip{
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaFrame)return false;
+    const stream=String(meta?.playbackUrl||"").trim();
+    if(
+      !/^[0-9]{8,}$/.test(id)||
+      !handle||
+      meta?.playbackReady!==true||
+      !/^https?:\/\//i.test(stream)||
+      !tiktokMediaVideo
+    )return false;
 
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
@@ -6601,36 +6608,82 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    // TikTok's signed v19 MP4 links currently answer HTTP 403 in a normal
-    // browser even while their token has not expired. Use TikTok's own embed
-    // player instead. It is the documented direct playback surface and accepts
-    // play/pause/seek commands via postMessage.
-    const params=new URLSearchParams({
-      autoplay:"1",
-      controls:"1",
-      progress_bar:"1",
-      play_button:"1",
-      volume_control:"1",
-      fullscreen_button:"1",
-      timestamp:"1",
-      loop:"0",
-      music_info:"0",
-      description:"0",
-      rel:"0",
-      native_context_menu:"0",
-      closed_caption:"0"
-    });
+    const native=tiktokMediaVideo;
+    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
 
-    tiktokMediaFrame.hidden=false;
-    tiktokMediaFrame.src=
-      "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
-
-    if(tiktokMediaVideo){
-      tiktokMediaVideo.hidden=true;
-      tiktokMediaVideo.removeAttribute("src");
+    if(tiktokMediaFrame){
+      tiktokMediaFrame.hidden=true;
+      tiktokMediaFrame.removeAttribute("src");
     }
-    if(tiktokLivePreview)tiktokLivePreview.hidden=true;
+    if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
+    if(tiktokLivePreview)tiktokLivePreview.hidden=true;
+
+    native.hidden=false;
+    native.controls=true;
+    native.preload="auto";
+    native.playsInline=true;
+    native.poster=preview;
+
+    // A card click is an explicit user gesture: TikTok VOD should start with
+    // sound. Never inherit the muted autoplay state used by embedded players.
+    native.defaultMuted=false;
+    native.muted=false;
+    native.volume=1;
+
+    native.onerror=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-media-playing","tiktok-playing");
+      console.warn("tiktok_video_native_error",{
+        id,
+        handle,
+        code:Number(native.error?.code)||0,
+        message:String(native.error?.message||"")
+      });
+    };
+
+    native.onloadedmetadata=()=>{
+      if(String(current?.id||"")!==id)return;
+      native.defaultMuted=false;
+      native.muted=false;
+      native.volume=1;
+      const w=Number(native.videoWidth)||0;
+      const h=Number(native.videoHeight)||0;
+      if(w>0&&h>0){
+        commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
+      }
+    };
+
+    native.onplaying=()=>{
+      if(String(current?.id||"")!==id)return;
+      native.defaultMuted=false;
+      native.muted=false;
+      native.volume=1;
+      player.classList.add("tiktok-media-playing","tiktok-playing");
+    };
+
+    native.onpause=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-playing");
+    };
+
+    native.onended=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-playing");
+      playNextFeedVideo();
+    };
+
+    native.src=stream;
+    native.load();
+
+    // Keep this call synchronous inside the row click gesture. Waiting for an
+    // async resolver first would make Chrome/Safari treat sound as autoplay.
+    const playPromise=native.play();
+    if(playPromise?.catch){
+      playPromise.catch(error=>{
+        console.warn("tiktok_video_play_rejected",error?.name||"",error?.message||"");
+      });
+    }
 
     renderCurrentInfo();
     schedulePip();
@@ -7413,7 +7466,19 @@ html.one-col.portrait .player.pip{
         Number(b?.createTime||0)-Number(a?.createTime||0)||
         String(b?.id||"").localeCompare(String(a?.id||""))
       );
-    const video=videos[0];
+    const video=videos.find(item=>{
+      const playback=item?.playback&&typeof item.playback==="object"?item.playback:{};
+      const url=String(playback?.url||"").trim();
+      const type=String(playback?.type||"mp4").toLowerCase();
+      const cover=item?.cover&&typeof item.cover==="object"?item.cover:{};
+      return (
+        playback?.ready===true&&
+        /^https?:\/\//i.test(url)&&
+        type==="mp4"&&
+        Number(cover?.width||0)>0&&
+        Number(cover?.height||0)>0
+      );
+    })||null;
     if(!video)return null;
 
     const id=String(video.id);
@@ -9592,7 +9657,6 @@ html.one-col.portrait .player.pip{
 
   player.dataset.mediaProvider="youtube";
   installTikTokLiveControls();
-  installTikTokEmbedBridge();
 
   // Start API/player creation as early as possible. No video is selected here,
   // so this cannot autoplay or resurrect the old waiting MAIN.
