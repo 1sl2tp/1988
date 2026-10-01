@@ -2697,9 +2697,6 @@ html.one-col.portrait .player.pip{
   let youtubeLiveScanSeq=0;
   let youtubeLiveAbortController=null;
   let youtubeLiveLastCycleAt=0;
-  const tiktokFramePreviewCache=new Map();
-  const tiktokFramePreviewPending=new Set();
-  let tiktokFramePreviewQueue=Promise.resolve();
   let feedMetas=[];
   let relatedMetas=[];
   let feedRequest=0;
@@ -4658,8 +4655,8 @@ html.one-col.portrait .player.pip{
     const width=Math.max(0,Number(item?.width)||0);
     const height=Math.max(0,Number(item?.height)||0);
     const ratio=width>0&&height>0?width/height:9/16;
-    const cacheKey=String(item?.sourceSig||"").trim();
-    const framePreview=cacheKey?tiktokFramePreviewCache.get(cacheKey)||"":"";
+    const avatar=String(item?.avatar||"").trim();
+    const cover=String(item?.preview||item?.cover||avatar||"").trim();
     return {
       id:tiktokLiveId(handle),
       provider:"tiktok",
@@ -4667,9 +4664,9 @@ html.one-col.portrait .player.pip{
       title:String(item?.title||"").trim()||("@"+handle+" · LIVE"),
       sourceName:String(item?.sourceName||"").trim()||("@"+handle),
       sourceId:"tiktok:"+handle.toLowerCase(),
-      sourceAvatar:String(item?.avatar||"").trim(),
-      thumbnail:framePreview,
-      livePreview:framePreview,
+      sourceAvatar:avatar,
+      thumbnail:cover,
+      livePreview:cover,
       isLive:true,
       verified:false,
       viewsLabel:compactLiveViewerCount(item?.viewerCount),
@@ -4691,180 +4688,24 @@ html.one-col.portrait .player.pip{
     };
   }
 
-  function framePreviewKey(meta={}){
-    return String(meta?.sourceSig||meta?.id||"").trim();
-  }
-
   function livePreviewForMeta(meta={}){
     if(!meta?.isLive)return String(meta?.thumbnail||"").trim();
-    const provider=String(meta?.provider||"youtube").toLowerCase();
-    if(provider==="tiktok"){
-      const key=framePreviewKey(meta);
-      return (key?tiktokFramePreviewCache.get(key)||"":"")||
-        String(meta?.livePreview||"").trim();
-    }
-    return String(meta?.livePreview||meta?.thumbnail||"").trim();
-  }
-
-  function cachedTikTokFramePreview(meta={}){
-    const key=framePreviewKey(meta);
-    return key?tiktokFramePreviewCache.get(key)||"":"";
-  }
-
-  function applyLivePreview(meta={},dataUrl=""){
-    if(!meta?.isLive||!dataUrl)return false;
-    const provider=String(meta?.provider||"youtube").toLowerCase();
-    const key=framePreviewKey(meta);
-    if(provider==="tiktok"){
-      if(!key)return false;
-      tiktokFramePreviewCache.set(key,dataUrl);
-    }
-    meta.thumbnail=dataUrl;
-    meta.livePreview=dataUrl;
-
-    const row=document.querySelector('.row[data-video-id="'+CSS.escape(String(meta.id||""))+'"]');
-    const img=row?.querySelector(".row-thumb img");
-    if(img){
-      img.src=dataUrl;
-      requestAnimationFrame(()=>syncInlinePlayerOverlay());
-    }
-
-    if(String(currentMeta?.id||"")===String(meta.id||"")&&tiktokLivePreview){
-      tiktokLivePreview.src=dataUrl;
-      tiktokLivePreview.hidden=false;
-    }
-    return true;
-  }
-
-  async function captureTikTokLiveFrame(meta={}){
-    const url=String(meta?.streamUrl||"").trim();
-    const key=framePreviewKey(meta);
-    if(!url||!key||!window.mpegts||!mpegts.isSupported?.())return "";
-
-    const host=document.createElement("div");
-    host.style.cssText="position:fixed;left:-9999px;top:-9999px;width:2px;height:2px;overflow:hidden;pointer-events:none";
-    const video=document.createElement("video");
-    video.muted=true;
-    video.playsInline=true;
-    video.autoplay=true;
-    video.crossOrigin="anonymous";
-    host.appendChild(video);
-    document.body.appendChild(host);
-
-    let instance=null;
-    try{
-      instance=mpegts.createPlayer(
-        {type:"flv",isLive:true,url,cors:true,withCredentials:false},
-        {
-          enableStashBuffer:false,
-          stashInitialSize:64*1024,
-          lazyLoad:false,
-          autoCleanupSourceBuffer:true,
-          autoCleanupMaxBackwardDuration:3,
-          autoCleanupMinBackwardDuration:1
-        }
-      );
-      instance.attachMediaElement(video);
-      instance.load();
-
-      const result=await new Promise(resolve=>{
-        let done=false;
-        const finish=value=>{
-          if(done)return;
-          done=true;
-          clearTimeout(timer);
-          resolve(value||"");
-        };
-        const grab=()=>{
-          try{
-            const w=Number(video.videoWidth)||0;
-            const h=Number(video.videoHeight)||0;
-            if(w<16||h<16)return;
-            const maxW=480;
-            const scale=Math.min(1,maxW/w);
-            const canvas=document.createElement("canvas");
-            canvas.width=Math.max(1,Math.round(w*scale));
-            canvas.height=Math.max(1,Math.round(h*scale));
-            const ctx=canvas.getContext("2d",{alpha:false});
-            if(!ctx)return;
-            ctx.drawImage(video,0,0,canvas.width,canvas.height);
-            finish(canvas.toDataURL("image/jpeg",0.72));
-          }catch{
-            finish("");
-          }
-        };
-        video.addEventListener("loadeddata",grab,{once:true});
-        video.addEventListener("playing",()=>setTimeout(grab,120),{once:true});
-        video.addEventListener("error",()=>finish(""),{once:true});
-        const timer=setTimeout(()=>finish(""),3500);
-        try{video.play().catch(()=>{})}catch{}
-      });
-      return result;
-    }catch{
-      return "";
-    }finally{
-      try{
-        instance?.pause?.();
-        instance?.unload?.();
-        instance?.detachMediaElement?.();
-        instance?.destroy?.();
-      }catch{}
-      try{
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
-      }catch{}
-      host.remove();
-    }
-  }
-
-  function queueTikTokFramePreview(meta={}){
-    const key=framePreviewKey(meta);
-    if(
-      meta?.provider!=="tiktok"||
-      !meta?.isLive||
-      !String(meta?.streamUrl||"").trim()||
-      !key||
-      tiktokFramePreviewCache.has(key)||
-      tiktokFramePreviewPending.has(key)
-    )return;
-
-    tiktokFramePreviewPending.add(key);
-    tiktokFramePreviewQueue=tiktokFramePreviewQueue.then(async()=>{
-      try{
-        const dataUrl=await captureTikTokLiveFrame(meta);
-        if(dataUrl)applyLivePreview(meta,dataUrl);
-      }finally{
-        tiktokFramePreviewPending.delete(key);
-      }
-    });
+    return String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
   }
 
   function primeVisibleLivePreviews(){
     if(feedMode!=="package"||activePackageScope!=="live")return;
     const rows=[...document.querySelectorAll(".row.live-card")];
-    let tiktokQueued=0;
     for(const row of rows){
       const rect=row.getBoundingClientRect();
       if(rect.bottom<0||rect.top>innerHeight*1.6)continue;
       const id=String(row.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(!meta?.isLive)continue;
-
       const preview=livePreviewForMeta(meta);
-      if(preview){
-        const img=row.querySelector(".row-thumb img");
-        if(img&&img.src!==preview)img.src=preview;
-      }
-
-      if(
-        String(meta?.provider||"youtube").toLowerCase()==="tiktok"&&
-        !cachedTikTokFramePreview(meta)&&
-        tiktokQueued<3
-      ){
-        queueTikTokFramePreview(meta);
-        tiktokQueued++;
-      }
+      if(!preview)continue;
+      const img=row.querySelector(".row-thumb img");
+      if(img&&img.src!==preview)img.src=preview;
     }
   }
 
