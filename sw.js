@@ -4,7 +4,8 @@ const CACHE='1988-simple-media-v35';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
 const TIKTOK_IMAGE_CACHE_MAX=480;
-const TIKTOK_STORAGE_HOST='gcnoahqsrquxkwkjbuxy.supabase.co';
+const AVATAR_CACHE_MAX=480;
+const SUPABASE_STORAGE_HOST_RE=/^[a-z0-9]+\.supabase\.co$/i;
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
 function isAvatarRequest(req,url){
@@ -13,7 +14,7 @@ function isAvatarRequest(req,url){
 
 function isTikTokOriginalImage(req,url){
   return req.destination==='image'&&
-    url.hostname===TIKTOK_STORAGE_HOST&&
+    SUPABASE_STORAGE_HOST_RE.test(url.hostname)&&
     url.pathname.startsWith('/storage/v1/object/public/tiktok-originals/');
 }
 
@@ -37,6 +38,13 @@ async function tikTokImageResponse(req){
   return fresh;
 }
 
+async function trimAvatarCache(cache){
+  const keys=await cache.keys();
+  const extra=keys.length-AVATAR_CACHE_MAX;
+  if(extra<=0)return;
+  await Promise.all(keys.slice(0,extra).map(req=>cache.delete(req)));
+}
+
 async function avatarResponse(req){
   const cache=await caches.open(AVATAR_CACHE);
   const cached=await cache.match(req,{ignoreVary:true});
@@ -45,6 +53,7 @@ async function avatarResponse(req){
   const fresh=await fetch(req);
   if(fresh&&(fresh.ok||fresh.type==='opaque')){
     await cache.put(req,fresh.clone()).catch(()=>{});
+    void trimAvatarCache(cache).catch(()=>{});
   }
   return fresh;
 }
@@ -66,6 +75,7 @@ async function cacheAvatarUrls(urls=[]){
       const res=await fetch(req);
       if(res&&(res.ok||res.type==='opaque')){
         await cache.put(req,res.clone()).catch(()=>{});
+        void trimAvatarCache(cache).catch(()=>{});
       }
     }catch{}
   }
