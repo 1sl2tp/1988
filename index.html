@@ -5827,8 +5827,8 @@ html.one-col.portrait .player.pip{
     const durationMarkup=meta.isLive
       ?(tiktokLive?"":'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>')
       :(duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"");
-    const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
-    const factsMarkup=compactFactsMarkup(meta);
+    const facts=tiktokLive?"":[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
+    const factsMarkup=tiktokLive?"":compactFactsMarkup(meta);
     const verified=meta.verified?verifiedBadgeMarkup():"";
     const thumbStyle="";
 
