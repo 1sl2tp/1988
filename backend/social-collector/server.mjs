@@ -724,6 +724,17 @@ async function batchTikTokLiveFallback(handles){
     return new Map();
   }
 }
+function isCanonicalTikTokUserRoomEvidence(entry){
+  const source=String(entry?.source||'');
+  const status=(entry?.status===null||entry?.status===undefined||entry?.status==='')
+    ? null
+    : (Number.isFinite(Number(entry.status))?Number(entry.status):null);
+  return Boolean(
+    entry?.known===true&&
+    (status===2||status===4)&&
+    /^(?:tiktok-user-room(?:-retry)?|browser-user-room)$/.test(source)
+  );
+}
 function addTikTokStatusEvidence(handle,entry){
   const key=String(handle||'').toLowerCase();
   if(!key)return null;
@@ -732,7 +743,6 @@ function addTikTokStatusEvidence(handle,entry){
     handle,known:false,live:tiktokRealtimeLiveHandles.has(key),
     offlineConfirmed:false,retained:false,checkedAt:now,evidence:[]
   };
-  const evidence=Array.isArray(prev.evidence)?prev.evidence.slice():[];
   const normalized={
     source:String(entry?.source||'fallback'),
     known:Boolean(entry?.known),
@@ -741,6 +751,13 @@ function addTikTokStatusEvidence(handle,entry){
       ? null
       : (Number.isFinite(Number(entry.status))?Number(entry.status):null)
   };
+
+  // TikTok user/room is the canonical LIVE control plane. Once it returns
+  // status=2 or status=4, discard stale historical evidence from FLV/browser/
+  // deep resolvers so an old playable URL can never override current API truth.
+  let evidence=isCanonicalTikTokUserRoomEvidence(normalized)
+    ? [normalized]
+    : (Array.isArray(prev.evidence)?prev.evidence.slice():[]);
   const duplicate=evidence.some(row=>
     row?.source===normalized.source&&
     Boolean(row?.known)===normalized.known&&
@@ -749,20 +766,27 @@ function addTikTokStatusEvidence(handle,entry){
   );
   if(!duplicate)evidence.push(normalized);
 
-  const positive=evidence.find(row=>row?.known&&row?.live);
-  const offlineSources=[...new Set(
-    evidence.filter(row=>row?.known&&!row?.live).map(row=>String(row?.source||'')).filter(Boolean)
-  )];
-  const retained=tiktokRealtimeLiveHandles.has(key);
-  const live=Boolean(positive||retained);
-  const offlineConfirmed=Boolean(!live&&offlineSources.length>=2);
+  const canonical=evidence.find(isCanonicalTikTokUserRoomEvidence)||null;
+  const positive=canonical
+    ? (canonical.live?canonical:null)
+    : evidence.find(row=>row?.known&&row?.live);
+  const offlineSources=canonical&&!canonical.live
+    ? [String(canonical.source||'tiktok-user-room')]
+    : [...new Set(
+        evidence.filter(row=>row?.known&&!row?.live).map(row=>String(row?.source||'')).filter(Boolean)
+      )];
+  const retained=canonical?false:tiktokRealtimeLiveHandles.has(key);
+  const live=canonical?Boolean(canonical.live):Boolean(positive||retained);
+  const offlineConfirmed=canonical
+    ? !canonical.live
+    : Boolean(!live&&offlineSources.length>=2);
   const next={
     ...prev,
     handle,
-    known:Boolean(positive||offlineConfirmed),
+    known:Boolean(canonical||positive||offlineConfirmed),
     live,
     offlineConfirmed,
-    retained:Boolean(!positive&&retained),
+    retained:Boolean(!canonical&&!positive&&retained),
     checkedAt:now,
     evidence
   };
@@ -9440,7 +9464,13 @@ const server=http.createServer(async(req,res)=>{
         status:(a?.status===null||a?.status===undefined||a?.status==='')?null:(Number.isFinite(Number(a.status))?Number(a.status):null)
       });
 
-      if(!a?.live){
+      // api-live/user/room is authoritative. Fallbacks are allowed only when
+      // that API is UNKNOWN/unavailable; they may never contradict status=2/4.
+      const apiCanonical=Boolean(
+        a?.known===true&&(Number(a?.status)===2||Number(a?.status)===4)
+      );
+
+      if(!apiCanonical){
         const b=await quickTikTokLiveDetailStatus(handle).catch(()=>({
           known:false,live:false,status:null,source:'tiktok-detail-error'
         }));
@@ -9455,7 +9485,7 @@ const server=http.createServer(async(req,res)=>{
       const hasLive=()=>evidence.some(x=>x.known&&x.live);
       const offlineCount=()=>evidence.filter(x=>x.known&&!x.live).length;
 
-      if(!hasLive()&&offlineCount()<2){
+      if(!apiCanonical&&!hasLive()&&offlineCount()<2){
         const rows=await browserTikTokLiveStates([handle]).catch(()=>new Map());
         const b=rows.get(handle.toLowerCase());
         if(b){
@@ -9470,10 +9500,8 @@ const server=http.createServer(async(req,res)=>{
 
       const key=handle.toLowerCase();
 
-      // Feed the fast/browser evidence into the shared status record, then run
-      // the same deep yt-dlp + profile-room fallback used by background scans.
       for(const row of evidence)addTikTokStatusEvidence(handle,row);
-      if(!hasLive()&&offlineCount()<2&&!tiktokRealtimeLiveHandles.has(key)){
+      if(!apiCanonical&&!hasLive()&&offlineCount()<2&&!tiktokRealtimeLiveHandles.has(key)){
         await queueTikTokStatusFallback([handle]).catch(()=>{});
         const deep=tiktokRealtimeStatusByHandle.get(key);
         for(const row of Array.isArray(deep?.evidence)?deep.evidence:[]){
@@ -9487,8 +9515,8 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      let live=hasLive()||tiktokRealtimeLiveHandles.has(key);
-      let offlineConfirmed=!live&&offlineCount()>=2;
+      let live=apiCanonical?Boolean(a.live):(hasLive()||tiktokRealtimeLiveHandles.has(key));
+      let offlineConfirmed=apiCanonical?!a.live:(!live&&offlineCount()>=2);
       const checkedAt=Date.now();
       const stored=tiktokLiveLibrary.get(key)||{};
       const retainedLive=Boolean(
@@ -9496,10 +9524,10 @@ const server=http.createServer(async(req,res)=>{
         (stored.live&&stored.playable&&String(stored.type||'').toLowerCase()==='flv'&&stored.sourceSig)
       );
 
-      // A transient 403/unknown from TikTok must not contradict an already
-      // verified realtime FLV. Only two explicit OFFLINE confirmations may
-      // clear it.
-      if(!live&&!offlineConfirmed&&retainedLive){
+      // Only UNKNOWN may temporarily retain an existing stream. A canonical
+      // status=4 from TikTok clears LIVE immediately, even if an old FLV URL
+      // still responds.
+      if(!apiCanonical&&!live&&!offlineConfirmed&&retainedLive){
         live=true;
         evidence.push({
           source:'realtime-flv-store',
@@ -9513,27 +9541,44 @@ const server=http.createServer(async(req,res)=>{
         tiktokRealtimeLiveHandles.add(key);
         tiktokRealtimeStatusByHandle.set(key,{
           handle,known:true,live:true,offlineConfirmed:false,
-          retained:!hasLive()&&retainedLive,
+          retained:!apiCanonical&&!hasLive()&&retainedLive,
+          roomId:String(a?.roomId||''),
           checkedAt,evidence
         });
         updateTikTokLiveLibrary(handle,{
           live:true,status:'live',probeState:'live',
-          liveCheckSource:String(evidence.find(x=>x.known&&x.live)?.source||'multi-source'),
-          lastSeenAt:checkedAt
+          liveCheckSource:String(apiCanonical?a.source:(evidence.find(x=>x.known&&x.live)?.source||'multi-source')),
+          lastSeenAt:checkedAt,lastKnownAt:checkedAt
         });
+      }else if(offlineConfirmed){
+        tiktokRealtimeLiveHandles.delete(key);
+        tiktokRealtimeStatusByHandle.set(key,{
+          handle,known:true,live:false,offlineConfirmed:true,retained:false,
+          roomId:'',checkedAt,evidence
+        });
+        tiktokLiveFastSources.delete(key);
+        updateTikTokLiveLibrary(handle,{
+          live:false,ready:false,playable:false,type:'',mode:'',source:'',
+          status:'offline',probeState:'offline',sourceSig:'',
+          liveCheckSource:String(apiCanonical?a.source:'multi-source-offline'),
+          lastSeenAt:checkedAt,expiresAt:0
+        },{allowLiveRemoval:true});
       }
 
       json(res,200,{
         ok:true,
         handle,
         live,
-        known:live||offlineConfirmed,
+        known:apiCanonical||live||offlineConfirmed,
         offlineConfirmed,
-        retainedLive:Boolean(live&&retainedLive&&!hasLive()),
-        status:live?2:(offlineConfirmed?4:null),
-        source:live
-          ? String(evidence.find(x=>x.known&&x.live)?.source||'multi-source')
-          : (offlineConfirmed?'multi-source-offline':'multi-source-unknown'),
+        retainedLive:Boolean(!apiCanonical&&live&&retainedLive&&!hasLive()),
+        status:apiCanonical?Number(a.status):(live?2:(offlineConfirmed?4:null)),
+        roomId:String(apiCanonical?a?.roomId||'':''),
+        source:apiCanonical
+          ? String(a.source||'tiktok-user-room')
+          : (live
+              ? String(evidence.find(x=>x.known&&x.live)?.source||'multi-source')
+              : (offlineConfirmed?'multi-source-offline':'multi-source-unknown')),
         evidence,
         checked_at:nowIso()
       });
