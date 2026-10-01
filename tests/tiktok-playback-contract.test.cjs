@@ -57,9 +57,11 @@ assert.match(warmRoute,/queueTikTokVideoPriorityWarm\(/,'video-warm must only pr
 assert.match(warmRoute,/direct-source-only/,'video-warm must declare metadata-only direct warm mode');
 assert.match(warmRoute,/json\(res,202/,'video-warm must return immediately while warming');
 
-assert.match(server,/proxyUrl:/,'package must expose Render only as compatibility fallback');
-assert.match(html,/fallbackUrl/,'LIVE player must support direct-first then proxy fallback');
-assert.match(html,/fallbackSrc/,'MP4 player must support direct-first then proxy fallback');
+assert.match(server,/const RENDER_MEDIA_PROXY_ENABLED=String\(process\.env\.RENDER_MEDIA_PROXY_ENABLED\|\|'0'\)==='1';/,'Render media proxy must stay opt-in and off by default');
+assert.match(server,/media_proxy_disabled/,'Render media proxy gate must hard-disable byte proxying by default');
+assert.match(server,/proxyUrl:''/,'packages must not expose Render media proxy URLs');
+assert.doesNotMatch(html,/fallbackSrc/,'MP4 UI must not fall back to Render media proxy');
+assert.match(html,/Direct TikTok CDN only/,'MP4 UI must stay direct-CDN only');
 
 
 assert.match(html,/id="mediaSeek"/,'TikTok fixed seek bar missing');
