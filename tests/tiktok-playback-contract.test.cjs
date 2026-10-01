@@ -74,3 +74,11 @@ assert.match(server,/refreshTikTokLiveLibrary\(liveHandles,\{warm:false,force:fa
 
 assert.match(server,/const TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS=3\*60_000;/);
 assert.match(server,/scan\?\.known===true[\s\S]{0,220}scan\?\.live===true[\s\S]{0,220}scan\?\.retained!==true/);
+
+assert.match(server,/const TIKTOK_LIVE_RECENT_TTL_MS=24\*60\*60_000;/);
+assert.match(server,/const TIKTOK_LIVE_RECENT_BATCH=8;/);
+assert.match(server,/const TIKTOK_LIVE_COLD_BATCH=6;/);
+assert.match(server,/const TIKTOK_LIVE_COLD_DEEP_BATCH=2;/);
+assert.match(server,/lastKnownAt:checkedAt/);
+assert.match(server,/tierRecent=/);
+assert.match(server,/coldDeep=/);
