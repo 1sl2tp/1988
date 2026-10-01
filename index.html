@@ -1069,6 +1069,25 @@ main{
 }
 
 
+/* TikTok LIVE uses the exact same player shell / MAIN / PiP geometry.
+   Only the media engine differs from YouTube. */
+.player > #tiktokLiveVideo{
+  position:absolute!important;
+  inset:0!important;
+  z-index:2;
+  width:100%!important;
+  height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
+  object-fit:contain;
+  background:#000;
+  border:0;
+}
+.player:not(.tiktok-active) > #tiktokLiveVideo{display:none!important}
+.player.tiktok-active > #tiktokLiveVideo{display:block!important}
+.player.tiktok-active > #videoFrame,
+.player.tiktok-active > iframe{display:none!important}
+
 /* VISUAL RULES BY MODE
    MAIN 1-col = square + no outer black
    PiP = rounded + no outer black
@@ -2402,6 +2421,7 @@ html.one-col.portrait .player.pip{
     <section class="stage" id="stage">
       <div class="player" id="player">
         <div id="videoFrame"></div>
+        <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
         <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-top" data-pip-drag="top" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-left" data-pip-drag="left" aria-hidden="true"></div>
@@ -2440,6 +2460,8 @@ html.one-col.portrait .player.pip{
 
 <div class="state" id="state"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 <script src="./src/api.js"></script>
 <script src="./src/media-meta.js"></script>
 <script>
@@ -2454,6 +2476,7 @@ html.one-col.portrait .player.pip{
   const VIDEO_META_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-video-meta";
   const MEDIA_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
   const GETLINK_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-getlink";
+  const TIKTOK_LIVE_API="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -2466,6 +2489,7 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
   const pipActivateZone=document.getElementById("pipActivateZone");
   const pipDragZones=[...document.querySelectorAll("[data-pip-drag]")];
   const pipMoveZone=document.getElementById("pipMoveZone");
@@ -2505,6 +2529,10 @@ html.one-col.portrait .player.pip{
   let inlineVideoId="";
   let metaRequest=0;
   let currentMeta=null;
+  let tiktokLivePlayer=null;
+  let tiktokLiveMetas=[];
+  let tiktokLiveFetchPromise=null;
+  let tiktokLiveLastAt=0;
   let feedMetas=[];
   let relatedMetas=[];
   let feedRequest=0;
@@ -3282,6 +3310,7 @@ html.one-col.portrait .player.pip{
   function playVideoId(id,meta=null,{history="none"}={}){
     id=String(id||"").trim();
     if(!id)return false;
+    showYoutubePlayerSurface();
 
     const confirmedRatio=
       mediaAspectCache.get(id)?.source==="iframe-content-rect"
@@ -4137,12 +4166,17 @@ html.one-col.portrait .player.pip{
     syncFeedHeader();
 
     // Tab/UI reads memory only. Network package reads belong to the package synchronizer.
-    const metas=packageCache.get(scope)||[];
+    const baseMetas=packageCache.get(scope)||[];
+    const metas=scope==="live"?mergeUnifiedLiveFeed(baseMetas):baseMetas;
     feedMetas=metas;
     renderSampleContent();
 
+    if(scope==="live")void refreshTikTokLiveFeed({paint:true});
+
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
-      if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
+      if(metas[0]?.provider==="tiktok"){
+        playTikTokLive(metas[0]);
+      }else if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
         renderCurrentInfo();
       }
     }
@@ -4153,7 +4187,8 @@ html.one-col.portrait .player.pip{
 
   function paintSyncedPackage(scope,metas){
     if(feedMode!=="package"||activePackageScope!==scope)return;
-    feedMetas=Array.isArray(metas)?metas:[];
+    const base=Array.isArray(metas)?metas:[];
+    feedMetas=scope==="live"?mergeUnifiedLiveFeed(base):base;
     renderSampleContent();
   }
 
@@ -4283,7 +4318,256 @@ html.one-col.portrait .player.pip{
       activePackageScope!=="live"
     )return;
     void checkPackagesOnDemand(["live"]);
-  },LIVE_ACTIVE_CHECK_MS);
+    void refreshTikTokLiveFeed({paint:true,force:true});
+  },30_000);
+
+  function tiktokLiveId(handle=""){
+    return "tiktok_live_"+String(handle||"").trim().toLowerCase();
+  }
+
+  function compactLiveViewerCount(value){
+    const n=Math.max(0,Number(value)||0);
+    if(!n)return "";
+    if(n>=1e6)return (n/1e6).toFixed(n>=1e7?0:1).replace(/\.0$/,"")+"M đang xem";
+    if(n>=1e3)return (n/1e3).toFixed(n>=1e4?0:1).replace(/\.0$/,"")+"K đang xem";
+    return Math.round(n)+" đang xem";
+  }
+
+  function normalizeTikTokLiveItem(item={}){
+    const handle=String(item?.handle||"").trim().replace(/^@/,"");
+    if(!handle||!item?.live)return null;
+    const width=Math.max(0,Number(item?.width)||0);
+    const height=Math.max(0,Number(item?.height)||0);
+    const ratio=width>0&&height>0?width/height:9/16;
+    return {
+      id:tiktokLiveId(handle),
+      provider:"tiktok",
+      handle,
+      title:String(item?.title||"").trim()||("@"+handle+" · LIVE"),
+      sourceName:String(item?.sourceName||"").trim()||("@"+handle),
+      sourceId:"tiktok:"+handle.toLowerCase(),
+      sourceAvatar:String(item?.avatar||"").trim(),
+      thumbnail:String(item?.cover||item?.avatar||"").trim(),
+      isLive:true,
+      verified:false,
+      viewsLabel:compactLiveViewerCount(item?.viewerCount),
+      publishedLabel:"Đang trực tiếp",
+      durationLabel:"",
+      mediaKind:"tiktok-live",
+      aspectRatio:ratio,
+      videoWidth:width,
+      videoHeight:height,
+      _aspectVerified:width>0&&height>0,
+      _aspectSource:"tiktok-live-edge",
+      streamUrl:String(item?.streamUrl||"").trim(),
+      hlsUrl:String(item?.hlsUrl||"").trim(),
+      streamType:String(item?.type||"flv").toLowerCase(),
+      streamCodec:String(item?.codec||"").toLowerCase(),
+      streamQuality:String(item?.quality||""),
+      sourceSig:String(item?.sourceSig||""),
+      playable:item?.playable===true&&Boolean(String(item?.streamUrl||item?.hlsUrl||"").trim())
+    };
+  }
+
+  function mergeUnifiedLiveFeed(youtubeMetas=[]){
+    const youtube=Array.isArray(youtubeMetas)?youtubeMetas:[];
+    const seen=new Set(youtube.map(meta=>String(meta?.id||"")));
+    return [
+      ...youtube,
+      ...tiktokLiveMetas.filter(meta=>meta?.id&&!seen.has(String(meta.id)))
+    ];
+  }
+
+  async function refreshTikTokLiveFeed({paint=true,force=false}={}){
+    const now=Date.now();
+    if(!force&&now-tiktokLiveLastAt<12_000)return tiktokLiveMetas;
+    if(tiktokLiveFetchPromise)return tiktokLiveFetchPromise;
+
+    tiktokLiveFetchPromise=(async()=>{
+      try{
+        const response=await fetch(
+          TIKTOK_LIVE_API+"/tiktok/live-now?t="+Date.now(),
+          {cache:"no-store"}
+        );
+        if(!response.ok)throw new Error("tiktok_live_"+response.status);
+        const payload=await response.json();
+        const next=(Array.isArray(payload?.items)?payload.items:[])
+          .map(normalizeTikTokLiveItem)
+          .filter(meta=>meta?.playable);
+        tiktokLiveMetas=next;
+        tiktokLiveLastAt=Date.now();
+
+        if(
+          paint&&
+          feedMode==="package"&&
+          activePackageScope==="live"
+        ){
+          feedMetas=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
+          renderSampleContent();
+        }
+        return tiktokLiveMetas;
+      }catch(error){
+        console.warn("tiktok_live_feed_failed",error);
+        return tiktokLiveMetas;
+      }finally{
+        tiktokLiveFetchPromise=null;
+      }
+    })();
+    return tiktokLiveFetchPromise;
+  }
+
+  function isAppleMobileBrowser(){
+    const ua=navigator.userAgent||"";
+    return /iPad|iPhone|iPod/i.test(ua)||
+      (navigator.platform==="MacIntel"&&Number(navigator.maxTouchPoints||0)>1);
+  }
+
+  function nativeHlsSupported(video=tiktokLiveVideo){
+    if(!video?.canPlayType)return false;
+    return Boolean(
+      video.canPlayType("application/vnd.apple.mpegurl")||
+      video.canPlayType("application/x-mpegURL")
+    );
+  }
+
+  function stopTikTokLivePlayback(){
+    try{
+      tiktokLivePlayer?.pause?.();
+      tiktokLivePlayer?.unload?.();
+      tiktokLivePlayer?.detachMediaElement?.();
+      tiktokLivePlayer?.destroy?.();
+    }catch{}
+    tiktokLivePlayer=null;
+    try{
+      tiktokLiveVideo.pause();
+      tiktokLiveVideo.onerror=null;
+      tiktokLiveVideo.onloadedmetadata=null;
+      tiktokLiveVideo.onplaying=null;
+      tiktokLiveVideo.removeAttribute("src");
+      tiktokLiveVideo.load();
+    }catch{}
+    player.classList.remove("tiktok-active");
+  }
+
+  function showYoutubePlayerSurface(){
+    stopTikTokLivePlayback();
+    player.classList.remove("tiktok-active");
+    try{ytPlayer?.getIframe?.().style.removeProperty("display")}catch{}
+  }
+
+  function attachTikTokFlv(url,meta,{legacy=false}={}){
+    if(!url||!tiktokLiveVideo)return false;
+    const engine=!legacy&&window.mpegts&&mpegts.isSupported?.()
+      ?window.mpegts
+      :(window.flvjs&&flvjs.isSupported?.()?window.flvjs:null);
+    if(!engine)return false;
+
+    let instance=null;
+    try{
+      instance=engine.createPlayer(
+        {type:"flv",isLive:true,url,cors:true,withCredentials:false},
+        {
+          enableStashBuffer:false,
+          stashInitialSize:64*1024,
+          lazyLoad:false,
+          autoCleanupSourceBuffer:true,
+          autoCleanupMaxBackwardDuration:30,
+          autoCleanupMinBackwardDuration:12
+        }
+      );
+      instance.attachMediaElement(tiktokLiveVideo);
+      instance.load();
+      tiktokLivePlayer=instance;
+      tiktokLiveVideo.play().catch(()=>{});
+    }catch(error){
+      try{instance?.destroy?.()}catch{}
+      if(!legacy&&window.flvjs?.isSupported?.()){
+        return attachTikTokFlv(url,meta,{legacy:true});
+      }
+      console.warn("tiktok_live_player_failed",error);
+      return false;
+    }
+
+    const events=engine.Events||{};
+    if(events.ERROR){
+      instance.on(events.ERROR,()=>{
+        if(
+          !legacy&&
+          String(currentMeta?.id||"")===String(meta?.id||"")&&
+          window.flvjs?.isSupported?.()
+        ){
+          stopTikTokLivePlayback();
+          player.classList.add("tiktok-active");
+          attachTikTokFlv(url,meta,{legacy:true});
+        }
+      });
+    }
+    return true;
+  }
+
+  function playTikTokLive(meta={}){
+    const id=String(meta?.id||"").trim();
+    const direct=String(meta?.streamUrl||"").trim();
+    const hls=String(meta?.hlsUrl||"").trim();
+    if(!id||(!direct&&!hls))return false;
+
+    try{ytPlayer?.pauseVideo?.()}catch{}
+    stopTikTokLivePlayback();
+    player.classList.add("tiktok-active");
+
+    currentMeta=meta;
+    const ratio=
+      validMediaAspect(meta?.aspectRatio)||
+      (
+        Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0
+          ?Number(meta.videoWidth)/Number(meta.videoHeight)
+          :9/16
+      );
+    const kind=mediaLayoutKindFromRatio(ratio);
+    current={
+      id,
+      kind,
+      ratio,
+      detectedRatio:ratio,
+      label:String(meta?.title||"")
+    };
+    applyMediaLayoutSelection(kind,{relayout:true});
+    applyHeaderTint(meta);
+
+    tiktokLiveVideo.hidden=false;
+    tiktokLiveVideo.controls=true;
+    tiktokLiveVideo.muted=false;
+    tiktokLiveVideo.poster=String(meta?.thumbnail||"");
+
+    tiktokLiveVideo.onloadedmetadata=()=>{
+      if(String(current?.id||"")!==id)return;
+      const w=Number(tiktokLiveVideo.videoWidth)||0;
+      const h=Number(tiktokLiveVideo.videoHeight)||0;
+      if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true});
+    };
+
+    if(
+      isAppleMobileBrowser()&&
+      hls&&
+      nativeHlsSupported(tiktokLiveVideo)
+    ){
+      tiktokLiveVideo.src=hls;
+      tiktokLiveVideo.load();
+      tiktokLiveVideo.play().catch(()=>{});
+    }else if(direct){
+      if(!attachTikTokFlv(direct,meta)){
+        player.classList.remove("tiktok-active");
+        return false;
+      }
+    }else{
+      player.classList.remove("tiktok-active");
+      return false;
+    }
+
+    renderCurrentInfo();
+    schedulePip();
+    return true;
+  }
 
   function verifiedBadgeMarkup(){
     return '<span class="verified-badge" aria-label="Đã xác minh" title="Đã xác minh">'+
@@ -4323,6 +4607,10 @@ html.one-col.portrait .player.pip{
 
   function renderInfoQuickActions(meta={}){
     if(!videoQuickActions)return;
+    if(meta?.provider==="tiktok"){
+      videoQuickActions.replaceChildren();
+      return;
+    }
     const sourceId=validSourceId(meta?.sourceId);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
@@ -4875,7 +5163,7 @@ html.one-col.portrait .player.pip{
     const verified=meta.verified?verifiedBadgeMarkup():"";
 
     return (
-      '<article class="row'+(meta.isLive?' live-card':'')+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
+      '<article class="row'+(meta.isLive?' live-card':'')+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-provider="'+escapeHtml(meta.provider||"youtube")+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb">'+
           '<img src="'+escapeHtml(thumb)+'" data-thumb-base="'+escapeHtml(baseThumb)+'" data-thumb-fallback-stage="0" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
           durationMarkup+
@@ -5537,7 +5825,9 @@ html.one-col.portrait .player.pip{
       String(meta?.viewsLabel||""),
       String(meta?.publishedLabel||""),
       meta?.isLive===true?"1":"0",
-      meta?.verified===true?"1":"0"
+      meta?.verified===true?"1":"0",
+      String(meta?.provider||"youtube"),
+      String(meta?.sourceSig||"")
     ].join("\u001f")).join("\u001e");
   }
 
@@ -6632,6 +6922,14 @@ html.one-col.portrait .player.pip{
 
     if(!isTwoColumn()){
       openSelectedVideoInline(card,id);
+    }
+
+    if(selectedMeta?.provider==="tiktok"){
+      if(playTikTokLive(selectedMeta)){
+        renderCurrentInfo();
+        schedulePip();
+      }
+      return;
     }
 
     if(navigateToVideo(id,selectedMeta)){
