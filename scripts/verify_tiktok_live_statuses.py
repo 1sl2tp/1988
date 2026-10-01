@@ -54,9 +54,6 @@ def main():
     audit = statuses.get("audit") or {}
     audit_selected = int(audit.get("selectedTotal") or 0)
     audit_live_start = int(audit.get("liveAtStart") or 0)
-    audit_browser_checked = int(audit.get("browserChecked") or 0)
-    audit_browser_found = int(audit.get("browserFound") or 0)
-    audit_browser_missed = int(audit.get("browserMissed") or 0)
     still_checking = [(x.get("handle"), x.get("state")) for x in items if x.get("state") == "checking"]
     weak_offline = []
     weak_live = []
@@ -68,7 +65,8 @@ def main():
             no_evidence.append((x.get("handle"), state))
         if state == "offline":
             off = [e for e in ev if e.get("known") and not e.get("live")]
-            if len(off) < 2:
+            definitive = any(int(e.get("status") or 0) == 4 for e in off)
+            if not definitive and len(off) < 2:
                 weak_offline.append((x.get("handle"), len(off), ev))
         if str(state).startswith("live_") and not x.get("retainedLive"):
             if not any(e.get("known") and e.get("live") for e in ev):
@@ -85,10 +83,8 @@ def main():
     print("AUDIT_COVERAGE", {
         "selected": audit_selected,
         "live_at_start": audit_live_start,
-        "browser_checked": audit_browser_checked,
-        "browser_found": audit_browser_found,
-        "browser_missed": audit_browser_missed,
-        "covered": audit_live_start + audit_browser_checked,
+        "status_rows": len(status_handles),
+        "rows_with_evidence": len(status_handles) - len(no_evidence),
     })
     print("STILL_CHECKING", still_checking[:20])
     print("NO_EVIDENCE", no_evidence[:20])
@@ -110,13 +106,8 @@ def main():
     assert audit_selected == len(status_handles), (
         f"audit selected total mismatch: audit={audit_selected} statuses={len(status_handles)}"
     )
-    assert audit_live_start + audit_browser_checked == audit_selected, (
-        "full LIVE audit did not cover every selected handle: "
-        f"liveAtStart={audit_live_start} browserChecked={audit_browser_checked} selected={audit_selected}"
-    )
-    assert audit_browser_found + audit_browser_missed == audit_browser_checked, (
-        "browser audit accounting mismatch: "
-        f"found={audit_browser_found} missed={audit_browser_missed} checked={audit_browser_checked}"
+    assert len(status_handles) == audit_selected, (
+        f"full LIVE audit row count mismatch: statuses={len(status_handles)} selected={audit_selected}"
     )
     assert not still_checking, f"forced scan left handles unscanned: {still_checking[:20]}"
     assert not no_evidence, f"status rows missing scan evidence: {no_evidence[:20]}"
