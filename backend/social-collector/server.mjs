@@ -9419,7 +9419,7 @@ const server=http.createServer(async(req,res)=>{
 server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
 
-  setTimeout(()=>{void cleanupTikTokOriginalStorage();},2*60_000).unref();
+  void cleanupTikTokOriginalStorage();
   setInterval(()=>{void cleanupTikTokOriginalStorage();},6*60*60_000).unref();
 
   if(TIKTOK_UPDATES_PAUSED){
