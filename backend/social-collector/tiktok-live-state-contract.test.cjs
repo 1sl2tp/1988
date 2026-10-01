@@ -30,7 +30,8 @@ const storedStart=server.indexOf('function buildTikTokStoredRows()');
 const storedEnd=server.indexOf('async function persistTikTokLiveStore',storedStart);
 assert.ok(storedStart>=0&&storedEnd>storedStart,'stored LIVE builder missing');
 const stored=server.slice(storedStart,storedEnd);
-assert.match(stored,/const live=tiktokPublishedLiveNow\(handle/,'persistence must use the canonical published-LIVE predicate');
+assert.match(stored,/const live=tiktokConfirmedLiveNow\(handle/,'persistence LIVE must mean current confirmed broadcast state');
+assert.match(stored,/const playable=tiktokPublishedLiveNow\(handle/,'playable must remain a separate media state');
 assert.doesNotMatch(stored,/\|\|Boolean\(item\.live\)/,'persistence must never OR in stale library LIVE');
 
 for(const route of ['/tiktok/live-now','/tiktok/live-library']){
@@ -38,8 +39,8 @@ for(const route of ['/tiktok/live-now','/tiktok/live-library']){
   assert.ok(start>=0,route+' route missing');
   const end=server.indexOf("\n  if(url.pathname==='",start+10);
   const block=server.slice(start,end>start?end:start+5000);
-  assert.match(block,/tiktokPublishedLiveNow\(handle,now\)/,
-    route+' must publish only fresh confirmed LIVE with a usable FLV');
+  assert.match(block,/tiktokConfirmedLiveNow\(handle,now\)/,
+    route+' must return every fresh confirmed LIVE regardless of FLV readiness');
 }
 
 console.log('tiktok-live-state-contract: assertions passed');
@@ -95,3 +96,18 @@ const packageScanEnd=server.indexOf('let tiktokLiveMinuteSweepPromise=',packageS
 const packageScan=server.slice(packageScanStart,packageScanEnd);
 assert.match(packageScan,/runTikTokLiveMinuteSweep\(\{targetHandles:\[handle\],exhaustive:true\}\)/,
   'targeted add-channel LIVE check must enter the canonical checker first');
+
+
+const sweepMediaStart=server.indexOf('function runTikTokLiveMinuteSweep(');
+const sweepMediaEnd=server.indexOf('async function runTikTokLiveAuditSweep(',sweepMediaStart);
+const sweepMedia=server.slice(sweepMediaStart,sweepMediaEnd);
+assert.doesNotMatch(sweepMedia,/refreshTikTokLiveLibrary\(/,
+  'background LIVE detection must not fetch media');
+assert.doesNotMatch(sweepMedia,/resolveTikTokLiveSourceBatch\(/,
+  'background LIVE detection must not resolve FLV');
+
+const proxyStart=server.indexOf('async function proxyTikTokLive(');
+const proxyEnd=server.indexOf('function findTikTokUserObject(',proxyStart);
+const proxy=server.slice(proxyStart,proxyEnd);
+assert.match(proxy,/resolveTikTokLiveSourceBatch\(\[handle\]\)/,
+  'FLV resolution must happen on the user playback path when needed');
