@@ -1730,6 +1730,45 @@ async function youtubeShortsMembership(id:string){
   }
 }
 
+async function youtubeChannelVideoFingerprint(channelId:string){
+  const id=clean(channelId,180);
+  if(!/^UC[A-Za-z0-9_-]+$/.test(id)){
+    return {known:false,videoId:"",publishedAt:"",source:"invalid-channel"};
+  }
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3500);
+  try{
+    const res=await fetch(
+      "https://www.youtube.com/feeds/videos.xml?channel_id="+encodeURIComponent(id),
+      {
+        method:"GET",
+        signal:controller.signal,
+        cache:"no-store",
+        headers:{
+          "accept":"application/atom+xml,application/xml,text/xml;q=0.9,*/*;q=0.1",
+          "accept-language":"vi-VN,vi;q=0.9,en;q=0.5",
+          "user-agent":"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136 Safari/537.36"
+        }
+      }
+    );
+    if(!res.ok)return {known:false,videoId:"",publishedAt:"",source:"rss-http-"+res.status};
+    const xml=await res.text();
+    const entry=xml.match(/<entry\b[\s\S]*?<\/entry>/i)?.[0]||"";
+    const videoId=clean(entry.match(/<yt:videoId>([^<]+)<\/yt:videoId>/i)?.[1]||"",64);
+    const publishedAt=clean(entry.match(/<published>([^<]+)<\/published>/i)?.[1]||"",80);
+    if(!videoId)return {known:true,videoId:"",publishedAt:"",source:"youtube-rss-empty"};
+    return {known:true,videoId,publishedAt,source:"youtube-rss"};
+  }catch(error){
+    return {
+      known:false,videoId:"",publishedAt:"",
+      source:"rss-error:"+clean(String((error as any)?.message||error),80)
+    };
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
 async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
   const id=clean(source?.id,180);
   if(!/^UC[A-Za-z0-9_-]+$/.test(id))return null;
@@ -2430,6 +2469,7 @@ Deno.serve(async(req:Request)=>{
     const newlyDiscoveredRowsByChannel=new Map<string,any[]>();
     const cacheById=new Map<string,any>();
     const cacheWrites:any[]=[];
+    const fingerprintTouchIds:string[]=[];
     const now=Date.now();
 
     // Load persistent per-channel snapshots. These are the server equivalent
@@ -2527,6 +2567,24 @@ Deno.serve(async(req:Request)=>{
       const checkedAt=new Date().toISOString();
 
       try{
+        const fingerprint=await youtubeChannelVideoFingerprint(id);
+        const cachedLatest=clean(previous?.newest_video_id,64);
+
+        // Fingerprint path: one tiny RSS response is enough to prove the channel
+        // has no new upload. Reuse the complete cached snapshot and do not call
+        // the heavier channel resolver, metadata endpoints or verification fanout.
+        if(
+          fingerprint.known&&
+          cachedLatest&&
+          fingerprint.videoId===cachedLatest&&
+          previousRows.length
+        ){
+          channelRows.set(id,previousRows);
+          channelFetchOk.add(id);
+          fingerprintTouchIds.push(id);
+          return true;
+        }
+
         const url=supabaseUrl+"/functions/v1/yt1988?action=channel&id="+encodeURIComponent(id);
         const result=await fetchJson(url,{
           "apikey":serviceKey,
@@ -2647,6 +2705,27 @@ Deno.serve(async(req:Request)=>{
       }
       return true;
     });
+
+    if(fingerprintTouchIds.length){
+      const touchedAt=new Date().toISOString();
+      for(let start=0;start<fingerprintTouchIds.length;start+=50){
+        const ids=fingerprintTouchIds.slice(start,start+50);
+        await fetch(
+          rest+"/yt1988_channel_cache?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&channel_id=in.("+ids.map(encodeURIComponent).join(",")+")",
+          {
+            method:"PATCH",
+            headers:{...authHeaders,"prefer":"return=minimal"},
+            body:JSON.stringify({
+              checked_at:touchedAt,
+              last_success_at:touchedAt,
+              last_error:"",
+              retry_after:null
+            })
+          }
+        ).catch(()=>{});
+      }
+    }
 
     // Verify every recent non-live row on the server. Duration and YouTube's
     // Shorts surface are independent signals: either <=60 seconds OR Shorts
