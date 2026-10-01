@@ -116,7 +116,12 @@ const tiktokProfileIdentityInflight=new Map();
 const TIKTOK_PROFILE_IDENTITY_TTL_MS=6*60*60*1000;
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
-const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
+const TIKTOK_LIVE_STATUS_SWEEP_MS=Math.max(30_000,Number(process.env.TIKTOK_LIVE_STATUS_SWEEP_MS)||30_000);
+const TIKTOK_LIVE_IDLE_SWEEP_MS=Math.max(
+  TIKTOK_LIVE_STATUS_SWEEP_MS,
+  Number(process.env.TIKTOK_LIVE_IDLE_SWEEP_MS)||3*60_000
+);
+const TIKTOK_LIVE_VIEWER_ACTIVE_MS=2*60_000;
 const TIKTOK_LIVE_DISCOVERY_BATCH=10;
 const TIKTOK_LIVE_PRIORITY_BATCH=18;
 const TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS=3*60_000;
@@ -124,6 +129,8 @@ const TIKTOK_LIVE_RECENT_TTL_MS=24*60*60_000;
 const TIKTOK_LIVE_RECENT_BATCH=8;
 const TIKTOK_LIVE_COLD_BATCH=6;
 const TIKTOK_LIVE_COLD_DEEP_BATCH=2;
+let tiktokLiveLastViewerAt=0;
+let tiktokLiveSweepTimer=null;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -238,6 +245,25 @@ async function execTikTokYtdlp(args,options={}){
 
 function sleep(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
 function nowIso(){return new Date().toISOString();}
+function currentTikTokLiveSweepDelay(){
+  return Date.now()-tiktokLiveLastViewerAt<=TIKTOK_LIVE_VIEWER_ACTIVE_MS
+    ? TIKTOK_LIVE_STATUS_SWEEP_MS
+    : TIKTOK_LIVE_IDLE_SWEEP_MS;
+}
+function startTikTokLiveSweepScheduler(){
+  if(tiktokLiveSweepTimer)return;
+  const tick=async()=>{
+    tiktokLiveSweepTimer=null;
+    try{await runTikTokLiveMinuteSweep();}catch(error){
+      console.warn('[tiktok-live] sweep failed',compactText(error?.message||error,140));
+    }finally{
+      tiktokLiveSweepTimer=setTimeout(tick,currentTikTokLiveSweepDelay());
+      tiktokLiveSweepTimer.unref?.();
+    }
+  };
+  tiktokLiveSweepTimer=setTimeout(tick,currentTikTokLiveSweepDelay());
+  tiktokLiveSweepTimer.unref?.();
+}
 function compactText(value,max=500){
   return String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 }
@@ -9008,6 +9034,7 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/live-now'&&req.method==='GET'){
+    tiktokLiveLastViewerAt=Date.now();
     // Never expose an uninitialized empty snapshot. The first realtime read
     // waits for one complete TikTok API check of the selected channels.
     if(!tiktokRealtimeLiveCheckedAt&&!TIKTOK_UPDATES_PAUSED&&AUTO_COLLECT){
@@ -9072,6 +9099,7 @@ const server=http.createServer(async(req,res)=>{
 
 
   if(url.pathname==='/tiktok/live-library'&&req.method==='GET'){
+    tiktokLiveLastViewerAt=Date.now();
     // Compatibility route only. LIVE has no package/version/history semantics.
     if(!tiktokRealtimeLiveCheckedAt){
       await runTikTokLiveMinuteSweep();
@@ -9600,7 +9628,7 @@ server.listen(PORT,'0.0.0.0',()=>{
       // LIVE status is the realtime control plane for the viewer. It must keep
       // refreshing even when heavyweight profile/video collection is disabled.
       void runTikTokLiveMinuteSweep();
-      setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
+      startTikTokLiveSweepScheduler();
 
       // The exhaustive sweep above owns LIVE discovery. Do not run a second
       // 18/171-channel status burst here; that duplicate traffic was one cause
@@ -9637,10 +9665,10 @@ server.listen(PORT,'0.0.0.0',()=>{
     }
 
     void runTikTokLiveMinuteSweep();
+    startTikTokLiveSweepScheduler();
     setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},90_000).unref();
   });
   if(AUTO_COLLECT){
-    setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
     setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},5*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},2*60*60_000).unref();
