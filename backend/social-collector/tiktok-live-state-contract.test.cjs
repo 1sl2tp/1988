@@ -78,3 +78,20 @@ assert.match(sweep,/if\(first\[i\]\?\.state\?\.known\)continue;/,
   'known LIVE or OFFLINE fingerprint must stop before deep checks');
 assert.match(sweep,/evidence\.some\(x=>x\.known&&!x\.live&&Number\(x\.status\)===4\)/,
   'canonical status=4 must be sufficient OFFLINE evidence');
+
+
+const mediaRefreshStart=server.indexOf('async function refreshTikTokLiveLibrary(');
+const mediaRefreshEnd=server.indexOf('async function checkTikTokLiveWithYtDlp(',mediaRefreshStart);
+const mediaRefresh=server.slice(mediaRefreshStart,mediaRefreshEnd);
+assert.doesNotMatch(mediaRefresh,/tiktokRealtimeLiveHandles\.add\(/,
+  'FLV refresh must never create LIVE state');
+assert.doesNotMatch(mediaRefresh,/live:true[\s\S]{0,120}probeState:'live'/,
+  'FLV refresh must never publish its own LIVE state');
+assert.match(mediaRefresh,/filter\(handle=>tiktokConfirmedLiveNow\(handle/,
+  'FLV refresh must only run for channels already confirmed LIVE by the canonical checker');
+
+const packageScanStart=server.indexOf('function ensureTikTokLivePackageScan(');
+const packageScanEnd=server.indexOf('let tiktokLiveMinuteSweepPromise=',packageScanStart);
+const packageScan=server.slice(packageScanStart,packageScanEnd);
+assert.match(packageScan,/runTikTokLiveMinuteSweep\(\{targetHandles:\[handle\],exhaustive:true\}\)/,
+  'targeted add-channel LIVE check must enter the canonical checker first');
