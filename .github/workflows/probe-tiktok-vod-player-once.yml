@@ -1,0 +1,76 @@
+name: Probe TikTok VOD Player Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tiktok-vod-player-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe library and native MP4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request
+          u='https://one988-tiktok-session.onrender.com/tiktok/library?v=-1&t=1'
+          req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'})
+          with urllib.request.urlopen(req,timeout=30) as r:
+              data=json.load(r)
+          choice=None
+          for ch in data.get('channels',[]):
+              vs=sorted(ch.get('videos') or [], key=lambda v:int(v.get('createTime') or 0), reverse=True)
+              if not vs: continue
+              v=vs[0]
+              p=v.get('playback') or {}
+              if p.get('ready') and p.get('url'):
+                  choice=(ch.get('handle',''),v)
+                  break
+          if not choice:
+              raise SystemExit('NO_READY_VIDEO')
+          handle,v=choice
+          print('HANDLE='+handle)
+          print('ID='+str(v.get('id','')))
+          print('TITLE='+str(v.get('title',''))[:120])
+          print('EXPIRES='+str((v.get('playback') or {}).get('expiresAt')))
+          open('/tmp/url','w').write((v.get('playback') or {}).get('url',''))
+          PY
+
+          URL="$(cat /tmp/url)"
+          echo "=== CURL no referer ==="
+          curl -L -sS -D /tmp/h1 -o /tmp/b1 --range 0-65535             -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'             "$URL" || true
+          head -30 /tmp/h1
+          file /tmp/b1 || true
+          wc -c /tmp/b1 || true
+
+          echo "=== CURL yt.taphoa referrer ==="
+          curl -L -sS -D /tmp/h2 -o /tmp/b2 --range 0-65535             -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'             -e 'https://yt.taphoa.xyz/'             "$URL" || true
+          head -30 /tmp/h2
+          file /tmp/b2 || true
+          wc -c /tmp/b2 || true
+
+          python3 - <<'PY'
+          import html
+          u=open('/tmp/url').read()
+          page=f'''<!doctype html><meta charset="utf-8">
+          <video id="v" playsinline preload="metadata"></video><pre id="o">boot</pre>
+          <script>
+          const v=document.getElementById('v'),o=document.getElementById('o');
+          const log=(s)=>o.textContent+='\\n'+s+' rs='+v.readyState+' ns='+v.networkState+' err='+(v.error?.code||0)+' t='+v.currentTime+' d='+v.duration;
+          ['loadstart','loadedmetadata','loadeddata','canplay','playing','waiting','stalled','error','pause'].forEach(e=>v.addEventListener(e,()=>log(e)));
+          v.src={u!r}; v.load(); v.play().then(()=>log('play-ok')).catch(e=>log('play-reject '+e.name+':'+e.message));
+          setTimeout(()=>log('after-8s'),8000);
+          </script>'''
+          open('/tmp/probe.html','w').write(page)
+          PY
+
+          echo "=== CHROME native video ==="
+          google-chrome --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=10000             --dump-dom file:///tmp/probe.html 2>/tmp/chrome.err | tail -80
+          echo "=== CHROME stderr ==="
+          tail -80 /tmp/chrome.err || true
