@@ -2691,6 +2691,9 @@ html.one-col.portrait .player.pip{
   let tiktokLiveMetas=[];
   let tiktokLiveFetchPromise=null;
   let tiktokLiveLastAt=0;
+  let tiktokLiveReady=false;
+  let unifiedLiveSnapshotPromise=null;
+  let unifiedLiveRefreshPromise=null;
   let youtubeEdgeLiveMetas=[];
   let youtubeEdgeLiveReady=false;
   let youtubeLiveScanPromise=null;
@@ -4368,25 +4371,38 @@ html.one-col.portrait .player.pip{
     ++feedRequest;
     syncFeedHeader();
 
-    // Tab/UI reads memory only for the first paint.
-    // Live paints the last committed local snapshot immediately, then Cloudflare
-    // refreshes it in the background only while this tab remains active.
     const baseMetas=packageCache.get(scope)||[];
-    const metas=scope==="live"?mergeUnifiedLiveFeed(baseMetas):baseMetas;
-    feedMetas=metas;
-    renderSampleContent();
 
     if(scope==="live"){
-      void refreshTikTokLiveFeed({paint:true});
-      void runYoutubeLiveCycle({force:true});
+      const metas=(youtubeEdgeLiveReady&&tiktokLiveReady)
+        ?mergeUnifiedLiveFeed(baseMetas)
+        :[];
+      feedMetas=metas;
+      renderSampleContent();
+
+      void hydrateUnifiedLiveSnapshots().then(()=>{
+        if(!liveDemandActive())return;
+        if(
+          isTwoColumn()&&
+          !String(current?.id||"")&&
+          feedMetas[0]?.id
+        ){
+          if(openMedia(feedMetas[0],{replace:true}))renderCurrentInfo();
+        }
+        void refreshUnifiedLiveInBackground({force:true});
+      });
+      return metas;
     }
 
-    if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
-      if(openMedia(metas[0],{replace:true})){
+    feedMetas=baseMetas;
+    renderSampleContent();
+
+    if(isTwoColumn()&&!String(current?.id||"")&&baseMetas[0]?.id){
+      if(openMedia(baseMetas[0],{replace:true})){
         renderCurrentInfo();
       }
     }
-    return metas;
+    return baseMetas;
   }
 
   let packageSyncRunning=false;
@@ -4506,8 +4522,9 @@ html.one-col.portrait .player.pip{
     }
     if(feedMode!=="package")return;
     if(activePackageScope==="live"){
-      void runYoutubeLiveCycle({force:true});
-      void refreshTikTokLiveFeed({paint:true,force:true});
+      void hydrateUnifiedLiveSnapshots().then(()=>{
+        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:true});
+      });
     }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
@@ -4516,8 +4533,9 @@ html.one-col.portrait .player.pip{
   addEventListener("focus",()=>{
     if(feedMode!=="package"||document.hidden)return;
     if(activePackageScope==="live"){
-      void runYoutubeLiveCycle({force:false});
-      void refreshTikTokLiveFeed({paint:true,force:true});
+      void hydrateUnifiedLiveSnapshots().then(()=>{
+        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:false});
+      });
     }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
@@ -4526,8 +4544,9 @@ html.one-col.portrait .player.pip{
   addEventListener("online",()=>{
     if(feedMode!=="package"||document.hidden)return;
     if(activePackageScope==="live"){
-      void runYoutubeLiveCycle({force:true});
-      void refreshTikTokLiveFeed({paint:true,force:true});
+      void hydrateUnifiedLiveSnapshots().then(()=>{
+        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:true});
+      });
     }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
@@ -4535,8 +4554,7 @@ html.one-col.portrait .player.pip{
 
   setInterval(()=>{
     if(!liveDemandActive())return;
-    void runYoutubeLiveCycle({force:true});
-    void refreshTikTokLiveFeed({paint:true,force:true});
+    void refreshUnifiedLiveInBackground({force:true});
   },LIVE_ACTIVE_CHECK_MS);
 
   function liveDemandActive(){
@@ -4603,6 +4621,56 @@ html.one-col.portrait .player.pip{
     };
   }
 
+  async function hydrateUnifiedLiveSnapshots(){
+    if(!liveDemandActive())return false;
+    if(unifiedLiveSnapshotPromise)return unifiedLiveSnapshotPromise;
+
+    unifiedLiveSnapshotPromise=(async()=>{
+      const [ytResult,ttResult]=await Promise.allSettled([
+        fetchYoutubeLiveSnapshot(),
+        refreshTikTokLiveFeed({paint:false,force:true})
+      ]);
+
+      if(!liveDemandActive())return false;
+
+      if(ytResult.status==="fulfilled"){
+        youtubeEdgeLiveMetas=ytResult.value.metas;
+        youtubeEdgeLiveReady=true;
+      }
+      if(ttResult.status==="fulfilled"){
+        tiktokLiveReady=true;
+      }
+
+      if(youtubeEdgeLiveReady&&tiktokLiveReady){
+        paintUnifiedLiveFromEdge();
+        return true;
+      }
+      return false;
+    })().finally(()=>{
+      unifiedLiveSnapshotPromise=null;
+    });
+    return unifiedLiveSnapshotPromise;
+  }
+
+  async function refreshUnifiedLiveInBackground({force=true}={}){
+    if(!liveDemandActive())return false;
+    if(unifiedLiveRefreshPromise)return unifiedLiveRefreshPromise;
+
+    unifiedLiveRefreshPromise=(async()=>{
+      await runYoutubeLiveCycle({force,paint:false});
+      if(!liveDemandActive())return false;
+
+      await refreshTikTokLiveFeed({paint:false,force:true});
+      if(!liveDemandActive())return false;
+
+      paintUnifiedLiveFromEdge();
+      return true;
+    })().finally(()=>{
+      unifiedLiveRefreshPromise=null;
+    });
+    return unifiedLiveRefreshPromise;
+  }
+
   function paintUnifiedLiveFromEdge(){
     if(!liveDemandActive())return false;
     feedMetas=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
@@ -4610,7 +4678,7 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  async function runYoutubeLiveCycle({force=false}={}){
+  async function runYoutubeLiveCycle({force=false,paint=true}={}){
     if(!liveDemandActive())return false;
     const now=Date.now();
     if(!force&&now-youtubeLiveLastCycleAt<LIVE_ACTIVE_CHECK_MS)return false;
@@ -4656,9 +4724,9 @@ html.one-col.portrait .player.pip{
         youtubeEdgeLiveReady=true;
         youtubeLiveLastCycleAt=Date.now();
 
-        // Feed changes are background-only. current/currentMeta/player are untouched,
-        // so a playing YouTube or TikTok media continues exactly where it is.
-        paintUnifiedLiveFromEdge();
+        // Feed changes are background-only. current/currentMeta/player are untouched.
+        // Unified refresh can suppress this paint until TikTok is ready too.
+        if(paint)paintUnifiedLiveFromEdge();
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
@@ -4783,6 +4851,7 @@ html.one-col.portrait .player.pip{
           .filter(Boolean)
           .filter(meta=>meta.playable);
         tiktokLiveMetas=next;
+        tiktokLiveReady=true;
         tiktokLiveLastAt=Date.now();
 
         if(
