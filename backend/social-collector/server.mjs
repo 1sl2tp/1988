@@ -7134,53 +7134,70 @@ async function bootstrapTikTokCanonicalMeta(){
 }
 
 
+const SESSION_CACHE_MS=60_000;
+const sessionCache=new Map();
+const sessionLoadPromises=new Map();
+
 async function loadSession(platform){
   if(!BROWSER_PLATFORMS.has(platform))return null;
 
-  let lastError=null;
-  for(let attempt=0;attempt<4;attempt+=1){
-    try{
-      const r=await fetch(
-        SUPABASE_URL+'/rest/v1/yt1988_social_sessions?platform=eq.'+
-        encodeURIComponent(platform)+'&select=state,updated_at&limit=1',
-        {
-          headers:storeHeaders(),
-          signal:AbortSignal.timeout(7000)
-        }
-      );
+  const cached=sessionCache.get(platform);
+  if(cached&&Date.now()-cached.at<SESSION_CACHE_MS)return cached.row;
+  if(sessionLoadPromises.has(platform))return sessionLoadPromises.get(platform);
 
-      // Session reads are idempotent. A transient Supabase/PostgREST 5xx must
-      // never be interpreted as "there is no TikTok login", especially during
-      // a fresh Render deploy when losing cookies breaks restricted LIVE rooms.
-      if(!r.ok){
-        const error=new Error('session_read_'+r.status);
+  const task=(async()=>{
+    let lastError=null;
+    for(let attempt=0;attempt<4;attempt+=1){
+      try{
+        const r=await fetch(
+          SUPABASE_URL+'/rest/v1/yt1988_social_sessions?platform=eq.'+
+          encodeURIComponent(platform)+'&select=state,updated_at&limit=1',
+          {
+            headers:storeHeaders(),
+            signal:AbortSignal.timeout(7000)
+          }
+        );
+
+        // Session reads are idempotent. A transient Supabase/PostgREST 5xx must
+        // never be interpreted as "there is no TikTok login", especially during
+        // a fresh Render deploy when losing cookies breaks restricted LIVE rooms.
+        if(!r.ok){
+          const error=new Error('session_read_'+r.status);
+          lastError=error;
+          if(r.status>=500&&attempt<3){
+            await sleep([350,800,1600][attempt]||1600);
+            continue;
+          }
+          throw error;
+        }
+
+        const rows=await r.json();
+        const row=Array.isArray(rows)?rows[0]:null;
+        sessionCache.set(platform,{row:row||null,at:Date.now()});
+        return row||null;
+      }catch(error){
         lastError=error;
-        if(r.status>=500&&attempt<3){
+        const retryable=
+          /abort|timeout|fetch|network|socket|econn|session_read_5\d\d/i.test(
+            String(error?.message||error)
+          );
+        if(retryable&&attempt<3){
           await sleep([350,800,1600][attempt]||1600);
           continue;
         }
-        throw error;
+        break;
       }
-
-      const rows=await r.json();
-      const row=Array.isArray(rows)?rows[0]:null;
-      return row||null;
-    }catch(error){
-      lastError=error;
-      const retryable=
-        /abort|timeout|fetch|network|socket|econn|session_read_5\d\d/i.test(
-          String(error?.message||error)
-        );
-      if(retryable&&attempt<3){
-        await sleep([350,800,1600][attempt]||1600);
-        continue;
-      }
-      break;
     }
-  }
 
-  console.warn('[store] load session failed',platform,String(lastError?.message||lastError||'unknown'));
-  return null;
+    // If Supabase has a brief outage, prefer the last known login session
+    // rather than hammering the same row and accidentally dropping cookies.
+    if(cached)return cached.row;
+    console.warn('[store] load session failed',platform,String(lastError?.message||lastError||'unknown'));
+    return null;
+  })().finally(()=>sessionLoadPromises.delete(platform));
+
+  sessionLoadPromises.set(platform,task);
+  return task;
 }
 async function saveSession(platform,state){
   if(!BROWSER_PLATFORMS.has(platform))return;
@@ -7194,6 +7211,7 @@ async function saveSession(platform,state){
       }
     );
     if(!r.ok)throw new Error('session_write_'+r.status+':'+await r.text());
+    sessionCache.set(platform,{row:{platform,state,updated_at:nowIso()},at:Date.now()});
     return true;
   }catch(error){
     console.warn('[store] save session failed',platform,String(error?.message||error));
