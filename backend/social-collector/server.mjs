@@ -119,6 +119,7 @@ const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
 const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
 const TIKTOK_LIVE_DISCOVERY_BATCH=10;
 const TIKTOK_LIVE_PRIORITY_BATCH=18;
+const TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS=3*60_000;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -8929,8 +8930,21 @@ const server=http.createServer(async(req,res)=>{
       ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
       :new Set();
 
+    const now=Date.now();
     const handles=[...tiktokRealtimeLiveHandles]
-      .filter(handle=>wanted.has(handle))
+      .filter(handle=>{
+        if(!wanted.has(handle))return false;
+        const scan=tiktokRealtimeStatusByHandle.get(handle);
+        // "Đang phát" is a current fact, not a sticky recovery state.
+        // UNKNOWN may keep internal LIVE state/FLV warm, but must never be
+        // presented to the viewer as currently broadcasting.
+        return Boolean(
+          scan?.known===true &&
+          scan?.live===true &&
+          scan?.retained!==true &&
+          now-Number(scan?.checkedAt||0)<=TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS
+        );
+      })
       .sort((a,b)=>a.localeCompare(b));
 
     const items=handles.map(handle=>{
@@ -8978,8 +8992,21 @@ const server=http.createServer(async(req,res)=>{
       ?new Set([...tiktokLiveSelectedHandles].map(x=>x.toLowerCase()))
       :new Set();
 
+    const now=Date.now();
     const handles=[...tiktokRealtimeLiveHandles]
-      .filter(handle=>wanted.has(handle))
+      .filter(handle=>{
+        if(!wanted.has(handle))return false;
+        const scan=tiktokRealtimeStatusByHandle.get(handle);
+        // "Đang phát" is a current fact, not a sticky recovery state.
+        // UNKNOWN may keep internal LIVE state/FLV warm, but must never be
+        // presented to the viewer as currently broadcasting.
+        return Boolean(
+          scan?.known===true &&
+          scan?.live===true &&
+          scan?.retained!==true &&
+          now-Number(scan?.checkedAt||0)<=TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS
+        );
+      })
       .sort((a,b)=>a.localeCompare(b));
 
     const items=handles.map(handle=>{
