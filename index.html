@@ -1088,6 +1088,87 @@ main{
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
 
+.tiktok-live-controls{
+  position:absolute;
+  left:0;right:0;bottom:0;
+  z-index:30;
+  min-height:54px;
+  display:flex;
+  align-items:flex-end;
+  gap:8px;
+  padding:18px 12px 10px;
+  color:#fff;
+  background:linear-gradient(to top,rgba(0,0,0,.72),rgba(0,0,0,.24) 54%,transparent);
+  opacity:0;
+  transform:translateY(2px);
+  pointer-events:none;
+  transition:opacity .16s ease,transform .16s ease;
+}
+.player.tiktok-active.tiktok-controls-visible > .tiktok-live-controls,
+.player.tiktok-active:hover > .tiktok-live-controls,
+.player.tiktok-active .tiktok-live-controls:focus-within{
+  opacity:1;
+  transform:none;
+  pointer-events:auto;
+}
+.tiktok-live-control{
+  appearance:none;
+  border:0;
+  outline:0;
+  width:38px;height:38px;
+  display:grid;
+  place-items:center;
+  padding:0;margin:0;
+  border-radius:999px;
+  color:#fff;
+  background:rgba(0,0,0,.34);
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.tiktok-live-control:hover{background:rgba(255,255,255,.14)}
+.tiktok-live-control:active{transform:scale(.94)}
+.tiktok-live-control svg{
+  width:22px;height:22px;
+  fill:currentColor;
+  stroke:currentColor;
+  stroke-width:1.7;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+.tiktok-live-play .icon-pause{display:none}
+.player.tiktok-playing .tiktok-live-play .icon-play{display:none}
+.player.tiktok-playing .tiktok-live-play .icon-pause{display:block}
+.tiktok-live-chip{
+  height:28px;
+  padding:0 9px;
+  border-radius:4px;
+  display:inline-flex;
+  align-items:center;
+  align-self:center;
+  gap:6px;
+  color:#fff;
+  background:#fe2c55;
+  font:700 12px/1 Roboto,Arial,sans-serif;
+  letter-spacing:.2px;
+}
+.tiktok-live-chip i{
+  width:6px;height:6px;
+  border-radius:50%;
+  background:#fff;
+}
+.tiktok-live-spacer{flex:1}
+html.one-col .player.pip .tiktok-live-controls{
+  min-height:42px;
+  gap:4px;
+  padding:12px 6px 5px;
+}
+html.one-col .player.pip .tiktok-live-control{width:30px;height:30px}
+html.one-col .player.pip .tiktok-live-control svg{width:18px;height:18px}
+html.one-col .player.pip .tiktok-live-chip{
+  height:22px;padding:0 7px;font-size:10px;
+}
+
+
 /* VISUAL RULES BY MODE
    MAIN 1-col = square + no outer black
    PiP = rounded + no outer black
@@ -2422,6 +2503,20 @@ html.one-col.portrait .player.pip{
       <div class="player" id="player">
         <div id="videoFrame"></div>
         <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
+        <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
+          <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
+            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
+          </button>
+          <span class="tiktok-live-chip"><i></i>LIVE</span>
+          <span class="tiktok-live-spacer"></span>
+          <button type="button" class="tiktok-live-control" id="tiktokLiveMute" aria-label="Bật hoặc tắt âm thanh">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10H4z"></path><path d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11"></path></svg>
+          </button>
+          <button type="button" class="tiktok-live-control" id="tiktokLiveFull" aria-label="Toàn màn hình">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"></path></svg>
+          </button>
+        </div>
         <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-top" data-pip-drag="top" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-left" data-pip-drag="left" aria-hidden="true"></div>
@@ -2490,6 +2585,10 @@ html.one-col.portrait .player.pip{
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
   const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
+  const tiktokLiveControls=document.getElementById("tiktokLiveControls");
+  const tiktokLivePlay=document.getElementById("tiktokLivePlay");
+  const tiktokLiveMute=document.getElementById("tiktokLiveMute");
+  const tiktokLiveFull=document.getElementById("tiktokLiveFull");
   const pipActivateZone=document.getElementById("pipActivateZone");
   const pipDragZones=[...document.querySelectorAll("[data-pip-drag]")];
   const pipMoveZone=document.getElementById("pipMoveZone");
@@ -2530,6 +2629,7 @@ html.one-col.portrait .player.pip{
   let metaRequest=0;
   let currentMeta=null;
   let tiktokLivePlayer=null;
+  let tiktokControlsTimer=0;
   let tiktokLiveMetas=[];
   let tiktokLiveFetchPromise=null;
   let tiktokLiveLastAt=0;
@@ -4430,6 +4530,62 @@ html.one-col.portrait .player.pip{
     );
   }
 
+  function syncTikTokControls(){
+    player.classList.toggle("tiktok-playing",!tiktokLiveVideo?.paused);
+  }
+
+  function showTikTokControls({sticky=false}={}){
+    if(!player.classList.contains("tiktok-active"))return;
+    player.classList.add("tiktok-controls-visible");
+    clearTimeout(tiktokControlsTimer);
+    if(sticky||tiktokLiveVideo?.paused)return;
+    tiktokControlsTimer=setTimeout(()=>{
+      if(!tiktokLiveVideo?.paused)player.classList.remove("tiktok-controls-visible");
+    },2200);
+  }
+
+  function installTikTokLiveControls(){
+    if(!tiktokLiveVideo||!tiktokLiveControls)return;
+    tiktokLivePlay?.addEventListener("click",event=>{
+      event.stopPropagation();
+      if(tiktokLiveVideo.paused)tiktokLiveVideo.play().catch(()=>{});
+      else tiktokLiveVideo.pause();
+      syncTikTokControls();
+      showTikTokControls({sticky:tiktokLiveVideo.paused});
+    });
+    tiktokLiveMute?.addEventListener("click",event=>{
+      event.stopPropagation();
+      tiktokLiveVideo.muted=!tiktokLiveVideo.muted;
+      showTikTokControls();
+    });
+    tiktokLiveFull?.addEventListener("click",event=>{
+      event.stopPropagation();
+      if(document.fullscreenElement)document.exitFullscreen?.();
+      else if(player.requestFullscreen)player.requestFullscreen();
+      else if(tiktokLiveVideo.webkitEnterFullscreen)tiktokLiveVideo.webkitEnterFullscreen();
+    });
+    tiktokLiveVideo.addEventListener("playing",()=>{
+      syncTikTokControls();
+      showTikTokControls();
+    });
+    tiktokLiveVideo.addEventListener("pause",()=>{
+      syncTikTokControls();
+      showTikTokControls({sticky:true});
+    });
+    player.addEventListener("pointermove",()=>showTikTokControls());
+    player.addEventListener("pointerenter",()=>showTikTokControls());
+    player.addEventListener("pointerleave",()=>{
+      if(player.classList.contains("tiktok-active")&&!tiktokLiveVideo.paused){
+        player.classList.remove("tiktok-controls-visible");
+      }
+    });
+    player.addEventListener("click",event=>{
+      if(!player.classList.contains("tiktok-active"))return;
+      if(event.target.closest?.(".tiktok-live-controls,[data-pip-drag],[data-pip-edge],.pip-move-zone"))return;
+      showTikTokControls();
+    });
+  }
+
   function stopTikTokLivePlayback(){
     try{
       tiktokLivePlayer?.pause?.();
@@ -4446,7 +4602,9 @@ html.one-col.portrait .player.pip{
       tiktokLiveVideo.removeAttribute("src");
       tiktokLiveVideo.load();
     }catch{}
-    player.classList.remove("tiktok-active");
+    clearTimeout(tiktokControlsTimer);
+    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing");
+    if(tiktokLiveControls)tiktokLiveControls.hidden=true;
   }
 
   function showYoutubePlayerSurface(){
@@ -4535,8 +4693,11 @@ html.one-col.portrait .player.pip{
     applyHeaderTint(meta);
 
     tiktokLiveVideo.hidden=false;
-    tiktokLiveVideo.controls=true;
+    tiktokLiveVideo.controls=false;
     tiktokLiveVideo.muted=false;
+    if(tiktokLiveControls)tiktokLiveControls.hidden=false;
+    syncTikTokControls();
+    showTikTokControls();
     tiktokLiveVideo.poster=String(meta?.thumbnail||"");
 
     tiktokLiveVideo.onloadedmetadata=()=>{
@@ -7112,6 +7273,8 @@ html.one-col.portrait .player.pip{
   // MAIN stage is the permanent player home. In one-column/mobile the
   // media column is merely parked off-screen, so the iframe stays renderable.
   parkPlayerAtMainHome();
+
+  installTikTokLiveControls();
 
   // Start API/player creation as early as possible. No video is selected here,
   // so this cannot autoplay or resurrect the old waiting MAIN.
