@@ -101,6 +101,9 @@ function triggerPackageRefresh(supabaseUrl: string, serviceKey: string, scopes: 
   const wanted = [...new Set(
     scopes
       .map((s) => cleanText(s, 32))
+      // LIVE is demand-only on Cloudflare. Source edits are read directly by
+      // the next active LIVE scan and must not wake the legacy Supabase refresh.
+      .filter((s) => s !== "live")
       .filter((s) => SYSTEM_SCOPES.includes(s) || HASHTAG_ID_RE.test(s))
   )];
   if (!wanted.length) return;
