@@ -1626,10 +1626,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         const key=handle.toLowerCase();
         if(tiktokRealtimeLiveHandles.has(key))return false;
         const row=tiktokLiveLibrary.get(key)||{};
-        const lastLiveAt=Math.max(
-          Number(row.lastKnownAt||0),
-          Number(row.stateChangedAt||0)
-        );
+        const lastLiveAt=Number(row.lastKnownAt||0);
         return lastLiveAt>0&&now-lastLiveAt<=TIKTOK_LIVE_RECENT_TTL_MS;
       });
       const cold=selected.filter(handle=>{
@@ -1673,7 +1670,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       const key=handle.toLowerCase();
       if(tiktokRealtimeLiveHandles.has(key))return [key,'live'];
       const row=tiktokLiveLibrary.get(key)||{};
-      const lastLiveAt=Math.max(Number(row.lastKnownAt||0),Number(row.stateChangedAt||0));
+      const lastLiveAt=Number(row.lastKnownAt||0);
       return [key,(lastLiveAt>0&&nowForTier-lastLiveAt<=TIKTOK_LIVE_RECENT_TTL_MS)?'recent':'cold'];
     }));
     const coldTargets=target.filter(handle=>targetTier.get(handle.toLowerCase())==='cold');
@@ -1820,7 +1817,8 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
           status:'live',
           probeState:'live',
           liveCheckSource:liveSource||'tiktok-api',
-          lastSeenAt:checkedAt
+          lastSeenAt:checkedAt,
+          lastKnownAt:checkedAt
         });
         continue;
       }
