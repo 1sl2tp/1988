@@ -51,6 +51,12 @@ def main():
     extra = sorted(set(status_handles) - set(lib_handles))
     dupes = sorted({h for h in status_handles if status_handles.count(h) > 1})
     bad = [x for x in items if x.get("state") not in ALLOWED]
+    audit = statuses.get("audit") or {}
+    audit_selected = int(audit.get("selectedTotal") or 0)
+    audit_live_start = int(audit.get("liveAtStart") or 0)
+    audit_browser_checked = int(audit.get("browserChecked") or 0)
+    audit_browser_found = int(audit.get("browserFound") or 0)
+    audit_browser_missed = int(audit.get("browserMissed") or 0)
     still_checking = [(x.get("handle"), x.get("state")) for x in items if x.get("state") == "checking"]
     weak_offline = []
     weak_live = []
@@ -75,6 +81,15 @@ def main():
     print("EXTRA", extra)
     print("DUPLICATES", dupes)
     print("BAD_STATES", [(x.get("handle"), x.get("state")) for x in bad])
+    print("AUDIT", json.dumps(audit, ensure_ascii=False, sort_keys=True))
+    print("AUDIT_COVERAGE", {
+        "selected": audit_selected,
+        "live_at_start": audit_live_start,
+        "browser_checked": audit_browser_checked,
+        "browser_found": audit_browser_found,
+        "browser_missed": audit_browser_missed,
+        "covered": audit_live_start + audit_browser_checked,
+    })
     print("STILL_CHECKING", still_checking[:20])
     print("NO_EVIDENCE", no_evidence[:20])
     print("WEAK_OFFLINE", weak_offline[:20])
@@ -90,6 +105,19 @@ def main():
     assert not extra, f"extra handles in status endpoint: {extra[:20]}"
     assert not dupes, f"duplicate handles in status endpoint: {dupes[:20]}"
     assert not bad, f"unrecognized states: {bad[:20]}"
+    assert not audit.get("running"), "full LIVE audit is still running"
+    assert int(audit.get("finishedAt") or 0) >= int(audit.get("startedAt") or 0) > 0, "full LIVE audit did not finish"
+    assert audit_selected == len(status_handles), (
+        f"audit selected total mismatch: audit={audit_selected} statuses={len(status_handles)}"
+    )
+    assert audit_live_start + audit_browser_checked == audit_selected, (
+        "full LIVE audit did not cover every selected handle: "
+        f"liveAtStart={audit_live_start} browserChecked={audit_browser_checked} selected={audit_selected}"
+    )
+    assert audit_browser_found + audit_browser_missed == audit_browser_checked, (
+        "browser audit accounting mismatch: "
+        f"found={audit_browser_found} missed={audit_browser_missed} checked={audit_browser_checked}"
+    )
     assert not still_checking, f"forced scan left handles unscanned: {still_checking[:20]}"
     assert not no_evidence, f"status rows missing scan evidence: {no_evidence[:20]}"
     assert not weak_offline, f"offline rows without two-source confirmation: {weak_offline[:20]}"
