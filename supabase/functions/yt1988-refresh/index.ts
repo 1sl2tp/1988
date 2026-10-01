@@ -2032,6 +2032,20 @@ Deno.serve(async(req:Request)=>{
   );
   let scopes=requested.size?[...requested]:(clientCheck?["latest"]:SCOPES.slice());
 
+  // YouTube LIVE fast discovery is owned exclusively by the demand-only
+  // Cloudflare worker. This legacy refresh function must never do LIVE work,
+  // even if an old scheduler, trigger, PWA or manual request still asks for it.
+  const requestedLive=scopes.includes("live");
+  scopes=scopes.filter((scope)=>scope!=="live");
+  if(!scopes.length&&requestedLive){
+    return json({
+      ok:true,
+      skipped:true,
+      reason:"live_owned_by_cloudflare",
+      owner:"1988-youtube-live-state"
+    });
+  }
+
   if(clientCheck){
     const configRes=await fetch(
       rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
