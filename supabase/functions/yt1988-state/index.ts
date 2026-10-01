@@ -196,6 +196,18 @@ Deno.serve(async (req) => {
     const rows = await res.json();
     const allRows = Array.isArray(rows) ? rows : [];
 
+    const directoryRes = await fetch(
+      rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
+      "&select=channel_id,name,thumbnail_url,subscribers,source,last_seen_at,updated_at" +
+      "&order=channel_id.asc",
+      { headers: authHeaders }
+    );
+    if (!directoryRes.ok) {
+      return json({ ok: false, error: "channel_directory_read_failed", detail: await directoryRes.text() }, 502);
+    }
+    const directoryRowsRaw = await directoryRes.json();
+    const directoryRows = Array.isArray(directoryRowsRaw) ? directoryRowsRaw : [];
+
     const legacyRes = await fetch(
       rest + "/yt1988_user_state?profile_key=eq." + encodeURIComponent(PROFILE) +
       "&select=state,version,updated_at&limit=1",
@@ -213,10 +225,29 @@ Deno.serve(async (req) => {
     }
 
     if (!allRows.length) {
+      const baseState: any =
+        legacy?.state && typeof legacy.state === "object"
+          ? { ...legacy.state, hashtags }
+          : { hashtags };
+
+      const customSources = new Map<string, any>();
+      const avatars: Record<string,string> = {};
+      for (const row of directoryRows) {
+        const id = cleanId(row?.channel_id);
+        if (!id) continue;
+        const name = cleanText(row?.name, 180);
+        const thumbnailUrl = cleanText(row?.thumbnail_url, 1000);
+        const subscribers = cleanText(row?.subscribers, 120);
+        customSources.set(id, { id, name, thumbnailUrl, subscribers });
+        if (thumbnailUrl) avatars[id] = thumbnailUrl;
+      }
+      baseState.customSources = [...customSources.values()];
+      baseState.avatars = avatars;
+
       return json({
         ok: true,
-        exists: !!legacy,
-        state: legacy?.state ? { ...legacy.state, hashtags } : { hashtags },
+        exists: !!legacy || directoryRows.length > 0,
+        state: baseState,
         hashtags,
         version: Number(legacy?.version || 0),
         updated_at: legacy?.updated_at || null
@@ -246,6 +277,20 @@ Deno.serve(async (req) => {
     const customById = new Map<string, any>();
     let version = Number(legacy?.version || 0);
     let updated_at: string | null = legacy?.updated_at || null;
+
+    // Canonical YouTube channel library. LIVE/search/video/package all read the
+    // same name/avatar from here, regardless of which scope first discovered it.
+    for (const row of directoryRows) {
+      const id = cleanId(row?.channel_id);
+      if (!id) continue;
+      const name = cleanText(row?.name, 180);
+      const thumbnailUrl = cleanText(row?.thumbnail_url, 1000);
+      const subscribers = cleanText(row?.subscribers, 120);
+      customById.set(id, { id, name, thumbnailUrl, subscribers });
+      if (thumbnailUrl) state.avatars[id] = thumbnailUrl;
+      const rowUpdated = String(row?.updated_at || "");
+      if (rowUpdated && (!updated_at || rowUpdated > updated_at)) updated_at = rowUpdated;
+    }
 
     for (const row of allRows) {
       version = Math.max(version, Number(row?.version || 0));
@@ -277,11 +322,13 @@ Deno.serve(async (req) => {
       const subscribers = cleanText(row?.subscribers, 120);
       if (name || thumbnailUrl || subscribers) {
         const current = customById.get(id) || { id, name: "", thumbnailUrl: "", subscribers: "" };
-        if (name) current.name = name;
-        if (thumbnailUrl) current.thumbnailUrl = thumbnailUrl;
-        if (subscribers) current.subscribers = subscribers;
+        // Directory is authoritative. Old per-scope rows only fill a gap while
+        // legacy data is being migrated.
+        if (name && !current.name) current.name = name;
+        if (thumbnailUrl && !current.thumbnailUrl) current.thumbnailUrl = thumbnailUrl;
+        if (subscribers && !current.subscribers) current.subscribers = subscribers;
         customById.set(id, current);
-        if (thumbnailUrl) state.avatars[id] = thumbnailUrl;
+        if (current.thumbnailUrl) state.avatars[id] = current.thumbnailUrl;
       }
     }
 
@@ -300,6 +347,57 @@ Deno.serve(async (req) => {
       body = await req.json();
     } catch {
       return json({ ok: false, error: "bad_json" }, 400);
+    }
+
+    if (body?.op === "upsert_channels") {
+      const raw = Array.isArray(body?.channels) ? body.channels.slice(0, 80) : [];
+      const byId = new Map<string, any>();
+
+      for (const item of raw) {
+        const id = cleanId(item?.id || item?.channel_id);
+        if (!id) continue;
+        const current = byId.get(id) || {
+          channel_id: id,
+          name: "",
+          thumbnail_url: "",
+          subscribers: "",
+          source: ""
+        };
+        const name = cleanText(item?.name, 180);
+        const thumbnailUrl = cleanText(item?.thumbnailUrl || item?.thumbnail_url, 1000);
+        const subscribers = cleanText(item?.subscribers, 120);
+        const source = cleanText(item?.source, 80);
+        if (name) current.name = name;
+        if (thumbnailUrl) current.thumbnail_url = thumbnailUrl;
+        if (subscribers) current.subscribers = subscribers;
+        if (source) current.source = source;
+        byId.set(id, current);
+      }
+
+      const channels = [...byId.values()]
+        .filter((item: any) => item.name || item.thumbnail_url || item.subscribers);
+
+      if (!channels.length) return json({ ok: true, saved: 0 });
+
+      const rpc = await fetch(rest + "/rpc/yt1988_upsert_channel_directory", {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          p_profile_key: PROFILE,
+          p_channels: channels
+        })
+      });
+      if (!rpc.ok) {
+        return json({
+          ok: false,
+          error: "channel_directory_write_failed",
+          detail: await rpc.text()
+        }, 502);
+      }
+
+      const savedRaw = await rpc.json().catch(() => 0);
+      const saved = Math.max(0, Number(savedRaw) || 0);
+      return json({ ok: true, saved });
     }
 
     if (body?.op === "create_hashtag") {
