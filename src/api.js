@@ -1,4 +1,4 @@
-const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+const BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
 
 async function call(action,params={},options={}){
   const url=new URL(BASE);
