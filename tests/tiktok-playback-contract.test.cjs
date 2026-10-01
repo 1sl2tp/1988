@@ -71,3 +71,6 @@ console.log('tiktok-playback-contract: assertions passed');
 assert.match(server,/const TIKTOK_LIVE_PRIORITY_BATCH=18;/);
 assert.match(server,/tiktokLivePriorityCursor/);
 assert.match(server,/refreshTikTokLiveLibrary\(liveHandles,\{warm:false,force:false\}\)/);
+
+assert.match(server,/const TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS=3\*60_000;/);
+assert.match(server,/scan\?\.known===true[\s\S]{0,220}scan\?\.live===true[\s\S]{0,220}scan\?\.retained!==true/);
