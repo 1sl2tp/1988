@@ -1917,19 +1917,21 @@ async function finishLease(rest:string,headers:any,ok:boolean,error=""){
   }).catch(()=>{});
   return [];
 }
-function triggerFollowupRefresh(supabaseUrl:string,serviceKey:string,scopes:string[]){
+async function triggerFollowupRefresh(rest:string,headers:any,scopes:string[]){
   const wanted=[...new Set(scopes.map((s)=>clean(s,32)).filter(validScopeSyntax))];
   if(!wanted.length)return;
-  const task=fetch(supabaseUrl+"/functions/v1/yt1988-refresh",{
+  // Persist pending work first, then let the database schedule the next short
+  // Edge invocation with pg_net. This survives the current isolate shutting
+  // down and keeps long source sets split into safe batches.
+  await queuePendingRefresh(rest,headers,wanted);
+  const res=await fetch(rest+"/rpc/yt1988_enqueue_refresh",{
     method:"POST",
-    headers:{
-      "apikey":serviceKey,
-      "authorization":"Bearer "+serviceKey,
-      "content-type":"application/json"
-    },
-    body:JSON.stringify({scopes:wanted})
-  }).catch((error)=>console.warn("followup refresh failed",String(error)));
-  try{(globalThis as any).EdgeRuntime?.waitUntil?.(task);}catch{}
+    headers,
+    body:"{}"
+  }).catch(()=>null);
+  if(res&&!res.ok){
+    console.warn("followup enqueue failed",await res.text().catch(()=>""));
+  }
 }
 
 Deno.serve(async(req:Request)=>{
@@ -3121,7 +3123,7 @@ Deno.serve(async(req:Request)=>{
       !degraded,
       degraded?degradedNotes.slice(0,12).join(";"):""
     );
-    if(pending.length)triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    if(pending.length)await triggerFollowupRefresh(rest,authHeaders,pending);
     return json({ok:true,degraded,pending_scopes:pending,scopes:results});
   }catch(error){
     failure=String((error as any)?.message||error||"refresh_failed");
