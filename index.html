@@ -2476,6 +2476,184 @@ html.one-col.portrait .player.pip{
   max-width:none!important;
   max-height:none!important;
 }
+
+/* Platform-first header: 1988 + TikTok + YouTube + always-open search.
+   Category/hashtag chips live on a second row opened by the platform buttons. */
+.top{
+  display:block;
+}
+.masthead{
+  width:100%;
+  height:56px;
+  box-sizing:border-box;
+  display:flex;
+  align-items:center;
+  gap:4px;
+  padding:0 8px;
+}
+.brand{
+  display:flex;
+  width:auto;
+  min-width:76px;
+  height:40px;
+  padding:0 4px;
+}
+.platform-switcher{
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+.platform-button{
+  width:40px;
+  height:40px;
+  padding:0;
+  border:0;
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:transparent;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.platform-button:hover{background:var(--yt-hover)}
+.platform-button:active{background:var(--yt-press)}
+.platform-button.active{
+  background:var(--yt-chip-bg);
+  box-shadow:inset 0 0 0 1px rgba(var(--header-accent-rgb),.18);
+}
+.platform-button svg{
+  width:25px;
+  height:25px;
+  display:block;
+}
+.platform-youtube svg{
+  width:29px;
+  height:20px;
+}
+.platform-tiktok .tt-cyan{
+  fill:#25f4ee;
+  transform:translate(-.7px,.35px);
+}
+.platform-tiktok .tt-pink{
+  fill:#fe2c55;
+  transform:translate(.7px,-.2px);
+}
+.platform-tiktok .tt-main{
+  fill:var(--yt-text);
+}
+.masthead > .searchbox{
+  display:flex;
+  flex:1 1 240px;
+  width:auto;
+  max-width:640px;
+  min-width:88px;
+  height:40px;
+  margin-left:auto;
+}
+.masthead > .search-toggle,
+.masthead > .search-back,
+.masthead > .settings-button,
+.masthead > .voice-search-button{
+  display:none!important;
+}
+.masthead > .searchbox{
+  overflow:hidden;
+  border:1px solid var(--yt-search-border);
+  border-radius:20px;
+  background:var(--yt-search-bg);
+}
+.masthead > .searchbox .search-input{
+  height:38px;
+  border:0;
+  border-radius:19px 0 0 19px;
+  background:transparent;
+  box-shadow:none;
+}
+.masthead > .searchbox .search-button{
+  flex:0 0 44px;
+  width:44px;
+  height:38px;
+  border:0;
+  border-left:1px solid var(--yt-search-border);
+  border-radius:0 19px 19px 0;
+}
+.top.search-open .sourcebar{display:block}
+.platform-subnav{
+  width:100%;
+  height:48px;
+  box-sizing:border-box;
+}
+.platform-subnav[hidden]{display:none!important}
+.platform-subnav .source-scroll,
+.platform-subnav .source-chips{
+  height:48px;
+}
+.platform-subnav .source-chip,
+.platform-subnav .platform-subchip{
+  height:32px;
+  margin-top:8px;
+  margin-bottom:8px;
+}
+.platform-subchip{
+  flex:0 0 auto;
+  min-width:12px;
+  margin:8px 8px 8px 0;
+  padding:0 12px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  border-radius:8px;
+  background:var(--yt-chip-bg);
+  color:var(--yt-text);
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  white-space:nowrap;
+  cursor:pointer;
+}
+.platform-subchip:first-child{margin-left:4px}
+.platform-subchip.active{
+  background:var(--yt-chip-active-bg);
+  color:var(--yt-chip-active-text);
+}
+@media(max-width:479px){
+  .masthead{
+    gap:2px;
+    padding-left:4px;
+    padding-right:4px;
+  }
+  .brand{
+    min-width:38px;
+    width:38px;
+    padding:0 3px;
+  }
+  .brand-name{display:none}
+  .platform-button{
+    width:36px;
+    height:36px;
+  }
+  .platform-button svg{
+    width:23px;
+    height:23px;
+  }
+  .platform-youtube svg{
+    width:27px;
+    height:19px;
+  }
+  .masthead > .searchbox{
+    flex-basis:120px;
+    min-width:82px;
+  }
+  .masthead > .searchbox .search-input{
+    padding-left:11px;
+    padding-right:8px;
+    font-size:15px;
+  }
+  .masthead > .searchbox .search-button{
+    flex-basis:40px;
+    width:40px;
+  }
+}
 </style>
 </head>
 <body>
@@ -2490,6 +2668,25 @@ html.one-col.portrait .player.pip{
       </span>
       <span class="brand-name">1988</span>
     </a>
+
+    <div class="platform-switcher" aria-label="Nền tảng">
+      <button id="platformTikTok" class="platform-button platform-tiktok" type="button"
+        aria-label="TikTok" title="TikTok" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path class="tt-cyan" d="M14.1 3.2c.6 2.5 2.1 4 4.6 4.5v3.1c-1.7-.1-3.1-.6-4.4-1.5v6.2a6 6 0 1 1-5.2-5.9v3.2a2.9 2.9 0 1 0 2.1 2.8V3.2h2.9Z"></path>
+          <path class="tt-pink" d="M13.1 2.4c.6 2.5 2.1 4 4.6 4.5v2.1c-1.7-.2-3.1-.8-4.4-1.7v7.4a5 5 0 1 1-4.2-4.9v2.1a3 3 0 1 0 2.2 2.9V2.4h1.8Z"></path>
+          <path class="tt-main" d="M13.6 2.8c.6 2.5 2.1 4 4.6 4.5v2.6c-1.7-.1-3.1-.7-4.4-1.6v6.7a5.5 5.5 0 1 1-4.7-5.4v2.7a2.7 2.7 0 1 0 2 2.6V2.8h2.5Z"></path>
+        </svg>
+      </button>
+
+      <button id="platformYouTube" class="platform-button platform-youtube" type="button"
+        aria-label="YouTube" title="YouTube" aria-pressed="false">
+        <svg viewBox="0 0 29 20" aria-hidden="true" focusable="false">
+          <path d="M14.4848 20C14.4848 20 23.5695 20 25.8229 19.4C27.0917 19.06 28.0459 18.08 28.3808 16.87C29 14.65 29 9.98 29 9.98C29 9.98 29 5.34 28.3808 3.14C28.0459 1.9 27.0917.94 25.8229.61C23.5695 0 14.4848 0 14.4848 0C14.4848 0 5.42037 0 3.17711.61C1.9286.94.954148 1.9.59888 3.14C0 5.34 0 9.98 0 9.98C0 9.98 0 14.65.59888 16.87C.954148 18.08 1.9286 19.06 3.17711 19.4C5.42037 20 14.4848 20 14.4848 20Z" fill="#FF0033"></path>
+          <path d="M19 10 11.5 5.75v8.5L19 10Z" fill="#fff"></path>
+        </svg>
+      </button>
+    </div>
 
     <button id="searchBack" class="icon-button search-back" aria-label="Quay lại" title="Quay lại">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg>
@@ -2517,7 +2714,7 @@ html.one-col.portrait .player.pip{
     </button>
   </div>
 
-  <div class="sourcebar" id="sourcebar">
+  <div class="sourcebar platform-subnav" id="sourcebar" hidden>
     <div class="source-arrow left" id="sourcePrev" hidden>
       <button class="source-arrow-button" type="button" aria-label="Trước">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.71 5.29a1 1 0 0 1 0 1.42L9.41 12l5.3 5.29a1 1 0 1 1-1.42 1.42l-6-6a1 1 0 0 1 0-1.42l6-6a1 1 0 0 1 1.42 0Z"/></svg>
@@ -2674,6 +2871,8 @@ html.one-col.portrait .player.pip{
   const sourcePrev=document.getElementById("sourcePrev");
   const sourceNext=document.getElementById("sourceNext");
   const sourceNameChips=document.getElementById("sourceNameChips");
+  const platformTikTok=document.getElementById("platformTikTok");
+  const platformYouTube=document.getElementById("platformYouTube");
   const themeColorMeta=document.getElementById("themeColorMeta");
   const settingsButton=document.getElementById("settingsButton");
   const settingsPopover=document.getElementById("settingsPopover");
@@ -2724,6 +2923,13 @@ html.one-col.portrait .player.pip{
   let feedMode="package";
   const ACTIVE_SCOPE_KEY="yt1988-active-scope-v1";
   let activePackageScope="live";
+  let activePlatformNav="";
+  let youtubePlatformRows=[];
+  const TIKTOK_PLATFORM_ROWS=[
+    {key:"live",label:"Live"},
+    {key:"video",label:"Video"},
+    {key:"lists",label:"Danh sách"}
+  ];
   try{
     const savedScope=String(localStorage.getItem(ACTIVE_SCOPE_KEY)||"").trim();
     if(savedScope)activePackageScope=savedScope;
@@ -6967,9 +7173,53 @@ html.one-col.portrait .player.pip{
       });
   }
 
+  function syncPlatformButtons(){
+    const youtube=activePlatformNav==="youtube";
+    const tiktok=activePlatformNav==="tiktok";
+    platformYouTube?.classList.toggle("active",youtube);
+    platformTikTok?.classList.toggle("active",tiktok);
+    platformYouTube?.setAttribute("aria-pressed",youtube?"true":"false");
+    platformTikTok?.setAttribute("aria-pressed",tiktok?"true":"false");
+    if(sourcebar)sourcebar.hidden=!youtube&&!tiktok;
+    requestAnimationFrame(()=>{
+      syncBoundaries();
+      updateSourceRailArrows();
+      updateHeaderSearchRoom();
+    });
+  }
+
+  function renderTikTokPlatformRows(){
+    if(!sourceNameChips)return;
+    sourceNameChips.innerHTML=TIKTOK_PLATFORM_ROWS.map((row,index)=>
+      '<button class="platform-subchip'+(index===0?' active':'')+'" data-platform-subtab="'+escapeHtml(row.key)+'">'+
+        escapeHtml(row.label)+
+      '</button>'
+    ).join("");
+    sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
+    requestAnimationFrame(updateSourceRailArrows);
+  }
+
+  function openPlatformNav(platform=""){
+    platform=String(platform||"").toLowerCase();
+    if(!["youtube","tiktok"].includes(platform))platform="";
+
+    activePlatformNav=activePlatformNav===platform?"":platform;
+
+    if(activePlatformNav==="youtube"){
+      renderExistingSourceNames(youtubePlatformRows);
+    }else if(activePlatformNav==="tiktok"){
+      renderTikTokPlatformRows();
+    }
+    syncPlatformButtons();
+  }
+
+  platformYouTube?.addEventListener("click",()=>openPlatformNav("youtube"));
+  platformTikTok?.addEventListener("click",()=>openPlatformNav("tiktok"));
+
   function renderExistingSourceNames(rows=[]){
     if(!sourceNameChips)return;
     const list=Array.isArray(rows)?rows.filter(row=>row?.key&&row?.label):[];
+    youtubePlatformRows=list.slice();
     const remembered=list.some(row=>String(row.key)===String(activePackageScope))
       ?String(activePackageScope)
       :String(list[0]?.key||"live");
@@ -6977,11 +7227,13 @@ html.one-col.portrait .player.pip{
       activePackageScope=remembered;
       try{localStorage.setItem(ACTIVE_SCOPE_KEY,remembered)}catch{}
     }
-    sourceNameChips.innerHTML=list.map(row=>
-      '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
-        escapeHtml(row.label)+
-      '</button>'
-    ).join("");
+    if(activePlatformNav!=="tiktok"){
+      sourceNameChips.innerHTML=list.map(row=>
+        '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
+          escapeHtml(row.label)+
+        '</button>'
+      ).join("");
+    }
     sourceScroll?.scrollTo?.({left:0,behavior:"auto"});
     requestAnimationFrame(()=>{
       updateHeaderSearchRoom();
@@ -8625,6 +8877,15 @@ html.one-col.portrait .player.pip{
     }
   });
 
+  document.querySelector(".brand")?.addEventListener("click",event=>{
+    event.preventDefault();
+    if(activePlatformNav){
+      activePlatformNav="";
+      syncPlatformButtons();
+    }
+    scrollPageToTop();
+  });
+
   videoMenu?.addEventListener("click",event=>{
     event.preventDefault();
     event.stopPropagation();
@@ -8637,6 +8898,15 @@ html.one-col.portrait .player.pip{
   });
 
   sourcebar.addEventListener("click",event=>{
+    const platformSubchip=event.target.closest(".platform-subchip[data-platform-subtab]");
+    if(platformSubchip){
+      sourceNameChips.querySelectorAll(".platform-subchip").forEach(x=>x.classList.remove("active"));
+      platformSubchip.classList.add("active");
+      platformSubchip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
+      requestAnimationFrame(updateSourceRailArrows);
+      return;
+    }
+
     const chip=event.target.closest(".source-chip[data-source-tab]");
     if(!chip)return;
 
