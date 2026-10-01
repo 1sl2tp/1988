@@ -1659,7 +1659,7 @@ let tiktokLiveAuditState={
   running:false,startedAt:0,finishedAt:0,
   selectedTotal:0,liveAtStart:0,browserChecked:0,browserFound:0,browserMissed:0
 };
-function runTikTokLiveMinuteSweep({targetHandles=null}={}){
+function runTikTokLiveMinuteSweep({targetHandles=null,exhaustive=false}={}){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
     const selected=[...tiktokLiveSelectedHandles];
@@ -1727,11 +1727,13 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       return [key,(lastLiveAt>0&&nowForTier-lastLiveAt<=TIKTOK_LIVE_RECENT_TTL_MS)?'recent':'cold'];
     }));
     const coldTargets=target.filter(handle=>targetTier.get(handle.toLowerCase())==='cold');
-    const deepPick=coldTargets.length
-      ? Array.from({length:Math.min(TIKTOK_LIVE_COLD_DEEP_BATCH,coldTargets.length)},(_,i)=>
-          coldTargets[(tiktokLiveColdDeepCursor+i)%coldTargets.length]
-        )
-      : [];
+    const deepPick=exhaustive
+      ? coldTargets.slice()
+      : coldTargets.length
+        ? Array.from({length:Math.min(TIKTOK_LIVE_COLD_DEEP_BATCH,coldTargets.length)},(_,i)=>
+            coldTargets[(tiktokLiveColdDeepCursor+i)%coldTargets.length]
+          )
+        : [];
     if(coldTargets.length){
       tiktokLiveColdDeepCursor=(tiktokLiveColdDeepCursor+deepPick.length)%coldTargets.length;
     }
@@ -2003,7 +2005,7 @@ async function runTikTokLiveAuditSweep(){
 
     // One definition only: a full audit is the normal canonical sweep applied
     // to every selected channel, not a second browser-only LIVE detector.
-    await runTikTokLiveMinuteSweep({targetHandles:selected});
+    await runTikTokLiveMinuteSweep({targetHandles:selected,exhaustive:true});
     await persistTikTokLiveStore({force:true}).catch(()=>{});
 
     const finishedAt=Date.now();
