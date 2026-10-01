@@ -5750,49 +5750,6 @@ async function fetchTikTokVideoFingerprint(rawHandle,knownSecUid=''){
   }
 }
 
-async function enrichTikTokVideosWithFreshPlayUrl(rawHandle,videos=[]){
-  const handle=normalizeTikTokHandle(rawHandle);
-  const list=Array.isArray(videos)?videos:[];
-  if(!handle||!list.length)return list;
-
-  // The canonical yt-dlp URL can remain syntactically "fresh" while TikTok's
-  // CDN already rejects it with HTTP 403. TikWM exposes the current playAddr
-  // for the same post IDs. Use it only to refresh playback URLs; discovery,
-  // ordering and metadata continue to come from our normal channel scan.
-  const direct=await fetchTikwmChannelVideos(
-    handle,
-    Math.max(1,Math.min(TIKTOK_VIDEO_PER_CHANNEL,list.length))
-  ).catch(()=>null);
-  if(!direct?.known||!Array.isArray(direct.videos)||!direct.videos.length){
-    return list;
-  }
-
-  const byId=new Map(
-    direct.videos.map(video=>[String(video?.id||''),video])
-  );
-  let changed=0;
-  const next=list.map(video=>{
-    const fresh=byId.get(String(video?.id||''));
-    const playUrl=String(fresh?.playUrl||'').trim();
-    if(!/^https?:\/\//i.test(playUrl))return video;
-    if(playUrl===String(video?.playUrl||''))return video;
-    changed+=1;
-    return {
-      ...video,
-      playUrl,
-      // Keep the real shape/duration when the fresh source knows more.
-      width:Number(fresh?.width||0)||Number(video?.width||0),
-      height:Number(fresh?.height||0)||Number(video?.height||0),
-      duration:Number(fresh?.duration||0)||Number(video?.duration||0)
-    };
-  });
-
-  if(changed){
-    console.log('[tiktok-video-playurl]',handle,'fresh='+changed);
-  }
-  return next;
-}
-
 async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
@@ -5838,16 +5795,15 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
             .filter(Boolean)
             .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
             .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
-          const playableVideos=await enrichTikTokVideosWithFreshPlayUrl(handle,videos);
           return {
             known:true,
             handle,
             secUid,
-            videos:playableVideos,
-            latestVideoId:String(playableVideos?.[0]?.id||videos?.[0]?.id||''),
+            videos,
+            latestVideoId:String(videos?.[0]?.id||''),
             hasMore:Boolean(body?.hasMore??body?.has_more),
             cursor:String(body?.cursor??body?.data?.cursor??''),
-            source:'tiktok-web-api+fresh-playurl'
+            source:'tiktok-web-api'
           };
         }
       }
@@ -5858,15 +5814,7 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
 
   // Fallback/enrichment path.
   const ytdlp=await fetchTikTokChannelVideosYtdlp(handle,secUid);
-  if(ytdlp?.known){
-    const playableVideos=await enrichTikTokVideosWithFreshPlayUrl(handle,ytdlp.videos);
-    return {
-      ...ytdlp,
-      videos:playableVideos,
-      latestVideoId:String(playableVideos?.[0]?.id||ytdlp.latestVideoId||''),
-      source:String(ytdlp.source||'yt-dlp')+'+fresh-playurl'
-    };
-  }
+  if(ytdlp?.known)return ytdlp;
   secUid=String(ytdlp?.secUid||secUid||'').trim();
 
   // One last API attempt if yt-dlp discovered a secUid.
@@ -5904,13 +5852,12 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
             .filter(Boolean)
             .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
             .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
-          const playableVideos=await enrichTikTokVideosWithFreshPlayUrl(handle,videos);
           return {
-            known:true,handle,secUid,videos:playableVideos,
-            latestVideoId:String(playableVideos?.[0]?.id||videos?.[0]?.id||''),
+            known:true,handle,secUid,videos,
+            latestVideoId:String(videos?.[0]?.id||''),
             hasMore:Boolean(body?.hasMore??body?.has_more),
             cursor:String(body?.cursor??body?.data?.cursor??''),
-            source:'tiktok-web-api-after-ytdlp+fresh-playurl'
+            source:'tiktok-web-api-after-ytdlp'
           };
         }
       }
