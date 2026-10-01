@@ -43,3 +43,12 @@ for(const route of ['/tiktok/live-now','/tiktok/live-library']){
 }
 
 console.log('tiktok-live-state-contract: assertions passed');
+
+
+const auditStart=server.indexOf('async function runTikTokLiveAuditSweep()');
+const auditEnd=server.indexOf("\nfunction ",auditStart+20);
+const audit=server.slice(auditStart,auditEnd>auditStart?auditEnd:auditStart+7000);
+assert.match(audit,/runTikTokLiveMinuteSweep\(\{targetHandles:selected\}\)/,
+  'full LIVE audit must use the same canonical sweep as normal LIVE checks');
+assert.doesNotMatch(audit,/runTikTokBrowserDiscoveryBatch\(/,
+  'full LIVE audit must not maintain a second independent LIVE definition');
