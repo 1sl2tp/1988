@@ -1,0 +1,10 @@
+name = "1988-tiktok-live-state"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "TIKTOK_LIVE"
