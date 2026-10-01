@@ -4769,6 +4769,25 @@ html.one-col.portrait .player.pip{
     );
   }
 
+  function mpegtsLiveSupported(){
+    try{
+      const features=window.mpegts?.getFeatureList?.();
+      if(features&&typeof features.mseLivePlayback==="boolean"){
+        return features.mseLivePlayback===true;
+      }
+      return window.mpegts?.isSupported?.()===true;
+    }catch{
+      return false;
+    }
+  }
+
+  function safariManagedMediaSourceCapable(){
+    return Boolean(
+      window.ManagedMediaSource||
+      window.MediaSource
+    )&&mpegtsLiveSupported();
+  }
+
   function syncTikTokControls(){
     player.classList.toggle("tiktok-playing",!tiktokLiveVideo?.paused);
   }
@@ -4895,9 +4914,9 @@ html.one-col.portrait .player.pip{
 
   function attachTikTokFlv(url,meta,{legacy=false}={}){
     if(!url||!tiktokLiveVideo)return false;
-    const engine=!legacy&&window.mpegts&&mpegts.isSupported?.()
+    const engine=!legacy&&window.mpegts&&mpegtsLiveSupported()
       ?window.mpegts
-      :(window.flvjs&&flvjs.isSupported?.()?window.flvjs:null);
+      :(!isAppleMobileBrowser()&&window.flvjs&&flvjs.isSupported?.()?window.flvjs:null);
     if(!engine)return false;
 
     let instance=null;
@@ -4910,7 +4929,11 @@ html.one-col.portrait .player.pip{
           lazyLoad:false,
           autoCleanupSourceBuffer:true,
           autoCleanupMaxBackwardDuration:30,
-          autoCleanupMinBackwardDuration:12
+          autoCleanupMinBackwardDuration:12,
+          enableWorkerForMSE:Boolean(window.ManagedMediaSource||/Safari/i.test(navigator.userAgent||"")),
+          liveSync:true,
+          liveSyncMaxLatency:3,
+          liveSyncTargetLatency:1.2
         }
       );
       instance.attachMediaElement(tiktokLiveVideo);
@@ -4933,6 +4956,7 @@ html.one-col.portrait .player.pip{
         if(
           !legacy&&
           String(currentMeta?.id||"")===String(meta?.id||"")&&
+          !isAppleMobileBrowser()&&
           window.flvjs?.isSupported?.()
         ){
           stopTikTokLivePlayback();
@@ -5003,12 +5027,22 @@ html.one-col.portrait .player.pip{
       tiktokLiveVideo.src=hls;
       tiktokLiveVideo.load();
       tiktokLiveVideo.play().catch(()=>{});
-    }else if(direct){
+    }else if(direct&&mpegtsLiveSupported()){
       if(!attachTikTokFlv(direct,meta)){
         player.classList.remove("tiktok-active");
         return false;
       }
     }else{
+      // Do not force HTTP-FLV on an Apple/WebKit build that has no
+      // live MSE/ManagedMediaSource path. That creates the Safari spinner.
+      console.warn("tiktok_live_unsupported_on_browser",{
+        provider:"tiktok",
+        handle:String(meta?.handle||""),
+        hls:Boolean(hls),
+        flv:Boolean(direct),
+        mseLive:mpegtsLiveSupported(),
+        managedMediaSource:Boolean(window.ManagedMediaSource)
+      });
       player.classList.remove("tiktok-active");
       return false;
     }
