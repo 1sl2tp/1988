@@ -6048,7 +6048,8 @@ html.one-col.portrait .player.pip{
     // It must not force Live and must not reopen a media item.
     const firstPackagePromise=(async()=>{
       const scope=String(activePackageScope||"live");
-      await restoreStoredPackage(scope);
+      if(scope==="live")await restoreStoredPackage("live");
+      else await restoreStoredPackage(scope);
       return showPackageScope(scope);
     })();
 
