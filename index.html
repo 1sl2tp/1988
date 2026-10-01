@@ -4207,6 +4207,73 @@ html.one-col.portrait .player.pip{
     return identity;
   }
 
+  function sourceIdentityNameKey(value=""){
+    return String(value||"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .replace(/^@/,"")
+      .toLocaleLowerCase("vi-VN")
+      .replace(/\s+/g," ")
+      .trim();
+  }
+
+  function resolvedSourceIdentity(meta={}){
+    let sourceId=String(meta?.sourceId||"").trim();
+    let sourceName=String(meta?.sourceName||"").trim();
+    let sourceAvatar=String(meta?.sourceAvatar||"").trim();
+
+    if(sourceId){
+      const direct=localSourceIdentity(sourceId);
+      if(!sourceName)sourceName=String(direct?.sourceName||"").trim();
+      if(!sourceAvatar)sourceAvatar=String(direct?.sourceAvatar||"").trim();
+    }
+
+    const nameKey=sourceIdentityNameKey(sourceName);
+    if((!sourceAvatar||!sourceId)&&nameKey){
+      const stateSources=Array.isArray(sourceStateRemote?.customSources)
+        ?sourceStateRemote.customSources
+        :[];
+      const stateMatch=stateSources.find(row=>
+        sourceIdentityNameKey(row?.name)===nameKey
+      );
+      if(stateMatch){
+        if(!sourceId)sourceId=String(stateMatch?.id||"").trim();
+        if(!sourceName)sourceName=String(stateMatch?.name||"").trim();
+        if(!sourceAvatar){
+          sourceAvatar=
+            String(sourceStateRemote?.avatars?.[sourceId]||"").trim()||
+            String(stateMatch?.thumbnailUrl||"").trim();
+        }
+      }
+
+      const pools=[
+        currentMeta,
+        ...feedMetas,
+        ...relatedMetas,
+        ...[...packageCache.values()].flat(),
+        ...[...searchCache.values()].flat(),
+        ...youtubeEdgeLiveMetas
+      ];
+      for(const candidate of pools){
+        if(!candidate||candidate===meta)continue;
+        const candidateId=String(candidate?.sourceId||"").trim();
+        const idMatch=sourceId&&candidateId===sourceId;
+        const nameMatch=
+          nameKey&&sourceIdentityNameKey(candidate?.sourceName)===nameKey;
+        if(!idMatch&&!nameMatch)continue;
+        if(!sourceId)sourceId=candidateId;
+        if(!sourceName)sourceName=String(candidate?.sourceName||"").trim();
+        if(!sourceAvatar)sourceAvatar=String(candidate?.sourceAvatar||"").trim();
+        if(sourceId&&sourceAvatar)break;
+      }
+    }
+
+    if(sourceId&&(sourceName||sourceAvatar)){
+      sourceIdentityCache.set(sourceId,{sourceName,sourceAvatar});
+    }
+    return {sourceId,sourceName,sourceAvatar};
+  }
+
   function hydrateCurrentSourceIdentity(id=String(current?.id||"")){
     id=String(id||"").trim();
     if(!id||String(current?.id||"")!==id)return false;
@@ -4214,14 +4281,12 @@ html.one-col.portrait .player.pip{
     const meta=currentMeta||{};
     if(meta.sourceAvatar)return true;
 
-    // UI is download/read-only here. Channel identity must come from metadata
-    // that is already present in the prepared packages/search cache; selecting
-    // a video must not start an extra channel request.
-    const sourceId=String(meta.sourceId||"").trim();
-    if(!sourceId)return false;
-
-    const identity=localSourceIdentity(sourceId);
+    // UI stays read-only: resolve identity from source-state/packages already
+    // downloaded in the browser, including a channel-name fallback when a
+    // YouTube row omitted sourceId.
+    const identity=resolvedSourceIdentity(meta);
     if(!identity?.sourceAvatar&&!identity?.sourceName)return false;
+    if(identity?.sourceId&&!currentMeta?.sourceId)currentMeta.sourceId=identity.sourceId;
     return applySourceIdentityToVideo(id,identity);
   }
 
@@ -4636,13 +4701,19 @@ html.one-col.portrait .player.pip{
         (sourceId?bySource.get(sourceId):null)||
         {};
       const resolvedSourceId=sourceId||String(fallbackMeta?.sourceId||"").trim();
-      const identity=resolvedSourceId?localSourceIdentity(resolvedSourceId):{};
-      return {
+      const merged={
         ...fallbackMeta,
         ...edge,
         sourceId:resolvedSourceId,
-        sourceName:String(edge?.sourceName||fallbackMeta?.sourceName||identity?.sourceName||"").trim(),
-        sourceAvatar:String(edge?.sourceAvatar||fallbackMeta?.sourceAvatar||identity?.sourceAvatar||"").trim()
+        sourceName:String(edge?.sourceName||fallbackMeta?.sourceName||"").trim(),
+        sourceAvatar:String(edge?.sourceAvatar||fallbackMeta?.sourceAvatar||"").trim()
+      };
+      const identity=resolvedSourceIdentity(merged);
+      return {
+        ...merged,
+        sourceId:String(identity?.sourceId||merged.sourceId||"").trim(),
+        sourceName:String(identity?.sourceName||merged.sourceName||"").trim(),
+        sourceAvatar:String(identity?.sourceAvatar||merged.sourceAvatar||"").trim()
       };
     });
   }
@@ -5361,19 +5432,14 @@ html.one-col.portrait .player.pip{
   }
 
   function avatarMarkup(meta,eager=false){
-    // Some YouTube result/package rows arrive without an avatar even though
-    // another row for the same channel already has it. Reuse the channel
-    // identity already present in RAM/packages before falling back to initials.
-    const provider=String(meta?.provider||"youtube").toLowerCase();
-    const identity=
-      provider==="youtube"&&meta?.sourceId
-        ?localSourceIdentity(meta.sourceId)
-        :{};
-    const avatar=String(meta?.sourceAvatar||identity?.sourceAvatar||"").trim();
+    // Resolve the avatar from the exact row first, then channelId, then the
+    // canonical source directory / same channel name already present locally.
+    const identity=resolvedSourceIdentity(meta);
+    const avatar=String(identity?.sourceAvatar||"").trim();
     if(avatar){
       return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
     }
-    const letter=(meta.sourceName||identity?.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
+    const letter=(identity?.sourceName||meta?.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
     return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
   }
 
@@ -6060,6 +6126,16 @@ html.one-col.portrait .player.pip{
         const payload=await response.json();
         const remote=payload?.state&&typeof payload.state==="object"?payload.state:{};
         sourceStateRemote=remote;
+        sourceIdentityCache.clear();
+
+        // The feed may have painted from IndexedDB before source-state arrived.
+        // Force one repaint so newly available channel avatars replace letter
+        // placeholders instead of being skipped by the visual-signature cache.
+        const feedRows=document.getElementById("rows");
+        if(feedRows)feedRows.dataset.renderSignature="";
+        if(feedMetas.length)renderSampleContent();
+        if(currentMeta)renderCurrentInfo();
+
         const rows=existingSourceTabNames(remote);
         try{localStorage.setItem(sourceTabsKey,JSON.stringify(rows))}catch{}
         return rows;
@@ -6519,12 +6595,14 @@ html.one-col.portrait .player.pip{
   }
 
   function feedVisualSignature(cards=[]){
-    return cards.slice(0,18).map(meta=>[
+    return cards.slice(0,18).map(meta=>{
+      const identity=resolvedSourceIdentity(meta);
+      return [
       String(meta?.id||""),
       String(meta?.thumbnail||""),
-      String(meta?.sourceAvatar||""),
+      String(identity?.sourceAvatar||""),
       String(meta?.title||""),
-      String(meta?.sourceName||""),
+      String(identity?.sourceName||meta?.sourceName||""),
       String(meta?.durationLabel||""),
       String(meta?.viewsLabel||""),
       String(meta?.publishedLabel||""),
@@ -6532,7 +6610,8 @@ html.one-col.portrait .player.pip{
       meta?.verified===true?"1":"0",
       String(meta?.provider||"youtube"),
       String(meta?.sourceSig||"")
-    ].join("\u001f")).join("\u001e");
+    ].join("\u001f");
+    }).join("\u001e");
   }
 
   function renderSampleContent(){
