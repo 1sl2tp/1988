@@ -46,7 +46,12 @@ if(simpleProduction){
   assert.match(html,/Tab\/UI reads memory only/);
   assert.match(html,/changedScopes=unique\.filter/);
   assert.match(html,/Promise\.allSettled\(changedScopes\.map/);
-  assert.match(html,/PACKAGE_MANIFEST_POLL_MS=120_000/);
+  assert.match(html,/const PACKAGE_REFRESH_URL=.*yt1988-refresh/);
+  assert.match(html,/const PACKAGE_DEMAND_MIN_GAP_MS=15_000/);
+  assert.match(html,/const LIVE_ACTIVE_CHECK_MS=60_000/);
+  assert.match(html,/function requestPreparedRefresh\(/);
+  assert.match(html,/function checkPackagesOnDemand\(/);
+  assert.doesNotMatch(html,/PACKAGE_MANIFEST_POLL_MS/);
   assert.match(html,/getPackage\(scope,\{[\s\S]{0,120}force:true,[\s\S]{0,120}expectedHash:remoteHash/);
   assert.doesNotMatch(html,/packagePrefetchQueue/);
   assert.match(refresh,/function enrichRowsWithStoredVideoMeta\(/);
