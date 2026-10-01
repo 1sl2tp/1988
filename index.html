@@ -4746,7 +4746,7 @@ html.one-col.portrait .player.pip{
   const youtubeLiveAvatarLookupDone=new Set();
   const youtubeLiveAvatarLookupPending=new Set();
 
-  async function hydrateMissingYoutubeLiveAvatars(){
+  async function hydrateMissingYoutubeLiveAvatars({paint=true}={}){
     const videoMetaApi=window.YT1988_API?.videoMeta||window.YT1988_API?.video;
     if(!youtubeEdgeLiveReady||!videoMetaApi)return false;
 
@@ -4789,7 +4789,7 @@ html.one-col.portrait .player.pip{
       }
     }));
 
-    if(liveDemandActive()){
+    if(paint&&liveDemandActive()){
       const rows=document.getElementById("rows");
       if(rows)rows.dataset.renderSignature="";
       paintUnifiedLiveFromEdge();
@@ -4918,31 +4918,11 @@ html.one-col.portrait .player.pip{
     if(!liveDemandActive())return false;
     if(unifiedLiveSnapshotPromise)return unifiedLiveSnapshotPromise;
 
-    unifiedLiveSnapshotPromise=(async()=>{
-      const [ytResult,ttResult]=await Promise.allSettled([
-        fetchYoutubeLiveSnapshot(),
-        refreshTikTokLiveFeed({paint:false,force:true})
-      ]);
-
-      if(!liveDemandActive())return false;
-
-      if(ytResult.status==="fulfilled"){
-        youtubeEdgeLiveMetas=ytResult.value.metas;
-        youtubeEdgeLiveReady=true;
-        void hydrateMissingYoutubeLiveAvatars();
-      }
-      if(ttResult.status==="fulfilled"){
-        tiktokLiveReady=true;
-      }
-
-      if(youtubeEdgeLiveReady&&tiktokLiveReady){
-        paintUnifiedLiveFromEdge();
-        return true;
-      }
-      return false;
-    })().finally(()=>{
-      unifiedLiveSnapshotPromise=null;
-    });
+    // One LIVE snapshot = YouTube + TikTok from the same refresh cycle.
+    // Never paint TikTok from a fresh response while YouTube is still the
+    // previous/empty Cloudflare snapshot.
+    unifiedLiveSnapshotPromise=refreshUnifiedLiveInBackground({force:true})
+      .finally(()=>{ unifiedLiveSnapshotPromise=null; });
     return unifiedLiveSnapshotPromise;
   }
 
@@ -4951,13 +4931,26 @@ html.one-col.portrait .player.pip{
     if(unifiedLiveRefreshPromise)return unifiedLiveRefreshPromise;
 
     unifiedLiveRefreshPromise=(async()=>{
-      await runYoutubeLiveCycle({force,paint:false});
+      const [youtubeResult,tiktokResult]=await Promise.allSettled([
+        runYoutubeLiveCycle({force,paint:false}),
+        refreshTikTokLiveFeed({paint:false,force:true})
+      ]);
+
       if(!liveDemandActive())return false;
 
-      await refreshTikTokLiveFeed({paint:false,force:true});
-      if(!liveDemandActive())return false;
+      const youtubeOk=
+        youtubeResult.status==="fulfilled" &&
+        youtubeEdgeLiveReady;
+      const tiktokOk=
+        tiktokResult.status==="fulfilled" &&
+        tiktokLiveReady;
+
+      // Atomic swap: if either side failed, keep the previous complete LIVE
+      // snapshot on screen. Never expose a half YouTube / half TikTok refresh.
+      if(!youtubeOk||!tiktokOk)return false;
 
       paintUnifiedLiveFromEdge();
+      void hydrateMissingYoutubeLiveAvatars({paint:true});
       return true;
     })().finally(()=>{
       unifiedLiveRefreshPromise=null;
@@ -5018,10 +5011,10 @@ html.one-col.portrait .player.pip{
         youtubeEdgeLiveReady=true;
         youtubeLiveLastCycleAt=Date.now();
 
-        // Paint immediately. If Cloudflare omitted a channel avatar, hydrate only
-        // that missing avatar in the background; nothing else in the LIVE row changes.
+        // This function may be one half of an atomic YouTube+TikTok refresh.
+        // Only paint when explicitly requested; avatar lookup must obey the same rule.
         if(paint)paintUnifiedLiveFromEdge();
-        void hydrateMissingYoutubeLiveAvatars();
+        void hydrateMissingYoutubeLiveAvatars({paint});
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
