@@ -115,7 +115,7 @@ const TIKTOK_PROFILE_IDENTITY_TTL_MS=6*60*60*1000;
 let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
 const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
-const TIKTOK_LIVE_DISCOVERY_BATCH=12;
+const TIKTOK_LIVE_DISCOVERY_BATCH=10;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -744,17 +744,17 @@ async function deepTikTokRoomFallback(handles){
       if(index>=normalized.length)return;
       const handle=normalized[index];
       const key=handle.toLowerCase();
-      let profile=profiles.get(key)||null;
-      let roomId=String(profile?.roomId||'');
+      const profile=profiles.get(key)||null;
+      const roomId=String(profile?.roomId||'');
 
-      // If browser user-detail omitted roomId, inspect the public profile
-      // hydration as a second route. Missing roomId is UNKNOWN, never OFFLINE.
+      // Missing roomId is UNKNOWN, never OFFLINE. Do not fetch 10 public
+      // profile pages here: the browser LIVE-page probe below is both faster
+      // and closer to what the user actually sees on TikTok.
       if(!roomId){
-        profile=await fetchTikTokProfileIdentityScraped(handle).catch(()=>null);
-        roomId=String(profile?.roomId||'');
-      }
-      if(!roomId){
-        out.set(key,[]);
+        out.set(key,{
+          evidence:[{source:'browser-profile-room-id',known:false,live:false,status:null}],
+          liveRow:null
+        });
         continue;
       }
 
@@ -824,11 +824,41 @@ async function runTikTokStatusFallbackBatch(handles){
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
   if(!normalized.length)return;
 
-  const batch=await batchTikTokLiveFallback(normalized);
-  const stillUnknown=[];
+  // Strongest discovery fallback: open the same /@handle/live page a real
+  // browser opens and watch its network for a semantic FLV. This bypasses the
+  // server-side API 403 problem without treating "no capture" as OFFLINE.
+  const unresolved=[];
+  let cursor=0;
+  const browserWorker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=normalized.length)return;
+      const handle=normalized[index];
+      const key=handle.toLowerCase();
+      if(tiktokRealtimeLiveHandles.has(key))continue;
+      const row=await probeTikTokBrowserFlv(handle,{maxWaitMs:4500});
+      if(row?.stream_url){
+        publishDeepTikTokLive(handle,row,'browser-live-page');
+      }else{
+        unresolved.push(handle);
+        addTikTokStatusEvidence(handle,{
+          source:'browser-live-page',
+          known:false,live:false,status:null
+        });
+      }
+    }
+  };
+  await Promise.all(Array.from({length:Math.min(3,normalized.length)},()=>browserWorker()));
 
-  for(const handle of normalized){
+  if(!unresolved.length)return;
+
+  // Secondary extractor evidence. A timeout/error is UNKNOWN and never clears
+  // LIVE. If it does return a stream, publish it immediately.
+  const batch=await batchTikTokLiveFallback(unresolved);
+  const stillUnknown=[];
+  for(const handle of unresolved){
     const key=handle.toLowerCase();
+    if(tiktokRealtimeLiveHandles.has(key))continue;
     const row=batch.get(key);
     if(row?.status==='LIVE'){
       publishDeepTikTokLive(handle,row,'yt-dlp');
@@ -842,8 +872,8 @@ async function runTikTokStatusFallbackBatch(handles){
     if(!tiktokRealtimeLiveHandles.has(key))stillUnknown.push(handle);
   }
 
-  // A second family of evidence uses profile roomId -> webcast room/detail.
-  // This catches LIVE accounts that yt-dlp or /api-live/user/room could not see.
+  // Last cheap structured fallback: if authenticated user-detail exposes a
+  // roomId, ask both room-info and live-detail-by-room.
   if(stillUnknown.length){
     const roomRows=await deepTikTokRoomFallback(stillUnknown);
     for(const handle of stillUnknown){
@@ -3236,22 +3266,24 @@ async function resolveTikTokLiveSource(rawHandle){
   return row;
 }
 
-async function captureTikTokLiveSessionOnce(rawHandle){
+async function captureTikTokLiveSessionOnce(rawHandle,options={}){
   cleanTikTokLiveSessions();
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
   console.log('[tiktok-session] start',handle);
 
   const key=handle.toLowerCase();
+  const maxWaitMs=Math.max(1500,Math.min(12000,Number(options?.maxWaitMs||12000)));
+  const skipPreflight=Boolean(options?.skipPreflight);
   let preflight={known:false,live:false,status:null};
-  if(!shouldPreferTikTokBrowser(handle)){
+  if(!skipPreflight&&!shouldPreferTikTokBrowser(handle)){
     preflight=await quickTikTokLiveStatus(handle);
     if(preflight.known&&!preflight.live&&!tiktokRealtimeLiveHandles.has(key)){
       console.log('[tiktok-session] offline',handle,'status='+preflight.status);
       throw new Error('tiktok_not_live');
     }
   }else{
-    console.log('[tiktok-session] skip preflight',handle);
+    console.log('[tiktok-session] skip preflight',handle,skipPreflight?'forced':'preferred');
   }
   const current=tiktokLiveSessions.get(key);
   if(current&&current.page&&!current.page.isClosed()&&tiktokLiveCacheReusable(current)){
@@ -3360,7 +3392,7 @@ async function captureTikTokLiveSessionOnce(rawHandle){
     });
 
     const started=Date.now();
-    while(Date.now()-started<12000&&!capturedFlv){
+    while(Date.now()-started<maxWaitMs&&!capturedFlv){
       await page.evaluate(()=>{
         for(const video of document.querySelectorAll('video')){
           try{video.muted=true;void video.play?.()}catch{}
@@ -3423,6 +3455,37 @@ async function captureTikTokLiveSession(rawHandle){
     return await task;
   }finally{
     if(tiktokLiveSessionInflight.get(key)===task)tiktokLiveSessionInflight.delete(key);
+  }
+}
+
+async function probeTikTokBrowserFlv(rawHandle,{maxWaitMs=4500}={}){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return null;
+  const key=handle.toLowerCase();
+  const cached=currentTikTokLibrarySource(handle);
+  if(cached&&String(cached.type||'').toLowerCase()==='flv'){
+    return {
+      stream_url:String(cached.url||''),
+      stream_type:'flv',
+      source:String(cached.source||'browser-cache'),
+      headers:cached.headers||{}
+    };
+  }
+  try{
+    const session=await captureTikTokLiveSessionOnce(handle,{
+      maxWaitMs,
+      skipPreflight:true
+    });
+    if(!session?.url||String(session.type||'').toLowerCase()!=='flv')return null;
+    return {
+      stream_url:String(session.url||''),
+      stream_type:'flv',
+      source:'browser-live-page',
+      headers:session.headers||{}
+    };
+  }catch(error){
+    console.log('[tiktok-live-deep] browser miss',handle,compactText(error?.message||error,100));
+    return null;
   }
 }
 
