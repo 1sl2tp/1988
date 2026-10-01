@@ -1929,6 +1929,9 @@ Deno.serve(async(req:Request)=>{
 
   let body:any={};
   try{body=await req.json();}catch{}
+  const authorization=clean(req.headers.get("authorization")||"",300);
+  const internalRequest=authorization===("Bearer "+serviceKey);
+  const clientCheck=!internalRequest||body?.client_check===true;
 
   const hashtagRes=await fetch(
     rest+"/yt1988_hashtags?profile_key=eq."+encodeURIComponent(PROFILE)+
@@ -1967,11 +1970,57 @@ Deno.serve(async(req:Request)=>{
       .map((s:any)=>clean(s,32))
       .filter((s:string)=>SCOPES.includes(s))
   );
-  let scopes=requested.size?[...requested]:SCOPES.slice();
+  let scopes=requested.size?[...requested]:(clientCheck?["latest"]:SCOPES.slice());
+
+  if(clientCheck){
+    const configRes=await fetch(
+      rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
+      "&scope=in.("+scopes.map(encodeURIComponent).join(",")+")"+
+      "&select=scope,interval_minutes,enabled,last_enqueued_at",
+      {headers:authHeaders}
+    ).catch(()=>null);
+    const configRows=configRes?.ok?await configRes.json().catch(()=>[]):[];
+    const configByScope=new Map(
+      (Array.isArray(configRows)?configRows:[]).map((row:any)=>[clean(row?.scope,32),row])
+    );
+    const now=Date.now();
+    scopes=scopes.filter((scope)=>{
+      const row:any=configByScope.get(scope);
+      if(row?.enabled===false)return false;
+      const minutes=Math.max(
+        1,
+        Math.min(
+          1440,
+          Number(row?.interval_minutes)||Number(DEFAULT_SCOPE_INTERVAL_MINUTES[scope])||10
+        )
+      );
+      const last=Date.parse(String(row?.last_enqueued_at||""));
+      return !Number.isFinite(last)||now-last>=minutes*60*1000;
+    });
+    if(!scopes.length){
+      return json({ok:true,skipped:true,reason:"not_due"});
+    }
+  }
 
   if(!await claimLease(rest,authHeaders)){
+    if(clientCheck){
+      return json({ok:true,skipped:true,reason:"refresh_already_running",scopes});
+    }
     await queuePendingRefresh(rest,authHeaders,scopes);
     return json({ok:true,skipped:true,queued:true,reason:"refresh_already_running",scopes});
+  }
+
+  if(clientCheck&&scopes.length){
+    const nowIso=new Date().toISOString();
+    await fetch(
+      rest+"/yt1988_refresh_config?profile_key=eq."+encodeURIComponent(PROFILE)+
+      "&scope=in.("+scopes.map(encodeURIComponent).join(",")+")",
+      {
+        method:"PATCH",
+        headers:{...authHeaders,"prefer":"return=minimal"},
+        body:JSON.stringify({last_enqueued_at:nowIso,updated_at:nowIso})
+      }
+    ).catch(()=>{});
   }
 
   // Keep each execution short enough for the Edge wall-clock limit. Extra
@@ -2812,33 +2861,9 @@ Deno.serve(async(req:Request)=>{
       if(!writeRes.ok)console.warn("channel cache write failed",await writeRes.text());
     }
 
-    // Source suggestions are generated only by the server, and only after a
-    // selected channel actually yields a new video. The UI merely reads these
-    // normal rows from yt1988-state.
-    await mapLimit(nonLiveScopes,2,async(scope)=>{
-      const seedRows=(selectedByScope.get(scope)||[])
-        .flatMap((source:any)=>newlyDiscoveredRowsByChannel.get(source.id)||[]);
-      if(!seedRows.length)return 0;
-
-      const excludedSourceIds=new Set<string>([
-        ...(selectedByScope.get(scope)||[]).map((source:any)=>source.id),
-        ...(blockedByScope.get(scope)||new Set<string>())
-      ]);
-
-      return await discoverServerSourceSuggestions(
-        supabaseUrl,
-        serviceKey,
-        rest,
-        authHeaders,
-        scope,
-        SCOPE_META[scope]||{},
-        seedRows,
-        excludedSourceIds
-      ).catch((error)=>{
-        console.warn("source suggestion refresh failed",scope,String(error));
-        return 0;
-      });
-    });
+    // Source suggestion discovery is intentionally outside the package refresh
+    // critical path. Search/verification fan-out can hit upstream rate limits
+    // and must never prevent Live/Ngay/Tuan packages from completing.
 
     const results:any[]=[];
     const degradedNotes:string[]=[];
@@ -3011,15 +3036,6 @@ Deno.serve(async(req:Request)=>{
       const rawHash=snapshotRowsHash(raw,sig);
       const inputHash=fastHash(rawHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
-        await fetch(
-          rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
-          "&scope=eq."+encodeURIComponent(scope),
-          {
-            method:"PATCH",
-            headers:{...authHeaders,"prefer":"return=minimal"},
-            body:JSON.stringify({updated_at:new Date().toISOString()})
-          }
-        ).catch(()=>{});
         results.push({scope,changed:false,checked:true,reason:"same_input"});
         continue;
       }
@@ -3039,15 +3055,6 @@ Deno.serve(async(req:Request)=>{
 
       const hash=snapshotRowsHash(packaged,sig);
       if(current?.hash===hash&&current?.input_hash===inputHash&&current?.source_signature===sig){
-        await fetch(
-          rest+"/yt1988_packages?profile_key=eq."+encodeURIComponent(PROFILE)+
-          "&scope=eq."+encodeURIComponent(scope),
-          {
-            method:"PATCH",
-            headers:{...authHeaders,"prefer":"return=minimal"},
-            body:JSON.stringify({updated_at:new Date().toISOString()})
-          }
-        ).catch(()=>{});
         results.push({scope,changed:false,checked:true,reason:"same_package"});
         continue;
       }
@@ -3078,12 +3085,12 @@ Deno.serve(async(req:Request)=>{
       !degraded,
       degraded?degradedNotes.slice(0,12).join(";"):""
     );
-    if(pending.length)await queuePendingRefresh(rest,authHeaders,pending);
+    if(pending.length)triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
     return json({ok:true,degraded,pending_scopes:pending,scopes:results});
   }catch(error){
     failure=String((error as any)?.message||error||"refresh_failed");
     const pending=await finishLease(rest,authHeaders,false,failure);
-    if(pending.length)await queuePendingRefresh(rest,authHeaders,pending);
+    if(pending.length)triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
     return json({ok:false,error:failure,pending_scopes:pending},500);
   }
 });
