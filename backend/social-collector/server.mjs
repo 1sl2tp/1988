@@ -9009,18 +9009,14 @@ const server=http.createServer(async(req,res)=>{
       const current=tiktokVideoLibrary.get(key)||{
         handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
       };
-      if(url.searchParams.get('refresh')!=='0'){
-        const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
-        if(result?.known){
-          updateTikTokVideoLibrary(handle,{
-            secUid:result.secUid||current.secUid||'',
-            latestVideoId:result.latestVideoId,
-            videos:result.videos,
-            checkedAt:Date.now(),
-            status:'ready'
-          });
-          await persistTikTokVideoStore();
-          void queueTikTokCanonicalSync([handle]);
+      if(url.searchParams.get('refresh')!=='0'&&!TIKTOK_UPDATES_PAUSED){
+        // Read path stays fast: existing channels return the saved package
+        // immediately and refresh only their tiny fingerprint in background.
+        // A brand-new channel with no snapshot may bootstrap once synchronously.
+        if(Array.isArray(current.videos)&&current.videos.length){
+          void ensureTikTokVideoPackageScan([handle]);
+        }else{
+          await ensureTikTokVideoPackageScan([handle]);
         }
       }
       const row=tiktokVideoLibrary.get(key)||current;
