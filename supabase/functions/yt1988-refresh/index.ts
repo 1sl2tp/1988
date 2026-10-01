@@ -2043,6 +2043,14 @@ Deno.serve(async(req:Request)=>{
     });
   }
 
+  // This run now owns these scopes. Remove them from pending before doing
+  // any work; only genuinely deferred work may add them back later.
+  await fetch(rest+"/rpc/yt1988_consume_pending_refresh",{
+    method:"POST",
+    headers:authHeaders,
+    body:JSON.stringify({p_profile_key:PROFILE,p_scopes:scopes})
+  }).catch(()=>{});
+
   if(clientCheck&&scopes.length){
     const nowIso=new Date().toISOString();
     await fetch(
