@@ -8654,15 +8654,34 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      const live=hasLive();
-      const offlineConfirmed=!live&&offlineCount()>=2;
+      let live=hasLive();
+      let offlineConfirmed=!live&&offlineCount()>=2;
       const checkedAt=Date.now();
+      const key=handle.toLowerCase();
+      const stored=tiktokLiveLibrary.get(key)||{};
+      const retainedLive=Boolean(
+        tiktokRealtimeLiveHandles.has(key)||
+        (stored.live&&stored.playable&&String(stored.type||'').toLowerCase()==='flv'&&stored.sourceSig)
+      );
+
+      // A transient 403/unknown from TikTok must not contradict an already
+      // verified realtime FLV. Only two explicit OFFLINE confirmations may
+      // clear it.
+      if(!live&&!offlineConfirmed&&retainedLive){
+        live=true;
+        evidence.push({
+          source:'realtime-flv-store',
+          known:true,
+          live:true,
+          status:2
+        });
+      }
 
       if(live){
-        const key=handle.toLowerCase();
         tiktokRealtimeLiveHandles.add(key);
         tiktokRealtimeStatusByHandle.set(key,{
-          handle,known:true,live:true,offlineConfirmed:false,retained:false,
+          handle,known:true,live:true,offlineConfirmed:false,
+          retained:!hasLive()&&retainedLive,
           checkedAt,evidence
         });
         updateTikTokLiveLibrary(handle,{
@@ -8678,6 +8697,7 @@ const server=http.createServer(async(req,res)=>{
         live,
         known:live||offlineConfirmed,
         offlineConfirmed,
+        retainedLive:Boolean(live&&retainedLive&&!hasLive()),
         status:live?2:(offlineConfirmed?4:null),
         source:live
           ? String(evidence.find(x=>x.known&&x.live)?.source||'multi-source')
