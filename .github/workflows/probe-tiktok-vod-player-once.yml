@@ -13,14 +13,14 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe canonical and TikWM media URLs
+      - name: Probe canonical versus channel-library play URL
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           import json, urllib.request, urllib.parse
-          u='https://one988-tiktok-session.onrender.com/tiktok/library?v=-1&t=1'
-          req=urllib.request.Request(u,headers={'User-Agent':'Mozilla/5.0'})
+          API='https://one988-tiktok-session.onrender.com'
+          req=urllib.request.Request(API+'/tiktok/library?v=-1&t=1',headers={'User-Agent':'Mozilla/5.0'})
           with urllib.request.urlopen(req,timeout=30) as r:
               data=json.load(r)
           choice=None
@@ -32,68 +32,55 @@ jobs:
               if p.get('ready') and p.get('url'):
                   choice=(ch.get('handle',''),v)
                   break
-          if not choice:
-              raise SystemExit('NO_READY_VIDEO')
+          if not choice: raise SystemExit('NO_READY_VIDEO')
           handle,v=choice
+          vid=str(v.get('id',''))
           print('HANDLE='+handle)
-          print('ID='+str(v.get('id','')))
-          print('CANONICAL='+str((v.get('playback') or {}).get('url',''))[:180])
+          print('ID='+vid)
           open('/tmp/canonical','w').write((v.get('playback') or {}).get('url',''))
 
-          q=urllib.parse.urlencode({'unique_id':handle,'count':'10','cursor':'0'})
-          req=urllib.request.Request('https://tikwm.com/api/user/posts?'+q,headers={
-              'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36',
-              'Accept':'application/json,text/plain,*/*'
-          })
+          q=urllib.parse.urlencode({'user':handle,'refresh':'0'})
+          req=urllib.request.Request(API+'/tiktok/channel-videos?'+q,headers={'User-Agent':'Mozilla/5.0'})
           with urllib.request.urlopen(req,timeout=30) as r:
-              t=json.load(r)
-          rows=((t.get('data') or {}).get('videos') or (t.get('data') or {}).get('items') or [])
-          row=next((x for x in rows if str(x.get('video_id') or x.get('aweme_id') or x.get('id') or '')==str(v.get('id'))), rows[0] if rows else None)
-          if not row:
-              raise SystemExit('NO_TIKWM_VIDEO')
-          print('TIKWM_ID='+str(row.get('video_id') or row.get('aweme_id') or row.get('id')))
-          for key in ['play','hdplay','wmplay']:
-              val=str(row.get(key) or '')
-              print(key.upper()+'='+val[:180])
-              if val:
-                  open('/tmp/'+key,'w').write(val)
+              cv=json.load(r)
+          rows=cv.get('videos') or []
+          row=next((x for x in rows if str(x.get('id') or '')==vid), rows[0] if rows else None)
+          print('CHANNEL_STATUS='+str(cv.get('status')))
+          if row:
+              print('CHANNEL_ID='+str(row.get('id')))
+              print('PLAYURL='+str(row.get('playUrl') or '')[:180])
+              if row.get('playUrl'): open('/tmp/playurl','w').write(str(row.get('playUrl')))
+          else:
+              print('NO_CHANNEL_VIDEO')
           PY
 
           test_url () {
             local name="$1"; local file="$2"
-            if [ ! -s "$file" ]; then return; fi
+            [ -s "$file" ] || return 0
             local url="$(cat "$file")"
             echo "=== $name curl ==="
             curl -L -sS -D "/tmp/h-$name" -o "/tmp/b-$name" --range 0-65535               -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36'               -e 'https://yt.taphoa.xyz/' "$url" || true
             head -24 "/tmp/h-$name"
             file "/tmp/b-$name" || true
             wc -c "/tmp/b-$name" || true
+
+            python3 - "$name" "$file" <<'PY'
+          import sys
+          name,path=sys.argv[1:3]
+          u=open(path).read()
+          page=f'''<!doctype html><meta charset="utf-8"><video id="v" playsinline preload="metadata"></video><pre id="o">boot</pre>
+          <script>
+          const v=document.getElementById('v'),o=document.getElementById('o');
+          const log=s=>o.textContent+='\\n'+s+' rs='+v.readyState+' ns='+v.networkState+' err='+(v.error?.code||0)+' t='+v.currentTime+' d='+v.duration;
+          ['loadstart','loadedmetadata','loadeddata','canplay','playing','waiting','stalled','error','pause'].forEach(e=>v.addEventListener(e,()=>log(e)));
+          v.src={u!r};v.load();v.play().then(()=>log('play-ok')).catch(e=>log('play-reject '+e.name+':'+e.message));
+          setTimeout(()=>log('after-6s'),6000);
+          </script>'''
+          open('/tmp/probe-'+name+'.html','w').write(page)
+          PY
+            echo "=== CHROME $name ==="
+            google-chrome --headless=new --no-sandbox --disable-gpu               --autoplay-policy=no-user-gesture-required               --virtual-time-budget=8000               --dump-dom "file:///tmp/probe-$name.html" 2>/tmp/chrome.err | grep -A16 '<pre id="o">' | head -24 || true
           }
 
           test_url canonical /tmp/canonical
-          test_url play /tmp/play
-          test_url hdplay /tmp/hdplay
-          test_url wmplay /tmp/wmplay
-
-          python3 - <<'PY'
-          import os
-          for key in ['canonical','play','hdplay','wmplay']:
-              p='/tmp/'+key
-              if not os.path.exists(p): continue
-              u=open(p).read()
-              page=f'''<!doctype html><meta charset="utf-8"><video id="v" playsinline preload="metadata"></video><pre id="o">boot</pre>
-              <script>
-              const v=document.getElementById('v'),o=document.getElementById('o');
-              const log=s=>o.textContent+='\\n'+s+' rs='+v.readyState+' ns='+v.networkState+' err='+(v.error?.code||0)+' t='+v.currentTime+' d='+v.duration;
-              ['loadstart','loadedmetadata','loadeddata','canplay','playing','waiting','stalled','error','pause'].forEach(e=>v.addEventListener(e,()=>log(e)));
-              v.src={u!r};v.load();v.play().then(()=>log('play-ok')).catch(e=>log('play-reject '+e.name+':'+e.message));
-              setTimeout(()=>log('after-6s'),6000);
-              </script>'''
-              open('/tmp/probe-'+key+'.html','w').write(page)
-          PY
-
-          for key in canonical play hdplay wmplay; do
-            [ -f "/tmp/probe-$key.html" ] || continue
-            echo "=== CHROME $key ==="
-            google-chrome --headless=new --no-sandbox --disable-gpu               --autoplay-policy=no-user-gesture-required               --virtual-time-budget=8000               --dump-dom "file:///tmp/probe-$key.html" 2>/tmp/chrome.err | grep -A20 '<pre id="o">' | head -30 || true
-          done
+          test_url playurl /tmp/playurl
