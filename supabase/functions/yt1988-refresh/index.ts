@@ -38,6 +38,7 @@ const YT_PLAYER_CLIENTS:any[]=[
 ];
 const LIVE_SELECTED_CANDIDATES_PER_SOURCE=2;
 const LIVE_SELECTED_SOURCES_PER_RUN=32;
+const LIVE_GLOBAL_DISCOVERY_INTERVAL_MS=10*60*1000;
 const LIVE_SEARCH_QUERIES=[
   "trực tiếp ca nhạc",
   "trực tiếp bolero",
@@ -1652,6 +1653,30 @@ async function verifyCurrentLiveRows(rows:any[],limit=36){
   return checked.filter(Boolean);
 }
 
+async function verifyCurrentLiveFingerprintRows(rows:any[],limit=24){
+  const list=dedupeRows(Array.isArray(rows)?rows:[]).slice(0,Math.max(1,limit));
+  if(!list.length)return [];
+
+  const checked=await mapLimit(list,6,async(row)=>{
+    const id=videoId(row);
+    const sid=channelId(row);
+    if(!id||!sid)return null;
+    const currentId=await youtubeChannelLiveVideoId(sid,2800);
+    if(currentId!==id)return null;
+    return normalizeRow({
+      ...row,
+      id,
+      videoId:id,
+      isLive:true,
+      duration:-1,
+      uploaded:-1,
+      publishedText:"Đang trực tiếp",
+      _liveVerified:"channel_live_fingerprint"
+    },{});
+  });
+  return checked.filter(Boolean);
+}
+
 function exactSearchVideoMeta(data:any,id:string){
   const items=Array.isArray(data?.items)
     ?data.items
@@ -2325,60 +2350,96 @@ Deno.serve(async(req:Request)=>{
         console.warn("live keyword read failed",String(error));
       }
 
-      // STEP 1 — outside LIVE: keyword filter + all blocked sources; every
-      // selected channel is removed from outside and reserved for STEP 2.
+      // STEP 1 — selected-channel LIVE is checked on every fast refresh via
+      // /channel/<id>/live. Global discovery is separate and slower: trending
+      // plus keyword search runs at most once every 10 minutes.
       const allSelectedLiveSourceIds=new Set(
         selectedLiveSources.map((source:any)=>source.id).filter(Boolean)
       );
-      const discovery=await discoverGlobalLiveCandidates(
-        supabaseUrl,
-        serviceKey,
-        allBlockedLiveSourceIds,
-        allSelectedLiveSourceIds,
-        liveKeywords
-      ).catch((error)=>{
-        console.warn("global live discovery failed",String(error));
-        return {external:[],selected:[]};
-      });
-      // Global LIVE search is fetched fresh on every LIVE refresh. Use those
-      // rows as the current-cycle source of truth; unlike package/cache rows,
-      // they cannot keep themselves alive across refreshes.
-      const verifiedExternalRows=(discovery.external||[])
-        .map((row:any)=>({
+
+      let discoveryDue=true;
+      try{
+        const stateRes=await fetch(
+          rest+"/yt1988_discovery_state?profile_key=eq."+encodeURIComponent(PROFILE)+
+          "&discovery_key=eq.live_global&select=checked_at&limit=1",
+          {headers:authHeaders}
+        );
+        if(stateRes.ok){
+          const stateRows=await stateRes.json();
+          const checked=Date.parse(String(stateRows?.[0]?.checked_at||""));
+          discoveryDue=!Number.isFinite(checked)||Date.now()-checked>=LIVE_GLOBAL_DISCOVERY_INTERVAL_MS;
+        }
+      }catch{}
+
+      let verifiedExternalRows:any[]=[];
+      let selectedFromSearch:any[]=[];
+
+      if(discoveryDue){
+        const discovery=await discoverGlobalLiveCandidates(
+          supabaseUrl,
+          serviceKey,
+          allBlockedLiveSourceIds,
+          allSelectedLiveSourceIds,
+          liveKeywords
+        ).catch((error)=>{
+          console.warn("global live discovery failed",String(error));
+          return {external:[],selected:[]};
+        });
+
+        const discoveredExternal=(discovery.external||[]).map((row:any)=>({
           ...row,
           _liveOrigin:"search",
           _liveCandidateOrigin:"live_search",
           _liveCacheCheckedAt:new Date().toISOString(),
           _interestPriority:0
         }));
+        verifiedExternalRows=await verifyCurrentLiveFingerprintRows(discoveredExternal,24);
 
-      // LIVE suggestions are also server-owned.
-      await storeServerSourceSuggestions(
-        rest,
-        authHeaders,
-        "live",
-        verifiedExternalRows
-      ).catch(()=>0);
+        const searchCheckedAt=new Date().toISOString();
+        selectedFromSearch=(discovery.selected||[]).map((row:any)=>{
+          const sid=channelId(row);
+          return {
+            ...row,
+            _liveOrigin:"source",
+            _liveCandidateOrigin:"live_search",
+            _liveCacheCheckedAt:searchCheckedAt,
+            _liveVerified:"fresh_live_search",
+            _interestPriority:explicitLiveIds.has(sid)
+              ?2
+              :inheritedLiveIds.has(sid)
+                ?1
+                :0
+          };
+        });
 
-      // A selected channel found by this same fresh LIVE search can be used
-      // immediately. Channels not found there still go through the per-channel
-      // checker below; importantly, old package rows are excluded as fallback.
-      const searchCheckedAt=new Date().toISOString();
-      const selectedFromSearch=(discovery.selected||[]).map((row:any)=>{
-        const sid=channelId(row);
-        return {
-          ...row,
-          _liveOrigin:"source",
-          _liveCandidateOrigin:"live_search",
-          _liveCacheCheckedAt:searchCheckedAt,
-          _liveVerified:"fresh_live_search",
-          _interestPriority:explicitLiveIds.has(sid)
-            ?2
-            :inheritedLiveIds.has(sid)
-              ?1
-              :0
-        };
-      });
+        await storeServerSourceSuggestions(
+          rest,
+          authHeaders,
+          "live",
+          verifiedExternalRows
+        ).catch(()=>0);
+
+        await fetch(
+          rest+"/yt1988_discovery_state?on_conflict=profile_key,discovery_key",
+          {
+            method:"POST",
+            headers:{...authHeaders,"prefer":"resolution=merge-duplicates,return=minimal"},
+            body:JSON.stringify([{
+              profile_key:PROFILE,
+              discovery_key:"live_global",
+              checked_at:new Date().toISOString(),
+              updated_at:new Date().toISOString()
+            }])
+          }
+        ).catch(()=>{});
+      }else{
+        const priorExternal=previousLiveItems.filter((row:any)=>{
+          const sid=channelId(row);
+          if(!sid||allSelectedLiveSourceIds.has(sid))return false;
+          return row?._liveOrigin==="search"||row?._liveCandidateOrigin==="live_search";
+        });
+        verifiedExternalRows=await verifyCurrentLiveFingerprintRows(priorExternal,24);
+      }
 
       for(const row of selectedFromSearch){
         const sid=channelId(row);
