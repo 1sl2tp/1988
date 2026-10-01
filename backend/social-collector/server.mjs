@@ -1612,7 +1612,12 @@ function ensureTikTokLivePackageScan(handles=null){
 
       const job=(async()=>{
         console.log('[tiktok-live-check] targeted start',handle);
-        await refreshTikTokLiveLibrary([handle],{warm:true,force:true});
+        // Adding/checking one channel enters the same canonical tri-state
+        // checker first. Media resolution is a second step only for confirmed LIVE.
+        await runTikTokLiveMinuteSweep({targetHandles:[handle],exhaustive:true});
+        if(tiktokConfirmedLiveNow(handle)){
+          await refreshTikTokLiveLibrary([handle],{warm:true,force:true});
+        }
         await persistTikTokLiveStore({force:true});
 
         const row=tiktokLiveLibrary.get(key)||{};
@@ -1635,7 +1640,8 @@ function ensureTikTokLivePackageScan(handles=null){
 
   // Background/global package refresh remains single-flight.
   if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
-  tiktokLivePackageScanPromise=refreshTikTokLiveLibrary(target,{warm:false})
+  tiktokLivePackageScanPromise=runTikTokLiveMinuteSweep()
+    .then(()=>refreshTikTokLiveLibrary(target,{warm:false}))
     .then(()=>persistTikTokLiveStore())
     .catch(error=>console.log('[tiktok-package] scan failed',compactText(error?.message||error,120)))
     .finally(()=>{tiktokLivePackageScanPromise=null;});
@@ -2041,16 +2047,19 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
   if(!normalized.length)return;
 
+  // This function is media-only. LIVE/OFFLINE/UNKNOWN is owned exclusively by
+  // runTikTokLiveMinuteSweep(). Never let FLV discovery create LIVE state.
+  const confirmed=normalized.filter(handle=>tiktokConfirmedLiveNow(handle));
+  if(!confirmed.length)return;
+
   const now=Date.now();
   const due=force
-    ? normalized
-    : normalized.filter(
+    ? confirmed
+    : confirmed.filter(
         handle=>now-Number(tiktokLiveLibraryRefreshAt.get(handle.toLowerCase())||0)>=TIKTOK_LIVE_LIBRARY_REFRESH_MS
       );
   if(!due.length)return;
 
-  // One package pass, but do not burst all 31 requests at TikTok at once.
-  // A small worker pool is still fast and avoids false OFFLINE results caused by timeouts.
   const checked=new Array(due.length);
   let scanCursor=0;
   const worker=async()=>{
@@ -2061,66 +2070,34 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
       tiktokLiveLibraryRefreshAt.set(handle.toLowerCase(),Date.now());
       try{
         checked[index]={handle,status:await quickTikTokLiveStatus(handle)};
-      }catch(error){
+      }catch{
         checked[index]={handle,status:{known:false,live:false,candidates:[]}};
       }
     }
   };
-  await Promise.all(Array.from({length:Math.min(8,due.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(4,due.length)},()=>worker()));
 
   let scanLiveCount=0;
   let scanFlvCount=0;
   let scanUnknownCount=0;
+
   for(const {handle,status} of checked){
-    const key=handle.toLowerCase();
+    // The canonical state may have changed while media lookup was in flight.
+    if(!tiktokConfirmedLiveNow(handle))continue;
+
+    if(status?.known!==true||status?.live!==true){
+      scanUnknownCount+=1;
+      continue;
+    }
+    scanLiveCount+=1;
+
     const candidates=Array.isArray(status?.candidates)?status.candidates:[];
     const flv=candidates
       .filter(isTikTokVideoFlvCandidate)
       .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0]||null;
 
-    if(!status?.known){
-      // Timeout/incomplete response is UNKNOWN: preserve last confirmed
-      // LIVE/OFFLINE state and only record the probe result.
-      scanUnknownCount+=1;
-      updateTikTokLiveLibrary(handle,{
-        probeState:'unknown',
-        lastSeenAt:Date.now()
-      });
-      continue;
-    }
-
-    const isLive=status?.live===true;
-    const prev=tiktokLiveLibrary.get(key)||{};
-    const nowState=Date.now();
-    const changedState=Boolean(prev.live)!==isLive;
-    if(isLive)scanLiveCount+=1;
-    if(flv)scanFlvCount+=1;
-
-    const lockedLive=tiktokRealtimeLiveHandles.has(key);
-    if(!isLive&&!lockedLive){
-      updateTikTokLiveLibrary(handle,{
-        live:false,
-        status:'offline',
-        probeState:'offline',
-        lastSeenAt:Date.now()
-      });
-      continue;
-    }
-
-    // Detection is additive. Once locked LIVE, later API status only supplies
-    // fresh media candidates; it never owns removal.
-    if(isLive)tiktokRealtimeLiveHandles.add(key);
-    updateTikTokLiveLibrary(handle,{
-      live:true,
-      probeState:'live',
-      status:'live',
-      stateChangedAt:isLive&&changedState?nowState:Number(prev.stateChangedAt||0),
-      lastKnownAt:isLive?nowState:Number(prev.lastKnownAt||0),
-      lastSeenAt:nowState
-    });
-
-    // Getlink only: publish FLV immediately when TikTok exposes it.
     if(flv){
+      scanFlvCount+=1;
       const row=seedTikTokFastSource(handle,{
         stream_url:String(flv.url||''),
         stream_type:'flv',
@@ -2140,29 +2117,30 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
           status:'warming'
         });
         queueTikTokLibraryWarm(handle);
-        console.log('[tiktok-live-getlink] scan FLV queued for verify',handle);
         continue;
       }
     }
 
-    // TikTok says LIVE but did not return FLV in this pass. Keep it marked
-    // LIVE, but do not start yt-dlp/ffprobe/browser fallbacks.
-    updateTikTokLiveLibrary(handle,{
-      ready:false,
-      playable:false,
-      type:'',
-      mode:'',
-      source:'',
-      status:'live',
-      sourceSig:'',
-      lastSeenAt:Date.now()
-    });
+    // Still a confirmed LIVE, but media is unresolved. Keep state ownership in
+    // the canonical checker and only queue media resolution here.
+    const current=tiktokLiveLibrary.get(handle.toLowerCase())||{};
+    if(!currentTikTokLibrarySource(handle)){
+      updateTikTokLiveLibrary(handle,{
+        ready:false,
+        playable:false,
+        type:'',
+        mode:'',
+        source:'',
+        status:'warming',
+        sourceSig:''
+      });
+    }
     queueTikTokLibraryWarm(handle);
   }
 
   console.log(
-    '[tiktok-scan]',
-    'total='+normalized.length,
+    '[tiktok-media-refresh]',
+    'confirmed='+confirmed.length,
     'due='+due.length,
     'live='+scanLiveCount,
     'flv='+scanFlvCount,
@@ -2171,15 +2149,15 @@ async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
   );
 
   if(warm){
-    const needSource=normalized.filter(handle=>{
-      const row=tiktokLiveLibrary.get(handle.toLowerCase())||{};
-      return Boolean(row.live)&&!Boolean(row.playable);
-    });
+    const needSource=confirmed.filter(handle=>
+      tiktokConfirmedLiveNow(handle)&&!tiktokPublishedLiveNow(handle)
+    );
     if(needSource.length){
       await resolveTikTokLiveSourceBatch(needSource);
     }
   }
 }
+
 async function checkTikTokLiveWithYtDlp(rawHandle){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
