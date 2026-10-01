@@ -16,6 +16,7 @@
 <link rel="dns-prefetch" href="//1988-tiktok-live-state.taphoa-4ab8161d.workers.dev">
 <link rel="preconnect" href="https://one988-tiktok-session.onrender.com" crossorigin>
 <link rel="dns-prefetch" href="//one988-tiktok-session.onrender.com">
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
 <link rel="stylesheet" href="./src/styles/tokens.css">
 <link rel="stylesheet" href="./src/styles/base.css">
@@ -334,7 +335,13 @@ function rowPlayable(row){
   const live=row?.live||{};
   const stream=live?.stream||{};
   const type=String(stream?.type||'').toLowerCase();
-  return Boolean(rowLiveDetected(row)&&live?.playable&&stream?.sourceSig&&stream?.url&&type==='flv');
+  return Boolean(
+    rowLiveDetected(row)&&
+    live?.playable&&
+    stream?.sourceSig&&
+    (stream?.url||stream?.hlsUrl)&&
+    type==='flv'
+  );
 }
 function rowFor(handle){
   return channelFor(handle);
@@ -937,13 +944,14 @@ function applyLiveNow(data){
         isLive:false,
         playable:false,
         probeState:'offline',
-        stream:{type:'',sourceSig:'',url:'',proxyUrl:''}
+        stream:{type:'',sourceSig:'',url:'',hlsUrl:'',proxyUrl:''}
       };
       continue;
     }
 
     const sourceSig=String(item?.sourceSig||'');
     const streamUrl=String(item?.streamUrl||'');
+    const hlsUrl=String(item?.hlsUrl||'');
     const proxyUrl=String(item?.proxyUrl||'');
     const playable=Boolean(item?.playable&&sourceSig&&streamUrl);
     row.live={
@@ -960,6 +968,7 @@ function applyLiveNow(data){
         type:playable?String(item?.type||''):'',
         sourceSig:playable?sourceSig:'',
         url:playable?streamUrl:'',
+        hlsUrl:playable?hlsUrl:'',
         proxyUrl:playable?proxyUrl:''
       },
       checkedAt:Number(item?.lastSeenAt||data?.checkedAt||0)||null,
@@ -1011,21 +1020,110 @@ async function loadChannels({force=false,silent=false}={}){
   return loadUnifiedLibrary({force,silent});
 }
 
-function attachFlv(url,handle,retryCount=0,fallbackUrl=''){
+function isAppleMobileBrowser(){
+  const ua=navigator.userAgent||'';
+  return /iPad|iPhone|iPod/i.test(ua)||
+    (navigator.platform==='MacIntel'&&Number(navigator.maxTouchPoints||0)>1);
+}
+function nativeHlsSupported(video){
+  if(!video?.canPlayType)return false;
+  return Boolean(
+    video.canPlayType('application/vnd.apple.mpegurl')||
+    video.canPlayType('application/x-mpegURL')
+  );
+}
+function mpegtsLiveSupported(){
+  try{
+    if(!window.mpegts)return false;
+    const features=typeof mpegts.getFeatureList==='function'?mpegts.getFeatureList():{};
+    return Boolean(
+      mpegts.isSupported?.()||
+      features?.mseLivePlayback||
+      features?.msePlayback
+    );
+  }catch{return false}
+}
+function attachNativeHls(url,handle,flvUrl='',fallbackUrl=''){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
   let failed=false;
-  const p=flvjs.createPlayer(
-    {type:'flv',isLive:true,url,cors:true,withCredentials:false},
-    {
-      enableStashBuffer:false,
-      stashInitialSize:64*1024,
-      lazyLoad:false,
-      autoCleanupSourceBuffer:true,
-      autoCleanupMaxBackwardDuration:30,
-      autoCleanupMinBackwardDuration:12
+  const fallback=()=>{
+    if(failed)return;
+    failed=true;
+    if(handle!==currentHandle||mediaMode!=='live')return;
+    video.onerror=null;
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    if(flvUrl)setTimeout(()=>{
+      if(handle===currentHandle&&mediaMode==='live')attachFlv(flvUrl,handle,0,fallbackUrl);
+    },120);
+  };
+  video.onerror=fallback;
+  video.onloadedmetadata=()=>{
+    if(handle!==currentHandle)return;
+    setPlayerShape(video);
+    video.play().catch(()=>{});
+  };
+  video.onplaying=()=>{
+    if(handle!==currentHandle)return;
+    video.controls=false;
+    setPlayerShape(video);
+    updateCurrentUi();
+  };
+  video.src=url;
+  video.load();
+  video.play().catch(()=>{});
+}
+function attachFlv(url,handle,retryCount=0,fallbackUrl='',forceLegacy=false){
+  const video=document.getElementById('liveVideo');
+  destroyPlayer();
+  let failed=false;
+
+  let engine=null;
+  let engineName='';
+  if(!forceLegacy&&mpegtsLiveSupported()){
+    engine=window.mpegts;
+    engineName='mpegts';
+  }else if(window.flvjs&&flvjs.isSupported?.()){
+    engine=window.flvjs;
+    engineName='flvjs';
+  }
+  if(!engine){
+    if(fallbackUrl&&fallbackUrl!==url){
+      video.src=fallbackUrl;
+      video.load();
+      video.play().catch(()=>{});
     }
-  );
+    return;
+  }
+
+  let p=null;
+  try{
+    p=engine.createPlayer(
+      {type:'flv',isLive:true,url,cors:true,withCredentials:false},
+      {
+        enableStashBuffer:false,
+        stashInitialSize:64*1024,
+        lazyLoad:false,
+        autoCleanupSourceBuffer:true,
+        autoCleanupMaxBackwardDuration:30,
+        autoCleanupMinBackwardDuration:12,
+        liveSync:true,
+        liveSyncMaxLatency:3,
+        liveSyncTargetLatency:1.2
+      }
+    );
+  }catch(error){
+    console.warn('tiktok live player create',engineName,error);
+    if(engineName==='mpegts'&&window.flvjs?.isSupported?.()){
+      attachFlv(url,handle,retryCount,fallbackUrl,true);
+      return;
+    }
+    if(fallbackUrl&&fallbackUrl!==url)attachFlv(fallbackUrl,handle,0,'',true);
+    return;
+  }
+
   const startPlayback=()=>{
     if(failed||handle!==currentHandle)return;
     try{
@@ -1037,38 +1135,64 @@ function attachFlv(url,handle,retryCount=0,fallbackUrl=''){
       video.play().catch(()=>{});
     }
   };
-  p.attachMediaElement(video);
-  p.load();
 
-  // Direct CDN first. If browser/CORS/header policy rejects it, switch once
-  // to the Render compatibility proxy. This keeps normal media bytes off Render.
+  try{
+    p.attachMediaElement(video);
+    p.load();
+  }catch(error){
+    console.warn('tiktok live player attach',engineName,error);
+    try{p.destroy?.()}catch{}
+    if(engineName==='mpegts'&&window.flvjs?.isSupported?.()){
+      attachFlv(url,handle,retryCount,fallbackUrl,true);
+    }
+    return;
+  }
+
   startPlayback();
-  p.on(flvjs.Events.MEDIA_INFO,()=>{
+  const events=engine.Events||{};
+  if(events.MEDIA_INFO)p.on(events.MEDIA_INFO,()=>{
     setPlayerShape(video);
     startPlayback();
   });
-  p.on(flvjs.Events.METADATA_ARRIVED,()=>{
+  if(events.METADATA_ARRIVED)p.on(events.METADATA_ARRIVED,()=>{
     setPlayerShape(video);
     startPlayback();
   });
-  p.on(flvjs.Events.ERROR,()=>{
+  if(events.ERROR)p.on(events.ERROR,()=>{
     if(failed)return;
     failed=true;
     destroyPlayer();
     document.getElementById('nowState').textContent='';
     if(handle!==currentHandle||mediaMode!=='live')return;
+
+    // First failure on mpegts.js -> fall back to the old flv.js engine.
+    if(engineName==='mpegts'&&window.flvjs?.isSupported?.()){
+      setTimeout(()=>{
+        if(handle===currentHandle&&mediaMode==='live'){
+          attachFlv(url,handle,retryCount,fallbackUrl,true);
+        }
+      },120);
+      return;
+    }
+
+    // Direct CDN rejected -> compatibility proxy once.
     if(fallbackUrl&&fallbackUrl!==url){
       setTimeout(()=>{
-        if(handle===currentHandle&&mediaMode==='live')attachFlv(fallbackUrl,handle,0,'');
+        if(handle===currentHandle&&mediaMode==='live'){
+          attachFlv(fallbackUrl,handle,0,'',true);
+        }
       },250);
       return;
     }
     if(retryCount<1){
       setTimeout(()=>{
-        if(handle===currentHandle&&mediaMode==='live')attachFlv(url,handle,retryCount+1,'');
+        if(handle===currentHandle&&mediaMode==='live'){
+          attachFlv(url,handle,retryCount+1,'',true);
+        }
       },900);
     }
   });
+
   player=p;
   video.onplaying=()=>{
     if(handle!==currentHandle)return;
@@ -1105,14 +1229,23 @@ function openChannel(rawHandle){
   currentType=String(stream.type||'').toLowerCase();
 
   const packaged=String(stream.url||'').trim();
+  const hls=String(stream.hlsUrl||'').trim();
   const proxy=String(stream.proxyUrl||'').trim();
   if(live.isLive&&live.playable&&packaged&&currentSourceSig&&currentType==='flv'){
     const url=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
+    const hlsUrl=/^https?:\/\//i.test(hls)?hls:'';
     const fallback=proxy
       ? (/^https?:\/\//i.test(proxy)?proxy:(API+proxy))
       : '';
     document.getElementById('nowState').textContent='';
-    attachFlv(url,handle,0,fallback);
+
+    // iOS/Safari gets native HLS only when TikTok actually supplied one.
+    // Otherwise use the same FLV path with mpegts.js -> flv.js fallback.
+    if(isAppleMobileBrowser()&&hlsUrl&&nativeHlsSupported(native)){
+      attachNativeHls(hlsUrl,handle,url,fallback);
+    }else{
+      attachFlv(url,handle,0,fallback);
+    }
     return;
   }
 
