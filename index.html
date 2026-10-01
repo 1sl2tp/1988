@@ -1107,6 +1107,20 @@ main{
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
 
+.player[data-media-provider="youtube"] > #tiktokLiveVideo,
+.player[data-media-provider="youtube"] > .tiktok-live-preview,
+.player[data-media-provider="youtube"] > .tiktok-live-controls{
+  display:none!important;
+}
+.player[data-media-provider="youtube"] > #videoFrame,
+.player[data-media-provider="youtube"] > iframe{
+  display:block!important;
+}
+.player[data-media-provider="tiktok"] > #videoFrame,
+.player[data-media-provider="tiktok"] > iframe{
+  display:none!important;
+}
+
 .tiktok-live-controls{
   position:absolute;
   left:0;right:0;bottom:0;
@@ -2641,7 +2655,8 @@ html.one-col.portrait .player.pip{
   const settingsPopover=document.getElementById("settingsPopover");
   const themeChoiceButtons=[...document.querySelectorAll("[data-theme-choice]")];
 
-  let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:""};
+  let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:"",provider:"youtube"};
+  let currentMediaProvider="youtube";
   let pip=false;
   let raf=0;
   let pipGesture=null;
@@ -3069,8 +3084,9 @@ html.one-col.portrait .player.pip{
     return kind;
   }
 
-  function commitCurrentAspect(id,ratio,{relayout=true}={}){
+  function commitCurrentAspect(id,ratio,{relayout=true,provider=""}={}){
     id=String(id||"").trim();
+    if(provider&&provider!==currentMediaProvider)return false;
     ratio=validMediaAspect(ratio);
     if(!id||!ratio||String(current?.id||"")!==id)return false;
 
@@ -3301,7 +3317,7 @@ html.one-col.portrait .player.pip{
     );
     if(!ratio)return false;
 
-    commitCurrentAspect(expectedId,ratio,{relayout:true});
+    commitCurrentAspect(expectedId,ratio,{relayout:true,provider:"youtube"});
     aspectPrimeCache.set(expectedId,{
       value:ratio,
       source:"iframe-content-rect",
@@ -3313,6 +3329,7 @@ html.one-col.portrait .player.pip{
   }
 
   function scheduleCurrentPlayerKind(player=ytPlayer){
+    if(currentMediaProvider!=="youtube"||current?.provider==="tiktok")return;
     const id=String(current?.id||"").trim();
     if(!id)return;
 
@@ -3413,6 +3430,7 @@ html.one-col.portrait .player.pip{
           }catch{}
         },
         onStateChange(event){
+          if(currentMediaProvider!=="youtube")return;
           if(event.data===YTApi.PlayerState.PLAYING){
             scheduleCurrentPlayerKind(event.target);
           }else if(event.data===YTApi.PlayerState.ENDED){
@@ -3434,7 +3452,7 @@ html.one-col.portrait .player.pip{
   function playVideoId(id,meta=null,{history="none"}={}){
     id=String(id||"").trim();
     if(!id)return false;
-    showYoutubePlayerSurface();
+    activateYoutubeSurface();
 
     const confirmedRatio=
       mediaAspectCache.get(id)?.source==="iframe-content-rect"
@@ -3443,12 +3461,10 @@ html.one-col.portrait .player.pip{
     const metaRatio=mediaAspectFromMeta(meta||{});
     const primedRatio=cachedPrimedAspect(id);
 
-    // Never delay the click. The list should already have primed this media.
-    // If data is still missing, preserve the current shell instead of forcing
-    // a new temporary 16:9 state.
-    const fallbackRatio=
-      validMediaAspect(current?.detectedRatio)||
-      (current?.kind==="portrait"?9/16:16/9);
+    // YouTube owns its own geometry. Never inherit a TikTok ratio/state.
+    // Package/verified aspect wins; otherwise start from YouTube's neutral 16:9
+    // until the iframe reports this video's real content rect.
+    const fallbackRatio=16/9;
 
     const resolvedAspect=
       confirmedRatio||
@@ -3471,7 +3487,8 @@ html.one-col.portrait .player.pip{
       kind,
       ratio:kind==="portrait"?VIDEOS.portrait.ratio:VIDEOS.landscape.ratio,
       detectedRatio:resolvedAspect,
-      label:meta?.title||""
+      label:meta?.title||"",
+      provider:"youtube"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
     if(history==="push"){
@@ -4820,10 +4837,39 @@ html.one-col.portrait .player.pip{
     }
   }
 
-  function showYoutubePlayerSurface(){
+  function activateYoutubeSurface(){
     stopTikTokLivePlayback();
-    player.classList.remove("tiktok-active");
-    try{ytPlayer?.getIframe?.().style.removeProperty("display")}catch{}
+    currentMediaProvider="youtube";
+    player.dataset.mediaProvider="youtube";
+    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing","tiktok-media-playing");
+    if(tiktokLiveControls)tiktokLiveControls.hidden=true;
+    if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
+    try{
+      const iframe=ytPlayer?.getIframe?.();
+      if(iframe){
+        iframe.style.display="block";
+        iframe.style.visibility="visible";
+        iframe.style.opacity="1";
+        iframe.style.width="100%";
+        iframe.style.height="100%";
+      }
+    }catch{}
+  }
+
+  function activateTikTokSurface(){
+    currentMediaProvider="tiktok";
+    player.dataset.mediaProvider="tiktok";
+    try{ytPlayer?.pauseVideo?.()}catch{}
+    try{
+      const iframe=ytPlayer?.getIframe?.();
+      if(iframe)iframe.style.display="none";
+    }catch{}
+    player.classList.add("tiktok-active");
+    if(tiktokLiveVideo)tiktokLiveVideo.hidden=false;
+  }
+
+  function showYoutubePlayerSurface(){
+    activateYoutubeSurface();
   }
 
   function attachTikTokFlv(url,meta,{legacy=false}={}){
@@ -4883,9 +4929,8 @@ html.one-col.portrait .player.pip{
     const hls=String(meta?.hlsUrl||"").trim();
     if(!id||(!direct&&!hls))return false;
 
-    try{ytPlayer?.pauseVideo?.()}catch{}
     stopTikTokLivePlayback();
-    player.classList.add("tiktok-active");
+    activateTikTokSurface();
 
     currentMeta=meta;
     const ratio=
@@ -4901,7 +4946,8 @@ html.one-col.portrait .player.pip{
       kind,
       ratio,
       detectedRatio:ratio,
-      label:String(meta?.title||"")
+      label:String(meta?.title||""),
+      provider:"tiktok"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
@@ -4925,7 +4971,7 @@ html.one-col.portrait .player.pip{
       if(String(current?.id||"")!==id)return;
       const w=Number(tiktokLiveVideo.videoWidth)||0;
       const h=Number(tiktokLiveVideo.videoHeight)||0;
-      if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true});
+      if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
     };
 
     if(
@@ -7507,6 +7553,7 @@ html.one-col.portrait .player.pip{
   // media column is merely parked off-screen, so the iframe stays renderable.
   parkPlayerAtMainHome();
 
+  player.dataset.mediaProvider="youtube";
   installTikTokLiveControls();
 
   // Start API/player creation as early as possible. No video is selected here,
