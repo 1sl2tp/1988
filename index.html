@@ -2142,12 +2142,10 @@ html.one-col .row-thumb.inline-playing > .player:not(.pip){
   font:600 13px/40px Roboto,Arial,sans-serif;
   text-align:center;
 }
-.row.live-card .row-avatar-shell::before,
-.row.live-card .row-avatar-shell::after{
-  display:none;
-}
+/* LIVE avatar stays neutral when idle. When selected/playing it uses the
+   same rotating playback ring as every other video card. */
 .row.live-card .row-avatar{
-  box-shadow:0 0 0 2px #f00;
+  box-shadow:none;
 }
 .row-live-avatar-badge{
   position:absolute;
@@ -5355,7 +5353,15 @@ html.one-col.portrait .player.pip{
   }
 
   function avatarMarkup(meta,eager=false){
-    const avatar=meta.sourceAvatar || "";
+    // Some YouTube result/package rows arrive without an avatar even though
+    // another row for the same channel already has it. Reuse the channel
+    // identity already present in RAM/packages before falling back to initials.
+    const provider=String(meta?.provider||"youtube").toLowerCase();
+    const identity=
+      provider==="youtube"&&meta?.sourceId
+        ?localSourceIdentity(meta.sourceId)
+        :{};
+    const avatar=String(meta?.sourceAvatar||identity?.sourceAvatar||"").trim();
     const liveBadge=meta.isLive
       ?'<span class="row-live-avatar-badge">'+liveBroadcastIconMarkup()+'</span>'
       :"";
