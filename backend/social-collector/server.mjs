@@ -296,50 +296,6 @@ function acquireRenderMediaProxy(res){
   return true;
 }
 
-function trustedTikTokUiMediaRequest(req){
-  const origin=String(req?.headers?.origin||'').replace(/\/$/,'').toLowerCase();
-  const referer=String(req?.headers?.referer||'').toLowerCase();
-  const configured=String(ORIGIN||'').replace(/\/$/,'').toLowerCase();
-  const allowed=[
-    configured,
-    'https://yt.taphoa.xyz',
-    'https://www.yt.taphoa.xyz'
-  ].filter(Boolean);
-
-  if(origin&&allowed.includes(origin))return true;
-  return allowed.some(base=>referer===base+'/'||referer.startsWith(base+'/'));
-}
-
-function acquireTikTokVideoFallbackProxy(req,res){
-  // Keep the global Render media proxy off by default. TikTok VOD gets a
-  // narrow emergency path only after direct CDN playback has failed in the UI.
-  // This path is limited to our own yt.taphoa.xyz pages and two concurrent
-  // streams so it cannot silently turn Render into the primary media CDN.
-  if(RENDER_MEDIA_PROXY_ENABLED)return acquireRenderMediaProxy(res);
-
-  if(!trustedTikTokUiMediaRequest(req)){
-    json(res,410,{ok:false,error:'media_proxy_disabled',mode:'direct-cdn-only'});
-    return false;
-  }
-
-  const limit=Math.min(2,MAX_RENDER_MEDIA_PROXIES);
-  if(activeRenderMediaProxies>=limit){
-    res.setHeader('retry-after','3');
-    json(res,429,{ok:false,error:'media_proxy_busy',retryAfter:3});
-    return false;
-  }
-
-  activeRenderMediaProxies+=1;
-  let released=false;
-  const release=()=>{
-    if(released)return;
-    released=true;
-    activeRenderMediaProxies=Math.max(0,activeRenderMediaProxies-1);
-  };
-  res.once('finish',release);
-  res.once('close',release);
-  return true;
-}
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,Number(value)||0));
 }
@@ -8994,7 +8950,7 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
-    if(!acquireTikTokVideoFallbackProxy(req,res))return;
+    if(!acquireRenderMediaProxy(res))return;
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       const id=String(url.searchParams.get('id')||'').trim();
