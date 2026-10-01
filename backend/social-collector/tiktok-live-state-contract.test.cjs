@@ -57,3 +57,24 @@ assert.match(server,/function runTikTokLiveMinuteSweep\(\{targetHandles=null,exh
   'canonical sweep must support an explicit exhaustive mode');
 assert.match(server,/const deepPick=exhaustive[\s\S]{0,180}\? coldTargets\.slice\(\)[\s\S]{0,180}: coldTargets\.length/,
   'exhaustive mode must deep-check every cold selected channel');
+
+
+const quickStart=server.indexOf('async function quickTikTokLiveStateOnly(');
+const quickEnd=server.indexOf('async function browserTikTokLiveStates(',quickStart);
+const quick=server.slice(quickStart,quickEnd);
+assert.match(quick,/if\(!liveRoom&&!?roomId\)[\s\S]{0,220}known:true[\s\S]{0,120}live:false[\s\S]{0,120}status:4/,
+  'HTTP-success with no LIVE room must have one canonical OFFLINE meaning');
+
+const detailStart=server.indexOf('async function quickTikTokLiveDetailStatus(');
+const detailEnd=server.indexOf('async function quickTikTokRoomInfoStatus(',detailStart);
+const detail=server.slice(detailStart,detailEnd);
+assert.match(detail,/\.\.\.\(tiktokApiCookieHeader\?\{'cookie':tiktokApiCookieHeader\}:\{\}\)/,
+  'LIVE detail request must send the refreshed TikTok cookie');
+
+const sweepStart=server.indexOf('function runTikTokLiveMinuteSweep(');
+const sweepEnd=server.indexOf('async function runTikTokLiveAuditSweep(',sweepStart);
+const sweep=server.slice(sweepStart,sweepEnd);
+assert.match(sweep,/if\(first\[i\]\?\.state\?\.known\)continue;/,
+  'known LIVE or OFFLINE fingerprint must stop before deep checks');
+assert.match(sweep,/evidence\.some\(x=>x\.known&&!x\.live&&Number\(x\.status\)===4\)/,
+  'canonical status=4 must be sufficient OFFLINE evidence');
