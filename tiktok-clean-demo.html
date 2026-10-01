@@ -661,20 +661,34 @@ async function openVideo(rawHandle,videoId,retry=true){
   if(!video.playback?.ready||!stream)return;
 
   const src=/^https?:\/\//i.test(stream)?stream:(API+stream);
+  const proxyStream=String(video.playback?.proxyUrl||'').trim();
+  const fallbackSrc=proxyStream
+    ? (/^https?:\/\//i.test(proxyStream)?proxyStream:(API+proxyStream))
+    : '';
+  let fallbackUsed=false;
   native.onerror=()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
-    if(!retry){
+
+    // Direct CDN first. Render only carries MP4 bytes if the direct URL fails
+    // in this browser/session.
+    if(!fallbackUsed&&fallbackSrc&&fallbackSrc!==src){
+      fallbackUsed=true;
+      setTimeout(()=>{
+        if(seq!==videoOpenSeq||mediaMode!=='video')return;
+        native.src=fallbackSrc;
+        native.load();
+        native.play().catch(()=>{});
+      },200);
       return;
     }
+    if(!retry)return;
 
-    // Stable playback route: the server refreshes an expired MP4 in the
-    // background. Retry the same URL once; do not reload the whole package.
     setTimeout(()=>{
       if(seq!==videoOpenSeq||mediaMode!=='video')return;
-      native.src=src;
+      native.src=fallbackUsed&&fallbackSrc?fallbackSrc:src;
       native.load();
       native.play().catch(()=>{});
     },1200);
@@ -801,7 +815,7 @@ function emptyLiveState(){
     probeState:'unknown',
     title:'',
     cover:{url:'',sourceUrl:'',storedUrl:''},
-    stream:{type:'',sourceSig:'',url:''},
+    stream:{type:'',sourceSig:'',url:'',proxyUrl:''},
     checkedAt:null,
     updatedAt:null
   };
@@ -840,6 +854,7 @@ function applyUnifiedLibrary(data){
           type:String(v?.playback?.type||'mp4'),
           ready:Boolean(v?.playback?.ready),
           url:String(v?.playback?.url||''),
+          proxyUrl:String(v?.playback?.proxyUrl||''),
           source:String(v?.playback?.source||''),
           expiresAt:v?.playback?.expiresAt||null,
           updatedAt:v?.playback?.updatedAt||null
@@ -922,13 +937,14 @@ function applyLiveNow(data){
         isLive:false,
         playable:false,
         probeState:'offline',
-        stream:{type:'',sourceSig:'',url:''}
+        stream:{type:'',sourceSig:'',url:'',proxyUrl:''}
       };
       continue;
     }
 
     const sourceSig=String(item?.sourceSig||'');
     const streamUrl=String(item?.streamUrl||'');
+    const proxyUrl=String(item?.proxyUrl||'');
     const playable=Boolean(item?.playable&&sourceSig&&streamUrl);
     row.live={
       isLive:true,
@@ -943,7 +959,8 @@ function applyLiveNow(data){
       stream:{
         type:playable?String(item?.type||''):'',
         sourceSig:playable?sourceSig:'',
-        url:playable?streamUrl:''
+        url:playable?streamUrl:'',
+        proxyUrl:playable?proxyUrl:''
       },
       checkedAt:Number(item?.lastSeenAt||data?.checkedAt||0)||null,
       updatedAt:Number(item?.changedAt||0)||null
@@ -987,7 +1004,7 @@ async function loadChannels({force=false,silent=false}={}){
   return loadUnifiedLibrary({force,silent});
 }
 
-function attachFlv(url,handle,retryCount=0){
+function attachFlv(url,handle,retryCount=0,fallbackUrl=''){
   const video=document.getElementById('liveVideo');
   destroyPlayer();
   let failed=false;
@@ -1016,9 +1033,8 @@ function attachFlv(url,handle,retryCount=0){
   p.attachMediaElement(video);
   p.load();
 
-  // Start while openChannel is still inside the user's click gesture.
-  // Waiting only for METADATA_ARRIVED can lose autoplay permission or leave
-  // Chrome stuck at the first frame even though the HTTP-FLV stream is valid.
+  // Direct CDN first. If browser/CORS/header policy rejects it, switch once
+  // to the Render compatibility proxy. This keeps normal media bytes off Render.
   startPlayback();
   p.on(flvjs.Events.MEDIA_INFO,()=>{
     setPlayerShape(video);
@@ -1033,9 +1049,16 @@ function attachFlv(url,handle,retryCount=0){
     failed=true;
     destroyPlayer();
     document.getElementById('nowState').textContent='';
-    if(retryCount<1&&handle===currentHandle&&mediaMode==='live'){
+    if(handle!==currentHandle||mediaMode!=='live')return;
+    if(fallbackUrl&&fallbackUrl!==url){
       setTimeout(()=>{
-        if(handle===currentHandle&&mediaMode==='live')attachFlv(url,handle,retryCount+1);
+        if(handle===currentHandle&&mediaMode==='live')attachFlv(fallbackUrl,handle,0,'');
+      },250);
+      return;
+    }
+    if(retryCount<1){
+      setTimeout(()=>{
+        if(handle===currentHandle&&mediaMode==='live')attachFlv(url,handle,retryCount+1,'');
       },900);
     }
   });
@@ -1075,11 +1098,14 @@ function openChannel(rawHandle){
   currentType=String(stream.type||'').toLowerCase();
 
   const packaged=String(stream.url||'').trim();
+  const proxy=String(stream.proxyUrl||'').trim();
   if(live.isLive&&live.playable&&packaged&&currentSourceSig&&currentType==='flv'){
-    const base=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
-    const url=base;
+    const url=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
+    const fallback=proxy
+      ? (/^https?:\/\//i.test(proxy)?proxy:(API+proxy))
+      : '';
     document.getElementById('nowState').textContent='';
-    attachFlv(url,handle);
+    attachFlv(url,handle,0,fallback);
     return;
   }
 
