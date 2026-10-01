@@ -5308,7 +5308,12 @@ html.one-col.portrait .player.pip{
     titleEl.textContent=title;
     videoSourceEl.innerHTML=
       escapeHtml(source)+(meta.verified?verifiedBadgeMarkup():"");
-    videoFactsEl.innerHTML=compactFactsMarkup(meta);
+    // TikTok LIVE already shows LIVE + viewer count on the thumbnail.
+    // Do not repeat "N đang xem" again in the detail/info line.
+    const hideTikTokLiveFacts=
+      String(meta?.provider||"").toLowerCase()==="tiktok" &&
+      meta?.isLive===true;
+    videoFactsEl.innerHTML=hideTikTokLiveFacts?"":compactFactsMarkup(meta);
     renderInfoQuickActions(meta);
     if(videoMetaSep)videoMetaSep.hidden=true;
     syncVideoDocumentIdentity({push:false});
@@ -7802,9 +7807,17 @@ html.one-col.portrait .player.pip{
   // so this cannot autoplay or resurrect the old waiting MAIN.
   void ensureYoutubePlayer();
 
-  // Deep link owns the initial media. Setting it before loading packages prevents
-  // Live's first item from replacing the requested video.
-  openVideoFromLocation();
+  // A video selected inside the app writes yt1988:"video" into history.state.
+  // Browsers/PWAs preserve that state across F5 and session restore, which used
+  // to resurrect the last video automatically. Treat that as stale UI state and
+  // reopen on the feed instead. A genuine pasted/shared deep link still has no
+  // app-owned history.state, so it continues to open normally.
+  const restoredAppVideoState=history.state?.yt1988==="video";
+  if(restoredAppVideoState){
+    history.replaceState(null,"",location.pathname+location.search);
+  }else{
+    openVideoFromLocation();
+  }
 
   loadExistingSourceNames();
   requestAnimationFrame(()=>{
