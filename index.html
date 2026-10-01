@@ -4974,7 +4974,11 @@ html.one-col.portrait .player.pip{
         const id=String(meta?.id||"").trim();
         return (
           /^[A-Za-z0-9_-]{11}$/.test(id) &&
-          !String(meta?.sourceAvatar||"").trim() &&
+          (
+            !String(meta?.sourceId||"").trim() ||
+            !String(meta?.sourceName||"").trim() ||
+            !String(meta?.sourceAvatar||"").trim()
+          ) &&
           !youtubeLiveAvatarLookupDone.has(id) &&
           !youtubeLiveAvatarLookupPending.has(id)
         );
@@ -4989,17 +4993,20 @@ html.one-col.portrait .player.pip{
       try{
         const payload=await videoMetaApi(id);
         const full=cardMetaFromRow(dataRow(payload));
+        const sourceId=String(full?.sourceId||"").trim();
+        const sourceName=String(full?.sourceName||"").trim();
         const avatar=String(full?.sourceAvatar||"").trim();
-        if(avatar){
-          meta.sourceAvatar=avatar;
-          if(full?.sourceId)meta.sourceId=String(full.sourceId);
-          if(full?.sourceName)meta.sourceName=String(full.sourceName);
-          if(meta.sourceId){
-            sourceIdentityCache.set(String(meta.sourceId),{
-              sourceName:String(meta.sourceName||""),
-              sourceAvatar:avatar
-            });
-          }
+
+        if(sourceId)meta.sourceId=sourceId;
+        if(sourceName)meta.sourceName=sourceName;
+        if(avatar)meta.sourceAvatar=avatar;
+
+        if(meta.sourceId){
+          sourceIdentityCache.set(String(meta.sourceId),{
+            sourceName:String(meta.sourceName||""),
+            sourceAvatar:String(meta.sourceAvatar||"")
+          });
+          queueYoutubeChannelDirectory(meta,"live-resolve");
         }
       }catch{}
       finally{
