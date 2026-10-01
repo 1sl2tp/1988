@@ -2946,7 +2946,16 @@ html.one-col.portrait .player.pip{
 
     const w=Number(meta.videoWidth||meta.width)||0;
     const h=Number(meta.videoHeight||meta.height)||0;
-    return w>0&&h>0?validMediaAspect(w/h):0;
+    if(w>0&&h>0)return validMediaAspect(w/h);
+
+    // Server/package may already know the orientation even when exact
+    // dimensions are unavailable. This is a prediction only; the real
+    // YouTube videoContentRect still confirms/corrects it after playback.
+    const kind=String(meta.mediaKind||meta.media_kind||"").toLowerCase();
+    if(kind==="portrait"||kind==="vertical")return 9/16;
+    if(kind==="landscape"||kind==="horizontal")return 16/9;
+
+    return 0;
   }
 
   function rememberMediaAspect(id,ratio,source="",verified=false){
@@ -3318,7 +3327,12 @@ html.one-col.portrait .player.pip{
   }
 
   function syncCurrentKindFromYoutubePlayer(player=ytPlayer){
-    if(!player||!current?.id)return false;
+    if(
+      !player||
+      !current?.id||
+      currentMediaProvider!=="youtube"||
+      current?.provider!=="youtube"
+    )return false;
 
     const expectedId=String(current.id||"").trim();
     let loadedId="";
@@ -3486,10 +3500,15 @@ html.one-col.portrait .player.pip{
     const metaRatio=mediaAspectFromMeta(meta||{});
     const primedRatio=cachedPrimedAspect(id);
 
-    // YouTube owns its own geometry. Never inherit a TikTok ratio/state.
-    // Package/verified aspect wins; otherwise start from YouTube's neutral 16:9
-    // until the iframe reports this video's real content rect.
-    const fallbackRatio=16/9;
+    // Reuse only YouTube's own previous geometry. Never inherit TikTok shape.
+    const previousYoutubeRatio=
+      current?.provider==="youtube"
+        ?(
+            validMediaAspect(current?.detectedRatio)||
+            validMediaAspect(current?.ratio)
+          )
+        :0;
+    const fallbackRatio=previousYoutubeRatio||16/9;
 
     const resolvedAspect=
       confirmedRatio||
@@ -3516,6 +3535,23 @@ html.one-col.portrait .player.pip{
       provider:"youtube"
     };
     applyMediaLayoutSelection(kind,{relayout:true});
+
+    // If this card/package did not carry a shape, ask the existing media-meta
+    // resolver in the background. Playback starts immediately; this request
+    // may only correct the shared shell's portrait/landscape geometry.
+    if(!confirmedRatio&&!metaRatio&&!primedRatio){
+      void primeMediaAspect(id).then(ratio=>{
+        if(
+          ratio&&
+          currentMediaProvider==="youtube"&&
+          current?.provider==="youtube"&&
+          String(current?.id||"")===id
+        ){
+          commitCurrentAspect(id,ratio,{relayout:true,provider:"youtube"});
+        }
+      });
+    }
+
     if(history==="push"){
       syncVideoDocumentIdentity({push:true});
     }else if(history==="replace"){
