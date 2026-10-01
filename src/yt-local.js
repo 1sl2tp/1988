@@ -3,7 +3,7 @@ import { BotGuardClient, getChallenge } from 'https://cdn.jsdelivr.net/npm/bguti
 import { WebPoMinter, createColdStartToken } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/webpo.js';
 import { buildURL, getHeaders } from 'https://cdn.jsdelivr.net/npm/bgutils-js@4.0.3/dist/exports/utils.js';
 
-const PROXY='https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt-browser-proxy';
+const PROXY='https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt-browser-proxy';
 const VIDEO_ID_RE=/^[A-Za-z0-9_-]{11}$/;
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
 
