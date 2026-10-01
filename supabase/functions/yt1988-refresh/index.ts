@@ -2030,11 +2030,17 @@ Deno.serve(async(req:Request)=>{
   }
 
   if(!await claimLease(rest,authHeaders)){
-    if(clientCheck){
-      return json({ok:true,skipped:true,reason:"refresh_already_running",scopes});
-    }
-    await queuePendingRefresh(rest,authHeaders,scopes);
-    return json({ok:true,skipped:true,queued:true,reason:"refresh_already_running",scopes});
+    // Browser checks must never create duplicate work. Internal follow-ups are
+    // persisted to pending_scopes before they are invoked, so re-queueing here
+    // would make the same scope perpetually schedule itself while another run
+    // owns the lease.
+    return json({
+      ok:true,
+      skipped:true,
+      queued:false,
+      reason:"refresh_already_running",
+      scopes
+    });
   }
 
   if(clientCheck&&scopes.length){
