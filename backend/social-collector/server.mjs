@@ -662,12 +662,39 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
   const probe=await probeTikTokLiveSource(handle,row);
   row.lastProbeAt=Date.now();
   if(probe.ok){
+    const browserProbe=await probeTikTokBrowserDirectFlv(handle,row);
+    if(!browserProbe.ok){
+      row.confirmed=false;
+      if(!preserveOnFailure){
+        markTikTokBadSource(handle,row);
+        const live=tiktokConfirmedLiveNow(handle);
+        updateTikTokLiveLibrary(handle,{
+          ready:false,playable:false,status:live?'warming':'offline',
+          type:live?String(row.type||''):'',
+          mode:String(mode||row.mode||''),
+          source:String(source||row.source||''),
+          sourceSig:'',
+          videoCodec:'',audioCodec:'',width:0,height:0,
+          lastProbeAt:Date.now(),lastSeenAt:Date.now()
+        });
+      }
+      console.log(
+        '[tiktok-library] browser-direct reject',
+        handle,
+        row.type,
+        browserProbe.error||'browser_probe_failed'
+      );
+      return false;
+    }
+
     row.confirmed=true;
     row.at=Date.now();
     row.videoCodec=probe.videoCodec;
     row.audioCodec=probe.audioCodec;
     row.width=probe.width;
     row.height=probe.height;
+    row.browserDirect=true;
+    row.browserCors=String(browserProbe.acao||'');
     clearTikTokBadSource(handle,row);
     const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
     const live=tiktokConfirmedLiveNow(handle);
@@ -2803,6 +2830,63 @@ async function probeTikTokFlvBytes(handle,row,headers=null){
       hasVideo:false,
       hasAudio:false
     };
+  }finally{
+    clearTimeout(timer);
+    try{await reader?.cancel?.()}catch{}
+  }
+}
+
+async function probeTikTokBrowserDirectFlv(handle,row){
+  const url=String(row?.url||'');
+  if(!/^https?:\/\//i.test(url))return {ok:false,error:'missing_url'};
+
+  const appOrigin='https://yt.taphoa.xyz';
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),3500);
+  let reader=null;
+  try{
+    const r=await fetch(url,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'origin':appOrigin,
+        'referer':appOrigin+'/',
+        'range':'bytes=0-262143'
+      },
+      redirect:'follow',
+      signal:controller.signal
+    });
+    if(!(r.ok||r.status===206)||!r.body){
+      return {ok:false,error:'http_'+r.status};
+    }
+
+    const acao=String(r.headers.get('access-control-allow-origin')||'').trim();
+    if(acao!=='*'&&acao!==appOrigin){
+      return {ok:false,error:'cors_'+(acao||'missing')};
+    }
+
+    reader=r.body.getReader();
+    const chunks=[];
+    let total=0;
+    while(total<262144){
+      const part=await reader.read();
+      if(part.done)break;
+      if(part.value?.length){
+        chunks.push(Buffer.from(part.value));
+        total+=part.value.length;
+      }
+      if(total>=65536){
+        const inspected=inspectFlvBytes(Buffer.concat(chunks,total));
+        if(inspected.hasVideo&&(inspected.hasAudio||total>=131072)){
+          return {...inspected,ok:true,bytes:total,acao,url:String(r.url||url)};
+        }
+      }
+    }
+    const inspected=inspectFlvBytes(Buffer.concat(chunks,total));
+    return {...inspected,ok:Boolean(inspected.ok),bytes:total,acao,url:String(r.url||url)};
+  }catch(error){
+    return {ok:false,error:compactText(error?.message||error,120)};
   }finally{
     clearTimeout(timer);
     try{await reader?.cancel?.()}catch{}
@@ -6686,11 +6770,43 @@ function canonicalMergeVideo(handle,video){
   tiktokCanonicalVideos.set(id,next);
   return next;
 }
+function preferredTikTokLibraryPlayback(handle,id,row=null){
+  handle=normalizeTikTokHandle(handle);
+  id=String(id||'').trim();
+  if(!handle||!/^\d{8,}$/.test(id))return null;
+
+  const library=tiktokVideoLibrary.get(handle.toLowerCase())||null;
+  const video=(Array.isArray(library?.videos)?library.videos:[])
+    .find(item=>String(item?.id||'')===id)||null;
+  const url=String(video?.playUrl||video?.play_url||'').trim();
+
+  if(isDirectTikTokMediaUrl(url)){
+    const expiresAt=tiktokStreamExpiresAt(url);
+    if(!expiresAt||expiresAt-Date.now()>60_000){
+      return {
+        url,
+        source:'library-play-url',
+        expiresAt:expiresAt?new Date(expiresAt).toISOString():null
+      };
+    }
+  }
+
+  if(row&&canonicalMp4Usable(row)){
+    return {
+      url:String(row.mp4_url||''),
+      source:String(row.mp4_source||'library'),
+      expiresAt:row.mp4_expires_at||null
+    };
+  }
+  return null;
+}
+
 function canonicalPackageVideo(row){
   const handle=String(row.handle||'');
   const id=String(row.video_id||'');
   const sourceCover=String(row.cover_source_url||'');
   const storedCover=String(row.cover_stored_url||'');
+  const playback=preferredTikTokLibraryPlayback(handle,id,row);
   return {
     id,
     handle,
@@ -6714,12 +6830,12 @@ function canonicalPackageVideo(row){
     },
     playback:{
       type:'mp4',
-      ready:canonicalMp4Usable(row),
-      // Direct CDN only. Render media proxy is disabled.
-      url:canonicalMp4Usable(row)?String(row.mp4_url||''):'',
+      ready:Boolean(playback?.url),
+      // Browser plays the signed TikTok CDN URL directly. No Render proxy.
+      url:String(playback?.url||''),
       proxyUrl:'',
-      source:String(row.mp4_source||''),
-      expiresAt:row.mp4_expires_at||null,
+      source:String(playback?.source||''),
+      expiresAt:playback?.expiresAt||null,
       updatedAt:row.mp4_updated_at||null
     }
   };
