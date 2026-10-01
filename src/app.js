@@ -460,6 +460,7 @@ const HASHTAG_CONFIG_CACHE_KEY="1988-hashtag-config-cache-v2";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
 const STATE_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-state";
 const PACKAGE_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-packages";
+const REFRESH_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-refresh";
 let stateSyncReady=false;
 let stateSyncApplying=false;
 let stateSyncDirty=false;
@@ -1729,11 +1730,6 @@ async function refreshServerStateOnResume(){
       if(!document.documentElement.classList.contains("watch-browse")){
         const active=state.activeFeed||"latest";
         void loadFeedPreset(active);
-        // Returning to the app should also check for newly uploaded videos,
-        // not merely repaint the last cached package.
-        setTimeout(()=>{
-          void refreshAllSourceSnapshotsInBackground({force:true});
-        },120);
       }
     }
   }catch{}
@@ -10420,6 +10416,8 @@ async function loadParentCategoryPackage(parent){
       renderTrendTopics();
       applyActiveCategorySnapshot(parent,{force:true});
     }
+
+    void requestServerPackageRefresh(parent.key);
   }catch(error){
     console.warn("server category package sync deferred",parent?.label||parent?.key,error);
   }finally{
@@ -16184,10 +16182,6 @@ document.addEventListener("visibilitychange",()=>{
   restoreViewport();
   requestAnimationFrame(restoreViewport);
 
-  // When the app becomes visible again, refresh complete snapshots for all
-  // tabs in the background. The currently visible list is never reordered.
-  void refreshAllSourceSnapshotsInBackground();
-
   if(MediaCore.modeUsesAudio(state.mode)){
     updateModeUi();
     return;
@@ -16477,6 +16471,66 @@ async function packageSyncFetch(method="GET",scope="",body=null,timeout=5200){
   }
 }
 
+const packageRefreshPromises=new Map();
+const packageRefreshLastAt=new Map();
+
+function activePackageScope(){
+  if(state.activeParent&&CONTENT_SOURCE_SCOPES.has(state.activeParent))return state.activeParent;
+  if(state.activeFeed&&MANAGED_SOURCE_SCOPES.has(state.activeFeed))return state.activeFeed;
+  return LATEST_SOURCE_SCOPE;
+}
+
+async function requestServerPackageRefresh(scope,{force=false}={}){
+  scope=String(scope||"").trim();
+  if(!MANAGED_SOURCE_SCOPES.has(scope))return false;
+
+  if(packageRefreshPromises.has(scope))return packageRefreshPromises.get(scope);
+  const now=Date.now();
+  const last=Number(packageRefreshLastAt.get(scope)||0);
+  if(!force&&now-last<1500)return false;
+  packageRefreshLastAt.set(scope,now);
+
+  const task=(async()=>{
+    try{
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),45000);
+      let result=null;
+      try{
+        const response=await fetch(REFRESH_SYNC_URL,{
+          method:"POST",
+          cache:"no-store",
+          signal:controller.signal,
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify({scopes:[scope],client_check:true})
+        });
+        if(response.ok)result=await response.json().catch(()=>null);
+      }finally{
+        clearTimeout(timer);
+      }
+
+      // A concurrent visitor may own the server lease. Re-read the small
+      // manifest after the check so every client can consume that shared result.
+      await hydrateServerPackages({force:true});
+
+      if(state.activeParent===scope){
+        const parent=FIXED_CONTENT_CATEGORIES.find(item=>item.key===scope);
+        if(parent&&packageScopeChanged(scope))applyActiveCategorySnapshot(parent,{force:true});
+      }else if(state.activeFeed===scope&&packageScopeChanged(scope)){
+        applyActiveFeedSnapshot(scope,{force:true});
+      }
+      return result||false;
+    }catch(error){
+      console.warn("server package check failed",scope,error);
+      return false;
+    }finally{
+      packageRefreshPromises.delete(scope);
+    }
+  })();
+
+  packageRefreshPromises.set(scope,task);
+  return task;
+}
+
 function nextPackageWriteVersion(){
   const now=Date.now();
   packageWriteClock=Math.max(now,packageWriteClock+1);
@@ -16707,7 +16761,6 @@ const SOURCE_CHANNEL_CACHE_PREFIX="1988-source-channel-v2:";
 const SOURCE_CHANNEL_CACHE_MAX_AGE=2*60*60*1000;
 const SOURCE_CHANNEL_RECHECK_TTL=60*1000;
 const SERVER_PACKAGE_MANIFEST_TTL=120*1000;
-const SOURCE_FEED_AUTO_REFRESH_MS=120*1000;
 const SOURCE_FIRST_PAINT_ROWS=8;
 let sourceFeedPendingRenderName="";
 
@@ -17375,6 +17428,10 @@ async function loadFeedPreset(name="latest"){
     applyActiveFeedSnapshot(name,{force:true});
   }
 
+  // Opening/switching a feed is the refresh trigger. The server applies its
+  // own cooldown + lease, so many visitors share one upstream check.
+  void requestServerPackageRefresh(name);
+
   state.feedLoading=false;
   state.feedHasMore=false;
 }
@@ -17464,11 +17521,6 @@ function maybeLoadMoreFeed(){
 
 window.addEventListener("scroll",maybeLoadMoreFeed,{passive:true});
 window.addEventListener("resize",maybeLoadMoreFeed,{passive:true});
-setInterval(()=>{
-  if(document.hidden||state.searchResultsActive)return;
-  void refreshAllSourceSnapshotsInBackground({force:true});
-},SOURCE_FEED_AUTO_REFRESH_MS);
-
 // A normal browser tab may be restored from session/BFCache with an old in-memory
 // feed even though the server package has already changed. Incognito starts from
 // a clean page, which is why it can look newer. On every real resume, compare
@@ -17480,7 +17532,7 @@ function syncServerPackagesOnResume(){
   const now=Date.now();
   if(now-packageResumeSyncAt<1500)return;
   packageResumeSyncAt=now;
-  void refreshAllSourceSnapshotsInBackground({force:true});
+  void requestServerPackageRefresh(activePackageScope());
 }
 
 window.addEventListener("pageshow",syncServerPackagesOnResume,{passive:true});
