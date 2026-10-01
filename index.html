@@ -4500,15 +4500,30 @@ html.one-col.portrait .player.pip{
     return String(meta?.sourceSig||meta?.id||"").trim();
   }
 
+  function livePreviewForMeta(meta={}){
+    if(!meta?.isLive)return String(meta?.thumbnail||"").trim();
+    const provider=String(meta?.provider||"youtube").toLowerCase();
+    if(provider==="tiktok"){
+      const key=framePreviewKey(meta);
+      return (key?tiktokFramePreviewCache.get(key)||"":"")||
+        String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    }
+    return String(meta?.livePreview||meta?.thumbnail||"").trim();
+  }
+
   function cachedTikTokFramePreview(meta={}){
     const key=framePreviewKey(meta);
     return key?tiktokFramePreviewCache.get(key)||"":"";
   }
 
-  function applyTikTokFramePreview(meta={},dataUrl=""){
+  function applyLivePreview(meta={},dataUrl=""){
+    if(!meta?.isLive||!dataUrl)return false;
+    const provider=String(meta?.provider||"youtube").toLowerCase();
     const key=framePreviewKey(meta);
-    if(!key||!dataUrl)return false;
-    tiktokFramePreviewCache.set(key,dataUrl);
+    if(provider==="tiktok"){
+      if(!key)return false;
+      tiktokFramePreviewCache.set(key,dataUrl);
+    }
     meta.thumbnail=dataUrl;
     meta.livePreview=dataUrl;
 
@@ -4620,32 +4635,38 @@ html.one-col.portrait .player.pip{
     tiktokFramePreviewQueue=tiktokFramePreviewQueue.then(async()=>{
       try{
         const dataUrl=await captureTikTokLiveFrame(meta);
-        if(dataUrl)applyTikTokFramePreview(meta,dataUrl);
+        if(dataUrl)applyLivePreview(meta,dataUrl);
       }finally{
         tiktokFramePreviewPending.delete(key);
       }
     });
   }
 
-  function primeVisibleTikTokFramePreviews(){
+  function primeVisibleLivePreviews(){
     if(feedMode!=="package"||activePackageScope!=="live")return;
-    const rows=[...document.querySelectorAll('.row[data-provider="tiktok"]')];
-    let queued=0;
+    const rows=[...document.querySelectorAll(".row.live-card")];
+    let tiktokQueued=0;
     for(const row of rows){
       const rect=row.getBoundingClientRect();
       if(rect.bottom<0||rect.top>innerHeight*1.6)continue;
       const id=String(row.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
-      if(!meta)continue;
-      const cached=cachedTikTokFramePreview(meta);
-      if(cached){
+      if(!meta?.isLive)continue;
+
+      const preview=livePreviewForMeta(meta);
+      if(preview){
         const img=row.querySelector(".row-thumb img");
-        if(img&&img.src!==cached)img.src=cached;
-        continue;
+        if(img&&img.src!==preview)img.src=preview;
       }
-      queueTikTokFramePreview(meta);
-      queued++;
-      if(queued>=3)break;
+
+      if(
+        String(meta?.provider||"youtube").toLowerCase()==="tiktok"&&
+        !cachedTikTokFramePreview(meta)&&
+        tiktokQueued<3
+      ){
+        queueTikTokFramePreview(meta);
+        tiktokQueued++;
+      }
     }
   }
 
@@ -4885,7 +4906,7 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    const previewUrl=String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    const previewUrl=livePreviewForMeta(meta);
     if(tiktokLivePreview){
       tiktokLivePreview.hidden=!previewUrl;
       if(previewUrl)tiktokLivePreview.src=previewUrl;
@@ -5509,7 +5530,7 @@ html.one-col.portrait .player.pip{
     const id=meta.id || current.id;
     const title=meta.title || current.label;
     const source=meta.sourceName || "1988";
-    const baseThumb=meta.thumbnail ||
+    const baseThumb=(meta.isLive?livePreviewForMeta(meta):String(meta.thumbnail||"").trim()) ||
       ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg");
     // Render the known-safe package image first. Higher quality variants are
     // swapped in only after their decoded dimensions prove they are real art.
@@ -6256,7 +6277,7 @@ html.one-col.portrait .player.pip{
       }
     }
 
-    primeVisibleTikTokFramePreviews();
+    primeVisibleLivePreviews();
     observeFeedMasonryRows();
   }
 
@@ -7410,7 +7431,7 @@ html.one-col.portrait .player.pip{
     closeRowActionMenu();
     syncHeaderScrollState();
     schedulePip();
-    primeVisibleTikTokFramePreviews();
+    primeVisibleLivePreviews();
     syncMobileHeaderVisibility();
   },{passive:true});
 
