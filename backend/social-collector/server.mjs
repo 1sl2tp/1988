@@ -9004,6 +9004,41 @@ const server=http.createServer(async(req,res)=>{
     return;
   }
 
+  if(url.pathname==='/tiktok/video-fingerprints'&&req.method==='GET'){
+    try{
+      await loadTikTokCanonicalStore();
+      const items=[...tiktokLiveSelectedHandles]
+        .map(handle=>{
+          const key=handle.toLowerCase();
+          const canonical=tiktokCanonicalChannels.get(key)||{};
+          const videoRow=tiktokVideoLibrary.get(key)||{};
+          const latestCanonical=[...tiktokCanonicalVideos.values()]
+            .filter(row=>String(row?.handle||'').toLowerCase()===key)
+            .sort((a,b)=>Number(b?.create_time||0)-Number(a?.create_time||0))[0]||null;
+          return {
+            handle,
+            secUid:String(canonical?.sec_uid||videoRow?.secUid||''),
+            videoCount:Number(canonical?.video_count||0),
+            latestVideoId:String(
+              videoRow?.latestVideoId||
+              videoRow?.videos?.[0]?.id||
+              latestCanonical?.video_id||
+              ''
+            )
+          };
+        })
+        .sort((a,b)=>a.handle.localeCompare(b.handle));
+      json(res,200,{
+        ok:true,
+        total:items.length,
+        items
+      });
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error)});
+    }
+    return;
+  }
+
   if(url.pathname==='/tiktok/channel-videos'&&req.method==='GET'){
     const handle=normalizeTikTokHandle(url.searchParams.get('user')||url.searchParams.get('handle')||'');
     if(!handle){json(res,400,{ok:false,error:'invalid_tiktok_handle'});return;}
@@ -9787,10 +9822,13 @@ server.listen(PORT,'0.0.0.0',()=>{
 
     void runTikTokLiveMinuteSweep();
     startTikTokLiveSweepScheduler();
-    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},90_000).unref();
+    // Cloudflare edge owns frequent video-change detection. Keep only a
+    // delayed single-channel recovery scan after startup.
+    setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(1));},30*60_000).unref();
   });
   if(AUTO_COLLECT){
-    setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
+    // Recovery only: normal video discovery is edge-triggered by videoCount.
+    setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(1));},2*60*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},5*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},2*60*60_000).unref();
     // No recurring image mirror: keep only source URLs in metadata.
