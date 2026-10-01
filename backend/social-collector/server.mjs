@@ -8854,7 +8854,7 @@ const server=http.createServer(async(req,res)=>{
         source:String(a?.source||'user-room'),
         known:Boolean(a?.known),
         live:Boolean(a?.live),
-        status:Number.isFinite(Number(a?.status))?Number(a.status):null
+        status:(a?.status===null||a?.status===undefined||a?.status==='')?null:(Number.isFinite(Number(a.status))?Number(a.status):null)
       });
 
       if(!a?.live){
@@ -8865,7 +8865,7 @@ const server=http.createServer(async(req,res)=>{
           source:String(b?.source||'live-detail'),
           known:Boolean(b?.known),
           live:Boolean(b?.live),
-          status:Number.isFinite(Number(b?.status))?Number(b.status):null
+          status:(b?.status===null||b?.status===undefined||b?.status==='')?null:(Number.isFinite(Number(b.status))?Number(b.status):null)
         });
       }
 
@@ -8885,10 +8885,28 @@ const server=http.createServer(async(req,res)=>{
         }
       }
 
-      let live=hasLive();
+      const key=handle.toLowerCase();
+
+      // Feed the fast/browser evidence into the shared status record, then run
+      // the same deep yt-dlp + profile-room fallback used by background scans.
+      for(const row of evidence)addTikTokStatusEvidence(handle,row);
+      if(!hasLive()&&offlineCount()<2&&!tiktokRealtimeLiveHandles.has(key)){
+        await queueTikTokStatusFallback([handle]).catch(()=>{});
+        const deep=tiktokRealtimeStatusByHandle.get(key);
+        for(const row of Array.isArray(deep?.evidence)?deep.evidence:[]){
+          const duplicate=evidence.some(x=>
+            x?.source===row?.source&&
+            Boolean(x?.known)===Boolean(row?.known)&&
+            Boolean(x?.live)===Boolean(row?.live)&&
+            (x?.status??null)===(row?.status??null)
+          );
+          if(!duplicate)evidence.push(row);
+        }
+      }
+
+      let live=hasLive()||tiktokRealtimeLiveHandles.has(key);
       let offlineConfirmed=!live&&offlineCount()>=2;
       const checkedAt=Date.now();
-      const key=handle.toLowerCase();
       const stored=tiktokLiveLibrary.get(key)||{};
       const retainedLive=Boolean(
         tiktokRealtimeLiveHandles.has(key)||
