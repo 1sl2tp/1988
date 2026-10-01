@@ -6523,6 +6523,17 @@ html.one-col.portrait .player.pip{
     );
   }
 
+  function tiktokVideoFallbackStreamUrl(meta={}){
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    const id=String(meta?.id||"").trim();
+    if(!handle||!/^[0-9]{8,}$/.test(id))return "";
+    return (
+      TIKTOK_LIBRARY_API+
+      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
+      "&id="+encodeURIComponent(id)
+    );
+  }
+
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
@@ -6586,6 +6597,16 @@ html.one-col.portrait .player.pip{
         if(seq!==sourceSeq||String(current?.id||"")!==id)return;
         if(fallbackUsed)return;
         fallbackUsed=true;
+
+        // TikTok's signed CDN URL may require request headers that a native
+        // <video> element cannot set. The backend fallback preserves Range
+        // requests and the TikTok Referer/User-Agent, but is used only after
+        // the direct CDN path has actually failed.
+        const fallback=tiktokVideoFallbackStreamUrl(meta);
+        if(fallback&&String(fallback)!==String(src)){
+          useSource(fallback);
+          return;
+        }
 
         void resolveTikTokVideoPlayback(meta,true).then(next=>{
           if(
