@@ -118,6 +118,7 @@ let tiktokLivePersistedVersion=-1;
 const TIKTOK_LIVE_LIBRARY_REFRESH_MS=60_000;
 const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
 const TIKTOK_LIVE_DISCOVERY_BATCH=10;
+const TIKTOK_LIVE_PRIORITY_BATCH=18;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -1585,6 +1586,7 @@ function ensureTikTokLivePackageScan(handles=null){
 
 let tiktokLiveMinuteSweepPromise=null;
 let tiktokLiveDiscoveryCursor=0;
+let tiktokLivePriorityCursor=0;
 let tiktokRealtimeLiveHandles=new Set();
 // Current scan evidence for every selected handle. This is intentionally
 // separate from the playable FLV library so "LIVE detected" is never hidden
@@ -1612,15 +1614,28 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       // that made TikTok return 403 for almost everything.
       const livePriority=selected.filter(handle=>tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
       const discovery=selected.filter(handle=>!tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
-      const picked=[];
+
+      // Recheck current LIVE channels in a rotating batch instead of hammering
+      // every retained LIVE on each sweep. A large retained set used to make one
+      // sweep last several minutes and repeatedly reopened yt-dlp/browser work.
+      const livePicked=[];
+      if(livePriority.length){
+        const take=Math.min(TIKTOK_LIVE_PRIORITY_BATCH,livePriority.length);
+        for(let i=0;i<take;i+=1){
+          livePicked.push(livePriority[(tiktokLivePriorityCursor+i)%livePriority.length]);
+        }
+        tiktokLivePriorityCursor=(tiktokLivePriorityCursor+take)%livePriority.length;
+      }
+
+      const discoveryPicked=[];
       if(discovery.length){
         const take=Math.min(TIKTOK_LIVE_DISCOVERY_BATCH,discovery.length);
         for(let i=0;i<take;i+=1){
-          picked.push(discovery[(tiktokLiveDiscoveryCursor+i)%discovery.length]);
+          discoveryPicked.push(discovery[(tiktokLiveDiscoveryCursor+i)%discovery.length]);
         }
         tiktokLiveDiscoveryCursor=(tiktokLiveDiscoveryCursor+take)%discovery.length;
       }
-      target=[...new Set([...livePriority,...picked])];
+      target=[...new Set([...livePicked,...discoveryPicked])];
     }
 
     if(!target.length){
@@ -1808,7 +1823,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
     // Every current/retained LIVE immediately enters the shared FLV resolver.
     const liveHandles=target.filter(handle=>nextLive.has(handle.toLowerCase()));
     if(liveHandles.length){
-      void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:true})
+      void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:false})
         .then(()=>resolveTikTokLiveSourceBatch(liveHandles))
         .catch(error=>{
           console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
