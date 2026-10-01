@@ -41,6 +41,19 @@ def wait_statuses():
 def main():
     statuses = wait_statuses()
     library = get_json(f"/tiktok/library?v=-1&t={int(time.time())}", timeout=30)
+    live_now = get_json(f"/tiktok/live-now?t={int(time.time())}", timeout=60)
+
+    live_items = live_now.get("items") or []
+    bad_live_items = [
+        x for x in live_items
+        if not (
+            x.get("live") is True
+            and x.get("playable") is True
+            and str(x.get("type") or "").lower() == "flv"
+            and str(x.get("streamUrl") or "")
+            and str(x.get("sourceSig") or "")
+        )
+    ]
 
     channels = library.get("channels") or []
     items = statuses.get("items") or []
@@ -75,6 +88,18 @@ def main():
     print("LIBRARY_TOTAL", len(lib_handles))
     print("STATUS_TOTAL", len(status_handles))
     print("COUNTS", json.dumps(statuses.get("counts") or {}, ensure_ascii=False, sort_keys=True))
+    print("LIVE_NOW_COUNT", len(live_items))
+    print("LIVE_NOW", json.dumps([
+        {
+            "handle": x.get("handle"),
+            "live": x.get("live"),
+            "playable": x.get("playable"),
+            "type": x.get("type"),
+            "has_link": bool(x.get("streamUrl")),
+            "source": x.get("source"),
+        }
+        for x in live_items
+    ], ensure_ascii=False, sort_keys=True))
     print("MISSING", missing)
     print("EXTRA", extra)
     print("DUPLICATES", dupes)
@@ -95,6 +120,8 @@ def main():
         row = next((x for x in items if str(x.get("handle") or "").lower() == target), None)
         print("TARGET", target, json.dumps(row, ensure_ascii=False, sort_keys=True) if row else "NOT_SELECTED")
 
+    assert not bad_live_items, f"live-now contains unverified/dead-link rows: {bad_live_items[:10]}"
+    assert len({str(x.get("handle") or "").lower() for x in live_items}) == len(live_items), "duplicate handle in live-now"
     assert len(lib_handles) == len(set(lib_handles)), "duplicate handles in library"
     assert len(status_handles) == len(set(status_handles)), "duplicate handles in statuses"
     assert not missing, f"missing selected handles in status endpoint: {missing[:20]}"
