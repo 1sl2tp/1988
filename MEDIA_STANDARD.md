@@ -213,3 +213,21 @@ if (provider === "youtube") { customTwoColumnGeometry(...) }
 ```
 
 Provider branching is allowed only inside playback adapters, provider-specific controls, provider-specific metadata acquisition, and provider-specific route/download functions.
+
+
+## Orientation prediction
+
+Orientation prediction is not a playback engine.
+
+For YouTube, opening a selected video follows this order:
+
+1. verified cached aspect from the real YouTube player
+2. aspect/dimensions already present in package metadata
+3. package `mediaKind` prediction (`portrait` / `landscape`)
+4. cached media-meta prediction
+5. YouTube-only previous shell ratio, never TikTok ratio
+6. neutral 16:9 fallback
+
+If steps 1-4 are missing, the existing media-meta resolver may run in the background after the click. It must never delay `loadVideoById()`.
+
+The YouTube iframe/API player is identical for portrait and landscape. Shape changes only the shared shell geometry. After playback begins, `videoContentRect` remains authoritative and may correct the prediction.
