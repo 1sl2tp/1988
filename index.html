@@ -2668,6 +2668,16 @@ html.one-col.portrait .player.pip{
 
   let current={id:"",kind:"landscape",ratio:16/9,detectedRatio:0,label:"",provider:"youtube"};
   let currentMediaProvider="youtube";
+
+  function normalizedMediaProvider(value){
+    return String(value||"youtube").toLowerCase()==="tiktok"?"tiktok":"youtube";
+  }
+  function mediaProviderFor(meta=currentMeta){
+    return normalizedMediaProvider(meta?.provider||current?.provider||currentMediaProvider);
+  }
+  function hasCurrentMedia(){
+    return Boolean(String(current?.id||"").trim());
+  }
   let pip=false;
   let raf=0;
   let pipGesture=null;
@@ -3751,7 +3761,7 @@ html.one-col.portrait .player.pip{
       root.style.setProperty("--feed-cols",String(cols));
     }else{
       const contentW=Math.max(1,pageW-(pageEdge*2));
-      const hasSelectedMedia=/^[A-Za-z0-9_-]{11}$/.test(String(current?.id||""));
+      const hasSelectedMedia=hasCurrentMedia();
       if(!hasSelectedMedia){
         root.style.setProperty("--feed-cols",String(chooseCardColumns(contentW,cardGap)));
         return;
@@ -4326,9 +4336,7 @@ html.one-col.portrait .player.pip{
     if(scope==="live")void refreshTikTokLiveFeed({paint:true});
 
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
-      if(metas[0]?.provider==="tiktok"){
-        playTikTokLive(metas[0]);
-      }else if(navigateToVideo(metas[0].id,metas[0],{replace:true})){
+      if(openMedia(metas[0],{replace:true})){
         renderCurrentInfo();
       }
     }
@@ -5009,6 +5017,18 @@ html.one-col.portrait .player.pip{
     renderCurrentInfo();
     schedulePip();
     return true;
+  }
+
+  function openMedia(meta={},options={}){
+    const id=String(meta?.id||"").trim();
+    if(!id)return false;
+
+    const provider=normalizedMediaProvider(meta?.provider);
+    if(provider==="tiktok"){
+      return playTikTokLive(meta);
+    }
+
+    return navigateToVideo(id,meta,{replace:options?.replace===true});
   }
 
   function verifiedBadgeMarkup(){
@@ -6158,11 +6178,15 @@ html.one-col.portrait .player.pip{
 
     const next=list[index+1];
     const nextId=String(next?.id||"").trim();
-    if(!/^[A-Za-z0-9_-]{11}$/.test(nextId))return false;
-    if(!navigateToVideo(nextId,next))return false;
+    if(!nextId)return false;
+    if(!openMedia(next))return false;
 
     renderCurrentInfo();
-    if(feedMode!=="package"&&selectedMetaNeedsLookup(next)){
+    if(
+      mediaProviderFor(next)==="youtube"&&
+      feedMode!=="package"&&
+      selectedMetaNeedsLookup(next)
+    ){
       void loadCurrentVideoMeta();
     }
 
@@ -6840,7 +6864,7 @@ html.one-col.portrait .player.pip{
     root.classList.toggle("two-col",two);
     root.classList.toggle("portrait",portrait);
     root.classList.toggle("landscape",!portrait);
-    root.classList.toggle("media-empty",two&&!/^[A-Za-z0-9_-]{11}$/.test(String(current?.id||"")));
+    root.classList.toggle("media-empty",two&&!hasCurrentMedia());
 
     /* CSS owns all geometry:
        landscape follows width, portrait follows height. */
@@ -6868,7 +6892,7 @@ html.one-col.portrait .player.pip{
         }
       }
       if(!attached){
-        if(/^[A-Za-z0-9_-]{11}$/.test(currentId)){
+        if(currentId){
           inlineVideoId=currentId;
           showPlayerAsPip();
         }else{
@@ -7031,7 +7055,7 @@ html.one-col.portrait .player.pip{
     }
 
     const currentId=String(current?.id||"").trim();
-    if(/^[A-Za-z0-9_-]{11}$/.test(currentId)){
+    if(currentId){
       const card=document.querySelector('.row[data-video-id="'+currentId+'"]');
       if(card){
         inlineVideoId=currentId;
@@ -7382,20 +7406,16 @@ html.one-col.portrait .player.pip{
       openSelectedVideoInline(card,id);
     }
 
-    if(selectedMeta?.provider==="tiktok"){
-      if(playTikTokLive(selectedMeta)){
-        renderCurrentInfo();
-        schedulePip();
-      }
-      return;
-    }
-
-    if(navigateToVideo(id,selectedMeta)){
+    if(selectedMeta&&openMedia(selectedMeta)){
       renderCurrentInfo();
 
       // Package tabs are complete server snapshots: UI reads them only.
-      // Search/deep-link flows may still fill genuinely missing fields.
-      if(feedMode!=="package"&&selectedMetaNeedsLookup(selectedMeta)){
+      // Search/deep-link flows may still fill genuinely missing YouTube fields.
+      if(
+        mediaProviderFor(selectedMeta)==="youtube"&&
+        feedMode!=="package"&&
+        selectedMetaNeedsLookup(selectedMeta)
+      ){
         void loadCurrentVideoMeta();
       }
       schedulePip();
