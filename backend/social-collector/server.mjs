@@ -2483,7 +2483,6 @@ function detectTikTokLiveRoomSignal(value,path='',depth=0){
     value?.room_id||
     value?.liveRoomId||
     value?.live_room_id||
-    value?.id_str||
     ''
   ).trim();
   const rawStatus=
