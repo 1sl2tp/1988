@@ -5043,7 +5043,7 @@ async function mergeDetailedTikTokVideoMetadata(handle,id,row,{persist=true}={})
   if(persist){
     void upsertTikTokCanonicalRows([], [merged])
       .then(()=>queueTikTokCanonicalSync([handle]))
-      .then(()=>mirrorTikTokCanonicalImages(4))
+      // Keep image URLs only; do not upload image bytes to Supabase Storage.
       .catch(error=>console.log('[tiktok-video-meta] persist failed',handle,id,compactText(error?.message||error,120)));
   }
   return true;
@@ -6138,7 +6138,7 @@ async function fullResyncTikTokSelectedData(){
     tiktokFullResyncState.phase='package';
     await syncTikTokCanonicalLibrary(handles,{profiles:profileResult.profiles,mirror:false});
     await persistTikTokCanonicalPackage();
-    void mirrorTikTokCanonicalImages(40).catch(()=>{});
+    // Images remain origin URLs; do not mirror them into Supabase Storage.
 
     tiktokFullResyncState.running=false;
     tiktokFullResyncState.phase='done';
@@ -6717,7 +6717,7 @@ function buildTikTokCanonicalPackage(){
           bio:String(row.bio||''),
           verified:Boolean(row.verified),
           avatar:{
-            url:avatarStored||avatarSource,
+            url:avatarSource||avatarStored,
             sourceUrl:avatarSource,
             storedUrl:avatarStored,
             width:Number(row.avatar_width||0),
@@ -6735,7 +6735,7 @@ function buildTikTokCanonicalPackage(){
           playable:Boolean(row.live&&row.live_stream_url&&row.live_source_sig),
           title:String(row.live_title||''),
           cover:{
-            url:liveCoverStored||liveCoverSource,
+            url:liveCoverSource||liveCoverStored,
             sourceUrl:liveCoverSource,
             storedUrl:liveCoverStored
           },
@@ -7251,7 +7251,7 @@ function queueTikTokCanonicalSync(handles=null){
     while(tiktokCanonicalPendingHandles.size){
       const batch=[...tiktokCanonicalPendingHandles];
       tiktokCanonicalPendingHandles.clear();
-      await syncTikTokCanonicalLibrary(batch,{mirror:true});
+      await syncTikTokCanonicalLibrary(batch,{mirror:false});
     }
   })().catch(error=>{
     console.warn('[tiktok-library] queued sync failed',compactText(error?.message||error,160));
