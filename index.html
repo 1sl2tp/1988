@@ -4459,7 +4459,7 @@ html.one-col.portrait .player.pip{
     return task;
   }
 
-  async function showPackageScope(scope){
+  async function showPackageScope(scope,{hydrateLive=true}={}){
     scope=String(scope||"").trim()||"live";
     if(scope!=="live")stopYoutubeLiveDemand();
     activePackageScope=scope;
@@ -4480,6 +4480,11 @@ html.one-col.portrait .player.pip{
       if(metas.length)feedMetas=metas;
       renderSampleContent();
       primeTikTokPlaybackNeighborhood();
+
+      // Entering LIVE reads the already-built Cloudflare snapshots only.
+      // This is not a discovery scan: TikTok/YouTube can appear as soon as
+      // each current snapshot arrives, while the existing list stays visible.
+      if(hydrateLive)void hydrateUnifiedLiveSnapshots({paint:true});
       return feedMetas;
     }
 
@@ -4945,8 +4950,42 @@ html.one-col.portrait .player.pip{
     };
   }
 
-  async function hydrateUnifiedLiveSnapshots(){
-    return refreshUnifiedLiveInBackground({force:true,reason:"reload"});
+  async function hydrateUnifiedLiveSnapshots({paint=true}={}){
+    if(!liveDemandActive())return false;
+    if(unifiedLiveSnapshotPromise)return unifiedLiveSnapshotPromise;
+
+    unifiedLiveSnapshotPromise=(async()=>{
+      let changed=false;
+
+      const youtubeTask=fetchYoutubeLiveSnapshot()
+        .then(snapshot=>{
+          if(!liveDemandActive())return false;
+          youtubeEdgeLiveMetas=snapshot.metas;
+          youtubeEdgeLiveReady=true;
+          changed=true;
+          if(paint)paintUnifiedLiveFromEdge();
+          void hydrateMissingYoutubeLiveAvatars({paint});
+          return true;
+        })
+        .catch(()=>false);
+
+      const tiktokTask=refreshTikTokLiveFeed({paint:false,force:true})
+        .then(()=>{
+          if(!liveDemandActive()||!tiktokLiveReady)return false;
+          changed=true;
+          if(paint)paintUnifiedLiveFromEdge();
+          primeTikTokPlaybackNeighborhood();
+          return true;
+        })
+        .catch(()=>false);
+
+      await Promise.allSettled([youtubeTask,tiktokTask]);
+      if(changed)saveClientLiveSnapshot();
+      return changed;
+    })().finally(()=>{
+      unifiedLiveSnapshotPromise=null;
+    });
+    return unifiedLiveSnapshotPromise;
   }
 
   async function refreshUnifiedLiveInBackground({force=true,reason="manual"}={}){
@@ -6446,9 +6485,14 @@ html.one-col.portrait .player.pip{
       }else{
         await restoreStoredPackage(scope);
       }
-      const painted=await showPackageScope(scope);
+      const painted=await showPackageScope(
+        scope,
+        {hydrateLive:scope!=="live"}
+      );
 
       // Reload is the only automatic LIVE discovery trigger.
+      // It owns this first LIVE cycle, so do not race it with a stale
+      // /youtube/live-now read from the previous snapshot.
       if(scope==="live"&&liveDemandActive()){
         liveDiscoveryLastAt=Date.now();
         void refreshUnifiedLiveInBackground({force:true,reason:"reload"});
