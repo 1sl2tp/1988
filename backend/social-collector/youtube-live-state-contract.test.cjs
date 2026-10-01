@@ -1,3 +1,4 @@
+// Live list contract: status only; media is user-demand.
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 
