@@ -1951,12 +1951,46 @@ html.one-col .row.selected:has(.row-menu:active)::before{
   transition:transform .18s cubic-bezier(.2,0,0,1);
 }
 .row.live-card[data-provider="tiktok"] .row-thumb{
+  aspect-ratio:16/9!important;
   background:var(--yt-thumb-bg);
 }
 .row.live-card[data-provider="tiktok"] .row-thumb img{
   object-fit:cover;
-  object-position:center 38%;
+  object-position:center center;
   background:transparent;
+}
+.tiktok-live-badge{
+  position:absolute;
+  left:10px;
+  top:10px;
+  z-index:2;
+  min-height:22px;
+  display:inline-flex;
+  align-items:center;
+  overflow:hidden;
+  border-radius:4px;
+  color:#fff;
+  font:600 13px/20px Roboto,Arial,sans-serif;
+  line-height:20px;
+  box-shadow:0 1px 2px rgba(0,0,0,.18);
+}
+.tiktok-live-badge .tiktok-live-label{
+  padding:1px 6px;
+  background:#ff2d75;
+  letter-spacing:.1px;
+}
+.tiktok-live-badge .tiktok-live-viewers{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  padding:1px 6px 1px 5px;
+  background:rgba(0,0,0,.72);
+}
+.tiktok-live-badge .tiktok-live-viewers svg{
+  width:13px;
+  height:13px;
+  flex:0 0 13px;
+  fill:currentColor;
 }
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > img,
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > .duration-badge{
@@ -4785,6 +4819,7 @@ html.one-col.portrait .player.pip{
       livePreviewIsSession,
       isLive:true,
       verified:false,
+      viewerCount:Math.max(0,Number(item?.viewerCount)||0),
       viewsLabel:compactLiveViewerCount(item?.viewerCount),
       publishedLabel:"Đang trực tiếp",
       durationLabel:"",
@@ -5782,31 +5817,26 @@ html.one-col.portrait .player.pip{
     // swapped in only after their decoded dimensions prove they are real art.
     const thumb=baseThumb;
 
+    const provider=String(meta?.provider||"youtube").toLowerCase();
+    const tiktokLive=meta?.isLive&&provider==="tiktok";
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
+    const tiktokViewerCount=Math.max(0,Number(meta?.viewerCount)||0);
+    const tiktokLiveMarkup=tiktokLive
+      ?'<span class="tiktok-live-badge"><span class="tiktok-live-label">LIVE</span><span class="tiktok-live-viewers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg><span>'+escapeHtml(String(Math.round(tiktokViewerCount)))+'</span></span></span>'
+      :"";
     const durationMarkup=meta.isLive
-      ?'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>'
+      ?(tiktokLive?"":'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>')
       :(duration?'<span class="duration-badge">'+escapeHtml(duration)+'</span>':"");
     const facts=[meta.viewsLabel,meta.publishedLabel].filter(Boolean).join(" • ");
     const factsMarkup=compactFactsMarkup(meta);
     const verified=meta.verified?verifiedBadgeMarkup():"";
-
-    const provider=String(meta?.provider||"youtube").toLowerCase();
-    const tiktokLive=meta?.isLive&&provider==="tiktok";
-    const thumbRatio=tiktokLive
-      ?(
-          meta?.livePreviewIsSession
-            ?(validMediaAspect(meta?.aspectRatio)||9/16)
-            :1
-        )
-      :0;
-    const thumbStyle=thumbRatio
-      ?' style="aspect-ratio:'+String(thumbRatio)+'"'
-      :"";
+    const thumbStyle="";
 
     return (
       '<article class="row'+(meta.isLive?' live-card':'')+(String(id)===String(current?.id||"")?' selected':'')+'" tabindex="0" data-video-id="'+escapeHtml(id)+'" data-provider="'+escapeHtml(meta.provider||"youtube")+'" data-source-id="'+escapeHtml(meta.sourceId||"")+'" data-title="'+escapeHtml(title.toLowerCase())+'" data-source="'+escapeHtml(source.toLowerCase())+'">'+
         '<div class="row-thumb"'+thumbStyle+'>'+
           '<img src="'+escapeHtml(thumb)+'" data-thumb-base="'+escapeHtml(baseThumb)+'" data-thumb-fallback-stage="0" alt="" loading="'+(index<4?'eager':'lazy')+'" decoding="async" fetchpriority="'+(index<2?'high':'auto')+'">'+
+          tiktokLiveMarkup+
           durationMarkup+
         '</div>'+
         '<div class="row-details">'+
