@@ -2450,6 +2450,7 @@ html.one-col.portrait .player.pip{
   };
   const SOURCE_STATE_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-state";
   const PACKAGE_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-packages";
+  const PACKAGE_REFRESH_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-refresh";
   const VIDEO_META_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-video-meta";
   const MEDIA_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
   const GETLINK_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-getlink";
@@ -4199,22 +4200,90 @@ html.one-col.portrait .player.pip{
     setTimeout(()=>{ void syncPreparedPackages(scopes); },0);
   }
 
-  // Manifest polling must stay cheap: Edge Function invocations are billed
-  // per request. A 5s loop alone exceeds the Free monthly quota for one
-  // continuously open tab. Packages are immutable-by-hash, so two minutes plus
-  // an immediate visibility refresh preserves freshness while cutting idle
-  // Supabase invocations roughly in half.
-  const PACKAGE_MANIFEST_POLL_MS=120_000;
-  setInterval(()=>{
-    if(document.hidden)return;
-    void syncPreparedPackages([],{refreshManifest:true});
-  },PACKAGE_MANIFEST_POLL_MS);
+  // Demand-driven package checks:
+  // - non-LIVE tabs do not poll in the background;
+  // - open/focus/manual refresh checks only the active scope;
+  // - LIVE gets a light check only while LIVE is actually visible;
+  // - the server-side due gate/lease decides whether any upstream refresh work
+  //   is necessary. Unchanged package hashes never trigger a package download.
+  const PACKAGE_DEMAND_MIN_GAP_MS=15_000;
+  const LIVE_ACTIVE_CHECK_MS=60_000;
+  let packageDemandPending=null;
+  let lastPackageDemandAt=0;
+
+  async function requestPreparedRefresh(scopes=[]){
+    const wanted=[...new Set(
+      (Array.isArray(scopes)?scopes:[])
+        .map(value=>String(value||"").trim())
+        .filter(Boolean)
+    )];
+    if(!wanted.length)return false;
+    try{
+      const response=await fetch(PACKAGE_REFRESH_URL,{
+        method:"POST",
+        cache:"no-store",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({scopes:wanted,client_check:true})
+      });
+      return response.ok;
+    }catch(_){
+      return false;
+    }
+  }
+
+  async function checkPackagesOnDemand(scopes=[]){
+    if(document.hidden)return false;
+    const wanted=[...new Set(
+      ((Array.isArray(scopes)&&scopes.length)?scopes:[activePackageScope])
+        .map(value=>String(value||"").trim())
+        .filter(Boolean)
+    )];
+    if(!wanted.length)return false;
+    if(packageDemandPending)return packageDemandPending;
+    const now=Date.now();
+    if(now-lastPackageDemandAt<PACKAGE_DEMAND_MIN_GAP_MS)return false;
+    lastPackageDemandAt=now;
+
+    packageDemandPending=(async()=>{
+      // The refresh endpoint first performs its cheap due/lease check. When the
+      // scope is not due it returns immediately and no YouTube/channel fetch is
+      // started. The UI then compares the small manifest and downloads only a
+      // package whose immutable hash actually changed.
+      await requestPreparedRefresh(wanted);
+      await loadPackageManifest();
+      return syncPreparedPackages(wanted);
+    })().finally(()=>{
+      packageDemandPending=null;
+    });
+    return packageDemandPending;
+  }
 
   document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible"){
-      void syncPreparedPackages([],{refreshManifest:true});
+    if(document.visibilityState==="visible"&&feedMode==="package"){
+      void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
+
+  addEventListener("focus",()=>{
+    if(feedMode==="package"){
+      void checkPackagesOnDemand([activePackageScope]);
+    }
+  },{passive:true});
+
+  addEventListener("online",()=>{
+    if(feedMode==="package"){
+      void checkPackagesOnDemand([activePackageScope]);
+    }
+  },{passive:true});
+
+  setInterval(()=>{
+    if(
+      document.hidden ||
+      feedMode!=="package" ||
+      activePackageScope!=="live"
+    )return;
+    void checkPackagesOnDemand(["live"]);
+  },LIVE_ACTIVE_CHECK_MS);
 
   function verifiedBadgeMarkup(){
     return '<span class="verified-badge" aria-label="Đã xác minh" title="Đã xác minh">'+
@@ -5044,6 +5113,15 @@ html.one-col.portrait .player.pip{
 
     // Synchronizer compares manifest hashes and downloads only changed scopes.
     prefetchPackages(scopes);
+
+    // Opening the app is a demand signal, not a background polling loop. Paint
+    // the last complete package first, then ask the server to check only the
+    // currently visible scope.
+    setTimeout(()=>{
+      if(feedMode==="package"){
+        void checkPackagesOnDemand([activePackageScope]);
+      }
+    },0);
     return rows;
   }
 
@@ -5677,7 +5755,11 @@ html.one-col.portrait .player.pip{
   }
 
   async function loadFeedData(){
-    await loadPackageManifest();
+    if(feedMode==="package"){
+      await checkPackagesOnDemand([activePackageScope]);
+    }else{
+      await loadPackageManifest();
+    }
     return showPackageScope(activePackageScope,{force:true});
   }
 
