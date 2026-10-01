@@ -9,8 +9,10 @@ assert.match(html,/src\/styles\/tokens\.css/);
 assert.match(html,/src\/styles\/base\.css/);
 assert.match(html,/src\/styles\/components\.css/);
 assert.match(html,/src\/styles\/pages\/tiktok\.css/);
-assert.match(html,/const PACKAGE_POLL_MS=60_000;/);
+assert.doesNotMatch(html,/PACKAGE_POLL_MS/);
 assert.match(html,/const LIVE_POLL_MS=30_000;/);
+assert.match(html,/const PACKAGE_CHECK_MIN_GAP_MS=15_000;/);
+assert.match(html,/async function checkLibraryOnDemand/);
 assert.equal((html.match(/<video\b/g)||[]).length,1,'TikTok must use one canonical video surface');
 assert.ok(!html.includes('id="videoFrame"'),'TikTok core playback must not depend on iframe');
 
@@ -66,3 +68,6 @@ assert.match(html,/installMediaControls\(\)/,'TikTok custom controls installatio
 assert.ok(!html.includes('controls=true'),'TikTok must not re-enable jumping native controls');
 
 console.log('tiktok-playback-contract: assertions passed');
+assert.match(server,/const TIKTOK_LIVE_PRIORITY_BATCH=18;/);
+assert.match(server,/tiktokLivePriorityCursor/);
+assert.match(server,/refreshTikTokLiveLibrary\(liveHandles,\{warm:false,force:false\}\)/);
