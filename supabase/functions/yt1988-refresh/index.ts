@@ -1920,18 +1920,21 @@ async function finishLease(rest:string,headers:any,ok:boolean,error=""){
 async function triggerFollowupRefresh(rest:string,headers:any,scopes:string[]){
   const wanted=[...new Set(scopes.map((s)=>clean(s,32)).filter(validScopeSyntax))];
   if(!wanted.length)return;
-  // Persist pending work first, then let the database schedule the next short
-  // Edge invocation with pg_net. This survives the current isolate shutting
-  // down and keeps long source sets split into safe batches.
+  // Persist pending work before chaining. The follow-up carries the server
+  // service-role Authorization so it is not mistaken for a new browser check
+  // and therefore is not blocked by the user-facing cooldown.
   await queuePendingRefresh(rest,headers,wanted);
-  const res=await fetch(rest+"/rpc/yt1988_enqueue_refresh",{
+  const supabaseUrl=rest.replace(/\/rest\/v1$/,"");
+  const task=fetch(supabaseUrl+"/functions/v1/yt1988-refresh",{
     method:"POST",
-    headers,
-    body:"{}"
-  }).catch(()=>null);
-  if(res&&!res.ok){
-    console.warn("followup enqueue failed",await res.text().catch(()=>""));
-  }
+    headers:{
+      "apikey":headers.apikey,
+      "authorization":headers.authorization,
+      "content-type":"application/json"
+    },
+    body:JSON.stringify({scopes:wanted})
+  }).catch((error)=>console.warn("followup refresh failed",String(error)));
+  try{(globalThis as any).EdgeRuntime?.waitUntil?.(task);}catch{}
 }
 
 Deno.serve(async(req:Request)=>{
