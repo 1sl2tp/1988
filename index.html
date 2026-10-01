@@ -4468,7 +4468,8 @@ html.one-col.portrait .player.pip{
       sourceName:String(item?.sourceName||"").trim()||("@"+handle),
       sourceId:"tiktok:"+handle.toLowerCase(),
       sourceAvatar:String(item?.avatar||"").trim(),
-      thumbnail:String(item?.cover||item?.avatar||"").trim(),
+      thumbnail:String(item?.preview||item?.cover||item?.avatar||"").trim(),
+      livePreview:String(item?.preview||item?.cover||"").trim(),
       isLive:true,
       verified:false,
       viewsLabel:compactLiveViewerCount(item?.viewerCount),
@@ -4726,7 +4727,7 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    const previewUrl=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    const previewUrl=String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
     if(tiktokLivePreview){
       tiktokLivePreview.hidden=!previewUrl;
       if(previewUrl)tiktokLivePreview.src=previewUrl;
