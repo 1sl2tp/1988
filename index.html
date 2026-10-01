@@ -4473,7 +4473,7 @@ html.one-col.portrait .player.pip{
       sourceName:String(item?.sourceName||"").trim()||("@"+handle),
       sourceId:"tiktok:"+handle.toLowerCase(),
       sourceAvatar:String(item?.avatar||"").trim(),
-      thumbnail:framePreview||String(item?.preview||item?.cover||item?.avatar||"").trim(),
+      thumbnail:framePreview||String(item?.preview||item?.cover||"").trim(),
       livePreview:framePreview||String(item?.preview||item?.cover||"").trim(),
       isLive:true,
       verified:false,
@@ -4506,7 +4506,7 @@ html.one-col.portrait .player.pip{
     if(provider==="tiktok"){
       const key=framePreviewKey(meta);
       return (key?tiktokFramePreviewCache.get(key)||"":"")||
-        String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
+        String(meta?.livePreview||meta?.thumbnail||"").trim();
     }
     return String(meta?.livePreview||meta?.thumbnail||"").trim();
   }
@@ -4919,7 +4919,7 @@ html.one-col.portrait .player.pip{
     if(tiktokLiveControls)tiktokLiveControls.hidden=false;
     syncTikTokControls();
     showTikTokControls();
-    tiktokLiveVideo.poster=previewUrl;
+    tiktokLiveVideo.poster="";
 
     tiktokLiveVideo.onloadedmetadata=()=>{
       if(String(current?.id||"")!==id)return;
@@ -5530,8 +5530,18 @@ html.one-col.portrait .player.pip{
     const id=meta.id || current.id;
     const title=meta.title || current.label;
     const source=meta.sourceName || "1988";
-    const baseThumb=(meta.isLive?livePreviewForMeta(meta):String(meta.thumbnail||"").trim()) ||
-      ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg");
+    const liveThumb=meta.isLive?livePreviewForMeta(meta):"";
+    const baseThumb=meta.isLive
+      ?(
+          liveThumb||
+          (String(meta?.provider||"youtube").toLowerCase()==="tiktok"
+            ?"data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+            :("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg"))
+        )
+      :(
+          String(meta.thumbnail||"").trim()||
+          ("https://i.ytimg.com/vi/"+encodeURIComponent(id)+"/hqdefault.jpg")
+        );
     // Render the known-safe package image first. Higher quality variants are
     // swapped in only after their decoded dimensions prove they are real art.
     const thumb=baseThumb;
