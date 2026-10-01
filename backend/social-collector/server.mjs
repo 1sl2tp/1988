@@ -356,7 +356,7 @@ function publicTikTokLibraryItem(row){
     sourceSig
   );
   const hotSource=currentTikTokLibrarySource(String(row.handle||''));
-  const directStreamUrl=playable?String(hotSource?.url||''):'';
+  const directStreamUrl=playableLive?String(hotSource?.url||''):'';
   return {
     handle:String(row.handle||''),
     // Public LIVE means "can be played now", not merely "TikTok reported LIVE".
