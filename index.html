@@ -1069,6 +1069,9 @@ main{
 }
 
 
+/* 1988 LAYER CONTRACT
+   card/background < preview < media < controls < inline/PiP surface < popup/menu.
+   Popup/menu must always be above fixed media overlays. */
 /* TikTok LIVE uses the exact same player shell / MAIN / PiP geometry.
    Only the media engine differs from YouTube. */
 .tiktok-live-preview{
@@ -1947,6 +1950,14 @@ html.one-col .row.selected:has(.row-menu:active)::before{
   object-fit:cover;
   transition:transform .18s cubic-bezier(.2,0,0,1);
 }
+.row.live-card[data-provider="tiktok"] .row-thumb{
+  background:#000;
+}
+.row.live-card[data-provider="tiktok"] .row-thumb img{
+  object-fit:contain;
+  object-position:center center;
+  background:#000;
+}
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > img,
 html.one-col .row-thumb.inline-playing:not(.pip-floating) > .duration-badge{
   visibility:hidden;
@@ -2276,7 +2287,7 @@ html.one-col .row-action-menu{
 
 .row-action-menu{
   position:fixed;
-  z-index:1200;
+  z-index:2147483600;
   width:min(286px,calc(100vw - 24px));
   padding:8px;
   border:1px solid var(--yt-border);
@@ -4490,8 +4501,8 @@ html.one-col.portrait .player.pip{
       sourceName:String(item?.sourceName||"").trim()||("@"+handle),
       sourceId:"tiktok:"+handle.toLowerCase(),
       sourceAvatar:String(item?.avatar||"").trim(),
-      thumbnail:framePreview||String(item?.preview||item?.cover||"").trim(),
-      livePreview:framePreview||String(item?.preview||item?.cover||"").trim(),
+      thumbnail:framePreview,
+      livePreview:framePreview,
       isLive:true,
       verified:false,
       viewsLabel:compactLiveViewerCount(item?.viewerCount),
@@ -4523,7 +4534,7 @@ html.one-col.portrait .player.pip{
     if(provider==="tiktok"){
       const key=framePreviewKey(meta);
       return (key?tiktokFramePreviewCache.get(key)||"":"")||
-        String(meta?.livePreview||meta?.thumbnail||"").trim();
+        String(meta?.livePreview||"").trim();
     }
     return String(meta?.livePreview||meta?.thumbnail||"").trim();
   }
@@ -4546,7 +4557,10 @@ html.one-col.portrait .player.pip{
 
     const row=document.querySelector('.row[data-video-id="'+CSS.escape(String(meta.id||""))+'"]');
     const img=row?.querySelector(".row-thumb img");
-    if(img)img.src=dataUrl;
+    if(img){
+      img.src=dataUrl;
+      requestAnimationFrame(()=>syncInlinePlayerOverlay());
+    }
 
     if(String(currentMeta?.id||"")===String(meta.id||"")&&tiktokLivePreview){
       tiktokLivePreview.src=dataUrl;
@@ -5348,6 +5362,10 @@ html.one-col.portrait .player.pip{
     menu.hidden=false;
     positionRowActionMenu(anchor);
     menu.style.visibility="";
+    requestAnimationFrame(()=>{
+      syncInlinePlayerOverlay();
+      requestAnimationFrame(()=>syncInlinePlayerOverlay());
+    });
   }
 
   function closeRowActionMenu(){
@@ -5357,6 +5375,7 @@ html.one-col.portrait .player.pip{
     menu.innerHTML="";
     openRowMenuMeta=null;
     openRowMenuAnchor=null;
+    requestAnimationFrame(()=>syncInlinePlayerOverlay());
   }
 
   function rowActionButton(action,label,icon,{disabled=false}={}){
@@ -7533,6 +7552,13 @@ html.one-col.portrait .player.pip{
     updateHeaderSearchRoom();
     updateSourceRailArrows();
   }).observe(sourceChips);
+
+  const feedGeometryObserver=new ResizeObserver(()=>{
+    if(player.classList.contains("inline-overlay")&&!player.classList.contains("pip")){
+      syncInlinePlayerOverlay();
+    }
+  });
+  feedGeometryObserver.observe(document.getElementById("rows"));
 
   window.visualViewport?.addEventListener?.("resize",()=>{
     syncBoundaries();
