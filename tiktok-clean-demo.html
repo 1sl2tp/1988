@@ -126,8 +126,9 @@
 
 <script>
 const API='https://one988-tiktok-session.onrender.com';
-const PACKAGE_POLL_MS=60_000;
 const LIVE_POLL_MS=30_000;
+const PACKAGE_CHECK_MIN_GAP_MS=15_000;
+let lastPackageCheckAt=0;
 
 let channels=[];
 let filterMode='all';
@@ -1288,13 +1289,40 @@ void (async()=>{
   await openRequestedMedia();
 })();
 renderRecentVideos('');
-setInterval(()=>{if(!document.hidden)void loadUnifiedLibrary({silent:true})},PACKAGE_POLL_MS);
-setInterval(()=>{if(!document.hidden)void loadLiveNow({silent:true})},LIVE_POLL_MS);
+
+async function checkLibraryOnDemand({force=false}={}){
+  if(document.hidden)return false;
+  const now=Date.now();
+  if(!force&&now-lastPackageCheckAt<PACKAGE_CHECK_MIN_GAP_MS)return false;
+  lastPackageCheckAt=now;
+  await loadUnifiedLibrary({force,silent:true});
+  return true;
+}
+
+// The library/package is immutable-by-version from the UI point of view.
+// Do not poll it every minute. Re-check only when the app becomes relevant
+// again or the user explicitly refreshes.
 document.addEventListener('visibilitychange',()=>{
   if(document.hidden)return;
-  void loadUnifiedLibrary({silent:true});
+  void checkLibraryOnDemand();
   void loadLiveNow({silent:true});
 });
+window.addEventListener('focus',()=>{
+  void checkLibraryOnDemand();
+  void loadLiveNow({silent:true});
+},{passive:true});
+window.addEventListener('online',()=>{
+  void checkLibraryOnDemand();
+  void loadLiveNow({silent:true});
+},{passive:true});
+
+// LIVE is the only genuinely time-sensitive surface. Reading /live-now is a
+// cheap snapshot read; the server owns discovery/FLV refresh. When the user is
+// browsing saved videos we stop this timer too.
+setInterval(()=>{
+  if(document.hidden||mediaMode!=='live')return;
+  void loadLiveNow({silent:true});
+},LIVE_POLL_MS);
 </script>
 </body>
 </html>
