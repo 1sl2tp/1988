@@ -46,7 +46,7 @@ if(simpleProduction){
   assert.match(html,/Tab\/UI reads memory only/);
   assert.match(html,/changedScopes=unique\.filter/);
   assert.match(html,/Promise\.allSettled\(changedScopes\.map/);
-  assert.match(html,/PACKAGE_MANIFEST_POLL_MS=60_000/);
+  assert.match(html,/PACKAGE_MANIFEST_POLL_MS=120_000/);
   assert.match(html,/getPackage\(scope,\{[\s\S]{0,120}force:true,[\s\S]{0,120}expectedHash:remoteHash/);
   assert.doesNotMatch(html,/packagePrefetchQueue/);
   assert.match(refresh,/function enrichRowsWithStoredVideoMeta\(/);
@@ -126,7 +126,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v34/);
+  assert.match(sw,/1988-simple-media-v35/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
