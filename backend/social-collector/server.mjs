@@ -3434,6 +3434,21 @@ async function captureTikTokLiveSessionOnce(rawHandle,options={}){
       sleep(500)
     ]).catch(()=>{});
 
+    // A LIVE page can emit its FLV a few hundred milliseconds after the main
+    // wait expires (especially while a navigation promise is still settling).
+    // Do one final grace window before declaring "no FLV"; without this, logs
+    // showed no-flv followed ~100 ms later by a valid FLV capture.
+    if(!capturedFlv){
+      const graceStarted=Date.now();
+      while(Date.now()-graceStarted<1500&&!capturedFlv){
+        if(pendingBodies.size)await Promise.race([
+          Promise.allSettled([...pendingBodies]),
+          sleep(120)
+        ]).catch(()=>{});
+        await sleep(120);
+      }
+    }
+
     // FLV-only playback. Non-FLV observations are ignored.
     const captured=capturedFlv;
     if(!captured){
