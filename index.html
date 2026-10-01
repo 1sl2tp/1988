@@ -4399,6 +4399,7 @@ html.one-col.portrait .player.pip{
     ++feedRequest;
     syncFeedHeader();
 
+    // Tab/UI reads memory only for the first paint.
     // A tab is a menu/feed surface. Entering or restoring a tab must never
     // auto-select or auto-play its first media, including desktop two-column.
     const baseMetas=packageCache.get(scope)||[];
