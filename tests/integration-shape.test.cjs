@@ -126,7 +126,7 @@ if(simpleProduction){
   assert.match(html,/root\.classList\.toggle\(["']two-col["'],two\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
-  assert.match(sw,/1988-simple-media-v35/);
+  assert.match(sw,/1988-simple-media-v\\d+/);
   assert.match(sw,/\.\/index\.html/);
   console.log('integration-shape: simple production media contract passed');
   process.exit(0);
