@@ -2712,6 +2712,10 @@ html.one-col.portrait .player.pip{
   let youtubeLiveScanSeq=0;
   let youtubeLiveAbortController=null;
   let youtubeLiveLastCycleAt=0;
+  const LIVE_DISCOVERY_MIN_GAP_MS=60_000;
+  let liveDiscoveryLastAt=0;
+  let liveLastSelectedId="";
+  const LIVE_CLIENT_SNAPSHOT_KEY="yt1988-live-client-snapshot-v1";
   let feedMetas=[];
   let relatedMetas=[];
   let feedRequest=0;
@@ -4470,17 +4474,13 @@ html.one-col.portrait .player.pip{
     const baseMetas=packageCache.get(scope)||[];
 
     if(scope==="live"){
-      const metas=(youtubeEdgeLiveReady&&tiktokLiveReady)
+      const metas=(youtubeEdgeLiveReady||tiktokLiveReady)
         ?mergeUnifiedLiveFeed(baseMetas)
-        :[];
-      feedMetas=metas;
+        :baseMetas;
+      if(metas.length)feedMetas=metas;
       renderSampleContent();
-
-      void hydrateUnifiedLiveSnapshots().then(()=>{
-        if(!liveDemandActive())return;
-        void refreshUnifiedLiveInBackground({force:true});
-      });
-      return metas;
+      primeTikTokPlaybackNeighborhood();
+      return feedMetas;
     }
 
     feedMetas=baseMetas;
@@ -4603,42 +4603,30 @@ html.one-col.portrait .player.pip{
       stopYoutubeLiveDemand();
       return;
     }
-    if(feedMode!=="package")return;
-    if(activePackageScope==="live"){
-      void hydrateUnifiedLiveSnapshots().then(()=>{
-        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:true});
-      });
-    }else{
+    if(feedMode==="package"&&activePackageScope!=="live"){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   addEventListener("focus",()=>{
-    if(feedMode!=="package"||document.hidden)return;
-    if(activePackageScope==="live"){
-      void hydrateUnifiedLiveSnapshots().then(()=>{
-        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:false});
-      });
-    }else{
+    if(
+      feedMode==="package"&&
+      !document.hidden&&
+      activePackageScope!=="live"
+    ){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   addEventListener("online",()=>{
-    if(feedMode!=="package"||document.hidden)return;
-    if(activePackageScope==="live"){
-      void hydrateUnifiedLiveSnapshots().then(()=>{
-        if(liveDemandActive())void refreshUnifiedLiveInBackground({force:true});
-      });
-    }else{
+    if(
+      feedMode==="package"&&
+      !document.hidden&&
+      activePackageScope!=="live"
+    ){
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
-
-  setInterval(()=>{
-    if(!liveDemandActive())return;
-    void refreshUnifiedLiveInBackground({force:true});
-  },LIVE_ACTIVE_CHECK_MS);
 
   function liveDemandActive(){
     return !document.hidden&&
@@ -4650,6 +4638,49 @@ html.one-col.portrait .player.pip{
     youtubeLiveScanSeq++;
     try{youtubeLiveAbortController?.abort()}catch{}
     youtubeLiveAbortController=null;
+  }
+
+  function restoreClientLiveSnapshot(){
+    try{
+      const saved=JSON.parse(localStorage.getItem(LIVE_CLIENT_SNAPSHOT_KEY)||"null");
+      const age=Date.now()-Number(saved?.at||0);
+      if(!saved||age<0||age>5*60_000||!Array.isArray(saved?.items))return false;
+
+      const youtube=[];
+      const tiktok=[];
+      for(const meta of saved.items){
+        if(!meta?.id||meta?.isLive!==true)continue;
+        if(String(meta?.provider||"youtube").toLowerCase()==="tiktok")tiktok.push(meta);
+        else youtube.push(meta);
+      }
+      if(youtube.length){
+        youtubeEdgeLiveMetas=youtube;
+        youtubeEdgeLiveReady=true;
+      }
+      if(tiktok.length){
+        tiktokLiveMetas=tiktok;
+        tiktokLiveReady=true;
+      }
+      return youtube.length>0||tiktok.length>0;
+    }catch{
+      return false;
+    }
+  }
+
+  function saveClientLiveSnapshot(){
+    if(!youtubeEdgeLiveReady&&!tiktokLiveReady)return false;
+    try{
+      const items=mergeUnifiedLiveFeed(packageCache.get("live")||[])
+        .slice(0,36)
+        .map(meta=>({...meta}));
+      localStorage.setItem(
+        LIVE_CLIENT_SNAPSHOT_KEY,
+        JSON.stringify({at:Date.now(),items})
+      );
+      return true;
+    }catch{
+      return false;
+    }
   }
 
   function normalizeYoutubeEdgeLiveItem(item={}){
@@ -4915,43 +4946,46 @@ html.one-col.portrait .player.pip{
   }
 
   async function hydrateUnifiedLiveSnapshots(){
-    if(!liveDemandActive())return false;
-    if(unifiedLiveSnapshotPromise)return unifiedLiveSnapshotPromise;
-
-    // One LIVE snapshot = YouTube + TikTok from the same refresh cycle.
-    // Never paint TikTok from a fresh response while YouTube is still the
-    // previous/empty Cloudflare snapshot.
-    unifiedLiveSnapshotPromise=refreshUnifiedLiveInBackground({force:true})
-      .finally(()=>{ unifiedLiveSnapshotPromise=null; });
-    return unifiedLiveSnapshotPromise;
+    return refreshUnifiedLiveInBackground({force:true,reason:"reload"});
   }
 
-  async function refreshUnifiedLiveInBackground({force=true}={}){
+  async function refreshUnifiedLiveInBackground({force=true,reason="manual"}={}){
     if(!liveDemandActive())return false;
     if(unifiedLiveRefreshPromise)return unifiedLiveRefreshPromise;
 
+    liveDiscoveryLastAt=Date.now();
+
     unifiedLiveRefreshPromise=(async()=>{
-      const [youtubeResult,tiktokResult]=await Promise.allSettled([
-        runYoutubeLiveCycle({force,paint:false}),
-        refreshTikTokLiveFeed({paint:false,force:true})
-      ]);
+      let changed=false;
 
-      if(!liveDemandActive())return false;
+      // Both checks start together, but each provider is committed immediately.
+      // Existing cards are never cleared while either check is still running.
+      const youtubeTask=runYoutubeLiveCycle({force,paint:false})
+        .then(ok=>{
+          if(!ok||!liveDemandActive())return false;
+          changed=true;
+          paintUnifiedLiveFromEdge();
+          void hydrateMissingYoutubeLiveAvatars({paint:true});
+          saveClientLiveSnapshot();
+          return true;
+        })
+        .catch(()=>false);
 
-      const youtubeOk=
-        youtubeResult.status==="fulfilled" &&
-        youtubeEdgeLiveReady;
-      const tiktokOk=
-        tiktokResult.status==="fulfilled" &&
-        tiktokLiveReady;
+      const tiktokTask=refreshTikTokLiveFeed({paint:false,force:true})
+        .then(()=>{
+          if(!tiktokLiveReady||!liveDemandActive())return false;
+          changed=true;
+          // TikTok normally returns first: show it immediately while the
+          // previous YouTube snapshot remains on screen.
+          paintUnifiedLiveFromEdge();
+          primeTikTokPlaybackNeighborhood();
+          saveClientLiveSnapshot();
+          return true;
+        })
+        .catch(()=>false);
 
-      // Atomic swap: if either side failed, keep the previous complete LIVE
-      // snapshot on screen. Never expose a half YouTube / half TikTok refresh.
-      if(!youtubeOk||!tiktokOk)return false;
-
-      paintUnifiedLiveFromEdge();
-      void hydrateMissingYoutubeLiveAvatars({paint:true});
-      return true;
+      await Promise.allSettled([youtubeTask,tiktokTask]);
+      return changed;
     })().finally(()=>{
       unifiedLiveRefreshPromise=null;
     });
@@ -4960,7 +4994,8 @@ html.one-col.portrait .player.pip{
 
   function paintUnifiedLiveFromEdge(){
     if(!liveDemandActive())return false;
-    feedMetas=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
+    const next=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
+    if(next.length)feedMetas=next;
     renderSampleContent();
     return true;
   }
@@ -5151,21 +5186,26 @@ html.one-col.portrait .player.pip{
     tiktokDirectWarmUntil.set(key,now+45_000);
 
     const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),1500);
+    const timer=setTimeout(()=>controller.abort(),1800);
     try{
       const hls=/\.m3u8(?:$|[?#])/i.test(url);
       const response=await fetch(url,{
         method:"GET",
         mode:"cors",
-        cache:"no-store",
+        cache:"default",
         signal:controller.signal,
-        headers:hls?{}:{"Range":"bytes=0-65535"}
+        headers:hls?{}:{"Range":"bytes=0-196607"}
       });
       if(!response.ok)return false;
 
       const reader=response.body?.getReader?.();
       if(reader){
-        await reader.read();
+        let total=0;
+        for(let i=0;i<3&&total<196608;i++){
+          const part=await reader.read();
+          if(part.done)break;
+          total+=Number(part.value?.byteLength||0);
+        }
         try{await reader.cancel()}catch{}
       }
       return true;
@@ -5177,25 +5217,45 @@ html.one-col.portrait .player.pip{
     }
   }
 
+  function primeTikTokPlaybackNeighborhood(centerId="",radius=2){
+    const liveList=(Array.isArray(feedMetas)?feedMetas:[])
+      .filter(meta=>
+        meta?.isLive===true &&
+        String(meta?.provider||"").toLowerCase()==="tiktok" &&
+        String(meta?.streamUrl||meta?.hlsUrl||"").trim()
+      );
+    if(!liveList.length)return false;
+
+    let indexes=[];
+    const center=liveList.findIndex(meta=>String(meta?.id||"")===String(centerId||""));
+    if(center>=0){
+      for(let i=Math.max(0,center-radius);i<=Math.min(liveList.length-1,center+radius);i++){
+        indexes.push(i);
+      }
+    }else{
+      indexes=[0,1,2,3].filter(i=>i<liveList.length);
+    }
+
+    for(const index of [...new Set(indexes)]){
+      void warmTikTokDirectStream(liveList[index]);
+    }
+    return indexes.length>0;
+  }
+
   function primeVisibleLivePreviews(){
     if(feedMode!=="package"||activePackageScope!=="live")return;
+
+    // Playback warmup is not tied to visibility. Keep the first TikTok lives
+    // ready, then use card interaction to warm the selected item and neighbors.
+    primeTikTokPlaybackNeighborhood();
+
     const rows=[...document.querySelectorAll(".row.live-card")];
-    let warmedTikTok=0;
     for(const row of rows){
       const rect=row.getBoundingClientRect();
       if(rect.bottom<0||rect.top>innerHeight*1.6)continue;
       const id=String(row.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(!meta?.isLive)continue;
-
-      if(
-        String(meta?.provider||"").toLowerCase()==="tiktok" &&
-        warmedTikTok<2
-      ){
-        warmedTikTok++;
-        void warmTikTokDirectStream(meta);
-      }
-
       const preview=livePreviewForMeta(meta);
       if(!preview)continue;
       const img=row.querySelector(".row-thumb img");
@@ -6380,9 +6440,20 @@ html.one-col.portrait .player.pip{
     // It must not force Live and must not reopen a media item.
     const firstPackagePromise=(async()=>{
       const scope=String(activePackageScope||"live");
-      if(scope==="live")await restoreStoredPackage("live");
-      else await restoreStoredPackage(scope);
-      return showPackageScope(scope);
+      if(scope==="live"){
+        await restoreStoredPackage("live");
+        restoreClientLiveSnapshot();
+      }else{
+        await restoreStoredPackage(scope);
+      }
+      const painted=await showPackageScope(scope);
+
+      // Reload is the only automatic LIVE discovery trigger.
+      if(scope==="live"&&liveDemandActive()){
+        liveDiscoveryLastAt=Date.now();
+        void refreshUnifiedLiveInBackground({force:true,reason:"reload"});
+      }
+      return painted;
     })();
 
     const statePromise=(async()=>{
@@ -6443,11 +6514,10 @@ html.one-col.portrait .player.pip{
     // Synchronizer compares manifest hashes and downloads only changed scopes.
     prefetchPackages(scopes);
 
-    // Opening the app is a demand signal, not a background polling loop. Paint
-    // the last complete package first, then ask the server to check only the
-    // currently visible scope.
+    // Non-LIVE packages may check on open. LIVE discovery already ran exactly
+    // once above when this reload actually opened the Live tab.
     setTimeout(()=>{
-      if(feedMode==="package"){
+      if(feedMode==="package"&&activePackageScope!=="live"){
         void checkPackagesOnDemand([activePackageScope]);
       }
     },0);
@@ -6568,7 +6638,10 @@ html.one-col.portrait .player.pip{
       if(!card)return;
       const id=String(card.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
-      if(meta)void warmTikTokDirectStream(meta);
+      if(meta){
+        void warmTikTokDirectStream(meta);
+        primeTikTokPlaybackNeighborhood(id,2);
+      }
     },{passive:true});
   }
 
@@ -7934,6 +8007,28 @@ html.one-col.portrait .player.pip{
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
 
+  function maybeRefreshLiveOnUserSwitch(nextId=""){
+    if(
+      feedMode!=="package"||
+      activePackageScope!=="live"||
+      document.hidden
+    )return false;
+
+    nextId=String(nextId||"").trim();
+    if(!nextId)return false;
+
+    const previous=String(liveLastSelectedId||"");
+    liveLastSelectedId=nextId;
+
+    // First selected LIVE is playback only. A later distinct selection may
+    // request fresh LIVE state, but never more than once per minute.
+    if(!previous||previous===nextId)return false;
+    if(Date.now()-liveDiscoveryLastAt<LIVE_DISCOVERY_MIN_GAP_MS)return false;
+
+    void refreshUnifiedLiveInBackground({force:true,reason:"user-switch"});
+    return true;
+  }
+
   document.getElementById("rows").addEventListener("click",event=>{
     const channelBack=event.target.closest("[data-channel-back]");
     if(channelBack){
@@ -7983,6 +8078,18 @@ html.one-col.portrait .player.pip{
       feedMetas.find(meta=>meta?.id===id)||
       relatedMetas.find(meta=>meta?.id===id)||
       null;
+
+    if(
+      selectedMeta&&
+      feedMode==="package"&&
+      activePackageScope==="live"
+    ){
+      maybeRefreshLiveOnUserSwitch(id);
+      if(String(selectedMeta?.provider||"").toLowerCase()==="tiktok"){
+        void warmTikTokDirectStream(selectedMeta);
+        primeTikTokPlaybackNeighborhood(id,2);
+      }
+    }
 
     if(!isTwoColumn()){
       openSelectedVideoInline(card,id);
