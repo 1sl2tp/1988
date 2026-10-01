@@ -2059,7 +2059,10 @@ Deno.serve(async(req:Request)=>{
       {
         method:"PATCH",
         headers:{...authHeaders,"prefer":"return=minimal"},
-        body:JSON.stringify({last_enqueued_at:nowIso,updated_at:nowIso})
+        // last_enqueued_at is scheduler bookkeeping only. Do not churn
+        // updated_at for a no-op client check; package/source timestamps should
+        // move only when their actual durable data changes.
+        body:JSON.stringify({last_enqueued_at:nowIso})
       }
     ).catch(()=>{});
   }
