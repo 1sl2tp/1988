@@ -2342,6 +2342,7 @@ Deno.serve(async(req:Request)=>{
 
       let verifiedExternalRows:any[]=[];
       let selectedFromSearch:any[]=[];
+      let verifiedSelectedFromSearch:any[]=[];
 
       if(discoveryDue){
         const discovery=await discoverGlobalLiveCandidates(
@@ -2372,7 +2373,6 @@ Deno.serve(async(req:Request)=>{
             _liveOrigin:"source",
             _liveCandidateOrigin:"live_search",
             _liveCacheCheckedAt:searchCheckedAt,
-            _liveVerified:"fresh_live_search",
             _interestPriority:explicitLiveIds.has(sid)
               ?2
               :inheritedLiveIds.has(sid)
@@ -2380,6 +2380,10 @@ Deno.serve(async(req:Request)=>{
                 :0
           };
         });
+        verifiedSelectedFromSearch=await verifyCurrentLiveFingerprintRows(
+          selectedFromSearch,
+          Math.max(24,selectedFromSearch.length)
+        );
 
         await storeServerSourceSuggestions(
           rest,
@@ -2474,6 +2478,7 @@ Deno.serve(async(req:Request)=>{
 
       // STEP 3 — merge only after Source 1 and Source 2 have each been filtered.
       const selectedLiveRows=dedupeRows([
+        ...verifiedSelectedFromSearch,
         ...selectedCheckedRows
       ]);
       verifiedLiveRowsCache=dedupeRows([
