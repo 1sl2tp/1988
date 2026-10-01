@@ -1816,13 +1816,9 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         });
     }
 
-    const deepDiscovery=target.filter(handle=>!nextLive.has(handle.toLowerCase()));
-    if(deepDiscovery.length){
-      void queueTikTokStatusFallback(deepDiscovery).catch(error=>{
-        console.warn('[tiktok-live-deep] discovery failed',compactText(error?.message||error,140));
-      });
-    }
-
+    // Pass 3 above already sends unresolved/conflicting handles through the
+    // browser-authenticated fallback. Do not reopen every API-confirmed OFFLINE
+    // channel in Chromium after each sweep; that duplicated network/CPU usage.
     console.log(
       '[tiktok-live-current]',
       'selected='+selected.length,
@@ -1832,7 +1828,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       'offlineConfirmed='+offlineConfirmedCount,
       'unknown='+unknown,
       'retainedUnknown='+retainedUnknown,
-      'deep='+deepDiscovery.length,
+      'browserFallback='+unresolved.length,
       'getlink='+liveHandles.length,
       'checkedAt='+checkedAt
     );
@@ -6986,7 +6982,8 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
 
   await upsertTikTokCanonicalRows(channelRows,videoRows);
   await persistTikTokCanonicalPackage();
-  void refreshTikTokCanonicalMp4Batch(Math.min(6,Math.max(2,target.length)),target).catch(()=>{});
+  // MP4 URLs are resolved on demand by playback. Metadata/profile sync must
+  // not force yt-dlp refreshes for unrelated videos.
   if(mirror)void mirrorTikTokCanonicalImages(6);
   console.log('[tiktok-library] synced','channels='+channelRows.length,'videos='+videoRows.length,'version='+tiktokCanonicalPackageVersion);
   return true;
@@ -9499,7 +9496,6 @@ server.listen(PORT,'0.0.0.0',()=>{
     if(canonicalReady){
       setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},30_000).unref();
       setTimeout(()=>{void mirrorTikTokCanonicalImages(4);},45_000).unref();
-      setTimeout(()=>{void warmTikTokVideoSources(1);},60_000).unref();
     }
 
     void runTikTokLiveMinuteSweep();
@@ -9508,11 +9504,10 @@ server.listen(PORT,'0.0.0.0',()=>{
   if(AUTO_COLLECT){
     setInterval(()=>{void runTikTokLiveMinuteSweep();},TIKTOK_LIVE_STATUS_SWEEP_MS).unref();
     setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
-    setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},60_000).unref();
-    setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},30*60_000).unref();
-    setInterval(()=>{void mirrorTikTokCanonicalImages(6);},5*60_000).unref();
-    setInterval(()=>{void warmTikTokVideoSources(1);},5*60_000).unref();
-    setInterval(()=>{void enrichNextTikTokCanonicalVideo();},3*60_000).unref();
+    setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},5*60_000).unref();
+    setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},2*60*60_000).unref();
+    setInterval(()=>{void mirrorTikTokCanonicalImages(6);},30*60_000).unref();
+    setInterval(()=>{void enrichNextTikTokCanonicalVideo();},15*60_000).unref();
   }
 
   for(const platform of PLATFORMS)void loadSnapshot(platform);
