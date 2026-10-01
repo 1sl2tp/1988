@@ -4743,6 +4743,60 @@ html.one-col.portrait .player.pip{
     return blocked.has(sourceId);
   }
 
+  const youtubeLiveAvatarLookupDone=new Set();
+  const youtubeLiveAvatarLookupPending=new Set();
+
+  async function hydrateMissingYoutubeLiveAvatars(){
+    const videoMetaApi=window.YT1988_API?.videoMeta||window.YT1988_API?.video;
+    if(!youtubeEdgeLiveReady||!videoMetaApi)return false;
+
+    const missing=youtubeEdgeLiveMetas
+      .filter(meta=>{
+        const id=String(meta?.id||"").trim();
+        return (
+          /^[A-Za-z0-9_-]{11}$/.test(id) &&
+          !String(meta?.sourceAvatar||"").trim() &&
+          !youtubeLiveAvatarLookupDone.has(id) &&
+          !youtubeLiveAvatarLookupPending.has(id)
+        );
+      })
+      .slice(0,8);
+
+    if(!missing.length)return false;
+
+    await Promise.allSettled(missing.map(async meta=>{
+      const id=String(meta.id);
+      youtubeLiveAvatarLookupPending.add(id);
+      try{
+        const payload=await videoMetaApi(id);
+        const full=cardMetaFromRow(dataRow(payload));
+        const avatar=String(full?.sourceAvatar||"").trim();
+        if(avatar){
+          meta.sourceAvatar=avatar;
+          if(full?.sourceId)meta.sourceId=String(full.sourceId);
+          if(full?.sourceName)meta.sourceName=String(full.sourceName);
+          if(meta.sourceId){
+            sourceIdentityCache.set(String(meta.sourceId),{
+              sourceName:String(meta.sourceName||""),
+              sourceAvatar:avatar
+            });
+          }
+        }
+      }catch{}
+      finally{
+        youtubeLiveAvatarLookupPending.delete(id);
+        youtubeLiveAvatarLookupDone.add(id);
+      }
+    }));
+
+    if(liveDemandActive()){
+      const rows=document.getElementById("rows");
+      if(rows)rows.dataset.renderSignature="";
+      paintUnifiedLiveFromEdge();
+    }
+    return true;
+  }
+
   function currentYoutubeLiveMetas(fallback=[]){
     const base=Array.isArray(fallback)?fallback:[];
     if(!youtubeEdgeLiveReady)return base;
@@ -4875,6 +4929,7 @@ html.one-col.portrait .player.pip{
       if(ytResult.status==="fulfilled"){
         youtubeEdgeLiveMetas=ytResult.value.metas;
         youtubeEdgeLiveReady=true;
+        void hydrateMissingYoutubeLiveAvatars();
       }
       if(ttResult.status==="fulfilled"){
         tiktokLiveReady=true;
@@ -4963,9 +5018,10 @@ html.one-col.portrait .player.pip{
         youtubeEdgeLiveReady=true;
         youtubeLiveLastCycleAt=Date.now();
 
-        // Feed changes are background-only. current/currentMeta/player are untouched.
-        // Unified refresh can suppress this paint until TikTok is ready too.
+        // Paint immediately. If Cloudflare omitted a channel avatar, hydrate only
+        // that missing avatar in the background; nothing else in the LIVE row changes.
         if(paint)paintUnifiedLiveFromEdge();
+        void hydrateMissingYoutubeLiveAvatars();
         return true;
       }catch(error){
         if(error?.name!=="AbortError"){
@@ -5072,6 +5128,8 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
+  const tiktokDirectWarmUntil=new Map();
+
   function warmTikTokDirectMeta(meta={}){
     if(String(meta?.provider||"").toLowerCase()!=="tiktok")return false;
     const preferred=
@@ -5085,9 +5143,51 @@ html.one-col.portrait .player.pip{
     return Boolean(preferred);
   }
 
+  async function warmTikTokDirectStream(meta={}){
+    if(!warmTikTokDirectMeta(meta))return false;
+
+    const url=
+      isAppleMobileBrowser()&&String(meta?.hlsUrl||"").trim()
+        ?String(meta.hlsUrl).trim()
+        :String(meta?.streamUrl||meta?.hlsUrl||"").trim();
+    if(!url)return false;
+
+    const key=String(meta?.sourceSig||url);
+    const now=Date.now();
+    if(Number(tiktokDirectWarmUntil.get(key)||0)>now)return true;
+    tiktokDirectWarmUntil.set(key,now+45_000);
+
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),1500);
+    try{
+      const hls=/\.m3u8(?:$|[?#])/i.test(url);
+      const response=await fetch(url,{
+        method:"GET",
+        mode:"cors",
+        cache:"no-store",
+        signal:controller.signal,
+        headers:hls?{}:{"Range":"bytes=0-65535"}
+      });
+      if(!response.ok)return false;
+
+      const reader=response.body?.getReader?.();
+      if(reader){
+        await reader.read();
+        try{await reader.cancel()}catch{}
+      }
+      return true;
+    }catch{
+      return false;
+    }finally{
+      clearTimeout(timer);
+      try{controller.abort()}catch{}
+    }
+  }
+
   function primeVisibleLivePreviews(){
     if(feedMode!=="package"||activePackageScope!=="live")return;
     const rows=[...document.querySelectorAll(".row.live-card")];
+    let warmedTikTok=0;
     for(const row of rows){
       const rect=row.getBoundingClientRect();
       if(rect.bottom<0||rect.top>innerHeight*1.6)continue;
@@ -5095,11 +5195,12 @@ html.one-col.portrait .player.pip{
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(!meta?.isLive)continue;
 
-      if(String(meta?.provider||"").toLowerCase()==="tiktok"){
-        // Stream URL is already the direct TikTok CDN URL returned with the
-        // Cloudflare LIVE snapshot. Warm only DNS/TLS for visible cards; do
-        // not resolve again and do not pre-download the live stream.
-        warmTikTokDirectMeta(meta);
+      if(
+        String(meta?.provider||"").toLowerCase()==="tiktok" &&
+        warmedTikTok<2
+      ){
+        warmedTikTok++;
+        void warmTikTokDirectStream(meta);
       }
 
       const preview=livePreviewForMeta(meta);
@@ -6474,7 +6575,7 @@ html.one-col.portrait .player.pip{
       if(!card)return;
       const id=String(card.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
-      if(meta)warmTikTokDirectMeta(meta);
+      if(meta)void warmTikTokDirectStream(meta);
     },{passive:true});
   }
 
