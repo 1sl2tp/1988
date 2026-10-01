@@ -17,8 +17,8 @@ const CHANNEL_CACHE_MAX_AGE_MS=8*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v42";
-const NON_LIVE_PIPELINE_VERSION="non-live-v19";
+const LIVE_PIPELINE_VERSION="live-v43";
+const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
@@ -945,6 +945,28 @@ function snapshotRowsHash(rows:any[],sourceSig=""){
     clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
     clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",1000),
     String(Math.max(0,Number(row?.views)||0)),
+    isLive(row)?"1":"0",
+    String(durationSeconds(row)||0),
+    String(Number(row?.aspectRatio)||0),
+    clean(row?.mediaKind||"",24),
+    String(Number(row?.videoWidth)||0),
+    String(Number(row?.videoHeight)||0),
+    row?._aspectVerified===true?"1":"0"
+  ].join("|")).join("\n");
+  return fastHash(String(sourceSig||"")+"\n"+body);
+}
+
+function snapshotRowsIdentityHash(rows:any[],sourceSig=""){
+  // Identity drives whether a new package is necessary. Views and relative
+  // published labels are intentionally excluded because they change naturally
+  // without representing new content.
+  const body=rows.map((row)=>[
+    videoId(row),
+    clean(row?._displayTitle||row?.title||"",300),
+    clean(row?._sourceId||row?.channelId||row?.uploaderId||"",180),
+    clean(row?._sourceName||row?.uploaderName||row?.uploader||"",180),
+    clean(row?.thumbnailUrl||row?.thumbnail||"",1000),
+    clean(row?._sourceThumbnailUrl||row?.uploaderThumbnailUrl||row?.channelThumbnailUrl||"",1000),
     isLive(row)?"1":"0",
     String(durationSeconds(row)||0),
     String(Number(row?.aspectRatio)||0),
@@ -3047,8 +3069,8 @@ Deno.serve(async(req:Request)=>{
 
       const sig=sourceSignature(rows,scope);
       const policyKey=(meta.kind==="live"?LIVE_PIPELINE_VERSION:NON_LIVE_PIPELINE_VERSION)+":"+meta.kind;
-      const rawHash=snapshotRowsHash(raw,sig);
-      const inputHash=fastHash(rawHash+"|"+policyKey);
+      const identityHash=snapshotRowsIdentityHash(raw,sig);
+      const inputHash=fastHash(identityHash+"|"+policyKey);
       if(current?.input_hash===inputHash&&current?.source_signature===sig){
         results.push({scope,changed:false,checked:true,reason:"same_input"});
         continue;
