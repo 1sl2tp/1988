@@ -1761,12 +1761,12 @@ function runTikTokLiveMinuteSweep({targetHandles=null,exhaustive=false}={}){
     };
     await Promise.all(Array.from({length:Math.min(3,target.length||1)},()=>worker()));
 
-    // Pass 2: cross-check EVERY handle that was not positively LIVE.
-    // A single OFFLINE answer is not enough to hide a possible LIVE.
+    // Pass 2: only UNKNOWN fingerprints go deeper. status=2/4 from the
+    // lightweight user-room endpoint is already canonical LIVE/OFFLINE.
     const detailByIndex=new Map();
     const verifyIndexes=[];
     for(let i=0;i<first.length;i+=1){
-      if(first[i]?.state?.live)continue;
+      if(first[i]?.state?.known)continue;
       const key=String(first[i]?.handle||'').toLowerCase();
       const tier=targetTier.get(key)||'cold';
       // Current/recent LIVE candidates get strong cross-checking. Cold channels
@@ -1812,6 +1812,9 @@ function runTikTokLiveMinuteSweep({targetHandles=null,exhaustive=false}={}){
     }
     function resolvedFromEvidence(evidence){
       if(evidence.some(x=>x.known&&x.live))return {known:true,live:true,offlineConfirmed:false};
+      if(evidence.some(x=>x.known&&!x.live&&Number(x.status)===4)){
+        return {known:true,live:false,offlineConfirmed:true};
+      }
       const offline=evidence.filter(x=>x.known&&!x.live).length;
       if(offline>=2)return {known:true,live:false,offlineConfirmed:true};
       return {known:false,live:false,offlineConfirmed:false};
@@ -2843,6 +2846,7 @@ async function quickTikTokLiveDetailStatus(handle,retry=true,roomId=''){
         'accept':'application/json,text/plain,*/*',
         'accept-language':'en-US,en;q=0.9',
         'referer':'https://www.tiktok.com/@'+handle+'/live',
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
       },
       redirect:'follow',
       signal:AbortSignal.timeout(3000)
@@ -3021,7 +3025,7 @@ async function quickTikTokLiveStateOnly(rawHandle,retry=true){
     }
 
     const data=await r.json();
-    const liveRoom=data?.data?.liveRoom||{};
+    const liveRoom=data?.data?.liveRoom||null;
     const rawStatus=liveRoom?.status;
     const hasStatus=rawStatus!==undefined&&rawStatus!==null&&rawStatus!=='';
     const status=hasStatus?Number(rawStatus):NaN;
@@ -3036,15 +3040,28 @@ async function quickTikTokLiveStateOnly(rawHandle,retry=true){
 
     const apiCode=Number(data?.statusCode);
     const message=String(data?.message||'').trim().toLowerCase();
+
+    if(!liveRoom&&!roomId){
+      if(apiCode===10001||message.includes('service unavailable')){
+        return {known:false,live:false,status:null,roomId:'',source:'tiktok-service-unavailable'};
+      }
+      return {
+        known:true,
+        live:false,
+        status:4,
+        roomId:'',
+        source:apiCode===19881007||message==='user_not_found'
+          ? 'tiktok-user-not-found'
+          : (retry?'tiktok-user-room-empty':'tiktok-user-room-empty-retry')
+      };
+    }
+
     return {
       known:false,
       live:false,
       status:Number.isFinite(status)?status:null,
-      source:apiCode===19881007||message==='user_not_found'
-        ?'tiktok-user-not-found'
-        :(apiCode===10001||message.includes('service unavailable')
-          ?'tiktok-service-unavailable'
-          :'tiktok-no-status')
+      roomId,
+      source:'tiktok-no-status'
     };
   }catch(error){
     if(retry){
