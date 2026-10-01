@@ -4838,17 +4838,25 @@ html.one-col.portrait .player.pip{
     const baseMetas=packageCache.get(scope)||[];
 
     if(scope==="live"){
-      const metas=(youtubeEdgeLiveReady||tiktokLiveReady)
-        ?mergeUnifiedLiveFeed(baseMetas)
-        :baseMetas;
-      if(metas.length)feedMetas=metas;
-      renderSampleContent();
-      primeTikTokPlaybackNeighborhood();
+      const provider=activeLiveProvider();
+      const metas=liveMetasForProvider(provider,baseMetas);
 
-      // Entering LIVE reads the already-built Cloudflare snapshots only.
-      // This is not a discovery scan: TikTok/YouTube can appear as soon as
-      // each current snapshot arrives, while the existing list stays visible.
-      if(hydrateLive)void hydrateUnifiedLiveSnapshots({paint:true});
+      // YouTube LIVE and TikTok LIVE are separate feeds now. Never merge one
+      // provider into the other and never wait for the other provider.
+      feedMetas=metas;
+      renderSampleContent();
+
+      if(provider==="tiktok"){
+        primeTikTokPlaybackNeighborhood();
+      }else{
+        stopTikTokPreparedStreams();
+      }
+
+      // Entering a provider's LIVE reads only that provider's Cloudflare
+      // snapshot. Discovery rules remain provider-local as well.
+      if(hydrateLive&&provider){
+        void hydrateUnifiedLiveSnapshots({paint:true,provider});
+      }
       return feedMetas;
     }
 
@@ -4862,7 +4870,9 @@ html.one-col.portrait .player.pip{
   function paintSyncedPackage(scope,metas){
     if(feedMode!=="package"||activePackageScope!==scope)return;
     const base=Array.isArray(metas)?metas:[];
-    feedMetas=scope==="live"?mergeUnifiedLiveFeed(base):base;
+    feedMetas=scope==="live"
+      ?liveMetasForProvider(activeLiveProvider(),base)
+      :base;
     renderSampleContent();
   }
 
@@ -4997,10 +5007,35 @@ html.one-col.portrait .player.pip{
     }
   },{passive:true});
 
-  function liveDemandActive(){
-    return !document.hidden&&
-      feedMode==="package"&&
-      activePackageScope==="live";
+  function activeLiveProvider(){
+    if(activePlatformNav==="tiktok")return "tiktok";
+    if(activePlatformNav==="youtube")return "youtube";
+    return "";
+  }
+
+  function liveMetasForProvider(provider=activeLiveProvider(),youtubeFallback=[]){
+    provider=String(provider||"").toLowerCase();
+    if(provider==="tiktok"){
+      return Array.isArray(tiktokLiveMetas)?tiktokLiveMetas:[];
+    }
+    if(provider==="youtube"){
+      return currentYoutubeLiveMetas(
+        Array.isArray(youtubeFallback)?youtubeFallback:[]
+      );
+    }
+    return [];
+  }
+
+  function liveDemandActive(provider=""){
+    if(
+      document.hidden||
+      feedMode!=="package"||
+      activePackageScope!=="live"
+    )return false;
+
+    const active=activeLiveProvider();
+    if(!active)return false;
+    return !provider||active===String(provider).toLowerCase();
   }
 
   function stopYoutubeLiveDemand(){
@@ -5326,97 +5361,95 @@ html.one-col.portrait .player.pip{
     };
   }
 
-  async function hydrateUnifiedLiveSnapshots({paint=true}={}){
-    if(!liveDemandActive())return false;
+  async function hydrateUnifiedLiveSnapshots({paint=true,provider=activeLiveProvider()}={}){
+    provider=String(provider||"").toLowerCase();
+    if(!liveDemandActive(provider))return false;
     if(unifiedLiveSnapshotPromise)return unifiedLiveSnapshotPromise;
 
     unifiedLiveSnapshotPromise=(async()=>{
-      let changed=false;
-
-      const youtubeTask=fetchYoutubeLiveSnapshot()
-        .then(snapshot=>{
-          if(!liveDemandActive())return false;
+      if(provider==="youtube"){
+        try{
+          const snapshot=await fetchYoutubeLiveSnapshot();
+          if(!liveDemandActive("youtube"))return false;
           youtubeEdgeLiveMetas=snapshot.metas;
           youtubeEdgeLiveReady=true;
-          changed=true;
-          if(paint)paintUnifiedLiveFromEdge();
+          if(paint)paintUnifiedLiveFromEdge("youtube");
           void hydrateMissingYoutubeLiveAvatars({paint});
+          saveClientLiveSnapshot();
           return true;
-        })
-        .catch(()=>false);
+        }catch{
+          return false;
+        }
+      }
 
-      const tiktokTask=refreshTikTokLiveFeed({paint:false,force:true})
-        .then(()=>{
-          if(!liveDemandActive()||!tiktokLiveReady)return false;
-          changed=true;
-          if(paint)paintUnifiedLiveFromEdge();
+      if(provider==="tiktok"){
+        try{
+          await refreshTikTokLiveFeed({paint:false,force:true});
+          if(!liveDemandActive("tiktok")||!tiktokLiveReady)return false;
+          if(paint)paintUnifiedLiveFromEdge("tiktok");
           primeTikTokPlaybackNeighborhood();
+          saveClientLiveSnapshot();
           return true;
-        })
-        .catch(()=>false);
+        }catch{
+          return false;
+        }
+      }
 
-      await Promise.allSettled([youtubeTask,tiktokTask]);
-      if(changed)saveClientLiveSnapshot();
-      return changed;
+      return false;
     })().finally(()=>{
       unifiedLiveSnapshotPromise=null;
     });
     return unifiedLiveSnapshotPromise;
   }
 
-  async function refreshUnifiedLiveInBackground({force=true,reason="manual"}={}){
-    if(!liveDemandActive())return false;
+  async function refreshUnifiedLiveInBackground({force=true,reason="manual",provider=activeLiveProvider()}={}){
+    provider=String(provider||"").toLowerCase();
+    if(!liveDemandActive(provider))return false;
     if(unifiedLiveRefreshPromise)return unifiedLiveRefreshPromise;
 
     liveDiscoveryLastAt=Date.now();
 
     unifiedLiveRefreshPromise=(async()=>{
-      let changed=false;
+      if(provider==="youtube"){
+        const ok=await runYoutubeLiveCycle({force,paint:false});
+        if(!ok||!liveDemandActive("youtube"))return false;
+        paintUnifiedLiveFromEdge("youtube");
+        void hydrateMissingYoutubeLiveAvatars({paint:true});
+        saveClientLiveSnapshot();
+        return true;
+      }
 
-      // Both checks start together, but each provider is committed immediately.
-      // Existing cards are never cleared while either check is still running.
-      const youtubeTask=runYoutubeLiveCycle({force,paint:false})
-        .then(ok=>{
-          if(!ok||!liveDemandActive())return false;
-          changed=true;
-          paintUnifiedLiveFromEdge();
-          void hydrateMissingYoutubeLiveAvatars({paint:true});
-          saveClientLiveSnapshot();
-          return true;
-        })
-        .catch(()=>false);
+      if(provider==="tiktok"){
+        await refreshTikTokLiveFeed({paint:false,force:true});
+        if(!tiktokLiveReady||!liveDemandActive("tiktok"))return false;
+        paintUnifiedLiveFromEdge("tiktok");
+        primeTikTokPlaybackNeighborhood();
+        saveClientLiveSnapshot();
+        return true;
+      }
 
-      const tiktokTask=refreshTikTokLiveFeed({paint:false,force:true})
-        .then(()=>{
-          if(!tiktokLiveReady||!liveDemandActive())return false;
-          changed=true;
-          // TikTok normally returns first: show it immediately while the
-          // previous YouTube snapshot remains on screen.
-          paintUnifiedLiveFromEdge();
-          primeTikTokPlaybackNeighborhood();
-          saveClientLiveSnapshot();
-          return true;
-        })
-        .catch(()=>false);
-
-      await Promise.allSettled([youtubeTask,tiktokTask]);
-      return changed;
+      return false;
     })().finally(()=>{
       unifiedLiveRefreshPromise=null;
     });
     return unifiedLiveRefreshPromise;
   }
 
-  function paintUnifiedLiveFromEdge(){
-    if(!liveDemandActive())return false;
-    const next=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
-    if(next.length)feedMetas=next;
+  function paintUnifiedLiveFromEdge(provider=activeLiveProvider()){
+    provider=String(provider||"").toLowerCase();
+    if(!liveDemandActive(provider))return false;
+
+    const next=liveMetasForProvider(
+      provider,
+      packageCache.get("live")||[]
+    );
+    feedMetas=next;
     renderSampleContent();
     return true;
   }
 
   async function runYoutubeLiveCycle({force=false,paint=true}={}){
-    if(!liveDemandActive())return false;
+    if(!liveDemandActive("youtube"))return false;
     const now=Date.now();
     if(!force&&now-youtubeLiveLastCycleAt<LIVE_ACTIVE_CHECK_MS)return false;
     if(youtubeLiveScanPromise)return youtubeLiveScanPromise;
@@ -5438,7 +5471,7 @@ html.one-col.portrait .player.pip{
           state?.ok===true&&
           state?.done!==true&&
           seq===youtubeLiveScanSeq&&
-          liveDemandActive()
+          liveDemandActive("youtube")
         ){
           response=await fetch(
             YOUTUBE_LIVE_API+"/youtube/live-scan?t="+Date.now(),
@@ -5450,7 +5483,7 @@ html.one-col.portrait .player.pip{
 
         if(
           seq!==youtubeLiveScanSeq||
-          !liveDemandActive()||
+          !liveDemandActive("youtube")||
           state?.done!==true
         )return false;
 
@@ -5463,7 +5496,7 @@ html.one-col.portrait .player.pip{
 
         // This function may be one half of an atomic YouTube+TikTok refresh.
         // Only paint when explicitly requested; avatar lookup must obey the same rule.
-        if(paint)paintUnifiedLiveFromEdge();
+        if(paint)paintUnifiedLiveFromEdge("youtube");
         void hydrateMissingYoutubeLiveAvatars({paint});
         return true;
       }catch(error){
@@ -6110,12 +6143,8 @@ html.one-col.portrait .player.pip{
         tiktokLiveReady=true;
         tiktokLiveLastAt=Date.now();
 
-        if(
-          paint&&
-          feedMode==="package"&&
-          activePackageScope==="live"
-        ){
-          paintUnifiedLiveFromEdge();
+        if(paint&&liveDemandActive("tiktok")){
+          paintUnifiedLiveFromEdge("tiktok");
         }
         return tiktokLiveMetas;
       }catch(error){
@@ -7180,12 +7209,22 @@ html.one-col.portrait .player.pip{
     platform=String(platform||"").toLowerCase();
     if(!["youtube","tiktok"].includes(platform))platform="";
 
-    activePlatformNav=activePlatformNav===platform?"":platform;
+    const closing=activePlatformNav===platform;
+    activePlatformNav=closing?"":platform;
 
     if(activePlatformNav==="youtube"){
+      activePackageScope="live";
       renderExistingSourceNames(youtubePlatformRows);
+      sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]")
+        .forEach(chip=>chip.classList.toggle("active",chip.dataset.sourceTab==="live"));
+      void showPackageScope("live",{hydrateLive:true});
     }else if(activePlatformNav==="tiktok"){
+      activePackageScope="live";
       renderTikTokPlatformRows();
+      void showPackageScope("live",{hydrateLive:true});
+    }else{
+      stopYoutubeLiveDemand();
+      stopTikTokPreparedStreams();
     }
     syncPlatformButtons();
   }
@@ -7327,12 +7366,15 @@ html.one-col.portrait .player.pip{
         {hydrateLive:scope!=="live"}
       );
 
-      // Reload is the only automatic LIVE discovery trigger.
-      // It owns this first LIVE cycle, so do not race it with a stale
-      // /youtube/live-now read from the previous snapshot.
+      // LIVE is provider-owned now. Do not start a mixed reload cycle while
+      // neither TikTok nor YouTube is selected in the platform header.
       if(scope==="live"&&liveDemandActive()){
         liveDiscoveryLastAt=Date.now();
-        void refreshUnifiedLiveInBackground({force:true,reason:"reload"});
+        void refreshUnifiedLiveInBackground({
+          force:true,
+          reason:"reload",
+          provider:activeLiveProvider()
+        });
       }
       return painted;
     })();
@@ -8872,6 +8914,16 @@ html.one-col.portrait .player.pip{
       platformSubchip.classList.add("active");
       platformSubchip.scrollIntoView?.({behavior:"smooth",block:"nearest",inline:"nearest"});
       requestAnimationFrame(updateSourceRailArrows);
+
+      const subtab=String(platformSubchip.dataset.platformSubtab||"");
+      if(activePlatformNav==="tiktok"&&subtab==="live"){
+        scrollPageToTop();
+        feedRequest++;
+        channelFeedRequest++;
+        channelFeedBackStack.length=0;
+        feedMode="package";
+        void showPackageScope("live",{hydrateLive:true});
+      }
       return;
     }
 
@@ -8893,7 +8945,9 @@ html.one-col.portrait .player.pip{
     channelFeedBackStack.length=0;
     channelFeedSourceId="";
     channelFeedName="";
-    stopYoutubeLiveDemand();
+    if(String(chip.dataset.sourceTab||"")!=="live"){
+      stopYoutubeLiveDemand();
+    }
     feedMode="package";
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
@@ -8916,7 +8970,11 @@ html.one-col.portrait .player.pip{
     if(!previous||previous===nextId)return false;
     if(Date.now()-liveDiscoveryLastAt<LIVE_DISCOVERY_MIN_GAP_MS)return false;
 
-    void refreshUnifiedLiveInBackground({force:true,reason:"user-switch"});
+    void refreshUnifiedLiveInBackground({
+      force:true,
+      reason:"user-switch",
+      provider:activeLiveProvider()
+    });
     return true;
   }
 
