@@ -2617,6 +2617,7 @@ html.one-col.portrait .player.pip{
   const MEDIA_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
   const GETLINK_API_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-getlink";
   const TIKTOK_LIVE_API="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev";
+  const YOUTUBE_LIVE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
   const SOURCE_UI_EVENT_KEY="1988-source-ui-event-v1";
   const SOURCE_ADMIN_AUTH_KEY="1988-sources-auth-8881-v2";
   const SOURCE_ADMIN_PIN="8881";
@@ -2690,6 +2691,12 @@ html.one-col.portrait .player.pip{
   let tiktokLiveMetas=[];
   let tiktokLiveFetchPromise=null;
   let tiktokLiveLastAt=0;
+  let youtubeEdgeLiveMetas=[];
+  let youtubeEdgeLiveReady=false;
+  let youtubeLiveScanPromise=null;
+  let youtubeLiveScanSeq=0;
+  let youtubeLiveAbortController=null;
+  let youtubeLiveLastCycleAt=0;
   const tiktokFramePreviewCache=new Map();
   const tiktokFramePreviewPending=new Set();
   let tiktokFramePreviewQueue=Promise.resolve();
@@ -4322,18 +4329,23 @@ html.one-col.portrait .player.pip{
 
   async function showPackageScope(scope){
     scope=String(scope||"").trim()||"live";
+    if(scope!=="live")stopYoutubeLiveDemand();
     activePackageScope=scope;
     feedMode="package";
     ++feedRequest;
     syncFeedHeader();
 
-    // Tab/UI reads memory only. Network package reads belong to the package synchronizer.
+    // Live paints the last committed local snapshot immediately, then Cloudflare
+    // refreshes it in the background only while this tab remains active.
     const baseMetas=packageCache.get(scope)||[];
     const metas=scope==="live"?mergeUnifiedLiveFeed(baseMetas):baseMetas;
     feedMetas=metas;
     renderSampleContent();
 
-    if(scope==="live")void refreshTikTokLiveFeed({paint:true});
+    if(scope==="live"){
+      void refreshTikTokLiveFeed({paint:true});
+      void runYoutubeLiveCycle({force:true});
+    }
 
     if(isTwoColumn()&&!String(current?.id||"")&&metas[0]?.id){
       if(openMedia(metas[0],{replace:true})){
@@ -4431,7 +4443,7 @@ html.one-col.portrait .player.pip{
     const wanted=[...new Set(
       ((Array.isArray(scopes)&&scopes.length)?scopes:[activePackageScope])
         .map(value=>String(value||"").trim())
-        .filter(Boolean)
+        .filter(value=>Boolean(value)&&value!=="live")
     )];
     if(!wanted.length)return false;
     if(packageDemandPending)return packageDemandPending;
@@ -4454,32 +4466,178 @@ html.one-col.portrait .player.pip{
   }
 
   document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible"&&feedMode==="package"){
+    if(document.visibilityState!=="visible"){
+      stopYoutubeLiveDemand();
+      return;
+    }
+    if(feedMode!=="package")return;
+    if(activePackageScope==="live"){
+      void runYoutubeLiveCycle({force:true});
+      void refreshTikTokLiveFeed({paint:true,force:true});
+    }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   addEventListener("focus",()=>{
-    if(feedMode==="package"){
+    if(feedMode!=="package"||document.hidden)return;
+    if(activePackageScope==="live"){
+      void runYoutubeLiveCycle({force:false});
+      void refreshTikTokLiveFeed({paint:true,force:true});
+    }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   addEventListener("online",()=>{
-    if(feedMode==="package"){
+    if(feedMode!=="package"||document.hidden)return;
+    if(activePackageScope==="live"){
+      void runYoutubeLiveCycle({force:true});
+      void refreshTikTokLiveFeed({paint:true,force:true});
+    }else{
       void checkPackagesOnDemand([activePackageScope]);
     }
   },{passive:true});
 
   setInterval(()=>{
-    if(
-      document.hidden ||
-      feedMode!=="package" ||
-      activePackageScope!=="live"
-    )return;
-    void checkPackagesOnDemand(["live"]);
+    if(!liveDemandActive())return;
+    void runYoutubeLiveCycle({force:true});
     void refreshTikTokLiveFeed({paint:true,force:true});
-  },30_000);
+  },LIVE_ACTIVE_CHECK_MS);
+
+  function liveDemandActive(){
+    return !document.hidden&&
+      feedMode==="package"&&
+      activePackageScope==="live";
+  }
+
+  function stopYoutubeLiveDemand(){
+    youtubeLiveScanSeq++;
+    try{youtubeLiveAbortController?.abort()}catch{}
+    youtubeLiveAbortController=null;
+  }
+
+  function normalizeYoutubeEdgeLiveItem(item={}){
+    const id=String(item?.videoId||item?.id||"").trim();
+    if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
+    const sourceId=String(item?.sourceId||item?.channelId||"").trim();
+    return {
+      id,
+      provider:"youtube",
+      title:String(item?.title||"").trim()||String(item?.sourceName||"").trim()||"Đang trực tiếp",
+      sourceName:String(item?.sourceName||"").trim(),
+      sourceId,
+      sourceAvatar:String(item?.sourceAvatar||"").trim(),
+      thumbnail:String(item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg")).trim(),
+      livePreview:String(item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg")).trim(),
+      isLive:true,
+      verified:false,
+      viewsLabel:"",
+      publishedLabel:"Đang trực tiếp",
+      durationLabel:"",
+      duration:-1,
+      uploaded:-1,
+      mediaKind:"landscape",
+      aspectRatio:16/9,
+      videoWidth:0,
+      videoHeight:0,
+      _aspectVerified:false,
+      _aspectSource:"youtube-live-edge",
+      _liveOrigin:String(item?.origin||"cloudflare"),
+      checkedAt:Number(item?.checkedAt||0)
+    };
+  }
+
+  function currentYoutubeLiveMetas(fallback=[]){
+    return youtubeEdgeLiveReady
+      ?youtubeEdgeLiveMetas
+      :(Array.isArray(fallback)?fallback:[]);
+  }
+
+  async function fetchYoutubeLiveSnapshot({signal=null}={}){
+    const response=await fetch(
+      YOUTUBE_LIVE_API+"/youtube/live-now?t="+Date.now(),
+      {cache:"no-store",signal}
+    );
+    if(!response.ok)throw new Error("youtube_live_now_"+response.status);
+    const payload=await response.json();
+    return {
+      ...payload,
+      metas:(Array.isArray(payload?.items)?payload.items:[])
+        .map(normalizeYoutubeEdgeLiveItem)
+        .filter(Boolean)
+    };
+  }
+
+  function paintUnifiedLiveFromEdge(){
+    if(!liveDemandActive())return false;
+    feedMetas=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
+    renderSampleContent();
+    return true;
+  }
+
+  async function runYoutubeLiveCycle({force=false}={}){
+    if(!liveDemandActive())return false;
+    const now=Date.now();
+    if(!force&&now-youtubeLiveLastCycleAt<LIVE_ACTIVE_CHECK_MS)return false;
+    if(youtubeLiveScanPromise)return youtubeLiveScanPromise;
+
+    const seq=++youtubeLiveScanSeq;
+    const controller=new AbortController();
+    youtubeLiveAbortController=controller;
+
+    youtubeLiveScanPromise=(async()=>{
+      try{
+        let response=await fetch(
+          YOUTUBE_LIVE_API+"/youtube/live-scan?start=1&t="+Date.now(),
+          {cache:"no-store",signal:controller.signal}
+        );
+        if(!response.ok)throw new Error("youtube_live_scan_"+response.status);
+        let state=await response.json();
+
+        while(
+          state?.ok===true&&
+          state?.done!==true&&
+          seq===youtubeLiveScanSeq&&
+          liveDemandActive()
+        ){
+          response=await fetch(
+            YOUTUBE_LIVE_API+"/youtube/live-scan?t="+Date.now(),
+            {cache:"no-store",signal:controller.signal}
+          );
+          if(!response.ok)throw new Error("youtube_live_scan_"+response.status);
+          state=await response.json();
+        }
+
+        if(
+          seq!==youtubeLiveScanSeq||
+          !liveDemandActive()||
+          state?.done!==true
+        )return false;
+
+        const snapshot=await fetchYoutubeLiveSnapshot({signal:controller.signal});
+        if(seq!==youtubeLiveScanSeq||!liveDemandActive())return false;
+
+        youtubeEdgeLiveMetas=snapshot.metas;
+        youtubeEdgeLiveReady=true;
+        youtubeLiveLastCycleAt=Date.now();
+
+        // Feed changes are background-only. current/currentMeta/player are untouched,
+        // so a playing YouTube or TikTok media continues exactly where it is.
+        paintUnifiedLiveFromEdge();
+        return true;
+      }catch(error){
+        if(error?.name!=="AbortError"){
+          console.warn("youtube_live_edge_failed",error);
+        }
+        return false;
+      }finally{
+        if(seq===youtubeLiveScanSeq)youtubeLiveAbortController=null;
+        youtubeLiveScanPromise=null;
+      }
+    })();
+    return youtubeLiveScanPromise;
+  }
 
   function tiktokLiveId(handle=""){
     return "tiktok_live_"+String(handle||"").trim().toLowerCase();
@@ -4709,8 +4867,8 @@ html.one-col.portrait .player.pip{
     }
   }
 
-  function mergeUnifiedLiveFeed(youtubeMetas=[]){
-    const youtube=Array.isArray(youtubeMetas)?youtubeMetas:[];
+  function mergeUnifiedLiveFeed(youtubeFallback=[]){
+    const youtube=currentYoutubeLiveMetas(youtubeFallback);
     const seen=new Set(youtube.map(meta=>String(meta?.id||"")));
     return [
       ...youtube,
@@ -4742,8 +4900,7 @@ html.one-col.portrait .player.pip{
           feedMode==="package"&&
           activePackageScope==="live"
         ){
-          feedMetas=mergeUnifiedLiveFeed(packageCache.get("live")||[]);
-          renderSampleContent();
+          paintUnifiedLiveFromEdge();
         }
         return tiktokLiveMetas;
       }catch(error){
@@ -6249,6 +6406,7 @@ html.one-col.portrait .player.pip{
 
     const request=++channelFeedRequest;
     feedRequest++;
+    stopYoutubeLiveDemand();
     feedMode="channel";
     channelFeedSourceId=sourceId;
     channelFeedName=sourceName;
@@ -7348,6 +7506,7 @@ html.one-col.portrait .player.pip{
     channelFeedBackStack.length=0;
     channelFeedSourceId="";
     channelFeedName="";
+    stopYoutubeLiveDemand();
     feedMode="package";
     void showPackageScope(chip.dataset.sourceTab||"live");
   });
