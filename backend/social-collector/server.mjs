@@ -120,6 +120,10 @@ const TIKTOK_LIVE_STATUS_SWEEP_MS=20_000;
 const TIKTOK_LIVE_DISCOVERY_BATCH=10;
 const TIKTOK_LIVE_PRIORITY_BATCH=18;
 const TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS=3*60_000;
+const TIKTOK_LIVE_RECENT_TTL_MS=24*60*60_000;
+const TIKTOK_LIVE_RECENT_BATCH=8;
+const TIKTOK_LIVE_COLD_BATCH=6;
+const TIKTOK_LIVE_COLD_DEEP_BATCH=2;
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -1588,6 +1592,9 @@ function ensureTikTokLivePackageScan(handles=null){
 let tiktokLiveMinuteSweepPromise=null;
 let tiktokLiveDiscoveryCursor=0;
 let tiktokLivePriorityCursor=0;
+let tiktokLiveRecentCursor=0;
+let tiktokLiveColdCursor=0;
+let tiktokLiveColdDeepCursor=0;
 let tiktokRealtimeLiveHandles=new Set();
 // Current scan evidence for every selected handle. This is intentionally
 // separate from the playable FLV library so "LIVE detected" is never hidden
@@ -1613,36 +1620,72 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       // Production scan: current LIVE channels are priority, while non-LIVE
       // channels rotate in a small batch. This avoids the 171-channel burst
       // that made TikTok return 403 for almost everything.
+      const now=Date.now();
       const livePriority=selected.filter(handle=>tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
-      const discovery=selected.filter(handle=>!tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
+      const recentLive=selected.filter(handle=>{
+        const key=handle.toLowerCase();
+        if(tiktokRealtimeLiveHandles.has(key))return false;
+        const row=tiktokLiveLibrary.get(key)||{};
+        const lastLiveAt=Math.max(
+          Number(row.lastKnownAt||0),
+          Number(row.stateChangedAt||0)
+        );
+        return lastLiveAt>0&&now-lastLiveAt<=TIKTOK_LIVE_RECENT_TTL_MS;
+      });
+      const cold=selected.filter(handle=>{
+        const key=handle.toLowerCase();
+        if(tiktokRealtimeLiveHandles.has(key))return false;
+        return !recentLive.some(x=>x.toLowerCase()===key);
+      });
 
-      // Recheck current LIVE channels in a rotating batch instead of hammering
-      // every retained LIVE on each sweep. A large retained set used to make one
-      // sweep last several minutes and repeatedly reopened yt-dlp/browser work.
-      const livePicked=[];
-      if(livePriority.length){
-        const take=Math.min(TIKTOK_LIVE_PRIORITY_BATCH,livePriority.length);
-        for(let i=0;i<take;i+=1){
-          livePicked.push(livePriority[(tiktokLivePriorityCursor+i)%livePriority.length]);
-        }
-        tiktokLivePriorityCursor=(tiktokLivePriorityCursor+take)%livePriority.length;
-      }
+      const pickRotating=(rows,count,cursor)=>{
+        if(!rows.length)return {picked:[],cursor:0};
+        const take=Math.min(count,rows.length);
+        const picked=[];
+        for(let i=0;i<take;i+=1)picked.push(rows[(cursor+i)%rows.length]);
+        return {picked,cursor:(cursor+take)%rows.length};
+      };
 
-      const discoveryPicked=[];
-      if(discovery.length){
-        const take=Math.min(TIKTOK_LIVE_DISCOVERY_BATCH,discovery.length);
-        for(let i=0;i<take;i+=1){
-          discoveryPicked.push(discovery[(tiktokLiveDiscoveryCursor+i)%discovery.length]);
-        }
-        tiktokLiveDiscoveryCursor=(tiktokLiveDiscoveryCursor+take)%discovery.length;
-      }
-      target=[...new Set([...livePicked,...discoveryPicked])];
+      // Tier 1: current LIVE. Small rotating batch, checked most often.
+      const livePick=pickRotating(livePriority,TIKTOK_LIVE_PRIORITY_BATCH,tiktokLivePriorityCursor);
+      tiktokLivePriorityCursor=livePick.cursor;
+
+      // Tier 2: channels that were LIVE in the last 24h. These are statistically
+      // much more likely to go LIVE again, so they get a medium-cost scan.
+      const recentPick=pickRotating(recentLive,TIKTOK_LIVE_RECENT_BATCH,tiktokLiveRecentCursor);
+      tiktokLiveRecentCursor=recentPick.cursor;
+
+      // Tier 3: cold channels. Cheap status-only rotation; only a tiny sample of
+      // this group is allowed into the heavy detail/browser confirmation path.
+      const coldPick=pickRotating(cold,TIKTOK_LIVE_COLD_BATCH,tiktokLiveColdCursor);
+      tiktokLiveColdCursor=coldPick.cursor;
+
+      target=[...new Set([...livePick.picked,...recentPick.picked,...coldPick.picked])];
     }
 
     if(!target.length){
       tiktokRealtimeLiveCheckedAt=Date.now();
       return;
     }
+
+    const nowForTier=Date.now();
+    const targetTier=new Map(target.map(handle=>{
+      const key=handle.toLowerCase();
+      if(tiktokRealtimeLiveHandles.has(key))return [key,'live'];
+      const row=tiktokLiveLibrary.get(key)||{};
+      const lastLiveAt=Math.max(Number(row.lastKnownAt||0),Number(row.stateChangedAt||0));
+      return [key,(lastLiveAt>0&&nowForTier-lastLiveAt<=TIKTOK_LIVE_RECENT_TTL_MS)?'recent':'cold'];
+    }));
+    const coldTargets=target.filter(handle=>targetTier.get(handle.toLowerCase())==='cold');
+    const deepPick=coldTargets.length
+      ? Array.from({length:Math.min(TIKTOK_LIVE_COLD_DEEP_BATCH,coldTargets.length)},(_,i)=>
+          coldTargets[(tiktokLiveColdDeepCursor+i)%coldTargets.length]
+        )
+      : [];
+    if(coldTargets.length){
+      tiktokLiveColdDeepCursor=(tiktokLiveColdDeepCursor+deepPick.length)%coldTargets.length;
+    }
+    const coldDeepSet=new Set(deepPick.map(x=>x.toLowerCase()));
 
     const first=new Array(target.length);
     let cursor=0;
@@ -1671,7 +1714,12 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
     const detailByIndex=new Map();
     const verifyIndexes=[];
     for(let i=0;i<first.length;i+=1){
-      if(!first[i]?.state?.live)verifyIndexes.push(i);
+      if(first[i]?.state?.live)continue;
+      const key=String(first[i]?.handle||'').toLowerCase();
+      const tier=targetTier.get(key)||'cold';
+      // Current/recent LIVE candidates get strong cross-checking. Cold channels
+      // stay on the cheap path, except for a tiny rotating deep sample.
+      if(tier!=='cold'||coldDeepSet.has(key))verifyIndexes.push(i);
     }
     let verifyCursor=0;
     const verifyWorker=async()=>{
@@ -1720,7 +1768,10 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
     // used to make some genuine LIVE channels disappear.
     const unresolved=[];
     for(let i=0;i<target.length;i+=1){
-      if(!resolvedFromEvidence(evidenceFor(i)).known)unresolved.push(target[i]);
+      if(resolvedFromEvidence(evidenceFor(i)).known)continue;
+      const key=String(target[i]||'').toLowerCase();
+      const tier=targetTier.get(key)||'cold';
+      if(tier!=='cold'||coldDeepSet.has(key))unresolved.push(target[i]);
     }
     const browserStates=unresolved.length
       ? await browserTikTokLiveStates(unresolved).catch(()=>new Map())
@@ -1838,6 +1889,10 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       '[tiktok-live-current]',
       'selected='+selected.length,
       'checked='+target.length,
+      'tierLive='+target.filter(h=>targetTier.get(h.toLowerCase())==='live').length,
+      'tierRecent='+target.filter(h=>targetTier.get(h.toLowerCase())==='recent').length,
+      'tierCold='+target.filter(h=>targetTier.get(h.toLowerCase())==='cold').length,
+      'coldDeep='+coldDeepSet.size,
       'live='+nextLive.size,
       'foundNow='+foundNow,
       'offlineConfirmed='+offlineConfirmedCount,
