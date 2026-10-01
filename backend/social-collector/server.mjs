@@ -842,8 +842,12 @@ async function runTikTokBrowserDiscoveryBatch(handles,{maxWaitMs=4500,source='br
 
       const row=await probeTikTokBrowserFlv(handle,{maxWaitMs});
       result.checked+=1;
-      if(row?.stream_url){
-        publishDeepTikTokLive(handle,row,source);
+      if(row?.live||row?.stream_url){
+        publishDeepTikTokLive(
+          handle,
+          row,
+          String(row?.source||source)
+        );
         result.found+=1;
       }else{
         addTikTokStatusEvidence(handle,{
@@ -2449,6 +2453,81 @@ function summarizeTikTokFlvPaths(value,path='',depth=0,out=new Set()){
   return [...out];
 }
 
+function detectTikTokLiveRoomSignal(value,path='',depth=0){
+  if(value==null||depth>18)return null;
+
+  if(typeof value==='string'){
+    const text=String(value||'').trim();
+    if(
+      (text.startsWith('{')&&text.endsWith('}'))||
+      (text.startsWith('[')&&text.endsWith(']'))
+    ){
+      try{return detectTikTokLiveRoomSignal(JSON.parse(text),path,depth+1)}catch{}
+    }
+    return null;
+  }
+
+  if(Array.isArray(value)){
+    for(let i=0;i<Math.min(value.length,80);i+=1){
+      const found=detectTikTokLiveRoomSignal(value[i],path+'['+i+']',depth+1);
+      if(found)return found;
+    }
+    return null;
+  }
+
+  if(typeof value!=='object')return null;
+
+  const context=String(path||'').toLowerCase();
+  const roomId=String(
+    value?.roomId||
+    value?.room_id||
+    value?.liveRoomId||
+    value?.live_room_id||
+    value?.id_str||
+    ''
+  ).trim();
+  const rawStatus=
+    value?.status ??
+    value?.roomStatus ??
+    value?.room_status ??
+    value?.liveStatus ??
+    value?.live_status;
+  const status=(rawStatus===null||rawStatus===undefined||rawStatus==='')
+    ? NaN
+    : Number(rawStatus);
+  const roomContext=Boolean(
+    roomId||
+    /(^|[.\[])live.?room|room.?info|webcast|live_room/i.test(context)
+  );
+  const hasStreamShape=Boolean(
+    value?.stream_url||
+    value?.streamUrl||
+    value?.live_core_sdk_data||
+    value?.liveCoreSdkData||
+    value?.flv_pull_url||
+    value?.flvPullUrl
+  );
+
+  // TikTok room status=2 is the canonical "currently LIVE" signal. Require
+  // room context so unrelated status fields cannot create a false positive.
+  if(roomContext&&status===2){
+    return {live:true,roomId,status:2,path:String(path||'room')};
+  }
+  if(roomId&&hasStreamShape){
+    return {live:true,roomId,status:Number.isFinite(status)?status:null,path:String(path||'room')};
+  }
+
+  for(const [key,child] of Object.entries(value)){
+    const found=detectTikTokLiveRoomSignal(
+      child,
+      path?path+'.'+key:key,
+      depth+1
+    );
+    if(found)return found;
+  }
+  return null;
+}
+
 function collectTikTokFlvCandidates(value,path=''){
   return collectTikTokLiveStreamCandidates(value,[],path)
     .filter(row=>row?.type==='flv')
@@ -3330,6 +3409,7 @@ async function captureTikTokLiveSessionOnce(rawHandle,options={}){
   if(savedCookies.length)await page.setCookie(...savedCookies).catch(()=>{});
 
   let capturedFlv=null;
+  let capturedLiveSignal=null;
   let firstMediaAt=0;
   const pendingBodies=new Set();
 
@@ -3387,6 +3467,24 @@ async function captureTikTokLiveSessionOnce(rawHandle,options={}){
       const task=(async()=>{
         const text=await response.text().catch(()=>null);
         if(!text||text.length>3_000_000)return;
+
+        if(!capturedLiveSignal){
+          const liveSignal=detectTikTokLiveRoomSignal(text,'browser-response');
+          if(liveSignal){
+            capturedLiveSignal={
+              ...liveSignal,
+              source:'browser-response-live-room',
+              at:Date.now()
+            };
+            console.log(
+              '[tiktok-session] live-signal',
+              handle,
+              'status='+String(liveSignal.status??''),
+              'room='+String(liveSignal.roomId||'')
+            );
+          }
+        }
+
         const flv=collectTikTokLiveStreamCandidates(text,[],'browser-response')
           .filter(isTikTokVideoFlvCandidate)
           .sort((a,b)=>rankTikTokLiveCandidate(b)-rankTikTokLiveCandidate(a))[0];
@@ -3449,9 +3547,50 @@ async function captureTikTokLiveSessionOnce(rawHandle,options={}){
       }
     }
 
-    // FLV-only playback. Non-FLV observations are ignored.
+    // If FLV is late/hidden, the live page can still prove the room exists.
+    // This is detection evidence only; playback remains FLV-only.
+    if(!capturedFlv&&!capturedLiveSignal){
+      const domSignal=await page.evaluate(()=>{
+        try{
+          const path=String(location.pathname||'');
+          const onLivePath=/\/@[^/]+\/live\/?$/i.test(path);
+          const videos=[...document.querySelectorAll('video')];
+          const hasVideo=videos.some(video=>
+            Number(video.videoWidth||0)>0||
+            Number(video.videoHeight||0)>0||
+            Boolean(video.src||video.currentSrc)
+          );
+          return onLivePath&&hasVideo
+            ? {live:true,status:2,roomId:'',path:'dom-live-video'}
+            : null;
+        }catch{return null}
+      }).catch(()=>null);
+      if(domSignal){
+        capturedLiveSignal={
+          ...domSignal,
+          source:'browser-dom-live-video',
+          at:Date.now()
+        };
+        console.log('[tiktok-session] live-signal',handle,'dom-video');
+      }
+    }
+
+    // FLV-only playback. Non-FLV observations are ignored for streaming, but
+    // discovery callers may accept a strong LIVE-room signal and resolve FLV
+    // separately.
     const captured=capturedFlv;
     if(!captured){
+      if(capturedLiveSignal&&options?.allowLiveEvidence){
+        page.off('request',onRequest);
+        page.off('response',onResponse);
+        await page.close().catch(()=>{});
+        console.log('[tiktok-session] live-no-flv',handle,capturedLiveSignal.source||'browser-live');
+        return {
+          handle,page:null,url:'',type:'',headers:{},at:Date.now(),
+          confirmed:false,live:true,
+          evidenceSource:String(capturedLiveSignal.source||'browser-live')
+        };
+      }
       console.log('[tiktok-session] no-flv',handle,'no-media');
       throw new Error(preflight.known&&preflight.live?'live_flv_not_captured':'tiktok_not_live_or_blocked');
     }
@@ -3511,10 +3650,21 @@ async function probeTikTokBrowserFlv(rawHandle,{maxWaitMs=4500}={}){
   try{
     const session=await captureTikTokLiveSessionOnce(handle,{
       maxWaitMs,
-      skipPreflight:true
+      skipPreflight:true,
+      allowLiveEvidence:true
     });
+    if(session?.live&&!session?.url){
+      return {
+        live:true,
+        stream_url:'',
+        stream_type:'',
+        source:String(session.evidenceSource||'browser-live-page'),
+        headers:{}
+      };
+    }
     if(!session?.url||String(session.type||'').toLowerCase()!=='flv')return null;
     return {
+      live:true,
       stream_url:String(session.url||''),
       stream_type:'flv',
       source:'browser-live-page',
