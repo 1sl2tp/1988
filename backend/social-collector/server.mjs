@@ -131,6 +131,8 @@ const TIKTOK_LIVE_COLD_BATCH=6;
 const TIKTOK_LIVE_COLD_DEEP_BATCH=2;
 let tiktokLiveLastViewerAt=0;
 let tiktokLiveSweepTimer=null;
+let activeRenderMediaProxies=0;
+const MAX_RENDER_MEDIA_PROXIES=Math.max(1,Math.min(8,Number(process.env.MAX_RENDER_MEDIA_PROXIES)||4));
 let tiktokLiveLibraryVersion=0;
 let tiktokLiveLibraryUpdatedAt=0;
 const tiktokLiveLibraryWarmInflight=new Map();
@@ -266,6 +268,23 @@ function startTikTokLiveSweepScheduler(){
 }
 function compactText(value,max=500){
   return String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
+}
+function acquireRenderMediaProxy(res){
+  if(activeRenderMediaProxies>=MAX_RENDER_MEDIA_PROXIES){
+    res.setHeader('retry-after','3');
+    json(res,429,{ok:false,error:'media_proxy_busy',retryAfter:3});
+    return false;
+  }
+  activeRenderMediaProxies+=1;
+  let released=false;
+  const release=()=>{
+    if(released)return;
+    released=true;
+    activeRenderMediaProxies=Math.max(0,activeRenderMediaProxies-1);
+  };
+  res.once('finish',release);
+  res.once('close',release);
+  return true;
 }
 function clamp(value,min,max){
   return Math.max(min,Math.min(max,Number(value)||0));
@@ -8789,6 +8808,7 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/video-stream'&&req.method==='GET'){
+    if(!acquireRenderMediaProxy(res))return;
     try{
       const handle=normalizeTikTokHandle(url.searchParams.get('user')||'');
       const id=String(url.searchParams.get('id')||'').trim();
@@ -8803,7 +8823,6 @@ const server=http.createServer(async(req,res)=>{
       if(cachedFile?.path){
         try{
           await serveTikTokVideoFile(req,res,cachedFile);
-          console.log('[tiktok-video-stream]',handle,id,'source=file-cache');
           return;
         }catch{
           tiktokVideoFileCache.delete(key);
@@ -8821,12 +8840,6 @@ const server=http.createServer(async(req,res)=>{
         ).catch(()=>({ok:false,status:0}));
 
         if(piped?.ok){
-          console.log(
-            '[tiktok-video-stream]',
-            handle,id,
-            'range='+String(req.headers.range||'full'),
-            'source=hot-'+String(source.source||'cache')
-          );
           return;
         }
 
@@ -8836,7 +8849,6 @@ const server=http.createServer(async(req,res)=>{
           try{
             const file=await downloadTikTokVideoFile(handle,id,{force:false});
             await serveTikTokVideoFile(req,res,file);
-            console.log('[tiktok-video-stream]',handle,id,'source=file-fallback');
             return;
           }catch(error){
             console.log('[tiktok-video-file] fallback failed',handle,id,compactText(error?.message||error,120));
@@ -9196,6 +9208,7 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/live-stream'&&req.method==='GET'){
+    if(!acquireRenderMediaProxy(res))return;
     try{
       await proxyTikTokLive(
         req,res,
