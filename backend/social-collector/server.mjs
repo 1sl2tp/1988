@@ -5668,6 +5668,63 @@ async function fetchTikTokChannelVideosYtdlp(rawHandle,knownSecUid=''){
   };
 }
 
+async function fetchTikTokVideoFingerprint(rawHandle,knownSecUid=''){
+  const handle=normalizeTikTokHandle(rawHandle);
+  const secUid=String(knownSecUid||'').trim();
+  if(!handle||!secUid)return {known:false,handle,secUid,latestVideoId:'',source:'missing-secuid'};
+
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api/post/item_list/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('count','1');
+    endpoint.searchParams.set('cursor','0');
+    endpoint.searchParams.set('from_page','user');
+    endpoint.searchParams.set('secUid',secUid);
+
+    const r=await fetch(endpoint,{
+      headers:{
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'application/json,text/plain,*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':'https://www.tiktok.com/@'+handle,
+        ...(tiktokApiCookieHeader?{'cookie':tiktokApiCookieHeader}:{})
+      },
+      redirect:'follow',
+      signal:AbortSignal.timeout(4000)
+    });
+    if(!r.ok)return {known:false,handle,secUid,latestVideoId:'',source:'http-'+r.status};
+
+    const body=await r.json();
+    const rawItems=
+      (Array.isArray(body?.itemList)&&body.itemList)||
+      (Array.isArray(body?.item_list)&&body.item_list)||
+      (Array.isArray(body?.data?.itemList)&&body.data.itemList)||
+      (Array.isArray(body?.data?.item_list)&&body.data.item_list)||
+      (Array.isArray(body?.items)&&body.items)||
+      null;
+    if(!Array.isArray(rawItems))return {known:false,handle,secUid,latestVideoId:'',source:'no-items'};
+
+    const first=rawItems
+      .map(row=>normalizeTikTokPostItem(handle,row))
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))[0]||null;
+
+    return {
+      known:true,
+      handle,
+      secUid,
+      latestVideoId:String(first?.id||''),
+      latestCreateTime:Number(first?.createTime||0),
+      source:'tiktok-web-api-fingerprint'
+    };
+  }catch(error){
+    return {
+      known:false,handle,secUid,latestVideoId:'',
+      source:'error:'+compactText(error?.message||error,80)
+    };
+  }
+}
+
 async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return {known:false,handle:'',secUid:'',videos:[],error:'invalid_handle'};
@@ -6115,15 +6172,45 @@ async function refreshTikTokVideoLibrary(handles=null){
       const key=handle.toLowerCase();
       tiktokVideoRefreshAt.set(key,Date.now());
       const current=tiktokVideoLibrary.get(key)||{};
-      const result=await fetchTikTokChannelVideos(handle,current.secUid||'');
+      const fingerprint=await fetchTikTokVideoFingerprint(handle,current.secUid||'');
+      const currentLatest=String(current.latestVideoId||current.videos?.[0]?.id||'');
+
+      // Cheap path: the newest ID did not move, so there is nothing to crawl,
+      // enrich or persist. checkedAt is intentionally non-material.
+      if(fingerprint?.known&&fingerprint.latestVideoId&&fingerprint.latestVideoId===currentLatest){
+        okCount+=1;
+        updateTikTokVideoLibrary(handle,{
+          checkedAt:Date.now(),
+          status:Array.isArray(current.videos)&&current.videos.length?'ready':'empty',
+          error:''
+        });
+        continue;
+      }
+
+      // Deep fetch is allowed only for a new fingerprint, initial bootstrap, or
+      // a very occasional recovery when the lightweight endpoint is unavailable.
+      const lastDeep=Number(tiktokVideoDeepCheckAt.get(key)||0);
+      const deepDue=!currentLatest||Date.now()-lastDeep>=TIKTOK_VIDEO_DEEP_FALLBACK_MS;
+      if(!fingerprint?.known&&!deepDue){
+        unknownCount+=1;
+        updateTikTokVideoLibrary(handle,{
+          checkedAt:Date.now(),
+          status:String(current.status||'ready'),
+          error:'fingerprint_unavailable'
+        });
+        continue;
+      }
+
+      tiktokVideoDeepCheckAt.set(key,Date.now());
+      const result=await fetchTikTokChannelVideos(handle,current.secUid||fingerprint?.secUid||'');
       if(!result?.known){
         unknownCount+=1;
-        const reason=String(result?.error||'unknown').slice(0,180);
+        const reason=String(result?.error||fingerprint?.source||'unknown').slice(0,180);
         errorCounts.set(reason.slice(0,80),Number(errorCounts.get(reason.slice(0,80))||0)+1);
         updateTikTokVideoLibrary(handle,{
-          secUid:String(current.secUid||result?.secUid||''),
+          secUid:String(current.secUid||result?.secUid||fingerprint?.secUid||''),
           checkedAt:Date.now(),
-          status:'unknown',
+          status:currentLatest?String(current.status||'ready'):'unknown',
           error:reason
         });
         continue;
