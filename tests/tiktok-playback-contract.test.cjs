@@ -50,8 +50,14 @@ const warmRouteStart=server.indexOf("if(url.pathname==='/tiktok/video-warm'");
 const warmRouteEnd=server.indexOf("if(url.pathname==='/tiktok/video-stream'",warmRouteStart);
 assert.ok(warmRouteStart>=0&&warmRouteEnd>warmRouteStart,'video-warm route missing');
 const warmRoute=server.slice(warmRouteStart,warmRouteEnd);
-assert.match(warmRoute,/downloadTikTokVideoFile\(/,'video-warm must prepare local MP4 fallback');
+assert.ok(!warmRoute.includes('downloadTikTokVideoFile('),'video-warm must not pre-download full MP4 media onto Render');
+assert.match(warmRoute,/queueTikTokVideoPriorityWarm\(/,'video-warm must only prepare direct source metadata');
+assert.match(warmRoute,/direct-source-only/,'video-warm must declare metadata-only direct warm mode');
 assert.match(warmRoute,/json\(res,202/,'video-warm must return immediately while warming');
+
+assert.match(server,/proxyUrl:/,'package must expose Render only as compatibility fallback');
+assert.match(html,/fallbackUrl/,'LIVE player must support direct-first then proxy fallback');
+assert.match(html,/fallbackSrc/,'MP4 player must support direct-first then proxy fallback');
 
 
 assert.match(html,/id="mediaSeek"/,'TikTok fixed seek bar missing');
