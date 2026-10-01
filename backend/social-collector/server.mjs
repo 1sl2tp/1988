@@ -12,6 +12,7 @@ import {createTikTokLoginRuntime} from './tiktok-login-runtime.mjs';
 
 const PORT=Math.max(1,Number(process.env.PORT)||10000);
 const ORIGIN=String(process.env.ALLOW_ORIGIN||'https://yt.taphoa.xyz');
+const RENDER_MEDIA_PROXY_ENABLED=String(process.env.RENDER_MEDIA_PROXY_ENABLED||'0')==='1';
 const SUPABASE_URL=String(process.env.SUPABASE_URL||'').replace(/\/$/,'');
 const SUPABASE_KEY=String(process.env.SUPABASE_PUBLISHABLE_KEY||'');
 const COLLECTOR_TOKEN=String(process.env.COLLECTOR_TOKEN||'');
@@ -274,6 +275,10 @@ function compactText(value,max=500){
   return String(value||'').replace(/\s+/g,' ').trim().slice(0,max);
 }
 function acquireRenderMediaProxy(res){
+  if(!RENDER_MEDIA_PROXY_ENABLED){
+    json(res,410,{ok:false,error:'media_proxy_disabled',mode:'direct-cdn-only'});
+    return false;
+  }
   if(activeRenderMediaProxies>=MAX_RENDER_MEDIA_PROXIES){
     res.setHeader('retry-after','3');
     json(res,429,{ok:false,error:'media_proxy_busy',retryAfter:3});
@@ -423,13 +428,9 @@ function publicTikTokLibraryItem(row){
     probeState,
     playable:playableLive,
     sourceSig:playableLive?sourceSig:'',
-    // Direct-first playback: browser/CDN carries media bytes. Render is only
-    // a compatibility fallback when the origin rejects direct browser access.
+    // Direct CDN only. Render media proxy is disabled.
     streamUrl:playableLive?directStreamUrl:'',
-    proxyUrl:playableLive
-      ? '/tiktok/live-stream?user='+encodeURIComponent(String(row.handle||''))+
-        '&source='+encodeURIComponent(sourceSig)
-      : '',
+    proxyUrl:'',
     title:String(row.title||''),
     thumbnail:String(row.thumbnail||''),
     videoCodec:playableLive?String(row.videoCodec||''):'',
@@ -6713,11 +6714,9 @@ function canonicalPackageVideo(row){
     playback:{
       type:'mp4',
       ready:canonicalMp4Usable(row),
-      // Direct CDN first. Keep the Render route only as a fallback.
+      // Direct CDN only. Render media proxy is disabled.
       url:canonicalMp4Usable(row)?String(row.mp4_url||''):'',
-      proxyUrl:canonicalMp4Usable(row)
-        ? '/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
-        : '',
+      proxyUrl:'',
       source:String(row.mp4_source||''),
       expiresAt:row.mp4_expires_at||null,
       updatedAt:row.mp4_updated_at||null
@@ -6781,11 +6780,9 @@ function buildTikTokCanonicalPackage(){
           stream:{
             type:String(row.live_stream_type||''),
             sourceSig:String(row.live_source_sig||''),
-            // Direct CDN first. Proxy remains a compatibility fallback only.
+            // Direct CDN only. Render media proxy is disabled.
             url:row.live&&row.live_source_sig?String(row.live_stream_url||''):'',
-            proxyUrl:row.live&&row.live_source_sig
-              ? '/tiktok/live-stream?user='+encodeURIComponent(handle)+'&source='+encodeURIComponent(row.live_source_sig)
-              : ''
+            proxyUrl:''
           },
           checkedAt:row.live_checked_at||null,
           updatedAt:row.live_updated_at||null
