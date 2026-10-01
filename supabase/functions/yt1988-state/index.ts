@@ -349,6 +349,150 @@ Deno.serve(async (req) => {
       return json({ ok: false, error: "bad_json" }, 400);
     }
 
+    if (body?.op === "backfill_channel_directory") {
+      const limit = Math.max(1, Math.min(80, Number(body?.limit || 80)));
+      const missingRes = await fetch(
+        rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
+        "&thumbnail_url=eq.&select=channel_id,name&order=channel_id.asc&limit=" + limit,
+        { headers: authHeaders }
+      );
+      if (!missingRes.ok) {
+        return json({ ok: false, error: "channel_directory_missing_read_failed", detail: await missingRes.text() }, 502);
+      }
+
+      const missingRowsRaw = await missingRes.json().catch(() => []);
+      const missingRows = Array.isArray(missingRowsRaw) ? missingRowsRaw : [];
+      if (!missingRows.length) {
+        return json({ ok: true, requested: 0, resolved: 0, remaining: 0, channels: [] });
+      }
+
+      const queue = [...missingRows];
+      const resolved: any[] = [];
+      const unresolved: string[] = [];
+
+      const firstThumb = (value: any) => {
+        if (typeof value === "string") return cleanText(value, 1000);
+        const rows = Array.isArray(value) ? value : [];
+        for (const row of rows) {
+          const url = cleanText(row?.url || row?.src || "", 1000);
+          if (url) return url;
+        }
+        return "";
+      };
+
+      const workers = Array.from({ length: Math.min(6, queue.length) }, async () => {
+        while (queue.length) {
+          const row = queue.shift();
+          const id = cleanId(row?.channel_id);
+          if (!id) continue;
+
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 7000);
+            const response = await fetch(
+              supabaseUrl + "/functions/v1/yt1988?action=channel&id=" + encodeURIComponent(id),
+              {
+                signal: controller.signal,
+                headers: {
+                  "apikey": serviceKey,
+                  "authorization": "Bearer " + serviceKey,
+                  "accept": "application/json"
+                }
+              }
+            );
+            clearTimeout(timer);
+            if (!response.ok) throw new Error("channel_http_" + response.status);
+
+            const payload = await response.json().catch(() => null);
+            const data = payload?.data && typeof payload.data === "object" ? payload.data : {};
+            const name = cleanText(
+              data?.name ||
+              data?.title ||
+              data?.channelName ||
+              row?.name ||
+              "",
+              180
+            );
+            const thumbnailUrl = cleanText(
+              data?.avatarUrl ||
+              data?.thumbnailUrl ||
+              data?.avatar ||
+              firstThumb(data?.avatars) ||
+              firstThumb(data?.thumbnails) ||
+              firstThumb(data?.author?.thumbnails) ||
+              "",
+              1000
+            );
+            const subscribers = cleanText(
+              data?.subscribers ||
+              data?.subscriberCount ||
+              data?.subscriberText ||
+              "",
+              120
+            );
+
+            if (!thumbnailUrl) {
+              unresolved.push(id);
+              continue;
+            }
+
+            resolved.push({
+              channel_id: id,
+              name,
+              thumbnail_url: thumbnailUrl,
+              subscribers,
+              source: "channel-backfill"
+            });
+          } catch {
+            unresolved.push(id);
+          }
+        }
+      });
+
+      await Promise.allSettled(workers);
+
+      let saved = 0;
+      if (resolved.length) {
+        const rpc = await fetch(rest + "/rpc/yt1988_upsert_channel_directory", {
+          method: "POST",
+          headers: authHeaders,
+          body: JSON.stringify({
+            p_profile_key: PROFILE,
+            p_channels: resolved
+          })
+        });
+        if (!rpc.ok) {
+          return json({
+            ok: false,
+            error: "channel_directory_backfill_write_failed",
+            detail: await rpc.text()
+          }, 502);
+        }
+        saved = Math.max(0, Number(await rpc.json().catch(() => 0)) || 0);
+      }
+
+      const remainRes = await fetch(
+        rest + "/yt1988_channel_directory?profile_key=eq." + encodeURIComponent(PROFILE) +
+        "&thumbnail_url=eq.&select=channel_id",
+        { headers: authHeaders }
+      );
+      const remainRows = remainRes.ok ? await remainRes.json().catch(() => []) : [];
+
+      return json({
+        ok: true,
+        requested: missingRows.length,
+        resolved: resolved.length,
+        saved,
+        remaining: Array.isArray(remainRows) ? remainRows.length : unresolved.length,
+        unresolved,
+        channels: resolved.map((row: any) => ({
+          id: row.channel_id,
+          name: row.name,
+          thumbnailUrl: row.thumbnail_url
+        }))
+      });
+    }
+
     if (body?.op === "upsert_channels") {
       const raw = Array.isArray(body?.channels) ? body.channels.slice(0, 80) : [];
       const byId = new Map<string, any>();
