@@ -1093,7 +1093,8 @@ main{
   opacity:1;
   transition:opacity .16s ease;
 }
-.player > #tiktokLiveVideo{
+.player > #tiktokLiveVideo,
+.player > #tiktokMediaVideo{
   position:absolute!important;
   inset:0!important;
   z-index:3;
@@ -1105,12 +1106,17 @@ main{
   background:#000;
   border:0;
 }
-.player:not(.tiktok-active) > #tiktokLiveVideo{display:none!important}
-.player.tiktok-active > #tiktokLiveVideo{display:block!important}
+.player:not(.tiktok-active) > #tiktokLiveVideo,
+.player:not(.tiktok-active) > #tiktokMediaVideo{display:none!important}
+.player.tiktok-active:not(.tiktok-vod) > #tiktokLiveVideo{display:block!important}
+.player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
+.player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
+.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{display:block!important}
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
 
 .player[data-media-provider="youtube"] > #tiktokLiveVideo,
+.player[data-media-provider="youtube"] > #tiktokMediaVideo,
 .player[data-media-provider="youtube"] > .tiktok-live-preview,
 .player[data-media-provider="youtube"] > .tiktok-live-controls{
   display:none!important;
@@ -2737,6 +2743,7 @@ html.one-col.portrait .player.pip{
         <div id="videoFrame"></div>
         <img id="tiktokLivePreview" class="tiktok-live-preview" alt="" hidden>
         <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
+        <video id="tiktokMediaVideo" playsinline preload="metadata" hidden></video>
         <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
           <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
             <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
@@ -2822,6 +2829,7 @@ html.one-col.portrait .player.pip{
   const player=document.getElementById("player");
   const tiktokLivePreview=document.getElementById("tiktokLivePreview");
   const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
+  const tiktokMediaVideo=document.getElementById("tiktokMediaVideo");
   const tiktokLiveControls=document.getElementById("tiktokLiveControls");
   const tiktokLivePlay=document.getElementById("tiktokLivePlay");
   const tiktokLiveMute=document.getElementById("tiktokLiveMute");
@@ -6291,7 +6299,25 @@ html.one-col.portrait .player.pip{
     }
   }
 
+  function stopTikTokVideoPlayback(){
+    if(!tiktokMediaVideo)return;
+    try{
+      tiktokMediaVideo.pause();
+      tiktokMediaVideo.onerror=null;
+      tiktokMediaVideo.onloadedmetadata=null;
+      tiktokMediaVideo.onplaying=null;
+      tiktokMediaVideo.onpause=null;
+      tiktokMediaVideo.onended=null;
+      tiktokMediaVideo.removeAttribute("src");
+      tiktokMediaVideo.load();
+    }catch{}
+    tiktokMediaVideo.controls=false;
+    tiktokMediaVideo.hidden=true;
+    player.classList.remove("tiktok-vod","tiktok-playing","tiktok-media-playing");
+  }
+
   function activateYoutubeSurface(){
+    stopTikTokVideoPlayback();
     stopTikTokLivePlayback();
     currentMediaProvider="youtube";
     player.dataset.mediaProvider="youtube";
@@ -6391,6 +6417,7 @@ html.one-col.portrait .player.pip{
   }
 
   function playTikTokLive(meta={}){
+    stopTikTokVideoPlayback();
     player.classList.remove("tiktok-vod");
     const id=String(meta?.id||"").trim();
     const direct=String(meta?.streamUrl||"").trim();
@@ -6477,69 +6504,18 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  function tiktokVideoPlaybackExpired(meta={}){
-    const raw=meta?.playbackExpiresAt;
-    if(!raw)return false;
-    const at=Date.parse(String(raw));
-    return Number.isFinite(at)&&at<=Date.now()+30_000;
-  }
-
-  async function resolveTikTokVideoPlayback(meta={},force=false){
-    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    const id=String(meta?.id||"").trim();
-    if(!handle||!/^[0-9]{8,}$/.test(id))return "";
-
-    try{
-      const response=await fetch(
-        TIKTOK_LIBRARY_API+
-        "/tiktok/video-source?user="+encodeURIComponent(handle)+
-        "&id="+encodeURIComponent(id)+
-        (force?"&refresh=1":""),
-        {cache:"no-store"}
-      );
-      if(!response.ok)throw new Error("tiktok_video_source_"+response.status);
-      const payload=await response.json();
-      const direct=String(payload?.directUrl||"").trim();
-      if(direct){
-        meta.playbackUrl=direct;
-        meta.playbackReady=true;
-        meta.playbackExpiresAt=payload?.expiresAt||null;
-        return direct;
-      }
-      const stream=String(payload?.stream||"").trim();
-      if(stream){
-        return /^https?:\/\//i.test(stream)
-          ?stream
-          :TIKTOK_LIBRARY_API+stream;
-      }
-    }catch(error){
-      console.warn("tiktok_video_source_failed",error);
-    }
-
-    return (
-      TIKTOK_LIBRARY_API+
-      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id)
-    );
-  }
-
-  function tiktokVideoFallbackStreamUrl(meta={}){
-    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    const id=String(meta?.id||"").trim();
-    if(!handle||!/^[0-9]{8,}$/.test(id))return "";
-    return (
-      TIKTOK_LIBRARY_API+
-      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id)
-    );
-  }
-
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    if(!id||!handle)return false;
+    const stream=String(meta?.playbackUrl||"").trim();
+    if(!id||!handle||meta?.playbackReady!==true||!stream||!tiktokMediaVideo){
+      return false;
+    }
 
+    // Exact same native MP4 contract as the working TikTok clean demo:
+    // destroy LIVE engine -> switch surface -> set poster -> src -> load -> play.
     stopTikTokLivePlayback();
+    stopTikTokVideoPlayback();
     activateTikTokSurface();
     player.classList.add("tiktok-vod");
 
@@ -6563,108 +6539,62 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
+    const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+
+    native.hidden=false;
+    native.controls=true;
+    native.preload="metadata";
+    native.muted=false;
+    native.playsInline=true;
+    native.poster=preview;
+
     if(tiktokLivePreview){
-      tiktokLivePreview.hidden=!preview;
-      if(preview)tiktokLivePreview.src=preview;
+      tiktokLivePreview.hidden=true;
+      tiktokLivePreview.removeAttribute("src");
     }
-
-    tiktokLiveVideo.hidden=false;
-    tiktokLiveVideo.controls=true;
-    tiktokLiveVideo.muted=false;
-    tiktokLiveVideo.preload="auto";
-    tiktokLiveVideo.playsInline=true;
-    tiktokLiveVideo.poster=preview;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
-    player.classList.remove("tiktok-media-playing","tiktok-playing","tiktok-controls-visible");
 
-    let sourceSeq=0;
-    let fallbackUsed=false;
-
-    const useSource=src=>{
-      src=String(src||"").trim();
-      if(!src||String(current?.id||"")!==id)return false;
-      sourceSeq++;
-      const seq=sourceSeq;
-
-      try{
-        tiktokLiveVideo.pause();
-        tiktokLiveVideo.removeAttribute("src");
-        tiktokLiveVideo.load();
-      }catch{}
-
-      tiktokLiveVideo.onerror=()=>{
-        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
-        if(fallbackUsed)return;
-        fallbackUsed=true;
-
-        // TikTok's signed CDN URL may require request headers that a native
-        // <video> element cannot set. The backend fallback preserves Range
-        // requests and the TikTok Referer/User-Agent, but is used only after
-        // the direct CDN path has actually failed.
-        const fallback=tiktokVideoFallbackStreamUrl(meta);
-        if(fallback&&String(fallback)!==String(src)){
-          useSource(fallback);
-          return;
-        }
-
-        void resolveTikTokVideoPlayback(meta,true).then(next=>{
-          if(
-            next&&
-            String(current?.id||"")===id&&
-            String(next)!==String(src)
-          ){
-            useSource(next);
-          }
-        });
-      };
-
-      tiktokLiveVideo.onloadedmetadata=()=>{
-        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
-        const w=Number(tiktokLiveVideo.videoWidth)||0;
-        const h=Number(tiktokLiveVideo.videoHeight)||0;
-        if(w>0&&h>0){
-          commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
-        }
-        tiktokLiveVideo.play().catch(()=>{});
-      };
-
-      tiktokLiveVideo.onplaying=()=>{
-        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
-        player.classList.add("tiktok-media-playing","tiktok-playing");
-        if(tiktokLivePreview)tiktokLivePreview.hidden=true;
-      };
-
-      tiktokLiveVideo.onpause=()=>{
-        if(String(current?.id||"")!==id)return;
-        player.classList.remove("tiktok-playing");
-      };
-
-      tiktokLiveVideo.onended=()=>{
-        if(String(current?.id||"")!==id)return;
-        player.classList.remove("tiktok-playing");
-        playNextFeedVideo();
-      };
-
-      tiktokLiveVideo.src=src;
-      tiktokLiveVideo.load();
-      tiktokLiveVideo.play().catch(()=>{});
-      return true;
+    native.onerror=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-media-playing","tiktok-playing");
+      console.warn("tiktok_video_native_error",{
+        id,
+        handle,
+        code:Number(native.error?.code)||0,
+        message:String(native.error?.message||"")
+      });
     };
 
-    const saved=String(meta?.playbackUrl||"").trim();
-    if(
-      meta?.playbackReady===true&&
-      saved&&
-      !tiktokVideoPlaybackExpired(meta)
-    ){
-      useSource(saved);
-    }else{
-      void resolveTikTokVideoPlayback(meta,false).then(src=>{
-        if(String(current?.id||"")!==id)return;
-        if(src)useSource(src);
-      });
-    }
+    native.onloadedmetadata=()=>{
+      if(String(current?.id||"")!==id)return;
+      const w=Number(native.videoWidth)||0;
+      const h=Number(native.videoHeight)||0;
+      if(w>0&&h>0){
+        commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
+      }
+      native.play().catch(()=>{});
+    };
+
+    native.onplaying=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.add("tiktok-media-playing","tiktok-playing");
+    };
+
+    native.onpause=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-playing");
+    };
+
+    native.onended=()=>{
+      if(String(current?.id||"")!==id)return;
+      player.classList.remove("tiktok-playing");
+      playNextFeedVideo();
+    };
+
+    native.src=stream;
+    native.load();
+    native.play().catch(()=>{});
 
     renderCurrentInfo();
     schedulePip();
@@ -9425,11 +9355,13 @@ html.one-col.portrait .player.pip{
       }
     }
 
-    if(!isTwoColumn()){
+    const opened=selectedMeta?openMedia(selectedMeta):false;
+
+    if(opened&&!isTwoColumn()){
       openSelectedVideoInline(card,id);
     }
 
-    if(selectedMeta&&openMedia(selectedMeta)){
+    if(opened){
       renderCurrentInfo();
 
       // Package tabs are complete server snapshots: UI reads them only.
