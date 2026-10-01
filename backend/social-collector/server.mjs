@@ -1787,14 +1787,16 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         source:String(a.source||'user-room'),
         known:Boolean(a.known),
         live:Boolean(a.live),
-        status:Number.isFinite(Number(a.status))?Number(a.status):null
+        status:Number.isFinite(Number(a.status))?Number(a.status):null,
+        roomId:String(a.roomId||'')
       });
       const b=detailByIndex.get(index);
       if(b)out.push({
         source:String(b.source||'live-detail'),
         known:Boolean(b.known),
         live:Boolean(b.live),
-        status:Number.isFinite(Number(b.status))?Number(b.status):null
+        status:Number.isFinite(Number(b.status))?Number(b.status):null,
+        roomId:String(b.roomId||'')
       });
       return out;
     }
@@ -1819,6 +1821,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       ? await browserTikTokLiveStates(unresolved).catch(()=>new Map())
       : new Map();
 
+    const previousStatuses=tiktokRealtimeStatusByHandle;
     const nextLive=new Set(
       [...tiktokRealtimeLiveHandles].filter(handle=>wanted.has(handle))
     );
@@ -1841,7 +1844,8 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
           source:String(browser.source||'browser-user-room'),
           known:Boolean(browser.known),
           live:Boolean(browser.live),
-          status:Number.isFinite(Number(browser.status))?Number(browser.status):null
+          status:Number.isFinite(Number(browser.status))?Number(browser.status):null,
+          roomId:String(browser.roomId||'')
         });
       }
 
@@ -1855,7 +1859,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         nextLive.add(key);
         nextStatuses.set(key,{
           handle,known:true,live:true,offlineConfirmed:false,retained:false,
-          checkedAt,evidence
+          roomId:liveRoomId,checkedAt,evidence
         });
         updateTikTokLiveLibrary(handle,{
           live:true,
@@ -1875,7 +1879,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         nextLive.delete(key);
         nextStatuses.set(key,{
           handle,known:true,live:false,offlineConfirmed:true,retained:false,
-          checkedAt,evidence
+          roomId:'',checkedAt,evidence
         });
         updateTikTokLiveLibrary(handle,{
           live:false,ready:false,playable:false,type:'',mode:'',source:'',
@@ -1915,11 +1919,22 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
     tiktokRealtimeStatusByHandle=nextStatuses;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
-    // Every current/retained LIVE immediately enters the shared FLV resolver.
+    // LIVE fingerprint first: resolve FLV only when a stream is newly LIVE,
+    // the room id changed, or the previously resolved source is no longer usable.
     const liveHandles=target.filter(handle=>nextLive.has(handle.toLowerCase()));
-    if(liveHandles.length){
-      void refreshTikTokLiveLibrary(liveHandles,{warm:false,force:false})
-        .then(()=>resolveTikTokLiveSourceBatch(liveHandles))
+    const resolveHandles=liveHandles.filter(handle=>{
+      const key=handle.toLowerCase();
+      const next=nextStatuses.get(key);
+      if(next?.known!==true||next?.live!==true||next?.retained===true)return false;
+      const prev=previousStatuses.get(key);
+      const roomChanged=String(next?.roomId||'')!==String(prev?.roomId||'');
+      const newlyLive=prev?.known!==true||prev?.live!==true||prev?.retained===true;
+      const source=currentTikTokLibrarySource(handle);
+      return newlyLive||roomChanged||!source;
+    });
+    if(resolveHandles.length){
+      void refreshTikTokLiveLibrary(resolveHandles,{warm:false,force:false})
+        .then(()=>resolveTikTokLiveSourceBatch(resolveHandles))
         .catch(error=>{
           console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
         });
@@ -1942,7 +1957,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       'unknown='+unknown,
       'retainedUnknown='+retainedUnknown,
       'browserFallback='+unresolved.length,
-      'getlink='+liveHandles.length,
+      'getlink='+resolveHandles.length,
       'checkedAt='+checkedAt
     );
     void persistTikTokLiveStore().catch(error=>{
@@ -3019,15 +3034,17 @@ async function quickTikTokLiveStateOnly(rawHandle,retry=true){
     }
 
     const data=await r.json();
-    const rawStatus=data?.data?.liveRoom?.status;
+    const liveRoom=data?.data?.liveRoom||{};
+    const rawStatus=liveRoom?.status;
     const hasStatus=rawStatus!==undefined&&rawStatus!==null&&rawStatus!=='';
     const status=hasStatus?Number(rawStatus):NaN;
+    const roomId=String(liveRoom?.id||liveRoom?.roomId||liveRoom?.room_id||'');
 
     if(status===2){
-      return {known:true,live:true,status:2,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
+      return {known:true,live:true,status:2,roomId,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
     }
     if(status===4){
-      return {known:true,live:false,status:4,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
+      return {known:true,live:false,status:4,roomId,source:retry?'tiktok-user-room':'tiktok-user-room-retry'};
     }
 
     const apiCode=Number(data?.statusCode);
