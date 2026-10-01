@@ -27,7 +27,7 @@ function disableNativeHoverHints(){
 disableNativeHoverHints();
 
 
-const STATE_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
+const STATE_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-state";
 const PIN="8881";
 const AUTH_KEY="1988-sources-auth-8881-v2";
 const UI_EVENT_KEY="1988-source-ui-event-v1";
