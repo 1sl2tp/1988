@@ -1094,7 +1094,8 @@ main{
   transition:opacity .16s ease;
 }
 .player > #tiktokLiveVideo,
-.player > #tiktokMediaVideo{
+.player > #tiktokMediaVideo,
+.player > #tiktokMediaFrame{
   position:absolute!important;
   inset:0!important;
   z-index:3;
@@ -1111,12 +1112,20 @@ main{
 .player.tiktok-active:not(.tiktok-vod) > #tiktokLiveVideo{display:block!important}
 .player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
-.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{display:block!important}
+.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{display:none!important}
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  border:0!important;
+  background:#000!important;
+}
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
 
 .player[data-media-provider="youtube"] > #tiktokLiveVideo,
 .player[data-media-provider="youtube"] > #tiktokMediaVideo,
+.player[data-media-provider="youtube"] > #tiktokMediaFrame,
 .player[data-media-provider="youtube"] > .tiktok-live-preview,
 .player[data-media-provider="youtube"] > .tiktok-live-controls{
   display:none!important;
@@ -2744,6 +2753,8 @@ html.one-col.portrait .player.pip{
         <img id="tiktokLivePreview" class="tiktok-live-preview" alt="" hidden>
         <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
         <video id="tiktokMediaVideo" playsinline preload="metadata" hidden></video>
+        <iframe id="tiktokMediaFrame" class="tiktok-media-frame" title="TikTok video"
+          allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
         <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
           <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
             <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
@@ -2830,6 +2841,7 @@ html.one-col.portrait .player.pip{
   const tiktokLivePreview=document.getElementById("tiktokLivePreview");
   const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
   const tiktokMediaVideo=document.getElementById("tiktokMediaVideo");
+  const tiktokMediaFrame=document.getElementById("tiktokMediaFrame");
   const tiktokLiveControls=document.getElementById("tiktokLiveControls");
   const tiktokLivePlay=document.getElementById("tiktokLivePlay");
   const tiktokLiveMute=document.getElementById("tiktokLiveMute");
@@ -6270,6 +6282,37 @@ html.one-col.portrait .player.pip{
     });
   }
 
+  function installTikTokEmbedBridge(){
+    addEventListener("message",event=>{
+      if(
+        event.origin!=="https://www.tiktok.com"||
+        event.source!==tiktokMediaFrame?.contentWindow
+      )return;
+
+      const message=event.data||{};
+      if(message?.["x-tiktok-player"]!==true)return;
+
+      if(message.type==="onPlayerReady"){
+        // The card click is the user's playback intent. Ask the embedded player
+        // to start as soon as TikTok reports that it is ready.
+        tiktokEmbedCommand("play",undefined);
+        return;
+      }
+
+      if(message.type==="onStateChange"){
+        const state=Number(message.value);
+        player.classList.toggle("tiktok-playing",state===1);
+        player.classList.toggle("tiktok-media-playing",state===1);
+        if(state===0)queueMicrotask(()=>playNextFeedVideo());
+        return;
+      }
+
+      if(message.type==="onPlayerError"){
+        console.warn("tiktok_embed_error",message.value,String(current?.id||""));
+      }
+    });
+  }
+
   function stopTikTokLivePlayback(){
     clearTimeout(tiktokPreparedTimer);
     tiktokPreparedTimer=0;
@@ -6300,19 +6343,30 @@ html.one-col.portrait .player.pip{
   }
 
   function stopTikTokVideoPlayback(){
-    if(!tiktokMediaVideo)return;
-    try{
-      tiktokMediaVideo.pause();
-      tiktokMediaVideo.onerror=null;
-      tiktokMediaVideo.onloadedmetadata=null;
-      tiktokMediaVideo.onplaying=null;
-      tiktokMediaVideo.onpause=null;
-      tiktokMediaVideo.onended=null;
-      tiktokMediaVideo.removeAttribute("src");
-      tiktokMediaVideo.load();
-    }catch{}
-    tiktokMediaVideo.controls=false;
-    tiktokMediaVideo.hidden=true;
+    if(tiktokMediaVideo){
+      try{
+        tiktokMediaVideo.pause();
+        tiktokMediaVideo.onerror=null;
+        tiktokMediaVideo.onloadedmetadata=null;
+        tiktokMediaVideo.onplaying=null;
+        tiktokMediaVideo.onpause=null;
+        tiktokMediaVideo.onended=null;
+        tiktokMediaVideo.removeAttribute("src");
+        tiktokMediaVideo.load();
+      }catch{}
+      tiktokMediaVideo.controls=false;
+      tiktokMediaVideo.hidden=true;
+    }
+    if(tiktokMediaFrame){
+      try{
+        tiktokMediaFrame.contentWindow?.postMessage?.(
+          {type:"pause",value:undefined,"x-tiktok-player":true},
+          "https://www.tiktok.com"
+        );
+      }catch{}
+      tiktokMediaFrame.hidden=true;
+      tiktokMediaFrame.removeAttribute("src");
+    }
     player.classList.remove("tiktok-vod","tiktok-playing","tiktok-media-playing");
   }
 
@@ -6504,16 +6558,24 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
+  function tiktokEmbedCommand(type,value){
+    if(!tiktokMediaFrame?.contentWindow)return false;
+    try{
+      tiktokMediaFrame.contentWindow.postMessage(
+        {type,value,"x-tiktok-player":true},
+        "https://www.tiktok.com"
+      );
+      return true;
+    }catch{
+      return false;
+    }
+  }
+
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    const stream=String(meta?.playbackUrl||"").trim();
-    if(!id||!handle||meta?.playbackReady!==true||!stream||!tiktokMediaVideo){
-      return false;
-    }
+    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaFrame)return false;
 
-    // Exact same native MP4 contract as the working TikTok clean demo:
-    // destroy LIVE engine -> switch surface -> set poster -> src -> load -> play.
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
     activateTikTokSurface();
@@ -6539,62 +6601,36 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    const native=tiktokMediaVideo;
-    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    // TikTok's signed v19 MP4 links currently answer HTTP 403 in a normal
+    // browser even while their token has not expired. Use TikTok's own embed
+    // player instead. It is the documented direct playback surface and accepts
+    // play/pause/seek commands via postMessage.
+    const params=new URLSearchParams({
+      autoplay:"1",
+      controls:"1",
+      progress_bar:"1",
+      play_button:"1",
+      volume_control:"1",
+      fullscreen_button:"1",
+      timestamp:"1",
+      loop:"0",
+      music_info:"0",
+      description:"0",
+      rel:"0",
+      native_context_menu:"0",
+      closed_caption:"0"
+    });
 
-    native.hidden=false;
-    native.controls=true;
-    native.preload="metadata";
-    native.muted=false;
-    native.playsInline=true;
-    native.poster=preview;
+    tiktokMediaFrame.hidden=false;
+    tiktokMediaFrame.src=
+      "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
 
-    if(tiktokLivePreview){
-      tiktokLivePreview.hidden=true;
-      tiktokLivePreview.removeAttribute("src");
+    if(tiktokMediaVideo){
+      tiktokMediaVideo.hidden=true;
+      tiktokMediaVideo.removeAttribute("src");
     }
+    if(tiktokLivePreview)tiktokLivePreview.hidden=true;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
-
-    native.onerror=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      console.warn("tiktok_video_native_error",{
-        id,
-        handle,
-        code:Number(native.error?.code)||0,
-        message:String(native.error?.message||"")
-      });
-    };
-
-    native.onloadedmetadata=()=>{
-      if(String(current?.id||"")!==id)return;
-      const w=Number(native.videoWidth)||0;
-      const h=Number(native.videoHeight)||0;
-      if(w>0&&h>0){
-        commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
-      }
-      native.play().catch(()=>{});
-    };
-
-    native.onplaying=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.add("tiktok-media-playing","tiktok-playing");
-    };
-
-    native.onpause=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-    };
-
-    native.onended=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-      playNextFeedVideo();
-    };
-
-    native.src=stream;
-    native.load();
-    native.play().catch(()=>{});
 
     renderCurrentInfo();
     schedulePip();
@@ -9556,6 +9592,7 @@ html.one-col.portrait .player.pip{
 
   player.dataset.mediaProvider="youtube";
   installTikTokLiveControls();
+  installTikTokEmbedBridge();
 
   // Start API/player creation as early as possible. No video is selected here,
   // so this cannot autoplay or resurrect the old waiting MAIN.
