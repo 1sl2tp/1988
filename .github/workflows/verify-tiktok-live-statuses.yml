@@ -1,14 +1,6 @@
 name: Verify TikTok LIVE status coverage
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "backend/social-collector/server.mjs"
-      - "tiktok-settings.html"
-      - "tiktok-clean-demo.html"
-      - "scripts/verify_tiktok_live_statuses.py"
-      - ".github/workflows/verify-tiktok-live-statuses.yml"
   workflow_dispatch:
 
 permissions:
