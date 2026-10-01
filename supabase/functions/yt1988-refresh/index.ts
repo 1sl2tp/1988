@@ -2079,6 +2079,7 @@ Deno.serve(async(req:Request)=>{
     const selectedByScope=new Map<string,any[]>();
     const generalBlockedIds=new Set<string>();
     const channelMeta=new Map<string,any>();
+    const storedSourceMeta=new Map<string,any>();
 
     for(const scope of SCOPES){
       blockedByScope.set(scope,new Set());
@@ -2103,12 +2104,17 @@ Deno.serve(async(req:Request)=>{
         });
       }
       const previousMeta=channelMeta.get(id)||{id,name:"",thumbnailUrl:""};
+      const storedName=validChannelDisplayName(row?.name)||"";
+      const storedThumb=normalizeAvatarUrl(clean(row?.thumbnail_url||"",1000));
+      const existingStored=storedSourceMeta.get(id)||{name:"",thumbnailUrl:""};
+      storedSourceMeta.set(id,{
+        name:validChannelDisplayName(existingStored.name)||storedName,
+        thumbnailUrl:normalizeAvatarUrl(existingStored.thumbnailUrl)||storedThumb
+      });
       channelMeta.set(id,{
         id,
-        name:validChannelDisplayName(previousMeta.name)||
-          validChannelDisplayName(row?.name)||
-          "",
-        thumbnailUrl:clean(previousMeta.thumbnailUrl||row?.thumbnail_url||"",1000)
+        name:validChannelDisplayName(previousMeta.name)||storedName,
+        thumbnailUrl:clean(previousMeta.thumbnailUrl||storedThumb||"",1000)
       });
     }
 
@@ -2824,16 +2830,24 @@ Deno.serve(async(req:Request)=>{
       else cacheWrites.push(write);
     }
 
-    const sourceMetaUpdates=[...channelMeta.values()].filter((source:any)=>
-      /^UC[A-Za-z0-9_-]+$/.test(clean(source?.id,180))&&
-      (validChannelDisplayName(source?.name)||clean(source?.thumbnailUrl,1000))
-    );
-    await mapLimit(sourceMetaUpdates,4,async(source:any)=>{
-      const body:any={};
+    const sourceMetaUpdates=[...channelMeta.values()].filter((source:any)=>{
+      const id=clean(source?.id,180);
+      if(!/^UC[A-Za-z0-9_-]+$/.test(id))return false;
+      const stored=storedSourceMeta.get(id)||{};
       const name=validChannelDisplayName(source?.name);
       const thumbnailUrl=normalizeAvatarUrl(source?.thumbnailUrl);
-      if(name)body.name=name;
-      if(thumbnailUrl)body.thumbnail_url=thumbnailUrl;
+      return (!!name&&name!==validChannelDisplayName(stored?.name))||
+        (!!thumbnailUrl&&thumbnailUrl!==normalizeAvatarUrl(stored?.thumbnailUrl));
+    });
+    await mapLimit(sourceMetaUpdates,4,async(source:any)=>{
+      const body:any={};
+      const stored=storedSourceMeta.get(clean(source?.id,180))||{};
+      const name=validChannelDisplayName(source?.name);
+      const thumbnailUrl=normalizeAvatarUrl(source?.thumbnailUrl);
+      if(name&&name!==validChannelDisplayName(stored?.name))body.name=name;
+      if(thumbnailUrl&&thumbnailUrl!==normalizeAvatarUrl(stored?.thumbnailUrl)){
+        body.thumbnail_url=thumbnailUrl;
+      }
       if(!Object.keys(body).length)return true;
       await fetch(
         rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
