@@ -1839,38 +1839,7 @@ async function selectedSourceLiveNow(source:any,candidates:any[]=[]){
     },source);
   }
 
-  // Fallback only to a freshly fetched channel/search candidate. A previous
-  // LIVE package row is deliberately excluded so an ended stream cannot
-  // refresh its own timestamp forever.
-  const now=Date.now();
-  const candidateRows=dedupeRows(
-    (Array.isArray(candidates)?candidates:[])
-      .filter((row:any)=>row?._liveCandidateOrigin!=="previous_package")
-      .map((row:any)=>normalizeRow(row,source))
-      .filter((row:any)=>row&&isLive(row))
-  ).slice(0,LIVE_SELECTED_CANDIDATES_PER_SOURCE);
-
-  for(const row of candidateRows){
-    const idValue=videoId(row);
-    if(!idValue)continue;
-    const checkedAt=Date.parse(String(row?._liveCacheCheckedAt||""));
-    if(!Number.isFinite(checkedAt)||now-checkedAt>8*60*1000)continue;
-    return normalizeRow({
-      ...row,
-      id:idValue,
-      videoId:idValue,
-      url:"/watch?v="+idValue,
-      uploaderName:clean(source?.name||row?.uploaderName||row?.uploader||"",180),
-      uploaderUrl:"/channel/"+id,
-      channelId:id,
-      uploaded:-1,
-      duration:-1,
-      isLive:true,
-      publishedText:"Đang trực tiếp",
-      _liveVerified:"fresh_"+clean(row?._liveCandidateOrigin||"candidate",40)
-    },source);
-  }
-
+  if(!currentId)return null;
   return null;
 }
 async function discoverGlobalLiveCandidates(
@@ -2448,12 +2417,7 @@ Deno.serve(async(req:Request)=>{
         liveCandidateRowsById.set(sid,dedupeRows([...list,row]));
       }
 
-      const selectedSeenIds=new Set(
-        selectedFromSearch.map((row:any)=>channelId(row)).filter(Boolean)
-      );
-      const remainingSelected=selectedLiveSources.filter(
-        (source:any)=>!selectedSeenIds.has(source.id)
-      );
+      const remainingSelected=selectedLiveSources;
 
       // Explicit LIVE selections are authoritative: check every one on every
       // LIVE refresh. Inherited selections from other tabs are rotated so the
@@ -2510,7 +2474,6 @@ Deno.serve(async(req:Request)=>{
 
       // STEP 3 — merge only after Source 1 and Source 2 have each been filtered.
       const selectedLiveRows=dedupeRows([
-        ...selectedFromSearch,
         ...selectedCheckedRows
       ]);
       verifiedLiveRowsCache=dedupeRows([
