@@ -97,6 +97,8 @@ const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
 let tiktokVideoPackageUpdatedAt=0;
 let tiktokVideoPackageScanPromise=null;
+const tiktokVideoEdgeRefreshPending=new Set();
+let tiktokVideoEdgeRefreshPromise=null;
 let tiktokVideoBackgroundCursor=0;
 let tiktokVideoStoreWritePromise=null;
 const tiktokVideoDeepCheckAt=new Map();
@@ -6284,6 +6286,39 @@ function ensureTikTokVideoPackageScan(handles=null){
   return tiktokVideoPackageScanPromise;
 }
 
+function queueTikTokEdgeVideoRefresh(rawHandle){
+  const handle=normalizeTikTokHandle(rawHandle);
+  if(!handle)return null;
+  tiktokVideoEdgeRefreshPending.add(handle);
+
+  if(tiktokVideoEdgeRefreshPromise)return tiktokVideoEdgeRefreshPromise;
+  tiktokVideoEdgeRefreshPromise=(async()=>{
+    while(tiktokVideoEdgeRefreshPending.size){
+      const next=[...tiktokVideoEdgeRefreshPending][0];
+      tiktokVideoEdgeRefreshPending.delete(next);
+      const key=next.toLowerCase();
+      try{
+        tiktokVideoRefreshAt.delete(key);
+        await refreshTikTokVideoLibrary([next]);
+        await persistTikTokVideoStore();
+        console.log(
+          '[tiktok-video-edge]',
+          'refreshed='+next,
+          'pending='+tiktokVideoEdgeRefreshPending.size
+        );
+      }catch(error){
+        console.warn(
+          '[tiktok-video-edge] failed',
+          next,
+          compactText(error?.message||error,140)
+        );
+      }
+      if(tiktokVideoEdgeRefreshPending.size)await sleep(500);
+    }
+  })().finally(()=>{tiktokVideoEdgeRefreshPromise=null;});
+  return tiktokVideoEdgeRefreshPromise;
+}
+
 async function getTikTokProfileSample(rawHandle,limit=6){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)throw new Error('invalid_tiktok_handle');
@@ -9050,14 +9085,9 @@ const server=http.createServer(async(req,res)=>{
         handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
       };
       if(url.searchParams.get('refresh')!=='0'&&!TIKTOK_UPDATES_PAUSED){
-        // Read path stays fast: existing channels return the saved package
-        // immediately and refresh only their tiny fingerprint in background.
-        // A brand-new channel with no snapshot may bootstrap once synchronously.
-        if(Array.isArray(current.videos)&&current.videos.length){
-          void ensureTikTokVideoPackageScan([handle]);
-        }else{
-          await ensureTikTokVideoPackageScan([handle]);
-        }
+        // Cloudflare sends a change notification only. Return saved data now;
+        // the serialized Render queue refreshes this one channel in background.
+        void queueTikTokEdgeVideoRefresh(handle);
       }
       const row=tiktokVideoLibrary.get(key)||current;
       json(res,200,{
