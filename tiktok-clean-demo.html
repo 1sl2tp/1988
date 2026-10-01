@@ -12,6 +12,8 @@
   document.documentElement.dataset.theme=theme;
 }catch{document.documentElement.dataset.theme='dark'}})();
 </script>
+<link rel="preconnect" href="https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev" crossorigin>
+<link rel="dns-prefetch" href="//1988-tiktok-live-state.taphoa-4ab8161d.workers.dev">
 <link rel="preconnect" href="https://one988-tiktok-session.onrender.com" crossorigin>
 <link rel="dns-prefetch" href="//one988-tiktok-session.onrender.com">
 <script src="https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"></script>
@@ -126,6 +128,7 @@
 
 <script>
 const API='https://one988-tiktok-session.onrender.com';
+const LIVE_API='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev';
 const LIVE_POLL_MS=30_000;
 const PACKAGE_CHECK_MIN_GAP_MS=15_000;
 let lastPackageCheckAt=0;
@@ -985,7 +988,14 @@ async function loadLiveNow({silent=true}={}){
   if(liveNowBusy)return;
   liveNowBusy=true;
   try{
-    const data=await apiJson(API+'/tiktok/live-now?t='+Date.now());
+    let data=null;
+    try{
+      data=await apiJson(LIVE_API+'/tiktok/live-now?t='+Date.now());
+      if(!data?.edge)throw new Error('edge_state_invalid');
+    }catch(edgeError){
+      console.warn('tiktok live edge fallback',edgeError);
+      data=await apiJson(API+'/tiktok/live-now?t='+Date.now());
+    }
     applyLiveNow(data);
   }catch(error){
     if(!silent)showToast('Không tải được trạng thái LIVE');
