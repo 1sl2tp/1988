@@ -1811,6 +1811,13 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
         });
     }
 
+    const deepDiscovery=target.filter(handle=>!nextLive.has(handle.toLowerCase()));
+    if(deepDiscovery.length){
+      void queueTikTokStatusFallback(deepDiscovery).catch(error=>{
+        console.warn('[tiktok-live-deep] discovery failed',compactText(error?.message||error,140));
+      });
+    }
+
     console.log(
       '[tiktok-live-current]',
       'selected='+selected.length,
@@ -1820,6 +1827,7 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
       'offlineConfirmed='+offlineConfirmedCount,
       'unknown='+unknown,
       'retainedUnknown='+retainedUnknown,
+      'deep='+deepDiscovery.length,
       'getlink='+liveHandles.length,
       'checkedAt='+checkedAt
     );
@@ -1842,6 +1850,12 @@ async function runTikTokLiveAuditSweep(){
     await runTikTokLiveMinuteSweep({targetHandles:selected.slice(i,i+chunkSize)});
     if(i+chunkSize<selected.length)await sleep(700);
   }
+
+  // A forced audit is the correctness path: do not stop after the lightweight
+  // TikTok APIs. Every selected channel not currently LIVE gets yt-dlp plus
+  // profile-room fallbacks before the audit is considered complete.
+  const unresolved=selected.filter(handle=>!tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
+  if(unresolved.length)await queueTikTokStatusFallback(unresolved);
 }
 
 async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
@@ -8181,8 +8195,13 @@ const server=http.createServer(async(req,res)=>{
             };
           }
         }
-        const isLive=Boolean(liveState?.known&&liveState.live===true);
+        let isLive=Boolean(liveState?.known&&liveState.live===true);
         const checkedAt=Date.now();
+
+        if(!isLive&&!liveState?.known){
+          await queueTikTokStatusFallback([handle]).catch(()=>{});
+          isLive=tiktokRealtimeLiveHandles.has(key);
+        }
 
         if(isLive){
           tiktokRealtimeLiveHandles.add(key);
@@ -8197,11 +8216,12 @@ const server=http.createServer(async(req,res)=>{
             console.warn('[tiktok-live-getlink] add failed',handle,compactText(error?.message||error,120));
           });
         }else if(!tiktokRealtimeLiveHandles.has(key)){
+          const deepStatus=tiktokRealtimeStatusByHandle.get(key);
           updateTikTokLiveLibrary(handle,{
             live:false,
-            status:liveState?.known?'offline':'unknown',
-            probeState:liveState?.known?'offline':'unknown',
-            liveCheckSource:String(liveState?.source||'tiktok-api'),
+            status:deepStatus?.offlineConfirmed?'offline':(liveState?.known?'offline':'unknown'),
+            probeState:deepStatus?.offlineConfirmed?'offline':(liveState?.known?'offline':'unknown'),
+            liveCheckSource:String(deepStatus?.offlineConfirmed?'deep-multi-source':(liveState?.source||'tiktok-api')),
             lastSeenAt:checkedAt
           });
         }
