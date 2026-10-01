@@ -124,6 +124,8 @@ let tiktokLiveLibraryWarmBatchTimer=null;
 let tiktokLiveLibraryWarmBatchPromise=null;
 const tiktokLiveLibraryWarmRetryAt=new Map();
 const tiktokLiveStatusFallbackInflight=new Set();
+const tiktokLiveStatusFallbackPending=new Set();
+let tiktokLiveStatusFallbackPromise=null;
 const TIKTOK_LIVE_LIBRARY_WARM_CONCURRENCY=4;
 const TIKTOK_LIVE_LIBRARY_WARM_RETRY_MS=30_000;
 let tiktokLiveLibraryRefreshCursor=0;
@@ -632,13 +634,13 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
 }
 
 async function batchTikTokLiveFallback(handles){
-  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,5);
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
   if(!normalized.length)return new Map();
   try{
     const out=await execFileText(
       'python3',
       ['tiktok_live_batch_check.py',...normalized],
-      {timeout:10_500,maxBuffer:4*1024*1024}
+      {timeout:14_000,maxBuffer:4*1024*1024}
     );
     const rows=JSON.parse(String(out||'[]'));
     const map=new Map();
@@ -652,59 +654,264 @@ async function batchTikTokLiveFallback(handles){
     return new Map();
   }
 }
-function queueTikTokStatusFallback(handles){
-  const fresh=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))]
-    .filter(handle=>!tiktokLiveStatusFallbackInflight.has(handle.toLowerCase()))
-    .slice(0,5);
-  if(!fresh.length)return;
+function addTikTokStatusEvidence(handle,entry){
+  const key=String(handle||'').toLowerCase();
+  if(!key)return null;
+  const now=Date.now();
+  const prev=tiktokRealtimeStatusByHandle.get(key)||{
+    handle,known:false,live:tiktokRealtimeLiveHandles.has(key),
+    offlineConfirmed:false,retained:false,checkedAt:now,evidence:[]
+  };
+  const evidence=Array.isArray(prev.evidence)?prev.evidence.slice():[];
+  const normalized={
+    source:String(entry?.source||'fallback'),
+    known:Boolean(entry?.known),
+    live:Boolean(entry?.live),
+    status:(entry?.status===null||entry?.status===undefined||entry?.status==='')
+      ? null
+      : (Number.isFinite(Number(entry.status))?Number(entry.status):null)
+  };
+  const duplicate=evidence.some(row=>
+    row?.source===normalized.source&&
+    Boolean(row?.known)===normalized.known&&
+    Boolean(row?.live)===normalized.live&&
+    (row?.status??null)===(normalized.status??null)
+  );
+  if(!duplicate)evidence.push(normalized);
 
-  fresh.forEach(handle=>tiktokLiveStatusFallbackInflight.add(handle.toLowerCase()));
-  void (async()=>{
-    const result=await batchTikTokLiveFallback(fresh);
-    for(const handle of fresh){
+  const positive=evidence.find(row=>row?.known&&row?.live);
+  const offlineSources=[...new Set(
+    evidence.filter(row=>row?.known&&!row?.live).map(row=>String(row?.source||'')).filter(Boolean)
+  )];
+  const retained=tiktokRealtimeLiveHandles.has(key);
+  const live=Boolean(positive||retained);
+  const offlineConfirmed=Boolean(!live&&offlineSources.length>=2);
+  const next={
+    ...prev,
+    handle,
+    known:Boolean(positive||offlineConfirmed),
+    live,
+    offlineConfirmed,
+    retained:Boolean(!positive&&retained),
+    checkedAt:now,
+    evidence
+  };
+  tiktokRealtimeStatusByHandle.set(key,next);
+  return next;
+}
+
+function publishDeepTikTokLive(handle,row,source='deep-fallback'){
+  const key=String(handle||'').toLowerCase();
+  if(!key)return false;
+  const now=Date.now();
+  const prev=tiktokLiveLibrary.get(key)||{};
+  tiktokRealtimeLiveHandles.add(key);
+  addTikTokStatusEvidence(handle,{source,known:true,live:true,status:2});
+
+  const seeded=row?.stream_url
+    ? seedTikTokFastSource(handle,row)
+    : null;
+  updateTikTokLiveLibrary(handle,{
+    live:true,
+    ready:Boolean(prev.ready),
+    playable:Boolean(prev.playable),
+    status:prev.playable?'ready':'live',
+    probeState:'live',
+    liveCheckSource:source,
+    stateChangedAt:prev.live?Number(prev.stateChangedAt||0):now,
+    lastKnownAt:now,
+    lastSeenAt:now
+  });
+  if(seeded)queueTikTokLibraryWarm(handle);
+  else void resolveTikTokLiveSourceBatch([handle]).catch(()=>{});
+  return true;
+}
+
+async function deepTikTokRoomFallback(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
+  const out=new Map();
+  if(!normalized.length)return out;
+
+  // First try the authenticated user-detail endpoint in one browser page. It
+  // often still exposes roomId when the dedicated LIVE endpoints are returning
+  // 403 to server-side fetches.
+  const profiles=await browserTikTokProfileIdentities(normalized).catch(()=>new Map());
+
+  let cursor=0;
+  const worker=async()=>{
+    while(true){
+      const index=cursor++;
+      if(index>=normalized.length)return;
+      const handle=normalized[index];
       const key=handle.toLowerCase();
-      const row=result.get(key);
-      const prev=tiktokLiveLibrary.get(key)||{};
-      const now=Date.now();
-      if(row?.status==='LIVE'){
-        const changed=!Boolean(prev.live);
-        tiktokRealtimeLiveHandles.add(key);
-        seedTikTokFastSource(handle,row);
-        updateTikTokLiveLibrary(handle,{
-          live:true,ready:false,playable:false,
-          status:'live',probeState:'live',
-          stateChangedAt:changed?now:Number(prev.stateChangedAt||0),
-          lastKnownAt:now,lastSeenAt:now
+      let profile=profiles.get(key)||null;
+      let roomId=String(profile?.roomId||'');
+
+      // If browser user-detail omitted roomId, inspect the public profile
+      // hydration as a second route. Missing roomId is UNKNOWN, never OFFLINE.
+      if(!roomId){
+        profile=await fetchTikTokProfileIdentityScraped(handle).catch(()=>null);
+        roomId=String(profile?.roomId||'');
+      }
+      if(!roomId){
+        out.set(key,[]);
+        continue;
+      }
+
+      const evidence=[];
+      const room=await quickTikTokRoomInfoStatus(handle,roomId).catch(()=>null);
+      if(room){
+        evidence.push({
+          source:'profile-room-info',
+          known:Boolean(room.known),
+          live:Boolean(room.live),
+          status:(room.status===null||room.status===undefined)?null:Number(room.status)
         });
-        queueTikTokLibraryWarm(handle);
-      }else if(row?.status==='OFFLINE'){
-        if(tiktokRealtimeLiveHandles.has(key)){
-          updateTikTokLiveLibrary(handle,{
-            live:true,
-            status:'live',
-            probeState:'live',
-            lastSeenAt:now
-          });
-        }else{
-          updateTikTokLiveLibrary(handle,{
-            live:false,
-            status:'offline',
-            probeState:'offline',
-            lastSeenAt:now
-          });
+        if(room?.live&&Array.isArray(room.candidates)&&room.candidates.length){
+          const cand=room.candidates[0];
+          out.set(key,{evidence,liveRow:{
+            stream_url:String(cand?.url||''),
+            stream_type:'flv',
+            source:'profile-room-info',
+            videoCodec:String(cand?.videoCodec||''),
+            width:Number(cand?.width||0),
+            height:Number(cand?.height||0),
+            quality:String(cand?.quality||''),
+            bitrate:Number(cand?.bitrate||0),
+            path:String(cand?.path||'')
+          }});
+          continue;
         }
-      }else{
+        if(room?.known&&room?.live){
+          out.set(key,{evidence,liveRow:null});
+          continue;
+        }
+      }
+
+      const detail=await quickTikTokLiveDetailStatus(handle,false,roomId).catch(()=>null);
+      if(detail){
+        evidence.push({
+          source:'profile-live-detail-room',
+          known:Boolean(detail.known),
+          live:Boolean(detail.live),
+          status:(detail.status===null||detail.status===undefined)?null:Number(detail.status)
+        });
+        if(detail?.live&&Array.isArray(detail.candidates)&&detail.candidates.length){
+          const cand=detail.candidates[0];
+          out.set(key,{evidence,liveRow:{
+            stream_url:String(cand?.url||''),
+            stream_type:'flv',
+            source:'profile-live-detail-room',
+            videoCodec:String(cand?.videoCodec||''),
+            width:Number(cand?.width||0),
+            height:Number(cand?.height||0),
+            quality:String(cand?.quality||''),
+            bitrate:Number(cand?.bitrate||0),
+            path:String(cand?.path||'')
+          }});
+          continue;
+        }
+      }
+      out.set(key,{evidence,liveRow:null});
+    }
+  };
+
+  await Promise.all(Array.from({length:Math.min(2,normalized.length)},()=>worker()));
+  return out;
+}
+
+async function runTikTokStatusFallbackBatch(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
+  if(!normalized.length)return;
+
+  const batch=await batchTikTokLiveFallback(normalized);
+  const stillUnknown=[];
+
+  for(const handle of normalized){
+    const key=handle.toLowerCase();
+    const row=batch.get(key);
+    if(row?.status==='LIVE'){
+      publishDeepTikTokLive(handle,row,'yt-dlp');
+      continue;
+    }
+    if(row?.status==='OFFLINE'){
+      addTikTokStatusEvidence(handle,{source:'yt-dlp',known:true,live:false,status:4});
+    }else{
+      addTikTokStatusEvidence(handle,{source:'yt-dlp',known:false,live:false,status:null});
+    }
+    if(!tiktokRealtimeLiveHandles.has(key))stillUnknown.push(handle);
+  }
+
+  // A second family of evidence uses profile roomId -> webcast room/detail.
+  // This catches LIVE accounts that yt-dlp or /api-live/user/room could not see.
+  if(stillUnknown.length){
+    const roomRows=await deepTikTokRoomFallback(stillUnknown);
+    for(const handle of stillUnknown){
+      const key=handle.toLowerCase();
+      const data=roomRows.get(key);
+      for(const evidence of Array.isArray(data?.evidence)?data.evidence:[]){
+        addTikTokStatusEvidence(handle,evidence);
+      }
+      const positive=(data?.evidence||[]).find(row=>row?.known&&row?.live);
+      if(positive){
+        publishDeepTikTokLive(
+          handle,
+          data?.liveRow||null,
+          String(positive.source||'profile-room')
+        );
+        continue;
+      }
+
+      const status=tiktokRealtimeStatusByHandle.get(key);
+      if(status?.offlineConfirmed&&!tiktokRealtimeLiveHandles.has(key)){
         updateTikTokLiveLibrary(handle,{
-          probeState:'unknown',
-          lastSeenAt:now
+          live:false,ready:false,playable:false,type:'',mode:'',source:'',
+          status:'offline',probeState:'offline',sourceSig:'',
+          liveCheckSource:'deep-multi-source-offline',
+          lastSeenAt:Date.now()
+        },{allowLiveRemoval:true});
+      }else if(!tiktokRealtimeLiveHandles.has(key)){
+        updateTikTokLiveLibrary(handle,{
+          live:false,status:'unknown',probeState:'unknown',
+          liveCheckSource:'deep-multi-source-unknown',
+          lastSeenAt:Date.now()
         });
       }
     }
-  })().catch(error=>{
-    console.log('[tiktok-library] async status fallback failed',compactText(error?.message||error,140));
-  }).finally(()=>{
-    fresh.forEach(handle=>tiktokLiveStatusFallbackInflight.delete(handle.toLowerCase()));
+  }
+}
+
+function queueTikTokStatusFallback(handles){
+  const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
+  for(const handle of normalized){
+    const key=handle.toLowerCase();
+    if(!tiktokRealtimeLiveHandles.has(key))tiktokLiveStatusFallbackPending.add(handle);
+  }
+  if(tiktokLiveStatusFallbackPromise)return tiktokLiveStatusFallbackPromise;
+  if(!tiktokLiveStatusFallbackPending.size)return Promise.resolve();
+
+  tiktokLiveStatusFallbackPromise=(async()=>{
+    while(tiktokLiveStatusFallbackPending.size){
+      const batch=[...tiktokLiveStatusFallbackPending].slice(0,10);
+      for(const handle of batch){
+        tiktokLiveStatusFallbackPending.delete(handle);
+        tiktokLiveStatusFallbackInflight.add(handle.toLowerCase());
+      }
+      try{
+        await runTikTokStatusFallbackBatch(batch);
+      }catch(error){
+        console.log('[tiktok-live-deep] batch failed',compactText(error?.message||error,160));
+      }finally{
+        for(const handle of batch)tiktokLiveStatusFallbackInflight.delete(handle.toLowerCase());
+      }
+      if(tiktokLiveStatusFallbackPending.size)await sleep(650);
+    }
+    await persistTikTokLiveStore({force:true}).catch(()=>{});
+  })().finally(()=>{
+    tiktokLiveStatusFallbackPromise=null;
   });
+
+  return tiktokLiveStatusFallbackPromise;
 }
 
 function seedTikTokFastSource(handle,row){
@@ -3615,6 +3822,7 @@ async function fetchTikTokProfileIdentity(rawHandle){
     const data={
       secUid:String(detail?.secUid||scraped?.secUid||''),
       userId:String(detail?.userId||scraped?.userId||''),
+      roomId:String(detail?.roomId||scraped?.roomId||''),
       nickname:String(official?.nickname||detail?.nickname||scraped?.nickname||''),
       avatar:String(official?.avatar||detail?.avatar||scraped?.avatar||''),
       bio:String(detail?.bio||scraped?.bio||''),
@@ -3710,6 +3918,7 @@ async function browserTikTokProfileIdentities(handles){
               ok:true,
               secUid:String(user?.secUid||user?.sec_uid||''),
               userId:String(user?.id||user?.uid||''),
+              roomId:String(user?.roomId||user?.room_id||''),
               nickname:String(user?.nickname||''),
               avatar:firstUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb),
               followerCount:Number(stats?.followerCount||stats?.follower_count||0),
@@ -3733,6 +3942,7 @@ async function browserTikTokProfileIdentities(handles){
       const data={
         secUid:String(row.secUid||''),
         userId:String(row.userId||''),
+        roomId:String(row.roomId||''),
         nickname:String(row.nickname||''),
         avatar:String(row.avatar||''),
         followerCount:Number(row.followerCount||0),
@@ -3847,6 +4057,7 @@ async function fetchTikTokUserDetail(handle){
     return {
       secUid:String(user?.secUid||user?.sec_uid||''),
       userId:String(user?.id||user?.uid||''),
+      roomId:String(user?.roomId||user?.room_id||''),
       nickname:String(user?.nickname||''),
       avatar:firstTikTokAssetUrl(user?.avatarLarger||user?.avatarMedium||user?.avatarThumb),
       bio:String(user?.signature||''),
