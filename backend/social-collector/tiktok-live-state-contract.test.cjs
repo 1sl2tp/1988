@@ -48,7 +48,12 @@ console.log('tiktok-live-state-contract: assertions passed');
 const auditStart=server.indexOf('async function runTikTokLiveAuditSweep()');
 const auditEnd=server.indexOf("\nfunction ",auditStart+20);
 const audit=server.slice(auditStart,auditEnd>auditStart?auditEnd:auditStart+7000);
-assert.match(audit,/runTikTokLiveMinuteSweep\(\{targetHandles:selected\}\)/,
-  'full LIVE audit must use the same canonical sweep as normal LIVE checks');
+assert.match(audit,/runTikTokLiveMinuteSweep\(\{targetHandles:selected,exhaustive:true\}\)/,
+  'full LIVE audit must use the same canonical sweep in exhaustive mode');
 assert.doesNotMatch(audit,/runTikTokBrowserDiscoveryBatch\(/,
   'full LIVE audit must not maintain a second independent LIVE definition');
+
+assert.match(server,/function runTikTokLiveMinuteSweep\(\{targetHandles=null,exhaustive=false\}=\{\}\)/,
+  'canonical sweep must support an explicit exhaustive mode');
+assert.match(server,/const deepPick=exhaustive[\s\S]{0,180}\? coldTargets\.slice\(\)[\s\S]{0,180}: coldTargets\.length/,
+  'exhaustive mode must deep-check every cold selected channel');
