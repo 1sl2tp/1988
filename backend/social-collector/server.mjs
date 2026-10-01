@@ -820,98 +820,56 @@ async function deepTikTokRoomFallback(handles){
   return out;
 }
 
-async function runTikTokStatusFallbackBatch(handles){
+async function runTikTokBrowserDiscoveryBatch(handles,{maxWaitMs=4500,source='browser-live-page'}={}){
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))].slice(0,10);
-  if(!normalized.length)return;
+  const result={checked:0,found:0,missed:0};
+  if(!normalized.length)return result;
 
-  // Strongest discovery fallback: open the same /@handle/live page a real
-  // browser opens and watch its network for a semantic FLV. This bypasses the
-  // server-side API 403 problem without treating "no capture" as OFFLINE.
-  const unresolved=[];
   let cursor=0;
-  const browserWorker=async()=>{
+  const worker=async()=>{
     while(true){
       const index=cursor++;
       if(index>=normalized.length)return;
       const handle=normalized[index];
       const key=handle.toLowerCase();
-      if(tiktokRealtimeLiveHandles.has(key))continue;
-      const row=await probeTikTokBrowserFlv(handle,{maxWaitMs:4500});
-      if(row?.stream_url){
-        publishDeepTikTokLive(handle,row,'browser-live-page');
-      }else{
-        unresolved.push(handle);
-        addTikTokStatusEvidence(handle,{
-          source:'browser-live-page',
-          known:false,live:false,status:null
-        });
-      }
-    }
-  };
-  await Promise.all(Array.from({length:Math.min(3,normalized.length)},()=>browserWorker()));
 
-  if(!unresolved.length)return;
-
-  // Secondary extractor evidence. A timeout/error is UNKNOWN and never clears
-  // LIVE. If it does return a stream, publish it immediately.
-  const batch=await batchTikTokLiveFallback(unresolved);
-  const stillUnknown=[];
-  for(const handle of unresolved){
-    const key=handle.toLowerCase();
-    if(tiktokRealtimeLiveHandles.has(key))continue;
-    const row=batch.get(key);
-    if(row?.status==='LIVE'){
-      publishDeepTikTokLive(handle,row,'yt-dlp');
-      continue;
-    }
-    if(row?.status==='OFFLINE'){
-      addTikTokStatusEvidence(handle,{source:'yt-dlp',known:true,live:false,status:4});
-    }else{
-      addTikTokStatusEvidence(handle,{source:'yt-dlp',known:false,live:false,status:null});
-    }
-    if(!tiktokRealtimeLiveHandles.has(key))stillUnknown.push(handle);
-  }
-
-  // Last cheap structured fallback: if authenticated user-detail exposes a
-  // roomId, ask both room-info and live-detail-by-room.
-  if(stillUnknown.length){
-    const roomRows=await deepTikTokRoomFallback(stillUnknown);
-    for(const handle of stillUnknown){
-      const key=handle.toLowerCase();
-      const data=roomRows.get(key);
-      for(const evidence of Array.isArray(data?.evidence)?data.evidence:[]){
-        addTikTokStatusEvidence(handle,evidence);
-      }
-      const positive=(data?.evidence||[]).find(row=>row?.known&&row?.live);
-      if(positive){
-        publishDeepTikTokLive(
-          handle,
-          data?.liveRow||null,
-          String(positive.source||'profile-room')
-        );
+      // Already-known LIVE is not a discovery miss. Its verified FLV/session is
+      // stronger evidence than re-opening the same page every 20 seconds.
+      if(tiktokRealtimeLiveHandles.has(key)){
+        result.checked+=1;
         continue;
       }
 
-      const status=tiktokRealtimeStatusByHandle.get(key);
-      if(status?.offlineConfirmed&&!tiktokRealtimeLiveHandles.has(key)){
-        updateTikTokLiveLibrary(handle,{
-          live:false,ready:false,playable:false,type:'',mode:'',source:'',
-          status:'offline',probeState:'offline',sourceSig:'',
-          liveCheckSource:'deep-multi-source-offline',
-          lastSeenAt:Date.now()
-        },{allowLiveRemoval:true});
-      }else if(!tiktokRealtimeLiveHandles.has(key)){
-        updateTikTokLiveLibrary(handle,{
-          live:false,status:'unknown',probeState:'unknown',
-          liveCheckSource:'deep-multi-source-unknown',
-          lastSeenAt:Date.now()
+      const row=await probeTikTokBrowserFlv(handle,{maxWaitMs});
+      result.checked+=1;
+      if(row?.stream_url){
+        publishDeepTikTokLive(handle,row,source);
+        result.found+=1;
+      }else{
+        addTikTokStatusEvidence(handle,{
+          source,known:false,live:false,status:null
         });
+        result.missed+=1;
       }
     }
-  }
+  };
+
+  await Promise.all(Array.from({length:Math.min(3,normalized.length)},()=>worker()));
+  return result;
+}
+
+async function runTikTokStatusFallbackBatch(handles){
+  // Periodic discovery must stay faster than the rotating queue. The actual
+  // TikTok LIVE page is the primary fallback because API calls and yt-dlp are
+  // frequently 403/timeout from the server. A page miss remains UNKNOWN.
+  return runTikTokBrowserDiscoveryBatch(handles,{
+    maxWaitMs:4500,
+    source:'browser-live-page'
+  });
 }
 
 function queueTikTokStatusFallback(handles){
+  if(tiktokLiveAuditState.running)return Promise.resolve();
   const normalized=[...new Set((handles||[]).map(normalizeTikTokHandle).filter(Boolean))];
   for(const handle of normalized){
     const key=handle.toLowerCase();
@@ -1622,6 +1580,11 @@ let tiktokRealtimeLiveHandles=new Set();
 // merely because media resolution is still pending.
 let tiktokRealtimeStatusByHandle=new Map();
 let tiktokRealtimeLiveCheckedAt=0;
+let tiktokLiveAuditPromise=null;
+let tiktokLiveAuditState={
+  running:false,startedAt:0,finishedAt:0,
+  selectedTotal:0,liveAtStart:0,browserChecked:0,browserFound:0,browserMissed:0
+};
 function runTikTokLiveMinuteSweep({targetHandles=null}={}){
   if(tiktokLiveMinuteSweepPromise)return tiktokLiveMinuteSweepPromise;
   tiktokLiveMinuteSweepPromise=(async()=>{
@@ -1873,19 +1836,78 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
 }
 
 async function runTikTokLiveAuditSweep(){
-  const selected=[...tiktokLiveSelectedHandles];
-  if(!selected.length)return;
-  const chunkSize=TIKTOK_LIVE_DISCOVERY_BATCH;
-  for(let i=0;i<selected.length;i+=chunkSize){
-    await runTikTokLiveMinuteSweep({targetHandles:selected.slice(i,i+chunkSize)});
-    if(i+chunkSize<selected.length)await sleep(700);
-  }
+  if(tiktokLiveAuditPromise)return tiktokLiveAuditPromise;
 
-  // A forced audit is the correctness path: do not stop after the lightweight
-  // TikTok APIs. Every selected channel not currently LIVE gets yt-dlp plus
-  // profile-room fallbacks before the audit is considered complete.
-  const unresolved=selected.filter(handle=>!tiktokRealtimeLiveHandles.has(handle.toLowerCase()));
-  if(unresolved.length)await queueTikTokStatusFallback(unresolved);
+  tiktokLiveAuditPromise=(async()=>{
+    // Let any small periodic batch finish so the full audit is the only owner
+    // of browser-page discovery while it is running.
+    if(tiktokLiveStatusFallbackPromise){
+      await tiktokLiveStatusFallbackPromise.catch(()=>{});
+    }
+
+    const selected=[...tiktokLiveSelectedHandles];
+    const startedAt=Date.now();
+    const liveAtStart=selected.filter(handle=>
+      tiktokRealtimeLiveHandles.has(handle.toLowerCase())
+    ).length;
+
+    tiktokLiveAuditState={
+      running:true,startedAt,finishedAt:0,
+      selectedTotal:selected.length,liveAtStart,
+      browserChecked:0,browserFound:0,browserMissed:0
+    };
+
+    // Correctness path: every selected handle that is not already a verified
+    // LIVE is opened through the real TikTok /@handle/live page. We watch the
+    // same network traffic the browser sees. Captured FLV => LIVE immediately;
+    // no FLV => UNKNOWN, never OFFLINE. This prevents 403 from hiding a LIVE.
+    const unresolved=selected.filter(handle=>
+      !tiktokRealtimeLiveHandles.has(handle.toLowerCase())
+    );
+    const chunkSize=10;
+
+    for(let i=0;i<unresolved.length;i+=chunkSize){
+      const batch=unresolved.slice(i,i+chunkSize);
+      const result=await runTikTokBrowserDiscoveryBatch(batch,{
+        maxWaitMs:6500,
+        source:'browser-live-page-audit'
+      });
+      tiktokLiveAuditState.browserChecked+=Number(result.checked||0);
+      tiktokLiveAuditState.browserFound+=Number(result.found||0);
+      tiktokLiveAuditState.browserMissed+=Number(result.missed||0);
+
+      // Publish discoveries promptly instead of waiting until all 171 channels
+      // have finished.
+      await persistTikTokLiveStore({force:true}).catch(()=>{});
+      if(i+chunkSize<unresolved.length)await sleep(250);
+    }
+
+    tiktokRealtimeLiveCheckedAt=Date.now();
+    tiktokLiveAuditState.running=false;
+    tiktokLiveAuditState.finishedAt=tiktokRealtimeLiveCheckedAt;
+
+    await persistTikTokLiveStore({force:true}).catch(()=>{});
+    console.log(
+      '[tiktok-live-audit]',
+      'selected='+selected.length,
+      'liveAtStart='+liveAtStart,
+      'browserChecked='+tiktokLiveAuditState.browserChecked,
+      'browserFound='+tiktokLiveAuditState.browserFound,
+      'browserMissed='+tiktokLiveAuditState.browserMissed,
+      'liveNow='+tiktokRealtimeLiveHandles.size,
+      'ms='+(tiktokLiveAuditState.finishedAt-startedAt)
+    );
+    return {...tiktokLiveAuditState};
+  })().catch(error=>{
+    tiktokLiveAuditState.running=false;
+    tiktokLiveAuditState.finishedAt=Date.now();
+    console.warn('[tiktok-live-audit] failed',compactText(error?.message||error,180));
+    throw error;
+  }).finally(()=>{
+    tiktokLiveAuditPromise=null;
+  });
+
+  return tiktokLiveAuditPromise;
 }
 
 async function refreshTikTokLiveLibrary(handles,{warm=true,force=false}={}){
@@ -8610,6 +8632,7 @@ const server=http.createServer(async(req,res)=>{
       ok:true,
       exhaustive:true,
       checkedAt:tiktokRealtimeLiveCheckedAt,
+      audit:{...tiktokLiveAuditState},
       total:items.length,
       counts,
       items
