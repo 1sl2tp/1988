@@ -4655,19 +4655,61 @@ html.one-col.portrait .player.pip{
   function normalizeYoutubeEdgeLiveItem(item={}){
     const id=String(item?.videoId||item?.id||"").trim();
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return null;
-    const sourceId=String(item?.sourceId||item?.channelId||"").trim();
+
+    const sourceId=String(
+      item?.sourceId||
+      item?.channelId||
+      item?.uploaderId||
+      ""
+    ).trim();
+    const sourceName=String(
+      item?.sourceName||
+      item?.channelName||
+      item?.uploaderName||
+      item?.uploader||
+      ""
+    ).trim();
+    const sourceAvatar=String(
+      item?.sourceAvatar||
+      item?.avatar||
+      item?.channelAvatar||
+      item?.channelThumbnailUrl||
+      item?.uploaderAvatar||
+      item?.uploaderThumbnailUrl||
+      ""
+    ).trim();
+    const thumbnail=String(
+      item?.thumbnail||
+      item?.thumbnailUrl||
+      item?.cover||
+      ""
+    ).trim();
+    const viewerCount=Math.max(
+      0,
+      Number(
+        item?.viewerCount||
+        item?.concurrentViewers||
+        item?.liveViewers||
+        0
+      )||0
+    );
+
+    // Cloudflare is authoritative only for "what is LIVE now".
+    // Keep edge metadata when it exists, but do not manufacture blank/default
+    // fields that would overwrite the richer package/source metadata below.
     return {
       id,
       provider:"youtube",
-      title:String(item?.title||"").trim()||String(item?.sourceName||"").trim()||"Đang trực tiếp",
-      sourceName:String(item?.sourceName||"").trim(),
+      title:String(item?.title||item?.videoTitle||"").trim(),
+      sourceName,
       sourceId,
-      sourceAvatar:String(item?.sourceAvatar||"").trim(),
-      thumbnail:String(item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg")).trim(),
-      livePreview:String(item?.thumbnail||("https://i.ytimg.com/vi/"+id+"/hqdefault.jpg")).trim(),
+      sourceAvatar,
+      thumbnail,
+      livePreview:thumbnail,
       isLive:true,
-      verified:false,
-      viewsLabel:"",
+      verified:item?.verified===true,
+      viewerCount,
+      viewsLabel:viewerCount?compactLiveViewerCount(viewerCount):"",
       publishedLabel:"Đang trực tiếp",
       durationLabel:"",
       duration:-1,
@@ -4678,15 +4720,35 @@ html.one-col.portrait .player.pip{
       videoHeight:0,
       _aspectVerified:false,
       _aspectSource:"youtube-live-edge",
-      _liveOrigin:String(item?.origin||"cloudflare"),
+      _liveOrigin:String(item?.origin||item?.liveOrigin||"cloudflare"),
+      _liveItem:String(item?.itemType||item?.liveItem||""),
       checkedAt:Number(item?.checkedAt||0)
     };
+  }
+
+  function youtubeLiveSourceBlocked(sourceId=""){
+    sourceId=validSourceId(sourceId);
+    if(!sourceId)return false;
+
+    const blocked=new Set(
+      [
+        ...(Array.isArray(sourceStateRemote?.blocked)?sourceStateRemote.blocked:[]),
+        ...Object.values(
+          sourceStateRemote?.scopedBlocked&&typeof sourceStateRemote.scopedBlocked==="object"
+            ?sourceStateRemote.scopedBlocked
+            :{}
+        ).flatMap(value=>Array.isArray(value)?value:[])
+      ].map(String)
+    );
+    return blocked.has(sourceId);
   }
 
   function currentYoutubeLiveMetas(fallback=[]){
     const base=Array.isArray(fallback)?fallback:[];
     if(!youtubeEdgeLiveReady)return base;
 
+    // Old LIVE package/source rows remain the metadata dictionary only.
+    // Cloudflare decides the membership (which videoIds are LIVE now).
     const byId=new Map(base.map(meta=>[String(meta?.id||""),meta]));
     const bySource=new Map(
       base
@@ -4694,28 +4756,93 @@ html.one-col.portrait .player.pip{
         .map(meta=>[String(meta.sourceId).trim(),meta])
     );
 
-    return youtubeEdgeLiveMetas.map(edge=>{
-      const sourceId=String(edge?.sourceId||"").trim();
-      const fallbackMeta=
-        byId.get(String(edge?.id||""))||
-        (sourceId?bySource.get(sourceId):null)||
-        {};
-      const resolvedSourceId=sourceId||String(fallbackMeta?.sourceId||"").trim();
-      const merged={
-        ...fallbackMeta,
-        ...edge,
-        sourceId:resolvedSourceId,
-        sourceName:String(edge?.sourceName||fallbackMeta?.sourceName||"").trim(),
-        sourceAvatar:String(edge?.sourceAvatar||fallbackMeta?.sourceAvatar||"").trim()
-      };
-      const identity=resolvedSourceIdentity(merged);
-      return {
-        ...merged,
-        sourceId:String(identity?.sourceId||merged.sourceId||"").trim(),
-        sourceName:String(identity?.sourceName||merged.sourceName||"").trim(),
-        sourceAvatar:String(identity?.sourceAvatar||merged.sourceAvatar||"").trim()
-      };
-    });
+    return youtubeEdgeLiveMetas
+      .map(edge=>{
+        const edgeSourceId=String(edge?.sourceId||"").trim();
+        const fallbackMeta=
+          byId.get(String(edge?.id||""))||
+          (edgeSourceId?bySource.get(edgeSourceId):null)||
+          {};
+
+        const resolvedSourceId=
+          edgeSourceId||
+          String(fallbackMeta?.sourceId||"").trim();
+
+        // Do not spread the sparse edge object over the package row: empty
+        // sourceName/avatar/views used to erase the complete YouTube card.
+        const merged={
+          ...fallbackMeta,
+          id:String(edge?.id||fallbackMeta?.id||"").trim(),
+          provider:"youtube",
+          isLive:true,
+          sourceId:resolvedSourceId,
+          title:String(
+            edge?.title||
+            fallbackMeta?.title||
+            edge?.sourceName||
+            fallbackMeta?.sourceName||
+            "Đang trực tiếp"
+          ).trim(),
+          sourceName:String(
+            edge?.sourceName||
+            fallbackMeta?.sourceName||
+            ""
+          ).trim(),
+          sourceAvatar:String(
+            edge?.sourceAvatar||
+            fallbackMeta?.sourceAvatar||
+            ""
+          ).trim(),
+          thumbnail:String(
+            edge?.thumbnail||
+            fallbackMeta?.thumbnail||
+            ("https://i.ytimg.com/vi/"+encodeURIComponent(String(edge?.id||fallbackMeta?.id||""))+"/hqdefault.jpg")
+          ).trim(),
+          livePreview:String(
+            edge?.livePreview||
+            edge?.thumbnail||
+            fallbackMeta?.livePreview||
+            fallbackMeta?.thumbnail||
+            ""
+          ).trim(),
+          viewerCount:Math.max(
+            0,
+            Number(edge?.viewerCount)||Number(fallbackMeta?.viewerCount)||0
+          ),
+          viewsLabel:String(
+            edge?.viewsLabel||
+            fallbackMeta?.viewsLabel||
+            ""
+          ).trim(),
+          publishedLabel:"Đang trực tiếp",
+          durationLabel:"",
+          duration:-1,
+          uploaded:-1,
+          verified:edge?.verified===true||fallbackMeta?.verified===true,
+          mediaKind:String(fallbackMeta?.mediaKind||"landscape"),
+          aspectRatio:validMediaAspect(fallbackMeta?.aspectRatio)||16/9,
+          videoWidth:Number(fallbackMeta?.videoWidth)||0,
+          videoHeight:Number(fallbackMeta?.videoHeight)||0,
+          _aspectVerified:fallbackMeta?._aspectVerified===true,
+          _aspectSource:String(fallbackMeta?._aspectSource||"youtube-live-edge"),
+          _liveOrigin:String(edge?._liveOrigin||fallbackMeta?._liveOrigin||"cloudflare"),
+          _liveItem:String(edge?._liveItem||fallbackMeta?._liveItem||""),
+          checkedAt:Number(edge?.checkedAt||fallbackMeta?.checkedAt||0)
+        };
+
+        const identity=resolvedSourceIdentity(merged);
+        merged.sourceId=String(identity?.sourceId||merged.sourceId||"").trim();
+        merged.sourceName=String(identity?.sourceName||merged.sourceName||"").trim();
+        merged.sourceAvatar=String(identity?.sourceAvatar||merged.sourceAvatar||"").trim();
+
+        if(!merged.viewsLabel&&merged.viewerCount){
+          merged.viewsLabel=compactLiveViewerCount(merged.viewerCount);
+        }
+        return merged;
+      })
+      // Blocking remains a UI/source rule; moving LIVE detection to Cloudflare
+      // must not make a previously blocked channel reappear.
+      .filter(meta=>!youtubeLiveSourceBlocked(meta?.sourceId));
   }
 
   async function fetchYoutubeLiveSnapshot({signal=null}={}){
@@ -4921,6 +5048,43 @@ html.one-col.portrait .player.pip{
     return String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
   }
 
+  const directMediaPreconnectOrigins=new Set();
+
+  function preconnectDirectMedia(url=""){
+    let parsed=null;
+    try{parsed=new URL(String(url||""))}catch{}
+    if(!parsed||!/^https?:$/.test(parsed.protocol))return false;
+    const origin=parsed.origin;
+    if(!origin||directMediaPreconnectOrigins.has(origin))return true;
+    directMediaPreconnectOrigins.add(origin);
+
+    const preconnect=document.createElement("link");
+    preconnect.rel="preconnect";
+    preconnect.href=origin;
+    preconnect.crossOrigin="anonymous";
+    document.head.appendChild(preconnect);
+
+    const dns=document.createElement("link");
+    dns.rel="dns-prefetch";
+    dns.href="//"+parsed.host;
+    document.head.appendChild(dns);
+
+    return true;
+  }
+
+  function warmTikTokDirectMeta(meta={}){
+    if(String(meta?.provider||"").toLowerCase()!=="tiktok")return false;
+    const preferred=
+      isAppleMobileBrowser()&&String(meta?.hlsUrl||"").trim()
+        ?String(meta.hlsUrl).trim()
+        :String(meta?.streamUrl||meta?.hlsUrl||"").trim();
+    if(preferred)preconnectDirectMedia(preferred);
+
+    const preview=livePreviewForMeta(meta);
+    if(preview)preconnectDirectMedia(preview);
+    return Boolean(preferred);
+  }
+
   function primeVisibleLivePreviews(){
     if(feedMode!=="package"||activePackageScope!=="live")return;
     const rows=[...document.querySelectorAll(".row.live-card")];
@@ -4930,6 +5094,14 @@ html.one-col.portrait .player.pip{
       const id=String(row.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(!meta?.isLive)continue;
+
+      if(String(meta?.provider||"").toLowerCase()==="tiktok"){
+        // Stream URL is already the direct TikTok CDN URL returned with the
+        // Cloudflare LIVE snapshot. Warm only DNS/TLS for visible cards; do
+        // not resolve again and do not pre-download the live stream.
+        warmTikTokDirectMeta(meta);
+      }
+
       const preview=livePreviewForMeta(meta);
       if(!preview)continue;
       const img=row.querySelector(".row-thumb img");
@@ -6293,6 +6465,19 @@ html.one-col.portrait .player.pip{
   }
 
   const rowsImageHost=document.getElementById("rows");
+
+  // Desktop hover and mobile pointer-down give the direct TikTok CDN a head
+  // start before the click handler attaches mpegts/native HLS.
+  for(const eventName of ["pointerover","pointerdown"]){
+    rowsImageHost?.addEventListener(eventName,event=>{
+      const card=event.target?.closest?.('.row[data-provider="tiktok"][data-video-id]');
+      if(!card)return;
+      const id=String(card.dataset.videoId||"");
+      const meta=feedMetas.find(item=>String(item?.id||"")===id);
+      if(meta)warmTikTokDirectMeta(meta);
+    },{passive:true});
+  }
+
   rowsImageHost?.addEventListener("error",event=>{
     const img=event.target;
     if(!(img instanceof HTMLImageElement)||!img.closest(".row-thumb"))return;
