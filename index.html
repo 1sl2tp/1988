@@ -1071,10 +1071,29 @@ main{
 
 /* TikTok LIVE uses the exact same player shell / MAIN / PiP geometry.
    Only the media engine differs from YouTube. */
+.tiktok-live-preview{
+  position:absolute;
+  inset:0;
+  z-index:2;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  background:#000;
+  display:block;
+}
+.player.tiktok-active > .tiktok-live-preview[hidden]{display:none!important}
+.player.tiktok-active.tiktok-media-playing > .tiktok-live-preview{
+  opacity:0;
+  pointer-events:none;
+}
+.player.tiktok-active > .tiktok-live-preview{
+  opacity:1;
+  transition:opacity .16s ease;
+}
 .player > #tiktokLiveVideo{
   position:absolute!important;
   inset:0!important;
-  z-index:2;
+  z-index:3;
   width:100%!important;
   height:100%!important;
   max-width:none!important;
@@ -2502,6 +2521,7 @@ html.one-col.portrait .player.pip{
     <section class="stage" id="stage">
       <div class="player" id="player">
         <div id="videoFrame"></div>
+        <img id="tiktokLivePreview" class="tiktok-live-preview" alt="" hidden>
         <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
         <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
           <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
@@ -2584,6 +2604,7 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const tiktokLivePreview=document.getElementById("tiktokLivePreview");
   const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
   const tiktokLiveControls=document.getElementById("tiktokLiveControls");
   const tiktokLivePlay=document.getElementById("tiktokLivePlay");
@@ -4565,8 +4586,16 @@ html.one-col.portrait .player.pip{
       else if(tiktokLiveVideo.webkitEnterFullscreen)tiktokLiveVideo.webkitEnterFullscreen();
     });
     tiktokLiveVideo.addEventListener("playing",()=>{
+      player.classList.add("tiktok-media-playing");
       syncTikTokControls();
       showTikTokControls();
+    });
+    tiktokLiveVideo.addEventListener("error",()=>{
+      player.classList.remove("tiktok-media-playing");
+      showTikTokControls({sticky:true});
+    });
+    tiktokLiveVideo.addEventListener("waiting",()=>{
+      player.classList.remove("tiktok-media-playing");
     });
     tiktokLiveVideo.addEventListener("pause",()=>{
       syncTikTokControls();
@@ -4603,8 +4632,12 @@ html.one-col.portrait .player.pip{
       tiktokLiveVideo.load();
     }catch{}
     clearTimeout(tiktokControlsTimer);
-    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing");
+    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing","tiktok-media-playing");
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
+    if(tiktokLivePreview){
+      tiktokLivePreview.hidden=true;
+      tiktokLivePreview.removeAttribute("src");
+    }
   }
 
   function showYoutubePlayerSurface(){
@@ -4649,6 +4682,7 @@ html.one-col.portrait .player.pip{
     const events=engine.Events||{};
     if(events.ERROR){
       instance.on(events.ERROR,()=>{
+        player.classList.remove("tiktok-media-playing");
         if(
           !legacy&&
           String(currentMeta?.id||"")===String(meta?.id||"")&&
@@ -4692,13 +4726,20 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
+    const previewUrl=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    if(tiktokLivePreview){
+      tiktokLivePreview.hidden=!previewUrl;
+      if(previewUrl)tiktokLivePreview.src=previewUrl;
+    }
+    player.classList.remove("tiktok-media-playing");
+
     tiktokLiveVideo.hidden=false;
     tiktokLiveVideo.controls=false;
     tiktokLiveVideo.muted=false;
     if(tiktokLiveControls)tiktokLiveControls.hidden=false;
     syncTikTokControls();
     showTikTokControls();
-    tiktokLiveVideo.poster=String(meta?.thumbnail||"");
+    tiktokLiveVideo.poster=previewUrl;
 
     tiktokLiveVideo.onloadedmetadata=()=>{
       if(String(current?.id||"")!==id)return;
