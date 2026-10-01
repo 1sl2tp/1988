@@ -9687,7 +9687,7 @@ server.listen(PORT,'0.0.0.0',()=>{
   console.log('[collector] listening',PORT,'auto='+AUTO_COLLECT,'tiktokPaused='+TIKTOK_UPDATES_PAUSED);
 
   void cleanupTikTokOriginalStorage();
-  setInterval(()=>{void cleanupTikTokOriginalStorage();},6*60*60_000).unref();
+  // Image bytes are no longer mirrored to Supabase Storage; cleanup is manual-only.
 
   if(TIKTOK_UPDATES_PAUSED){
     // Read-only recovery mode: one small persisted package read, no canonical
@@ -9774,7 +9774,7 @@ server.listen(PORT,'0.0.0.0',()=>{
     // media after each deploy. Incremental workers below handle small batches.
     if(canonicalReady){
       setTimeout(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},30_000).unref();
-      setTimeout(()=>{void mirrorTikTokCanonicalImages(4);},45_000).unref();
+      // Image URLs stay at origin; no background Storage mirror.
     }
 
     void runTikTokLiveMinuteSweep();
@@ -9785,7 +9785,7 @@ server.listen(PORT,'0.0.0.0',()=>{
     setInterval(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(2));},5*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileFastBatch(4);},5*60_000).unref();
     setInterval(()=>{void refreshTikTokCanonicalProfileBatch(10);},2*60*60_000).unref();
-    setInterval(()=>{void mirrorTikTokCanonicalImages(6);},30*60_000).unref();
+    // No recurring image mirror: keep only source URLs in metadata.
     setInterval(()=>{void enrichNextTikTokCanonicalVideo();},15*60_000).unref();
   }
 
