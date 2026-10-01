@@ -3,7 +3,7 @@ import { URL } from 'node:url';
 import {execFile} from 'node:child_process';
 import {createReadStream} from 'node:fs';
 import {randomUUID,createHash} from 'node:crypto';
-import {writeFile,unlink,stat,mkdir} from 'node:fs/promises';
+import {readdir,writeFile,unlink,stat,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import chromium from '@sparticuz/chromium';
@@ -56,6 +56,9 @@ const tiktokVideoFileCache=new Map();
 const tiktokVideoFileInflight=new Map();
 const TIKTOK_VIDEO_FILE_CACHE_DIR=join(tmpdir(),'yt1988-tiktok-mp4');
 const TIKTOK_VIDEO_FILE_TTL_MS=30*60*1000;
+const TIKTOK_VIDEO_FILE_PRUNE_MS=5*60*1000;
+let tiktokVideoFileLastPruneAt=0;
+let tiktokVideoFilePrunePromise=null;
 const TIKTOK_VIDEO_SOURCE_TTL_MS=12*60*1000;
 const TIKTOK_VIDEO_SOURCE_WARM_BATCH=1;
 let tiktokVideoSourceWarmCursor=0;
@@ -4984,10 +4987,61 @@ async function enrichNextTikTokCanonicalVideo(){
   }
 }
 
+async function pruneTikTokVideoFileCache({force=false}={}){
+  const now=Date.now();
+  if(!force&&now-tiktokVideoFileLastPruneAt<TIKTOK_VIDEO_FILE_PRUNE_MS)return 0;
+  if(tiktokVideoFilePrunePromise)return tiktokVideoFilePrunePromise;
+  tiktokVideoFileLastPruneAt=now;
+
+  const task=(async()=>{
+    await mkdir(TIKTOK_VIDEO_FILE_CACHE_DIR,{recursive:true});
+    const keep=new Set();
+    let removed=0;
+
+    for(const [key,row] of tiktokVideoFileCache.entries()){
+      const fresh=Boolean(row?.path)&&now-Number(row?.at||0)<TIKTOK_VIDEO_FILE_TTL_MS;
+      if(fresh){
+        try{
+          const info=await stat(row.path);
+          if(info.size>1024){
+            keep.add(row.path);
+            continue;
+          }
+        }catch{}
+      }
+      tiktokVideoFileCache.delete(key);
+      if(row?.path){
+        const ok=await unlink(row.path).then(()=>true).catch(()=>false);
+        if(ok)removed+=1;
+      }
+    }
+
+    const entries=await readdir(TIKTOK_VIDEO_FILE_CACHE_DIR,{withFileTypes:true}).catch(()=>[]);
+    for(const entry of entries){
+      if(!entry?.isFile?.())continue;
+      const path=join(TIKTOK_VIDEO_FILE_CACHE_DIR,entry.name);
+      if(keep.has(path))continue;
+      try{
+        const info=await stat(path);
+        if(now-Number(info.mtimeMs||0)<TIKTOK_VIDEO_FILE_TTL_MS)continue;
+        await unlink(path);
+        removed+=1;
+      }catch{}
+    }
+
+    if(removed)console.log('[tiktok-video-file] pruned','files='+removed);
+    return removed;
+  })().finally(()=>{tiktokVideoFilePrunePromise=null;});
+
+  tiktokVideoFilePrunePromise=task;
+  return task;
+}
+
 async function downloadTikTokVideoFile(rawHandle,rawId,{force=false}={}){
   const handle=normalizeTikTokHandle(rawHandle);
   const id=String(rawId||'').trim();
   if(!handle||!/^[0-9]{8,}$/.test(id))throw new Error('invalid_tiktok_video');
+  await pruneTikTokVideoFileCache().catch(()=>0);
   const key=handle.toLowerCase()+':'+id;
   if(force){
     const prev=tiktokVideoFileCache.get(key);
@@ -5000,7 +5054,10 @@ async function downloadTikTokVideoFile(rawHandle,rawId,{force=false}={}){
       const info=await stat(cached.path);
       if(info.size>1024)return {...cached,size:info.size};
     }catch{}
+  }
+  if(cached){
     tiktokVideoFileCache.delete(key);
+    if(cached?.path)await unlink(cached.path).catch(()=>{});
   }
   const inflight=tiktokVideoFileInflight.get(key);
   if(inflight)return inflight;
