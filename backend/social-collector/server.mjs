@@ -6765,6 +6765,37 @@ async function upsertTikTokCanonicalRows(channelRows=[],videoRows=[]){
   }
   await Promise.all(tasks);
 }
+function validateTikTokCanonicalPackage(payload){
+  if(!payload||payload.schema!=='tiktok-library-v3'||!Array.isArray(payload.channels)){
+    throw new Error('tiktok_library_package_invalid_shape');
+  }
+  if(Number(payload.total)!==payload.channels.length){
+    throw new Error('tiktok_library_package_total_mismatch');
+  }
+  const handles=new Set();
+  let videoCount=0;
+  for(const channel of payload.channels){
+    const handle=normalizeTikTokHandle(channel?.handle||'');
+    if(!handle)throw new Error('tiktok_library_package_invalid_handle');
+    const key=handle.toLowerCase();
+    if(handles.has(key))throw new Error('tiktok_library_package_duplicate_handle:'+handle);
+    handles.add(key);
+    if(!Array.isArray(channel?.videos))throw new Error('tiktok_library_package_invalid_videos:'+handle);
+    const videoIds=new Set();
+    for(const video of channel.videos){
+      const id=String(video?.id||'');
+      if(!/^\d{8,}$/.test(id))throw new Error('tiktok_library_package_invalid_video:'+handle);
+      if(videoIds.has(id))throw new Error('tiktok_library_package_duplicate_video:'+id);
+      videoIds.add(id);
+      videoCount+=1;
+    }
+  }
+  if(Number(payload.videoCount)!==videoCount){
+    throw new Error('tiktok_library_package_video_count_mismatch');
+  }
+  return true;
+}
+
 async function persistTikTokCanonicalPackage(){
   if(TIKTOK_UPDATES_PAUSED){
     return tiktokFrozenLibraryPackage||buildTikTokCanonicalPackage();
@@ -6773,6 +6804,10 @@ async function persistTikTokCanonicalPackage(){
     // Build at execution time, not queue time, so concurrent updates collapse
     // into the newest package instead of fighting over the same singleton row.
     const payload=buildTikTokCanonicalPackage();
+    // A fallback package is replaced only after a complete canonical snapshot
+    // has been built and validated in memory. PostgREST upserts the singleton
+    // row atomically, so a failed/partial rebuild leaves the previous package.
+    validateTikTokCanonicalPackage(payload);
     if(tiktokCanonicalPersistedVersion===tiktokCanonicalPackageVersion)return payload;
     let lastError='';
     for(let attempt=0;attempt<3;attempt++){
@@ -9542,6 +9577,15 @@ server.listen(PORT,'0.0.0.0',()=>{
   ]).then(async()=>{
     await loadTikTokVideoStore();
     const canonicalReady=await loadTikTokCanonicalStore();
+
+    // Repair the durable fallback from the complete canonical tables at startup.
+    // This is cheap when unchanged (version/hash gate) and guarantees that a
+    // deploy cannot keep serving an older frozen package indefinitely.
+    if(canonicalReady){
+      await persistTikTokCanonicalPackage().catch(error=>{
+        console.warn('[tiktok-library] startup fallback repair failed',compactText(error?.message||error,180));
+      });
+    }
 
     // Preview mode: make persisted FLV/MP4 available for playback, but do not
     // start any recurring TikTok collector, profile, image, LIVE or MP4 jobs.
