@@ -395,17 +395,13 @@ function tiktokLibraryMaterial(row){
 }
 function publicTikTokLibraryItem(row){
   if(!row)return null;
-  const detectedLive=Boolean(row.live);
-  const probeState=String(row.probeState||'unknown');
-  const type=String(row.type||'').toLowerCase();
+  const handle=String(row.handle||'');
+  const detectedLive=tiktokConfirmedLiveNow(handle);
+  const probeState=detectedLive?'live':String(row.probeState||'unknown');
+  const hotSource=currentTikTokLibrarySource(handle);
+  const type=String(hotSource?.type||row.type||'').toLowerCase();
   const sourceSig=String(row.sourceSig||'');
-  const playableLive=Boolean(
-    detectedLive&&
-    (row.playable??row.ready)&&
-    type==='flv'&&
-    sourceSig
-  );
-  const hotSource=currentTikTokLibrarySource(String(row.handle||''));
+  const playableLive=tiktokPublishedLiveNow(handle,Date.now(),row);
   const directStreamUrl=playableLive?String(hotSource?.url||''):'';
   return {
     handle:String(row.handle||''),
@@ -458,17 +454,6 @@ function updateTikTokLiveLibrary(rawHandle,patch={},options={}){
   };
   const next={...prev,...patch,handle};
 
-  // HARD LOCK: once a handle has been discovered LIVE, ordinary API/package/
-  // getlink paths are not allowed to turn it OFF. Only the explicit channel
-  // removal control-plane path removes it from tiktokRealtimeLiveHandles.
-  if(tiktokRealtimeLiveHandles.has(key)&&options.allowLiveRemoval!==true){
-    next.live=true;
-    next.probeState='live';
-    if(!next.playable&&['offline','unknown','checking','warming'].includes(String(next.status||''))){
-      next.status='live';
-    }
-  }
-
   if(patch.lastSeenAt!==undefined)next.lastSeenAt=Number(patch.lastSeenAt||0);
   const changed=tiktokLibraryMaterial(prev)!==tiktokLibraryMaterial(next);
   if(changed){
@@ -487,11 +472,38 @@ function currentTikTokLibrarySource(handle){
   if(fast&&tiktokLiveSourceUsable(fast))return fast;
   return null;
 }
+function isTikTokConfirmedLiveStatus(scan,now=Date.now()){
+  return Boolean(
+    scan?.known===true&&
+    scan?.live===true&&
+    scan?.retained!==true&&
+    now-Number(scan?.checkedAt||0)<=TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS
+  );
+}
+function tiktokConfirmedLiveNow(handle,now=Date.now()){
+  const key=String(handle||'').toLowerCase();
+  return isTikTokConfirmedLiveStatus(tiktokRealtimeStatusByHandle.get(key),now);
+}
+function tiktokPublishedLiveNow(handle,now=Date.now(),row=null){
+  const key=String(handle||'').toLowerCase();
+  const item=row||tiktokLiveLibrary.get(key)||{};
+  if(!tiktokConfirmedLiveNow(handle,now))return false;
+  const source=currentTikTokLibrarySource(handle);
+  const type=String(source?.type||item?.type||'').toLowerCase();
+  const sourceSig=String(item?.sourceSig||'');
+  return Boolean(
+    item?.playable&&
+    source?.url&&
+    type==='flv'&&
+    sourceSig&&
+    tiktokLiveSourceUsable(source)
+  );
+}
 function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status=''}={}){
   if(!row?.url)return false;
   const key=String(handle||'').toLowerCase();
   const current=tiktokLiveLibrary.get(key)||{};
-  const live=tiktokRealtimeLiveHandles.has(key)||Boolean(current.live);
+  const live=tiktokConfirmedLiveNow(handle);
   const confirmed=live&&(ready==null?Boolean(row.confirmed):Boolean(ready));
   const expiresAt=tiktokStreamExpiresAt(row.url);
   return updateTikTokLiveLibrary(handle,{
@@ -510,7 +522,7 @@ function noteTikTokLibrarySource(handle,row,{mode='',source='',ready=null,status
 function publishTikTokLiveSourceNow(handle,row,{mode='',source=''}={}){
   if(!row?.url)return false;
   const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-  const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
+  const live=tiktokConfirmedLiveNow(handle);
   return updateTikTokLiveLibrary(handle,{
     ready:live,
     playable:live,
@@ -652,7 +664,7 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
     row.height=probe.height;
     clearTikTokBadSource(handle,row);
     const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-    const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
+    const live=tiktokConfirmedLiveNow(handle);
     updateTikTokLiveLibrary(handle,{
       ready:live,playable:live,
       type:live?String(row.type||''):'',
@@ -676,7 +688,7 @@ async function confirmTikTokLibrarySource(handle,row,{mode='',source='',preserve
   if(!preserveOnFailure){
     markTikTokBadSource(handle,row);
     const current=tiktokLiveLibrary.get(String(handle||'').toLowerCase())||{};
-    const live=tiktokRealtimeLiveHandles.has(String(handle||'').toLowerCase())||Boolean(current.live);
+    const live=tiktokConfirmedLiveNow(handle);
     updateTikTokLiveLibrary(handle,{
       ready:false,playable:false,status:live?'warming':'offline',
       type:live?String(row.type||''):'',
@@ -1457,21 +1469,17 @@ function buildTikTokStoredRows(){
       const item=tiktokLiveLibrary.get(key)||{};
       const source=currentTikTokLibrarySource(handle);
       const sourceType=String(source?.type||'').toLowerCase();
-      // HARD LOCK persistence: realtime LIVE is authoritative for detected LIVE.
-      // A later API result cannot make persistence forget a discovered LIVE.
-      const live=tiktokRealtimeLiveHandles.has(key)||Boolean(item.live);
-      // Canonical LIVE playback is FLV-only. A detected LIVE without an FLV
-      // remains LIVE/pending and is never removed by API status.
-      const playable=Boolean(
-        live&&source?.url&&sourceType==='flv'&&tiktokLiveSourceUsable(source)
-      );
+      const scan=tiktokRealtimeStatusByHandle.get(key)||null;
+      const detectedLive=isTikTokConfirmedLiveStatus(scan);
+      const live=tiktokPublishedLiveNow(handle,Date.now(),item);
+      const playable=live;
       return {
         handle,
         selected:true,
         // Keep TikTok's detected LIVE state internally. Public/UI LIVE is
         // derived separately and requires a validated FLV.
         live,
-        probe_state:live?'live':String(item.probeState||'unknown'),
+        probe_state:detectedLive?'live':(scan?.offlineConfirmed?'offline':'unknown'),
         playable,
         stream_type:playable?'flv':'',
         stream_url:playable?String(source.url||''):'',
@@ -1851,7 +1859,9 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
 
       const resolved=resolvedFromEvidence(evidence);
       const alreadyLive=nextLive.has(key);
-      const liveSource=evidence.find(x=>x.known&&x.live)?.source||'';
+      const liveEvidence=evidence.find(x=>x.known&&x.live)||null;
+      const liveSource=liveEvidence?.source||'';
+      const liveRoomId=String(liveEvidence?.roomId||'');
       const offlineSources=evidence.filter(x=>x.known&&!x.live).map(x=>x.source);
 
       if(resolved.live){
@@ -1900,8 +1910,11 @@ function runTikTokLiveMinuteSweep({targetHandles=null}={}){
           checkedAt,evidence
         });
         updateTikTokLiveLibrary(handle,{
-          live:true,status:'live',probeState:'live',
-          liveCheckSource:'retained-after-unknown',lastSeenAt:checkedAt
+          live:false,
+          status:'unknown',
+          probeState:'unknown',
+          liveCheckSource:'retained-after-unknown',
+          lastSeenAt:checkedAt
         });
       }else{
         nextStatuses.set(key,{
@@ -1975,17 +1988,12 @@ async function runTikTokLiveAuditSweep(){
   if(tiktokLiveAuditPromise)return tiktokLiveAuditPromise;
 
   tiktokLiveAuditPromise=(async()=>{
-    // Let any small periodic batch finish so the full audit is the only owner
-    // of browser-page discovery while it is running.
-    if(tiktokLiveStatusFallbackPromise){
-      await tiktokLiveStatusFallbackPromise.catch(()=>{});
+    if(tiktokLiveMinuteSweepPromise){
+      await tiktokLiveMinuteSweepPromise.catch(()=>{});
     }
-
     const selected=[...tiktokLiveSelectedHandles];
     const startedAt=Date.now();
-    const liveAtStart=selected.filter(handle=>
-      tiktokRealtimeLiveHandles.has(handle.toLowerCase())
-    ).length;
+    const liveAtStart=selected.filter(handle=>tiktokConfirmedLiveNow(handle,startedAt)).length;
 
     tiktokLiveAuditState={
       running:true,startedAt,finishedAt:0,
@@ -1993,47 +2001,24 @@ async function runTikTokLiveAuditSweep(){
       browserChecked:0,browserFound:0,browserMissed:0
     };
 
-    // Correctness path: every selected handle that is not already a verified
-    // LIVE is opened through the real TikTok /@handle/live page. We watch the
-    // same network traffic the browser sees. Captured FLV => LIVE immediately;
-    // no FLV => UNKNOWN, never OFFLINE. This prevents 403 from hiding a LIVE.
-    const unresolved=selected.filter(handle=>
-      !tiktokRealtimeLiveHandles.has(handle.toLowerCase())
-    );
-    const chunkSize=10;
-
-    for(let i=0;i<unresolved.length;i+=chunkSize){
-      const batch=unresolved.slice(i,i+chunkSize);
-      const result=await runTikTokBrowserDiscoveryBatch(batch,{
-        maxWaitMs:6500,
-        source:'browser-live-page-audit'
-      });
-      tiktokLiveAuditState.browserChecked+=Number(result.checked||0);
-      tiktokLiveAuditState.browserFound+=Number(result.found||0);
-      tiktokLiveAuditState.browserMissed+=Number(result.missed||0);
-
-      // Publish discoveries promptly instead of waiting until all 171 channels
-      // have finished.
-      await persistTikTokLiveStore({force:true}).catch(()=>{});
-      if(i+chunkSize<unresolved.length)await sleep(250);
-    }
-
-    tiktokRealtimeLiveCheckedAt=Date.now();
-    tiktokLiveAuditState.running=false;
-    tiktokLiveAuditState.finishedAt=tiktokRealtimeLiveCheckedAt;
-
+    // One definition only: a full audit is the normal canonical sweep applied
+    // to every selected channel, not a second browser-only LIVE detector.
+    await runTikTokLiveMinuteSweep({targetHandles:selected});
     await persistTikTokLiveStore({force:true}).catch(()=>{});
+
+    const finishedAt=Date.now();
+    const liveNow=selected.filter(handle=>tiktokPublishedLiveNow(handle,finishedAt)).length;
+    tiktokLiveAuditState.running=false;
+    tiktokLiveAuditState.finishedAt=finishedAt;
+
     console.log(
       '[tiktok-live-audit]',
       'selected='+selected.length,
       'liveAtStart='+liveAtStart,
-      'browserChecked='+tiktokLiveAuditState.browserChecked,
-      'browserFound='+tiktokLiveAuditState.browserFound,
-      'browserMissed='+tiktokLiveAuditState.browserMissed,
-      'liveNow='+tiktokRealtimeLiveHandles.size,
-      'ms='+(tiktokLiveAuditState.finishedAt-startedAt)
+      'liveNow='+liveNow,
+      'ms='+(finishedAt-startedAt)
     );
-    return {...tiktokLiveAuditState};
+    return {...tiktokLiveAuditState,liveNow};
   })().catch(error=>{
     tiktokLiveAuditState.running=false;
     tiktokLiveAuditState.finishedAt=Date.now();
@@ -7183,10 +7168,11 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
 
     const liveRow=tiktokLiveLibrary.get(key)||null;
     if(liveRow){
-      const source=liveRow.live?currentTikTokLibrarySource(handle):null;
+      const publishedLive=tiktokPublishedLiveNow(handle,Date.now(),liveRow);
+      const source=publishedLive?currentTikTokLibrarySource(handle):null;
       const sourceType=String(source?.type||'').toLowerCase();
       const sourceUsable=Boolean(
-        liveRow.live&&
+        publishedLive&&
         source?.url&&
         sourceType==='flv'&&
         tiktokLiveSourceUsable(source)
@@ -9158,19 +9144,11 @@ const server=http.createServer(async(req,res)=>{
       :new Set();
 
     const now=Date.now();
-    const handles=[...tiktokRealtimeLiveHandles]
+    const handles=[...tiktokLiveSelectedHandles]
+      .map(handle=>handle.toLowerCase())
       .filter(handle=>{
         if(!wanted.has(handle))return false;
-        const scan=tiktokRealtimeStatusByHandle.get(handle);
-        // "Đang phát" is a current fact, not a sticky recovery state.
-        // UNKNOWN may keep internal LIVE state/FLV warm, but must never be
-        // presented to the viewer as currently broadcasting.
-        return Boolean(
-          scan?.known===true &&
-          scan?.live===true &&
-          scan?.retained!==true &&
-          now-Number(scan?.checkedAt||0)<=TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS
-        );
+        return tiktokPublishedLiveNow(handle,now);
       })
       .sort((a,b)=>a.localeCompare(b));
 
@@ -9221,19 +9199,11 @@ const server=http.createServer(async(req,res)=>{
       :new Set();
 
     const now=Date.now();
-    const handles=[...tiktokRealtimeLiveHandles]
+    const handles=[...tiktokLiveSelectedHandles]
+      .map(handle=>handle.toLowerCase())
       .filter(handle=>{
         if(!wanted.has(handle))return false;
-        const scan=tiktokRealtimeStatusByHandle.get(handle);
-        // "Đang phát" is a current fact, not a sticky recovery state.
-        // UNKNOWN may keep internal LIVE state/FLV warm, but must never be
-        // presented to the viewer as currently broadcasting.
-        return Boolean(
-          scan?.known===true &&
-          scan?.live===true &&
-          scan?.retained!==true &&
-          now-Number(scan?.checkedAt||0)<=TIKTOK_LIVE_PUBLIC_CONFIRM_TTL_MS
-        );
+        return tiktokPublishedLiveNow(handle,now);
       })
       .sort((a,b)=>a.localeCompare(b));
 
