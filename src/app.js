@@ -27,7 +27,7 @@ function disableNativeHoverHints(){
 disableNativeHoverHints();
 
 
-const BASE="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988";
+const BASE="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988";
 const SUPABASE_ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdjbm9haHFzcnF1eGt3a2pidXh5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDY5MDEsImV4cCI6MjEwMzUyMjkwMX0.16EE_LENbAV5oD29XQGpR5c2eYXPqBSWkGTFdOqeRQE";
 const MEDIA_SERVICE="https://one988-media.onrender.com";
 
@@ -458,8 +458,8 @@ const SOURCE_AVATAR_CACHE_KEY="1988-source-avatar-cache-v1";
 const HASHTAG_DEFINITIONS_CACHE_KEY="1988-hashtag-definitions-cache-v1";
 const HASHTAG_CONFIG_CACHE_KEY="1988-hashtag-config-cache-v2";
 const VIDEO_ASPECT_HABIT_KEY="1988-video-aspect-habit-v1";
-const STATE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-state";
-const PACKAGE_SYNC_URL="https://gcnoahqsrquxkwkjbuxy.supabase.co/functions/v1/yt1988-packages";
+const STATE_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-state";
+const PACKAGE_SYNC_URL="https://mstltsunsawqomzniqok.supabase.co/functions/v1/yt1988-packages";
 let stateSyncReady=false;
 let stateSyncApplying=false;
 let stateSyncDirty=false;
