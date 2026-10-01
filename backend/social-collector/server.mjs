@@ -405,9 +405,9 @@ function publicTikTokLibraryItem(row){
   const directStreamUrl=playableLive?String(hotSource?.url||''):'';
   return {
     handle:String(row.handle||''),
-    // Public LIVE means "can be played now", not merely "TikTok reported LIVE".
-    // Detection is kept separately so the server can continue resolving FLV.
-    live:playableLive,
+    // Public LIVE means TikTok confirms the channel is broadcasting now.
+    // Media readiness is separate and is resolved only when the user opens it.
+    live:detectedLive,
     detectedLive,
     ready:playableLive,
     type:playableLive?'flv':'',
@@ -778,9 +778,6 @@ function publishDeepTikTokLive(handle,row,source='deep-fallback'){
   tiktokRealtimeLiveHandles.add(key);
   addTikTokStatusEvidence(handle,{source,known:true,live:true,status:2});
 
-  const seeded=row?.stream_url
-    ? seedTikTokFastSource(handle,row)
-    : null;
   updateTikTokLiveLibrary(handle,{
     live:true,
     ready:Boolean(prev.ready),
@@ -792,8 +789,6 @@ function publishDeepTikTokLive(handle,row,source='deep-fallback'){
     lastKnownAt:now,
     lastSeenAt:now
   });
-  if(seeded)queueTikTokLibraryWarm(handle);
-  else void resolveTikTokLiveSourceBatch([handle]).catch(()=>{});
   return true;
 }
 
@@ -1471,8 +1466,8 @@ function buildTikTokStoredRows(){
       const sourceType=String(source?.type||'').toLowerCase();
       const scan=tiktokRealtimeStatusByHandle.get(key)||null;
       const detectedLive=isTikTokConfirmedLiveStatus(scan);
-      const live=tiktokPublishedLiveNow(handle,Date.now(),item);
-      const playable=live;
+      const live=tiktokConfirmedLiveNow(handle,Date.now());
+      const playable=tiktokPublishedLiveNow(handle,Date.now(),item);
       return {
         handle,
         selected:true,
@@ -1506,7 +1501,8 @@ async function persistTikTokLiveStore({force=false}={}){
       String(row.stream_url||'')&&
       String(row.source_sig||'')
     );
-    const liveCount=rows.filter(isPublishedLive).length;
+    const liveCount=rows.filter(row=>row.live).length;
+    const playableCount=rows.filter(isPublishedLive).length;
     const detectedLiveCount=rows.filter(row=>row.probe_state==='live').length;
     const pendingLinkCount=rows.filter(
       row=>row.probe_state==='live'&&!isPublishedLive(row)
@@ -1519,8 +1515,7 @@ async function persistTikTokLiveStore({force=false}={}){
         const publishedLive=isPublishedLive(row);
         return {
           handle:row.handle,
-          // Package/UI LIVE is intentionally strict: only a validated FLV.
-          live:publishedLive,
+          live:Boolean(row.live),
           detectedLive:Boolean(row.live),
           probeState:row.probe_state,
           playable:publishedLive,
@@ -1533,7 +1528,7 @@ async function persistTikTokLiveStore({force=false}={}){
       }),
       total:rows.length,
       live:liveCount,
-      playable:liveCount,
+      playable:playableCount,
       detectedLive:detectedLiveCount,
       pendingLink:pendingLinkCount,
       staleLiveUnknown:staleLiveUnknownCount,
@@ -1612,12 +1607,9 @@ function ensureTikTokLivePackageScan(handles=null){
 
       const job=(async()=>{
         console.log('[tiktok-live-check] targeted start',handle);
-        // Adding/checking one channel enters the same canonical tri-state
-        // checker first. Media resolution is a second step only for confirmed LIVE.
+        // Adding/checking one channel only resolves current LIVE status.
+        // Media is intentionally deferred until the user opens the stream.
         await runTikTokLiveMinuteSweep({targetHandles:[handle],exhaustive:true});
-        if(tiktokConfirmedLiveNow(handle)){
-          await refreshTikTokLiveLibrary([handle],{warm:true,force:true});
-        }
         await persistTikTokLiveStore({force:true});
 
         const row=tiktokLiveLibrary.get(key)||{};
@@ -1641,7 +1633,6 @@ function ensureTikTokLivePackageScan(handles=null){
   // Background/global package refresh remains single-flight.
   if(tiktokLivePackageScanPromise)return tiktokLivePackageScanPromise;
   tiktokLivePackageScanPromise=runTikTokLiveMinuteSweep()
-    .then(()=>refreshTikTokLiveLibrary(target,{warm:false}))
     .then(()=>persistTikTokLiveStore())
     .catch(error=>console.log('[tiktok-package] scan failed',compactText(error?.message||error,120)))
     .finally(()=>{tiktokLivePackageScanPromise=null;});
@@ -1943,26 +1934,8 @@ function runTikTokLiveMinuteSweep({targetHandles=null,exhaustive=false}={}){
     tiktokRealtimeStatusByHandle=nextStatuses;
     tiktokRealtimeLiveCheckedAt=checkedAt;
 
-    // LIVE fingerprint first: resolve FLV only when a stream is newly LIVE,
-    // the room id changed, or the previously resolved source is no longer usable.
-    const liveHandles=target.filter(handle=>nextLive.has(handle.toLowerCase()));
-    const resolveHandles=liveHandles.filter(handle=>{
-      const key=handle.toLowerCase();
-      const next=nextStatuses.get(key);
-      if(next?.known!==true||next?.live!==true||next?.retained===true)return false;
-      const prev=previousStatuses.get(key);
-      const roomChanged=String(next?.roomId||'')!==String(prev?.roomId||'');
-      const newlyLive=prev?.known!==true||prev?.live!==true||prev?.retained===true;
-      const source=currentTikTokLibrarySource(handle);
-      return newlyLive||roomChanged||!source;
-    });
-    if(resolveHandles.length){
-      void refreshTikTokLiveLibrary(resolveHandles,{warm:false,force:false})
-        .then(()=>resolveTikTokLiveSourceBatch(resolveHandles))
-        .catch(error=>{
-          console.warn('[tiktok-live-getlink] failed',compactText(error?.message||error,160));
-        });
-    }
+    // LIVE detection stops here. Do not resolve FLV in the background.
+    // Media lookup belongs exclusively to the user playback path.
 
     // Pass 3 above already sends unresolved/conflicting handles through the
     // browser-authenticated fallback. Do not reopen every API-confirmed OFFLINE
@@ -1981,7 +1954,6 @@ function runTikTokLiveMinuteSweep({targetHandles=null,exhaustive=false}={}){
       'unknown='+unknown,
       'retainedUnknown='+retainedUnknown,
       'browserFallback='+unresolved.length,
-      'getlink='+resolveHandles.length,
       'checkedAt='+checkedAt
     );
     void persistTikTokLiveStore().catch(error=>{
@@ -2018,7 +1990,7 @@ async function runTikTokLiveAuditSweep(){
     await persistTikTokLiveStore({force:true}).catch(()=>{});
 
     const finishedAt=Date.now();
-    const liveNow=selected.filter(handle=>tiktokPublishedLiveNow(handle,finishedAt)).length;
+    const liveNow=selected.filter(handle=>tiktokConfirmedLiveNow(handle,finishedAt)).length;
     tiktokLiveAuditState.running=false;
     tiktokLiveAuditState.finishedAt=finishedAt;
 
@@ -3898,9 +3870,18 @@ async function proxyTikTokLive(req,res,rawHandle,forceBrowser=false,sourceSig=''
   }
 
   if(!source?.url||String(source.type||'').toLowerCase()!=='flv'){
-    if(!TIKTOK_UPDATES_PAUSED)queueTikTokLibraryWarm(handle);
-    json(res,410,{ok:false,error:'live_source_not_ready'});
-    return;
+    if(!tiktokConfirmedLiveNow(handle)){
+      json(res,404,{ok:false,error:'not_live'});
+      return;
+    }
+    if(!TIKTOK_UPDATES_PAUSED){
+      await resolveTikTokLiveSourceBatch([handle]).catch(()=>{});
+      source=currentTikTokLibrarySource(handle);
+    }
+    if(!source?.url||String(source.type||'').toLowerCase()!=='flv'){
+      json(res,410,{ok:false,error:'live_source_not_ready'});
+      return;
+    }
   }
 
   // HOT PATH: lookup already prepared FLV -> pipe. No probe/getlink/yt-dlp/API.
@@ -7174,9 +7155,9 @@ async function syncTikTokCanonicalLibrary(handles=null,{profiles=null,mirror=fal
         sourceType==='flv'&&
         tiktokLiveSourceUsable(source)
       );
-      // Canonical/UI-facing LIVE means playable now. Detection/UNKNOWN state
-      // stays internal in tiktokLiveLibrary and must never leak as a fake LIVE.
-      next.live=sourceUsable;
+      // Canonical LIVE means currently broadcasting. Playback readiness is
+      // represented by the stream fields and is resolved only on user demand.
+      next.live=tiktokConfirmedLiveNow(handle);
       next.live_checked_at=liveRow.lastSeenAt?new Date(Number(liveRow.lastSeenAt)).toISOString():nowIso();
       if(liveRow.title)next.live_title=String(liveRow.title);
       const liveCover=String(liveRow.thumbnail||liveRow.cover||'').trim();
@@ -9145,7 +9126,7 @@ const server=http.createServer(async(req,res)=>{
       .map(handle=>handle.toLowerCase())
       .filter(handle=>{
         if(!wanted.has(handle))return false;
-        return tiktokPublishedLiveNow(handle,now);
+        return tiktokConfirmedLiveNow(handle,now);
       })
       .sort((a,b)=>a.localeCompare(b));
 
@@ -9200,7 +9181,7 @@ const server=http.createServer(async(req,res)=>{
       .map(handle=>handle.toLowerCase())
       .filter(handle=>{
         if(!wanted.has(handle))return false;
-        return tiktokPublishedLiveNow(handle,now);
+        return tiktokConfirmedLiveNow(handle,now);
       })
       .sort((a,b)=>a.localeCompare(b));
 
