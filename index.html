@@ -2699,6 +2699,8 @@ html.one-col.portrait .player.pip{
   let metaRequest=0;
   let currentMeta=null;
   let tiktokLivePlayer=null;
+  let tiktokPreparedLiveId="";
+  let tiktokPreparedTimer=0;
   let tiktokControlsTimer=0;
   let tiktokLiveMetas=[];
   let tiktokLiveFetchPromise=null;
@@ -4783,7 +4785,10 @@ html.one-col.portrait .player.pip{
   const youtubeLiveAvatarLookupPending=new Set();
 
   async function hydrateMissingYoutubeLiveAvatars({paint=true}={}){
-    const videoMetaApi=window.YT1988_API?.videoMeta||window.YT1988_API?.video;
+    // LIVE avatars used to come from the normal YouTube stream/package rows.
+    // videoMeta is aspect-only, so it can never restore a missing channel icon.
+    // Use the full video endpoint here, exactly like the pre-Cloudflare flow.
+    const videoMetaApi=window.YT1988_API?.video;
     if(!youtubeEdgeLiveReady||!videoMetaApi)return false;
 
     const missing=youtubeEdgeLiveMetas
@@ -5275,10 +5280,21 @@ html.one-col.portrait .player.pip{
       indexes=[0,1,2,3].filter(i=>i<liveList.length);
     }
 
-    for(const index of [...new Set(indexes)]){
+    const unique=[...new Set(indexes)];
+    if(!hasCurrentMedia()&&unique.length){
+      // The most likely target gets a real prepared player. Nearby items still
+      // get lightweight network/data warmup so we don't run several live
+      // decoders/streams in parallel.
+      prepareTikTokLivePlayer(liveList[unique[0]]);
+    }
+    for(const index of unique){
+      if(
+        !hasCurrentMedia() &&
+        String(liveList[index]?.id||"")===String(tiktokPreparedLiveId||"")
+      )continue;
       void warmTikTokDirectStream(liveList[index]);
     }
-    return indexes.length>0;
+    return unique.length>0;
   }
 
   function primeVisibleLivePreviews(){
@@ -5448,6 +5464,9 @@ html.one-col.portrait .player.pip{
   }
 
   function stopTikTokLivePlayback(){
+    clearTimeout(tiktokPreparedTimer);
+    tiktokPreparedTimer=0;
+    tiktokPreparedLiveId="";
     try{
       tiktokLivePlayer?.pause?.();
       tiktokLivePlayer?.unload?.();
@@ -5505,6 +5524,65 @@ html.one-col.portrait .player.pip{
 
   function showYoutubePlayerSurface(){
     activateYoutubeSurface();
+  }
+
+  function prepareTikTokLivePlayer(meta={}){
+    if(hasCurrentMedia())return false;
+
+    const id=String(meta?.id||"").trim();
+    const direct=String(meta?.streamUrl||"").trim();
+    const hls=String(meta?.hlsUrl||"").trim();
+    if(!id||(!direct&&!hls))return false;
+
+    if(
+      tiktokPreparedLiveId===id &&
+      (
+        tiktokLivePlayer ||
+        String(tiktokLiveVideo?.currentSrc||tiktokLiveVideo?.src||"").trim()
+      )
+    )return true;
+
+    stopTikTokLivePlayback();
+
+    tiktokPreparedLiveId=id;
+    tiktokLiveVideo.hidden=true;
+    tiktokLiveVideo.controls=false;
+    tiktokLiveVideo.muted=true;
+    tiktokLiveVideo.preload="auto";
+    tiktokLiveVideo.playsInline=true;
+
+    let started=false;
+    if(
+      isAppleMobileBrowser()&&
+      hls&&
+      nativeHlsSupported(tiktokLiveVideo)
+    ){
+      tiktokLiveVideo.src=hls;
+      tiktokLiveVideo.load();
+      tiktokLiveVideo.play().catch(()=>{});
+      started=true;
+    }else if(direct&&mpegtsLiveSupported()){
+      started=attachTikTokFlv(direct,meta);
+    }
+
+    if(!started){
+      tiktokPreparedLiveId="";
+      return false;
+    }
+
+    // Keep one real MSE/native player warm briefly. This makes the first user
+    // tap reuse an already-open media pipeline instead of starting DNS/TLS +
+    // demux + first-keyframe work from zero.
+    clearTimeout(tiktokPreparedTimer);
+    tiktokPreparedTimer=setTimeout(()=>{
+      if(
+        tiktokPreparedLiveId===id &&
+        String(current?.id||"")!==id
+      ){
+        stopTikTokLivePlayback();
+      }
+    },12_000);
+    return true;
   }
 
   function attachTikTokFlv(url,meta,{legacy=false}={}){
@@ -5569,7 +5647,20 @@ html.one-col.portrait .player.pip{
     const hls=String(meta?.hlsUrl||"").trim();
     if(!id||(!direct&&!hls))return false;
 
-    stopTikTokLivePlayback();
+    const prepared=
+      tiktokPreparedLiveId===id &&
+      (
+        Boolean(tiktokLivePlayer) ||
+        Boolean(String(tiktokLiveVideo?.currentSrc||tiktokLiveVideo?.src||"").trim())
+      );
+
+    if(prepared){
+      clearTimeout(tiktokPreparedTimer);
+      tiktokPreparedTimer=0;
+      tiktokPreparedLiveId="";
+    }else{
+      stopTikTokLivePlayback();
+    }
     activateTikTokSurface();
 
     currentMeta=meta;
@@ -5614,7 +5705,10 @@ html.one-col.portrait .player.pip{
       if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
     };
 
-    if(
+    if(prepared){
+      // Same media element / MSE pipeline that was warmed before the click.
+      tiktokLiveVideo.play().catch(()=>{});
+    }else if(
       isAppleMobileBrowser()&&
       hls&&
       nativeHlsSupported(tiktokLiveVideo)
@@ -6683,7 +6777,8 @@ html.one-col.portrait .player.pip{
       const id=String(card.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(meta){
-        void warmTikTokDirectStream(meta);
+        if(!hasCurrentMedia())prepareTikTokLivePlayer(meta);
+        else void warmTikTokDirectStream(meta);
         primeTikTokPlaybackNeighborhood(id,2);
       }
     },{passive:true});
