@@ -3,6 +3,13 @@ name: Deploy 1988 Player
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "backend/**"
+      - "supabase/**"
+      - "cloudflare/**"
+      - "docs/**"
+      - "tests/**"
+      - "scripts/**"
 
 permissions:
   contents: read
