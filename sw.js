@@ -1,11 +1,40 @@
 'use strict';
 
-const CACHE='1988-simple-media-v34';
+const CACHE='1988-simple-media-v35';
 const AVATAR_CACHE='1988-avatar-assets-v1';
+const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
+const TIKTOK_IMAGE_CACHE_MAX=480;
+const TIKTOK_STORAGE_HOST='gcnoahqsrquxkwkjbuxy.supabase.co';
 const AVATAR_HOST_RE=/(^|\.)(?:yt3\.ggpht\.com|yt3\.googleusercontent\.com|lh3\.googleusercontent\.com)$/i;
 
 function isAvatarRequest(req,url){
   return req.destination==='image'&&AVATAR_HOST_RE.test(url.hostname);
+}
+
+function isTikTokOriginalImage(req,url){
+  return req.destination==='image'&&
+    url.hostname===TIKTOK_STORAGE_HOST&&
+    url.pathname.startsWith('/storage/v1/object/public/tiktok-originals/');
+}
+
+async function trimTikTokImageCache(cache){
+  const keys=await cache.keys();
+  const extra=keys.length-TIKTOK_IMAGE_CACHE_MAX;
+  if(extra<=0)return;
+  await Promise.all(keys.slice(0,extra).map(req=>cache.delete(req)));
+}
+
+async function tikTokImageResponse(req){
+  const cache=await caches.open(TIKTOK_IMAGE_CACHE);
+  const cached=await cache.match(req,{ignoreVary:true});
+  if(cached)return cached;
+
+  const fresh=await fetch(req);
+  if(fresh&&(fresh.ok||fresh.type==='opaque')){
+    await cache.put(req,fresh.clone()).catch(()=>{});
+    void trimTikTokImageCache(cache).catch(()=>{});
+  }
+  return fresh;
 }
 
 async function avatarResponse(req){
@@ -69,7 +98,7 @@ self.addEventListener('activate',event=>{
     const keys=await caches.keys();
     await Promise.all(
       keys
-        .filter(k=>k.startsWith('1988-')&&k!==CACHE&&k!==AVATAR_CACHE)
+        .filter(k=>k.startsWith('1988-')&&k!==CACHE&&k!==AVATAR_CACHE&&k!==TIKTOK_IMAGE_CACHE)
         .map(k=>caches.delete(k))
     );
     await self.clients.claim();
@@ -89,6 +118,11 @@ self.addEventListener('fetch',event=>{
 
   if(isAvatarRequest(req,url)){
     event.respondWith(avatarResponse(req));
+    return;
+  }
+
+  if(isTikTokOriginalImage(req,url)){
+    event.respondWith(tikTokImageResponse(req));
     return;
   }
 
