@@ -582,113 +582,15 @@ Deno.serve(async (req) => {
 
   try {
     if (action === "media") {
-      const id = String(url.searchParams.get("id") || "").trim();
-      const kindRaw = String(url.searchParams.get("kind") || "video").toLowerCase();
-      if (!validId(id, "video") || !["video", "audio"].includes(kindRaw)) {
-        return json({ ok: false, error: "invalid_media_request" }, 400, 0);
-      }
-      const kind = kindRaw as "video" | "audio";
-      const wantsDownload = String(url.searchParams.get("download") || "") === "1";
-      const path = `/streams/${enc(id)}`;
-
-      const orderedBases = [
-        ...(preferredApi && Date.now() < preferredUntil ? [preferredApi] : []),
-        ...PIPED_APIS,
-      ].filter((base, index, rows) => base && rows.indexOf(base) === index).slice(0, 10);
-
-      const settled = await Promise.allSettled(
-        orderedBases.map(async (base, index) => {
-          if (index >= 5) await delay(180);
-          return { base, data: await fetchJson(base, path, 2800) };
-        }),
-      );
-
-      const successes = settled
-        .filter((row): row is PromiseFulfilledResult<{ base: string; data: any }> => row.status === "fulfilled")
-        .map((row) => row.value);
-
-      if (!successes.length) {
-        return json({ ok: false, error: "no_piped_instance" }, 503, 0);
-      }
-
-      const incomingRange = req.headers.get("range") || "";
-      let lastStatus = 0;
-
-      for (const result of successes) {
-        const candidates = mediaCandidates(result.data || {}, kind);
-        for (const target of candidates) {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), 8000);
-          try {
-            const headers = new Headers({ Accept: "*/*" });
-            if (incomingRange) headers.set("Range", incomingRange);
-            else headers.set("Range", "bytes=0-");
-
-            const upstream = await fetch(target, {
-              method: req.method,
-              redirect: "follow",
-              signal: controller.signal,
-              headers,
-            });
-            lastStatus = upstream.status;
-
-            if (upstream.status !== 200 && upstream.status !== 206) {
-              try { await upstream.body?.cancel(); } catch {}
-              continue;
-            }
-
-            const upstreamType = String(upstream.headers.get("content-type") || "").toLowerCase();
-            if (
-              upstreamType.includes("text/html") ||
-              upstreamType.includes("application/json") ||
-              upstreamType.includes("text/plain")
-            ) {
-              try { await upstream.body?.cancel(); } catch {}
-              continue;
-            }
-
-            preferredApi = result.base;
-            preferredUntil = Date.now() + API_TTL_MS;
-
-            const headersOut = new Headers(CORS);
-            const resolvedType =
-              upstream.headers.get("content-type") ||
-              (kind === "audio" ? "audio/mp4" : "video/mp4");
-            headersOut.set("content-type", resolvedType);
-            headersOut.set("cache-control", "no-store");
-
-            if (wantsDownload) {
-              const type = resolvedType.toLowerCase();
-              const ext =
-                kind === "audio"
-                  ? (type.includes("webm") ? "webm" : type.includes("mpeg") ? "mp3" : "m4a")
-                  : (type.includes("webm") ? "webm" : "mp4");
-              headersOut.set("content-disposition", `attachment; filename="${id}.${ext}"`);
-            }
-            headersOut.set("accept-ranges", upstream.headers.get("accept-ranges") || "bytes");
-
-            for (const name of ["content-length", "content-range", "etag", "last-modified"]) {
-              const value = upstream.headers.get(name);
-              if (value) headersOut.set(name, value);
-            }
-
-            return new Response(req.method === "HEAD" ? null : upstream.body, {
-              status: upstream.status,
-              headers: headersOut,
-            });
-          } catch {
-            // Try the next candidate/instance.
-          } finally {
-            clearTimeout(timer);
-          }
-        }
-      }
-
+      // Resource guardrail: never relay YouTube media bytes through Supabase.
+      // The current player uses YouTube iframe/direct providers, and downloads
+      // use yt1988-download. Keeping this historical tunnel open can turn one
+      // playback into hundreds of MB/GB of Supabase egress.
       return json({
-        ok: false,
-        error: "no_working_media_source",
-        upstreamStatus: lastStatus || undefined,
-      }, 502, 0);
+        ok:false,
+        error:"media_proxy_disabled",
+        use:"youtube_iframe_or_direct_download"
+      },410,0);
     }
 
     if (action === "playback") {
