@@ -6658,7 +6658,7 @@ function canonicalPackageVideo(row){
     duration:Number(row.duration||0),
     pageUrl:String(row.page_url||('https://www.tiktok.com/@'+handle+'/video/'+id)),
     cover:{
-      url:storedCover||sourceCover,
+      url:sourceCover||storedCover,
       sourceUrl:sourceCover,
       storedUrl:storedCover,
       width:Number(row.width||0),
