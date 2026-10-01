@@ -668,34 +668,17 @@ async function openVideo(rawHandle,videoId,retry=true){
   if(!video.playback?.ready||!stream)return;
 
   const src=/^https?:\/\//i.test(stream)?stream:(API+stream);
-  const proxyStream=String(video.playback?.proxyUrl||'').trim();
-  const fallbackSrc=proxyStream
-    ? (/^https?:\/\//i.test(proxyStream)?proxyStream:(API+proxyStream))
-    : '';
-  let fallbackUsed=false;
   native.onerror=()=>{
     if(seq!==videoOpenSeq)return;
     native.pause();
     native.removeAttribute('src');
     native.load();
 
-    // Direct CDN first. Render only carries MP4 bytes if the direct URL fails
-    // in this browser/session.
-    if(!fallbackUsed&&fallbackSrc&&fallbackSrc!==src){
-      fallbackUsed=true;
-      setTimeout(()=>{
-        if(seq!==videoOpenSeq||mediaMode!=='video')return;
-        native.src=fallbackSrc;
-        native.load();
-        native.play().catch(()=>{});
-      },200);
-      return;
-    }
+    // Direct TikTok CDN only. Do not fall back to Render media proxy.
     if(!retry)return;
-
     setTimeout(()=>{
       if(seq!==videoOpenSeq||mediaMode!=='video')return;
-      native.src=fallbackUsed&&fallbackSrc?fallbackSrc:src;
+      native.src=src;
       native.load();
       native.play().catch(()=>{});
     },1200);
@@ -1234,17 +1217,13 @@ function openChannel(rawHandle){
   if(live.isLive&&live.playable&&packaged&&currentSourceSig&&currentType==='flv'){
     const url=/^https?:\/\//i.test(packaged)?packaged:(API+packaged);
     const hlsUrl=/^https?:\/\//i.test(hls)?hls:'';
-    const fallback=proxy
-      ? (/^https?:\/\//i.test(proxy)?proxy:(API+proxy))
-      : '';
     document.getElementById('nowState').textContent='';
 
-    // iOS/Safari gets native HLS only when TikTok actually supplied one.
-    // Otherwise use the same FLV path with mpegts.js -> flv.js fallback.
+    // Media bytes stay on TikTok CDN. Render is not a playback proxy.
     if(isAppleMobileBrowser()&&hlsUrl&&nativeHlsSupported(native)){
-      attachNativeHls(hlsUrl,handle,url,fallback);
+      attachNativeHls(hlsUrl,handle,url,'');
     }else{
-      attachFlv(url,handle,0,fallback);
+      attachFlv(url,handle,0,'');
     }
     return;
   }
