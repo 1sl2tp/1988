@@ -23,9 +23,8 @@ const TIKTOK_PREVIEW_WARM_HANDLES=String(process.env.TIKTOK_PREVIEW_WARM_HANDLES
 const TIKTOK_PREVIEW_VIDEO=String(process.env.TIKTOK_PREVIEW_VIDEO||'').trim();
 const TIKTOK_PREVIEW_DISCOVER_LIVE=String(process.env.TIKTOK_PREVIEW_DISCOVER_LIVE||'0')==='1';
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
-// Emergency freeze: keep persisted TikTok data readable while stopping all
-// TikTok refresh/extraction/write traffic so the shared Supabase project can recover.
-const TIKTOK_UPDATES_PAUSED=String(process.env.TIKTOK_UPDATES_PAUSED||'1')!=='0';
+// Emergency pause is opt-in only. Normal startup must keep TikTok open.
+const TIKTOK_UPDATES_PAUSED=String(process.env.TIKTOK_UPDATES_PAUSED||'0')==='1';
 const TZ='Asia/Ho_Chi_Minh';
 
 const PLATFORMS=new Set(['tiktok']);
