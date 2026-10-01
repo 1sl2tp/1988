@@ -2736,7 +2736,12 @@ html.one-col.portrait .player.pip{
   let relatedMetas=[];
   let feedRequest=0;
   let feedMode="package";
+  const ACTIVE_SCOPE_KEY="yt1988-active-scope-v1";
   let activePackageScope="live";
+  try{
+    const savedScope=String(localStorage.getItem(ACTIVE_SCOPE_KEY)||"").trim();
+    if(savedScope)activePackageScope=savedScope;
+  }catch{}
   let searchPendingSeq=0;
   let channelFeedSourceId="";
   let channelFeedName="";
@@ -4187,8 +4192,20 @@ html.one-col.portrait .player.pip{
     sourceId=String(sourceId||"").trim();
     if(!sourceId)return {};
 
-    const cached=sourceIdentityCache.get(sourceId);
-    if(cached?.sourceAvatar||cached?.sourceName)return cached;
+    const cached=sourceIdentityCache.get(sourceId)||{};
+    let sourceName=String(cached.sourceName||"").trim();
+    let sourceAvatar=String(cached.sourceAvatar||"").trim();
+
+    // Source-state is the canonical channel directory and already carries
+    // thumbnail URLs for selected/suggested channels. Use it before falling
+    // back to a letter placeholder.
+    const stateAvatar=String(sourceStateRemote?.avatars?.[sourceId]||"").trim();
+    const stateSource=(Array.isArray(sourceStateRemote?.customSources)
+      ?sourceStateRemote.customSources
+      :[]
+    ).find(row=>String(row?.id||"").trim()===sourceId);
+    if(!sourceName)sourceName=String(stateSource?.name||"").trim();
+    if(!sourceAvatar)sourceAvatar=stateAvatar||String(stateSource?.thumbnailUrl||"").trim();
 
     const pools=[
       currentMeta,
@@ -4198,8 +4215,6 @@ html.one-col.portrait .player.pip{
       ...[...searchCache.values()].flat()
     ];
 
-    let sourceName="";
-    let sourceAvatar="";
     for(const meta of pools){
       if(!meta||String(meta.sourceId||"").trim()!==sourceId)continue;
       if(!sourceName)sourceName=String(meta.sourceName||"").trim();
@@ -4399,11 +4414,13 @@ html.one-col.portrait .player.pip{
     scope=String(scope||"").trim()||"live";
     if(scope!=="live")stopYoutubeLiveDemand();
     activePackageScope=scope;
+    try{localStorage.setItem(ACTIVE_SCOPE_KEY,scope)}catch{}
     feedMode="package";
     ++feedRequest;
     syncFeedHeader();
 
-    // Tab/UI reads memory only for the first paint.
+    // A tab is a menu/feed surface. Entering or restoring a tab must never
+    // auto-select or auto-play its first media, including desktop two-column.
     const baseMetas=packageCache.get(scope)||[];
 
     if(scope==="live"){
@@ -4415,13 +4432,6 @@ html.one-col.portrait .player.pip{
 
       void hydrateUnifiedLiveSnapshots().then(()=>{
         if(!liveDemandActive())return;
-        if(
-          isTwoColumn()&&
-          !String(current?.id||"")&&
-          feedMetas[0]?.id
-        ){
-          if(openMedia(feedMetas[0],{replace:true}))renderCurrentInfo();
-        }
         void refreshUnifiedLiveInBackground({force:true});
       });
       return metas;
@@ -4429,12 +4439,6 @@ html.one-col.portrait .player.pip{
 
     feedMetas=baseMetas;
     renderSampleContent();
-
-    if(isTwoColumn()&&!String(current?.id||"")&&baseMetas[0]?.id){
-      if(openMedia(baseMetas[0],{replace:true})){
-        renderCurrentInfo();
-      }
-    }
     return baseMetas;
   }
 
@@ -4634,9 +4638,32 @@ html.one-col.portrait .player.pip{
   }
 
   function currentYoutubeLiveMetas(fallback=[]){
-    return youtubeEdgeLiveReady
-      ?youtubeEdgeLiveMetas
-      :(Array.isArray(fallback)?fallback:[]);
+    const base=Array.isArray(fallback)?fallback:[];
+    if(!youtubeEdgeLiveReady)return base;
+
+    const byId=new Map(base.map(meta=>[String(meta?.id||""),meta]));
+    const bySource=new Map(
+      base
+        .filter(meta=>String(meta?.sourceId||"").trim())
+        .map(meta=>[String(meta.sourceId).trim(),meta])
+    );
+
+    return youtubeEdgeLiveMetas.map(edge=>{
+      const sourceId=String(edge?.sourceId||"").trim();
+      const fallbackMeta=
+        byId.get(String(edge?.id||""))||
+        (sourceId?bySource.get(sourceId):null)||
+        {};
+      const resolvedSourceId=sourceId||String(fallbackMeta?.sourceId||"").trim();
+      const identity=resolvedSourceId?localSourceIdentity(resolvedSourceId):{};
+      return {
+        ...fallbackMeta,
+        ...edge,
+        sourceId:resolvedSourceId,
+        sourceName:String(edge?.sourceName||fallbackMeta?.sourceName||identity?.sourceName||"").trim(),
+        sourceAvatar:String(edge?.sourceAvatar||fallbackMeta?.sourceAvatar||identity?.sourceAvatar||"").trim()
+      };
+    });
   }
 
   async function fetchYoutubeLiveSnapshot({signal=null}={}){
@@ -5362,14 +5389,11 @@ html.one-col.portrait .player.pip{
         ?localSourceIdentity(meta.sourceId)
         :{};
     const avatar=String(meta?.sourceAvatar||identity?.sourceAvatar||"").trim();
-    const liveBadge=meta.isLive
-      ?'<span class="row-live-avatar-badge">'+liveBroadcastIconMarkup()+'</span>'
-      :"";
     if(avatar){
-      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async">'+liveBadge+'</span>';
+      return '<span class="row-avatar-shell"><img class="row-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="'+(eager?'eager':'lazy')+'" decoding="async"></span>';
     }
-    const letter=(meta.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
-    return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span>'+liveBadge+'</span>';
+    const letter=(meta.sourceName||identity?.sourceName||"1988").trim().slice(0,1).toUpperCase() || "1";
+    return '<span class="row-avatar-shell"><span class="row-avatar placeholder">'+escapeHtml(letter)+'</span></span>';
   }
 
   function youtubeThumbUrl(id,name){
@@ -5926,8 +5950,15 @@ html.one-col.portrait .player.pip{
   function renderExistingSourceNames(rows=[]){
     if(!sourceNameChips)return;
     const list=Array.isArray(rows)?rows.filter(row=>row?.key&&row?.label):[];
-    sourceNameChips.innerHTML=list.map((row,index)=>
-      '<button class="source-chip'+(index===0?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
+    const remembered=list.some(row=>String(row.key)===String(activePackageScope))
+      ?String(activePackageScope)
+      :String(list[0]?.key||"live");
+    if(remembered!==activePackageScope){
+      activePackageScope=remembered;
+      try{localStorage.setItem(ACTIVE_SCOPE_KEY,remembered)}catch{}
+    }
+    sourceNameChips.innerHTML=list.map(row=>
+      '<button class="source-chip'+(String(row.key)===remembered?' active':'')+'" data-source-tab="'+escapeHtml(row.key)+'">'+
         escapeHtml(row.label)+
       '</button>'
     ).join("");
@@ -6032,11 +6063,12 @@ html.one-col.portrait .player.pip{
     // Paint remembered tabs immediately; network state can refresh them later.
     renderExistingSourceNames(storedRows.length?storedRows:fallbackRows);
 
-    // A reload restores the last fully committed Live package first. Even with
-    // no network, the previous complete feed remains usable.
+    // A reload restores the last active top-level tab as a feed/menu only.
+    // It must not force Live and must not reopen a media item.
     const firstPackagePromise=(async()=>{
-      await restoreStoredPackage("live");
-      return showPackageScope("live");
+      const scope=String(activePackageScope||"live");
+      await restoreStoredPackage(scope);
+      return showPackageScope(scope);
     })();
 
     const statePromise=(async()=>{
@@ -6055,9 +6087,8 @@ html.one-col.portrait .player.pip{
     })();
 
     const manifestPromise=loadPackageManifest().then(async manifest=>{
-      if(manifest?.live){
-        await syncPreparedPackages(["live"]);
-      }
+      const scope=manifest?.[activePackageScope]?activePackageScope:(manifest?.live?"live":"");
+      if(scope)await syncPreparedPackages([scope]);
       return manifest;
     });
 
@@ -6068,6 +6099,10 @@ html.one-col.portrait .player.pip{
     ]);
 
     const rows=rowsFromState.length?rowsFromState:(storedRows.length?storedRows:fallbackRows);
+    if(!rows.some(row=>String(row?.key||"")===String(activePackageScope))){
+      activePackageScope=String(rows[0]?.key||"live");
+      try{localStorage.setItem(ACTIVE_SCOPE_KEY,activePackageScope)}catch{}
+    }
     renderExistingSourceNames(rows);
 
     const scopes=rows
