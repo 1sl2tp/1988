@@ -1123,6 +1123,9 @@ main{
 .player[data-media-provider="tiktok"] > iframe{
   display:none!important;
 }
+.player.tiktok-vod > .tiktok-live-controls{
+  display:none!important;
+}
 
 .tiktok-live-controls{
   position:absolute;
@@ -6279,7 +6282,8 @@ html.one-col.portrait .player.pip{
       tiktokLiveVideo.load();
     }catch{}
     clearTimeout(tiktokControlsTimer);
-    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing","tiktok-media-playing");
+    player.classList.remove("tiktok-active","tiktok-vod","tiktok-controls-visible","tiktok-playing","tiktok-media-playing");
+    if(tiktokLiveVideo)tiktokLiveVideo.controls=false;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
     if(tiktokLivePreview){
       tiktokLivePreview.hidden=true;
@@ -6387,6 +6391,7 @@ html.one-col.portrait .player.pip{
   }
 
   function playTikTokLive(meta={}){
+    player.classList.remove("tiktok-vod");
     const id=String(meta?.id||"").trim();
     const direct=String(meta?.streamUrl||"").trim();
     const hls=String(meta?.hlsUrl||"").trim();
@@ -6472,13 +6477,188 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
+  function tiktokVideoPlaybackExpired(meta={}){
+    const raw=meta?.playbackExpiresAt;
+    if(!raw)return false;
+    const at=Date.parse(String(raw));
+    return Number.isFinite(at)&&at<=Date.now()+30_000;
+  }
+
+  async function resolveTikTokVideoPlayback(meta={},force=false){
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    const id=String(meta?.id||"").trim();
+    if(!handle||!/^[0-9]{8,}$/.test(id))return "";
+
+    try{
+      const response=await fetch(
+        TIKTOK_LIBRARY_API+
+        "/tiktok/video-source?user="+encodeURIComponent(handle)+
+        "&id="+encodeURIComponent(id)+
+        (force?"&refresh=1":""),
+        {cache:"no-store"}
+      );
+      if(!response.ok)throw new Error("tiktok_video_source_"+response.status);
+      const payload=await response.json();
+      const direct=String(payload?.directUrl||"").trim();
+      if(direct){
+        meta.playbackUrl=direct;
+        meta.playbackReady=true;
+        meta.playbackExpiresAt=payload?.expiresAt||null;
+        return direct;
+      }
+      const stream=String(payload?.stream||"").trim();
+      if(stream){
+        return /^https?:\/\//i.test(stream)
+          ?stream
+          :TIKTOK_LIBRARY_API+stream;
+      }
+    }catch(error){
+      console.warn("tiktok_video_source_failed",error);
+    }
+
+    return (
+      TIKTOK_LIBRARY_API+
+      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
+      "&id="+encodeURIComponent(id)
+    );
+  }
+
+  function playTikTokVideo(meta={}){
+    const id=String(meta?.id||"").trim();
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    if(!id||!handle)return false;
+
+    stopTikTokLivePlayback();
+    activateTikTokSurface();
+    player.classList.add("tiktok-vod");
+
+    currentMeta=meta;
+    const ratio=
+      validMediaAspect(meta?.aspectRatio)||
+      (
+        Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0
+          ?Number(meta.videoWidth)/Number(meta.videoHeight)
+          :9/16
+      );
+    const kind=mediaLayoutKindFromRatio(ratio);
+    current={
+      id,
+      kind,
+      ratio,
+      detectedRatio:ratio,
+      label:String(meta?.title||""),
+      provider:"tiktok"
+    };
+    applyMediaLayoutSelection(kind,{relayout:true});
+    applyHeaderTint(meta);
+
+    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    if(tiktokLivePreview){
+      tiktokLivePreview.hidden=!preview;
+      if(preview)tiktokLivePreview.src=preview;
+    }
+
+    tiktokLiveVideo.hidden=false;
+    tiktokLiveVideo.controls=true;
+    tiktokLiveVideo.muted=false;
+    tiktokLiveVideo.preload="auto";
+    tiktokLiveVideo.playsInline=true;
+    tiktokLiveVideo.poster=preview;
+    if(tiktokLiveControls)tiktokLiveControls.hidden=true;
+    player.classList.remove("tiktok-media-playing","tiktok-playing","tiktok-controls-visible");
+
+    let sourceSeq=0;
+    let fallbackUsed=false;
+
+    const useSource=src=>{
+      src=String(src||"").trim();
+      if(!src||String(current?.id||"")!==id)return false;
+      sourceSeq++;
+      const seq=sourceSeq;
+
+      try{
+        tiktokLiveVideo.pause();
+        tiktokLiveVideo.removeAttribute("src");
+        tiktokLiveVideo.load();
+      }catch{}
+
+      tiktokLiveVideo.onerror=()=>{
+        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
+        if(fallbackUsed)return;
+        fallbackUsed=true;
+
+        void resolveTikTokVideoPlayback(meta,true).then(next=>{
+          if(
+            next&&
+            String(current?.id||"")===id&&
+            String(next)!==String(src)
+          ){
+            useSource(next);
+          }
+        });
+      };
+
+      tiktokLiveVideo.onloadedmetadata=()=>{
+        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
+        const w=Number(tiktokLiveVideo.videoWidth)||0;
+        const h=Number(tiktokLiveVideo.videoHeight)||0;
+        if(w>0&&h>0){
+          commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
+        }
+        tiktokLiveVideo.play().catch(()=>{});
+      };
+
+      tiktokLiveVideo.onplaying=()=>{
+        if(seq!==sourceSeq||String(current?.id||"")!==id)return;
+        player.classList.add("tiktok-media-playing","tiktok-playing");
+        if(tiktokLivePreview)tiktokLivePreview.hidden=true;
+      };
+
+      tiktokLiveVideo.onpause=()=>{
+        if(String(current?.id||"")!==id)return;
+        player.classList.remove("tiktok-playing");
+      };
+
+      tiktokLiveVideo.onended=()=>{
+        if(String(current?.id||"")!==id)return;
+        player.classList.remove("tiktok-playing");
+        playNextFeedVideo();
+      };
+
+      tiktokLiveVideo.src=src;
+      tiktokLiveVideo.load();
+      tiktokLiveVideo.play().catch(()=>{});
+      return true;
+    };
+
+    const saved=String(meta?.playbackUrl||"").trim();
+    if(
+      meta?.playbackReady===true&&
+      saved&&
+      !tiktokVideoPlaybackExpired(meta)
+    ){
+      useSource(saved);
+    }else{
+      void resolveTikTokVideoPlayback(meta,false).then(src=>{
+        if(String(current?.id||"")!==id)return;
+        if(src)useSource(src);
+      });
+    }
+
+    renderCurrentInfo();
+    schedulePip();
+    return true;
+  }
+
   function openMedia(meta={},options={}){
     const id=String(meta?.id||"").trim();
     if(!id)return false;
 
     const provider=normalizedMediaProvider(meta?.provider);
     if(provider==="tiktok"){
-      return playTikTokLive(meta);
+      return meta?.isLive===true
+        ?playTikTokLive(meta)
+        :playTikTokVideo(meta);
     }
 
     return navigateToVideo(id,meta,{replace:options?.replace===true});
