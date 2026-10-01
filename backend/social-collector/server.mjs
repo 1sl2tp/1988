@@ -352,6 +352,8 @@ function publicTikTokLibraryItem(row){
     type==='flv'&&
     sourceSig
   );
+  const hotSource=currentTikTokLibrarySource(String(row.handle||''));
+  const directStreamUrl=playable?String(hotSource?.url||''):'';
   return {
     handle:String(row.handle||''),
     // Public LIVE means "can be played now", not merely "TikTok reported LIVE".
@@ -368,7 +370,10 @@ function publicTikTokLibraryItem(row){
     probeState,
     playable:playableLive,
     sourceSig:playableLive?sourceSig:'',
-    streamUrl:playableLive
+    // Direct-first playback: browser/CDN carries media bytes. Render is only
+    // a compatibility fallback when the origin rejects direct browser access.
+    streamUrl:playableLive?directStreamUrl:'',
+    proxyUrl:playableLive
       ? '/tiktok/live-stream?user='+encodeURIComponent(String(row.handle||''))+
         '&source='+encodeURIComponent(sourceSig)
       : '',
@@ -6399,7 +6404,9 @@ function canonicalPackageVideo(row){
     playback:{
       type:'mp4',
       ready:canonicalMp4Usable(row),
-      url:canonicalMp4Usable(row)
+      // Direct CDN first. Keep the Render route only as a fallback.
+      url:canonicalMp4Usable(row)?String(row.mp4_url||''):'',
+      proxyUrl:canonicalMp4Usable(row)
         ? '/tiktok/video-stream?user='+encodeURIComponent(handle)+'&id='+encodeURIComponent(id)
         : '',
       source:String(row.mp4_source||''),
@@ -6465,7 +6472,9 @@ function buildTikTokCanonicalPackage(){
           stream:{
             type:String(row.live_stream_type||''),
             sourceSig:String(row.live_source_sig||''),
-            url:row.live&&row.live_source_sig
+            // Direct CDN first. Proxy remains a compatibility fallback only.
+            url:row.live&&row.live_source_sig?String(row.live_stream_url||''):'',
+            proxyUrl:row.live&&row.live_source_sig
               ? '/tiktok/live-stream?user='+encodeURIComponent(handle)+'&source='+encodeURIComponent(row.live_source_sig)
               : ''
           },
@@ -8548,14 +8557,11 @@ const server=http.createServer(async(req,res)=>{
       return;
     }
 
-    // This endpoint is only a hint. It must return immediately; the browser
-    // never waits for yt-dlp/file download before continuing playback.
+    // Warm only the signed/direct source metadata. Do NOT pre-download MP4
+    // files onto Render: that would consume both upstream and outbound media
+    // bandwidth even when direct CDN playback works in the browser.
     queueTikTokVideoPriorityWarm(handle,id,{force:false});
-    void downloadTikTokVideoFile(handle,id,{force:false})
-      .then(file=>console.log('[tiktok-video-warm]',handle,id,'ready','bytes='+Number(file?.size||0)))
-      .catch(error=>console.log('[tiktok-video-warm]',handle,id,'failed',compactText(error?.message||error,120)));
-
-    json(res,202,{ok:true,ready:false,queued:true});
+    json(res,202,{ok:true,ready:false,queued:true,mode:'direct-source-only'});
     return;
   }
 
