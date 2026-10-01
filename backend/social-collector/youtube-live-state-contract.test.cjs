@@ -1,3 +1,4 @@
+// verification-trigger: unified-live-link-contract
 // LIVE discovery contract: search yields candidates; verified live links are published.
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
