@@ -4371,6 +4371,7 @@ html.one-col.portrait .player.pip{
     ++feedRequest;
     syncFeedHeader();
 
+    // Tab/UI reads memory only for the first paint.
     const baseMetas=packageCache.get(scope)||[];
 
     if(scope==="live"){
