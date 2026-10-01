@@ -4639,7 +4639,10 @@ html.one-col.portrait .player.pip{
 
   async function showPackageScope(scope,{hydrateLive=true}={}){
     scope=String(scope||"").trim()||"live";
-    if(scope!=="live")stopYoutubeLiveDemand();
+    if(scope!=="live"){
+      stopYoutubeLiveDemand();
+      stopTikTokPreparedStreams();
+    }
     activePackageScope=scope;
     try{localStorage.setItem(ACTIVE_SCOPE_KEY,scope)}catch{}
     feedMode="package";
@@ -5385,7 +5388,27 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  const tiktokDirectWarmUntil=new Map();
+  const TIKTOK_PRELOAD_DESKTOP_MAX=12;
+  const TIKTOK_PRELOAD_MOBILE_MAX=6;
+  const TIKTOK_PRELOAD_TARGET_MS=900;
+  const TIKTOK_PRELOAD_TARGET_BYTES=384*1024;
+  const TIKTOK_PRELOAD_MAX_BYTES=768*1024;
+  const TIKTOK_PRELOAD_KEEP_MS=45_000;
+  const tiktokPreparedStreams=new Map();
+
+  function tiktokPreloadLimit(){
+    return (
+      isAppleMobileBrowser()||
+      matchMedia("(max-width:656px)").matches
+    )
+      ?TIKTOK_PRELOAD_MOBILE_MAX
+      :TIKTOK_PRELOAD_DESKTOP_MAX;
+  }
+
+  function tiktokDirectStreamUrl(meta={}){
+    if(String(meta?.provider||"").toLowerCase()!=="tiktok")return "";
+    return String(meta?.streamUrl||"").trim();
+  }
 
   function warmTikTokDirectMeta(meta={}){
     if(String(meta?.provider||"").toLowerCase()!=="tiktok")return false;
@@ -5400,93 +5423,326 @@ html.one-col.portrait .player.pip{
     return Boolean(preferred);
   }
 
-  async function warmTikTokDirectStream(meta={}){
-    if(!warmTikTokDirectMeta(meta))return false;
+  function tiktokFlvPreloadState(){
+    return {
+      parsedOffset:0,
+      headerOffset:-1,
+      firstKeyframeTs:-1,
+      latestVideoTs:-1
+    };
+  }
 
-    const url=
-      isAppleMobileBrowser()&&String(meta?.hlsUrl||"").trim()
-        ?String(meta.hlsUrl).trim()
-        :String(meta?.streamUrl||meta?.hlsUrl||"").trim();
-    if(!url)return false;
+  function tiktokFlvRead24(bytes,offset){
+    return (
+      ((bytes[offset]||0)<<16)|
+      ((bytes[offset+1]||0)<<8)|
+      (bytes[offset+2]||0)
+    )>>>0;
+  }
 
-    const key=String(meta?.sourceSig||url);
+  function inspectTikTokFlvPreload(bytes,state){
+    if(!(bytes instanceof Uint8Array)||bytes.length<13)return false;
+
+    if(state.headerOffset<0){
+      if(
+        bytes[0]!==0x46||
+        bytes[1]!==0x4c||
+        bytes[2]!==0x56
+      )return bytes.length>=TIKTOK_PRELOAD_MAX_BYTES;
+
+      const dataOffset=(
+        ((bytes[5]||0)<<24)|
+        ((bytes[6]||0)<<16)|
+        ((bytes[7]||0)<<8)|
+        (bytes[8]||0)
+      )>>>0;
+      state.headerOffset=Math.max(9,dataOffset)+4;
+      state.parsedOffset=state.headerOffset;
+    }
+
+    let offset=Math.max(state.parsedOffset,state.headerOffset);
+    while(offset+15<=bytes.length){
+      const tagType=bytes[offset];
+      const dataSize=tiktokFlvRead24(bytes,offset+1);
+      const tagEnd=offset+11+dataSize+4;
+      if(tagEnd>bytes.length)break;
+
+      const timestamp=(
+        ((bytes[offset+7]||0)<<24)|
+        ((bytes[offset+4]||0)<<16)|
+        ((bytes[offset+5]||0)<<8)|
+        (bytes[offset+6]||0)
+      )>>>0;
+
+      if(tagType===9&&dataSize>0){
+        state.latestVideoTs=timestamp;
+        const videoHeader=bytes[offset+11]||0;
+        const frameType=(videoHeader>>4)&0x0f;
+
+        if(frameType===1&&state.firstKeyframeTs<0){
+          state.firstKeyframeTs=timestamp;
+        }
+      }
+      offset=tagEnd;
+    }
+    state.parsedOffset=offset;
+
+    if(
+      state.firstKeyframeTs>=0&&
+      state.latestVideoTs>=state.firstKeyframeTs&&
+      state.latestVideoTs-state.firstKeyframeTs>=TIKTOK_PRELOAD_TARGET_MS
+    )return true;
+
+    return bytes.length>=TIKTOK_PRELOAD_MAX_BYTES;
+  }
+
+  function tiktokPreparedBytes(session){
+    if(!session?.chunks?.length)return new Uint8Array(0);
+    const bytes=new Uint8Array(session.bytes);
+    let offset=0;
+    for(const chunk of session.chunks){
+      bytes.set(new Uint8Array(chunk),offset);
+      offset+=chunk.byteLength;
+    }
+    return bytes;
+  }
+
+  function closeTikTokPreparedSession(session){
+    if(!session||session.claimed)return;
+    session.closed=true;
+    clearTimeout(session.expireTimer);
+    try{session.reader?.cancel?.()}catch{}
+    try{session.controller?.abort?.()}catch{}
+    if(tiktokPreparedStreams.get(session.url)===session){
+      tiktokPreparedStreams.delete(session.url);
+    }
+  }
+
+  function stopTikTokPreparedStreams({exceptUrl=""}={}){
+    exceptUrl=String(exceptUrl||"").trim();
+    for(const session of [...tiktokPreparedStreams.values()]){
+      if(exceptUrl&&session.url===exceptUrl)continue;
+      closeTikTokPreparedSession(session);
+    }
+  }
+
+  function takeTikTokPreparedSession(url=""){
+    url=String(url||"").trim();
+    const session=tiktokPreparedStreams.get(url);
+    if(!session||session.closed)return null;
+
+    tiktokPreparedStreams.delete(url);
+    clearTimeout(session.expireTimer);
+    session.claimed=true;
+    return session;
+  }
+
+  function primeTikTokPreparedStream(meta={},options={}){
+    warmTikTokDirectMeta(meta);
+    if(isAppleMobileBrowser())return warmTikTokHlsAhead(meta);
+
+    const url=tiktokDirectStreamUrl(meta);
+    if(!url)return Promise.resolve(false);
+
+    const existing=tiktokPreparedStreams.get(url);
+    if(existing&&!existing.closed){
+      return existing.task||Promise.resolve(existing.ready===true);
+    }
+
+    const session={
+      id:String(meta?.id||""),
+      url,
+      sourceSig:String(meta?.sourceSig||""),
+      createdAt:Date.now(),
+      bytes:0,
+      chunks:[],
+      reader:null,
+      controller:new AbortController(),
+      parseState:tiktokFlvPreloadState(),
+      claimed:false,
+      closed:false,
+      ready:false,
+      failed:false,
+      expireTimer:0,
+      task:null
+    };
+    tiktokPreparedStreams.set(url,session);
+
+    session.expireTimer=setTimeout(()=>{
+      closeTikTokPreparedSession(session);
+    },TIKTOK_PRELOAD_KEEP_MS);
+
+    session.task=(async()=>{
+      try{
+        const response=await fetch(url,{
+          method:"GET",
+          mode:"cors",
+          cache:"no-store",
+          signal:session.controller.signal
+        });
+        if(!response.ok||!response.body)throw new Error("tiktok_preload_http_"+response.status);
+
+        session.reader=response.body.getReader();
+
+        while(!session.closed&&!session.claimed){
+          const part=await session.reader.read();
+          if(part.done){
+            session.closed=true;
+            break;
+          }
+          if(!part.value?.byteLength)continue;
+
+          const copy=part.value.buffer.slice(
+            part.value.byteOffset,
+            part.value.byteOffset+part.value.byteLength
+          );
+          session.chunks.push(copy);
+          session.bytes+=copy.byteLength;
+
+          const bytes=tiktokPreparedBytes(session);
+          const enough=
+            inspectTikTokFlvPreload(bytes,session.parseState)||
+            (
+              session.parseState.firstKeyframeTs>=0&&
+              session.bytes>=TIKTOK_PRELOAD_TARGET_BYTES
+            );
+
+          if(enough){
+            session.ready=true;
+            break;
+          }
+        }
+        return session.ready||session.bytes>0;
+      }catch(error){
+        if(!session.claimed&&!session.closed){
+          session.failed=true;
+          closeTikTokPreparedSession(session);
+        }
+        return false;
+      }
+    })();
+
+    return session.task;
+  }
+
+  const tiktokHlsWarmUntil=new Map();
+
+  async function warmTikTokHlsAhead(meta={}){
+    const manifestUrl=String(meta?.hlsUrl||"").trim();
+    if(!manifestUrl)return false;
+
     const now=Date.now();
-    if(Number(tiktokDirectWarmUntil.get(key)||0)>now)return true;
-    tiktokDirectWarmUntil.set(key,now+45_000);
+    if(Number(tiktokHlsWarmUntil.get(manifestUrl)||0)>now)return true;
+    tiktokHlsWarmUntil.set(manifestUrl,now+20_000);
+    preconnectDirectMedia(manifestUrl);
 
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),1800);
     try{
-      const hls=/\.m3u8(?:$|[?#])/i.test(url);
-      const response=await fetch(url,{
-        method:"GET",
+      const response=await fetch(manifestUrl,{
         mode:"cors",
-        cache:"default",
-        signal:controller.signal,
-        headers:hls?{}:{"Range":"bytes=0-196607"}
+        cache:"default"
       });
       if(!response.ok)return false;
 
-      const reader=response.body?.getReader?.();
-      if(reader){
-        let total=0;
-        for(let i=0;i<3&&total<196608;i++){
-          const part=await reader.read();
-          if(part.done)break;
-          total+=Number(part.value?.byteLength||0);
+      const text=await response.text();
+      const lines=text
+        .split(/\r?\n/)
+        .map(line=>line.trim())
+        .filter(line=>line&&!line.startsWith("#"))
+        .slice(-3);
+
+      const mediaUrls=lines
+        .map(line=>{
+          try{return new URL(line,manifestUrl).toString()}catch{return ""}
+        })
+        .filter(Boolean)
+        .slice(0,2);
+
+      await Promise.allSettled(mediaUrls.map(async url=>{
+        preconnectDirectMedia(url);
+        const controller=new AbortController();
+        const timer=setTimeout(()=>controller.abort(),1800);
+        try{
+          const r=await fetch(url,{
+            mode:"cors",
+            cache:"default",
+            signal:controller.signal,
+            headers:{"Range":"bytes=0-262143"}
+          });
+          const reader=r.body?.getReader?.();
+          if(reader){
+            await reader.read();
+            try{await reader.cancel()}catch{}
+          }
+        }catch{}
+        finally{
+          clearTimeout(timer);
+          try{controller.abort()}catch{}
         }
-        try{await reader.cancel()}catch{}
-      }
+      }));
       return true;
     }catch{
       return false;
-    }finally{
-      clearTimeout(timer);
-      try{controller.abort()}catch{}
     }
   }
 
   function primeTikTokPlaybackNeighborhood(centerId="",radius=2){
     const liveList=(Array.isArray(feedMetas)?feedMetas:[])
       .filter(meta=>
-        meta?.isLive===true &&
-        String(meta?.provider||"").toLowerCase()==="tiktok" &&
+        meta?.isLive===true&&
+        String(meta?.provider||"").toLowerCase()==="tiktok"&&
         String(meta?.streamUrl||meta?.hlsUrl||"").trim()
       );
-    if(!liveList.length)return false;
+    if(!liveList.length){
+      stopTikTokPreparedStreams();
+      return false;
+    }
 
-    let indexes=[];
-    const center=liveList.findIndex(meta=>String(meta?.id||"")===String(centerId||""));
+    const limit=Math.min(tiktokPreloadLimit(),liveList.length);
+    const selected=[];
+    const center=liveList.findIndex(
+      meta=>String(meta?.id||"")===String(centerId||"")
+    );
+
     if(center>=0){
-      for(let i=Math.max(0,center-radius);i<=Math.min(liveList.length-1,center+radius);i++){
-        indexes.push(i);
+      selected.push(liveList[center]);
+      for(let distance=1;selected.length<limit&&distance<liveList.length;distance++){
+        const next=center+distance;
+        const prev=center-distance;
+        if(next<liveList.length)selected.push(liveList[next]);
+        if(selected.length>=limit)break;
+        if(prev>=0)selected.push(liveList[prev]);
       }
     }else{
-      indexes=[0,1,2,3].filter(i=>i<liveList.length);
+      selected.push(...liveList.slice(0,limit));
     }
 
-    const unique=[...new Set(indexes)];
-    if(!hasCurrentMedia()&&unique.length){
-      // The most likely target gets a real prepared player. Nearby items still
-      // get lightweight network/data warmup so we don't run several live
-      // decoders/streams in parallel.
-      prepareTikTokLivePlayer(liveList[unique[0]]);
+    const keepUrls=new Set(
+      selected
+        .map(meta=>tiktokDirectStreamUrl(meta))
+        .filter(Boolean)
+    );
+
+    // Desktop keeps up to 12 real HTTP-FLV connections prepared. We only read
+    // through the first decodable GOP (~1s, hard capped at 768 KiB) and then
+    // pause the reader: no decoder and no continuous hidden playback.
+    for(const meta of selected){
+      void primeTikTokPreparedStream(meta,{
+        priority:String(meta?.id||"")===String(centerId||"")
+      });
     }
-    for(const index of unique){
-      if(
-        !hasCurrentMedia() &&
-        String(liveList[index]?.id||"")===String(tiktokPreparedLiveId||"")
-      )continue;
-      void warmTikTokDirectStream(liveList[index]);
+
+    for(const session of [...tiktokPreparedStreams.values()]){
+      if(!keepUrls.has(session.url))closeTikTokPreparedSession(session);
     }
-    return unique.length>0;
+    return selected.length>0;
   }
 
   function primeVisibleLivePreviews(){
-    if(feedMode!=="package"||activePackageScope!=="live")return;
+    if(feedMode!=="package"||activePackageScope!=="live"){
+      stopTikTokPreparedStreams();
+      return;
+    }
 
-    // Playback warmup is not tied to visibility. Keep the first TikTok lives
-    // ready, then use card interaction to warm the selected item and neighbors.
     primeTikTokPlaybackNeighborhood();
 
     const rows=[...document.querySelectorAll(".row.live-card")];
@@ -5500,6 +5756,144 @@ html.one-col.portrait .player.pip{
       if(!preview)continue;
       const img=row.querySelector(".row-thumb img");
       if(img&&img.src!==preview)img.src=preview;
+    }
+  }
+
+  class TikTokPreparedLoader{
+    constructor(_seekHandler,_config){
+      this._status=0;
+      this._needStash=false;
+      this._aborted=false;
+      this._reader=null;
+      this._controller=null;
+      this._received=0;
+      this.onContentLengthKnown=null;
+      this.onURLRedirect=null;
+      this.onDataArrival=null;
+      this.onError=null;
+      this.onComplete=null;
+    }
+
+    get type(){return "tiktok-prepared-fetch"}
+    get status(){return this._status}
+    get needStashBuffer(){return false}
+
+    isWorking(){
+      return this._status===1||this._status===2;
+    }
+
+    open(dataSource,_range){
+      this._aborted=false;
+      this._status=1;
+      void this._open(dataSource);
+    }
+
+    async _open(dataSource){
+      const url=String(dataSource?.url||"").trim();
+      if(!url){
+        this._fail("empty_url");
+        return;
+      }
+
+      let byteStart=0;
+      const prepared=takeTikTokPreparedSession(url);
+
+      try{
+        if(prepared){
+          // If the user taps while the preload fetch is still in flight, claim
+          // the exact same request. Its loop stops after the current read.
+          try{await prepared.task}catch{}
+
+          if(prepared.reader&&!prepared.failed){
+            this._controller=prepared.controller;
+            this._reader=prepared.reader;
+            this._status=2;
+
+            for(const chunk of prepared.chunks){
+              if(this._aborted)return;
+              const copy=chunk.slice(0);
+              this._received+=copy.byteLength;
+              this.onDataArrival?.(copy,byteStart,this._received);
+              byteStart+=copy.byteLength;
+            }
+            prepared.chunks.length=0;
+            prepared.bytes=0;
+
+            await this._pump(byteStart);
+            return;
+          }
+        }
+
+        this._controller=new AbortController();
+        const response=await fetch(url,{
+          method:"GET",
+          mode:"cors",
+          cache:"no-store",
+          signal:this._controller.signal
+        });
+        if(!response.ok||!response.body){
+          this._fail("http_"+response.status,response.status);
+          return;
+        }
+        if(response.url&&response.url!==url){
+          this.onURLRedirect?.(response.url);
+        }
+
+        const contentLength=Number(response.headers.get("content-length")||0);
+        if(contentLength>0)this.onContentLengthKnown?.(contentLength);
+
+        this._reader=response.body.getReader();
+        this._status=2;
+        await this._pump(0);
+      }catch(error){
+        if(!this._aborted)this._fail(String(error?.message||error||"fetch_failed"));
+      }
+    }
+
+    async _pump(byteStart=0){
+      while(!this._aborted&&this._reader){
+        const part=await this._reader.read();
+        if(part.done){
+          this._status=4;
+          this.onComplete?.(0,Math.max(0,byteStart-1));
+          return;
+        }
+        if(!part.value?.byteLength)continue;
+
+        const copy=part.value.buffer.slice(
+          part.value.byteOffset,
+          part.value.byteOffset+part.value.byteLength
+        );
+        this._received+=copy.byteLength;
+        this.onDataArrival?.(copy,byteStart,this._received);
+        byteStart+=copy.byteLength;
+      }
+    }
+
+    _fail(message,code=0){
+      this._status=3;
+      this.onError?.("Exception",{
+        code:Number(code)||0,
+        msg:String(message||"tiktok_loader_error")
+      });
+    }
+
+    abort(){
+      this._aborted=true;
+      this._status=0;
+      try{this._reader?.cancel?.()}catch{}
+      try{this._controller?.abort?.()}catch{}
+      this._reader=null;
+      this._controller=null;
+    }
+
+    destroy(){
+      this.abort();
+      this.onContentLengthKnown=null;
+      this.onURLRedirect=null;
+      this.onDataArrival=null;
+      this.onError=null;
+      this.onComplete=null;
     }
   }
 
@@ -5712,61 +6106,9 @@ html.one-col.portrait .player.pip{
   }
 
   function prepareTikTokLivePlayer(meta={}){
-    if(hasCurrentMedia())return false;
-
-    const id=String(meta?.id||"").trim();
-    const direct=String(meta?.streamUrl||"").trim();
-    const hls=String(meta?.hlsUrl||"").trim();
-    if(!id||(!direct&&!hls))return false;
-
-    if(
-      tiktokPreparedLiveId===id &&
-      (
-        tiktokLivePlayer ||
-        String(tiktokLiveVideo?.currentSrc||tiktokLiveVideo?.src||"").trim()
-      )
-    )return true;
-
-    stopTikTokLivePlayback();
-
-    tiktokPreparedLiveId=id;
-    tiktokLiveVideo.hidden=true;
-    tiktokLiveVideo.controls=false;
-    tiktokLiveVideo.muted=true;
-    tiktokLiveVideo.preload="auto";
-    tiktokLiveVideo.playsInline=true;
-
-    let started=false;
-    if(
-      isAppleMobileBrowser()&&
-      hls&&
-      nativeHlsSupported(tiktokLiveVideo)
-    ){
-      tiktokLiveVideo.src=hls;
-      tiktokLiveVideo.load();
-      tiktokLiveVideo.play().catch(()=>{});
-      started=true;
-    }else if(direct&&mpegtsLiveSupported()){
-      started=attachTikTokFlv(direct,meta);
-    }
-
-    if(!started){
-      tiktokPreparedLiveId="";
-      return false;
-    }
-
-    // Keep one real MSE/native player warm briefly. This makes the first user
-    // tap reuse an already-open media pipeline instead of starting DNS/TLS +
-    // demux + first-keyframe work from zero.
-    clearTimeout(tiktokPreparedTimer);
-    tiktokPreparedTimer=setTimeout(()=>{
-      if(
-        tiktokPreparedLiveId===id &&
-        String(current?.id||"")!==id
-      ){
-        stopTikTokLivePlayback();
-      }
-    },12_000);
+    if(String(meta?.provider||"").toLowerCase()!=="tiktok")return false;
+    void primeTikTokPreparedStream(meta,{priority:true});
+    primeTikTokPlaybackNeighborhood(String(meta?.id||""),2);
     return true;
   }
 
@@ -5782,6 +6124,7 @@ html.one-col.portrait .player.pip{
       instance=engine.createPlayer(
         {type:"flv",isLive:true,url,cors:true,withCredentials:false},
         {
+          customLoader:(!legacy&&engine===window.mpegts)?TikTokPreparedLoader:undefined,
           enableStashBuffer:false,
           stashInitialSize:64*1024,
           lazyLoad:false,
@@ -5832,20 +6175,9 @@ html.one-col.portrait .player.pip{
     const hls=String(meta?.hlsUrl||"").trim();
     if(!id||(!direct&&!hls))return false;
 
-    const prepared=
-      tiktokPreparedLiveId===id &&
-      (
-        Boolean(tiktokLivePlayer) ||
-        Boolean(String(tiktokLiveVideo?.currentSrc||tiktokLiveVideo?.src||"").trim())
-      );
-
-    if(prepared){
-      clearTimeout(tiktokPreparedTimer);
-      tiktokPreparedTimer=0;
-      tiktokPreparedLiveId="";
-    }else{
-      stopTikTokLivePlayback();
-    }
+    // The prepared HTTP-FLV reader lives outside the decoder. Closing a
+    // previous player does not discard the selected card's preloaded GOP.
+    stopTikTokLivePlayback();
     activateTikTokSurface();
 
     currentMeta=meta;
@@ -5890,10 +6222,7 @@ html.one-col.portrait .player.pip{
       if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
     };
 
-    if(prepared){
-      // Same media element / MSE pipeline that was warmed before the click.
-      tiktokLiveVideo.play().catch(()=>{});
-    }else if(
+    if(
       isAppleMobileBrowser()&&
       hls&&
       nativeHlsSupported(tiktokLiveVideo)
@@ -6963,8 +7292,7 @@ html.one-col.portrait .player.pip{
       const id=String(card.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(meta){
-        if(!hasCurrentMedia())prepareTikTokLivePlayer(meta);
-        else void warmTikTokDirectStream(meta);
+        prepareTikTokLivePlayer(meta);
         primeTikTokPlaybackNeighborhood(id,2);
       }
     },{passive:true});
@@ -8411,7 +8739,7 @@ html.one-col.portrait .player.pip{
     ){
       maybeRefreshLiveOnUserSwitch(id);
       if(String(selectedMeta?.provider||"").toLowerCase()==="tiktok"){
-        void warmTikTokDirectStream(selectedMeta);
+        prepareTikTokLivePlayer(selectedMeta);
         primeTikTokPlaybackNeighborhood(id,2);
       }
     }
