@@ -3131,7 +3131,7 @@ Deno.serve(async(req:Request)=>{
   }catch(error){
     failure=String((error as any)?.message||error||"refresh_failed");
     const pending=await finishLease(rest,authHeaders,false,failure);
-    if(pending.length)triggerFollowupRefresh(supabaseUrl,serviceKey,pending);
+    if(pending.length)await triggerFollowupRefresh(rest,authHeaders,pending);
     return json({ok:false,error:failure,pending_scopes:pending},500);
   }
 });
