@@ -1650,6 +1650,49 @@ async function resolveTikTokOriginVideo(request){
   });
 }
 
+async function relayTikTokOriginPlay(request){
+  const incoming=new URL(request.url);
+  const raw=String(incoming.searchParams.get("url")||"").trim();
+  let target;
+  try{target=new URL(raw)}catch{return json({ok:false,error:"invalid_origin_play_url"},400);}
+
+  const host=target.hostname.toLowerCase();
+  if(!(host==="www.tiktok.com"||host==="tiktok.com")||
+     !/^\/aweme\/v1\/play\//i.test(target.pathname)){
+    return json({ok:false,error:"invalid_origin_play_url"},400);
+  }
+
+  const method=request.method==="HEAD"?"HEAD":"GET";
+  const headers=new Headers({
+    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+    "accept":"*/*",
+    "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+    "referer":"https://www.tiktok.com/"
+  });
+  const range=request.headers.get("range");
+  if(range)headers.set("range",range);
+
+  let upstream;
+  try{
+    upstream=await fetch(target.toString(),{
+      method,
+      headers,
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+  }catch(error){
+    return json({ok:false,error:String(error?.message||error||"origin_stream_failed")},502);
+  }
+
+  if(!(upstream.ok||upstream.status===206)){
+    const status=upstream.status;
+    try{await upstream.body?.cancel?.()}catch{}
+    return json({ok:false,error:"origin_stream_http_"+status,status},502);
+  }
+
+  return mediaRelayResponse(upstream,method,"cloudflare-tiktok-origin");
+}
+
 async function redirectTikTokOriginPlay(request){
   const incoming=new URL(request.url);
   const raw=String(incoming.searchParams.get("url")||"").trim();
@@ -1717,6 +1760,9 @@ export default {
     if (url.pathname === "/tiktok/video-origin-redirect" &&
         (request.method === "GET" || request.method === "HEAD"))
       return redirectTikTokOriginPlay(request);
+    if (url.pathname === "/tiktok/video-origin-stream" &&
+        (request.method === "GET" || request.method === "HEAD"))
+      return relayTikTokOriginPlay(request);
     if (url.pathname === "/tiktok/video-direct" &&
         (request.method === "GET" || request.method === "HEAD"))
       return redirectTikTokVideoDirect(request);
