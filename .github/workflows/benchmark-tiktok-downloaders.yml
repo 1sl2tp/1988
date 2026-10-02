@@ -1,0 +1,198 @@
+name: Benchmark TikTok Downloaders
+
+on:
+  push:
+    branches: [bench-tiktok-downloaders]
+    paths:
+      - ".github/workflows/benchmark-tiktok-downloaders.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+      - name: Benchmark one TikTok video
+        env:
+          VIDEO_URL: "https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc"
+        run: |
+          cat > /tmp/bench.mjs <<'JS'
+          import { chromium } from 'playwright';
+
+          const videoUrl = process.env.VIDEO_URL;
+          const sites = [
+            {name:'Braw', url:'https://braw.ie/#'},
+            {name:'SnapTik.vn', url:'https://snaptik.vn/'},
+            {name:'SnapTik.com.pl', url:'https://snaptik.com.pl/vi/'},
+            {name:'TDown', url:'https://www.tdown.app/'}
+          ];
+
+          const mediaLike = (url, ct='') => {
+            const s=(url+' '+ct).toLowerCase();
+            return /tiktokcdn|muscdn|byteoversea|video\/mp4|application\/octet-stream|\.mp4(?:\?|$)|download|playaddr/.test(s);
+          };
+
+          async function firstVisible(locator){
+            const n=await locator.count();
+            for(let i=0;i<n;i++){
+              const el=locator.nth(i);
+              try{ if(await el.isVisible()) return el; }catch{}
+            }
+            return null;
+          }
+
+          async function probeDirect(url, headers={}){
+            if(!url || !/^https?:\/\//i.test(url)) return null;
+            const controller=new AbortController();
+            const timeout=setTimeout(()=>controller.abort(),12000);
+            const started=Date.now();
+            try{
+              const r=await fetch(url,{
+                headers:{
+                  'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36',
+                  'range':'bytes=0-1048575',
+                  'accept':'*/*',
+                  ...headers
+                },
+                redirect:'follow',
+                signal:controller.signal
+              });
+              const ttfb=Date.now()-started;
+              const ab=await r.arrayBuffer();
+              const total=Date.now()-started;
+              return {
+                ok:r.ok||r.status===206,
+                status:r.status,
+                ttfbMs:ttfb,
+                totalMs:total,
+                bytes:ab.byteLength,
+                mbps: total>0 ? Number(((ab.byteLength*8/1e6)/(total/1000)).toFixed(2)) : 0,
+                contentType:r.headers.get('content-type')||'',
+                finalUrl:r.url
+              };
+            }catch(e){
+              return {ok:false,error:String(e?.message||e),totalMs:Date.now()-started};
+            }finally{ clearTimeout(timeout); }
+          }
+
+          const browser=await chromium.launch({headless:true});
+          const results=[];
+
+          for(const site of sites){
+            const context=await browser.newContext({
+              acceptDownloads:true,
+              userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36'
+            });
+            const page=await context.newPage();
+            const net=[];
+            page.on('response', async res=>{
+              try{
+                const ct=(await res.allHeaders())['content-type']||'';
+                if(mediaLike(res.url(),ct)) net.push({url:res.url(),status:res.status(),ct});
+              }catch{}
+            });
+
+            const row={
+              name:site.name,url:site.url,
+              loadMs:null,resolveMs:null,status:'unknown',
+              resultLinks:[],mediaUrl:'',probe:null,
+              error:''
+            };
+
+            try{
+              const t0=Date.now();
+              await page.goto(site.url,{waitUntil:'domcontentloaded',timeout:30000});
+              row.loadMs=Date.now()-t0;
+
+              // Dismiss common consent/modal overlays when possible.
+              for(const label of [/accept/i,/agree/i,/đồng ý/i,/close/i,/đóng/i,/got it/i]){
+                const btn=await firstVisible(page.getByRole('button',{name:label}));
+                if(btn){ try{await btn.click({timeout:1000});}catch{} }
+              }
+
+              let input=await firstVisible(page.locator('input[type="text"], input[type="url"], input:not([type])'));
+              if(!input){
+                input=await firstVisible(page.locator('textarea'));
+              }
+              if(!input) throw new Error('no_visible_input');
+
+              await input.fill(videoUrl);
+              const submitStart=Date.now();
+
+              let button=null;
+              for(const label of [/tải xuống/i,/download/i,/tải/i,/get/i,/submit/i,/start/i]){
+                button=await firstVisible(page.getByRole('button',{name:label}));
+                if(button)break;
+              }
+              if(button){
+                await button.click({timeout:5000});
+              }else{
+                await input.press('Enter');
+              }
+
+              let direct='';
+              let links=[];
+              const deadline=Date.now()+30000;
+              while(Date.now()<deadline){
+                await page.waitForTimeout(300);
+                const anchors=await page.locator('a[href]').evaluateAll(els=>els.map(a=>({
+                  href:a.href,
+                  text:(a.textContent||'').trim().slice(0,120)
+                })));
+                links=anchors.filter(x=>/^https?:\/\//i.test(x.href));
+                const candidates=[
+                  ...net.map(x=>x.url),
+                  ...links.map(x=>x.href)
+                ].filter((u,i,a)=>a.indexOf(u)===i)
+                 .filter(u=>mediaLike(u,''));
+                if(candidates.length){
+                  direct=candidates[0];
+                  break;
+                }
+
+                // Some sites reveal download buttons whose href is blob/data or use a result card.
+                const text=(await page.locator('body').innerText().catch(()=>'' )).toLowerCase();
+                if(/download|tải xuống|mp4|hd|without watermark|không logo/.test(text) && Date.now()-submitStart>1500){
+                  const external=links.filter(x=>{
+                    try{return new URL(x.href).hostname!==new URL(site.url).hostname}catch{return false}
+                  });
+                  if(external.length){
+                    direct=external[0].href;
+                    break;
+                  }
+                }
+              }
+
+              row.resolveMs=Date.now()-submitStart;
+              row.resultLinks=links.slice(0,12);
+              row.mediaUrl=direct;
+              row.status=direct?'resolved':'no_direct_url';
+              if(direct){
+                row.probe=await probeDirect(direct,{
+                  referer:site.url
+                });
+              }
+            }catch(e){
+              row.status='error';
+              row.error=String(e?.message||e);
+            }
+
+            results.push(row);
+            await context.close();
+          }
+
+          await browser.close();
+          console.log('BENCH_RESULT '+JSON.stringify(results));
+          JS
+          node /tmp/bench.mjs
