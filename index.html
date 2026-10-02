@@ -6351,9 +6351,12 @@ html.one-col.portrait .player.pip{
         tiktokMediaVideo.pause();
         tiktokMediaVideo.onerror=null;
         tiktokMediaVideo.onloadedmetadata=null;
+        tiktokMediaVideo.oncanplay=null;
         tiktokMediaVideo.onplaying=null;
         tiktokMediaVideo.onpause=null;
         tiktokMediaVideo.onended=null;
+        tiktokMediaVideo.autoplay=false;
+        tiktokMediaVideo.removeAttribute("autoplay");
         tiktokMediaVideo.removeAttribute("src");
         tiktokMediaVideo.load();
       }catch{}
@@ -6626,6 +6629,8 @@ html.one-col.portrait .player.pip{
     native.controls=true;
     native.preload="auto";
     native.playsInline=true;
+    native.autoplay=true;
+    native.setAttribute("autoplay","");
     native.poster=preview;
 
     // A card click is an explicit user gesture: TikTok VOD should start with
@@ -6633,6 +6638,27 @@ html.one-col.portrait .player.pip{
     native.defaultMuted=false;
     native.muted=false;
     native.volume=1;
+
+    let playAttempt=0;
+    const requestTikTokVideoPlayback=()=>{
+      if(String(current?.id||"")!==id||!native.paused)return;
+      native.defaultMuted=false;
+      native.muted=false;
+      native.volume=1;
+      playAttempt+=1;
+      const pending=native.play();
+      if(pending?.catch){
+        pending.catch(error=>{
+          if(String(current?.id||"")!==id)return;
+          console.warn(
+            "tiktok_video_play_rejected",
+            "attempt="+playAttempt,
+            error?.name||"",
+            error?.message||""
+          );
+        });
+      }
+    };
 
     native.onerror=()=>{
       if(String(current?.id||"")!==id)return;
@@ -6655,6 +6681,15 @@ html.one-col.portrait .player.pip{
       if(w>0&&h>0){
         commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
       }
+      // Safari/Chrome can leave the first synchronous play() pending or abort it
+      // while the direct TikTok MP4 is still attaching. Retry as soon as the
+      // browser has media metadata instead of leaving the poster paused at 0:00.
+      requestTikTokVideoPlayback();
+    };
+
+    native.oncanplay=()=>{
+      if(String(current?.id||"")!==id)return;
+      requestTikTokVideoPlayback();
     };
 
     native.onplaying=()=>{
@@ -6679,14 +6714,10 @@ html.one-col.portrait .player.pip{
     native.src=stream;
     native.load();
 
-    // Keep this call synchronous inside the row click gesture. Waiting for an
-    // async resolver first would make Chrome/Safari treat sound as autoplay.
-    const playPromise=native.play();
-    if(playPromise?.catch){
-      playPromise.catch(error=>{
-        console.warn("tiktok_video_play_rejected",error?.name||"",error?.message||"");
-      });
-    }
+    // Keep the first call synchronous inside the row click gesture so playback
+    // can start with sound. loadedmetadata/canplay above are only readiness
+    // retries for browsers that do not begin immediately while the MP4 attaches.
+    requestTikTokVideoPlayback();
 
     renderCurrentInfo();
     schedulePip();
