@@ -7609,14 +7609,18 @@ html.tiktok-ui.tiktok-watch .rows{
     tiktokEmbedDuration=0;
     currentMeta=meta;
 
-    const ratio=
+    // TikTok VOD uses one canonical geometry only.
+    // Metadata is used ONLY to decide orientation; it must never change the
+    // viewport ratio per-video because small/incorrect ratios look like zoom.
+    const sourceRatio=
       validMediaAspect(meta?.aspectRatio)||
       (
         Number(meta?.videoWidth)>0&&Number(meta?.videoHeight)>0
           ?Number(meta.videoWidth)/Number(meta.videoHeight)
           :9/16
       );
-    const kind=mediaLayoutKindFromRatio(ratio);
+    const kind=mediaLayoutKindFromRatio(sourceRatio);
+    const ratio=kind==="portrait"?9/16:16/9;
     current={
       id,
       kind,
