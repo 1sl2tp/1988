@@ -48,6 +48,35 @@
     border:1px dashed rgba(255,255,255,.2);
     border-radius:14px
   }
+  .sound-gate{
+    position:absolute;
+    inset:0;
+    z-index:4;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border:0;
+    border-radius:14px;
+    background:rgba(0,0,0,.12);
+    padding:0;
+    cursor:pointer;
+  }
+  .sound-gate span{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-height:44px;
+    padding:10px 16px;
+    border-radius:999px;
+    background:rgba(0,0,0,.72);
+    color:#fff;
+    border:1px solid rgba(255,255,255,.28);
+    font-size:14px;
+    font-weight:700;
+    backdrop-filter:blur(8px);
+    -webkit-backdrop-filter:blur(8px)
+  }
+  .sound-gate[hidden]{display:none}
 
   .status{font-size:12px;color:#aaa;margin-top:10px;text-align:center;min-height:18px}
   .inputline{display:flex;gap:8px;margin-bottom:12px}
@@ -98,7 +127,7 @@
   <h1>TikTok · official player + BLACK rail chỉnh được</h1>
   <p class="sub">
     Vẫn dùng player TikTok chính chủ. Có BLACK trên/dưới để bạn kéo chỉnh vùng crop,
-    đồng thời thử tự phát và bật tiếng ngay khi player sẵn sàng.
+    video tự phát ngay. Âm thanh lần mở đầu cần một chạm trong trang vì trình duyệt chặn autoplay có tiếng.
   </p>
 
   <div class="grid">
@@ -111,6 +140,9 @@
           referrerpolicy="strict-origin-when-cross-origin"
           title="TikTok official player"></iframe>
         <div class="guide"></div>
+        <button class="sound-gate" id="soundGate" type="button" aria-label="Bật tiếng">
+          <span>🔊 Bật tiếng</span>
+        </button>
       </div>
       <div class="status" id="status">Đang nạp TikTok player…</div>
     </section>
@@ -126,7 +158,7 @@
       <div>
         <span class="pill">TikTok iframe</span>
         <span class="pill">BLACK rail</span>
-        <span class="pill">Autoplay audio</span>
+        <span class="pill">Autoplay hình</span>
         <span class="pill">Không MP4/FLV</span>
         <span class="pill">Không PiP riêng</span>
       </div>
@@ -160,7 +192,7 @@
 
       <div class="switches">
         <div class="switch">
-          <label for="autoplay">Tự phát + yêu cầu bật tiếng</label>
+          <label for="autoplay">Tự phát video</label>
           <input id="autoplay" type="checkbox" checked>
         </div>
         <div class="switch">
@@ -189,10 +221,9 @@
       <div class="values" id="values"></div>
 
       <div class="explain">
-        <b>Âm thanh:</b> trang sẽ gửi <b>unMute → play</b> ngay khi TikTok báo player ready.
-        Safari/Chrome có thể chặn autoplay có tiếng theo chính sách trình duyệt. Nếu bị chặn,
-        chỉ cần chạm/click một lần ở bất kỳ đâu trên trang; demo sẽ tự gửi lại <b>unMute + play</b>.
-        Sau khi trình duyệt đã cho phép, các video mở tiếp sẽ phát có tiếng thuận lợi hơn.
+        <b>Âm thanh:</b> khi mở trang bằng Enter/F5, trình duyệt không coi đó là thao tác bên trong trang,
+        nên autoplay có tiếng có thể bị chặn. Demo cho video chạy trước và hiện nút <b>Bật tiếng</b> ngay trên video.
+        Chạm một lần vào đó sẽ gửi <b>unMute + play</b>; sau đó nút biến mất.
       </div>
     </section>
   </div>
@@ -208,6 +239,7 @@
   const autoplay = document.getElementById("autoplay");
   const description = document.getElementById("description");
   const musicInfo = document.getElementById("musicInfo");
+  const soundGate = document.getElementById("soundGate");
 
   const topRange = document.getElementById("topRange");
   const bottomRange = document.getElementById("bottomRange");
@@ -250,7 +282,7 @@
       rel: "0",
       native_context_menu: "1",
       closed_caption: "1",
-      muted: "0"
+      muted: "1"
     });
     return "https://www.tiktok.com/player/v1/" + encodeURIComponent(id) + "?" + p.toString();
   }
@@ -301,7 +333,7 @@
       'BLACK top = ' + topValue + 'px<br>' +
       'BLACK bottom = ' + bottomValue + 'px<br>' +
       'shift = ' + (shiftValue > 0 ? '+' : '') + shiftValue + 'px<br>' +
-      'autoplay_audio_request = ' + String(autoplay.checked) + '<br>' +
+      'autoplay_video_request = ' + String(autoplay.checked) + '<br>' +
       'browser_audio_unlocked = ' + String(userUnlockedAudio) + '<br>' +
       'custom_media = false<br>' +
       'pip_custom = false' +
@@ -380,11 +412,18 @@
 
   [autoplay, description, musicInfo].forEach(el => el.addEventListener("change", () => load(false, true)));
 
-  document.getElementById("playBtn").addEventListener("click", () => {
+  function unlockAndPlay(){
     userUnlockedAudio = true;
+    pendingGesturePlay = false;
     playWithAudio();
+    soundGate.hidden = true;
+    status.textContent = "Đang phát + bật tiếng.";
     renderInfo();
-  });
+  }
+
+  soundGate.addEventListener("click", unlockAndPlay);
+
+  document.getElementById("playBtn").addEventListener("click", unlockAndPlay);
   document.getElementById("pauseBtn").addEventListener("click", () => command("pause"));
   document.getElementById("muteBtn").addEventListener("click", () => command("mute"));
   document.getElementById("unmuteBtn").addEventListener("click", () => {
@@ -408,21 +447,6 @@
     }
   });
 
-  /* Lần tương tác đầu tiên dùng để mở khóa autoplay audio nếu browser yêu cầu user gesture. */
-  const unlockAudio = () => {
-    userUnlockedAudio = true;
-    pendingGesturePlay = true;
-    if(playerReady && autoplay.checked){
-      playWithAudio();
-      pendingGesturePlay = false;
-      status.textContent = "Đã mở khóa âm thanh · đang phát.";
-    }
-    renderInfo();
-  };
-  window.addEventListener("pointerdown", unlockAudio, {once:true, capture:true});
-  window.addEventListener("touchstart", unlockAudio, {once:true, capture:true, passive:true});
-  window.addEventListener("keydown", unlockAudio, {once:true, capture:true});
-
   addEventListener("message", event => {
     if(event.origin !== "https://www.tiktok.com" || event.source !== frame.contentWindow) return;
     const msg = event.data || {};
@@ -430,13 +454,13 @@
 
     if(msg.type === "onPlayerReady"){
       playerReady = true;
-      if(pendingGesturePlay && userUnlockedAudio){
-        status.textContent = "Player sẵn sàng · phát theo thao tác người dùng.";
+      soundGate.hidden = !!userUnlockedAudio;
+      if(userUnlockedAudio){
+        status.textContent = "Player sẵn sàng · đang phát có tiếng.";
         playWithAudio();
-        pendingGesturePlay = false;
       }else{
-        status.textContent = "TikTok player sẵn sàng · đang thử autoplay có tiếng…";
-        if(autoplay.checked) playWithAudio();
+        status.textContent = "Video sẵn sàng · chạm Bật tiếng để mở audio.";
+        if(autoplay.checked) command("play");
       }
       renderInfo();
     }else if(msg.type === "onStateChange"){
@@ -448,6 +472,13 @@
         n === 0 ? "Video đã phát xong." :
         "Player state: " + String(msg.value);
     }else if(msg.type === "onMute"){
+      const muted = msg.value === true || msg.value === 1 || msg.value === "true";
+      if(!muted){
+        userUnlockedAudio = true;
+        soundGate.hidden = true;
+      }else if(!userUnlockedAudio){
+        soundGate.hidden = false;
+      }
       renderInfo("muted = " + String(msg.value));
     }else if(msg.type === "onPlayerError"){
       const v = msg.value || {};
