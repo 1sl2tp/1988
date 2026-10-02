@@ -1,4 +1,4 @@
-name: Probe TikTok video track once
+name: Probe TikTok browser media headers
 
 on:
   push:
@@ -13,12 +13,20 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Install ffprobe
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Probe streams
+      - name: Probe headers
         shell: bash
         env:
           URL: 'https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=9aeca68ed6784c149898d7b6683a320e&is_play_url=1&item_id=7689814919914458374&line=0&ply_type=2&pt=dGlrdG9rLndlYmFyY2guZ2F0ZXdheSYvQGdlZWx5LmRhaWx5L3ZpZGVvLzc2ODk4MTQ5MTk5MTQ0NTgzNzQmMjAyNjEwMDIwNzA3MjY5QjIwMDk3QkZFQkQzNUU4MkE4NyYxNzkwOTI0ODQ2JmI1MWYyZDZmNGU4Yg&signaturev3=dmlkZW9faWQ7ZmlsZV9pZDtpdGVtX2lkLjE1OWE2ODgxOWY5Yzk0MjBmMzcwZGI2ODlmOTNmYmVh&tk=tt_chain_token&video_id=v14044g50000darrbjfog65n1cp4n2j0'
         run: |
           set -euo pipefail
-          ffprobe -v error             -user_agent 'Mozilla/5.0'             -headers $'Referer: https://www.tiktok.com/\r\n'             -show_entries stream=index,codec_type,codec_name,codec_tag_string,width,height,sample_rate,channels             -of json "$URL"
+          for mode in noref ytref browserref; do
+            echo "=== $mode ==="
+            args=(-sS -L --max-time 15 -r 0-1023 -o /dev/null -D - -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36')
+            if [ "$mode" = ytref ]; then
+              args+=(-H 'Referer: https://www.tiktok.com/')
+            fi
+            if [ "$mode" = browserref ]; then
+              args+=(-H 'Referer: https://yt.taphoa.xyz/' -H 'Origin: https://yt.taphoa.xyz' -H 'Sec-Fetch-Site: cross-site' -H 'Sec-Fetch-Mode: no-cors' -H 'Sec-Fetch-Dest: video')
+            fi
+            curl "${args[@]}" "$URL" | grep -Ei '^(HTTP/|location:|content-type:|content-length:|content-range:|accept-ranges:|x-video-codec-type:|access-control-allow-origin:|cross-origin-resource-policy:)' || true
+          done
