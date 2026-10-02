@@ -491,17 +491,23 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
     if(status===4)return null;
     room=userLiveRoom;
     roomId=String(userLiveRoom?.roomId||userLiveRoom?.id||roomId||"");
-    sourceName=liveSourceName(userLiveRoom,handle);
+    sourceName=
+      liveSourceName(userLiveRoom,handle)||
+      liveSourceName(userData?.data?.user||{},handle);
     title=liveTitleFromRoom(userLiveRoom,handle,sourceName);
     preview=liveCoverFromRoom(userLiveRoom);
     avatar=liveAvatarFromRoom(userLiveRoom)||
+      liveAvatarFromRoom(userData?.data?.user||{})||
       firstLiveAssetUrl(
         userData?.data?.user?.avatarLarger||
         userData?.data?.user?.avatar_larger||
         userData?.data?.user?.avatarMedium||
         userData?.data?.user?.avatar_medium
       );
-    viewerCount=liveViewerCountFromRoom(userLiveRoom);
+    viewerCount=
+      liveViewerCountFromRoom(userLiveRoom)||
+      liveViewerCountFromRoom(userData?.data?.liveRoomStats||{})||
+      liveViewerCountFromRoom(userData?.data?.live_room_stats||{});
     media=collectLiveMedia(userLiveRoom);
   }
 
@@ -526,7 +532,13 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
       title=liveTitleFromRoom(liveData,handle,sourceName)||title;
       preview=liveCoverFromRoom(liveData)||preview;
       avatar=liveAvatarFromRoom(liveData)||avatar;
-      viewerCount=liveViewerCountFromRoom(liveData)||viewerCount;
+      viewerCount=
+        liveViewerCountFromRoom(liveData)||
+        liveViewerCountFromRoom(detailData?.LiveRoomStats||{})||
+        liveViewerCountFromRoom(detailData?.liveRoomStats||{})||
+        liveViewerCountFromRoom(detailData?.data?.LiveRoomStats||{})||
+        liveViewerCountFromRoom(detailData?.data?.liveRoomStats||{})||
+        viewerCount;
       const detailMedia=collectLiveMedia(liveData);
       media={
         flv:[...new Set([...(media.flv||[]),...(detailMedia.flv||[])])],
