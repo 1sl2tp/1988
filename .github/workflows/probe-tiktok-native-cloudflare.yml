@@ -202,7 +202,7 @@ jobs:
           JS
           node /tmp/ttwid-probe.mjs
 
-      - name: Probe exact VOD through direct metadata fallback
+      - name: Probe exact VOD after HTML rejection
         shell: bash
         run: |
           set -euo pipefail
