@@ -3,25 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>TikTok iframe mask proof</title>
+<title>TikTok rail crop proof</title>
 <style>
   *{box-sizing:border-box}
   :root{
     color-scheme:dark;
-    --mask-top:46px;
-    --mask-bottom:0px;
-    --mask-left:0px;
-    --mask-right:0px;
-    --mask-opacity:1;
+    --rail-black:59px;
+    --rail-shift:0px;
   }
-  html,body{margin:0;background:#0f0f0f;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  html,body{
+    margin:0;
+    min-height:100%;
+    background:#0f0f0f;
+    color:#f5f5f5;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif
+  }
   body{min-height:100vh}
   .page{width:min(1180px,100%);margin:0 auto;padding:18px}
   h1{font-size:18px;margin:0 0 6px}
-  .sub{color:#aaa;font-size:13px;margin:0 0 16px}
-  .grid{display:grid;grid-template-columns:minmax(300px,460px) minmax(300px,1fr);gap:18px;align-items:start}
-  .panel{background:#181818;border:1px solid #2c2c2c;border-radius:16px;padding:14px}
-  .player-shell{
+  .sub{color:#aaa;font-size:13px;line-height:1.45;margin:0 0 16px}
+  .grid{
+    display:grid;
+    grid-template-columns:minmax(300px,460px) minmax(300px,1fr);
+    gap:18px;
+    align-items:start
+  }
+  .panel{
+    background:#181818;
+    border:1px solid #2c2c2c;
+    border-radius:16px;
+    padding:14px
+  }
+
+  /* ==========================================================
+     TIKTOK RAIL CROP PROOF
+     Same idea as MAIN YouTube rail:
+     - visible viewport = real media area
+     - source iframe = viewport + BLACK top + BLACK bottom
+     - parent crops those black rails away
+     - NO black overlay is painted on top of the video
+     ========================================================== */
+  .player-viewport{
     width:min(100%,430px);
     aspect-ratio:9/16;
     margin:0 auto;
@@ -31,104 +53,169 @@
     border-radius:14px;
     box-shadow:0 18px 60px rgba(0,0,0,.35)
   }
-  iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
-  .mask{position:absolute;z-index:20;background:rgba(0,0,0,var(--mask-opacity));pointer-events:none}
-  .mask.top{left:0;right:0;top:0;height:var(--mask-top)}
-  .mask.bottom{left:0;right:0;bottom:0;height:var(--mask-bottom)}
-  .mask.left{left:0;top:var(--mask-top);bottom:var(--mask-bottom);width:var(--mask-left)}
-  .mask.right{right:0;top:var(--mask-top);bottom:var(--mask-bottom);width:var(--mask-right)}
-  .guide{position:absolute;z-index:21;inset:0;pointer-events:none;border:1px dashed rgba(255,255,255,.20);border-radius:14px}
-  .status{font-size:12px;color:#aaa;margin-top:10px;text-align:center}
-  .row{display:grid;grid-template-columns:88px 1fr 54px;gap:10px;align-items:center;margin:11px 0}
-  .row label{font-size:13px;color:#ddd}
-  input[type="range"]{width:100%}
-  output{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:#fff}
-  .inputline{display:flex;gap:8px;margin-bottom:12px}
+  #tt{
+    position:absolute!important;
+    left:0!important;
+    right:auto!important;
+    top:calc((0px - var(--rail-black)) + var(--rail-shift))!important;
+    bottom:auto!important;
+    width:100%!important;
+    height:calc(100% + var(--rail-black) + var(--rail-black))!important;
+    max-width:none!important;
+    max-height:none!important;
+    border:0!important;
+    background:#000!important;
+  }
+  .viewport-guide{
+    position:absolute;
+    inset:0;
+    z-index:5;
+    pointer-events:none;
+    border:1px dashed rgba(255,255,255,.22);
+    border-radius:14px
+  }
+  .status{
+    font-size:12px;
+    color:#aaa;
+    margin-top:10px;
+    text-align:center
+  }
+  .inputline{display:flex;gap:8px;margin-bottom:14px}
   .inputline input{
-    min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px
+    min-width:0;flex:1;
+    background:#111;
+    border:1px solid #333;
+    border-radius:10px;
+    color:#fff;
+    padding:10px 11px;
+    font-size:13px
   }
   button{
-    background:#2a2a2a;color:#fff;border:1px solid #3a3a3a;border-radius:10px;padding:9px 11px;
-    cursor:pointer;font-weight:600
+    background:#2a2a2a;
+    color:#fff;
+    border:1px solid #3a3a3a;
+    border-radius:10px;
+    padding:9px 11px;
+    cursor:pointer;
+    font-weight:600
   }
   button:hover{background:#343434}
+  .control{
+    display:grid;
+    grid-template-columns:118px minmax(0,1fr) 66px;
+    gap:10px;
+    align-items:center;
+    margin:14px 0
+  }
+  .control label{font-size:13px;color:#ddd}
+  input[type="range"]{width:100%}
+  output{
+    font-variant-numeric:tabular-nums;
+    text-align:right;
+    font-size:12px;
+    color:#fff
+  }
   .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
-  .note{font-size:12px;color:#999;line-height:1.45;margin-top:14px}
-  .values{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#111;border:1px solid #292929;border-radius:10px;padding:10px;font-size:12px;color:#bbb;margin-top:14px}
+  .explain{
+    margin-top:14px;
+    border:1px solid #292929;
+    background:#111;
+    border-radius:12px;
+    padding:12px;
+    color:#aaa;
+    font-size:12px;
+    line-height:1.5
+  }
+  .explain b{color:#fff}
+  .values{
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    background:#111;
+    border:1px solid #292929;
+    border-radius:10px;
+    padding:10px;
+    font-size:12px;
+    color:#bbb;
+    margin-top:14px
+  }
+  .preset{
+    display:grid;
+    grid-template-columns:1fr 1fr 1fr;
+    gap:8px;
+    margin-top:12px
+  }
   @media(max-width:820px){
     .page{padding:10px}
     .grid{grid-template-columns:1fr}
-    .player-shell{width:min(100%,390px)}
+    .player-viewport{width:min(100%,390px)}
+    .control{grid-template-columns:100px minmax(0,1fr) 58px}
+    .preset{grid-template-columns:1fr}
   }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>TikTok player chính chủ + vùng đen chỉnh tay</h1>
-  <p class="sub">Trang proof riêng để kiểm tra cách che logo/viền. Không thay đổi player chính.</p>
+  <h1>TikTok player chính chủ · tăng BLACK như YouTube</h1>
+  <p class="sub">
+    Bản này không phủ một miếng đen lên video. Iframe TikTok được làm cao hơn viewport,
+    tạo thêm vùng BLACK ở trên + dưới, rồi viewport cắt phần ngoài đi — đúng kiểu rail YouTube đang dùng.
+  </p>
 
   <div class="grid">
     <section class="panel">
-      <div class="player-shell" id="shell">
-        <iframe id="tt"
+      <div class="player-viewport" id="viewport">
+        <iframe
+          id="tt"
           allow="autoplay; fullscreen; picture-in-picture"
           allowfullscreen
           referrerpolicy="strict-origin-when-cross-origin"
           title="TikTok test player"></iframe>
-        <div class="mask top"></div>
-        <div class="mask bottom"></div>
-        <div class="mask left"></div>
-        <div class="mask right"></div>
-        <div class="guide"></div>
+        <div class="viewport-guide"></div>
       </div>
       <div class="status" id="status">Đang nạp player…</div>
     </section>
 
     <section class="panel">
       <div class="inputline">
-        <input id="videoInput" value="https://www.tiktok.com/@britazef85y/video/7688892521295990022" aria-label="TikTok video URL hoặc ID">
+        <input
+          id="videoInput"
+          value="https://www.tiktok.com/@britazef85y/video/7688892521295990022"
+          aria-label="TikTok video URL hoặc ID">
         <button id="loadBtn" type="button">Mở video</button>
       </div>
 
-      <div class="row">
-        <label for="topRange">Đen trên</label>
-        <input id="topRange" data-key="top" type="range" min="0" max="180" value="46">
-        <output id="topOut">46 px</output>
+      <div class="control">
+        <label for="railRange">BLACK trên+dưới</label>
+        <input id="railRange" type="range" min="0" max="220" step="1" value="59">
+        <output id="railOut">59 px</output>
       </div>
-      <div class="row">
-        <label for="bottomRange">Đen dưới</label>
-        <input id="bottomRange" data-key="bottom" type="range" min="0" max="220" value="0">
-        <output id="bottomOut">0 px</output>
+
+      <div class="control">
+        <label for="shiftRange">Dịch dọc iframe</label>
+        <input id="shiftRange" type="range" min="-120" max="120" step="1" value="0">
+        <output id="shiftOut">0 px</output>
       </div>
-      <div class="row">
-        <label for="leftRange">Đen trái</label>
-        <input id="leftRange" data-key="left" type="range" min="0" max="150" value="0">
-        <output id="leftOut">0 px</output>
-      </div>
-      <div class="row">
-        <label for="rightRange">Đen phải</label>
-        <input id="rightRange" data-key="right" type="range" min="0" max="150" value="0">
-        <output id="rightOut">0 px</output>
-      </div>
-      <div class="row">
-        <label for="opacityRange">Độ đen</label>
-        <input id="opacityRange" type="range" min="0" max="100" value="100">
-        <output id="opacityOut">100%</output>
+
+      <div class="preset">
+        <button type="button" data-rail="0">0 px · nguyên bản</button>
+        <button type="button" data-rail="59">59 px · YouTube dọc</button>
+        <button type="button" data-rail="65">65 px · YouTube ngang</button>
       </div>
 
       <div class="btns">
         <button type="button" id="playBtn">Play</button>
         <button type="button" id="pauseBtn">Pause</button>
-        <button type="button" id="resetBtn">Reset vùng đen</button>
-        <button type="button" id="logoPresetBtn">Mẫu che phía trên</button>
+        <button type="button" id="reloadBtn">Nạp lại player</button>
+        <button type="button" id="resetBtn">Reset</button>
       </div>
 
       <div class="values" id="values"></div>
-      <p class="note">
-        Vùng đen chỉ là lớp phủ trên iframe, nên có thể tăng/giảm ngay trong lúc video đang chạy.
-        Thanh điều khiển TikTok bên trong iframe vẫn là player chính chủ. Nếu che quá sâu xuống dưới thì
-        chính vùng đen sẽ che luôn controls — đó là điều mình muốn bạn test để chốt kích thước.
-      </p>
+
+      <div class="explain">
+        <b>Cách test:</b> kéo “BLACK trên+dưới” tăng dần. Khi tăng, iframe TikTok thật sẽ cao lên;
+        phần UI/logo neo ở mép trên/dưới của iframe sẽ bị đẩy ra ngoài viewport và bị crop.
+        Video ở giữa vẫn là player TikTok thật. Nếu logo lệch một phía, dùng “Dịch dọc iframe”
+        để cân đúng vị trí mà không cần phủ lớp đen lên nội dung.
+      </div>
     </section>
   </div>
 </div>
@@ -138,16 +225,15 @@
   const frame=document.getElementById("tt");
   const status=document.getElementById("status");
   const input=document.getElementById("videoInput");
+  const rail=document.getElementById("railRange");
+  const shift=document.getElementById("shiftRange");
+  const railOut=document.getElementById("railOut");
+  const shiftOut=document.getElementById("shiftOut");
   const values=document.getElementById("values");
   const root=document.documentElement;
 
-  const state={
-    top:Number(localStorage.getItem("tt-mask-top")||46),
-    bottom:Number(localStorage.getItem("tt-mask-bottom")||0),
-    left:Number(localStorage.getItem("tt-mask-left")||0),
-    right:Number(localStorage.getItem("tt-mask-right")||0),
-    opacity:Number(localStorage.getItem("tt-mask-opacity")||100)
-  };
+  let railValue=Number(localStorage.getItem("tt-rail-black")||59);
+  let shiftValue=Number(localStorage.getItem("tt-rail-shift")||0);
 
   function parseVideoId(value){
     value=String(value||"").trim();
@@ -185,6 +271,22 @@
     }catch{}
   }
 
+  function applyGeometry(){
+    railValue=Math.max(0,Math.min(220,Number(railValue)||0));
+    shiftValue=Math.max(-120,Math.min(120,Number(shiftValue)||0));
+    root.style.setProperty("--rail-black",railValue+"px");
+    root.style.setProperty("--rail-shift",shiftValue+"px");
+    rail.value=String(railValue);
+    shift.value=String(shiftValue);
+    railOut.textContent=railValue+" px";
+    shiftOut.textContent=(shiftValue>0?"+":"")+shiftValue+" px";
+    localStorage.setItem("tt-rail-black",String(railValue));
+    localStorage.setItem("tt-rail-shift",String(shiftValue));
+    values.textContent=
+      "source iframe = viewport + "+railValue+"px BLACK top + "+railValue+
+      "px BLACK bottom · shift="+(shiftValue>0?"+":"")+shiftValue+"px";
+  }
+
   function load(){
     const id=parseVideoId(input.value);
     if(!id){
@@ -195,51 +297,38 @@
     frame.src=playerUrl(id);
   }
 
-  function apply(){
-    root.style.setProperty("--mask-top",state.top+"px");
-    root.style.setProperty("--mask-bottom",state.bottom+"px");
-    root.style.setProperty("--mask-left",state.left+"px");
-    root.style.setProperty("--mask-right",state.right+"px");
-    root.style.setProperty("--mask-opacity",String(state.opacity/100));
+  rail.addEventListener("input",()=>{
+    railValue=Number(rail.value)||0;
+    applyGeometry();
+  });
 
-    for(const key of ["top","bottom","left","right"]){
-      const range=document.getElementById(key+"Range");
-      const out=document.getElementById(key+"Out");
-      range.value=String(state[key]);
-      out.textContent=state[key]+" px";
-      localStorage.setItem("tt-mask-"+key,String(state[key]));
-    }
-    document.getElementById("opacityRange").value=String(state.opacity);
-    document.getElementById("opacityOut").textContent=state.opacity+"%";
-    localStorage.setItem("tt-mask-opacity",String(state.opacity));
+  shift.addEventListener("input",()=>{
+    shiftValue=Number(shift.value)||0;
+    applyGeometry();
+  });
 
-    values.textContent=
-      "top="+state.top+"px · bottom="+state.bottom+"px · left="+state.left+
-      "px · right="+state.right+"px · opacity="+state.opacity+"%";
-  }
-
-  for(const key of ["top","bottom","left","right"]){
-    document.getElementById(key+"Range").addEventListener("input",e=>{
-      state[key]=Number(e.target.value)||0;
-      apply();
+  document.querySelectorAll("[data-rail]").forEach(btn=>{
+    btn.addEventListener("click",()=>{
+      railValue=Number(btn.dataset.rail)||0;
+      shiftValue=0;
+      applyGeometry();
     });
-  }
-  document.getElementById("opacityRange").addEventListener("input",e=>{
-    state.opacity=Number(e.target.value)||0;
-    apply();
   });
 
   document.getElementById("loadBtn").addEventListener("click",load);
-  input.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();load()}});
+  document.getElementById("reloadBtn").addEventListener("click",load);
+  input.addEventListener("keydown",e=>{
+    if(e.key==="Enter"){
+      e.preventDefault();
+      load();
+    }
+  });
   document.getElementById("playBtn").addEventListener("click",()=>command("play"));
   document.getElementById("pauseBtn").addEventListener("click",()=>command("pause"));
   document.getElementById("resetBtn").addEventListener("click",()=>{
-    Object.assign(state,{top:0,bottom:0,left:0,right:0,opacity:100});
-    apply();
-  });
-  document.getElementById("logoPresetBtn").addEventListener("click",()=>{
-    Object.assign(state,{top:52,bottom:0,left:0,right:0,opacity:100});
-    apply();
+    railValue=59;
+    shiftValue=0;
+    applyGeometry();
   });
 
   addEventListener("message",event=>{
@@ -251,7 +340,11 @@
       command("play");
     }else if(msg.type==="onStateChange"){
       const n=Number(msg.value);
-      status.textContent=n===1?"Đang phát":n===2?"Đang tạm dừng":n===0?"Đã hết video":"Player state: "+String(msg.value);
+      status.textContent=
+        n===1?"Đang phát":
+        n===2?"Đang tạm dừng":
+        n===0?"Đã hết video":
+        "Player state: "+String(msg.value);
     }else if(msg.type==="onPlayerError"){
       status.textContent="TikTok player báo lỗi: "+String(msg.value||"");
     }
@@ -261,7 +354,7 @@
     status.textContent="Iframe đã nạp · chờ TikTok player ready…";
   });
 
-  apply();
+  applyGeometry();
   load();
 })();
 </script>
