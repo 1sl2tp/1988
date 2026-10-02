@@ -10,6 +10,8 @@
     color-scheme:dark;
     --rail-black:308px;
     --rail-shift:0px;
+    --rail-black-x:0px;
+    --rail-shift-x:0px;
   }
   html,body{
     margin:0;
@@ -55,11 +57,11 @@
   }
   #tt{
     position:absolute!important;
-    left:0!important;
+    left:calc((0px - var(--rail-black-x)) + var(--rail-shift-x))!important;
     right:auto!important;
     top:calc((0px - var(--rail-black)) + var(--rail-shift))!important;
     bottom:auto!important;
-    width:100%!important;
+    width:calc(100% + var(--rail-black-x) + var(--rail-black-x))!important;
     height:calc(100% + var(--rail-black) + var(--rail-black))!important;
     max-width:none!important;
     max-height:none!important;
@@ -156,8 +158,8 @@
 <div class="page">
   <h1>TikTok player chính chủ · tăng BLACK như YouTube</h1>
   <p class="sub">
-    Bản này không phủ một miếng đen lên video. Iframe TikTok được làm cao hơn viewport,
-    tạo thêm vùng BLACK ở trên + dưới, rồi viewport cắt phần ngoài đi — đúng kiểu rail YouTube đang dùng.
+    Bản này không phủ một miếng đen lên video. Iframe TikTok được làm lớn hơn viewport theo cả dọc và ngang,
+    tạo thêm vùng BLACK trên+dưới / trái+phải, rồi viewport cắt phần ngoài đi — đúng kiểu rail YouTube đang dùng.
   </p>
 
   <div class="grid">
@@ -195,6 +197,18 @@
         <output id="shiftOut">0 px</output>
       </div>
 
+      <div class="control">
+        <label for="railXRange">BLACK trái+phải</label>
+        <input id="railXRange" type="range" min="0" max="420" step="1" value="0">
+        <output id="railXOut">0 px</output>
+      </div>
+
+      <div class="control">
+        <label for="shiftXRange">Dịch ngang iframe</label>
+        <input id="shiftXRange" type="range" min="-220" max="220" step="1" value="0">
+        <output id="shiftXOut">0 px</output>
+      </div>
+
       <div class="preset">
         <button type="button" data-rail="0">0 px · nguyên bản</button>
         <button type="button" data-rail="59">59 px · YouTube dọc</button>
@@ -217,8 +231,8 @@
       <div class="explain">
         <b>Cách test:</b> kéo “BLACK trên+dưới” tăng dần. Khi tăng, iframe TikTok thật sẽ cao lên;
         phần UI/logo neo ở mép trên/dưới của iframe sẽ bị đẩy ra ngoài viewport và bị crop.
-        Video ở giữa vẫn là player TikTok thật. Nếu logo lệch một phía, dùng “Dịch dọc iframe”
-        để cân đúng vị trí mà không cần phủ lớp đen lên nội dung.
+        “BLACK trái+phải” làm tương tự theo chiều ngang; “Dịch ngang iframe” dùng để cân trái/phải.
+        Video ở giữa vẫn là player TikTok thật, không cần phủ lớp đen lên nội dung.
       </div>
     </section>
   </div>
@@ -233,11 +247,17 @@
   const shift=document.getElementById("shiftRange");
   const railOut=document.getElementById("railOut");
   const shiftOut=document.getElementById("shiftOut");
+  const railX=document.getElementById("railXRange");
+  const shiftX=document.getElementById("shiftXRange");
+  const railXOut=document.getElementById("railXOut");
+  const shiftXOut=document.getElementById("shiftXOut");
   const values=document.getElementById("values");
   const root=document.documentElement;
 
   let railValue=Number(localStorage.getItem("tt-rail-black")||308);
   let shiftValue=Number(localStorage.getItem("tt-rail-shift")||0);
+  let railXValue=Number(localStorage.getItem("tt-rail-black-x")||0);
+  let shiftXValue=Number(localStorage.getItem("tt-rail-shift-x")||0);
 
   function parseVideoId(value){
     value=String(value||"").trim();
@@ -278,17 +298,33 @@
   function applyGeometry(){
     railValue=Math.max(0,Math.min(600,Number(railValue)||0));
     shiftValue=Math.max(-120,Math.min(120,Number(shiftValue)||0));
+    railXValue=Math.max(0,Math.min(420,Number(railXValue)||0));
+    shiftXValue=Math.max(-220,Math.min(220,Number(shiftXValue)||0));
+
     root.style.setProperty("--rail-black",railValue+"px");
     root.style.setProperty("--rail-shift",shiftValue+"px");
+    root.style.setProperty("--rail-black-x",railXValue+"px");
+    root.style.setProperty("--rail-shift-x",shiftXValue+"px");
+
     rail.value=String(railValue);
     shift.value=String(shiftValue);
+    railX.value=String(railXValue);
+    shiftX.value=String(shiftXValue);
+
     railOut.textContent=railValue+" px";
     shiftOut.textContent=(shiftValue>0?"+":"")+shiftValue+" px";
+    railXOut.textContent=railXValue+" px";
+    shiftXOut.textContent=(shiftXValue>0?"+":"")+shiftXValue+" px";
+
     localStorage.setItem("tt-rail-black",String(railValue));
     localStorage.setItem("tt-rail-shift",String(shiftValue));
+    localStorage.setItem("tt-rail-black-x",String(railXValue));
+    localStorage.setItem("tt-rail-shift-x",String(shiftXValue));
+
     values.textContent=
-      "source iframe = viewport + "+railValue+"px BLACK top + "+railValue+
-      "px BLACK bottom · shift="+(shiftValue>0?"+":"")+shiftValue+"px";
+      "source iframe = viewport + "+railValue+"px BLACK top/bottom + "+
+      railXValue+"px BLACK left/right · shiftY="+(shiftValue>0?"+":"")+shiftValue+
+      "px · shiftX="+(shiftXValue>0?"+":"")+shiftXValue+"px";
   }
 
   function load(){
@@ -308,6 +344,16 @@
 
   shift.addEventListener("input",()=>{
     shiftValue=Number(shift.value)||0;
+    applyGeometry();
+  });
+
+  railX.addEventListener("input",()=>{
+    railXValue=Number(railX.value)||0;
+    applyGeometry();
+  });
+
+  shiftX.addEventListener("input",()=>{
+    shiftXValue=Number(shiftX.value)||0;
     applyGeometry();
   });
 
@@ -332,6 +378,8 @@
   document.getElementById("resetBtn").addEventListener("click",()=>{
     railValue=59;
     shiftValue=0;
+    railXValue=0;
+    shiftXValue=0;
     applyGeometry();
   });
 
