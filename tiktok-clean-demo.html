@@ -582,7 +582,6 @@ window.addEventListener('message',event=>{
     sendOfficialVideo('play');
     officialVideoPaused=false;
     syncMediaControls();
-    warmNextVideo();
   }else if(msg.type==='onStateChange'){
     const state=Number(msg.value);
     if(state===1)officialVideoPaused=false;
