@@ -1717,35 +1717,82 @@ async function relayTikTokOriginPlay(request){
     return json({ok:false,error:"invalid_origin_play_url"},400);
   }
 
-  const method=request.method==="HEAD"?"HEAD":"GET";
-  const headers=new Headers({
-    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+  const ua="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15";
+  const baseHeaders={
+    "user-agent":ua,
     "accept":"*/*",
     "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
     "referer":"https://www.tiktok.com/"
-  });
-  const range=request.headers.get("range");
-  if(range)headers.set("range",range);
+  };
 
-  let upstream;
+  // Step 1: ask TikTok only for the signed CDN Location.
+  let gateway;
   try{
-    upstream=await fetch(target.toString(),{
-      method,
-      headers,
-      redirect:"follow",
+    gateway=await fetch(target.toString(),{
+      method:"GET",
+      headers:{...baseHeaders,"range":"bytes=0-0"},
+      redirect:"manual",
       cf:{cacheTtl:0,cacheEverything:false}
     });
   }catch(error){
-    return json({ok:false,error:String(error?.message||error||"origin_stream_failed")},502);
+    return json({ok:false,error:String(error?.message||error||"origin_gateway_failed")},502);
   }
 
-  if(!(upstream.ok||upstream.status===206)){
+  const location=String(gateway.headers.get("location")||"");
+  const gatewayStatus=gateway.status;
+  try{await gateway.body?.cancel?.()}catch{}
+
+  if(!location||gatewayStatus<300||gatewayStatus>=400){
+    return json({
+      ok:false,
+      error:"origin_gateway_no_location",
+      status:gatewayStatus
+    },502);
+  }
+
+  let cdn;
+  try{cdn=new URL(location)}catch{
+    return json({ok:false,error:"origin_gateway_bad_location"},502);
+  }
+  if(!/^https?:$/i.test(cdn.protocol)){
+    return json({ok:false,error:"origin_gateway_bad_protocol"},502);
+  }
+
+  // Step 2: fetch the CDN URL directly. Do not ask Workers/TikTok to follow
+  // the gateway redirect because that path can return the TikTok HTML shell.
+  const method=request.method==="HEAD"?"HEAD":"GET";
+  const headers=new Headers(baseHeaders);
+  headers.set("referer","https://www.tiktok.com/");
+  const range=request.headers.get("range");
+  if(range)headers.set("range",range);
+  else if(method==="GET")headers.set("range","bytes=0-");
+
+  let upstream;
+  try{
+    upstream=await fetch(cdn.toString(),{
+      method,
+      headers,
+      redirect:"manual",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+  }catch(error){
+    return json({ok:false,error:String(error?.message||error||"origin_cdn_failed")},502);
+  }
+
+  const type=String(upstream.headers.get("content-type")||"").toLowerCase();
+  if(!(upstream.ok||upstream.status===206)||!(/video\/mp4|audio\/mp4|application\/octet-stream/.test(type))){
     const status=upstream.status;
+    const contentType=type;
     try{await upstream.body?.cancel?.()}catch{}
-    return json({ok:false,error:"origin_stream_http_"+status,status},502);
+    return json({
+      ok:false,
+      error:"origin_cdn_invalid_response",
+      status,
+      contentType
+    },502);
   }
 
-  return mediaRelayResponse(upstream,method,"cloudflare-tiktok-origin");
+  return mediaRelayResponse(upstream,method,"cloudflare-tiktok-origin-cdn");
 }
 
 async function redirectTikTokOriginPlay(request){
