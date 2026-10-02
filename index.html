@@ -5669,7 +5669,27 @@ html.tiktok-ui.tiktok-watch .rows{
       // Entering a provider's LIVE reads only that provider's Cloudflare
       // snapshot. Discovery rules remain provider-local as well.
       if(hydrateLive&&provider){
-        void hydrateUnifiedLiveSnapshots({paint:true,provider});
+        void hydrateUnifiedLiveSnapshots({paint:true,provider}).finally(()=>{
+          if(!liveDemandActive(provider))return;
+
+          // Cloudflare YouTube LIVE is demand-only: opening the LIVE tab must
+          // always paint the cached snapshot first, then start one fresh scan.
+          // Without this, an old empty snapshot can leave YouTube LIVE blank
+          // forever because the legacy Supabase LIVE scheduler is intentionally off.
+          if(provider==="youtube"){
+            const due=
+              !youtubeEdgeLiveReady||
+              youtubeEdgeLiveMetas.length===0||
+              Date.now()-liveDiscoveryLastAt>=LIVE_DISCOVERY_MIN_GAP_MS;
+            if(due){
+              void refreshUnifiedLiveInBackground({
+                force:true,
+                reason:"tab-open",
+                provider:"youtube"
+              });
+            }
+          }
+        });
       }
       return feedMetas;
     }
