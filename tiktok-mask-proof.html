@@ -14,6 +14,7 @@ h1{font-size:18px;margin:0 0 6px}.sub{color:#aaa;font-size:13px;line-height:1.5;
 .panel{background:#181818;border:1px solid #2d2d2d;border-radius:16px;padding:14px}
 .player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:14px;overflow:hidden}
 video{width:100%;height:100%;display:block;background:#000;object-fit:contain}
+#officialFrame{width:100%;height:100%;display:none;border:0;background:#000}
 .status{min-height:20px;margin-top:10px;text-align:center;color:#aaa;font-size:12px}
 .inputline{display:flex;gap:8px;margin-bottom:12px}
 .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
@@ -31,12 +32,16 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <body>
 <div class="page">
   <h1>TikTok · origin media</h1>
-  <p class="sub">Không TikWM/TDown. Worker chỉ lấy <b>302 Location</b> từ TikTok, web nhận URL CDN cuối rồi native &lt;video&gt; tải trực tiếp CDN. Nếu máy nào vẫn lỗi mới dùng Render session-origin TikTok gốc.</p>
+  <p class="sub">0 egress Render cho video. Ưu tiên TikTok CDN trực tiếp; nếu browser chặn native media thì chuyển sang <b>TikTok official player</b>. Video luôn đi TikTok → browser, không relay qua Render.</p>
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
         <video id="media" controls playsinline preload="metadata"></video>
         <audio id="audioTrack" preload="metadata"></audio>
+        <iframe id="officialFrame"
+          allow="autoplay; fullscreen; encrypted-media"
+          referrerpolicy="strict-origin-when-cross-origin"
+          allowfullscreen></iframe>
       </div>
       <div class="status" id="status">Đang lấy link gốc…</div>
     </section>
@@ -50,7 +55,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       <div>
         <span class="pill">H.264 muxed ưu tiên</span>
         <span class="pill">DASH ghép audio_file_id</span>
-        <span class="pill">Direct trước · Render session khi cần</span>
+        <span class="pill">Direct trước · TikTok official fallback</span>
         <span class="pill">Không Supabase</span>
       </div>
 
@@ -70,14 +75,14 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 (() => {
   const EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev';
   const RESOLVER=EDGE+'/tiktok/video-origin';
-  const ORIGIN_STREAM='https://one988-tiktok-session.onrender.com/tiktok/video-session-stream';
   const ORIGIN_LOCATION=EDGE+'/tiktok/video-origin-location';
   const media=document.getElementById('media');
   const audioTrack=document.getElementById('audioTrack');
+  const officialFrame=document.getElementById('officialFrame');
   let playbackMode='muxed';
   let currentVideoGateway='';
   let currentAudioGateway='';
-  let originProxyActive=false;
+  let officialActive=false;
   let fallbackBusy=false;
   const input=document.getElementById('videoInput');
   const status=document.getElementById('status');
@@ -93,10 +98,6 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     const list=Array.isArray(urls)?urls:[];
     return list.find(u=>/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(String(u||'')))
       ||fallback||'';
-  }
-
-  function proxyUrl(gateway){
-    return ORIGIN_STREAM+'?url='+encodeURIComponent(gateway);
   }
 
   async function finalCdnUrl(gateway){
@@ -128,8 +129,11 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 
     currentVideoGateway=gateway;
     currentAudioGateway='';
-    originProxyActive=false;
+    officialActive=false;
     fallbackBusy=false;
+    officialFrame.style.display='none';
+    officialFrame.removeAttribute('src');
+    media.style.display='block';
 
     setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · đang lấy CDN cuối từ TikTok…');
     const cdn=await finalCdnUrl(gateway);
@@ -153,8 +157,11 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 
     currentVideoGateway=videoGateway;
     currentAudioGateway=audioGateway;
-    originProxyActive=false;
+    officialActive=false;
     fallbackBusy=false;
+    officialFrame.style.display='none';
+    officialFrame.removeAttribute('src');
+    media.style.display='block';
 
     setStatus('DASH '+String(track?.codec||'')+' · đang lấy CDN hình + tiếng đúng audio_file_id…');
     const [videoCdn,audioCdn]=await Promise.all([
@@ -210,8 +217,9 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'audioFileId = '+String(t.audioFileId||'—')+'<br>'+
         'videoURL = '+loaded.videoUrl+'<br>'+
         (loaded.audioUrl?'audioURL = '+loaded.audioUrl+'<br>':'')+
-        'render = '+(originProxyActive?'true':'false')+'<br>'+
+        'render = false<br>'+
         'proxyVideo = false<br>'+
+        'fallback = none<br>'+
         'storage = none<br>'+
         'supabaseWrites = 0';
 
@@ -222,14 +230,20 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'ok'
       );
     }catch(e){
-      setStatus('Resolver lỗi: '+String(e?.message||e),'bad');
-      info.textContent='error = '+String(e?.message||e);
+      setStatus('Direct resolver lỗi · chuyển TikTok official player…','warn');
+      info.textContent='directError = '+String(e?.message||e);
+      activateOfficialPlayer('resolver_error');
     }
   }
 
   document.getElementById('resolveBtn').onclick=resolve;
   input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();resolve();}});
   async function playCurrent(){
+    if(playbackMode==='official'){
+      sendOfficial('unMute');
+      sendOfficial('play');
+      return;
+    }
     if(playbackMode==='dash'){
       if(Number.isFinite(media.currentTime))audioTrack.currentTime=media.currentTime;
       audioTrack.muted=false;
@@ -242,52 +256,89 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     }
   }
   function pauseCurrent(){
+    if(playbackMode==='official'){
+      sendOfficial('pause');
+      return;
+    }
     media.pause();
     audioTrack.pause();
   }
 
-  async function activateOriginProxy(reason='media_error'){
-    if(originProxyActive||fallbackBusy||!currentVideoGateway)return;
-    fallbackBusy=true;
-    const at=Number.isFinite(media.currentTime)?media.currentTime:0;
-    const wasPaused=media.paused;
+  function tiktokPostId(){
+    const m=String(input.value||'').match(/\/video\/(\d{8,})/);
+    return m?m[1]:'';
+  }
 
-    setStatus('Direct TikTok bị chặn trên browser này · chuyển sang Render session-origin…','warn');
+  function officialPlayerUrl(id){
+    const q=new URLSearchParams({
+      autoplay:'0',
+      controls:'1',
+      progress_bar:'1',
+      play_button:'1',
+      volume_control:'1',
+      fullscreen_button:'1',
+      timestamp:'1',
+      loop:'0',
+      music_info:'0',
+      description:'0',
+      rel:'0',
+      native_context_menu:'1',
+      closed_caption:'1',
+      muted:'0'
+    });
+    return 'https://www.tiktok.com/player/v1/'+encodeURIComponent(id)+'?'+q.toString();
+  }
 
+  function sendOfficial(type){
     try{
-      originProxyActive=true;
-      if(playbackMode==='dash'){
-        const videoProxy=proxyUrl(currentVideoGateway);
-        const audioProxy=proxyUrl(currentAudioGateway);
-        media.src=videoProxy;
-        audioTrack.src=audioProxy;
-        media.muted=true;
-        audioTrack.muted=false;
-        media.load();
-        audioTrack.load();
-      }else{
-        media.src=proxyUrl(currentVideoGateway);
-        media.muted=false;
-        media.load();
-      }
+      officialFrame.contentWindow?.postMessage(
+        {type,'x-tiktok-player':true},
+        'https://www.tiktok.com'
+      );
+    }catch{}
+  }
 
-      const restore=()=>{
-        if(at>0&&Number.isFinite(media.duration)){
-          try{media.currentTime=Math.min(at,Math.max(0,media.duration-.05));}catch{}
-          if(playbackMode==='dash'){
-            try{audioTrack.currentTime=media.currentTime;}catch{}
-          }
-        }
-        if(!wasPaused)playCurrent().catch(()=>{});
-      };
-      media.addEventListener('loadedmetadata',restore,{once:true});
+  function activateOfficialPlayer(reason='media_error'){
+    if(officialActive||fallbackBusy)return;
+    const id=tiktokPostId();
+    if(!id){
+      setStatus('Không lấy được TikTok video ID để mở official player.','bad');
+      return;
+    }
 
-      info.innerHTML=info.innerHTML.replace('proxyVideo = false','proxyVideo = true (Render TikTok session-origin fallback)');
-      setStatus('Đã chuyển sang Render session-origin · đang nạp…','warn');
+    fallbackBusy=true;
+    try{
+      officialActive=true;
+      playbackMode='official';
+      media.pause();
+      audioTrack.pause();
+      media.removeAttribute('src');
+      audioTrack.removeAttribute('src');
+      media.load();
+      audioTrack.load();
+      media.style.display='none';
+
+      const src=officialPlayerUrl(id);
+      officialFrame.src=src;
+      officialFrame.style.display='block';
+      openMedia.href=String(input.value||'').trim();
+
+      info.innerHTML=
+        'mode = official-player<br>'+
+        'videoId = '+id+'<br>'+
+        'render = false<br>'+
+        'proxyVideo = false<br>'+
+        'fallback = TikTok official player<br>'+
+        'mediaPath = TikTok → browser<br>'+
+        'storage = none<br>'+
+        'supabaseWrites = 0';
+
+      setStatus('Native media bị chặn · đã chuyển TikTok official player · không qua Render.','warn');
     }finally{
       fallbackBusy=false;
     }
   }
+
 
   document.getElementById('playBtn').onclick=playCurrent;
   document.getElementById('pauseBtn').onclick=pauseCurrent;
@@ -321,19 +372,17 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     );
   });
   media.addEventListener('error',()=>{
-    if(!originProxyActive){
-      activateOriginProxy('video_error');
-      return;
-    }
-    setStatus('TikTok origin vẫn lỗi cả khi dùng Render session-origin.','bad');
+    if(!officialActive)activateOfficialPlayer('video_error');
   });
   audioTrack.addEventListener('error',()=>{
-    if(playbackMode==='dash'&&!originProxyActive){
-      activateOriginProxy('audio_error');
-      return;
-    }
-    if(playbackMode==='dash'){
-      setStatus('Audio TikTok origin vẫn lỗi cả khi dùng Render session-origin.','bad');
+    if(playbackMode==='dash'&&!officialActive)activateOfficialPlayer('audio_error');
+  });
+
+  window.addEventListener('message',event=>{
+    if(event.origin!=='https://www.tiktok.com')return;
+    const data=event.data||{};
+    if(data.type==='onPlayerReady'){
+      setStatus('TikTok official player đã sẵn sàng · 0 egress Render.','ok');
     }
   });
 
