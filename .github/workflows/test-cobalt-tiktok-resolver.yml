@@ -84,7 +84,12 @@ jobs:
           }
 
           const noCookie=await probe();
+          const withReferer=await probe({referer:'https://www.tiktok.com/'});
           const withCookie=await probe(cookies?{cookie:cookies}:{});
+          const cobaltHeaders=await probe({
+            referer:'https://www.tiktok.com/',
+            ...(cookies?{cookie:cookies}:{})
+          });
 
           const browser=await chromium.launch({headless:true});
           const context=await browser.newContext({userAgent:ua});
@@ -133,7 +138,9 @@ jobs:
             playAddrLength:playAddr.length,
             hasCookie:Boolean(cookies),
             noCookie,
+            withReferer,
             withCookie,
+            cobaltHeaders,
             browser:browserResult
           }));
           JS
