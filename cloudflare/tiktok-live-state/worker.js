@@ -1838,12 +1838,16 @@ function originCollectVideo(node,wantedId){
     play.push(...urls);
   };
 
-  const walk=(v,depth=0)=>{
+  const walk=(v,depth=0,inheritedId="")=>{
     if(!v||typeof v!=="object"||depth>12||seen.has(v))return;
     seen.add(v);
 
-    const id=String(v.id||v.itemId||v.aweme_id||v.awemeId||"");
-    const relevant=!wantedId||!id||id===wantedId;
+    const localId=String(v.id||v.itemId||v.aweme_id||v.awemeId||"");
+    // A TikTok item owns many nested objects (video, bitrateInfo, playAddr)
+    // that do not repeat the aweme/video id. Carry the nearest parent id down
+    // so media belonging to another post can never leak into wantedId.
+    const ownerId=localId||String(inheritedId||"");
+    const relevant=!wantedId||!ownerId||ownerId===wantedId;
     const video=(v.video&&typeof v.video==="object")?v.video:v;
 
     if(relevant){
@@ -1857,11 +1861,14 @@ function originCollectVideo(node,wantedId){
       for(const row of video.bitrateInfo||video.bitrate_info||[])addVariant(row);
     }
 
-    if(Array.isArray(v)){for(const x of v)walk(x,depth+1);}
-    else for(const x of Object.values(v))walk(x,depth+1);
+    if(Array.isArray(v)){
+      for(const x of v)walk(x,depth+1,ownerId);
+    }else{
+      for(const x of Object.values(v))walk(x,depth+1,ownerId);
+    }
   };
 
-  walk(node);
+  walk(node,0,"");
 
   const audioById=new Map();
   for(const track of audioTracks){
