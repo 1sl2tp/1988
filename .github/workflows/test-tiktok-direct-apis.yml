@@ -138,3 +138,45 @@ jobs:
           }
           JS
           node /tmp/test.mjs
+
+          cat > /tmp/tikwm-detail.mjs <<'JS'
+          const input=process.env.TIKTOK_URL;
+          const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36';
+          const api='https://www.tikwm.com/api/?url='+encodeURIComponent(input)+'&hd=1';
+          const r=await fetch(api,{headers:{'user-agent':ua,'accept':'application/json'}});
+          const j=await r.json();
+          const fields={
+            play:j?.data?.play||'',
+            hdplay:j?.data?.hdplay||'',
+            wmplay:j?.data?.wmplay||''
+          };
+          for(const [name,url] of Object.entries(fields)){
+            if(!url)continue;
+            const s=Date.now();
+            const rr=await fetch(url,{
+              headers:{'user-agent':ua,'range':'bytes=0-1048575','accept':'video/*,*/*'},
+              redirect:'follow'
+            });
+            const ttfb=Date.now()-s;
+            const b=Buffer.from(await rr.arrayBuffer());
+            const ascii=b.toString('latin1');
+            console.log('TIKWM_MEDIA '+JSON.stringify({
+              name,
+              status:rr.status,
+              contentType:rr.headers.get('content-type')||'',
+              contentRange:rr.headers.get('content-range')||'',
+              bytes:b.length,
+              ttfbMs:ttfb,
+              totalMs:Date.now()-s,
+              host:new URL(rr.url).hostname,
+              codecs:{
+                avc1:ascii.includes('avc1'),
+                hvc1:ascii.includes('hvc1'),
+                hev1:ascii.includes('hev1'),
+                av01:ascii.includes('av01'),
+                mp4a:ascii.includes('mp4a')
+              }
+            }));
+          }
+          JS
+          node /tmp/tikwm-detail.mjs
