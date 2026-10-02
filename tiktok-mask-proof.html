@@ -12,9 +12,13 @@ html,body{margin:0;min-height:100%;background:#0f0f0f;color:#f5f5f5;font-family:
 h1{font-size:18px;margin:0 0 6px}.sub{color:#aaa;font-size:13px;line-height:1.5;margin:0 0 16px}
 .grid{display:grid;grid-template-columns:minmax(300px,430px) minmax(280px,1fr);gap:18px;align-items:start}
 .panel{background:#181818;border:1px solid #2d2d2d;border-radius:16px;padding:14px}
-.player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:14px;overflow:hidden}
-video{width:100%;height:100%;display:block;background:#000;object-fit:contain}
-#officialFrame{width:100%;height:100%;display:none;border:0;background:#000}
+.player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:14px;overflow:hidden;position:relative}
+video{width:100%;height:100%;display:block;background:#000;object-fit:contain;transform-origin:50% 50%;will-change:transform}
+#officialFrame{width:100%;height:100%;display:none;border:0;background:#000;transform-origin:50% 50%;will-change:transform}
+.cropbar{display:flex;align-items:center;gap:8px;margin:10px auto 0;width:min(100%,410px);font-size:12px;color:#aaa}
+.cropbar input[type=range]{flex:1;min-width:0}
+.cropval{min-width:54px;text-align:right;font-variant-numeric:tabular-nums}
+.cropreset{padding:5px 8px;border-radius:8px;font-size:11px}
 .status{min-height:20px;margin-top:10px;text-align:center;color:#aaa;font-size:12px}
 .inputline{display:flex;gap:8px;margin-bottom:12px}
 .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
@@ -42,6 +46,12 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
           allow="autoplay; fullscreen; encrypted-media"
           referrerpolicy="strict-origin-when-cross-origin"
           allowfullscreen></iframe>
+      </div>
+      <div class="cropbar">
+        <span>Cắt trên+dưới</span>
+        <input id="cropY" type="range" min="0" max="18" step="0.5" value="0">
+        <span class="cropval" id="cropYVal">0% + 0%</span>
+        <button id="cropReset" class="cropreset" type="button">Reset</button>
       </div>
       <div class="status" id="status">Đang lấy link gốc…</div>
     </section>
@@ -88,11 +98,32 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   const status=document.getElementById('status');
   const info=document.getElementById('info');
   const openMedia=document.getElementById('openMedia');
+  const cropY=document.getElementById('cropY');
+  const cropYVal=document.getElementById('cropYVal');
+  const cropReset=document.getElementById('cropReset');
 
   function setStatus(text,cls=''){
     status.className='status '+cls;
     status.textContent=text;
   }
+
+  function applyCrop(){
+    const each=Math.max(0,Math.min(18,Number(cropY.value)||0));
+    const visible=Math.max(.64,1-(each*2/100));
+    const scale=1/visible;
+    const value='scale('+scale.toFixed(4)+')';
+    media.style.transform=value;
+    officialFrame.style.transform=value;
+    cropYVal.textContent=each.toFixed(each%1?1:0)+'% + '+each.toFixed(each%1?1:0)+'%';
+  }
+
+  cropY.addEventListener('input',applyCrop);
+  cropReset.addEventListener('click',()=>{
+    cropY.value='0';
+    applyCrop();
+  });
+  applyCrop();
+
 
   function gatewayOf(urls,fallback=''){
     const list=Array.isArray(urls)?urls:[];
