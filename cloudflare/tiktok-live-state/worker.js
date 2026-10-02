@@ -783,7 +783,17 @@ async function warmTikTokVod(request) {
 
   const existing=await readVodWarmPreference(handle,id);
   if(existing){
-    return json({ok:true,warm:true,cached:true,preferred:existing});
+    const names=existing==="tdown"?["tdown","tikwm"]:["tikwm","tdown"];
+    const sources=[];
+    for(const name of names){
+      try{
+        const source=await resolveVodSourceByName(name,handle,id);
+        if(/^https?:\/\//i.test(String(source?.url||""))){
+          sources.push({name,url:String(source.url||"")});
+        }
+      }catch{}
+    }
+    return json({ok:true,warm:true,cached:true,preferred:existing,sources});
   }
 
   const names=["tikwm","tdown"];
@@ -794,12 +804,14 @@ async function warmTikTokVod(request) {
       const probe=await probeVodSource(source,handle);
       return {
         ...probe,
+        url:String(source.url||""),
         resolveMs:Math.max(0,Date.now()-started-probe.ms)
       };
     }catch(error){
       return {
         ok:false,
         name,
+        url:"",
         ms:Date.now()-started,
         resolveMs:Date.now()-started,
         status:0,
@@ -809,7 +821,7 @@ async function warmTikTokVod(request) {
   }));
 
   const good=checks
-    .filter(x=>x.ok)
+    .filter(x=>x.ok&&/^https?:\/\//i.test(String(x.url||"")))
     .sort((a,b)=>(a.ms+a.resolveMs)-(b.ms+b.resolveMs));
   const preferred=String(good[0]?.name||"");
   if(preferred){
@@ -829,7 +841,20 @@ async function warmTikTokVod(request) {
     warm:Boolean(preferred),
     cached:false,
     preferred,
-    checks
+    sources:good.map(x=>({
+      name:String(x.name||""),
+      url:String(x.url||""),
+      ms:Number(x.ms||0),
+      resolveMs:Number(x.resolveMs||0)
+    })),
+    checks:checks.map(x=>({
+      ok:Boolean(x.ok),
+      name:String(x.name||""),
+      ms:Number(x.ms||0),
+      resolveMs:Number(x.resolveMs||0),
+      status:Number(x.status||0),
+      error:String(x.error||"")
+    }))
   },preferred?200:502);
 }
 
