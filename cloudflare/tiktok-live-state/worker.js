@@ -1088,11 +1088,25 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     throw new Error("tiktok_native_origin_resolve_failed");
   }
 
-  const preferred=resolved?.data?.mediaModel?.preferredMuxed||null;
-  const urls=[
+  const data=resolved?.data||{};
+  const preferred=data?.mediaModel?.preferredMuxed||null;
+  const candidateRows=Array.isArray(data?.candidates)?data.candidates:[];
+  // The origin resolver has already probed and ranked these URLs. Keep that
+  // ordering instead of accidentally replacing the proven winner with an
+  // arbitrary bitrateInfo URL.
+  const urls=[...new Set([
+    data?.bestVideoUrl,
+    data?.directUrl,
+    ...candidateRows
+      .filter(row=>row?.probe?.ok&&row?.probe?.videoCodec&&!row?.probe?.audioOnly)
+      .map(row=>row?.url),
     ...(preferred?.urls||[]),
-    ...(resolved?.data?.candidates||[]).map(row=>row?.url)
-  ].filter(Boolean);
+    ...candidateRows.map(row=>row?.url)
+  ].map(value=>String(value||"").trim()).filter(value=>{
+    if(!value)return false;
+    try{return new URL(value).protocol==="https:"}catch{return false}
+  }))];
+
   const gatewayUrl=String(urls.find(u=>{
     try{
       const parsed=new URL(u);
@@ -1101,18 +1115,14 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
         /^\/aweme\/v1\/play\//i.test(parsed.pathname);
     }catch{return false;}
   })||"").trim();
-  const url=String(urls.find(u=>{
-    try{
-      const host=new URL(u).hostname.toLowerCase();
-      return /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
-    }catch{return false;}
-  })||"").trim();
+  const url=String(urls[0]||gatewayUrl||"").trim();
 
-  if(!gatewayUrl&&!url)throw new Error("tiktok_native_playaddr_missing");
+  if(!url)throw new Error("tiktok_native_playaddr_missing");
 
   const row={
-    url:url||gatewayUrl,
+    url,
     gatewayUrl,
+    urls,
     cookie,
     codec:String(preferred?.codec||"h264"),
     source:"tiktok-native-cobalt",
@@ -1270,6 +1280,7 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
       name:"native",
       url:String(source.url||""),
       gatewayUrl:String(source.gatewayUrl||""),
+      urls:Array.isArray(source.urls)?source.urls:[],
       headers:{
         "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
@@ -1338,13 +1349,19 @@ async function probeVodSource(source,handle) {
       );
     }
     headers.set("accept","*/*");
-    const r=await fetch(source.url,{
-      method:"GET",
-      headers,
-      redirect:"follow",
-      cf:{cacheTtl:0,cacheEverything:false}
-    });
-    const ok=r.ok||r.status===206;
+    const probeRequest=new Request(
+      "https://1988-edge-internal.invalid/tiktok/vod-probe",
+      {method:"GET",headers:{range:"bytes=0-1"}}
+    );
+    const r=source.name==="native"
+      ? await fetchTikTokNativeMediaTarget(source,probeRequest)
+      : await fetch(source.url,{
+          method:"GET",
+          headers,
+          redirect:"follow",
+          cf:{cacheTtl:0,cacheEverything:false}
+        });
+    const ok=tiktokMediaResponseLooksUsable(r);
     try{await r.body?.cancel?.()}catch{}
     return {
       ok,
@@ -1471,6 +1488,20 @@ async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   });
 }
 
+function tiktokMediaResponseLooksUsable(response){
+  if(!response)return false;
+  const statusOk=response.ok||response.status===206;
+  if(!statusOk)return false;
+  const type=String(response.headers.get("content-type")||"").toLowerCase();
+  const contentRange=String(response.headers.get("content-range")||"").trim();
+  if(/^video\//.test(type))return true;
+  if(/(?:application|binary)\/(?:x-)?octet-stream/.test(type))return true;
+  // Some TikTok CDNs omit Content-Type on byte-range responses. A real 206
+  // with Content-Range is still valid media as long as it is not text/JSON.
+  if(response.status===206&&contentRange&&!/(?:text\/|html|json|xml)/.test(type))return true;
+  return false;
+}
+
 async function fetchTikTokNativeMediaTarget(source,request){
   const method=request.method==="HEAD"?"HEAD":"GET";
   const headers=new Headers();
@@ -1491,41 +1522,59 @@ async function fetchTikTokNativeMediaTarget(source,request){
   if(range)headers.set("range",range);
   else if(method==="GET")headers.set("range","bytes=0-");
 
-  const gateway=String(source?.gatewayUrl||"").trim();
-  if(/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(gateway)){
+  const candidates=[...new Set([
+    source?.url,
+    source?.gatewayUrl,
+    ...(Array.isArray(source?.urls)?source.urls:[])
+  ].map(value=>String(value||"").trim()).filter(value=>{
+    if(!value)return false;
+    try{return new URL(value).protocol==="https:"}catch{return false}
+  }))];
+  let lastError="";
+
+  for(const target of candidates){
     try{
-      const first=await fetch(gateway,{
-        method,
-        headers,
-        redirect:"manual",
-        cf:{cacheTtl:0,cacheEverything:false}
-      });
-      const location=String(first.headers.get("location")||"").trim();
-      const type=String(first.headers.get("content-type")||"").toLowerCase();
+      if(/^https:\/\/(?:www\.)?tiktok\.com\/aweme\/v1\/play\//i.test(target)){
+        const first=await fetch(target,{
+          method,
+          headers,
+          redirect:"manual",
+          cf:{cacheTtl:0,cacheEverything:false}
+        });
+        if(tiktokMediaResponseLooksUsable(first))return first;
 
-      if((first.ok||first.status===206)&&
-         /video\/mp4|application\/octet-stream/.test(type)){
-        return first;
-      }
-
-      if(location&&first.status>=300&&first.status<400){
-        try{await first.body?.cancel?.()}catch{}
-        const next=new URL(location,gateway);
-        if(next.protocol==="https:"){
-          return fetch(next.toString(),{
-            method,
-            headers,
-            redirect:"follow",
-            cf:{cacheTtl:0,cacheEverything:false}
-          });
+        const location=String(first.headers.get("location")||"").trim();
+        if(location&&first.status>=300&&first.status<400){
+          try{await first.body?.cancel?.()}catch{}
+          const next=new URL(location,target);
+          if(next.protocol==="https:"){
+            const redirected=await fetch(next.toString(),{
+              method,
+              headers,
+              redirect:"follow",
+              cf:{cacheTtl:0,cacheEverything:false}
+            });
+            if(tiktokMediaResponseLooksUsable(redirected))return redirected;
+            lastError="redirect_invalid_"+redirected.status;
+            try{await redirected.body?.cancel?.()}catch{}
+            continue;
+          }
         }
-      }else{
+        lastError="gateway_invalid_"+first.status;
         try{await first.body?.cancel?.()}catch{}
+        continue;
       }
-    }catch{}
+
+      const upstream=await fetchTikTokMediaTarget(target,request,source?.headers||{});
+      if(tiktokMediaResponseLooksUsable(upstream))return upstream;
+      lastError="cdn_invalid_"+upstream.status;
+      try{await upstream.body?.cancel?.()}catch{}
+    }catch(error){
+      lastError=String(error?.message||error||"native_fetch_failed");
+    }
   }
 
-  return fetchTikTokMediaTarget(String(source?.url||""),request,source?.headers||{});
+  throw new Error("tiktok_native_media_unusable:"+(lastError||"no_candidates"));
 }
 
 function mediaRelayResponse(upstream, method, sourceLabel) {
@@ -1605,9 +1654,7 @@ async function relayTikTokVideo(request) {
 
       lastStatus = upstream.status;
       const upstreamType=String(upstream.headers.get("content-type")||"").toLowerCase();
-      const mediaOk=
-        (upstream.ok || upstream.status === 206) &&
-        (/^video\//.test(upstreamType) || /application\/octet-stream/.test(upstreamType));
+      const mediaOk=tiktokMediaResponseLooksUsable(upstream);
       if (mediaOk) {
         return mediaRelayResponse(upstream, method, "cloudflare-" + sourceName);
       }
