@@ -1093,6 +1093,14 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     ...(preferred?.urls||[]),
     ...(resolved?.data?.candidates||[]).map(row=>row?.url)
   ].filter(Boolean);
+  const gatewayUrl=String(urls.find(u=>{
+    try{
+      const parsed=new URL(u);
+      const host=parsed.hostname.toLowerCase();
+      return (host==="www.tiktok.com"||host==="tiktok.com")&&
+        /^\/aweme\/v1\/play\//i.test(parsed.pathname);
+    }catch{return false;}
+  })||"").trim();
   const url=String(urls.find(u=>{
     try{
       const host=new URL(u).hostname.toLowerCase();
@@ -1100,10 +1108,11 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     }catch{return false;}
   })||"").trim();
 
-  if(!url)throw new Error("tiktok_native_playaddr_missing");
+  if(!gatewayUrl&&!url)throw new Error("tiktok_native_playaddr_missing");
 
   const row={
-    url,
+    url:url||gatewayUrl,
+    gatewayUrl,
     cookie,
     codec:String(preferred?.codec||"h264"),
     source:"tiktok-native-cobalt",
@@ -1260,6 +1269,7 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
     return {
       name:"native",
       url:String(source.url||""),
+      gatewayUrl:String(source.gatewayUrl||""),
       headers:{
         "user-agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
@@ -1461,6 +1471,63 @@ async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   });
 }
 
+async function fetchTikTokNativeMediaTarget(source,request){
+  const method=request.method==="HEAD"?"HEAD":"GET";
+  const headers=new Headers();
+  for(const [name,value] of Object.entries(source?.headers||{})){
+    const key=String(name||"").toLowerCase();
+    if(!["user-agent","referer","origin","accept","accept-language","cookie"].includes(key))continue;
+    if(value)headers.set(key,String(value));
+  }
+  if(!headers.has("user-agent")){
+    headers.set(
+      "user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36"
+    );
+  }
+  if(!headers.has("referer"))headers.set("referer","https://www.tiktok.com/");
+  if(!headers.has("accept"))headers.set("accept","*/*");
+  const range=request.headers.get("range")||"";
+  if(range)headers.set("range",range);
+  else if(method==="GET")headers.set("range","bytes=0-");
+
+  const gateway=String(source?.gatewayUrl||"").trim();
+  if(/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(gateway)){
+    try{
+      const first=await fetch(gateway,{
+        method,
+        headers,
+        redirect:"manual",
+        cf:{cacheTtl:0,cacheEverything:false}
+      });
+      const location=String(first.headers.get("location")||"").trim();
+      const type=String(first.headers.get("content-type")||"").toLowerCase();
+
+      if((first.ok||first.status===206)&&
+         /video\/mp4|application\/octet-stream/.test(type)){
+        return first;
+      }
+
+      if(location&&first.status>=300&&first.status<400){
+        try{await first.body?.cancel?.()}catch{}
+        const next=new URL(location,gateway);
+        if(next.protocol==="https:"){
+          return fetch(next.toString(),{
+            method,
+            headers,
+            redirect:"follow",
+            cf:{cacheTtl:0,cacheEverything:false}
+          });
+        }
+      }else{
+        try{await first.body?.cancel?.()}catch{}
+      }
+    }catch{}
+  }
+
+  return fetchTikTokMediaTarget(String(source?.url||""),request,source?.headers||{});
+}
+
 function mediaRelayResponse(upstream, method, sourceLabel) {
   const out = new Headers({
     "access-control-allow-origin": "*",
@@ -1526,7 +1593,9 @@ async function relayTikTokVideo(request) {
 
       let upstream;
       try {
-        upstream = await fetchTikTokMediaTarget(source.url, request, source.headers || {});
+        upstream = sourceName==="native"
+          ? await fetchTikTokNativeMediaTarget(source,request)
+          : await fetchTikTokMediaTarget(source.url, request, source.headers || {});
       } catch (error) {
         lastError = sourceName + ":" + String(error?.message || error || "fetch_failed");
         failures.push({source:sourceName,attempt:attempt+1,phase:"fetch",error:lastError});
