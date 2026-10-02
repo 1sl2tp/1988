@@ -1118,7 +1118,7 @@ main{
   opacity:1!important;
   pointer-events:auto!important;
 }
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
@@ -2454,7 +2454,7 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 /* TikTok VOD uses TikTok's own working player.
    Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
    Same crop model as YouTube rail; only the measured rail size differs. */
-.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
