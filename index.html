@@ -6708,7 +6708,7 @@ html.one-col.portrait .player.pip{
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
     const directUrl=
       TIKTOK_LIVE_API+
-      "/tiktok/video-direct?user="+encodeURIComponent(handle)+
+      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
       "&id="+encodeURIComponent(id);
 
     const showEmbedFallback=()=>{
@@ -6800,8 +6800,8 @@ html.one-col.portrait .player.pip{
       queueMicrotask(()=>playNextFeedVideo());
     };
 
-    // Browser receives only a tiny 302 from Cloudflare, then downloads the MP4
-    // directly from TikWM CDN. No Render/Cloudflare media-body egress.
+    // Native video stays same-origin through Cloudflare. The Worker preserves
+    // Range/206 and relays TikWM media only; Render is not part of VOD playback.
     native.src=directUrl;
     native.load();
     const pending=native.play();
