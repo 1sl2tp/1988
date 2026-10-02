@@ -6,7 +6,12 @@
 <title>TikTok official player proof</title>
 <style>
   *{box-sizing:border-box}
-  :root{color-scheme:dark}
+  :root{
+    color-scheme:dark;
+    --rail-top:59px;
+    --rail-bottom:59px;
+    --rail-shift:0px;
+  }
   html,body{margin:0;min-height:100%;background:#0f0f0f;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
   body{min-height:100vh}
   button,input,a{font:inherit}
@@ -15,8 +20,35 @@
   .sub{color:#aaa;font-size:13px;line-height:1.5;margin:0 0 16px}
   .grid{display:grid;grid-template-columns:minmax(300px,460px) minmax(300px,1fr);gap:18px;align-items:start}
   .panel{background:#181818;border:1px solid #2c2c2c;border-radius:16px;padding:14px}
-  .player-shell{width:min(100%,430px);aspect-ratio:9/16;margin:0 auto;position:relative;overflow:hidden;background:#000;border-radius:14px}
-  #tt{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+
+  /* Viewport thật. Iframe TikTok được kéo cao thêm ở trên/dưới rồi crop. */
+  .player-shell{
+    width:min(100%,430px);
+    aspect-ratio:9/16;
+    margin:0 auto;
+    position:relative;
+    overflow:hidden;
+    background:#000;
+    border-radius:14px;
+    box-shadow:0 18px 60px rgba(0,0,0,.35)
+  }
+  #tt{
+    position:absolute!important;
+    left:0!important;
+    top:calc((0px - var(--rail-top)) + var(--rail-shift))!important;
+    width:100%!important;
+    height:calc(100% + var(--rail-top) + var(--rail-bottom))!important;
+    max-width:none!important;
+    max-height:none!important;
+    border:0!important;
+    background:#000!important
+  }
+  .guide{
+    position:absolute;inset:0;z-index:3;pointer-events:none;
+    border:1px dashed rgba(255,255,255,.2);
+    border-radius:14px
+  }
+
   .status{font-size:12px;color:#aaa;margin-top:10px;text-align:center;min-height:18px}
   .inputline{display:flex;gap:8px;margin-bottom:12px}
   .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
@@ -29,17 +61,27 @@
   .switch{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #292929;background:#111;border-radius:10px;padding:10px 11px}
   .switch label{font-size:13px;color:#ddd}
   .switch input{width:18px;height:18px}
+
+  .control{display:grid;grid-template-columns:125px minmax(0,1fr) 62px;gap:10px;align-items:center;margin:12px 0}
+  .control label{font-size:13px;color:#ddd}
+  .control input[type="range"]{width:100%}
+  .control output{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:#fff}
+  .preset{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .preset button{padding:7px 9px;font-size:12px}
+
   .values,.explain{background:#111;border:1px solid #292929;border-radius:12px;padding:12px;margin-top:12px;font-size:12px;line-height:1.55;color:#aaa}
   .values{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
   .explain b{color:#fff}
   .ok{color:#75d58a}
   .warn{color:#ffd166}
   .pill{display:inline-flex;align-items:center;border:1px solid #333;border-radius:999px;padding:4px 8px;font-size:11px;color:#bbb;margin:0 6px 6px 0}
+
   @media(max-width:820px){
     .page{padding:10px}
     .grid{grid-template-columns:1fr}
     .player-shell{width:min(100%,390px)}
     .panel{border-radius:12px;padding:10px}
+    .control{grid-template-columns:105px minmax(0,1fr) 58px}
   }
   @media(max-width:480px){
     .page{padding:0}
@@ -47,15 +89,16 @@
     .grid{gap:10px}
     .left{padding:0;border-left:0;border-right:0;border-radius:0}
     .player-shell{width:100%;border-radius:0;max-height:calc(100dvh - 80px)}
+    .guide{border-radius:0}
   }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>TikTok · mở bằng player chính chủ</h1>
+  <h1>TikTok · official player + BLACK rail chỉnh được</h1>
   <p class="sub">
-    Demo này không dùng MP4/FLV, không proxy video và không dựng player riêng.
-    Video được mở thẳng bằng iframe player chính thức của TikTok.
+    Vẫn dùng player TikTok chính chủ. Có BLACK trên/dưới để bạn kéo chỉnh vùng crop,
+    đồng thời thử tự phát và bật tiếng ngay khi player sẵn sàng.
   </p>
 
   <div class="grid">
@@ -67,6 +110,7 @@
           allowfullscreen
           referrerpolicy="strict-origin-when-cross-origin"
           title="TikTok official player"></iframe>
+        <div class="guide"></div>
       </div>
       <div class="status" id="status">Đang nạp TikTok player…</div>
     </section>
@@ -81,15 +125,42 @@
 
       <div>
         <span class="pill">TikTok iframe</span>
-        <span class="pill">Không MP4</span>
-        <span class="pill">Không FLV</span>
-        <span class="pill">Không proxy media</span>
+        <span class="pill">BLACK rail</span>
+        <span class="pill">Autoplay audio</span>
+        <span class="pill">Không MP4/FLV</span>
         <span class="pill">Không PiP riêng</span>
+      </div>
+
+      <div class="control">
+        <label for="topRange">BLACK phía trên</label>
+        <input id="topRange" type="range" min="0" max="600" step="1" value="59">
+        <output id="topOut">59 px</output>
+      </div>
+
+      <div class="control">
+        <label for="bottomRange">BLACK phía dưới</label>
+        <input id="bottomRange" type="range" min="0" max="600" step="1" value="59">
+        <output id="bottomOut">59 px</output>
+      </div>
+
+      <div class="control">
+        <label for="shiftRange">Dịch dọc player</label>
+        <input id="shiftRange" type="range" min="-180" max="180" step="1" value="0">
+        <output id="shiftOut">0 px</output>
+      </div>
+
+      <div class="preset">
+        <button type="button" data-rail="0">0 px</button>
+        <button type="button" data-rail="59">59 px</button>
+        <button type="button" data-rail="65">65 px</button>
+        <button type="button" data-rail="120">120 px</button>
+        <button type="button" data-rail="220">220 px</button>
+        <button type="button" id="resetGeometry">Reset</button>
       </div>
 
       <div class="switches">
         <div class="switch">
-          <label for="autoplay">Tự phát khi player sẵn sàng</label>
+          <label for="autoplay">Tự phát + yêu cầu bật tiếng</label>
           <input id="autoplay" type="checkbox" checked>
         </div>
         <div class="switch">
@@ -103,7 +174,7 @@
       </div>
 
       <div class="btns">
-        <button type="button" id="playBtn">▶ Play</button>
+        <button type="button" id="playBtn">▶ Play + tiếng</button>
         <button type="button" id="pauseBtn">Ⅱ Pause</button>
         <button type="button" id="muteBtn">Mute</button>
         <button type="button" id="unmuteBtn">Bật tiếng</button>
@@ -118,11 +189,10 @@
       <div class="values" id="values"></div>
 
       <div class="explain">
-        <b>Mục đích của bản này:</b> kiểm tra xem video TikTok có thể bỏ hẳn luồng
-        <b>media MP4/FLV</b> và mở bằng player TikTok thật hay không.
-        Player chính chủ giữ control, fullscreen, âm lượng và logic phát của TikTok.
-        Nút <b>Mở bài gốc TikTok</b> đưa thẳng về post gốc để dùng các chức năng TikTok cung cấp
-        như chia sẻ hoặc tải xuống khi video/tài khoản cho phép.
+        <b>Âm thanh:</b> trang sẽ gửi <b>unMute → play</b> ngay khi TikTok báo player ready.
+        Safari/Chrome có thể chặn autoplay có tiếng theo chính sách trình duyệt. Nếu bị chặn,
+        chỉ cần chạm/click một lần ở bất kỳ đâu trên trang; demo sẽ tự gửi lại <b>unMute + play</b>.
+        Sau khi trình duyệt đã cho phép, các video mở tiếp sẽ phát có tiếng thuận lợi hơn.
       </div>
     </section>
   </div>
@@ -139,15 +209,28 @@
   const description = document.getElementById("description");
   const musicInfo = document.getElementById("musicInfo");
 
+  const topRange = document.getElementById("topRange");
+  const bottomRange = document.getElementById("bottomRange");
+  const shiftRange = document.getElementById("shiftRange");
+  const topOut = document.getElementById("topOut");
+  const bottomOut = document.getElementById("bottomOut");
+  const shiftOut = document.getElementById("shiftOut");
+  const root = document.documentElement;
+
   let currentId = "";
   let currentUrl = "";
+  let topValue = Number(localStorage.getItem("tt-rail-top") || 59);
+  let bottomValue = Number(localStorage.getItem("tt-rail-bottom") || 59);
+  let shiftValue = Number(localStorage.getItem("tt-rail-shift") || 0);
+  let playerReady = false;
+  let userUnlockedAudio = false;
 
   function parseVideo(value){
     const raw = String(value || "").trim();
     const m = raw.match(/\/video\/(\d{8,})/);
     const id = m ? m[1] : (/^\d{8,}$/.test(raw) ? raw : "");
     let url = raw;
-    if (id && !/^https?:\/\//i.test(raw)) url = "https://www.tiktok.com/video/" + id;
+    if(id && !/^https?:\/\//i.test(raw)) url = "https://www.tiktok.com/video/" + id;
     return {id, url};
   }
 
@@ -180,11 +263,45 @@
     }catch{}
   }
 
+  function playWithAudio(){
+    command("unMute");
+    command("play");
+    setTimeout(() => command("unMute"), 120);
+    setTimeout(() => command("play"), 180);
+  }
+
+  function applyGeometry(){
+    topValue = Math.max(0, Math.min(600, Number(topValue) || 0));
+    bottomValue = Math.max(0, Math.min(600, Number(bottomValue) || 0));
+    shiftValue = Math.max(-180, Math.min(180, Number(shiftValue) || 0));
+
+    root.style.setProperty("--rail-top", topValue + "px");
+    root.style.setProperty("--rail-bottom", bottomValue + "px");
+    root.style.setProperty("--rail-shift", shiftValue + "px");
+
+    topRange.value = String(topValue);
+    bottomRange.value = String(bottomValue);
+    shiftRange.value = String(shiftValue);
+    topOut.textContent = topValue + " px";
+    bottomOut.textContent = bottomValue + " px";
+    shiftOut.textContent = (shiftValue > 0 ? "+" : "") + shiftValue + " px";
+
+    localStorage.setItem("tt-rail-top", String(topValue));
+    localStorage.setItem("tt-rail-bottom", String(bottomValue));
+    localStorage.setItem("tt-rail-shift", String(shiftValue));
+    renderInfo();
+  }
+
   function renderInfo(extra){
+    if(!values) return;
     values.innerHTML =
       '<span class="ok">mode = TIKTOK_OFFICIAL_PLAYER</span><br>' +
       'video_id = ' + (currentId || "—") + '<br>' +
-      'source = player/v1/{video_id}<br>' +
+      'BLACK top = ' + topValue + 'px<br>' +
+      'BLACK bottom = ' + bottomValue + 'px<br>' +
+      'shift = ' + (shiftValue > 0 ? '+' : '') + shiftValue + 'px<br>' +
+      'autoplay_audio_request = ' + String(autoplay.checked) + '<br>' +
+      'browser_audio_unlocked = ' + String(userUnlockedAudio) + '<br>' +
       'custom_media = false<br>' +
       'pip_custom = false' +
       (extra ? '<br>' + extra : '');
@@ -200,12 +317,33 @@
 
     currentId = parsed.id;
     currentUrl = parsed.url;
+    playerReady = false;
     original.href = currentUrl;
     status.className = "status";
     status.textContent = "Đang nạp TikTok official player " + currentId + "…";
     frame.src = playerUrl(currentId);
     renderInfo();
   }
+
+  topRange.addEventListener("input", () => { topValue = Number(topRange.value) || 0; applyGeometry(); });
+  bottomRange.addEventListener("input", () => { bottomValue = Number(bottomRange.value) || 0; applyGeometry(); });
+  shiftRange.addEventListener("input", () => { shiftValue = Number(shiftRange.value) || 0; applyGeometry(); });
+
+  document.querySelectorAll("[data-rail]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      topValue = Number(btn.dataset.rail) || 0;
+      bottomValue = Number(btn.dataset.rail) || 0;
+      shiftValue = 0;
+      applyGeometry();
+    });
+  });
+
+  document.getElementById("resetGeometry").addEventListener("click", () => {
+    topValue = 59;
+    bottomValue = 59;
+    shiftValue = 0;
+    applyGeometry();
+  });
 
   document.getElementById("loadBtn").addEventListener("click", load);
   document.getElementById("reloadBtn").addEventListener("click", load);
@@ -215,10 +353,18 @@
 
   [autoplay, description, musicInfo].forEach(el => el.addEventListener("change", load));
 
-  document.getElementById("playBtn").addEventListener("click", () => command("play"));
+  document.getElementById("playBtn").addEventListener("click", () => {
+    userUnlockedAudio = true;
+    playWithAudio();
+    renderInfo();
+  });
   document.getElementById("pauseBtn").addEventListener("click", () => command("pause"));
   document.getElementById("muteBtn").addEventListener("click", () => command("mute"));
-  document.getElementById("unmuteBtn").addEventListener("click", () => command("unMute"));
+  document.getElementById("unmuteBtn").addEventListener("click", () => {
+    userUnlockedAudio = true;
+    command("unMute");
+    renderInfo();
+  });
 
   document.getElementById("shareBtn").addEventListener("click", async () => {
     if(!currentUrl) return;
@@ -235,14 +381,26 @@
     }
   });
 
+  /* Lần tương tác đầu tiên dùng để mở khóa autoplay audio nếu browser yêu cầu user gesture. */
+  const unlockAudio = () => {
+    userUnlockedAudio = true;
+    if(playerReady && autoplay.checked) playWithAudio();
+    renderInfo();
+  };
+  window.addEventListener("pointerdown", unlockAudio, {once:true, capture:true});
+  window.addEventListener("touchstart", unlockAudio, {once:true, capture:true, passive:true});
+  window.addEventListener("keydown", unlockAudio, {once:true, capture:true});
+
   addEventListener("message", event => {
     if(event.origin !== "https://www.tiktok.com" || event.source !== frame.contentWindow) return;
     const msg = event.data || {};
     if(msg["x-tiktok-player"] !== true) return;
 
     if(msg.type === "onPlayerReady"){
-      status.textContent = "TikTok player sẵn sàng.";
-      if(autoplay.checked) command("play");
+      playerReady = true;
+      status.textContent = "TikTok player sẵn sàng · đang thử autoplay có tiếng…";
+      if(autoplay.checked) playWithAudio();
+      renderInfo();
     }else if(msg.type === "onStateChange"){
       const n = Number(msg.value);
       status.textContent =
@@ -265,6 +423,7 @@
     status.textContent = "Iframe TikTok đã nạp · chờ player ready…";
   });
 
+  applyGeometry();
   load();
 })();
 </script>
