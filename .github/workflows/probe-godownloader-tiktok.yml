@@ -1,0 +1,46 @@
+name: Probe GoDownloader TikTok Direct URL
+
+on:
+  push:
+    branches: [test-cobalt-tiktok-resolver]
+    paths:
+      - ".github/workflows/probe-godownloader-tiktok.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe GoDownloader free API
+        shell: bash
+        run: |
+          set -euo pipefail
+          VIDEO='https://www.tiktok.com/@_phat_nguoi_yeu_thi_giai/video/7691708011651386645'
+          API='https://godownloader.com/api/tiktok-no-watermark-free'
+          curl -sS --max-time 30 -G "$API" --data-urlencode "url=$VIDEO" --data-urlencode "key=godownloader.com" -o /tmp/resp.json || true
+          python3 - <<'PY'
+          import json, re, subprocess, sys
+          raw=open('/tmp/resp.json','rb').read().decode('utf-8','replace')
+          print('API_BODY',raw[:8000])
+          try:data=json.loads(raw)
+          except Exception: data={}
+          urls=[]
+          def walk(x,path=''):
+              if isinstance(x,dict):
+                  for k,v in x.items(): walk(v,path+'.'+k if path else k)
+              elif isinstance(x,list):
+                  for i,v in enumerate(x): walk(v,f'{path}[{i}]')
+              elif isinstance(x,str) and x.startswith('http'):
+                  urls.append((path,x))
+          walk(data)
+          for path,u in urls:
+              if any(s in (path+' '+u).lower() for s in ['video','play','download','.mp4','tiktokcdn']):
+                  print('CANDIDATE',path,u)
+                  p=subprocess.run(['curl','-sS','-L','--max-time','25','-D','-','-H','Range: bytes=0-1048575','-o','/tmp/media.bin',u],capture_output=True,text=True)
+                  print('HEADERS',p.stdout[:4000])
+                  try:
+                      import os
+                      print('BYTES',os.path.getsize('/tmp/media.bin'))
+                  except: pass
+                  break
+          PY
