@@ -315,7 +315,7 @@ function liveSourceName(room,handle=""){
     room?.displayName||
     room?.display_name||
     ""
-  )||("@"+handle);
+  );
 }
 function liveTitleFromRoom(room,handle="",sourceName=""){
   const candidates=[
@@ -344,6 +344,26 @@ function liveTitleFromRoom(room,handle="",sourceName=""){
   }
   return "";
 }
+function parseLiveViewerCount(value){
+  if(typeof value==="number"){
+    return Number.isFinite(value)&&value>0?Math.round(value):0;
+  }
+  let text=liveText(value).toLowerCase();
+  if(!text)return 0;
+  text=text
+    .replace(/người đang xem|đang xem|viewers?|watching|online/gi,"")
+    .replace(/,/g,"")
+    .trim();
+  const m=text.match(/([0-9]+(?:\.[0-9]+)?)\s*([kmb])?/i);
+  if(!m)return 0;
+  let n=Number(m[1]);
+  if(!Number.isFinite(n)||n<=0)return 0;
+  const unit=String(m[2]||"").toLowerCase();
+  if(unit==="k")n*=1e3;
+  else if(unit==="m")n*=1e6;
+  else if(unit==="b")n*=1e9;
+  return Math.round(n);
+}
 function liveViewerCountFromRoom(room){
   const candidates=[
     room?.userCount,
@@ -360,14 +380,22 @@ function liveViewerCountFromRoom(room){
     room?.stats?.viewer_count,
     room?.roomStats?.userCount,
     room?.roomStats?.user_count,
-    room?.room_stats?.user_count
+    room?.room_stats?.user_count,
+    room?.roomViewStats?.displayValue,
+    room?.roomViewStats?.display_value,
+    room?.room_view_stats?.displayValue,
+    room?.room_view_stats?.display_value,
+    room?.roomViewStats?.displayShort,
+    room?.roomViewStats?.display_short,
+    room?.room_view_stats?.display_short
   ];
   for(const value of candidates){
-    const n=Number(value);
-    if(Number.isFinite(n)&&n>0)return Math.round(n);
+    const n=parseLiveViewerCount(value);
+    if(n>0)return n;
   }
   return 0;
 }
+
 function liveCoverFromRoom(room){
   const candidates=[
     room?.cover,
