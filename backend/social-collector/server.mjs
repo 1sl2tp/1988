@@ -24,6 +24,8 @@ const TIKTOK_PREVIEW_WARM_HANDLES=String(process.env.TIKTOK_PREVIEW_WARM_HANDLES
 const TIKTOK_PREVIEW_VIDEO=String(process.env.TIKTOK_PREVIEW_VIDEO||'').trim();
 const TIKTOK_PREVIEW_DISCOVER_LIVE=String(process.env.TIKTOK_PREVIEW_DISCOVER_LIVE||'0')==='1';
 const AUTO_COLLECT=String(process.env.AUTO_COLLECT||'1')!=='0';
+const LEGACY_TIKTOK_FEED_COLLECT=String(process.env.LEGACY_TIKTOK_FEED_COLLECT||'0')==='1';
+const RENDER_LIVE_BACKGROUND_SWEEP=String(process.env.RENDER_LIVE_BACKGROUND_SWEEP||'0')==='1';
 // Emergency pause is opt-in only. Normal startup must keep TikTok open.
 const TIKTOK_UPDATES_PAUSED=String(process.env.TIKTOK_UPDATES_PAUSED||'0')==='1';
 const TZ='Asia/Ho_Chi_Minh';
@@ -9094,7 +9096,7 @@ async function getSnapshot(platform){
 }
 
 async function schedulerTick(){
-  if(!AUTO_COLLECT)return;
+  if(!AUTO_COLLECT||!LEGACY_TIKTOK_FEED_COLLECT)return;
   const now=Date.now();
   for(const platform of ['tiktok']){
     const last=lastRuns.get(platform);
@@ -9577,7 +9579,9 @@ const server=http.createServer(async(req,res)=>{
   }
 
   if(url.pathname==='/tiktok/video-session-stream'&&req.method==='GET'){
-    if(!acquireTikTokOriginMediaProxy(res))return;
+    // Legacy compatibility only. Media-byte relay through Render is disabled
+    // unless explicitly opted in with RENDER_MEDIA_PROXY_ENABLED=1.
+    if(!acquireRenderMediaProxy(res))return;
     const target=String(url.searchParams.get('url')||'').trim();
     if(!target){
       json(res,400,{ok:false,error:'missing_url'});
@@ -9651,9 +9655,10 @@ const server=http.createServer(async(req,res)=>{
         expiresAt:tiktokStreamExpiresAt(source.url)?new Date(tiktokStreamExpiresAt(source.url)).toISOString():null,
         source:String(source.source||'yt-dlp'),
         relayHeaders,
-        stream:
-          '/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
-          '&id='+encodeURIComponent(source.id)
+        stream:RENDER_MEDIA_PROXY_ENABLED
+          ?('/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
+            '&id='+encodeURIComponent(source.id))
+          :''
       });
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
@@ -9816,7 +9821,7 @@ const server=http.createServer(async(req,res)=>{
     if(!TIKTOK_UPDATES_PAUSED){
       if(refreshMode==='all'){
         await runTikTokLiveAuditSweep();
-      }else if(force||(AUTO_COLLECT&&(stale||!tiktokRealtimeLiveCheckedAt))){
+      }else if(force||(!RENDER_LIVE_BACKGROUND_SWEEP?false:(AUTO_COLLECT&&(stale||!tiktokRealtimeLiveCheckedAt)))){
         await runTikTokLiveMinuteSweep();
       }
     }
@@ -10474,10 +10479,12 @@ server.listen(PORT,'0.0.0.0',()=>{
         'live='+tiktokRealtimeLiveHandles.size
       );
 
-      // LIVE status is the realtime control plane for the viewer. It must keep
-      // refreshing even when heavyweight profile/video collection is disabled.
-      void runTikTokLiveMinuteSweep();
-      startTikTokLiveSweepScheduler();
+      // Cloudflare owns recurring LIVE status. Render only runs a sweep on
+      // explicit fallback/refresh requests so idle bandwidth stays near zero.
+      if(RENDER_LIVE_BACKGROUND_SWEEP){
+        void runTikTokLiveMinuteSweep();
+        startTikTokLiveSweepScheduler();
+      }
 
       // The exhaustive sweep above owns LIVE discovery. Do not run a second
       // 18/171-channel status burst here; that duplicate traffic was one cause
@@ -10513,8 +10520,12 @@ server.listen(PORT,'0.0.0.0',()=>{
       // Image URLs stay at origin; no background Storage mirror.
     }
 
-    void runTikTokLiveMinuteSweep();
-    startTikTokLiveSweepScheduler();
+    if(RENDER_LIVE_BACKGROUND_SWEEP){
+      void runTikTokLiveMinuteSweep();
+      startTikTokLiveSweepScheduler();
+    }else{
+      console.log('[tiktok-live] recurring Render sweep disabled; Cloudflare edge owns LIVE state');
+    }
     // Cloudflare edge owns frequent video-change detection. Keep only a
     // delayed single-channel recovery scan after startup.
     setTimeout(()=>{void ensureTikTokVideoPackageScan(nextTikTokVideoBackgroundBatch(1));},30*60_000).unref();
@@ -10529,14 +10540,14 @@ server.listen(PORT,'0.0.0.0',()=>{
   }
 
   for(const platform of PLATFORMS)void loadSnapshot(platform);
-  if(AUTO_COLLECT){
+  if(AUTO_COLLECT&&LEGACY_TIKTOK_FEED_COLLECT){
     void getBrowser()
       .then(()=>console.log('[collector] browser prewarmed'))
       .catch(error=>console.warn('[collector] browser prewarm failed',String(error?.message||error)));
     setTimeout(()=>{void schedulerTick();},8000).unref();
     setInterval(()=>{void schedulerTick();},30000).unref();
   }else{
-    console.log('[collector] background browser collection disabled');
+    console.log('[collector] legacy TikTok feed polling disabled; edge/on-demand paths remain active');
   }
 });
 
