@@ -1,6 +1,7 @@
 name: Refresh TikTok selected-channel video library once
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
