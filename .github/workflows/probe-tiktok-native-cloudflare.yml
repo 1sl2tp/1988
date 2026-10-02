@@ -202,7 +202,7 @@ jobs:
           JS
           node /tmp/ttwid-probe.mjs
 
-      - name: Probe exact VOD after unified TikTok web session
+      - name: Probe exact VOD after TikTok gateway relay
         shell: bash
         run: |
           set -euo pipefail
