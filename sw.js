@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-simple-media-v38';
+const CACHE='1988-simple-media-v39';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
 const TIKTOK_IMAGE_CACHE_MAX=480;
@@ -17,6 +17,49 @@ function isTikTokOriginalImage(req,url){
     SUPABASE_STORAGE_HOST_RE.test(url.hostname)&&
     url.pathname.startsWith('/storage/v1/object/public/tiktok-originals/');
 }
+function isTikTokPwaMedia(url){
+  return url.origin===self.location.origin&&url.pathname==='/__tiktok-media';
+}
+
+async function tiktokPwaMediaResponse(req,url){
+  const edge=new URL('https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream');
+  for(const key of ['user','id','source','try']){
+    const value=url.searchParams.get(key);
+    if(value)edge.searchParams.set(key,value);
+  }
+
+  const headers=new Headers();
+  const range=req.headers.get('range');
+  if(range)headers.set('range',range);
+  const accept=req.headers.get('accept');
+  if(accept)headers.set('accept',accept);
+
+  const upstream=await fetch(edge.href,{
+    method:'GET',
+    headers,
+    cache:'no-store',
+    redirect:'follow'
+  });
+
+  // Rebuild the response as a same-origin SW response so installed iOS/macOS
+  // PWAs do not hand a cross-origin Workers.dev media URL directly to <video>.
+  const outHeaders=new Headers();
+  for(const key of [
+    'content-type','content-length','content-range','accept-ranges',
+    'etag','last-modified','cache-control'
+  ]){
+    const value=upstream.headers.get(key);
+    if(value)outHeaders.set(key,value);
+  }
+  outHeaders.set('cache-control','no-store');
+
+  return new Response(upstream.body,{
+    status:upstream.status,
+    statusText:upstream.statusText,
+    headers:outHeaders
+  });
+}
+
 
 async function trimTikTokImageCache(cache){
   const keys=await cache.keys();
@@ -125,6 +168,11 @@ self.addEventListener('fetch',event=>{
   const req=event.request;
   if(req.method!=='GET')return;
   const url=new URL(req.url);
+
+  if(isTikTokPwaMedia(url)){
+    event.respondWith(tiktokPwaMediaResponse(req,url));
+    return;
+  }
 
   if(isAvatarRequest(req,url)){
     event.respondWith(avatarResponse(req));
