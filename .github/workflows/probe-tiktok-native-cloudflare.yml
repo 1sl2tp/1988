@@ -27,6 +27,53 @@ jobs:
           })||'';
           if(!cdn) throw new Error('no_cdn_url');
 
+          // Compare with the exact Cobalt-style anonymous @i/video request that
+          // previously yielded a usable session on a normal server runtime.
+          {
+            const jar=new Map();
+            let pageStatus=0,mediaStatus=0,ct='',bytes=0,range='',err='';
+            try{
+              const page=await fetch('https://www.tiktok.com/@i/video/7691708011651386645',{
+                headers:{
+                  'user-agent':ua,
+                  'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+                  'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5'
+                },
+                redirect:'follow'
+              });
+              pageStatus=page.status;
+              for(const [k,v] of cookiePairs(page.headers))jar.set(k,v);
+              try{await page.body?.cancel?.()}catch{}
+              if(jar.size){
+                const r=await fetch(cdn,{
+                  headers:{
+                    'user-agent':ua,
+                    'referer':'https://www.tiktok.com/',
+                    'cookie':jarHeader(jar),
+                    'range':'bytes=0-1048575',
+                    'accept':'video/*,*/*'
+                  },
+                  redirect:'follow'
+                });
+                mediaStatus=r.status;
+                ct=r.headers.get('content-type')||'';
+                range=r.headers.get('content-range')||'';
+                bytes=(await r.arrayBuffer()).byteLength;
+              }
+            }catch(e){err=String(e?.message||e)}
+            console.log(JSON.stringify({
+              name:'cobalt-anonymous-i-video',
+              pageStatus,
+              cookieCount:jar.size,
+              cookieNames:[...jar.keys()].sort(),
+              mediaStatus,
+              contentType:ct,
+              contentRange:range,
+              bytes,
+              error:err
+            }));
+          }
+
           const variants=[
             {
               name:'bytedance-tiktok-va',
