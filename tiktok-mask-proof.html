@@ -31,7 +31,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <body>
 <div class="page">
   <h1>TikTok · origin media</h1>
-  <p class="sub">Không iframe. Không TikWM/TDown. Đọc <b>bitrateInfo</b>, chọn H.264 muxed rồi để chính browser đổi <b>aweme/v1/play → CDN</b> theo IP của nó.</p>
+  <p class="sub">Không fetch media. Không TikWM/TDown. Đọc <b>bitrateInfo</b>, chọn H.264 muxed rồi gắn thẳng <b>aweme/v1/play</b> vào native &lt;video&gt;; browser tự theo redirect TikTok.</p>
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
@@ -82,23 +82,6 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     status.textContent=text;
   }
 
-  async function clientResolveGateway(gateway){
-    const r=await fetch(gateway,{
-      method:'GET',
-      mode:'cors',
-      credentials:'omit',
-      cache:'no-store',
-      redirect:'follow',
-      headers:{Range:'bytes=0-0'}
-    });
-    const finalUrl=String(r.url||'');
-    try{await r.body?.cancel?.();}catch{}
-    if(!(r.ok||r.status===206)||!/^https?:\/\//i.test(finalUrl)){
-      throw new Error('client_gateway_'+r.status);
-    }
-    return finalUrl;
-  }
-
   function gatewayOf(urls,fallback=''){
     const list=Array.isArray(urls)?urls:[];
     return list.find(u=>/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(String(u||'')))
@@ -119,17 +102,16 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     playbackMode='muxed';
     const gateway=gatewayOf(track?.urls,directFallback);
     if(!gateway)throw new Error('no_muxed_gateway');
-    setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · browser đang đổi gateway → CDN…');
-    const finalUrl=await clientResolveGateway(gateway);
 
     resetTracks();
     media.referrerPolicy='no-referrer';
-    media.src=finalUrl;
+    media.src=gateway;
     media.muted=false;
     media.load();
-    openMedia.href=finalUrl;
+    openMedia.href=gateway;
 
-    return {mode:'muxed',gateway,videoUrl:finalUrl,audioUrl:'',track};
+    setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · <video> đang đi thẳng qua aweme/v1/play…');
+    return {mode:'muxed',gateway,videoUrl:gateway,audioUrl:'',track};
   }
 
   async function loadDash(track){
@@ -138,24 +120,19 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     const audioGateway=gatewayOf(track?.audio?.urls);
     if(!videoGateway||!audioGateway)throw new Error('dash_pair_incomplete');
 
-    setStatus('DASH '+String(track?.codec||'')+' · đang lấy riêng hình + tiếng đúng audio_file_id…');
-    const [videoUrl,audioUrl]=await Promise.all([
-      clientResolveGateway(videoGateway),
-      clientResolveGateway(audioGateway)
-    ]);
-
     resetTracks();
     media.referrerPolicy='no-referrer';
     audioTrack.referrerPolicy='no-referrer';
-    media.src=videoUrl;
+    media.src=videoGateway;
     media.muted=true;
-    audioTrack.src=audioUrl;
+    audioTrack.src=audioGateway;
     audioTrack.muted=false;
     media.load();
     audioTrack.load();
-    openMedia.href=videoUrl;
+    openMedia.href=videoGateway;
 
-    return {mode:'dash',gateway:videoGateway,audioGateway,videoUrl,audioUrl,track};
+    setStatus('DASH '+String(track?.codec||'')+' · <video> + <audio> đi thẳng qua 2 gateway TikTok đúng audio_file_id…');
+    return {mode:'dash',gateway:videoGateway,audioGateway,videoUrl:videoGateway,audioUrl:audioGateway,track};
   }
 
   async function resolve(){
@@ -189,8 +166,8 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'size = '+String(t.width||'—')+'×'+String(t.height||'—')+'<br>'+
         'bitrate = '+String(t.bitrate||'—')+'<br>'+
         'audioFileId = '+String(t.audioFileId||'—')+'<br>'+
-        'videoCDN = '+loaded.videoUrl+'<br>'+
-        (loaded.audioUrl?'audioCDN = '+loaded.audioUrl+'<br>':'')+
+        'videoGateway = '+loaded.videoUrl+'<br>'+
+        (loaded.audioUrl?'audioGateway = '+loaded.audioUrl+'<br>':'')+
         'render = false<br>'+
         'proxyVideo = false<br>'+
         'storage = none<br>'+
