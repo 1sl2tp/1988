@@ -1195,16 +1195,97 @@ function originAssetUrls(value){
   walk(value);
   return out;
 }
+function originParseJson(value){
+  if(!value)return {};
+  if(typeof value==="object")return value;
+  try{return JSON.parse(String(value))}catch{return {}}
+}
+function originFirstString(...values){
+  for(const value of values){
+    if(typeof value==="string"&&value.trim())return value.trim();
+  }
+  return "";
+}
+function originNumberish(...values){
+  for(const value of values){
+    const n=Number(value);
+    if(Number.isFinite(n)&&n>0)return n;
+  }
+  return 0;
+}
 function originCollectVideo(node,wantedId){
   const download=[];
   const play=[];
   const audio=[];
+  const variants=[];
+  const audioTracks=[];
   const seen=new Set();
 
   const add=(bucket,v)=>{
     for(const u of originAssetUrls(v)){
       if(/^https?:\/\//i.test(u))bucket.push(u);
     }
+  };
+
+  const addAudioTrack=(row)=>{
+    if(!row||typeof row!=="object")return;
+    const urls=originAssetUrls(row?.UrlList||row?.urlList||row?.url_list||row)
+      .filter(u=>/^https?:\/\//i.test(u));
+    if(!urls.length)return;
+    const fileId=originFirstString(
+      row.FileId,row.fileId,row.file_id,row.FileHash,row.fileHash,row.file_hash
+    );
+    audioTracks.push({
+      fileId,
+      bitrate:originNumberish(row.Bitrate,row.bitrate,row.bit_rate),
+      codec:originFirstString(row.CodecType,row.codecType,row.codec_type,row.Codec,row.codec),
+      format:originFirstString(row.Format,row.format,"audio"),
+      mediaType:originFirstString(row.MediaType,row.mediaType,row.media_type),
+      bytes:originNumberish(row.AudioDataSize,row.audioDataSize,row.DataSize,row.dataSize,row.data_size),
+      urls:[...new Set(urls)]
+    });
+    audio.push(...urls);
+  };
+
+  const addVariant=(row)=>{
+    if(!row||typeof row!=="object")return;
+    const addr=row?.PlayAddr||row?.playAddr||row?.play_addr||row;
+    const urls=originAssetUrls(addr).filter(u=>/^https?:\/\//i.test(u));
+    if(!urls.length)return;
+
+    const extra=originParseJson(
+      row.VideoExtra||row.videoExtra||row.video_extra||
+      addr.VideoExtra||addr.videoExtra||addr.video_extra
+    );
+    const audioFileId=originFirstString(
+      extra.audio_file_id,extra.audioFileId,extra.audio_fileid,
+      row.AudioFileId,row.audioFileId,row.audio_file_id
+    );
+    const format=originFirstString(row.Format,row.format,addr.Format,addr.format,"mp4");
+    const codec=originFirstString(
+      row.CodecType,row.codecType,row.codec_type,
+      addr.CodecType,addr.codecType,addr.codec_type
+    );
+    const urlKey=originFirstString(addr.UrlKey,addr.urlKey,addr.url_key,row.GearName,row.gearName,row.gear_name);
+    const role=/dash/i.test(format)?"video":"muxed";
+
+    variants.push({
+      key:urlKey||urls[0],
+      gear:originFirstString(row.GearName,row.gearName,row.gear_name),
+      codec,
+      format,
+      role,
+      bitrate:originNumberish(row.Bitrate,row.bitrate,row.bit_rate),
+      fps:originNumberish(row.BitrateFPS,row.bitrateFPS,row.FPS,row.fps),
+      width:originNumberish(addr.Width,addr.width,row.Width,row.width),
+      height:originNumberish(addr.Height,addr.height,row.Height,row.height),
+      bytes:originNumberish(addr.DataSize,addr.dataSize,addr.data_size),
+      fileId:originFirstString(addr.FileHash,addr.fileHash,addr.file_hash,addr.FileId,addr.fileId,addr.file_id),
+      audioFileId,
+      packetMap:extra?.PktOffsetMap||extra?.pkt_offset_map||null,
+      urls:[...new Set(urls)]
+    });
+    play.push(...urls);
   };
 
   const walk=(v,depth=0)=>{
@@ -1222,12 +1303,8 @@ function originCollectVideo(node,wantedId){
       for(const k of ["playAddr","play_addr","PlayAddr","PlayAddrStruct","playUrl","play_url"]){
         if(video[k]!=null)add(play,video[k]);
       }
-      for(const row of video.bitrateInfo||video.bitrate_info||[]){
-        add(play,row?.PlayAddr||row?.playAddr||row?.play_addr||row);
-      }
-      for(const row of video.bitrateAudioInfo||video.bitrate_audio_info||[]){
-        add(audio,row?.UrlList||row?.urlList||row?.url_list||row);
-      }
+      for(const row of video.bitrateAudioInfo||video.bitrate_audio_info||[])addAudioTrack(row);
+      for(const row of video.bitrateInfo||video.bitrate_info||[])addVariant(row);
     }
 
     if(Array.isArray(v)){for(const x of v)walk(x,depth+1);}
@@ -1235,10 +1312,39 @@ function originCollectVideo(node,wantedId){
   };
 
   walk(node);
+
+  const audioById=new Map();
+  for(const track of audioTracks){
+    if(track.fileId&&!audioById.has(track.fileId))audioById.set(track.fileId,track);
+  }
+
+  const normalizedVariants=[];
+  const variantSeen=new Set();
+  for(const variant of variants){
+    const key=[variant.key,variant.codec,variant.format,variant.urls[0]].join("|");
+    if(variantSeen.has(key))continue;
+    variantSeen.add(key);
+    normalizedVariants.push({
+      ...variant,
+      audio:variant.audioFileId?audioById.get(variant.audioFileId)||null:null
+    });
+  }
+
+  const normalizedAudio=[];
+  const audioSeen=new Set();
+  for(const track of audioTracks){
+    const key=[track.fileId,track.urls[0]].join("|");
+    if(audioSeen.has(key))continue;
+    audioSeen.add(key);
+    normalizedAudio.push(track);
+  }
+
   return {
     download:[...new Set(download)],
     play:[...new Set(play)],
-    audio:[...new Set(audio)]
+    audio:[...new Set(audio)],
+    variants:normalizedVariants,
+    audioTracks:normalizedAudio
   };
 }
 function originParseScript(html,id){
