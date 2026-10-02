@@ -1,4 +1,4 @@
-name: Verify TikTok origin proxy Range fixed
+name: Diagnose TikTok origin proxy CDN
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe Range proxy and Chrome playback
+      - name: Print proxy CDN failure
         shell: bash
         run: |
           set -euo pipefail
@@ -23,44 +23,16 @@ jobs:
           GATEWAY=$(python3 - <<'PY'
           import json
           x=json.load(open('model.json'))
-          m=(x.get('data') or {}).get('mediaModel') or {}
-          p=m.get('preferredMuxed') or {}
+          p=((x.get('data') or {}).get('mediaModel') or {}).get('preferredMuxed') or {}
           urls=p.get('urls') or []
           print(next((u for u in urls if 'www.tiktok.com/aweme/v1/play/' in u),''))
           PY
           )
           test -n "$GATEWAY"
           PROXY="$EDGE/tiktok/video-origin-stream?url=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$GATEWAY")"
-
-          echo '=== HEADERS RANGE 0-4095 ==='
-          curl -sS --max-time 20 -r 0-4095 -o /tmp/chunk.bin -D /tmp/headers.txt "$PROXY"
-          cat /tmp/headers.txt
-          echo "bytes=$(wc -c </tmp/chunk.bin)"
-
-          echo '=== FFPROBE THROUGH PROXY ==='
-          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
-          ffprobe -v error -show_entries stream=index,codec_type,codec_name,width,height,sample_rate,channels             -of json "$PROXY" || true
-
-          echo '=== CHROME VIDEO THROUGH PROXY ==='
-          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)
-          python3 - "$PROXY" <<'PY'
-          import sys,html
-          u=html.escape(sys.argv[1],quote=True)
-          open('test.html','w').write(f"""<!doctype html><meta charset=utf-8>
-          <body><div id=s>start</div>
-          <video id=v muted autoplay playsinline preload=metadata src="{u}"></video>
-          <script>
-          const s=document.getElementById('s'),v=document.getElementById('v');
-          v.onloadedmetadata=()=>s.textContent='VIDEO_OK '+v.videoWidth+'x'+v.videoHeight+' dur='+v.duration;
-          v.onerror=()=>s.textContent='VIDEO_ERR code='+(v.error&&v.error.code)+' network='+v.networkState+' ready='+v.readyState;
-          setTimeout(()=>document.body.dataset.final=s.textContent,10000);
-          </script>""")
-          PY
-          python3 -m http.server 8765 >/tmp/http.log 2>&1 &
-          HPID=$!
-          trap 'kill $HPID || true' EXIT
-          sleep 1
-          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=12000             --dump-dom http://127.0.0.1:8765/test.html > dom.html 2>chrome.err || true
-          grep -o '<div id="s">[^<]*' dom.html || true
-          grep -o 'data-final="[^"]*"' dom.html || true
-          tail -30 chrome.err || true
+          echo '=== PROXY RESPONSE ==='
+          curl -sS --max-time 20 -r 0-4095 -D /tmp/h.txt "$PROXY" -o /tmp/b.bin || true
+          cat /tmp/h.txt
+          echo '--- body ---'
+          cat /tmp/b.bin
+          echo
