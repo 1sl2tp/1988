@@ -1,0 +1,140 @@
+name: Test TikTok Direct APIs
+
+on:
+  push:
+    branches: [test-tiktok-direct-apis]
+    paths:
+      - ".github/workflows/test-tiktok-direct-apis.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test direct media resolvers
+        env:
+          TIKTOK_URL: "https://www.tiktok.com/@_phat_nguoi_yeu_thi_giai/video/7691708011651386645"
+        shell: bash
+        run: |
+          cat > /tmp/test.mjs <<'JS'
+          const input=process.env.TIKTOK_URL;
+          const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36';
+
+          const providers=[
+            {
+              name:'tdown-v4',
+              url:'https://tdownv4.sl-bjs.workers.dev/?down='+encodeURIComponent(input),
+              pick:j=>j?.download_url||''
+            },
+            {
+              name:'clipx',
+              url:'https://clipx.zamdev.workers.dev/?url='+encodeURIComponent(input)+'&quality=best&audio=false&cover=false&metadata=false&cache=false&trace=false&processing_time=false&contact=false',
+              pick:j=>j?.data?.video?.hd_mp4||j?.data?.video?.standard_mp4||j?.data?.video?.wmplay||''
+            },
+            {
+              name:'godownloader',
+              url:'https://godownloader.com/api/tiktok-no-watermark-free?url='+encodeURIComponent(input)+'&key=godownloader.com',
+              pick:null
+            },
+            {
+              name:'tikwm',
+              url:'https://www.tikwm.com/api/?url='+encodeURIComponent(input)+'&hd=1',
+              pick:j=>j?.data?.hdplay||j?.data?.play||j?.data?.wmplay||''
+            }
+          ];
+
+          function allUrls(v,path='',out=[]){
+            if(v==null)return out;
+            if(typeof v==='string'){
+              if(/^https?:\/\//i.test(v))out.push({path,url:v});
+              return out;
+            }
+            if(Array.isArray(v)){
+              v.forEach((x,i)=>allUrls(x,path+'['+i+']',out));
+              return out;
+            }
+            if(typeof v==='object'){
+              for(const [k,x] of Object.entries(v))allUrls(x,path?path+'.'+k:k,out);
+            }
+            return out;
+          }
+
+          function chooseFallback(json){
+            const urls=allUrls(json);
+            const scored=urls.map(x=>{
+              const s=(x.path+' '+x.url).toLowerCase();
+              let score=0;
+              if(/hdplay|download_url|downloadurl|nowm|no.?watermark|standard_mp4|video\.play|\.play\b/.test(s))score+=80;
+              if(/\.mp4(?:\?|$)|video_mp4|tiktokcdn|byteoversea|ibytedtos|muscdn|v16m|v19/.test(s))score+=50;
+              if(/cover|avatar|music|audio|thumbnail|profile/.test(s))score-=100;
+              return {...x,score};
+            }).sort((a,b)=>b.score-a.score);
+            return scored.find(x=>x.score>0)?.url||'';
+          }
+
+          async function probe(url){
+            const started=Date.now();
+            const controller=new AbortController();
+            const timer=setTimeout(()=>controller.abort(),15000);
+            try{
+              const r=await fetch(url,{
+                headers:{'user-agent':ua,'range':'bytes=0-1048575','accept':'video/*,*/*'},
+                redirect:'follow',
+                signal:controller.signal
+              });
+              const ttfb=Date.now()-started;
+              const ab=await r.arrayBuffer();
+              const total=Date.now()-started;
+              return {
+                status:r.status,
+                ok:r.ok||r.status===206,
+                contentType:r.headers.get('content-type')||'',
+                contentRange:r.headers.get('content-range')||'',
+                acceptRanges:r.headers.get('accept-ranges')||'',
+                bytes:ab.byteLength,
+                ttfbMs:ttfb,
+                totalMs:total,
+                finalHost:(()=>{try{return new URL(r.url).hostname}catch{return ''}})()
+              };
+            }catch(e){
+              return {ok:false,error:String(e?.message||e),totalMs:Date.now()-started};
+            }finally{clearTimeout(timer)}
+          }
+
+          for(const p of providers){
+            const started=Date.now();
+            let apiStatus=0,json=null,error='',media='';
+            try{
+              const r=await fetch(p.url,{
+                headers:{'user-agent':ua,'accept':'application/json,text/plain,*/*'},
+                redirect:'follow',
+                signal:AbortSignal.timeout(30000)
+              });
+              apiStatus=r.status;
+              const text=await r.text();
+              try{json=JSON.parse(text)}catch{error='non_json:'+text.slice(0,120).replace(/\s+/g,' ')}
+              if(json){
+                media=(p.pick?.(json)||'').trim()||chooseFallback(json);
+              }
+            }catch(e){error=String(e?.message||e)}
+            const resolveMs=Date.now()-started;
+            const mediaProbe=media?await probe(media):null;
+            console.log('RESULT '+JSON.stringify({
+              provider:p.name,
+              apiStatus,
+              resolveMs,
+              hasMedia:Boolean(media),
+              mediaHost:media?(()=>{try{return new URL(media).hostname}catch{return ''}})():'',
+              mediaProbe,
+              error,
+              topKeys:json&&typeof json==='object'?Object.keys(json).slice(0,12):[]
+            }));
+          }
+          JS
+          node /tmp/test.mjs
