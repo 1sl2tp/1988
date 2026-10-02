@@ -5784,6 +5784,7 @@ html.one-col.portrait .player.pip{
     const avatar=String(item?.avatar||"").trim();
     const previewRaw=String(item?.preview||"").trim();
     const coverRaw=String(item?.cover||"").trim();
+    const hasLiveCover=Boolean(previewRaw||coverRaw);
     const cover=previewRaw||coverRaw||avatar;
     const livePreviewFallbacks=[...new Set(
       [previewRaw,coverRaw,avatar].map(value=>String(value||"").trim()).filter(Boolean)
@@ -5809,6 +5810,7 @@ html.one-col.portrait .player.pip{
       livePreview:cover,
       livePreviewFallbacks,
       livePreviewIsSession,
+      hasLiveCover,
       isLive:true,
       verified:false,
       viewerCount:Math.max(0,Number(item?.viewerCount)||0),
@@ -5834,6 +5836,83 @@ html.one-col.portrait .player.pip{
   function livePreviewForMeta(meta={}){
     if(!meta?.isLive)return String(meta?.thumbnail||"").trim();
     return String(meta?.livePreview||meta?.thumbnail||meta?.sourceAvatar||"").trim();
+  }
+  function tiktokLibraryChannelForHandle(handle=""){
+    handle=String(handle||"").trim().replace(/^@/,"").toLowerCase();
+    if(!handle)return null;
+    return (Array.isArray(tiktokLibraryChannels)?tiktokLibraryChannels:[])
+      .find(channel=>String(channel?.handle||"").trim().replace(/^@/,"").toLowerCase()===handle)||null;
+  }
+
+  function tiktokLibraryChannelFallbacks(meta={}){
+    const channel=tiktokLibraryChannelForHandle(meta?.handle);
+    if(!channel)return meta;
+
+    const profile=channel?.profile&&typeof channel.profile==="object"?channel.profile:{};
+    const profileName=String(profile?.name||"").trim();
+    const profileAvatar=String(
+      profile?.avatar?.url||
+      profile?.avatar?.sourceUrl||
+      profile?.avatar?.storedUrl||
+      ""
+    ).trim();
+
+    const latest=(Array.isArray(channel?.videos)?channel.videos:[])
+      .slice()
+      .sort((a,b)=>Number(b?.createTime||0)-Number(a?.createTime||0))[0]||null;
+    const latestCover=String(
+      latest?.cover?.url||
+      latest?.cover?.sourceUrl||
+      latest?.cover?.storedUrl||
+      ""
+    ).trim();
+
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    const currentName=String(meta?.sourceName||"").trim();
+    if(
+      profileName&&
+      (
+        !currentName||
+        liveComparableName(currentName)===liveComparableName(handle)
+      )
+    ){
+      meta.sourceName=profileName;
+    }
+
+    if(!String(meta?.sourceAvatar||"").trim()&&profileAvatar){
+      meta.sourceAvatar=profileAvatar;
+    }
+
+    const currentCover=String(meta?.livePreview||meta?.thumbnail||"").trim();
+    const coverLooksLikeAvatar=
+      currentCover&&String(meta?.sourceAvatar||"").trim()&&
+      currentCover===String(meta.sourceAvatar).trim();
+
+    if((!meta?.hasLiveCover||coverLooksLikeAvatar)&&latestCover){
+      meta.livePreview=latestCover;
+      meta.thumbnail=latestCover;
+    }
+
+    meta.livePreviewFallbacks=[...new Set([
+      ...(Array.isArray(meta?.livePreviewFallbacks)?meta.livePreviewFallbacks:[]),
+      latestCover,
+      String(meta?.sourceAvatar||"").trim(),
+      profileAvatar
+    ].filter(Boolean))];
+
+    return meta;
+  }
+
+  function liveComparableName(value=""){
+    return String(value||"")
+      .trim()
+      .toLowerCase()
+      .replace(/^@/,"")
+      .replace(/[^a-z0-9._\p{L}\p{N}]+/gu,"");
+  }
+
+  function compactLiveViewerNumber(value){
+    return compactLiveViewerCount(value).replace(/\s+đang xem$/i,"");
   }
 
   const directMediaPreconnectOrigins=new Set();
@@ -6397,10 +6476,23 @@ html.one-col.portrait .player.pip{
         );
         if(!response.ok)throw new Error("tiktok_live_"+response.status);
         const payload=await response.json();
-        const next=(Array.isArray(payload?.items)?payload.items:[])
+        let next=(Array.isArray(payload?.items)?payload.items:[])
           .map(normalizeTikTokLiveItem)
           .filter(Boolean)
           .filter(meta=>meta.playable);
+
+        const needsLibraryFallback=next.some(meta=>
+          !meta?.hasLiveCover||
+          !String(meta?.sourceAvatar||"").trim()||
+          !String(meta?.sourceName||"").trim()||
+          liveComparableName(meta?.sourceName)===liveComparableName(meta?.handle)
+        );
+
+        if(needsLibraryFallback){
+          await loadTikTokLatestVideoFeed({silent:true}).catch(()=>{});
+          next=next.map(meta=>tiktokLibraryChannelFallbacks(meta));
+        }
+
         tiktokLiveMetas=next;
         tiktokLiveReady=true;
         tiktokLiveLastAt=Date.now();
@@ -7802,8 +7894,13 @@ html.one-col.portrait .player.pip{
     const tiktokLive=meta?.isLive&&provider==="tiktok";
     const duration=meta.isLive ? "TRỰC TIẾP" : (meta.durationLabel || "");
     const tiktokViewerCount=Math.max(0,Number(meta?.viewerCount)||0);
+    const tiktokViewerNumber=compactLiveViewerNumber(tiktokViewerCount);
     const tiktokLiveMarkup=tiktokLive
-      ?'<span class="tiktok-live-badge"><span class="tiktok-live-label">LIVE</span><span class="tiktok-live-viewers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg><span>'+escapeHtml(String(Math.round(tiktokViewerCount)))+'</span></span></span>'
+      ?'<span class="tiktok-live-badge"><span class="tiktok-live-label">LIVE</span>'+
+        (tiktokViewerCount>0
+          ?'<span class="tiktok-live-viewers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0H5Z"/></svg><span>'+escapeHtml(tiktokViewerNumber)+'</span></span>'
+          :"")+
+        '</span>'
       :"";
     const durationMarkup=meta.isLive
       ?(tiktokLive?"":'<span class="duration-badge live">'+liveBroadcastIconMarkup()+'<span>TRỰC TIẾP</span></span>')
@@ -8197,10 +8294,10 @@ html.one-col.portrait .player.pip{
     return true;
   }
 
-  async function loadTikTokLatestVideoFeed({force=false}={}){
+  async function loadTikTokLatestVideoFeed({force=false,silent=false}={}){
     if(tiktokLibraryFetchPromise)return tiktokLibraryFetchPromise;
 
-    if(tiktokVideoMetas.length){
+    if(tiktokVideoMetas.length&&!silent&&activePlatformNav==="tiktok"&&activeTikTokSubtab==="video"){
       feedMode="tiktok-video";
       activePackageScope="tiktok-video";
       feedMetas=tiktokVideoMetas;
@@ -8226,7 +8323,7 @@ html.one-col.portrait .player.pip{
         tiktokLibraryChannels=Array.isArray(payload?.channels)?payload.channels:[];
         tiktokVideoMetas=next;
 
-        if(activePlatformNav==="tiktok"&&activeTikTokSubtab==="video"){
+        if(!silent&&activePlatformNav==="tiktok"&&activeTikTokSubtab==="video"){
           feedMode="tiktok-video";
           activePackageScope="tiktok-video";
           feedMetas=next;
