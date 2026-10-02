@@ -1,4 +1,4 @@
-name: Probe TikTok origin media once
+name: Probe TikTok session link once
 
 on:
   push:
@@ -13,21 +13,24 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe origin resolver and candidates
+      - name: Probe Render session resolver
         shell: bash
         run: |
           set -euo pipefail
           POST='https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992'
-          ENDPOINT='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin'
           ENC="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992", safe=""))')"
-          curl -fsSL "$ENDPOINT?url=$ENC" -o /tmp/origin.json
-          python3 -c 'import json; j=json.load(open("/tmp/origin.json")); d=j.get("data") or {}; print("RESOLVER",j.get("ok"),d.get("bestSource"),d.get("resolver")); print("BEST",d.get("bestVideoUrl","")); [print("CAND",i+1,r.get("kind"),"score=",r.get("score"),"probe=",r.get("probe"),"URL=",r.get("url","")) for i,r in enumerate((d.get("candidates") or [])[:8])]'
-          python3 -c 'import json; j=json.load(open("/tmp/origin.json")); [print(r.get("url")) for r in ((j.get("data") or {}).get("candidates") or [])[:8] if r.get("url")]' > /tmp/urls.txt
-          n=0
-          while IFS= read -r u; do
-            n=$((n+1))
-            echo "===== candidate $n no-referer ====="
-            curl -sS -L --max-time 12 -r 0-1023 -o /dev/null -D - "$u" | sed -n '1,25p' || true
-            echo "===== candidate $n tiktok-referer ====="
-            curl -sS -L --max-time 12 -r 0-1023 -H 'Referer: https://www.tiktok.com/' -H 'User-Agent: Mozilla/5.0' -o /dev/null -D - "$u" | sed -n '1,25p' || true
-          done < /tmp/urls.txt
+          URL="https://one988-tiktok-session.onrender.com/tiktok/video-session-link?url=$ENC"
+          curl -fsSL "$URL" -o /tmp/session.json
+          cat /tmp/session.json
+          python3 - <<'PY'
+          import json,sys
+          j=json.load(open('/tmp/session.json'))
+          d=j.get('data') or {}
+          assert j.get('ok') is True, j
+          assert d.get('mediaViaRender') is False, d
+          assert d.get('proxyVideo') is False, d
+          assert d.get('supabaseWrites') == 0, d
+          assert '/aweme/v1/play/' in d.get('directUrl',''), d
+          print('CHECK', d.get('source'), d.get('codec'), d.get('status'), d.get('redirectHost'), d.get('session'))
+          print('DIRECT', d.get('directUrl'))
+          PY
