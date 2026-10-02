@@ -13,6 +13,7 @@ h1{font-size:18px;margin:0 0 6px}.sub{color:#aaa;font-size:13px;line-height:1.5;
 .grid{display:grid;grid-template-columns:minmax(300px,430px) minmax(280px,1fr);gap:18px;align-items:start}
 .panel{background:#181818;border:1px solid #2d2d2d;border-radius:16px;padding:14px}
 .player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:14px;overflow:hidden;position:relative}
+.media-stage{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden;background:#000}
 video{width:100%;height:100%;display:block;background:#000;object-fit:contain;transform-origin:50% 50%;will-change:transform}
 #officialFrame{width:100%;height:100%;display:none;border:0;background:#000;transform-origin:50% 50%;will-change:transform}
 .mask{position:absolute;left:0;right:0;height:0;background:#000;z-index:5;pointer-events:none}
@@ -44,17 +45,19 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
-        <video id="media" controls playsinline preload="metadata"></video>
-        <audio id="audioTrack" preload="metadata"></audio>
-        <iframe id="officialFrame"
-          allow="autoplay; fullscreen; encrypted-media"
-          referrerpolicy="strict-origin-when-cross-origin"
-          allowfullscreen></iframe>
+        <div id="mediaStage" class="media-stage">
+          <video id="media" controls playsinline preload="metadata"></video>
+          <audio id="audioTrack" preload="metadata"></audio>
+          <iframe id="officialFrame"
+            allow="autoplay; fullscreen; encrypted-media"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen></iframe>
+        </div>
         <div id="maskTop" class="mask top"></div>
         <div id="maskBottom" class="mask bottom"></div>
       </div>
       <div class="cropbar">
-        <span>Viền đen trên+dưới</span>
+        <span>Viền đen thật trên+dưới</span>
         <input id="cropY" type="range" min="0" max="22" step="0.5" value="0">
         <span class="cropval" id="cropYVal">0% + 0%</span>
         <div class="zoomrow">
@@ -100,6 +103,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   const media=document.getElementById('media');
   const audioTrack=document.getElementById('audioTrack');
   const officialFrame=document.getElementById('officialFrame');
+  const mediaStage=document.getElementById('mediaStage');
   let playbackMode='muxed';
   let currentVideoGateway='';
   let currentAudioGateway='';
@@ -125,11 +129,19 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   function applyCrop(){
     const each=Math.max(0,Math.min(22,Number(cropY.value)||0));
     const zoom=Math.max(.90,Math.min(1.35,Number(zoomScale.value)||1));
+
+    // Real letterbox: the black bars occupy space and the TikTok player is
+    // resized into the remaining center area. This pushes TikTok logos/UI away
+    // from the outer top/bottom edges instead of painting over them.
     maskTop.style.height=each+'%';
     maskBottom.style.height=each+'%';
+    mediaStage.style.top=each+'%';
+    mediaStage.style.bottom=each+'%';
+
     const value='scale('+zoom.toFixed(3)+')';
     media.style.transform=value;
     officialFrame.style.transform=value;
+
     cropYVal.textContent=each.toFixed(each%1?1:0)+'% + '+each.toFixed(each%1?1:0)+'%';
     zoomVal.textContent=zoom.toFixed(2)+'×';
   }
