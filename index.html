@@ -6670,7 +6670,56 @@ html.one-col.portrait .player.pip{
     document.head.appendChild(link);
   }
 
-  let tiktokVodSourceCursor=0;
+  const tiktokVodWarmAt=new Map();
+  let tiktokVodWarmObserver=null;
+
+  function warmTikTokVod(meta={}){
+    if(String(meta?.provider||"").toLowerCase()!=="tiktok"||meta?.isLive===true)return false;
+    const id=String(meta?.id||"").trim();
+    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
+    if(!/^[0-9]{8,}$/.test(id)||!handle)return false;
+
+    const key=handle.toLowerCase()+":"+id;
+    const now=Date.now();
+    if(now-Number(tiktokVodWarmAt.get(key)||0)<120_000)return true;
+    tiktokVodWarmAt.set(key,now);
+
+    fetch(
+      TIKTOK_LIVE_API+
+      "/tiktok/video-warm-edge?user="+encodeURIComponent(handle)+
+      "&id="+encodeURIComponent(id),
+      {cache:"no-store",keepalive:true}
+    ).catch(()=>{});
+    return true;
+  }
+
+  function observeTikTokVodWarmRows(rootEl=document){
+    const cards=[...rootEl.querySelectorAll?.('.row[data-provider="tiktok"][data-video-id]')||[]];
+    if(!cards.length)return;
+
+    if(!("IntersectionObserver" in window)){
+      cards.slice(0,4).forEach(card=>{
+        const id=String(card.dataset.videoId||"");
+        const meta=feedMetas.find(item=>String(item?.id||"")===id);
+        if(meta&&!meta?.isLive)warmTikTokVod(meta);
+      });
+      return;
+    }
+
+    if(!tiktokVodWarmObserver){
+      tiktokVodWarmObserver=new IntersectionObserver(entries=>{
+        for(const entry of entries){
+          if(!entry.isIntersecting)continue;
+          tiktokVodWarmObserver.unobserve(entry.target);
+          const id=String(entry.target.dataset.videoId||"");
+          const meta=feedMetas.find(item=>String(item?.id||"")===id);
+          if(meta&&!meta?.isLive)warmTikTokVod(meta);
+        }
+      },{root:null,rootMargin:"700px 0px",threshold:0.01});
+    }
+
+    cards.forEach(card=>tiktokVodWarmObserver.observe(card));
+  }
 
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
@@ -6706,14 +6755,14 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
+    warmTikTokVod(meta);
     const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const preferredSource=(tiktokVodSourceCursor++%2===0)?"tikwm":"tdown";
     const directUrl=
       TIKTOK_LIVE_API+
       "/tiktok/video-stream?user="+encodeURIComponent(handle)+
       "&id="+encodeURIComponent(id)+
-      "&source="+encodeURIComponent(preferredSource);
+      "&source=auto";
 
     const showEmbedFallback=()=>{
       if(String(current?.id||"")!==id||!tiktokMediaFrame)return;
@@ -6804,9 +6853,8 @@ html.one-col.portrait .player.pip{
       queueMicrotask(()=>playNextFeedVideo());
     };
 
-    // Consecutive opens alternate independent upstream resolvers (TikWM / TDown).
-    // The Worker preserves Range/206 and falls through to the other source,
-    // then direct TikTok metadata only if both public resolvers fail.
+    // Nearby cards are pre-resolved at the edge. On click the Worker uses the
+    // fastest cached TikWM/TDown source and preserves native Range/206.
     native.src=directUrl;
     native.load();
     const pending=native.play();
@@ -8089,6 +8137,7 @@ html.one-col.portrait .player.pip{
     }
     feedMasonryObserver.disconnect();
     rows.querySelectorAll(".row").forEach(card=>feedMasonryObserver.observe(card));
+    observeTikTokVodWarmRows(rows);
     scheduleFeedMasonry();
   }
 
@@ -8108,6 +8157,7 @@ html.one-col.portrait .player.pip{
           primeTikTokPlaybackNeighborhood(id,2);
         }else{
           ensureTikTokPlayerPreconnect();
+          warmTikTokVod(meta);
         }
       }
     },{passive:true});
