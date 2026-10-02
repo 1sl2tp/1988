@@ -3062,6 +3062,9 @@ html.one-col.portrait .player.pip{
     return value==="live"||value==="media"?value:"embed";
   }
   function mediaTypeFor(meta=currentMeta){
+    const explicit=String(meta?.type||"").toLowerCase();
+    if(explicit==="embed"||explicit==="live"||explicit==="media")return explicit;
+
     const provider=normalizedMediaProvider(meta?.provider||current?.provider||currentMediaProvider);
     if(provider==="youtube")return "embed";
     return meta?.isLive===true ? "live" : "media";
@@ -4635,8 +4638,13 @@ html.one-col.portrait .player.pip{
           :0
       )
     );
+    const rowType=String(row?.type||meta?.type||"").toLowerCase();
     const normalized={
       ...meta,
+      type:
+        rowType==="live"||rowType==="media"||rowType==="embed"
+          ?rowType
+          :"embed",
       verified:cardVerified(row),
       isShort,
       videoWidth,
@@ -4686,7 +4694,7 @@ html.one-col.portrait .player.pip{
     for(const key of [
       "title","sourceName","sourceAvatar","thumbnail",
       "viewsLabel","publishedLabel","durationLabel",
-      "isLive","verified","mediaKind","aspectRatio",
+      "isLive","type","verified","mediaKind","aspectRatio",
       "videoWidth","videoHeight","downloadVideoUrl","downloadAudioUrl",
       "_aspectVerified","_aspectSource"
     ]){
@@ -5760,6 +5768,7 @@ html.one-col.portrait .player.pip{
     return {
       id:tiktokLiveId(handle),
       provider:"tiktok",
+      type:"live",
       handle,
       title:String(item?.title||"").trim()||("@"+handle+" · LIVE"),
       sourceName:String(item?.sourceName||"").trim()||("@"+handle),
@@ -7933,6 +7942,7 @@ html.one-col.portrait .player.pip{
     return {
       id,
       provider:"tiktok",
+      type:"media",
       handle,
       title:String(video?.title||"").trim()||("@"+handle),
       sourceName:String(profile?.name||"").trim()||("@"+handle),
