@@ -334,7 +334,7 @@ async function newTikTokPage() {
 
 async function resolveTikTokMedia(postUrl) {
   const target = new URL(postUrl);
-  if (!/(^|\\.)tiktok\\.com$/i.test(target.hostname)) throw new Error('invalid_tiktok_url');
+  if (!/(^|\.)tiktok\.com$/i.test(target.hostname)) throw new Error('invalid_tiktok_url');
 
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -367,7 +367,7 @@ async function resolveTikTokMedia(postUrl) {
 
     page.on('response', async (response) => {
       const u = response.url();
-      if (!/\\/api\\/(?:item\\/detail|recommend\\/item_list|post\\/item_list)\\//i.test(u)) return;
+      if (!/\/api\/(?:item\/detail|recommend\/item_list|post\/item_list)\//i.test(u)) return;
       try {
         const type = String(response.headers()['content-type'] || '');
         if (!type.includes('json')) return;
