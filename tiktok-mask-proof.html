@@ -268,7 +268,7 @@
     return "";
   }
 
-  function playerUrl(id){
+  function playerUrl(id,{withSound=false}={}){
     const p=new URLSearchParams({
       autoplay:"1",
       controls:"1",
@@ -284,6 +284,7 @@
       native_context_menu:"0",
       closed_caption:"0"
     });
+    if(withSound)p.set("muted","0");
     return "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+p.toString();
   }
 
@@ -328,14 +329,18 @@
       "px · shiftX="+(shiftXValue>0?"+":"")+shiftXValue+"px";
   }
 
-  function load(){
+  let soundRequested=false;
+
+  function load({withSound=false}={}){
     const id=parseVideoId(input.value);
     if(!id){
       status.textContent="URL/ID video chưa đúng.";
       return;
     }
-    status.textContent="Đang nạp TikTok player "+id+"…";
-    frame.src=playerUrl(id);
+    soundRequested=!!withSound;
+    status.textContent=
+      "Đang nạp TikTok player "+id+(soundRequested?" · yêu cầu tự phát có tiếng…":"…");
+    frame.src=playerUrl(id,{withSound:soundRequested});
   }
 
   rail.addEventListener("input",()=>{
@@ -366,12 +371,12 @@
     });
   });
 
-  document.getElementById("loadBtn").addEventListener("click",load);
-  document.getElementById("reloadBtn").addEventListener("click",load);
+  document.getElementById("loadBtn").addEventListener("click",()=>load({withSound:true}));
+  document.getElementById("reloadBtn").addEventListener("click",()=>load({withSound:true}));
   input.addEventListener("keydown",e=>{
     if(e.key==="Enter"){
       e.preventDefault();
-      load();
+      load({withSound:true});
     }
   });
   function playWithSound(){
@@ -399,8 +404,14 @@
     const msg=event.data||{};
     if(msg["x-tiktok-player"]!==true)return;
     if(msg.type==="onPlayerReady"){
-      status.textContent="Player sẵn sàng · đang tự phát";
-      command("play");
+      if(soundRequested){
+        command("unMute");
+        command("play");
+        status.textContent="Player sẵn sàng · đang tự phát có tiếng";
+      }else{
+        command("play");
+        status.textContent="Player sẵn sàng · đang tự phát";
+      }
     }else if(msg.type==="onStateChange"){
       const n=Number(msg.value);
       status.textContent=
