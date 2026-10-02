@@ -36,6 +36,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     <section class="panel left">
       <div class="player-shell">
         <video id="media" controls playsinline preload="metadata"></video>
+        <audio id="audioTrack" preload="metadata"></audio>
       </div>
       <div class="status" id="status">Đang lấy link gốc…</div>
     </section>
@@ -47,8 +48,8 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       </div>
 
       <div>
-        <span class="pill">H.264 / avc1</span>
-        <span class="pill">AAC / mp4a</span>
+        <span class="pill">H.264 muxed ưu tiên</span>
+        <span class="pill">DASH ghép audio_file_id</span>
         <span class="pill">Không proxy video</span>
         <span class="pill">Không Supabase</span>
       </div>
@@ -69,6 +70,8 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 (() => {
   const RESOLVER='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin';
   const media=document.getElementById('media');
+  const audioTrack=document.getElementById('audioTrack');
+  let playbackMode='muxed';
   const input=document.getElementById('videoInput');
   const status=document.getElementById('status');
   const info=document.getElementById('info');
@@ -96,48 +99,109 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     return finalUrl;
   }
 
+  function gatewayOf(urls,fallback=''){
+    const list=Array.isArray(urls)?urls:[];
+    return list.find(u=>/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(String(u||'')))
+      ||fallback||'';
+  }
+
+  function resetTracks(){
+    media.pause();
+    audioTrack.pause();
+    media.removeAttribute('src');
+    audioTrack.removeAttribute('src');
+    media.muted=false;
+    media.load();
+    audioTrack.load();
+  }
+
+  async function loadMuxed(track,directFallback=''){
+    playbackMode='muxed';
+    const gateway=gatewayOf(track?.urls,directFallback);
+    if(!gateway)throw new Error('no_muxed_gateway');
+    setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · browser đang đổi gateway → CDN…');
+    const finalUrl=await clientResolveGateway(gateway);
+
+    resetTracks();
+    media.referrerPolicy='no-referrer';
+    media.src=finalUrl;
+    media.muted=false;
+    media.load();
+    openMedia.href=finalUrl;
+
+    return {mode:'muxed',gateway,videoUrl:finalUrl,audioUrl:'',track};
+  }
+
+  async function loadDash(track){
+    playbackMode='dash';
+    const videoGateway=gatewayOf(track?.urls);
+    const audioGateway=gatewayOf(track?.audio?.urls);
+    if(!videoGateway||!audioGateway)throw new Error('dash_pair_incomplete');
+
+    setStatus('DASH '+String(track?.codec||'')+' · đang lấy riêng hình + tiếng đúng audio_file_id…');
+    const [videoUrl,audioUrl]=await Promise.all([
+      clientResolveGateway(videoGateway),
+      clientResolveGateway(audioGateway)
+    ]);
+
+    resetTracks();
+    media.referrerPolicy='no-referrer';
+    audioTrack.referrerPolicy='no-referrer';
+    media.src=videoUrl;
+    media.muted=true;
+    audioTrack.src=audioUrl;
+    audioTrack.muted=false;
+    media.load();
+    audioTrack.load();
+    openMedia.href=videoUrl;
+
+    return {mode:'dash',gateway:videoGateway,audioGateway,videoUrl,audioUrl,track};
+  }
+
   async function resolve(){
     const post=input.value.trim();
     if(!post)return;
-    setStatus('Đang lấy aweme/v1/play gốc từ TikTok…');
+    setStatus('Đang đọc bitrateInfo + bitrateAudioInfo từ TikTok…');
     try{
       const r=await fetch(RESOLVER+'?url='+encodeURIComponent(post),{cache:'no-store'});
       const j=await r.json();
-      if(!j?.ok||!j?.data?.directUrl)throw new Error(j?.error||('HTTP '+r.status));
+      if(!j?.ok||!j?.data)throw new Error(j?.error||('HTTP '+r.status));
 
       const d=j.data;
       const model=d.mediaModel||{};
       const muxed=model.preferredMuxed||null;
-      const urls=Array.isArray(muxed?.urls)?muxed.urls:[];
-      const gateway=urls.find(u=>/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(String(u||'')))
-        ||String(d.directUrl||'');
-      if(!gateway)throw new Error('no_aweme_gateway');
+      const dash=model.preferredDash||null;
+      let loaded;
 
-      setStatus('Đã lấy track '+String(muxed?.codec||'')+' '+String(muxed?.width||'')+'×'+String(muxed?.height||'')+' · browser đang tự đổi gateway → CDN…');
+      if(muxed){
+        loaded=await loadMuxed(muxed,String(d.directUrl||''));
+      }else if(dash?.audio){
+        loaded=await loadDash(dash);
+      }else{
+        throw new Error('no_playable_tiktok_track');
+      }
 
-      const finalUrl=await clientResolveGateway(gateway);
-
+      const t=loaded.track||{};
       info.innerHTML=
-        'track = '+String(muxed?.role||'—')+' / '+String(muxed?.format||'—')+'<br>'+
-        'codec = '+String(muxed?.codec||'—')+'<br>'+
-        'size = '+String(muxed?.width||'—')+'×'+String(muxed?.height||'—')+'<br>'+
-        'bitrate = '+String(muxed?.bitrate||'—')+'<br>'+
-        'gateway = '+gateway+'<br>'+
-        'finalCDN = '+finalUrl+'<br>'+
+        'mode = '+loaded.mode+'<br>'+
+        'role = '+String(t.role||'—')+' / '+String(t.format||'—')+'<br>'+
+        'codec = '+String(t.codec||'—')+'<br>'+
+        'size = '+String(t.width||'—')+'×'+String(t.height||'—')+'<br>'+
+        'bitrate = '+String(t.bitrate||'—')+'<br>'+
+        'audioFileId = '+String(t.audioFileId||'—')+'<br>'+
+        'videoCDN = '+loaded.videoUrl+'<br>'+
+        (loaded.audioUrl?'audioCDN = '+loaded.audioUrl+'<br>':'')+
         'render = false<br>'+
         'proxyVideo = false<br>'+
         'storage = none<br>'+
         'supabaseWrites = 0';
 
-      openMedia.href=finalUrl;
-      media.pause();
-      media.removeAttribute('src');
-      media.load();
-      media.referrerPolicy='no-referrer';
-      media.src=finalUrl;
-      media.load();
-
-      setStatus('Browser đã tự lấy CDN URL theo đúng IP của nó · native video đang nạp…','ok');
+      setStatus(
+        loaded.mode==='muxed'
+          ? 'Đã lấy TikTok H.264 muxed gốc · đang nạp native video…'
+          : 'Đã ghép đúng video-only + audio-only theo audio_file_id · đang nạp…',
+        'ok'
+      );
     }catch(e){
       setStatus('Resolver lỗi: '+String(e?.message||e),'bad');
       info.textContent='error = '+String(e?.message||e);
@@ -146,12 +210,53 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 
   document.getElementById('resolveBtn').onclick=resolve;
   input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();resolve();}});
-  document.getElementById('playBtn').onclick=()=>media.play();
-  document.getElementById('pauseBtn').onclick=()=>media.pause();
-  document.getElementById('soundBtn').onclick=()=>{media.muted=false;media.volume=1;media.play();};
+  async function playCurrent(){
+    if(playbackMode==='dash'){
+      if(Number.isFinite(media.currentTime))audioTrack.currentTime=media.currentTime;
+      audioTrack.muted=false;
+      audioTrack.volume=1;
+      await Promise.allSettled([media.play(),audioTrack.play()]);
+    }else{
+      media.muted=false;
+      media.volume=1;
+      await media.play();
+    }
+  }
+  function pauseCurrent(){
+    media.pause();
+    audioTrack.pause();
+  }
+
+  document.getElementById('playBtn').onclick=playCurrent;
+  document.getElementById('pauseBtn').onclick=pauseCurrent;
+  document.getElementById('soundBtn').onclick=playCurrent;
+
+  media.addEventListener('play',()=>{
+    if(playbackMode!=='dash')return;
+    if(Math.abs((audioTrack.currentTime||0)-(media.currentTime||0))>.18)audioTrack.currentTime=media.currentTime||0;
+    audioTrack.playbackRate=media.playbackRate||1;
+    audioTrack.play().catch(()=>{});
+  });
+  media.addEventListener('pause',()=>{if(playbackMode==='dash')audioTrack.pause();});
+  media.addEventListener('seeking',()=>{
+    if(playbackMode==='dash'&&Number.isFinite(media.currentTime))audioTrack.currentTime=media.currentTime;
+  });
+  media.addEventListener('ratechange',()=>{
+    if(playbackMode==='dash')audioTrack.playbackRate=media.playbackRate||1;
+  });
+  media.addEventListener('timeupdate',()=>{
+    if(playbackMode!=='dash'||audioTrack.paused)return;
+    const drift=(audioTrack.currentTime||0)-(media.currentTime||0);
+    if(Math.abs(drift)>.28)audioTrack.currentTime=media.currentTime||0;
+  });
+  media.addEventListener('ended',()=>{if(playbackMode==='dash'){audioTrack.pause();audioTrack.currentTime=0;}});
 
   media.addEventListener('loadedmetadata',()=>{
-    setStatus('Native video đã load · '+media.videoWidth+'×'+media.videoHeight+' · '+Math.round(media.duration||0)+'s','ok');
+    setStatus(
+      (playbackMode==='dash'?'DASH hình + tiếng đã sẵn sàng':'Native video đã load')+
+      ' · '+media.videoWidth+'×'+media.videoHeight+' · '+Math.round(media.duration||0)+'s',
+      'ok'
+    );
   });
   media.addEventListener('error',()=>{
     setStatus('Media URL này chưa phát được trực tiếp trên browser.','bad');
