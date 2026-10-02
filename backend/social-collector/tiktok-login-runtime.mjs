@@ -107,9 +107,52 @@ export function createTikTokLoginRuntime({
 
   function snapshot(){return {...state};}
 
+  async function waitForQrVisual(pageRef,timeoutMs=14000){
+    const started=Date.now();
+    while(Date.now()-started<timeoutMs){
+      if(!pageRef||pageRef.isClosed())return false;
+      const ready=await pageRef.evaluate(()=>{
+        const scoreNode=el=>{
+          try{
+            const r=el.getBoundingClientRect();
+            const w=r.width,h=r.height;
+            if(w<140||h<140||w>460||h>460)return 0;
+            if(Math.abs(w-h)>90)return 0;
+            if(r.bottom<80||r.top>innerHeight-80)return 0;
+            if(r.right<80||r.left>innerWidth-80)return 0;
+            let score=Math.min(w,h);
+            if(el.tagName==='CANVAS')score+=80;
+            if(el.tagName==='SVG')score+=50;
+            if(el.tagName==='IMG'){
+              const nw=Number(el.naturalWidth||0),nh=Number(el.naturalHeight||0);
+              if(nw<100||nh<100)return 0;
+              score+=40;
+            }
+            const centerX=r.left+w/2,centerY=r.top+h/2;
+            if(centerX>innerWidth*.2&&centerX<innerWidth*.8)score+=40;
+            if(centerY>innerHeight*.12&&centerY<innerHeight*.75)score+=40;
+            return score;
+          }catch{return 0}
+        };
+        const nodes=[...document.querySelectorAll('canvas,img,svg')];
+        const best=nodes.reduce((acc,el)=>{
+          const score=scoreNode(el);
+          return score>acc.score?{score,tag:el.tagName}:acc;
+        },{score:0,tag:''});
+        return best.score>=220;
+      }).catch(()=>false);
+      if(ready)return true;
+      await new Promise(resolve=>setTimeout(resolve,280));
+    }
+    return false;
+  }
+
   async function captureQr(){
-    if(!page||page.isClosed())return null;
-    qr=await page.screenshot({
+    const pageRef=page;
+    if(!pageRef||pageRef.isClosed())return null;
+    const visualReady=await waitForQrVisual(pageRef,14000);
+    if(!visualReady||page!==pageRef||pageRef.isClosed())return null;
+    qr=await pageRef.screenshot({
       type:'png',
       fullPage:false,
       captureBeyondViewport:false,
@@ -117,9 +160,9 @@ export function createTikTokLoginRuntime({
     return qr;
   }
 
-  async function readProfile(){
-    if(!page||page.isClosed())return {username:null,userId:null};
-    return page.evaluate(()=>{
+  async function readProfile(pageRef=page){
+    if(!pageRef||pageRef.isClosed())return {username:null,userId:null};
+    return pageRef.evaluate(()=>{
       const links=[...document.querySelectorAll('a[href^="/@"]')];
       let pick=links.find(a=>
         a.querySelector('img')||
@@ -214,11 +257,14 @@ export function createTikTokLoginRuntime({
   }
 
   async function detectAuthenticated(source='watch'){
-    if(completing||!page||page.isClosed())return false;
+    const pageRef=page;
+    if(completing||!pageRef||pageRef.isClosed())return false;
     try{
-      const cookies=await browserCookies(page);
-      const profile=await readProfile();
-      const currentUrl=String(page.url()||'');
+      const cookies=await browserCookies(pageRef);
+      if(page!==pageRef||pageRef.isClosed())return false;
+      const profile=await readProfile(pageRef);
+      if(page!==pageRef||pageRef.isClosed())return false;
+      const currentUrl=String(pageRef.url()||'');
       const hasSessionCookie=cookies.some(cookie=>
         /^(sessionid|sessionid_ss)$/i.test(String(cookie?.name||''))&&
         String(cookie?.value||'').length>8
@@ -365,8 +411,8 @@ export function createTikTokLoginRuntime({
         logger.warn?.('[tiktok-login] qr page navigation',String(error?.message||error));
       });
 
-      await sleep(1800);
-
+      // TikTok often returns the QR token several seconds after DOMContentLoaded.
+      // Do not mark a screenshot containing only the spinner as a ready QR.
       const image=await captureQr();
       if(!image)throw new Error('tiktok_qr_capture_failed');
 
