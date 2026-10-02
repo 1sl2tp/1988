@@ -30,30 +30,71 @@ jobs:
           cat > bench.mjs <<'JS'
           import { chromium } from 'playwright';
 
-          const videoUrl = process.env.VIDEO_URL;
-          const sites = [
-            {name:'Braw', urls:['https://braw.ie/#']},
-            {name:'SnapTik.vn', urls:['https://snaptik.vn/']},
-            {name:'SnapTik.com.pl', urls:['https://snaptik.com.pl/vi/']},
-            {name:'TDown', urls:['https://tdown.app/','https://www.tdown.app/']}
-          ];
+          const videoUrl=process.env.VIDEO_URL;
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext({
+            userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36'
+          });
+          const page=await context.newPage();
 
-          const isMediaUrl=(url,ct='')=>{
-            const s=(url+' '+ct).toLowerCase();
-            return /tiktokcdn|muscdn|byteoversea|byteintl|ibytedtos|video\/mp4|application\/octet-stream|\.mp4(?:\?|$)|playaddr|downloadaddr/.test(s);
-          };
-          const downloadText=(text='')=>/download|tải|mp4|hd|without watermark|không logo|no watermark/i.test(text);
+          let apiRequest=null;
+          let apiResponse=null;
+          let apiStart=0;
+          let apiEnd=0;
 
-          async function firstVisible(locator){
-            const n=await locator.count();
-            for(let i=0;i<n;i++){
-              const el=locator.nth(i);
-              try{ if(await el.isVisible()) return el; }catch{}
+          page.on('request',req=>{
+            if(req.url().includes('api3.viesnap.com/info')){
+              apiStart=Date.now();
+              apiRequest={
+                url:req.url(),
+                method:req.method(),
+                postData:req.postData(),
+                headers:req.headers()
+              };
             }
-            return null;
+          });
+          page.on('response',async res=>{
+            if(res.url().includes('api3.viesnap.com/info')){
+              apiEnd=Date.now();
+              try{apiResponse=await res.json()}catch{apiResponse={raw:(await res.text()).slice(0,10000)}}
+            }
+          });
+
+          const t0=Date.now();
+          await page.goto('https://braw.ie/#',{waitUntil:'domcontentloaded',timeout:30000});
+          const loadMs=Date.now()-t0;
+
+          const input=page.locator('#urlInput');
+          await input.fill(videoUrl);
+          const btn=page.locator('button').filter({hasText:/tải|download/i}).first();
+          const submitAt=Date.now();
+          await btn.click();
+          await page.waitForTimeout(6500);
+
+          function flatten(value,path='',out=[]){
+            if(value==null)return out;
+            if(typeof value==='string'){
+              if(/^https?:\/\//i.test(value))out.push({path,url:value});
+              return out;
+            }
+            if(Array.isArray(value)){
+              value.forEach((v,i)=>flatten(v,path+'['+i+']',out));
+              return out;
+            }
+            if(typeof value==='object'){
+              for(const [k,v] of Object.entries(value))flatten(v,path?path+'.'+k:k,out);
+            }
+            return out;
           }
 
-          async function probeUrl(url,referer){
+          const urls=flatten(apiResponse||{});
+          const candidates=urls.filter(x=>{
+            const p=x.path.toLowerCase(),u=x.url.toLowerCase();
+            return /(video|play|download|nowm|watermark|hd|origin|media)/.test(p) ||
+                   /\.mp4(?:\?|$)|tiktokcdn|muscdn|byteoversea|ibytedtos/.test(u);
+          });
+
+          async function probe(url){
             const controller=new AbortController();
             const timeout=setTimeout(()=>controller.abort(),12000);
             const started=Date.now();
@@ -62,143 +103,46 @@ jobs:
                 headers:{
                   'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36',
                   'range':'bytes=0-1048575',
-                  'accept':'*/*',
-                  'referer':referer
+                  'accept':'video/*,*/*',
+                  'referer':'https://braw.ie/'
                 },
-                redirect:'follow',
-                signal:controller.signal
+                redirect:'follow',signal:controller.signal
               });
               const ttfb=Date.now()-started;
               const ab=await r.arrayBuffer();
               const total=Date.now()-started;
               const ct=r.headers.get('content-type')||'';
               return {
-                ok:(r.ok||r.status===206) && (/video|octet-stream/i.test(ct)||isMediaUrl(r.url,ct)),
-                status:r.status,ttfbMs:ttfb,totalMs:total,bytes:ab.byteLength,
+                url,status:r.status,contentType:ct,ttfbMs:ttfb,totalMs:total,
+                bytes:ab.byteLength,
                 mbps:total?Number(((ab.byteLength*8/1e6)/(total/1000)).toFixed(2)):0,
-                contentType:ct,finalUrl:r.url
+                finalUrl:r.url
               };
-            }catch(e){
-              return {ok:false,error:String(e?.message||e),totalMs:Date.now()-started};
-            }finally{clearTimeout(timeout)}
+            }catch(e){return {url,error:String(e?.message||e)}}
+            finally{clearTimeout(timeout)}
           }
 
-          const browser=await chromium.launch({headless:true});
-          const results=[];
-
-          for(const site of sites){
-            const row={name:site.name,url:'',loadMs:null,submitMs:null,status:'',downloadHref:'',probe:null,error:'',inputs:[],api:[]};
-            let page=null,context=null;
-            try{
-              context=await browser.newContext({
-                acceptDownloads:true,
-                userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136 Safari/537.36'
-              });
-              page=await context.newPage();
-
-              let loaded=false;
-              for(const candidate of site.urls){
-                const t0=Date.now();
-                try{
-                  await page.goto(candidate,{waitUntil:'domcontentloaded',timeout:25000});
-                  row.url=page.url();
-                  row.loadMs=Date.now()-t0;
-                  loaded=true;break;
-                }catch(e){
-                  row.error=String(e?.message||e);
-                }
-              }
-              if(!loaded)throw new Error(row.error||'site_unreachable');
-
-              const inputInfo=await page.locator('input,textarea').evaluateAll(els=>els.map(el=>({
-                tag:el.tagName,type:el.getAttribute('type')||'',name:el.getAttribute('name')||'',
-                placeholder:el.getAttribute('placeholder')||'',id:el.id||''
-              })));
-              row.inputs=inputInfo.slice(0,12);
-
-              const baseline=new Set(await page.locator('a[href]').evaluateAll(els=>els.map(a=>a.href)));
-
-              let input=await firstVisible(page.locator('input[type="search"],input[type="text"],input[type="url"],input:not([type]),textarea'));
-              if(!input) throw new Error('no_visible_input');
-              await input.fill(videoUrl);
-
-              const activity=[];
-              let submitAt=0;
-              page.on('response', async res=>{
-                if(!submitAt)return;
-                const rt=res.request().resourceType();
-                const ct=(await res.allHeaders().catch(()=>({})))['content-type']||'';
-                if(['xhr','fetch','document'].includes(rt)||isMediaUrl(res.url(),ct)){
-                  const item={ms:Date.now()-submitAt,type:rt,status:res.status(),url:res.url(),ct};
-                  if(['xhr','fetch'].includes(rt)&&/json|text|javascript|html/i.test(ct)){
-                    try{item.body=(await res.text()).slice(0,700).replace(/\s+/g,' ')}catch{}
-                  }
-                  activity.push(item);
-                }
-              });
-
-              let button=null;
-              const form=input.locator('xpath=ancestor::form[1]');
-              if(await form.count()){
-                button=await firstVisible(form.locator('button[type="submit"],input[type="submit"],button'));
-              }
-              if(!button){
-                for(const label of [/tải xuống/i,/download/i,/tải/i,/get/i,/submit/i,/start/i]){
-                  button=await firstVisible(page.getByRole('button',{name:label}));
-                  if(button)break;
-                }
-              }
-
-              submitAt=Date.now();
-              if(button) await button.click({timeout:5000});
-              else await input.press('Enter');
-
-              let href='';
-              const deadline=Date.now()+30000;
-              while(Date.now()<deadline){
-                await page.waitForTimeout(200);
-
-                const mediaActivity=activity.find(x=>isMediaUrl(x.url,x.ct));
-                if(mediaActivity){href=mediaActivity.url;break;}
-
-                const anchors=await page.locator('a[href]').evaluateAll(els=>els.map(a=>({
-                  href:a.href,text:(a.textContent||'').trim().replace(/\s+/g,' ').slice(0,160)
-                })));
-                const fresh=anchors.filter(a=>!baseline.has(a.href)&&!a.href.startsWith('javascript:')&&!a.href.endsWith('#'));
-                const best=fresh.find(a=>downloadText(a.text)&&!/(facebook|telegram|wa\.me|twitter|x\.com)/i.test(a.href))
-                  || fresh.find(a=>isMediaUrl(a.href,''));
-                if(best){href=best.href;break;}
-
-                // Some SPAs replace an existing placeholder href in-place.
-                const visibleDownload=[];
-                for(const a of anchors){
-                  if(downloadText(a.text)&&a.href&&!a.href.endsWith('#')&&!/(blog|facebook|telegram|wa\.me)/i.test(a.href)){
-                    visibleDownload.push(a);
-                  }
-                }
-                const candidate=visibleDownload.find(a=>!baseline.has(a.href)||isMediaUrl(a.href,''));
-                if(candidate){href=candidate.href;break;}
-              }
-
-              row.submitMs=Date.now()-submitAt;
-              row.api=activity.slice(0,20);
-              row.downloadHref=href;
-              if(!href){
-                row.status='no_result';
-              }else{
-                row.probe=await probeUrl(href,row.url);
-                row.status=row.probe?.ok?'direct_media_ok':'result_not_direct_media';
-              }
-            }catch(e){
-              row.status='error';
-              row.error=String(e?.message||e);
-            }finally{
-              try{await context?.close()}catch{}
-            }
-            results.push(row);
+          const probes=[];
+          for(const c of candidates.slice(0,12)){
+            const p=await probe(c.url);
+            probes.push({path:c.path,...p});
+            if(/video\/|octet-stream/i.test(p.contentType||'')&&p.bytes>0)break;
           }
 
+          console.log('BRAW_RESULT '+JSON.stringify({
+            loadMs,
+            submitToApiResponseMs:apiEnd&&submitAt?apiEnd-submitAt:null,
+            apiDurationMs:apiEnd&&apiStart?apiEnd-apiStart:null,
+            request:{
+              url:apiRequest?.url||'',
+              method:apiRequest?.method||'',
+              postData:apiRequest?.postData||''
+            },
+            responseKeys:apiResponse&&typeof apiResponse==='object'?Object.keys(apiResponse):[],
+            candidates:candidates.slice(0,20),
+            probes
+          }));
+          await context.close();
           await browser.close();
-          console.log('BENCH_RESULT '+JSON.stringify(results));
           JS
           node bench.mjs
