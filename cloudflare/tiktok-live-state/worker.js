@@ -1604,13 +1604,28 @@ async function relayTikTokVideo(request) {
       }
 
       lastStatus = upstream.status;
-      if (upstream.ok || upstream.status === 206) {
+      const upstreamType=String(upstream.headers.get("content-type")||"").toLowerCase();
+      const mediaOk=
+        (upstream.ok || upstream.status === 206) &&
+        (/^video\//.test(upstreamType) || /application\/octet-stream/.test(upstreamType));
+      if (mediaOk) {
         return mediaRelayResponse(upstream, method, "cloudflare-" + sourceName);
       }
 
       try { await upstream.body?.cancel?.(); } catch {}
-      lastError = sourceName + ":http_" + upstream.status;
-      failures.push({source:sourceName,attempt:attempt+1,phase:"media",status:upstream.status,error:lastError});
+      lastError =
+        sourceName +
+        (upstream.ok || upstream.status===206
+          ? ":invalid_content_type_"+(upstreamType||"empty")
+          : ":http_" + upstream.status);
+      failures.push({
+        source:sourceName,
+        attempt:attempt+1,
+        phase:"media",
+        status:upstream.status,
+        contentType:upstreamType,
+        error:lastError
+      });
 
       // Signed URLs can expire. Refresh that resolver once, then move to the
       // next independent source instead of retrying the same CDN indefinitely.
