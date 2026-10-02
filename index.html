@@ -8514,9 +8514,19 @@ html.one-col.portrait .player.pip{
       feedMasonryObserver=new ResizeObserver(()=>scheduleFeedMasonry());
     }
     feedMasonryObserver.disconnect();
-    rows.querySelectorAll(".row").forEach(card=>feedMasonryObserver.observe(card));
+
+    // Desktop/two-column cards already have fixed grid geometry. Watching every
+    // thumbnail/avatar decode there caused repeated ResizeObserver -> rAF cycles
+    // while scrolling a TikTok channel list.
+    if(!isTwoColumn()){
+      rows.querySelectorAll(".row").forEach(card=>feedMasonryObserver.observe(card));
+      scheduleFeedMasonry();
+    }else{
+      rows.classList.remove("masonry-active");
+      rows.querySelectorAll(".row").forEach(card=>card.style.removeProperty("grid-row-end"));
+    }
+
     observeTikTokVodWarmRows(rows);
-    scheduleFeedMasonry();
   }
 
   const rowsImageHost=document.getElementById("rows");
@@ -9663,7 +9673,17 @@ html.one-col.portrait .player.pip{
         0,
         Math.min(rect.bottom,viewportBottom)-Math.max(rect.top,headerBottom)
       );
-      const hostVisible=visiblePixels>4;
+
+      // Hysteresis prevents mode flapping at the exact viewport boundary:
+      // inline stays inline until fully gone; PiP only returns after a real
+      // slice of the original video frame is visible again.
+      const currentlyFloating=
+        pip ||
+        player.classList.contains("pip") ||
+        host.classList.contains("pip-floating");
+      const hostVisible=currentlyFloating
+        ? visiblePixels>28
+        : visiblePixels>1;
 
       if(hostVisible){
         host.classList.remove("pip-floating");
@@ -10253,7 +10273,11 @@ html.one-col.portrait .player.pip{
   addEventListener("scroll",()=>{
     closeRowActionMenu();
     syncHeaderScrollState();
-    schedulePip();
+
+    // The left player is sticky and stable in two-column mode; recomputing PiP
+    // here used to repaint the video info on every scroll animation frame.
+    if(!isTwoColumn())schedulePip();
+
     primeVisibleLivePreviews();
     syncMobileHeaderVisibility();
   },{passive:true});
