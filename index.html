@@ -1113,28 +1113,25 @@ main{
 .player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokMediaVideo{
-  display:block!important;
-  visibility:visible!important;
-  opacity:1!important;
-  pointer-events:auto!important;
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
 }
 .player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
-  display:none!important;
-  visibility:hidden!important;
-  opacity:0!important;
-  pointer-events:none!important;
-}
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaVideo{
-  display:none!important;
-  visibility:hidden!important;
-  opacity:0!important;
-  pointer-events:none!important;
-}
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
   pointer-events:auto!important;
+}
+/* Keep our own poster above TikTok while the official iframe is connecting.
+   The central TikTok loading/logo layer is never exposed. */
+.player.tiktok-active.tiktok-vod.tiktok-vod-loading > .tiktok-live-preview{
+  display:block!important;
+  opacity:1!important;
+  visibility:visible!important;
+  pointer-events:auto!important;
+  z-index:4!important;
 }
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
@@ -2454,7 +2451,7 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 /* TikTok VOD uses TikTok's own working player.
    Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
    Same crop model as YouTube rail; only the measured rail size differs. */
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
@@ -6330,8 +6327,9 @@ html.one-col.portrait .player.pip{
       if(message?.["x-tiktok-player"]!==true)return;
 
       if(message.type==="onPlayerReady"){
-        // TikTok's embed can enter autoplay muted even though the video card
-        // was opened by a user click. Explicitly request sound first, then play.
+        if(!player.classList.contains("tiktok-vod"))return;
+        // The official TikTok player owns the media bytes. Request audible
+        // playback immediately; our poster stays over the iframe until PLAYING.
         tiktokEmbedCommand("unMute",undefined);
         tiktokEmbedCommand("play",undefined);
         return;
@@ -6339,11 +6337,16 @@ html.one-col.portrait .player.pip{
 
       if(message.type==="onStateChange"){
         const state=Number(message.value);
-        player.classList.toggle("tiktok-playing",state===1);
-        player.classList.toggle("tiktok-media-playing",state===1);
-        if(state===1){
-          // A second unmute at PLAYING handles browsers that temporarily force
-          // the first autoplay transition into a muted state.
+        const playing=state===1;
+        player.classList.toggle("tiktok-playing",playing);
+        player.classList.toggle("tiktok-media-playing",playing);
+        if(playing){
+          player.classList.remove("tiktok-vod-loading");
+          if(tiktokLivePreview){
+            tiktokLivePreview.hidden=true;
+          }
+          // Some WebKit builds enter the first frame muted. Ask once more after
+          // playback is established; native TikTok controls remain available.
           tiktokEmbedCommand("unMute",undefined);
         }
         if(state===0)queueMicrotask(()=>playNextFeedVideo());
@@ -6351,6 +6354,10 @@ html.one-col.portrait .player.pip{
       }
 
       if(message.type==="onPlayerError"){
+        player.classList.remove("tiktok-playing","tiktok-media-playing");
+        // Do not switch source engines. Keep the poster and TikTok's own player
+        // so a transient TikTok load does not visibly jump to another backend.
+        player.classList.add("tiktok-vod-loading");
         console.warn("tiktok_embed_error",message.value,String(current?.id||""));
       }
     });
@@ -6413,7 +6420,7 @@ html.one-col.portrait .player.pip{
       tiktokMediaFrame.hidden=true;
       tiktokMediaFrame.removeAttribute("src");
     }
-    player.classList.remove("tiktok-vod","tiktok-embed-fallback","tiktok-playing","tiktok-media-playing");
+    player.classList.remove("tiktok-vod","tiktok-embed-fallback","tiktok-vod-loading","tiktok-playing","tiktok-media-playing");
   }
 
   function activateYoutubeSurface(){
@@ -6617,16 +6624,27 @@ html.one-col.portrait .player.pip{
     }
   }
 
+  function ensureTikTokPlayerPreconnect(){
+    if(document.querySelector('link[data-tiktok-player-preconnect]'))return;
+    const link=document.createElement("link");
+    link.rel="preconnect";
+    link.href="https://www.tiktok.com";
+    link.crossOrigin="anonymous";
+    link.dataset.tiktokPlayerPreconnect="1";
+    document.head.appendChild(link);
+  }
+
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaVideo)return false;
+    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaFrame)return false;
 
+    ensureTikTokPlayerPreconnect();
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
     activateTikTokSurface();
-    player.classList.add("tiktok-vod");
-    player.classList.remove("tiktok-embed-fallback");
+    player.classList.add("tiktok-vod","tiktok-vod-loading");
+    player.classList.remove("tiktok-embed-fallback","tiktok-playing","tiktok-media-playing");
 
     currentMeta=meta;
     const ratio=
@@ -6648,141 +6666,51 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    const native=tiktokMediaVideo;
+    // Our own thumbnail covers the official player until TikTok reports PLAYING.
+    // This removes the visible spinner/logo and, importantly, removes every
+    // media-byte proxy from the primary VOD path.
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const proxyBase=
-      TIKTOK_LIVE_API+
-      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id);
-    const warmUrl=
-      TIKTOK_LIBRARY_API+
-      "/tiktok/video-warm?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id);
+    if(tiktokLivePreview){
+      tiktokLivePreview.hidden=!preview;
+      if(preview)tiktokLivePreview.src=preview;
+    }
 
-    const embedFallback=()=>{
-      if(String(current?.id||"")!==id||!tiktokMediaFrame)return;
-      player.classList.add("tiktok-embed-fallback");
+    if(tiktokMediaVideo){
       try{
-        native.pause();
-        native.removeAttribute("src");
-        native.load();
+        tiktokMediaVideo.pause();
+        tiktokMediaVideo.removeAttribute("src");
+        tiktokMediaVideo.load();
       }catch{}
-      native.hidden=true;
-
-      const params=new URLSearchParams({
-        autoplay:"1",
-        muted:"0",
-        controls:"1",
-        progress_bar:"1",
-        play_button:"1",
-        volume_control:"1",
-        fullscreen_button:"1",
-        timestamp:"1",
-        loop:"0",
-        music_info:"0",
-        description:"0",
-        rel:"0",
-        native_context_menu:"0",
-        closed_caption:"0"
-      });
-      tiktokMediaFrame.hidden=false;
-      tiktokMediaFrame.src=
-        "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
-    };
-
-    if(tiktokMediaFrame){
-      tiktokMediaFrame.hidden=true;
-      tiktokMediaFrame.removeAttribute("src");
+      tiktokMediaVideo.hidden=true;
     }
     if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
-    if(tiktokLivePreview)tiktokLivePreview.hidden=true;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
 
-    native.hidden=false;
-    native.controls=true;
-    native.preload="auto";
-    native.playsInline=true;
-    native.autoplay=true;
-    native.setAttribute("autoplay","");
-    native.defaultMuted=false;
-    native.muted=false;
-    native.volume=1;
-    native.poster=preview;
+    const params=new URLSearchParams({
+      autoplay:"1",
+      muted:"0",
+      controls:"1",
+      progress_bar:"1",
+      play_button:"1",
+      volume_control:"1",
+      fullscreen_button:"1",
+      timestamp:"1",
+      loop:"0",
+      music_info:"0",
+      description:"0",
+      rel:"0",
+      native_context_menu:"0",
+      closed_caption:"0"
+    });
 
-    let retryCount=0;
-    native.onerror=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      console.warn("tiktok_video_proxy_error",{
-        id,
-        handle,
-        retryCount,
-        code:Number(native.error?.code)||0,
-        message:String(native.error?.message||"")
-      });
+    tiktokMediaFrame.hidden=false;
+    tiktokMediaFrame.src=
+      "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
 
-      if(retryCount<1){
-        retryCount+=1;
-        fetch(warmUrl,{cache:"no-store"}).catch(()=>{});
-        setTimeout(()=>{
-          if(String(current?.id||"")!==id)return;
-          native.defaultMuted=false;
-          native.muted=false;
-          native.volume=1;
-          native.src=proxyBase+"&retry="+Date.now();
-          native.load();
-          native.play().catch(error=>{
-            console.warn("tiktok_video_proxy_retry_rejected",error?.name||"",error?.message||"");
-          });
-        },1800);
-        return;
-      }
-
-      // Keep the known-working official TikTok player as a last-resort
-      // fallback. It retains the measured 310px rail crop.
-      embedFallback();
-    };
-
-    native.onloadedmetadata=()=>{
-      if(String(current?.id||"")!==id)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      const w=Number(native.videoWidth)||0;
-      const h=Number(native.videoHeight)||0;
-      if(w>0&&h>0){
-        commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
-      }
-    };
-    native.onplaying=()=>{
-      if(String(current?.id||"")!==id)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      player.classList.add("tiktok-media-playing","tiktok-playing");
-    };
-    native.onpause=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-    };
-    native.onended=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      queueMicrotask(()=>playNextFeedVideo());
-    };
-
-    // This call happens synchronously inside the video-card click, so the
-    // native MP4 element keeps the user's audible-play gesture while Render
-    // resolves/streams the TikTok source.
-    native.src=proxyBase;
-    native.load();
-    const pending=native.play();
-    if(pending?.catch){
-      pending.catch(error=>{
-        if(String(current?.id||"")!==id)return;
-        console.warn("tiktok_video_proxy_play_rejected",error?.name||"",error?.message||"");
-      });
-    }
+    // Fire commands immediately as well. If this iframe was warm in the HTTP
+    // cache/preconnected path, these land during the original card gesture.
+    tiktokEmbedCommand("unMute",undefined);
+    tiktokEmbedCommand("play",undefined);
 
     renderCurrentInfo();
     schedulePip();
@@ -8073,8 +8001,12 @@ html.one-col.portrait .player.pip{
       const id=String(card.dataset.videoId||"");
       const meta=feedMetas.find(item=>String(item?.id||"")===id);
       if(meta){
-        prepareTikTokLivePlayer(meta);
-        primeTikTokPlaybackNeighborhood(id,2);
+        if(meta?.isLive===true){
+          prepareTikTokLivePlayer(meta);
+          primeTikTokPlaybackNeighborhood(id,2);
+        }else{
+          ensureTikTokPlayerPreconnect();
+        }
       }
     },{passive:true});
   }
