@@ -5,6 +5,7 @@ const BATCH_SIZE = 40;
 const LIVE_PRIORITY_MAX = 16;
 const VIDEO_BATCH_SIZE = 6;
 const VIDEO_SOURCE_CACHE_SECONDS = 240;
+const TIKTOK_NATIVE_VOD_CACHE_SECONDS = 120;
 
 function cors() {
   return {
@@ -896,6 +897,100 @@ function copyMediaHeader(from, to, name) {
   const value = from.get(name);
   if (value) to.set(name, value);
 }
+function nativeTikTokVideoCacheKey(handle,id){
+  return new Request(
+    "https://1988-edge-cache.invalid/tiktok/native-video-source?user="+
+      encodeURIComponent(handle.toLowerCase())+
+      "&id="+encodeURIComponent(id)
+  );
+}
+function tikTokCookieHeader(headers){
+  const values=[];
+  try{
+    if(typeof headers?.getSetCookie==="function"){
+      values.push(...headers.getSetCookie());
+    }
+  }catch{}
+  if(!values.length){
+    const raw=String(headers?.get?.("set-cookie")||"");
+    if(raw)values.push(raw);
+  }
+  const pairs=[];
+  const seen=new Set();
+  for(const raw of values){
+    const parts=String(raw||"").split(/,(?=[^;,]+=)/g);
+    for(const part of parts){
+      const pair=String(part||"").split(";")[0].trim();
+      const eq=pair.indexOf("=");
+      if(eq<=0)continue;
+      const name=pair.slice(0,eq).trim();
+      if(!/^[!#$%&'*+.^_\x60|~0-9A-Za-z-]+$/.test(name))continue;
+      if(seen.has(name))continue;
+      seen.add(name);
+      pairs.push(pair);
+    }
+  }
+  return pairs.join("; ");
+}
+async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
+  const cache=caches.default;
+  const cacheKey=nativeTikTokVideoCacheKey(handle,id);
+  if(!refresh){
+    const hit=await cache.match(cacheKey).catch(()=>null);
+    if(hit){
+      const row=await hit.json().catch(()=>null);
+      if(row?.url&&row?.cookie)return row;
+    }
+  }
+
+  const pageUrl="https://www.tiktok.com/@i/video/"+encodeURIComponent(id);
+  const ua=
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
+  const page=await fetch(pageUrl,{
+    headers:{
+      "user-agent":ua,
+      "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+      "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+      "referer":"https://www.tiktok.com/"
+    },
+    redirect:"follow",
+    cf:{cacheTtl:0,cacheEverything:false}
+  });
+  if(!page.ok)throw new Error("tiktok_native_page_http_"+page.status);
+
+  const cookie=tikTokCookieHeader(page.headers);
+  const html=await page.text();
+  const universal=originParseScript(html,"__UNIVERSAL_DATA_FOR_REHYDRATION__");
+  if(!universal)throw new Error("tiktok_native_hydration_missing");
+
+  const hit=originCollectVideo(universal,id);
+  const urls=[...(hit.play||[]),...(hit.download||[])].filter(u=>/^https?:\/\//i.test(String(u||"")));
+  const url=String(
+    urls.find(u=>/v\d+-webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(u))||
+    urls[0]||
+    ""
+  ).trim();
+  if(!url)throw new Error("tiktok_native_playaddr_missing");
+  if(!cookie)throw new Error("tiktok_native_cookie_missing");
+
+  const row={
+    url,
+    cookie,
+    source:"tiktok-native-cobalt",
+    resolvedAt:Date.now()
+  };
+  await cache.put(
+    cacheKey,
+    new Response(JSON.stringify(row),{
+      headers:{
+        "content-type":"application/json",
+        "cache-control":"private,max-age="+TIKTOK_NATIVE_VOD_CACHE_SECONDS
+      }
+    })
+  ).catch(()=>{});
+  return row;
+}
+
 async function resolveTikwmVideoSource(handle, id, { refresh = false } = {}) {
   const cache = caches.default;
   const cacheKey = new Request(
@@ -1030,6 +1125,20 @@ async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
 }
 
 async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}) {
+  if (name === "native") {
+    const source = await resolveTikTokNativeVideoSource(handle,id,{refresh});
+    return {
+      name:"native",
+      url:String(source.url||""),
+      headers:{
+        "user-agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        "referer":"https://www.tiktok.com/",
+        "cookie":String(source.cookie||""),
+        "accept":"*/*"
+      }
+    };
+  }
   if (name === "tdown") {
     const source = await resolveTdownVideoSource(handle, id, { refresh });
     return {
@@ -1055,9 +1164,11 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
 }
 
 function vodSourceOrder(preferred = "") {
-  if (preferred === "tdown") return ["tdown", "tikwm"];
-  if (preferred === "direct") return ["direct", "tikwm", "tdown"];
-  return ["tikwm", "tdown"];
+  if (preferred === "native") return ["native","tikwm","tdown"];
+  if (preferred === "tdown") return ["tdown","native","tikwm"];
+  if (preferred === "tikwm") return ["tikwm","native","tdown"];
+  if (preferred === "direct") return ["native","direct","tikwm","tdown"];
+  return ["native","tikwm","tdown"];
 }
 
 function vodWarmCacheKey(handle,id) {
@@ -1072,7 +1183,7 @@ async function readVodWarmPreference(handle,id) {
   const hit=await caches.default.match(vodWarmCacheKey(handle,id)).catch(()=>null);
   if(!hit)return "";
   const row=await hit.json().catch(()=>null);
-  return ["tikwm","tdown"].includes(String(row?.preferred||""))?String(row.preferred):"";
+  return ["native","tikwm","tdown"].includes(String(row?.preferred||""))?String(row.preferred):"";
 }
 
 async function probeVodSource(source,handle) {
@@ -1120,7 +1231,7 @@ async function warmTikTokVod(request) {
 
   const existing=await readVodWarmPreference(handle,id);
   if(existing){
-    const names=existing==="tdown"?["tdown","tikwm"]:["tikwm","tdown"];
+    const names=vodSourceOrder(existing).filter(name=>name!=="direct");
     const sources=[];
     for(const name of names){
       try{
@@ -1133,7 +1244,7 @@ async function warmTikTokVod(request) {
     return json({ok:true,warm:true,cached:true,preferred:existing,sources});
   }
 
-  const names=["tikwm","tdown"];
+  const names=["native","tikwm","tdown"];
   const checks=await Promise.all(names.map(async name=>{
     const started=Date.now();
     try{
@@ -1199,7 +1310,7 @@ async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   const headers = new Headers();
   for (const [name, value] of Object.entries(extraHeaders || {})) {
     const key = String(name || "").toLowerCase();
-    if (!["user-agent", "referer", "origin", "accept", "accept-language"].includes(key)) continue;
+    if (!["user-agent", "referer", "origin", "accept", "accept-language", "cookie"].includes(key)) continue;
     if (value) headers.set(key, String(value));
   }
   if (!headers.has("user-agent")) {
