@@ -718,9 +718,119 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
 }
 
 function vodSourceOrder(preferred = "") {
-  if (preferred === "tdown") return ["tdown", "tikwm", "direct"];
+  if (preferred === "tdown") return ["tdown", "tikwm"];
   if (preferred === "direct") return ["direct", "tikwm", "tdown"];
-  return ["tikwm", "tdown", "direct"];
+  return ["tikwm", "tdown"];
+}
+
+function vodWarmCacheKey(handle,id) {
+  return new Request(
+    "https://1988-edge-cache.invalid/tiktok/vod-warm?user=" +
+      encodeURIComponent(handle.toLowerCase()) +
+      "&id=" + encodeURIComponent(id)
+  );
+}
+
+async function readVodWarmPreference(handle,id) {
+  const hit=await caches.default.match(vodWarmCacheKey(handle,id)).catch(()=>null);
+  if(!hit)return "";
+  const row=await hit.json().catch(()=>null);
+  return ["tikwm","tdown"].includes(String(row?.preferred||""))?String(row.preferred):"";
+}
+
+async function probeVodSource(source,handle) {
+  const started=Date.now();
+  try{
+    const headers=new Headers(source.headers||{});
+    headers.set("range","bytes=0-1");
+    if(!headers.has("user-agent")){
+      headers.set(
+        "user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36"
+      );
+    }
+    headers.set("accept","*/*");
+    const r=await fetch(source.url,{
+      method:"GET",
+      headers,
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    const ok=r.ok||r.status===206;
+    try{await r.body?.cancel?.()}catch{}
+    return {
+      ok,
+      name:source.name,
+      ms:Date.now()-started,
+      status:r.status
+    };
+  }catch(error){
+    return {
+      ok:false,
+      name:source.name,
+      ms:Date.now()-started,
+      status:0,
+      error:String(error?.message||error||"probe_failed")
+    };
+  }
+}
+
+async function warmTikTokVod(request) {
+  const url=new URL(request.url);
+  const handle=normalizeHandle(url.searchParams.get("user")||"");
+  const id=normalizeVideoId(url.searchParams.get("id")||"");
+  if(!handle||!id)return json({ok:false,error:"invalid_tiktok_video"},400);
+
+  const existing=await readVodWarmPreference(handle,id);
+  if(existing){
+    return json({ok:true,warm:true,cached:true,preferred:existing});
+  }
+
+  const names=["tikwm","tdown"];
+  const checks=await Promise.all(names.map(async name=>{
+    const started=Date.now();
+    try{
+      const source=await resolveVodSourceByName(name,handle,id);
+      const probe=await probeVodSource(source,handle);
+      return {
+        ...probe,
+        resolveMs:Math.max(0,Date.now()-started-probe.ms)
+      };
+    }catch(error){
+      return {
+        ok:false,
+        name,
+        ms:Date.now()-started,
+        resolveMs:Date.now()-started,
+        status:0,
+        error:String(error?.message||error||"resolve_failed")
+      };
+    }
+  }));
+
+  const good=checks
+    .filter(x=>x.ok)
+    .sort((a,b)=>(a.ms+a.resolveMs)-(b.ms+b.resolveMs));
+  const preferred=String(good[0]?.name||"");
+  if(preferred){
+    await caches.default.put(
+      vodWarmCacheKey(handle,id),
+      new Response(JSON.stringify({preferred,checkedAt:Date.now()}),{
+        headers:{
+          "content-type":"application/json",
+          "cache-control":"public,max-age=180"
+        }
+      })
+    ).catch(()=>{});
+  }
+
+  return json({
+    ok:Boolean(preferred),
+    warm:Boolean(preferred),
+    cached:false,
+    preferred,
+    checks
+  },preferred?200:502);
 }
 
 async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
@@ -782,7 +892,10 @@ async function relayTikTokVideo(request) {
   if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
 
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const preferred = String(url.searchParams.get("source") || "").toLowerCase();
+  let preferred = String(url.searchParams.get("source") || "").toLowerCase();
+  if(!preferred||preferred==="auto"){
+    preferred=await readVodWarmPreference(handle,id);
+  }
   const order = vodSourceOrder(preferred);
   let lastStatus = 0;
   let lastError = "";
@@ -876,6 +989,9 @@ export default {
         (request.method === "GET" || request.method === "HEAD"))
       return redirectTikTokVideoDirect(request);
 
+    if (url.pathname === "/tiktok/video-warm-edge" && request.method === "GET") {
+      return warmTikTokVod(request);
+    }
     if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
       return relayTikTokVideo(request);
     }
