@@ -5607,6 +5607,9 @@ html.one-col.portrait .player.pip{
     const previewRaw=String(item?.preview||"").trim();
     const coverRaw=String(item?.cover||"").trim();
     const cover=previewRaw||coverRaw||avatar;
+    const livePreviewFallbacks=[...new Set(
+      [previewRaw,coverRaw,avatar].map(value=>String(value||"").trim()).filter(Boolean)
+    )];
     const livePreviewIsSession=Boolean(
       previewRaw&&
       (
@@ -5625,6 +5628,7 @@ html.one-col.portrait .player.pip{
       sourceAvatar:avatar,
       thumbnail:cover,
       livePreview:cover,
+      livePreviewFallbacks,
       livePreviewIsSession,
       isLive:true,
       verified:false,
@@ -6044,7 +6048,13 @@ html.one-col.portrait .player.pip{
       const preview=livePreviewForMeta(meta);
       if(!preview)continue;
       const img=row.querySelector(".row-thumb img");
-      if(img&&img.src!==preview)img.src=preview;
+      const tried=new Set(
+        String(img?.dataset?.tiktokThumbTried||"")
+          .split("\n")
+          .map(value=>value.trim())
+          .filter(Boolean)
+      );
+      if(img&&!tried.has(preview)&&img.src!==preview)img.src=preview;
     }
   }
 
@@ -8251,6 +8261,77 @@ html.one-col.portrait .player.pip{
 
     const card=img.closest(".row[data-video-id]");
     const id=String(card?.dataset?.videoId||"").trim();
+    const provider=String(card?.dataset?.provider||"youtube").toLowerCase();
+
+    if(provider==="tiktok"){
+      const meta=feedMetas.find(item=>String(item?.id||"")===id);
+      const currentSrc=String(img.currentSrc||img.src||img.getAttribute("src")||"").trim();
+      const tried=new Set(
+        String(img.dataset.tiktokThumbTried||"")
+          .split("\n")
+          .map(value=>value.trim())
+          .filter(Boolean)
+      );
+      if(currentSrc)tried.add(currentSrc);
+
+      const candidates=[
+        ...(Array.isArray(meta?.livePreviewFallbacks)?meta.livePreviewFallbacks:[]),
+        String(meta?.livePreview||"").trim(),
+        String(meta?.thumbnail||"").trim(),
+        String(meta?.sourceAvatar||"").trim()
+      ].filter(Boolean);
+
+      const next=candidates.find(url=>!tried.has(url));
+      img.dataset.tiktokThumbTried=[...tried].join("\n");
+
+      if(next){
+        img.src=next;
+        if(meta){
+          meta.livePreview=next;
+          meta.thumbnail=next;
+        }
+        return;
+      }
+
+      // One fresh edge refresh can provide a newly signed live-cover URL.
+      if(img.dataset.tiktokThumbRefresh!=="1"){
+        img.dataset.tiktokThumbRefresh="1";
+        const handle=String(meta?.handle||"").trim();
+        void refreshTikTokLiveFeed({paint:false,force:true}).then(()=>{
+          if(!img.isConnected)return;
+          const fresh=feedMetas.find(item=>String(item?.id||"")===id)||
+            tiktokLiveMetas.find(item=>String(item?.handle||"")===handle);
+          const refreshed=[
+            ...(Array.isArray(fresh?.livePreviewFallbacks)?fresh.livePreviewFallbacks:[]),
+            String(fresh?.livePreview||"").trim(),
+            String(fresh?.thumbnail||"").trim(),
+            String(fresh?.sourceAvatar||"").trim()
+          ].filter(Boolean).find(url=>!tried.has(url));
+          if(refreshed){
+            img.src=refreshed;
+            return;
+          }
+
+          // Never leave the browser's broken-image icon over a LIVE card.
+          const avatar=String(fresh?.sourceAvatar||meta?.sourceAvatar||"").trim();
+          if(avatar&&avatar!==currentSrc){
+            img.src=avatar;
+          }else{
+            img.removeAttribute("src");
+            img.style.visibility="hidden";
+          }
+        }).catch(()=>{
+          const avatar=String(meta?.sourceAvatar||"").trim();
+          if(avatar&&avatar!==currentSrc)img.src=avatar;
+          else{
+            img.removeAttribute("src");
+            img.style.visibility="hidden";
+          }
+        });
+      }
+      return;
+    }
+
     if(!/^[A-Za-z0-9_-]{11}$/.test(id))return;
 
     const stage=Number(img.dataset.thumbFallbackStage||0);
