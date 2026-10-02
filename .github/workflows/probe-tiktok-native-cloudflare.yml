@@ -202,7 +202,7 @@ jobs:
           JS
           node /tmp/ttwid-probe.mjs
 
-      - name: Probe exact VOD after cookie bootstrap
+      - name: Probe exact VOD after Worker ttwid bootstrap
         shell: bash
         run: |
           set -euo pipefail
