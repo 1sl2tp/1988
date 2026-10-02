@@ -303,6 +303,108 @@ function copyMediaHeader(from, to, name) {
   const value = from.get(name);
   if (value) to.set(name, value);
 }
+async function resolveTikwmVideoSource(handle, id) {
+  const cache = caches.default;
+  const cacheKey = new Request(
+    "https://1988-edge-cache.invalid/tikwm/video-source?user=" +
+      encodeURIComponent(handle.toLowerCase()) +
+      "&id=" + encodeURIComponent(id)
+  );
+
+  const cached = await cache.match(cacheKey).catch(() => null);
+  if (cached) {
+    const row = await cached.json().catch(() => null);
+    if (row?.url) return row;
+  }
+
+  const pageUrl = "https://www.tiktok.com/@" + handle + "/video/" + id;
+  const api = new URL("https://www.tikwm.com/api/");
+  api.searchParams.set("url", pageUrl);
+
+  const r = await fetch(api, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+      "accept": "application/json,text/plain,*/*",
+      "referer": "https://www.tikwm.com/"
+    },
+    redirect: "follow",
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+  if (!r.ok) throw new Error("tikwm_api_http_" + r.status);
+
+  const data = await r.json();
+  const body = data?.data || {};
+  let mediaUrl = String(body.play || body.wmplay || body.hdplay || "").trim();
+  if (!mediaUrl) throw new Error("tikwm_no_media_url");
+  if (mediaUrl.startsWith("//")) mediaUrl = "https:" + mediaUrl;
+  else if (mediaUrl.startsWith("/")) mediaUrl = "https://www.tikwm.com" + mediaUrl;
+
+  const row = { url: mediaUrl, source: "tikwm" };
+  await cache.put(
+    cacheKey,
+    new Response(JSON.stringify(row), {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public,max-age=300"
+      }
+    })
+  ).catch(() => {});
+  return row;
+}
+
+async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(extraHeaders || {})) {
+    const key = String(name || "").toLowerCase();
+    if (!["user-agent", "referer", "origin", "accept", "accept-language"].includes(key)) continue;
+    if (value) headers.set(key, String(value));
+  }
+  if (!headers.has("user-agent")) {
+    headers.set(
+      "user-agent",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36"
+    );
+  }
+  if (!headers.has("accept")) headers.set("accept", "*/*");
+  const range = request.headers.get("range") || "";
+  if (range) headers.set("range", range);
+
+  return fetch(targetUrl, {
+    method: request.method === "HEAD" ? "HEAD" : "GET",
+    headers,
+    redirect: "follow",
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+}
+
+function mediaRelayResponse(upstream, method, sourceLabel) {
+  const out = new Headers({
+    "access-control-allow-origin": "*",
+    "access-control-allow-methods": "GET,HEAD,OPTIONS",
+    "access-control-allow-headers": "range",
+    "access-control-expose-headers":
+      "content-length,content-range,accept-ranges,content-type,etag,last-modified,x-1988-media",
+    "cache-control": "no-store",
+    "x-1988-media": sourceLabel
+  });
+  for (const name of [
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "etag",
+    "last-modified"
+  ]) copyMediaHeader(upstream.headers, out, name);
+  if (!out.has("content-type")) out.set("content-type", "video/mp4");
+  if (!out.has("accept-ranges")) out.set("accept-ranges", "bytes");
+
+  return new Response(method === "HEAD" ? null : upstream.body, {
+    status: upstream.status,
+    headers: out
+  });
+}
+
 async function relayTikTokVideo(request) {
   const url = new URL(request.url);
   const handle = normalizeHandle(url.searchParams.get("user") || "");
@@ -310,8 +412,24 @@ async function relayTikTokVideo(request) {
   if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
 
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-  const range = request.headers.get("range") || "";
 
+  // 1) Prefer TikWM's browser-friendly MP4 URL. This keeps media bytes off Render
+  // and avoids TikTok signed-CDN 403s from Cloudflare data-center IPs.
+  try {
+    const source = await resolveTikwmVideoSource(handle, id);
+    const upstream = await fetchTikTokMediaTarget(source.url, request, {
+      referer: "https://www.tikwm.com/",
+      accept: "*/*"
+    });
+    if (upstream.ok && (upstream.body || method === "HEAD")) {
+      return mediaRelayResponse(upstream, method, "cloudflare-tikwm");
+    }
+  } catch (error) {
+    // Continue to the direct TikTok source path below.
+  }
+
+  // 2) Fallback to Render only as a tiny source resolver. Render returns metadata
+  // (signed URL + safe headers), never the MP4 byte stream.
   let lastStatus = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
     let source;
@@ -322,60 +440,13 @@ async function relayTikTokVideo(request) {
       return json({ ok: false, error: String(error?.message || error) }, 502);
     }
 
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(source.relayHeaders || {})) {
-      const key = String(name || "").toLowerCase();
-      if (!["user-agent", "referer", "origin", "accept", "accept-language"].includes(key)) continue;
-      if (value) headers.set(key, String(value));
-    }
-    if (!headers.has("referer")) headers.set("referer", "https://www.tiktok.com/@" + handle);
-    if (!headers.has("accept")) headers.set("accept", "*/*");
-    if (range) headers.set("range", range);
-
-    const upstream = await fetch(source.directUrl, {
-      method,
-      headers,
-      redirect: "follow",
-      cf: { cacheTtl: 0, cacheEverything: false }
-    });
-
+    const upstream = await fetchTikTokMediaTarget(source.directUrl, request, source.relayHeaders || {});
     lastStatus = upstream.status;
+
     if ([401, 403, 410].includes(upstream.status) && attempt === 0) continue;
-
-    if (!upstream.ok || !upstream.body && method !== "HEAD") {
-      return json({
-        ok: false,
-        error: "tiktok_upstream_" + upstream.status,
-        edge: true
-      }, 502);
+    if (upstream.ok && (upstream.body || method === "HEAD")) {
+      return mediaRelayResponse(upstream, method, "cloudflare-direct-tiktok");
     }
-
-    const out = new Headers({
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET,HEAD,OPTIONS",
-      "access-control-allow-headers": "range",
-      "access-control-expose-headers":
-        "content-length,content-range,accept-ranges,content-type,etag,last-modified,x-1988-media",
-      "cache-control": "no-store",
-      "x-1988-media": "cloudflare-direct-tiktok"
-    });
-
-    for (const name of [
-      "content-type",
-      "content-length",
-      "content-range",
-      "accept-ranges",
-      "etag",
-      "last-modified"
-    ]) copyMediaHeader(upstream.headers, out, name);
-
-    if (!out.has("content-type")) out.set("content-type", "video/mp4");
-    if (!out.has("accept-ranges")) out.set("accept-ranges", "bytes");
-
-    return new Response(method === "HEAD" ? null : upstream.body, {
-      status: upstream.status,
-      headers: out
-    });
   }
 
   return json({ ok: false, error: "tiktok_upstream_" + lastStatus, edge: true }, 502);
