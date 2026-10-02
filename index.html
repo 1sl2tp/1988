@@ -2601,13 +2601,19 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 
 /* TikTok VOD official player rail crop.
    Proven setting from /tiktok-mask-proof.html:
-   323px BLACK top/bottom, 0px left/right, shiftY=0, shiftX=0.
-   The parent .player is the fixed viewport; TikTok's iframe is the taller source. */
+   323px BLACK top/bottom, shiftY=0.
+   Some portrait embeds leave a thin black rail on the RIGHT; overscan the
+   iframe only to the right so that rail stays outside the visible viewport. */
 .player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaVideo{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
   pointer-events:none!important;
+}
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core{
+  --tt-vod-cut-right:14px;
+  overflow:hidden!important;
+  background:#000!important;
 }
 .player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaFrame{
   display:block!important;
@@ -2618,15 +2624,12 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
   right:auto!important;
   top:-323px!important;
   bottom:auto!important;
-  width:100%!important;
+  width:calc(100% + var(--tt-vod-cut-right))!important;
   height:calc(100% + 646px)!important;
   max-width:none!important;
   max-height:none!important;
   transform:none!important;
   border:0!important;
-  background:#000!important;
-}
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core{
   background:#000!important;
 }
 
