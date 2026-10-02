@@ -1,5 +1,9 @@
 name: Deploy TikTok Live State Edge
 
+concurrency:
+  group: deploy-tiktok-live-state-edge-main
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
@@ -19,6 +23,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Test edge contracts
+        run: node cloudflare/tiktok-live-state/video-fingerprint-contract.test.cjs
       - name: Deploy Worker
         working-directory: cloudflare/tiktok-live-state
         env:
