@@ -1299,12 +1299,14 @@ function vodDecodeHtml(value){
     .replace(/&#([0-9]+);/g,(_,x)=>String.fromCodePoint(parseInt(x,10)||0));
 }
 function vodHtmlAttr(tag,name){
-  const m=String(tag||"").match(new RegExp("\\\\b"+name+"\\\\s*=\\\\s*([\\\"'])((?:\\\\\\\\.|(?!\\\\1).)*)\\\\1","i"));
-  return m?vodDecodeHtml(m[2]):"";
+  const text=String(tag||"");
+  let m=text.match(new RegExp("\\b"+name+"\\s*=\\s*\"([^\"]*)\"","i"));
+  if(!m)m=text.match(new RegExp("\\b"+name+"\\s*=\\s*'([^']*)'","i"));
+  return m?vodDecodeHtml(m[1]):"";
 }
 function vodHtmlInputs(html){
   const out={};
-  for(const m of String(html||"").matchAll(/<input\\b[^>]*>/gi)){
+  for(const m of String(html||"").matchAll(/<input\b[^>]*>/gi)){
     const tag=m[0];
     const name=vodHtmlAttr(tag,"name");
     if(!name)continue;
@@ -1314,11 +1316,11 @@ function vodHtmlInputs(html){
 }
 function vodExtractUrls(text){
   const normalized=vodDecodeHtml(String(text||""))
-    .replace(/\\\\u002F/gi,"/")
-    .replace(/\\\\u0026/gi,"&")
-    .replace(/\\\\\\//g,"/");
+    .replace(/\\u002F/gi,"/")
+    .replace(/\\u0026/gi,"&")
+    .replace(/\\\//g,"/");
   const out=[];
-  for(const m of normalized.matchAll(/https?:\\/\\/[^\\s"'<>\\\\]+/gi)){
+  for(const m of normalized.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)){
     const url=String(m[0]||"").replace(/[),.;]+$/,"");
     if(!url)continue;
     try{
@@ -1331,18 +1333,18 @@ function vodExtractUrls(text){
 function vodPickVideoUrl(urls,{preferMp4=true}={}){
   const rows=[...new Set((urls||[]).map(x=>String(x||"").trim()).filter(Boolean))]
     .filter(url=>{
-      if(!/^https?:\\/\\//i.test(url))return false;
-      if(/\\.(?:mp3|m4a|aac|wav|ogg)(?:$|[?#])/i.test(url))return false;
+      if(!/^https?:\/\//i.test(url))return false;
+      if(/\.(?:mp3|m4a|aac|wav|ogg)(?:$|[?#])/i.test(url))return false;
       if(/(?:audio|music)(?:[/?#=&_-]|$)/i.test(url)&&!/video/i.test(url))return false;
       return true;
     });
   const score=url=>{
     let n=0;
-    if(/\\.mp4(?:$|[?#])/i.test(url))n+=100;
+    if(/\.mp4(?:$|[?#])/i.test(url))n+=100;
     if(/(?:video|play|download)/i.test(url))n+=30;
     if(/tiktokcdn|byteoversea|muscdn|akamaized/i.test(url))n+=25;
     if(/watermark|wmplay|wm=/i.test(url))n-=25;
-    if(preferMp4&&!/\\.mp4(?:$|[?#])/i.test(url))n-=5;
+    if(preferMp4&&!/\.mp4(?:$|[?#])/i.test(url))n-=5;
     return n;
   };
   rows.sort((a,b)=>score(b)-score(a));
@@ -1355,11 +1357,11 @@ async function vodCachedResolver(name,handle,id,{refresh=false,ttl=240}={},resol
     const hit=await cache.match(key).catch(()=>null);
     if(hit){
       const row=await hit.json().catch(()=>null);
-      if(/^https?:\\/\\//i.test(String(row?.url||"")))return row;
+      if(/^https?:\/\//i.test(String(row?.url||"")))return row;
     }
   }
   const row=await resolver();
-  if(!/^https?:\\/\\//i.test(String(row?.url||"")))throw new Error(name+"_no_media_url");
+  if(!/^https?:\/\//i.test(String(row?.url||"")))throw new Error(name+"_no_media_url");
   await cache.put(
     key,
     new Response(JSON.stringify(row),{
@@ -1381,7 +1383,7 @@ async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
     const cookie=tikTokCookieHeader(home.headers);
     const html=await home.text();
     const inputs=vodHtmlInputs(html);
-    let urlField=Object.keys(inputs).find(k=>/link.*url|url.*link|^url$/i.test(k))||"link_url";
+    const urlField=Object.keys(inputs).find(k=>/link.*url|url.*link|^url$/i.test(k))||"link_url";
     inputs[urlField]=pageUrl;
     const body=new URLSearchParams();
     for(const [k,v] of Object.entries(inputs))body.set(k,String(v??""));
@@ -1405,8 +1407,8 @@ async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
 
     let mediaUrl=vodPickVideoUrl(vodExtractUrls(text));
     if(!mediaUrl){
-      const dataMatch=text.match(/\\bdata\\s*:\\s*['"]([^'"]+)['"]/i);
-      const urlMatch=text.match(/\\burl\\s*:\\s*['"](https?:\\/\\/[^'"]+)['"]/i);
+      const dataMatch=text.match(/\bdata\s*:\s*['"]([^'"]+)['"]/i);
+      const urlMatch=text.match(/\burl\s*:\s*['"](https?:\/\/[^'"]+)['"]/i);
       if(dataMatch&&urlMatch){
         const convert=await fetch(vodDecodeHtml(urlMatch[1]),{
           method:"POST",
@@ -1515,7 +1517,7 @@ async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
     if(!r.ok)throw new Error("ttdownloader_http_"+r.status);
     const text=await r.text();
     const urls=vodExtractUrls(text);
-    const legacy=[...text.matchAll(/(https?:\\/\\/[^"'\\s<>]+?\\.php\\?v=[^"'\\s<>]+)/gi)].map(m=>vodDecodeHtml(m[1]));
+    const legacy=[...text.matchAll(/(https?:\/\/[^"'\s<>]+?\.php\?v=[^"'\s<>]+)/gi)].map(m=>vodDecodeHtml(m[1]));
     const mediaUrl=vodPickVideoUrl([...legacy,...urls]);
     if(!mediaUrl)throw new Error("ttdownloader_no_media_url");
     return {
