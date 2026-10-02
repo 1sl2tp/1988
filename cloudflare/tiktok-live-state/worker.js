@@ -6,6 +6,7 @@ const LIVE_PRIORITY_MAX = 16;
 const VIDEO_BATCH_SIZE = 6;
 const VIDEO_SOURCE_CACHE_SECONDS = 240;
 const TIKTOK_NATIVE_VOD_CACHE_SECONDS = 120;
+const TIKTOK_VOD_SOURCE_VERSION = "avc3";
 
 function cors() {
   return {
@@ -990,7 +991,8 @@ function nativeTikTokVideoCacheKey(handle,id){
   return new Request(
     "https://1988-edge-cache.invalid/tiktok/native-video-source?user="+
       encodeURIComponent(handle.toLowerCase())+
-      "&id="+encodeURIComponent(id)
+      "&id="+encodeURIComponent(id)+
+      "&v="+encodeURIComponent(TIKTOK_VOD_SOURCE_VERSION)
   );
 }
 function tikTokCookieHeader(headers){
@@ -1091,17 +1093,22 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
   const data=resolved?.data||{};
   const preferred=data?.mediaModel?.preferredMuxed||null;
   const candidateRows=Array.isArray(data?.candidates)?data.candidates:[];
-  // The origin resolver has already probed and ranked these URLs. Keep that
-  // ordering instead of accidentally replacing the proven winner with an
-  // arbitrary bitrateInfo URL.
+  const preferredCodec=String(preferred?.codec||"").toLowerCase();
+  const preferredIsAvc=/h264|avc/.test(preferredCodec);
+
+  // Browser VOD contract: native TikTok is accepted only when we can prove
+  // the source is AVC/H.264 video. TikTok can return a video/mp4 response that
+  // contains only audio or a HEVC/AV1 picture; browsers then play sound on a
+  // black canvas. Put TikTok's own H.264 muxed rendition first, then only
+  // candidates whose byte probe actually found avc1/avc3.
   const urls=[...new Set([
-    data?.bestVideoUrl,
-    data?.directUrl,
+    ...(preferredIsAvc?(preferred?.urls||[]):[]),
     ...candidateRows
-      .filter(row=>row?.probe?.ok&&row?.probe?.videoCodec&&!row?.probe?.audioOnly)
+      .filter(row=>row?.probe?.ok&&row?.probe?.avc1&&row?.probe?.mp4a)
       .map(row=>row?.url),
-    ...(preferred?.urls||[]),
-    ...candidateRows.map(row=>row?.url)
+    ...candidateRows
+      .filter(row=>row?.probe?.ok&&row?.probe?.avc1)
+      .map(row=>row?.url)
   ].map(value=>String(value||"").trim()).filter(value=>{
     if(!value)return false;
     try{return new URL(value).protocol==="https:"}catch{return false}
@@ -1326,7 +1333,8 @@ function vodWarmCacheKey(handle,id) {
   return new Request(
     "https://1988-edge-cache.invalid/tiktok/vod-warm?user=" +
       encodeURIComponent(handle.toLowerCase()) +
-      "&id=" + encodeURIComponent(id)
+      "&id=" + encodeURIComponent(id) +
+      "&v=" + encodeURIComponent(TIKTOK_VOD_SOURCE_VERSION)
   );
 }
 
@@ -2019,7 +2027,7 @@ async function originProbeMedia(url,referer,sessionHeaders={}){
   const opus=/Opus/i.test(text);
   const videoCodec=avc1||hvc1||hev1||av01||vp09;
   const audioCodec=mp4a||opus;
-  const audioOnly=audioCodec&&!videoCodec&&contentType.startsWith("audio/");
+  const audioOnly=audioCodec&&!videoCodec;
 
   return {
     ok:r.ok||r.status===206,
