@@ -1,4 +1,4 @@
-name: Probe TikTok browser direct proof
+name: Probe TikTok muxed DASH proof
 
 on:
   push:
@@ -13,25 +13,22 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe in Chrome
+      - name: Probe proof in Chrome
         shell: bash
         run: |
           set -euo pipefail
           CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
-          echo "chrome=$CHROME"
-          if [ -z "$CHROME" ]; then
-            echo "No Chrome on runner"
-            exit 1
-          fi
+          test -n "$CHROME"
           for i in 1 2 3 4 5 6; do
             curl -fsS https://yt.taphoa.xyz/tiktok-mask-proof.html -o page.html || true
-            grep -q 'clientResolveGateway' page.html && break
+            grep -q 'audio_file_id' page.html && break
             sleep 3
           done
-          grep -q 'clientResolveGateway' page.html
+          grep -q 'audio_file_id' page.html
           "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=12000             --dump-dom https://yt.taphoa.xyz/tiktok-mask-proof.html > dom.html 2>chrome.err || true
-          grep -Eo 'Browser đã tự lấy CDN URL[^<]*|Native video đã load[^<]*|Resolver lỗi:[^<]*|Media URL này chưa phát được[^<]*' dom.html || true
-          echo '--- status html ---'
+          echo '--- mode/info ---'
+          grep -Eo 'mode = [^<]*|role = [^<]*|codec = [^<]*|size = [^<]*|audioFileId = [^<]*' dom.html | head -10 || true
+          echo '--- status ---'
           grep -o '<div class="status[^>]*>[^<]*' dom.html | tail -1 || true
-          echo '--- chrome errors tail ---'
-          tail -40 chrome.err || true
+          echo '--- fatal media error? ---'
+          grep -Eo 'Resolver lỗi:[^<]*|Media URL này chưa phát được[^<]*' dom.html || true
