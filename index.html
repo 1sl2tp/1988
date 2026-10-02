@@ -1112,13 +1112,16 @@ main{
 .player.tiktok-active:not(.tiktok-vod) > #tiktokLiveVideo{display:block!important}
 .player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
-.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{display:none!important}
-.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
-  border:0!important;
-  background:#000!important;
+}
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
 }
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
