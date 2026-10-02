@@ -20,7 +20,7 @@ jobs:
           API='https://one988-tiktok-session.onrender.com'
           USER='haighepdoi89hy'
           ID='7689893872066940180'
-          for SOURCE in tikwm tikdownloaderio ssstik musicaldownapi tikdownorg ttdownloader downtik tdown tiklydown douyinwtf; do
+          for SOURCE in tikwm snaptik clipx tikdownloaderio ssstik musicaldownapi tikdownorg ttdownloader downtik tdown tiklydown douyinwtf; do
             echo "===== $SOURCE ====="
             URL="$API/tiktok/vod-resolve?user=$USER&id=$ID&source=$SOURCE&refresh=1"
             rm -f /tmp/r.json /tmp/h.txt /tmp/b.bin
