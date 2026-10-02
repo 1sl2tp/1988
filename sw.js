@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE='1988-simple-media-v45';
+const CACHE='1988-simple-media-v46';
 const AVATAR_CACHE='1988-avatar-assets-v1';
 const TIKTOK_IMAGE_CACHE='1988-tiktok-image-assets-v1';
 const TIKTOK_IMAGE_CACHE_MAX=480;
