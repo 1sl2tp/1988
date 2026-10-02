@@ -65,6 +65,21 @@ jobs:
             if(initial.position!=='absolute')throw new Error(label+': inline player is '+initial.position+', expected absolute');
             if(!initial.h)throw new Error(label+': selected thumbnail missing');
 
+            const paintHit=await page.evaluate(()=>{
+              const player=document.getElementById('player');
+              const rect=player.getBoundingClientRect();
+              const x=Math.max(0,Math.min(innerWidth-1,rect.left+rect.width/2));
+              const y=Math.max(0,Math.min(innerHeight-1,rect.top+Math.min(rect.height/2,80)));
+              const hit=document.elementFromPoint(x,y);
+              return {
+                hit:!!hit,
+                inside:!!hit&&(hit===player||player.contains(hit)),
+                tag:String(hit?.tagName||''),
+                id:String(hit?.id||'')
+              };
+            });
+            if(!paintHit.inside)throw new Error(label+': player is geometrically aligned but clipped/not paintable '+JSON.stringify(paintHit));
+
             const target=Math.max(30,Math.min(initial.h.height*.48,initial.h.top+initial.h.height*.48));
             const samples=[];
             for(let i=1;i<=12;i++){
@@ -213,7 +228,7 @@ jobs:
                 caches:'caches' in window?await caches.keys():[]
               }));
               if(!pwa.controlled)throw new Error(label+': service worker not controlling');
-              if(!pwa.caches.includes('1988-simple-media-v43')){
+              if(!pwa.caches.includes('1988-simple-media-v44')){
                 throw new Error(label+': v43 cache missing '+JSON.stringify(pwa.caches));
               }
             }
