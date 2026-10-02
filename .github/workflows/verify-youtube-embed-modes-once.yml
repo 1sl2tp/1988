@@ -68,6 +68,36 @@ jobs:
             await page.goto(target,{waitUntil:'domcontentloaded',timeout:60000});
             await page.waitForTimeout(4000);
 
+            if(standalone){
+              await page.evaluate(async()=>{
+                if('serviceWorker' in navigator){
+                  await navigator.serviceWorker.ready.catch(()=>null);
+                }
+              });
+              await page.reload({waitUntil:'domcontentloaded',timeout:60000});
+              await page.waitForTimeout(2500);
+              const pwaState=await page.evaluate(async()=>({
+                controlled:!!navigator.serviceWorker?.controller,
+                caches:'caches' in window ? await caches.keys() : []
+              }));
+              if(!pwaState.controlled)throw new Error(mode+': service worker not controlling PWA');
+              if(!pwaState.caches.includes('1988-simple-media-v42')){
+                throw new Error(mode+': PWA cache v42 missing '+JSON.stringify(pwaState.caches));
+              }
+            }
+
+            await page.evaluate(()=>{
+              window.__ytVerifyMessages=[];
+              addEventListener('message',event=>{
+                if(!/youtube(?:-nocookie)?\.com$/i.test(String(new URL(event.origin).hostname||'')))return;
+                let data=event.data;
+                if(typeof data==='string'){
+                  try{data=JSON.parse(data)}catch{return}
+                }
+                if(data&&typeof data==='object')window.__ytVerifyMessages.push(data);
+              });
+            });
+
             // Exercise the exact cross-platform transition that previously broke:
             // TikTok surface -> YouTube surface.
             const tt=page.locator('#platformTikTok');
@@ -112,6 +142,20 @@ jobs:
               const frame=document.querySelector('#embedMediaCore iframe#videoFrame, #embedMediaCore iframe');
               return !!frame;
             },null,{timeout:12000});
+
+            await page.waitForFunction(videoId=>{
+              const rows=Array.isArray(window.__ytVerifyMessages)?window.__ytVerifyMessages:[];
+              return rows.some(message=>{
+                const info=message?.info||{};
+                const id=String(
+                  info?.videoData?.video_id||
+                  info?.videoData?.videoId||
+                  info?.videoData?.video_id_str||
+                  ''
+                );
+                return id===videoId || Number(info?.playerState)===1;
+              });
+            },videoId,{timeout:15000});
 
             const state=await page.evaluate(()=>{
               const player=document.getElementById('player');
