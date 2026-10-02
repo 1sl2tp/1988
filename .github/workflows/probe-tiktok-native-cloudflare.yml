@@ -20,7 +20,10 @@ jobs:
           const meta=await fetch(origin).then(r=>r.json());
           const preferred=meta?.data?.mediaModel?.preferredMuxed||{};
           const cdn=(preferred.urls||[]).find(u=>{
-            try{return !/(^|\.)tiktok\.com$/i.test(new URL(u).hostname)}catch{return false}
+            try{
+              const host=new URL(u).hostname.toLowerCase();
+              return /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
+            }catch{return false}
           })||'';
           if(!cdn) throw new Error('no_cdn_url');
 
