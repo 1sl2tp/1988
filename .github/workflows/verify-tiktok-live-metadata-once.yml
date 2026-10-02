@@ -1,4 +1,4 @@
-name: Verify TikTok LIVE metadata once
+name: Verify TikTok LIVE metadata once v2
 
 on:
   push:
