@@ -974,9 +974,9 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     const detail=await fetch(api.toString(),{
       headers:{
         "user-agent":ua,
-        "accept":"application/json,text/plain,*/*",
+        "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
         "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-        "referer":pageUrl
+        "referer":"https://www.tiktok.com/"
       },
       redirect:"follow",
       cf:{cacheTtl:0,cacheEverything:false}
