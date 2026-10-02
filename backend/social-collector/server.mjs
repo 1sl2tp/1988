@@ -6373,6 +6373,58 @@ async function fetchTikTokChannelVideos(rawHandle,knownSecUid=''){
     }catch{}
   }
 
+  // Last metadata-only fallback for accounts whose TikTok Web API/yt-dlp
+  // extraction is blocked. The existing edge function queries TikWM and does
+  // not transfer MP4 bytes through Render.
+  try{
+    const bundle=await fetchTikTokMetaBundle(handle);
+    const root=bundle?.posts?.data||{};
+    const data=root?.data||{};
+    const rawItems=
+      (Array.isArray(data?.videos)&&data.videos)||
+      (Array.isArray(data?.items)&&data.items)||
+      [];
+    const videos=rawItems
+      .map(row=>normalizeTikTokPostItem(handle,{
+        id:row?.id||row?.video_id||row?.aweme_id,
+        desc:row?.title||row?.desc||row?.description||'',
+        createTime:row?.create_time||row?.createTime||0,
+        duration:row?.duration||0,
+        cover:row?.cover||row?.origin_cover||row?.ai_dynamic_cover||'',
+        play:row?.play||row?.play_url||row?.wmplay||row?.hdplay||'',
+        width:row?.width||0,
+        height:row?.height||0,
+        stats:{
+          playCount:row?.play_count||row?.playCount||0,
+          diggCount:row?.digg_count||row?.diggCount||0,
+          commentCount:row?.comment_count||row?.commentCount||0,
+          shareCount:row?.share_count||row?.shareCount||0,
+          collectCount:row?.collect_count||row?.collectCount||row?.bookmark_count||0
+        }
+      }))
+      .filter(Boolean)
+      .sort((a,b)=>Number(b.createTime||0)-Number(a.createTime||0))
+      .slice(0,TIKTOK_VIDEO_PER_CHANNEL);
+    if(videos.length){
+      const profile=parseTikTokMetaProfile(bundle);
+      secUid=String(profile?.secUid||secUid||'').trim();
+      console.log('[tiktok-video-tikwm-fallback]',handle,'videos='+videos.length);
+      return {
+        known:true,
+        handle,
+        secUid,
+        videos,
+        latestVideoId:String(videos[0]?.id||''),
+        hasMore:false,
+        cursor:'',
+        source:'tikwm-edge-fallback',
+        profile
+      };
+    }
+  }catch(error){
+    console.log('[tiktok-video-tikwm-fallback] miss',handle,compactText(error?.message||error,120));
+  }
+
   return ytdlp;
 }
 
