@@ -1,0 +1,38 @@
+name: Probe TikTok VOD Resolver Pool
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-tiktok-vod-pool-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe resolver pool through production edge
+        shell: bash
+        run: |
+          set -u
+          EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev'
+          USER='haighepdoi89hy'
+          ID='7689893872066940180'
+          for SOURCE in tikwm tdown musicaldown tikdown ttdownloader; do
+            echo "===== $SOURCE ====="
+            URL="$EDGE/tiktok/video-stream?user=$USER&id=$ID&source=$SOURCE"
+            rm -f "/tmp/$SOURCE.h" "/tmp/$SOURCE.bin"
+            curl -sS --max-time 40 -r 0-65535 -D "/tmp/$SOURCE.h" "$URL" -o "/tmp/$SOURCE.bin" || true
+            STATUS=$(awk 'toupper($1) ~ /^HTTP\// {s=$2} END{print s}' "/tmp/$SOURCE.h" 2>/dev/null || true)
+            TYPE=$(awk -F': ' 'tolower($1)=="content-type"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
+            MEDIA=$(awk -F': ' 'tolower($1)=="x-1988-media"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
+            RANGE=$(awk -F': ' 'tolower($1)=="content-range"{gsub("\r","",$2);t=$2} END{print t}' "/tmp/$SOURCE.h" 2>/dev/null || true)
+            BYTES=$(wc -c <"/tmp/$SOURCE.bin" 2>/dev/null || echo 0)
+            echo "status=$STATUS type=$TYPE media=$MEDIA range=$RANGE bytes=$BYTES"
+            file "/tmp/$SOURCE.bin" || true
+            if [ "$TYPE" = "application/json; charset=utf-8" ] || [ "$TYPE" = "application/json" ]; then
+              head -c 1200 "/tmp/$SOURCE.bin"; echo
+            fi
+          done
