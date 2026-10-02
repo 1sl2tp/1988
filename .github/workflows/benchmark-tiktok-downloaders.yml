@@ -66,9 +66,8 @@ jobs:
 
           const input=page.locator('#urlInput');
           await input.fill(videoUrl);
-          const btn=page.locator('button').filter({hasText:/tải|download/i}).first();
           const submitAt=Date.now();
-          await btn.click();
+          await input.press('Enter');
           await page.waitForTimeout(6500);
 
           function flatten(value,path='',out=[]){
