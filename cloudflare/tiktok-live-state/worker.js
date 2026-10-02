@@ -1078,7 +1078,11 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     "https://1988-edge-internal.invalid/tiktok/video-origin?url="+
       encodeURIComponent(publicUrl)
   );
-  const resolvedResponse=await resolveTikTokOriginVideo(internal);
+  const resolvedResponse=await resolveTikTokOriginVideo(internal,{
+    "user-agent":ua,
+    "referer":"https://www.tiktok.com/",
+    cookie
+  });
   const resolved=await resolvedResponse.json().catch(()=>null);
   if(!resolvedResponse.ok||!resolved?.ok) {
     throw new Error("tiktok_native_origin_resolve_failed");
@@ -1814,11 +1818,15 @@ function originScoreUrl(url,kind,probe=null){
   }
   return s;
 }
-async function originProbeMedia(url,referer){
+async function originProbeMedia(url,referer,sessionHeaders={}){
   const headers={
-    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "user-agent":String(
+      sessionHeaders?.["user-agent"]||
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ),
     "accept":"*/*",
-    "referer":referer||"https://www.tiktok.com/",
+    "referer":referer||String(sessionHeaders?.referer||"https://www.tiktok.com/"),
+    ...(sessionHeaders?.cookie?{"cookie":String(sessionHeaders.cookie)}:{}),
     "range":"bytes=0-196607"
   };
   let r;
@@ -1886,7 +1894,7 @@ async function originProbeMedia(url,referer){
     audioOnly
   };
 }
-async function resolveTikTokOriginVideo(request){
+async function resolveTikTokOriginVideo(request,sessionHeaders={}){
   const incoming=new URL(request.url);
   const raw=String(incoming.searchParams.get("url")||"").trim();
   let target;
@@ -1899,10 +1907,14 @@ async function resolveTikTokOriginVideo(request){
   if(!id||!handle)return json({ok:false,error:"invalid_tiktok_video"},400);
 
   const headers={
-    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "user-agent":String(
+      sessionHeaders?.["user-agent"]||
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+    ),
     "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
     "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-    "referer":"https://www.tiktok.com/"
+    "referer":String(sessionHeaders?.referer||"https://www.tiktok.com/"),
+    ...(sessionHeaders?.cookie?{"cookie":String(sessionHeaders.cookie)}:{})
   };
 
   const roots=[];
@@ -2000,7 +2012,7 @@ async function resolveTikTokOriginVideo(request){
   // from each candidate and cancel the body; the actual video is never proxied.
   const top=candidates.slice(0,6);
   const probed=await Promise.all(top.map(async row=>{
-    const probe=await originProbeMedia(row.url,target.href);
+    const probe=await originProbeMedia(row.url,target.href,headers);
     return {...row,probe,score:originScoreUrl(row.url,row.kind,probe)};
   }));
   probed.sort((a,b)=>b.score-a.score);
