@@ -181,67 +181,323 @@ async function sweep(env) {
 
   return { ...next, persisted: stateChanged };
 }
-async function liveNow(env) {
-  const snapshot = await loadSnapshot(env);
-  const liveHandles = Object.entries(snapshot.channels || {})
-    .filter(([, row]) => Number(row?.status) === 2)
-    .map(([handle]) => handle)
-    .sort();
+function normalizeLiveUrl(value) {
+  let text=String(value||"").trim();
+  if(!text)return "";
+  for(let i=0;i<3;i++){
+    const next=text
+      .replace(/\\u0026/gi,"&")
+      .replace(/\\u003d/gi,"=")
+      .replace(/\\u002f/gi,"/")
+      .replace(/\\\//g,"/");
+    if(next===text)break;
+    text=next;
+  }
+  try{text=decodeURIComponent(text)}catch{}
+  return /^https?:\/\//i.test(text)?text:"";
+}
+function isFlvKey(key) {
+  const k=String(key||"")
+    .replace(/([a-z0-9])([A-Z])/g,"$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,"");
+  return new Set([
+    "flv","flvurl","flvpull","flvpullurl",
+    "pullflv","pullflvurl","streamflv","streamflvurl",
+    "flvstream","flvstreamurl"
+  ]).has(k);
+}
+function isHlsKey(key) {
+  const k=String(key||"")
+    .replace(/([a-z0-9])([A-Z])/g,"$1_$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g,"");
+  return /^(hls|hlsurl|hlspull|hlspullurl|pullhls|pullhlsurl|m3u8|m3u8url)$/.test(k);
+}
+function collectLiveMedia(value,out={flv:[],hls:[]},path="",depth=0) {
+  if(value==null||depth>18)return out;
 
-  if (!liveHandles.length) {
+  if(typeof value==="string"){
+    const raw=String(value||"").trim();
+    if(
+      (raw.startsWith("{")&&raw.endsWith("}"))||
+      (raw.startsWith("[")&&raw.endsWith("]"))
+    ){
+      try{return collectLiveMedia(JSON.parse(raw),out,path,depth+1)}catch{}
+    }
+
+    const decoded=normalizeLiveUrl(raw);
+    if(decoded){
+      const p=path.toLowerCase();
+      if(/\.flv(?:\?|$)/i.test(decoded)||/flv/.test(p)){
+        if(!out.flv.includes(decoded))out.flv.push(decoded);
+      }else if(/\.m3u8(?:\?|$)/i.test(decoded)||/hls|m3u8/.test(p)){
+        if(!out.hls.includes(decoded))out.hls.push(decoded);
+      }
+    }
+    return out;
+  }
+
+  if(Array.isArray(value)){
+    for(let i=0;i<Math.min(value.length,80);i++){
+      collectLiveMedia(value[i],out,path+"["+i+"]",depth+1);
+    }
+    return out;
+  }
+
+  if(typeof value==="object"){
+    for(const [key,child] of Object.entries(value)){
+      const p=path?path+"."+key:key;
+      if(typeof child==="string"){
+        const url=normalizeLiveUrl(child);
+        if(url&&isFlvKey(key)&&!out.flv.includes(url))out.flv.push(url);
+        if(url&&isHlsKey(key)&&!out.hls.includes(url))out.hls.push(url);
+      }
+      collectLiveMedia(child,out,p,depth+1);
+    }
+  }
+  return out;
+}
+function liveMediaRank(url) {
+  const u=String(url||"").toLowerCase();
+  let score=0;
+  if(/origin|full_hd|uhd|1080|_hd/.test(u))score+=40;
+  if(/720|sd/.test(u))score+=20;
+  if(/ld|360/.test(u))score-=10;
+  return score;
+}
+function firstLiveAssetUrl(value,depth=0) {
+  if(value==null||depth>8)return "";
+  if(typeof value==="string")return normalizeLiveUrl(value);
+  if(Array.isArray(value)){
+    for(const item of value){
+      const u=firstLiveAssetUrl(item,depth+1);
+      if(u)return u;
+    }
+    return "";
+  }
+  if(typeof value==="object"){
+    for(const key of ["url_list","urlList","urls","url","uri"]){
+      if(value[key]!=null){
+        const u=firstLiveAssetUrl(value[key],depth+1);
+        if(u)return u;
+      }
+    }
+    for(const child of Object.values(value)){
+      const u=firstLiveAssetUrl(child,depth+1);
+      if(u)return u;
+    }
+  }
+  return "";
+}
+async function fetchTikTokLiveJson(url,handle) {
+  const r=await fetch(url,{
+    headers:{
+      "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+      "accept":"application/json,text/plain,*/*",
+      "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+      "referer":"https://www.tiktok.com/@"+handle+"/live"
+    },
+    redirect:"follow",
+    cf:{cacheTtl:0,cacheEverything:false}
+  });
+  if(!r.ok)return null;
+  return r.json().catch(()=>null);
+}
+async function probeDirectLiveUrl(url,handle) {
+  if(!url)return false;
+  try{
+    const r=await fetch(url,{
+      method:"GET",
+      headers:{
+        "range":"bytes=0-65535",
+        "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        "referer":"https://www.tiktok.com/@"+handle+"/live",
+        "accept":"*/*"
+      },
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    const cors=String(r.headers.get("access-control-allow-origin")||"");
+    try{await r.body?.cancel?.()}catch{}
+    return (r.ok||r.status===206)&&(cors==="*"||cors==="https://yt.taphoa.xyz");
+  }catch{
+    return false;
+  }
+}
+async function resolveTikTokLiveEdge(handle,roomIdHint="") {
+  let roomId=String(roomIdHint||"");
+  let room=null;
+  let title="";
+  let preview="";
+  let avatar="";
+  let viewerCount=0;
+  let media={flv:[],hls:[]};
+
+  const userRoom=new URL("https://www.tiktok.com/api-live/user/room");
+  userRoom.searchParams.set("aid","1988");
+  userRoom.searchParams.set("sourceType","54");
+  userRoom.searchParams.set("uniqueId",handle);
+  const userData=await fetchTikTokLiveJson(userRoom,handle);
+  const userLiveRoom=userData?.data?.liveRoom||null;
+  if(userLiveRoom){
+    const status=Number(userLiveRoom?.status);
+    if(status===4)return null;
+    room=userLiveRoom;
+    roomId=String(userLiveRoom?.roomId||userLiveRoom?.id||roomId||"");
+    title=String(userLiveRoom?.title||"");
+    preview=firstLiveAssetUrl(
+      userLiveRoom?.cover||
+      userLiveRoom?.roomCover||
+      userLiveRoom?.room_cover||
+      userLiveRoom?.background
+    );
+    avatar=firstLiveAssetUrl(
+      userLiveRoom?.owner?.avatarLarger||
+      userLiveRoom?.owner?.avatar_larger||
+      userData?.data?.user?.avatarLarger||
+      userData?.data?.user?.avatar_larger
+    );
+    viewerCount=Number(userLiveRoom?.userCount||userLiveRoom?.user_count||0);
+    media=collectLiveMedia(userLiveRoom);
+  }
+
+  if(!media.flv.length&&!media.hls.length){
+    const detail=new URL("https://www.tiktok.com/api/live/detail/");
+    detail.searchParams.set("aid","1988");
+    if(roomId)detail.searchParams.set("roomID",roomId);
+    else detail.searchParams.set("uniqueId",handle);
+    const detailData=await fetchTikTokLiveJson(detail,handle);
+    const liveData=
+      detailData?.LiveRoomInfo||
+      detailData?.data?.LiveRoomInfo||
+      detailData?.data?.liveRoomInfo||
+      null;
+    if(liveData){
+      room=liveData;
+      roomId=String(liveData?.liveRoomId||liveData?.roomId||liveData?.id||roomId||"");
+      title=String(liveData?.title||title||"");
+      preview=firstLiveAssetUrl(
+        liveData?.cover||
+        liveData?.roomCover||
+        liveData?.room_cover||
+        liveData?.background
+      )||preview;
+      avatar=firstLiveAssetUrl(
+        liveData?.owner?.avatarLarger||
+        liveData?.owner?.avatar_larger
+      )||avatar;
+      viewerCount=Number(liveData?.userCount||viewerCount||0);
+      media=collectLiveMedia(liveData);
+    }
+  }
+
+  if(!media.flv.length&&!media.hls.length&&roomId){
+    const info=new URL("https://webcast.tiktok.com/webcast/room/info");
+    info.searchParams.set("aid","1988");
+    info.searchParams.set("room_id",roomId);
+    const infoData=await fetchTikTokLiveJson(info,handle);
+    const infoRoom=infoData?.data||infoData?.room||null;
+    if(infoRoom){
+      room=infoRoom;
+      title=String(infoRoom?.title||title||"");
+      preview=firstLiveAssetUrl(
+        infoRoom?.cover||
+        infoRoom?.roomCover||
+        infoRoom?.room_cover||
+        infoRoom?.background
+      )||preview;
+      avatar=firstLiveAssetUrl(
+        infoRoom?.owner?.avatarLarger||
+        infoRoom?.owner?.avatar_larger
+      )||avatar;
+      viewerCount=Number(infoRoom?.userCount||infoRoom?.user_count||viewerCount||0);
+      media=collectLiveMedia(infoRoom);
+    }
+  }
+
+  const flv=[...media.flv].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+  const hls=[...media.hls].sort((a,b)=>liveMediaRank(b)-liveMediaRank(a));
+
+  let streamUrl="";
+  for(const candidate of flv.slice(0,4)){
+    if(await probeDirectLiveUrl(candidate,handle)){
+      streamUrl=candidate;
+      break;
+    }
+  }
+
+  let hlsUrl="";
+  if(!streamUrl){
+    for(const candidate of hls.slice(0,3)){
+      if(await probeDirectLiveUrl(candidate,handle)){
+        hlsUrl=candidate;
+        break;
+      }
+    }
+  }
+
+  if(!streamUrl&&!hlsUrl)return null;
+  return {
+    handle,
+    live:true,
+    detectedLive:true,
+    edgeConfirmed:true,
+    playable:true,
+    roomId,
+    title:title||("@"+handle+" · LIVE"),
+    preview,
+    cover:preview,
+    avatar,
+    viewerCount,
+    type:streamUrl?"flv":"hls",
+    streamUrl,
+    hlsUrl,
+    sourceSig:"cloudflare-tiktok-direct",
+    source:"cloudflare-tiktok-direct",
+    status:"live",
+    probeState:"live",
+    width:0,
+    height:0,
+    lastSeenAt:Date.now()
+  };
+}
+async function liveNow(env) {
+  const snapshot=await loadSnapshot(env);
+  const liveRows=Object.entries(snapshot.channels||{})
+    .filter(([,row])=>Number(row?.status)===2)
+    .map(([handle,row])=>({handle,roomId:String(row?.roomId||"")}))
+    .sort((a,b)=>a.handle.localeCompare(b.handle));
+
+  if(!liveRows.length){
     return {
-      ok: true,
-      edge: true,
-      realtime: true,
-      checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
-      total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
-      live: 0,
-      items: []
+      ok:true,
+      edge:true,
+      realtime:true,
+      checkedAt:Number(snapshot.lastSweepAt||snapshot.changedAt||0),
+      total:Array.isArray(snapshot.selected)?snapshot.selected.length:0,
+      live:0,
+      items:[]
     };
   }
 
-  let render = { items: [] };
-  try {
-    const r = await fetch(RENDER_API + "/tiktok/live-now?t=" + Date.now(), {
-      headers: { accept: "application/json" }
-    });
-    if (r.ok) render = await r.json();
-  } catch {}
-
-  const byHandle = new Map(
-    (Array.isArray(render?.items) ? render.items : [])
-      .map((item) => [String(item?.handle || "").toLowerCase(), item])
+  const resolved=await mapLimit(liveRows,3,async row=>
+    resolveTikTokLiveEdge(row.handle,row.roomId).catch(()=>null)
   );
-
-  const items = liveHandles.map((handle) => {
-    const item = byHandle.get(handle);
-    if (item) return { ...item, live: true, detectedLive: true, edgeConfirmed: true };
-    return {
-      handle,
-      live: true,
-      detectedLive: true,
-      edgeConfirmed: true,
-      playable: false,
-      type: "",
-      sourceSig: "",
-      streamUrl: "",
-      proxyUrl: "",
-      status: "live",
-      probeState: "live",
-      lastSeenAt: Number(snapshot.channels?.[handle]?.changedAt || snapshot.changedAt || 0)
-    };
-  });
+  const items=resolved.filter(Boolean);
 
   return {
-    ok: true,
-    edge: true,
-    realtime: true,
-    checkedAt: Number(snapshot.lastSweepAt || snapshot.changedAt || 0),
-    total: Array.isArray(snapshot.selected) ? snapshot.selected.length : 0,
-    live: items.length,
+    ok:true,
+    edge:true,
+    realtime:true,
+    checkedAt:Date.now(),
+    total:Array.isArray(snapshot.selected)?snapshot.selected.length:0,
+    live:items.length,
+    detectedLive:liveRows.length,
     items
   };
 }
+
 function normalizeVideoId(value) {
   const id = String(value || "").trim();
   return /^\d{8,}$/.test(id) ? id : "";
