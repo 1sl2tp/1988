@@ -2601,7 +2601,7 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 
 /* TikTok VOD official player rail crop.
    Proven setting from /tiktok-mask-proof.html:
-   313px BLACK top/bottom, 0px left/right, shiftY=0, shiftX=0.
+   323px BLACK top/bottom, 0px left/right, shiftY=0, shiftX=0.
    The parent .player is the fixed viewport; TikTok's iframe is the taller source. */
 .player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaVideo{
   display:none!important;
@@ -2616,16 +2616,32 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
   pointer-events:auto!important;
   left:0!important;
   right:auto!important;
-  top:-313px!important;
+  top:-323px!important;
   bottom:auto!important;
   width:100%!important;
-  height:calc(100% + 626px)!important;
+  height:calc(100% + 646px)!important;
   max-width:none!important;
   max-height:none!important;
   transform:none!important;
   border:0!important;
   background:#000!important;
 }
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core{
+  background:#000!important;
+}
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::before,
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::after{
+  content:"";
+  position:absolute;
+  left:0;
+  right:0;
+  height:52px;
+  z-index:6;
+  pointer-events:none;
+  background:#000;
+}
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::before{top:0}
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::after{bottom:0}
 
 /* MAIN 1 column: SIZE changes only the crop viewport. */
 html.one-col .stage{
