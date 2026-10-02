@@ -156,9 +156,17 @@ jobs:
               return;
             }
 
-            // Live availability changes; geometry itself is shared by type.
-            // Reuse the selected card and switch only the engine type for the
-            // scroll-shell assertion when there is no live channel at test time.
+            // Live availability changes. If no real LIVE exists at this
+            // instant, reopen a TikTok media card to restore a selected inline
+            // host, then switch only the engine type. The scroll shell is shared
+            // by embed/live/media, which is what this regression verifies.
+            const video=page.locator('[data-platform-subtab="video"]');
+            if(await video.isVisible().catch(()=>false))await video.click();
+            const rows=await waitRows(page,'.row[data-provider="tiktok"][data-video-id]',25000);
+            const row=rows.first();
+            await row.scrollIntoViewIfNeeded();
+            await row.click();
+            await page.waitForTimeout(500);
             await page.evaluate(()=>{
               const p=document.getElementById('player');
               const live=document.getElementById('liveMediaCore');
