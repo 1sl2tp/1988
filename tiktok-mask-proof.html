@@ -185,7 +185,7 @@
 
       <div class="control">
         <label for="railRange">BLACK trên+dưới</label>
-        <input id="railRange" type="range" min="0" max="220" step="1" value="59">
+        <input id="railRange" type="range" min="0" max="600" step="1" value="59">
         <output id="railOut">59 px</output>
       </div>
 
@@ -199,6 +199,9 @@
         <button type="button" data-rail="0">0 px · nguyên bản</button>
         <button type="button" data-rail="59">59 px · YouTube dọc</button>
         <button type="button" data-rail="65">65 px · YouTube ngang</button>
+        <button type="button" data-rail="220">220 px</button>
+        <button type="button" data-rail="320">320 px</button>
+        <button type="button" data-rail="480">480 px</button>
       </div>
 
       <div class="btns">
@@ -272,7 +275,7 @@
   }
 
   function applyGeometry(){
-    railValue=Math.max(0,Math.min(220,Number(railValue)||0));
+    railValue=Math.max(0,Math.min(600,Number(railValue)||0));
     shiftValue=Math.max(-120,Math.min(120,Number(shiftValue)||0));
     root.style.setProperty("--rail-black",railValue+"px");
     root.style.setProperty("--rail-shift",shiftValue+"px");
