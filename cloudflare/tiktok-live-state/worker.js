@@ -637,6 +637,92 @@ async function redirectTikTokVideoDirect(request) {
   }
 }
 
+async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
+  const cache = caches.default;
+  const cacheKey = new Request(
+    "https://1988-edge-cache.invalid/tdown/video-source?user=" +
+      encodeURIComponent(handle.toLowerCase()) +
+      "&id=" + encodeURIComponent(id)
+  );
+
+  if (!refresh) {
+    const cached = await cache.match(cacheKey).catch(() => null);
+    if (cached) {
+      const row = await cached.json().catch(() => null);
+      if (row?.url) return row;
+    }
+  }
+
+  const pageUrl = "https://www.tiktok.com/@" + handle + "/video/" + id;
+  const api = new URL("https://tdownv4.sl-bjs.workers.dev/");
+  api.searchParams.set("down", pageUrl);
+
+  const r = await fetch(api, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+      "accept": "application/json,text/plain,*/*"
+    },
+    redirect: "follow",
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+  if (!r.ok) throw new Error("tdown_api_http_" + r.status);
+
+  const data = await r.json();
+  let mediaUrl = String(
+    data?.download_url ||
+    data?.downloadUrl ||
+    data?.video?.download_url ||
+    data?.data?.download_url ||
+    ""
+  ).trim();
+  if (!mediaUrl) throw new Error("tdown_no_media_url");
+  if (mediaUrl.startsWith("//")) mediaUrl = "https:" + mediaUrl;
+
+  const row = { url: mediaUrl, source: "tdownv4" };
+  await cache.put(
+    cacheKey,
+    new Response(JSON.stringify(row), {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": "public,max-age=180"
+      }
+    })
+  ).catch(() => {});
+  return row;
+}
+
+async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}) {
+  if (name === "tdown") {
+    const source = await resolveTdownVideoSource(handle, id, { refresh });
+    return {
+      name: "tdown",
+      url: String(source.url || ""),
+      headers: { accept: "*/*" }
+    };
+  }
+  if (name === "direct") {
+    const source = await resolveTikTokVideoSourceEdge(handle, id, { refresh });
+    return {
+      name: "direct",
+      url: String(source.directUrl || ""),
+      headers: source.relayHeaders || {}
+    };
+  }
+  const source = await resolveTikwmVideoSource(handle, id, { refresh });
+  return {
+    name: "tikwm",
+    url: String(source.url || ""),
+    headers: { referer: "https://www.tikwm.com/", accept: "*/*" }
+  };
+}
+
+function vodSourceOrder(preferred = "") {
+  if (preferred === "tdown") return ["tdown", "tikwm", "direct"];
+  if (preferred === "direct") return ["direct", "tikwm", "tdown"];
+  return ["tikwm", "tdown", "direct"];
+}
+
 async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   const headers = new Headers();
   for (const [name, value] of Object.entries(extraHeaders || {})) {
@@ -696,35 +782,53 @@ async function relayTikTokVideo(request) {
   if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
 
   const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const preferred = String(url.searchParams.get("source") || "").toLowerCase();
+  const order = vodSourceOrder(preferred);
   let lastStatus = 0;
   let lastError = "";
 
-  // Same-origin media proxy:
-  // browser -> Cloudflare Worker -> TikWM CDN.
-  // Keep Range/206 intact so native <video> can seek and switch videos cleanly.
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const source = await resolveTikwmVideoSource(handle, id, { refresh: attempt === 1 });
-      const upstream = await fetchTikTokMediaTarget(source.url, request, {
-        referer: "https://www.tikwm.com/",
-        accept: "*/*"
-      });
-      lastStatus = upstream.status;
-
-      if ([401, 403, 404, 410].includes(upstream.status) && attempt === 0) {
-        try { await upstream.body?.cancel?.(); } catch {}
-        continue;
+  // Rotate independent resolvers between consecutive videos, then fail over.
+  // All successful media responses still preserve native Range/206 semantics.
+  for (const sourceName of order) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      let source;
+      try {
+        source = await resolveVodSourceByName(sourceName, handle, id, {
+          refresh: attempt === 1
+        });
+      } catch (error) {
+        lastError = sourceName + ":" + String(error?.message || error || "resolve_failed");
+        break;
       }
 
+      if (!/^https?:\/\//i.test(source.url)) {
+        lastError = sourceName + ":empty_url";
+        break;
+      }
+
+      let upstream;
+      try {
+        upstream = await fetchTikTokMediaTarget(source.url, request, source.headers || {});
+      } catch (error) {
+        lastError = sourceName + ":" + String(error?.message || error || "fetch_failed");
+        if (attempt === 0) continue;
+        break;
+      }
+
+      lastStatus = upstream.status;
       if (upstream.ok || upstream.status === 206) {
-        return mediaRelayResponse(upstream, method, "cloudflare-tikwm-relay");
+        return mediaRelayResponse(upstream, method, "cloudflare-" + sourceName);
       }
 
       try { await upstream.body?.cancel?.(); } catch {}
-      lastError = "upstream_http_" + upstream.status;
-    } catch (error) {
-      lastError = String(error?.message || error || "tikwm_relay_failed");
-      if (attempt === 0) continue;
+      lastError = sourceName + ":http_" + upstream.status;
+
+      // Signed URLs can expire. Refresh that resolver once, then move to the
+      // next independent source instead of retrying the same CDN indefinitely.
+      if ([401, 403, 404, 410, 416, 429].includes(upstream.status) && attempt === 0) {
+        continue;
+      }
+      break;
     }
   }
 
@@ -732,7 +836,7 @@ async function relayTikTokVideo(request) {
     ok: false,
     error: lastError || ("tiktok_upstream_" + lastStatus),
     edge: true,
-    source: "tikwm"
+    attempted: order
   }, 502);
 }
 
