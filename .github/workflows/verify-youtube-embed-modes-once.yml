@@ -1,0 +1,176 @@
+name: Verify YouTube embed modes once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-youtube-embed-modes-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install browser test runtime
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 --no-save
+          npx playwright install chromium
+
+      - name: Verify desktop mobile and PWA YouTube embed routing
+        env:
+          TARGET_URL: https://yt.taphoa.xyz/
+        run: |
+          node <<'NODE'
+          const { chromium } = require('playwright');
+
+          async function verify(browser, mode, options={}, standalone=false){
+            const context=await browser.newContext(options);
+            if(standalone){
+              await context.addInitScript(() => {
+                try{
+                  Object.defineProperty(navigator,'standalone',{get:()=>true,configurable:true});
+                }catch{}
+                const nativeMatchMedia=window.matchMedia.bind(window);
+                window.matchMedia=(query)=>{
+                  const result=nativeMatchMedia(query);
+                  if(String(query).includes('display-mode: standalone')){
+                    return new Proxy(result,{
+                      get(target,prop){
+                        if(prop==='matches')return true;
+                        const value=target[prop];
+                        return typeof value==='function'?value.bind(target):value;
+                      }
+                    });
+                  }
+                  return result;
+                };
+              });
+            }
+
+            const page=await context.newPage();
+            const errors=[];
+            page.on('pageerror',e=>errors.push('pageerror:'+String(e)));
+            page.on('console',m=>{
+              if(m.type()==='error')errors.push('console:'+m.text());
+            });
+
+            const target=process.env.TARGET_URL+'?verify_youtube='+Date.now()+'_'+mode;
+            await page.goto(target,{waitUntil:'domcontentloaded',timeout:60000});
+            await page.waitForTimeout(4000);
+
+            // Exercise the exact cross-platform transition that previously broke:
+            // TikTok surface -> YouTube surface.
+            const tt=page.locator('#platformTikTok');
+            if(await tt.count()){
+              await tt.click().catch(()=>{});
+              await page.waitForTimeout(1800);
+              const ttRows=page.locator('.row[data-provider="tiktok"][data-video-id]');
+              if(await ttRows.count()){
+                await ttRows.first().click().catch(()=>{});
+                await page.waitForTimeout(900);
+              }
+            }
+
+            await page.locator('#platformYouTube').click();
+            await page.waitForTimeout(2500);
+
+            const youtubeRows=page.locator('.row[data-provider="youtube"][data-video-id]');
+            const count=await youtubeRows.count();
+            if(!count)throw new Error(mode+': no YouTube rows rendered');
+
+            const first=youtubeRows.first();
+            const videoId=await first.getAttribute('data-video-id');
+            await first.click();
+
+            await page.waitForFunction(()=>{
+              const p=document.getElementById('player');
+              const core=document.getElementById('embedMediaCore');
+              return p?.dataset?.mediaProvider==='youtube' &&
+                     p?.dataset?.mediaType==='embed' &&
+                     core && !core.hidden;
+            },null,{timeout:12000});
+
+            await page.waitForFunction(()=>{
+              const frame=document.querySelector('#embedMediaCore iframe#videoFrame, #embedMediaCore iframe');
+              return !!frame;
+            },null,{timeout:12000});
+
+            const state=await page.evaluate(()=>{
+              const player=document.getElementById('player');
+              const embed=document.getElementById('embedMediaCore');
+              const live=document.getElementById('liveMediaCore');
+              const media=document.getElementById('nativeMediaCore');
+              const frame=embed?.querySelector('iframe#videoFrame,iframe');
+              const box=frame?.getBoundingClientRect();
+              return {
+                provider:player?.dataset?.mediaProvider||'',
+                type:player?.dataset?.mediaType||'',
+                embedHidden:!!embed?.hidden,
+                liveHidden:!!live?.hidden,
+                mediaHidden:!!media?.hidden,
+                iframeSrc:frame?.src||'',
+                iframeWidth:Math.round(box?.width||0),
+                iframeHeight:Math.round(box?.height||0)
+              };
+            });
+
+            if(state.provider!=='youtube')throw new Error(mode+': provider='+state.provider);
+            if(state.type!=='embed')throw new Error(mode+': type='+state.type);
+            if(state.embedHidden)throw new Error(mode+': embed core hidden');
+            if(!state.liveHidden||!state.mediaHidden)throw new Error(mode+': TikTok core still visible');
+            if(!/youtube-nocookie\.com\/embed\//.test(state.iframeSrc)){
+              throw new Error(mode+': bad iframe '+state.iframeSrc);
+            }
+            if(state.iframeWidth<20||state.iframeHeight<20){
+              throw new Error(mode+': iframe has no visible geometry '+JSON.stringify(state));
+            }
+
+            console.log(JSON.stringify({
+              ok:true,
+              mode,
+              videoId,
+              state,
+              relevantErrors:errors.filter(x=>/youtube|videoFrame|media/i.test(x)).slice(0,8)
+            }));
+            await context.close();
+          }
+
+          (async()=>{
+            const browser=await chromium.launch({
+              headless:true,
+              args:['--autoplay-policy=no-user-gesture-required']
+            });
+            try{
+              await verify(browser,'web-desktop',{
+                viewport:{width:1280,height:900}
+              });
+              await verify(browser,'web-mobile',{
+                viewport:{width:390,height:844},
+                isMobile:true,
+                hasTouch:true,
+                userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+              });
+              await verify(browser,'pwa-standalone',{
+                viewport:{width:390,height:844},
+                isMobile:true,
+                hasTouch:true,
+                userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+              },true);
+            }finally{
+              await browser.close();
+            }
+          })().catch(error=>{
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
