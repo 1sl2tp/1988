@@ -58,7 +58,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       </div>
       <div class="cropbar">
         <span>Viền đen thật trên+dưới</span>
-        <input id="cropY" type="range" min="0" max="22" step="0.5" value="0">
+        <input id="cropY" type="range" min="0" max="45" step="0.5" value="0">
         <span class="cropval" id="cropYVal">0% + 0%</span>
         <div class="zoomrow">
           <span>Zoom</span>
@@ -127,7 +127,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   }
 
   function applyCrop(){
-    const each=Math.max(0,Math.min(22,Number(cropY.value)||0));
+    const each=Math.max(0,Math.min(45,Number(cropY.value)||0));
     const zoom=Math.max(.90,Math.min(1.35,Number(zoomScale.value)||1));
 
     // Real letterbox: the black bars occupy space and the TikTok player is
