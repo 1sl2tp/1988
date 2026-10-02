@@ -1125,16 +1125,16 @@ main{
   pointer-events:none!important;
 }
 .player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaVideo{
-  display:none!important;
-  visibility:hidden!important;
-  opacity:0!important;
-  pointer-events:none!important;
-}
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
   pointer-events:auto!important;
+}
+.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
 }
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
@@ -2455,10 +2455,10 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
    Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
    Same crop model as YouTube rail; only the measured rail size differs. */
 .player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
-  display:block!important;
-  visibility:visible!important;
-  opacity:1!important;
-  pointer-events:auto!important;
+  display:none!important;
+  visibility:hidden!important;
+  opacity:0!important;
+  pointer-events:none!important;
   left:0!important;
   right:auto!important;
   top:-310px!important;
@@ -6758,44 +6758,21 @@ html.one-col.portrait .player.pip{
     warmTikTokVod(meta);
     const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const directUrl=
+    const videoStreamUrl=source=>
       TIKTOK_LIVE_API+
       "/tiktok/video-stream?user="+encodeURIComponent(handle)+
       "&id="+encodeURIComponent(id)+
-      "&source=auto";
+      "&source="+encodeURIComponent(source);
 
-    const showEmbedFallback=()=>{
-      if(String(current?.id||"")!==id||!tiktokMediaFrame)return;
-      player.classList.add("tiktok-embed-fallback");
-      try{
-        native.pause();
-        native.removeAttribute("src");
-        native.load();
-      }catch{}
-      native.hidden=true;
-
-      const params=new URLSearchParams({
-        autoplay:"1",
-        muted:"0",
-        controls:"1",
-        progress_bar:"1",
-        play_button:"1",
-        volume_control:"1",
-        fullscreen_button:"1",
-        timestamp:"1",
-        loop:"0",
-        music_info:"0",
-        description:"0",
-        rel:"0",
-        native_context_menu:"0",
-        closed_caption:"0"
-      });
-      tiktokMediaFrame.hidden=false;
-      tiktokMediaFrame.src=
-        "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
-    };
-
+    // VOD is native-video only. Never fall back to the TikTok iframe because
+    // browsers can mute/interrupt iframe autoplay between consecutive opens.
     if(tiktokMediaFrame){
+      try{
+        tiktokMediaFrame.contentWindow?.postMessage?.(
+          {type:"pause",value:undefined,"x-tiktok-player":true},
+          "https://www.tiktok.com"
+        );
+      }catch{}
       tiktokMediaFrame.hidden=true;
       tiktokMediaFrame.removeAttribute("src");
     }
@@ -6814,16 +6791,47 @@ html.one-col.portrait .player.pip{
     native.volume=1;
     native.poster=preview;
 
-    let fallbackTimer=setTimeout(()=>{
+    const retrySources=["auto","tdown","tikwm"];
+    let sourceIndex=0;
+    let startupTimer=0;
+    let alreadyPlaying=false;
+
+    const armStartupTimer=()=>{
+      clearTimeout(startupTimer);
+      startupTimer=setTimeout(()=>{
+        if(String(current?.id||"")!==id||alreadyPlaying)return;
+        if(sourceIndex<retrySources.length-1){
+          sourceIndex+=1;
+          loadNativeSource(retrySources[sourceIndex]);
+        }
+      },4200);
+    };
+
+    const loadNativeSource=source=>{
       if(String(current?.id||"")!==id)return;
-      if(!player.classList.contains("tiktok-media-playing"))showEmbedFallback();
-    },7000);
+      try{native.pause()}catch{}
+      player.classList.remove("tiktok-embed-fallback","tiktok-media-playing","tiktok-playing");
+      native.hidden=false;
+      native.defaultMuted=false;
+      native.muted=false;
+      native.volume=1;
+      native.src=videoStreamUrl(source)+"&try="+Date.now();
+      native.load();
+      const pending=native.play();
+      if(pending?.catch)pending.catch(()=>{});
+      armStartupTimer();
+    };
 
     native.onerror=()=>{
-      clearTimeout(fallbackTimer);
+      clearTimeout(startupTimer);
       if(String(current?.id||"")!==id)return;
       player.classList.remove("tiktok-media-playing","tiktok-playing");
-      showEmbedFallback();
+      if(sourceIndex<retrySources.length-1){
+        sourceIndex+=1;
+        setTimeout(()=>{
+          if(String(current?.id||"")===id)loadNativeSource(retrySources[sourceIndex]);
+        },120);
+      }
     };
     native.onloadedmetadata=()=>{
       if(String(current?.id||"")!==id)return;
@@ -6835,8 +6843,9 @@ html.one-col.portrait .player.pip{
       if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
     };
     native.onplaying=()=>{
-      clearTimeout(fallbackTimer);
+      clearTimeout(startupTimer);
       if(String(current?.id||"")!==id)return;
+      alreadyPlaying=true;
       native.defaultMuted=false;
       native.muted=false;
       native.volume=1;
@@ -6847,20 +6856,15 @@ html.one-col.portrait .player.pip{
       player.classList.remove("tiktok-playing");
     };
     native.onended=()=>{
-      clearTimeout(fallbackTimer);
+      clearTimeout(startupTimer);
       if(String(current?.id||"")!==id)return;
       player.classList.remove("tiktok-media-playing","tiktok-playing");
       queueMicrotask(()=>playNextFeedVideo());
     };
 
-    // Nearby cards are pre-resolved at the edge. On click the Worker uses the
-    // fastest cached TikWM/TDown source and preserves native Range/206.
-    native.src=directUrl;
-    native.load();
-    const pending=native.play();
-    if(pending?.catch){
-      pending.catch(()=>{});
-    }
+    // Nearby cards are pre-resolved at the edge. Start with the fastest cached
+    // source; if startup stalls, rotate native MP4 sources without ever invoking iframe.
+    loadNativeSource("auto");
 
     renderCurrentInfo();
     schedulePip();
