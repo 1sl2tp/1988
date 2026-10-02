@@ -8248,8 +8248,8 @@ button{border:0;border-radius:18px;padding:9px 15px;background:#2f2f2f;color:#ff
 <div class="status" id="status">Đang khởi tạo…</div>
 <button id="restart">Tạo QR mới</button>
 </div><script>
-const key=${safeKey},qr=document.getElementById('qr'),status=document.getElementById('status');
-let qrLoaded=false;
+const key=${safeKey},qr=document.getElementById('qr'),status=document.getElementById('status'),restartBtn=document.getElementById('restart');
+let qrLoaded=false,blocked=false;
 function loadQr(force=false){
   if(qrLoaded&&!force)return;
   qrLoaded=true;
@@ -8273,27 +8273,49 @@ async function poll(){
       qr.innerHTML='<div style="padding:60px;color:#111;font-size:36px">✓</div>';
       return;
     }
-    status.className=j.status==='error'?'status err':'status';
-    if(j.status==='error')status.textContent=j.error||'Có lỗi';
+    status.className=(j.status==='error'||j.status==='rate_limited'||j.status==='cooldown')?'status err':'status';
+    if(j.status==='rate_limited'){
+      blocked=true;
+      restartBtn.disabled=true;
+      status.textContent=j.error||'TikTok tạm giới hạn tạo QR. Vui lòng thử lại sau.';
+      qrLoaded=true;
+      qr.innerHTML='<div style="padding:40px 18px;color:#111">TikTok đang giới hạn tạo QR tạm thời.</div>';
+      setTimeout(()=>{blocked=false;restartBtn.disabled=false;},90000);
+    }
+    else if(j.status==='cooldown'){
+      restartBtn.disabled=true;
+      status.textContent=j.error||'Vui lòng chờ trước khi tạo QR mới.';
+      setTimeout(()=>{restartBtn.disabled=false;},5000);
+    }
+    else if(j.status==='error')status.textContent=j.error||'Có lỗi';
     else if(j.status==='starting')status.textContent='Đang tạo QR…';
     else if(j.status==='scanned')status.textContent='Đã quét QR — hãy xác nhận đăng nhập trên TikTok…';
     else if(j.status==='confirming')status.textContent='Đã xác nhận — đang lưu phiên TikTok…';
     else if(j.status==='expired')status.textContent='QR đã hết hạn — bấm Tạo QR mới.';
     else status.textContent='Đang chờ bạn quét QR và xác nhận trên TikTok…';
-    if(!qrLoaded)loadQr(false);
+    if(!blocked&&!qrLoaded)loadQr(false);
   }catch{
     status.className='status err';
     status.textContent='Chưa kết nối được Render.';
   }
   setTimeout(poll,2000);
 }
-document.getElementById('restart').onclick=async()=>{
+restartBtn.onclick=async()=>{
+  if(blocked)return;
+  restartBtn.disabled=true;
   status.className='status';
   status.textContent='Đang tạo QR mới…';
   qrLoaded=false;
   qr.innerHTML='<span>Đang tạo QR mới…</span>';
-  await fetch('/login/tiktok/restart?key='+encodeURIComponent(key),{cache:'no-store'});
-  setTimeout(()=>loadQr(true),900);
+  const r=await fetch('/login/tiktok/restart?key='+encodeURIComponent(key),{cache:'no-store'});
+  const j=await r.json().catch(()=>({}));
+  if(j.status==='cooldown'){
+    status.className='status err';
+    status.textContent=j.error||'Vui lòng chờ trước khi tạo QR mới.';
+    setTimeout(()=>{restartBtn.disabled=false;},5000);
+    return;
+  }
+  setTimeout(()=>{restartBtn.disabled=false;loadQr(true);},1500);
 };
 loadQr(false);
 poll();
@@ -9040,10 +9062,13 @@ const server=http.createServer(async(req,res)=>{
 
   if(url.pathname==='/login/tiktok/restart'){
     if(!loginAuthorized(url)){json(res,403,{ok:false,error:'invalid_login_link'});return;}
-    json(res,202,{ok:true,status:'starting'});
-    void tiktokQrLogin.start({restart:true}).catch(error=>{
-      console.error('[tiktok-login] background restart',String(error?.message||error));
-    });
+    try{
+      const state=await tiktokQrLogin.start({restart:true});
+      json(res,state?.status==='cooldown'?429:200,{ok:state?.status!=='error',...state});
+    }catch(error){
+      console.error('[tiktok-login] restart',String(error?.message||error));
+      json(res,502,{ok:false,status:'error',error:String(error?.message||error)});
+    }
     return;
   }
 
