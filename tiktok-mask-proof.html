@@ -220,7 +220,8 @@
       </div>
 
       <div class="btns">
-        <button type="button" id="playBtn">Play</button>
+        <button type="button" id="playBtn">Play + tiếng</button>
+        <button type="button" id="soundBtn">🔊 Có tiếng</button>
         <button type="button" id="pauseBtn">Pause</button>
         <button type="button" id="reloadBtn">Nạp lại player</button>
         <button type="button" id="resetBtn">Reset</button>
@@ -281,7 +282,8 @@
       description:"0",
       rel:"0",
       native_context_menu:"0",
-      closed_caption:"0"
+      closed_caption:"0",
+      muted:"0"
     });
     return "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+p.toString();
   }
@@ -373,7 +375,16 @@
       load();
     }
   });
-  document.getElementById("playBtn").addEventListener("click",()=>command("play"));
+  function playWithSound(){
+    command("unMute");
+    command("play");
+    // Some TikTok player builds accept setVolume as well; harmless if ignored.
+    command("setVolume",1);
+    status.textContent="Đã yêu cầu Play + bật tiếng…";
+  }
+
+  document.getElementById("playBtn").addEventListener("click",playWithSound);
+  document.getElementById("soundBtn").addEventListener("click",playWithSound);
   document.getElementById("pauseBtn").addEventListener("click",()=>command("pause"));
   document.getElementById("resetBtn").addEventListener("click",()=>{
     railValue=59;
@@ -388,7 +399,7 @@
     const msg=event.data||{};
     if(msg["x-tiktok-player"]!==true)return;
     if(msg.type==="onPlayerReady"){
-      status.textContent="Player sẵn sàng · đang yêu cầu phát";
+      status.textContent="Player sẵn sàng · bấm Play + tiếng để bật âm thanh";
       command("play");
     }else if(msg.type==="onStateChange"){
       const n=Number(msg.value);
