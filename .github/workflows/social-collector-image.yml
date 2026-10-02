@@ -1,5 +1,9 @@
 name: Build Social Collector Image
 
+concurrency:
+  group: social-collector-image-main
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
