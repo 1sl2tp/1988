@@ -19,33 +19,10 @@ jobs:
           set -euo pipefail
           POST='https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992'
           ENDPOINT='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin'
-          ENC="$(python3 - <<'PY'
-import urllib.parse
-print(urllib.parse.quote('https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992', safe=''))
-PY
-)"
+          ENC="$(python3 -c 'import urllib.parse; print(urllib.parse.quote("https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992", safe=""))')"
           curl -fsSL "$ENDPOINT?url=$ENC" -o /tmp/origin.json
-          python3 - <<'PY'
-import json
-j=json.load(open('/tmp/origin.json'))
-d=j.get('data') or {}
-print('RESOLVER', j.get('ok'), d.get('bestSource'), d.get('resolver'))
-print('BEST', d.get('bestVideoUrl',''))
-for i,row in enumerate((d.get('candidates') or [])[:8],1):
-    p=row.get('probe') or {}
-    print('CAND',i,row.get('kind'),'score=',row.get('score'),
-          'status=',p.get('status'),'ct=',p.get('contentType'),
-          'avc1=',p.get('avc1'),'hvc1=',p.get('hvc1'),'hev1=',p.get('hev1'),
-          'av01=',p.get('av01'),'mp4a=',p.get('mp4a'),'audioOnly=',p.get('audioOnly'))
-    print('URL',row.get('url',''))
-PY
-          python3 - <<'PY' >/tmp/urls.txt
-import json
-j=json.load(open('/tmp/origin.json'))
-for row in ((j.get('data') or {}).get('candidates') or [])[:8]:
-    u=row.get('url')
-    if u: print(u)
-PY
+          python3 -c 'import json; j=json.load(open("/tmp/origin.json")); d=j.get("data") or {}; print("RESOLVER",j.get("ok"),d.get("bestSource"),d.get("resolver")); print("BEST",d.get("bestVideoUrl","")); [print("CAND",i+1,r.get("kind"),"score=",r.get("score"),"probe=",r.get("probe"),"URL=",r.get("url","")) for i,r in enumerate((d.get("candidates") or [])[:8])]'
+          python3 -c 'import json; j=json.load(open("/tmp/origin.json")); [print(r.get("url")) for r in ((j.get("data") or {}).get("candidates") or [])[:8] if r.get("url")]' > /tmp/urls.txt
           n=0
           while IFS= read -r u; do
             n=$((n+1))
@@ -53,4 +30,4 @@ PY
             curl -sS -L --max-time 12 -r 0-1023 -o /dev/null -D - "$u" | sed -n '1,25p' || true
             echo "===== candidate $n tiktok-referer ====="
             curl -sS -L --max-time 12 -r 0-1023 -H 'Referer: https://www.tiktok.com/' -H 'User-Agent: Mozilla/5.0' -o /dev/null -D - "$u" | sed -n '1,25p' || true
-          done </tmp/urls.txt
+          done < /tmp/urls.txt
