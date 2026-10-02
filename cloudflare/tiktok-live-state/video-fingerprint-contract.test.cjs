@@ -17,5 +17,11 @@ assert.match(worker,/First observation is only a baseline/);
 assert.match(worker,/Wake at most one channel per minute/);
 assert.match(worker,/const video = await videoFingerprintSweep\(env, selectedRows\);/);
 assert.doesNotMatch(worker,/selectedHandles\(\)/);
+assert.match(worker,/data\?\.bestVideoUrl/);
+assert.match(worker,/candidateRows[\s\S]{0,900}probe\?\.videoCodec[\s\S]{0,500}preferred\?\.urls/);
+assert.match(worker,/function tiktokMediaResponseLooksUsable\(response\)/);
+assert.match(worker,/response\.status===206&&contentRange/);
+assert.match(worker,/for\(const target of candidates\)/);
+assert.match(worker,/source\.name==="native"[\s\S]{0,220}fetchTikTokNativeMediaTarget/);
 
 console.log('tiktok-edge-video-fingerprint-contract: assertions passed');
