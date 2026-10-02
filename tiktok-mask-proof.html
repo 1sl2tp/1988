@@ -17,18 +17,6 @@ h1{font-size:18px;margin:0 0 6px}
 .panel{background:#181818;border:1px solid #2d2d2d;border-radius:16px;padding:14px}
 .player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;position:relative;overflow:hidden;background:#000;border-radius:14px}
 #tt{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
-.audio-gate{
-  position:absolute;inset:0;z-index:3;border:0;border-radius:14px;
-  background:transparent;padding:0;cursor:pointer;
-}
-.audio-gate[hidden]{display:none}
-.audio-hint{
-  position:absolute;left:50%;bottom:18px;transform:translateX(-50%);
-  pointer-events:none;padding:8px 12px;border-radius:999px;
-  background:rgba(0,0,0,.66);color:#fff;font-size:12px;font-weight:700;
-  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
-  white-space:nowrap
-}
 .status{min-height:20px;margin-top:10px;text-align:center;color:#aaa;font-size:12px}
 .inputline{display:flex;gap:8px;margin-bottom:12px}
 .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
@@ -45,7 +33,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
 <body>
 <div class="page">
   <h1>TikTok · official Embed Player</h1>
-  <p class="sub">Không lấy MP4. Không TikWM/TDown. Không proxy video. Dùng player chính thức của TikTok và điều khiển play/audio bằng postMessage.</p>
+  <p class="sub">Không lấy MP4. Khi người dùng ấn mở video, chính thao tác đó được dùng để yêu cầu TikTok play + bật tiếng.</p>
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
@@ -53,9 +41,6 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
           allow="autoplay; fullscreen; encrypted-media"
           referrerpolicy="strict-origin-when-cross-origin"
           title="TikTok player"></iframe>
-        <button class="audio-gate" id="audioGate" type="button" aria-label="Phát video có tiếng">
-          <span class="audio-hint">Chạm video để bật tiếng</span>
-        </button>
       </div>
       <div class="status" id="status">Đang nạp player…</div>
     </section>
@@ -70,7 +55,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
 
       <div>
         <span class="pill">TikTok official</span>
-        <span class="pill">Play + audio</span>
+        <span class="pill">Click mở = Play + audio</span>
         <span class="pill">Không Render</span>
         <span class="pill">Không Supabase</span>
       </div>
@@ -93,9 +78,9 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
   const input=document.getElementById('videoInput');
   const status=document.getElementById('status');
   const info=document.getElementById('info');
-  const audioGate=document.getElementById('audioGate');
   let currentId='';
   let ready=false;
+  let openWithAudio=false;
 
   function parseId(value){
     const text=String(value||'').trim();
@@ -120,7 +105,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
       rel:'0',
       native_context_menu:'1',
       closed_caption:'1',
-      muted:'1'
+      muted:'0'
     });
     return 'https://www.tiktok.com/player/v1/'+encodeURIComponent(id)+'?'+q;
   }
@@ -134,7 +119,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
     },'https://www.tiktok.com');
   }
 
-  function load(){
+  function load(userGesture=false){
     const id=parseId(input.value);
     if(!id){
       status.className='status bad';
@@ -143,7 +128,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
     }
     currentId=id;
     ready=false;
-    audioGate.hidden=false;
+    openWithAudio=Boolean(userGesture);
     status.className='status';
     status.textContent='Đang nạp TikTok Embed Player…';
     info.innerHTML=
@@ -153,6 +138,12 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
       'proxyVideo = false<br>'+
       'supabaseWrites = 0';
     frame.src=playerUrl(id);
+    if(userGesture){
+      // Same user action that opens the video is also the audio request.
+      // Send immediately, then repeat when TikTok reports player-ready.
+      command('unMute');
+      command('play');
+    }
   }
 
   function playWithAudio(){
@@ -164,14 +155,9 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
     status.textContent='Đã gửi Play + bật tiếng.';
   }
 
-  audioGate.addEventListener('click',()=>{
-    playWithAudio();
-    audioGate.hidden=true;
-  });
-
-  document.getElementById('openBtn').onclick=load;
+  document.getElementById('openBtn').onclick=()=>load(true);
   input.addEventListener('keydown',e=>{
-    if(e.key==='Enter'){e.preventDefault();load();}
+    if(e.key==='Enter'){e.preventDefault();load(true);}
   });
   document.getElementById('playAudio').onclick=playWithAudio;
   document.getElementById('pause').onclick=()=>command('pause');
@@ -186,8 +172,14 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
     if(msg.type==='onPlayerReady'){
       ready=true;
       status.className='status ok';
-      status.textContent='Player sẵn sàng · video đang chạy muted · chạm video để bật tiếng.';
-      command('play');
+      if(openWithAudio){
+        playWithAudio();
+        openWithAudio=false;
+        status.textContent='Player sẵn sàng · mở bằng thao tác người dùng → phát có tiếng.';
+      }else{
+        command('play');
+        status.textContent='Player sẵn sàng.';
+      }
     }else if(msg.type==='onStateChange'){
       const state=Number(msg.value);
       const names={[-1]:'init',[0]:'ended',[1]:'playing',[2]:'paused',[3]:'buffering'};
@@ -202,7 +194,7 @@ button:hover{background:#343434}.primary{background:#fff;color:#111;border-color
     }
   });
 
-  load();
+  load(false);
 })();
 </script>
 </body>
