@@ -2440,7 +2440,7 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 }
 
 /* TikTok VOD uses TikTok's own working player.
-   Measured proof: 308px BLACK above + 308px BLACK below, shift 0.
+   Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
    Same crop model as YouTube rail; only the measured rail size differs. */
 .player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
   display:block!important;
@@ -2449,10 +2449,10 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
   pointer-events:auto!important;
   left:0!important;
   right:auto!important;
-  top:-308px!important;
+  top:-310px!important;
   bottom:auto!important;
   width:100%!important;
-  height:calc(100% + 616px)!important;
+  height:calc(100% + 620px)!important;
   max-width:none!important;
   max-height:none!important;
   transform:none!important;
@@ -6318,8 +6318,9 @@ html.one-col.portrait .player.pip{
       if(message?.["x-tiktok-player"]!==true)return;
 
       if(message.type==="onPlayerReady"){
-        // The card click is the user's playback intent. Ask the embedded player
-        // to start as soon as TikTok reports that it is ready.
+        // TikTok's embed can enter autoplay muted even though the video card
+        // was opened by a user click. Explicitly request sound first, then play.
+        tiktokEmbedCommand("unMute",undefined);
         tiktokEmbedCommand("play",undefined);
         return;
       }
@@ -6328,6 +6329,11 @@ html.one-col.portrait .player.pip{
         const state=Number(message.value);
         player.classList.toggle("tiktok-playing",state===1);
         player.classList.toggle("tiktok-media-playing",state===1);
+        if(state===1){
+          // A second unmute at PLAYING handles browsers that temporarily force
+          // the first autoplay transition into a muted state.
+          tiktokEmbedCommand("unMute",undefined);
+        }
         if(state===0)queueMicrotask(()=>playNextFeedVideo());
         return;
       }
@@ -6631,6 +6637,7 @@ html.one-col.portrait .player.pip{
 
     const params=new URLSearchParams({
       autoplay:"1",
+      muted:"0",
       controls:"1",
       progress_bar:"1",
       play_button:"1",
