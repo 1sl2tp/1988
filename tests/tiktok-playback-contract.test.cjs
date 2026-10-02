@@ -87,3 +87,18 @@ assert.match(server,/const TIKTOK_LIVE_COLD_DEEP_BATCH=2;/);
 assert.match(server,/lastKnownAt:checkedAt/);
 assert.match(server,/tierRecent=/);
 assert.match(server,/coldDeep=/);
+
+const channelVideosStart=server.indexOf("if(url.pathname==='/tiktok/channel-videos'");
+const channelVideosEnd=server.indexOf("\n  if(url.pathname==='/tiktok/video-refresh-all'",channelVideosStart);
+assert.ok(channelVideosStart>=0&&channelVideosEnd>channelVideosStart,'channel-videos route missing');
+const channelVideosRoute=server.slice(channelVideosStart,channelVideosEnd);
+assert.match(
+  channelVideosRoute,
+  /forceDeep:url\.searchParams\.get\('full'\)==='1'/,
+  'targeted channel refresh must support deep backfill without scanning all selected channels'
+);
+assert.match(
+  server,
+  /refreshTikTokVideoLibrary\(\[next\],\{forceDeep:deep\}\)/,
+  'serialized targeted refresh must pass deep mode to the video scanner'
+);
