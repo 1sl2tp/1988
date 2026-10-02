@@ -1,4 +1,4 @@
-name: Verify dedicated TikTok workspace once
+name: Verify dedicated TikTok workspace once v2
 
 on:
   push:
@@ -23,14 +23,14 @@ jobs:
         run: |
           npm init -y >/dev/null 2>&1
           npm install playwright@1.55.0 --no-save
-          npx playwright install --with-deps chromium webkit
+          npx playwright install --with-deps chromium
 
       - name: Verify TikTok desktop mobile and PWA workspace
         env:
           TARGET_URL: https://yt.taphoa.xyz/
         run: |
           node <<'NODE'
-          const { chromium, webkit } = require('playwright');
+          const { chromium } = require('playwright');
 
           async function waitProfile(page){
             await page.waitForFunction(()=>(
@@ -123,9 +123,9 @@ jobs:
           }
 
           async function verifyLiveWatch(page,label,mobile){
-            if(!document.documentElement.classList.contains('tiktok-profile')){
+            const isProfile=await page.evaluate(()=>document.documentElement.classList.contains('tiktok-profile'));
+            if(!isProfile){
               if(mobile){
-                // mobile media watch was closed above
                 await waitProfile(page);
               }else{
                 const creator=page.locator('[data-tiktok-profile-handle]').first();
@@ -240,7 +240,7 @@ jobs:
 
           (async()=>{
             await run(chromium,'desktop',{viewport:{width:1440,height:1000}});
-            await run(webkit,'mobile-web',{
+            await run(chromium,'mobile-web',{
               viewport:{width:390,height:844},
               isMobile:true,
               hasTouch:true,
