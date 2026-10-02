@@ -1,0 +1,68 @@
+name: Inspect TikTok LIVE viewer fields once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/inspect-tiktok-live-viewer-fields-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect current TikTok room count fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, urllib.request, urllib.parse
+
+          def get(url, referer=None):
+              headers={
+                  'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+                  'Accept':'application/json,text/plain,*/*',
+                  'Accept-Language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5'
+              }
+              if referer: headers['Referer']=referer
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=60) as r:
+                  return json.load(r)
+
+          edge=get('https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/live-now?t=viewer-fields')
+          items=edge.get('items') or []
+          if not items:
+              print(json.dumps({'ok':True,'live':0}))
+              raise SystemExit(0)
+          handle=items[0]['handle']
+          q=urllib.parse.urlencode({'aid':'1988','sourceType':'54','uniqueId':handle})
+          data=get('https://www.tiktok.com/api-live/user/room?'+q, 'https://www.tiktok.com/@'+handle+'/live')
+
+          hits={}
+          def walk(v,path='',depth=0):
+              if depth>10:return
+              if isinstance(v,dict):
+                  for k,x in v.items():
+                      p=(path+'.'+k).strip('.')
+                      lk=k.lower()
+                      if any(word in lk for word in ('count','stat','viewer','watch','usernum','online')):
+                          if isinstance(x,(str,int,float,bool)) or x is None:
+                              hits[p]=x
+                          elif isinstance(x,dict):
+                              hits[p]={'keys':list(x.keys())[:40]}
+                      walk(x,p,depth+1)
+              elif isinstance(v,list):
+                  for i,x in enumerate(v[:8]):
+                      walk(x,path+f'[{i}]',depth+1)
+          walk(data)
+          print(json.dumps({
+              'ok':True,
+              'handle':handle,
+              'topKeys':list(data.keys()) if isinstance(data,dict) else [],
+              'dataKeys':list((data.get('data') or {}).keys()) if isinstance(data,dict) and isinstance(data.get('data'),dict) else [],
+              'hits':hits
+          },ensure_ascii=False))
+          PY
