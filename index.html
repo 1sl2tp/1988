@@ -3105,7 +3105,9 @@ html.tiktok-ui.tiktok-watch main{
 }
 html.tiktok-ui.tiktok-watch .media-col{
   grid-area:media!important;
-  display:block!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
   position:sticky!important;
   top:calc(var(--top-boundary) + 12px)!important;
   width:100%!important;
@@ -3113,14 +3115,34 @@ html.tiktok-ui.tiktok-watch .media-col{
   height:calc(100dvh - var(--top-boundary) - 24px)!important;
   margin:0!important;
   overflow:hidden!important;
+  background:#000!important;
 }
 html.tiktok-ui.tiktok-watch .stage{
-  width:100%!important;
-  height:100%!important;
-  aspect-ratio:auto!important;
   border-radius:12px!important;
   overflow:hidden!important;
   background:#000!important;
+}
+
+/* TikTok watch sizing on desktop/tablet:
+   portrait = height-first; landscape = width-first. */
+html.tiktok-ui.tiktok-watch.portrait .stage{
+  width:min(
+    100%,
+    calc((100dvh - var(--top-boundary) - 24px) * var(--media-ratio))
+  )!important;
+  height:100%!important;
+  max-width:100%!important;
+  max-height:100%!important;
+  aspect-ratio:var(--media-ratio)!important;
+  margin:0 auto!important;
+}
+html.tiktok-ui.tiktok-watch.landscape .stage{
+  width:100%!important;
+  height:auto!important;
+  max-width:100%!important;
+  max-height:100%!important;
+  aspect-ratio:var(--media-ratio)!important;
+  margin:auto!important;
 }
 html.tiktok-ui.tiktok-watch .player{
   position:absolute!important;
