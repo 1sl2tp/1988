@@ -668,13 +668,49 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
   renderRecentVideos(handle);
   hideSearchResults();
 
-  // Native TikTok VOD through the existing Cloudflare media tunnel.
-  // Render and TikTok iframe are not part of the video byte path.
+  // VOD package already contains a fresh signed MP4 selected by the server.
+  // Play that URL immediately; only use the Cloudflare resolver as recovery.
+  // This keeps click-to-play cheap and avoids resolving/probing TikTok again
+  // for every video the server has already prepared.
   const media=document.getElementById('liveVideo');
   const endpoint=new URL(LIVE_API+'/tiktok/video-stream');
   endpoint.searchParams.set('user',handle);
   endpoint.searchParams.set('id',currentVideoId);
   endpoint.searchParams.set('source','auto');
+  const relayUrl=endpoint.toString();
+
+  const packagedUrl=String(video?.playback?.url||'').trim();
+  const expiryMs=Date.parse(String(video?.playback?.expiresAt||''));
+  const packagedFresh=Boolean(
+    video?.playback?.ready&&
+    /^https:\/\//i.test(packagedUrl)&&
+    (!Number.isFinite(expiryMs)||expiryMs-Date.now()>30_000)
+  );
+  let usingRelay=!packagedFresh;
+  let switchingSource=false;
+
+  const startSource=src=>{
+    media.src=src;
+    media.load();
+    media.play().catch(()=>{});
+  };
+  const switchToRelay=()=>{
+    if(usingRelay||switchingSource)return false;
+    switchingSource=true;
+    usingRelay=true;
+    try{media.pause();}catch{}
+    startSource(relayUrl);
+    switchingSource=false;
+    return true;
+  };
+  const requireVideoPicture=()=>{
+    // An audio-only/unsupported MP4 can still expose duration and play sound.
+    // A real VOD must expose decoded picture dimensions.
+    if(!usingRelay&&media.readyState>=1&&(!media.videoWidth||!media.videoHeight)){
+      return !switchToRelay();
+    }
+    return true;
+  };
 
   media.hidden=false;
   media.controls=false;
@@ -682,17 +718,26 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
   media.muted=!withSound;
   media.playsInline=true;
   media.preload='auto';
+  media.poster=String(video?.cover?.url||video?.cover?.sourceUrl||'');
   media.onloadedmetadata=()=>{
+    if(!requireVideoPicture())return;
     setPlayerShape(media);
     syncMediaControls();
   };
-  media.oncanplay=()=>syncMediaControls();
-  media.onplaying=()=>syncMediaControls();
+  media.oncanplay=()=>{
+    if(!requireVideoPicture())return;
+    syncMediaControls();
+  };
+  media.onplaying=()=>{
+    if(!requireVideoPicture())return;
+    syncMediaControls();
+  };
   media.onended=()=>stepVideo(1);
-  media.onerror=()=>showToast('Không mở được video TikTok');
-  media.src=endpoint.toString();
-  media.load();
-  media.play().catch(()=>{});
+  media.onerror=()=>{
+    if(!usingRelay&&switchToRelay())return;
+    showToast('Không mở được video TikTok');
+  };
+  startSource(packagedFresh?packagedUrl:relayUrl);
   syncMediaControls();
 }
 async function refreshChannelVideos(handle,{silent=true}={}){
