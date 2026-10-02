@@ -3376,6 +3376,48 @@ html.tiktok-ui.tiktok-watch .rows{
     border-radius:0!important;
     background:#000!important;
   }
+
+  /* TikTok mobile watch sizing:
+     portrait prioritizes full viewport HEIGHT;
+     landscape prioritizes full viewport WIDTH.
+     Keep the source ratio and center-crop only the overflow axis. */
+  html.tiktok-ui.tiktok-watch.portrait .stage{
+    inset:auto!important;
+    top:0!important;
+    left:50%!important;
+    width:calc(100dvh * var(--media-ratio))!important;
+    height:100dvh!important;
+    max-width:none!important;
+    max-height:none!important;
+    aspect-ratio:var(--media-ratio)!important;
+    transform:translateX(-50%)!important;
+    margin:0!important;
+  }
+  html.tiktok-ui.tiktok-watch.portrait .player{
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    transform:none!important;
+  }
+
+  html.tiktok-ui.tiktok-watch.landscape .stage{
+    inset:auto!important;
+    left:0!important;
+    top:50%!important;
+    width:100dvw!important;
+    height:calc(100dvw / var(--media-ratio))!important;
+    max-width:none!important;
+    max-height:none!important;
+    aspect-ratio:var(--media-ratio)!important;
+    transform:translateY(-50%)!important;
+    margin:0!important;
+  }
+  html.tiktok-ui.tiktok-watch.landscape .player{
+    inset:0!important;
+    width:100%!important;
+    height:100%!important;
+    transform:none!important;
+  }
   html.tiktok-ui.tiktok-watch .tiktok-watch-close{
     display:flex!important;
     position:fixed!important;
