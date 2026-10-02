@@ -31,7 +31,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <body>
 <div class="page">
   <h1>TikTok · origin media</h1>
-  <p class="sub">Không iframe. Không TikWM/TDown. Lấy đúng <b>www.tiktok.com/aweme/v1/play</b> rồi để native video tự theo redirect sang TikTok CDN.</p>
+  <p class="sub">Không iframe. Không TikWM/TDown. Đọc <b>bitrateInfo</b>, chọn H.264 muxed rồi để chính browser đổi <b>aweme/v1/play → CDN</b> theo IP của nó.</p>
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
@@ -68,7 +68,6 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <script>
 (() => {
   const RESOLVER='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin';
-  const REDIRECT='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin-redirect';
   const media=document.getElementById('media');
   const input=document.getElementById('videoInput');
   const status=document.getElementById('status');
@@ -78,6 +77,23 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   function setStatus(text,cls=''){
     status.className='status '+cls;
     status.textContent=text;
+  }
+
+  async function clientResolveGateway(gateway){
+    const r=await fetch(gateway,{
+      method:'GET',
+      mode:'cors',
+      credentials:'omit',
+      cache:'no-store',
+      redirect:'follow',
+      headers:{Range:'bytes=0-0'}
+    });
+    const finalUrl=String(r.url||'');
+    try{await r.body?.cancel?.();}catch{}
+    if(!(r.ok||r.status===206)||!/^https?:\/\//i.test(finalUrl)){
+      throw new Error('client_gateway_'+r.status);
+    }
+    return finalUrl;
   }
 
   async function resolve(){
@@ -90,30 +106,38 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       if(!j?.ok||!j?.data?.directUrl)throw new Error(j?.error||('HTTP '+r.status));
 
       const d=j.data;
-      const direct=String(d.directUrl||'');
-      const isAweme=/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(direct);
+      const model=d.mediaModel||{};
+      const muxed=model.preferredMuxed||null;
+      const urls=Array.isArray(muxed?.urls)?muxed.urls:[];
+      const gateway=urls.find(u=>/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(String(u||'')))
+        ||String(d.directUrl||'');
+      if(!gateway)throw new Error('no_aweme_gateway');
+
+      setStatus('Đã lấy track '+String(muxed?.codec||'')+' '+String(muxed?.width||'')+'×'+String(muxed?.height||'')+' · browser đang tự đổi gateway → CDN…');
+
+      const finalUrl=await clientResolveGateway(gateway);
 
       info.innerHTML=
-        'source = '+(d.bestSource||'—')+'<br>'+
-        'awemeGateway = '+String(isAweme)+'<br>'+
-        'directUrl = '+direct+'<br>'+ 
-        'browserUrl = redirect-only gateway<br>'+
+        'track = '+String(muxed?.role||'—')+' / '+String(muxed?.format||'—')+'<br>'+
+        'codec = '+String(muxed?.codec||'—')+'<br>'+
+        'size = '+String(muxed?.width||'—')+'×'+String(muxed?.height||'—')+'<br>'+
+        'bitrate = '+String(muxed?.bitrate||'—')+'<br>'+
+        'gateway = '+gateway+'<br>'+
+        'finalCDN = '+finalUrl+'<br>'+
         'render = false<br>'+
-        'tikwm = false<br>'+
-        'tdown = false<br>'+
         'proxyVideo = false<br>'+
         'storage = none<br>'+
         'supabaseWrites = 0';
 
-      const browserUrl=REDIRECT+'?url='+encodeURIComponent(direct);
-      openMedia.href=browserUrl;
+      openMedia.href=finalUrl;
       media.pause();
-      media.src=browserUrl;
+      media.removeAttribute('src');
+      media.load();
+      media.referrerPolicy='no-referrer';
+      media.src=finalUrl;
       media.load();
 
-      setStatus(isAweme
-        ? 'Đã có aweme/v1/play · Worker chỉ đổi 302 · video tải thẳng TikTok CDN.'
-        : 'Đã có media URL nhưng chưa phải aweme gateway.','ok');
+      setStatus('Browser đã tự lấy CDN URL theo đúng IP của nó · native video đang nạp…','ok');
     }catch(e){
       setStatus('Resolver lỗi: '+String(e?.message||e),'bad');
       info.textContent='error = '+String(e?.message||e);
