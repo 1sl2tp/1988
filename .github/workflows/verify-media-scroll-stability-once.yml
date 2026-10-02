@@ -137,44 +137,36 @@ jobs:
             await measureAlignment(page,'tiktok-media','media');
           }
 
-          async function openTikTokLiveOrGeometry(page){
+          async function verifyLiveShell(page){
+            // Geometry is owned by the shared player shell, not the decoder.
+            // Reuse a selected TikTok card and switch only engine type so this
+            // test is independent of whether a LIVE happens to exist right now
+            // or whether headless Chromium supports that stream codec.
             await page.evaluate(()=>window.scrollTo(0,0));
-            const live=page.locator('[data-platform-subtab="live"]');
-            if(!(await live.isVisible().catch(()=>false))){
-              await page.locator('#platformTikTok').click().catch(()=>{});
-              await page.waitForTimeout(400);
-            }
-            if(await live.isVisible().catch(()=>false))await live.click();
-            await page.waitForTimeout(2500);
-            const liveRows=page.locator('.row[data-provider="tiktok"].live-card[data-video-id]');
-            if(await liveRows.count()){
-              const row=liveRows.first();
-              await row.scrollIntoViewIfNeeded();
-              await row.click();
-              await page.waitForTimeout(600);
-              await measureAlignment(page,'tiktok-live','live');
-              return;
-            }
-
-            // Live availability changes. If no real LIVE exists at this
-            // instant, reopen a TikTok media card to restore a selected inline
-            // host, then switch only the engine type. The scroll shell is shared
-            // by embed/live/media, which is what this regression verifies.
             const video=page.locator('[data-platform-subtab="video"]');
+            if(!(await video.isVisible().catch(()=>false))){
+              await page.locator('#platformTikTok').click().catch(()=>{});
+              await page.waitForTimeout(350);
+            }
             if(await video.isVisible().catch(()=>false))await video.click();
+
             const rows=await waitRows(page,'.row[data-provider="tiktok"][data-video-id]',25000);
             const row=rows.first();
             await row.scrollIntoViewIfNeeded();
             await row.click();
             await page.waitForTimeout(500);
+
             await page.evaluate(()=>{
               const p=document.getElementById('player');
+              const embed=document.getElementById('embedMediaCore');
               const live=document.getElementById('liveMediaCore');
               const media=document.getElementById('nativeMediaCore');
               if(p)p.dataset.mediaType='live';
+              if(embed)embed.hidden=true;
               if(live)live.hidden=false;
               if(media)media.hidden=true;
             });
+
             await measureAlignment(page,'tiktok-live-shell','live');
           }
 
@@ -228,7 +220,7 @@ jobs:
 
             await openYoutube(page);
             await openTikTokMedia(page);
-            await openTikTokLiveOrGeometry(page);
+            await verifyLiveShell(page);
 
             console.log(JSON.stringify({ok:true,mode:label}));
             await context.close();
