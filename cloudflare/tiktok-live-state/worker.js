@@ -1,7 +1,9 @@
 const RENDER_API = "https://one988-tiktok-session.onrender.com";
 const SNAPSHOT_KEY = "tiktok:live:snapshot";
-const BATCH_SIZE = 45;
+const VIDEO_SNAPSHOT_KEY = "tiktok:video:fingerprint";
+const BATCH_SIZE = 40;
 const LIVE_PRIORITY_MAX = 16;
+const VIDEO_BATCH_SIZE = 6;
 const VIDEO_SOURCE_CACHE_SECONDS = 240;
 
 function cors() {
@@ -35,18 +37,190 @@ async function loadSnapshot(env) {
     ? row
     : { version: 1, channels: {}, selected: [], changedAt: 0 };
 }
-async function selectedHandles() {
+async function selectedChannels() {
   const r = await fetch(RENDER_API + "/tiktok/live-statuses?t=" + Date.now(), {
     headers: { accept: "application/json" }
   });
   if (!r.ok) throw new Error("selected_http_" + r.status);
   const data = await r.json();
-  return [...new Set(
-    (Array.isArray(data?.items) ? data.items : [])
-      .map((x) => normalizeHandle(x?.handle))
-      .filter(Boolean)
-  )].sort((a, b) => a.localeCompare(b));
+  const byHandle = new Map();
+  for (const row of Array.isArray(data?.items) ? data.items : []) {
+    const handle = normalizeHandle(row?.handle);
+    if (!handle) continue;
+    byHandle.set(handle.toLowerCase(), {
+      handle,
+      secUid: String(row?.secUid || "").trim(),
+      latestVideoId: normalizeVideoId(row?.latestVideoId || "")
+    });
+  }
+  return [...byHandle.values()].sort((a, b) => a.handle.localeCompare(b.handle));
 }
+async function loadVideoSnapshot(env) {
+  const row = await env.TIKTOK_LIVE.get(VIDEO_SNAPSHOT_KEY, "json").catch(() => null);
+  return row && typeof row === "object"
+    ? row
+    : { version: 1, channels: {}, selected: [], pending: [], changedAt: 0 };
+}
+function videoFingerprintMaterial(snapshot) {
+  return JSON.stringify(
+    Object.entries(snapshot?.channels || {})
+      .map(([handle, row]) => [handle, normalizeVideoId(row?.latestVideoId || "")])
+      .sort((a, b) => a[0].localeCompare(b[0]))
+  );
+}
+async function checkTikTokVideoFingerprint(channel) {
+  const handle = normalizeHandle(channel?.handle);
+  const secUid = String(channel?.secUid || "").trim();
+  if (!handle || !secUid) {
+    return { known: false, handle, latestVideoId: "", source: "missing-secuid" };
+  }
+  const endpoint = new URL("https://www.tiktok.com/api/post/item_list/");
+  endpoint.searchParams.set("aid", "1988");
+  endpoint.searchParams.set("count", "1");
+  endpoint.searchParams.set("cursor", "0");
+  endpoint.searchParams.set("from_page", "user");
+  endpoint.searchParams.set("secUid", secUid);
+  try {
+    const r = await fetch(endpoint, {
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        accept: "application/json,text/plain,*/*",
+        "accept-language": "vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+        referer: "https://www.tiktok.com/@" + handle
+      },
+      redirect: "follow"
+    });
+    if (!r.ok) return { known: false, handle, latestVideoId: "", source: "http-" + r.status };
+    const body = await r.json().catch(() => null);
+    const items =
+      (Array.isArray(body?.itemList) && body.itemList) ||
+      (Array.isArray(body?.item_list) && body.item_list) ||
+      (Array.isArray(body?.data?.itemList) && body.data.itemList) ||
+      (Array.isArray(body?.data?.item_list) && body.data.item_list) ||
+      (Array.isArray(body?.items) && body.items) ||
+      null;
+    if (!Array.isArray(items)) {
+      return { known: false, handle, latestVideoId: "", source: "no-items" };
+    }
+    const latestVideoId = items
+      .map((row) => normalizeVideoId(row?.id || row?.video_id || row?.aweme_id || ""))
+      .find(Boolean) || "";
+    return { known: true, handle, latestVideoId, source: "tiktok-post-item-list" };
+  } catch {
+    return { known: false, handle, latestVideoId: "", source: "fetch-error" };
+  }
+}
+async function wakeRenderVideoRefresh(handle) {
+  const endpoint = new URL(RENDER_API + "/tiktok/channel-videos");
+  endpoint.searchParams.set("user", handle);
+  endpoint.searchParams.set("refresh", "1");
+  endpoint.searchParams.set("full", "1");
+  const r = await fetch(endpoint, { headers: { accept: "application/json" } });
+  try { await r.body?.cancel?.(); } catch {}
+  return r.ok;
+}
+async function videoFingerprintSweep(env, selectedRows) {
+  const selected = (Array.isArray(selectedRows) ? selectedRows : [])
+    .filter((row) => normalizeHandle(row?.handle) && String(row?.secUid || "").trim());
+  const selectedNames = selected.map((row) => row.handle.toLowerCase()).sort();
+  const selectedSet = new Set(selectedNames);
+  const snapshot = await loadVideoSnapshot(env);
+  const previousMaterial = videoFingerprintMaterial(snapshot);
+  const nextChannels = {};
+
+  for (const [rawHandle, row] of Object.entries(snapshot.channels || {})) {
+    const handle = normalizeHandle(rawHandle);
+    if (!handle || !selectedSet.has(handle.toLowerCase())) continue;
+    nextChannels[handle.toLowerCase()] = {
+      latestVideoId: normalizeVideoId(row?.latestVideoId || "")
+    };
+  }
+
+  // Render contributes only the already-saved baseline. It does not scan.
+  for (const row of selected) {
+    const key = row.handle.toLowerCase();
+    const saved = normalizeVideoId(row.latestVideoId || "");
+    if (!nextChannels[key]) nextChannels[key] = { latestVideoId: saved };
+    else if (saved && saved !== nextChannels[key].latestVideoId) {
+      nextChannels[key].latestVideoId = saved;
+    }
+  }
+
+  const partitions = Math.max(1, Math.ceil(Math.max(1, selected.length) / VIDEO_BATCH_SIZE));
+  const minute = Math.floor(Date.now() / 60000);
+  const slot = minute % partitions;
+  const start = slot * VIDEO_BATCH_SIZE;
+  const targets = selected.slice(start, start + VIDEO_BATCH_SIZE);
+  const results = await mapLimit(targets, 3, async (channel) => checkTikTokVideoFingerprint(channel));
+
+  let known = 0;
+  let unknown = 0;
+  let seeded = 0;
+  let changed = 0;
+  const pending = new Set(
+    (Array.isArray(snapshot.pending) ? snapshot.pending : [])
+      .map(normalizeHandle)
+      .filter((handle) => handle && selectedSet.has(handle.toLowerCase()))
+  );
+
+  for (const result of results) {
+    const handle = normalizeHandle(result?.handle);
+    if (!handle) continue;
+    const key = handle.toLowerCase();
+    if (!result?.known) {
+      unknown += 1;
+      continue;
+    }
+    known += 1;
+    const latest = normalizeVideoId(result.latestVideoId || "");
+    if (!latest) continue;
+    const previous = normalizeVideoId(nextChannels[key]?.latestVideoId || "");
+    if (!previous) {
+      // First observation is only a baseline. This intentionally does not
+      // backfill old/missing channels.
+      nextChannels[key] = { latestVideoId: latest };
+      seeded += 1;
+      continue;
+    }
+    if (latest !== previous) {
+      nextChannels[key] = { latestVideoId: latest };
+      pending.add(handle);
+      changed += 1;
+    }
+  }
+
+  // Wake at most one channel per minute. This keeps the scheduled Worker below
+  // the Free-plan subrequest ceiling even if several channels post at once.
+  let woke = "";
+  const nextWake = [...pending][0] || "";
+  if (nextWake) {
+    const ok = await wakeRenderVideoRefresh(nextWake).catch(() => false);
+    if (ok) {
+      pending.delete(nextWake);
+      woke = nextWake;
+    }
+  }
+
+  const next = {
+    version: Number(snapshot.version || 0) + 1,
+    selected: selectedNames,
+    channels: nextChannels,
+    pending: [...pending],
+    changedAt: Number(snapshot.changedAt || 0),
+    batch: { slot, partitions, checked: targets.length, known, unknown, seeded, changed, woke }
+  };
+  const materialChanged =
+    videoFingerprintMaterial(next) !== previousMaterial ||
+    JSON.stringify(snapshot.selected || []) !== JSON.stringify(selectedNames) ||
+    JSON.stringify(snapshot.pending || []) !== JSON.stringify(next.pending);
+
+  if (materialChanged) {
+    next.changedAt = Date.now();
+    await env.TIKTOK_LIVE.put(VIDEO_SNAPSHOT_KEY, JSON.stringify(next));
+  }
+  return { ...next.batch, pending: next.pending.length, persisted: materialChanged };
+}
+
 async function checkTikTok(handle) {
   const endpoint = new URL("https://www.tiktok.com/api-live/user/room");
   endpoint.searchParams.set("aid", "1988");
@@ -96,7 +270,8 @@ async function mapLimit(rows, limit, fn) {
   return out;
 }
 async function sweep(env) {
-  const selected = await selectedHandles();
+  const selectedRows = await selectedChannels();
+  const selected = selectedRows.map((row) => row.handle);
   const selectedSet = new Set(selected.map((x) => x.toLowerCase()));
   const snapshot = await loadSnapshot(env);
   const previousMaterial = canonicalMaterial(snapshot);
@@ -179,7 +354,8 @@ async function sweep(env) {
     await env.TIKTOK_LIVE.put(SNAPSHOT_KEY, JSON.stringify(next));
   }
 
-  return { ...next, persisted: stateChanged };
+  const video = await videoFingerprintSweep(env, selectedRows);
+  return { ...next, persisted: stateChanged, video };
 }
 function normalizeLiveUrl(value) {
   let text=String(value||"").trim();
