@@ -98,6 +98,7 @@ const tiktokVideoRefreshAt=new Map();
 let tiktokVideoPackageVersion=0;
 let tiktokVideoPackageUpdatedAt=0;
 let tiktokVideoPackageScanPromise=null;
+let tiktokVideoFullRefreshPromise=null;
 const tiktokVideoEdgeRefreshPending=new Set();
 let tiktokVideoEdgeRefreshPromise=null;
 let tiktokVideoBackgroundCursor=0;
@@ -6257,7 +6258,7 @@ async function fullResyncTikTokSelectedData(){
   return tiktokFullResyncPromise;
 }
 
-async function refreshTikTokVideoLibrary(handles=null){
+async function refreshTikTokVideoLibrary(handles=null,{forceDeep=false}={}){
   const target=(handles&&handles.length)
     ? [...new Set(handles.map(normalizeTikTokHandle).filter(Boolean))]
     : [...tiktokLiveSelectedHandles];
@@ -6286,7 +6287,7 @@ async function refreshTikTokVideoLibrary(handles=null){
 
       // Cheap path: the newest ID did not move, so there is nothing to crawl,
       // enrich or persist. checkedAt is intentionally non-material.
-      if(fingerprint?.known&&fingerprint.latestVideoId&&fingerprint.latestVideoId===currentLatest){
+      if(!forceDeep&&fingerprint?.known&&fingerprint.latestVideoId&&fingerprint.latestVideoId===currentLatest){
         okCount+=1;
         updateTikTokVideoLibrary(handle,{
           checkedAt:Date.now(),
@@ -9229,6 +9230,47 @@ const server=http.createServer(async(req,res)=>{
     }catch(error){
       json(res,502,{ok:false,error:String(error?.message||error)});
     }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/video-refresh-all'&&req.method==='GET'){
+    const handles=[...tiktokLiveSelectedHandles];
+    if(!handles.length){
+      json(res,200,{ok:true,queued:false,total:0});
+      return;
+    }
+
+    if(!tiktokVideoFullRefreshPromise){
+      tiktokVideoFullRefreshPromise=(async()=>{
+        console.log('[tiktok-video-refresh-all] start','channels='+handles.length);
+        for(const handle of handles)tiktokVideoRefreshAt.delete(handle.toLowerCase());
+        await refreshTikTokVideoLibrary(handles,{forceDeep:true});
+        await persistTikTokVideoStore({force:true});
+        await syncTikTokCanonicalLibrary(handles,{mirror:false});
+        await persistTikTokCanonicalPackage();
+        console.log(
+          '[tiktok-video-refresh-all] done',
+          'channels='+handles.length,
+          'videos='+[...tiktokCanonicalVideos.values()]
+            .filter(row=>handles.some(h=>h.toLowerCase()===String(row?.handle||'').toLowerCase()))
+            .length
+        );
+        return true;
+      })()
+        .catch(error=>{
+          console.warn('[tiktok-video-refresh-all] failed',compactText(error?.message||error,180));
+          return false;
+        })
+        .finally(()=>{tiktokVideoFullRefreshPromise=null;});
+    }
+
+    json(res,202,{
+      ok:true,
+      queued:true,
+      running:true,
+      total:handles.length,
+      perChannel:TIKTOK_VIDEO_PER_CHANNEL
+    });
     return;
   }
 
