@@ -153,24 +153,9 @@ jobs:
           }
 
           async function verifyLiveShell(page){
-            // Geometry is owned by the shared player shell, not the decoder.
-            // Reuse a selected TikTok card and switch only engine type so this
-            // test is independent of whether a LIVE happens to exist right now
-            // or whether headless Chromium supports that stream codec.
-            await page.evaluate(()=>window.scrollTo(0,0));
-            const video=page.locator('[data-platform-subtab="video"]');
-            if(!(await video.isVisible().catch(()=>false))){
-              await page.locator('#platformTikTok').click().catch(()=>{});
-              await page.waitForTimeout(350);
-            }
-            if(await video.isVisible().catch(()=>false))await video.click();
-
-            const rows=await waitRows(page,'.row[data-provider="tiktok"][data-video-id]',25000);
-            const row=rows.first();
-            await row.scrollIntoViewIfNeeded();
-            await row.click();
-            await page.waitForTimeout(500);
-
+            // openTikTokMedia() immediately before this already leaves a selected
+            // TikTok card with the shared inline shell attached. Switch only the
+            // decoder type; do not click through the playing media overlay.
             await page.evaluate(()=>{
               const p=document.getElementById('player');
               const embed=document.getElementById('embedMediaCore');
@@ -181,7 +166,6 @@ jobs:
               if(live)live.hidden=false;
               if(media)media.hidden=true;
             });
-
             await measureAlignment(page,'tiktok-live-shell','live');
           }
 
