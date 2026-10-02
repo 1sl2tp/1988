@@ -7063,6 +7063,11 @@ html.one-col.portrait .player.pip{
       return;
     }
     const sourceId=validSourceId(meta?.sourceId);
+    const tiktokHandle=
+      String(meta?.provider||"").toLowerCase()==="tiktok"
+        ?String(meta?.handle||"").trim().replace(/^@/,"")
+        :"";
+    const canViewChannel=Boolean(sourceId||tiktokHandle);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
     const status=scope?directSourceStatus(sourceId,scope):"normal";
@@ -7425,7 +7430,7 @@ html.one-col.portrait .player.pip{
 
     menu.innerHTML=
       '<div class="row-action-title">'+escapeHtml(meta?.sourceName||meta?.title||"Video")+'</div>'+
-      rowActionButton("view-channel","Xem kênh","channel",{disabled:!sourceId})+
+      rowActionButton("view-channel","Xem kênh","channel",{disabled:!canViewChannel})+
       adminActions+
       '<div class="row-action-sep"></div>'+
       rowActionButton("download","Tải xuống","download",{disabled:!canDownloadMeta(meta)});
@@ -10016,7 +10021,11 @@ html.one-col.portrait .player.pip{
     kind=String(kind||"");
     if(kind==="view-channel"){
       closeRowActionMenu();
-      void openChannelInApp(meta);
+      if(String(meta?.provider||"").toLowerCase()==="tiktok"&&String(meta?.handle||"").trim()){
+        void openTikTokChannelInApp(meta.handle);
+      }else{
+        void openChannelInApp(meta);
+      }
       return true;
     }
     if(kind==="download"){
