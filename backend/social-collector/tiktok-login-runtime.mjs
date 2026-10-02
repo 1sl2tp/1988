@@ -92,6 +92,9 @@ export function createTikTokLoginRuntime({
   let pollTimer=0;
   let cdp=null;
   let completing=false;
+  let startPromise=null;
+  let lastStartAt=0;
+  const RESTART_COOLDOWN_MS=90_000;
   let state={
     status:'idle',
     userId:null,
@@ -150,8 +153,26 @@ export function createTikTokLoginRuntime({
   async function captureQr(){
     const pageRef=page;
     if(!pageRef||pageRef.isClosed())return null;
+
+    const limited=await pageRef.evaluate(()=>{
+      const text=String(document.body?.innerText||'').replace(/\s+/g,' ').trim().toLowerCase();
+      return /maximum number of attempts|too many attempts|try again later|số lần thử tối đa|thử lại sau/.test(text);
+    }).catch(()=>false);
+    if(limited){
+      set({status:'rate_limited',error:'TikTok tạm giới hạn tạo QR. Không tạo thêm QR lúc này.'});
+      return null;
+    }
+
     const visualReady=await waitForQrVisual(pageRef,14000);
-    if(!visualReady||page!==pageRef||pageRef.isClosed())return null;
+    if(!visualReady||page!==pageRef||pageRef.isClosed()){
+      const limitedAfter=await pageRef.evaluate(()=>{
+        const text=String(document.body?.innerText||'').replace(/\s+/g,' ').trim().toLowerCase();
+        return /maximum number of attempts|too many attempts|try again later|số lần thử tối đa|thử lại sau/.test(text);
+      }).catch(()=>false);
+      if(limitedAfter)set({status:'rate_limited',error:'TikTok tạm giới hạn tạo QR. Không tạo thêm QR lúc này.'});
+      return null;
+    }
+
     qr=await pageRef.screenshot({
       type:'png',
       fullPage:false,
@@ -376,55 +397,72 @@ export function createTikTokLoginRuntime({
   }
 
   async function start({restart=false}={}){
-    if(restart)await close();
+    if(startPromise)return startPromise;
 
-    if(page&&!page.isClosed()){
-      if(!qr&&state.status!=='success')await captureQr();
+    const now=Date.now();
+    if(restart&&lastStartAt&&now-lastStartAt<RESTART_COOLDOWN_MS){
+      const remain=Math.ceil((RESTART_COOLDOWN_MS-(now-lastStartAt))/1000);
+      set({status:'cooldown',error:'Chờ '+remain+' giây trước khi tạo QR mới.'});
       return snapshot();
     }
 
-    set({status:'starting',username:null,userId:null,error:null});
-    qr=null;
+    startPromise=(async()=>{
+      if(restart)await close();
 
-    try{
-      logger.info?.('[tiktok-login] start browser page');
-      const browser=await getBrowser();
-      page=await browser.newPage();
+      if(page&&!page.isClosed()){
+        return snapshot();
+      }
 
-      await page.setViewport({width:900,height:760,deviceScaleFactor:2});
-      await page.setUserAgent(
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
-        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
-      );
-      await page.setExtraHTTPHeaders({
-        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'
-      });
-      await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(()=>{});
+      lastStartAt=Date.now();
+      set({status:'starting',username:null,userId:null,error:null});
+      qr=null;
 
-      await attachNetwork();
+      try{
+        logger.info?.('[tiktok-login] start browser page');
+        const browser=await getBrowser();
+        const pageRef=await browser.newPage();
+        page=pageRef;
 
-      logger.info?.('[tiktok-login] open qr page');
-      await page.goto('https://www.tiktok.com/login/qrcode?lang=vi-VN',{
-        waitUntil:'domcontentloaded',
-        timeout:20000,
-      }).catch(error=>{
-        logger.warn?.('[tiktok-login] qr page navigation',String(error?.message||error));
-      });
+        await pageRef.setViewport({width:900,height:760,deviceScaleFactor:2});
+        await pageRef.setUserAgent(
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '+
+          'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36'
+        );
+        await pageRef.setExtraHTTPHeaders({
+          'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4'
+        });
+        await pageRef.emulateTimezone('Asia/Ho_Chi_Minh').catch(()=>{});
 
-      // TikTok often returns the QR token several seconds after DOMContentLoaded.
-      // Do not mark a screenshot containing only the spinner as a ready QR.
-      const image=await captureQr();
-      if(!image)throw new Error('tiktok_qr_capture_failed');
+        await attachNetwork();
 
-      set({status:'waiting_qr',error:null});
-      logger.info?.('[tiktok-login] qr ready');
-      return snapshot();
-    }catch(error){
-      set({status:'error',error:String(error?.message||error)});
-      logger.error?.('[tiktok-login] start failed',String(error?.stack||error?.message||error));
-      await close().catch(()=>{});
-      throw error;
-    }
+        logger.info?.('[tiktok-login] open qr page');
+        await pageRef.goto('https://www.tiktok.com/login/qrcode?lang=vi-VN',{
+          waitUntil:'domcontentloaded',
+          timeout:20000,
+        }).catch(error=>{
+          logger.warn?.('[tiktok-login] qr page navigation',String(error?.message||error));
+        });
+
+        const image=await captureQr();
+        if(!image){
+          if(state.status==='rate_limited')return snapshot();
+          throw new Error('tiktok_qr_capture_failed');
+        }
+
+        set({status:'waiting_qr',error:null});
+        logger.info?.('[tiktok-login] qr ready');
+        return snapshot();
+      }catch(error){
+        if(state.status!=='rate_limited'){
+          set({status:'error',error:String(error?.message||error)});
+          logger.error?.('[tiktok-login] start failed',String(error?.stack||error?.message||error));
+        }
+        if(state.status!=='rate_limited')await close().catch(()=>{});
+        return snapshot();
+      }
+    })().finally(()=>{startPromise=null;});
+
+    return startPromise;
   }
   async function refresh(){
     if(state.status==='waiting_qr'||state.status==='scanned'||state.status==='confirming'){
