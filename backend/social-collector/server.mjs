@@ -9135,6 +9135,17 @@ const server=http.createServer(async(req,res)=>{
       const id=String(url.searchParams.get('id')||'').trim();
       const force=url.searchParams.get('refresh')==='1';
       const source=await resolveTikTokVideoSource(handle,id,{force});
+      const relayHeaders={};
+      for(const [name,value] of Object.entries(source.headers||{})){
+        const key=String(name||'').toLowerCase();
+        if(!['user-agent','referer','origin','accept','accept-language'].includes(key))continue;
+        relayHeaders[key]=String(value||'');
+      }
+      relayHeaders['user-agent']=relayHeaders['user-agent']||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36';
+      relayHeaders.referer=relayHeaders.referer||('https://www.tiktok.com/@'+source.handle);
+      relayHeaders.accept=relayHeaders.accept||'*/*';
+
       json(res,200,{
         ok:true,
         handle:source.handle,
@@ -9145,6 +9156,7 @@ const server=http.createServer(async(req,res)=>{
         directUrl:String(source.url||''),
         expiresAt:tiktokStreamExpiresAt(source.url)?new Date(tiktokStreamExpiresAt(source.url)).toISOString():null,
         source:String(source.source||'yt-dlp'),
+        relayHeaders,
         stream:
           '/tiktok/video-stream?user='+encodeURIComponent(source.handle)+
           '&id='+encodeURIComponent(source.id)
