@@ -141,9 +141,6 @@ async function videoFingerprintSweep(env, selectedRows) {
     const key = row.handle.toLowerCase();
     const saved = normalizeVideoId(row.latestVideoId || "");
     if (!nextChannels[key]) nextChannels[key] = { latestVideoId: saved };
-    else if (saved && saved !== nextChannels[key].latestVideoId) {
-      nextChannels[key].latestVideoId = saved;
-    }
   }
 
   const partitions = Math.max(1, Math.ceil(Math.max(1, selected.length) / VIDEO_BATCH_SIZE));
