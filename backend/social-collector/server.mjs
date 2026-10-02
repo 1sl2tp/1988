@@ -102,6 +102,7 @@ let tiktokVideoPackageUpdatedAt=0;
 let tiktokVideoPackageScanPromise=null;
 let tiktokVideoFullRefreshPromise=null;
 const tiktokVideoEdgeRefreshPending=new Set();
+const tiktokVideoEdgeForceDeepPending=new Set();
 let tiktokVideoEdgeRefreshPromise=null;
 let tiktokVideoBackgroundCursor=0;
 let tiktokVideoStoreWritePromise=null;
@@ -6796,10 +6797,11 @@ function ensureTikTokVideoPackageScan(handles=null){
   return tiktokVideoPackageScanPromise;
 }
 
-function queueTikTokEdgeVideoRefresh(rawHandle){
+function queueTikTokEdgeVideoRefresh(rawHandle,{forceDeep=false}={}){
   const handle=normalizeTikTokHandle(rawHandle);
   if(!handle)return null;
   tiktokVideoEdgeRefreshPending.add(handle);
+  if(forceDeep)tiktokVideoEdgeForceDeepPending.add(handle.toLowerCase());
 
   if(tiktokVideoEdgeRefreshPromise)return tiktokVideoEdgeRefreshPromise;
   tiktokVideoEdgeRefreshPromise=(async()=>{
@@ -6807,13 +6809,15 @@ function queueTikTokEdgeVideoRefresh(rawHandle){
       const next=[...tiktokVideoEdgeRefreshPending][0];
       tiktokVideoEdgeRefreshPending.delete(next);
       const key=next.toLowerCase();
+      const deep=tiktokVideoEdgeForceDeepPending.delete(key);
       try{
         tiktokVideoRefreshAt.delete(key);
-        await refreshTikTokVideoLibrary([next]);
-        await persistTikTokVideoStore();
+        await refreshTikTokVideoLibrary([next],{forceDeep:deep});
+        await persistTikTokVideoStore({force:deep});
         console.log(
           '[tiktok-video-edge]',
           'refreshed='+next,
+          'deep='+(deep?'1':'0'),
           'pending='+tiktokVideoEdgeRefreshPending.size
         );
       }catch(error){
@@ -9710,9 +9714,11 @@ const server=http.createServer(async(req,res)=>{
         handle,secUid:'',latestVideoId:'',videos:[],checkedAt:0,status:'waiting'
       };
       if(url.searchParams.get('refresh')!=='0'&&!TIKTOK_UPDATES_PAUSED){
-        // Cloudflare sends a change notification only. Return saved data now;
-        // the serialized Render queue refreshes this one channel in background.
-        void queueTikTokEdgeVideoRefresh(handle);
+        // Cloudflare normally sends a cheap change notification. A one-off
+        // repair may request full=1 to backfill up to the 10 recent videos.
+        void queueTikTokEdgeVideoRefresh(handle,{
+          forceDeep:url.searchParams.get('full')==='1'
+        });
       }
       const row=tiktokVideoLibrary.get(key)||current;
       json(res,200,{
