@@ -39,7 +39,7 @@ button:hover,.linkbtn:hover{background:#343434}
 <body>
 <div class="page">
   <h1>TikTok · direct media proof</h1>
-  <p class="sub">Không iframe TikTok. Backend bắt URL media/download thật rồi đưa trực tiếp vào &lt;video&gt; của mình.</p>
+  <p class="sub">Không iframe TikTok. Chỉ lấy URL CDN gốc từ TikTok rồi đưa trực tiếp vào &lt;video&gt; của mình. Không Render/TikWM/TDown.</p>
 
   <div class="grid">
     <section class="panel left">
@@ -61,7 +61,7 @@ button:hover,.linkbtn:hover{background:#343434}
         <span class="pill">Không TikTok iframe</span>
         <span class="pill">Không quảng cáo UI</span>
         <span class="pill">Native &lt;video&gt;</span>
-        <span class="pill">Download/play URL</span>
+        <span class="pill">TikTok origin URL</span>
       </div>
 
       <div class="btns">
@@ -79,7 +79,7 @@ button:hover,.linkbtn:hover{background:#343434}
 
 <script>
 (() => {
-  const RESOLVER = 'https://one988-tiktok-session.onrender.com/media';
+  const RESOLVER = 'https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin';
   const media = document.getElementById('media');
   const status = document.getElementById('status');
   const input = document.getElementById('videoInput');
@@ -127,7 +127,13 @@ button:hover,.linkbtn:hover{background:#343434}
       'candidates = ' + rows.length + '<br>' +
       'audioUrls = ' + audios.length + '<br>' +
       'downloadUrls = ' + (data?.downloadUrls?.length || 0) + '<br>' +
-      'networkVideoUrls = ' + (data?.networkVideoUrls?.length || 0);
+      'resolver = ' + (data?.resolver || '—') + '<br>' +
+      'render = ' + String(data?.render) + '<br>' +
+      'tikwm = ' + String(data?.tikwm) + '<br>' +
+      'tdown = ' + String(data?.tdown) + '<br>' +
+      'proxyVideo = ' + String(data?.proxyVideo) + '<br>' +
+      'storage = ' + (data?.storage || '—') + '<br>' +
+      'supabaseWrites = ' + String(data?.supabaseWrites ?? '—');
 
     candidates.innerHTML = '';
     rows.slice(0,12).forEach((row, index) => {
@@ -159,7 +165,7 @@ button:hover,.linkbtn:hover{background:#343434}
   async function resolve(){
     const postUrl = input.value.trim();
     if(!postUrl) return;
-    setStatus('Đang bắt URL media/download từ TikTok…');
+    setStatus('Đang lấy playAddr/downloadAddr gốc từ TikTok…');
     values.textContent = 'resolver = running';
     candidates.innerHTML = '';
 
