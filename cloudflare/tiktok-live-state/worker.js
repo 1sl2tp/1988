@@ -2,12 +2,14 @@ const RENDER_API = "https://one988-tiktok-session.onrender.com";
 const SNAPSHOT_KEY = "tiktok:live:snapshot";
 const BATCH_SIZE = 45;
 const LIVE_PRIORITY_MAX = 16;
+const VIDEO_SOURCE_CACHE_SECONDS = 240;
 
 function cors() {
   return {
     "access-control-allow-origin": "*",
     "access-control-allow-methods": "GET,POST,OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type,range",
+    "access-control-expose-headers": "content-length,content-range,accept-ranges,content-type,etag,last-modified,x-1988-media",
     "cache-control": "no-store"
   };
 }
@@ -240,6 +242,145 @@ async function liveNow(env) {
     items
   };
 }
+function normalizeVideoId(value) {
+  const id = String(value || "").trim();
+  return /^\d{8,}$/.test(id) ? id : "";
+}
+function videoSourceCacheKey(handle, id) {
+  return new Request(
+    "https://1988-edge-cache.invalid/tiktok/video-source?user=" +
+      encodeURIComponent(handle.toLowerCase()) +
+      "&id=" + encodeURIComponent(id)
+  );
+}
+async function resolveTikTokVideoSourceEdge(handle, id, { refresh = false } = {}) {
+  const cache = caches.default;
+  const cacheKey = videoSourceCacheKey(handle, id);
+
+  if (!refresh) {
+    const cached = await cache.match(cacheKey).catch(() => null);
+    if (cached) {
+      const data = await cached.json().catch(() => null);
+      if (data?.directUrl) return data;
+    }
+  }
+
+  const endpoint = new URL(RENDER_API + "/tiktok/video-source");
+  endpoint.searchParams.set("user", handle);
+  endpoint.searchParams.set("id", id);
+  if (refresh) endpoint.searchParams.set("refresh", "1");
+
+  const r = await fetch(endpoint, {
+    headers: { accept: "application/json" },
+    cf: { cacheTtl: 0, cacheEverything: false }
+  });
+  if (!r.ok) throw new Error("resolver_http_" + r.status);
+
+  const data = await r.json();
+  if (!data?.ok || !data?.directUrl) throw new Error("resolver_no_direct_url");
+
+  const safe = {
+    handle: normalizeHandle(data.handle || handle) || handle,
+    id: normalizeVideoId(data.id || id) || id,
+    directUrl: String(data.directUrl || ""),
+    expiresAt: String(data.expiresAt || ""),
+    relayHeaders:
+      data.relayHeaders && typeof data.relayHeaders === "object"
+        ? data.relayHeaders
+        : {}
+  };
+
+  const ttlResponse = new Response(JSON.stringify(safe), {
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "public,max-age=" + VIDEO_SOURCE_CACHE_SECONDS
+    }
+  });
+  await cache.put(cacheKey, ttlResponse).catch(() => {});
+  return safe;
+}
+function copyMediaHeader(from, to, name) {
+  const value = from.get(name);
+  if (value) to.set(name, value);
+}
+async function relayTikTokVideo(request) {
+  const url = new URL(request.url);
+  const handle = normalizeHandle(url.searchParams.get("user") || "");
+  const id = normalizeVideoId(url.searchParams.get("id") || "");
+  if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
+
+  const method = request.method === "HEAD" ? "HEAD" : "GET";
+  const range = request.headers.get("range") || "";
+
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let source;
+    try {
+      source = await resolveTikTokVideoSourceEdge(handle, id, { refresh: attempt === 1 });
+    } catch (error) {
+      if (attempt === 0) continue;
+      return json({ ok: false, error: String(error?.message || error) }, 502);
+    }
+
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(source.relayHeaders || {})) {
+      const key = String(name || "").toLowerCase();
+      if (!["user-agent", "referer", "origin", "accept", "accept-language"].includes(key)) continue;
+      if (value) headers.set(key, String(value));
+    }
+    if (!headers.has("referer")) headers.set("referer", "https://www.tiktok.com/@" + handle);
+    if (!headers.has("accept")) headers.set("accept", "*/*");
+    if (range) headers.set("range", range);
+
+    const upstream = await fetch(source.directUrl, {
+      method,
+      headers,
+      redirect: "follow",
+      cf: { cacheTtl: 0, cacheEverything: false }
+    });
+
+    lastStatus = upstream.status;
+    if ([401, 403, 410].includes(upstream.status) && attempt === 0) continue;
+
+    if (!upstream.ok || !upstream.body && method !== "HEAD") {
+      return json({
+        ok: false,
+        error: "tiktok_upstream_" + upstream.status,
+        edge: true
+      }, 502);
+    }
+
+    const out = new Headers({
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET,HEAD,OPTIONS",
+      "access-control-allow-headers": "range",
+      "access-control-expose-headers":
+        "content-length,content-range,accept-ranges,content-type,etag,last-modified,x-1988-media",
+      "cache-control": "no-store",
+      "x-1988-media": "cloudflare-direct-tiktok"
+    });
+
+    for (const name of [
+      "content-type",
+      "content-length",
+      "content-range",
+      "accept-ranges",
+      "etag",
+      "last-modified"
+    ]) copyMediaHeader(upstream.headers, out, name);
+
+    if (!out.has("content-type")) out.set("content-type", "video/mp4");
+    if (!out.has("accept-ranges")) out.set("accept-ranges", "bytes");
+
+    return new Response(method === "HEAD" ? null : upstream.body, {
+      status: upstream.status,
+      headers: out
+    });
+  }
+
+  return json({ ok: false, error: "tiktok_upstream_" + lastStatus, edge: true }, 502);
+}
+
 async function refreshOne(env, rawHandle) {
   const handle = normalizeHandle(rawHandle);
   if (!handle) return json({ ok: false, error: "invalid_tiktok_handle" }, 400);
@@ -272,6 +413,9 @@ export default {
     if (url.pathname === "/health") return json({ ok: true, service: "1988-tiktok-live-state" });
     if (url.pathname === "/state") return json({ ok: true, ...(await loadSnapshot(env)) });
     if (url.pathname === "/tiktok/live-now") return json(await liveNow(env));
+    if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
+      return relayTikTokVideo(request);
+    }
     if (url.pathname === "/refresh") return refreshOne(env, url.searchParams.get("user") || "");
     if (url.pathname === "/sweep") return json({ ok: true, ...(await sweep(env)) });
     return json({ ok: false, error: "not_found" }, 404);
