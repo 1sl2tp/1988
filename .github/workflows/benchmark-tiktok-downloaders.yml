@@ -27,7 +27,7 @@ jobs:
         env:
           VIDEO_URL: "https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc"
         run: |
-          cat > /tmp/bench.mjs <<'JS'
+          cat > bench.mjs <<'JS'
           import { chromium } from 'playwright';
 
           const videoUrl = process.env.VIDEO_URL;
@@ -195,4 +195,4 @@ jobs:
           await browser.close();
           console.log('BENCH_RESULT '+JSON.stringify(results));
           JS
-          node /tmp/bench.mjs
+          node bench.mjs
