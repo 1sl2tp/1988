@@ -1,4 +1,4 @@
-name: Verify dedicated TikTok workspace once v2
+name: Verify dedicated TikTok workspace once v3
 
 on:
   push:
