@@ -6920,11 +6920,21 @@ html.one-col.portrait .player.pip{
     warmTikTokVod(meta);
     const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const videoStreamUrl=source=>
-      TIKTOK_LIVE_API+
-      "/tiktok/video-stream?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id)+
-      "&source="+encodeURIComponent(source);
+    const installedPwa=
+      window.matchMedia?.("(display-mode: standalone)")?.matches===true ||
+      window.navigator?.standalone===true;
+    const videoStreamUrl=source=>{
+      const query=
+        "?user="+encodeURIComponent(handle)+
+        "&id="+encodeURIComponent(id)+
+        "&source="+encodeURIComponent(source);
+      // Installed PWA uses a same-origin Service Worker bridge. Safari/PWA is
+      // much more reliable when <video> does not receive the Workers.dev URL
+      // directly, especially for Range/206 media requests.
+      return installedPwa
+        ?"/__tiktok-media"+query
+        :TIKTOK_LIVE_API+"/tiktok/video-stream"+query;
+    };
 
     // VOD is native-video only. Never fall back to TikTok iframe.
     if(tiktokMediaFrame){
@@ -6952,6 +6962,8 @@ html.one-col.portrait .player.pip{
     native.controls=false;
     native.preload="auto";
     native.playsInline=true;
+    native.setAttribute("playsinline","");
+    native.setAttribute("webkit-playsinline","");
     native.autoplay=true;
     native.setAttribute("autoplay","");
     native.defaultMuted=false;
@@ -6962,7 +6974,7 @@ html.one-col.portrait .player.pip{
     const warmState=tiktokVodWarmSources.get(tiktokVodWarmKey(meta));
     const warmFresh=warmState&&Date.now()-Number(warmState.at||0)<120_000;
     const retryTargets=[];
-    if(warmFresh){
+    if(!installedPwa&&warmFresh){
       for(const source of warmState.sources||[]){
         if(/^https?:\/\//i.test(String(source?.url||""))){
           retryTargets.push({type:"direct",name:String(source.name||""),url:String(source.url)});
@@ -7013,7 +7025,11 @@ html.one-col.portrait .player.pip{
       native.defaultMuted=false;
       native.muted=false;
       native.volume=1;
-      native.src=target.url+(target.type==="proxy"?(target.url.includes("?")?"&":"?")+"try="+Date.now():"");
+      const retrySuffix=
+        target.type==="proxy"&&!installedPwa
+          ?(target.url.includes("?")?"&":"?")+"try="+Date.now()
+          :"";
+      native.src=target.url+retrySuffix;
       native.load();
       const pending=native.play();
       if(pending?.catch)pending.catch(()=>{});
