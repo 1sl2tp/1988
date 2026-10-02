@@ -113,3 +113,50 @@ const refreshEnd=server.indexOf('async function checkTikTokLiveWithYtDlp(',refre
 const refresh=server.slice(refreshStart,refreshEnd);
 assert.match(refresh,/confirmTikTokLibrarySource\(/,
   'TikTok candidate link must be probed before it can become LIVE');
+
+
+assert.match(
+  server,
+  /const LEGACY_TIKTOK_FEED_COLLECT=String\(process\.env\.LEGACY_TIKTOK_FEED_COLLECT\|\|'0'\)==='1';/,
+  'legacy TikTok feed polling must stay opt-in and off by default'
+);
+assert.match(
+  server,
+  /const RENDER_LIVE_BACKGROUND_SWEEP=String\(process\.env\.RENDER_LIVE_BACKGROUND_SWEEP\|\|'0'\)==='1';/,
+  'Render recurring LIVE sweep must stay opt-in and off by default'
+);
+assert.match(
+  server,
+  /async function schedulerTick\(\)\{[\s\S]{0,120}if\(!AUTO_COLLECT\|\|!LEGACY_TIKTOK_FEED_COLLECT\)return;/,
+  'legacy browser feed collector must not run unless explicitly enabled'
+);
+assert.match(
+  server,
+  /if\(AUTO_COLLECT&&LEGACY_TIKTOK_FEED_COLLECT\)\{[\s\S]{0,260}schedulerTick/,
+  'browser prewarm/scheduler must be gated behind the legacy collector flag'
+);
+
+const statusesRouteStart=server.indexOf("if(url.pathname==='/tiktok/live-statuses'");
+const statusesRouteEnd=server.indexOf("\n  if(url.pathname==='/tiktok/live-now'",statusesRouteStart);
+assert.ok(statusesRouteStart>=0&&statusesRouteEnd>statusesRouteStart,'live-statuses route missing');
+const statusesRoute=server.slice(statusesRouteStart,statusesRouteEnd);
+assert.match(
+  statusesRoute,
+  /!RENDER_LIVE_BACKGROUND_SWEEP\?false:/,
+  'Cloudflare must own recurring LIVE status while Render stays read-only by default'
+);
+
+const originStreamStart=server.indexOf("if(url.pathname==='/tiktok/video-session-stream'");
+const originStreamEnd=server.indexOf("\n  if(url.pathname==='/tiktok/video-session-link'",originStreamStart);
+assert.ok(originStreamStart>=0&&originStreamEnd>originStreamStart,'video-session-stream route missing');
+const originStreamRoute=server.slice(originStreamStart,originStreamEnd);
+assert.match(
+  originStreamRoute,
+  /acquireRenderMediaProxy\(res\)/,
+  'legacy origin media stream must use the same opt-in Render media-proxy gate'
+);
+assert.doesNotMatch(
+  originStreamRoute,
+  /acquireTikTokOriginMediaProxy\(res\)/,
+  'origin media stream must not bypass the Render media-proxy gate'
+);
