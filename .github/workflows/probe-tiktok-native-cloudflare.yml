@@ -1,0 +1,25 @@
+name: Probe TikTok Native Cloudflare
+
+on:
+  push:
+    branches: [test-cobalt-tiktok-resolver]
+    paths:
+      - ".github/workflows/probe-tiktok-native-cloudflare.yml"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Probe exact VOD
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream?user=_phat_nguoi_yeu_thi_giai&id=7691708011651386645&source=auto'
+          curl -sS -L --max-time 30 -D /tmp/h -H 'Range: bytes=0-1048575' -o /tmp/b "$URL" || true
+          echo '---HEADERS---'
+          cat /tmp/h
+          echo '---BYTES---'
+          wc -c /tmp/b || true
+          echo '---FILE---'
+          file /tmp/b || true
