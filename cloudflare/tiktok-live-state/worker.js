@@ -559,7 +559,7 @@ function copyMediaHeader(from, to, name) {
   const value = from.get(name);
   if (value) to.set(name, value);
 }
-async function resolveTikwmVideoSource(handle, id) {
+async function resolveTikwmVideoSource(handle, id, { refresh = false } = {}) {
   const cache = caches.default;
   const cacheKey = new Request(
     "https://1988-edge-cache.invalid/tikwm/video-source?user=" +
@@ -567,10 +567,12 @@ async function resolveTikwmVideoSource(handle, id) {
       "&id=" + encodeURIComponent(id)
   );
 
-  const cached = await cache.match(cacheKey).catch(() => null);
-  if (cached) {
-    const row = await cached.json().catch(() => null);
-    if (row?.url) return row;
+  if (!refresh) {
+    const cached = await cache.match(cacheKey).catch(() => null);
+    if (cached) {
+      const row = await cached.json().catch(() => null);
+      if (row?.url) return row;
+    }
   }
 
   const pageUrl = "https://www.tiktok.com/@" + handle + "/video/" + id;
@@ -694,44 +696,44 @@ async function relayTikTokVideo(request) {
   if (!handle || !id) return json({ ok: false, error: "invalid_tiktok_video" }, 400);
 
   const method = request.method === "HEAD" ? "HEAD" : "GET";
-
-  // 1) Prefer TikWM's browser-friendly MP4 URL. This keeps media bytes off Render
-  // and avoids TikTok signed-CDN 403s from Cloudflare data-center IPs.
-  try {
-    const source = await resolveTikwmVideoSource(handle, id);
-    const upstream = await fetchTikTokMediaTarget(source.url, request, {
-      referer: "https://www.tikwm.com/",
-      accept: "*/*"
-    });
-    if (upstream.ok && (upstream.body || method === "HEAD")) {
-      return mediaRelayResponse(upstream, method, "cloudflare-tikwm");
-    }
-  } catch (error) {
-    // Continue to the direct TikTok source path below.
-  }
-
-  // 2) Fallback to Render only as a tiny source resolver. Render returns metadata
-  // (signed URL + safe headers), never the MP4 byte stream.
   let lastStatus = 0;
+  let lastError = "";
+
+  // Same-origin media proxy:
+  // browser -> Cloudflare Worker -> TikWM CDN.
+  // Keep Range/206 intact so native <video> can seek and switch videos cleanly.
   for (let attempt = 0; attempt < 2; attempt++) {
-    let source;
     try {
-      source = await resolveTikTokVideoSourceEdge(handle, id, { refresh: attempt === 1 });
+      const source = await resolveTikwmVideoSource(handle, id, { refresh: attempt === 1 });
+      const upstream = await fetchTikTokMediaTarget(source.url, request, {
+        referer: "https://www.tikwm.com/",
+        accept: "*/*"
+      });
+      lastStatus = upstream.status;
+
+      if ([401, 403, 404, 410].includes(upstream.status) && attempt === 0) {
+        try { await upstream.body?.cancel?.(); } catch {}
+        continue;
+      }
+
+      if (upstream.ok || upstream.status === 206) {
+        return mediaRelayResponse(upstream, method, "cloudflare-tikwm-relay");
+      }
+
+      try { await upstream.body?.cancel?.(); } catch {}
+      lastError = "upstream_http_" + upstream.status;
     } catch (error) {
+      lastError = String(error?.message || error || "tikwm_relay_failed");
       if (attempt === 0) continue;
-      return json({ ok: false, error: String(error?.message || error) }, 502);
-    }
-
-    const upstream = await fetchTikTokMediaTarget(source.directUrl, request, source.relayHeaders || {});
-    lastStatus = upstream.status;
-
-    if ([401, 403, 410].includes(upstream.status) && attempt === 0) continue;
-    if (upstream.ok && (upstream.body || method === "HEAD")) {
-      return mediaRelayResponse(upstream, method, "cloudflare-direct-tiktok");
     }
   }
 
-  return json({ ok: false, error: "tiktok_upstream_" + lastStatus, edge: true }, 502);
+  return json({
+    ok: false,
+    error: lastError || ("tiktok_upstream_" + lastStatus),
+    edge: true,
+    source: "tikwm"
+  }, 502);
 }
 
 async function refreshOne(env, rawHandle) {
