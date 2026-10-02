@@ -31,7 +31,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <body>
 <div class="page">
   <h1>TikTok · origin media</h1>
-  <p class="sub">Không fetch media. Không TikWM/TDown. Đọc <b>bitrateInfo</b>, chọn H.264 muxed rồi gắn thẳng <b>aweme/v1/play</b> vào native &lt;video&gt;; browser tự theo redirect TikTok.</p>
+  <p class="sub">Không TikWM/TDown. Worker chỉ lấy <b>302 Location</b> từ TikTok, web nhận URL CDN cuối rồi native &lt;video&gt; tải trực tiếp CDN. Nếu máy nào vẫn lỗi mới dùng proxy Range TikTok gốc.</p>
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
@@ -71,6 +71,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   const EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev';
   const RESOLVER=EDGE+'/tiktok/video-origin';
   const ORIGIN_STREAM=EDGE+'/tiktok/video-origin-stream';
+  const ORIGIN_LOCATION=EDGE+'/tiktok/video-origin-location';
   const media=document.getElementById('media');
   const audioTrack=document.getElementById('audioTrack');
   let playbackMode='muxed';
@@ -98,6 +99,18 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     return ORIGIN_STREAM+'?url='+encodeURIComponent(gateway);
   }
 
+  async function finalCdnUrl(gateway){
+    const r=await fetch(ORIGIN_LOCATION+'?url='+encodeURIComponent(gateway),{
+      cache:'no-store',
+      credentials:'omit'
+    });
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j?.ok||!/^https?:\/\//i.test(String(j.url||''))){
+      throw new Error(j?.error||('origin_location_'+r.status));
+    }
+    return String(j.url);
+  }
+
   function resetTracks(){
     media.pause();
     audioTrack.pause();
@@ -113,19 +126,23 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     const gateway=gatewayOf(track?.urls,directFallback);
     if(!gateway)throw new Error('no_muxed_gateway');
 
-    resetTracks();
     currentVideoGateway=gateway;
     currentAudioGateway='';
     originProxyActive=false;
     fallbackBusy=false;
+
+    setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · đang lấy CDN cuối từ TikTok…');
+    const cdn=await finalCdnUrl(gateway);
+
+    resetTracks();
     media.referrerPolicy='no-referrer';
-    media.src=gateway;
+    media.src=cdn;
     media.muted=false;
     media.load();
-    openMedia.href=gateway;
+    openMedia.href=cdn;
 
-    setStatus('H.264 muxed '+String(track?.width||'')+'×'+String(track?.height||'')+' · <video> đang đi thẳng qua aweme/v1/play…');
-    return {mode:'muxed',gateway,videoUrl:gateway,audioUrl:'',track};
+    setStatus('Đã có CDN TikTok cuối · native video đang nạp trực tiếp…','ok');
+    return {mode:'muxed',gateway,videoUrl:cdn,audioUrl:'',track,cdn};
   }
 
   async function loadDash(track){
@@ -134,23 +151,30 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
     const audioGateway=gatewayOf(track?.audio?.urls);
     if(!videoGateway||!audioGateway)throw new Error('dash_pair_incomplete');
 
-    resetTracks();
     currentVideoGateway=videoGateway;
     currentAudioGateway=audioGateway;
     originProxyActive=false;
     fallbackBusy=false;
+
+    setStatus('DASH '+String(track?.codec||'')+' · đang lấy CDN hình + tiếng đúng audio_file_id…');
+    const [videoCdn,audioCdn]=await Promise.all([
+      finalCdnUrl(videoGateway),
+      finalCdnUrl(audioGateway)
+    ]);
+
+    resetTracks();
     media.referrerPolicy='no-referrer';
     audioTrack.referrerPolicy='no-referrer';
-    media.src=videoGateway;
+    media.src=videoCdn;
     media.muted=true;
-    audioTrack.src=audioGateway;
+    audioTrack.src=audioCdn;
     audioTrack.muted=false;
     media.load();
     audioTrack.load();
-    openMedia.href=videoGateway;
+    openMedia.href=videoCdn;
 
-    setStatus('DASH '+String(track?.codec||'')+' · <video> + <audio> đi thẳng qua 2 gateway TikTok đúng audio_file_id…');
-    return {mode:'dash',gateway:videoGateway,audioGateway,videoUrl:videoGateway,audioUrl:audioGateway,track};
+    setStatus('Đã có CDN TikTok cuối cho hình + tiếng · đang nạp…','ok');
+    return {mode:'dash',gateway:videoGateway,audioGateway,videoUrl:videoCdn,audioUrl:audioCdn,track,videoCdn,audioCdn};
   }
 
   async function resolve(){
@@ -184,8 +208,8 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'size = '+String(t.width||'—')+'×'+String(t.height||'—')+'<br>'+
         'bitrate = '+String(t.bitrate||'—')+'<br>'+
         'audioFileId = '+String(t.audioFileId||'—')+'<br>'+
-        'videoGateway = '+loaded.videoUrl+'<br>'+
-        (loaded.audioUrl?'audioGateway = '+loaded.audioUrl+'<br>':'')+
+        'videoURL = '+loaded.videoUrl+'<br>'+
+        (loaded.audioUrl?'audioURL = '+loaded.audioUrl+'<br>':'')+
         'render = false<br>'+
         'proxyVideo = false<br>'+
         'storage = none<br>'+
