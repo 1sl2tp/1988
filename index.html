@@ -6316,6 +6316,15 @@ html.one-col.portrait .player.pip{
     });
   }
 
+  let tiktokEmbedCurrentTime=0;
+  let tiktokEmbedDuration=0;
+
+  function revealTikTokEmbedVideo(){
+    if(!player.classList.contains("tiktok-vod"))return;
+    player.classList.remove("tiktok-vod-loading");
+    if(tiktokLivePreview)tiktokLivePreview.hidden=true;
+  }
+
   function installTikTokEmbedBridge(){
     addEventListener("message",event=>{
       if(
@@ -6335,21 +6344,42 @@ html.one-col.portrait .player.pip{
         return;
       }
 
+      if(message.type==="onCurrentTime"){
+        const value=message.value||{};
+        const currentTime=Number(value.currentTime)||0;
+        const duration=Number(value.duration)||0;
+        if(duration>0)tiktokEmbedDuration=duration;
+        if(currentTime>0){
+          tiktokEmbedCurrentTime=currentTime;
+          // Some TikTok/WebKit combinations start advancing audio/time before
+          // emitting PLAYING. Time progression is the strongest proof that the
+          // actual media is visible-ready, so remove our static poster here too.
+          revealTikTokEmbedVideo();
+          player.classList.add("tiktok-playing","tiktok-media-playing");
+        }
+        return;
+      }
+
       if(message.type==="onStateChange"){
         const state=Number(message.value);
         const playing=state===1;
         player.classList.toggle("tiktok-playing",playing);
         player.classList.toggle("tiktok-media-playing",playing);
         if(playing){
-          player.classList.remove("tiktok-vod-loading");
-          if(tiktokLivePreview){
-            tiktokLivePreview.hidden=true;
-          }
+          revealTikTokEmbedVideo();
           // Some WebKit builds enter the first frame muted. Ask once more after
           // playback is established; native TikTok controls remain available.
           tiktokEmbedCommand("unMute",undefined);
         }
-        if(state===0)queueMicrotask(()=>playNextFeedVideo());
+        if(state===0){
+          // TikTok can emit an early ENDED/0 while its iframe is initializing.
+          // Only autoplay-next after the playback clock actually reached the end.
+          const reallyEnded=
+            tiktokEmbedDuration>0 &&
+            tiktokEmbedCurrentTime>0 &&
+            (tiktokEmbedDuration-tiktokEmbedCurrentTime)<=0.75;
+          if(reallyEnded)queueMicrotask(()=>playNextFeedVideo());
+        }
         return;
       }
 
@@ -6393,6 +6423,8 @@ html.one-col.portrait .player.pip{
   }
 
   function stopTikTokVideoPlayback(){
+    tiktokEmbedCurrentTime=0;
+    tiktokEmbedDuration=0;
     if(tiktokMediaVideo){
       try{
         tiktokMediaVideo.pause();
@@ -6536,6 +6568,8 @@ html.one-col.portrait .player.pip{
     stopTikTokLivePlayback();
     activateTikTokSurface();
 
+    tiktokEmbedCurrentTime=0;
+    tiktokEmbedDuration=0;
     currentMeta=meta;
     const ratio=
       validMediaAspect(meta?.aspectRatio)||
