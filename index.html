@@ -2599,20 +2599,27 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
   background:#000!important;
 }
 
-/* TikTok VOD uses TikTok's own working player.
-   Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
-   Same crop model as YouTube rail; only the measured rail size differs. */
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaFrame{
+/* TikTok VOD official player rail crop.
+   Proven setting from /tiktok-mask-proof.html:
+   313px BLACK top/bottom, 0px left/right, shiftY=0, shiftX=0.
+   The parent .player is the fixed viewport; TikTok's iframe is the taller source. */
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaVideo{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
   pointer-events:none!important;
+}
+.player[data-media-type="media"].tiktok-embed-fallback .native-media-core > #tiktokMediaFrame{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
   left:0!important;
   right:auto!important;
-  top:-310px!important;
+  top:-313px!important;
   bottom:auto!important;
   width:100%!important;
-  height:calc(100% + 620px)!important;
+  height:calc(100% + 626px)!important;
   max-width:none!important;
   max-height:none!important;
   transform:none!important;
@@ -3497,7 +3504,9 @@ html.tiktok-ui.tiktok-watch .rows{
           <img id="tiktokMediaPreview" class="tiktok-media-preview" alt="" hidden>
           <video id="tiktokMediaVideo" playsinline webkit-playsinline preload="metadata" hidden></video>
           <iframe id="tiktokMediaFrame" class="tiktok-media-frame" title="TikTok video"
-            allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            referrerpolicy="strict-origin-when-cross-origin"
+            allowfullscreen hidden></iframe>
         </div>
         <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-top" data-pip-drag="top" aria-hidden="true"></div>
@@ -7539,47 +7548,12 @@ html.tiktok-ui.tiktok-watch .rows{
   function warmTikTokVod(meta={}){
     if(String(meta?.provider||"").toLowerCase()!=="tiktok"||meta?.isLive===true)return false;
     const id=String(meta?.id||"").trim();
-    const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    if(!/^[0-9]{8,}$/.test(id)||!handle)return false;
-
-    const key=tiktokVodWarmKey(meta);
-    const now=Date.now();
-    const cached=tiktokVodWarmSources.get(key);
-    if(cached&&now-Number(cached.at||0)<120_000)return true;
-    if(now-Number(tiktokVodWarmAt.get(key)||0)<15_000)return true;
-    tiktokVodWarmAt.set(key,now);
-
-    fetch(
-      TIKTOK_LIVE_API+
-      "/tiktok/video-warm-edge?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id),
-      {cache:"no-store",keepalive:true}
-    )
-      .then(async response=>{
-        if(!response.ok)throw new Error("warm_"+response.status);
-        return response.json();
-      })
-      .then(payload=>{
-        const sources=(Array.isArray(payload?.sources)?payload.sources:[])
-          .map(row=>({
-            name:String(row?.name||""),
-            url:String(row?.url||"").trim()
-          }))
-          .filter(row=>/^(tikwm|tdown)$/.test(row.name)&&/^https?:\/\//i.test(row.url));
-        if(!sources.length)return;
-        const preferred=String(payload?.preferred||"");
-        sources.sort((a,b)=>
-          (a.name===preferred?0:1)-(b.name===preferred?0:1)
-        );
-        tiktokVodWarmSources.set(key,{at:Date.now(),preferred,sources});
-        for(const source of sources)preconnectDirectMedia(source.url);
-      })
-      .catch(()=>{
-        tiktokVodWarmAt.delete(key);
-      });
+    if(!/^[0-9]{8,}$/.test(id))return false;
+    // Official player needs only a TikTok connection warm-up.
+    // Never pre-resolve or proxy VOD media bytes through our infrastructure.
+    ensureTikTokPlayerPreconnect();
     return true;
   }
-
   function observeTikTokVodWarmRows(rootEl=document){
     const cards=[...rootEl.querySelectorAll?.('.row[data-provider="tiktok"][data-video-id]')||[]];
     if(!cards.length)return;
@@ -7611,14 +7585,14 @@ html.tiktok-ui.tiktok-watch .rows{
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaVideo)return false;
+    if(!/^[0-9]{8,}$/.test(id)||!tiktokMediaFrame)return false;
 
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
     activateTikTokMediaSurface();
     enterTikTokWatchMode(meta);
-    player.classList.add("tiktok-vod");
-    player.classList.remove("tiktok-embed-fallback","tiktok-playing","tiktok-media-playing");
+    player.classList.add("tiktok-vod","tiktok-embed-fallback","tiktok-vod-loading");
+    player.classList.remove("tiktok-playing","tiktok-media-playing");
 
     tiktokEmbedCurrentTime=0;
     tiktokEmbedDuration=0;
@@ -7644,177 +7618,56 @@ html.tiktok-ui.tiktok-watch .rows{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    warmTikTokVod(meta);
-    const native=tiktokMediaVideo;
-    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
-    const installedPwa=
-      window.matchMedia?.("(display-mode: standalone)")?.matches===true ||
-      window.navigator?.standalone===true;
-    const videoStreamUrl=source=>{
-      const query=
-        "?user="+encodeURIComponent(handle)+
-        "&id="+encodeURIComponent(id)+
-        "&source="+encodeURIComponent(source);
-      // Installed PWA uses a same-origin Service Worker bridge. Safari/PWA is
-      // much more reliable when <video> does not receive the Workers.dev URL
-      // directly, especially for Range/206 media requests.
-      return installedPwa
-        ?"/__tiktok-media"+query
-        :TIKTOK_LIVE_API+"/tiktok/video-stream"+query;
-    };
+    // TikTok official player owns all VOD media bytes:
+    // TikTok -> browser, no Render/Worker video relay.
+    ensureTikTokPlayerPreconnect();
 
-    // VOD is native-video only. Never fall back to TikTok iframe.
-    if(tiktokMediaFrame){
-      try{
-        tiktokMediaFrame.contentWindow?.postMessage?.(
-          {type:"pause",value:undefined,"x-tiktok-player":true},
-          "https://www.tiktok.com"
-        );
-      }catch{}
-      tiktokMediaFrame.hidden=true;
-      tiktokMediaFrame.removeAttribute("src");
-    }
     if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
 
-    // Hide the browser's loading wheel behind our existing thumbnail. The cover
-    // disappears only when the native element is actually PLAYING.
-    player.classList.add("tiktok-vod-loading");
+    if(tiktokMediaVideo){
+      try{
+        tiktokMediaVideo.pause();
+        tiktokMediaVideo.removeAttribute("src");
+        tiktokMediaVideo.load();
+      }catch{}
+      tiktokMediaVideo.controls=false;
+      tiktokMediaVideo.hidden=true;
+    }
+
+    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
     if(tiktokMediaPreview){
       tiktokMediaPreview.hidden=!preview;
       if(preview)tiktokMediaPreview.src=preview;
     }
 
-    native.hidden=false;
-    native.controls=false;
-    native.preload="auto";
-    native.playsInline=true;
-    native.setAttribute("playsinline","");
-    native.setAttribute("webkit-playsinline","");
-    native.autoplay=true;
-    native.setAttribute("autoplay","");
-    native.defaultMuted=false;
-    native.muted=false;
-    native.volume=1;
-    native.removeAttribute("poster");
-
-    const warmState=tiktokVodWarmSources.get(tiktokVodWarmKey(meta));
-    const warmFresh=warmState&&Date.now()-Number(warmState.at||0)<120_000;
-    const retryTargets=[];
-    if(!installedPwa&&warmFresh){
-      for(const source of warmState.sources||[]){
-        if(/^https?:\/\//i.test(String(source?.url||""))){
-          retryTargets.push({type:"direct",name:String(source.name||""),url:String(source.url)});
-        }
-      }
-    }
-    retryTargets.push(
-      {type:"proxy",name:"auto",url:videoStreamUrl("auto")},
-      {type:"proxy",name:"tdown",url:videoStreamUrl("tdown")},
-      {type:"proxy",name:"tikwm",url:videoStreamUrl("tikwm")}
-    );
-
-    const seenTargets=new Set();
-    const targets=retryTargets.filter(target=>{
-      const key=String(target.url||"");
-      if(!key||seenTargets.has(key))return false;
-      seenTargets.add(key);
-      return true;
+    const params=new URLSearchParams({
+      autoplay:"1",
+      controls:"1",
+      progress_bar:"1",
+      play_button:"1",
+      volume_control:"1",
+      fullscreen_button:"1",
+      timestamp:"1",
+      loop:"0",
+      music_info:"0",
+      description:"0",
+      rel:"0",
+      native_context_menu:"0",
+      closed_caption:"0",
+      muted:"0"
     });
 
-    let sourceIndex=0;
-    let startupTimer=0;
-    let alreadyPlaying=false;
-
-    const armStartupTimer=()=>{
-      clearTimeout(startupTimer);
-      startupTimer=setTimeout(()=>{
-        if(String(current?.id||"")!==id||alreadyPlaying)return;
-        if(sourceIndex<targets.length-1){
-          sourceIndex+=1;
-          loadNativeTarget(targets[sourceIndex]);
-        }
-      },2600);
-    };
-
-    const loadNativeTarget=target=>{
-      if(String(current?.id||"")!==id||!target?.url)return;
-      try{native.pause()}catch{}
-      alreadyPlaying=false;
-      player.classList.add("tiktok-vod-loading");
-      player.classList.remove("tiktok-embed-fallback","tiktok-media-playing","tiktok-playing");
-      if(tiktokMediaPreview&&preview){
-        tiktokMediaPreview.hidden=false;
-        if(tiktokMediaPreview.src!==preview)tiktokMediaPreview.src=preview;
-      }
-      native.hidden=false;
-      native.controls=false;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      const retrySuffix=
-        target.type==="proxy"&&!installedPwa
-          ?(target.url.includes("?")?"&":"?")+"try="+Date.now()
-          :"";
-      native.src=target.url+retrySuffix;
-      native.load();
-      const pending=native.play();
-      if(pending?.catch)pending.catch(()=>{});
-      armStartupTimer();
-    };
-
-    native.onerror=()=>{
-      clearTimeout(startupTimer);
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      if(sourceIndex<targets.length-1){
-        sourceIndex+=1;
-        setTimeout(()=>{
-          if(String(current?.id||"")===id)loadNativeTarget(targets[sourceIndex]);
-        },80);
-      }
-    };
-    native.onloadedmetadata=()=>{
-      if(String(current?.id||"")!==id)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      const w=Number(native.videoWidth)||0;
-      const h=Number(native.videoHeight)||0;
-      if(w>0&&h>0)commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
-    };
-    native.onplaying=()=>{
-      clearTimeout(startupTimer);
-      if(String(current?.id||"")!==id)return;
-      alreadyPlaying=true;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      native.controls=true;
-      player.classList.remove("tiktok-vod-loading");
-      player.classList.add("tiktok-media-playing","tiktok-playing");
-      if(tiktokMediaPreview)tiktokMediaPreview.hidden=true;
-    };
-    native.onpause=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-    };
-    native.onended=()=>{
-      clearTimeout(startupTimer);
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      queueMicrotask(()=>playNextFeedVideo());
-    };
-
-    // Warmed cards start directly from an already-resolved CDN URL, skipping
-    // resolver + proxy startup. Worker proxy remains only as a native fallback.
-    loadNativeTarget(targets[0]);
+    // The card click that called playTikTokVideo is the user gesture.
+    // onPlayerReady below sends unMute -> play again to preserve audible start.
+    tiktokMediaFrame.hidden=false;
+    tiktokMediaFrame.src=
+      "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
 
     renderCurrentInfo();
     schedulePip();
     return true;
   }
-
   function openMedia(meta={},options={}){
     const id=String(meta?.id||"").trim();
     if(!id)return false;
@@ -11399,6 +11252,7 @@ html.tiktok-ui.tiktok-watch .rows{
   if(liveMediaCore)liveMediaCore.hidden=true;
   if(nativeMediaCore)nativeMediaCore.hidden=true;
   installTikTokLiveControls();
+  installTikTokEmbedBridge();
 
   // Start API/player creation as early as possible. No video is selected here,
   // so this cannot autoplay or resurrect the old waiting MAIN.
