@@ -3,497 +3,193 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>TikTok official player proof</title>
+<title>TikTok direct media proof</title>
 <style>
-  *{box-sizing:border-box}
-  :root{
-    color-scheme:dark;
-    --rail-top:59px;
-    --rail-bottom:59px;
-    --rail-shift:0px;
-  }
-  html,body{margin:0;min-height:100%;background:#0f0f0f;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
-  body{min-height:100vh}
-  button,input,a{font:inherit}
-  .page{width:min(1180px,100%);margin:0 auto;padding:18px}
-  h1{font-size:18px;margin:0 0 6px}
-  .sub{color:#aaa;font-size:13px;line-height:1.5;margin:0 0 16px}
-  .grid{display:grid;grid-template-columns:minmax(300px,460px) minmax(300px,1fr);gap:18px;align-items:start}
-  .panel{background:#181818;border:1px solid #2c2c2c;border-radius:16px;padding:14px}
-
-  /* Viewport thật. Iframe TikTok được kéo cao thêm ở trên/dưới rồi crop. */
-  .player-shell{
-    width:min(100%,430px);
-    aspect-ratio:9/16;
-    margin:0 auto;
-    position:relative;
-    overflow:hidden;
-    background:#000;
-    border-radius:14px;
-    box-shadow:0 18px 60px rgba(0,0,0,.35)
-  }
-  #tt{
-    position:absolute!important;
-    left:0!important;
-    top:calc((0px - var(--rail-top)) + var(--rail-shift))!important;
-    width:100%!important;
-    height:calc(100% + var(--rail-top) + var(--rail-bottom))!important;
-    max-width:none!important;
-    max-height:none!important;
-    border:0!important;
-    background:#000!important
-  }
-  .guide{
-    position:absolute;inset:0;z-index:3;pointer-events:none;
-    border:1px dashed rgba(255,255,255,.2);
-    border-radius:14px
-  }
-  .sound-gate{
-    position:absolute;
-    inset:0;
-    z-index:4;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    border:0;
-    border-radius:14px;
-    background:rgba(0,0,0,.12);
-    padding:0;
-    cursor:pointer;
-  }
-  .sound-gate span{
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    min-height:44px;
-    padding:10px 16px;
-    border-radius:999px;
-    background:rgba(0,0,0,.72);
-    color:#fff;
-    border:1px solid rgba(255,255,255,.28);
-    font-size:14px;
-    font-weight:700;
-    backdrop-filter:blur(8px);
-    -webkit-backdrop-filter:blur(8px)
-  }
-  .sound-gate[hidden]{display:none}
-
-  .status{font-size:12px;color:#aaa;margin-top:10px;text-align:center;min-height:18px}
-  .inputline{display:flex;gap:8px;margin-bottom:12px}
-  .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
-  button,.linkbtn{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#2a2a2a;color:#fff;border:1px solid #3a3a3a;border-radius:10px;padding:9px 11px;cursor:pointer;font-weight:650;text-decoration:none}
-  button:hover,.linkbtn:hover{background:#343434}
-  .primary{background:#fff;color:#111;border-color:#fff}
-  .primary:hover{background:#e8e8e8}
-  .btns{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
-  .switches{display:grid;gap:8px;margin:14px 0}
-  .switch{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid #292929;background:#111;border-radius:10px;padding:10px 11px}
-  .switch label{font-size:13px;color:#ddd}
-  .switch input{width:18px;height:18px}
-
-  .control{display:grid;grid-template-columns:125px minmax(0,1fr) 62px;gap:10px;align-items:center;margin:12px 0}
-  .control label{font-size:13px;color:#ddd}
-  .control input[type="range"]{width:100%}
-  .control output{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:#fff}
-  .preset{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-  .preset button{padding:7px 9px;font-size:12px}
-
-  .values,.explain{background:#111;border:1px solid #292929;border-radius:12px;padding:12px;margin-top:12px;font-size:12px;line-height:1.55;color:#aaa}
-  .values{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
-  .explain b{color:#fff}
-  .ok{color:#75d58a}
-  .warn{color:#ffd166}
-  .pill{display:inline-flex;align-items:center;border:1px solid #333;border-radius:999px;padding:4px 8px;font-size:11px;color:#bbb;margin:0 6px 6px 0}
-
-  @media(max-width:820px){
-    .page{padding:10px}
-    .grid{grid-template-columns:1fr}
-    .player-shell{width:min(100%,390px)}
-    .panel{border-radius:12px;padding:10px}
-    .control{grid-template-columns:105px minmax(0,1fr) 58px}
-  }
-  @media(max-width:480px){
-    .page{padding:0}
-    h1,.sub,.right{margin-left:10px;margin-right:10px}
-    .grid{gap:10px}
-    .left{padding:0;border-left:0;border-right:0;border-radius:0}
-    .player-shell{width:100%;border-radius:0;max-height:calc(100dvh - 80px)}
-    .guide{border-radius:0}
-  }
+*{box-sizing:border-box}
+:root{color-scheme:dark}
+html,body{margin:0;min-height:100%;background:#0f0f0f;color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+body{min-height:100vh}
+button,input,a{font:inherit}
+.page{width:min(1180px,100%);margin:0 auto;padding:18px}
+h1{font-size:18px;margin:0 0 6px}
+.sub{color:#aaa;font-size:13px;line-height:1.5;margin:0 0 16px}
+.grid{display:grid;grid-template-columns:minmax(300px,460px) minmax(300px,1fr);gap:18px;align-items:start}
+.panel{background:#181818;border:1px solid #2c2c2c;border-radius:16px;padding:14px}
+.player-shell{width:min(100%,430px);aspect-ratio:9/16;margin:0 auto;position:relative;overflow:hidden;background:#000;border-radius:14px}
+#media{width:100%;height:100%;display:block;background:#000;object-fit:contain}
+.status{font-size:12px;color:#aaa;margin-top:10px;text-align:center;min-height:18px}
+.inputline{display:flex;gap:8px;margin-bottom:12px}
+.inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
+button,.linkbtn{display:inline-flex;align-items:center;justify-content:center;gap:7px;background:#2a2a2a;color:#fff;border:1px solid #3a3a3a;border-radius:10px;padding:9px 11px;cursor:pointer;font-weight:650;text-decoration:none}
+button:hover,.linkbtn:hover{background:#343434}
+.primary{background:#fff;color:#111;border-color:#fff}.primary:hover{background:#e8e8e8}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.pill{display:inline-flex;align-items:center;border:1px solid #333;border-radius:999px;padding:4px 8px;font-size:11px;color:#bbb;margin:0 6px 6px 0}
+.values,.candidate{background:#111;border:1px solid #292929;border-radius:12px;padding:12px;margin-top:12px;font-size:12px;line-height:1.55;color:#aaa}
+.values{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-word}
+.candidates{display:grid;gap:8px;margin-top:12px}
+.candidate{margin:0;display:grid;gap:8px}
+.candidate .meta{display:flex;gap:8px;align-items:center;justify-content:space-between}
+.candidate code{word-break:break-all;color:#ccc;font-size:11px}
+.ok{color:#75d58a}.warn{color:#ffd166}.bad{color:#ff7777}
+@media(max-width:820px){.page{padding:10px}.grid{grid-template-columns:1fr}.player-shell{width:min(100%,390px)}.panel{border-radius:12px;padding:10px}}
+@media(max-width:480px){.page{padding:0}.page>h1,.page>.sub,.right{margin-left:10px;margin-right:10px}.grid{gap:10px}.left{padding:0;border-left:0;border-right:0;border-radius:0}.player-shell{width:100%;border-radius:0;max-height:calc(100dvh - 80px)}}
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>TikTok · official player + BLACK rail chỉnh được</h1>
-  <p class="sub">
-    Vẫn dùng player TikTok chính chủ. Có BLACK trên/dưới để bạn kéo chỉnh vùng crop,
-    video tự phát ngay. Âm thanh lần mở đầu cần một chạm trong trang vì trình duyệt chặn autoplay có tiếng.
-  </p>
+  <h1>TikTok · direct media proof</h1>
+  <p class="sub">Không iframe TikTok. Backend bắt URL media/download thật rồi đưa trực tiếp vào &lt;video&gt; của mình.</p>
 
   <div class="grid">
     <section class="panel left">
       <div class="player-shell">
-        <iframe
-          id="tt"
-          allow="autoplay; fullscreen; picture-in-picture"
-          allowfullscreen
-          referrerpolicy="strict-origin-when-cross-origin"
-          title="TikTok official player"></iframe>
-        <div class="guide"></div>
-        <button class="sound-gate" id="soundGate" type="button" aria-label="Bật tiếng">
-          <span>🔊 Bật tiếng</span>
-        </button>
+        <video id="media" controls playsinline preload="metadata"></video>
       </div>
-      <div class="status" id="status">Đang nạp TikTok player…</div>
+      <div class="status" id="status">Chưa resolve media.</div>
     </section>
 
     <section class="panel right">
       <div class="inputline">
         <input id="videoInput"
           value="https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc&web_id=7670812910123369992"
-          aria-label="TikTok video URL hoặc video ID">
-        <button id="loadBtn" class="primary" type="button">Mở</button>
+          aria-label="TikTok video URL">
+        <button id="resolveBtn" class="primary" type="button">Get media</button>
       </div>
 
       <div>
-        <span class="pill">TikTok iframe</span>
-        <span class="pill">BLACK rail</span>
-        <span class="pill">Autoplay hình</span>
-        <span class="pill">Không MP4/FLV</span>
-        <span class="pill">Không PiP riêng</span>
-      </div>
-
-      <div class="control">
-        <label for="topRange">BLACK phía trên</label>
-        <input id="topRange" type="range" min="0" max="600" step="1" value="59">
-        <output id="topOut">59 px</output>
-      </div>
-
-      <div class="control">
-        <label for="bottomRange">BLACK phía dưới</label>
-        <input id="bottomRange" type="range" min="0" max="600" step="1" value="59">
-        <output id="bottomOut">59 px</output>
-      </div>
-
-      <div class="control">
-        <label for="shiftRange">Dịch dọc player</label>
-        <input id="shiftRange" type="range" min="-180" max="180" step="1" value="0">
-        <output id="shiftOut">0 px</output>
-      </div>
-
-      <div class="preset">
-        <button type="button" data-rail="0">0 px</button>
-        <button type="button" data-rail="59">59 px</button>
-        <button type="button" data-rail="65">65 px</button>
-        <button type="button" data-rail="120">120 px</button>
-        <button type="button" data-rail="220">220 px</button>
-        <button type="button" id="resetGeometry">Reset</button>
-      </div>
-
-      <div class="switches">
-        <div class="switch">
-          <label for="autoplay">Tự phát video</label>
-          <input id="autoplay" type="checkbox" checked>
-        </div>
-        <div class="switch">
-          <label for="description">Hiện mô tả TikTok</label>
-          <input id="description" type="checkbox">
-        </div>
-        <div class="switch">
-          <label for="musicInfo">Hiện thông tin nhạc</label>
-          <input id="musicInfo" type="checkbox">
-        </div>
+        <span class="pill">Không TikTok iframe</span>
+        <span class="pill">Không quảng cáo UI</span>
+        <span class="pill">Native &lt;video&gt;</span>
+        <span class="pill">Download/play URL</span>
       </div>
 
       <div class="btns">
-        <button type="button" id="playBtn">▶ Play + tiếng</button>
-        <button type="button" id="pauseBtn">Ⅱ Pause</button>
-        <button type="button" id="muteBtn">Mute</button>
-        <button type="button" id="unmuteBtn">Bật tiếng</button>
+        <button id="playBtn" type="button">▶ Play</button>
+        <button id="pauseBtn" type="button">Ⅱ Pause</button>
+        <button id="soundBtn" type="button">🔊 Bật tiếng</button>
+        <a id="openMedia" class="linkbtn" target="_blank" rel="noopener">Mở media URL</a>
       </div>
 
-      <div class="btns">
-        <a id="openOriginal" class="linkbtn primary" target="_blank" rel="noopener">Mở bài gốc TikTok</a>
-        <button type="button" id="shareBtn">Chia sẻ link</button>
-        <button type="button" id="reloadBtn">Nạp lại</button>
-      </div>
-
-      <div class="values" id="values"></div>
-
-      <div class="explain">
-        <b>Âm thanh:</b> khi mở trang bằng Enter/F5, trình duyệt không coi đó là thao tác bên trong trang,
-        nên autoplay có tiếng có thể bị chặn. Demo cho video chạy trước và hiện nút <b>Bật tiếng</b> ngay trên video.
-        Chạm một lần vào đó sẽ gửi <b>unMute + play</b>; sau đó nút biến mất.
-      </div>
+      <div class="values" id="values">resolver = chưa chạy</div>
+      <div class="candidates" id="candidates"></div>
     </section>
   </div>
 </div>
 
 <script>
 (() => {
-  const frame = document.getElementById("tt");
-  const status = document.getElementById("status");
-  const input = document.getElementById("videoInput");
-  const values = document.getElementById("values");
-  const original = document.getElementById("openOriginal");
-  const autoplay = document.getElementById("autoplay");
-  const description = document.getElementById("description");
-  const musicInfo = document.getElementById("musicInfo");
-  const soundGate = document.getElementById("soundGate");
+  const RESOLVER = 'https://one988-tiktok-session.onrender.com/media';
+  const media = document.getElementById('media');
+  const status = document.getElementById('status');
+  const input = document.getElementById('videoInput');
+  const values = document.getElementById('values');
+  const candidates = document.getElementById('candidates');
+  const openMedia = document.getElementById('openMedia');
 
-  const topRange = document.getElementById("topRange");
-  const bottomRange = document.getElementById("bottomRange");
-  const shiftRange = document.getElementById("shiftRange");
-  const topOut = document.getElementById("topOut");
-  const bottomOut = document.getElementById("bottomOut");
-  const shiftOut = document.getElementById("shiftOut");
-  const root = document.documentElement;
+  let current = null;
 
-  let currentId = "";
-  let currentUrl = "";
-  let topValue = Number(localStorage.getItem("tt-rail-top") || 59);
-  let bottomValue = Number(localStorage.getItem("tt-rail-bottom") || 59);
-  let shiftValue = Number(localStorage.getItem("tt-rail-shift") || 0);
-  let playerReady = false;
-  let userUnlockedAudio = false;
-  let pendingGesturePlay = false;
-
-  function parseVideo(value){
-    const raw = String(value || "").trim();
-    const m = raw.match(/\/video\/(\d{8,})/);
-    const id = m ? m[1] : (/^\d{8,}$/.test(raw) ? raw : "");
-    let url = raw;
-    if(id && !/^https?:\/\//i.test(raw)) url = "https://www.tiktok.com/video/" + id;
-    return {id, url};
+  function setStatus(text, cls=''){
+    status.textContent = text;
+    status.className = 'status ' + cls;
   }
 
-  function playerUrl(id){
-    const p = new URLSearchParams({
-      autoplay: autoplay.checked ? "1" : "0",
-      controls: "1",
-      progress_bar: "1",
-      play_button: "1",
-      volume_control: "1",
-      fullscreen_button: "1",
-      timestamp: "1",
-      loop: "0",
-      music_info: musicInfo.checked ? "1" : "0",
-      description: description.checked ? "1" : "0",
-      rel: "0",
-      native_context_menu: "1",
-      closed_caption: "1",
-      muted: "1"
-    });
-    return "https://www.tiktok.com/player/v1/" + encodeURIComponent(id) + "?" + p.toString();
-  }
-
-  function command(type, value){
+  function shortUrl(url){
     try{
-      frame.contentWindow?.postMessage(
-        {type, value, "x-tiktok-player": true},
-        "https://www.tiktok.com"
-      );
-    }catch{}
+      const u = new URL(url);
+      return u.hostname + u.pathname.slice(0,90) + (u.pathname.length>90?'…':'');
+    }catch{return String(url||'');}
   }
 
-  function playWithAudio(){
-    command("unMute");
-    command("play");
-    setTimeout(() => command("unMute"), 120);
-    setTimeout(() => command("play"), 180);
+  function setMedia(url, source=''){
+    if(!url) return;
+    media.pause();
+    media.removeAttribute('src');
+    media.load();
+    media.src = url;
+    media.muted = false;
+    openMedia.href = url;
+    setStatus('Đã gắn media trực tiếp · ' + (source || 'candidate'));
+    media.play().catch(() => {
+      setStatus('Media đã sẵn sàng · bấm Play nếu browser chặn tự phát.', 'warn');
+    });
   }
 
-  function applyGeometry(){
-    topValue = Math.max(0, Math.min(600, Number(topValue) || 0));
-    bottomValue = Math.max(0, Math.min(600, Number(bottomValue) || 0));
-    shiftValue = Math.max(-180, Math.min(180, Number(shiftValue) || 0));
+  function render(data){
+    current = data;
+    const best = data?.bestVideoUrl || '';
+    const rows = Array.isArray(data?.candidates) ? data.candidates : [];
+    const audios = Array.isArray(data?.audioUrls) ? data.audioUrls : [];
 
-    root.style.setProperty("--rail-top", topValue + "px");
-    root.style.setProperty("--rail-bottom", bottomValue + "px");
-    root.style.setProperty("--rail-shift", shiftValue + "px");
-
-    topRange.value = String(topValue);
-    bottomRange.value = String(bottomValue);
-    shiftRange.value = String(shiftValue);
-    topOut.textContent = topValue + " px";
-    bottomOut.textContent = bottomValue + " px";
-    shiftOut.textContent = (shiftValue > 0 ? "+" : "") + shiftValue + " px";
-
-    localStorage.setItem("tt-rail-top", String(topValue));
-    localStorage.setItem("tt-rail-bottom", String(bottomValue));
-    localStorage.setItem("tt-rail-shift", String(shiftValue));
-    renderInfo();
-  }
-
-  function renderInfo(extra){
-    if(!values) return;
     values.innerHTML =
-      '<span class="ok">mode = TIKTOK_OFFICIAL_PLAYER</span><br>' +
-      'video_id = ' + (currentId || "—") + '<br>' +
-      'BLACK top = ' + topValue + 'px<br>' +
-      'BLACK bottom = ' + bottomValue + 'px<br>' +
-      'shift = ' + (shiftValue > 0 ? '+' : '') + shiftValue + 'px<br>' +
-      'autoplay_video_request = ' + String(autoplay.checked) + '<br>' +
-      'browser_audio_unlocked = ' + String(userUnlockedAudio) + '<br>' +
-      'custom_media = false<br>' +
-      'pip_custom = false' +
-      (extra ? '<br>' + extra : '');
-  }
+      '<span class="' + (best?'ok':'bad') + '">bestVideoUrl = ' + (best?'FOUND':'NONE') + '</span><br>' +
+      'bestSource = ' + (data?.bestSource || '—') + '<br>' +
+      'candidates = ' + rows.length + '<br>' +
+      'audioUrls = ' + audios.length + '<br>' +
+      'downloadUrls = ' + (data?.downloadUrls?.length || 0) + '<br>' +
+      'networkVideoUrls = ' + (data?.networkVideoUrls?.length || 0);
 
-  function load(userInitiated = false, forceReload = false){
-    const parsed = parseVideo(input.value);
-    if(!parsed.id){
-      status.textContent = "URL/ID TikTok chưa đúng.";
-      status.className = "status warn";
-      return;
-    }
+    candidates.innerHTML = '';
+    rows.slice(0,12).forEach((row, index) => {
+      const card = document.createElement('div');
+      card.className = 'candidate';
+      const meta = document.createElement('div');
+      meta.className = 'meta';
 
-    currentUrl = parsed.url;
-    original.href = currentUrl;
+      const left = document.createElement('span');
+      left.textContent = '#' + (index+1) + ' · ' + (row.source || 'unknown');
 
-    /*
-      Nếu user bấm Enter/Mở lại đúng video đang có:
-      KHÔNG thay src iframe. Giữ nguyên player đang ready để thao tác đó
-      được dùng trực tiếp cho unMute + play trong cùng user gesture.
-    */
-    if(!forceReload && parsed.id === currentId && frame.src){
-      if(userInitiated){
-        userUnlockedAudio = true;
-        pendingGesturePlay = true;
-        if(playerReady){
-          playWithAudio();
-          pendingGesturePlay = false;
-          status.textContent = "Đang phát + bật tiếng từ thao tác người dùng.";
-        }else{
-          status.textContent = "Đã nhận thao tác mở tiếng · chờ player ready…";
-        }
-      }
-      renderInfo();
-      return;
-    }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = 'Test';
+      btn.addEventListener('click', () => setMedia(row.url, row.source));
 
-    currentId = parsed.id;
-    playerReady = false;
-    pendingGesturePlay = !!userInitiated;
-    status.className = "status";
-    status.textContent = "Đang nạp TikTok official player " + currentId + "…";
-    frame.src = playerUrl(currentId);
-    renderInfo();
-  }
+      const code = document.createElement('code');
+      code.textContent = shortUrl(row.url);
 
-  topRange.addEventListener("input", () => { topValue = Number(topRange.value) || 0; applyGeometry(); });
-  bottomRange.addEventListener("input", () => { bottomValue = Number(bottomRange.value) || 0; applyGeometry(); });
-  shiftRange.addEventListener("input", () => { shiftValue = Number(shiftRange.value) || 0; applyGeometry(); });
-
-  document.querySelectorAll("[data-rail]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      topValue = Number(btn.dataset.rail) || 0;
-      bottomValue = Number(btn.dataset.rail) || 0;
-      shiftValue = 0;
-      applyGeometry();
+      meta.append(left, btn);
+      card.append(meta, code);
+      candidates.append(card);
     });
-  });
 
-  document.getElementById("resetGeometry").addEventListener("click", () => {
-    topValue = 59;
-    bottomValue = 59;
-    shiftValue = 0;
-    applyGeometry();
-  });
-
-  document.getElementById("loadBtn").addEventListener("click", () => load(true, false));
-  document.getElementById("reloadBtn").addEventListener("click", () => load(true, true));
-  input.addEventListener("keydown", e => {
-    if(e.key === "Enter"){
-      e.preventDefault();
-      load(true, false);
-    }
-  });
-
-  [autoplay, description, musicInfo].forEach(el => el.addEventListener("change", () => load(false, true)));
-
-  function unlockAndPlay(){
-    userUnlockedAudio = true;
-    pendingGesturePlay = false;
-    playWithAudio();
-    soundGate.hidden = true;
-    status.textContent = "Đang phát + bật tiếng.";
-    renderInfo();
+    if(best) setMedia(best, data.bestSource);
+    else setStatus('Resolver chưa tìm thấy media URL.', 'bad');
   }
 
-  soundGate.addEventListener("click", unlockAndPlay);
+  async function resolve(){
+    const postUrl = input.value.trim();
+    if(!postUrl) return;
+    setStatus('Đang bắt URL media/download từ TikTok…');
+    values.textContent = 'resolver = running';
+    candidates.innerHTML = '';
 
-  document.getElementById("playBtn").addEventListener("click", unlockAndPlay);
-  document.getElementById("pauseBtn").addEventListener("click", () => command("pause"));
-  document.getElementById("muteBtn").addEventListener("click", () => command("mute"));
-  document.getElementById("unmuteBtn").addEventListener("click", () => {
-    userUnlockedAudio = true;
-    command("unMute");
-    renderInfo();
-  });
-
-  document.getElementById("shareBtn").addEventListener("click", async () => {
-    if(!currentUrl) return;
     try{
-      if(navigator.share){
-        await navigator.share({url: currentUrl});
-        status.textContent = "Đã mở chia sẻ hệ thống.";
-      }else{
-        await navigator.clipboard.writeText(currentUrl);
-        status.textContent = "Đã copy link TikTok.";
-      }
-    }catch(e){
-      if(e?.name !== "AbortError") status.textContent = "Không mở được chia sẻ trên trình duyệt này.";
+      const response = await fetch(RESOLVER + '?url=' + encodeURIComponent(postUrl), {cache:'no-store'});
+      const payload = await response.json().catch(() => null);
+      if(!payload?.data) throw new Error(payload?.error || ('HTTP ' + response.status));
+      render(payload.data);
+    }catch(error){
+      setStatus('Resolver lỗi: ' + String(error?.message || error), 'bad');
+      values.textContent = 'resolver_error = ' + String(error?.message || error);
     }
+  }
+
+  document.getElementById('resolveBtn').addEventListener('click', resolve);
+  input.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){ e.preventDefault(); resolve(); }
+  });
+  document.getElementById('playBtn').addEventListener('click', () => media.play());
+  document.getElementById('pauseBtn').addEventListener('click', () => media.pause());
+  document.getElementById('soundBtn').addEventListener('click', () => { media.muted=false; media.volume=1; media.play(); });
+
+  media.addEventListener('loadedmetadata', () => {
+    setStatus('Media native đã load · ' + media.videoWidth + '×' + media.videoHeight + ' · ' + Math.round(media.duration || 0) + 's', 'ok');
+  });
+  media.addEventListener('error', () => {
+    setStatus('URL candidate này không phát trực tiếp được trong browser.', 'bad');
   });
 
-  addEventListener("message", event => {
-    if(event.origin !== "https://www.tiktok.com" || event.source !== frame.contentWindow) return;
-    const msg = event.data || {};
-    if(msg["x-tiktok-player"] !== true) return;
-
-    if(msg.type === "onPlayerReady"){
-      playerReady = true;
-      soundGate.hidden = !!userUnlockedAudio;
-      if(userUnlockedAudio){
-        status.textContent = "Player sẵn sàng · đang phát có tiếng.";
-        playWithAudio();
-      }else{
-        status.textContent = "Video sẵn sàng · chạm Bật tiếng để mở audio.";
-        if(autoplay.checked) command("play");
-      }
-      renderInfo();
-    }else if(msg.type === "onStateChange"){
-      const n = Number(msg.value);
-      status.textContent =
-        n === 1 ? "Đang phát bằng TikTok player." :
-        n === 2 ? "Đang tạm dừng." :
-        n === 3 ? "TikTok đang buffer…" :
-        n === 0 ? "Video đã phát xong." :
-        "Player state: " + String(msg.value);
-    }else if(msg.type === "onMute"){
-      const muted = msg.value === true || msg.value === 1 || msg.value === "true";
-      if(!muted){
-        userUnlockedAudio = true;
-        soundGate.hidden = true;
-      }else if(!userUnlockedAudio){
-        soundGate.hidden = false;
-      }
-      renderInfo("muted = " + String(msg.value));
-    }else if(msg.type === "onPlayerError"){
-      const v = msg.value || {};
-      status.textContent = "TikTok player lỗi: " + (v.errorType || "") + " " + (v.errorCode || "");
-      status.className = "status warn";
-      renderInfo("player_error = " + JSON.stringify(v));
-    }
-  });
-
-  frame.addEventListener("load", () => {
-    status.textContent = "Iframe TikTok đã nạp · chờ player ready…";
-  });
-
-  applyGeometry();
-  load(false, true);
+  resolve();
 })();
 </script>
 </body>
