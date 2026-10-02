@@ -134,7 +134,7 @@ const API='https://one988-tiktok-session.onrender.com';
 const LIVE_API='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev';
 const LIVE_POLL_MS=30_000;
 const PACKAGE_CHECK_MIN_GAP_MS=15_000;
-const VOD_SOURCE_ROTATION=['tikwm','tdown','musicaldown','tikdown','ttdownloader'];
+const VOD_SOURCE_ROTATION=['tikwm','tdown','tiklydown','douyinwtf'];
 const VOD_SOURCE_ROTATION_KEY='tiktok-vod-source-index-v2';
 let lastPackageCheckAt=0;
 
@@ -688,6 +688,7 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
   const media=document.getElementById('liveVideo');
   let selectedSource=nextVodSource();
   let pictureFailovers=0;
+  let usingPackaged=false;
 
   const sourceUrl=source=>{
     const endpoint=new URL(LIVE_API+'/tiktok/video-stream');
@@ -696,19 +697,36 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
     endpoint.searchParams.set('source',source);
     return endpoint.toString();
   };
-  const startSource=source=>{
-    selectedSource=source;
-    media.src=sourceUrl(source);
+  const packagedUrl=String(video?.playback?.url||'').trim();
+  const packagedExpires=Date.parse(String(video?.playback?.expiresAt||''));
+  const packagedFresh=Boolean(
+    video?.playback?.ready&&
+    /^https:\/\//i.test(packagedUrl)&&
+    (!Number.isFinite(packagedExpires)||packagedExpires-Date.now()>30_000)
+  );
+  const startUrl=src=>{
+    media.src=src;
     media.load();
     media.play().catch(()=>{});
   };
+  const startResolver=source=>{
+    selectedSource=source;
+    usingPackaged=false;
+    startUrl(sourceUrl(source));
+  };
   const failoverPicture=()=>{
+    if(usingPackaged){
+      usingPackaged=false;
+      try{media.pause();}catch{}
+      startResolver(selectedSource);
+      return true;
+    }
     if(pictureFailovers>=1)return false;
     pictureFailovers+=1;
     const next=nextVodSource();
     if(!next||next===selectedSource)return false;
     try{media.pause();}catch{}
-    startSource(next);
+    startResolver(next);
     return true;
   };
   const pictureReady=()=>{
@@ -743,7 +761,8 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
     if(failoverPicture())return;
     showToast('Không mở được video TikTok');
   };
-  startSource(selectedSource);
+  usingPackaged=packagedFresh;
+  startUrl(packagedFresh?packagedUrl:sourceUrl(selectedSource));
   syncMediaControls();
 }
 async function refreshChannelVideos(handle,{silent=true}={}){
