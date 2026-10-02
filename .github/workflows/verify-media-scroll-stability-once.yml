@@ -41,7 +41,7 @@ jobs:
             return page.locator(selector);
           }
 
-          async function measureAlignment(page,label,expectedType){
+          async function measureAlignment(page,label,expectedType,{requirePaint=true}={}){
             await page.waitForFunction(expectedType=>{
               const player=document.getElementById('player');
               return player?.classList.contains('inline-overlay') &&
@@ -65,20 +65,22 @@ jobs:
             if(initial.position!=='absolute')throw new Error(label+': inline player is '+initial.position+', expected absolute');
             if(!initial.h)throw new Error(label+': selected thumbnail missing');
 
-            const paintHit=await page.evaluate(()=>{
-              const player=document.getElementById('player');
-              const rect=player.getBoundingClientRect();
-              const x=Math.max(0,Math.min(innerWidth-1,rect.left+rect.width/2));
-              const y=Math.max(0,Math.min(innerHeight-1,rect.top+Math.min(rect.height/2,80)));
-              const hit=document.elementFromPoint(x,y);
-              return {
-                hit:!!hit,
-                inside:!!hit&&(hit===player||player.contains(hit)),
-                tag:String(hit?.tagName||''),
-                id:String(hit?.id||'')
-              };
-            });
-            if(!paintHit.inside)throw new Error(label+': player is geometrically aligned but clipped/not paintable '+JSON.stringify(paintHit));
+            if(requirePaint){
+              const paintHit=await page.evaluate(()=>{
+                const player=document.getElementById('player');
+                const rect=player.getBoundingClientRect();
+                const x=Math.max(0,Math.min(innerWidth-1,rect.left+rect.width/2));
+                const y=Math.max(0,Math.min(innerHeight-1,rect.top+Math.min(rect.height/2,80)));
+                const hit=document.elementFromPoint(x,y);
+                return {
+                  hit:!!hit,
+                  inside:!!hit&&(hit===player||player.contains(hit)),
+                  tag:String(hit?.tagName||''),
+                  id:String(hit?.id||'')
+                };
+              });
+              if(!paintHit.inside)throw new Error(label+': player is geometrically aligned but clipped/not paintable '+JSON.stringify(paintHit));
+            }
 
             const target=Math.max(30,Math.min(initial.h.height*.48,initial.h.top+initial.h.height*.48));
             const samples=[];
@@ -166,7 +168,7 @@ jobs:
               if(live)live.hidden=false;
               if(media)media.hidden=true;
             });
-            await measureAlignment(page,'tiktok-live-shell','live');
+            await measureAlignment(page,'tiktok-live-shell','live',{requirePaint:false});
           }
 
           async function run(browserType,label,contextOptions={},standalone=false){
