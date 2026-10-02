@@ -13,8 +13,9 @@ assert.doesNotMatch(html,/PACKAGE_POLL_MS/);
 assert.match(html,/const LIVE_POLL_MS=30_000;/);
 assert.match(html,/const PACKAGE_CHECK_MIN_GAP_MS=15_000;/);
 assert.match(html,/async function checkLibraryOnDemand/);
-assert.equal((html.match(/<video\b/g)||[]).length,1,'TikTok must use one canonical video surface');
-assert.ok(!html.includes('id="videoFrame"'),'TikTok core playback must not depend on iframe');
+assert.equal((html.match(/<video\b/g)||[]).length,1,'TikTok LIVE must keep one canonical native video surface');
+assert.match(html,/id="tiktokVideoFrame"/,'TikTok VOD must use the official TikTok player iframe');
+assert.match(html,/https:\/\/www\.tiktok\.com\/player\/v1\//,'TikTok VOD must load the official TikTok player');
 
 const proxyStart=server.indexOf("async function proxyTikTokLive(");
 const proxyEnd=server.indexOf("function findTikTokUserObject(",proxyStart);
@@ -61,7 +62,8 @@ assert.match(server,/const RENDER_MEDIA_PROXY_ENABLED=String\(process\.env\.REND
 assert.match(server,/media_proxy_disabled/,'Render media proxy gate must hard-disable byte proxying by default');
 assert.match(server,/proxyUrl:''/,'packages must not expose Render media proxy URLs');
 assert.doesNotMatch(html,/fallbackSrc/,'MP4 UI must not fall back to Render media proxy');
-assert.match(html,/Direct TikTok CDN only/,'MP4 UI must stay direct-CDN only');
+assert.match(html,/Official TikTok player: 0 Render video egress/,'TikTok VOD must stay on the official player path');
+assert.doesNotMatch(html,/video-session-stream/,'TikTok VOD must not relay media bytes through Render');
 
 
 assert.match(html,/id="mediaSeek"/,'TikTok fixed seek bar missing');
