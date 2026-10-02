@@ -224,6 +224,7 @@
   let shiftValue = Number(localStorage.getItem("tt-rail-shift") || 0);
   let playerReady = false;
   let userUnlockedAudio = false;
+  let pendingGesturePlay = false;
 
   function parseVideo(value){
     const raw = String(value || "").trim();
@@ -307,7 +308,7 @@
       (extra ? '<br>' + extra : '');
   }
 
-  function load(){
+  function load(userInitiated = false, forceReload = false){
     const parsed = parseVideo(input.value);
     if(!parsed.id){
       status.textContent = "URL/ID TikTok chưa đúng.";
@@ -315,10 +316,33 @@
       return;
     }
 
-    currentId = parsed.id;
     currentUrl = parsed.url;
-    playerReady = false;
     original.href = currentUrl;
+
+    /*
+      Nếu user bấm Enter/Mở lại đúng video đang có:
+      KHÔNG thay src iframe. Giữ nguyên player đang ready để thao tác đó
+      được dùng trực tiếp cho unMute + play trong cùng user gesture.
+    */
+    if(!forceReload && parsed.id === currentId && frame.src){
+      if(userInitiated){
+        userUnlockedAudio = true;
+        pendingGesturePlay = true;
+        if(playerReady){
+          playWithAudio();
+          pendingGesturePlay = false;
+          status.textContent = "Đang phát + bật tiếng từ thao tác người dùng.";
+        }else{
+          status.textContent = "Đã nhận thao tác mở tiếng · chờ player ready…";
+        }
+      }
+      renderInfo();
+      return;
+    }
+
+    currentId = parsed.id;
+    playerReady = false;
+    pendingGesturePlay = !!userInitiated;
     status.className = "status";
     status.textContent = "Đang nạp TikTok official player " + currentId + "…";
     frame.src = playerUrl(currentId);
@@ -345,13 +369,16 @@
     applyGeometry();
   });
 
-  document.getElementById("loadBtn").addEventListener("click", load);
-  document.getElementById("reloadBtn").addEventListener("click", load);
+  document.getElementById("loadBtn").addEventListener("click", () => load(true, false));
+  document.getElementById("reloadBtn").addEventListener("click", () => load(true, true));
   input.addEventListener("keydown", e => {
-    if(e.key === "Enter"){ e.preventDefault(); load(); }
+    if(e.key === "Enter"){
+      e.preventDefault();
+      load(true, false);
+    }
   });
 
-  [autoplay, description, musicInfo].forEach(el => el.addEventListener("change", load));
+  [autoplay, description, musicInfo].forEach(el => el.addEventListener("change", () => load(false, true)));
 
   document.getElementById("playBtn").addEventListener("click", () => {
     userUnlockedAudio = true;
@@ -384,7 +411,12 @@
   /* Lần tương tác đầu tiên dùng để mở khóa autoplay audio nếu browser yêu cầu user gesture. */
   const unlockAudio = () => {
     userUnlockedAudio = true;
-    if(playerReady && autoplay.checked) playWithAudio();
+    pendingGesturePlay = true;
+    if(playerReady && autoplay.checked){
+      playWithAudio();
+      pendingGesturePlay = false;
+      status.textContent = "Đã mở khóa âm thanh · đang phát.";
+    }
     renderInfo();
   };
   window.addEventListener("pointerdown", unlockAudio, {once:true, capture:true});
@@ -398,8 +430,14 @@
 
     if(msg.type === "onPlayerReady"){
       playerReady = true;
-      status.textContent = "TikTok player sẵn sàng · đang thử autoplay có tiếng…";
-      if(autoplay.checked) playWithAudio();
+      if(pendingGesturePlay && userUnlockedAudio){
+        status.textContent = "Player sẵn sàng · phát theo thao tác người dùng.";
+        playWithAudio();
+        pendingGesturePlay = false;
+      }else{
+        status.textContent = "TikTok player sẵn sàng · đang thử autoplay có tiếng…";
+        if(autoplay.checked) playWithAudio();
+      }
       renderInfo();
     }else if(msg.type === "onStateChange"){
       const n = Number(msg.value);
@@ -424,7 +462,7 @@
   });
 
   applyGeometry();
-  load();
+  load(false, true);
 })();
 </script>
 </body>
