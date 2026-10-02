@@ -6385,9 +6385,8 @@ html.one-col.portrait .player.pip{
 
       if(message.type==="onPlayerError"){
         player.classList.remove("tiktok-playing","tiktok-media-playing");
-        // Do not switch source engines. Keep the poster and TikTok's own player
-        // so a transient TikTok load does not visibly jump to another backend.
-        player.classList.add("tiktok-vod-loading");
+        // Stay on TikTok's official player; do not cover it with a frozen poster
+        // and do not jump to a second media source.
         console.warn("tiktok_embed_error",message.value,String(current?.id||""));
       }
     });
@@ -6677,7 +6676,7 @@ html.one-col.portrait .player.pip{
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
     activateTikTokSurface();
-    player.classList.add("tiktok-vod","tiktok-vod-loading");
+    player.classList.add("tiktok-vod");
     player.classList.remove("tiktok-embed-fallback","tiktok-playing","tiktok-media-playing");
 
     currentMeta=meta;
@@ -6700,13 +6699,12 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    // Our own thumbnail covers the official player until TikTok reports PLAYING.
-    // This removes the visible spinner/logo and, importantly, removes every
-    // media-byte proxy from the primary VOD path.
-    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    // Do not cover the official TikTok iframe with our static thumbnail.
+    // WebKit can advance audio before TikTok emits its player-state callbacks;
+    // keeping the poster here makes the user hear sound while seeing a frozen image.
     if(tiktokLivePreview){
-      tiktokLivePreview.hidden=!preview;
-      if(preview)tiktokLivePreview.src=preview;
+      tiktokLivePreview.hidden=true;
+      tiktokLivePreview.removeAttribute("src");
     }
 
     if(tiktokMediaVideo){
