@@ -68,6 +68,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
 <script>
 (() => {
   const RESOLVER='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin';
+  const REDIRECT='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin-redirect';
   const media=document.getElementById('media');
   const input=document.getElementById('videoInput');
   const status=document.getElementById('status');
@@ -95,7 +96,8 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       info.innerHTML=
         'source = '+(d.bestSource||'—')+'<br>'+
         'awemeGateway = '+String(isAweme)+'<br>'+
-        'directUrl = '+direct+'<br>'+
+        'directUrl = '+direct+'<br>'+ 
+        'browserUrl = redirect-only gateway<br>'+
         'render = false<br>'+
         'tikwm = false<br>'+
         'tdown = false<br>'+
@@ -103,13 +105,14 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'storage = none<br>'+
         'supabaseWrites = 0';
 
-      openMedia.href=direct;
+      const browserUrl=REDIRECT+'?url='+encodeURIComponent(direct);
+      openMedia.href=browserUrl;
       media.pause();
-      media.src=direct;
+      media.src=browserUrl;
       media.load();
 
       setStatus(isAweme
-        ? 'Đã có aweme/v1/play · H.264 + AAC · bấm Play trên video.'
+        ? 'Đã có aweme/v1/play · Worker chỉ đổi 302 · video tải thẳng TikTok CDN.'
         : 'Đã có media URL nhưng chưa phải aweme gateway.','ok');
     }catch(e){
       setStatus('Resolver lỗi: '+String(e?.message||e),'bad');
