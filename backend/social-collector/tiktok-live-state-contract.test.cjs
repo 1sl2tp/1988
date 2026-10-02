@@ -160,3 +160,13 @@ assert.doesNotMatch(
   /acquireTikTokOriginMediaProxy\(res\)/,
   'origin media stream must not bypass the Render media-proxy gate'
 );
+
+
+const liveStatusesStart=server.indexOf("if(url.pathname==='/tiktok/live-statuses'");
+const liveStatusesEnd=server.indexOf("\n  if(url.pathname==='/tiktok/live-now'",liveStatusesStart);
+assert.ok(liveStatusesStart>=0&&liveStatusesEnd>liveStatusesStart,'live-statuses route missing');
+const liveStatuses=server.slice(liveStatusesStart,liveStatusesEnd);
+assert.match(liveStatuses,/secUid:String\(videoRow\.secUid\|\|canonical\.sec_uid\|\|''\)/,
+  'LIVE status metadata must expose saved secUid to the edge checker');
+assert.match(liveStatuses,/latestVideoId:String\(videoRow\.latestVideoId\|\|videoRow\.videos\?\.\[0\]\?\.id\|\|''\)/,
+  'LIVE status metadata must expose only the saved latest video ID, without scanning');
