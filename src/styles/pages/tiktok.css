@@ -133,8 +133,28 @@
 }
 .phone.landscape{width:min(100%,820px);max-width:820px;aspect-ratio:16/9}
 .phone.square{width:min(100%,640px);max-width:640px;aspect-ratio:1/1}
-.phone.video-mode{width:min(100%,540px);max-width:540px}
+.phone.video-mode{
+  width:min(100%,540px);max-width:540px;
+  --tt-rail-y:313px;
+  --tt-shift-y:0px;
+  --tt-rail-x:0px;
+  --tt-shift-x:0px
+}
 .phone video{width:100%;height:100%;display:block;object-fit:contain;background:var(--media-bg)}
+.tiktok-video-viewport{
+  position:absolute;inset:0;z-index:2;overflow:hidden;background:#000
+}
+.tiktok-video-viewport[hidden]{display:none}
+#tiktokVideoFrame{
+  position:absolute!important;
+  left:calc((0px - var(--tt-rail-x)) + var(--tt-shift-x))!important;
+  top:calc((0px - var(--tt-rail-y)) + var(--tt-shift-y))!important;
+  width:calc(100% + var(--tt-rail-x) + var(--tt-rail-x))!important;
+  height:calc(100% + var(--tt-rail-y) + var(--tt-rail-y))!important;
+  max-width:none!important;max-height:none!important;
+  border:0!important;background:#000!important
+}
+.phone.video-mode .media-controls{z-index:7}
 
 .current-info{
   width:min(100%,540px);min-height:62px;display:grid;
