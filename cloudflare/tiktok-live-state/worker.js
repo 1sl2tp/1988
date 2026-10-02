@@ -1402,6 +1402,7 @@ async function relayTikTokVideo(request) {
   const order = vodSourceOrder(preferred);
   let lastStatus = 0;
   let lastError = "";
+  const failures=[];
 
   // Rotate independent resolvers between consecutive videos, then fail over.
   // All successful media responses still preserve native Range/206 semantics.
@@ -1414,6 +1415,7 @@ async function relayTikTokVideo(request) {
         });
       } catch (error) {
         lastError = sourceName + ":" + String(error?.message || error || "resolve_failed");
+        failures.push({source:sourceName,attempt:attempt+1,phase:"resolve",error:lastError});
         break;
       }
 
@@ -1427,6 +1429,7 @@ async function relayTikTokVideo(request) {
         upstream = await fetchTikTokMediaTarget(source.url, request, source.headers || {});
       } catch (error) {
         lastError = sourceName + ":" + String(error?.message || error || "fetch_failed");
+        failures.push({source:sourceName,attempt:attempt+1,phase:"fetch",error:lastError});
         if (attempt === 0) continue;
         break;
       }
@@ -1438,6 +1441,7 @@ async function relayTikTokVideo(request) {
 
       try { await upstream.body?.cancel?.(); } catch {}
       lastError = sourceName + ":http_" + upstream.status;
+      failures.push({source:sourceName,attempt:attempt+1,phase:"media",status:upstream.status,error:lastError});
 
       // Signed URLs can expire. Refresh that resolver once, then move to the
       // next independent source instead of retrying the same CDN indefinitely.
@@ -1452,7 +1456,8 @@ async function relayTikTokVideo(request) {
     ok: false,
     error: lastError || ("tiktok_upstream_" + lastStatus),
     edge: true,
-    attempted: order
+    attempted: order,
+    failures
   }, 502);
 }
 
