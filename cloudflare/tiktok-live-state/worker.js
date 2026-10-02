@@ -1267,7 +1267,7 @@ function originFallbackUrls(html){
   }
   return [...new Set(out)];
 }
-function originScoreUrl(url,kind){
+function originScoreUrl(url,kind,probe=null){
   let s=0;
   if(kind==="download")s+=80;
   if(kind==="play")s+=50;
@@ -1276,7 +1276,90 @@ function originScoreUrl(url,kind){
   if(/\.mp4(?:$|\?)/i.test(url))s+=15;
   if(/playwm/i.test(url))s-=30;
   if(/^https:\/\//i.test(url))s+=2;
+
+  if(probe){
+    if(probe.contentType.startsWith("audio/"))s-=220;
+    if(probe.avc1)s+=180;
+    if(probe.mp4a)s+=90;
+    if(probe.avc1&&probe.mp4a)s+=180;
+    if(probe.hvc1||probe.hev1)s-=120;
+    if(probe.av01)s+=40;
+    if(probe.videoCodec===false)s-=240;
+    if(probe.audioOnly===true)s-=320;
+  }
   return s;
+}
+async function originProbeMedia(url,referer){
+  const headers={
+    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "accept":"*/*",
+    "referer":referer||"https://www.tiktok.com/",
+    "range":"bytes=0-196607"
+  };
+  let r;
+  try{
+    r=await fetch(url,{
+      method:"GET",
+      headers,
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+  }catch{
+    return {ok:false,status:0,contentType:"",bytes:0};
+  }
+
+  const contentType=String(r.headers.get("content-type")||"").toLowerCase();
+  let total=0;
+  const chunks=[];
+  try{
+    const reader=r.body?.getReader?.();
+    if(reader){
+      while(total<196608){
+        const part=await reader.read();
+        if(part.done)break;
+        const value=part.value||new Uint8Array();
+        const take=Math.min(value.byteLength,196608-total);
+        if(take>0){
+          chunks.push(value.slice(0,take));
+          total+=take;
+        }
+        if(total>=196608)break;
+      }
+      await reader.cancel().catch(()=>{});
+    }
+  }catch{
+    try{await r.body?.cancel?.()}catch{}
+  }
+
+  const buf=new Uint8Array(total);
+  let at=0;
+  for(const chunk of chunks){buf.set(chunk,at);at+=chunk.byteLength;}
+  let text="";
+  try{text=new TextDecoder("latin1").decode(buf);}catch{
+    text=String.fromCharCode(...buf.slice(0,60000));
+  }
+
+  const avc1=/avc1|avc3/i.test(text);
+  const hvc1=/hvc1/i.test(text);
+  const hev1=/hev1/i.test(text);
+  const av01=/av01/i.test(text);
+  const vp09=/vp09/i.test(text);
+  const mp4a=/mp4a/i.test(text);
+  const opus=/Opus/i.test(text);
+  const videoCodec=avc1||hvc1||hev1||av01||vp09;
+  const audioCodec=mp4a||opus;
+  const audioOnly=audioCodec&&!videoCodec&&contentType.startsWith("audio/");
+
+  return {
+    ok:r.ok||r.status===206,
+    status:r.status,
+    contentType,
+    bytes:total,
+    avc1,hvc1,hev1,av01,vp09,mp4a,opus,
+    videoCodec,
+    audioCodec,
+    audioOnly
+  };
 }
 async function resolveTikTokOriginVideo(request){
   const incoming=new URL(request.url);
@@ -1350,7 +1433,25 @@ async function resolveTikTokOriginVideo(request){
   }
   candidates.sort((a,b)=>originScoreUrl(b.url,b.kind)-originScoreUrl(a.url,a.kind));
 
-  const best=candidates[0]||null;
+  // Probe only a few top TikTok-origin candidates. We read at most ~192 KB
+  // from each candidate and cancel the body; the actual video is never proxied.
+  const top=candidates.slice(0,6);
+  const probed=await Promise.all(top.map(async row=>{
+    const probe=await originProbeMedia(row.url,target.href);
+    return {...row,probe,score:originScoreUrl(row.url,row.kind,probe)};
+  }));
+  probed.sort((a,b)=>b.score-a.score);
+
+  const untouched=candidates.slice(6).map(row=>({...row,score:originScoreUrl(row.url,row.kind,null)}));
+  candidates.splice(0,candidates.length,...probed,...untouched);
+  candidates.sort((a,b)=>Number(b.score||0)-Number(a.score||0));
+
+  const best=
+    candidates.find(row=>row?.probe?.avc1&&row?.probe?.mp4a)||
+    candidates.find(row=>row?.probe?.avc1)||
+    candidates.find(row=>row?.probe?.videoCodec&&!row?.probe?.audioOnly)||
+    candidates.find(row=>!row?.probe?.audioOnly)||
+    null;
   if(!best){
     return json({
       ok:false,
@@ -1372,7 +1473,12 @@ async function resolveTikTokOriginVideo(request){
       directUrl:best.url,
       bestVideoUrl:best.url,
       bestSource:"tiktok-origin-"+best.kind,
-      candidates:candidates.slice(0,16),
+      candidates:candidates.slice(0,16).map(row=>({
+        url:row.url,
+        kind:row.kind,
+        score:Number(row.score||originScoreUrl(row.url,row.kind,row.probe||null)),
+        probe:row.probe||null
+      })),
       audioUrls:[...new Set(audio)],
       apiStatus,pageStatus,
       resolver:"tiktok-origin-only",
