@@ -1,4 +1,4 @@
-name: Probe TikTok muxed DASH proof
+name: Probe TikTok direct media element
 
 on:
   push:
@@ -13,22 +13,44 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe proof in Chrome
+      - name: Test direct video and iframe
         shell: bash
         run: |
           set -euo pipefail
-          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
-          test -n "$CHROME"
-          for i in 1 2 3 4 5 6; do
-            curl -fsS https://yt.taphoa.xyz/tiktok-mask-proof.html -o page.html || true
-            grep -q 'audio_file_id' page.html && break
-            sleep 3
-          done
-          grep -q 'audio_file_id' page.html
-          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=12000             --dump-dom https://yt.taphoa.xyz/tiktok-mask-proof.html > dom.html 2>chrome.err || true
-          echo '--- mode/info ---'
-          grep -Eo 'mode = [^<]*|role = [^<]*|codec = [^<]*|size = [^<]*|audioFileId = [^<]*' dom.html | head -10 || true
-          echo '--- status ---'
-          grep -o '<div class="status[^>]*>[^<]*' dom.html | tail -1 || true
-          echo '--- fatal media error? ---'
-          grep -Eo 'Resolver lỗi:[^<]*|Media URL này chưa phát được[^<]*' dom.html || true
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)
+          RES='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40geely.daily%2Fvideo%2F7689814919914458374'
+          curl -fsS "$RES" -o model.json
+          GATEWAY=$(python3 - <<'PY'
+          import json
+          x=json.load(open('model.json'))
+          m=(x.get('data') or {}).get('mediaModel') or {}
+          p=m.get('preferredMuxed') or {}
+          urls=p.get('urls') or []
+          print(next((u for u in urls if 'www.tiktok.com/aweme/v1/play/' in u),''))
+          PY
+          )
+          test -n "$GATEWAY"
+          python3 - "$GATEWAY" <<'PY'
+          import sys,html
+          u=html.escape(sys.argv[1],quote=True)
+          open('test.html','w').write(f"""<!doctype html><meta charset=utf-8>
+          <body><div id=s>start</div>
+          <video id=v referrerpolicy=no-referrer muted autoplay playsinline preload=metadata src="{u}"></video>
+          <iframe id=f referrerpolicy=no-referrer src="{u}"></iframe>
+          <script>
+          const s=document.getElementById('s'),v=document.getElementById('v'),f=document.getElementById('f');
+          v.onloadedmetadata=()=>s.textContent='VIDEO_OK '+v.videoWidth+'x'+v.videoHeight+' dur='+v.duration+' src='+v.currentSrc;
+          v.onerror=()=>s.textContent='VIDEO_ERR code='+(v.error&&v.error.code)+' src='+v.currentSrc;
+          f.onload=()=>{{document.body.dataset.iframe='loaded';}};
+          setTimeout(()=>{{document.body.dataset.final=s.textContent;}},8000);
+          </script>""")
+          PY
+          python3 -m http.server 8765 >/tmp/http.log 2>&1 &
+          HPID=$!
+          trap 'kill $HPID || true' EXIT
+          sleep 1
+          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=10000             --dump-dom http://127.0.0.1:8765/test.html > dom.html 2>chrome.err || true
+          grep -o '<div id="s">[^<]*' dom.html || true
+          grep -o 'data-iframe="[^"]*"' dom.html || true
+          grep -o 'data-final="[^"]*"' dom.html || true
+          tail -20 chrome.err || true
