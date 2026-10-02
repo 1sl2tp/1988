@@ -1371,6 +1371,108 @@ async function vodCachedResolver(name,handle,id,{refresh=false,ttl=240}={},resol
   return row;
 }
 
+
+function vodJsonMediaCandidates(value){
+  const out=[];
+  const seen=new Set();
+  const walk=(node,path="",depth=0)=>{
+    if(node==null||depth>10)return;
+    if(typeof node==="string"){
+      const url=String(node||"").trim();
+      if(/^https?:\/\//i.test(url)){
+        let score=0;
+        const key=path.toLowerCase();
+        if(/nowatermark|no_watermark|without_watermark|play|download|video|hd/.test(key))score+=80;
+        if(/url|src|uri/.test(key))score+=20;
+        if(/\.mp4(?:$|[?#])/i.test(url))score+=100;
+        if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized/i.test(url))score+=30;
+        if(/cover|avatar|image|music|audio|mp3|m4a|thumbnail/.test(key))score-=160;
+        out.push({url,score,path:key});
+      }
+      return;
+    }
+    if(typeof node!=="object")return;
+    if(seen.has(node))return;
+    seen.add(node);
+    if(Array.isArray(node)){
+      for(let i=0;i<node.length;i++)walk(node[i],path+"["+i+"]",depth+1);
+      return;
+    }
+    for(const [k,v] of Object.entries(node)){
+      walk(v,path?path+"."+k:k,depth+1);
+    }
+  };
+  walk(value);
+  const best=new Map();
+  for(const row of out){
+    const prev=best.get(row.url);
+    if(!prev||row.score>prev.score)best.set(row.url,row);
+  }
+  return [...best.values()].sort((a,b)=>b.score-a.score);
+}
+function vodPickJsonVideoUrl(value){
+  const rows=vodJsonMediaCandidates(value)
+    .filter(row=>{
+      const url=String(row.url||"");
+      if(/\.(?:mp3|m4a|aac|wav|ogg)(?:$|[?#])/i.test(url))return false;
+      if(/(?:avatar|cover|image|music|audio)/i.test(row.path||""))return false;
+      return true;
+    });
+  return String(rows[0]?.url||"");
+}
+async function resolveTiklyDownVideoSource(handle,id,{refresh=false}={}){
+  return vodCachedResolver("tiklydown",handle,id,{refresh,ttl:240},async()=>{
+    const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
+    const endpoints=[
+      "https://api.tiklydown.eu.org/api/download",
+      "https://api.tiklydown.link/api/download"
+    ];
+    let last="";
+    for(const base of endpoints){
+      try{
+        const endpoint=new URL(base);
+        endpoint.searchParams.set("url",pageUrl);
+        const r=await fetch(endpoint.toString(),{
+          headers:{
+            "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+            "accept":"application/json,text/plain,*/*"
+          },
+          redirect:"follow",
+          cf:{cacheTtl:0,cacheEverything:false}
+        });
+        if(!r.ok){last="http_"+r.status;continue;}
+        const data=await r.json().catch(()=>null);
+        const mediaUrl=vodPickJsonVideoUrl(data);
+        if(!mediaUrl){last="no_media";continue;}
+        return {url:mediaUrl,source:"tiklydown",headers:{accept:"*/*"}};
+      }catch(error){
+        last=String(error?.message||error||"fetch_failed");
+      }
+    }
+    throw new Error("tiklydown_"+(last||"failed"));
+  });
+}
+async function resolveDouyinWtfVideoSource(handle,id,{refresh=false}={}){
+  return vodCachedResolver("douyinwtf",handle,id,{refresh,ttl:240},async()=>{
+    const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
+    const endpoint=new URL("https://api.douyin.wtf/api/hybrid/video_data");
+    endpoint.searchParams.set("url",pageUrl);
+    endpoint.searchParams.set("minimal","false");
+    const r=await fetch(endpoint.toString(),{
+      headers:{
+        "user-agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36",
+        "accept":"application/json,text/plain,*/*"
+      },
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!r.ok)throw new Error("douyinwtf_http_"+r.status);
+    const data=await r.json().catch(()=>null);
+    const mediaUrl=vodPickJsonVideoUrl(data);
+    if(!mediaUrl)throw new Error("douyinwtf_no_media_url");
+    return {url:mediaUrl,source:"douyinwtf",headers:{accept:"*/*"}};
+  });
+}
 async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
   return vodCachedResolver("musicaldown",handle,id,{refresh,ttl:240},async()=>{
     const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
@@ -1577,6 +1679,14 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
       headers:source.headers||{referer:"https://ttdownloader.com/",accept:"*/*"}
     };
   }
+  if (name === "tiklydown") {
+    const source=await resolveTiklyDownVideoSource(handle,id,{refresh});
+    return {name:"tiklydown",url:String(source.url||""),headers:source.headers||{accept:"*/*"}};
+  }
+  if (name === "douyinwtf") {
+    const source=await resolveDouyinWtfVideoSource(handle,id,{refresh});
+    return {name:"douyinwtf",url:String(source.url||""),headers:source.headers||{accept:"*/*"}};
+  }
   if (name === "direct") {
     const source = await resolveTikTokVideoSourceEdge(handle, id, { refresh });
     return {
@@ -1593,7 +1703,7 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
   };
 }
 
-const VOD_RESOLVER_POOL=["tikwm","tdown","musicaldown","tikdown","ttdownloader"];
+const VOD_RESOLVER_POOL=["tikwm","tdown","tiklydown","douyinwtf"];
 function vodSourceOrder(preferred = "",id="") {
   if(preferred==="native")return ["native",...VOD_RESOLVER_POOL];
   if(preferred==="direct")return ["direct",...VOD_RESOLVER_POOL];
