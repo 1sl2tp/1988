@@ -913,17 +913,65 @@ async function bootstrapTikTokWebCookie({refresh=false}={}){
 
   const ua=
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
-  const r=await fetch("https://www.tiktok.com/",{
-    headers:{
-      "user-agent":ua,
-      "accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7"
-    },
-    redirect:"follow",
-    cf:{cacheTtl:0,cacheEverything:false}
-  });
-  const cookie=tikTokCookieHeader(r.headers);
-  try{await r.body?.cancel?.()}catch{}
+  const jar=new Map();
+
+  const mergeHeaders=headers=>{
+    const raw=tikTokCookieHeader(headers);
+    for(const part of String(raw||"").split(";")){
+      const i=part.indexOf("=");
+      if(i<=0)continue;
+      jar.set(part.slice(0,i).trim(),part.slice(i+1).trim());
+    }
+  };
+  const header=()=>[...jar.entries()].map(([k,v])=>k+"="+v).join("; ");
+
+  // Stateless ttwid registration works without a browser session and is the
+  // standard ByteDance bootstrap used by open-source TikTok/Douyin clients.
+  try{
+    const r=await fetch("https://ttwid.bytedance.com/ttwid/union/register/",{
+      method:"POST",
+      headers:{
+        "user-agent":ua,
+        "accept":"application/json,text/plain,*/*",
+        "content-type":"application/json",
+        "origin":"https://www.tiktok.com",
+        "referer":"https://www.tiktok.com/"
+      },
+      body:JSON.stringify({
+        region:"va",
+        aid:1768,
+        needFid:false,
+        service:"www.tiktok.com",
+        migrate_info:{ticket:"",source:"node"},
+        cbUrlProtocol:"https",
+        union:true
+      }),
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    mergeHeaders(r.headers);
+    try{await r.body?.cancel?.()}catch{}
+  }catch{}
+
+  // Let TikTok enrich the first-party jar (tt_chain_token / csrf etc.).
+  for(const url of ["https://www.tiktok.com/"]){
+    try{
+      const r=await fetch(url,{
+        headers:{
+          "user-agent":ua,
+          "accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+          ...(jar.size?{"cookie":header()}:{})
+        },
+        redirect:"follow",
+        cf:{cacheTtl:0,cacheEverything:false}
+      });
+      mergeHeaders(r.headers);
+      try{await r.body?.cancel?.()}catch{}
+    }catch{}
+  }
+
+  const cookie=header();
   if(!cookie)throw new Error("tiktok_web_cookie_missing");
 
   await cache.put(
@@ -1044,8 +1092,7 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
   const url=String(urls.find(u=>{
     try{
       const host=new URL(u).hostname.toLowerCase();
-      return !/(^|\.)tiktok\.com$/.test(host)&&
-        /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
+      return /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
     }catch{return false;}
   })||"").trim();
 
