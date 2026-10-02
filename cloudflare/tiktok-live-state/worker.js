@@ -609,6 +609,32 @@ async function resolveTikwmVideoSource(handle, id) {
   return row;
 }
 
+async function redirectTikTokVideoDirect(request) {
+  const url=new URL(request.url);
+  const handle=normalizeHandle(url.searchParams.get("user")||"");
+  const id=normalizeVideoId(url.searchParams.get("id")||"");
+  if(!handle||!id)return json({ok:false,error:"invalid_tiktok_video"},400);
+
+  try{
+    const source=await resolveTikwmVideoSource(handle,id);
+    const target=String(source?.url||"").trim();
+    if(!/^https?:\/\//i.test(target))throw new Error("tikwm_no_media_url");
+    // 302 only: the browser follows the TikWM URL and downloads the MP4
+    // directly. Cloudflare does not carry the video body.
+    return new Response(null,{
+      status:302,
+      headers:{
+        ...cors(),
+        "location":target,
+        "cache-control":"private,max-age=240",
+        "x-1988-media":"redirect-tikwm-direct"
+      }
+    });
+  }catch(error){
+    return json({ok:false,error:String(error?.message||error||"tikwm_resolve_failed")},502);
+  }
+}
+
 async function fetchTikTokMediaTarget(targetUrl, request, extraHeaders = {}) {
   const headers = new Headers();
   for (const [name, value] of Object.entries(extraHeaders || {})) {
@@ -740,6 +766,10 @@ export default {
     if (url.pathname === "/health") return json({ ok: true, service: "1988-tiktok-live-state" });
     if (url.pathname === "/state") return json({ ok: true, ...(await loadSnapshot(env)) });
     if (url.pathname === "/tiktok/live-now") return json(await liveNow(env));
+    if (url.pathname === "/tiktok/video-direct" &&
+        (request.method === "GET" || request.method === "HEAD"))
+      return redirectTikTokVideoDirect(request);
+
     if (url.pathname === "/tiktok/video-stream" && (request.method === "GET" || request.method === "HEAD")) {
       return relayTikTokVideo(request);
     }
