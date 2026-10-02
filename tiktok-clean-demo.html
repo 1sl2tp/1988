@@ -746,7 +746,7 @@ async function openVideo(rawHandle,videoId,{withSound=true}={}){
   startSource(selectedSource);
   syncMediaControls();
 }
-async function refreshChannelVideosasync function refreshChannelVideos(handle,{silent=true}={}){
+async function refreshChannelVideos(handle,{silent=true}={}){
   // Data extraction is server-side only. UI just re-reads the unified package.
   renderRecentVideos(parseHandle(handle));
   return loadUnifiedLibrary({force:true,silent});
