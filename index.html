@@ -250,10 +250,10 @@ html.one-col body{min-height:220vh}
   .media-col{
     display:block!important;
     position:absolute!important;
-    left:-10000px!important;
+    left:0!important;
     top:0!important;
-    width:320px!important;
-    height:180px!important;
+    width:0!important;
+    height:0!important;
     max-width:none!important;
     margin:0!important;
     overflow:visible!important;
@@ -262,12 +262,36 @@ html.one-col body{min-height:220vh}
     contain:none!important;
     pointer-events:none!important;
   }
+
+  /* Keep the permanent player home inside the real page/compositor.
+     Parking the parent at -10000px made Safari/PWA keep audio alive while
+     the hardware video layer stayed clipped/black. The zero-size anchor is
+     layout-neutral but still on-screen, and children can overflow from it. */
+  .media-col > .stage{
+    position:absolute!important;
+    left:0!important;
+    top:0!important;
+    width:0!important;
+    height:0!important;
+    aspect-ratio:auto!important;
+    overflow:visible!important;
+    background:transparent!important;
+  }
 }
 
 /* One-column inline playback is document-anchored to the selected thumbnail.
    The player stays in its permanent stage DOM home, but its absolute coordinates
    are stored relative to that stage. Both stage and thumbnail scroll together,
    so no per-scroll geometry write is needed. */
+@media(max-width:999px){
+  html.one-col .stage.pip-host{
+    width:0!important;
+    height:0!important;
+    aspect-ratio:auto!important;
+    overflow:visible!important;
+  }
+}
+
 html.one-col .player.inline-overlay:not(.pip){
   /* INLINE follows the document/card natively.
      Never chase scroll with position:fixed + getBoundingClientRect(). */
