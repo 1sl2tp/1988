@@ -39,7 +39,7 @@ button:hover,.linkbtn:hover{background:#343434}
 <body>
 <div class="page">
   <h1>TikTok · direct media proof</h1>
-  <p class="sub">Không iframe TikTok. Chỉ lấy URL CDN gốc từ TikTok rồi đưa trực tiếp vào &lt;video&gt; của mình. Không Render/TikWM/TDown.</p>
+  <p class="sub">Không iframe TikTok. Render chỉ dùng tài khoản TikTok đã đăng nhập để xin link gốc aweme/v1/play; video phát thẳng TikTok CDN, không proxy qua Render.</p>
 
   <div class="grid">
     <section class="panel left">
@@ -59,9 +59,9 @@ button:hover,.linkbtn:hover{background:#343434}
 
       <div>
         <span class="pill">Không TikTok iframe</span>
-        <span class="pill">Không quảng cáo UI</span>
+        <span class="pill">Session TikTok thật</span>
         <span class="pill">Native &lt;video&gt;</span>
-        <span class="pill">TikTok origin URL</span>
+        <span class="pill">aweme/v1/play H.264</span>
       </div>
 
       <div class="btns">
@@ -79,7 +79,7 @@ button:hover,.linkbtn:hover{background:#343434}
 
 <script>
 (() => {
-  const RESOLVER = 'https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin';
+  const RESOLVER = 'https://one988-tiktok-session.onrender.com/tiktok/video-session-link';
   const media = document.getElementById('media');
   const status = document.getElementById('status');
   const input = document.getElementById('videoInput');
@@ -127,10 +127,11 @@ button:hover,.linkbtn:hover{background:#343434}
       'candidates = ' + rows.length + '<br>' +
       'audioUrls = ' + audios.length + '<br>' +
       'downloadUrls = ' + (data?.downloadUrls?.length || 0) + '<br>' +
-      'resolver = ' + (data?.resolver || '—') + '<br>' +
-      'render = ' + String(data?.render) + '<br>' +
-      'tikwm = ' + String(data?.tikwm) + '<br>' +
-      'tdown = ' + String(data?.tdown) + '<br>' +
+      'source = ' + (data?.source || '—') + '<br>' +
+      'codec = ' + (data?.codec || '—') + '<br>' +
+      'sessionAuthenticated = ' + String(data?.session?.authenticated) + '<br>' +
+      'cookieCount = ' + String(data?.session?.cookieCount ?? '—') + '<br>' +
+      'mediaViaRender = ' + String(data?.mediaViaRender) + '<br>' +
       'proxyVideo = ' + String(data?.proxyVideo) + '<br>' +
       'storage = ' + (data?.storage || '—') + '<br>' +
       'supabaseWrites = ' + String(data?.supabaseWrites ?? '—');
@@ -165,7 +166,7 @@ button:hover,.linkbtn:hover{background:#343434}
   async function resolve(){
     const postUrl = input.value.trim();
     if(!postUrl) return;
-    setStatus('Đang lấy playAddr/downloadAddr gốc từ TikTok…');
+    setStatus('Đang dùng session TikTok thật để xin aweme/v1/play gốc…');
     values.textContent = 'resolver = running';
     candidates.innerHTML = '';
 
