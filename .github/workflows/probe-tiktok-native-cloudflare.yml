@@ -15,6 +15,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          ORIGIN='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40_phat_nguoi_yeu_thi_giai%2Fvideo%2F7691708011651386645'
+          echo '---ORIGIN---'
+          curl -sS --max-time 30 "$ORIGIN" | tee /tmp/origin.json
+          echo
           URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream?user=_phat_nguoi_yeu_thi_giai&id=7691708011651386645&source=auto'
           curl -sS -L --max-time 30 -D /tmp/h -H 'Range: bytes=0-1048575' -o /tmp/b "$URL" || true
           echo '---HEADERS---'
