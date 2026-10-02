@@ -9908,8 +9908,12 @@ const server=http.createServer(async(req,res)=>{
         state='unknown';
       }
 
+      const videoRow=tiktokVideoLibrary.get(key)||{};
+      const canonical=tiktokCanonicalChannels.get(key)||{};
       return {
         handle,
+        secUid:String(videoRow.secUid||canonical.sec_uid||''),
+        latestVideoId:String(videoRow.latestVideoId||videoRow.videos?.[0]?.id||''),
         state,
         detectedLive:Boolean(scan?.live),
         retainedLive:Boolean(scan?.retained),
