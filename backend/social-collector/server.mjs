@@ -5894,7 +5894,7 @@ async function resolveTikTokMediaNoStore(postUrl){
 }
 
 
-const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','snaptik','clipx','tikdownloaderio','ssstik','musicaldownapi','tikdownorg','ttdownloader','downtik','tdown','tiklydown','douyinwtf'];
+const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','curlx','snaptik','clipx','tikdownloaderio','ssstik','musicaldownapi','tikdownorg','ttdownloader','downtik','tdown','tiklydown','douyinwtf'];
 const TIKTOK_VOD_EXTERNAL_CACHE_MS=4*60_000;
 const tiktokVodExternalCache=new Map();
 
@@ -6043,6 +6043,52 @@ function decodeSnapTikPayload(h,n,t,e){
   }
   return out;
 }
+
+async function resolveCurlXVodExternal(pageUrl){
+  const r=await fetch('https://www.curl-x.com/api/extract',{
+    method:'POST',
+    headers:{
+      'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36',
+      'accept':'application/json,text/plain,*/*',
+      'content-type':'application/json'
+    },
+    body:JSON.stringify({url:pageUrl}),
+    redirect:'follow',
+    signal:AbortSignal.timeout(15_000)
+  });
+  if(!r.ok)throw new Error('curlx_http_'+r.status);
+  const body=await r.json().catch(()=>null);
+  if(!body)throw new Error('curlx_invalid_json');
+
+  const candidates=[];
+  for(const media of Array.isArray(body?.media)?body.media:[]){
+    if(String(media?.type||'').toLowerCase()!=='video')continue;
+    for(const variant of Array.isArray(media?.variants)?media.variants:[]){
+      const url=String(variant?.url||'').trim();
+      if(!/^https?:\/\//i.test(url))continue;
+      const contentType=String(variant?.contentType||variant?.content_type||'').toLowerCase();
+      if(contentType&&!/video\/mp4|application\/octet-stream/.test(contentType)&&!/\.mp4(?:$|[?#])/i.test(url))continue;
+      const width=Number(variant?.width||0);
+      const height=Number(variant?.height||0);
+      const bitrate=Number(variant?.bitrate||variant?.bit_rate||0);
+      const score=(/video\/mp4/.test(contentType)?500:0)+
+        (width&&height?Math.min(300,(width*height)/10000):0)+
+        Math.min(200,bitrate/10000);
+      candidates.push({url,score,width,height,bitrate,contentType});
+    }
+  }
+  candidates.sort((a,b)=>b.score-a.score);
+  const best=candidates[0]||null;
+  if(!best?.url)throw new Error('curlx_no_media');
+  return {
+    url:best.url,
+    source:'curlx',
+    width:best.width,
+    height:best.height,
+    contentType:best.contentType
+  };
+}
+
 async function resolveSnapTikVodExternal(pageUrl){
   const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36';
   const home=await fetch('https://snaptik.app/',{
@@ -6455,6 +6501,7 @@ async function resolveTikTokVodExternal(rawHandle,rawId,rawSource,{force=false}=
   const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
   let result;
   if(source==='tikwm')result=await resolveTikwmVodExternal(pageUrl);
+  else if(source==='curlx')result=await resolveCurlXVodExternal(pageUrl);
   else if(source==='snaptik')result=await resolveSnapTikVodExternal(pageUrl);
   else if(source==='clipx')result=await resolveClipXVodExternal(pageUrl);
   else if(source==='tikdownloaderio')result=await resolveTikDownloaderIoVodExternal(pageUrl);
