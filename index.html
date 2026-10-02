@@ -1113,15 +1113,16 @@ main{
 .player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
 .player.tiktok-active.tiktok-vod > #tiktokMediaVideo{
-  display:block!important;
-  visibility:visible!important;
-  opacity:1!important;
-}
-.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
   pointer-events:none!important;
+}
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
 }
 .player.tiktok-active > #videoFrame,
 .player.tiktok-active > iframe{display:none!important}
@@ -2431,6 +2432,27 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
   bottom:auto!important;
   width:100%!important;
   height:calc(100% + var(--rail-black) + var(--rail-black))!important;
+  max-width:none!important;
+  max-height:none!important;
+  transform:none!important;
+  border:0!important;
+  background:#000!important;
+}
+
+/* TikTok VOD uses TikTok's own working player.
+   Measured proof: 308px BLACK above + 308px BLACK below, shift 0.
+   Same crop model as YouTube rail; only the measured rail size differs. */
+.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+  display:block!important;
+  visibility:visible!important;
+  opacity:1!important;
+  pointer-events:auto!important;
+  left:0!important;
+  right:auto!important;
+  top:-308px!important;
+  bottom:auto!important;
+  width:100%!important;
+  height:calc(100% + 616px)!important;
   max-width:none!important;
   max-height:none!important;
   transform:none!important;
@@ -6580,14 +6602,7 @@ html.one-col.portrait .player.pip{
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
-    const stream=String(meta?.playbackUrl||"").trim();
-    if(
-      !/^[0-9]{8,}$/.test(id)||
-      !handle||
-      meta?.playbackReady!==true||
-      !/^https?:\/\//i.test(stream)||
-      !tiktokMediaVideo
-    )return false;
+    if(!/^[0-9]{8,}$/.test(id)||!handle||!tiktokMediaFrame)return false;
 
     stopTikTokLivePlayback();
     stopTikTokVideoPlayback();
@@ -6614,110 +6629,37 @@ html.one-col.portrait .player.pip{
     applyMediaLayoutSelection(kind,{relayout:true});
     applyHeaderTint(meta);
 
-    const native=tiktokMediaVideo;
-    const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    const params=new URLSearchParams({
+      autoplay:"1",
+      controls:"1",
+      progress_bar:"1",
+      play_button:"1",
+      volume_control:"1",
+      fullscreen_button:"1",
+      timestamp:"1",
+      loop:"0",
+      music_info:"0",
+      description:"0",
+      rel:"0",
+      native_context_menu:"0",
+      closed_caption:"0"
+    });
 
-    if(tiktokMediaFrame){
-      tiktokMediaFrame.hidden=true;
-      tiktokMediaFrame.removeAttribute("src");
+    if(tiktokMediaVideo){
+      tiktokMediaVideo.hidden=true;
+      try{
+        tiktokMediaVideo.pause();
+        tiktokMediaVideo.removeAttribute("src");
+        tiktokMediaVideo.load();
+      }catch{}
     }
     if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
-    if(tiktokLiveControls)tiktokLiveControls.hidden=true;
     if(tiktokLivePreview)tiktokLivePreview.hidden=true;
+    if(tiktokLiveControls)tiktokLiveControls.hidden=true;
 
-    native.hidden=false;
-    native.controls=true;
-    native.preload="auto";
-    native.playsInline=true;
-    native.autoplay=true;
-    native.setAttribute("autoplay","");
-    native.poster=preview;
-
-    // A card click is an explicit user gesture: TikTok VOD should start with
-    // sound. Never inherit the muted autoplay state used by embedded players.
-    native.defaultMuted=false;
-    native.muted=false;
-    native.volume=1;
-
-    let playAttempt=0;
-    const requestTikTokVideoPlayback=()=>{
-      if(String(current?.id||"")!==id||!native.paused)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      playAttempt+=1;
-      const pending=native.play();
-      if(pending?.catch){
-        pending.catch(error=>{
-          if(String(current?.id||"")!==id)return;
-          console.warn(
-            "tiktok_video_play_rejected",
-            "attempt="+playAttempt,
-            error?.name||"",
-            error?.message||""
-          );
-        });
-      }
-    };
-
-    native.onerror=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-media-playing","tiktok-playing");
-      console.warn("tiktok_video_native_error",{
-        id,
-        handle,
-        code:Number(native.error?.code)||0,
-        message:String(native.error?.message||"")
-      });
-    };
-
-    native.onloadedmetadata=()=>{
-      if(String(current?.id||"")!==id)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      const w=Number(native.videoWidth)||0;
-      const h=Number(native.videoHeight)||0;
-      if(w>0&&h>0){
-        commitCurrentAspect(id,w/h,{relayout:true,provider:"tiktok"});
-      }
-      // Safari/Chrome can leave the first synchronous play() pending or abort it
-      // while the direct TikTok MP4 is still attaching. Retry as soon as the
-      // browser has media metadata instead of leaving the poster paused at 0:00.
-      requestTikTokVideoPlayback();
-    };
-
-    native.oncanplay=()=>{
-      if(String(current?.id||"")!==id)return;
-      requestTikTokVideoPlayback();
-    };
-
-    native.onplaying=()=>{
-      if(String(current?.id||"")!==id)return;
-      native.defaultMuted=false;
-      native.muted=false;
-      native.volume=1;
-      player.classList.add("tiktok-media-playing","tiktok-playing");
-    };
-
-    native.onpause=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-    };
-
-    native.onended=()=>{
-      if(String(current?.id||"")!==id)return;
-      player.classList.remove("tiktok-playing");
-      playNextFeedVideo();
-    };
-
-    native.src=stream;
-    native.load();
-
-    // Keep the first call synchronous inside the row click gesture so playback
-    // can start with sound. loadedmetadata/canplay above are only readiness
-    // retries for browsers that do not begin immediately while the MP4 attaches.
-    requestTikTokVideoPlayback();
+    tiktokMediaFrame.hidden=false;
+    tiktokMediaFrame.src=
+      "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+params.toString();
 
     renderCurrentInfo();
     schedulePip();
