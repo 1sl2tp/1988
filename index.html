@@ -6651,7 +6651,7 @@ html.one-col.portrait .player.pip{
     const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
     const proxyBase=
-      TIKTOK_LIBRARY_API+
+      TIKTOK_LIVE_API+
       "/tiktok/video-stream?user="+encodeURIComponent(handle)+
       "&id="+encodeURIComponent(id);
     const warmUrl=
