@@ -3,6 +3,7 @@ import { URL } from 'node:url';
 import chromium from '@sparticuz/chromium';
 import puppeteer from 'puppeteer-core';
 import {createSocialHub} from './social-hub.mjs';
+import {classifyObservedUrl,extractTikTokMediaFromPayload,chooseBestTikTokMedia} from './tiktok-media.mjs';
 
 const PORT = Number(process.env.PORT || 10000);
 const ORIGIN = process.env.ALLOW_ORIGIN || 'https://yt.taphoa.xyz';
@@ -328,6 +329,123 @@ async function newTikTokPage() {
     }
   });
   return page;
+}
+
+
+async function resolveTikTokMedia(postUrl) {
+  const target = new URL(postUrl);
+  if (!/(^|\\.)tiktok\\.com$/i.test(target.hostname)) throw new Error('invalid_tiktok_url');
+
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  const networkVideoUrls = [];
+  const networkAudioUrls = [];
+  const payloadBuckets = [];
+
+  try {
+    await page.setUserAgent(
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
+      'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'
+    );
+    await page.setExtraHTTPHeaders({
+      'accept-language': 'vi-VN,vi;q=0.9,en-US;q=0.6,en;q=0.4',
+    });
+    await page.emulateTimezone('Asia/Ho_Chi_Minh').catch(() => {});
+    await socialHub.bindPageSession('tiktok', page);
+
+    await page.setRequestInterception(true);
+    page.on('request', (request) => {
+      const type = request.resourceType();
+      const hit = classifyObservedUrl(request.url(), type);
+      if (hit?.kind === 'video') networkVideoUrls.push(hit.url);
+      else if (hit?.kind === 'audio') networkAudioUrls.push(hit.url);
+
+      // The URL is already captured above; avoid actually transferring heavy media bytes.
+      if (type === 'font' || type === 'media') request.abort().catch(() => {});
+      else request.continue().catch(() => {});
+    });
+
+    page.on('response', async (response) => {
+      const u = response.url();
+      if (!/\\/api\\/(?:item\\/detail|recommend\\/item_list|post\\/item_list)\\//i.test(u)) return;
+      try {
+        const type = String(response.headers()['content-type'] || '');
+        if (!type.includes('json')) return;
+        payloadBuckets.push(await response.json());
+      } catch {}
+    });
+
+    await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await new Promise((resolve) => setTimeout(resolve, 2800));
+
+    const dom = await page.evaluate(() => {
+      const payloads = [];
+      for (const selector of [
+        '#__UNIVERSAL_DATA_FOR_REHYDRATION__',
+        '#SIGI_STATE',
+        'script[id*="UNIVERSAL"]',
+        'script[id*="SIGI"]',
+      ]) {
+        const node = document.querySelector(selector);
+        const text = node?.textContent || '';
+        if (!text) continue;
+        try { payloads.push(JSON.parse(text)); } catch {}
+      }
+
+      const videoUrls = [];
+      for (const video of document.querySelectorAll('video')) {
+        for (const value of [video.currentSrc, video.src, video.querySelector('source')?.src]) {
+          if (value) videoUrls.push(value);
+        }
+      }
+
+      const downloadLinks = [];
+      for (const a of document.querySelectorAll('a[href]')) {
+        const label = [a.textContent, a.getAttribute('aria-label'), a.getAttribute('download')]
+          .filter(Boolean).join(' ').toLowerCase();
+        if (/download|tải xuống|tải về/.test(label)) downloadLinks.push(a.href);
+      }
+
+      const performanceUrls = performance.getEntriesByType('resource')
+        .map((entry) => entry?.name || '')
+        .filter(Boolean);
+
+      return { payloads, videoUrls, downloadLinks, performanceUrls, title: document.title };
+    });
+
+    const merged = { videoUrls: [], audioUrls: [], downloadUrls: [] };
+    for (const payload of [...payloadBuckets, ...(dom.payloads || [])]) {
+      const hit = extractTikTokMediaFromPayload(payload);
+      merged.videoUrls.push(...hit.videoUrls);
+      merged.audioUrls.push(...hit.audioUrls);
+      merged.downloadUrls.push(...hit.downloadUrls);
+    }
+    merged.downloadUrls.push(...(dom.downloadLinks || []));
+
+    for (const raw of [...(dom.videoUrls || []), ...(dom.performanceUrls || [])]) {
+      const hit = classifyObservedUrl(raw, '');
+      if (hit?.kind === 'video') networkVideoUrls.push(hit.url);
+      else if (hit?.kind === 'audio') networkAudioUrls.push(hit.url);
+    }
+
+    const best = chooseBestTikTokMedia({
+      downloadUrls: merged.downloadUrls,
+      videoUrls: merged.videoUrls,
+      networkVideoUrls,
+      audioUrls: [...merged.audioUrls, ...networkAudioUrls],
+    });
+
+    return {
+      url: target.href,
+      title: dom.title || '',
+      ...best,
+      downloadUrls: [...new Set(merged.downloadUrls)],
+      videoUrls: [...new Set(merged.videoUrls)],
+      networkVideoUrls: [...new Set(networkVideoUrls)],
+    };
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
 function uniqueRows(rows, max = 60) {
@@ -1062,6 +1180,25 @@ const server = http.createServer(async (req, res) => {
       json(res, 405, { ok: false, error: 'method_not_allowed' });
     } catch (error) {
       json(res, 400, { ok: false, error: String(error?.message || error) });
+    }
+    return;
+  }
+
+  if (url.pathname === '/media' && req.method === 'GET') {
+    const target = String(url.searchParams.get('url') || '').trim();
+    if (!target) {
+      json(res, 400, { ok: false, error: 'missing_url' });
+      return;
+    }
+    try {
+      const data = await resolveTikTokMedia(target);
+      json(res, data.bestVideoUrl ? 200 : 404, {
+        ok: Boolean(data.bestVideoUrl),
+        data,
+        error: data.bestVideoUrl ? null : 'media_not_found',
+      });
+    } catch (error) {
+      json(res, 502, { ok: false, error: String(error?.message || error || 'media_resolve_failed') });
     }
     return;
   }
