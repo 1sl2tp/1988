@@ -282,8 +282,7 @@
       description:"0",
       rel:"0",
       native_context_menu:"0",
-      closed_caption:"0",
-      muted:"0"
+      closed_caption:"0"
     });
     return "https://www.tiktok.com/player/v1/"+encodeURIComponent(id)+"?"+p.toString();
   }
@@ -378,13 +377,14 @@
   function playWithSound(){
     command("unMute");
     command("play");
-    // Some TikTok player builds accept setVolume as well; harmless if ignored.
-    command("setVolume",1);
-    status.textContent="Đã yêu cầu Play + bật tiếng…";
+    status.textContent="Đã yêu cầu bật tiếng + phát…";
   }
 
   document.getElementById("playBtn").addEventListener("click",playWithSound);
-  document.getElementById("soundBtn").addEventListener("click",playWithSound);
+  document.getElementById("soundBtn").addEventListener("click",()=>{
+    command("unMute");
+    status.textContent="Đã yêu cầu bật tiếng";
+  });
   document.getElementById("pauseBtn").addEventListener("click",()=>command("pause"));
   document.getElementById("resetBtn").addEventListener("click",()=>{
     railValue=59;
@@ -399,7 +399,7 @@
     const msg=event.data||{};
     if(msg["x-tiktok-player"]!==true)return;
     if(msg.type==="onPlayerReady"){
-      status.textContent="Player sẵn sàng · bấm Play + tiếng để bật âm thanh";
+      status.textContent="Player sẵn sàng · đang tự phát";
       command("play");
     }else if(msg.type==="onStateChange"){
       const n=Number(msg.value);
