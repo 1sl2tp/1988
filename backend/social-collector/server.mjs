@@ -5894,7 +5894,7 @@ async function resolveTikTokMediaNoStore(postUrl){
 }
 
 
-const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','tikdownloaderio','ssstik','musicaldownapi','tdown','tiklydown','douyinwtf'];
+const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','tikdownloaderio','ssstik','musicaldownapi','tikdownorg','ttdownloader','downtik','tdown','tiklydown','douyinwtf'];
 const TIKTOK_VOD_EXTERNAL_CACHE_MS=4*60_000;
 const tiktokVodExternalCache=new Map();
 
@@ -6107,6 +6107,151 @@ async function resolveMusicalDownApiVodExternal(pageUrl){
   return {url,source:'musicaldownapi'};
 }
 
+
+function cookieHeaderFromResponse(headers){
+  const raw=String(headers?.get?.('set-cookie')||'');
+  if(!raw)return '';
+  return raw.split(/,(?=[^;,]+=)/g)
+    .map(x=>String(x||'').split(';')[0].trim())
+    .filter(Boolean)
+    .join('; ');
+}
+function pickHtmlVideoUrl(html){
+  const text=decodeVodHtml(String(html||''));
+  const rows=[];
+  for(const m of text.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)){
+    const url=String(m[0]||'').replace(/[),.;]+$/,'');
+    if(!url)continue;
+    let score=0;
+    if(/\.mp4(?:$|[?#])/i.test(url))score+=120;
+    if(/video|play|download|nowatermark|no[_-]?watermark/i.test(url))score+=60;
+    if(/tiktokcdn|byteoversea|ibytedtos|muscdn|akamaized/i.test(url))score+=40;
+    if(/mp3|audio|music|avatar|cover|image|thumb/i.test(url))score-=180;
+    rows.push({url,score});
+  }
+  for(const m of text.matchAll(/href=["']([^"']+)["']/gi)){
+    const url=String(m[1]||'').trim();
+    if(!/^https?:\/\//i.test(url))continue;
+    let score=20;
+    if(/\.mp4(?:$|[?#])/i.test(url))score+=120;
+    if(/download|video|play/i.test(url))score+=50;
+    if(/mp3|audio/i.test(url))score-=180;
+    rows.push({url,score});
+  }
+  rows.sort((a,b)=>b.score-a.score);
+  return String(rows.find(x=>x.score>0)?.url||'');
+}
+async function resolveTikDownOrgVodExternal(pageUrl){
+  const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36';
+  const first=await fetch('https://tikdown.org/',{
+    method:'POST',
+    headers:{
+      'user-agent':ua,
+      'accept':'text/html,*/*',
+      'content-type':'application/x-www-form-urlencoded'
+    },
+    body:new URLSearchParams({'tiktok-url':pageUrl}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!first.ok)throw new Error('tikdownorg_http_'+first.status);
+  const html=await first.text();
+  if(/please double/i.test(html))throw new Error('tikdownorg_video_not_found');
+  const m=html.match(/\.\/index\.php\?url=[^'"\s<]+/i);
+  if(!m)throw new Error('tikdownorg_index_missing');
+  const secondUrl=new URL(String(m[0]||''),'https://tikdown.org/').toString();
+  const second=await fetch(secondUrl,{
+    headers:{'user-agent':ua,'accept':'text/plain,text/html,*/*','referer':'https://tikdown.org/'},
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!second.ok)throw new Error('tikdownorg_second_http_'+second.status);
+  const body=(await second.text()).trim();
+  let url='';
+  if(/^https?:\/\//i.test(body))url=body;
+  else if(body)url=new URL('./'+body.replace(/^\.?\//,''),'https://tikdown.org/').toString();
+  if(!url)throw new Error('tikdownorg_no_media');
+  return {url,source:'tikdownorg'};
+}
+async function resolveTTDownloaderVodExternal(pageUrl){
+  const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36';
+  const home=await fetch('https://ttdownloader.com/',{
+    headers:{'user-agent':ua,'accept':'text/html,*/*'},
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!home.ok)throw new Error('ttdownloader_home_http_'+home.status);
+  const cookie=cookieHeaderFromResponse(home.headers);
+  const html=await home.text();
+  const token=String(
+    html.match(/name=["']token["']\s+value=["']([^"']+)["']/i)?.[1]||
+    html.match(/value=["']([^"']+)["']\s+name=["']token["']/i)?.[1]||
+    ''
+  );
+  if(!token)throw new Error('ttdownloader_token_missing');
+  const r=await fetch('https://ttdownloader.com/search',{
+    method:'POST',
+    headers:{
+      'user-agent':ua,
+      'accept':'text/html,*/*',
+      'content-type':'application/x-www-form-urlencoded',
+      'origin':'https://ttdownloader.com',
+      'referer':'https://ttdownloader.com/',
+      ...(cookie?{'cookie':cookie}:{})
+    },
+    body:new URLSearchParams({token,format:'',url:pageUrl}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!r.ok)throw new Error('ttdownloader_http_'+r.status);
+  const body=await r.text();
+  const url=pickHtmlVideoUrl(body);
+  if(!url)throw new Error('ttdownloader_no_media');
+  return {url,source:'ttdownloader'};
+}
+async function resolveDownTikVodExternal(pageUrl){
+  const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0.0.0 Safari/537.36';
+  const home=await fetch('https://downtik.io/?lang=en',{
+    headers:{'user-agent':ua,'accept':'text/html,*/*'},
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!home.ok)throw new Error('downtik_home_http_'+home.status);
+  const cookie=cookieHeaderFromResponse(home.headers);
+  const html=await home.text();
+  const token=String(
+    html.match(/id=["']token["'][^>]*value=["']([^"']+)["']/i)?.[1]||
+    html.match(/value=["']([^"']+)["'][^>]*id=["']token["']/i)?.[1]||
+    ''
+  );
+  if(!token)throw new Error('downtik_token_missing');
+  const r=await fetch('https://downtik.io/action.php?lang=en',{
+    method:'POST',
+    headers:{
+      'user-agent':ua,
+      'accept':'text/html,application/json,*/*',
+      'content-type':'application/x-www-form-urlencoded',
+      'origin':'https://downtik.io',
+      'referer':'https://downtik.io/',
+      ...(cookie?{'cookie':cookie}:{})
+    },
+    body:new URLSearchParams({url:pageUrl,token}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!r.ok)throw new Error('downtik_http_'+r.status);
+  const body=await r.text();
+  try{
+    const data=JSON.parse(body);
+    if(data?.error)throw new Error('downtik_'+String(data?.message||'api_error'));
+  }catch(error){
+    if(String(error?.message||'').startsWith('downtik_'))throw error;
+  }
+  const url=pickHtmlVideoUrl(body);
+  if(!url)throw new Error('downtik_no_media');
+  return {url,source:'downtik'};
+}
+
 async function resolveTiklyDownVodExternal(pageUrl){
   let last='';
   for(const base of [
@@ -6185,6 +6330,9 @@ async function resolveTikTokVodExternal(rawHandle,rawId,rawSource,{force=false}=
   else if(source==='tikdownloaderio')result=await resolveTikDownloaderIoVodExternal(pageUrl);
   else if(source==='ssstik')result=await resolveSsstikVodExternal(pageUrl);
   else if(source==='musicaldownapi')result=await resolveMusicalDownApiVodExternal(pageUrl);
+  else if(source==='tikdownorg')result=await resolveTikDownOrgVodExternal(pageUrl);
+  else if(source==='ttdownloader')result=await resolveTTDownloaderVodExternal(pageUrl);
+  else if(source==='downtik')result=await resolveDownTikVodExternal(pageUrl);
   else if(source==='tdown')result=await resolveTdownVodExternal(pageUrl);
   else if(source==='tiklydown')result=await resolveTiklyDownVodExternal(pageUrl);
   else result=await resolveDouyinWtfVodExternal(pageUrl);
