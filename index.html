@@ -1950,6 +1950,69 @@ html.two-col .info{
   color:var(--yt-text-secondary);
   font:400 13px/18px Roboto,Arial,sans-serif;
 }
+.tiktok-channel-browser-head,
+.tiktok-channel-pager{
+  grid-column:1/-1;
+  min-width:0;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.tiktok-channel-browser-head{margin:0 0 4px}
+.tiktok-channel-filter{
+  min-width:0;
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+.tiktok-channel-filter button,
+.tiktok-channel-pager button{
+  height:34px;
+  padding:0 12px;
+  border:0;
+  border-radius:8px;
+  background:var(--yt-chip-bg);
+  color:var(--yt-text);
+  font:500 14px/20px Roboto,Arial,sans-serif;
+  cursor:pointer;
+}
+.tiktok-channel-filter button.active{
+  background:var(--yt-chip-active-bg);
+  color:var(--yt-chip-active-text);
+}
+.tiktok-channel-filter .live-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:#fe2c55;
+  display:inline-block;
+  margin-right:6px;
+}
+.tiktok-channel-browser-count,
+.tiktok-channel-page-label{
+  color:var(--yt-text-secondary);
+  font:400 13px/18px Roboto,Arial,sans-serif;
+  white-space:nowrap;
+}
+.tiktok-channel-pager{
+  margin:8px 0 16px;
+  justify-content:center;
+}
+.tiktok-channel-pager button[disabled]{opacity:.38;cursor:default}
+.tiktok-channel-card.is-live{
+  box-shadow:inset 0 0 0 1px rgba(254,44,85,.28);
+}
+.tiktok-channel-card .channel-live-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:5px;
+  margin-left:7px;
+  padding:1px 6px;
+  border-radius:4px;
+  background:#fe2c55;
+  color:#fff;
+  font:600 10px/16px Roboto,Arial,sans-serif;
+  vertical-align:2px;
+}
 .tiktok-channel-stats{margin-top:2px}
 @media(max-width:656px){
   .tiktok-channel-card{min-height:78px;padding:10px}
@@ -2999,6 +3062,9 @@ html.one-col.portrait .player.pip{
   let tiktokLiveReady=false;
   let tiktokVideoMetas=[];
   let tiktokLibraryChannels=[];
+  let tiktokChannelStatus="online";
+  let tiktokChannelPage=1;
+  const TIKTOK_CHANNEL_PAGE_SIZE=18;
   let tiktokLibraryVersion=-1;
   let tiktokLibraryFetchPromise=null;
   let activeTikTokSubtab="live";
@@ -7888,18 +7954,19 @@ html.one-col.portrait .player.pip{
     const name=String(profile?.name||"").trim()||("@"+handle);
     const savedVideos=Array.isArray(channel?.videos)?channel.videos.length:0;
     const totalVideos=Math.max(savedVideos,Number(profile?.videoCount)||0);
+    const isLive=channel?.live?.isLive===true;
     const followers=compactTikTokVideoCount(profile?.followers);
     const stats=[
       followers?(followers+" người theo dõi"):"",
       totalVideos?(totalVideos+" video"):""
     ].filter(Boolean).join(" · ");
     return (
-      '<button class="tiktok-channel-card" type="button" data-tiktok-channel="'+escapeHtml(handle)+'">'+
+      '<button class="tiktok-channel-card'+(isLive?' is-live':'')+'" type="button" data-tiktok-channel="'+escapeHtml(handle)+'">'+
         (avatar
           ?'<img class="tiktok-channel-avatar" src="'+escapeHtml(avatar)+'" alt="" loading="lazy" decoding="async">'
           :'<span class="tiktok-channel-avatar"></span>')+
         '<span class="tiktok-channel-copy">'+
-          '<span class="tiktok-channel-name">'+escapeHtml(name)+'</span>'+
+          '<span class="tiktok-channel-name">'+escapeHtml(name)+(isLive?'<span class="channel-live-pill">LIVE</span>':'')+'</span>'+
           '<span class="tiktok-channel-handle">@'+escapeHtml(handle)+'</span>'+
           '<span class="tiktok-channel-stats">'+escapeHtml(stats||savedVideos+" video")+'</span>'+
         '</span>'+
@@ -7910,15 +7977,43 @@ html.one-col.portrait .player.pip{
   function renderTikTokChannelList(){
     const rows=document.getElementById("rows");
     if(!rows)return;
-    const channels=tiktokChannelListRows();
+
+    const all=tiktokChannelListRows();
+    const online=all.filter(channel=>channel?.live?.isLive===true);
+    const offline=all.filter(channel=>channel?.live?.isLive!==true);
+    const filtered=tiktokChannelStatus==="offline"?offline:online;
+    const pages=Math.max(1,Math.ceil(filtered.length/TIKTOK_CHANNEL_PAGE_SIZE));
+    tiktokChannelPage=Math.max(1,Math.min(pages,tiktokChannelPage));
+    const start=(tiktokChannelPage-1)*TIKTOK_CHANNEL_PAGE_SIZE;
+    const channels=filtered.slice(start,start+TIKTOK_CHANNEL_PAGE_SIZE);
+
     rows.classList.remove("multi-column-feed","masonry-active");
-    rows.innerHTML=channels.map(tiktokChannelCardMarkup).join("");
-    rows.dataset.renderSignature="tiktok-channels:"+String(tiktokLibraryVersion)+":"+channels.length;
+    rows.innerHTML=
+      '<div class="tiktok-channel-browser-head">'+
+        '<div class="tiktok-channel-filter">'+
+          '<button type="button" data-tiktok-channel-filter="online" class="'+(tiktokChannelStatus==="online"?"active":"")+'">'+
+            '<span class="live-dot"></span>Online '+online.length+
+          '</button>'+
+          '<button type="button" data-tiktok-channel-filter="offline" class="'+(tiktokChannelStatus==="offline"?"active":"")+'">'+
+            'Offline '+offline.length+
+          '</button>'+
+        '</div>'+
+        '<div class="tiktok-channel-browser-count">'+filtered.length+' kênh</div>'+
+      '</div>'+
+      channels.map(tiktokChannelCardMarkup).join("")+
+      '<div class="tiktok-channel-pager">'+
+        '<button type="button" data-tiktok-channel-page="'+Math.max(1,tiktokChannelPage-1)+'"'+(tiktokChannelPage<=1?' disabled':'')+'>‹</button>'+
+        '<span class="tiktok-channel-page-label">'+tiktokChannelPage+' / '+pages+'</span>'+
+        '<button type="button" data-tiktok-channel-page="'+Math.min(pages,tiktokChannelPage+1)+'"'+(tiktokChannelPage>=pages?' disabled':'')+'>›</button>'+
+      '</div>';
+    rows.dataset.renderSignature=
+      "tiktok-channels:"+String(tiktokLibraryVersion)+":"+tiktokChannelStatus+":"+tiktokChannelPage+":"+filtered.length;
     scrollPageToTop();
   }
 
   function showTikTokChannelList(){
     activeTikTokSubtab="lists";
+    tiktokChannelPage=1;
     stopYoutubeLiveDemand();
     stopTikTokPreparedStreams();
     feedRequest++;
@@ -7961,6 +8056,17 @@ html.one-col.portrait .player.pip{
     renderSampleContent();
     syncFeedHeader();
     scrollPageToTop();
+
+    if(matchMedia("(min-width:1000px)").matches&&feedMetas.length){
+      const first=feedMetas[0];
+      const firstId=String(first?.id||"");
+      if(firstId&&openMedia(first)){
+        renderCurrentInfo();
+        const firstCard=document.querySelector('.row[data-video-id="'+firstId+'"]');
+        firstCard?.classList?.add("selected");
+        schedulePip();
+      }
+    }
 
     // Return saved videos immediately, then ask the server to refresh just this
     // channel. Reload the canonical package shortly after the serialized update.
@@ -9927,6 +10033,28 @@ html.one-col.portrait .player.pip{
   }
 
   document.getElementById("rows").addEventListener("click",event=>{
+    const channelFilter=event.target.closest("[data-tiktok-channel-filter]");
+    if(channelFilter){
+      event.preventDefault();
+      event.stopPropagation();
+      const next=String(channelFilter.dataset.tiktokChannelFilter||"");
+      if(next==="online"||next==="offline"){
+        tiktokChannelStatus=next;
+        tiktokChannelPage=1;
+        renderTikTokChannelList();
+      }
+      return;
+    }
+
+    const channelPage=event.target.closest("[data-tiktok-channel-page]");
+    if(channelPage&&!channelPage.disabled){
+      event.preventDefault();
+      event.stopPropagation();
+      tiktokChannelPage=Math.max(1,Number(channelPage.dataset.tiktokChannelPage)||1);
+      renderTikTokChannelList();
+      return;
+    }
+
     const tiktokChannel=event.target.closest("[data-tiktok-channel]");
     if(tiktokChannel){
       event.preventDefault();
