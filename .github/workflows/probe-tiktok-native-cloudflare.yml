@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Probe exact VOD
+      - name: Probe exact VOD after native resolver fix
         shell: bash
         run: |
           set -euo pipefail
