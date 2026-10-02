@@ -1280,6 +1280,252 @@ async function resolveTdownVideoSource(handle, id, { refresh = false } = {}) {
   return row;
 }
 
+
+function vodResolverCacheKey(name,handle,id){
+  return new Request(
+    "https://1988-edge-cache.invalid/tiktok/vod-resolver/"+encodeURIComponent(name)+
+    "?user="+encodeURIComponent(String(handle||"").toLowerCase())+
+    "&id="+encodeURIComponent(String(id||""))
+  );
+}
+function vodDecodeHtml(value){
+  return String(value||"")
+    .replace(/&amp;/gi,"&")
+    .replace(/&quot;/gi,'"')
+    .replace(/&#39;|&apos;/gi,"'")
+    .replace(/&lt;/gi,"<")
+    .replace(/&gt;/gi,">")
+    .replace(/&#x([0-9a-f]+);/gi,(_,x)=>String.fromCodePoint(parseInt(x,16)||0))
+    .replace(/&#([0-9]+);/g,(_,x)=>String.fromCodePoint(parseInt(x,10)||0));
+}
+function vodHtmlAttr(tag,name){
+  const m=String(tag||"").match(new RegExp("\\\\b"+name+"\\\\s*=\\\\s*([\\\"'])((?:\\\\\\\\.|(?!\\\\1).)*)\\\\1","i"));
+  return m?vodDecodeHtml(m[2]):"";
+}
+function vodHtmlInputs(html){
+  const out={};
+  for(const m of String(html||"").matchAll(/<input\\b[^>]*>/gi)){
+    const tag=m[0];
+    const name=vodHtmlAttr(tag,"name");
+    if(!name)continue;
+    out[name]=vodHtmlAttr(tag,"value");
+  }
+  return out;
+}
+function vodExtractUrls(text){
+  const normalized=vodDecodeHtml(String(text||""))
+    .replace(/\\\\u002F/gi,"/")
+    .replace(/\\\\u0026/gi,"&")
+    .replace(/\\\\\\//g,"/");
+  const out=[];
+  for(const m of normalized.matchAll(/https?:\\/\\/[^\\s"'<>\\\\]+/gi)){
+    const url=String(m[0]||"").replace(/[),.;]+$/,"");
+    if(!url)continue;
+    try{
+      const u=new URL(url);
+      if(/^https?:$/.test(u.protocol))out.push(u.toString());
+    }catch{}
+  }
+  return [...new Set(out)];
+}
+function vodPickVideoUrl(urls,{preferMp4=true}={}){
+  const rows=[...new Set((urls||[]).map(x=>String(x||"").trim()).filter(Boolean))]
+    .filter(url=>{
+      if(!/^https?:\\/\\//i.test(url))return false;
+      if(/\\.(?:mp3|m4a|aac|wav|ogg)(?:$|[?#])/i.test(url))return false;
+      if(/(?:audio|music)(?:[/?#=&_-]|$)/i.test(url)&&!/video/i.test(url))return false;
+      return true;
+    });
+  const score=url=>{
+    let n=0;
+    if(/\\.mp4(?:$|[?#])/i.test(url))n+=100;
+    if(/(?:video|play|download)/i.test(url))n+=30;
+    if(/tiktokcdn|byteoversea|muscdn|akamaized/i.test(url))n+=25;
+    if(/watermark|wmplay|wm=/i.test(url))n-=25;
+    if(preferMp4&&!/\\.mp4(?:$|[?#])/i.test(url))n-=5;
+    return n;
+  };
+  rows.sort((a,b)=>score(b)-score(a));
+  return rows[0]||"";
+}
+async function vodCachedResolver(name,handle,id,{refresh=false,ttl=240}={},resolver){
+  const cache=caches.default;
+  const key=vodResolverCacheKey(name,handle,id);
+  if(!refresh){
+    const hit=await cache.match(key).catch(()=>null);
+    if(hit){
+      const row=await hit.json().catch(()=>null);
+      if(/^https?:\\/\\//i.test(String(row?.url||"")))return row;
+    }
+  }
+  const row=await resolver();
+  if(!/^https?:\\/\\//i.test(String(row?.url||"")))throw new Error(name+"_no_media_url");
+  await cache.put(
+    key,
+    new Response(JSON.stringify(row),{
+      headers:{"content-type":"application/json","cache-control":"public,max-age="+ttl}
+    })
+  ).catch(()=>{});
+  return row;
+}
+
+async function resolveMusicalDownVideoSource(handle,id,{refresh=false}={}){
+  return vodCachedResolver("musicaldown",handle,id,{refresh,ttl:240},async()=>{
+    const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
+    const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
+    const home=await fetch("https://musicaldown.com/en",{
+      headers:{"user-agent":ua,"accept":"text/html,*/*"},
+      redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!home.ok)throw new Error("musicaldown_home_http_"+home.status);
+    const cookie=tikTokCookieHeader(home.headers);
+    const html=await home.text();
+    const inputs=vodHtmlInputs(html);
+    let urlField=Object.keys(inputs).find(k=>/link.*url|url.*link|^url$/i.test(k))||"link_url";
+    inputs[urlField]=pageUrl;
+    const body=new URLSearchParams();
+    for(const [k,v] of Object.entries(inputs))body.set(k,String(v??""));
+
+    const result=await fetch("https://musicaldown.com/download",{
+      method:"POST",
+      headers:{
+        "user-agent":ua,
+        "accept":"text/html,application/json,*/*",
+        "content-type":"application/x-www-form-urlencoded",
+        "origin":"https://musicaldown.com",
+        "referer":"https://musicaldown.com/en",
+        ...(cookie?{"cookie":cookie}:{})
+      },
+      body:body.toString(),
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!result.ok)throw new Error("musicaldown_http_"+result.status);
+    const text=await result.text();
+
+    let mediaUrl=vodPickVideoUrl(vodExtractUrls(text));
+    if(!mediaUrl){
+      const dataMatch=text.match(/\\bdata\\s*:\\s*['"]([^'"]+)['"]/i);
+      const urlMatch=text.match(/\\burl\\s*:\\s*['"](https?:\\/\\/[^'"]+)['"]/i);
+      if(dataMatch&&urlMatch){
+        const convert=await fetch(vodDecodeHtml(urlMatch[1]),{
+          method:"POST",
+          headers:{
+            "user-agent":ua,
+            "accept":"application/json,text/plain,*/*",
+            "content-type":"application/x-www-form-urlencoded",
+            "origin":"https://musicaldown.com",
+            "referer":"https://musicaldown.com/download",
+            ...(cookie?{"cookie":cookie}:{})
+          },
+          body:new URLSearchParams({data:vodDecodeHtml(dataMatch[1])}).toString(),
+          redirect:"follow",
+          cf:{cacheTtl:0,cacheEverything:false}
+        });
+        const payload=await convert.json().catch(()=>null);
+        mediaUrl=String(payload?.url||payload?.download_url||"").trim();
+      }
+    }
+    if(!mediaUrl)throw new Error("musicaldown_no_media_url");
+    return {
+      url:mediaUrl,
+      source:"musicaldown",
+      headers:{referer:"https://musicaldown.com/",accept:"*/*"}
+    };
+  });
+}
+
+async function resolveTikdownOrgVideoSource(handle,id,{refresh=false}={}){
+  return vodCachedResolver("tikdown",handle,id,{refresh,ttl:240},async()=>{
+    const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
+    const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
+    const home=await fetch("https://tikdown.org/",{
+      headers:{"user-agent":ua,"accept":"text/html,*/*"},
+      redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!home.ok)throw new Error("tikdown_home_http_"+home.status);
+    const cookie=tikTokCookieHeader(home.headers);
+    const html=await home.text();
+    const inputs=vodHtmlInputs(html);
+    const token=String(inputs._token||inputs.token||"").trim();
+    if(!token)throw new Error("tikdown_token_missing");
+    const r=await fetch("https://tikdown.org/getAjax",{
+      method:"POST",
+      headers:{
+        "user-agent":ua,
+        "accept":"application/json,text/plain,*/*",
+        "content-type":"application/x-www-form-urlencoded",
+        "origin":"https://tikdown.org",
+        "referer":"https://tikdown.org/",
+        "x-requested-with":"XMLHttpRequest",
+        "x-csrf-token":token,
+        ...(cookie?{"cookie":cookie}:{})
+      },
+      body:new URLSearchParams({url:pageUrl,_token:token}).toString(),
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!r.ok)throw new Error("tikdown_http_"+r.status);
+    const data=await r.json().catch(()=>null);
+    const mediaUrl=vodPickVideoUrl(vodExtractUrls(data?.html||JSON.stringify(data||{})));
+    if(!mediaUrl)throw new Error("tikdown_no_media_url");
+    return {
+      url:mediaUrl,
+      source:"tikdown",
+      headers:{referer:"https://tikdown.org/",accept:"*/*"}
+    };
+  });
+}
+
+async function resolveTTDownloaderVideoSource(handle,id,{refresh=false}={}){
+  return vodCachedResolver("ttdownloader",handle,id,{refresh,ttl:240},async()=>{
+    const pageUrl="https://www.tiktok.com/@"+handle+"/video/"+id;
+    const ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
+    const home=await fetch("https://ttdownloader.com/",{
+      headers:{"user-agent":ua,"accept":"text/html,*/*"},
+      redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!home.ok)throw new Error("ttdownloader_home_http_"+home.status);
+    const cookie=tikTokCookieHeader(home.headers);
+    const html=await home.text();
+    const inputs=vodHtmlInputs(html);
+    let token=String(inputs.token||inputs._token||"").trim();
+    if(!token){
+      const m=html.match(/name=["']token["'][^>]*value=["']([0-9a-z]+)["']/i)||
+              html.match(/value=["']([0-9a-z]+)["'][^>]*name=["']token["']/i);
+      token=String(m?.[1]||"");
+    }
+    if(!token)throw new Error("ttdownloader_token_missing");
+
+    const r=await fetch("https://ttdownloader.com/search/",{
+      method:"POST",
+      headers:{
+        "user-agent":ua,
+        "accept":"text/html,*/*",
+        "content-type":"application/x-www-form-urlencoded",
+        "origin":"https://ttdownloader.com",
+        "referer":"https://ttdownloader.com/",
+        "x-requested-with":"XMLHttpRequest",
+        ...(cookie?{"cookie":cookie}:{})
+      },
+      body:new URLSearchParams({url:pageUrl,format:"",token}).toString(),
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!r.ok)throw new Error("ttdownloader_http_"+r.status);
+    const text=await r.text();
+    const urls=vodExtractUrls(text);
+    const legacy=[...text.matchAll(/(https?:\\/\\/[^"'\\s<>]+?\\.php\\?v=[^"'\\s<>]+)/gi)].map(m=>vodDecodeHtml(m[1]));
+    const mediaUrl=vodPickVideoUrl([...legacy,...urls]);
+    if(!mediaUrl)throw new Error("ttdownloader_no_media_url");
+    return {
+      url:mediaUrl,
+      source:"ttdownloader",
+      headers:{referer:"https://ttdownloader.com/",accept:"*/*"}
+    };
+  });
+}
+
 async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}) {
   if (name === "native") {
     const source = await resolveTikTokNativeVideoSource(handle,id,{refresh});
@@ -1305,6 +1551,30 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
       headers: { accept: "*/*" }
     };
   }
+  if (name === "musicaldown") {
+    const source = await resolveMusicalDownVideoSource(handle,id,{refresh});
+    return {
+      name:"musicaldown",
+      url:String(source.url||""),
+      headers:source.headers||{referer:"https://musicaldown.com/",accept:"*/*"}
+    };
+  }
+  if (name === "tikdown") {
+    const source = await resolveTikdownOrgVideoSource(handle,id,{refresh});
+    return {
+      name:"tikdown",
+      url:String(source.url||""),
+      headers:source.headers||{referer:"https://tikdown.org/",accept:"*/*"}
+    };
+  }
+  if (name === "ttdownloader") {
+    const source = await resolveTTDownloaderVideoSource(handle,id,{refresh});
+    return {
+      name:"ttdownloader",
+      url:String(source.url||""),
+      headers:source.headers||{referer:"https://ttdownloader.com/",accept:"*/*"}
+    };
+  }
   if (name === "direct") {
     const source = await resolveTikTokVideoSourceEdge(handle, id, { refresh });
     return {
@@ -1321,12 +1591,20 @@ async function resolveVodSourceByName(name, handle, id, { refresh = false } = {}
   };
 }
 
-function vodSourceOrder(preferred = "") {
-  if (preferred === "native") return ["native","tikwm","tdown"];
-  if (preferred === "tdown") return ["tdown","native","tikwm"];
-  if (preferred === "tikwm") return ["tikwm","native","tdown"];
-  if (preferred === "direct") return ["native","direct","tikwm","tdown"];
-  return ["native","tikwm","tdown"];
+const VOD_RESOLVER_POOL=["tikwm","tdown","musicaldown","tikdown","ttdownloader"];
+function vodSourceOrder(preferred = "",id="") {
+  if(preferred==="native")return ["native",...VOD_RESOLVER_POOL];
+  if(preferred==="direct")return ["direct",...VOD_RESOLVER_POOL];
+  let start=VOD_RESOLVER_POOL.indexOf(String(preferred||""));
+  if(start<0){
+    const tail=String(id||"").slice(-6);
+    const seed=Number(tail||0);
+    start=Number.isFinite(seed)?Math.abs(seed)%VOD_RESOLVER_POOL.length:0;
+  }
+  return [
+    ...VOD_RESOLVER_POOL.slice(start),
+    ...VOD_RESOLVER_POOL.slice(0,start)
+  ];
 }
 
 function vodWarmCacheKey(handle,id) {
@@ -1342,7 +1620,7 @@ async function readVodWarmPreference(handle,id) {
   const hit=await caches.default.match(vodWarmCacheKey(handle,id)).catch(()=>null);
   if(!hit)return "";
   const row=await hit.json().catch(()=>null);
-  return ["native","tikwm","tdown"].includes(String(row?.preferred||""))?String(row.preferred):"";
+  return VOD_RESOLVER_POOL.includes(String(row?.preferred||""))?String(row.preferred):"";
 }
 
 async function probeVodSource(source,handle) {
@@ -1623,7 +1901,7 @@ async function relayTikTokVideo(request) {
   if(!preferred||preferred==="auto"){
     preferred=await readVodWarmPreference(handle,id);
   }
-  const order = vodSourceOrder(preferred);
+  const order = vodSourceOrder(preferred,id);
   let lastStatus = 0;
   let lastError = "";
   const failures=[];
