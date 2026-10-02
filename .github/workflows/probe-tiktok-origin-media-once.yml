@@ -1,4 +1,4 @@
-name: Probe TikTok origin proxy Range
+name: Verify TikTok origin proxy Range fixed
 
 on:
   push:
