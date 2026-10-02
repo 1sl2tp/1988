@@ -8205,6 +8205,11 @@ html.tiktok-ui.tiktok-watch .rows{
     openRowMenuMeta=meta||{};
     openRowMenuAnchor=anchor||null;
     const sourceId=validSourceId(meta?.sourceId);
+    const tiktokHandle=
+      String(meta?.provider||"").toLowerCase()==="tiktok"
+        ?String(meta?.handle||"").trim().replace(/^@/,"")
+        :"";
+    const canViewChannel=Boolean(sourceId||tiktokHandle);
     const scope=feedMode==="package"?String(activePackageScope||""):"";
     const scopeLabel=scope?currentFeedLabel():"";
     const status=scope?directSourceStatus(sourceId,scope):"normal";
