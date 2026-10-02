@@ -210,7 +210,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         'audioFileId = '+String(t.audioFileId||'—')+'<br>'+
         'videoURL = '+loaded.videoUrl+'<br>'+
         (loaded.audioUrl?'audioURL = '+loaded.audioUrl+'<br>':'')+
-        'render = false<br>'+
+        'render = '+(originProxyActive?'true':'false')+'<br>'+
         'proxyVideo = false<br>'+
         'storage = none<br>'+
         'supabaseWrites = 0';
@@ -282,7 +282,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
       };
       media.addEventListener('loadedmetadata',restore,{once:true});
 
-      info.innerHTML=info.innerHTML.replace('proxyVideo = false','proxyVideo = true (TikTok origin Range fallback)');
+      info.innerHTML=info.innerHTML.replace('proxyVideo = false','proxyVideo = true (Render TikTok session-origin fallback)');
       setStatus('Đã chuyển sang Render session-origin · đang nạp…','warn');
     }finally{
       fallbackBusy=false;
