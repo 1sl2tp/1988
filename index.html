@@ -6670,6 +6670,8 @@ html.one-col.portrait .player.pip{
     document.head.appendChild(link);
   }
 
+  let tiktokVodSourceCursor=0;
+
   function playTikTokVideo(meta={}){
     const id=String(meta?.id||"").trim();
     const handle=String(meta?.handle||"").trim().replace(/^@/,"");
@@ -6706,10 +6708,12 @@ html.one-col.portrait .player.pip{
 
     const native=tiktokMediaVideo;
     const preview=String(meta?.thumbnail||meta?.sourceAvatar||"").trim();
+    const preferredSource=(tiktokVodSourceCursor++%2===0)?"tikwm":"tdown";
     const directUrl=
       TIKTOK_LIVE_API+
       "/tiktok/video-stream?user="+encodeURIComponent(handle)+
-      "&id="+encodeURIComponent(id);
+      "&id="+encodeURIComponent(id)+
+      "&source="+encodeURIComponent(preferredSource);
 
     const showEmbedFallback=()=>{
       if(String(current?.id||"")!==id||!tiktokMediaFrame)return;
@@ -6800,8 +6804,9 @@ html.one-col.portrait .player.pip{
       queueMicrotask(()=>playNextFeedVideo());
     };
 
-    // Native video stays same-origin through Cloudflare. The Worker preserves
-    // Range/206 and relays TikWM media only; Render is not part of VOD playback.
+    // Consecutive opens alternate independent upstream resolvers (TikWM / TDown).
+    // The Worker preserves Range/206 and falls through to the other source,
+    // then direct TikTok metadata only if both public resolvers fail.
     native.src=directUrl;
     native.load();
     const pending=native.play();
