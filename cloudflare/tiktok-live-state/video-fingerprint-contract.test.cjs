@@ -23,5 +23,9 @@ assert.match(worker,/function tiktokMediaResponseLooksUsable\(response\)/);
 assert.match(worker,/response\.status===206&&contentRange/);
 assert.match(worker,/for\(const target of candidates\)/);
 assert.match(worker,/source\.name==="native"[\s\S]{0,220}fetchTikTokNativeMediaTarget/);
+assert.match(worker,/const walk=\(v,depth=0,inheritedId=""\)=>/);
+assert.match(worker,/const ownerId=localId\|\|String\(inheritedId\|\|""\)/);
+assert.match(worker,/const relevant=!wantedId\|\|!ownerId\|\|ownerId===wantedId/);
+assert.match(worker,/walk\(x,depth\+1,ownerId\)/);
 
 console.log('tiktok-edge-video-fingerprint-contract: assertions passed');
