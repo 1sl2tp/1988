@@ -264,22 +264,26 @@ html.one-col body{min-height:220vh}
   }
 }
 
-/* One-column inline playback is a viewport-fixed overlay aligned to the card.
-   The off-screen MAIN home must NOT create a stacking context; otherwise the
-   fixed player cannot rise above feed cards even with a large child z-index. */
+/* One-column inline playback is document-anchored to the selected thumbnail.
+   The player stays in its permanent stage DOM home, but its absolute coordinates
+   are stored relative to that stage. Both stage and thumbnail scroll together,
+   so no per-scroll geometry write is needed. */
 html.one-col .player.inline-overlay:not(.pip){
-  position:fixed!important;
+  /* INLINE follows the document/card natively.
+     Never chase scroll with position:fixed + getBoundingClientRect(). */
+  position:absolute!important;
   inset:auto!important;
   left:var(--inline-player-left)!important;
   top:var(--inline-player-top)!important;
   width:var(--inline-player-w)!important;
   height:var(--inline-player-h)!important;
-  z-index:2147482000!important;
+  z-index:40!important;
   opacity:1!important;
   pointer-events:auto!important;
   border-radius:var(--floating-radius)!important;
   overflow:hidden!important;
   transform:none!important;
+  will-change:auto!important;
 }
 .top{
   position:sticky;
@@ -9633,13 +9637,21 @@ html.one-col.portrait .player.pip{
   function syncInlinePlayerOverlay(host=null){
     if(!useStableInlineOverlay())return false;
     host=host || inlineCardForCurrentVideo()?.querySelector(".row-thumb") || null;
-    if(!host||!host.isConnected)return false;
+    if(!host||!host.isConnected||!stage?.isConnected)return false;
 
     const rect=host.getBoundingClientRect();
-    player.style.setProperty("--inline-player-left",Math.round(rect.left)+"px");
-    player.style.setProperty("--inline-player-top",Math.round(rect.top)+"px");
-    player.style.setProperty("--inline-player-w",Math.max(1,Math.round(rect.width))+"px");
-    player.style.setProperty("--inline-player-h",Math.max(1,Math.round(rect.height))+"px");
+    const stageRect=stage.getBoundingClientRect();
+
+    // Relative document geometry is invariant while scrolling:
+    // (hostViewport - stageViewport) cancels scrollY/scrollX exactly.
+    const left=rect.left-stageRect.left;
+    const topPos=rect.top-stageRect.top;
+    const px=value=>(Math.round(value*1000)/1000)+"px";
+
+    player.style.setProperty("--inline-player-left",px(left));
+    player.style.setProperty("--inline-player-top",px(topPos));
+    player.style.setProperty("--inline-player-w",px(Math.max(1,rect.width)));
+    player.style.setProperty("--inline-player-h",px(Math.max(1,rect.height)));
     return true;
   }
 
@@ -9689,6 +9701,7 @@ html.one-col.portrait .player.pip{
       player.classList.remove("pip");
       player.classList.add("inline-overlay");
       syncInlinePlayerOverlay(thumb);
+      inlineGeometrySignature="";
       pip=false;
       clearMobilePipGestureGeometry();
     }
@@ -9703,6 +9716,7 @@ html.one-col.portrait .player.pip{
     stage.classList.remove("pip-host");
     clearInlinePlayerGeometry();
     clearMobilePipGestureGeometry();
+    inlineGeometrySignature="";
     pip=false;
     scheduleFeedMasonry();
   }
@@ -9718,61 +9732,72 @@ html.one-col.portrait .player.pip{
     if(isTwoColumn()){
       if(inlineVideoId||pip||player.classList.contains("inline-overlay")){
         returnPlayerToMainStage();
+        paintText();
       }else{
         stage.classList.remove("pip-host");
         clearMobilePipGestureGeometry();
       }
-      paintText();
       return;
     }
 
     const inlineCard=inlineCardForCurrentVideo();
     const host=inlineCard?.querySelector(".row-thumb")||null;
 
-    // After a one-column card is selected, THAT thumbnail is the playback home.
-    // The same player becomes PiP whenever that frame is not currently usable.
     if(inlineVideoId){
       if(!host||!host.isConnected){
-        showPlayerAsPip();
-        paintText();
+        if(!pip){
+          showPlayerAsPip();
+          paintText();
+        }
         return;
       }
 
       const rect=host.getBoundingClientRect();
-      const headerBottom=Math.max(0,Math.round(top.getBoundingClientRect().bottom||0));
       const viewportBottom=Math.max(
         1,
-        Math.round(window.visualViewport?.height || document.documentElement.clientHeight || innerHeight || 1)
-      );
-      const visiblePixels=Math.max(
-        0,
-        Math.min(rect.bottom,viewportBottom)-Math.max(rect.top,headerBottom)
+        window.visualViewport?.height ||
+        document.documentElement.clientHeight ||
+        innerHeight ||
+        1
       );
 
-      // Hysteresis prevents mode flapping at the exact viewport boundary:
-      // inline stays inline until fully gone; PiP only returns after a real
-      // slice of the original video frame is visible again.
+      // Use only the physical viewport for visibility. Header show/hide must
+      // never move the PiP threshold, otherwise a half-scrolled video can flap
+      // between INLINE and PiP.
+      const visiblePixels=Math.max(
+        0,
+        Math.min(rect.bottom,viewportBottom)-Math.max(rect.top,0)
+      );
+
       const currentlyFloating=
         pip ||
         player.classList.contains("pip") ||
         host.classList.contains("pip-floating");
+
+      // Small hysteresis only on RETURN from PiP.
       const hostVisible=currentlyFloating
-        ? visiblePixels>28
-        : visiblePixels>1;
+        ?visiblePixels>28
+        :visiblePixels>1;
 
       if(hostVisible){
-        host.classList.remove("pip-floating");
-        player.classList.remove("pip");
-        player.classList.add("inline-overlay");
-        stage.classList.add("pip-host");
-        syncInlinePlayerOverlay(host);
-        pip=false;
-        clearMobilePipGestureGeometry();
-      }else{
+        if(currentlyFloating){
+          host.classList.remove("pip-floating");
+          player.classList.remove("pip");
+          player.classList.add("inline-overlay");
+          stage.classList.add("pip-host");
+          syncInlinePlayerOverlay(host); // one write on transition only
+          pip=false;
+          clearMobilePipGestureGeometry();
+          paintText();
+        }
+        return;
+      }
+
+      if(!currentlyFloating){
         host.classList.add("pip-floating");
         showPlayerAsPip();
+        paintText();
       }
-      paintText();
       return;
     }
 
@@ -9791,7 +9816,6 @@ html.one-col.portrait .player.pip{
     }
 
     parkPlayerAtMainHome();
-    return;
   }
 
   function setMobileHeaderHidden(hidden){
@@ -10400,10 +10424,19 @@ html.one-col.portrait .player.pip{
     updateSourceRailArrows();
   }).observe(sourceChips);
 
+  let inlineGeometrySignature="";
   const feedGeometryObserver=new ResizeObserver(()=>{
-    if(player.classList.contains("inline-overlay")&&!player.classList.contains("pip")){
-      syncInlinePlayerOverlay();
-    }
+    if(!player.classList.contains("inline-overlay")||player.classList.contains("pip"))return;
+    const host=inlineCardForCurrentVideo()?.querySelector(".row-thumb")||null;
+    if(!host||!host.isConnected)return;
+    const rect=host.getBoundingClientRect();
+    const signature=[
+      Math.round(rect.width*100)/100,
+      Math.round(rect.height*100)/100
+    ].join(":");
+    if(signature===inlineGeometrySignature)return;
+    inlineGeometrySignature=signature;
+    syncInlinePlayerOverlay(host);
   });
   feedGeometryObserver.observe(document.getElementById("rows"));
 
