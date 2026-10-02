@@ -11,6 +11,106 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
+      - name: Probe ttwid registration against exact VOD
+        shell: bash
+        run: |
+          cat > /tmp/ttwid-probe.mjs <<'JS'
+          const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36';
+          const origin='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url='+encodeURIComponent('https://www.tiktok.com/@_phat_nguoi_yeu_thi_giai/video/7691708011651386645');
+          const meta=await fetch(origin).then(r=>r.json());
+          const preferred=meta?.data?.mediaModel?.preferredMuxed||{};
+          const cdn=(preferred.urls||[]).find(u=>{
+            try{return !/(^|\.)tiktok\.com$/i.test(new URL(u).hostname)}catch{return false}
+          })||'';
+          if(!cdn) throw new Error('no_cdn_url');
+
+          const variants=[
+            {
+              name:'bytedance-tiktok-va',
+              endpoint:'https://ttwid.bytedance.com/ttwid/union/register/',
+              body:{region:'va',aid:1768,needFid:false,service:'www.tiktok.com',migrate_info:{ticket:'',source:'node'},cbUrlProtocol:'https',union:true}
+            },
+            {
+              name:'bytedance-ixigua-cn',
+              endpoint:'https://ttwid.bytedance.com/ttwid/union/register/',
+              body:{region:'cn',aid:1768,needFid:false,service:'www.ixigua.com',migrate_info:{ticket:'',source:'node'},cbUrlProtocol:'https',union:true}
+            },
+            {
+              name:'tiktok-register',
+              endpoint:'https://www.tiktok.com/ttwid/union/register/',
+              body:{region:'va',aid:1768,needFid:false,service:'www.tiktok.com',migrate_info:{ticket:'',source:'node'},cbUrlProtocol:'https',union:true}
+            }
+          ];
+
+          function setCookies(headers){
+            try{
+              if(typeof headers.getSetCookie==='function')return headers.getSetCookie();
+            }catch{}
+            const raw=headers.get('set-cookie')||'';
+            return raw?[raw]:[];
+          }
+          function ttwidFrom(headers){
+            for(const raw of setCookies(headers)){
+              const m=String(raw).match(/(?:^|[,;]\s*)ttwid=([^;]+)/i);
+              if(m)return 'ttwid='+m[1];
+            }
+            return '';
+          }
+
+          for(const v of variants){
+            let status=0,cookie='',err='';
+            try{
+              const r=await fetch(v.endpoint,{
+                method:'POST',
+                headers:{
+                  'user-agent':ua,
+                  'accept':'application/json,text/plain,*/*',
+                  'content-type':'application/json',
+                  'referer':'https://www.tiktok.com/',
+                  'origin':'https://www.tiktok.com'
+                },
+                body:JSON.stringify(v.body),
+                redirect:'follow'
+              });
+              status=r.status;
+              cookie=ttwidFrom(r.headers);
+              try{await r.body?.cancel?.()}catch{}
+            }catch(e){err=String(e?.message||e)}
+            let mediaStatus=0,ct='',bytes=0,range='';
+            if(cookie){
+              try{
+                const r=await fetch(cdn,{
+                  headers:{
+                    'user-agent':ua,
+                    'referer':'https://www.tiktok.com/',
+                    'cookie':cookie,
+                    'range':'bytes=0-1048575',
+                    'accept':'video/*,*/*'
+                  },
+                  redirect:'follow'
+                });
+                mediaStatus=r.status;
+                ct=r.headers.get('content-type')||'';
+                range=r.headers.get('content-range')||'';
+                const b=await r.arrayBuffer();
+                bytes=b.byteLength;
+              }catch(e){err+=(err?';':'')+String(e?.message||e)}
+            }
+            console.log(JSON.stringify({
+              name:v.name,
+              registerStatus:status,
+              hasTtwid:Boolean(cookie),
+              ttwidLength:cookie.length,
+              mediaStatus,
+              contentType:ct,
+              contentRange:range,
+              bytes,
+              error:err
+            }));
+          }
+          JS
+          node /tmp/ttwid-probe.mjs
+
       - name: Probe exact VOD after cookie bootstrap
         shell: bash
         run: |
