@@ -5469,6 +5469,221 @@ async function persistTikTokCanonicalMp4Source(source){
   console.log('[tiktok-mp4-library]',source.handle,source.id,'saved',row.mp4_source);
   return true;
 }
+function collectTikTokOriginPlayUrls(payload,wantedId){
+  const out=[];
+  const seenObj=new Set();
+  const seenUrl=new Set();
+
+  const add=value=>{
+    if(!value)return;
+    if(typeof value==='string'){
+      const url=value.trim();
+      if(/^https?:\/\//i.test(url)&&/\/aweme\/v1\/play\//i.test(url)&&!seenUrl.has(url)){
+        seenUrl.add(url);
+        out.push(url);
+      }
+      return;
+    }
+    if(Array.isArray(value)){
+      for(const item of value)add(item);
+      return;
+    }
+    if(typeof value==='object'){
+      for(const key of ['urlList','UrlList','url_list','urls','url','uri','MainUrl','BackupUrl','FallbackUrl']){
+        if(value[key]!=null)add(value[key]);
+      }
+    }
+  };
+
+  const walk=(value,depth=0)=>{
+    if(!value||typeof value!=='object'||depth>12||seenObj.has(value))return;
+    seenObj.add(value);
+
+    const id=String(value?.id||value?.itemId||value?.aweme_id||value?.awemeId||'');
+    const relevant=!wantedId||!id||id===wantedId;
+    const video=value?.video&&typeof value.video==='object'?value.video:value;
+
+    if(relevant){
+      for(const key of [
+        'playAddr','play_addr','PlayAddr','PlayAddrStruct','playUrl','play_url',
+        'downloadAddr','download_addr','DownloadAddr','DownloadAddrStruct','downloadUrl','download_url'
+      ]){
+        if(video?.[key]!=null)add(video[key]);
+      }
+      for(const row of video?.bitrateInfo||video?.bitrate_info||[]){
+        add(row?.PlayAddr||row?.playAddr||row?.play_addr||row);
+      }
+    }
+
+    if(Array.isArray(value)){
+      for(const child of value)walk(child,depth+1);
+    }else{
+      for(const child of Object.values(value))walk(child,depth+1);
+    }
+  };
+
+  walk(payload,0);
+  return out;
+}
+
+function parseTikTokHydrationFromHtml(html,id){
+  let at=html.indexOf('id="'+id+'"');
+  if(at<0)at=html.indexOf("id='"+id+"'");
+  if(at<0)return null;
+  const open=html.indexOf('>',at);
+  const close=html.indexOf('</script>',open+1);
+  if(open<0||close<0)return null;
+  const raw=html.slice(open+1,close).trim();
+  if(!raw)return null;
+  try{return JSON.parse(raw)}catch{return null}
+}
+
+async function probeTikTokOriginPlayUrl(url,pageUrl,cookieHeader){
+  let response;
+  try{
+    response=await fetch(url,{
+      method:'GET',
+      headers:{
+        'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+        'accept':'*/*',
+        'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+        'referer':pageUrl,
+        'range':'bytes=0-0',
+        ...(cookieHeader?{'cookie':cookieHeader}:{})
+      },
+      redirect:'manual',
+      signal:AbortSignal.timeout(7000)
+    });
+  }catch(error){
+    return {url,status:0,codec:'',location:'',ok:false,error:compactText(error?.message||error,100)};
+  }
+
+  const status=Number(response.status||0);
+  const codec=String(response.headers.get('x-video-codec-type')||'').toLowerCase();
+  const location=String(response.headers.get('location')||'');
+  const ok=[200,206,301,302,303,307,308].includes(status);
+  try{await response.body?.cancel?.()}catch{}
+  return {
+    url,status,codec,location,ok,
+    redirectHost:(()=>{try{return location?new URL(location).hostname:''}catch{return ''}})()
+  };
+}
+
+async function resolveTikTokSessionLink(postUrl){
+  const raw=String(postUrl||'').trim();
+  let parsed;
+  try{parsed=new URL(raw)}catch{throw new Error('invalid_tiktok_url');}
+  if(!/(^|\.)tiktok\.com$/i.test(parsed.hostname))throw new Error('invalid_tiktok_url');
+
+  const match=parsed.pathname.match(/^\/@([^/]+)\/video\/(\d{8,})/i);
+  if(!match)throw new Error('invalid_tiktok_video_url');
+  const handle=normalizeTikTokHandle(decodeURIComponent(match[1]||''));
+  const id=String(match[2]||'');
+  if(!handle||!/^[0-9]{8,}$/.test(id))throw new Error('invalid_tiktok_video');
+
+  const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
+  const cookieHeader=await refreshTikTokApiCookieHeader({force:false});
+  const headers={
+    'user-agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+    'accept':'application/json,text/plain,*/*',
+    'accept-language':'vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5',
+    'referer':pageUrl,
+    ...(cookieHeader?{'cookie':cookieHeader}:{})
+  };
+
+  const roots=[];
+  let itemDetailStatus=0;
+  let pageStatus=0;
+
+  try{
+    const endpoint=new URL('https://www.tiktok.com/api/item/detail/');
+    endpoint.searchParams.set('aid','1988');
+    endpoint.searchParams.set('itemId',id);
+    const r=await fetch(endpoint,{
+      headers,
+      redirect:'follow',
+      signal:AbortSignal.timeout(9000)
+    });
+    itemDetailStatus=r.status;
+    if(r.ok){
+      const body=await r.json().catch(()=>null);
+      if(body)roots.push(body);
+    }
+  }catch{}
+
+  let urls=[];
+  for(const root of roots)urls.push(...collectTikTokOriginPlayUrls(root,id));
+
+  if(!urls.length){
+    try{
+      const r=await fetch(pageUrl,{
+        headers:{
+          ...headers,
+          'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        },
+        redirect:'follow',
+        signal:AbortSignal.timeout(10000)
+      });
+      pageStatus=r.status;
+      if(r.ok){
+        const html=await r.text();
+        for(const scriptId of ['__UNIVERSAL_DATA_FOR_REHYDRATION__','SIGI_STATE']){
+          const root=parseTikTokHydrationFromHtml(html,scriptId);
+          if(root)urls.push(...collectTikTokOriginPlayUrls(root,id));
+        }
+      }
+    }catch{}
+  }
+
+  urls=[...new Set(urls)].slice(0,10);
+  if(!urls.length)throw new Error('tiktok_session_no_origin_play_url');
+
+  const probes=[];
+  for(const url of urls.slice(0,8)){
+    probes.push(await probeTikTokOriginPlayUrl(url,pageUrl,cookieHeader));
+  }
+
+  const usable=probes.filter(row=>row.ok);
+  const best=
+    usable.find(row=>row.codec==='h264')||
+    usable.find(row=>/h264|avc/i.test(row.codec))||
+    usable.find(row=>row.status>=300&&row.status<400)||
+    usable[0]||
+    null;
+
+  if(!best?.url)throw new Error('tiktok_session_origin_play_unusable');
+
+  const cookieNames=new Set(
+    String(cookieHeader||'').split(';').map(x=>x.trim().split('=',1)[0]).filter(Boolean)
+  );
+
+  return {
+    handle,
+    id,
+    directUrl:best.url,
+    bestVideoUrl:best.url,
+    codec:best.codec||'',
+    status:best.status,
+    redirectHost:best.redirectHost||'',
+    source:'tiktok-session-origin-play',
+    session:{
+      authenticated:Boolean(
+        cookieNames.has('sessionid')||
+        cookieNames.has('sessionid_ss')||
+        cookieNames.has('sid_tt')
+      ),
+      cookieCount:cookieNames.size
+    },
+    candidates:probes,
+    mediaViaRender:false,
+    proxyVideo:false,
+    storage:'none',
+    supabaseWrites:0,
+    itemDetailStatus,
+    pageStatus
+  };
+}
+
 async function resolveTikTokMediaNoStore(postUrl){
   const raw=String(postUrl||'').trim();
   let parsed;
@@ -9229,6 +9444,21 @@ const server=http.createServer(async(req,res)=>{
       console.warn('[tiktok-video-stream] failed',compactText(error?.message||error,220));
       if(!res.headersSent)json(res,502,{ok:false,error:'video_source_failed'});
       else if(!res.writableEnded)res.end();
+    }
+    return;
+  }
+
+  if(url.pathname==='/tiktok/video-session-link'&&req.method==='GET'){
+    const target=String(url.searchParams.get('url')||'').trim();
+    if(!target){
+      json(res,400,{ok:false,error:'missing_url'});
+      return;
+    }
+    try{
+      const data=await resolveTikTokSessionLink(target);
+      json(res,200,{ok:true,data});
+    }catch(error){
+      json(res,502,{ok:false,error:String(error?.message||error||'tiktok_session_link_failed')});
     }
     return;
   }
