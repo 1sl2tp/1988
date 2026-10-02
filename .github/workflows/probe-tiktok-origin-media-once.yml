@@ -1,4 +1,4 @@
-name: Probe TikTok fresh muxed URL
+name: Probe TikTok browser direct proof
 
 on:
   push:
@@ -13,29 +13,25 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe fresh muxed URL
+      - name: Probe in Chrome
         shell: bash
         run: |
           set -euo pipefail
-          RES='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40geely.daily%2Fvideo%2F7689814919914458374'
-          curl -fsS "$RES" -o out.json
-          MEDIA=$(python3 - <<'PY'
-          import json
-          x=json.load(open('out.json'))
-          m=(x.get('data') or {}).get('mediaModel') or {}
-          p=m.get('preferredMuxed') or {}
-          print((p.get('urls') or [''])[0])
-          PY
-          )
-          echo "HOST=$(python3 -c 'import os,urllib.parse; print(urllib.parse.urlparse(os.environ["MEDIA"]).hostname)' MEDIA="$MEDIA")"
-          for mode in noref ttref browserref; do
-            echo "=== $mode ==="
-            args=(-sS --max-time 15 -r 0-1023 -o /dev/null -D - -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36')
-            if [ "$mode" = ttref ]; then
-              args+=(-H 'Referer: https://www.tiktok.com/')
-            fi
-            if [ "$mode" = browserref ]; then
-              args+=(-H 'Referer: https://yt.taphoa.xyz/' -H 'Origin: https://yt.taphoa.xyz' -H 'Sec-Fetch-Site: cross-site' -H 'Sec-Fetch-Mode: no-cors' -H 'Sec-Fetch-Dest: video')
-            fi
-            curl "${args[@]}" "$MEDIA" | grep -Ei '^(HTTP/|content-type:|content-length:|content-range:|accept-ranges:|access-control-allow-origin:|cross-origin-resource-policy:)' || true
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)
+          echo "chrome=$CHROME"
+          if [ -z "$CHROME" ]; then
+            echo "No Chrome on runner"
+            exit 1
+          fi
+          for i in 1 2 3 4 5 6; do
+            curl -fsS https://yt.taphoa.xyz/tiktok-mask-proof.html -o page.html || true
+            grep -q 'clientResolveGateway' page.html && break
+            sleep 3
           done
+          grep -q 'clientResolveGateway' page.html
+          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=12000             --dump-dom https://yt.taphoa.xyz/tiktok-mask-proof.html > dom.html 2>chrome.err || true
+          grep -Eo 'Browser đã tự lấy CDN URL[^<]*|Native video đã load[^<]*|Resolver lỗi:[^<]*|Media URL này chưa phát được[^<]*' dom.html || true
+          echo '--- status html ---'
+          grep -o '<div class="status[^>]*>[^<]*' dom.html | tail -1 || true
+          echo '--- chrome errors tail ---'
+          tail -40 chrome.err || true
