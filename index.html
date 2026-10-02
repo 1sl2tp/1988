@@ -1057,8 +1057,28 @@ main{
   overflow:hidden;
   background:#000;
 }
-.player > #videoFrame,
-.player iframe{
+.media-engine{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  overflow:hidden;
+  background:#000;
+}
+.media-engine[hidden]{display:none!important}
+.youtube-media-core{
+  z-index:1;
+}
+.tiktok-media-core{
+  z-index:2;
+}
+.player[data-media-provider="youtube"] > .youtube-media-core{display:block!important}
+.player[data-media-provider="youtube"] > .tiktok-media-core{display:none!important}
+.player[data-media-provider="tiktok"] > .youtube-media-core{display:none!important}
+.player[data-media-provider="tiktok"] > .tiktok-media-core{display:block!important}
+
+.youtube-media-core > #videoFrame,
+.youtube-media-core > iframe{
   position:relative;
   z-index:1;
   display:block;
@@ -1068,12 +1088,9 @@ main{
   background:#000;
 }
 
-
 /* 1988 LAYER CONTRACT
    card/background < preview < media < controls < inline/PiP surface < popup/menu.
-   Popup/menu must always be above fixed media overlays. */
-/* TikTok LIVE uses the exact same player shell / MAIN / PiP geometry.
-   Only the media engine differs from YouTube. */
+   YouTube and TikTok have separate media cores and never style each other's engine. */
 .tiktok-live-preview{
   position:absolute;
   inset:0;
@@ -1084,16 +1101,16 @@ main{
   background:#000;
   display:block;
 }
-.player.tiktok-active > .tiktok-live-preview[hidden]{display:none!important}
-.player.tiktok-active.tiktok-media-playing > .tiktok-live-preview{
+.player.tiktok-active .tiktok-live-preview[hidden]{display:none!important}
+.player.tiktok-active.tiktok-media-playing .tiktok-live-preview{
   opacity:0;
   pointer-events:none;
 }
-.player.tiktok-active > .tiktok-live-preview{
+.player.tiktok-active .tiktok-live-preview{
   opacity:1;
   transition:opacity .16s ease;
 }
-.player.tiktok-active.tiktok-vod.tiktok-vod-loading > .tiktok-live-preview{
+.player.tiktok-active.tiktok-vod.tiktok-vod-loading .tiktok-live-preview{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
@@ -1101,9 +1118,9 @@ main{
   pointer-events:none!important;
 }
 
-.player > #tiktokLiveVideo,
-.player > #tiktokMediaVideo,
-.player > #tiktokMediaFrame{
+.tiktok-media-core > #tiktokLiveVideo,
+.tiktok-media-core > #tiktokMediaVideo,
+.tiktok-media-core > #tiktokMediaFrame{
   position:absolute!important;
   inset:0!important;
   z-index:3;
@@ -1115,54 +1132,24 @@ main{
   background:#000;
   border:0;
 }
-.player:not(.tiktok-active) > #tiktokLiveVideo,
-.player:not(.tiktok-active) > #tiktokMediaVideo{display:none!important}
-.player.tiktok-active:not(.tiktok-vod) > #tiktokLiveVideo{display:block!important}
-.player.tiktok-active:not(.tiktok-vod) > #tiktokMediaVideo{display:none!important}
-.player.tiktok-active.tiktok-vod > #tiktokLiveVideo{display:none!important}
-.player.tiktok-active.tiktok-vod > #tiktokMediaVideo{
+.player:not(.tiktok-active) .tiktok-media-core > #tiktokLiveVideo,
+.player:not(.tiktok-active) .tiktok-media-core > #tiktokMediaVideo{display:none!important}
+.player.tiktok-active:not(.tiktok-vod) .tiktok-media-core > #tiktokLiveVideo{display:block!important}
+.player.tiktok-active:not(.tiktok-vod) .tiktok-media-core > #tiktokMediaVideo{display:none!important}
+.player.tiktok-active.tiktok-vod .tiktok-media-core > #tiktokLiveVideo{display:none!important}
+.player.tiktok-active.tiktok-vod .tiktok-media-core > #tiktokMediaVideo{
   display:block!important;
   visibility:visible!important;
   opacity:1!important;
   pointer-events:auto!important;
 }
-.player.tiktok-active.tiktok-vod > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod .tiktok-media-core > #tiktokMediaFrame{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
   pointer-events:none!important;
 }
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaVideo{
-  display:block!important;
-  visibility:visible!important;
-  opacity:1!important;
-  pointer-events:auto!important;
-}
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
-  display:none!important;
-  visibility:hidden!important;
-  opacity:0!important;
-  pointer-events:none!important;
-}
-.player.tiktok-active > #videoFrame,
-.player.tiktok-active > iframe{display:none!important}
-
-.player[data-media-provider="youtube"] > #tiktokLiveVideo,
-.player[data-media-provider="youtube"] > #tiktokMediaVideo,
-.player[data-media-provider="youtube"] > #tiktokMediaFrame,
-.player[data-media-provider="youtube"] > .tiktok-live-preview,
-.player[data-media-provider="youtube"] > .tiktok-live-controls{
-  display:none!important;
-}
-.player[data-media-provider="youtube"] > #videoFrame,
-.player[data-media-provider="youtube"] > iframe{
-  display:block!important;
-}
-.player[data-media-provider="tiktok"] > #videoFrame,
-.player[data-media-provider="tiktok"] > iframe{
-  display:none!important;
-}
-.player.tiktok-vod > .tiktok-live-controls{
+.player.tiktok-vod .tiktok-live-controls{
   display:none!important;
 }
 
@@ -2551,9 +2538,8 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 
 /* The iframe itself is the taller SOURCE FRAME.
    The parent .player is the cropped media viewport. */
-.player > #videoFrame,
-.player > iframe,
-.player iframe{
+.youtube-media-core > #videoFrame,
+.youtube-media-core > iframe{
   position:absolute!important;
   left:0!important;
   right:auto!important;
@@ -2571,7 +2557,7 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 /* TikTok VOD uses TikTok's own working player.
    Measured proof: 310px BLACK above + 310px BLACK below, shift 0.
    Same crop model as YouTube rail; only the measured rail size differs. */
-.player.tiktok-active.tiktok-vod.tiktok-embed-fallback > #tiktokMediaFrame{
+.player.tiktok-active.tiktok-vod.tiktok-embed-fallback .tiktok-media-core > #tiktokMediaFrame{
   display:none!important;
   visibility:hidden!important;
   opacity:0!important;
@@ -2635,12 +2621,10 @@ html.one-col.portrait .player.pip{
 
 /* Native YouTube fullscreen must use the whole fullscreen viewport,
    not the cropped rail source offset. */
-.player > #videoFrame:fullscreen,
-.player > iframe:fullscreen,
-.player iframe:fullscreen,
-.player > #videoFrame:-webkit-full-screen,
-.player > iframe:-webkit-full-screen,
-.player iframe:-webkit-full-screen{
+.youtube-media-core > #videoFrame:fullscreen,
+.youtube-media-core > iframe:fullscreen,
+.youtube-media-core > #videoFrame:-webkit-full-screen,
+.youtube-media-core > iframe:-webkit-full-screen{
   position:fixed!important;
   inset:0!important;
   width:100%!important;
@@ -2902,26 +2886,30 @@ html.one-col.portrait .player.pip{
 <main>
   <div class="media-col" id="mediaCol">
     <section class="stage" id="stage">
-      <div class="player" id="player">
-        <div id="videoFrame"></div>
-        <img id="tiktokLivePreview" class="tiktok-live-preview" alt="" hidden>
-        <video id="tiktokLiveVideo" playsinline preload="metadata" hidden></video>
-        <video id="tiktokMediaVideo" playsinline preload="metadata" hidden></video>
-        <iframe id="tiktokMediaFrame" class="tiktok-media-frame" title="TikTok video"
-          allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
-        <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
-          <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
-            <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
-            <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
-          </button>
-          <span class="tiktok-live-chip"><i></i>LIVE</span>
-          <span class="tiktok-live-spacer"></span>
-          <button type="button" class="tiktok-live-control" id="tiktokLiveMute" aria-label="Bật hoặc tắt âm thanh">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10H4z"></path><path d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11"></path></svg>
-          </button>
-          <button type="button" class="tiktok-live-control" id="tiktokLiveFull" aria-label="Toàn màn hình">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"></path></svg>
-          </button>
+      <div class="player" id="player" data-media-provider="youtube">
+        <div class="media-engine youtube-media-core" id="youtubeMediaCore">
+          <div id="videoFrame"></div>
+        </div>
+        <div class="media-engine tiktok-media-core" id="tiktokMediaCore" hidden>
+          <img id="tiktokLivePreview" class="tiktok-live-preview" alt="" hidden>
+          <video id="tiktokLiveVideo" playsinline webkit-playsinline preload="metadata" hidden></video>
+          <video id="tiktokMediaVideo" playsinline webkit-playsinline preload="metadata" hidden></video>
+          <iframe id="tiktokMediaFrame" class="tiktok-media-frame" title="TikTok video"
+            allow="autoplay; fullscreen; picture-in-picture" allowfullscreen hidden></iframe>
+          <div class="tiktok-live-controls" id="tiktokLiveControls" hidden>
+            <button type="button" class="tiktok-live-control tiktok-live-play" id="tiktokLivePlay" aria-label="Phát hoặc tạm dừng">
+              <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM13 5h4v14h-4z"></path></svg>
+            </button>
+            <span class="tiktok-live-chip"><i></i>LIVE</span>
+            <span class="tiktok-live-spacer"></span>
+            <button type="button" class="tiktok-live-control" id="tiktokLiveMute" aria-label="Bật hoặc tắt âm thanh">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10H4z"></path><path d="M16 9c1.5 1.5 1.5 4.5 0 6M18.5 6.5c3 3 3 8 0 11"></path></svg>
+            </button>
+            <button type="button" class="tiktok-live-control" id="tiktokLiveFull" aria-label="Toàn màn hình">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"></path></svg>
+            </button>
+          </div>
         </div>
         <div class="pip-activate-zone" id="pipActivateZone" aria-hidden="true"></div>
         <div class="pip-drag-zone pip-drag-top" data-pip-drag="top" aria-hidden="true"></div>
@@ -2992,6 +2980,8 @@ html.one-col.portrait .player.pip{
   const mediaCol=document.getElementById("mediaCol");
   const stage=document.getElementById("stage");
   const player=document.getElementById("player");
+  const youtubeMediaCore=document.getElementById("youtubeMediaCore");
+  const tiktokMediaCore=document.getElementById("tiktokMediaCore");
   const tiktokLivePreview=document.getElementById("tiktokLivePreview");
   const tiktokLiveVideo=document.getElementById("tiktokLiveVideo");
   const tiktokMediaVideo=document.getElementById("tiktokMediaVideo");
@@ -6593,17 +6583,22 @@ html.one-col.portrait .player.pip{
     stopTikTokLivePlayback();
     currentMediaProvider="youtube";
     player.dataset.mediaProvider="youtube";
-    player.classList.remove("tiktok-active","tiktok-controls-visible","tiktok-playing","tiktok-media-playing");
+    player.classList.remove(
+      "tiktok-active","tiktok-vod","tiktok-controls-visible",
+      "tiktok-playing","tiktok-media-playing","tiktok-vod-loading"
+    );
+
+    if(youtubeMediaCore)youtubeMediaCore.hidden=false;
+    if(tiktokMediaCore)tiktokMediaCore.hidden=true;
     if(tiktokLiveControls)tiktokLiveControls.hidden=true;
-    if(tiktokLiveVideo)tiktokLiveVideo.hidden=true;
+
+    // YouTube owns only youtubeMediaCore. Never mutate TikTok media elements here.
     try{
       const iframe=ytPlayer?.getIframe?.();
       if(iframe){
-        iframe.style.display="block";
-        iframe.style.visibility="visible";
-        iframe.style.opacity="1";
-        iframe.style.width="100%";
-        iframe.style.height="100%";
+        iframe.style.removeProperty("display");
+        iframe.style.removeProperty("visibility");
+        iframe.style.removeProperty("opacity");
       }
     }catch{}
   }
@@ -6612,12 +6607,11 @@ html.one-col.portrait .player.pip{
     currentMediaProvider="tiktok";
     player.dataset.mediaProvider="tiktok";
     try{ytPlayer?.pauseVideo?.()}catch{}
-    try{
-      const iframe=ytPlayer?.getIframe?.();
-      if(iframe)iframe.style.display="none";
-    }catch{}
+
+    if(youtubeMediaCore)youtubeMediaCore.hidden=true;
+    if(tiktokMediaCore)tiktokMediaCore.hidden=false;
+
     player.classList.add("tiktok-active");
-    if(tiktokLiveVideo)tiktokLiveVideo.hidden=false;
   }
 
   function showYoutubePlayerSurface(){
@@ -10368,6 +10362,8 @@ html.one-col.portrait .player.pip{
   parkPlayerAtMainHome();
 
   player.dataset.mediaProvider="youtube";
+  if(youtubeMediaCore)youtubeMediaCore.hidden=false;
+  if(tiktokMediaCore)tiktokMediaCore.hidden=true;
   installTikTokLiveControls();
 
   // Start API/player creation as early as possible. No video is selected here,
