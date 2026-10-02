@@ -943,7 +943,7 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     }
   }
 
-  const pageUrl="https://www.tiktok.com/@i/video/"+encodeURIComponent(id);
+  const pageUrl="https://www.tiktok.com/@"+encodeURIComponent(handle)+"/video/"+encodeURIComponent(id);
   const ua=
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
   const page=await fetch(pageUrl,{
@@ -961,21 +961,51 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
   const cookie=tikTokCookieHeader(page.headers);
   const html=await page.text();
   const universal=originParseScript(html,"__UNIVERSAL_DATA_FOR_REHYDRATION__");
-  if(!universal)throw new Error("tiktok_native_hydration_missing");
+  const sigi=originParseScript(html,"SIGI_STATE");
+  const roots=[universal,sigi].filter(Boolean);
+  if(!roots.length)throw new Error("tiktok_native_hydration_missing");
 
-  const hit=originCollectVideo(universal,id);
-  const urls=[...(hit.play||[]),...(hit.download||[])].filter(u=>/^https?:\/\//i.test(String(u||"")));
-  const url=String(
-    urls.find(u=>/v\d+-webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(u))||
-    urls[0]||
-    ""
-  ).trim();
+  const variants=[];
+  const play=[];
+  const download=[];
+  for(const root of roots){
+    const hit=originCollectVideo(root,id);
+    variants.push(...(hit.variants||[]));
+    play.push(...(hit.play||[]));
+    download.push(...(hit.download||[]));
+  }
+
+  const directUrl=row=>
+    (row?.urls||[]).find(u=>{
+      try{
+        const host=new URL(u).hostname.toLowerCase();
+        return !/(^|\.)tiktok\.com$/.test(host)&&
+          /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
+      }catch{return false;}
+    })||"";
+
+  const h264=variants.find(row=>
+    row?.role==="muxed"&&
+    /h264|avc/i.test(String(row?.codec||""))&&
+    directUrl(row)
+  );
+  const muxed=variants.find(row=>row?.role==="muxed"&&directUrl(row));
+  const fallback=[...play,...download].find(u=>{
+    try{
+      const host=new URL(u).hostname.toLowerCase();
+      return !/(^|\.)tiktok\.com$/.test(host)&&
+        /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
+    }catch{return false;}
+  });
+
+  const url=String(directUrl(h264)||directUrl(muxed)||fallback||"").trim();
   if(!url)throw new Error("tiktok_native_playaddr_missing");
   if(!cookie)throw new Error("tiktok_native_cookie_missing");
 
   const row={
     url,
     cookie,
+    codec:String((h264||muxed)?.codec||""),
     source:"tiktok-native-cobalt",
     resolvedAt:Date.now()
   };
