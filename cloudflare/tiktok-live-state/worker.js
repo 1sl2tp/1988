@@ -290,6 +290,123 @@ function firstLiveAssetUrl(value,depth=0) {
   }
   return "";
 }
+function liveText(value){
+  return String(value==null?"":value).replace(/\s+/g," ").trim();
+}
+function liveComparable(value){
+  return liveText(value)
+    .toLowerCase()
+    .replace(/^@/,"")
+    .replace(/[·|｜•]+/g," ")
+    .replace(/\blive\b|\btrực tiếp\b/g,"")
+    .replace(/[^a-z0-9._\p{L}\p{N}]+/gu," ")
+    .replace(/\s+/g," ")
+    .trim();
+}
+function liveSourceName(room,handle=""){
+  return liveText(
+    room?.owner?.nickname||
+    room?.owner?.displayName||
+    room?.owner?.display_name||
+    room?.user?.nickname||
+    room?.user?.displayName||
+    room?.user?.display_name||
+    room?.nickname||
+    room?.displayName||
+    room?.display_name||
+    ""
+  )||("@"+handle);
+}
+function liveTitleFromRoom(room,handle="",sourceName=""){
+  const candidates=[
+    room?.title,
+    room?.roomTitle,
+    room?.room_title,
+    room?.liveRoomTitle,
+    room?.live_room_title,
+    room?.liveTitle,
+    room?.live_title,
+    room?.eventTitle,
+    room?.event_title,
+    room?.contentTitle,
+    room?.content_title,
+    room?.roomInfo?.title,
+    room?.room_info?.title
+  ].map(liveText).filter(Boolean);
+
+  const handleKey=liveComparable(handle);
+  const sourceKey=liveComparable(sourceName);
+  for(const candidate of candidates){
+    const key=liveComparable(candidate);
+    if(!key)continue;
+    if(key===handleKey||key===sourceKey)continue;
+    return candidate;
+  }
+  return "";
+}
+function liveViewerCountFromRoom(room){
+  const candidates=[
+    room?.userCount,
+    room?.user_count,
+    room?.viewerCount,
+    room?.viewer_count,
+    room?.watchingCount,
+    room?.watching_count,
+    room?.liveUserCount,
+    room?.live_user_count,
+    room?.stats?.userCount,
+    room?.stats?.user_count,
+    room?.stats?.viewerCount,
+    room?.stats?.viewer_count,
+    room?.roomStats?.userCount,
+    room?.roomStats?.user_count,
+    room?.room_stats?.user_count
+  ];
+  for(const value of candidates){
+    const n=Number(value);
+    if(Number.isFinite(n)&&n>0)return Math.round(n);
+  }
+  return 0;
+}
+function liveCoverFromRoom(room){
+  const candidates=[
+    room?.cover,
+    room?.roomCover,
+    room?.room_cover,
+    room?.liveCover,
+    room?.live_cover,
+    room?.background,
+    room?.backgroundImage,
+    room?.background_image,
+    room?.coverUrl,
+    room?.cover_url,
+    room?.roomInfo?.cover,
+    room?.room_info?.cover,
+    room?.owner?.roomCover,
+    room?.owner?.room_cover,
+    room?.owner?.liveCover,
+    room?.owner?.live_cover
+  ];
+  for(const value of candidates){
+    const url=firstLiveAssetUrl(value);
+    if(url)return url;
+  }
+  return "";
+}
+function liveAvatarFromRoom(room){
+  return firstLiveAssetUrl(
+    room?.owner?.avatarLarger||
+    room?.owner?.avatar_larger||
+    room?.owner?.avatarMedium||
+    room?.owner?.avatar_medium||
+    room?.owner?.avatarThumb||
+    room?.owner?.avatar_thumb||
+    room?.user?.avatarLarger||
+    room?.user?.avatar_larger||
+    room?.user?.avatarMedium||
+    room?.user?.avatar_medium
+  );
+}
 async function fetchTikTokLiveJson(url,handle) {
   const r=await fetch(url,{
     headers:{
@@ -329,6 +446,7 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
   let roomId=String(roomIdHint||"");
   let room=null;
   let title="";
+  let sourceName="";
   let preview="";
   let avatar="";
   let viewerCount=0;
@@ -345,24 +463,24 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
     if(status===4)return null;
     room=userLiveRoom;
     roomId=String(userLiveRoom?.roomId||userLiveRoom?.id||roomId||"");
-    title=String(userLiveRoom?.title||"");
-    preview=firstLiveAssetUrl(
-      userLiveRoom?.cover||
-      userLiveRoom?.roomCover||
-      userLiveRoom?.room_cover||
-      userLiveRoom?.background
-    );
-    avatar=firstLiveAssetUrl(
-      userLiveRoom?.owner?.avatarLarger||
-      userLiveRoom?.owner?.avatar_larger||
-      userData?.data?.user?.avatarLarger||
-      userData?.data?.user?.avatar_larger
-    );
-    viewerCount=Number(userLiveRoom?.userCount||userLiveRoom?.user_count||0);
+    sourceName=liveSourceName(userLiveRoom,handle);
+    title=liveTitleFromRoom(userLiveRoom,handle,sourceName);
+    preview=liveCoverFromRoom(userLiveRoom);
+    avatar=liveAvatarFromRoom(userLiveRoom)||
+      firstLiveAssetUrl(
+        userData?.data?.user?.avatarLarger||
+        userData?.data?.user?.avatar_larger||
+        userData?.data?.user?.avatarMedium||
+        userData?.data?.user?.avatar_medium
+      );
+    viewerCount=liveViewerCountFromRoom(userLiveRoom);
     media=collectLiveMedia(userLiveRoom);
   }
 
-  if(!media.flv.length&&!media.hls.length){
+  if(
+    !media.flv.length&&!media.hls.length||
+    !preview||!title||!viewerCount||!sourceName
+  ){
     const detail=new URL("https://www.tiktok.com/api/live/detail/");
     detail.searchParams.set("aid","1988");
     if(roomId)detail.searchParams.set("roomID",roomId);
@@ -376,23 +494,25 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
     if(liveData){
       room=liveData;
       roomId=String(liveData?.liveRoomId||liveData?.roomId||liveData?.id||roomId||"");
-      title=String(liveData?.title||title||"");
-      preview=firstLiveAssetUrl(
-        liveData?.cover||
-        liveData?.roomCover||
-        liveData?.room_cover||
-        liveData?.background
-      )||preview;
-      avatar=firstLiveAssetUrl(
-        liveData?.owner?.avatarLarger||
-        liveData?.owner?.avatar_larger
-      )||avatar;
-      viewerCount=Number(liveData?.userCount||viewerCount||0);
-      media=collectLiveMedia(liveData);
+      sourceName=liveSourceName(liveData,handle)||sourceName;
+      title=liveTitleFromRoom(liveData,handle,sourceName)||title;
+      preview=liveCoverFromRoom(liveData)||preview;
+      avatar=liveAvatarFromRoom(liveData)||avatar;
+      viewerCount=liveViewerCountFromRoom(liveData)||viewerCount;
+      const detailMedia=collectLiveMedia(liveData);
+      media={
+        flv:[...new Set([...(media.flv||[]),...(detailMedia.flv||[])])],
+        hls:[...new Set([...(media.hls||[]),...(detailMedia.hls||[])])]
+      };
     }
   }
 
-  if(!media.flv.length&&!media.hls.length&&roomId){
+  if(
+    roomId&&(
+      !media.flv.length&&!media.hls.length||
+      !preview||!title||!viewerCount||!sourceName
+    )
+  ){
     const info=new URL("https://webcast.tiktok.com/webcast/room/info");
     info.searchParams.set("aid","1988");
     info.searchParams.set("room_id",roomId);
@@ -400,19 +520,16 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
     const infoRoom=infoData?.data||infoData?.room||null;
     if(infoRoom){
       room=infoRoom;
-      title=String(infoRoom?.title||title||"");
-      preview=firstLiveAssetUrl(
-        infoRoom?.cover||
-        infoRoom?.roomCover||
-        infoRoom?.room_cover||
-        infoRoom?.background
-      )||preview;
-      avatar=firstLiveAssetUrl(
-        infoRoom?.owner?.avatarLarger||
-        infoRoom?.owner?.avatar_larger
-      )||avatar;
-      viewerCount=Number(infoRoom?.userCount||infoRoom?.user_count||viewerCount||0);
-      media=collectLiveMedia(infoRoom);
+      sourceName=liveSourceName(infoRoom,handle)||sourceName;
+      title=liveTitleFromRoom(infoRoom,handle,sourceName)||title;
+      preview=liveCoverFromRoom(infoRoom)||preview;
+      avatar=liveAvatarFromRoom(infoRoom)||avatar;
+      viewerCount=liveViewerCountFromRoom(infoRoom)||viewerCount;
+      const infoMedia=collectLiveMedia(infoRoom);
+      media={
+        flv:[...new Set([...(media.flv||[]),...(infoMedia.flv||[])])],
+        hls:[...new Set([...(media.hls||[]),...(infoMedia.hls||[])])]
+      };
     }
   }
 
@@ -445,7 +562,8 @@ async function resolveTikTokLiveEdge(handle,roomIdHint="") {
     edgeConfirmed:true,
     playable:true,
     roomId,
-    title:title||("@"+handle+" · LIVE"),
+    title:title||"Đang trực tiếp",
+    sourceName:sourceName||("@"+handle),
     preview,
     cover:preview,
     avatar,
