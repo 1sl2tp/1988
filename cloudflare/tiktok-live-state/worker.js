@@ -1522,13 +1522,51 @@ async function resolveTikTokOriginVideo(request){
     }
   }catch{}
 
-  const download=[],play=[],audio=[];
+  const download=[],play=[],audio=[],variants=[],audioTracks=[];
   for(const root of roots){
     const hit=originCollectVideo(root,id);
     download.push(...hit.download);
     play.push(...hit.play);
     audio.push(...hit.audio);
+    variants.push(...(hit.variants||[]));
+    audioTracks.push(...(hit.audioTracks||[]));
   }
+
+  const trackKey=row=>[
+    row?.key||"",row?.codec||"",row?.format||"",row?.role||"",
+    row?.urls?.[0]||""
+  ].join("|");
+  const dedupeTracks=(rows,keyFn)=>{
+    const out=[],seen=new Set();
+    for(const row of rows){
+      const key=keyFn(row);
+      if(!key||seen.has(key))continue;
+      seen.add(key);out.push(row);
+    }
+    return out;
+  };
+  const cleanVariants=dedupeTracks(variants,trackKey);
+  const cleanAudioTracks=dedupeTracks(audioTracks,row=>[
+    row?.fileId||"",row?.urls?.[0]||""
+  ].join("|"));
+
+  const codecRank=value=>{
+    const s=String(value||"").toLowerCase();
+    if(/h264|avc/.test(s))return 50;
+    if(/h265|hevc|hvc/.test(s))return 20;
+    if(/av1|av01/.test(s))return 10;
+    return 0;
+  };
+  const variantRank=row=>{
+    let score=codecRank(row?.codec);
+    if(String(row?.role)==="muxed")score+=80;
+    if(String(row?.format||"").toLowerCase()==="mp4")score+=30;
+    score+=Math.min(50,Number(row?.bitrate||0)/100000);
+    if((row?.urls||[]).some(u=>!/(^|\.)www\.tiktok\.com$/i.test((()=>{try{return new URL(u).hostname}catch{return""}})())))score+=10;
+    return score;
+  };
+  cleanVariants.sort((a,b)=>variantRank(b)-variantRank(a));
+  cleanAudioTracks.sort((a,b)=>Number(b?.bitrate||0)-Number(a?.bitrate||0));
 
   const candidates=[
     ...[...new Set(download)].map(url=>({url,kind:"download"})),
@@ -1590,6 +1628,16 @@ async function resolveTikTokOriginVideo(request){
         probe:row.probe||null
       })),
       audioUrls:[...new Set(audio)],
+      mediaModel:{
+        variants:cleanVariants.slice(0,24),
+        audioTracks:cleanAudioTracks.slice(0,16),
+        preferredMuxed:cleanVariants.find(row=>
+          row.role==="muxed"&&/h264|avc/i.test(String(row.codec||""))
+        )||cleanVariants.find(row=>row.role==="muxed")||null,
+        preferredDash:cleanVariants.find(row=>
+          row.role==="video"&&/h264|avc/i.test(String(row.codec||""))&&row.audio
+        )||cleanVariants.find(row=>row.role==="video"&&row.audio)||null
+      },
       apiStatus,pageStatus,
       resolver:"tiktok-origin-only",
       render:false,
