@@ -943,96 +943,67 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     }
   }
 
-  const pageUrl="https://www.tiktok.com/@"+encodeURIComponent(handle)+"/video/"+encodeURIComponent(id);
   const ua=
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
-  const page=await fetch(pageUrl,{
-    headers:{
-      "user-agent":ua,
-      "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-      "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-      "referer":"https://www.tiktok.com/"
-    },
-    redirect:"follow",
-    cf:{cacheTtl:0,cacheEverything:false}
-  });
-  if(!page.ok)throw new Error("tiktok_native_page_http_"+page.status);
+  const publicUrl="https://www.tiktok.com/@"+encodeURIComponent(handle)+"/video/"+encodeURIComponent(id);
 
-  let cookie=tikTokCookieHeader(page.headers);
-  const html=await page.text();
-  const universal=originParseScript(html,"__UNIVERSAL_DATA_FOR_REHYDRATION__");
-  const sigi=originParseScript(html,"SIGI_STATE");
-  const roots=[universal,sigi].filter(Boolean);
+  // Cookie acquisition follows the same @i/video request pattern used by
+  // Cobalt. We only keep the cookie inside this Worker.
+  let cookie="";
+  for(const cookieUrl of [
+    "https://www.tiktok.com/@i/video/"+encodeURIComponent(id),
+    publicUrl
+  ]){
+    try{
+      const r=await fetch(cookieUrl,{
+        headers:{
+          "user-agent":ua,
+          "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+          "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+          "referer":"https://www.tiktok.com/"
+        },
+        redirect:"follow",
+        cf:{cacheTtl:0,cacheEverything:false}
+      });
+      cookie=tikTokCookieHeader(r.headers)||cookie;
+      try{await r.body?.cancel?.()}catch{}
+      if(cookie)break;
+    }catch{}
+  }
+  if(!cookie)throw new Error("tiktok_native_cookie_missing");
 
-  // TikTok's public page can omit the video-detail payload on some edge POPs.
-  // Ask the lightweight item/detail endpoint too; it exposes the same media
-  // model while the page response contributes the CDN session cookies.
-  try{
-    const api=new URL("https://www.tiktok.com/api/item/detail/");
-    api.searchParams.set("aid","1988");
-    api.searchParams.set("itemId",id);
-    const detail=await fetch(api.toString(),{
-      headers:{
-        "user-agent":ua,
-        "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-        "referer":"https://www.tiktok.com/"
-      },
-      redirect:"follow",
-      cf:{cacheTtl:0,cacheEverything:false}
-    });
-    if(!cookie)cookie=tikTokCookieHeader(detail.headers);
-    if(detail.ok){
-      const body=await detail.json().catch(()=>null);
-      if(body)roots.unshift(body);
-    }else{
-      try{await detail.body?.cancel?.()}catch{}
-    }
-  }catch{}
-
-  if(!roots.length)throw new Error("tiktok_native_hydration_missing");
-
-  const variants=[];
-  const play=[];
-  const download=[];
-  for(const root of roots){
-    const hit=originCollectVideo(root,id);
-    variants.push(...(hit.variants||[]));
-    play.push(...(hit.play||[]));
-    download.push(...(hit.download||[]));
+  // Reuse the proven TikTok-origin resolver instead of maintaining a second,
+  // subtly different extractor. It already selects the compatible H.264 muxed
+  // model for this exact post.
+  const internal=new Request(
+    "https://1988-edge-internal.invalid/tiktok/video-origin?url="+
+      encodeURIComponent(publicUrl)
+  );
+  const resolvedResponse=await resolveTikTokOriginVideo(internal);
+  const resolved=await resolvedResponse.json().catch(()=>null);
+  if(!resolvedResponse.ok||!resolved?.ok) {
+    throw new Error("tiktok_native_origin_resolve_failed");
   }
 
-  const directUrl=row=>
-    (row?.urls||[]).find(u=>{
-      try{
-        const host=new URL(u).hostname.toLowerCase();
-        return !/(^|\.)tiktok\.com$/.test(host)&&
-          /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
-      }catch{return false;}
-    })||"";
-
-  const h264=variants.find(row=>
-    row?.role==="muxed"&&
-    /h264|avc/i.test(String(row?.codec||""))&&
-    directUrl(row)
-  );
-  const muxed=variants.find(row=>row?.role==="muxed"&&directUrl(row));
-  const fallback=[...play,...download].find(u=>{
+  const preferred=resolved?.data?.mediaModel?.preferredMuxed||null;
+  const urls=[
+    ...(preferred?.urls||[]),
+    ...(resolved?.data?.candidates||[]).map(row=>row?.url)
+  ].filter(Boolean);
+  const url=String(urls.find(u=>{
     try{
       const host=new URL(u).hostname.toLowerCase();
       return !/(^|\.)tiktok\.com$/.test(host)&&
         /webapp-prime|tiktokcdn|byteoversea|ibytedtos|muscdn/i.test(host);
     }catch{return false;}
-  });
+  })||"").trim();
 
-  const url=String(directUrl(h264)||directUrl(muxed)||fallback||"").trim();
   if(!url)throw new Error("tiktok_native_playaddr_missing");
-  if(!cookie)throw new Error("tiktok_native_cookie_missing");
 
   const row={
     url,
     cookie,
-    codec:String((h264||muxed)?.codec||""),
+    codec:String(preferred?.codec||"h264"),
     source:"tiktok-native-cobalt",
     resolvedAt:Date.now()
   };
