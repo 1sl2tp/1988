@@ -202,7 +202,7 @@ jobs:
           JS
           node /tmp/ttwid-probe.mjs
 
-      - name: Probe exact VOD after TikTok gateway relay
+      - name: Probe exact VOD through direct metadata fallback
         shell: bash
         run: |
           set -euo pipefail
@@ -210,7 +210,7 @@ jobs:
           echo '---ORIGIN---'
           curl -sS --max-time 30 "$ORIGIN" | tee /tmp/origin.json
           echo
-          URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream?user=_phat_nguoi_yeu_thi_giai&id=7691708011651386645&source=auto'
+          URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-stream?user=_phat_nguoi_yeu_thi_giai&id=7691708011651386645&source=direct'
           curl -sS -L --max-time 30 -D /tmp/h -H 'Range: bytes=0-1048575' -o /tmp/b "$URL" || true
           echo '---HEADERS---'
           cat /tmp/h
