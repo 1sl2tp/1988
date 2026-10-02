@@ -1,4 +1,4 @@
-name: Probe TikTok browser media headers
+name: Probe TikTok media model once
 
 on:
   push:
@@ -13,20 +13,25 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe headers
+      - name: Probe media model
         shell: bash
-        env:
-          URL: 'https://www.tiktok.com/aweme/v1/play/?faid=1988&file_id=9aeca68ed6784c149898d7b6683a320e&is_play_url=1&item_id=7689814919914458374&line=0&ply_type=2&pt=dGlrdG9rLndlYmFyY2guZ2F0ZXdheSYvQGdlZWx5LmRhaWx5L3ZpZGVvLzc2ODk4MTQ5MTk5MTQ0NTgzNzQmMjAyNjEwMDIwNzA3MjY5QjIwMDk3QkZFQkQzNUU4MkE4NyYxNzkwOTI0ODQ2JmI1MWYyZDZmNGU4Yg&signaturev3=dmlkZW9faWQ7ZmlsZV9pZDtpdGVtX2lkLjE1OWE2ODgxOWY5Yzk0MjBmMzcwZGI2ODlmOTNmYmVh&tk=tt_chain_token&video_id=v14044g50000darrbjfog65n1cp4n2j0'
         run: |
           set -euo pipefail
-          for mode in noref ytref browserref; do
-            echo "=== $mode ==="
-            args=(-sS -L --max-time 15 -r 0-1023 -o /dev/null -D - -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/136 Safari/537.36')
-            if [ "$mode" = ytref ]; then
-              args+=(-H 'Referer: https://www.tiktok.com/')
-            fi
-            if [ "$mode" = browserref ]; then
-              args+=(-H 'Referer: https://yt.taphoa.xyz/' -H 'Origin: https://yt.taphoa.xyz' -H 'Sec-Fetch-Site: cross-site' -H 'Sec-Fetch-Mode: no-cors' -H 'Sec-Fetch-Dest: video')
-            fi
-            curl "${args[@]}" "$URL" | grep -Ei '^(HTTP/|location:|content-type:|content-length:|content-range:|accept-ranges:|x-video-codec-type:|access-control-allow-origin:|cross-origin-resource-policy:)' || true
-          done
+          URL='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40geely.daily%2Fvideo%2F7689814919914458374'
+          curl -fsS "$URL" -o out.json
+          python3 - <<'PY'
+          import json
+          x=json.load(open('out.json'))
+          d=x.get('data') or {}
+          m=d.get('mediaModel') or {}
+          print(json.dumps({
+            'ok':x.get('ok'),
+            'apiStatus':d.get('apiStatus'),
+            'pageStatus':d.get('pageStatus'),
+            'preferredMuxed':m.get('preferredMuxed'),
+            'preferredDash':m.get('preferredDash'),
+            'audioTracks':m.get('audioTracks'),
+            'variantCount':len(m.get('variants') or []),
+            'variants':(m.get('variants') or [])[:8]
+          },ensure_ascii=False,indent=2))
+          PY
