@@ -3349,8 +3349,9 @@ html.tiktok-ui.tiktok-watch .rows{
   }
   html.tiktok-ui.tiktok-watch .tiktok-watch-close{
     display:flex!important;
-    position:absolute;
-    z-index:50;
+    position:fixed!important;
+    z-index:2147483646!important;
+    pointer-events:auto!important;
     top:calc(10px + env(safe-area-inset-top,0px));
     left:10px;
     width:38px;
@@ -3459,10 +3460,10 @@ html.tiktok-ui.tiktok-watch .rows{
 
 <main>
   <aside class="tiktok-account-rail" id="tiktokAccountRail" hidden></aside>
+  <button class="tiktok-watch-close" id="tiktokWatchClose" type="button" aria-label="Đóng video TikTok" title="Đóng">×</button>
   <div class="media-col" id="mediaCol">
     <section class="stage" id="stage">
       <div class="player" id="player" data-media-provider="youtube" data-media-type="embed">
-        <button class="tiktok-watch-close" id="tiktokWatchClose" type="button" aria-label="Đóng video TikTok" title="Đóng">×</button>
         <div class="media-engine embed-media-core" id="embedMediaCore">
           <div id="videoFrame"></div>
         </div>
