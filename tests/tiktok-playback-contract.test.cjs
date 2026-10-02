@@ -16,7 +16,9 @@ assert.match(html,/async function checkLibraryOnDemand/);
 assert.equal((html.match(/<video\b/g)||[]).length,1,'TikTok LIVE/VOD demo must keep one canonical native video surface');
 assert.doesNotMatch(html,/id="tiktokVideoFrame"/,'TikTok VOD iframe must be removed');
 assert.doesNotMatch(html,/https:\/\/www\.tiktok\.com\/player\/v1\//,'TikTok VOD must not use the official TikTok iframe player');
-assert.match(html,/LIVE_API\+'\/tiktok\/video-stream'/,'TikTok VOD must use the Cloudflare native media tunnel');
+assert.match(html,/const packagedUrl=String\(video\?\.playback\?\.url\|\|''\)\.trim\(\)/,'TikTok VOD must use the packaged direct MP4 first');
+assert.match(html,/const relayUrl=endpoint\.toString\(\)/,'TikTok VOD must keep the Cloudflare tunnel as fallback');
+assert.match(html,/if\(!usingRelay&&media\.readyState>=1&&\(!media\.videoWidth\|\|!media\.videoHeight\)\)/,'TikTok VOD must reject audio-only or undecodable picture sources');
 
 const proxyStart=server.indexOf("async function proxyTikTokLive(");
 const proxyEnd=server.indexOf("function findTikTokUserObject(",proxyStart);
@@ -63,7 +65,7 @@ assert.match(server,/const RENDER_MEDIA_PROXY_ENABLED=String\(process\.env\.REND
 assert.match(server,/media_proxy_disabled/,'Render media proxy gate must hard-disable byte proxying by default');
 assert.match(server,/proxyUrl:''/,'packages must not expose Render media proxy URLs');
 assert.doesNotMatch(html,/fallbackSrc/,'MP4 UI must not fall back to Render media proxy');
-assert.match(html,/Native TikTok VOD through the existing Cloudflare media tunnel/,'TikTok VOD must stay on the Cloudflare native player path');
+assert.match(html,/Play that URL immediately; only use the Cloudflare resolver as recovery/,'TikTok VOD should not resolve a prepared video again on every click');
 assert.doesNotMatch(html,/video-session-stream/,'TikTok VOD must not relay media bytes through Render');
 
 
