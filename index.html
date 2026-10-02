@@ -2629,19 +2629,6 @@ html.portrait{--rail-black:var(--rail-black-portrait)}
 .player[data-media-type="media"].tiktok-embed-fallback .native-media-core{
   background:#000!important;
 }
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::before,
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::after{
-  content:"";
-  position:absolute;
-  left:0;
-  right:0;
-  height:52px;
-  z-index:6;
-  pointer-events:none;
-  background:#000;
-}
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::before{top:0}
-.player[data-media-type="media"].tiktok-embed-fallback .native-media-core::after{bottom:0}
 
 /* MAIN 1 column: SIZE changes only the crop viewport. */
 html.one-col .stage{
@@ -3126,22 +3113,21 @@ html.tiktok-ui.tiktok-watch .stage{
 /* TikTok watch sizing on desktop/tablet:
    portrait = height-first; landscape = width-first. */
 html.tiktok-ui.tiktok-watch.portrait .stage{
-  width:min(
-    100%,
-    calc((100dvh - var(--top-boundary) - 24px) * var(--media-ratio))
-  )!important;
+  width:calc((100dvh - var(--top-boundary) - 24px) * var(--media-ratio))!important;
   height:100%!important;
-  max-width:100%!important;
+  max-width:none!important;
   max-height:100%!important;
   aspect-ratio:var(--media-ratio)!important;
+  flex:0 0 auto!important;
   margin:0 auto!important;
 }
 html.tiktok-ui.tiktok-watch.landscape .stage{
   width:100%!important;
   height:auto!important;
-  max-width:100%!important;
-  max-height:100%!important;
+  max-width:none!important;
+  max-height:none!important;
   aspect-ratio:var(--media-ratio)!important;
+  flex:0 0 auto!important;
   margin:auto!important;
 }
 html.tiktok-ui.tiktok-watch .player{
@@ -3400,9 +3386,9 @@ html.tiktok-ui.tiktok-watch .rows{
   }
 
   /* TikTok mobile watch sizing:
-     portrait prioritizes full viewport HEIGHT;
-     landscape prioritizes full viewport WIDTH.
-     Keep the source ratio and center-crop only the overflow axis. */
+     portrait = FULL viewport HEIGHT, width follows source ratio;
+     landscape = FULL viewport WIDTH, height follows source ratio.
+     Never clamp the priority axis; crop only the overflow axis. */
   html.tiktok-ui.tiktok-watch.portrait .stage{
     inset:auto!important;
     top:0!important;
