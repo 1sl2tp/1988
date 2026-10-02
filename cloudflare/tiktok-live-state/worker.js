@@ -958,11 +958,38 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
   });
   if(!page.ok)throw new Error("tiktok_native_page_http_"+page.status);
 
-  const cookie=tikTokCookieHeader(page.headers);
+  let cookie=tikTokCookieHeader(page.headers);
   const html=await page.text();
   const universal=originParseScript(html,"__UNIVERSAL_DATA_FOR_REHYDRATION__");
   const sigi=originParseScript(html,"SIGI_STATE");
   const roots=[universal,sigi].filter(Boolean);
+
+  // TikTok's public page can omit the video-detail payload on some edge POPs.
+  // Ask the lightweight item/detail endpoint too; it exposes the same media
+  // model while the page response contributes the CDN session cookies.
+  try{
+    const api=new URL("https://www.tiktok.com/api/item/detail/");
+    api.searchParams.set("aid","1988");
+    api.searchParams.set("itemId",id);
+    const detail=await fetch(api.toString(),{
+      headers:{
+        "user-agent":ua,
+        "accept":"application/json,text/plain,*/*",
+        "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+        "referer":pageUrl
+      },
+      redirect:"follow",
+      cf:{cacheTtl:0,cacheEverything:false}
+    });
+    if(!cookie)cookie=tikTokCookieHeader(detail.headers);
+    if(detail.ok){
+      const body=await detail.json().catch(()=>null);
+      if(body)roots.unshift(body);
+    }else{
+      try{await detail.body?.cancel?.()}catch{}
+    }
+  }catch{}
+
   if(!roots.length)throw new Error("tiktok_native_hydration_missing");
 
   const variants=[];
