@@ -1271,6 +1271,9 @@ function originScoreUrl(url,kind,probe=null){
   let s=0;
   if(kind==="download")s+=80;
   if(kind==="play")s+=50;
+  // Keep TikTok's own play gateway instead of a final signed CDN URL.
+  // It redirects to the current CDN variant and exposes codec metadata.
+  if(/^https:\/\/www\.tiktok\.com\/aweme\/v1\/play\//i.test(url))s+=320;
   if(/\/video\/tos\//i.test(url))s+=25;
   if(/video_mp4|mime_type=video/i.test(url))s+=20;
   if(/\.mp4(?:$|\?)/i.test(url))s+=15;
@@ -1278,6 +1281,7 @@ function originScoreUrl(url,kind,probe=null){
   if(/^https:\/\//i.test(url))s+=2;
 
   if(probe){
+    if(probe.ok===false)s-=500;
     if(probe.contentType.startsWith("audio/"))s-=220;
     if(probe.avc1)s+=180;
     if(probe.mp4a)s+=90;
