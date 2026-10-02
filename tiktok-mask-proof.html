@@ -13,17 +13,15 @@ h1{font-size:18px;margin:0 0 6px}.sub{color:#aaa;font-size:13px;line-height:1.5;
 .grid{display:grid;grid-template-columns:minmax(300px,430px) minmax(280px,1fr);gap:18px;align-items:start}
 .panel{background:#181818;border:1px solid #2d2d2d;border-radius:16px;padding:14px}
 .player-shell{width:min(100%,410px);aspect-ratio:9/16;margin:0 auto;background:#000;border-radius:14px;overflow:hidden;position:relative}
-.media-stage{position:absolute;left:0;right:0;top:0;bottom:0;overflow:hidden;background:#000}
-video{width:100%;height:100%;display:block;background:#000;object-fit:contain;transform-origin:50% 50%;will-change:transform}
-#officialFrame{width:100%;height:100%;display:none;border:0;background:#000;transform-origin:50% 50%;will-change:transform}
-.mask{position:absolute;left:0;right:0;height:0;background:#000;z-index:5;pointer-events:none}
-.mask.top{top:0}.mask.bottom{bottom:0}
-.cropbar{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:8px;margin:10px auto 0;width:min(100%,410px);font-size:12px;color:#aaa}
+.source-canvas{position:absolute;left:0;right:0;top:50%;display:flex;flex-direction:column;background:#000;transform-origin:50% 50%;will-change:transform}
+.black-pad{width:100%;flex:0 0 auto;background:#000}
+.media-stage{position:relative;width:100%;flex:0 0 auto;overflow:hidden;background:#000}
+video{width:100%;height:100%;display:block;background:#000;object-fit:contain}
+#officialFrame{width:100%;height:100%;display:none;border:0;background:#000}
+.cropbar{display:grid;grid-template-columns:92px 1fr 62px;align-items:center;gap:7px;margin:10px auto 0;width:min(100%,410px);font-size:12px;color:#aaa}
 .cropbar input[type=range]{width:100%;min-width:0}
 .cropval{min-width:54px;text-align:right;font-variant-numeric:tabular-nums}
-.cropreset{padding:5px 8px;border-radius:8px;font-size:11px}
-.zoomrow{display:flex;align-items:center;gap:6px;grid-column:1/-1}
-.zoomrow .cropval{margin-left:auto}
+.cropreset{grid-column:1/-1;justify-self:end;padding:5px 9px;border-radius:8px;font-size:11px}
 .status{min-height:20px;margin-top:10px;text-align:center;color:#aaa;font-size:12px}
 .inputline{display:flex;gap:8px;margin-bottom:12px}
 .inputline input{min-width:0;flex:1;background:#111;border:1px solid #333;border-radius:10px;color:#fff;padding:10px 11px;font-size:13px}
@@ -44,28 +42,38 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   <p class="sub">0 egress Render cho video. Ưu tiên TikTok CDN trực tiếp; nếu browser chặn native media thì chuyển sang <b>TikTok official player</b>. Video luôn đi TikTok → browser, không relay qua Render.</p>
   <div class="grid">
     <section class="panel left">
-      <div class="player-shell">
-        <div id="mediaStage" class="media-stage">
-          <video id="media" controls playsinline preload="metadata"></video>
-          <audio id="audioTrack" preload="metadata"></audio>
-          <iframe id="officialFrame"
-            allow="autoplay; fullscreen; encrypted-media"
-            referrerpolicy="strict-origin-when-cross-origin"
-            allowfullscreen></iframe>
+      <div id="playerShell" class="player-shell">
+        <div id="sourceCanvas" class="source-canvas">
+          <div id="blackTop" class="black-pad"></div>
+          <div id="mediaStage" class="media-stage">
+            <video id="media" controls playsinline preload="metadata"></video>
+            <audio id="audioTrack" preload="metadata"></audio>
+            <iframe id="officialFrame"
+              allow="autoplay; fullscreen; encrypted-media"
+              referrerpolicy="strict-origin-when-cross-origin"
+              allowfullscreen></iframe>
+          </div>
+          <div id="blackBottom" class="black-pad"></div>
         </div>
-        <div id="maskTop" class="mask top"></div>
-        <div id="maskBottom" class="mask bottom"></div>
       </div>
       <div class="cropbar">
-        <span>Viền đen thật trên+dưới</span>
-        <input id="cropY" type="range" min="0" max="45" step="0.5" value="0">
-        <span class="cropval" id="cropYVal">0% + 0%</span>
-        <div class="zoomrow">
-          <span>Zoom</span>
-          <input id="zoomScale" type="range" min="0.90" max="1.35" step="0.01" value="1">
-          <span class="cropval" id="zoomVal">1.00×</span>
-          <button id="cropReset" class="cropreset" type="button">Reset</button>
-        </div>
+        <span>Black trên</span>
+        <input id="blackTopRange" type="range" min="0" max="420" step="2" value="0">
+        <span class="cropval" id="blackTopVal">0px</span>
+
+        <span>Black dưới</span>
+        <input id="blackBottomRange" type="range" min="0" max="420" step="2" value="0">
+        <span class="cropval" id="blackBottomVal">0px</span>
+
+        <span>Shift Y</span>
+        <input id="shiftY" type="range" min="-420" max="420" step="2" value="0">
+        <span class="cropval" id="shiftYVal">0px</span>
+
+        <span>Zoom</span>
+        <input id="zoomScale" type="range" min="0.70" max="1.60" step="0.01" value="1">
+        <span class="cropval" id="zoomVal">1.00×</span>
+
+        <button id="cropReset" class="cropreset" type="button">Reset</button>
       </div>
       <div class="status" id="status">Đang lấy link gốc…</div>
     </section>
@@ -80,6 +88,7 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
         <span class="pill">H.264 muxed ưu tiên</span>
         <span class="pill">DASH ghép audio_file_id</span>
         <span class="pill">Direct trước · TikTok official fallback</span>
+        <span class="pill">SOURCE → BLACK → CROP</span>
         <span class="pill">Không Supabase</span>
       </div>
 
@@ -103,7 +112,11 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   const media=document.getElementById('media');
   const audioTrack=document.getElementById('audioTrack');
   const officialFrame=document.getElementById('officialFrame');
+  const playerShell=document.getElementById('playerShell');
+  const sourceCanvas=document.getElementById('sourceCanvas');
   const mediaStage=document.getElementById('mediaStage');
+  const blackTop=document.getElementById('blackTop');
+  const blackBottom=document.getElementById('blackBottom');
   let playbackMode='muxed';
   let currentVideoGateway='';
   let currentAudioGateway='';
@@ -113,13 +126,15 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   const status=document.getElementById('status');
   const info=document.getElementById('info');
   const openMedia=document.getElementById('openMedia');
-  const cropY=document.getElementById('cropY');
-  const cropYVal=document.getElementById('cropYVal');
+  const blackTopRange=document.getElementById('blackTopRange');
+  const blackTopVal=document.getElementById('blackTopVal');
+  const blackBottomRange=document.getElementById('blackBottomRange');
+  const blackBottomVal=document.getElementById('blackBottomVal');
+  const shiftY=document.getElementById('shiftY');
+  const shiftYVal=document.getElementById('shiftYVal');
   const zoomScale=document.getElementById('zoomScale');
   const zoomVal=document.getElementById('zoomVal');
   const cropReset=document.getElementById('cropReset');
-  const maskTop=document.getElementById('maskTop');
-  const maskBottom=document.getElementById('maskBottom');
 
   function setStatus(text,cls=''){
     status.className='status '+cls;
@@ -127,34 +142,41 @@ button:hover,.linkbtn:hover{background:#343434}.primary{background:#fff;color:#1
   }
 
   function applyCrop(){
-    const each=Math.max(0,Math.min(45,Number(cropY.value)||0));
-    const zoom=Math.max(.90,Math.min(1.35,Number(zoomScale.value)||1));
+    const top=Math.max(0,Math.min(420,Number(blackTopRange.value)||0));
+    const bottom=Math.max(0,Math.min(420,Number(blackBottomRange.value)||0));
+    const shift=Math.max(-420,Math.min(420,Number(shiftY.value)||0));
+    const zoom=Math.max(.70,Math.min(1.60,Number(zoomScale.value)||1));
+    const mediaHeight=Math.max(1,playerShell.clientHeight||0);
 
-    // Real letterbox: the black bars occupy space and the TikTok player is
-    // resized into the remaining center area. This pushes TikTok logos/UI away
-    // from the outer top/bottom edges instead of painting over them.
-    maskTop.style.height=each+'%';
-    maskBottom.style.height=each+'%';
-    mediaStage.style.top=each+'%';
-    mediaStage.style.bottom=each+'%';
+    // SOURCE -> BLACK -> CROP VIEWPORT:
+    // keep a full-height TikTok source, add real black space above/below it,
+    // then move/zoom that larger source behind the fixed outer viewport.
+    blackTop.style.height=top+'px';
+    blackBottom.style.height=bottom+'px';
+    mediaStage.style.height=mediaHeight+'px';
+    sourceCanvas.style.height=(top+mediaHeight+bottom)+'px';
+    sourceCanvas.style.transform=
+      'translateY(calc(-50% + '+shift+'px)) scale('+zoom.toFixed(3)+')';
 
-    const value='scale('+zoom.toFixed(3)+')';
-    media.style.transform=value;
-    officialFrame.style.transform=value;
-
-    cropYVal.textContent=each.toFixed(each%1?1:0)+'% + '+each.toFixed(each%1?1:0)+'%';
+    blackTopVal.textContent=top+'px';
+    blackBottomVal.textContent=bottom+'px';
+    shiftYVal.textContent=(shift>0?'+':'')+shift+'px';
     zoomVal.textContent=zoom.toFixed(2)+'×';
   }
 
-  cropY.addEventListener('input',applyCrop);
+  blackTopRange.addEventListener('input',applyCrop);
+  blackBottomRange.addEventListener('input',applyCrop);
+  shiftY.addEventListener('input',applyCrop);
   zoomScale.addEventListener('input',applyCrop);
   cropReset.addEventListener('click',()=>{
-    cropY.value='0';
+    blackTopRange.value='0';
+    blackBottomRange.value='0';
+    shiftY.value='0';
     zoomScale.value='1';
     applyCrop();
   });
+  window.addEventListener('resize',applyCrop);
   applyCrop();
-
 
   function gatewayOf(urls,fallback=''){
     const list=Array.isArray(urls)?urls:[];
