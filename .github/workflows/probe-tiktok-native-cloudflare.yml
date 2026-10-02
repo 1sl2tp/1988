@@ -23,3 +23,5 @@ jobs:
           wc -c /tmp/b || true
           echo '---FILE---'
           file /tmp/b || true
+          echo '---BODY---'
+          cat /tmp/b || true
