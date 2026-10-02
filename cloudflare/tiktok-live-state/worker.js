@@ -897,6 +897,47 @@ function copyMediaHeader(from, to, name) {
   const value = from.get(name);
   if (value) to.set(name, value);
 }
+function tiktokWebCookieCacheKey(){
+  return new Request("https://1988-edge-cache.invalid/tiktok/web-cookie");
+}
+async function bootstrapTikTokWebCookie({refresh=false}={}){
+  const cache=caches.default;
+  const key=tiktokWebCookieCacheKey();
+  if(!refresh){
+    const hit=await cache.match(key).catch(()=>null);
+    if(hit){
+      const row=await hit.json().catch(()=>null);
+      if(row?.cookie)return String(row.cookie);
+    }
+  }
+
+  const ua=
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36";
+  const r=await fetch("https://www.tiktok.com/",{
+    headers:{
+      "user-agent":ua,
+      "accept":"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7"
+    },
+    redirect:"follow",
+    cf:{cacheTtl:0,cacheEverything:false}
+  });
+  const cookie=tikTokCookieHeader(r.headers);
+  try{await r.body?.cancel?.()}catch{}
+  if(!cookie)throw new Error("tiktok_web_cookie_missing");
+
+  await cache.put(
+    key,
+    new Response(JSON.stringify({cookie,updatedAt:Date.now()}),{
+      headers:{
+        "content-type":"application/json",
+        "cache-control":"private,max-age=600"
+      }
+    })
+  ).catch(()=>{});
+  return cookie;
+}
+
 function nativeTikTokVideoCacheKey(handle,id){
   return new Request(
     "https://1988-edge-cache.invalid/tiktok/native-video-source?user="+
@@ -947,9 +988,9 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36";
   const publicUrl="https://www.tiktok.com/@"+encodeURIComponent(handle)+"/video/"+encodeURIComponent(id);
 
-  // Cookie acquisition follows the same @i/video request pattern used by
-  // Cobalt. We only keep the cookie inside this Worker.
-  let cookie="";
+  // Bootstrap TikTok's first-party web session first. This is the same
+  // ttwid/session bootstrap pattern already proven on the old collector.
+  let cookie=await bootstrapTikTokWebCookie({refresh});
   for(const cookieUrl of [
     "https://www.tiktok.com/@i/video/"+encodeURIComponent(id),
     publicUrl
@@ -960,12 +1001,22 @@ async function resolveTikTokNativeVideoSource(handle,id,{refresh=false}={}){
           "user-agent":ua,
           "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
           "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
-          "referer":"https://www.tiktok.com/"
+          "referer":"https://www.tiktok.com/",
+          ...(cookie?{"cookie":cookie}:{})
         },
         redirect:"follow",
         cf:{cacheTtl:0,cacheEverything:false}
       });
-      cookie=tikTokCookieHeader(r.headers)||cookie;
+      const fresh=tikTokCookieHeader(r.headers);
+      if(fresh){
+        const jar=new Map();
+        for(const part of (cookie+"; "+fresh).split(";")){
+          const i=part.indexOf("=");
+          if(i<=0)continue;
+          jar.set(part.slice(0,i).trim(),part.slice(i+1).trim());
+        }
+        cookie=[...jar.entries()].map(([k,v])=>k+"="+v).join("; ");
+      }
       try{await r.body?.cancel?.()}catch{}
       if(cookie)break;
     }catch{}
