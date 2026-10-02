@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Probe exact VOD after proven header match
+      - name: Probe exact VOD after resolver reuse
         shell: bash
         run: |
           set -euo pipefail
