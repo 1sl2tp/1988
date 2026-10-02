@@ -5894,7 +5894,7 @@ async function resolveTikTokMediaNoStore(postUrl){
 }
 
 
-const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','tdown','tiklydown','douyinwtf'];
+const TIKTOK_VOD_EXTERNAL_POOL=['tikwm','tikdownloaderio','ssstik','musicaldownapi','tdown','tiklydown','douyinwtf'];
 const TIKTOK_VOD_EXTERNAL_CACHE_MS=4*60_000;
 const tiktokVodExternalCache=new Map();
 
@@ -5997,6 +5997,116 @@ async function resolveTdownVodExternal(pageUrl){
   if(!url)throw new Error('tdown_no_media');
   return {url,source:'tdown'};
 }
+
+function decodeVodHtml(value){
+  return String(value||"")
+    .replace(/&amp;/gi,'&')
+    .replace(/&quot;/gi,'"')
+    .replace(/&#39;|&apos;/gi,"'")
+    .replace(/&lt;/gi,'<')
+    .replace(/&gt;/gi,'>');
+}
+function pickTikDownloaderIoVideo(html){
+  const text=decodeVodHtml(html);
+  const hrefs=[];
+  for(const m of text.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+    const url=String(m[1]||'').trim();
+    const label=String(m[2]||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    if(!/^https?:\/\//i.test(url))continue;
+    let score=0;
+    if(/download\s*mp4/i.test(label))score+=120;
+    if(/\bhd\b/i.test(label))score+=80;
+    if(/watermark/i.test(label))score-=30;
+    if(/audio|mp3/i.test(label))score-=200;
+    if(/\.mp4(?:$|[?#])/i.test(url))score+=50;
+    hrefs.push({url,score,label});
+  }
+  hrefs.sort((a,b)=>b.score-a.score);
+  return String(hrefs.find(x=>x.score>0)?.url||'');
+}
+async function resolveTikDownloaderIoVodExternal(pageUrl){
+  const r=await fetch('https://tikdownloader.io/api/ajaxSearch',{
+    method:'POST',
+    headers:{
+      'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'accept':'application/json, text/javascript, */*; q=0.01',
+      'accept-language':'en-US,en;q=0.9',
+      'content-type':'application/x-www-form-urlencoded; charset=UTF-8',
+      'origin':'https://tikdownloader.io',
+      'referer':'https://tikdownloader.io/en',
+      'x-requested-with':'XMLHttpRequest'
+    },
+    body:new URLSearchParams({q:pageUrl,lang:'en'}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!r.ok)throw new Error('tikdownloaderio_http_'+r.status);
+  const body=await r.json().catch(()=>null);
+  const url=pickTikDownloaderIoVideo(body?.data||'')||tiktokVodPickJsonUrl(body);
+  if(!url)throw new Error('tikdownloaderio_no_media');
+  return {url,source:'tikdownloaderio'};
+}
+async function resolveSsstikVodExternal(pageUrl){
+  const r=await fetch('https://ssstik.io/abc?url=dl',{
+    method:'POST',
+    headers:{
+      'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+      'accept-language':'en-US,en;q=0.9',
+      'content-type':'application/x-www-form-urlencoded; charset=UTF-8',
+      'origin':'https://ssstik.io',
+      'referer':'https://ssstik.io/en'
+    },
+    body:new URLSearchParams({id:pageUrl,locale:'en',tt:'aSBkb3du'}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!r.ok)throw new Error('ssstik_http_'+r.status);
+  const html=await r.text();
+  const rows=[];
+  for(const m of html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+    const url=decodeVodHtml(m[1]);
+    const label=String(m[2]||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    if(!/^https?:\/\//i.test(url))continue;
+    let score=0;
+    if(/without\s*watermark|no\s*watermark/i.test(label))score+=140;
+    if(/download/i.test(label))score+=50;
+    if(/\bhd\b/i.test(label))score+=40;
+    if(/mp3|audio/i.test(label))score-=200;
+    rows.push({url,score});
+  }
+  rows.sort((a,b)=>b.score-a.score);
+  const url=String(rows.find(x=>x.score>0)?.url||'');
+  if(!url)throw new Error('ssstik_no_media');
+  return {url,source:'ssstik'};
+}
+async function resolveMusicalDownApiVodExternal(pageUrl){
+  const r=await fetch('https://musicaldown.com/api/converter/index',{
+    method:'POST',
+    headers:{
+      'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'accept':'application/json,text/plain,*/*',
+      'content-type':'application/x-www-form-urlencoded',
+      'origin':'https://musicaldown.com',
+      'referer':'https://musicaldown.com/'
+    },
+    body:new URLSearchParams({url:pageUrl,format:'',quality:'hd'}).toString(),
+    redirect:'follow',
+    signal:AbortSignal.timeout(12_000)
+  });
+  if(!r.ok)throw new Error('musicaldownapi_http_'+r.status);
+  const body=await r.json().catch(()=>null);
+  const url=String(
+    body?.data?.url||
+    body?.data?.video_url||
+    body?.url||
+    tiktokVodPickJsonUrl(body)||
+    ''
+  ).trim();
+  if(!url)throw new Error('musicaldownapi_no_media');
+  return {url,source:'musicaldownapi'};
+}
+
 async function resolveTiklyDownVodExternal(pageUrl){
   let last='';
   for(const base of [
@@ -6072,6 +6182,9 @@ async function resolveTikTokVodExternal(rawHandle,rawId,rawSource,{force=false}=
   const pageUrl='https://www.tiktok.com/@'+handle+'/video/'+id;
   let result;
   if(source==='tikwm')result=await resolveTikwmVodExternal(pageUrl);
+  else if(source==='tikdownloaderio')result=await resolveTikDownloaderIoVodExternal(pageUrl);
+  else if(source==='ssstik')result=await resolveSsstikVodExternal(pageUrl);
+  else if(source==='musicaldownapi')result=await resolveMusicalDownApiVodExternal(pageUrl);
   else if(source==='tdown')result=await resolveTdownVodExternal(pageUrl);
   else if(source==='tiklydown')result=await resolveTiklyDownVodExternal(pageUrl);
   else result=await resolveDouyinWtfVodExternal(pageUrl);
