@@ -1,0 +1,140 @@
+name: Test Cobalt TikTok Resolver
+
+on:
+  push:
+    branches: [test-cobalt-tiktok-resolver]
+    paths:
+      - ".github/workflows/test-cobalt-tiktok-resolver.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install browser probe
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm install playwright@1.55.0 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+      - name: Resolve and probe direct TikTok playAddr
+        env:
+          VIDEO_URL: "https://www.tiktok.com/@geely.daily/video/7689814919914458374?is_from_webapp=1&sender_device=pc"
+        run: |
+          cat > cobalt-probe.mjs <<'JS'
+          import { chromium } from 'playwright';
+
+          const input=process.env.VIDEO_URL;
+          const m=input.match(/\/video\/(\d+)/);
+          if(!m) throw new Error('missing_video_id');
+          const postId=m[1];
+          const pageUrl=`https://www.tiktok.com/@i/video/${postId}`;
+          const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0.0.0 Safari/537.36';
+
+          const started=Date.now();
+          const res=await fetch(pageUrl,{headers:{'user-agent':ua,'accept-language':'vi-VN,vi;q=0.9,en;q=0.7'}});
+          const html=await res.text();
+          const resolveMs=Date.now()-started;
+          const cookies=typeof res.headers.getSetCookie==='function'
+            ? res.headers.getSetCookie().map(v=>v.split(';')[0]).join('; ')
+            : '';
+
+          const marker='<script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">';
+          const after=html.split(marker)[1];
+          if(!after) throw new Error('universal_data_missing');
+          const raw=after.split('</script>')[0];
+          const data=JSON.parse(raw);
+          const detail=data?.__DEFAULT_SCOPE__?.['webapp.video-detail']?.itemInfo?.itemStruct;
+          if(!detail) throw new Error('video_detail_missing');
+
+          const playAddr=detail?.video?.playAddr||'';
+          if(!/^https?:\/\//i.test(playAddr)) throw new Error('playaddr_missing');
+
+          async function probe(headers={}){
+            const t0=Date.now();
+            const r=await fetch(playAddr,{
+              headers:{
+                'user-agent':ua,
+                'range':'bytes=0-1048575',
+                'accept':'video/*,*/*',
+                ...headers
+              },
+              redirect:'follow'
+            });
+            const ttfb=Date.now()-t0;
+            const ab=await r.arrayBuffer();
+            const totalMs=Date.now()-t0;
+            return {
+              status:r.status,
+              ok:r.ok||r.status===206,
+              ttfbMs:ttfb,
+              totalMs,
+              bytes:ab.byteLength,
+              contentType:r.headers.get('content-type')||'',
+              contentRange:r.headers.get('content-range')||'',
+              acceptRanges:r.headers.get('accept-ranges')||'',
+              finalHost:new URL(r.url).hostname
+            };
+          }
+
+          const noCookie=await probe();
+          const withCookie=await probe(cookies?{cookie:cookies}:{});
+
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext({userAgent:ua});
+          const page=await context.newPage();
+          const browserResult=await page.evaluate(async src=>{
+            const video=document.createElement('video');
+            video.preload='metadata';
+            video.muted=true;
+            video.playsInline=true;
+            document.body.appendChild(video);
+            return await new Promise(resolve=>{
+              const timer=setTimeout(()=>resolve({
+                ok:false,
+                event:'timeout',
+                readyState:video.readyState,
+                networkState:video.networkState,
+                error:video.error?.message||''
+              }),12000);
+              const finish=(event,ok)=>{
+                clearTimeout(timer);
+                resolve({
+                  ok,event,
+                  readyState:video.readyState,
+                  networkState:video.networkState,
+                  duration:Number.isFinite(video.duration)?video.duration:null,
+                  videoWidth:video.videoWidth,
+                  videoHeight:video.videoHeight,
+                  error:video.error?.message||''
+                });
+              };
+              video.addEventListener('loadedmetadata',()=>finish('loadedmetadata',true),{once:true});
+              video.addEventListener('canplay',()=>finish('canplay',true),{once:true});
+              video.addEventListener('error',()=>finish('error',false),{once:true});
+              video.src=src;
+              video.load();
+            });
+          },playAddr);
+          await context.close();
+          await browser.close();
+
+          console.log('COBALT_RESOLVER_TEST '+JSON.stringify({
+            postId,
+            pageStatus:res.status,
+            resolveMs,
+            playAddrHost:new URL(playAddr).hostname,
+            playAddrLength:playAddr.length,
+            hasCookie:Boolean(cookies),
+            noCookie,
+            withCookie,
+            browser:browserResult
+          }));
+          JS
+          node cobalt-probe.mjs
