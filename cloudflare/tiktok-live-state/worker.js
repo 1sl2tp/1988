@@ -1167,6 +1167,225 @@ async function refreshOne(env, rawHandle) {
   return json({ ok: true, handle, ...state, checkedAt: Date.now() });
 }
 
+function originVideoId(value){
+  const m=String(value||"").match(/\/video\/(\d{8,})/);
+  return m?m[1]:"";
+}
+function originHandle(value){
+  const m=String(value||"").match(/tiktok\.com\/@([^/?#]+)\/video\//i);
+  return m?normalizeHandle(decodeURIComponent(m[1])):"";
+}
+function originAssetUrls(value){
+  const out=[];
+  const seen=new Set();
+  const walk=(v,depth=0)=>{
+    if(v==null||depth>7)return;
+    if(typeof v==="string"){
+      const s=v.trim();
+      if(/^https?:\/\//i.test(s)&&!seen.has(s)){seen.add(s);out.push(s);}
+      return;
+    }
+    if(Array.isArray(v)){for(const x of v)walk(x,depth+1);return;}
+    if(typeof v==="object"){
+      for(const k of ["urlList","UrlList","url_list","urls","url","MainUrl","BackupUrl","FallbackUrl","mainUrl","backupUrl","fallbackUrl","uri"]){
+        if(v[k]!=null)walk(v[k],depth+1);
+      }
+    }
+  };
+  walk(value);
+  return out;
+}
+function originCollectVideo(node,wantedId){
+  const download=[];
+  const play=[];
+  const audio=[];
+  const seen=new Set();
+
+  const add=(bucket,v)=>{
+    for(const u of originAssetUrls(v)){
+      if(/^https?:\/\//i.test(u))bucket.push(u);
+    }
+  };
+
+  const walk=(v,depth=0)=>{
+    if(!v||typeof v!=="object"||depth>12||seen.has(v))return;
+    seen.add(v);
+
+    const id=String(v.id||v.itemId||v.aweme_id||v.awemeId||"");
+    const relevant=!wantedId||!id||id===wantedId;
+    const video=(v.video&&typeof v.video==="object")?v.video:v;
+
+    if(relevant){
+      for(const k of ["downloadAddr","download_addr","DownloadAddr","DownloadAddrStruct","downloadUrl","download_url"]){
+        if(video[k]!=null)add(download,video[k]);
+      }
+      for(const k of ["playAddr","play_addr","PlayAddr","PlayAddrStruct","playUrl","play_url"]){
+        if(video[k]!=null)add(play,video[k]);
+      }
+      for(const row of video.bitrateInfo||video.bitrate_info||[]){
+        add(play,row?.PlayAddr||row?.playAddr||row?.play_addr||row);
+      }
+      for(const row of video.bitrateAudioInfo||video.bitrate_audio_info||[]){
+        add(audio,row?.UrlList||row?.urlList||row?.url_list||row);
+      }
+    }
+
+    if(Array.isArray(v)){for(const x of v)walk(x,depth+1);}
+    else for(const x of Object.values(v))walk(x,depth+1);
+  };
+
+  walk(node);
+  return {
+    download:[...new Set(download)],
+    play:[...new Set(play)],
+    audio:[...new Set(audio)]
+  };
+}
+function originParseScript(html,id){
+  let at=html.indexOf('id="'+id+'"');
+  if(at<0)at=html.indexOf("id='"+id+"'");
+  if(at<0)return null;
+  const open=html.indexOf(">",at);
+  const close=html.indexOf("</script>",open+1);
+  if(open<0||close<0)return null;
+  const raw=html.slice(open+1,close).trim();
+  if(!raw)return null;
+  try{return JSON.parse(raw)}catch{return null}
+}
+function originFallbackUrls(html){
+  const normalized=String(html||"")
+    .replace(/\\u002F/gi,"/")
+    .replace(/\\u0026/gi,"&")
+    .replace(/\\u003A/gi,":")
+    .replace(/\\u003D/gi,"=")
+    .replace(/\\\//g,"/");
+  const out=[];
+  const re=/https?:\/\/[^"'<>\s\\]+/g;
+  for(const m of normalized.matchAll(re)){
+    const u=String(m[0]||"").replace(/&amp;/g,"&");
+    if(/tiktokcdn|tiktokv|byteoversea|bytecdn|muscdn|akamaized/i.test(u))out.push(u);
+  }
+  return [...new Set(out)];
+}
+function originScoreUrl(url,kind){
+  let s=0;
+  if(kind==="download")s+=80;
+  if(kind==="play")s+=50;
+  if(/\/video\/tos\//i.test(url))s+=25;
+  if(/video_mp4|mime_type=video/i.test(url))s+=20;
+  if(/\.mp4(?:$|\?)/i.test(url))s+=15;
+  if(/playwm/i.test(url))s-=30;
+  if(/^https:\/\//i.test(url))s+=2;
+  return s;
+}
+async function resolveTikTokOriginVideo(request){
+  const incoming=new URL(request.url);
+  const raw=String(incoming.searchParams.get("url")||"").trim();
+  let target;
+  try{target=new URL(raw)}catch{return json({ok:false,error:"invalid_tiktok_url"},400);}
+  if(!/(^|\.)tiktok\.com$/i.test(target.hostname))
+    return json({ok:false,error:"invalid_tiktok_host"},400);
+
+  const id=originVideoId(target.href);
+  const handle=originHandle(target.href);
+  if(!id||!handle)return json({ok:false,error:"invalid_tiktok_video"},400);
+
+  const headers={
+    "user-agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "accept":"text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+    "accept-language":"vi-VN,vi;q=0.9,en-US;q=0.7,en;q=0.5",
+    "referer":"https://www.tiktok.com/"
+  };
+
+  const roots=[];
+  let pageStatus=0;
+  let apiStatus=0;
+
+  // 1) TikTok web JSON directly. No third-party resolver.
+  try{
+    const api=new URL("https://www.tiktok.com/api/item/detail/");
+    api.searchParams.set("aid","1988");
+    api.searchParams.set("itemId",id);
+    const r=await fetch(api,{headers,redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}});
+    apiStatus=r.status;
+    if(r.ok){
+      const data=await r.json().catch(()=>null);
+      if(data)roots.push(data);
+    }
+  }catch{}
+
+  // 2) Exact public post page, then hydration JSON.
+  let fallback=[];
+  try{
+    const r=await fetch(target.href,{headers,redirect:"follow",cf:{cacheTtl:0,cacheEverything:false}});
+    pageStatus=r.status;
+    if(r.ok){
+      const html=await r.text();
+      const universal=originParseScript(html,"__UNIVERSAL_DATA_FOR_REHYDRATION__");
+      const sigi=originParseScript(html,"SIGI_STATE");
+      if(universal)roots.push(universal);
+      if(sigi)roots.push(sigi);
+      fallback=originFallbackUrls(html);
+    }
+  }catch{}
+
+  const download=[],play=[],audio=[];
+  for(const root of roots){
+    const hit=originCollectVideo(root,id);
+    download.push(...hit.download);
+    play.push(...hit.play);
+    audio.push(...hit.audio);
+  }
+
+  const candidates=[
+    ...[...new Set(download)].map(url=>({url,kind:"download"})),
+    ...[...new Set(play)].map(url=>({url,kind:"play"}))
+  ];
+  const known=new Set(candidates.map(x=>x.url));
+  for(const url of fallback){
+    if(!known.has(url)){
+      known.add(url);
+      candidates.push({url,kind:"html-cdn"});
+    }
+  }
+  candidates.sort((a,b)=>originScoreUrl(b.url,b.kind)-originScoreUrl(a.url,a.kind));
+
+  const best=candidates[0]||null;
+  if(!best){
+    return json({
+      ok:false,
+      error:"tiktok_origin_media_not_found",
+      handle,id,
+      apiStatus,pageStatus,
+      resolver:"tiktok-origin-only",
+      render:false,
+      tikwm:false,
+      tdown:false,
+      storage:"none"
+    },404);
+  }
+
+  return json({
+    ok:true,
+    data:{
+      handle,id,
+      directUrl:best.url,
+      bestVideoUrl:best.url,
+      bestSource:"tiktok-origin-"+best.kind,
+      candidates:candidates.slice(0,16),
+      audioUrls:[...new Set(audio)],
+      apiStatus,pageStatus,
+      resolver:"tiktok-origin-only",
+      render:false,
+      tikwm:false,
+      tdown:false,
+      proxyVideo:false,
+      storage:"none",
+      supabaseWrites:0
+    }
+  });
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors() });
@@ -1174,6 +1393,8 @@ export default {
     if (url.pathname === "/health") return json({ ok: true, service: "1988-tiktok-live-state" });
     if (url.pathname === "/state") return json({ ok: true, ...(await loadSnapshot(env)) });
     if (url.pathname === "/tiktok/live-now") return json(await liveNow(env));
+    if (url.pathname === "/tiktok/video-origin" && request.method === "GET")
+      return resolveTikTokOriginVideo(request);
     if (url.pathname === "/tiktok/video-direct" &&
         (request.method === "GET" || request.method === "HEAD"))
       return redirectTikTokVideoDirect(request);
