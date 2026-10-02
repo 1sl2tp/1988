@@ -1,4 +1,4 @@
-name: Probe TikTok final CDN direct browser
+name: Probe TikTok origin proxy Range
 
 on:
   push:
@@ -13,12 +13,12 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve final CDN and play directly
+      - name: Probe Range proxy and Chrome playback
         shell: bash
         run: |
           set -euo pipefail
-          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)
-          RES='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40geely.daily%2Fvideo%2F7689814919914458374'
+          EDGE='https://1988-tiktok-live-state.taphoa-4ab8161d.workers.dev'
+          RES="$EDGE/tiktok/video-origin?url=https%3A%2F%2Fwww.tiktok.com%2F%40geely.daily%2Fvideo%2F7689814919914458374"
           curl -fsS "$RES" -o model.json
           GATEWAY=$(python3 - <<'PY'
           import json
@@ -30,25 +30,37 @@ jobs:
           PY
           )
           test -n "$GATEWAY"
-          CDN=$(curl -sS -o /dev/null -D -             -A 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15'             -H 'Referer: https://www.tiktok.com/'             -H 'Range: bytes=0-0'             "$GATEWAY" | awk 'BEGIN{IGNORECASE=1} /^location:/{$1=""; sub(/^ /,""); sub(/\r$/,""); print; exit}')
-          test -n "$CDN"
-          python3 - "$CDN" <<'PY'
+          PROXY="$EDGE/tiktok/video-origin-stream?url=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$GATEWAY")"
+
+          echo '=== HEADERS RANGE 0-4095 ==='
+          curl -sS --max-time 20 -r 0-4095 -o /tmp/chunk.bin -D /tmp/headers.txt "$PROXY"
+          cat /tmp/headers.txt
+          echo "bytes=$(wc -c </tmp/chunk.bin)"
+
+          echo '=== FFPROBE THROUGH PROXY ==='
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          ffprobe -v error -show_entries stream=index,codec_type,codec_name,width,height,sample_rate,channels             -of json "$PROXY" || true
+
+          echo '=== CHROME VIDEO THROUGH PROXY ==='
+          CHROME=$(command -v google-chrome || command -v google-chrome-stable || command -v chromium)
+          python3 - "$PROXY" <<'PY'
           import sys,html
           u=html.escape(sys.argv[1],quote=True)
           open('test.html','w').write(f"""<!doctype html><meta charset=utf-8>
           <body><div id=s>start</div>
-          <video id=v referrerpolicy=no-referrer muted autoplay playsinline preload=metadata src="{u}"></video>
+          <video id=v muted autoplay playsinline preload=metadata src="{u}"></video>
           <script>
           const s=document.getElementById('s'),v=document.getElementById('v');
           v.onloadedmetadata=()=>s.textContent='VIDEO_OK '+v.videoWidth+'x'+v.videoHeight+' dur='+v.duration;
-          v.onerror=()=>s.textContent='VIDEO_ERR code='+(v.error&&v.error.code);
-          setTimeout(()=>document.body.dataset.final=s.textContent,8000);
+          v.onerror=()=>s.textContent='VIDEO_ERR code='+(v.error&&v.error.code)+' network='+v.networkState+' ready='+v.readyState;
+          setTimeout(()=>document.body.dataset.final=s.textContent,10000);
           </script>""")
           PY
           python3 -m http.server 8765 >/tmp/http.log 2>&1 &
           HPID=$!
           trap 'kill $HPID || true' EXIT
           sleep 1
-          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=10000             --dump-dom http://127.0.0.1:8765/test.html > dom.html 2>chrome.err || true
+          "$CHROME" --headless=new --no-sandbox --disable-gpu             --autoplay-policy=no-user-gesture-required             --virtual-time-budget=12000             --dump-dom http://127.0.0.1:8765/test.html > dom.html 2>chrome.err || true
           grep -o '<div id="s">[^<]*' dom.html || true
           grep -o 'data-final="[^"]*"' dom.html || true
+          tail -30 chrome.err || true
