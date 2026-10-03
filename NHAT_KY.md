@@ -1,3 +1,11 @@
+## 2026-10-04 — TikTok LIVE demo đơn giản hóa thành LIVE-only
+
+- Bỏ hẳn 5 video và toàn bộ VOD khỏi demo LIVE.
+- Luồng duy nhất: link LIVE → /refresh → stream URL mới → phát ngay + hiện link để copy.
+- Không cache browser, không Render.
+- Commit `ac4a859feafd13fc0f1683bd7ce951168bd1b14e`.
+- Player run `37159085762`: SUCCESS.
+
 ## 2026-10-04 — Sửa latest 5 TikTok khỏi browser CORS
 
 - Browser không gọi trực tiếp TikWM user/posts nữa.

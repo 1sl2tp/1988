@@ -86,6 +86,22 @@ Nếu một card LIVE có thumbnail của kênh A nhưng tên/avatar của kênh
 6. không sửa CSS/fallback UI để che lỗi.
 
 
+### 3.33. TikTok demo — LIVE-only, bỏ hẳn VOD khỏi trang test LIVE
+
+Thời gian: **2026-10-04**.
+
+- Theo yêu cầu người dùng, `tiktok-live-cloud-demo.html` chỉ còn một nhiệm vụ:
+  `Dán link TikTok LIVE → bấm Kiểm tra → Cloudflare /refresh → nhận stream URL mới → phát ngay`.
+- Bỏ toàn bộ khỏi demo:
+  - 5 video gần nhất;
+  - TikWM/BHWA VOD;
+  - Auto/Media/Iframe;
+  - cache LIVE/VOD trong browser.
+- Trang hiển thị luôn stream URL mới và có nút sao chép.
+- LIVE vẫn dùng đúng flow đã chốt qua Cloudflare `/refresh`; không Render.
+- Commit runtime: `ac4a859feafd13fc0f1683bd7ce951168bd1b14e`.
+- Deploy 1988 Player run `37159085762`: **SUCCESS**, frontend contracts/deploy/custom-domain verify PASS.
+
 ### 3.32. TikTok demo — latest 5 qua Edge metadata, không browser-CORS, không Render
 
 Thời gian: **2026-10-04**.
