@@ -1,4 +1,4 @@
-name: Probe VN TikTok downloaders once v2
+name: Probe VN TikTok downloaders once v3
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Inspect SSSTik and SnapTik VN endpoints
+      - name: Verify SSSTik API and SnapTik VN JS
         shell: bash
         run: |
           set -euo pipefail
@@ -23,70 +23,52 @@ jobs:
           VIDEO='https://www.tiktok.com/@giadinhnhaman/video/7691953502813293832'
           ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/136.0 Safari/537.36'
 
-          def get(url,opener=None):
+          def req(url,method='GET',data=None,headers=None,opener=None):
               op=opener or urllib.request.build_opener()
-              req=urllib.request.Request(url,headers={'User-Agent':ua,'Accept':'text/html,application/json,*/*'})
-              with op.open(req,timeout=25) as r:
-                  return r.status,r.geturl(),r.headers,r.read()
-
-          def post(url,data,headers=None,opener=None):
-              op=opener or urllib.request.build_opener()
-              h={'User-Agent':ua,'Accept':'text/html,application/json,*/*','Content-Type':'application/x-www-form-urlencoded'}
+              h={'User-Agent':ua,'Accept':'text/html,application/json,*/*'}
               h.update(headers or {})
-              req=urllib.request.Request(url,data=urllib.parse.urlencode(data).encode(),headers=h,method='POST')
-              with op.open(req,timeout=30) as r:
-                  return r.status,r.geturl(),r.headers,r.read()
+              body=None if data is None else data
+              r=urllib.request.Request(url,data=body,headers=h,method=method)
+              with op.open(r,timeout=30) as x:
+                  return x.status,x.geturl(),x.headers,x.read()
 
-          # SSSTik: inspect JS then try likely submit endpoints from JS.
-          print('\n### SSSTIK')
+          print('### SSSTIK JSON API')
           cj=http.cookiejar.CookieJar(); op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-          st,final,headers,body=get('https://ssstik.vn/',op)
-          text=body.decode('utf-8','ignore')
-          token=(re.search(r'name="_token"\s+value="([^"]+)"',text) or [None,''])[1]
-          src=(re.search(r'<script[^>]+src="(https://ssstik\.vn/build/assets/[^"]+\.js)"',text) or [None,''])[1]
-          print('home',st,'token',bool(token),'js',src)
-          if src:
-              js=get(src,op)[3].decode('utf-8','ignore')
-              for pat in [r'fetch\([^\n]{0,350}',r'axios[^\n]{0,350}',r'["\']/[^"\']*(?:download|api|ajax|process|tiktok)[^"\']*["\']']:
-                  for m in re.findall(pat,js,re.I)[:40]:
-                      print('JS',m[:600])
-              paths=sorted(set(re.findall(r'["\'](/[^"\']{1,120})["\']',js)))
-              print('PATHS',[p for p in paths if any(k in p.lower() for k in ['download','api','ajax','process','tiktok'])][:80])
-
-          # Try same-origin POST root using observed form fields.
-          for endpoint in ['https://ssstik.vn/','https://ssstik.vn/download','https://ssstik.vn/api/download']:
-              try:
-                  st,final,h,b=post(endpoint,{'_token':token,'source_page':'homepage','locale':'vi','url':VIDEO},{'Referer':'https://ssstik.vn/'},op)
-                  t=b.decode('utf-8','ignore')
-                  urls=re.findall(r'https?://[^"\'\s<>]+',html.unescape(t))
-                  media=[u for u in urls if any(k in u.lower() for k in ['.mp4','tiktokcdn','byteoversea','download'])]
-                  print('POST',endpoint,'status',st,'final',final,'ct',h.get('content-type'),'len',len(b),'media',media[:8])
-              except Exception as e:
-                  print('POST',endpoint,'ERR',type(e).__name__,str(e)[:200])
-
-          # VN SnapTik: inspect JS and submit GET form with token.
-          print('\n### VN.SNAPTIK.COM')
-          cj=http.cookiejar.CookieJar(); op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
-          st,final,headers,body=get('https://vn.snaptik.com/',op)
-          text=body.decode('utf-8','ignore')
-          token=(re.search(r'name="token"\s+value="([^"]+)"',text) or [None,''])[1]
-          print('home',st,'token',token[:24] if token else '')
+          st,final,h,b=req('https://ssstik.vn/',opener=op)
+          home=b.decode('utf-8','ignore')
+          token=(re.search(r'<meta[^>]+name=["\']csrf-token["\'][^>]+content=["\']([^"\']+)',home,re.I)
+                 or re.search(r'name="_token"\s+value="([^"]+)"',home) or [None,''])[1]
+          payload=json.dumps({'url':VIDEO,'source_page':'homepage','locale':'vi'}).encode()
           try:
-              js=get('https://vn.snaptik.com/main.js?v=2.02',op)[3].decode('utf-8','ignore')
-              for pat in [r'fetch\([^\n]{0,350}',r'ajax[^\n]{0,350}',r'["\']/[^"\']*(?:download|api|ajax|process)[^"\']*["\']']:
-                  for m in re.findall(pat,js,re.I)[:50]:
-                      print('JS',m[:600])
+              st,final,h,b=req('https://ssstik.vn/api/download','POST',payload,{
+                  'Content-Type':'application/json',
+                  'X-CSRF-TOKEN':token,
+                  'X-Requested-With':'XMLHttpRequest',
+                  'Referer':'https://ssstik.vn/'
+              },op)
+              print('status',st,'ct',h.get('content-type'),'len',len(b))
+              t=b.decode('utf-8','ignore')
+              print('BODY',t[:4000])
+              urls=re.findall(r'https?://[^"\'\s<>\\]+',html.unescape(t))
+              print('MEDIA',[u for u in urls if any(k in u.lower() for k in ['.mp4','tiktokcdn','byteoversea','download'])][:12])
           except Exception as e:
-              print('JS ERR',type(e).__name__,str(e)[:200])
+              print('ERR',type(e).__name__,str(e)[:300])
+              if hasattr(e,'read'):
+                  try: print('ERRBODY',e.read().decode('utf-8','ignore')[:2500])
+                  except: pass
 
-          qs=urllib.parse.urlencode({'url':VIDEO,'token':token})
-          for endpoint in ['https://vn.snaptik.com/?'+qs,'https://vn.snaptik.com/action?'+qs]:
-              try:
-                  st,final,h,b=get(endpoint,op)
-                  t=b.decode('utf-8','ignore')
-                  urls=re.findall(r'https?://[^"\'\s<>]+',html.unescape(t))
-                  media=[u for u in urls if any(k in u.lower() for k in ['.mp4','tiktokcdn','byteoversea','download'])]
-                  print('GET',endpoint.split('?')[0],'status',st,'final',final,'ct',h.get('content-type'),'len',len(b),'media',media[:8])
-              except Exception as e:
-                  print('GET',endpoint.split('?')[0],'ERR',type(e).__name__,str(e)[:200])
+          print('\n### VN SNAPTik JS CONTEXT')
+          cj=http.cookiejar.CookieJar(); op=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
+          st,final,h,b=req('https://vn.snaptik.com/',opener=op)
+          home=b.decode('utf-8','ignore')
+          token=(re.search(r'name="token"\s+value="([^"]+)"',home) or [None,''])[1]
+          st,final,h,b=req('https://vn.snaptik.com/main.js?v=2.02',opener=op)
+          js=b.decode('utf-8','ignore')
+          for m in re.finditer(r'fetch\(',js):
+              a=max(0,m.start()-900); z=min(len(js),m.start()+1800)
+              print('CTX',js[a:z])
+          for term in ['formurl','token','result','download']:
+              for m in list(re.finditer(term,js,re.I))[:8]:
+                  a=max(0,m.start()-500); z=min(len(js),m.start()+900)
+                  print('TERM',term,js[a:z])
           PY
