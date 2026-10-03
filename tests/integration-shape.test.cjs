@@ -198,7 +198,11 @@ if(simpleProduction){
   assert.match(html,/Provider boundaries are strict: TikTok never falls through to a YouTube/);
   assert.match(html,/provider==="tiktok"\?transparentThumb:providerFallbackThumb/);
   assert.match(html,/stopTikTokLivePlayback\(\);[\s\S]{0,120}stopTikTokVideoPlayback\(\);[\s\S]{0,160}clearTikTokWorkspace\(\)/);
-  assert.match(html,/activePlatformNav==="tiktok"\)[\s\S]{0,160}ytPlayer\?\.pauseVideo\?\.\(\)/);
+  assert.doesNotMatch(html,/id="platformTikTok"/);
+  assert.match(html,/const TIKTOK_UI_ENABLED=false/);
+  assert.match(html,/provider==="tiktok"&&!TIKTOK_UI_ENABLED\)return false/);
+  assert.match(html,/async function showTikTokWorkspace\(handle=""\)\{[\s\S]{0,80}!TIKTOK_UI_ENABLED/);
+  assert.doesNotMatch(html,/platformTikTok\?\.addEventListener/);
 
   // Unknown TikTok LIVE viewers are null/hidden, never presented as a real 0.
   assert.match(html,/const knownViewerCount=[\s\S]{0,180}rawViewerCount>0[\s\S]{0,120}:null/);

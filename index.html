@@ -4104,15 +4104,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
 <header class="top" id="top">
   <div class="masthead">
     <div class="platform-switcher" aria-label="Nền tảng">
-      <button id="platformTikTok" class="platform-button platform-tiktok" type="button"
-        aria-label="TikTok"  aria-pressed="false">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path class="tt-cyan" d="M14.1 3.2c.6 2.5 2.1 4 4.6 4.5v3.1c-1.7-.1-3.1-.6-4.4-1.5v6.2a6 6 0 1 1-5.2-5.9v3.2a2.9 2.9 0 1 0 2.1 2.8V3.2h2.9Z"></path>
-          <path class="tt-pink" d="M13.1 2.4c.6 2.5 2.1 4 4.6 4.5v2.1c-1.7-.2-3.1-.8-4.4-1.7v7.4a5 5 0 1 1-4.2-4.9v2.1a3 3 0 1 0 2.2 2.9V2.4h1.8Z"></path>
-          <path class="tt-main" d="M13.6 2.8c.6 2.5 2.1 4 4.6 4.5v2.6c-1.7-.1-3.1-.7-4.4-1.6v6.7a5.5 5.5 0 1 1-4.7-5.4v2.7a2.7 2.7 0 1 0 2 2.6V2.8h2.5Z"></path>
-        </svg>
-      </button>
-
       <button id="platformYouTube" class="platform-button platform-youtube" type="button"
         aria-label="YouTube"  aria-pressed="false">
         <svg viewBox="0 0 29 20" aria-hidden="true" focusable="false">
@@ -4328,6 +4319,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   const sourcePrev=document.getElementById("sourcePrev");
   const sourceNext=document.getElementById("sourceNext");
   const sourceNameChips=document.getElementById("sourceNameChips");
+  const TIKTOK_UI_ENABLED=false;
   const platformTikTok=document.getElementById("platformTikTok");
   const platformYouTube=document.getElementById("platformYouTube");
   const themeColorMeta=document.getElementById("themeColorMeta");
@@ -9643,6 +9635,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
     if(provider==="tiktok"&&activePlatformNav!=="tiktok")return false;
     if(provider==="youtube"&&activePlatformNav==="tiktok")return false;
 
+    if(provider==="tiktok"&&!TIKTOK_UI_ENABLED)return false;
     const type=mediaTypeFor(meta);
     if(type==="live")return playTikTokLive(meta);
     if(type==="media")return playTikTokVideo(meta);
@@ -11101,6 +11094,7 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   }
 
   async function showTikTokWorkspace(handle=""){
+    if(!TIKTOK_UI_ENABLED)return false;
     activeTikTokSubtab="lists";
     activePackageScope="tiktok-video";
     stopYoutubeLiveDemand();
@@ -11316,7 +11310,8 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
   function openPlatformNav(platform=""){
     startupLandingActive=false;
     platform=String(platform||"").toLowerCase();
-    if(!["youtube","tiktok"].includes(platform))platform="";
+    if(platform==="tiktok"||!TIKTOK_UI_ENABLED&&platform!=="youtube")return false;
+    if(platform!=="youtube")platform="";
 
     const closing=activePlatformNav===platform;
     activePlatformNav=closing?"":platform;
@@ -11331,10 +11326,6 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       sourceNameChips?.querySelectorAll?.(".source-chip[data-source-tab]")
         .forEach(chip=>chip.classList.toggle("active",chip.dataset.sourceTab==="live"));
       void showPackageScope("live",{hydrateLive:true});
-    }else if(activePlatformNav==="tiktok"){
-      stopYoutubeLiveDemand();
-      try{ytPlayer?.pauseVideo?.()}catch{}
-      void showTikTokWorkspace();
     }else{
       clearTikTokWorkspace();
       stopYoutubeLiveDemand();
@@ -11344,10 +11335,10 @@ html.tiktok-ui.tiktok-watch .native-media-core > #tiktokMediaVideo{
       try{ytPlayer?.pauseVideo?.()}catch{}
     }
     syncPlatformButtons();
+    return true;
   }
 
   platformYouTube?.addEventListener("click",()=>openPlatformNav("youtube"));
-  platformTikTok?.addEventListener("click",()=>openPlatformNav("tiktok"));
 
   function renderExistingSourceNames(rows=[]){
     if(!sourceNameChips)return;
