@@ -64,6 +64,8 @@ server lấy dữ liệu
 Cloudflare = phát hiện kênh/video đang LIVE
 Supabase = lọc + bổ sung metadata cần thiết + đóng package LIVE
 UI = chỉ đọc package LIVE
+
+Với YouTube package feed, `videoId/sourceId/sourceName/sourceAvatar/title` trong package là **authoritative cho card**. UI không được sửa/chữa các field đó bằng Cloudflare snapshot, channel library hay video metadata. Package có bao nhiêu LIVE thì UI phải render đủ bấy nhiêu LIVE; không được cắt membership bằng giới hạn render cứng.
 ```
 
 Cloudflare **không phải feed trực tiếp của UI**.
