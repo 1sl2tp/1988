@@ -886,25 +886,18 @@ async function search(q,options={}){
 
 async function writeStatus(id,status,scope=state.scope){
   const row=currentMeta(id);
-  setLocalStatus(id,status,scope);
+  const before={
+    selected:[...directScopeSet("selected",scope)],
+    blocked:[...directScopeSet("blocked",scope)],
+    suggested:[...directScopeSet("suggested",scope)]
+  };
 
+  setLocalStatus(id,status,scope);
   renderScopes();
   renderColumns();
   renderSearch();
   renderSourceManagerList(el.sourceManagerSearch?.value||"");
   if(state.detail?.id===id)renderPreview();
-
-  const event={
-    type:"source-state",
-    id,
-    status,
-    scope,
-    name:row.name||"",
-    at:Date.now()
-  };
-
-  try{bc?.postMessage(event)}catch{}
-  try{localStorage.setItem(UI_EVENT_KEY,JSON.stringify(event))}catch{}
 
   try{
     await stateFetch("POST",{
@@ -919,8 +912,34 @@ async function writeStatus(id,status,scope=state.scope){
         subscribers:row.subscribers||""
       }
     });
+
+    // Only tell MAIN/other tabs after the canonical row was actually saved.
+    const event={
+      type:"source-state",
+      id,
+      status,
+      scope,
+      name:row.name||"",
+      at:Date.now()
+    };
+    try{bc?.postMessage(event)}catch{}
+    try{localStorage.setItem(UI_EVENT_KEY,JSON.stringify(event))}catch{}
+    return true;
   }catch(error){
+    state.remote.scopedSelected=state.remote.scopedSelected||{};
+    state.remote.scopedBlocked=state.remote.scopedBlocked||{};
+    state.remote.scopedSuggested=state.remote.scopedSuggested||{};
+    state.remote.scopedSelected[scope]=before.selected;
+    state.remote.scopedBlocked[scope]=before.blocked;
+    state.remote.scopedSuggested[scope]=before.suggested;
+    renderScopes();
+    renderColumns();
+    renderSearch();
+    renderSourceManagerList(el.sourceManagerSearch?.value||"");
+    if(state.detail?.id===id)renderPreview();
     console.warn("save source status failed",error);
+    window.alert("Chưa lưu được thay đổi nguồn. Trạng thái đã được hoàn tác.");
+    return false;
   }
 }
 
