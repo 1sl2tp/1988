@@ -1352,14 +1352,44 @@ async function storeServerSourceSuggestions(
   if(!byId.size)return 0;
 
   const nowIso=new Date().toISOString();
+
+  // Suggested-channel identity belongs in the canonical directory, never in
+  // source-state rows. Hydrate the directory from the same verified evidence
+  // before writing membership/suggestion state.
+  const directoryRows=[...byId.values()].map((candidate)=>({
+    channel_id:candidate.id,
+    name:candidate.name,
+    thumbnail_url:candidate.thumbnailUrl,
+    source:"source-suggestion",
+    profile_checked_at:nowIso
+  }));
+  if(directoryRows.length){
+    const directoryWrite=await fetch(
+      rest+"/rpc/yt1988_upsert_channel_directory",
+      {
+        method:"POST",
+        headers:authHeaders,
+        body:JSON.stringify({
+          p_profile_key:PROFILE,
+          p_channels:directoryRows
+        })
+      }
+    ).catch(()=>null);
+    if(!directoryWrite||!directoryWrite.ok){
+      console.warn(
+        "source suggestion directory write failed",
+        scope,
+        directoryWrite?await directoryWrite.text():"request_failed"
+      );
+      return 0;
+    }
+  }
+
   const payload=[...byId.values()].map((candidate,index)=>({
     profile_key:PROFILE,
     scope,
     channel_id:candidate.id,
     status:"normal",
-    name:candidate.name,
-    thumbnail_url:candidate.thumbnailUrl,
-    subscribers:"",
     version:Date.now()*100+index,
     updated_at:nowIso
   }));
@@ -2399,7 +2429,7 @@ Deno.serve(async(req:Request)=>{
     const stateRes=await fetch(
       rest+"/yt1988_source_state?profile_key=eq."+encodeURIComponent(PROFILE)+
       "&scope=in.("+[...SCOPES,"general"].map(encodeURIComponent).join(",")+")"+
-      "&select=scope,channel_id,status,name,thumbnail_url,subscribers",
+      "&select=scope,channel_id,status,version,updated_at",
       {headers:authHeaders}
     );
     if(!stateRes.ok)throw new Error("source_state_read_failed");
