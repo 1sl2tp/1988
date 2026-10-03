@@ -423,3 +423,29 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - refresh last_ok=true, pending_scopes=[].
 - UI không đổi; chỉ nhận hash/package mới.
 - Rule: realtime LIVE/owner ở Cloudflare; Supabase filter/enrich/package; UI chỉ đọc.
+
+
+## 2026-10-03 — Đồng bộ Chưa chọn / Đã chọn / Đã chặn và LIVE kế thừa
+
+- Mẫu: Dân Ca Lofi `UC7NBAf7ARIWZKB0Tr6PbD7Q`.
+- Bằng chứng trước sửa: DB đã `scope=live,status=selected` nhưng main UI search vẫn hiện `Chọn vào nguồn…`.
+- Contract:
+  - LIVE = union selected mọi scope − union blocked mọi scope.
+  - inherited state phải hiện rõ, không toggle giả.
+- 1988 code:
+  - `729641199ea1cc5c9e893037cca0ac0d4f5752b1` — effective status + picker + /sources union + state targeted hook;
+  - `f4168c22138ce44d6f1c9b141fb7d0e0ca5bd265` — deploy mirror/test workflow;
+  - `1e84a3e`, `5859505`, `ec5ac68` — nhãn trạng thái + PWA v73.
+- Infrastructure:
+  - `902e4e89022fcccee0ca39e4fc8148ef288b2361` — `/youtube/live-source-sync`.
+- Runtime:
+  - `yt1988-state v9` ACTIVE.
+  - Cloudflare run `37134001622`: Worker deploy + zero schedules PASS; post-deploy full scan check fail, không ảnh hưởng targeted endpoint.
+- Verify:
+  - targeted sync Dân Ca Lofi → HTTP 200, outcome=offline, changed=false, không full scan;
+  - idempotent set_source selected request 565 → HTTP 200;
+  - canonical row vẫn selected.
+- Resource impact:
+  - source change chỉ check 1 channel;
+  - không tăng cron/polling;
+  - không preload LIVE package khi LIVE không visible.
