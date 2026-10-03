@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v50-exact-title";
+const LIVE_PIPELINE_VERSION="live-v51-edge-authoritative-live";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -2719,10 +2719,11 @@ Deno.serve(async(req:Request)=>{
             return row;
           })).filter(Boolean);
 
-          verifiedLiveRowsCache=(await verifyCurrentLiveRows(
-            dedupeLiveRows(edgeRows),
-            Math.max(64,edgeRows.length)
-          )).sort((a:any,b:any)=>
+          // Fresh Cloudflare rows are already verified against the exact
+          // watch/player response and canonical owner. Do not re-run InnerTube
+          // from Supabase: Google blocks that runtime and would turn a healthy
+          // edge snapshot into an empty result, leaving ended LIVE rows stuck.
+          verifiedLiveRowsCache=dedupeLiveRows(edgeRows).sort((a:any,b:any)=>
             (Number(b?._interestPriority)||0)-(Number(a?._interestPriority)||0)
           );
         }
