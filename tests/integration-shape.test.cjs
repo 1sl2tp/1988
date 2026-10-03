@@ -174,6 +174,9 @@ if(simpleProduction){
   assert.match(html,/tiktok-profile-grid[\s\S]{0,180}grid-template-columns:repeat\(5,minmax\(0,1fr\)\)/);
   assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}tiktok-profile-grid\{grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(html,/data-tiktok-watch-share="1"/);
+  assert.match(html,/@media\(min-width:1280px\)[\s\S]{0,360}grid-template-areas:"tiktok-accounts media feed"!important/);
+  assert.match(html,/@media\(max-width:999px\)[\s\S]{0,260}html\.tiktok-ui\.tiktok-profile main\{[\s\S]{0,80}padding:8px 10px 28px!important/);
+  assert.match(html,/@media\(max-width:656px\)[\s\S]{0,220}html\.tiktok-ui\.tiktok-profile main\{padding:calc\(var\(--top-boundary\) \+ 8px\)/);
   assert.match(html,/current\?\.kind===["']portrait["']/);
   assert.match(html,/navigator\.serviceWorker/);
   assert.match(sw,/1988-simple-media-v\d+/);

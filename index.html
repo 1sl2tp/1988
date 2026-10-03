@@ -3906,7 +3906,7 @@ button.tiktok-watch-action-item{cursor:pointer}
 /* Mobile/tablet: YouTube-like channel page, two-column Shorts grid, watch card. */
 @media(max-width:999px){
   html.tiktok-ui.tiktok-profile main{
-    padding:calc(var(--top-boundary) + 8px) 10px 28px!important;
+    padding:8px 10px 28px!important;
   }
   html.tiktok-ui.tiktok-profile .tiktok-account-rail{display:none!important}
   html.tiktok-ui.tiktok-profile .rows{
@@ -3948,7 +3948,7 @@ button.tiktok-watch-action-item{cursor:pointer}
   }
   html.tiktok-ui.tiktok-watch #top{display:flex!important}
   html.tiktok-ui.tiktok-watch main{
-    padding:var(--top-boundary) 10px 26px!important;
+    padding:8px 10px 26px!important;
     display:block!important;
   }
   html.tiktok-ui.tiktok-watch .media-col{
@@ -4000,11 +4000,24 @@ button.tiktok-watch-action-item{cursor:pointer}
   .tiktok-watch-videos{max-height:none!important}
 }
 @media(max-width:656px){
+  html.tiktok-ui.tiktok-profile main{padding:calc(var(--top-boundary) + 8px) 8px 24px!important}
   .tiktok-profile-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   html.tiktok-ui.tiktok-watch main{padding:var(--top-boundary) 6px 24px!important}
   html.tiktok-ui.tiktok-watch .media-col{grid-template-columns:minmax(0,1fr) 48px!important}
   html.tiktok-ui.tiktok-watch .stage{width:min(calc(100% - 4px),390px)!important}
   .tiktok-watch-action-icon{width:44px;height:44px;font-size:23px}
+}
+
+@media(min-width:1280px){
+  html.tiktok-ui.tiktok-watch main{
+    grid-template-columns:var(--tiktok-sidebar-w) minmax(0,1fr) minmax(320px,390px)!important;
+    grid-template-areas:"tiktok-accounts media feed"!important;
+    gap:22px!important;
+  }
+  html.tiktok-ui.tiktok-watch .tiktok-account-rail{
+    display:flex!important;
+    grid-area:tiktok-accounts!important;
+  }
 }
 </style>
 </head>
