@@ -225,3 +225,30 @@ Các Edge Function đang chạy trên Supabase đã được đồng bộ lại 
   - Cloudflare static frontend là manual-only;
   - Render Static Site `1988-site` vẫn là standby không production và còn autoDeploy, cần tắt/xóa ở Render dashboard để hết build thừa.
 
+## 2026-10-03 — Chuẩn hóa custom domain guard cho chat / yt / app
+
+- Mục tiêu: phát hiện sớm trường hợp DNS đúng nhưng GitHub Pages chưa bind custom domain, tránh 404 âm thầm.
+- Probe trước sửa:
+  - `chat.taphoa.xyz`: HTTP 404 `Site not found · GitHub Pages`;
+  - `yt.taphoa.xyz`: HTTP 200;
+  - `app.taphoa.xyz`: HTTP 200.
+- DNS cả ba hiện CNAME tới `1s12tp.github.io.`.
+- Chat:
+  - tạo `.github/workflows/pages.yml` để build `index.source.html → index.html`, chạy `verify_current.py`, upload artifact và deploy Pages;
+  - bổ sung `pytest` cho verify dependency;
+  - sau deploy `chat.taphoa.xyz` trả HTTP 200, title `TAPHOA Chat`.
+- Cả ba repo đã thêm domain guard sau deploy:
+  - đọc domain contract từ file `CNAME`;
+  - so khớp với `steps.deployment.outputs.page_url`;
+  - kiểm tra DNS là `*.github.io`;
+  - retry HTTPS và yêu cầu HTTP 200.
+- 1988 commit: `db572ef878bf65d50fc492a28b1e997eb6791f83`.
+- Chat commits: `4a98b0dfc0dea843cb926f59d41dc725f2eed5bb`, `82d322b6d777e3e7f90fcecb72c8ff56f5213b52`, `2a5d3a27ef038efeca7e05b738673e43b9ab567c`.
+- Taphoaxyz commit: `fafa6a2f5b5e57d7525fa81017198b26732307e6`.
+- Domain verification runs:
+  - Chat Pages run `37115789044`: custom domain check PASS;
+  - 1988 Pages run `37115792404`: PASS;
+  - TAPHOA publish run `37115795795`: PASS.
+- GitHub limitation: với custom GitHub Actions workflow, file `CNAME` không tự thay đổi Pages Custom domain setting; domain setting vẫn phải tồn tại trong Settings → Pages. Guard mới sẽ fail rõ nếu setting và CNAME lệch.
+- Không thay đổi DB/API/data.
+
