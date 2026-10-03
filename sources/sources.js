@@ -243,6 +243,13 @@ function sourceStatus(id,scope=state.scope){
   return"normal";
 }
 
+function sourceStatusLabel(status){
+  if(status==="selected")return"Đã chọn";
+  if(status==="blocked")return"Đã chặn";
+  if(status==="suggested")return"Gợi ý";
+  return"Chưa chọn";
+}
+
 function ensureArray(obj,key){
   if(!obj[key])obj[key]=[];
   return obj[key];
@@ -474,7 +481,7 @@ function searchResultMarkup(row){
   let media=avatarMarkup(row);
   let copy='<button class="channel-copy" data-open-search="'+esc(row._resultKey||row.id)+'">'+
     '<strong>'+esc(row.name||row.id)+'</strong>'+
-    '<span>'+esc(status==="normal"?"Ngoài nguồn":status)+'</span>'+
+    '<span>'+esc(sourceStatusLabel(status))+'</span>'+
   '</button>';
 
   if(isVideo){
