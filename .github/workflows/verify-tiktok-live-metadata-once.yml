@@ -53,6 +53,9 @@ jobs:
               })
           out={
               'ok':True,
+              'total':data.get('total'),
+              'detectedLive':data.get('detectedLive'),
+              'reportedLive':data.get('live'),
               'live':len(items),
               'withCover':sum(1 for x in summary if x['hasCover']),
               'withAvatar':sum(1 for x in summary if x['hasAvatar']),
