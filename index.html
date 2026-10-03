@@ -6790,7 +6790,7 @@ html.tiktok-ui.tiktok-watch .rows{
     if(activePackageScope==="live"){
       const provider=activeLiveProvider();
       void refreshUnifiedLiveInBackground({
-        force:true,
+        force:false,
         reason,
         provider
       });
@@ -7356,12 +7356,16 @@ html.tiktok-ui.tiktok-watch .rows{
     };
   }
 
-  async function syncPreparedScopeAfterWake(scope="",delays=[1200,3200,7000,14000]){
+  async function syncPreparedScopeAfterWake(
+    scope="",
+    delays=[1200,3200,7000,14000],
+    {wake=true}={}
+  ){
     scope=String(scope||"").trim();
     if(!scope)return false;
     const before=String(packageHashCache.get(scope)||"");
 
-    await requestPreparedRefresh([scope]).catch(()=>false);
+    if(wake)await requestPreparedRefresh([scope]).catch(()=>false);
 
     for(const delay of delays){
       await new Promise(resolve=>setTimeout(resolve,delay));
@@ -7387,7 +7391,7 @@ html.tiktok-ui.tiktok-watch .rows{
       }
 
       livePackageLastWakeAt=Date.now();
-      await syncPreparedScopeAfterWake("live");
+      await syncPreparedScopeAfterWake("live",[1200,3200,7000,14000],{wake:false});
 
       if(liveDemandActive("youtube")){
         paintSyncedPackage("live",packageCache.get("live")||[]);
@@ -7488,14 +7492,25 @@ html.tiktok-ui.tiktok-watch .rows{
 
     unifiedLiveRefreshPromise=(async()=>{
       if(provider==="youtube"){
-        await runYoutubeLiveCycle({force:true,paint:false});
+        const scanned=await runYoutubeLiveCycle({force,paint:false});
         if(!liveDemandActive("youtube"))return false;
 
-        livePackageLastWakeAt=Date.now();
-        await syncPreparedScopeAfterWake(
-          "live",
-          reason==="tab-open"?[800,2200,5000,10000]:[1200,3500,8000]
-        );
+        // The edge Worker owns the LIVE package wake when its verified snapshot
+        // changes. Browser only performs one catch-up wake on explicit tab-open;
+        // recurring scans/focus/source edits wait for the hash instead of
+        // creating duplicate yt1988-refresh requests.
+        if(scanned){
+          livePackageLastWakeAt=Date.now();
+          await syncPreparedScopeAfterWake(
+            "live",
+            reason==="tab-open"?[800,2200,5000,10000]:[1200,3500,8000],
+            {wake:reason==="tab-open"}
+          );
+        }else{
+          await loadPackageManifest();
+          await syncPreparedPackages(["live"]);
+        }
+
         if(!liveDemandActive("youtube"))return false;
         paintSyncedPackage("live",packageCache.get("live")||[]);
         return true;
@@ -9660,7 +9675,8 @@ html.tiktok-ui.tiktok-watch .rows{
       if(liveDemandActive("youtube")){
         setTimeout(()=>void syncPreparedScopeAfterWake(
           "live",
-          [700,1800,4000,8000]
+          [700,1800,4000,8000],
+          {wake:false}
         ),500);
       }else if(feedMode==="package"&&activePackageScope===scope){
         setTimeout(()=>void syncPreparedPackages(
