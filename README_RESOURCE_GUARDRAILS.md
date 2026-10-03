@@ -70,6 +70,20 @@ Với YouTube package feed, `videoId/sourceId/sourceName/sourceAvatar/title` tro
 
 Cloudflare **không phải feed trực tiếp của UI**.
 
+### 1.2.1. Source state và LIVE kế thừa
+
+```text
+LIVE selected = union(selected mọi scope) - union(blocked mọi scope)
+```
+
+- `selected / blocked / normal` trong `yt1988_source_state` là canonical.
+- Main UI và `/sources/` phải hiển thị cùng một trạng thái hiệu lực.
+- LIVE inherited state phải ghi rõ là kế thừa; không được toggle `normal` ở LIVE để che một selected/blocked còn tồn tại ở scope khác.
+- Mỗi thao tác `set_source` chỉ targeted-sync đúng channel vừa đổi ở Cloudflare.
+- Không full-scan LIVE chỉ vì chọn/bỏ/chặn một channel.
+- Nếu targeted sync làm snapshot LIVE thay đổi, Cloudflare mới wake package LIVE.
+- Nếu LIVE không visible, browser không tải package LIVE trước; server vẫn cập nhật canonical state/snapshot/package theo user action.
+
 Khi mở web:
 
 1. vẽ package `latest` đã có;
