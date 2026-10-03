@@ -18,7 +18,7 @@ const CHANNEL_PROFILE_TTL_MS=7*DAY_MS;
 const CHANNEL_FAILURE_RETRY_MS=2*60*1000;
 const MAX_CHANNEL_FETCHES_PER_RUN=12;
 const MAX_SCOPES_PER_RUN=2;
-const LIVE_PIPELINE_VERSION="live-v46-player-owner";
+const LIVE_PIPELINE_VERSION="live-v47-player-api";
 const NON_LIVE_PIPELINE_VERSION="non-live-v20";
 const YOUTUBE_LIVE_EDGE_API="https://1988-youtube-live-state.taphoa-4ab8161d.workers.dev";
 const YOUTUBE_LIVE_EDGE_NOW_URL=YOUTUBE_LIVE_EDGE_API+"/youtube/live-now";
@@ -26,6 +26,7 @@ const LIVE_EDGE_FRESH_MS=3*60*1000;
 const EMBED_CHECK_TTL_MS=6*60*60*1000;
 const NON_LIVE_VERIFY_BATCH=48;
 const YT_WEB_PLAYER_API_KEY="AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
+const YT_WEB_PLAYER_API_KEY_FALLBACK="AIzaSyDCU8hByM-4DrUqRUYnGn-3llEO78bcxq8";
 const YT_WEB_PLAYER_CLIENT_VERSION="2.20260925.01.00";
 const YT_PLAYER_CLIENTS:any[]=[
   {
@@ -1617,41 +1618,59 @@ async function youtubePlayerMetadata(id:string){
     known:false,duration:0,isLive:false,isLiveContent:false,ended:false,
     sourceId:"",sourceName:"",title:"",thumbnailUrl:"",views:0
   };
+
+  const keys=[YT_WEB_PLAYER_API_KEY,YT_WEB_PLAYER_API_KEY_FALLBACK]
+    .filter((value,index,array)=>value&&array.indexOf(value)===index);
+
   for(const profile of YT_PLAYER_CLIENTS){
-    const controller=new AbortController();
-    const timer=setTimeout(()=>controller.abort(),2600);
-    try{
-      const client:any={
-        clientName:profile.clientName,
-        clientVersion:profile.clientVersion,
-        hl:"vi",
-        gl:"VN"
-      };
-      if(profile.androidSdkVersion)client.androidSdkVersion=profile.androidSdkVersion;
-      const res=await fetch(
-        "https://www.youtube.com/youtubei/v1/player?key="+
-          encodeURIComponent(YT_WEB_PLAYER_API_KEY),
-        {
-          method:"POST",
-          signal:controller.signal,
-          cache:"no-store",
-          headers:{
-            "content-type":"application/json",
-            "user-agent":profile.userAgent
-          },
-          body:JSON.stringify({context:{client},videoId:id})
-        }
-      );
-      if(!res.ok)continue;
-      const data=await res.json().catch(()=>null);
-      if(!data)continue;
-      const meta=youtubePlayerMetaFromResponse(data);
-      fallback=meta;
-      if(meta.isLive||meta.ended||meta.duration>0)return meta;
-    }catch{
-      // Try the next lightweight player profile.
-    }finally{
-      clearTimeout(timer);
+    for(const apiKey of keys){
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),3200);
+      try{
+        const client:any={
+          clientName:profile.clientName,
+          clientVersion:profile.clientVersion,
+          hl:"vi",
+          gl:"VN"
+        };
+        if(profile.androidSdkVersion)client.androidSdkVersion=profile.androidSdkVersion;
+
+        const clientNumericName=profile.clientName==="ANDROID"?"3":"1";
+        const res=await fetch(
+          "https://youtubei.googleapis.com/youtubei/v1/player?key="+
+            encodeURIComponent(apiKey)+"&prettyPrint=false",
+          {
+            method:"POST",
+            signal:controller.signal,
+            cache:"no-store",
+            headers:{
+              "content-type":"application/json",
+              "accept":"*/*",
+              "user-agent":profile.userAgent,
+              "x-youtube-client-name":clientNumericName,
+              "x-youtube-client-version":profile.clientVersion,
+              "x-origin":"https://www.youtube.com",
+              "origin":"https://www.youtube.com"
+            },
+            body:JSON.stringify({
+              context:{client},
+              videoId:id,
+              contentCheckOk:true,
+              racyCheckOk:true
+            })
+          }
+        );
+        if(!res.ok)continue;
+        const data=await res.json().catch(()=>null);
+        if(!data)continue;
+        const meta=youtubePlayerMetaFromResponse(data);
+        fallback=meta;
+        if(meta.isLive||meta.ended||meta.duration>0)return meta;
+      }catch{
+        // Try the next client/key pair.
+      }finally{
+        clearTimeout(timer);
+      }
     }
   }
   return fallback;
@@ -1711,7 +1730,12 @@ async function verifyCurrentLiveRows(rows:any[],limit=64){
     // on YouTube choosing to HTTP-redirect that URL. InnerTube must say this
     // exact video is live now and must report the same canonical owner.
     if(player?.known!==true||player?.isLive!==true||player?.ended===true)return null;
-    const playerOwner=clean(player?.sourceId||"",180);
+    let playerOwner=clean(player?.sourceId||"",180);
+    let ownerExact:any=null;
+    if(!/^UC[A-Za-z0-9_-]+$/.test(playerOwner)){
+      ownerExact=await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,id);
+      playerOwner=clean(ownerExact?.sourceId||"",180);
+    }
     if(!/^UC[A-Za-z0-9_-]+$/.test(playerOwner)||playerOwner!==sid)return null;
     if(embed?.playable!==true)return null;
 
@@ -1741,7 +1765,7 @@ async function verifyCurrentLiveRows(rows:any[],limit=64){
       !cleanedCandidate||
       compactTitleIdentity(cleanedCandidate)===compactTitleIdentity(sourceName);
     if(titleIsSource||!sourceName||!sourceAvatar){
-      const exact=await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,id);
+      const exact=ownerExact||await youtubeSearchVideoMetadata(supabaseUrl,serviceKey,id);
       const exactOwner=clean(exact?.sourceId||"",180);
       if(exact&&(!exactOwner||exactOwner===sid)){
         if(titleIsSource&&exact?.title)originalTitle=clean(exact.title,300);
@@ -3564,12 +3588,16 @@ Deno.serve(async(req:Request)=>{
 
       if(raw.length===0&&Array.isArray(current?.items)&&current.items.length){
         const previousItems=Array.isArray(current.items)?current.items:[];
-        degradedNotes.push(scope+":empty_candidate_kept_previous");
-        await queuePendingRefresh(rest,authHeaders,[scope]);
+        if(scope!=="live"){
+          degradedNotes.push(scope+":empty_candidate_kept_previous");
+          await queuePendingRefresh(rest,authHeaders,[scope]);
+        }
         results.push({
           scope,
           changed:false,
-          reason:"empty_candidate_kept_previous",
+          reason:scope==="live"
+            ?"live_verify_empty_kept_previous"
+            :"empty_candidate_kept_previous",
           items:previousItems.length
         });
         continue;
