@@ -915,7 +915,13 @@ Deno.serve(async (req) => {
       });
       if (!rpc.ok) return json({ ok: false, error: "write_failed", detail: await rpc.text() }, 502);
       const saved = await rpc.json();
-      triggerPackageRefresh(supabaseUrl, serviceKey, [scope]);
+      // LIVE inherits selected channels from every enabled source. A deliberate
+      // source-management write therefore refreshes its own scope and LIVE.
+      triggerPackageRefresh(
+        supabaseUrl,
+        serviceKey,
+        scope === "live" ? ["live"] : [scope, "live"]
+      );
       return json({ ok: true, source: saved, version });
     }
 
