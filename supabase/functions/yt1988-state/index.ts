@@ -257,8 +257,6 @@ Deno.serve(async (req) => {
         String(hashtagMeta?.updated_at || "")
       ].join("|");
       const libraryToken = [
-        sourceVersion,
-        String(sourceMeta?.updated_at || ""),
         String(directoryMeta?.updated_at || ""),
         String(tiktokMeta?.updated_at || "")
       ].join("|");
@@ -569,8 +567,6 @@ Deno.serve(async (req) => {
         ""
       );
       const libraryToken = [
-        sourceVersion,
-        sourceUpdated,
         directoryUpdated,
         tiktokUpdated
       ].join("|");
